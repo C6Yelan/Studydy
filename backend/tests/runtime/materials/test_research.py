@@ -1,3 +1,4 @@
+from research_fixtures import create_confirmed_research
 from copy import deepcopy
 from uuid import uuid4,UUID
 from concurrent.futures import ThreadPoolExecutor
@@ -28,11 +29,12 @@ def mock_search(monkeypatch):
     monkeypatch.setattr(research_reading,'read_public_document',unavailable)
     payload=pdf('A queue removes the first inserted item first.')
     monkeypatch.setattr(research.research_sources,'acquire',lambda c,**kwargs:(payload,'application/pdf','.pdf',{'id':c['id'],'license':'cc-by'}))
+    return payload
 
 
 def ready(owner,material,dsn,monkeypatch):
     mock_search(monkeypatch)
-    r=research.create(owner,material,'補充佇列','review','research',dsn=dsn)
+    r=create_confirmed_research(owner,material,'補充佇列','research',dsn=dsn)
     identity=r['research_id'];search_to_selection(owner,identity,dsn)
     research.action(owner,identity,'acquire',['paper1'],dsn=dsn)
     assert research.step(dsn=dsn);assert normalize_next(dsn=dsn)
@@ -78,13 +80,14 @@ def test_research_full_append_preserves_voice_and_idempotence(revisions,monkeypa
 def test_cancel_staged_acquisition_blocks_upload_and_replay(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
-    r=research.create(owner,source.material_id,'queue','self-study','r',dsn=dsn)
+    r=create_confirmed_research(owner,source.material_id,'queue','r',dsn=dsn)
     identity=r['research_id'];search_to_selection(owner,identity,dsn)
     research.action(owner,identity,'acquire',['paper1'],dsn=dsn)
-    def acquire(c):
+    original_read=research.research_documents.read
+    def acquire(*args,**kwargs):
         research.action(owner,identity,'cancel',dsn=dsn)
-        return pdf('A queue removes elements in FIFO order.'),'application/pdf','.pdf',{'id':c['id']}
-    monkeypatch.setattr(research.research_sources,'acquire',acquire)
+        return original_read(*args,**kwargs)
+    monkeypatch.setattr(research.research_documents,'read',acquire)
     research.step(dsn=dsn)
     assert research.read(owner,identity,dsn=dsn)['status']=='cancelled'
     with database_session(dsn) as db:assert len(db.scalars(select(MaterialSource)).all())==1
@@ -105,7 +108,7 @@ def test_more_results_preserve_selection_and_reject_unlicensed(closed_loop,monke
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
     monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([candidate()], 'next',[]))
-    identity=research.create(owner,source.material_id,'q','review','r',dsn=dsn)['research_id']
+    identity=create_confirmed_research(owner,source.material_id,'q','r',dsn=dsn)['research_id']
     search_to_selection(owner,identity,dsn)
     research.action(owner,identity,'more',dsn=dsn)
     monkeypatch.setattr(research,'provider',continue_provider)
@@ -119,7 +122,7 @@ def test_more_results_preserve_selection_and_reject_unlicensed(closed_loop,monke
 def test_research_history_is_a_summary_and_reads_share_material_lock(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
-    identity=research.create(owner,source.material_id,'queue','review','r',dsn=dsn)['research_id']
+    identity=create_confirmed_research(owner,source.material_id,'queue','r',dsn=dsn)['research_id']
     search_to_selection(owner,identity,dsn)
     with database_session(dsn) as db:
         db.scalar(select(Material).where(Material.material_id==source.material_id).with_for_update(read=True))
@@ -140,11 +143,11 @@ def test_research_history_is_a_summary_and_reads_share_material_lock(closed_loop
 def test_waiting_normalization_does_not_starve_new_search(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
-    first=research.create(owner,source.material_id,'first','review','first',dsn=dsn)['research_id']
+    first=create_confirmed_research(owner,source.material_id,'first','first',dsn=dsn)['research_id']
     with database_session(dsn) as db:db.get(MaterialResearch,first).status='normalizing'
     state=research.claim(dsn=dsn)
     research.save(state,lambda row:None,dsn=dsn)
-    second=research.create(owner,source.material_id,'second','self-study','second',dsn=dsn)['research_id']
+    second=create_confirmed_research(owner,source.material_id,'second','second',dsn=dsn)['research_id']
     assert research.claim(dsn=dsn)['research_id']==second
 
 
@@ -171,7 +174,7 @@ def test_new_research_reuses_identical_unpublished_source(closed_loop,monkeypatc
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     first=ready(owner,source.material_id,dsn,monkeypatch)
     source_id=research.read(owner,first,dsn=dsn)['candidates'][0]['source_id']
-    second=research.create(owner,source.material_id,'再找同一份補充','self-study','second',dsn=dsn)['research_id']
+    second=create_confirmed_research(owner,source.material_id,'再找同一份補充','second',dsn=dsn)['research_id']
     search_to_selection(owner,second,dsn);research.action(owner,second,'acquire',['paper1'],dsn=dsn)
     for _ in range(3):research.step(dsn=dsn)
     result=research.read(owner,second,dsn=dsn)
@@ -182,7 +185,7 @@ def test_new_research_reuses_identical_unpublished_source(closed_loop,monkeypatc
 def test_deleted_research_cannot_publish_late_results_or_replay_creation(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
-    identity=research.create(owner,source.material_id,'queue','review','delete-search',dsn=dsn)['research_id']
+    identity=create_confirmed_research(owner,source.material_id,'queue','delete-search',dsn=dsn)['research_id']
     state=research.claim(dsn=dsn)
     with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):
         research.delete(uuid4(),identity,dsn=dsn)
@@ -193,7 +196,7 @@ def test_deleted_research_cannot_publish_late_results_or_replay_creation(closed_
     assert research.listing(owner,source.material_id,dsn=dsn)['researches']==[]
     with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):research.read(owner,identity,dsn=dsn)
     with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):research.action(owner,identity,'retry',dsn=dsn)
-    with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):research.create(owner,source.material_id,'queue','review','delete-search',dsn=dsn)
+    with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):create_confirmed_research(owner,source.material_id,'queue','delete-search',dsn=dsn)
 
 
 def test_deleted_research_keeps_source_files_and_research_origin(revisions,monkeypatch):
@@ -216,7 +219,7 @@ def test_cross_provider_more_deduplicates_without_replacing_candidate_or_exposin
     first=candidate();first.update(doi='https://doi.org/10.1234/paper',discovered_by=['OpenAlex'],download_locations=[{'download_url':'https://example.org/a.pdf','license':'cc-by','version':'publishedVersion','url':'https://example.org/article','license_url':None}])
     monkeypatch.setattr(research,'provider',review_provider)
     monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([first],'more',[]))
-    work=research.create(owner,source.material_id,'queue','review','cross-provider',dsn=dsn)
+    work=create_confirmed_research(owner,source.material_id,'queue','cross-provider',dsn=dsn)
     search_to_selection(owner,work['research_id'],dsn)
     other=deepcopy(first);other.update(id='crossref-other-id',doi='10.1234/PAPER',discovered_by=['Crossref'])
     research.action(owner,work['research_id'],'more',dsn=dsn)
@@ -245,7 +248,7 @@ def test_web_source_uses_existing_normalization_and_records_acquisition(revision
           'page_identity':doc['page_identity'],'version':'取得時的網頁版本'}
     monkeypatch.setattr(research,'provider',review_provider)
     monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([item],None,[]))
-    identity=research.create(owner,material,'網頁補充','review','web-research',dsn=dsn)['research_id']
+    identity=create_confirmed_research(owner,material,'網頁補充','web-research',dsn=dsn)['research_id']
     search_to_selection(owner,identity,dsn)
     research.action(owner,identity,'acquire',['web-source'],dsn=dsn)
     assert research.step(dsn=dsn)
@@ -268,7 +271,7 @@ def test_background_checkpoint_survives_cancel_and_retry_without_repeating_finis
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch);calls=[]
     monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:(calls.append(a) or [candidate()],None,[]))
-    identity=research.create(owner,source.material_id,'queue','review','resume-background',dsn=dsn)['research_id']
+    identity=create_confirmed_research(owner,source.material_id,'queue','resume-background',dsn=dsn)['research_id']
     assert research.read(owner,identity,dsn=dsn)['progress']['stage']=='planning'
     research.step(dsn=dsn);research.step(dsn=dsn)
     assert len(calls)==1
@@ -287,7 +290,7 @@ def test_background_checkpoint_survives_cancel_and_retry_without_repeating_finis
 def test_cancel_while_reading_does_not_publish_late_body(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
-    identity=research.create(owner,source.material_id,'queue','review','cancel-reading',dsn=dsn)['research_id']
+    identity=create_confirmed_research(owner,source.material_id,'queue','cancel-reading',dsn=dsn)['research_id']
     for _ in range(10):
         if research.read(owner,identity,dsn=dsn)['progress']['stage']=='reading':break
         assert research.step(dsn=dsn)
@@ -304,7 +307,7 @@ def test_cancel_while_reading_does_not_publish_late_body(closed_loop,monkeypatch
 def test_background_source_text_is_lossless_and_summary_does_not_expose_it(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
-    identity=research.create(owner,source.material_id,'queue','review','nul-reading',dsn=dsn)['research_id']
+    identity=create_confirmed_research(owner,source.material_id,'queue','nul-reading',dsn=dsn)['research_id']
     with database_session(dsn) as db:
         row=db.get(MaterialResearch,identity)
         row.candidates=[{**candidate(),'_reading_text':'literal\x00source','_read_offset':0,'access':{'status':'read','characters':14}}]
@@ -318,7 +321,7 @@ def test_plan_uses_current_material_concepts_without_sending_evidence_or_answers
     mock_search(monkeypatch);payloads=[]
     def provider(path,body):payloads.append(body['request']);return review_provider(path,body)
     monkeypatch.setattr(research,'provider',provider)
-    research.create(owner,source.material_id,'補充 Stack 原理','review','existing-context',dsn=dsn)
+    create_confirmed_research(owner,source.material_id,'補充 Stack 原理','existing-context',dsn=dsn)
     research.step(dsn=dsn)
     with database_session(dsn) as db:revision=db.get(Material,source.material_id).head_revision
     stored=read_knowledge_structure(owner,source.material_id,revision=revision,dsn=dsn).document
@@ -331,7 +334,7 @@ def test_summary_migration_preserves_cancelled_work_and_lossless_source_text(clo
     from sqlalchemy import text
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
-    identity=research.create(owner,source.material_id,'queue','review','summary-migration',dsn=dsn)['research_id']
+    identity=create_confirmed_research(owner,source.material_id,'queue','summary-migration',dsn=dsn)['research_id']
     finished={**candidate('finished'),'review':{'phase':'body','relevance':'direct','reason':'saved body','topics':[0],'quotes':[{'topic':0,'quote':'FIFO'}]}}
     partial={**candidate('partial'),'_reading_text':'literal\x00source','_read_offset':3,'_review_chunks':[{'reason':'saved partial','quotes':[]}]}
     with database_session(dsn) as db:
@@ -351,7 +354,7 @@ def test_summary_migration_preserves_cancelled_work_and_lossless_source_text(clo
 def test_finish_keeps_verified_sources_and_rejects_late_worker(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
-    identity=research.create(owner,source.material_id,'queue','review','finish-sources',dsn=dsn)['research_id']
+    identity=create_confirmed_research(owner,source.material_id,'queue','finish-sources',dsn=dsn)['research_id']
     with pytest.raises(SourceError,match='SOURCE_NOT_READY'):
         research.action(owner,identity,'finish',dsn=dsn)
     search_to_selection(owner,identity,dsn)
@@ -367,3 +370,98 @@ def test_finish_keeps_verified_sources_and_rejects_late_worker(closed_loop,monke
     restored=research.action(owner,identity,'finish',dsn=dsn)
     assert restored['status']=='selecting'
     assert research.action(owner,identity,'acquire',['paper1'],dsn=dsn)['status']=='acquiring'
+
+
+def test_research_snapshot_survives_restart_and_upstream_changes(closed_loop,monkeypatch):
+    from runtime.storage.tables import ResearchDocument,dispose_database_engine
+    from runtime.storage.source_artifacts import open_verified_artifact
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    original=mock_search(monkeypatch)
+    work=create_confirmed_research(owner,source.material_id,'queue','snapshot-restart',dsn=dsn)
+    identity=work['research_id'];view=search_to_selection(owner,identity,dsn)
+    assert '_document_snapshot' not in view['candidates'][0] and '_acquired_document' not in view['candidates'][0]
+    with database_session(dsn) as db:
+        row=db.get(MaterialResearch,identity);receipt=row.candidates[0]['_document_snapshot']
+        assert db.get(ResearchDocument,(identity,bytes.fromhex(receipt['sha256']))) is not None
+    research.research_sources._PUBLIC_CACHE.clear();dispose_database_engine(dsn)
+    def changed(*args,**kwargs):raise AssertionError('A verified snapshot must not be downloaded again')
+    monkeypatch.setattr(research.research_sources,'acquire',changed)
+    research.action(owner,identity,'acquire',['paper1'],dsn=dsn)
+    assert research.step(dsn=dsn)
+    with database_session(dsn) as db:
+        row=db.get(MaterialResearch,identity);candidate=row.candidates[0]
+        assert candidate['state']=='normalizing'
+        artifact=db.get(MaterialSource,UUID(candidate['source_id'])).original_artifact_id
+    with open_verified_artifact(owner,artifact,dsn=dsn) as stored:
+        assert stored.file.read()==original
+    research.delete(owner,identity,dsn=dsn)
+    with database_session(dsn) as db:assert db.get(ResearchDocument,(identity,bytes.fromhex(receipt['sha256']))) is None
+    with open_verified_artifact(owner,artifact,dsn=dsn) as stored:
+        assert stored.file.read()==original
+
+
+def test_snapshot_scope_and_integrity_are_checked_before_use(closed_loop,monkeypatch):
+    from runtime.storage.tables import ResearchDocument
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    original=mock_search(monkeypatch)
+    identity=create_confirmed_research(owner,source.material_id,'queue','snapshot-integrity',dsn=dsn)['research_id']
+    search_to_selection(owner,identity,dsn)
+    with database_session(dsn) as db:receipt=deepcopy(db.get(MaterialResearch,identity).candidates[0]['_document_snapshot'])
+    with pytest.raises(SourceError,match='RESEARCH_SNAPSHOT_UNAVAILABLE'):
+        research.research_documents.read(uuid4(),receipt,receipt['sha256'],dsn=dsn)
+    with pytest.raises(SourceError,match='RESEARCH_SNAPSHOT_UNAVAILABLE'):
+        research.research_documents.read(identity,receipt,'0'*64,dsn=dsn)
+    with database_session(dsn) as db:
+        row=db.get(ResearchDocument,(identity,bytes.fromhex(receipt['sha256'])))
+        row.content=original[:-1]+bytes([original[-1]^1])
+    with pytest.raises(SourceError,match='RESEARCH_SNAPSHOT_UNAVAILABLE'):
+        research.research_documents.read(identity,receipt,receipt['sha256'],dsn=dsn)
+
+
+def test_html_paper_snapshot_survives_restart_and_normalizes_selected_passages(closed_loop,monkeypatch):
+    from hashlib import sha256
+    from runtime.storage.tables import ResearchDocument,SourceNormalization,dispose_database_engine
+    from runtime.storage.source_artifacts import open_verified_artifact
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    mock_search(monkeypatch)
+    prefix='Synthetic queue\nSource: https://example.org/paper1\n\n'
+    payload=(prefix+'A queue removes the first inserted item first.').encode()
+    metadata={'id':'paper1','license':'cc-by','format':'html','access_method':'html','body_offset':len(prefix),
+        'original_sha256':sha256(b'<html>The original source page</html>').hexdigest()}
+    monkeypatch.setattr(research.research_sources,'acquire',lambda *a,**k:(payload,'text/plain','.txt',metadata))
+    identity=create_confirmed_research(owner,source.material_id,'queue','html-snapshot',dsn=dsn)['research_id']
+    view=search_to_selection(owner,identity,dsn)
+    assert view['candidates'][0]['eligible']
+    with database_session(dsn) as db:receipt=db.get(MaterialResearch,identity).candidates[0]['_document_snapshot']
+    dispose_database_engine(dsn)
+    data,media,suffix,saved=research.research_documents.read(identity,receipt,receipt['sha256'],dsn=dsn)
+    assert data==payload and media=='text/plain' and suffix=='.txt'
+    assert saved['original_sha256']==metadata['original_sha256']!=receipt['sha256']
+    def forbidden(*a,**k):raise AssertionError('Do not fetch a different HTML page after review')
+    monkeypatch.setattr(research.research_sources,'acquire',forbidden)
+    research.action(owner,identity,'acquire',['paper1'],dsn=dsn);assert research.step(dsn=dsn)
+    assert normalize_next(dsn=dsn)
+    with database_session(dsn) as db:
+        item=db.get(MaterialResearch,identity).candidates[0]
+        original=db.get(MaterialSource,UUID(item['source_id']))
+        job=db.scalar(select(SourceNormalization).where(SourceNormalization.source_id==original.source_id))
+        assert job.status=='ready' and job.analysis_scope['pages']
+        artifact=original.original_artifact_id
+    with open_verified_artifact(owner,artifact,dsn=dsn) as stored:assert stored.file.read()==payload
+
+
+def test_cancel_before_reading_checkpoint_does_not_save_a_snapshot(closed_loop,monkeypatch):
+    from runtime.storage.tables import ResearchDocument
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    payload=mock_search(monkeypatch)
+    identity=create_confirmed_research(owner,source.material_id,'queue','snapshot-cancel',dsn=dsn)['research_id']
+    for _ in range(10):
+        if research.read(owner,identity,dsn=dsn)['progress']['stage']=='reading':break
+        research.step(dsn=dsn)
+    def cancelled(candidate,**kwargs):
+        research.action(owner,identity,'cancel',dsn=dsn)
+        return payload,'application/pdf','.pdf',{'id':candidate['id'],'license':'cc-by'}
+    monkeypatch.setattr(research.research_sources,'acquire',cancelled)
+    research.step(dsn=dsn)
+    assert research.read(owner,identity,dsn=dsn)['status']=='cancelled'
+    with database_session(dsn) as db:assert db.scalar(select(ResearchDocument).where(ResearchDocument.research_id==identity)) is None

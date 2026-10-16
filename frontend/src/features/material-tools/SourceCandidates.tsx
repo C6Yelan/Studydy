@@ -11,6 +11,8 @@ export type Candidate = {
   access?: { status: string; method?: string; attempts: { url: string; outcome: string; error_code?: string; http_status?: number | null; method?: string }[] };
 };
 export const sourceReasons: Record<string, string> = {
+  RESEARCH_SCOPE_REQUIRED: '請先確認要查找的觀念與細節，再開始搜尋。已保存的來源仍可查看。',
+  RESEARCH_SNAPSHOT_UNAVAILABLE: '無法讀取這次研究保留的原文，請重新研究。',
   RESEARCH_PARTIAL_SEARCH: '已保留搜尋結果；部分主題仍缺少正文依據，或有來源未完成。請查看涵蓋情況與各來源說明。',
   RESEARCH_BODY_UNAVAILABLE: '入口只有標題或導覽，尚未取得正文。',
   RESEARCH_AUTH_REQUIRED: '此入口要求登入，未取得正文。',
@@ -34,9 +36,8 @@ const states: Record<string, string> = { normalizing: '轉換中', ready: '已�
 
 const PAGE_SIZE = 10;
 
-export function SourceCandidates({ candidates, selected, disabled, onChange, readOnly = false, search, inlineSearch = false, showAcquisitionDetails = true, compact = false, hasMore = false, loading = false, onMore }: {
+export function SourceCandidates({ candidates, selected, disabled, onChange, readOnly = false, search, inlineSearch = false, showAcquisitionDetails = true, compact = false }: {
   candidates: Candidate[]; selected: string[]; disabled: boolean; compact?: boolean;
-  hasMore?: boolean; loading?: boolean; onMore?: () => Promise<void>;
   onChange: (ids: string[]) => void; readOnly?: boolean; inlineSearch?: boolean; showAcquisitionDetails?: boolean; search?: { value: string; onChange: (value: string) => void };
 }) {
   const [localQuery, setLocalQuery] = useState('');
@@ -45,8 +46,6 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
   const [kind, setKind] = useState('all');
   const [onlySelected, setOnlySelected] = useState(false);
   const [page, setPage] = useState(1);
-  const [pendingPage, setPendingPage] = useState<number | null>(null);
-  const [pageNotice, setPageNotice] = useState('');
   const list = useRef<HTMLDivElement>(null);
   const selectAll = useRef<HTMLInputElement>(null);
   const eligible = candidates.filter(candidate => candidate.eligible);
@@ -62,23 +61,9 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
   const pageItems = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const pageNumbers = Array.from({ length: pageCount }, (_, i) => i + 1)
     .filter(number => number === 1 || number === pageCount || Math.abs(number - currentPage) <= 1);
-  useEffect(() => { setPage(1); setPendingPage(null); setPageNotice(''); }, [query, kind, onlySelected, readOnly]);
+  useEffect(() => { setPage(1); }, [query, kind, onlySelected, readOnly]);
   useEffect(() => { if (page > pageCount) setPage(current => Math.min(current, pageCount)); }, [page, pageCount]);
   useEffect(() => { list.current?.scrollTo({ top: 0 }); }, [currentPage, query, kind, onlySelected]);
-  useEffect(() => {
-    if (pendingPage === null || loading) return;
-    if (pageCount >= pendingPage) setPage(pendingPage);
-    else setPageNotice('這次搜尋未增加新的一頁；新增來源若不足一頁，會顯示在目前最後一頁。');
-    setPendingPage(null);
-  }, [pendingPage, loading, pageCount]);
-  const next = async () => {
-    setPageNotice('');
-    if (currentPage < pageCount) { setPage(currentPage + 1); return; }
-    if (!hasMore || !onMore || loading || pendingPage !== null) return;
-    const target = currentPage + 1;
-    await onMore();
-    setPendingPage(target);
-  };
   return <div className={`source-picker${readOnly ? ' is-readonly' : ''}${compact ? ' is-compact' : ''}`}>
     {(!readOnly || inlineSearch) && <>
       <div className={`source-picker-filters${search && !inlineSearch ? " is-external-search" : ""}`}>
@@ -122,20 +107,19 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
           </div></details>}
         </div>
       </article>; })}
-      {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">{candidates.some(c => c.review) ? '目前沒有可直接匯入的來源，可查看參考連結或依缺口繼續研究。' : '目前沒有可加入的來源，可搜尋下一頁或調整主題後重新搜尋。'}</p>}
+      {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前沒有可直接匯入的來源，可查看參考連結或依缺口繼續研究。</p>}
       {!visible.length && available.length > 0 && <p className="source-picker-empty">{onlySelected ? '目前沒有符合篩選的已選來源。' : '沒有符合篩選的來源。'}<button className="text-button" onClick={() => { setQuery(''); setKind('all'); setOnlySelected(false); }}>清除篩選</button></p>}
     </div>
-    {(visible.length > 0 || hasMore || loading) && <nav className="source-pagination" aria-label="來源分頁">
-      <p role="status">第 {currentPage} / {pageCount} 頁 · {visible.length ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, visible.length)}` : '0'} / 已載入 {visible.length} 份{hasMore ? ' · 尚有來源可搜尋' : ''}</p>
+    {visible.length > 0 && <nav className="source-pagination" aria-label="來源分頁">
+      <p role="status">第 {currentPage} / {pageCount} 頁 · {visible.length ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, visible.length)}` : '0'} / 已載入 {visible.length} 份</p>
       <div className="source-page-buttons">
-        <button type="button" className="text-button" disabled={currentPage === 1 || loading} onClick={() => { setPage(currentPage - 1); setPageNotice(''); }}>上一頁</button>
+        <button type="button" className="text-button" disabled={currentPage === 1} onClick={() => { setPage(currentPage - 1); }}>上一頁</button>
         {pageNumbers.map((number, i) => <span key={number} className="source-page-number">
           {i > 0 && number - pageNumbers[i - 1] > 1 && <span aria-hidden="true">…</span>}
-          <button type="button" className="text-button" aria-label={`第 ${number} 頁`} aria-current={number === currentPage ? 'page' : undefined} disabled={loading} onClick={() => { setPage(number); setPageNotice(''); }}>{number}</button>
+          <button type="button" className="text-button" aria-label={`第 ${number} 頁`} aria-current={number === currentPage ? 'page' : undefined} onClick={() => { setPage(number); }}>{number}</button>
         </span>)}
-        <button type="button" className="text-button" disabled={loading || pendingPage !== null || currentPage === pageCount && (!hasMore || !onMore || disabled)} onClick={() => void next()}>{loading ? '搜尋中…' : currentPage === pageCount && hasMore ? '下一頁（繼續搜尋）' : '下一頁'}</button>
+        <button type="button" className="text-button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>下一頁</button>
       </div>
     </nav>}
-    {pageNotice && <p className="source-page-notice" role="status">{pageNotice}</p>}
   </div>;
 }

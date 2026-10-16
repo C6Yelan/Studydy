@@ -4,15 +4,16 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID,uuid4
 import re
 from sqlalchemy import and_,or_,select,func,case
+from sqlalchemy.orm import object_session
 from . import research_sources
 from .card_sets import _material
 from .source_normalization import SourceError,upload_source
 from .source_revisions import create_revision
-from .storage.artifacts import _key_digest
 from .storage.tables import Material,MaterialResearch as Research,SourceNormalization,MaterialProcessingRun,TopicScope,database_session
 from .voice import provider
 from .generation_jobs import cancellable_job
 from . import research_workflow
+from . import research_documents
 
 ACTIVE=('searching','acquiring','normalizing')
 
@@ -56,6 +57,7 @@ def _view(row):
         item.pop('page_identity',None)
         item.pop('web_document',None)
         item.pop('_reading_text',None)
+        item.pop('_document_snapshot',None);item.pop('_acquired_document',None)
         item.pop('_review_chunks',None)
         item.pop('_prior_review',None)
         item.pop('_read_offset',None)
@@ -68,24 +70,6 @@ def _view(row):
         if row.search_state and item.get('review',{}).get('phase')!='body':item['eligible']=False
     value['progress']=research_workflow.progress(row.search_state,row.candidates)
     return value
-
-
-def create(owner,material_id,query,mode,key,*,dsn=None):
-    if not query.strip() or len(query)>1000 or mode not in ('review','self-study'):raise SourceError('REQUEST_INVALID')
-    with database_session(dsn) as db:
-        material=_material(db,owner,material_id)
-        digest=_key_digest(key)
-        old=db.scalar(select(Research).where(Research.material_id==material_id,Research.idempotency_key_sha256==digest))
-        if old:
-            if old.deleted_at is not None:raise SourceError('RESOURCE_NOT_FOUND')
-            if old.query!=query.strip() or old.mode!=mode:raise SourceError('IDEMPOTENCY_CONFLICT')
-            return _view(old)
-        if not material.head_revision:raise SourceError('SOURCE_NOT_READY')
-        from .retrieval import _scope
-        _scope(db, owner, material_id, material.head_revision)
-        row=Research(research_id=uuid4(),learner_id=owner,material_id=material_id,base_revision=material.head_revision,
-            query=query.strip(),mode=mode,status='searching',candidates=[],selection=[],search_state=research_workflow.new_state(),idempotency_key_sha256=digest,created_at=datetime.now(UTC))
-        db.add(row);db.flush();return _view(row)
 
 
 def listing(owner,material_id,*,dsn=None):
@@ -106,6 +90,7 @@ def read(owner,identity,*,dsn=None,allow_deleted=False):
     with database_session(dsn) as db:
         row,material=_owned(db,owner,identity,read=True,allow_deleted=allow_deleted)
         value=_view(row);value['is_current_revision']=row.base_revision==material.head_revision if material else None
+        value['approved_scope']=deepcopy(db.get(TopicScope,row.topic_id).proposal) if row.topic_id and row.search_state.get('schema')=='material-research/v3' else None
         if row.deleted_at is not None:value['deleted']=True
         if row.run_id:
             run=db.get(MaterialProcessingRun,row.run_id)
@@ -123,15 +108,16 @@ def delete(owner,identity,*,dsn=None):
             if row.status!='submitted':row.status='cancelled'
             # 舊 worker 不得再發布；候選與 canonical source_id 留下供來源回查。
             row.lease_token=row.lease_expires_at=None
+            research_documents.discard(db,row.research_id)
         return {'research_id':row.research_id,'status':'deleted'}
 
 
 def action(owner,identity,action,selected=None,*,dsn=None):
     with database_session(dsn) as db:
         row,_=_owned(db,owner,identity)
-        if action!='cancel' and (row.search_state or {}).get('schema')!='material-research/v2':
-            raise SourceError('MATERIAL_FORMAT_UNSUPPORTED')
         if row.topic_id and db.get(TopicScope,row.topic_id).status!='approved':raise SourceError('TOPIC_CONFLICT')
+        if (not row.topic_id or (row.search_state or {}).get('schema')!='material-research/v3') and (action=='more' or action=='retry' and not row.selection):
+            raise SourceError('RESEARCH_SCOPE_REQUIRED')
         if action=='finish':
             if row.status not in ('searching','selecting','cancelled'):raise SourceError('REQUEST_INVALID')
             candidates=deepcopy(row.candidates)
@@ -153,7 +139,7 @@ def action(owner,identity,action,selected=None,*,dsn=None):
             if row.status not in ('selecting','ready','failed'):raise SourceError('REQUEST_INVALID')
             known={c['id']:c for c in row.candidates}
             if not selected or len(set(selected))!=len(selected) or any(i not in known or not known[i]['eligible'] or
-                row.search_state and known[i].get('review',{}).get('phase')!='body' for i in selected):
+                known[i].get('review',{}).get('phase')!='body' for i in selected):
                 raise SourceError('REQUEST_INVALID')
             row.selection=list(selected)
             candidates=deepcopy(row.candidates)
@@ -191,7 +177,9 @@ def action(owner,identity,action,selected=None,*,dsn=None):
 def submit(owner,identity,config,*,dsn=None,attempt_token=None):
     with database_session(dsn) as db:
         row,_=_owned(db,owner,identity)
-        if row.status=='submitted':return _view(row)
+        if row.status=='submitted':
+            research_documents.discard(db,identity)
+            return _view(row)
         if row.status!='ready':raise SourceError('SOURCE_NOT_READY')
         candidates={c['id']:c for c in row.candidates}
         items=[candidates[i] for i in row.selection]
@@ -200,6 +188,7 @@ def submit(owner,identity,config,*,dsn=None,attempt_token=None):
         normalizations=list(dict.fromkeys(UUID(c['normalization_id']) for c in items))
     create_revision(owner,material_id,normalizations,'research:'+str(identity),config,
         base_revision=base_revision,dsn=dsn,research_id=identity,research_token=attempt_token)
+    with database_session(dsn) as db:research_documents.discard(db,identity)
     return read(owner,identity,dsn=dsn)
 
 
@@ -208,7 +197,7 @@ def claim(*,dsn=None):
         now=datetime.now(UTC)
         row=db.scalar(select(Research).outerjoin(Material,Material.material_id==Research.material_id)
             .outerjoin(TopicScope,TopicScope.topic_id==Research.topic_id).where(
-            or_(Research.status.in_(ACTIVE),and_(Research.status=='ready',Research.topic_id.is_not(None))),
+            or_(Research.status.in_(ACTIVE),and_(Research.status=='ready',Research.topic_id.is_not(None),TopicScope.material_id.is_(None))),
             or_(Research.topic_id.is_(None),TopicScope.status=='approved'),
             or_(Research.material_id.is_(None),and_(Material.material_id.is_not(None),Material.discard_requested_at.is_(None))),
             or_(Research.lease_expires_at.is_(None),Research.lease_expires_at<now))
@@ -247,6 +236,7 @@ def step(*,dsn=None,config=None):
     try:
         with cancellable_job(Research, state['research_id'], state['lease_token'], dsn=dsn, statuses=(state['status'],)) as job:
             if state['status']=='searching':
+                if not state['approved_scope']:raise SourceError('RESEARCH_SCOPE_REQUIRED')
                 state['approved_scope']=_search_scope(state['approved_scope'])
                 if state['material_id'] and (state['search_state'] or {}).get('stage','planning')=='planning':
                     from .retrieval import search
@@ -254,8 +244,10 @@ def step(*,dsn=None,config=None):
                         passages=search(db,state['owner'],state['material_id'],state['base_revision'],[state['query']],neighbors=False)
                         # 只送與本次需求相關的概念線索，不列出整份教材的數千概念。
                         state['existing_concepts']=list(dict.fromkeys(hint for p in passages for hint in p['hints']))[:80]
-                result=research_workflow.advance(state,lambda path,body:provider(path,{**job,**body}))
+                result=research_workflow.advance(state,lambda path,body:provider(path,{**job,**body}),
+                    read_document=lambda receipt,digest:research_documents.read(state['research_id'],receipt,digest,dsn=dsn))
                 def progressed(row):
+                    research_documents.persist(object_session(row),row.research_id,result['candidates'])
                     for key,value in result.items():setattr(row,key,value)
                 save(state,progressed,dsn=dsn)
             elif state['status']=='ready':
@@ -271,8 +263,11 @@ def step(*,dsn=None,config=None):
                     if state['staged_content'] and metadata and metadata['id']==candidate['id']:
                         data=state['staged_content'];media=metadata['media'];suffix=metadata['suffix']
                     else:
-                        data,media,suffix,metadata=research_sources.acquire(candidate)
-                        metadata.update(id=candidate['id'],media=media,suffix=suffix,acquired_at=datetime.now(UTC).isoformat())
+                        if candidate.get('_document_snapshot'):
+                            data,media,suffix,metadata=research_documents.read(state['research_id'],candidate['_document_snapshot'],candidate.get('inspection_sha256'),dsn=dsn)
+                        else:data,media,suffix,metadata=research_sources.acquire(candidate)
+                        metadata.update(id=candidate['id'],media=media,suffix=suffix,
+                            acquired_at=metadata.get('acquired_at') or datetime.now(UTC).isoformat())
                         def stage(row):row.staged_content=data;row.staged_metadata=metadata
                         if not save(state,stage,dsn=dsn,release=False):return True
                     name='補充｜'+re.sub(r'[\x00-\x1f/\\]',' ',candidate['title'])[:150]+suffix

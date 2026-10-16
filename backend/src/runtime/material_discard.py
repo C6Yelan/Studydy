@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 
 from .material_processing import _request_cancellation_locked
 from .storage.analysis_archive import remove_material_analysis
@@ -127,9 +127,9 @@ def purge_discarded_material(learner_id: UUID, material_id: UUID, *, dsn: str | 
                 StudySession.learner_id == learner_id,
                 StudySession.material_id == material_id,
             ))
-            session.execute(update(TopicScope).where(TopicScope.research_id.in_(
+            session.execute(update(TopicScope).where(or_(TopicScope.material_id==material_id,TopicScope.research_id.in_(
                 select(MaterialResearch.research_id).where(MaterialResearch.material_id == material_id)
-            )).values(status='cancelled', lease_token=None, lease_expires_at=None))
+            ))).values(status='cancelled', material_id=None, base_revision=None, lease_token=None, lease_expires_at=None))
             session.execute(delete(MaterialResearch).where(MaterialResearch.material_id == material_id))
             session.execute(delete(VoiceConversation).where(VoiceConversation.material_id == material_id))
             session.execute(delete(Podcast).where(

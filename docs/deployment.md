@@ -193,3 +193,17 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 舊完整教材／resume API 暫時保留給部署前已開啟的頁面；新版使用 outline、concepts、map-progress 與 workspace 讀取。API 仍為 `private, no-store`，每次核對 owner、發布版本、runtime／來源綁定與投影雜湊。瀏覽器記憶體快取隨帳號 client 清除，不存入 localStorage。
 
 0027 套用後不可直接重啟不認識該 migration 的舊 backend；採相容新 schema 的前向修正，不自動還原 DB。前端可單獨退回先前映像，其完整 API 仍可使用。
+
+## 需求確認與研究原檔（0028／0029）
+
+2026-10-16 於既有正式環境套用：0028 將補充規劃綁定教材與 revision；0029 增加本機研究 PDF 快照，保留第一次閱讀的原檔供後續選取。兩者不改寫既有教材、原檔或歷史研究。新版須同時更新前後端；舊直接建立研究入口已移除，新研究一律先確認範圍。
+
+本次以線上映像為基底，只覆寫本任務的 14 個後端 source／migration 檔案及前端靜態 bundle，既有 Podcast renderer 與 Nginx 設定逐位元保留。部署身分是已授權工作樹快照，不冒充乾淨 Git commit。必要測試及模型驗收限制見 [測試文件](testing.md#需求確認與論文語意搜尋2026-10-16)。DB dump、逐檔 hash、實際映像與公開確認流程驗收保存在本機 `data/deployments/research-scope-20261016T140548Z/`。
+
+升級後使用識別 0028／0029 的後端前向修復，不能直接啟動舊 migration 帳本或自動以部署前 DB 覆蓋新資料。快照清理只作用於研究準備表；已匯入教材的 Artifact 仍依既有生命週期管理。
+
+## 論文取得與證據判讀（2026-10-17）
+
+在既有正式環境更新五個研究 runtime 檔案：首次閱讀的公開替代版本、PDF 優先及 HTML 正文補救、文字快照，以及保留有限證據的閱讀／涵蓋規則。沿用 0029 的研究準備表，沒有新增 SQL migration；前端、Podcast renderer 與共用依賴沿用原部署。舊工作續接時重核不同政策的涵蓋快取，原檔與已讀引用保留。
+
+本機 `data/deployments/research-quality-20261016T162315Z/` 保存部署前 DB dump、五個 source 的快照／hash、實際映像、必要模型與原文定位證據，以及公開入口驗收。升級後的文字快照需由支援該格式的後端讀取，故採前向修正，不直接切回只識別 PDF 快照的舊程式或覆蓋產品 DB。驗證結果與尚存缺口見 [測試文件](testing.md)。

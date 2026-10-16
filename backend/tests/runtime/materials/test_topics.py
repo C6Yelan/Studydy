@@ -6,6 +6,7 @@ from sqlalchemy import select,func
 from product_fixtures import closed_loop
 from sources.test_source_revisions import revisions,pdf
 from runtime import topics,research
+from runtime.card_sets import CardSetError
 from research_fixtures import review_provider,search_to_selection
 from runtime.source_normalization import SourceError,normalize_next
 from runtime.material_discard import request_material_discard
@@ -124,10 +125,22 @@ def test_topic_api_requires_identity_origin_and_exact_scope(closed_loop,monkeypa
     assert client.post('/v1/topics',headers=headers,json={'request':'佇列','learner_id':str(learner.learner_id)}).status_code==400
     r=client.post('/v1/topics',headers=headers,json={'request':'佇列'});assert r.status_code==202
     identity=r.json()['topic_id'];topics.step(dsn=dsn)
-    view=client.get('/v1/topics/'+identity).json();assert view['generation_provider']=='codex-exec:gpt-5.6-luna;scope/v2'
+    assert client.post('/v1/materials/'+str(closed_loop[1].material_id)+'/research',headers=headers,json={'query':'bypass','mode':'review'}).status_code==405
+    view=client.get('/v1/topics/'+identity).json();assert view['generation_provider']=='codex-exec:gpt-5.6-luna;scope/v3'
     r=client.post('/v1/topics/'+identity+'/approve',headers=headers,json={'expected_version':view['version'],'proposal':PLAN})
     assert r.status_code==200 and r.json()['approved_at']
     assert client.get('/v1/topics/'+identity).headers['cache-control']=='private, no-store'
+    # 已保存的舊研究可讀取，但不能跳過新確認流程再啟動搜尋。
+    from uuid import UUID
+    with database_session(dsn) as db:
+        work=db.get(MaterialResearch,UUID(r.json()['research_id']))
+        material=db.get(Material,closed_loop[1].material_id)
+        work.material_id=material.material_id;work.base_revision=material.head_revision
+        work.topic_id=None;work.status='selecting'
+        research_id=str(work.research_id)
+    rejected=client.post('/v1/research/'+research_id+'/actions',headers=headers,json={'action':'more'})
+    assert rejected.status_code==409 and rejected.json()['reason_code']=='RESEARCH_SCOPE_REQUIRED'
+
 
 
 @pytest.mark.parametrize('level,expected_hint',[
@@ -155,3 +168,54 @@ def test_confirmed_level_controls_search_prompt_without_changing_saved_scope(clo
     assert calls[0][0]=='queue tutorial'
     assert topics.read(owner,view['topic_id'],dsn=dsn)['proposal']==edited
     assert topics.approve(owner,view['topic_id'],view['version'],edited,'level-approve',dsn=dsn)['research_id']==approved['research_id']
+
+
+def test_supplement_uses_confirmed_scope_and_never_searches_before_approval(closed_loop,monkeypatch):
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    calls=fixtures(monkeypatch)
+    scope=topics.create(owner,'補充佇列的停止條件','supplement-scope',material_id=source.material_id,dsn=dsn)
+    assert scope['material_id']==source.material_id and scope['base_revision']
+    assert not research.step(dsn=dsn) and not calls
+    assert topics.step(dsn=dsn)
+    view=topics.read(owner,scope['topic_id'],dsn=dsn)
+    assert view['status']=='ready' and view['research_id'] is None
+    assert not research.step(dsn=dsn) and not calls
+    assert topics.listing(owner,dsn=dsn)['topics']==[]
+    assert topics.listing(owner,material_id=source.material_id,dsn=dsn)['topics'][0]['topic_id']==scope['topic_id']
+    edited={**PLAN,'topics':['佇列停止：何時沒有可處理資料','錯誤恢復：重試與終止的條件']}
+    approved=topics.approve(owner,scope['topic_id'],view['version'],edited,'confirm-supplement',dsn=dsn)
+    work=research.read(owner,approved['research_id'],dsn=dsn)
+    assert work['material_id']==source.material_id and work['mode']=='review'
+    assert work['approved_scope']==edited
+    assert research.step(dsn=dsn)
+    progress=research.read(owner,approved['research_id'],dsn=dsn)['progress']
+    assert [t['topic'] for t in progress['topics']]==edited['topics']
+    assert not calls
+    search_to_selection(owner,approved['research_id'],dsn)
+    assert calls
+    with pytest.raises(CardSetError,match='RESOURCE_NOT_FOUND'):
+        topics.create(uuid4(),'foreign material','foreign',material_id=source.material_id,dsn=dsn)
+    with pytest.raises(SourceError,match='TOPIC_CONFLICT'):
+        topics.create_material(owner,scope['topic_id'],['paper'],dsn=dsn)
+
+
+def test_supplement_scope_checks_material_revision_before_search(revisions,monkeypatch):
+    learner,material,_,dsn,add,start,execute,_,old,_=revisions;owner=learner.learner_id
+    fixtures(monkeypatch)
+    scope=topics.create(owner,'補充','revision-scope',material_id=material,dsn=dsn)
+    assert topics.step(dsn=dsn)
+    view=topics.read(owner,scope['topic_id'],dsn=dsn)
+    second=add('new.pdf','A tree contains nodes and edges.')
+    start([second],'new-revision',old['revision']);assert execute().status=='succeeded'
+    with pytest.raises(SourceError,match='REVISION_CONFLICT'):
+        topics.approve(owner,scope['topic_id'],view['version'],PLAN,'stale-approve',dsn=dsn)
+    with database_session(dsn) as db:assert not db.scalars(select(MaterialResearch)).all()
+
+
+def test_discard_cancels_pending_supplement_scope_without_resurrection(closed_loop):
+    learner,source,_,_,dsn,_=closed_loop
+    scope=topics.create(learner.learner_id,'補充尚未確認的內容','pending-discard',material_id=source.material_id,dsn=dsn)
+    assert request_material_discard(learner.learner_id,source.material_id,dsn=dsn)=='removed'
+    saved=topics.read(learner.learner_id,scope['topic_id'],dsn=dsn)
+    assert saved['status']=='cancelled' and saved['material_id'] is None and saved['research_id'] is None
+    assert not topics.step(dsn=dsn) and not research.step(dsn=dsn)

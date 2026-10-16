@@ -16,7 +16,7 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
     topics: [{ topic: 'Agent 執行迴圈', status: 'partial', reason: '缺少完整案例。', source_ids: [] }],
     unavailable_sources: [{ id: 'blocked', title: '未完成的來源', url: 'https://example.org/blocked', access: { status: 'unavailable',
       attempts: [{ url: 'https://example.org/' + 'long-path-'.repeat(30), outcome: 'failed', http_status: 403, error_code: 'RESEARCH_SOURCE_BLOCKED' }] } }] };
-  let work: any = { research_id: researchId, material_id: mode === 'research' ? materialId : null, query: 'Agent 原理', mode: 'review',
+  let work: any = { research_id: researchId, material_id: mode === 'research' ? materialId : null, query: 'Agent 原理', mode: 'review', approved_scope:{title:'Agent',level:'入門',goals:['理解迴圈'],topics:['Agent 執行迴圈'],exclude:[]},
     status: 'searching', candidates: [source('ready'), { ...source('reference', 'related', false), screening: { decision: 'reference', reason: '提供背景概念', basis: 'abstract' }, review: { phase: 'metadata', relevance: 'related', reason: '摘要說明背景概念', topics: [0] } }, source('unrelated', 'unrelated', false), { ...source('duplicate', 'direct', false), duplicate_of: 'ready' }],
     selection: [], cursor: null, error_code: null, run_id: null, is_current_revision: true, progress };
   await page.route(`**/v1/research/${researchId}`, r => json(r, work));
@@ -80,7 +80,7 @@ test('research can finish with verified sources without claiming full coverage',
   const progress = { stage: 'reading', round: 2, completed: 1, total: 3, unit: 'sources', candidate_count: 1,
     read_count: 1, recommended_count: 1, importable_count: 1, summary: '仍缺一個子題', warnings: [], finish_reason: null,
     topics: [{ topic: 'Agent 執行迴圈', status: 'partial', reason: '缺少完整案例。', source_ids: [] }], unavailable_sources: [] };
-  let work: any = { research_id: researchId, material_id: materialId, query: 'Agent 原理', mode: 'review',
+  let work: any = { research_id: researchId, material_id: materialId, query: 'Agent 原理', mode: 'review', approved_scope:{title:'Agent',level:'入門',goals:['理解迴圈'],topics:['Agent 執行迴圈'],exclude:[]},
     status: 'cancelled', candidates: [source('ready')], selection: [], cursor: null, error_code: null, run_id: null,
     is_current_revision: true, progress };
   await page.route(`**/v1/research/${researchId}`, r => json(r, work));

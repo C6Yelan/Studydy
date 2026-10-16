@@ -40,7 +40,9 @@ def _source_active(db, row):
     elif isinstance(row, SourceNormalization):
         material_id = row.material_id
     elif isinstance(row, TopicScope):
-        return row.status == 'pending'
+        if row.status != 'pending':return False
+        material_id=row.material_id
+        if material_id is None:return True
     elif isinstance(row, MaterialResearch):
         if row.deleted_at is not None: return False
         if row.topic_id:

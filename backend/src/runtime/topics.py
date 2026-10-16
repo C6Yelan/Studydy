@@ -5,9 +5,10 @@ from uuid import uuid4
 from sqlalchemy import or_,select
 from pdf_evidence.ocr_page_evidence import canonical_sha256
 from . import research
+from . import research_documents
 from .source_normalization import SourceError,create_draft
 from .storage.artifacts import _key_digest
-from .storage.tables import TopicScope,MaterialResearch,Learner,database_session
+from .storage.tables import TopicScope,MaterialResearch,Learner,Material,database_session
 from .voice import provider
 from .generation_jobs import cancellable_job
 
@@ -18,7 +19,12 @@ SCOPE_SCHEMA={'type':'object','additionalProperties':False,'required':['title','
         **{k:{'type':'array','items':{'type':'string','minLength':1,'maxLength':500},
               'minItems':0 if k=='exclude' else 1} for k in ('goals','topics','exclude')}}}
 SCOPE_PROMPT='''你是繁體中文學習規劃助理。依使用者完整需求提出可修改的學習範圍，未指定程度才預設入門。
-title 是簡短教材名稱，level 是適合程度，goals 是學完能做到的事，topics 是實際用於搜尋的涵蓋主題，exclude 是本次不涵蓋的範圍。
+title 是簡短名稱，level 是適合程度，goals 是學完能做到的事，topics 是使用者要逐項確認的觀念與重點／細節，exclude 是本次不涵蓋的範圍。
+topics 每項用「觀念：要釐清的具體問題或細節」表達，例如要比較的條件、運作機制、步驟或限制；不能只列泛稱，也不能擅自要求完整框架、程式或所有替代方案。
+同一個比較問題的兩個對象與比較細節放在同一項，不再各列定義、機制與比較三份重複主題。必要先備可寫在該項細節中，不另擴成一份課程。
+topics 的數量依實際需求，不用固定數量湊項目；保留待釐清的問題，不預先把研究假說寫成確定結論。
+exclude 只記錄使用者明確排除的範圍，未指定就留空；不能自行排除個案研究、特定地區或研究方法，因為它們可能是解釋一般原理的證據。
+只拆解使用者的要求與理解它必要的先備；不把你推測的延伸議題偷偷加成必需項目。這份清單確認後就是搜尋及正文涵蓋的依據，後續不得另換一份範圍。
 先辨識整份需求中的主要學習方向，再分配 topics；相關細項合併成有意義的主題，不能把前半段過度細分而漏掉後半段。
 每個明確要求的方向與學習目標都必須在 topics 有對應內容，不能只出現在 title 或 goals。輸出前逐項對照完整需求，修正遺漏與不必要的擴張。
 保留使用者要求的深度與限制；要求實際機制或強制執行時，不可降為名詞介紹。exclude 不得排除使用者明確要學的內容。
@@ -43,33 +49,44 @@ def proposal(value):
 
 def _owned(db,owner,identity,lock=False):
     statement=select(TopicScope).where(TopicScope.topic_id==identity,TopicScope.learner_id==owner)
-    row=db.scalar(statement.with_for_update() if lock else statement)
+    row=db.scalar(statement)
     if not row:raise SourceError('RESOURCE_NOT_FOUND')
+    # 與教材刪除一致，先鎖教材再鎖規劃，避免確認與刪除互相等待。
+    if row.material_id:research._material(db,owner,row.material_id,read=not lock)
+    if lock:row=db.scalar(statement.with_for_update().execution_options(populate_existing=True))
     return row
 
 
 def _view(row):
-    return {k:deepcopy(getattr(row,k)) for k in ('topic_id','request','proposal','version','status','research_id','error_code','created_at','generation_provider','approved_at')}
+    return {k:deepcopy(getattr(row,k)) for k in ('topic_id','material_id','base_revision','request','proposal','version','status','research_id','error_code','created_at','generation_provider','approved_at')}
 
 
-def create(owner,request,key,*,dsn=None):
+def create(owner,request,key,*,material_id=None,dsn=None):
     request=_text(request,1000);digest=_key_digest(key)
     with database_session(dsn) as db:
+        material=research._material(db,owner,material_id) if material_id else None
+        if material:
+            if not material.head_revision:raise SourceError('SOURCE_NOT_READY')
+            from .retrieval import _scope
+            _scope(db,owner,material_id,material.head_revision)
         db.scalar(select(Learner).where(Learner.learner_id==owner).with_for_update())
         old=db.scalar(select(TopicScope).where(TopicScope.learner_id==owner,TopicScope.idempotency_key_sha256==digest))
         if old:
-            if old.request!=request:raise SourceError('IDEMPOTENCY_CONFLICT')
+            if old.request!=request or old.material_id!=material_id:raise SourceError('IDEMPOTENCY_CONFLICT')
             return _view(old)
-        row=TopicScope(topic_id=uuid4(),learner_id=owner,request=request,version=1,status='pending',
+        row=TopicScope(topic_id=uuid4(),learner_id=owner,material_id=material_id,
+            base_revision=material.head_revision if material else None,request=request,version=1,status='pending',
             idempotency_key_sha256=digest,created_at=datetime.now(UTC))
         db.add(row);db.flush();return _view(row)
 
 
-def listing(owner,*,dsn=None):
+def listing(owner,*,material_id=None,dsn=None):
     with database_session(dsn) as db:
+        if material_id:research._material(db,owner,material_id,read=True)
         rows=db.execute(select(TopicScope,MaterialResearch).outerjoin(
             MaterialResearch,TopicScope.research_id==MaterialResearch.research_id).where(
-            TopicScope.learner_id==owner,TopicScope.status!='cancelled').order_by(TopicScope.created_at.desc()))
+            TopicScope.learner_id==owner,TopicScope.material_id==material_id,
+            TopicScope.status!='cancelled').order_by(TopicScope.created_at.desc()))
         # 教材尚未建立時，教材庫仍可用這份摘要返回搜尋／選取來源進度。
         return {'topics':[{**_view(row),'research':({'status':work.status,'material_id':work.material_id}
             if work else None)} for row,work in rows]}
@@ -90,9 +107,11 @@ def approve(owner,identity,expected,edited,key,*,dsn=None):
             if row.approved_sha256!=fingerprint or bytes(row.approval_key_sha256)!=digest:raise SourceError('TOPIC_CONFLICT')
             return _view(row)
         if row.status!='ready' or row.version!=expected:raise SourceError('TOPIC_CONFLICT')
+        if row.material_id and db.get(Material,row.material_id).head_revision!=row.base_revision:
+            raise SourceError('REVISION_CONFLICT')
         # 與批准同一交易建立 F2 意圖；批准前完全不存在搜尋工作。
-        work=MaterialResearch(research_id=uuid4(),learner_id=owner,material_id=None,base_revision=None,
-            topic_id=identity,query=row.request,mode='self-study',status='searching',candidates=[],selection=[],search_state=research.research_workflow.new_state(),
+        work=MaterialResearch(research_id=uuid4(),learner_id=owner,material_id=row.material_id,base_revision=row.base_revision,
+            topic_id=identity,query=row.request,mode='review' if row.material_id else 'self-study',status='searching',candidates=[],selection=[],search_state=research.research_workflow.new_state(),
             idempotency_key_sha256=_key_digest('topic:'+str(identity)),created_at=datetime.now(UTC))
         db.add(work);db.flush()
         row.proposal=edited;row.approved_sha256=fingerprint;row.approval_key_sha256=digest;row.approved_at=datetime.now(UTC)
@@ -103,6 +122,7 @@ def approve(owner,identity,expected,edited,key,*,dsn=None):
 def create_material(owner,identity,selected,*,dsn=None):
     with database_session(dsn) as db:
         row=_owned(db,owner,identity,True)
+        if row.material_id:raise SourceError('TOPIC_CONFLICT')
         if row.status!='approved' or not row.research_id:raise SourceError('TOPIC_CONFLICT')
         work=db.get(MaterialResearch,row.research_id)
         if work.material_id:
@@ -111,7 +131,7 @@ def create_material(owner,identity,selected,*,dsn=None):
         if work.status!='selecting':raise SourceError('SOURCE_NOT_READY')
         known={c['id']:c for c in work.candidates}
         if not selected or len(set(selected))!=len(selected) or any(i not in known or not known[i]['eligible'] or
-            work.search_state and known[i].get('review',{}).get('phase')!='body' for i in selected):
+            known[i].get('review',{}).get('phase')!='body' for i in selected):
             raise SourceError('REQUEST_INVALID')
         # 回應遺失也以固定建立 key 接回同一教材，不用假 PDF 或空 KS。
         identity_material=create_draft(owner,row.proposal['title'],'topic:'+str(identity),dsn=dsn)
@@ -128,7 +148,9 @@ def action(owner,identity,action,expected,*,dsn=None):
         elif action=='cancel':
             work=db.get(MaterialResearch,row.research_id) if row.research_id else None
             if work and work.material_id:raise SourceError('TOPIC_CONFLICT')
-            if work:work.status='cancelled';work.lease_token=work.lease_expires_at=None
+            if work:
+                work.status='cancelled';work.lease_token=work.lease_expires_at=None
+                research_documents.discard(db,work.research_id)
             row.status='cancelled'
         else:raise SourceError('REQUEST_INVALID')
         row.version+=1;row.lease_token=row.lease_expires_at=None
@@ -144,11 +166,20 @@ def step(*,dsn=None):
         if not row:return False
         token=uuid4();row.lease_token=token;row.lease_expires_at=now+timedelta(minutes=20)
         identity,request=row.topic_id,row.request
+        material_id,revision,owner=row.material_id,row.base_revision,row.learner_id
     try:
         with cancellable_job(TopicScope, identity, token, dsn=dsn, statuses=('pending',)) as job:
+            context={}
+            if material_id:
+                from .retrieval import search
+                with database_session(dsn) as db:
+                    material=research._material(db,owner,material_id,read=True)
+                    passages=search(db,owner,material_id,revision,[request],neighbors=False)
+                    context={'material_title':material.display_name,
+                        'existing_concepts':list(dict.fromkeys(hint for p in passages for hint in p['hints']))[:80]}
             generated=provider('/semantics',{**job,'task':'topic_scope','prompt':SCOPE_PROMPT,
-                'request':{'request':request},'schema':SCOPE_SCHEMA})
-        result=proposal(generated);producer='codex-exec:gpt-5.6-luna;scope/v2';error=None
+                'request':{'request':request,**context},'schema':SCOPE_SCHEMA})
+        result=proposal(generated);producer='codex-exec:gpt-5.6-luna;scope/v3';error=None
     except Exception:result=None;producer=None;error='TOPIC_PROVIDER_FAILED'
     with database_session(dsn) as db:
         row=db.scalar(select(TopicScope).where(TopicScope.topic_id==identity).with_for_update())

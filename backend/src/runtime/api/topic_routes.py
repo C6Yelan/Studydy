@@ -7,6 +7,7 @@ from .. import topics
 class Create(BaseModel):
     model_config=ConfigDict(extra='forbid')
     request:str=Field(min_length=1,max_length=1000)
+    material_id:UUID|None=None
 class Approve(BaseModel):
     model_config=ConfigDict(extra='forbid')
     expected_version:int=Field(ge=1)
@@ -20,11 +21,11 @@ class Action(BaseModel):
     expected_version:int=Field(ge=1)
 
 def install(app,settings,trusted,key,query):
-    def owner(request):query(request,set());return trusted(request,settings).learner_id
+    def owner(request,allowed=None):query(request,allowed or set());return trusted(request,settings).learner_id
     @app.get('/v1/topics')
-    def listing(request:Request):return topics.listing(owner(request),dsn=settings.dsn)
+    def listing(request:Request,material_id:UUID|None=None):return topics.listing(owner(request,{'material_id'}),material_id=material_id,dsn=settings.dsn)
     @app.post('/v1/topics',status_code=202)
-    def create(request:Request,body:Create):return topics.create(owner(request),body.request,key(request),dsn=settings.dsn)
+    def create(request:Request,body:Create):return topics.create(owner(request),body.request,key(request),material_id=body.material_id,dsn=settings.dsn)
     @app.get('/v1/topics/{identity}')
     def read(request:Request,identity:UUID):return topics.read(owner(request),identity,dsn=settings.dsn)
     @app.post('/v1/topics/{identity}/approve')

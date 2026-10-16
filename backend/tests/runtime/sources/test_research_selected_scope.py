@@ -1,3 +1,4 @@
+from research_fixtures import create_confirmed_research
 from copy import deepcopy
 from uuid import uuid4
 
@@ -53,7 +54,7 @@ def test_research_only_analyzes_relevant_page_and_preserves_original_locator(rev
             result['supports'] = [{'topic': 0, 'passages': [p['index'] for p in body['request']['passages'] if 'queue' in p['text'].lower()]}]
         return result
     monkeypatch.setattr(research, 'provider', provider)
-    work = research.create(learner.learner_id, material, '補充 Queue 原理', 'review', 'selected-research', dsn=dsn)
+    work = create_confirmed_research(learner.learner_id, material, '補充 Queue 原理', 'selected-research', dsn=dsn)
     identity = work['research_id']
     search_to_selection(learner.learner_id, identity, dsn)
     research.action(learner.learner_id, identity, 'acquire', [candidate['id']], dsn=dsn)

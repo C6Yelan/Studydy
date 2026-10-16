@@ -1,3 +1,4 @@
+from research_fixtures import create_confirmed_research
 """慢工作持續續租，取消仍可終止；全部使用隔離 DB 與合成資料。"""
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -23,7 +24,7 @@ def test_live_job_outlasts_initial_lease_without_reclaim_and_remains_cancellable
         model, identity, status, token = TopicScope, state['topic_id'], 'pending', uuid4()
         reclaim = lambda: topics.step(dsn=dsn)
     else:
-        research.create(owner.learner_id, material.material_id, '合成搜尋', 'review', 'slow', dsn=dsn)
+        create_confirmed_research(owner.learner_id, material.material_id, '合成搜尋', 'slow', dsn=dsn)
         state = research.claim(dsn=dsn)
         model, identity, status, token = MaterialResearch, state['research_id'], state['status'], state['lease_token']
         reclaim = lambda: research.claim(dsn=dsn)

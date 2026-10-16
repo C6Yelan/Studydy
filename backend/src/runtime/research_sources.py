@@ -244,6 +244,8 @@ def _license(value):
 
 def _location(url,license,version,landing=None,license_url=None):
     license=_license(license)
+    # 索引可能只有已授權的論文頁，PDF 由該頁正式公布；不能因 pdf_url 為空就丟掉授權與位置。
+    url=url or landing
     if not license or not isinstance(url,str):return None
     if url.startswith('http://'):url='https://'+url[7:]
     if not url.startswith('https://'):return None
@@ -271,7 +273,10 @@ def _json(url,*,headers=None):
 
 def openalex_search(query,cursor):
     key=os.environ.get('STUDYDY_OPENALEX_API_KEY','').strip()
-    response=_json('https://api.openalex.org/works?'+urlencode({'search':query,'per-page':20,'cursor':cursor}),
+    # 語意檢索使用完整研究問題；只找已有開放全文位置的論文，不以標題字面排名。
+    page=int(cursor)
+    response=_json('https://api.openalex.org/works?'+urlencode({'search.semantic':query,'per-page':20,'page':page,
+        'filter':'is_oa:true,has_abstract:true'}),
                    headers={'Authorization':'Bearer '+key} if key else None)
     rows=[]
     for work in response.get('results',[]):
@@ -282,32 +287,9 @@ def openalex_search(query,cursor):
         index=work.get('abstract_inverted_index') or {}
         rows[-1]['description']=' '.join(word for _,word in sorted((position,word) for word,positions in index.items() for position in positions))
         rows[-1]['description_kind']='abstract'
-    return rows,response.get('meta',{}).get('next_cursor')
-
-
-def crossref_search(query,offset):
-    response=_json('https://api.crossref.org/works?'+urlencode({'query':query,'rows':20,'offset':offset,
-        'filter':'has-license:true,has-full-text:true',
-        'select':'DOI,title,author,published,license,link,URL,type,abstract'}))['message']
-    rows=[]
-    for work in response.get('items',[]):
-        # 只採已生效、且與全文版本相同的 CC 授權；TDM 或 similarity-checking 不當作開放全文。
-        locations=[]
-        for link in work.get('link',[]):
-            if link.get('content-type')!='application/pdf' or link.get('intended-application')=='similarity-checking':continue
-            for license in work.get('license',[]):
-                start=license.get('start',{}).get('timestamp')
-                if start is not None and start>time.time()*1000:continue
-                if license.get('content-version')!=link.get('content-version'):continue
-                locations.append(_location(link.get('URL'),license.get('URL'),link.get('content-version'),work.get('URL'),license.get('URL')))
-        parts=work.get('published',{}).get('date-parts',[[]])
-        rows.append(_paper('https://doi.org/'+_doi(work['DOI']),(work.get('title') or ['Untitled'])[0],
-            ', '.join(' '.join(filter(None,[a.get('given'),a.get('family')])) for a in work.get('author',[])[:8]),
-            parts[0][0] if parts and parts[0] else None,work['DOI'],work.get('URL') or 'https://doi.org/'+work['DOI'],locations,'Crossref'))
-        from .research_preview import plain_abstract
-        rows[-1].update(description=plain_abstract(work.get('abstract')),description_kind='abstract')
-    next_offset=offset+len(response.get('items',[]))
-    return rows,next_offset if next_offset<min(response.get('total-results',0),10000) else None
+    # semantic search 最多回傳 50 篇，不能沿普通搜尋 cursor 無限翻頁。
+    count=min(50,response.get('meta',{}).get('count',0))
+    return rows,page+1 if rows and page*20<count else None
 
 
 def semantic_scholar_search(query,offset):
@@ -364,46 +346,25 @@ def merge_candidates(existing,incoming):
                 if field in row:kept[field]=row[field]
             if kept.get('access'):
                 kept.pop('access',None)
-                for field in ('_reading_text','_read_offset','_review_chunks','inspection_sha256','inspection_text_sha256'):kept.pop(field,None)
+                for field in ('_reading_text','_read_offset','_review_chunks','inspection_sha256','inspection_text_sha256','_document_snapshot','_acquired_document'):kept.pop(field,None)
                 if kept.get('review'):kept['review']['phase']='metadata'
     return merged
 
 
-_SEARCH_STOP={'the','and','for','with','about','of','to','a','in','an','how','what','is','are',
-    'introduction','introductory','beginner','beginners','tutorial','advanced','overview','fundamentals','basic','basics',
-    'original','paper','papers','official','documentation'}
-
-
-def _terms(text):
-    words=set(re.findall(r'[a-z0-9]+',text.lower()))-_SEARCH_STOP
-    for part in re.findall(r'[\u3400-\u9fff]+',text):
-        words.update(part[i:i+2] for i in range(max(1,len(part)-1)))
-    return words
-
-
-def rank_candidates(query,rows):
-    # 「原始論文／官方文件」是來源形式，不應壓過 BM25 等具體主題的排名。
-    terms=_terms(query)
-    if not terms:return rows
-    def matches(row):return len(terms&_terms(row['title']))*2+len(terms&_terms(row.get('description','')))
-    # 僅決定閱讀順序；真正相關性由正文審閱判斷，不以授權或詞數冒充品質。
-    return sorted(rows,key=lambda r:-matches(r))
-
-
-def search(query,cursor=None,*,channel='mixed'):
-    if channel not in ('web','papers','mixed'):raise SourceError('REQUEST_INVALID')
+def search(query,cursor=None,*,channel='papers'):
+    if channel not in ('web','papers'):raise SourceError('REQUEST_INVALID')
     if cursor:
         try:state=json.loads(cursor)
         except (ValueError,TypeError):raise SourceError('REQUEST_INVALID') from None
         if not isinstance(state,dict):raise SourceError('REQUEST_INVALID')
     else:
-        state={'openalex':'*','crossref':0} if channel in ('papers','mixed') else {}
-        if channel in ('papers','mixed') and os.environ.get('STUDYDY_SEMANTIC_SCHOLAR_API_KEY'):state['semantic_scholar']=0
+        state={'openalex':1} if channel=='papers' else {}
+        if channel=='papers' and os.environ.get('STUDYDY_SEMANTIC_SCHOLAR_API_KEY'):state['semantic_scholar']=0
     queries=list(dict.fromkeys(line.strip() for line in query.splitlines() if line.strip()))[:3]
     primary=queries[0] if queries else query
     web_enabled=bool(os.environ.get('STUDYDY_SEARXNG_URL','').strip())
-    if not cursor and web_enabled and channel in ('web','mixed'):state['web']=1
-    providers={'openalex':openalex_search,'crossref':crossref_search,'semantic_scholar':semantic_scholar_search}
+    if not cursor and web_enabled and channel=='web':state['web']=1
+    providers={'openalex':openalex_search,'semantic_scholar':semantic_scholar_search}
     rows=[];warnings=[];next_state={};successes=0;failures=[]
     with ThreadPoolExecutor(max_workers=4) as pool:
         jobs={name:pool.submit(providers[name],primary,position) for name,position in state.items() if name in providers}
@@ -442,7 +403,7 @@ def search(query,cursor=None,*,channel='mixed'):
     if not successes:
         future=[failure['retry_at'] for failure in failures if failure.get('retry_at')]
         raise SourceAccessError('RESEARCH_SEARCH_FAILED',retry_at=min(future) if future else None)
-    return rank_candidates(query,merge_candidates([],rows)),json.dumps(next_state,separators=(',',':')) if next_state else None,warnings
+    return merge_candidates([],rows),json.dumps(next_state,separators=(',',':')) if next_state else None,warnings
 
 
 def _unpaywall_locations(candidate):
@@ -497,21 +458,23 @@ def acquire(candidate, *, attempts=None):
     if candidate['kind']=='web' or candidate.get('web_document'):
         from .research_web import acquire_web
         return acquire_web(candidate)
-    if candidate['kind']=='official':return _acquire_location(candidate)
+    if candidate['kind']=='official':return _acquire_location(candidate,attempts=attempts)
     original_version=candidate.get('version','unknown')
     primary=_location(candidate.get('download_url'),candidate.get('license'),original_version,candidate.get('url'),candidate.get('license_url'))
     locations=([primary] if primary else [])+candidate.get('download_locations',[])
     seen=set();last_error=None
     # 嘗試已知的同版本公開位置；不以固定次數阻擋仍可核對的來源。
-    def attempt(options):
+    def attempt(options, *, same_version=True):
         nonlocal last_error
         for location in options:
             url=location.get('download_url')
-            if not url or url in seen or location.get('version')!=original_version:continue
+            if not url or url in seen or (location.get('version')==original_version)!=same_version:continue
             seen.add(url)
             try:
-                data,media,suffix,metadata=_acquire_location({**candidate,**location})
-                if attempts is not None:attempts.append({'url':url,'resolved_url':metadata.get('download_url',url),'outcome':'read','method':'pdf'})
+                data,media,suffix,metadata=_acquire_location({**candidate,**location},attempts=attempts)
+                if attempts is not None:attempts.append({'url':url,'resolved_url':metadata.get('download_url',url),'outcome':'read',
+                    'method':'pdf' if media=='application/pdf' else metadata['access_method'],'version':location.get('version')})
+                if location.get('version')!=original_version:metadata['alternate_version_of']=original_version
                 candidate.update(location)
                 return data,media,suffix,metadata
             except Exception as error:
@@ -525,10 +488,15 @@ def acquire(candidate, *, attempts=None):
     except Exception:extra=[]
     result=attempt(extra)
     if result:return result
+    # 第一次閱讀前可採索引明列的作者稿／其他版本，並記錄實際版本；已讀原檔不能被替換。
+    if (not candidate.get('inspection_sha256') and candidate.get('review',{}).get('phase')!='body'
+            and not candidate.get('arxiv_license_checked') and not candidate.get('source_id')):
+        result=attempt(locations+extra,same_version=False)
+        if result:return result
     raise last_error or SourceError('RESEARCH_DOWNLOAD_FAILED')
 
 
-def _acquire_location(candidate):
+def _acquire_location(candidate, *, attempts=None):
     if not candidate.get('eligible'):raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
     url=candidate['download_url']
     data,final,media=public_page(url,limit=MAX_BYTES)
@@ -536,6 +504,26 @@ def _acquire_location(candidate):
     for key in ('license_snapshot_sha256','license_text'):
         if candidate.get(key):metadata[key]=candidate[key]
     metadata.update(download_url=final,original_sha256=hashlib.sha256(data).hexdigest())
+    if candidate['kind']=='paper' and not data.startswith(b'%PDF-'):
+        from .research_reading import read_public_document
+        document=read_public_document(url,attempts=attempts)
+        if document.get('fulltext_unavailable'):
+            raise SourceError('RESEARCH_BODY_UNAVAILABLE')
+        if document['access_method']!='pdf':
+            if not document.get('paper_body'):raise SourceError('RESEARCH_BODY_UNAVAILABLE')
+            from .research_web import document_artifact
+            normalize=lambda value:''.join(c for c in unicodedata.normalize('NFKC',value).casefold() if c.isalnum())
+            if normalize(candidate['title']) not in normalize(document['title']):raise SourceError('RESEARCH_IDENTITY_UNCONFIRMED')
+            # 此入口與授權來自同篇、同版本 metadata，仍以原頁正文核對身分。
+            if not document.get('license_url'):
+                document.update(license=candidate['license'],license_url=candidate['license_url'],license_snapshot_sha256=None,
+                                license_text='索引記錄的同篇版本授權：'+candidate['license_url'])
+            acquired=document_artifact(document,candidate)
+            if candidate.get('inspection_sha256') and hashlib.sha256(acquired[0]).hexdigest()!=candidate['inspection_sha256']:
+                raise SourceError('RESEARCH_SOURCE_CHANGED')
+            return acquired
+        data=document['content'];final=document['access_url'];media='application/pdf'
+        metadata.update(download_url=final,original_sha256=hashlib.sha256(data).hexdigest())
     if candidate.get('inspection_sha256') and metadata['original_sha256']!=candidate['inspection_sha256']:
         raise SourceError('RESEARCH_SOURCE_CHANGED')
     if candidate['kind']=='official' and urlsplit(url).hostname=='developer.mozilla.org':

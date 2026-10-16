@@ -68,6 +68,8 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   SOURCE_SCOPE_UNRESOLVED: "選讀原文無法定位回來源，尚未加入教材。",
   RESEARCH_CONTEXT_TOO_LARGE: "這次研究的單批內容超過處理容量，已保留完成部分。",
   RESEARCH_SEARCH_FAILED: "搜尋暫時無法完成，請重試。",
+  RESEARCH_SCOPE_REQUIRED: "請先確認要查找的觀念與細節，再開始搜尋。",
+  RESEARCH_SNAPSHOT_UNAVAILABLE: "無法讀取這次研究保留的原文，請重新研究。",
   RESEARCH_DOWNLOAD_FAILED: "來源目前無法下載，其他結果已保留。",
   RESEARCH_LICENSE_UNCONFIRMED: "無法確認這份來源的使用授權。",
   RESEARCH_URL_REJECTED: "這個來源網址無法安全取得。",

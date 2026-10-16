@@ -272,16 +272,24 @@ test('research detail rejects a foreign material and late reads cannot replace a
  release();await page.waitForTimeout(200);await expect(page.getByRole('heading',{name:'晚到的查詢',exact:true})).toHaveCount(0);await expect(page.locator('.research-detail')).toHaveCount(0);
 });
 
-test('creating a research navigates to its detail and empty results return to a prefilled composer',async({page})=>{
- await mockKnowledgeMapApi(page,structureView());let created=false,posts=0;
- const work={research_id:cid,material_id:materialId,query:'新的補充主題',mode:'review',status:'searching',selection:[] as string[],candidates:[],cursor:null,error_code:null,run_id:null,created_at:'2026-10-06T00:00:00Z'};
- await page.route(`**/v1/materials/${materialId}/research`,r=>{if(r.request().method()==='POST'){posts++;expect(r.request().postDataJSON()).toEqual({query:work.query,mode:'review'});expect(r.request().headers()['idempotency-key']).toBeTruthy();created=true;return json(r,work,202);}return json(r,{researches:created?[researchSummary(work)]:[]});});
+test('supplement requires editable scope confirmation before creating research',async({page})=>{
+ await mockKnowledgeMapApi(page,structureView());let searches=0,plans=0;
+ const proposal={title:'停止與求助',level:'有基礎',goals:['了解何時求助'],topics:['信心：如何判斷不確定性','停止：何時結束重試'],exclude:[]};
+ let scope:any={topic_id:tid,material_id:materialId,request:'代理何時停止並詢問人類？',proposal,version:2,status:'ready',research_id:null,error_code:null};
+ const work={research_id:cid,material_id:materialId,query:scope.request,mode:'review',status:'searching',selection:[],candidates:[],cursor:null,error_code:null,run_id:null,created_at:'2026-10-06T00:00:00Z'};
+ await page.route(`**/v1/materials/${materialId}/research`,r=>{expect(r.request().method()).toBe('GET');return json(r,{researches:searches?[researchSummary(work)]:[]});});
+ await page.route('**/v1/topics',r=>{if(r.request().method()==='POST'){plans++;expect(r.request().postDataJSON()).toEqual({request:scope.request,material_id:materialId});expect(r.request().headers()['idempotency-key']).toBeTruthy();return json(r,scope,202);}return json(r,{topics:[]});});
+ await page.route(`**/v1/topics?material_id=${materialId}`,r=>json(r,{topics:plans?[scope]:[]}));
+ await page.route(`**/v1/topics/${tid}`,r=>json(r,scope));
+ await page.route(`**/v1/topics/${tid}/approve`,r=>{searches++;expect(r.request().postDataJSON().proposal.topics[1]).toBe('停止：重試沒有進展時交由人類判斷');scope={...scope,status:'approved',research_id:cid,version:3};return json(r,scope);});
  await page.route(`**/v1/research/${cid}`,r=>json(r,work));
- await page.goto(`/materials/${materialId}/research`);await page.getByLabel('想多了解什麼？',{exact:true}).fill(work.query);await page.getByRole('button',{name:'搜尋補充資料',exact:true}).click();
- await expect(page).toHaveURL(new RegExp(`/research/${cid}$`));await expect(page.locator('.tool-wait')).toBeVisible();await expect(page.locator('.research-compose')).toHaveCount(0);expect(posts).toBe(1);
- await page.getByRole('button',{name:'返回補充學習',exact:true}).click();await expect(page.getByLabel('想多了解什麼？',{exact:true})).toHaveValue('');await expect(page.locator('.research-record')).toHaveCount(1);await expect(page.locator('.tool-wait')).toHaveCount(0);
- work.status='selecting';await page.locator('.research-card-link').click();await expect(page.getByText('沒有找到來源。可以換個主題或英文關鍵字再搜尋。')).toBeVisible();
- await page.getByRole('button',{name:'調整搜尋',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/research$`));await expect(page.getByLabel('想多了解什麼？',{exact:true})).toHaveValue(work.query);expect(posts).toBe(1);
+ await page.goto(`/materials/${materialId}/research`);await page.getByLabel('想多了解什麼？',{exact:true}).fill(scope.request);await page.getByRole('button',{name:'產生搜尋範圍',exact:true}).click();
+ await expect(page).toHaveURL(new RegExp(`/topics/${tid}$`));await expect(page.getByRole('heading',{name:'確認學習範圍',exact:true})).toBeVisible();expect(plans).toBe(1);expect(searches).toBe(0);
+ await page.reload();await expect(page.getByText('停止：何時結束重試',{exact:true})).toBeVisible();expect(searches).toBe(0);
+ await page.getByRole('button',{name:'編輯主題 2',exact:true}).click();await page.getByLabel('主題 2',{exact:true}).fill('停止：重試沒有進展時交由人類判斷');
+ await page.getByRole('button',{name:'確認範圍並搜尋',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/research/${cid}$`));expect(searches).toBe(1);
+ await page.getByRole('button',{name:'返回補充學習',exact:true}).click();await expect(page.locator('.research-card-link')).toHaveCount(1);
+ await expect(page.getByRole('button',{name:'查看搜尋範圍',exact:true})).toHaveCount(0);
 });
 
 test('compact research panels keep desktop actions on screen and scroll only history or sources',async({page},testInfo)=>{
@@ -340,7 +348,7 @@ test('compact research workflow navigates available stages without changing the 
  await expect(page.locator('.source-picker-filters')).not.toContainText('已選 0');
  await expect(page.getByText('可加入',{exact:true})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'取消全選',exact:true})).toHaveCount(0);
- await expect(page.locator('.source-pagination').getByRole('button',{name:'下一頁（繼續搜尋）',exact:true})).toBeVisible();
+ await expect(page.locator('.source-pagination').getByRole('button',{name:'下一頁（繼續搜尋）',exact:true})).toHaveCount(0);await expect(page.locator('.source-pagination').getByRole('button',{name:'下一頁',exact:true})).toBeDisabled();
  await expect(page.locator('.tool-stage-footer').getByRole('button',{name:'下一頁（繼續搜尋）',exact:true})).toHaveCount(0);
  await page.screenshot({path:testInfo.outputPath('research-selection-readable.png')});
  const sidebar=(await nav.boundingBox())!,body=(await page.locator('.research-detail-body').boundingBox())!;
@@ -348,13 +356,13 @@ test('compact research workflow navigates available stages without changing the 
  await page.getByRole('checkbox',{name:'選取 來源 0',exact:true}).check();await page.getByLabel('只看已選',{exact:true}).check();await expect(page.locator('.research-candidates article')).toHaveCount(1);
  await search.click();await expect(search).toHaveAttribute('aria-pressed','true');await expect(page.locator('.research-candidates article')).toHaveCount(4);await expect(page.getByRole('checkbox',{name:/選取 來源/})).toHaveCount(0);expect(actions).toHaveLength(0);
  await page.getByRole('button',{name:'前往選取來源',exact:true}).click();await expect(page.getByRole('checkbox',{name:'選取 來源 0',exact:true})).toBeChecked();await expect(page.locator('.research-candidates article')).toHaveCount(1);await page.getByLabel('只看已選',{exact:true}).uncheck();
- await page.getByLabel('篩選來源',{exact:true}).fill('來源 0');await page.getByRole('button',{name:'下一頁（繼續搜尋）',exact:true}).click();await expect(selection).toHaveAttribute('aria-current','step');await expect(selection).toBeDisabled();expect(actions).toEqual([{action:'more'}]);
- work={...work,status:'selecting',cursor:null,candidates:[...work.candidates,candidate(4),candidate(5)]};await expect(page.locator('.source-pagination')).toContainText('已載入 1 份');await expect(selection).toHaveAttribute('aria-current','step');await expect(page.getByLabel('篩選來源',{exact:true})).toHaveValue('來源 0');
- await page.getByRole('button',{name:'取得選取的 1 份來源',exact:true}).click();await expect(search).toBeDisabled();await expect(add).toBeDisabled();await expect(page.getByRole('button',{name:'停止處理',exact:true})).toBeVisible();expect(actions[1]).toEqual({action:'acquire',selected:['s0']});
+ await page.getByLabel('篩選來源',{exact:true}).fill('來源 0');await expect(page.getByRole('button',{name:'下一頁',exact:true})).toBeDisabled();expect(actions).toHaveLength(0);
+ await expect(page.locator('.source-pagination')).toContainText('已載入 1 份');await expect(selection).toHaveAttribute('aria-current','step');await expect(page.getByLabel('篩選來源',{exact:true})).toHaveValue('來源 0');
+ await page.getByRole('button',{name:'取得選取的 1 份來源',exact:true}).click();await expect(search).toBeDisabled();await expect(add).toBeDisabled();await expect(page.getByRole('button',{name:'停止處理',exact:true})).toBeVisible();expect(actions[0]).toEqual({action:'acquire',selected:['s0']});
  work={...work,status:'ready',candidates:work.candidates.map((c:any)=>c.id==='s0'?{...c,state:'ready'}:c)};
  await expect(page.getByRole('button',{name:'確認加入教材',exact:true})).toBeVisible();await expect(add).toHaveAttribute('aria-current','step');await expect(page.getByLabel('我了解加入後不可逆')).toBeVisible();
  await page.screenshot({path:testInfo.outputPath('research-vertical-workflow.png')});
- await page.getByRole('button',{name:'調整來源',exact:true}).click();await page.getByLabel('篩選來源',{exact:true}).clear();await page.getByRole('checkbox',{name:'選取 來源 1',exact:true}).check();await expect(add).toBeDisabled();expect(actions).toHaveLength(2);
+ await page.getByRole('button',{name:'調整來源',exact:true}).click();await page.getByLabel('篩選來源',{exact:true}).clear();await page.getByRole('checkbox',{name:'選取 來源 1',exact:true}).check();await expect(add).toBeDisabled();expect(actions).toHaveLength(1);
  await page.getByRole('button',{name:'取消調整',exact:true}).click();await expect(page.getByRole('button',{name:'確認加入教材',exact:true})).toBeDisabled();await page.getByLabel('我了解加入後不可逆').check();await page.getByRole('button',{name:'確認加入教材',exact:true}).click();
  await expect(page.getByRole('heading',{name:'正在建立補充教材',exact:true})).toBeVisible();await expect(search).toBeDisabled();await expect(selection).toBeDisabled();await expect(add).toBeDisabled();await expect(nav.locator('li.is-complete')).toHaveCount(2);expect(submits).toBe(1);
  await expect(page.getByRole('button',{name:'調整來源',exact:true})).toHaveCount(0);await expect(page.getByRole('checkbox',{name:/選取 來源/})).toHaveCount(0);
@@ -378,12 +386,12 @@ test('research source comparison has a single toolbar, tri-state select-all and 
  const input=(await toolbar.getByLabel('篩選來源',{exact:true}).boundingBox())!;
  for(const field of [all,only,toolbar.getByLabel('來源類型')]){const box=(await field.boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(input.y);expect(box.y+box.height).toBeLessThanOrEqual(input.y+input.height+1);}
  await toolbar.getByLabel('篩選來源',{exact:true}).fill('來源 0');await all.check();await expect(page.locator('.tool-stage-footer')).toContainText('已選 3 份來源');
- await expect(page.locator('.research-stage-heading')).not.toContainText('已選');await expect(toolbar).not.toContainText('已選 3');
+ await expect(page.locator('.research-stage-heading')).toHaveCount(0);await expect(toolbar).not.toContainText('已選 3');
  await toolbar.getByLabel('篩選來源',{exact:true}).clear();await toolbar.getByLabel('來源類型').selectOption('paper');await only.check();await expect(page.locator('.research-candidates article')).toHaveCount(2);
  await all.uncheck();await expect(page.locator('.tool-stage-footer')).toContainText('已選 0 份來源');await expect(page.locator('.research-candidates article')).toHaveCount(0);
  await only.uncheck();await toolbar.getByLabel('來源類型').selectOption('all');await page.getByRole('checkbox',{name:`選取 ${candidates[0].title}`,exact:true}).check();expect(await all.evaluate((el:HTMLInputElement)=>el.indeterminate)).toBe(true);
  await all.check();expect(await all.evaluate((el:HTMLInputElement)=>el.indeterminate)).toBe(false);await expect(all).toBeChecked();
- for(const [width,columns] of [[1920,3],[1366,2],[390,1]]) {
+ for(const [width,columns] of [[1920,3],[1366,3],[390,1]]) {
   await page.setViewportSize({width,height:900});
   expect(await page.locator('.research-candidates').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(columns);
   const metadata=page.locator('.source-byline').first();expect((await metadata.boundingBox())!.height).toBeLessThan(25);await expect(metadata).toHaveAttribute('title',`官方教學 · ${candidates[0].authors} · 2026`);

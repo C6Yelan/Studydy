@@ -65,7 +65,7 @@
 .topic-inline-editor > button { flex-shrink:0; }
 .topic-scope-items, .topic-goals-summary { list-style:none; margin:10px 0 0; padding:0; }
 .topic-scope-items li { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--border-light); }
-.topic-scope-items li > span, .topic-scope-items li > input { flex:1; min-width:0; overflow-wrap:anywhere; font-size:14px; line-height:1.6; }
+.topic-scope-items li > span, .topic-scope-items li > textarea { flex:1; min-width:0; overflow-wrap:anywhere; font-size:14px; line-height:1.6; }
 .topic-scope-items .text-button { flex-shrink:0; font-size:12px; padding-inline:6px; }
 .topic-goals-summary li { display:flex; align-items:baseline; gap:10px; margin-bottom:12px; font-size:14px; line-height:1.8; overflow-wrap:anywhere; }
 .topic-goals-summary li > span { color:var(--studydy-blue); flex-shrink:0; }
@@ -79,7 +79,7 @@
  .topic-inline-editor > button { margin-left:auto; }
  .topic-scope-grid { gap:20px; }
  .topic-scope-items li { flex-wrap:wrap; }
- .topic-scope-items li > input { flex-basis:100%; }
+ .topic-scope-items li > textarea { flex-basis:100%; }
 }
 
 .topic-analysis { margin:20px 0; }

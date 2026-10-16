@@ -36,17 +36,6 @@ def location(url='https://example.org/a.pdf',version='publishedVersion'):
     return sources._location(url,'cc-by',version)
 
 
-def test_rank_prioritizes_topic_match_but_leaves_rejection_to_body_review():
-    noise={**paper('mdn',None),'kind':'official','title':'WebXR Augmented Reality','eligible':True}
-    good=paper('paper',locations=[location()])
-    assert sources.rank_candidates('retrieval augmented generation',[noise,good])==[good,noise]
-    tcp={**noise,'title':'TCP handshake'}
-    assert sources.rank_candidates('TCP three way handshake',[tcp])==[tcp]
-    generic={**paper('generic'), 'title':'Synopsis: Original scientific paper', 'description':''}
-    bm25={**paper('bm25'), 'title':'BM25 ranking functions', 'description':''}
-    assert sources.rank_candidates('BM25 ranking original paper',[generic,bm25])==[bm25,generic]
-
-
 def test_doi_merge_preserves_selection_id_and_collects_versioned_locations():
     old=paper('old','https://doi.org/10.1234/EXAMPLE',[location()])
     new=paper('new','10.1234/example',[location('https://mirror.org/a.pdf'),location('https://mirror.org/preprint.pdf','submittedVersion')])
@@ -64,20 +53,20 @@ def test_pagination_continues_each_provider_and_failure_keeps_other_results(monk
     calls=[]
     def oa(query,cursor):
         calls.append(('oa',cursor))
-        if cursor=='*':raise SourceError('RESEARCH_RATE_LIMITED')
+        if cursor==1:raise SourceError('RESEARCH_RATE_LIMITED')
         return [paper('oa',locations=[location()])],None
-    def cr(query,offset):
-        calls.append(('cr',offset));return [paper('cr','10.2/crossref',[location()])],20 if offset==0 else None
-    monkeypatch.setattr(sources,'openalex_search',oa);monkeypatch.setattr(sources,'crossref_search',cr)
+    def scholar(query,offset):
+        calls.append(('scholar',offset));return [paper('cr','10.2/crossref',[location()])],20 if offset==0 else None
+    monkeypatch.setattr(sources,'openalex_search',oa);monkeypatch.setattr(sources,'semantic_scholar_search',scholar)
     monkeypatch.setattr(sources,'official_search',lambda q:[]);monkeypatch.setattr(sources,'mdn_search',lambda q:[])
-    monkeypatch.delenv('STUDYDY_SEMANTIC_SCHOLAR_API_KEY',raising=False)
+    monkeypatch.setenv('STUDYDY_SEMANTIC_SCHOLAR_API_KEY','test-only')
     rows,cursor,warnings=sources.search('retrieval augmented generation')
     assert len(rows)==1 and warnings==['openalex']
-    assert sources.json.loads(cursor)['openalex']=='*'
-    assert sources.json.loads(cursor)['crossref']==20
+    assert sources.json.loads(cursor)['openalex']==1
+    assert sources.json.loads(cursor)['semantic_scholar']==20
     assert sources.json.loads(cursor)['_failures'][0]['provider']=='openalex'
     sources.search('retrieval augmented generation',cursor)
-    assert ('cr',20) in calls
+    assert ('scholar',20) in calls
     calls.clear()
     with pytest.raises(SourceError,match='REQUEST_INVALID'):
         sources.search('retrieval augmented generation','legacy-cursor')
@@ -102,31 +91,16 @@ def test_specialized_docs_only_run_for_the_requested_technology(monkeypatch,quer
 
 def test_all_search_services_failing_is_not_an_empty_success(monkeypatch):
     def fail(*args):raise SourceError('RESEARCH_SEARCH_FAILED')
-    for name in ['openalex_search','crossref_search','official_search','mdn_search']:monkeypatch.setattr(sources,name,fail)
+    for name in ['openalex_search','official_search','mdn_search']:monkeypatch.setattr(sources,name,fail)
     monkeypatch.delenv('STUDYDY_SEMANTIC_SCHOLAR_API_KEY',raising=False)
     with pytest.raises(SourceError,match='RESEARCH_SEARCH_FAILED'):sources.search('topic')
 
 
-def test_crossref_requires_pdf_matching_effective_cc_license(monkeypatch):
-    work={'DOI':'10.1/test','title':['A topic'],'published':{'date-parts':[[2025]]},'license':[
-        {'URL':'https://creativecommons.org/licenses/by/4.0/','content-version':'vor','start':{'timestamp':0}},
-        {'URL':'https://creativecommons.org/licenses/by/4.0/','content-version':'am','start':{'timestamp':9999999999999}}],
-        'link':[{'URL':'https://example.org/final.pdf','content-type':'application/pdf','content-version':'vor'},
-                {'URL':'https://example.org/accepted.pdf','content-type':'application/pdf','content-version':'am'},
-                {'URL':'https://example.org/html','content-type':'text/html','content-version':'vor'}]}
-    monkeypatch.setattr(sources,'_json',lambda *a,**k:{'message':{'items':[work],'total-results':1}})
-    rows,cursor=sources.crossref_search('topic',0)
-    assert cursor is None and len(rows[0]['download_locations'])==1
-    assert rows[0]['version']=='publishedVersion'
-    work['license'][0]['URL']='https://creativecommons.org/licenses/by-nc-nd/4.0/'
-    assert sources.crossref_search('topic',0)[0][0]['eligible'] is False
-
-
-def test_acquisition_falls_back_only_to_same_version(monkeypatch):
+def test_acquisition_prefers_same_version_before_author_version(monkeypatch):
     primary=location();alternate=location('https://mirror.org/final.pdf')
     row=paper(locations=[primary,location('https://mirror.org/preprint.pdf','submittedVersion'),alternate])
     seen=[]
-    def acquire(candidate):
+    def acquire(candidate,**kwargs):
         seen.append(candidate['download_url'])
         if len(seen)==1:raise SourceError('RESEARCH_SOURCE_BLOCKED')
         return b'%PDF-test','application/pdf','.pdf',{'version':candidate['version'],'download_url':candidate['download_url']}
@@ -134,6 +108,23 @@ def test_acquisition_falls_back_only_to_same_version(monkeypatch):
     result=sources.acquire(row)
     assert seen==[primary['download_url'],alternate['download_url']]
     assert row['download_url']==alternate['download_url'] and result[3]['version']=='publishedVersion'
+
+
+def test_first_read_can_use_a_declared_author_version_without_replacing_reviewed_bytes(monkeypatch):
+    final=location();author=location('https://repository.org/author.pdf','acceptedVersion')
+    row=paper(locations=[final,author]);seen=[]
+    def acquire(candidate,**kwargs):
+        seen.append(candidate['download_url'])
+        if candidate['version']=='publishedVersion':raise SourceError('RESEARCH_SOURCE_BLOCKED')
+        return b'%PDF-author','application/pdf','.pdf',{'version':candidate['version'],'download_url':candidate['download_url']}
+    monkeypatch.setattr(sources,'_acquire_location',acquire)
+    monkeypatch.setattr(sources,'_unpaywall_locations',lambda c:[])
+    result=sources.acquire(row)
+    assert seen==[final['download_url'],author['download_url']]
+    assert row['version']=='acceptedVersion' and result[3]['alternate_version_of']=='publishedVersion'
+    reviewed=paper(locations=[final,author]);reviewed['inspection_sha256']='original-reviewed-digest';seen.clear()
+    with pytest.raises(SourceError,match='RESEARCH_SOURCE_BLOCKED'):sources.acquire(reviewed)
+    assert seen==[final['download_url']]
 
 
 def test_unpaywall_is_opt_in_and_cannot_change_document_identity(monkeypatch):
@@ -191,7 +182,7 @@ def test_fetch_strips_api_credentials_on_cross_host_redirect_and_honors_429(monk
 def test_all_known_same_version_entries_are_tried_without_losing_original_failure(monkeypatch):
     row=paper(locations=[location(f'https://mirror{i}.org/a.pdf') for i in range(6)])
     calls=[]
-    def fail(candidate):calls.append(candidate);raise SourceError('RESEARCH_SOURCE_BLOCKED')
+    def fail(candidate,**kwargs):calls.append(candidate);raise SourceError('RESEARCH_SOURCE_BLOCKED')
     monkeypatch.setattr(sources,'_acquire_location',fail)
     monkeypatch.setattr(sources,'_unpaywall_locations',lambda c:[])
     with pytest.raises(SourceError,match='RESEARCH_SOURCE_BLOCKED'):sources.acquire(row)
@@ -242,3 +233,24 @@ def test_pdf_identity_accepts_a_complete_title_split_across_adjacent_blocks(monk
     assert sources.acquire(item)[0]==data
     item['title']='A complete research title with a different conclusion'
     with pytest.raises(SourceError,match='RESEARCH_IDENTITY_UNCONFIRMED'):sources.acquire(item)
+
+
+def test_openalex_semantic_search_preserves_meaning_rank_and_same_version_locations(monkeypatch):
+    from urllib.parse import urlsplit,parse_qs
+    requests=[]
+    work={'id':'https://openalex.org/W1','title':'Selective prediction with a reject option',
+          'doi':'https://doi.org/10.1234/reject','locations':[
+              {'pdf_url':'https://example.org/paper.pdf','license':'cc-by','version':'publishedVersion',
+               'landing_page_url':'https://example.org/paper'}],
+          'abstract_inverted_index':{'A':[0],'model':[1],'defers':[2],'uncertain':[3],'decisions':[4]}}
+    def response(url,**kwargs):
+        requests.append(parse_qs(urlsplit(url).query));return {'meta':{'count':50},'results':[work]}
+    monkeypatch.setattr(sources,'_json',response)
+    question='When should an automated system ask a human instead of acting under uncertainty?'
+    rows,page=sources.openalex_search(question,1)
+    assert requests[0]['search.semantic']==[question] and 'search' not in requests[0]
+    assert requests[0]['filter']==['is_oa:true,has_abstract:true']
+    assert rows[0]['description']=='A model defers uncertain decisions'
+    assert rows[0]['eligible'] and rows[0]['download_url']=='https://example.org/paper.pdf'
+    assert page==2
+    assert sources.openalex_search(question,3)[1] is None

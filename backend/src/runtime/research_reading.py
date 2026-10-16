@@ -54,7 +54,7 @@ def _pdf_document(data,url):
             title=(pdf.metadata or {}).get('title') or next((line.strip() for line in text.splitlines() if line.strip()),'')
     except Exception:raise SourceError('RESEARCH_FORMAT_UNSUPPORTED') from None
     if not text.strip():raise SourceError('RESEARCH_TEXT_UNAVAILABLE')
-    return {'url':url,'title':title,'title_page_text':title_page_text,'authors':urlsplit(url).hostname,'text':text,'license':'unknown','license_url':None,
+    return {'url':url,'title':title,'title_page_text':title_page_text,'authors':urlsplit(url).hostname,'text':text,'content':data,'license':'unknown','license_url':None,
             'license_text':'','original_sha256':sha256(data).hexdigest(),'license_snapshot_sha256':None,
             'page_identity':sha256((url+'\n'+title).encode()).hexdigest(),'access_url':url,'access_method':'pdf'}
 
@@ -63,12 +63,18 @@ def read_public_document(url, *, attempts=None, entries=None):
     attempts=attempts if attempts is not None else []
     # 每個已知入口在這次閱讀只試一次；失敗紀錄與延後時間由持久研究工作保存。
     queue=[(url,'document')]+[(entry['url'],entry['kind']) for entry in entries or []]
-    seen=set();last_error=None;landing=None
+    # 連線失敗不重試同一入口；格式／身分判斷失敗仍可用公開頁閱讀路徑核對，不把它當 HTTP 失敗。
+    seen={canonical_url(a['url']) or a['url'] for a in attempts if a.get('error_code') in (
+        'RESEARCH_SOURCE_BLOCKED','RESEARCH_CONNECTION_TIMEOUT','RESEARCH_RATE_LIMITED','RESEARCH_HTTP_FAILED',
+        'RESEARCH_CHALLENGE_REQUIRED','RESEARCH_AUTH_REQUIRED','RESEARCH_URL_REJECTED')}
+    last_error=None;landing=None
     for target,kind in queue:
+        # 原頁常公布 http 的 PDF／feed；與搜尋連結一樣先正規化為 HTTPS，仍走相同 DNS／TLS 檢查。
+        target=canonical_url(target) or target
         if target in seen:continue
         seen.add(target)
         try:
-            data,final,media=sources.public_page(target,limit=sources.MAX_BYTES if kind=='document' and (target.endswith('.pdf') or '/pdf/' in target) else 5*1024*1024)
+            data,final,media=sources.public_page(target,limit=sources.MAX_BYTES if kind=='pdf' or kind=='document' and (target.endswith('.pdf') or '/pdf/' in target) else 5*1024*1024)
             if kind=='rss':doc=_feed_article(data,final,url)
             elif data.startswith(b'%PDF-'):doc=_pdf_document(data,final)
             else:
@@ -87,11 +93,11 @@ def read_public_document(url, *, attempts=None, entries=None):
                         label=' '.join(' '.join(element.itertext()).split())
                         if element.get('type','').lower()=='application/pdf' or re.search(r'\bdownload\s+pdf\b|下載\s*PDF|下载\s*PDF',label,re.I):
                             fulltext.append(urljoin(final,element.get('href')))
-                    queue.extend((link,'document') for link in fulltext or [urljoin(final,href) for href in tree.xpath('//a[contains(@href,".pdf")]/@href')])
+                    queue.extend((link,'pdf') for link in fulltext or [urljoin(final,href) for href in tree.xpath('//a[contains(@href,".pdf")]/@href')])
                     queue.extend((urljoin(final,href),'rss') for href in tree.xpath('//link[@rel="alternate" and (@type="application/rss+xml" or @type="application/atom+xml")]/@href'))
                 doc=html_document(data,final,media)
                 if tree is not None and fulltext:
-                    # 論文頁公布的同篇全文優先於介紹頁；不能擷取到摘要就跳過 PDF。
+                    # 優先保留原 PDF 的圖表與排版；正文 HTML 是 PDF 不可取得時的補救。
                     landing=doc
                     attempts.append({'url':target,'resolved_url':final,'outcome':'read','method':'landing_page'})
                     continue
@@ -102,17 +108,27 @@ def read_public_document(url, *, attempts=None, entries=None):
             attempts.append(access_failure(last_error,target))
             # 明示限流會由 fetch 遵守；其他主機的公開全文仍可繼續。
     if landing:
+        if landing.get('paper_body'):
+            attempts.append({'url':landing['url'],'resolved_url':landing['access_url'],'outcome':'read','method':'html'})
+            return landing
         landing.update(access_method='landing_page',fulltext_unavailable=True)
         return landing
     raise last_error or SourceError('RESEARCH_DOWNLOAD_FAILED')
 
 
-def inspect_candidate(candidate):
+def inspect_candidate(candidate,*,document=None):
     row=deepcopy(candidate);attempts=[];doc=None;importable=False
     row.pop('inspection_sha256',None);row.pop('inspection_text_sha256',None)
     row.update(_reading_text='',_read_offset=0,_review_chunks=[])
     if row.get('review'):row['review']['phase']='metadata'
-    if sources.arxiv_abstract_url(row['url']):
+    if document is not None:
+        data,media,suffix,metadata=document
+        if media=='application/pdf':doc=_pdf_document(data,metadata.get('download_url') or row['url'])
+        else:doc={'text':data.decode('utf-8')[metadata.get('body_offset',0):],
+                  'access_url':metadata.get('download_url') or row['url'],'access_method':metadata['access_method']}
+        importable=True;row['inspection_sha256']=sha256(data).hexdigest()
+        attempts.append({'url':doc['access_url'],'outcome':'read','method':'pdf','from_snapshot':True})
+    if doc is None and sources.arxiv_abstract_url(row['url']):
         row['arxiv_license_checked']=True
         try:
             row.update(sources.arxiv_metadata(row['url']))
@@ -121,15 +137,18 @@ def inspect_candidate(candidate):
         except Exception as error:
             attempts.append(access_failure(error,sources.arxiv_abstract_url(row['url'])))
     licensed_pdf=bool(row.get('download_locations') or sources._location(row.get('download_url'),row.get('license'),row.get('version')))
-    if not row.get('web_document') and (row['kind']=='official' or row['kind']=='paper' and (row.get('eligible') or licensed_pdf)):
+    if doc is None and not row.get('web_document') and (row['kind']=='official' or row['kind']=='paper' and (row.get('eligible') or licensed_pdf)):
         try:
             row['eligible']=True
             data,media,suffix,metadata=sources.acquire(row,attempts=attempts)
             if media=='application/pdf':doc=_pdf_document(data,metadata.get('download_url') or row['download_url'])
-            else:doc={'text':data.decode('utf-8'),'access_url':metadata.get('download_url') or row['url'],
+            else:doc={'text':data.decode('utf-8')[metadata.get('body_offset',0):],'access_url':metadata.get('download_url') or row['url'],
                       'access_method':'official' if row['kind']=='official' else metadata.get('access_method','html')}
             importable=True
-            row['inspection_sha256']=metadata.get('original_sha256') or sha256(data).hexdigest()
+            for key in ('license','license_url'):
+                if metadata.get(key):row[key]=metadata[key]
+            row['inspection_sha256']=sha256(data).hexdigest()
+            if media=='application/pdf' or metadata.get('format')=='html':row['_acquired_document']=(data,metadata)
             if not attempts:attempts.append({'url':doc['access_url'],'outcome':'read','method':doc['access_method']})
         except Exception as error:
             if not attempts:attempts.append(access_failure(error,row.get('download_url') or row['url']))
@@ -141,10 +160,20 @@ def inspect_candidate(candidate):
             expected=normalize(row.get('title',''));actual=normalize(doc.get('title_page_text') or doc.get('title',''))
             same_paper=row['kind']!='paper' or bool(expected and expected in actual)
             if not same_paper:attempts.append(access_failure(SourceError('RESEARCH_IDENTITY_UNCONFIRMED'),doc['url']))
+            if (same_paper and row['kind']=='paper' and doc.get('paper_body')
+                    and not doc.get('license_url') and row.get('license') in sources.LICENSES and row.get('license_url')):
+                # 已確認同篇正式原頁正文；沿用該版本索引的明示授權，不要求網頁重複標同一個 rel。
+                doc.update(license=row['license'],license_url=row['license_url'],license_snapshot_sha256=None,
+                           license_text='索引記錄的同篇版本授權：'+row['license_url'])
             if doc.get('license_url') and same_paper:
                 row.update({key:doc[key] for key in ('title','authors','license','license_url','page_identity')})
                 row.update(download_url=doc['url'],web_document=True)
                 importable=True
+                if not doc.get('fulltext_unavailable') and doc['access_method']!='pdf':
+                    from .research_web import document_artifact
+                    data,media,suffix,metadata=document_artifact(doc,row)
+                    row['inspection_sha256']=sha256(data).hexdigest()
+                    row['_acquired_document']=(data,metadata)
         except SourceError:pass
     row['eligible']=importable
     row['access']={'attempts':candidate.get('access',{}).get('attempts',[])+attempts,'status':'read' if doc else 'unavailable'}
@@ -161,10 +190,10 @@ def inspect_candidate(candidate):
         if doc.get('fulltext_unavailable'):
             row['access']['fulltext_unavailable']=True
             row['reason']='已讀取公開頁面，但該頁公布的全文入口未能取得；請查看存取紀錄。'
+            # 介紹頁即使可讀或有授權，也不是尚未取得的全文，不能交給正文驗收。
+            row['access']['status']='unavailable';row['_reading_text']='';row['eligible']=False
             future=[a['retry_at'] for a in attempts if a.get('retry_at') and a['retry_at']>time.time()]
-            if future:
-                row['access'].update(status='unavailable',retry_at=min(future))
-                row['_reading_text']='';row['eligible']=False
+            if future:row['access']['retry_at']=min(future)
     else:
         row['reason']='已嘗試原始來源與已知公開入口，仍未取得正文；保留逐次結果供接續查找。'
         future=[a['retry_at'] for a in attempts if a.get('retry_at') and a['retry_at']>time.time()]

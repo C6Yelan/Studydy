@@ -92,7 +92,8 @@ def test_atom_xhtml_content_uses_the_same_article_identity_check():
 
 
 def test_declared_fulltext_is_read_instead_of_stopping_at_a_readable_landing_page(monkeypatch):
-    html=BODY.replace('</head>','<meta name="citation_pdf_url" content="https://example.org/full.pdf"></head>')
+    html=BODY.replace('</head>','<meta name="citation_title" content="A learning example"><meta name="citation_pdf_url" content="https://example.org/full.pdf"></head>')
+    html=html.replace('</article>','<h2>Discussion</h2><p>The simulation explains the conditions of the observed memory effect.</p></article>')
     calls=[]
     def fetch(url,**kwargs):
         calls.append(url)
@@ -113,6 +114,77 @@ def test_unavailable_declared_fulltext_is_distinguished_from_readable_page(monke
     attempts=[];doc=reading.read_public_document('https://example.org/article',attempts=attempts)
     assert doc['access_method']=='landing_page' and doc['fulltext_unavailable']
     assert attempts[-1]['http_status']==403
+
+
+def test_complete_paper_html_is_read_even_when_its_pdf_is_blocked(monkeypatch):
+    html=BODY.replace('</head>','<meta name="citation_title" content="A learning example"><meta name="citation_pdf_url" content="https://example.org/full.pdf"></head>')
+    html=html.replace('</article>','<h2>Discussion</h2><p>This is a simulation of memory, not an experiment on human participants. Its predicted effect depends on the stated learning rule.</p></article>')
+    calls=[]
+    def fetch(url,**kwargs):
+        calls.append(url)
+        if url.endswith('.pdf'):raise sources.SourceAccessError('RESEARCH_SOURCE_BLOCKED',url=url,status=403)
+        return html.encode(),url,'text/html'
+    monkeypatch.setattr(sources,'public_page',fetch)
+    checked=reading.inspect_candidate({'id':'paper','kind':'paper','url':'https://example.org/article','title':'A learning example','eligible':False,'license':'unknown'})
+    assert checked['eligible'] and checked['access']['method']=='html'
+    assert 'not an experiment on human participants' in checked['_reading_text']
+    assert calls==['https://example.org/article','https://example.org/full.pdf']
+    data,metadata=checked['_acquired_document']
+    def forbidden(*args,**kwargs):raise AssertionError('snapshot must not download again')
+    monkeypatch.setattr(sources,'public_page',forbidden)
+    reread=reading.inspect_candidate(checked,document=(data,'text/plain','.txt',metadata))
+    assert reread['_reading_text']==checked['_reading_text']
+    assert reread['inspection_sha256']==checked['inspection_sha256']
+    assert reread['inspection_text_sha256']==checked['inspection_text_sha256']
+
+
+def test_indexed_paper_license_applies_to_its_verified_html_body_after_pdf_failure(monkeypatch):
+    html=BODY.replace('<link rel="license" href="https://creativecommons.org/licenses/by-sa/4.0/">','')
+    html=html.replace('</head>','<meta name="citation_title" content="A learning example"><meta name="citation_pdf_url" content="https://example.org/full.pdf"></head>')
+    html=html.replace('</article>','<h2>Discussion</h2><p>The model predicts memory benefits only under these learning conditions.</p></article>')
+    def fetch(url,**kwargs):
+        if url.endswith('.pdf'):raise sources.SourceAccessError('RESEARCH_SOURCE_BLOCKED',url=url,status=403)
+        return html.encode(),url,'text/html'
+    monkeypatch.setattr(sources,'public_page',fetch)
+    monkeypatch.setattr(sources,'_unpaywall_locations',lambda c:[])
+    for entry in ('https://example.org/full.pdf','https://example.org/article'):
+        checked=reading.inspect_candidate({'id':'paper','kind':'paper','url':'https://example.org/article',
+            'download_url':entry,'title':'A learning example','eligible':True,
+            'license':'cc-by','license_url':'https://creativecommons.org/licenses/by/4.0/','version':'publishedVersion'})
+        assert checked['eligible'] and checked['access']['method']=='html'
+        assert checked['license']=='cc-by' and checked['_acquired_document'][1]['version']=='publishedVersion'
+        assert any(a.get('http_status')==403 for a in checked['access']['attempts'])
+
+
+def test_pdf_acquisition_format_failure_does_not_hide_a_valid_licensed_html_article(monkeypatch):
+    monkeypatch.setattr(sources,'public_page',lambda url,**kw:(BODY.encode(),url,'text/html'))
+    monkeypatch.setattr(sources,'_unpaywall_locations',lambda c:[])
+    checked=reading.inspect_candidate({'id':'paper','kind':'paper','url':'https://example.org/article',
+        'download_url':'https://example.org/article','title':'A learning example','eligible':True,
+        'license':'cc-by','license_url':'https://creativecommons.org/licenses/by/4.0/','version':'publishedVersion'})
+    assert checked['eligible'] and checked['access']['method']=='html'
+    assert 'if x < 10:' in checked['_reading_text']
+
+
+def test_structured_abstract_does_not_become_full_body_when_pdf_is_unavailable(monkeypatch):
+    html=BODY.replace('</head>','<meta name="citation_title" content="A learning example"><meta name="citation_pdf_url" content="https://example.org/full.pdf"></head>')
+    html=html.replace('</article>','<section id="abstract"><h2>Methods</h2><p>This abstract reports a simulation of memory with a learning rule.</p><h2>Results</h2><p>The abstract reports a positive result.</p></section></article>')
+    def fetch(url,**kwargs):
+        if url.endswith('.pdf'):raise sources.SourceAccessError('RESEARCH_SOURCE_BLOCKED',url=url,status=403)
+        return html.encode(),url,'text/html'
+    monkeypatch.setattr(sources,'public_page',fetch)
+    doc=reading.read_public_document('https://example.org/article')
+    assert doc['fulltext_unavailable'] and doc['access_method']=='landing_page'
+
+
+def test_flat_structured_abstract_is_not_mistaken_for_body_sections(monkeypatch):
+    html=BODY.replace('</head>','<meta name="citation_title" content="A learning example"><meta name="citation_pdf_url" content="https://example.org/full.pdf"></head>')
+    html=html.replace('</article>','<h2>Abstract</h2><h3>Methods</h3><p>This abstract reports a simulation of memory.</p><h3>Results</h3><p>The abstract reports a positive result.</p></article>')
+    def fetch(url,**kwargs):
+        if url.endswith('.pdf'):raise sources.SourceAccessError('RESEARCH_SOURCE_BLOCKED',url=url,status=403)
+        return html.encode(),url,'text/html'
+    monkeypatch.setattr(sources,'public_page',fetch)
+    assert reading.read_public_document('https://example.org/article')['fulltext_unavailable']
 
 
 def test_limited_fulltext_stays_pending_instead_of_accepting_the_landing_page(monkeypatch):
@@ -213,3 +285,49 @@ def test_arxiv_license_does_not_apply_to_another_paper_or_incidental_cc_link(mon
         with pytest.raises(SourceError,match=error):sources.arxiv_metadata(abstract)
     assert sources.arxiv_abstract_url('https://arxiv.org.attacker.example/pdf/2401.00001') is None
     assert sources.arxiv_abstract_url('https://example.org/pdf/2401.00001') is None
+
+
+def test_declared_http_fulltext_is_upgraded_before_downloading(monkeypatch):
+    html=BODY.replace('</head>','<meta name="citation_pdf_url" content="http://example.org/full.pdf"></head>')
+    calls=[]
+    def fetch(url,**kwargs):
+        calls.append(url)
+        assert url.startswith('https://')
+        return (b'%PDF-fixture' if url.endswith('.pdf') else html.encode()),url,'application/pdf' if url.endswith('.pdf') else 'text/html'
+    monkeypatch.setattr(sources,'public_page',fetch)
+    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'Actual full paper.','access_method':'pdf','url':url})
+    doc=reading.read_public_document('https://example.org/article')
+    assert calls==['https://example.org/article','https://example.org/full.pdf']
+    assert doc['access_method']=='pdf'
+
+
+def test_licensed_landing_page_never_becomes_body_when_fulltext_is_blocked(monkeypatch):
+    html=BODY.replace('</head>','<meta name="citation_pdf_url" content="https://example.org/full.pdf"></head>')
+    def fetch(url,**kwargs):
+        if url.endswith('.pdf'):raise sources.SourceAccessError('RESEARCH_SOURCE_BLOCKED',url=url,status=403)
+        return html.encode(),url,'text/html'
+    monkeypatch.setattr(sources,'public_page',fetch)
+    checked=reading.inspect_candidate({'id':'paper','kind':'paper','url':'https://example.org/article','title':'A learning example','eligible':False,'license':'unknown'})
+    assert checked['access']['fulltext_unavailable'] and checked['access']['status']=='unavailable'
+    assert not checked['eligible'] and not checked['_reading_text']
+    assert checked['access']['attempts'][-1]['http_status']==403
+
+
+def test_paper_metadata_license_survives_a_landing_page_without_pdf_url(monkeypatch):
+    import fitz
+    landing='https://example.org/article';pdf_url='https://example.org/paper.pdf'
+    html=b'<html><head><meta name="citation_pdf_url" content="http://example.org/paper.pdf"></head><body><h1>A sampling example</h1></body></html>'
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72,72),'A sampling example\nThe methods and results of the actual full paper.')
+        pdf.set_metadata({'title':'A sampling example'});data=pdf.tobytes()
+    def fetch(url,**kwargs):
+        assert url in (landing,pdf_url)
+        return (data if url==pdf_url else html),url,'application/pdf' if url==pdf_url else 'text/html'
+    monkeypatch.setattr(sources,'public_page',fetch)
+    location=sources._location(None,'cc-by','publishedVersion',landing)
+    candidate=sources._paper('paper','A sampling example','Author',2026,None,landing,[location],'OpenAlex')
+    assert candidate['eligible'] and candidate['download_url']==landing
+    acquired,media,suffix,metadata=sources.acquire(candidate)
+    assert acquired==data and media=='application/pdf' and metadata['download_url']==pdf_url
+    checked=reading.inspect_candidate(candidate)
+    assert checked['eligible'] and 'actual full paper' in checked['_reading_text']

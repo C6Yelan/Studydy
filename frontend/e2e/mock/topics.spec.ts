@@ -16,7 +16,7 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  await page.route('**/v1/topics',r=>r.request().method()==='POST'?json(r,topic,202):json(r,{topics:[topic]}));
  await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  await page.route(`**/v1/material-processing-runs/${runId}`,r=>{const done=topic.research?.run?.status==='succeeded';return json(r,{...runFixture,status:done?'succeeded':'pending',progress_stage:done?'completed':'queued',completed_pages:done?2:0,output_binding:done?runFixture.output_binding:null,completed_at:done?runFixture.completed_at:null});});
- await page.route(`**/v1/topics/${id}/approve`,r=>{const body=r.request().postDataJSON();expect(body.expected_version).toBe(2);expect(body.proposal.level).toBe('有基礎');approved++;topic={...topic,proposal:body.proposal,version:3,status:'approved',research_id:rid,research:{research_id:rid,material_id:null,query:'TCP',mode:'self-study',status:'selecting',candidates:[candidate],selection:[],cursor:null,error_code:null,run_id:null}};return json(r,topic);});
+ await page.route(`**/v1/topics/${id}/approve`,r=>{const body=r.request().postDataJSON();expect(body.expected_version).toBe(2);expect(body.proposal.level).toBe('有基礎');approved++;topic={...topic,proposal:body.proposal,version:3,status:'approved',research_id:rid,research:{research_id:rid,material_id:null,query:'TCP',mode:'self-study',approved_scope:plan,status:'selecting',candidates:[candidate],selection:[],cursor:null,error_code:null,run_id:null}};return json(r,topic);});
  await page.route(`**/v1/topics/${id}/material`,r=>{expect(r.request().postDataJSON()).toEqual({selected:['source']});created++;topic.research={...topic.research,material_id:materialId,selection:['source'],status:'submitted',run_id:runId,run:{status:'pending',error_code:null}};return json(r,{material_id:materialId,research_id:rid},202);});
  await page.goto('/topics');await expect(page.getByRole('heading',{name:'你想學什麼？'})).toBeVisible();
  const workspace=await page.locator('.topic-request').boundingBox();
@@ -44,7 +44,7 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
 });
 
 test('empty source search offers no fake map or enabled create action',async({page})=>{
- await mockTopicApi(page);const topic={topic_id:id,request:'空結果',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'空結果',mode:'self-study',status:'selecting',candidates:[],selection:[],cursor:null,error_code:null,run_id:null}};
+ await mockTopicApi(page);const topic={topic_id:id,request:'空結果',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'空結果',mode:'self-study',approved_scope:plan,status:'selecting',candidates:[],selection:[],cursor:null,error_code:null,run_id:null}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  await page.goto(`/topics/${id}`);await expect(page.getByText('沒有找到來源，請調整主題重新規劃。')).toBeVisible();await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
 });
@@ -61,7 +61,7 @@ for(const width of [1920,1440,390]) test(`saved topic switching and planning sta
  for(const topic of topics){
   await history.selectOption(topic.topic_id);
   await expect(page.getByLabel('想學的主題')).toHaveValue(topic.request);
-  await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('學習主題');
+  await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('學習需求');
   if(topic.status==='pending'){
    await expect(page.getByLabel('想學的主題')).toBeDisabled();
    await expect(page.getByRole('button',{name:'重新規劃主題'})).toBeDisabled();
@@ -152,17 +152,17 @@ test('retry and pending polling load the new proposal, cancel remains available'
 });
 
 
-test('unavailable sources are hidden and an all-unavailable page can load more',async({page})=>{
+test('unavailable sources stay distinct from explicit gap followup',async({page})=>{
  await mockTopicApi(page);
  const blocked={...candidate,id:'blocked',title:'不可匯入論文',kind:'paper',eligible:false,license:'cc-by-nc-nd'};
- const topic:any={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'TCP',mode:'self-study',status:'selecting',candidates:[blocked],selection:[],cursor:'next',error_code:null,run_id:null}};
+ const topic:any={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'TCP',mode:'self-study',approved_scope:plan,status:'selecting',candidates:[blocked],selection:[],cursor:'next',error_code:null,run_id:null}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  await page.route(`**/v1/research/${rid}/actions`,r=>{expect(r.request().postDataJSON()).toEqual({action:'more'});topic.research.candidates.push(candidate);topic.research.cursor=null;return json(r,topic.research);});
  await page.goto(`/topics/${id}`);
  await expect(page.getByText('不可匯入論文',{exact:true})).toHaveCount(0);await expect(page.getByText('僅供查看',{exact:true})).toHaveCount(0);
- await expect(page.getByText('目前沒有可加入的來源，可搜尋下一頁或調整主題後重新搜尋。')).toBeVisible();
+ await expect(page.getByText('目前沒有可直接匯入的來源，可查看參考連結或依缺口繼續研究。')).toBeVisible();
  await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'全選可用來源'})).toBeDisabled();
- await page.getByRole('button',{name:'下一頁（繼續搜尋）'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();await expect(page.getByText('不可匯入論文',{exact:true})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'下一頁（繼續搜尋）'})).toHaveCount(0);await page.getByRole('button',{name:'依缺口繼續研究'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();await expect(page.getByText('不可匯入論文',{exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'全選可用來源'}).click();await expect(page.locator('.tool-stage-footer')).toContainText('已選 1 份來源');
  await page.getByLabel('搜尋來源',{exact:true}).fill('不可匯入');await expect(page.getByText('沒有符合篩選的來源。')).toBeVisible();await page.getByRole('button',{name:'清除篩選'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeChecked();
 });

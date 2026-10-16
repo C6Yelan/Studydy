@@ -552,10 +552,20 @@ class MaterialResearch(Base):
     search_state: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
 
 
+class ResearchDocument(Base):
+    __tablename__ = 'material_research_documents'
+    research_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    sha256: Mapped[bytes] = mapped_column(LargeBinary, primary_key=True)
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+
+
 class TopicScope(Base):
     __tablename__='topic_scopes'
     topic_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True),primary_key=True)
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    base_revision: Mapped[str | None] = mapped_column(Text)
     request: Mapped[str] = mapped_column(Text)
     proposal: Mapped[dict | None] = mapped_column(EvidenceJSONB)
     generation_provider: Mapped[str | None] = mapped_column(Text)

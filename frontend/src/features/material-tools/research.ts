@@ -12,6 +12,7 @@ export type Research = {
   selection: string[]; cursor: string | null; error_code: string | null; run_id: string | null; created_at: string;
   is_current_revision?: boolean; deleted?: boolean; run?: { status: string; error_code: string | null };
   progress?: ResearchProgress | null;
+  approved_scope?: {title:string;level:string;topics:string[];goals:string[];exclude:string[]}|null;
 };
 export type ResearchProgress = {
   stage: string; round: number; completed: number | null; total: number | null; unit: string;
@@ -28,7 +29,7 @@ const labels: Record<string, string> = {
   failed: '需要處理', cancelled: '已停止',
 };
 export function researchTaskInfo(record: ResearchSummary) {
-  if (record.status === 'selecting' && record.candidate_count === 0) return { label: '未找到來源', tone: 'muted', cta: '查看搜尋結果', description: '換個關鍵字再搜尋，這筆查詢紀錄會保留。' };
+  if (record.status === 'selecting' && record.candidate_count === 0) return { label: '未找到來源', tone: 'muted', cta: '查看搜尋結果', description: '查看未取得來源的原因，可依缺口補查或重新確認需求。' };
   if (record.status === 'submitted') {
     if (record.run_status === 'succeeded') return { label: '已完成', tone: 'complete', cta: '查看完成結果', description: '補充來源已加入教材，可查看更新後的學習內容。' };
     if (record.run_status === 'partial') return { label: '分析結果待確認', tone: 'attention', cta: '查看處理結果', description: '已產生教材分析結果，仍有內容需要確認。' };

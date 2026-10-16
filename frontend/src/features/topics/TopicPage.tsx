@@ -15,7 +15,7 @@ import './styles.css';
 
 type Scope={title:string;level:string;goals:string[];topics:string[];exclude:string[]};
 type Work=Research&{material_id:string|null;run?:{status:string;error_code:string|null;output_binding?:{knowledge_structure_revision:string}|null}};
-type Topic={topic_id:string;request:string;proposal:Scope|null;version:number;status:string;research_id:string|null;research?:Work;error_code:string|null};
+export type Topic={topic_id:string;material_id:string|null;request:string;proposal:Scope|null;version:number;status:string;research_id:string|null;research?:Work;error_code:string|null};
 const active=new Set(['searching','acquiring','normalizing','ready']);
 const stages:Record<string,string>={searching:'正在搜尋來源',selecting:'選擇想加入的來源',acquiring:'正在取得選取來源',normalizing:'正在轉換文件',ready:'正在建立教材分析',submitted:'已送入教材分析',failed:'處理未完成',cancelled:'已停止'};
 
@@ -50,9 +50,9 @@ function ScopeFields({draft,onChange,busy}:{draft:Scope;onChange:(scope:Scope)=>
  <p id="scope-level-help">{learningLevels.find(level=>level.value===draft.level)?.description??'保留原有程度描述作為搜尋依據，也可改選上方程度。'}<small>影響搜尋資料的深度，不影響正確性標準。</small></p>
  </div>
  <div className="topic-scope-grid">
- <section aria-labelledby="scope-topics-heading"><div className="topic-scope-row"><h3 id="scope-topics-heading">要涵蓋的主題</h3><span className="topic-scope-count">{draft.topics.filter(x=>x.trim()).length} 項</span></div>
- <ul className="topic-scope-items">{draft.topics.map((topic,index)=><li key={index}>
- {editingTopic===index?<input autoFocus aria-label={`主題 ${index+1}`} value={topic} disabled={busy} onChange={e=>onChange({...draft,topics:draft.topics.map((value,i)=>i===index?e.target.value:value)})} onKeyDown={e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing){e.preventDefault();setEditingTopic(null);topicButtons.current[index]?.focus();}}}/>:<span>{topic.trim()?topic:'空白主題（確認時略過）'}</span>}
+ <section aria-labelledby="scope-topics-heading"><div className="topic-scope-row"><h3 id="scope-topics-heading">觀念與重點／細節</h3><span className="topic-scope-count">{draft.topics.filter(x=>x.trim()).length} 項</span></div>
+ <p>每項寫清楚要理解的觀念與具體問題；確認後會逐項尋找論文並核對正文。</p><ul className="topic-scope-items">{draft.topics.map((topic,index)=><li key={index}>
+ {editingTopic===index?<textarea rows={3} autoFocus aria-label={`主題 ${index+1}`} value={topic} disabled={busy} onChange={e=>onChange({...draft,topics:draft.topics.map((value,i)=>i===index?e.target.value:value)})} onKeyDown={e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing){e.preventDefault();setEditingTopic(null);topicButtons.current[index]?.focus();}}}/>:<span>{topic.trim()?topic:'空白主題（確認時略過）'}</span>}
  <button ref={node=>{topicButtons.current[index]=node;}} className="text-button" disabled={busy} aria-label={`${editingTopic===index?'完成':'編輯'}主題 ${index+1}`} onClick={()=>{setEditingTopic(editingTopic===index?null:index);}}>{editingTopic===index?'完成':'編輯'}</button>
  <button className="text-button" disabled={busy} aria-label={`移除主題 ${index+1}`} onClick={()=>{onChange({...draft,topics:draft.topics.filter((_,i)=>i!==index)});setEditingTopic(null);addButton.current?.focus();}}>移除</button>
  </li>)}</ul>
@@ -74,19 +74,22 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const requestLoaded=useRef(false);
  const alive=useRef(true),loadedVersion=useRef(''),selectionLoaded=useRef(''),createIntent=useRef<{body:string;key:string}|null>(null),approveIntent=useRef<{body:string;key:string}|null>(null);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
- useEffect(()=>{let stop=false;void api.studyTools<{topics:Topic[]}>('/v1/topics').then(v=>{if(!stop)setList(v.topics);},e=>{if(!stop)setError(errorMessage(e));});return()=>{stop=true;};},[api,reload]);
+ useEffect(()=>{let stop=false;void api.studyTools<{topics:Topic[]}>(view?.material_id?`/v1/topics?material_id=${view.material_id}`:'/v1/topics').then(v=>{if(!stop)setList(v.topics);},e=>{if(!stop)setError(errorMessage(e));});return()=>{stop=true;};},[api,reload,view?.material_id]);
  useEffect(()=>{if(!topicId)return;let stop=false;let timer:ReturnType<typeof setTimeout>;
  const read=async()=>{try{const v=await api.studyTools<Topic>(`/v1/topics/${topicId}`);if(stop)return;setView(v);setList(previous=>previous.map(t=>t.topic_id===v.topic_id&&(t.version!==v.version||t.status!==v.status||t.proposal?.title!==v.proposal?.title)?{...t,proposal:v.proposal,version:v.version,status:v.status}:t));if(v.proposal&&loadedVersion.current!==`${v.topic_id}/${v.version}`){setDraft(v.proposal);loadedVersion.current=`${v.topic_id}/${v.version}`;}if(!requestLoaded.current){setRequest(v.request);requestLoaded.current=true;}
  if(v.research&&selectionLoaded.current!==v.research.research_id){setSelected(v.research.selection);selectionLoaded.current=v.research.research_id;}
  if(v.status==='pending'||v.research&&(active.has(v.research.status)||v.research.run&&['pending','running'].includes(v.research.run.status)))timer=setTimeout(read,1800);
  }catch(e){if(!stop)setError(errorMessage(e));}};void read();return()=>{stop=true;clearTimeout(timer);};},[api,topicId,reload]);
  const perform=async(fn:()=>Promise<unknown>)=>{setBusy(true);setError('');try{await fn();if(alive.current)setReload(v=>v+1);}catch(e){if(alive.current)setError(errorMessage(e));}finally{if(alive.current)setBusy(false);}};
- const generate=()=>perform(async()=>{const body=JSON.stringify({request});if(createIntent.current?.body!==body)createIntent.current={body,key:crypto.randomUUID()};const t=await api.studyTools<Topic>('/v1/topics',{request},createIntent.current.key);createIntent.current=null;if(alive.current)writeRoute({name:'topic',topicId:t.topic_id});});
+ const generate=()=>perform(async()=>{const payload={request,...(view?.material_id?{material_id:view.material_id}:{})};const body=JSON.stringify(payload);if(createIntent.current?.body!==body)createIntent.current={body,key:crypto.randomUUID()};const t=await api.studyTools<Topic>('/v1/topics',payload,createIntent.current.key);createIntent.current=null;if(alive.current)writeRoute({name:'topic',topicId:t.topic_id});});
  const actResearch=(action:string,ids?:string[])=>perform(async()=>{
   const result=await api.studyTools<Work>(`/v1/research/${view?.research_id}/actions`,{action,...(ids?{selected:ids}:{})});
   if(alive.current)setView(previous=>previous?.research_id===result.research_id?{...previous,research:result}:previous);
  });
  const work=view?.research,working=!!work&&active.has(work.status);
+ useEffect(()=>{if(view?.material_id&&view.status==='approved'&&view.research_id)writeRoute({name:'research',materialId:view.material_id,researchId:view.research_id});},[view?.material_id,view?.status,view?.research_id]);
+ const back=()=>writeRoute(view?.material_id?{name:'material-content',materialId:view.material_id,kind:'research'}:{name:'materials'});
+
  const [loadedRun,setLoadedRun]=useState<MaterialProcessingRunView|null>(null),[runError,setRunError]=useState(''),[runReload,setRunReload]=useState(0),[now,setNow]=useState(Date.now);
  const materialRun=loadedRun?.run_id===work?.run_id&&loadedRun?.material_id===work?.material_id?loadedRun:null;
  useEffect(()=>{
@@ -114,10 +117,10 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const step=inputStage?0:view.status==='ready'?1:completed?4:hasMaterial?3:2;
  const errorNotice=error&&<p role="alert" className="form-error">{error}<button className="text-button" onClick={()=>{setError('');setReload(v=>v+1);}}>重新讀取</button></p>;
  return <section className="cards-page topic-page">
- <button className="cards-back" onClick={()=>writeRoute({name:'materials'})}>返回我的教材</button>
- <header className="cards-page-header"><div><h1>從主題建立教材</h1><p>告訴我們想學什麼，選擇資料後建立知識地圖。</p></div>
- <div className="topic-history-bar"><label className="tool-field"><span className="visually-hidden">已保存的主題</span><select aria-label="已保存的主題" value={topicId??''} onChange={e=>writeRoute(e.target.value?{name:'topic',topicId:e.target.value}:{name:'topics'})}><option value="">新的學習主題</option>{list.map(t=><option key={t.topic_id} value={t.topic_id}>{t.proposal?.title??t.request}</option>)}</select></label><button className="secondary-button" disabled={!topicId} onClick={()=>writeRoute({name:'topics'})}>新主題</button></div></header>
- <LearningSteps labels={['學習主題','確認範圍','選取來源','建立教材']} current={step}/>
+ <button className="cards-back" onClick={back}>{view?.material_id?'返回補充學習':'返回我的教材'}</button>
+ <header className="cards-page-header"><div><h1>{view?.material_id?'確認補充學習需求':'從主題建立教材'}</h1><p>先確認想查找的觀念與細節，再搜尋並核對來源。</p></div>
+ <div className="topic-history-bar"><label className="tool-field"><span className="visually-hidden">已保存的主題</span><select aria-label="已保存的主題" value={topicId??''} onChange={e=>e.target.value?writeRoute({name:'topic',topicId:e.target.value}):view?.material_id?back():writeRoute({name:'topics'})}><option value="">新的學習主題</option>{list.map(t=><option key={t.topic_id} value={t.topic_id}>{t.proposal?.title??t.request}</option>)}</select></label><button className="secondary-button" disabled={!topicId} onClick={()=>view?.material_id?back():writeRoute({name:'topics'})}>新主題</button></div></header>
+ <LearningSteps labels={['學習需求','確認觀念與細節','選取來源',view?.material_id?'補充教材':'建立教材']} current={step}/>
  {(inputStage||view?.status!=='ready')&&errorNotice}
  {inputStage&&<section className="surface topic-section topic-request"><header className="tool-stage-heading"><div><h2>你想學什麼？</h2><p>可以是一個主題、一個問題，或想完成的學習目標。</p></div></header>
  <label className="tool-field"><span className="visually-hidden">想學的主題</span><textarea aria-label="想學的主題" disabled={busy||view?.status==='pending'||!!topicId&&!view} value={request} maxLength={1000} rows={3} onChange={e=>{requestLoaded.current=true;setRequest(e.target.value);}} placeholder="例如：我知道 IP 的用途，想了解 TCP 三次握手如何建立連線。"/></label>
@@ -129,10 +132,10 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  {view&&['pending','ready','failed'].includes(view.status)&&<button className="text-button" disabled={busy} onClick={()=>void perform(()=>api.studyTools(`/v1/topics/${view.topic_id}/actions`,{action:'cancel',expected_version:view.version}))}>取消這個規劃</button>}
  </div>{view?.status==='failed'?<button className="primary-button" disabled={busy} onClick={()=>void perform(()=>api.studyTools(`/v1/topics/${view.topic_id}/actions`,{action:'retry',expected_version:view.version}))}>重試規劃</button>:<button className="primary-button" disabled={busy||!request.trim()||view?.status==='pending'||!!topicId&&!view} onClick={()=>void generate()}>{view?'重新規劃主題':'產生學習範圍'}<Icon name="chevron-right" size={16}/></button>}</footer>
  </section>}
- {!inputStage&&draft&&view.status==='ready'&&<section className="surface topic-section topic-scope"><header className="tool-stage-heading"><div><h2>確認學習範圍</h2><p>AI 已依需求整理好學習範圍，可直接確認或微調。</p></div><button className="text-button" disabled={busy} onClick={()=>setEditingRequest(true)}>修改學習需求</button></header>
+ {!inputStage&&draft&&view.status==='ready'&&<section className="surface topic-section topic-scope"><header className="tool-stage-heading"><div><h2>確認學習範圍</h2><p>請確認每項觀念與細節是否符合需求；確認前不會搜尋外部來源。</p></div><button className="text-button" disabled={busy} onClick={()=>setEditingRequest(true)}>修改學習需求</button></header>
  <ScopeFields draft={draft} onChange={setDraft} busy={busy}/>
  {errorNotice}
- <footer className="tool-stage-footer"><span>確認後開始搜尋並返回我的教材，可隨時回來選取來源。</span><button className="primary-button" disabled={busy||!draft.title.trim()||!draft.level.trim()||!draft.topics.some(x=>x.trim())||!draft.goals.some(x=>x.trim())} onClick={()=>{const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim()),exclude:draft.exclude.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const body=JSON.stringify(clean);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};await api.studyTools(`/v1/topics/${view.topic_id}/approve`,{expected_version:view.version,proposal:clean},approveIntent.current.key);approveIntent.current=null;if(alive.current)writeRoute({name:'materials'});});}}>確認範圍並搜尋<Icon name="chevron-right" size={16}/></button></footer></section>}
+ <footer className="tool-stage-footer"><span>確認後優先搜尋論文，依摘要與正文判斷各項需求的支持程度。</span><button className="primary-button" disabled={busy||!draft.title.trim()||!draft.level.trim()||!draft.topics.some(x=>x.trim())||!draft.goals.some(x=>x.trim())} onClick={()=>{const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim()),exclude:draft.exclude.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const body=JSON.stringify(clean);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,{expected_version:view.version,proposal:clean},approveIntent.current.key);approveIntent.current=null;if(alive.current)writeRoute(view.material_id&&approved.research_id?{name:'research',materialId:view.material_id,researchId:approved.research_id}:{name:'materials'});});}}>確認範圍並搜尋<Icon name="chevron-right" size={16}/></button></footer></section>}
  {!inputStage&&view?.status==='approved'&&<>
 
  {work&&<section className={`surface topic-section topic-sources${!hasMaterial?' is-selecting':''}`}>
@@ -156,13 +159,13 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  </>}
  </section>}
  {work.progress&&!hasMaterial&&<ResearchProgress candidates={work.candidates} progress={work.progress} running={work.status==='searching'}/>}
- {(!work.progress||work.status!=='searching')&&(hasMaterial&&readOnlySources?<details className="topic-selected-sources"><summary>已選來源 · {work.selection.length} 份</summary><SourceCandidates candidates={visibleSources} selected={selected} disabled readOnly onChange={setSelected}/></details>:(visibleSources.length>0||!!work.cursor)&&<SourceCandidates hasMore={!work.progress&&!hasMaterial&&!!work.cursor&&['selecting','searching'].includes(work.status)} loading={busy||work.status==='searching'} onMore={()=>actResearch('more')} candidates={visibleSources} selected={selected} disabled={busy||working||readOnlySources} readOnly={readOnlySources} onChange={setSelected}/>)}
+ {(!work.progress||work.status!=='searching')&&(hasMaterial&&readOnlySources?<details className="topic-selected-sources"><summary>已選來源 · {work.selection.length} 份</summary><SourceCandidates candidates={visibleSources} selected={selected} disabled readOnly onChange={setSelected}/></details>:visibleSources.length>0&&<SourceCandidates candidates={visibleSources} selected={selected} disabled={busy||working||readOnlySources} readOnly={readOnlySources} onChange={setSelected}/>)}
 
  {work.progress&&work.status==='selecting'&&!visibleSources.length&&<p className="tool-empty">這次尚未整理出切題的正文來源，可查看未完成原因或依缺口繼續研究。</p>}
  {!work.candidates.length&&work.status==='selecting'&&<p className="tool-empty">沒有找到來源，請調整主題重新規劃。</p>}
  <footer className="tool-stage-footer"><div className="tool-footer-secondary">
  {!work.deleted&&<>
- {work.status==='selecting'&&!hasMaterial&&<button className="text-button" disabled={busy} onClick={()=>void actResearch('more')}>{work.progress?'依缺口繼續研究':'重新整理研究'}</button>}
+ {work.status==='selecting'&&!hasMaterial&&<button className="text-button" disabled={busy} onClick={()=>work.approved_scope?void actResearch('more'):setEditingRequest(true)}>{work.approved_scope?'依缺口繼續研究':'重新確認搜尋範圍'}</button>}
  {work.status==='failed'&&!work.run_id&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('retry')}>重試未完成部分</button>}
  {working&&work.status!=='ready'&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('cancel')}>停止處理</button>}
  {work.status==='cancelled'&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('retry')}>接續處理</button>}

@@ -11,7 +11,7 @@ def candidate(identity='one',title='Agent memory'):
 
 
 def state():
-    return {'query':'了解 Agent 的記憶与工具','mode':'self-study','material_title':'Synthetic','approved_scope':None,
+    return {'query':'了解 Agent 的記憶与工具','mode':'self-study','material_title':'Synthetic','approved_scope':{'topics':['Agent memory']},
             'search_state':flow.new_state(),'candidates':[]}
 
 
@@ -46,6 +46,63 @@ def test_stages_are_resumable_and_sufficient_evidence_stops_unneeded_searches(mo
     assert done['candidates'][0]['review']['quotes'][0]['quote']=='Agent memory stores observations.'
     assert '_reading_text' not in done['candidates'][0]
     assert flow.progress(done['search_state'],done['candidates'])['read_count']==1
+
+
+def test_covered_topic_can_check_a_specific_counterexample_without_rejecting_existing_evidence(monkeypatch):
+    searched=[]
+    def search(query,cursor,**kwargs):
+        searched.append(query)
+        return [candidate('initial' if len(searched)==1 else 'counterexample')],None,[]
+    def provider(path,body):
+        result=review_provider(path,body)
+        if body['request']['task']=='follow_up' and len(searched)==1:
+            result['searches']=[{'query':'When can retained observations mislead an agent?',
+                'channel':'papers','topics':[0],'reason':'Clarify the condition under which memory is harmful.'}]
+        return result
+    monkeypatch.setattr(flow.research_sources,'search',search)
+    monkeypatch.setattr(flow,'inspect_candidate',inspect)
+    done,_=drive(state(),provider)
+    assert len(searched)==2 and done['search_state']['finish_reason']=='covered'
+    assert len([c for c in done['candidates'] if c['eligible']])==2
+
+
+def test_covered_topic_can_read_missing_methods_and_keeps_partial_support_selectable():
+    value=state();source=inspect(candidate());source.pop('_reading_text')
+    source['screening']={'decision':'read','basis':'abstract','reason':'Relevant single study'}
+    source['review']={'phase':'body','scope':'sections','relevance':'direct','topics':[0],
+        'reason':'A simulation supports a conditional explanation.',
+        'quotes':[{'topic':0,'quote':'Agent memory stores observations.'}],
+        'skipped_sections':[{'start':100,'end':200,'headings':['Methods'],'reason':'Not yet read'}]}
+    value['candidates']=[source];value['search_state'].update(stage='following_up',topics=['Agent memory'])
+    def provider(path,body):
+        return {'coverage':requested_coverage(body,[{'topic':0,'status':'covered',
+            'reason':'Useful conditional support; check the model assumptions before generalizing.','sources':[0]}]),
+            'read_next':[0],'searches':[]}
+    result=flow.advance(value,provider)
+    assert result['search_state']['stage']=='reading'
+    assert result['search_state']['coverage'][0]['status']=='covered'
+    assert result['candidates'][0]['eligible']
+    assert result['candidates'][0]['_prior_review']['quotes']==source['review']['quotes']
+    assert result['candidates'][0]['reading_focus']==['Agent memory']
+
+
+def test_resuming_after_evidence_rule_change_rechecks_saved_quotes_without_rereading(monkeypatch):
+    monkeypatch.setattr(flow.research_sources,'search',lambda *a,**kw:([candidate()],None,[]))
+    monkeypatch.setattr(flow,'inspect_candidate',inspect)
+    done,_=drive(state())
+    saved=deepcopy(done['candidates'][0]['review'])
+    done['search_state'].update(stage='following_up',evidence_policy='previous-rule')
+    called=[]
+    def check(path,body):
+        assert body['request']['task']=='follow_up'
+        assert body['request']['coverage_topic']==0
+        assert body['request']['items'][0]['evidence']
+        called.append(body)
+        return review_provider(path,body)
+    result=flow.advance(done,check)
+    assert len(called)==1 and result['search_state']['evidence_policy']==flow.EVIDENCE_POLICY
+    assert result['candidates'][0]['review']==saved and result['candidates'][0]['eligible']
+    assert result['search_state']['coverage'][0]['status']=='covered'
 
 
 def test_missing_topic_triggers_another_round_without_user_pagination(monkeypatch):
@@ -434,7 +491,7 @@ def test_version_alias_reuses_selected_review_only_when_bytes_match(monkeypatch,
 def test_old_workflow_is_not_silently_upgraded_or_sent_to_model():
     value=state();value['search_state'].pop('schema')
     def forbidden(*args,**kwargs):raise AssertionError('old workflow must not call a model')
-    with pytest.raises(SourceError,match='MATERIAL_FORMAT_UNSUPPORTED'):
+    with pytest.raises(SourceError,match='RESEARCH_SCOPE_REQUIRED'):
         flow.advance(value,forbidden)
 
 
@@ -443,7 +500,8 @@ def test_gap_explores_new_search_before_expanding_a_read_source(already_planned)
     value=state();source=inspect(candidate())
     source['screening']={'decision':'read','reason':'Related','basis':'abstract'}
     source['review']={'phase':'body','scope':'sections','relevance':'direct','reason':'Saved',
-                     'quotes':[{'topic':0,'quote':'Agent memory stores observations.'}],'topics':[0]}
+                     'quotes':[{'topic':0,'quote':'Agent memory stores observations.'}],'topics':[0],
+                     'skipped_sections':[{'start':100,'end':200,'headings':['Methods'],'reason':'Not yet read'}]}
     value['candidates']=[source]
     value['search_state'].update(stage='following_up',topics=['Agent memory and tools'],searches=[
         {'query':'Agent tools execution','channel':'web','topics':[0],'reason':'Unexplored mechanism',
@@ -850,7 +908,8 @@ def test_pending_foundation_precedes_old_expansion_in_followup_batch():
     value=state();old=inspect(candidate('old','Agent memory tool detailed survey'));old.pop('_reading_text')
     old['screening']={'decision':'read','basis':'abstract','reason':'Agent memory tools'}
     old['review']={'phase':'body','scope':'sections','relevance':'direct','topics':[0],
-                  'reason':'Agent memory tools '*20,'quotes':[{'topic':0,'quote':'Agent memory stores observations.'}]}
+                  'reason':'Agent memory tools '*20,'quotes':[{'topic':0,'quote':'Agent memory stores observations.'}],
+                  'skipped_sections':[{'start':100,'end':200,'headings':['Methods'],'reason':'Not yet read'}]}
     fresh=candidate('fresh','Introductory textbook')
     fresh['screening']={'decision':'read','basis':'search_snippet','reason':'Needed foundation'}
     fresh['review']={'phase':'metadata','relevance':'direct','topics':[0],'reason':'Foundation','quotes':[]}
@@ -1050,3 +1109,59 @@ def test_provided_url_selection_can_exclude_a_url_and_rejects_foreign_indices():
     for selected in [[2],[True],None]:
         with pytest.raises(SourceError,match='RESEARCH_REVIEW_FAILED'):
             flow.advance(value,lambda *args:{**plan,'source_indices':selected})
+
+
+def test_planning_requires_confirmation_and_keeps_each_approved_detail():
+    value=state();value['approved_scope']=None
+    with pytest.raises(SourceError,match='RESEARCH_SCOPE_REQUIRED'):
+        flow.advance(value,lambda *a:pytest.fail('unconfirmed scope must not call provider'))
+    topics=['判斷信心：如何辨識不確定的決策','停止與求助：重試何時失去價值']
+    value['approved_scope']={'topics':topics}
+    def provider(path,body):
+        assert [t['topic'] for t in body['request']['topics']]==topics
+        assert 'topics' not in body['schema']['properties']
+        return {'summary':'Confirmed needs','searches':[
+            {'query':'How does a decision system estimate uncertainty?','topics':[0],'reason':'confidence'},
+            {'query':'When should an agent stop retrying and defer to a human?','topics':[1],'reason':'stopping'}]}
+    result=flow.advance(value,provider)
+    assert result['search_state']['topics']==topics
+    assert all(s['channel']=='papers' for s in result['search_state']['searches'])
+    def missing(path,body):
+        result=provider(path,body);result['searches'].pop();return result
+    with pytest.raises(SourceError,match='RESEARCH_REVIEW_FAILED'):flow.advance(value,missing)
+
+
+def test_semantic_body_location_can_find_different_wording_beyond_lexical_top_windows():
+    value=state();value['search_state']['topics']=['ask a human when unsure']
+    source=inspect(candidate())
+    source['_reading_text']='A generic overview. '*4000+'\nSelective prediction uses a reject option to defer uncertain decisions to an expert.'
+    windows=flow._windows(source,value['search_state'])
+    assert len(windows)>flow.READ_WINDOW_CANDIDATES
+    assert 'reject option' in source['_reading_text'][windows[-1]['start']:windows[-1]['end']]
+    assert sum(w['end']-w['start'] for w in windows)==len(source['_reading_text'])
+
+
+def test_no_new_evidence_budget_does_not_discard_a_newly_selected_reference():
+    value=state();source=candidate('unread-reference','A relevant experimental study')
+    source.update(screening={'decision':'reference','basis':'abstract','reason':'A narrower case study'},
+        review={'phase':'metadata','relevance':'related','topics':[0],'reason':'Not read yet','quotes':[]})
+    value['candidates']=[source];value['search_state'].update(stage='following_up',topics=['A general mechanism'])
+    selected=[]
+    def provider(path,body):
+        return {'coverage':requested_coverage(body,[{'topic':0,'status':'missing','reason':'Need body','sources':[]}]),
+                'read_next':selected,'searches':[]}
+    value={**value,**flow.advance(value,provider)}
+    value['search_state'].update(stage='following_up',stalled_checks=1)
+    selected.append(0)
+    result=flow.advance(value,provider)
+    assert result['search_state']['stalled_checks']==2
+    assert result['search_state']['stage']=='reading'
+    assert result['search_state']['read_queue']==['unread-reference']
+    assert result['candidates'][0]['screening']['decision']=='read'
+    assert 'RESEARCH_NO_NEW_EVIDENCE' not in result['search_state']['warnings']
+
+
+def test_previous_search_workflow_cannot_continue_without_new_confirmation():
+    value=state();value['search_state']['schema']='material-research/v2'
+    with pytest.raises(SourceError,match='RESEARCH_SCOPE_REQUIRED'):
+        flow.advance(value,lambda *a:pytest.fail('old search workflow must not run'))

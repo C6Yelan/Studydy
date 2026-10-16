@@ -2,14 +2,16 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { errorMessage, type StudydyApiClient } from '../../api/client';
 import { routePath, writeRoute } from '../../app/routes';
 import { Icon } from '../../ui/Icon';
+import type { Topic } from '../topics/TopicPage';
 import { ResearchManagement } from './ResearchManagement';
-import { researchActive, researchTaskInfo, type Research, type ResearchSummary, type ResearchDraft } from './research';
+import { researchActive, researchTaskInfo, type ResearchSummary, type ResearchDraft } from './research';
 
 export function ResearchPanel({ api, materialId, draft, onDraftChange, onMaterialUpdated, contentNavigation }: {
   api: StudydyApiClient; materialId: string; draft?: ResearchDraft; onDraftChange?: (draft: ResearchDraft) => void;
   onMaterialUpdated: () => void; contentNavigation?: ReactNode;
 }) {
   const [query, setQuery] = useState(draft?.query ?? ''), [list, setList] = useState<ResearchSummary[] | null>(null);
+  const [scopes,setScopes]=useState<Topic[]>([]);
   const [busy, setBusy] = useState(false), [searchError, setSearchError] = useState(''), [listError, setListError] = useState('');
   const tasks = useRef(draft?.tasks ?? {}), deleted = useRef(new Set<string>()), notified = useRef(new Set<string>());
   const alive = useRef(false), creating = useRef(false), listRead = useRef(0), heading = useRef<HTMLDivElement>(null);
@@ -18,11 +20,11 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
   useEffect(() => { onDraftChange?.({ query, tasks: tasks.current }); }, [query, onDraftChange]);
   const refresh = useCallback(async () => {
     const request = ++listRead.current;
-    const result = await api.studyTools<{ researches: ResearchSummary[] }>(`/v1/materials/${materialId}/research`);
-    if (alive.current && request === listRead.current) { setList(result.researches.filter(item => !deleted.current.has(item.research_id))); setListError(''); }
+    const [result,plans] = await Promise.all([api.studyTools<{ researches: ResearchSummary[] }>(`/v1/materials/${materialId}/research`),api.studyTools<{topics:Topic[]}>(`/v1/topics?material_id=${materialId}`)]);
+    if (alive.current && request === listRead.current) { setScopes(plans.topics.filter(scope=>scope.status!=='approved')); setList(result.researches.filter(item => !deleted.current.has(item.research_id))); setListError(''); }
   }, [api, materialId]);
   useEffect(() => { void refresh().catch(error => { if (alive.current) setListError(errorMessage(error)); }); }, [refresh]);
-  const pending = list?.some(item => researchActive.has(item.status) || item.status === 'submitted' && !['succeeded', 'partial', 'failed', 'cancelled'].includes(item.run_status ?? ''));
+  const pending = scopes.some(scope=>scope.status==='pending') || list?.some(item => researchActive.has(item.status) || item.status === 'submitted' && !['succeeded', 'partial', 'failed', 'cancelled'].includes(item.run_status ?? ''));
   useEffect(() => {
     if (!pending) return;
     let reading = false;
@@ -41,14 +43,14 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
   const search = async () => {
     if (creating.current || !query.trim()) return;
     creating.current = true; setBusy(true); setSearchError('');
-    const body = JSON.stringify({query,mode:'review'});
+    const body = JSON.stringify({request:query,material_id:materialId});
     if (intent.current?.body !== body) intent.current = {body,key:crypto.randomUUID()};
     try {
-      const result = await api.studyTools<Research>(`/v1/materials/${materialId}/research`, {query,mode:'review'}, intent.current.key);
+      const result = await api.studyTools<Topic>('/v1/topics', {request:query,material_id:materialId}, intent.current.key);
       if (alive.current) {
         intent.current = null;
         onDraftChange?.({query:'',tasks:tasks.current});
-        writeRoute({name:'research',materialId,researchId:result.research_id});
+        writeRoute({name:'topic',topicId:result.topic_id});
       }
     } catch (error) { if (alive.current) setSearchError(errorMessage(error)); }
     finally { creating.current = false; if (alive.current) setBusy(false); }
@@ -79,11 +81,13 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
       <header className="library-header library-header-compact collection-toolbar"><div className="collection-summary" ref={heading} tabIndex={-1}><h1>補充學習</h1><p>{list === null ? '正在讀取查詢…' : `已保存 ${list.length} 筆查詢`}</p></div></header>
       <section className="surface research-compose" aria-labelledby="research-prompt"><h2 id="research-prompt">想補充什麼內容？</h2>
         <form onSubmit={event => { event.preventDefault(); void search(); }}><input type="search" aria-label="想多了解什麼？" placeholder="輸入想補充的內容…" maxLength={1000} value={query} onChange={event => setQuery(event.target.value)}/>
-          <button className="primary-button" type="submit" disabled={busy || !query.trim()}>{busy ? '正在建立搜尋…' : '搜尋補充資料'}<Icon name="chevron-right" size={16}/></button></form>
+          <button className="primary-button" type="submit" disabled={busy || !query.trim()}>{busy ? '正在建立規劃…' : '產生搜尋範圍'}<Icon name="chevron-right" size={16}/></button></form>
+        <p>先確認要查找的觀念與細節，再開始搜尋。</p>
         {searchError && <p className="form-error" role="alert">{searchError}</p>}
       </section>
       {listError && <p className="form-error" role="alert">{listError}<button className="text-button" type="button" onClick={() => void refresh().catch(error => setListError(errorMessage(error)))}>重新讀取查詢</button></p>}
-      {list?.length === 0 && <p className="research-empty">還沒有補充查詢。建立查詢後，可從卡片開啟來源與處理進度。</p>}
+      {scopes.map(scope=><article className="surface research-record" key={scope.topic_id}><h2>{scope.request}</h2><p>{scope.status==='pending'?'正在整理觀念與細節，尚未搜尋。':scope.status==='failed'?'需求規劃未完成，可重試。':'待確認搜尋範圍，尚未搜尋。'}</p><button className="primary-button" onClick={()=>writeRoute({name:'topic',topicId:scope.topic_id})}>查看搜尋範圍</button></article>)}
+      {list?.length === 0 && scopes.length===0 && <p className="research-empty">還沒有補充查詢。建立查詢後，可從卡片開啟來源與處理進度。</p>}
       <div className="library-grid research-records" role="region" tabIndex={0} aria-label="補充搜尋紀錄">{list?.filter(item => item.status !== 'cancelled').map(renderRecord)}</div>
       {!!stopped.length && <details className="research-stopped">
         <summary>已停止的查詢 · {stopped.length} 筆</summary>

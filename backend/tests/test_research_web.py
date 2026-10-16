@@ -112,17 +112,16 @@ def test_web_discovery_preserves_all_candidates_for_background_reading(monkeypat
 def test_free_web_search_joins_existing_search_and_pagination_without_rewriting_query(monkeypatch):
     calls=[]
     monkeypatch.setattr(sources,'openalex_search',lambda query,cursor:(calls.append(('academic',query,cursor)) or [],None))
-    monkeypatch.setattr(sources,'crossref_search',lambda *a:([],None))
     monkeypatch.setattr(sources,'official_search',lambda *a:[])
     monkeypatch.setattr(sources,'mdn_search',lambda *a:[])
     monkeypatch.delenv('STUDYDY_SEMANTIC_SCHOLAR_API_KEY',raising=False)
     def search(queries,page):
         calls.append(('web',queries,page));return [],page+1 if page<3 else None,['SearXNG:partial']
     monkeypatch.setattr(web,'search_web',search)
-    rows,cursor,warnings=sources.search('network tutorial\n網路 教學')
-    assert calls==[('academic','network tutorial','*'),('web',['network tutorial','網路 教學'],1)]
+    rows,cursor,warnings=sources.search('network tutorial\n網路 教學',channel='web')
+    assert calls==[('web',['network tutorial','網路 教學'],1)]
     assert json.loads(cursor)=={'web':2} and warnings==['SearXNG:partial']
-    calls.clear();sources.search('network tutorial\n網路 教學',cursor)
+    calls.clear();sources.search('network tutorial\n網路 教學',cursor,channel='web')
     assert calls==[('web',['network tutorial','網路 教學'],2)]
 
 

@@ -134,8 +134,41 @@ def html_document(data,final,media,*,require_license=False):
     return {'url':final,'title':title,'authors':author,'text':text,'license':license,'license_url':license_url,
             'original_sha256':digest,'license_snapshot_sha256':digest,
             'license_text':'來源頁面明示的授權：'+license_url if license_url else '',
-            'access_url':final,'access_method':'html',
+            'access_url':final,'access_method':'html','paper_body':_paper_body(tree,text),
             'page_identity':sha256((final+'\n'+title).encode()).hexdigest()}
+
+
+def _paper_body(tree,text):
+    """辨識論文頁中實際可讀的正文；有 PDF 連結不代表 HTML 只有摘要。"""
+    if not tree.xpath('//meta[@name="citation_title" or @name="citation_doi"]'):
+        return False
+    # 結構化摘要也可能有 Methods／Results；只採摘要、導覽以外且確實被擷取的段落。
+    abstract_level=None
+    for heading in tree.xpath('//h1 | //h2 | //h3 | //h4'):
+        label=' '.join(heading.itertext()).strip()
+        level=int(heading.tag[1])
+        if abstract_level is not None:
+            if level>abstract_level:continue
+            abstract_level=None
+        if re.fullmatch(r'abstract|summary|摘要',label,re.I):
+            abstract_level=level
+            continue
+        if not re.match(r'^(?:\d+[.\s]*)?(?:introduction|background|materials? and methods|methods|methodology|results|discussion|conclusions?|緒論|前言|研究方法|結果|討論|結論)\b',label,re.I):
+            continue
+        if heading.xpath('ancestor::nav | ancestor::aside | ancestor::header | ancestor::footer | ancestor::a'):
+            continue
+        if any(re.search(r'abstract|summary',str(node.get('id',''))+' '+str(node.get('class','')),re.I)
+               for node in heading.iterancestors()):
+            continue
+        # 不以論文字數、章節數或研究類型設門檻；至少有該正文段落，而非只有目錄標題。
+        for sibling in heading.itersiblings():
+            if sibling.tag in ('h1','h2','h3','h4'):break
+            paragraphs=([sibling] if sibling.tag=='p' else sibling.xpath('.//p'))
+            for paragraph in paragraphs:
+                value=' '.join(' '.join(paragraph.itertext()).split())
+                compact=lambda value:''.join(c.casefold() for c in value if c.isalnum())
+                if value and compact(value) in compact(text):return True
+    return False
 
 
 def search_web(queries,page):
@@ -179,9 +212,16 @@ def acquire_web(candidate):
     if doc['page_identity']!=candidate.get('page_identity'):raise SourceError('RESEARCH_IDENTITY_UNCONFIRMED')
     if doc['license']!=candidate['license'] or doc['license_url']!=candidate['license_url']:
         raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
+    return document_artifact(doc,candidate)
+
+
+def document_artifact(doc,candidate):
+    """把已核對來源的正文固定成可匯入文字，保留原頁 hash 與正文起點。"""
     metadata={key:candidate.get(key) for key in ('id','title','authors','year','doi','url','license','license_url','version')}
+    metadata.update(license=doc['license'],license_url=doc['license_url'])
     metadata.update({key:doc[key] for key in ('original_sha256','license_snapshot_sha256','license_text')})
     metadata.update(download_url=doc['url'],access_url=doc['access_url'],access_method=doc['access_method'],derivative_license=doc['license'],format='html')
-    text=(doc['title']+'\n來源：'+doc['url']+'\n來源網站／作者：'+doc['authors']+'\n授權：'+doc['license']+' '+doc['license_url']
-          +'\n變更：擷取網頁正文為文字，保留標題、表格及程式碼；未加入其他來源。\n\n'+doc['text'])
-    return text.encode(),'text/plain','.txt',metadata
+    prefix=(doc['title']+'\n來源：'+doc['url']+'\n來源網站／作者：'+doc['authors']+'\n授權：'+doc['license']+' '+doc['license_url']
+          +'\n變更：擷取網頁正文為文字，保留標題、表格及程式碼；未加入其他來源。\n\n')
+    metadata['body_offset']=len(prefix)
+    return (prefix+doc['text']).encode(),'text/plain','.txt',metadata
