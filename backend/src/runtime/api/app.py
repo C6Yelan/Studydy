@@ -69,7 +69,7 @@ from .models import (
     AccountCredentials, ApiErrorView, AssessmentPlanView, AssessmentSetAction,
     AssessmentSetCreate, AssessmentSetListView, AssessmentSetSubmission,
     AssessmentSetView, EvidenceSourceView, GuidanceApply, KnowledgeStructureView,
-    CardSetCreate, CardSetUpdate, CardCountSave, CardRedesign, CardStudyView, CardBatchView, CardSetSummary, CardSetView, CardSetListView, CardSetDeletedView,
+    CardSetCreate, CardSetUpdate, CardCountSave, CardStudyView, CardBatchView, CardSetSummary, CardSetView, CardSetListView, CardSetDeletedView,
     LearnerIdentityView, LearnerProgressView, MaterialDiscardView,
     MaterialDraftCreate, MaterialDraftView, MaterialLibraryItem,
     MaterialLibraryView, MaterialProcessingRunView, MaterialRename,
@@ -467,7 +467,7 @@ def _install_openapi(app: FastAPI) -> None:
                     response_codes.add(409)
                 if path == "/v1/session/login":
                     response_codes.add(401)
-                if path.endswith("/resume") or path in {"/v1/card-sets/{card_set_id}/update", "/v1/card-sets/{card_set_id}/count", "/v1/card-sets/{card_set_id}/redesign", "/v1/podcasts/{podcast_id}/actions"}:
+                if path.endswith("/resume") or path in {"/v1/card-sets/{card_set_id}/update", "/v1/card-sets/{card_set_id}/count", "/v1/podcasts/{podcast_id}/actions"}:
                     response_codes.add(409)
                 if path == "/v1/materials/{material_id}" and method == "delete":
                     response_codes.add(409)
@@ -976,12 +976,6 @@ def create_app(settings: ApiSettings) -> FastAPI:
         _require_query(request, set())
         owner = _trusted_learner(request, settings).learner_id
         return card_sets.read_card_study(owner, card_set_id, dsn=settings.dsn)
-
-    @app.post("/v1/card-sets/{card_set_id}/redesign", response_model=CardSetSummary, operation_id="redesignCardSet", tags=["cards"])
-    def card_redesign_route(request: Request, card_set_id: UUID, body: CardRedesign):
-        _require_query(request, set())
-        owner = _trusted_learner(request, settings).learner_id
-        return card_sets.redesign_card_set(owner, card_set_id, body.expected_version, dsn=settings.dsn)
 
     @app.get("/v1/card-sets/{card_set_id}/cards", response_model=CardBatchView, operation_id="getCardBatch", tags=["cards"])
     def card_batch_route(request: Request, card_set_id: UUID, offset: int = Query(ge=0), version: int = Query(ge=1)):

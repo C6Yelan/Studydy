@@ -240,23 +240,6 @@ def save_card_count(owner, card_set_id, count, expected_version, *, concept_coun
         return _summary(row, material)
 
 
-def redesign_card_set(owner, card_set_id, expected_version, *, dsn=None):
-    with database_session(dsn) as session:
-        material_id = _set_material_id(session, owner, card_set_id)
-        material = _material(session, owner, material_id)
-        row = session.get(CardSet, card_set_id)
-        if row is None or row.deleted_at is not None: raise CardSetError('RESOURCE_NOT_FOUND')
-        if row.version == expected_version + 1 and row.generation.get('redesign_from_version') == expected_version:
-            return _summary(row, material)
-        if row.version != expected_version or row.status not in ('ready', 'failed'):
-            raise CardSetError('CARD_SET_CONFLICT')
-        row.generation = {**card_generation.initial(previous=row.generation), 'redesign_from_version': expected_version, 'force_regenerate': True}
-        row.status = 'pending'; row.version += 1
-        row.card_count = None; row.page_counts = {}
-        row.lease_token = None; row.lease_expires_at = None
-        return _summary(row, material)
-
-
 def read_card_study(owner, card_set_id, *, offset=0, expected_version=None, dsn=None):
     with database_session(dsn) as session:
         material_id = _set_material_id(session, owner, card_set_id)

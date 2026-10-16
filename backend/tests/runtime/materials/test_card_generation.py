@@ -120,20 +120,6 @@ def test_repair_uses_current_issues_and_latest_failed_candidate(closed_loop):
     assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['status'] == 'ready'
 
 
-def test_redesign_is_version_bound_idempotent_and_preserves_original(closed_loop):
-    owner, _, _, _, dsn, _ = closed_loop
-    identity = create(closed_loop); finish(dsn, response)
-    original = card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)['cards']
-    saved = card_sets.redesign_card_set(owner.learner_id, identity, 1, dsn=dsn)
-    assert saved['version'] == 2 and saved['card_count'] is None
-    assert card_sets.redesign_card_set(owner.learner_id, identity, 1, dsn=dsn) == saved
-    finish(dsn, response)
-    assert card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)['cards'] == original
-    with database_session(dsn) as db:
-        state = db.get(CardSet, identity).generation
-        assert state['calls'] == 2 and state['previous_usage'][0]['calls'] == 2
-
-
 def test_provider_switch_does_not_mix_luna_and_gemma_results(closed_loop, monkeypatch):
     owner, _, _, _, dsn, _ = closed_loop
     monkeypatch.setenv('STUDYDY_TEXT_TEST_PROVIDER', 'codex-exec-luna')
@@ -141,7 +127,7 @@ def test_provider_switch_does_not_mix_luna_and_gemma_results(closed_loop, monkey
     monkeypatch.delenv('STUDYDY_TEXT_TEST_PROVIDER')
     finish(dsn, lambda *_: (_ for _ in ()).throw(AssertionError('must not call a different provider')))
     assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['error_code'] == 'CARD_PROVIDER_CHANGED'
-    card_sets.redesign_card_set(owner.learner_id, identity, 1, dsn=dsn)
+    identity = create(closed_loop, key='current-provider')
     finish(dsn, response)
     design = card_sets.read_card_study(owner.learner_id, identity, dsn=dsn)['batch']['cards'][0]['design']
     assert design['provider']['api_protocol'] == 'openai-chat-completions/v1'

@@ -86,13 +86,6 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
     if (Number(query.get('version')) !== version) return json(route, { schema: 'api-error/v1', request_id: sessionId, reason_code: 'CARD_SET_CONFLICT', retryable: false, message: 'Request could not be completed.' }, 409);
     return json(route, batch(Number(query.get('offset'))));
   });
-  await page.route(`**/v1/card-sets/${cardSetId}/redesign`, route => {
-    const body = route.request().postDataJSON();
-    if (body.expected_version !== version) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "CARD_SET_CONFLICT", retryable: false, message: "Request could not be completed." }, 409);
-    version++; cardCount = null; pageCounts = {};
-    generation = { ...readyGeneration(), status: 'pending', stage: 'preparing', completed: 0 };
-    return json(route, summary());
-  });
   await page.route(`**/v1/card-sets/${cardSetId}/count`, route => {
     const body = route.request().postDataJSON();
     if (body.expected_version !== version) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "CARD_SET_CONFLICT", retryable: false, message: "Request could not be completed." }, 409);
@@ -1438,15 +1431,6 @@ for (const [layout, count] of [['focus', 1], ['focus', 2], ['compare', 2], ['flo
   });
 }
 
-test('existing cards can request a new design without changing their source selection', async ({ page }) => {
-  const fixture = await mockCards(page, { saved: true, savedCount: 2 });
-  await page.goto('/concept-cards');
-  await page.getByRole('button', { name: '管理卡組「資料結構 · 核心概念」', exact: true }).click();
-  await page.getByRole('button', { name: '重新整理卡面', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '正在生成概念卡', exact: true })).toBeVisible();
-  expect(fixture.summary().version).toBe(2);
-  expect(fixture.requests).toEqual([]);
-});
 
 for (const [layout, count] of [['focus', 1], ['compare', 2], ['grid', 4], ['flow', 4]] as const) {
   test(`model-designed ${layout} wraps long text without truncation or fixed-height rejection`, async ({ page }) => {

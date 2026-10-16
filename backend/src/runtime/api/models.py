@@ -371,10 +371,6 @@ class CardDesignView(_Closed):
     provider: dict[str, str]
 
 
-class CardRedesign(_Closed):
-    expected_version: int = Field(ge=1, strict=True)
-
-
 class StudyCardView(ConceptCardView):
     display_edits: list[CardTextEdit]
     design: CardDesignView | None = None

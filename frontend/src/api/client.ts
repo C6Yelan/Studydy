@@ -406,13 +406,6 @@ export class StudydyApiClient {
     return this.json(`/v1/card-sets/${encodeURIComponent(id)}/generation`, { method: "GET" }, validate.cardGeneration);
   }
 
-  redesignCardSet(id: string, version: number): Promise<CardSetSummary> {
-    return this.json(`/v1/card-sets/${encodeURIComponent(id)}/redesign`, {
-      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
-      body: JSON.stringify({ expected_version: version }),
-    }, (value): value is CardSetSummary => validate.cardSetSummary(value) && value.card_set_id === id);
-  }
-
   getCardStudy(id: string): Promise<CardStudyView> {
     return this.json(`/v1/card-sets/${encodeURIComponent(id)}/study`, { method: "GET" },
       (value): value is CardStudyView => validate.cardStudy(value) && value.card_set_id === id);
