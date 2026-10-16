@@ -9,7 +9,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
+import traceback
 
 from .podcast_video_plan import validate_plan, timeline_for_video, validate_visual_timing, visual_window
 
@@ -311,7 +313,8 @@ def render(request, audio_path, destination):
              '-pix_fmt','rgb24','-s','1920x1080','-r',str(fps),'-i','pipe:0','-i',str(audio_path),
              '-map','0:v:0','-map','1:a:0','-t',str(timeline['duration']),*encoder_arguments(encoder),'-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-movflags','+faststart',str(destination)]
     # 1080p RGB 每幀約 6 MiB；加大 Linux pipe，減少大量小寫入的切換成本。
-    with subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL, pipesize=1024*1024) as process:
+    with destination.with_suffix('.ffmpeg.log').open('wb') as errors, subprocess.Popen(
+            command,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=errors, pipesize=1024*1024) as process:
         try:
             for n in range(math.ceil(timeline['duration']*fps)):
                 if n%600==0:
@@ -321,8 +324,15 @@ def render(request, audio_path, destination):
                 process.stdin.write(draw_frame(n/fps,timeline,plan,text_layouts,mark_layouts,scene_cache=scene_cache).tobytes())
             process.stdin.close()
             if process.wait()!=0:raise ValueError('VIDEO_RENDER_FAILED')
-        except BaseException:
-            process.kill();process.wait();raise
+        except BaseException as error:
+            if process.poll() is None:process.kill()
+            process.wait()
+            destination.with_suffix('.failure.json').write_text(json.dumps({
+                'exception_type':type(error).__name__, 'frame':n,
+                'total_frames':math.ceil(timeline['duration']*fps),
+                'encoder':encoder, 'returncode':process.returncode,
+            }))
+            raise
     if destination.stat().st_size>MAX_VIDEO_BYTES:raise ValueError('VIDEO_TOO_LARGE')
     encoded=measure_encoded_audio(destination) if episode['audio'].get('mastering') else None
     return {**({'encoded_audio':encoded} if encoded else {}),'width':1920,'height':1080,'fps':fps,'duration':timeline['duration'],
@@ -345,4 +355,15 @@ if __name__=='__main__':
         result_path.write_text(json.dumps(result))
     except Exception as error:
         code=str(error) if isinstance(error,ValueError) and str(error).startswith('VIDEO_') else 'VIDEO_RENDER_FAILED'
-        result_path.write_text(json.dumps({'error':code}));raise SystemExit(1)
+        result_path.write_text(json.dumps({'error':code}))
+        # 僅保存失敗渲染的本機輸入與診斷，讓重現不必再呼叫模型；不寫一般服務 log。
+        if '--validate' not in sys.argv[4:]:
+            failures=request_path.parent.parent/'failures'
+            failures.mkdir(mode=0o700,exist_ok=True)
+            saved=Path(tempfile.mkdtemp(prefix='render-',dir=failures))
+            for source in (request_path,audio_path,result_path,result_path.with_suffix('.ffmpeg.log'),result_path.with_suffix('.failure.json')):
+                if source.is_file():
+                    target=saved/source.name
+                    shutil.copyfile(source,target);target.chmod(0o600)
+            (saved/'traceback.txt').write_text(traceback.format_exc())
+        raise SystemExit(1)

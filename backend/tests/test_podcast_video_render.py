@@ -145,3 +145,23 @@ def test_wrapping_preserves_explicit_paragraphs_and_splits_long_identifiers():
     assert ''.join(rows) == text.replace('\n','')
     assert rows[-1] == '第二段。'
     assert all(render.font(28).getlength(row) <= width for row in rows)
+
+
+def test_failed_renderer_keeps_private_reproduction_inputs(tmp_path):
+    import json, subprocess, sys
+    job = tmp_path / 'episode'
+    job.mkdir()
+    source, audio, result = job/'request.json', job/'audio.wav', job/'result.json'
+    source.write_text(json.dumps({'episode': {'audio': {'sha256': '0'*64}}}))
+    audio.write_bytes(b'local-test-audio')
+    completed = subprocess.run([sys.executable, '-m', 'runtime.podcast_video_render',
+        str(source), str(audio), str(result)], capture_output=True, timeout=10)
+    assert completed.returncode == 1
+    assert json.loads(result.read_text()) == {'error': 'VIDEO_SOURCE_CHANGED'}
+    saved, = (tmp_path/'failures').iterdir()
+    assert (saved/'request.json').read_bytes() == source.read_bytes()
+    assert (saved/'audio.wav').read_bytes() == audio.read_bytes()
+    assert 'VIDEO_SOURCE_CHANGED' in (saved/'traceback.txt').read_text()
+    assert saved.stat().st_mode & 0o777 == 0o700
+    assert (saved/'request.json').stat().st_mode & 0o777 == 0o600
+    assert not completed.stdout and not completed.stderr
