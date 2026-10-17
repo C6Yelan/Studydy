@@ -23,7 +23,8 @@
 | 轉檔、Evidence、來源與版本 | [教材處理](docs/materials.md) |
 | 題組、評分、補強與學習狀態 | [學習與評量](docs/learning.md) |
 | 格式、模型品質與覆蓋範圍 | [限制](docs/limitations.md) |
-| 論文與網站來源討論及後續整合事項 | [討論紀錄](docs/research-discussion-20261017.md) |
+| 學習功能討論、隔夜驗收規劃與待討論項目 | [討論紀錄](docs/research-discussion-20261017.md) |
+| 新對話接手的範圍、資料入口與執行邊界 | [隔夜交接](docs/overnight-handoff-20261017.md) |
 
 原檔與持久資料保存在部署主機；AI 操作會傳送必要內容至設定的模型服務。模型結果須對照教材確認，程式測試不代表內容品質已全面驗收。
 
