@@ -55,7 +55,12 @@ def review_inputs(document, *, preserved_concept_ids=frozenset()):
         context = [e for e in evidence.values() if e['evidence_id'] in refs or
                    (e['source_id'] == source and min(pages) <= e['page'] <= max(pages))]
         title = f"{context[0]['source_name']}：第 {min(e['normalized_page'] for e in context if e['source_id'] == source)}–{max(e['normalized_page'] for e in context if e['source_id'] == source)} 頁"
-        units.append(_pack_review(view, concepts, context, title))
+        unit=_pack_review(view, concepts, context, title)
+        scope=binding['bundle'].get('learning_scopes',{}).get(source)
+        if scope:
+            unit.payload['learning_scope']=deepcopy(scope)
+            unit.payload['learning_scope_policy']='依已確認的程度、目標與排除範圍整理。相鄰原文只供理解，不把範圍外細節變成必學概念；必要的前提、反例與限制仍須保留。'
+        units.append(unit)
     return view, units
 
 

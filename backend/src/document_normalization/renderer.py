@@ -3,6 +3,7 @@
 from collections import Counter
 import hashlib
 import html
+from html.parser import HTMLParser
 from http.client import HTTPException
 import json
 import mimetypes
@@ -274,11 +275,18 @@ def text_html(source):
     return parser.renderer.render(tokens, parser.options, {}), anchors
 
 
+class _ResourceFreeHTML(HTMLParser):
+    def handle_starttag(self, tag, attrs):
+        if tag in ('img','script') or any(name in ('href','src') for name,_ in attrs):
+            raise ValueError('UNSAFE_RENDER_HTML')
+
+
 def story_pdf(source, target):
     """將安全文字排成 PDF，記下原始區塊落在哪一頁與區域。"""
     markup, anchors = text_html(source)
-    if any(fragment in markup for fragment in ('<img', '<script', 'href=', 'src=')):
-        raise ValueError('UNSAFE_RENDER_HTML')
+    # 檢查實際標籤／屬性；教材中已跳脫的 href=、src= 範例只是文字。
+    guard=_ResourceFreeHTML()
+    guard.feed(markup);guard.close()
 
     story = pymupdf.Story(markup, user_css=_STORY_CSS)
     records = []

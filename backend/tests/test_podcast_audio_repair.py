@@ -71,11 +71,11 @@ class MixedInputTests(unittest.TestCase):
         self.assertIn(' a ', plan[0]['text'])
         self.assertNotIn(' A ', plan[0]['text'])
 
-    def test_mixed_acronyms_keep_chinese_connectors_in_one_sentence(self):
+    def test_mixed_acronyms_keep_chinese_connectors_across_list_pause(self):
         plan = self.plan('TCP、UDP 和 HTTP 是通訊協定。')
-        self.assertEqual(len(plan), 1)
+        self.assertEqual(len(plan), 2)
         self.assertIn('T C P', plan[0]['text'])
-        self.assertIn('U D P 和 H T T P', plan[0]['text'])
+        self.assertIn('U D P 和 H T T P', plan[1]['text'])
 
     def test_values_units_and_decimal_sentence_boundary(self):
         text = '大小是1,500 bytes，等待250ms。速率是8 MB/s 與8 Mb/s，延遲1.2毫秒。'
@@ -142,3 +142,13 @@ def test_assembly_counts_retained_edge_silence_without_cutting_audio():
     result=assemble(items,RATE)
     assert abs(len(result)-(2*len(audio)+round((.25-.16)*RATE)))<=2
     np.testing.assert_array_equal(result[1920:1920+len(tone(.4))],tone(.4))
+
+
+def test_clause_pause_is_shorter_than_sentence_but_paragraph_takes_priority():
+    current = {'source_text': '第一項、', 'speaker': 'host', 'beat': 0, 'ending': '、'}
+    following = {'source_text': '第二項。', 'speaker': 'host', 'beat': 0, 'ending': '。'}
+    assert pause_seconds(current, following) == .22
+    current['ending'] = '；'
+    assert pause_seconds(current, following) == .35
+    following['beat'] = 1
+    assert pause_seconds(current, following) == 1.10

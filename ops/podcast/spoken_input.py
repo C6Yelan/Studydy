@@ -11,6 +11,7 @@ _UNIT = r'(?<![A-Za-z0-9_])(?P<number>[+-]?\d+(?:\.\d+)?)\s*(?P<prefix>[kKMGTPE]
 _LATIN = r'[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)*'
 _PARTS = re.compile(f'(?P<unit>{_UNIT})|(?P<latin>{_LATIN})')
 _CAMEL = re.compile(r'[A-Z]+(?=[A-Z][a-z]|\d|$)|[A-Z]?[a-z]+|\d+|[A-Z]')
+_GREEK = dict(zip('αβγδεθλμρστφω', ['alpha','beta','gamma','delta','epsilon','theta','lambda','mu','rho','sigma','tau','phi','omega']))
 
 @lru_cache(maxsize=1)
 def lexicon():
@@ -67,16 +68,50 @@ def english_words(token, normalize_number):
     return ' '.join(token.upper())
 
 
+def spoken_phrases(text):
+    """只在可辨識的句內列舉留停頓，括號公式、小數與路徑不拆開。"""
+    pattern = r'.+?(?:[。！？]+[」』”\'"）)\]]*|[.!?]+[」』”\'"）)\]]*(?=\s|$)|$)'
+    for match in re.finditer(pattern, text, re.S):
+        sentence = match.group().strip()
+        # 全形斜線的三項以上中文詞串可辨識為列舉；兩項比值、ASCII 路徑與單位不套用。
+        list_boundaries = set()
+        for listing in re.finditer(r'(?:[\u3400-\u9fff]+|<[\u3400-\u9fff]+>)(?:／(?:[\u3400-\u9fff]+|<[\u3400-\u9fff]+>)){2,}', sentence):
+            list_boundaries.update(i for i in range(listing.start(), listing.end()) if sentence[i] == '／')
+        start = 0; stack = []; code = False
+        for i, char in enumerate(sentence):
+            if char == '`': code = not code
+            if code: continue
+            if char in '([{（': stack.append(char)
+            elif char in ')]}）' and stack: stack.pop()
+            if stack: continue
+            separator = char in '；;、' or char in '，,' and i-start >= 24 or i in list_boundaries
+            if char == ',' and 0 < i < len(sentence)-1 and sentence[i-1].isdigit() and sentence[i+1].isdigit():
+                separator = False
+            if separator and sentence[start:i+1].strip():
+                yield sentence[start:i+1].strip(), char
+                start = i+1
+        if sentence[start:].strip(): yield sentence[start:].strip(), None
+
+
 def mixed_sentences(text, normalize_zh, normalize_en):
     result = []
     # 句尾引號留在同一句，避免只剩引號的片段被送去合成；小數點不當句界。
-    for match in re.finditer(r'.+?(?:[。！？]+[」』”\'"）)\]]*|[.!?]+[」』”\'"）)\]]*(?=\s|$)|$)', text, re.S):
-        source_text = match.group().strip()
+    for source_text, separator in spoken_phrases(text):
         if not source_text:
             continue
         # 判斷句長使用原文字；縮寫、數值的朗讀展開不改變停頓類型。
         sentence = re.sub(r'(?<![A-Za-z0-9_.])\d{1,3}(?:,\d{3})+(?:\.\d+)?', lambda m: m[0].replace(',', ''), source_text)
         sentence = re.sub(r'(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*ms\b', r'\1 毫秒', sentence)
+        sentence = re.sub(r'<([\u3400-\u9fff]+)>', r'\1標記', sentence)
+        if separator == '／': sentence = sentence[:-1] + '，'
+        sentence = sentence.replace('→', '，右箭頭，').replace('←', '，左箭頭，')
+        # 只展開可辨識的運算符；程式字面值與路徑保留原符號，不能變成數學敘述。
+        pieces=re.split(r'(`[^`]*`|(?:https?://|(?<!\w)/|(?<!\w)[A-Za-z]:\\)[^\s，。；、]+)',sentence)
+        for i in range(0,len(pieces),2):
+            pieces[i]=re.sub(r'(?<=[\w)])\s*(<=|>=|≤|≥|<|>)\s*(?=[\w(])',
+                lambda match: ' '+{'<=':'小於或等於','>=':'大於或等於','≤':'小於或等於','≥':'大於或等於','<':'小於','>':'大於'}[match[1]]+' ',pieces[i])
+            pieces[i]=re.sub(r'[αβγδεθλμρστφω]',lambda match:' '+_GREEK[match[0]]+' ',pieces[i])
+        sentence=''.join(pieces)
         parts = []
         cursor = 0
         for match in _PARTS.finditer(sentence):
@@ -92,12 +127,12 @@ def mixed_sentences(text, normalize_zh, normalize_en):
             else:
                 token = match.group('latin')
                 # 小寫 a 是冠詞；全大寫縮寫才逐字母讀，保留同句中文連接詞。
-                value = token.lower() if not token.isupper() and token.lower() in lexicon() else english_words(token, normalize_en)
+                value = token.lower() if not token.isupper() and (token.lower() in lexicon() or token in _GREEK.values()) else english_words(token, normalize_en)
             parts.append(' ' + value + ' ')
             cursor = match.end()
         suffix = sentence[cursor:]
         parts.append(normalize_zh(suffix) if suffix.strip() else suffix)
         value = re.sub(r'\s+', ' ', ''.join(parts)).strip()
         result.append({'language': 'mixed', 'text': value, 'source_text': source_text,
-                       'ending': source_text.rstrip('」』”\'"）)]')[-1]})
+                       'ending': separator if separator is not None else source_text.rstrip('」』”\'"）)]')[-1]})
     return result

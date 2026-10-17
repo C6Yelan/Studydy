@@ -71,6 +71,8 @@ function ScopeFields({draft,onChange,busy}:{draft:Scope;onChange:(scope:Scope)=>
 export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const [request,setRequest]=useState(''),[list,setList]=useState<Topic[]>([]),[view,setView]=useState<Topic|null>(null),[draft,setDraft]=useState<Scope|null>(null),[selected,setSelected]=useState<string[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
  const [editingRequest,setEditingRequest]=useState(false);
+ const [guidance,setGuidance]=useState('');
+ useEffect(()=>setGuidance(''),[topicId]);
  const requestLoaded=useRef(false);
  const alive=useRef(true),loadedVersion=useRef(''),selectionLoaded=useRef(''),createIntent=useRef<{body:string;key:string}|null>(null),approveIntent=useRef<{body:string;key:string}|null>(null);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
@@ -83,7 +85,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const perform=async(fn:()=>Promise<unknown>)=>{setBusy(true);setError('');try{await fn();if(alive.current)setReload(v=>v+1);}catch(e){if(alive.current)setError(errorMessage(e));}finally{if(alive.current)setBusy(false);}};
  const generate=()=>perform(async()=>{const payload={request,...(view?.material_id?{material_id:view.material_id}:{})};const body=JSON.stringify(payload);if(createIntent.current?.body!==body)createIntent.current={body,key:crypto.randomUUID()};const t=await api.studyTools<Topic>('/v1/topics',payload,createIntent.current.key);createIntent.current=null;if(alive.current)writeRoute({name:'topic',topicId:t.topic_id});});
  const actResearch=(action:string,ids?:string[])=>perform(async()=>{
-  const result=await api.studyTools<Work>(`/v1/research/${view?.research_id}/actions`,{action,...(ids?{selected:ids}:{})});
+  const result=await api.studyTools<Work>(`/v1/research/${view?.research_id}/actions`,{action,...(ids?{selected:ids}:{}),...(action==='more'&&guidance.trim()?{guidance:guidance.trim()}:{})});
   if(alive.current)setView(previous=>previous?.research_id===result.research_id?{...previous,research:result}:previous);
  });
  const work=view?.research,working=!!work&&active.has(work.status);
@@ -135,7 +137,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  {!inputStage&&draft&&view.status==='ready'&&<section className="surface topic-section topic-scope"><header className="tool-stage-heading"><div><h2>確認學習範圍</h2><p>請確認每項觀念與細節是否符合需求；確認前不會搜尋外部來源。</p></div><button className="text-button" disabled={busy} onClick={()=>setEditingRequest(true)}>修改學習需求</button></header>
  <ScopeFields draft={draft} onChange={setDraft} busy={busy}/>
  {errorNotice}
- <footer className="tool-stage-footer"><span>確認後優先搜尋論文，依摘要與正文判斷各項需求的支持程度。</span><button className="primary-button" disabled={busy||!draft.title.trim()||!draft.level.trim()||!draft.topics.some(x=>x.trim())||!draft.goals.some(x=>x.trim())} onClick={()=>{const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim()),exclude:draft.exclude.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const body=JSON.stringify(clean);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,{expected_version:view.version,proposal:clean},approveIntent.current.key);approveIntent.current=null;if(alive.current)writeRoute(view.material_id&&approved.research_id?{name:'research',materialId:view.material_id,researchId:approved.research_id}:{name:'materials'});});}}>確認範圍並搜尋<Icon name="chevron-right" size={16}/></button></footer></section>}
+ <footer className="tool-stage-footer"><span>確認後依需求查找適合的來源，再閱讀正文核對內容。</span><button className="primary-button" disabled={busy||!draft.title.trim()||!draft.level.trim()||!draft.topics.some(x=>x.trim())||!draft.goals.some(x=>x.trim())} onClick={()=>{const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim()),exclude:draft.exclude.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const body=JSON.stringify(clean);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,{expected_version:view.version,proposal:clean},approveIntent.current.key);approveIntent.current=null;if(alive.current)writeRoute(view.material_id&&approved.research_id?{name:'research',materialId:view.material_id,researchId:approved.research_id}:{name:'materials'});});}}>確認範圍並搜尋<Icon name="chevron-right" size={16}/></button></footer></section>}
  {!inputStage&&view?.status==='approved'&&<>
 
  {work&&<section className={`surface topic-section topic-sources${!hasMaterial?' is-selecting':''}`}>
@@ -158,13 +160,15 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  </div>}
  </>}
  </section>}
- {work.progress&&!hasMaterial&&<ResearchProgress candidates={work.candidates} progress={work.progress} running={work.status==='searching'}/>}
+ {work.progress&&!hasMaterial&&<ResearchProgress progress={work.progress} running={work.status==='searching'}/>}
  {(!work.progress||work.status!=='searching')&&(hasMaterial&&readOnlySources?<details className="topic-selected-sources"><summary>已選來源 · {work.selection.length} 份</summary><SourceCandidates candidates={visibleSources} selected={selected} disabled readOnly onChange={setSelected}/></details>:visibleSources.length>0&&<SourceCandidates candidates={visibleSources} selected={selected} disabled={busy||working||readOnlySources} readOnly={readOnlySources} onChange={setSelected}/>)}
 
  {work.progress&&work.status==='selecting'&&!visibleSources.length&&<p className="tool-empty">這次尚未整理出切題的正文來源，可查看未完成原因或依缺口繼續研究。</p>}
  {!work.candidates.length&&work.status==='selecting'&&<p className="tool-empty">沒有找到來源，請調整主題重新規劃。</p>}
  <footer className="tool-stage-footer"><div className="tool-footer-secondary">
+ {work.status==='selecting'&&!hasMaterial&&work.approved_scope&&<details><summary>調整補查方向</summary><label>補查方向（選填）<textarea rows={2} maxLength={1000} value={guidance} onChange={e=>setGuidance(e.target.value)} placeholder="說明想補足的機制、例子或來源類型" disabled={busy}/></label></details>}
  {!work.deleted&&<>
+ {work.status==='submitted'&&['succeeded','partial'].includes(work.run?.status??'')&&work.candidates.some(c=>work.selection.includes(c.id)&&c.state==='failed')&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('retry')}>重試未完成來源</button>}
  {work.status==='selecting'&&!hasMaterial&&<button className="text-button" disabled={busy} onClick={()=>work.approved_scope?void actResearch('more'):setEditingRequest(true)}>{work.approved_scope?'依缺口繼續研究':'重新確認搜尋範圍'}</button>}
  {work.status==='failed'&&!work.run_id&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('retry')}>重試未完成部分</button>}
  {working&&work.status!=='ready'&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('cancel')}>停止處理</button>}

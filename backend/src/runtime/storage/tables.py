@@ -106,6 +106,10 @@ class MaterialProcessingRun(Base):
     input_source_set_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
     bundle_manifest: Mapped[dict] = mapped_column(JSONB, nullable=False)
     bundle_manifest_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+
+    @property
+    def learning_scopes(self):
+        return (self.bundle_manifest or {}).get('learning_scopes',{})
     base_revision: Mapped[str | None] = mapped_column(Text)
     worker_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -516,6 +520,7 @@ class VoiceTurn(Base):
     mode: Mapped[str | None] = mapped_column(Text)
     context: Mapped[dict | None] = mapped_column(JSONB)
     question: Mapped[str] = mapped_column(Text)
+    transcription: Mapped[dict | None] = mapped_column(JSONB)
     answer: Mapped[dict | None] = mapped_column(EvidenceJSONB)
     status: Mapped[str] = mapped_column(Text)
     recording: Mapped[bytes | None] = mapped_column(LargeBinary)

@@ -74,7 +74,7 @@ def test_empty_direct_retrieval_uses_search_planning_before_answering():
         searches.append(queries)
         return [] if len(searches)==1 else [passage()]
     result = qa.answer('先到的先處理是什麼？', [], None, retrieve=retrieve, call=call)
-    assert searches == [['先到的先處理是什麼？'], ['FIFO queue arrival order', '先到的先處理是什麼？']]
+    assert searches == [['先到的先處理是什麼？'], ['FIFO queue arrival order']]
     assert result['supported'] and result['retrieval']['calls'] == 3
 
 
@@ -280,3 +280,95 @@ def test_followup_keeps_query_planning_for_context_resolution():
     assert calls[0]['schema']['required']==['queries']
     assert calls[0]['request']['history']['turns']==history
     assert result['retrieval']['calls']==3 and len(queries)==1
+
+
+def test_spoken_interpretation_is_shared_by_retrieval_answer_and_review():
+    calls = []; searches = []
+    raw = '剛才的東西高於本坦時呢？'
+    used = '剛才的東西高於門檻時呢？'
+    model = fake_model([response(), checked(True)], calls)
+    def call(path, body):
+        if 'interpreted_question' in body['schema']['properties']:
+            return {'queries': ['threshold'], 'interpreted_question': used}
+        assert body['request']['question'] == used
+        return model(path, body)
+    result = qa.answer(raw, [], None, spoken=True,
+        retrieve=lambda queries: searches.append(queries) or [passage()], call=call)
+    assert result['question_interpretation'] == {'original': raw, 'used': used}
+    assert searches == [['threshold']]
+
+
+def test_spoken_interpretation_cannot_change_explicit_numbers_or_identifiers():
+    calls = []; searches = []
+    raw = '模型 v2 的門檻是 0.7 嗎？'
+    model = fake_model([response(), checked(True)], calls)
+    def call(path, body):
+        if 'interpreted_question' in body['schema']['properties']:
+            return {'queries': ['v3 threshold 0.8'], 'interpreted_question': '模型 v3 的門檻是 0.8 嗎？'}
+        assert body['request']['question'] == raw
+        return model(path, body)
+    result = qa.answer(raw, [], None, spoken=True,
+        retrieve=lambda queries: searches.append(queries) or [passage()], call=call)
+    assert 'question_interpretation' not in result
+    assert searches == [[raw]]
+
+
+def test_multiple_questions_plan_each_subject_before_retrieval():
+    calls = []; searches = []
+    model = fake_model([response(), checked(True)], calls)
+    def call(path, body):
+        if body['schema']['required'] == ['queries']:
+            return {'queries': ['FIFO queue', 'LIFO stack']}
+        return model(path, body)
+    qa.answer('佇列如何取出？堆疊如何取出？', [], None,
+        retrieve=lambda queries: searches.append(queries) or [passage()], call=call)
+    assert searches[0][:2] == ['FIFO queue', 'LIFO stack']
+
+
+def test_rejected_correction_is_rechecked_instead_of_silently_dropping_it():
+    wrong = checked(False)
+    wrong['items'][0]['correction'] = '佇列採先進先出。'
+    calls = []
+    result = qa.answer('佇列如何取出？', [], None, retrieve=lambda _: [passage()],
+        call=fake_model([response(), wrong, checked(True)], calls))
+    assert result['supported']
+    assert len(calls) == 3 and 'validation_feedback' in calls[-1]['request']
+
+
+def test_recalled_latest_user_change_has_room_before_old_assistant_explanations():
+    memory={'summary':'較早的名稱是甲。','through_turn_id':'old','through_created_at':'2026-01-01T00:00:00+00:00'}
+    history=[{'question':'回顧原始案例。','answer':''},
+             {'question':'更正，目前名稱是丙。','answer':'目前是丙。'}]
+    while qa._count({'summary':memory['summary'],'turns':history})<qa.HISTORY_TOKENS-150:
+        history[0]['answer']+='舊助教長篇解釋。'
+    original_answer=history[0]['answer']
+    users=[{'question':'原始名稱甲；只能更新索引。'+'原始案例背景。'*35}, {'question':'更正，名稱改乙。'},
+           {'question':'更正，目前名稱是丙。'}]
+    calls=[]
+    qa.answer('回顧名稱變更與目前條件。',history,None,memory=memory,user_history=users,
+        retrieve=lambda _: [passage()],call=fake_model([response(),checked(True)],calls))
+    packed=calls[-1]['request']['history']
+    assert any(t['question']=='更正，目前名稱是丙。' for t in packed['recalled_user_turns'])
+    assert any('原始名稱甲' in t['question'] for t in packed['recalled_user_turns'])
+    assert qa._count(packed)<=qa.HISTORY_TOKENS
+    assert history[0]['answer']==original_answer
+
+
+def test_speech_terms_keep_nouns_without_copying_previous_numbers_or_conditions():
+    generated=response()
+    generated['speech_terms']=['擴散模型','含噪狀態','採樣器','高於門檻','0.7','v2']
+    result=qa.answer('解釋生成機制。',[],None,retrieve=lambda _: [passage()],
+        call=fake_model([generated,checked(True)],[]))
+    assert result['speech_terms']==['擴散模型','含噪狀態','採樣器']
+
+
+@pytest.mark.parametrize('raw,changed', [('風險分數不等於門檻。','風險分數等於門檻。'),('x != y','x = y')])
+def test_spoken_interpretation_cannot_remove_comparison_negation(raw,changed):
+    model=fake_model([response(),checked(True)],[])
+    def call(path,body):
+        if 'interpreted_question' in body['schema']['properties']:
+            return {'interpreted_question':changed,'queries':[changed]}
+        assert body['request']['question']==raw
+        return model(path,body)
+    result=qa.answer(raw,[],None,spoken=True,retrieve=lambda _: [passage()],call=call)
+    assert 'question_interpretation' not in result

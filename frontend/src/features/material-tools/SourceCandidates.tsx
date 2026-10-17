@@ -91,6 +91,7 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
           {(!compact || !c.eligible || c.error_code || c.state === 'failed' || readOnly && c.state === 'normalizing') && <span className={`source-state${c.error_code ? ' is-failed' : ''}`}>{!c.eligible ? '僅供查看' : c.error_code ? '取得失敗' : states[c.state] ?? '可加入'}</span>}
         </div>
         <p className="source-byline" title={metadata}>{metadata}</p>
+        {c.review?.phase === 'body' && <p className="source-purpose">{c.review.reason.split(/(?<=[。！？])/).slice(0, 2).join('')}</p>}
         {c.review && <details className="source-review"><summary>{c.review.relevance === 'direct' ? '直接相關' : c.review.relevance === 'related' ? '背景參考' : '不相關'} · 查看閱讀判斷</summary><p>{c.review.scope === 'sections' ? '已核對相關區段。' : c.review.phase === 'body' ? '已核對全文。' : '摘要初篩。'}{c.review.reason}</p></details>}
         {!c.eligible && c.review && <p className="source-reference-note">{c.reason}</p>}
         {c.error_code && <p className="source-error">{sourceReasons[c.error_code] ?? '取得失敗，可重試。'}</p>}

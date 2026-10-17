@@ -51,3 +51,30 @@ def test_translation_cannot_erase_or_change_technical_content(source, meaning, k
 def test_new_analysis_requires_explicit_learning_text_instead_of_null_source_copy():
     claim = block_schema([0])['properties']['concepts']['items']['properties']['c']['items']
     assert claim['properties']['m']['type'] == 'string'
+
+
+def test_fenced_code_does_not_turn_following_translated_prose_into_a_code_literal():
+    source='Use:\n```\nCache-Control: max-age=3600\n```\nThis permits reuse. The `max-age` directive sets freshness.'
+    meaning='設定：\n```\nCache-Control: max-age=3600\n```\n這允許重用。`max-age` 指示詞設定新鮮期限。'
+    evidence={'e1':{'exact_text':source,'kind':'paragraph'}}
+    result=_project_claim({'meaning':meaning,'source_spans':[{'evidence_id':'e1','quote':source}]},evidence)
+    assert result['projection']=='localized_meaning'
+    assert not preserves_literals(meaning.replace('3600','3601'),list(evidence.values()))
+
+
+def test_markdown_emphasis_is_not_multiplication_and_quoted_apostrophes_stay_together():
+    from knowledge_map.claim_literals import mask_literals
+    source='Compare with a *validator*. Keep *N* seconds. It does not mean "don\'t cache".'
+    meaning='與驗證器比較。保留 N 秒。這不表示 "don\'t cache"。'
+    assert preserves_literals(meaning,[{'exact_text':source,'kind':'paragraph'}])
+    _,values=mask_literals(source)
+    assert 'a *validator' not in values.values() and 'N* seconds' not in values.values()
+    assert '"don\'t cache"' in values.values()
+    assert not preserves_literals('a+b',[{'exact_text':'a*b','kind':'paragraph'}])
+
+
+def test_named_month_can_translate_to_the_same_chinese_calendar_date_only():
+    sources=[{'exact_text':'Available since July 2015.','kind':'paragraph'}]
+    assert preserves_literals('自 2015 年 7 月起可用。',sources)
+    assert not preserves_literals('自 2015 年 8 月起可用。',sources)
+    assert not preserves_literals('2015 年可用，改善 7%。',sources)

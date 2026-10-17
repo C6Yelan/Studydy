@@ -28,12 +28,14 @@ _logger = logging.getLogger(__name__)
 
 
 def _checkpoint_input_digest(run):
-    return canonical_sha256({
+    value={
         'source_artifact_id': str(run.source_artifact_id),
         'source_set_id': str(run.input_source_set_id),
         'base_revision': run.base_revision,
         'runtime_binding': run.runtime_binding,
-    })
+    }
+    if run.learning_scopes:value['learning_scopes']=run.learning_scopes
+    return canonical_sha256(value)
 
 
 def _material_directory(owner, material):
@@ -45,6 +47,7 @@ def _same_analysis_inputs(first, second):
         first.source_artifact_id == second.source_artifact_id
         and first.input_source_set_id == second.input_source_set_id
         and first.base_revision == second.base_revision
+        and first.learning_scopes == second.learning_scopes
     )
 
 

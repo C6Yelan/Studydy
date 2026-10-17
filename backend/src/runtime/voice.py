@@ -5,6 +5,7 @@ from hashlib import sha256
 import base64
 import json
 import os
+from itertools import zip_longest
 from uuid import UUID, uuid4
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -100,7 +101,7 @@ def read(owner, identity, *, dsn=None):
             answers[turn.turn_id] = answer
         return {**_summary(row), 'is_current_revision': row.knowledge_structure_revision == material.head_revision,
             'source_resolver':f'/v1/materials/{row.material_id}/knowledge-structures/{row.knowledge_structure_revision}/evidence',
-            'turns':[{**{k:getattr(t,k) for k in ('turn_id','mode','question','answer','status','error_code','context')},
+            'turns':[{**{k:getattr(t,k) for k in ('turn_id','mode','question','answer','status','error_code','context','transcription')},
                 'answer':answers[t.turn_id],
                 'audio_url':f'/v1/voice-conversations/{identity}/turns/{t.turn_id}/audio' if t.audio else None} for t in turns]}
 
@@ -222,8 +223,30 @@ def claim(*, dsn=None):
         row=db.get(Conversation,turn.conversation_id)
         turn.lease_token=uuid4();turn.lease_expires_at=now+timedelta(minutes=30)
         if turn.status=='pending':turn.status='answering'
-        state={k:deepcopy(getattr(turn,k)) for k in ('turn_id','conversation_id','mode','question','answer','status','recording','lease_token','context')}
+        state={k:deepcopy(getattr(turn,k)) for k in ('turn_id','conversation_id','mode','question','answer','status','recording','lease_token','context','transcription')}
         state.update(owner=row.learner_id,material_id=row.material_id,revision=row.knowledge_structure_revision)
+        if turn.status=='transcribing':
+            recent=db.scalar(select(Turn).where(Turn.conversation_id==row.conversation_id,Turn.answer.is_not(None),
+                tuple_(Turn.created_at,Turn.turn_id)<tuple_(turn.created_at,turn.turn_id)).order_by(Turn.created_at.desc(),Turn.turn_id.desc()).limit(1))
+            words=[]
+            if recent:
+                evidence_ids=list(dict.fromkeys(reference['evidence_id'] for citation in recent.answer.get('citations',[])
+                    for reference in citation['evidence']))
+                passages=retrieval.evidence_context(db,row.learner_id,row.material_id,row.knowledge_structure_revision,evidence_ids) if evidence_ids else retrieval.search(
+                    db,row.learner_id,row.material_id,row.knowledge_structure_revision,[recent.question],limit=4,neighbors=False)
+                words=list(recent.answer.get('speech_terms',[]))
+                groups={}
+                for passage in passages:
+                    hints=groups.setdefault(passage['source_id'],[])
+                    hints.extend(hint for hint in passage['hints'] if 1<len(hint)<=30 and hint not in hints)
+                words.extend(word for group in zip_longest(*groups.values()) for word in group if word)
+            else:
+                words=[db.get(Material,row.material_id).display_name[:80]]
+            chosen=[]
+            for word in dict.fromkeys(words):
+                word=' '.join(word.split())
+                if len('、'.join([*chosen,word]))<=320 and len(chosen)<12:chosen.append(word)
+            state['stt_hints']='、'.join(chosen)
         if turn.status=='answering':
             try:
                 retrieval._scope(db, row.learner_id, row.material_id, row.knowledge_structure_revision)
@@ -245,7 +268,10 @@ def claim(*, dsn=None):
                     state['memory'] = deepcopy(row.memory)
                     history = history.where(tuple_(Turn.created_at,Turn.turn_id)>tuple_(*cursor))
             state['history']=[{'turn_id':str(t.turn_id),'created_at':t.created_at.isoformat(),
-                'question':t.question,'answer':t.answer['text']} for t in db.scalars(
+                'question':t.question,'answer':t.answer['text'],
+                'sources_for_search_only':list(dict.fromkeys(reference['source_name']
+                    for citation in t.answer.get('citations',[]) for reference in citation['evidence']))}
+                for t in db.scalars(
                     history.order_by(Turn.created_at,Turn.turn_id))]
         return state
 
@@ -264,6 +290,7 @@ def finish(state, result=None, error=None, *, dsn=None):
             text=result.get('text')
             if not isinstance(text,str) or not text.strip() or len(text)>4000:raise SourceError('VOICE_TRANSCRIPT_INVALID')
             turn.question=text.strip();turn.recording=None
+            turn.transcription={key:deepcopy(result[key]) for key in ('provider','segments','hints') if key in result}
             turn.status='pending'
             db.get(Conversation,turn.conversation_id).title=turn.question[:80]
         elif state['status']=='answering':
@@ -297,7 +324,8 @@ def step(*, dsn=None):
     if not state:return False
     try:
         with cancellable_job(Turn, state['turn_id'], state['lease_token'], dsn=dsn, statuses=(state['status'],)) as job:
-            if state['status']=='transcribing':result=provider('/transcribe',{**job,'audio':base64.b64encode(state['recording']).decode()})
+            if state['status']=='transcribing':result=provider('/transcribe',{**job,'audio':base64.b64encode(state['recording']).decode(),
+                'hints':state['stt_hints']})
             elif state['status']=='answering':
                 context=None
                 if state['context']:
@@ -313,9 +341,10 @@ def step(*, dsn=None):
                     catalog = retrieval.catalog(db,state['owner'],state['material_id'],state['revision'])
                 result=material_qa.answer(state['question'],state['history'],context,retrieve=retrieve,
                     call=lambda path,body:provider(path,{**job,**body}),catalog=catalog,memory=state['memory'],
-                    user_history=state['user_history'])
+                    user_history=state['user_history'],spoken=state['mode']=='voice',recognition=state.get('transcription'))
                 state['memory_update'] = result.pop('_memory_update')
-            else:result=provider('/audio',{**job,'script':{'segments':[{'turns':[{'speaker':'host','text':state['answer']['text']}]}]}})
+            else:result=provider('/audio',{**job,'script':{'segments':[
+                {'turns':[{'speaker':'host','text':paragraph}]} for paragraph in state['answer']['text'].split('\n\n') if paragraph.strip()]}})
             finish(state,result,dsn=dsn)
     except Exception as error:
         code=str(error) if isinstance(error,SourceError) else 'VOICE_PROVIDER_FAILED'

@@ -222,18 +222,6 @@ def test_resuming_previously_completed_research_reads_remaining_candidates(monke
     assert done['candidates'][0]['review']['phase']=='body'
 
 
-def test_public_entry_proposals_are_site_independent_and_must_preserve_source_origin():
-    row=candidate();row['url']='https://learning.example/people/author/post'
-    row['access']={'attempts':[{'url':row['url'],'outcome':'failed','http_status':403,'error_code':'RESEARCH_SOURCE_BLOCKED'}]}
-    def call(path,body):
-        assert body['request']['task']=='find_entries'
-        assert body['request']['allowed_hosts']==['learning.example']
-        return {'entries':[{'url':'https://learning.example/people/author/atom.xml','kind':'rss','reason':'public feed'},
-                           {'url':'https://unrelated.example/proxy','kind':'document','reason':'not original source'},
-                           {'url':row['url'],'kind':'document','reason':'already attempted'}]}
-    assert flow.public_entries(row,call)==[{'url':'https://learning.example/people/author/atom.xml','kind':'rss','reason':'public feed'}]
-
-
 def test_review_batches_do_not_drop_previously_verified_sources(monkeypatch):
     monkeypatch.setattr(flow,'READ_CHECK_BATCH',5)
     monkeypatch.setattr(flow,'SCREEN_BATCH',2)
@@ -258,7 +246,7 @@ def test_failed_fetch_does_not_skip_the_next_candidate(monkeypatch):
     monkeypatch.setattr(flow,'inspect_candidate',fetch)
     done,_=drive(state())
     assert next(c for c in done['candidates'] if c['id']=='read')['review']['phase']=='body'
-    assert next(c for c in done['candidates'] if c['id']=='blocked')['entry_lookup_done']
+    assert next(c for c in done['candidates'] if c['id']=='blocked')['access']['status']=='unavailable'
 
 
 @pytest.mark.parametrize("sufficient", [True, False])
@@ -944,7 +932,7 @@ def test_stalled_research_can_stop_without_expanding_every_unknown_preview():
     assert len(result['candidates'])==len(value['candidates'])
 
 
-def test_new_query_does_not_bypass_repeated_no_evidence_stop():
+def test_new_query_gets_one_followup_round_but_cannot_bypass_no_evidence_stop_forever():
     value = large_reference_pool()
     calls = []
     def provider(path, body):
@@ -958,9 +946,15 @@ def test_new_query_does_not_bypass_repeated_no_evidence_stop():
         search.update(status='searched', cursor=None)
     value['search_state'].update(stage='following_up', stalled_checks=1)
     result = flow.advance(value, provider)
+    assert result['search_state']['stage'] == 'searching'
+    value={**value,**result}
+    for search in value['search_state']['searches']:
+        search.update(status='searched',cursor=None)
+    value['search_state']['stage']='following_up'
+    result=flow.advance(value,provider)
     assert result['search_state']['stage'] == 'organizing'
     assert result['search_state']['coverage'][0]['status'] == 'missing'
-    assert len(result['search_state']['searches']) == 1
+    assert len(result['search_state']['searches']) == 2
     assert result['search_state']['warnings'] == ['RESEARCH_NO_NEW_EVIDENCE']
 
 
@@ -1121,11 +1115,11 @@ def test_planning_requires_confirmation_and_keeps_each_approved_detail():
         assert [t['topic'] for t in body['request']['topics']]==topics
         assert 'topics' not in body['schema']['properties']
         return {'summary':'Confirmed needs','searches':[
-            {'query':'How does a decision system estimate uncertainty?','topics':[0],'reason':'confidence'},
-            {'query':'When should an agent stop retrying and defer to a human?','topics':[1],'reason':'stopping'}]}
+            {'query':'How does a decision system estimate uncertainty?','channel':'papers','topics':[0],'reason':'confidence'},
+            {'query':'When should an agent stop retrying and defer to a human?','channel':'web','topics':[1],'reason':'stopping'}]}
     result=flow.advance(value,provider)
     assert result['search_state']['topics']==topics
-    assert all(s['channel']=='papers' for s in result['search_state']['searches'])
+    assert [s['channel'] for s in result['search_state']['searches']]==['papers','web']
     def missing(path,body):
         result=provider(path,body);result['searches'].pop();return result
     with pytest.raises(SourceError,match='RESEARCH_REVIEW_FAILED'):flow.advance(value,missing)
@@ -1165,3 +1159,43 @@ def test_previous_search_workflow_cannot_continue_without_new_confirmation():
     value=state();value['search_state']['schema']='material-research/v2'
     with pytest.raises(SourceError,match='RESEARCH_SCOPE_REQUIRED'):
         flow.advance(value,lambda *a:pytest.fail('old search workflow must not run'))
+
+
+def test_partial_delivery_preserves_partial_status_without_chasing_optional_details():
+    value=state();source=inspect(candidate());source.pop('_reading_text')
+    source['screening']={'decision':'read','basis':'body','reason':'Verified'}
+    source['review']={'phase':'body','relevance':'direct','reason':'Verified','topics':[0],
+                     'quotes':[{'topic':0,'quote':'Agent memory stores observations.'}]}
+    value['candidates']=[source];value['search_state'].update(stage='following_up',topics=['Agent memory'])
+    def provider(path,body):
+        return {'coverage':[{'topic':0,'status':'partial','reason':'Core mechanism is supported; an extra example is unavailable.','sources':[0]}],
+                'needs_more':False,'read_next':[],'searches':[]}
+    result=flow.advance(value,provider)
+    assert result['search_state']['finish_reason']=='partial_delivery'
+    assert result['search_state']['coverage'][0]['status']=='partial'
+    done=flow.advance({**value,**result},lambda *a:pytest.fail('No extra model call for delivery'))
+    assert done['status']=='selecting' and done['candidates'][0]['eligible']
+
+
+def test_bounded_reading_notes_do_not_drop_saved_notes_or_selected_originals(monkeypatch):
+    from runtime.semantic_service import _luna_token_count
+    import json
+    monkeypatch.setattr(flow,'READ_CHARS',400)
+    text='\n\n'.join(f'Section {i}: Agent memory stores observation {i} and preserves its condition. '+('Context matters. '*12) for i in range(14))
+    monkeypatch.setattr(flow.research_sources,'search',lambda *a,**k:([candidate()],None,[]))
+    monkeypatch.setattr(flow,'inspect_candidate',lambda c:{**inspect(c),'_reading_text':text})
+    sizes=[];read_count=0
+    def provider(path,body):
+        nonlocal read_count
+        result=review_provider(path,body)
+        if body['request']['task']=='read':
+            read_count+=1
+            sizes.append(_luna_token_count(json.dumps(body['request']['previous_notes'],ensure_ascii=False)))
+            result['reason']=f'Read {read_count}: '+('Agent memory context and conditions remain important. '*45)
+        return result
+    done,_=drive(state(),provider)
+    source=done['candidates'][0]
+    assert read_count>3 and max(sizes)<=600
+    assert 'Read 1:' in source['review']['reason'] and f'Read {read_count}:' in source['review']['reason']
+    assert len(source['review']['quotes'])==read_count
+    assert done['search_state']['metrics']['read']['max_previous_notes_unbounded_tokens']>600

@@ -174,7 +174,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
     const {sources,text:answerText}=answerSources(turn.answer);
     if(turn.status==='cancelled'&&!turn.answer)return <article className="voice-turn voice-cancelled" key={turn.turn_id}><small>已取消這次提問</small></article>;
     return <article key={turn.turn_id} className="voice-turn">
-     <div className="voice-question" aria-label="你的提問">{turn.context&&<small>Podcast 第 {turn.context.episode_index+1} 集 · 所選段落</small>}<p>{turn.question||'語音提問'}</p></div>
+     <div className="voice-question" aria-label="你的提問">{turn.context&&<small>Podcast 第 {turn.context.episode_index+1} 集 · 所選段落</small>}<p>{turn.question||'語音提問'}</p>{turn.answer?.question_interpretation&&<small>依對話理解為：{turn.answer.question_interpretation.used}</small>}</div>
      <div className="voice-response"><span className="voice-response-label">教材回答</span>
       {turn.answer&&<><p className="voice-answer">{answerText}</p><div className="voice-answer-actions">
        {turn.audio_url&&<AnswerAudio src={turn.audio_url} autoPlay={mode==='voice'&&autoPlayTurnId===turn.turn_id} onAutoPlayAttempt={()=>setAutoPlayTurnId(previous=>previous===turn.turn_id?null:previous)} register={element=>audios.current.add(element)} onPlay={element=>pauseMedia(element)}/>}

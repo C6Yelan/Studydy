@@ -115,6 +115,8 @@ def pause_seconds(current, following):
     following_length = sum(character.isalnum() for character in following['source_text'])
     if current['beat'] != following['beat']:
         return 1.10
+    if current['speaker'] == following['speaker'] and current['ending'] in ('、', '／', '，', ',', '；', ';'):
+        return .35 if current['ending'] in ('；', ';') else .22
     if current['speaker'] != following['speaker'] and following_length <= 6:
         return .35
     if current['speaker'] == following['speaker'] and current_length <= 6:

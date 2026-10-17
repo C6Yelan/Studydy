@@ -60,6 +60,11 @@ def test_research_full_append_preserves_voice_and_idempotence(revisions,monkeypa
     with ThreadPoolExecutor(max_workers=2) as pool:
         results=list(pool.map(lambda _:research.submit(owner,identity,settings,dsn=dsn),range(2)))
     assert results[0]['run_id']==results[1]['run_id']
+    with database_session(dsn) as db:
+        from runtime.storage.tables import MaterialProcessingRun
+        run=db.get(MaterialProcessingRun,results[0]['run_id'])
+        assert set(run.learning_scopes)==acquired
+        assert all(scope['topics']==['queue'] for scope in run.learning_scopes.values())
     outcome=execute();assert outcome.status=='succeeded',outcome.error_code
     saved=voice.read(owner,conversation['conversation_id'],dsn=dsn)
     assert saved['knowledge_structure_revision']==old['revision'] and not saved['is_current_revision']
@@ -465,3 +470,47 @@ def test_cancel_before_reading_checkpoint_does_not_save_a_snapshot(closed_loop,m
     research.step(dsn=dsn)
     assert research.read(owner,identity,dsn=dsn)['status']=='cancelled'
     with database_session(dsn) as db:assert db.scalar(select(ResearchDocument).where(ResearchDocument.research_id==identity)) is None
+
+
+def test_partial_acquisition_submits_only_ready_sources_and_keeps_failures(revisions,monkeypatch):
+    learner,material,settings,dsn,_,_,execute,_,old,_=revisions
+    owner=learner.learner_id
+    identity=ready(owner,material,dsn,monkeypatch)
+    new_text='A queue accepts items at its tail.'
+    new_data=pdf(new_text)
+    from hashlib import sha256
+    from runtime.storage.tables import ResearchDocument
+    with database_session(dsn) as db:
+        row=db.get(MaterialResearch,identity)
+        candidates=[*row.candidates,{**candidate('failed'),'state':'failed','error_code':'RESEARCH_DOWNLOAD_FAILED',
+            'inspection_sha256':sha256(new_data).hexdigest(),
+            '_acquired_document':(new_data,{'id':'failed','license':'cc-by'}),
+            'review':{'phase':'body','relevance':'direct','topics':[0],'reason':'Useful new operation','quotes':[{'topic':0,'quote':new_text}]}}]
+        research.research_documents.persist(db,identity,candidates)
+        row.candidates=candidates
+        row.selection=[*row.selection,'failed'];row.status='normalizing'
+    assert research.step(dsn=dsn)
+    prepared=research.read(owner,identity,dsn=dsn)
+    assert prepared['status']=='ready' and prepared['error_code']=='RESEARCH_ITEMS_FAILED'
+    submitted=research.submit(owner,identity,settings,dsn=dsn)
+    assert submitted['selection']==['paper1','failed']
+    outcome=execute()
+    assert outcome.status=='succeeded'
+    assert research.read(owner,identity,dsn=dsn)['candidates'][1]['state']=='failed'
+    document=read_knowledge_structure(owner,material,run_id=outcome.run_id,dsn=dsn).document
+    assert len(document['input_binding']['manifest']['items'])==len(old['input_binding']['manifest']['items'])+1
+
+    # 已發布部分成果仍可重試原選取的失敗來源，不重複追加第一份，也不重新下載快照。
+    with database_session(dsn) as db:
+        assert db.get(ResearchDocument,(identity,sha256(new_data).digest())) is not None
+    assert research.action(owner,identity,'retry',dsn=dsn)['status']=='acquiring'
+    assert research.step(dsn=dsn)
+    assert normalize_next(dsn=dsn)
+    assert research.step(dsn=dsn)
+    assert research.step(dsn=dsn)
+    resumed=research.submit(owner,identity,settings,dsn=dsn)
+    assert resumed['run_id']!=outcome.run_id
+    assert resumed['selection']==['paper1','failed']
+    with database_session(dsn) as db:
+        assert db.get(ResearchDocument,(identity,sha256(new_data).digest())) is None
+    assert read_knowledge_structure(owner,material,run_id=outcome.run_id,dsn=dsn).document==document

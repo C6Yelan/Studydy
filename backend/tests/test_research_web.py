@@ -202,3 +202,25 @@ def test_publication_title_without_body_is_unavailable():
     html=b'<html><head><title>An agent paper | Conference Library</title></head><body><h1>An agent paper | Conference Library</h1></body></html>'
     with pytest.raises(SourceError,match='RESEARCH_BODY_UNAVAILABLE'):
         web.html_document(html,'https://example.org/paper','text/html')
+
+
+def test_official_linked_policy_must_explicitly_cover_documentation(monkeypatch):
+    html=BODY.replace('<link rel="license" href="https://creativecommons.org/licenses/by-sa/4.0/">','').replace(
+        '<footer>unrelated footer</footer>','<footer><a href="/licensing">Content licensing</a></footer>')
+    policy=b'<html><p>All documentation is licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</p></html>'
+    monkeypatch.setattr(sources,'public_page',lambda url,**kwargs:(policy,url,'text/html'))
+    doc=web.html_document(html.encode(),'https://example.org/lesson','text/html')
+    assert doc['license']=='CC-BY-4.0'
+    assert doc['license_snapshot_sha256']==sha256(policy).hexdigest()
+    assert 'https://example.org/licensing' in doc['license_text']
+    unrelated=b'<html><p>Code examples use <a rel="license" href="https://creativecommons.org/licenses/by/4.0/">CC BY</a>.</p></html>'
+    monkeypatch.setattr(sources,'public_page',lambda url,**kwargs:(unrelated,url,'text/html'))
+    assert web.html_document(html.encode(),'https://example.org/lesson','text/html')['license']=='unknown'
+
+
+def test_later_search_does_not_reactivate_an_exhausted_source():
+    old={'id':'same','url':'https://example.org/a','eligible':False,'state':'candidate',
+         'access':{'status':'unavailable','exhausted':True},'reason':'Unavailable'}
+    new={**old,'eligible':True,'reason':'New search result','access':{'status':'not_reviewed'}}
+    merged=sources.merge_candidates([old],[new])[0]
+    assert not merged['eligible'] and merged['access']['exhausted']

@@ -15,6 +15,8 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
   const [stageRequest, setStageRequest] = useState<{ status: string; stage: number } | null>(null);
   const [view, setView] = useState<Research | null>(null), [error, setError] = useState('');
   const [selected, setSelected] = useState(saved?.selected ?? []);
+  const [guidance, setGuidance] = useState('');
+  useEffect(() => setGuidance(''), [researchId]);
   const [editing, setEditing] = useState(saved?.editing ?? false), [sourceQuery, setSourceQuery] = useState(saved?.sourceQuery ?? '');
   const [confirmed, setConfirmed] = useState(false), [busy, setBusy] = useState(false), [reload, setReload] = useState(0);
   const alive = useRef(false), inFlight = useRef(false), initialized = useRef(!!saved), notified = useRef<string | null>(null);
@@ -47,7 +49,7 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
     inFlight.current = true; setBusy(true); setError('');
     try {
       const result = await api.studyTools<Research>(`/v1/research/${researchId}/${operation === 'submit' ? 'submit' : 'actions'}`,
-        operation === 'submit' ? { confirmed: true } : { action: operation, ...(ids ? { selected: ids } : {}) });
+        operation === 'submit' ? { confirmed: true } : { action: operation, ...(ids ? { selected: ids } : {}), ...(operation === 'more' && guidance.trim() ? {guidance: guidance.trim()} : {}) });
       if (alive.current) { setView(result); setStageRequest(null); setConfirmed(false); setEditing(false); setReload(value => value + 1); }
     } catch (failure) { if (alive.current) setError(errorMessage(failure)); }
     finally { inFlight.current = false; if (alive.current) setBusy(false); }
@@ -101,19 +103,21 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
       {stage === 2 && submitted && <div className={`tool-result${completed ? ' is-complete' : ''}`}>
         <span className="tool-result-icon"><Icon name={completed ? 'check' : 'process'} size={24} /></span>
         <div><h3>{completed ? '補充教材已建立' : view.run?.status === 'partial' ? '分析結果仍需確認' : view.run?.status === 'failed' ? '教材分析尚未完成' : view.run?.status === 'cancelled' ? '教材分析已取消' : '正在建立補充教材'}</h3>
-          <p>{completed ? `已將 ${view.selection.length} 份來源加入教材，可查看更新後的知識地圖。` : view.run?.status === 'partial' ? '已產生可查看的教材分析結果，部分內容仍需確認。' : '已選來源會保留。可到教材分析頁查看進度或接續處理。'}</p></div>
+          <p>{completed ? `已將 ${acquiredCount} 份來源加入教材，可查看更新後的知識地圖。` : view.run?.status === 'partial' ? '已產生可查看的教材分析結果，部分內容仍需確認。' : '已選來源會保留。可到教材分析頁查看進度或接續處理。'}</p></div>
         {view.run_id && <button className="primary-button" onClick={() => { writeRoute({ name: 'material-run', materialId, runId: view.run_id! }); }}>查看教材分析<Icon name="chevron-right" size={16} /></button>}
+        {['succeeded','partial'].includes(view.run?.status ?? '') && view.candidates.some(c => view.selection.includes(c.id) && c.state === 'failed') && <button className="secondary-button" disabled={busy} onClick={() => void perform('retry')}>重試未完成來源</button>}
       </div>}
-      {view.progress && stage !== 2 && <ResearchProgress candidates={view.candidates} progress={view.progress} running={view.status === 'searching'} />}
+      {view.progress && stage !== 2 && <ResearchProgress progress={view.progress} running={view.status === 'searching'} />}
       {!view.progress && stage === 0 && view.status === 'searching' && <div className="tool-wait" role="status"><span className="loading-ring" /><p>正在尋找補充資料，搜尋結果會保存在這筆紀錄。</p></div>}
-      {stage === 2 && canConfirm && <div className="tool-selection-heading"><h4>確認加入的來源 · {selected.length} 份</h4><button className="text-button" disabled={busy} onClick={() => navigate(1)}>調整來源</button></div>}
-      {stage === 2 && submitted && <h4 className="tool-section-label">{completed ? '已加入的來源' : '已送出的來源'} · {view.selection.length} 份</h4>}
+      {stage === 2 && canConfirm && <div className="tool-selection-heading"><h4>確認加入的來源 · {acquiredCount} 份</h4><button className="text-button" disabled={busy} onClick={() => navigate(1)}>調整來源</button></div>}
+      {stage === 2 && submitted && <h4 className="tool-section-label">{completed ? '已加入的來源' : '已送出的來源'} · {acquiredCount} 份</h4>}
       {(!view.progress || view.status !== 'searching') && displayed.length > 0 && <SourceCandidates compact showAcquisitionDetails={false} candidates={displayed} selected={selected} disabled={working || !editable || stage !== 1} readOnly={readOnly} search={{value:sourceQuery,onChange:setSourceQuery}} inlineSearch onChange={ids => { setSelected(ids); setConfirmed(false); }} />}
       {view.progress && view.status === 'selecting' && !displayed.length && <p className="tool-empty">這次尚未整理出切題的正文來源，可查看未完成原因或依缺口繼續研究。</p>}
       {!view.candidates.length && !researchActive.has(view.status) && <p className="tool-empty">尚未取得可用來源。可查看原因、依缺口補查，或重新確認需求。</p>}
-      {stage === 2 && canConfirm && <div className="research-confirm"><p>這些來源目前尚未納入知識地圖；確認後會開始分析。加入後會更新教材與知識地圖，<strong>無法撤回新增內容</strong>。</p><label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我了解加入後不可逆</label></div>}
+      {stage === 2 && canConfirm && <div className="research-confirm">{acquiredCount < view.selection.length && <p>部分來源處理未完成，本次先加入已準備好的 {acquiredCount} 份；未完成紀錄會保留。</p>}<p>這些來源目前尚未納入知識地圖；確認後會開始分析。加入後會更新教材與知識地圖，<strong>無法撤回新增內容</strong>。</p><label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我了解加入後不可逆</label></div>}
       {!submitted && <footer className="tool-stage-footer">
         <div className="tool-footer-secondary">
+      {view.status === 'selecting' && view.approved_scope && <details><summary>調整補查方向</summary><label>補查方向（選填）<textarea rows={2} maxLength={1000} value={guidance} onChange={e => setGuidance(e.target.value)} placeholder="說明想補足的機制、例子或來源類型" disabled={busy}/></label></details>}
           {view.progress && ['searching','cancelled'].includes(view.status) && view.progress.read_count > 0 && <button className="secondary-button" disabled={busy} onClick={() => void perform('finish')}>使用目前已核對的來源</button>}
           {researchActive.has(view.status) && <button className="secondary-button" disabled={busy} onClick={() => void perform('cancel')}>停止處理</button>}
           {view.status === 'selecting' && <button className="text-button" disabled={busy} onClick={() => {

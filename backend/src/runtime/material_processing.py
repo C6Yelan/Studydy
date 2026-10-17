@@ -61,6 +61,7 @@ class MaterialProcessingRun:
     source_names: tuple[str, ...] = ()
     completed_units: int | None = None
     total_units: int | None = None
+    learning_scopes: dict = field(default_factory=dict,repr=False)
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         row.cancel_requested_at, row.input_source_set_id, deepcopy(row.runtime_lock_document),
         row.base_revision, tuple(row.bundle_manifest.get('source_names', [])),
         row.completed_units, row.total_units,
+        deepcopy(row.learning_scopes),
     )
 
 

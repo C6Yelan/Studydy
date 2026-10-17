@@ -50,6 +50,8 @@ def read(research_id,receipt,expected_sha256,*,dsn=None):
     return data,media,suffix,metadata
 
 
-def discard(db,research_id):
+def discard(db,research_id,*,keep_sha256=()):
     # 只移除尚未成為教材原檔的準備資料；已匯入的 Artifact 由原生命週期管理。
-    db.execute(delete(ResearchDocument).where(ResearchDocument.research_id==research_id))
+    statement=delete(ResearchDocument).where(ResearchDocument.research_id==research_id)
+    if keep_sha256:statement=statement.where(ResearchDocument.sha256.not_in([bytes.fromhex(value) for value in keep_sha256]))
+    db.execute(statement)

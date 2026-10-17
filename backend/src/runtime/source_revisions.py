@@ -20,6 +20,7 @@ from .storage.tables import (
     MaterialSourceSetItem,
     MaterialResearch,
     SourceNormalization,
+    TopicScope,
     database_session,
 )
 
@@ -173,7 +174,12 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             if research_token is not None and research.lease_token != research_token:
                 raise SourceError('SOURCE_NOT_READY')
             selected = {c['id']: c for c in research.candidates}
-            if normalization_ids != list(dict.fromkeys(UUID(selected[i]['normalization_id']) for i in research.selection)):
+            if any(selected[i]['state'] not in ('ready','failed') for i in research.selection):
+                raise SourceError('SOURCE_NOT_READY')
+            remaining_normalizations=list(dict.fromkeys(UUID(selected[i]['normalization_id'])
+                    for i in research.selection if selected[i]['state']=='ready'
+                    and selected[i].get('source_id') not in {item['source_id'] for item in old_items}))
+            if normalization_ids != remaining_normalizations:
                 raise SourceError('REQUEST_INVALID')
         items = old_items
         for identity in normalization_ids:
@@ -229,6 +235,16 @@ def create_revision(owner, material_id, normalization_ids, key, config, *, base_
             "pages": pages,
             "source_names": [item["original_name"] for item in items],
         }
+        # 選段展開會帶入相鄰原文；把已確認的學習範圍一併封存，避免它們變成額外必學主題。
+        learning_scopes=deepcopy(old_binding['bundle'].get('learning_scopes',{})) if old_binding else {}
+        added_sources={item['source_id'] for item in items if UUID(item['normalization_id']) in normalization_ids}
+        for work, topic in session.execute(select(MaterialResearch,TopicScope).join(TopicScope,
+                MaterialResearch.topic_id==TopicScope.topic_id).where(MaterialResearch.learner_id==owner,
+                MaterialResearch.material_id==material_id,TopicScope.learner_id==owner,TopicScope.status=='approved')):
+            for candidate in work.candidates:
+                if candidate.get('source_id') in added_sources:
+                    learning_scopes[candidate['source_id']]=deepcopy(topic.proposal)
+        if learning_scopes:bundle['learning_scopes']=learning_scopes
         row = MaterialProcessingRun(
             run_id=uuid4(), learner_id=owner, material_id=material_id,
             source_artifact_id=UUID(items[0]["normalized_artifact_id"]),

@@ -15,6 +15,8 @@ def grounded_answer(state, dsn, text='依照教材說明這個概念。'):
 
 def qa_model(body, text='來源支持的回答。'):
     request = body['request']
+    if 'interpreted_question' in body['schema']['properties']:
+        return {'interpreted_question':request['question'],'queries':['Stack LIFO']}
     if body['schema']['required'] == ['queries']:
         return {'queries': ['Stack LIFO']}
     if 'segments' in request:

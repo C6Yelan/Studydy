@@ -56,10 +56,10 @@ def test_declared_pdf_link_is_used_when_html_has_no_body(monkeypatch):
     calls=[]
     def fetch(url,**kwargs):
         calls.append(url)
-        if url.endswith('/article'):return b'<html><a href="/paper.pdf">PDF</a></html>',url,'text/html'
+        if url.endswith('/article'):return b'<html><title>Actual paper</title><a href="/paper.pdf">PDF</a></html>',url,'text/html'
         return b'%PDF-fixture',url,'application/pdf'
     monkeypatch.setattr(sources,'public_page',fetch)
-    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'Actual paper body','access_method':'pdf','url':url})
+    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'Actual paper body','title_page_text':'Actual paper body','access_method':'pdf','url':url})
     result=reading.read_public_document('https://example.org/article')
     assert calls==['https://example.org/article','https://example.org/paper.pdf']
     assert result['text']=='Actual paper body'
@@ -99,7 +99,7 @@ def test_declared_fulltext_is_read_instead_of_stopping_at_a_readable_landing_pag
         calls.append(url)
         return (b'%PDF-fixture' if url.endswith('.pdf') else html.encode()),url,'application/pdf' if url.endswith('.pdf') else 'text/html'
     monkeypatch.setattr(sources,'public_page',fetch)
-    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'Full paper including the methods and limitations.','access_method':'pdf','url':url})
+    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'Full paper including the methods and limitations.','title_page_text':'A learning example','access_method':'pdf','url':url})
     doc=reading.read_public_document('https://example.org/article')
     assert calls==['https://example.org/article','https://example.org/full.pdf']
     assert doc['access_method']=='pdf' and 'methods and limitations' in doc['text']
@@ -206,7 +206,7 @@ def test_pdf_viewer_follows_embedded_document_instead_of_reviewing_its_toolbar(m
         calls.append(url)
         return (b'%PDF-fixture' if '/files/' in url else html.encode()),url,'application/pdf' if '/files/' in url else 'text/html'
     monkeypatch.setattr(sources,'public_page',fetch)
-    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'The actual full paper.','access_method':'pdf','url':url})
+    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'The actual full paper.','title_page_text':'A learning example','access_method':'pdf','url':url})
     doc=reading.read_public_document('https://example.org/viewer')
     assert calls==['https://example.org/viewer','https://example.org/files/full.pdf?download=1']
     assert doc['text']=='The actual full paper.'
@@ -219,7 +219,7 @@ def test_download_pdf_label_follows_extensionless_viewer_document(monkeypatch):
         calls.append(url)
         return (b'%PDF-fixture' if '/download/' in url else html),url,'application/pdf' if '/download/' in url else 'text/html'
     monkeypatch.setattr(sources,'public_page',fetch)
-    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'Actual complete paper.','access_method':'pdf','url':url})
+    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'Actual complete paper.','title_page_text':'a research paper','access_method':'pdf','url':url})
     doc=reading.read_public_document('https://example.org/article/view/45/24')
     assert calls==['https://example.org/article/view/45/24','https://example.org/article/download/45/24/142']
     assert doc['access_method']=='pdf' and doc['text']=='Actual complete paper.'
@@ -295,7 +295,7 @@ def test_declared_http_fulltext_is_upgraded_before_downloading(monkeypatch):
         assert url.startswith('https://')
         return (b'%PDF-fixture' if url.endswith('.pdf') else html.encode()),url,'application/pdf' if url.endswith('.pdf') else 'text/html'
     monkeypatch.setattr(sources,'public_page',fetch)
-    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'Actual full paper.','access_method':'pdf','url':url})
+    monkeypatch.setattr(reading,'_pdf_document',lambda data,url:{'text':'Actual full paper.','title_page_text':'A learning example','access_method':'pdf','url':url})
     doc=reading.read_public_document('https://example.org/article')
     assert calls==['https://example.org/article','https://example.org/full.pdf']
     assert doc['access_method']=='pdf'
@@ -331,3 +331,34 @@ def test_paper_metadata_license_survives_a_landing_page_without_pdf_url(monkeypa
     assert acquired==data and media=='application/pdf' and metadata['download_url']==pdf_url
     checked=reading.inspect_candidate(candidate)
     assert checked['eligible'] and 'actual full paper' in checked['_reading_text']
+
+
+def test_declared_download_cannot_substitute_another_article(monkeypatch):
+    def fetch(url, **kwargs):
+        if url.endswith('/article'):
+            return b'<html><title>Expected article</title><a href="/other.pdf">PDF</a></html>', url, 'text/html'
+        return b'%PDF-fixture', url, 'application/pdf'
+    monkeypatch.setattr(sources, 'public_page', fetch)
+    monkeypatch.setattr(reading, '_pdf_document', lambda data,url: {
+        'text':'Different article body', 'title_page_text':'Unrelated article', 'url':url, 'access_method':'pdf'})
+    import pytest
+    attempts=[]
+    doc=reading.read_public_document('https://example.org/article',attempts=attempts)
+    assert doc.get('fulltext_unavailable') and doc['access_method']=='landing_page'
+    assert any(a.get('error_code')=='RESEARCH_IDENTITY_UNCONFIRMED' for a in attempts)
+
+
+def test_real_repeated_failure_stops_but_unsent_host_cooldown_does_not(monkeypatch):
+    c={'id':'one','kind':'web','url':'https://example.org/article','title':'Example','eligible':False}
+    def blocked(url, **kwargs):
+        raise sources.SourceAccessError('RESEARCH_RATE_LIMITED', url=url, status=429, retry_at=9999999999)
+    monkeypatch.setattr(sources,'public_page',blocked)
+    first=reading.inspect_candidate(c)
+    assert first['access']['failed_acquisitions']==1 and not first['access'].get('exhausted')
+    second=reading.inspect_candidate(first)
+    assert second['access']['exhausted'] and 'retry_at' not in second['access']
+    def cooldown(url, **kwargs):
+        raise sources.SourceAccessError('RESEARCH_RATE_LIMITED', retry_at=9999999999)
+    monkeypatch.setattr(sources,'public_page',cooldown)
+    cooling=reading.inspect_candidate(first)
+    assert cooling['access']['failed_acquisitions']==1 and not cooling['access'].get('exhausted')

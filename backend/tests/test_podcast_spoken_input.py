@@ -15,11 +15,12 @@ def sentences(text):
     return spoken.mixed_sentences(text, lambda t: t, lambda t: t)
 
 
-def test_initialism_letters_keep_original_enumeration_in_one_sentence():
+def test_initialism_enumeration_keeps_source_and_separate_pauses():
     text = '依序是 FIN、ACK、SYN。'
     result = sentences(text)
-    assert len(result) == 1
-    assert result[0]['text'] == '依序是 F I N 、 A C K 、 S Y N 。'
+    assert [x['text'] for x in result] == ['依序是 F I N 、', 'A C K 、', 'S Y N 。']
+    assert ''.join(x['source_text'] for x in result) == text
+    assert [x['ending'] for x in result] == ['、', '、', '。']
     assert text == '依序是 FIN、ACK、SYN。'
 
 
@@ -33,7 +34,7 @@ def test_mixed_sentence_preserves_chinese_connectors_and_punctuation():
 def test_compound_protocol_notation_preserves_operators():
     assert sentences('TCP/IP')[0]['text'] == 'T C P / I P'
     assert sentences('SYN + ACK')[0]['text'] == 'S Y N + A C K'
-    assert sentences('ABC → XYZ')[0]['text'] == 'A B C → X Y Z'
+    assert sentences('ABC → XYZ')[0]['text'] == 'A B C ，右箭頭， X Y Z'
 
 
 def test_english_compound_words_do_not_read_typographic_hyphens():
@@ -64,3 +65,37 @@ def test_closing_quotes_stay_with_sentence_and_question_boundary():
     result=sentences('他問：「可以嗎？」接著確認條件。')
     assert [x['source_text'] for x in result]==['他問：「可以嗎？」','接著確認條件。']
     assert [x['ending'] for x in result]==['？','。']
+
+
+def test_token_list_has_measured_boundaries_without_changing_display():
+    text = '輸入「開始／片段／<結束>」，再繼續。'
+    result = sentences(text)
+    assert [x['ending'] for x in result[:2]] == ['／', '／']
+    assert ''.join(x['source_text'] for x in result) == text
+    assert '結束標記' in result[-1]['text']
+
+
+def test_formulas_units_paths_and_two_part_ratio_are_not_list_separators():
+    text = 'f(x,y)、1/2、/tmp/a/b、8 MB/s、時間／距離。'
+    result = sentences(text)
+    assert ''.join(x['source_text'] for x in result) == text
+    assert result[0]['source_text'] == 'f(x,y)、'
+    assert '1/2' in result[1]['text']
+    assert result[2]['text'].count('/') == 3
+    assert 'megabytes per second' in result[3]['text']
+    assert '時間／距離' in result[4]['text']
+
+
+def test_comparison_operators_and_greek_variables_remain_audible_without_changing_source():
+    text='ρ_t > τ；ρ_t ≤ τ。'
+    result=sentences(text)
+    assert ''.join(x['source_text'] for x in result)==text
+    assert '大於' in result[0]['text'] and '小於或等於' in result[1]['text']
+    assert 'rho' in result[0]['text'] and 'tau' in result[0]['text']
+
+
+def test_math_normalization_does_not_rewrite_path_or_code_literals():
+    result=sentences('路徑 /tmp/x>y/θ，程式 `x<=y`。')
+    joined=''.join(x['text'] for x in result)
+    assert '大於' not in joined and '小於' not in joined and 'theta' not in joined
+    assert '>' in joined and '<=' in joined and 'θ' in joined

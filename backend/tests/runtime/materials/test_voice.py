@@ -177,7 +177,10 @@ def test_voice_worker_auto_chains_transcript_answer_audio_without_send(closed_lo
     paths = []
     def provider(path, body):
         paths.append(path)
-        if path == '/transcribe': return {'text': '辨識出的教材問題'}
+        if path == '/transcribe':
+            assert isinstance(body['hints'],str) and len(body['hints'])<=320
+            return {'text': '辨識出的教材問題','hints':body['hints'],'segments':[
+                {'text':'辨識出的教材問題','start':0.0,'end':2.0,'avg_logprob':-.2,'no_speech_prob':.01,'compression_ratio':1.0}]}
         if path == '/semantics':
             assert body['request']['question'] == '辨識出的教材問題'
             return qa_model(body)
@@ -190,6 +193,7 @@ def test_voice_worker_auto_chains_transcript_answer_audio_without_send(closed_lo
     assert result['turns'][0]['status'] == 'pending'
     assert result['turns'][0]['question'] == '辨識出的教材問題'
     assert result['turns'][0]['mode'] == 'voice'
+    assert result['turns'][0]['transcription']['segments'][0]['avg_logprob']==-.2
     with database_session(dsn) as db: assert db.get(VoiceTurn, turn['turn_id']).recording is None
     assert voice.step(dsn=dsn)
     assert voice.read(owner, cid, dsn=dsn)['turns'][0]['status'] == 'speaking'

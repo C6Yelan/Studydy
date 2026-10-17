@@ -6,7 +6,7 @@ POLICY = 'independent-evidence-blocks/v1'
 
 
 def request_view(request):
-    return {key: request[key] for key in ('sections', 'source_pages', 'source_policy') if key in request}
+    return {key: request[key] for key in ('sections', 'source_pages', 'source_policy','learning_scopes') if key in request}
 
 
 def block_request(context, bundle):

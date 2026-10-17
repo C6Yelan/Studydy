@@ -403,6 +403,8 @@ def analyze_material(
                 pages, page_count=len(page_numbers), excluded_pages=excluded,
                 source_pages=input_binding["bundle"]["pages"],
             )
+            if input_binding['bundle'].get('learning_scopes'):
+                context['learning_scopes']=deepcopy(input_binding['bundle']['learning_scopes'])
         except ValueError as error:
             raise MaterialAnalysisError("DOCUMENT_EVIDENCE_INVALID") from error
         if base_structure is not None:

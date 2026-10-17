@@ -2,13 +2,14 @@ from copy import deepcopy
 from typing import Literal
 from uuid import UUID
 from fastapi import Request
-from pydantic import BaseModel,ConfigDict
+from pydantic import BaseModel,ConfigDict,Field
 from .. import research
 
 class Action(BaseModel):
     model_config=ConfigDict(extra='forbid')
     action:Literal['more','acquire','cancel','retry','finish']
     selected:list[str]|None=None
+    guidance:str|None=Field(default=None,max_length=1000)
 class Confirm(BaseModel):
     model_config=ConfigDict(extra='forbid')
     confirmed:Literal[True]
@@ -22,6 +23,6 @@ def install(app,settings,trusted,key,query):
     @app.delete('/v1/research/{identity}')
     def delete(request:Request,identity:UUID):return research.delete(owner(request),identity,dsn=settings.dsn)
     @app.post('/v1/research/{identity}/actions')
-    def action(request:Request,identity:UUID,body:Action):return research.action(owner(request),identity,body.action,body.selected,dsn=settings.dsn)
+    def action(request:Request,identity:UUID,body:Action):return research.action(owner(request),identity,body.action,body.selected,guidance=body.guidance,dsn=settings.dsn)
     @app.post('/v1/research/{identity}/submit',status_code=202)
     def submit(request:Request,identity:UUID,body:Confirm):return research.submit(owner(request),identity,deepcopy(settings.local_config),dsn=settings.dsn)

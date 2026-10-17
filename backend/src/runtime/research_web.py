@@ -81,9 +81,14 @@ def _searx(query,page):
         return deepcopy(data)
 
 
-def _declared_license(tree,base):
+def _declared_license(tree,base,*,site_policy=False):
     # 只採本頁明示的授權；文章中引用某個 CC 網址，不等於整頁可匯入。
-    nodes=tree.xpath('//head/link[contains(concat(" ",normalize-space(@rel)," ")," license ")] | //a[contains(concat(" ",normalize-space(@rel)," ")," license ")] | //head/meta[@name="license" or @property="cc:license"] | //a[@property="cc:license"]')
+    nodes=[] if site_policy else tree.xpath('//head/link[contains(concat(" ",normalize-space(@rel)," ")," license ")] | //a[contains(concat(" ",normalize-space(@rel)," ")," license ")] | //head/meta[@name="license" or @property="cc:license"] | //a[@property="cc:license"]')
+    for node in tree.xpath('//a[@href]'):
+        parents=node.xpath('ancestor::*[self::p or self::footer][1]')
+        statement=' '.join(' '.join(parent.itertext()) for parent in parents)
+        if re.search(r'all (?:the )?content|text content|documentation|content on this (?:site|website)|本網站|本文|文件內容',statement,re.I) and re.search(r'licens|授權',statement,re.I):
+            nodes.append(node)
     for node in nodes:
         if node.xpath('ancestor::figure | ancestor::blockquote'):continue
         value=urljoin(base,node.get('href') or node.get('content') or '')
@@ -96,6 +101,33 @@ def _declared_license(tree,base):
         if re.fullmatch(r'/publicdomain/zero/1\.0(?:/(?:deed(?:\.[a-z-]+)?|legalcode))?/?',parsed.path,re.I):
             return 'CC0-1.0','https://creativecommons.org/publicdomain/zero/1.0/'
     raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
+
+
+def _linked_license(tree,base):
+    """只沿原頁公布的同站使用條件核對文字授權，不能以政策頁自己的授權推及全站。"""
+    from .research_sources import public_page
+    attempts=[];seen=set()
+    for node in tree.xpath('//footer//a[@href] | //a[@rel="license"]'):
+        label=' '.join(node.itertext())
+        target=canonical_url(urljoin(base,node.get('href')))
+        if (not target or target in seen or urlsplit(target).hostname!=urlsplit(base).hostname
+            or not re.search(r'copyright|licens|terms|版權|授權|使用條款',label,re.I)):
+            continue
+        seen.add(target)
+        if len(seen)>2:break
+        try:
+            data,final,media=public_page(target,limit=2*1024*1024)
+            if urlsplit(final).hostname!=urlsplit(base).hostname:raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
+            policy=load_html(data) if 'html' in media else None
+            if policy is None:raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
+            license,license_url=_declared_license(policy,final,site_policy=True)
+            text=extract(policy,include_comments=False) or ''
+            attempts.append({'url':target,'resolved_url':final,'outcome':'read','method':'license_policy'})
+            return {'license':license,'license_url':license_url,'license_snapshot_sha256':sha256(data).hexdigest(),
+                    'license_text':'原頁連結的正式使用條件：'+final+'\n'+text,'license_attempts':attempts}
+        except SourceError as error:
+            attempts.append({'url':target,'outcome':'failed','error_code':str(error),'http_status':getattr(error,'status',None)})
+    return {'license_attempts':attempts}
 
 
 def _web_document(url, *, require_license=True):
@@ -112,10 +144,12 @@ def html_document(data,final,media,*,require_license=False):
     if re.search(r'captcha|verify you are human|access denied|just a moment|確認您是人類|驗證碼',title,re.I):
         from .research_sources import SourceAccessError
         raise SourceAccessError('RESEARCH_CHALLENGE_REQUIRED',url=final)
+    policy={}
     try:license,license_url=_declared_license(tree,final)
     except SourceError:
-        if require_license:raise
-        license,license_url='unknown',None
+        policy=_linked_license(tree,final)
+        license,license_url=policy.get('license','unknown'),policy.get('license_url')
+        if require_license and not license_url:raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
     metadata=extract_metadata(tree,default_url=final)
     text=extract(tree,output_format='markdown',include_comments=False,include_tables=True,
                  include_formatting=True,include_links=False,include_images=False)
@@ -134,7 +168,7 @@ def html_document(data,final,media,*,require_license=False):
     return {'url':final,'title':title,'authors':author,'text':text,'license':license,'license_url':license_url,
             'original_sha256':digest,'license_snapshot_sha256':digest,
             'license_text':'來源頁面明示的授權：'+license_url if license_url else '',
-            'access_url':final,'access_method':'html','paper_body':_paper_body(tree,text),
+            'access_url':final,'access_method':'html','paper_body':_paper_body(tree,text),**policy,
             'page_identity':sha256((final+'\n'+title).encode()).hexdigest()}
 
 
@@ -205,7 +239,7 @@ def search_web(queries,page):
 
 def acquire_web(candidate):
     from .research_reading import read_public_document
-    doc=read_public_document(candidate['download_url'],entries=candidate.get('public_entries'))
+    doc=read_public_document(candidate['download_url'])
     if not doc.get('license_url'):raise SourceError('RESEARCH_LICENSE_UNCONFIRMED')
     if candidate.get('inspection_text_sha256') and sha256(doc['text'].encode()).hexdigest()!=candidate['inspection_text_sha256']:
         raise SourceError('RESEARCH_SOURCE_CHANGED')
@@ -221,6 +255,9 @@ def document_artifact(doc,candidate):
     metadata.update(license=doc['license'],license_url=doc['license_url'])
     metadata.update({key:doc[key] for key in ('original_sha256','license_snapshot_sha256','license_text')})
     metadata.update(download_url=doc['url'],access_url=doc['access_url'],access_method=doc['access_method'],derivative_license=doc['license'],format='html')
+    if doc['access_method']=='pdf':
+        metadata['format']='pdf'
+        return doc['content'],'application/pdf','.pdf',metadata
     prefix=(doc['title']+'\n來源：'+doc['url']+'\n來源網站／作者：'+doc['authors']+'\n授權：'+doc['license']+' '+doc['license_url']
           +'\n變更：擷取網頁正文為文字，保留標題、表格及程式碼；未加入其他來源。\n\n')
     metadata['body_offset']=len(prefix)

@@ -9,7 +9,7 @@ from . import research_sources
 from .card_sets import _material
 from .source_normalization import SourceError,upload_source
 from .source_revisions import create_revision
-from .storage.tables import Material,MaterialResearch as Research,SourceNormalization,MaterialProcessingRun,TopicScope,database_session
+from .storage.tables import Material,MaterialResearch as Research,SourceNormalization,MaterialProcessingRun,TopicScope,KnowledgeStructure,database_session
 from .voice import provider
 from .generation_jobs import cancellable_job
 from . import research_workflow
@@ -112,9 +112,10 @@ def delete(owner,identity,*,dsn=None):
         return {'research_id':row.research_id,'status':'deleted'}
 
 
-def action(owner,identity,action,selected=None,*,dsn=None):
+def action(owner,identity,action,selected=None,*,guidance=None,dsn=None):
+    if guidance is not None and action!='more':raise SourceError('REQUEST_INVALID')
     with database_session(dsn) as db:
-        row,_=_owned(db,owner,identity)
+        row,material=_owned(db,owner,identity)
         if row.topic_id and db.get(TopicScope,row.topic_id).status!='approved':raise SourceError('TOPIC_CONFLICT')
         if (not row.topic_id or (row.search_state or {}).get('schema')!='material-research/v3') and (action=='more' or action=='retry' and not row.selection):
             raise SourceError('RESEARCH_SCOPE_REQUIRED')
@@ -131,6 +132,7 @@ def action(owner,identity,action,selected=None,*,dsn=None):
             if row.status!='selecting':raise SourceError('REQUEST_INVALID')
             progress=deepcopy(row.search_state)
             progress.update(stage='following_up',summary='依目前缺口接續研究。',continue_requested=True)
+            if guidance and guidance.strip():progress['followup_guidance']=guidance.strip()
             row.search_state=progress
             row.status='searching'
         elif action=='acquire':
@@ -150,6 +152,15 @@ def action(owner,identity,action,selected=None,*,dsn=None):
             if row.status=='submitted':raise SourceError('REQUEST_INVALID')
             row.status='cancelled';row.staged_content=None;row.staged_metadata=None
         elif action=='retry':
+            if row.status=='submitted':
+                run=db.get(MaterialProcessingRun,row.run_id)
+                if not run or run.status not in ('succeeded','partial') or not any(
+                        c['id'] in row.selection and c['state']=='failed' for c in row.candidates):
+                    raise SourceError('SOURCE_NOT_READY')
+                # 部分成果已發布後，只把剩餘來源接到目前版本；原 run／原檔仍保留。
+                row.base_revision=material.head_revision
+                row.run_id=None
+                row.status='failed'
             if row.status not in ('failed','cancelled'):raise SourceError('REQUEST_INVALID')
             if row.selection:
                 candidates=deepcopy(row.candidates)
@@ -177,18 +188,26 @@ def action(owner,identity,action,selected=None,*,dsn=None):
 def submit(owner,identity,config,*,dsn=None,attempt_token=None):
     with database_session(dsn) as db:
         row,_=_owned(db,owner,identity)
+        keep_snapshots=[c['_document_snapshot']['sha256'] for c in row.candidates
+            if c['id'] in row.selection and c['state']=='failed' and not c.get('source_id') and c.get('_document_snapshot')]
         if row.status=='submitted':
-            research_documents.discard(db,identity)
+            research_documents.discard(db,identity,keep_sha256=keep_snapshots)
             return _view(row)
         if row.status!='ready':raise SourceError('SOURCE_NOT_READY')
         candidates={c['id']:c for c in row.candidates}
         items=[candidates[i] for i in row.selection]
-        if any(c['state']!='ready' for c in items):raise SourceError('SOURCE_NOT_READY')
+        if any(c['state'] not in ('ready','failed') for c in items):raise SourceError('SOURCE_NOT_READY')
+        base=db.scalar(select(KnowledgeStructure).where(KnowledgeStructure.learner_id==owner,
+            KnowledgeStructure.material_id==row.material_id,KnowledgeStructure.structure_revision==row.base_revision)) if row.base_revision else None
+        included={item['source_id'] for item in base.document['input_binding']['manifest']['items']} if base else set()
+        items=[c for c in items if c['state']=='ready' and c.get('source_id') not in included]
+        if not items:raise SourceError('SOURCE_NOT_READY')
         material_id,base_revision=row.material_id,row.base_revision
         normalizations=list(dict.fromkeys(UUID(c['normalization_id']) for c in items))
-    create_revision(owner,material_id,normalizations,'research:'+str(identity),config,
+    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    create_revision(owner,material_id,normalizations,'research:'+str(identity)+':'+canonical_sha256(base_revision),config,
         base_revision=base_revision,dsn=dsn,research_id=identity,research_token=attempt_token)
-    with database_session(dsn) as db:research_documents.discard(db,identity)
+    with database_session(dsn) as db:research_documents.discard(db,identity,keep_sha256=keep_snapshots)
     return read(owner,identity,dsn=dsn)
 
 
@@ -244,8 +263,13 @@ def step(*,dsn=None,config=None):
                         passages=search(db,state['owner'],state['material_id'],state['base_revision'],[state['query']],neighbors=False)
                         # 只送與本次需求相關的概念線索，不列出整份教材的數千概念。
                         state['existing_concepts']=list(dict.fromkeys(hint for p in passages for hint in p['hints']))[:80]
+                def existing(queries):
+                    from .retrieval import search
+                    with database_session(dsn) as db:
+                        return search(db,state['owner'],state['material_id'],state['base_revision'],queries,limit=8)
                 result=research_workflow.advance(state,lambda path,body:provider(path,{**job,**body}),
-                    read_document=lambda receipt,digest:research_documents.read(state['research_id'],receipt,digest,dsn=dsn))
+                    read_document=lambda receipt,digest:research_documents.read(state['research_id'],receipt,digest,dsn=dsn),
+                    retrieve_existing=existing if state['material_id'] and state['base_revision'] else None)
                 def progressed(row):
                     research_documents.persist(object_session(row),row.research_id,result['candidates'])
                     for key,value in result.items():setattr(row,key,value)
@@ -296,8 +320,8 @@ def step(*,dsn=None,config=None):
                 def normalized(row):
                     row.candidates=state['candidates']
                     if all(c['state'] in ('ready','failed') for c in items):
-                        row.status='ready' if all(c['state']=='ready' for c in items) else 'failed'
-                        if row.status=='failed':row.error_code='RESEARCH_ITEMS_FAILED'
+                        row.status='ready' if any(c['state']=='ready' for c in items) else 'failed'
+                        row.error_code='RESEARCH_ITEMS_FAILED' if any(c['state']=='failed' for c in items) else None
                 save(state,normalized,dsn=dsn)
                 return previous_states!=[c['state'] for c in items] or all(c['state'] in ('ready','failed') for c in items)
     except Exception as error:

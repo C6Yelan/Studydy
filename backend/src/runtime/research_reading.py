@@ -67,7 +67,7 @@ def read_public_document(url, *, attempts=None, entries=None):
     seen={canonical_url(a['url']) or a['url'] for a in attempts if a.get('error_code') in (
         'RESEARCH_SOURCE_BLOCKED','RESEARCH_CONNECTION_TIMEOUT','RESEARCH_RATE_LIMITED','RESEARCH_HTTP_FAILED',
         'RESEARCH_CHALLENGE_REQUIRED','RESEARCH_AUTH_REQUIRED','RESEARCH_URL_REJECTED')}
-    last_error=None;landing=None
+    last_error=None;landing=None;declared={}
     for target,kind in queue:
         # 原頁常公布 http 的 PDF／feed；與搜尋連結一樣先正規化為 HTTPS，仍走相同 DNS／TLS 檢查。
         target=canonical_url(target) or target
@@ -76,11 +76,24 @@ def read_public_document(url, *, attempts=None, entries=None):
         try:
             data,final,media=sources.public_page(target,limit=sources.MAX_BYTES if kind=='pdf' or kind=='document' and (target.endswith('.pdf') or '/pdf/' in target) else 5*1024*1024)
             if kind=='rss':doc=_feed_article(data,final,url)
-            elif data.startswith(b'%PDF-'):doc=_pdf_document(data,final)
+            elif data.startswith(b'%PDF-'):
+                doc=_pdf_document(data,final)
+                if canonical_url(target)!=canonical_url(url):
+                    expected=declared.get(target)
+                    compact=lambda value:''.join(c for c in unicodedata.normalize('NFKC',value or '').casefold() if c.isalnum())
+                    if not expected or compact(expected) not in compact(doc.get('title_page_text') or doc.get('title')):
+                        raise SourceError('RESEARCH_IDENTITY_UNCONFIRMED')
+                    doc['title']=expected
+                    if landing and landing.get('license_url'):
+                        doc.update({key:landing[key] for key in ('license','license_url','license_text','license_snapshot_sha256')})
             else:
                 from trafilatura.utils import load_html
                 tree=load_html(data)
                 if tree is not None:
+                    title_nodes=tree.xpath('//meta[@name="citation_title"]/@content')
+                    source_title=(title_nodes[0] if title_nodes else ' '.join(tree.xpath('(//h1)[1]//text()'))).strip()
+                    source_title=source_title or ' '.join(tree.xpath('//title/text()')).split(' | ')[0].strip()
+                    source_title=re.sub(r'^(?:View of|PDF viewer[:：]?)\s+', '', source_title, flags=re.I)
                     # 原站自己公布的全文與 feed 入口；依序嘗試，不使用搜尋摘要假裝正文。
                     fulltext=[urljoin(final,href) for href in tree.xpath('//meta[@name="citation_pdf_url"]/@content | //link[@rel="alternate" and @type="application/pdf"]/@href')]
                     for element in tree.xpath('//iframe[@src] | //embed[@src] | //object[@data]'):
@@ -91,13 +104,18 @@ def read_public_document(url, *, attempts=None, entries=None):
                             fulltext.append(link)
                     for element in tree.xpath('//a[@href]'):
                         label=' '.join(' '.join(element.itertext()).split())
-                        if element.get('type','').lower()=='application/pdf' or re.search(r'\bdownload\s+pdf\b|下載\s*PDF|下载\s*PDF',label,re.I):
+                        if element.get('type','').lower()=='application/pdf' or re.search(r'^PDF$|\bdownload\s+PDF\b|下載\s*PDF|下载\s*PDF',label,re.I):
                             fulltext.append(urljoin(final,element.get('href')))
-                    queue.extend((link,'pdf') for link in fulltext or [urljoin(final,href) for href in tree.xpath('//a[contains(@href,".pdf")]/@href')])
+                    for link in fulltext:
+                        link=canonical_url(link) or link
+                        declared[link]=source_title
+                        queue.append((link,'pdf'))
                     queue.extend((urljoin(final,href),'rss') for href in tree.xpath('//link[@rel="alternate" and (@type="application/rss+xml" or @type="application/atom+xml")]/@href'))
                 doc=html_document(data,final,media)
                 if tree is not None and fulltext:
                     # 優先保留原 PDF 的圖表與排版；正文 HTML 是 PDF 不可取得時的補救。
+                    doc['_html_fallback']=bool(not tree.xpath('//meta[starts-with(@name,"citation_")] | //iframe[@src] | //embed[@src] | //object[@data]')
+                        and tree.xpath('//p[not(ancestor::nav or ancestor::footer)] | //pre | //table'))
                     landing=doc
                     attempts.append({'url':target,'resolved_url':final,'outcome':'read','method':'landing_page'})
                     continue
@@ -108,7 +126,7 @@ def read_public_document(url, *, attempts=None, entries=None):
             attempts.append(access_failure(last_error,target))
             # 明示限流會由 fetch 遵守；其他主機的公開全文仍可繼續。
     if landing:
-        if landing.get('paper_body'):
+        if landing.pop('_html_fallback',False) or landing.get('paper_body'):
             attempts.append({'url':landing['url'],'resolved_url':landing['access_url'],'outcome':'read','method':'html'})
             return landing
         landing.update(access_method='landing_page',fulltext_unavailable=True)
@@ -154,7 +172,7 @@ def inspect_candidate(candidate,*,document=None):
             if not attempts:attempts.append(access_failure(error,row.get('download_url') or row['url']))
     if doc is None:
         try:
-            doc=read_public_document(row['url'],attempts=attempts,entries=row.get('public_entries'))
+            doc=read_public_document(row['url'],attempts=attempts)
             # 論文改用 HTML 入口仍須對回原論文，不能因 redirect 到另一篇 CC 文章就替換來源。
             normalize=lambda value:''.join(c for c in unicodedata.normalize('NFKC',value).casefold() if c.isalnum())
             expected=normalize(row.get('title',''));actual=normalize(doc.get('title_page_text') or doc.get('title',''))
@@ -169,13 +187,14 @@ def inspect_candidate(candidate,*,document=None):
                 row.update({key:doc[key] for key in ('title','authors','license','license_url','page_identity')})
                 row.update(download_url=doc['url'],web_document=True)
                 importable=True
-                if not doc.get('fulltext_unavailable') and doc['access_method']!='pdf':
+                if not doc.get('fulltext_unavailable'):
                     from .research_web import document_artifact
                     data,media,suffix,metadata=document_artifact(doc,row)
                     row['inspection_sha256']=sha256(data).hexdigest()
                     row['_acquired_document']=(data,metadata)
         except SourceError:pass
     row['eligible']=importable
+    if doc:attempts.extend(doc.get('license_attempts',[]))
     row['access']={'attempts':candidate.get('access',{}).get('attempts',[])+attempts,'status':'read' if doc else 'unavailable'}
     if doc:
         if doc['access_method']=='pdf' and doc.get('original_sha256'):row['inspection_sha256']=doc['original_sha256']
@@ -198,4 +217,13 @@ def inspect_candidate(candidate,*,document=None):
         row['reason']='已嘗試原始來源與已知公開入口，仍未取得正文；保留逐次結果供接續查找。'
         future=[a['retry_at'] for a in attempts if a.get('retry_at') and a['retry_at']>time.time()]
         if future:row['access']['retry_at']=min(future)
+    if row['access']['status']=='unavailable':
+        actual_failure=any(a.get('outcome')=='failed' and (a.get('http_status') is not None
+            or a.get('error_code')!='RESEARCH_RATE_LIMITED') for a in attempts)
+        failures=candidate.get('access',{}).get('failed_acquisitions',0)+int(actual_failure)
+        row['access']['failed_acquisitions']=failures
+        # 同站尚在冷卻、未發出請求不算來源再失敗；真正重試仍取不到就停止。
+        if not row['access'].get('retry_at') or failures>=2:
+            row['access']['exhausted']=True
+            row['access'].pop('retry_at',None)
     return row

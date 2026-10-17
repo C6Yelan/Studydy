@@ -13,20 +13,24 @@ _QUANTITY = re.compile(
     rf'(?<![A-Za-z0-9_.]){_NUMBER}(?:\s*{_UNIT}(?![A-Za-z]))?'
 )
 _QUOTED = re.compile(
-    r'`[^`\n]+`|(?<![A-Za-z0-9])[\'"][^\'"\n]{1,80}[\'"]'
+    r'(?<!`)`[^`\n]+`(?!`)|(?<![A-Za-z0-9])\'(?:\\.|[^\'\\\n]){1,80}\''
+    r'|(?<![A-Za-z0-9])"(?:\\.|[^"\\\n]){1,80}"'
     r'|\\(?:[0abfnrtv\\\'"?]|x[0-9A-Fa-f]+|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})'
 )
+_CODE_FENCE = re.compile(r'(?<!`)(`{3,})([\s\S]*?)\1(?!`)')
 _CALL = re.compile(r'(?<![A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*(?:\([^()\n]{0,80}\)|\[[^\]\n]{1,80}\])')
 _GLOSS = re.compile(r'[（(]([A-Za-z][A-Za-z0-9_-]*|[α-ωΑ-Ω])[）)]')
 _OPERAND = r'(?:[A-Za-zα-ωΑ-Ω][A-Za-z0-9_α-ωΑ-Ω]*|\d+(?:\.\d+)?)'
 _EXPRESSION = re.compile(
-    rf'(?<![A-Za-z0-9_])(?:[A-Za-zα-ωΑ-Ω](?:_[A-Za-z0-9]+)?|\d+(?:\.\d+)?)'
-    rf'(?:\s*(?:==|!=|<=|>=|->|=|\+|\*|/|\^|<|>|≤|≥|≠)\s*{_OPERAND})+'
+    rf'(?<![A-Za-z0-9_*])(?:[A-Za-zα-ωΑ-Ω](?:_[A-Za-z0-9]+)?|\d+(?:\.\d+)?)'
+    rf'(?:\s*(?:==|!=|<=|>=|->|=|\+|\*|/|\^|<|>|≤|≥|≠)\s*{_OPERAND})+(?![A-Za-z0-9_α-ωΑ-Ω*])'
 )
 _SUBTRACTION = re.compile(r'(?<![A-Za-z0-9_])(?:[A-Za-zα-ωΑ-Ω]|\d+(?:\.\d+)?)\s*[-−]\s*(?:[A-Za-zα-ωΑ-Ω]|\d+(?:\.\d+)?)(?![A-Za-z0-9_])')
 _DIRECTION = re.compile(r'[↑↓←→↔⇐⇒⇔≤≥≠±∓]')
 _DECLARATION = re.compile(r'\b(?:(?:const|static|unsigned|signed)\s+)*(?:char|int|float|double|bool|void)\s+[*&\w\s]+;')
 _LATEX = re.compile(r'\$\$[\s\S]+?\$\$|\$[^$\n]+\$')
+_MONTHS = ('January February March April May June July August September October November December').split()
+_NAMED_DATE = re.compile(r'\b('+'|'.join(_MONTHS)+r')\s+(?:\d{1,2}(?:st|nd|rd|th)?,?\s+)?(\d{4})\b',re.I)
 
 
 def _formula_text(text):
@@ -51,7 +55,7 @@ def _literals(text: str) -> set[str]:
 
 def _literal_ranges(text: str, kind: str):
     spans = [(match.start(), match.end()) for pattern in (
-        _QUANTITY, _QUOTED, _CALL, _EXPRESSION, _SUBTRACTION, _DIRECTION, _GLOSS, _DECLARATION, _LATEX,
+        _QUANTITY, _QUOTED, _CODE_FENCE, _CALL, _EXPRESSION, _SUBTRACTION, _DIRECTION, _GLOSS, _DECLARATION, _LATEX,
     ) for match in pattern.finditer(text)]
     if kind in {'code', 'formula'} or _formula_text(text):
         spans = [(0, len(text))]
@@ -124,10 +128,16 @@ def preserves_literals(meaning: str, sources: list[dict]) -> bool:
     source_literals = set().union(*(_literals(source['exact_text']) for source in sources))
     meaning_literals = _literals(meaning)
     compact_source, compact_meaning = _compact(source_text), _compact(meaning)
+    # 英文日期的月份可譯成中文數字月份；仍須保留同一年及原數值，不能憑月份放行任意新數字。
+    calendar_numbers=set()
+    for date in _NAMED_DATE.finditer(source_text):
+        month=next(i for i,name in enumerate(_MONTHS,1) if name.casefold()==date[1].casefold())
+        if re.search(re.escape(date[2])+r'\s*年\s*'+str(month)+r'\s*月',meaning):
+            calendar_numbers.add(str(month))
     # 原文括注可移到句中，但不得換成不同術語；保留空白差異，其他字面值不改。
     if any(literal not in compact_meaning for literal in source_literals):
         return False
-    if any(literal not in compact_source for literal in meaning_literals):
+    if any(literal not in compact_source and literal not in calendar_numbers for literal in meaning_literals):
         return False
     for source in sources:
         text = source['exact_text']

@@ -6,7 +6,7 @@ def review_provider(path,body):
     request=body['request'];task=request['task']
     if task=='plan':
         return {'summary':'測試研究計畫',
-                'searches':[{'query':'queue tutorial','topics':[t['index'] for t in request['topics']],'reason':'fixture'}]}
+                'searches':[{'query':'queue tutorial','channel':'web','topics':[t['index'] for t in request['topics']],'reason':'fixture'}]}
     if task=='find_entries':return {'entries':[]}
     if task=='screen':
         return {'items':[{'index':i['index'],'relevance':'direct','decision':'read','topics':list(range(len(request['topics']))),'reason':'fixture topic match'} for i in request['items']]}

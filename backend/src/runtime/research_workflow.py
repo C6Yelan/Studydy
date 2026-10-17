@@ -23,7 +23,7 @@ FOLLOW_UP_UNREAD_TOKENS = 6000
 FOLLOW_UP_EVIDENCE_TOKENS = 32000
 # Luna 的 64k 上下文保留至少 16k 給輸出；原文、需求、線索與 schema 共用輸入預算。
 RESEARCH_INPUT_TOKENS = 48000
-EVIDENCE_POLICY = 'research-evidence/v1'
+EVIDENCE_POLICY = 'research-evidence/v2'
 
 
 def obj(properties):
@@ -34,7 +34,7 @@ TEXT={'type':'string'}
 INDICES={'type':'array','items':{'type':'integer','minimum':0}}
 CHANNEL={'type':'string','enum':['papers','web']}
 SEARCH=obj({'query':TEXT,'topics':INDICES,'reason':TEXT,'channel':CHANNEL})
-PLAN=obj({'summary':TEXT,'searches':{'type':'array','items':obj({'query':TEXT,'topics':INDICES,'reason':TEXT})}})
+PLAN=obj({'summary':TEXT,'searches':{'type':'array','items':SEARCH}})
 RELEVANCE={'type':'string','enum':['direct','related','unrelated']}
 
 
@@ -91,6 +91,7 @@ def organize(data,candidates):
         if candidate.get('review',{}).get('phase')!='body' and candidate.get('access',{}).get('status')=='read':
             candidate['access']['status']='not_reviewed'
     data['summary']={'covered':'已依正文整理出支持這次需求的來源，可查看各子題的依據與來源說明後選取。',
+                     'partial_delivery':'已整理出可用內容；尚未支持的細節仍保留原狀，可先選用目前來源。',
                      'user_stopped':'已停止擴查並保留已核對的來源；未完成的子題仍保留原狀，可先選用目前資料。',
                      'references_only':'已找到可查看的參考連結，但目前尚無經正文核對的可匯入教材。',
                      'gaps_remaining':'已整理現有來源；仍有尚未補足的子題，請查看涵蓋情況與未完成原因。'}[data['finish_reason']]
@@ -177,6 +178,7 @@ def _needs_preview(candidate):
 
 def _needs_body(candidate):
     access=candidate.get('access',{})
+    if access.get('exhausted'):return False
     screen=_screening(candidate)
     # 公開 PDF 可能尚未查過同篇正式授權頁；相關參考來源也應完成這項核對。
     license_pending=bool(screen and screen['decision']!='exclude' and not candidate.get('arxiv_license_checked')
@@ -222,24 +224,6 @@ def _windows(candidate, data):
     available=[w for w in windows if not any(start<=w['start'] and w['end']<=end for start,end in read)]
     # 定位模型逐批查看所有尚未讀過區段的線索；不以字面排名排除同義內容。
     return available
-
-
-def public_entries(candidate,call):
-    """入口是待驗證的提案，不按網站名稱寫例外，也不把猜到的網址當作取得成功。"""
-    attempts=candidate.get('access',{}).get('attempts',[])
-    hosts={urlsplit(url).hostname for url in [candidate['url']]+[a.get('resolved_url') or a['url'] for a in attempts]}
-    schema=obj({'entries':{'type':'array','items':obj({'url':TEXT,'kind':{'type':'string','enum':['document','rss']},'reason':TEXT})}})
-    result=_call(call,'find_entries',
-        '來源的原始入口沒有取得正文。根據公開網址、網站公布的入口慣例與既有嘗試，提出可驗證的同站 HTML／PDF／RSS 或 Atom 入口。'
-        '不要依照固定數量湊網址；沒有依據可留空。只能使用 allowed_hosts 中的主機，不使用代理、解鎖服務或驗證碼繞過。'
-        '這是待測試的入口，不得宣稱文章已取得；真正 HTTP 回應與文章身分由程式核對。',
-        {'title':candidate['title'],'url':candidate['url'],'attempts':attempts,'allowed_hosts':sorted(h for h in hosts if h)},schema)
-    seen={a['url'] for a in attempts};entries=[]
-    for entry in result['entries']:
-        url=canonical_url(entry['url'])
-        if not url or urlsplit(url).hostname not in hosts or url in seen:continue
-        seen.add(url);entries.append({'url':url,'kind':entry['kind'],'reason':entry['reason']})
-    return entries
 
 
 def _searches(values,topics):
@@ -294,7 +278,7 @@ def progress(state,candidates):
         'finish_reason':state.get('finish_reason'),'waiting_until':state.get('waiting_until')}
 
 
-def advance(state,call,*,read_document=None):
+def advance(state,call,*,read_document=None,retrieve_existing=None):
     """一次處理一個可保存步驟；呼叫者核對租約後才寫入，避免取消後發布。"""
     data=deepcopy(state['search_state'])
     if not isinstance(data,dict) or data.get('schema')!='material-research/v3':
@@ -316,9 +300,17 @@ def advance(state,call,*,read_document=None):
         task=body['request']['task']
         metrics=data.setdefault('metrics',{}).setdefault(task,{'calls':0,'estimated_input_tokens':0,'elapsed_seconds':0})
         metrics['calls']+=1;metrics['estimated_input_tokens']+=estimate
+        metrics['max_input_tokens']=max(metrics.get('max_input_tokens',0),estimate)
+        if task=='read':
+            for field in ('previous_notes','related_content'):
+                size=_luna_token_count(json.dumps(body['request'].get(field,[]),ensure_ascii=False))
+                metrics[field+'_tokens']=metrics.get(field+'_tokens',0)+size
+                metrics['max_'+field+'_tokens']=max(metrics.get('max_'+field+'_tokens',0),size)
         metrics['elapsed_seconds']=round(metrics['elapsed_seconds']+time.monotonic()-started,3)
         return result
-    stage=data['stage'];context={'request':state['query'],'mode':state['mode'],'approved_scope':state.get('approved_scope')}
+    stage=data['stage'];context={'request':state['query'],'mode':state['mode'],'material_title':state.get('material_title'),
+        'approved_scope':state.get('approved_scope'),
+        **({'followup_guidance':data['followup_guidance']} if data.get('followup_guidance') else {})}
     if stage=='planning':
         scope=state.get('approved_scope')
         if not scope or not scope.get('topics'):raise SourceError('RESEARCH_SCOPE_REQUIRED')
@@ -326,10 +318,9 @@ def advance(state,call,*,read_document=None):
         supplied=provided_sources(state['query'])
         result=_call(call,'plan',
             'approved_scope 是使用者已確認的需求，topics 的每個索引代表一項觀念與具體重點／細節，不得重新拆題、擴張或遺漏。'
-            '逐項規劃論文語意搜尋；每個 query 用一至兩句英文描述要釐清的問題、對象、條件與機制，保留必要領域背景。'
-            '不要只輸出幾個關鍵詞，也不要把跨領域同義詞當成不同問題。可使用學術上的同義表達，但不能丟掉原本研究對象。'
+            '依需求選擇管道：研究結果、原理與方法比較優先 papers；API、設定、版本操作優先 web 的原發布者官方文件；基礎概念、循序說明與例題可優先 web 的開放教材或教育機構教材。一般網站可補具體缺口，不必每題湊齊所有類別。'
+            'papers 的 query 用一至兩句英文描述要釐清的問題、對象、條件與機制；web 使用精簡關鍵詞與所需來源類型。保留必要領域背景，不把跨領域同義詞當成不同問題。'
             '每個已確認 topics 索引至少有一組查詢；只有能由同一研究問題回答的細節才合併到同一 query。'
-            '本輪只查論文；論文正文仍無法支持的缺口，才由後續規劃補查其他來源。'
             'provided_sources 若有網址，source_indices 只選使用者要求閱讀的網址；不選排除或反例。先讀指定原文，searches 可留空。'
             '不得搜尋私人原文、帳號或姓名。existing_concepts 只供理解先備，不是新的必需範圍。'
             'summary 說明計畫，不宣稱已找到或讀完任何來源。',
@@ -337,7 +328,7 @@ def advance(state,call,*,read_document=None):
              'existing_concepts':state.get('existing_concepts',[]),'provided_sources':[c['url'] for c in supplied]},
             obj({**PLAN['properties'],'source_indices':_indices(len(supplied))}) if supplied else PLAN)
         if supplied:supplied=[supplied[i] for i in _topics(result.get('source_indices'),supplied)]
-        searches=[] if supplied else _searches([{**s,'channel':'papers'} for s in result['searches']],topics)
+        searches=[] if supplied else _searches(result['searches'],topics)
         if not supplied and {i for s in searches for i in s['topics']}!=set(range(len(topics))):
             raise SourceError('RESEARCH_REVIEW_FAILED')
         data.update(topics=topics,searches=searches,summary=result['summary'],
@@ -417,14 +408,7 @@ def advance(state,call,*,read_document=None):
         for identity in data.pop('retry_sources',[]):
             item=next(c for c in candidates if c['id']==identity)
             item['access']['status']='not_reviewed'
-        if data.get('entry_source'):
-            target=next(c for c in candidates if c['id']==data['entry_source'])
-            entries=public_entries(target,call)
-            target['public_entries']=entries;target['entry_lookup_done']=True
-            data.pop('entry_source')
-            if entries:target['access']['status']='not_reviewed'
-            else:data['stage']='reading'
-            return {'search_state':data,'candidates':candidates,'status':'searching','cursor':None}
+        data.pop('entry_source',None)
         target=next((c for c in _ordered_reading(data,candidates) if _needs_body(c) and c.get('access',{}).get('retry_at',0)<=time.time()),None)
         if target and target.get('access',{}).get('retry_at'):
             target['access']['status']='not_reviewed'
@@ -437,9 +421,6 @@ def advance(state,call,*,read_document=None):
             target.update(result)
             if target.get('_prior_review') and before_key!=_document_key(target):target.pop('_prior_review',None)
             for field in ('_read_plan','_read_plan_cursor','_window_scan_offset','_selected_windows','_reading_scope','_skipped_sections'):target.pop(field,None)
-            if (target.get('access',{}).get('status')=='unavailable' or target.get('access',{}).get('fulltext_unavailable')) and target['kind']!='paper' and not target.get('entry_lookup_done') and not target['access'].get('retry_at'):
-                data['entry_source']=target['id']
-                return {'search_state':data,'candidates':candidates,'status':'searching','cursor':None}
             if target.get('_reading_text') and not target.get('eligible') and not target.get('access',{}).get('fulltext_unavailable'):
                 # 已取得公開正文但不能形成教材時保留參考，不再耗費模型逐段核對；不冒稱正文驗收。
                 target['screening']={'decision':'reference','basis':'importability','reason':target['reason']}
@@ -535,6 +516,33 @@ def advance(state,call,*,read_document=None):
         if current:
             c,offset,text,end=current
             passages=[match.group(0) for match in re.finditer(r'\S[\s\S]*?(?=\n\s*\n|\Z)',text) if match.group(0).strip()]
+            # 原文比較只取相關候選；檢索未命中不能證明舊教材未涵蓋，也不以概念重合淘汰。
+            related=[{'origin':'本次其他來源','source':other['title'],'url':other['url'],'text':q['quote']}
+                for other in candidates if other['id']!=c['id'] and other.get('review',{}).get('phase')=='body'
+                for q in other['review']['quotes']]
+            if retrieve_existing is not None:
+                topic_hits=rank_texts(c['title']+' '+text,data['topics'],limit=2)
+                queries=[data['topics'][i] for i,_ in topic_hits] or [state['query']]
+                for passage in retrieve_existing(queries):
+                    related.append({'origin':'原教材','source':passage['evidence']['source_name'],
+                        'page':passage['evidence']['normalized_page'],'text':passage['text']})
+            ranked=rank_texts(text,[item['text'] for item in related],limit=len(related))
+            comparison=[]
+            from .semantic_service import _luna_token_count
+            for i,_ in ranked:
+                if _luna_token_count(json.dumps([*comparison,related[i]],ensure_ascii=False))<=1800:
+                    comparison.append(related[i])
+            notes=[part['reason'] for part in c.get('_review_chunks',[])]
+            note_tokens=_luna_token_count(json.dumps(notes,ensure_ascii=False))
+            if note_tokens>600:
+                order=list(dict.fromkeys([len(notes)-1,*[i for i,_ in rank_texts(
+                    ' '.join(data['topics'])+' '+text,notes,limit=len(notes))]]))
+                kept=[]
+                for i in order:
+                    if _luna_token_count(json.dumps([notes[j] for j in sorted([*kept,i])],ensure_ascii=False))<=600:
+                        kept.append(i)
+                # 只縮小本次輸入；完整閱讀筆記與先前選出的原文仍保留，最後一併交接。
+                notes=[notes[i] for i in sorted(kept)]
             support=obj({'topic':{'type':'integer','minimum':0,'maximum':len(data['topics'])-1},'passages':_indices(len(passages))})
             schema=obj({'relevance':RELEVANCE,'reason':TEXT,'supports':{'type':'array','items':support}})
             result=_call(call,'read',
@@ -546,13 +554,20 @@ def advance(state,call,*,read_document=None):
                 'supports 表示對理解子題有用的原文，包括支持、反例、相反結果及適用限制，不只收正面結論。研究方法或樣本條件會影響結論時，也選入相應段落。'
                 'reason 說明本段可觀察到的研究對象、證據類型與適用限制，分開直接結果、作者解釋、模型預測及引用他人的研究；未提供就說尚未核對，不自行補齊。'
                 '證據強弱與主題相關性分開判斷：單篇、預印本、小樣本、個案或模擬仍可支援教材，只須保留其適用範圍，不因此判 unrelated 或清空已有支持。'
+                'related_content 是原教材或本次其他來源中取回的少量相關原文，只輔助比較，不代表已涵蓋全部教材。概念同名或用詞相似不能當成重複。'
+                '若完整資訊等價且沒有本次需要的新用途，可略過重複段落；但新步驟、推導、例子、反例、數值、版本、條件與有用途的獨立研究證據須保留，並連同必要前提一起選取。使用者要求再解釋或補例子時，即使定義已存在仍可保留。'
+                '無法確認等價就保留，不因搜尋未命中推定新增，也不因原教材概念線索宣稱需求已滿足。reason 簡述本來源對本次需求的具體用途；不可把研究結論或相反條件刪成無條件說法。'
                 '不把標題、泛詞、目錄、摘要頁或網站導覽當成完整教學。沒有支持就讓 supports 留空。',
                 {**context,'topics':_topic_input(data['topics']),
                  'source':{'title':c['title'],'url':c['url'],'offset':offset,'total_characters':len(c['_reading_text']),
                            'year':c.get('year'),'version':c.get('version'),
                            'reading_scope':c.get('_reading_scope','full'),'fulltext_unavailable':c.get('access',{}).get('fulltext_unavailable',False)},
-                 'previous_notes':[part['reason'] for part in c.get('_review_chunks',[])],
+                 'previous_notes':notes,
+                 'related_content':comparison,
                  'passages':[{'index':i,'text':passage} for i,passage in enumerate(passages)]},schema)
+            metrics=data['metrics']['read']
+            metrics['previous_notes_unbounded_tokens']=metrics.get('previous_notes_unbounded_tokens',0)+note_tokens
+            metrics['max_previous_notes_unbounded_tokens']=max(metrics.get('max_previous_notes_unbounded_tokens',0),note_tokens)
             quotes=[]
             for support in result['supports']:
                 _topics([support['topic']],data['topics'])
@@ -585,7 +600,9 @@ def advance(state,call,*,read_document=None):
                 # 讀完即保存核對依據並釋放全文副本，避免每個後續步驟重寫所有已讀全文。
                 c.pop('_reading_text',None);c.pop('_review_chunks',None)
                 for field in ('_read_plan','_read_plan_cursor','_selected_windows','_window_scan_offset','_reading_scope','_skipped_sections'):c.pop(field,None)
-                if relevance=='unrelated':c['eligible']=False
+                if relevance=='unrelated' or not all_quotes:
+                    c['eligible']=False
+                    if not all_quotes and relevance!='unrelated':c['reason']='本次核對未選出適合加入的內容；原來源與閱讀判斷仍保留。'
                 data['read_queue']=[identity for identity in data.get('read_queue',[]) if identity!=c['id']]
                 data['read_since_check']=data.get('read_since_check',0)+1
                 data['stage']='following_up' if data['read_since_check']>=READ_CHECK_BATCH else _next_stage(candidates)
@@ -678,6 +695,7 @@ def advance(state,call,*,read_document=None):
             'topic':{'type':'integer',**({'enum':[coverage_topic]} if coverage_topic is not None else {'minimum':0})},
             'status':{'type':'string','enum':['covered','partial','missing']},'reason':TEXT,'sources':_indices(len(reviewed))})},
             'read_next':_indices(len(unread)),
+            'needs_more':{'type':'boolean'},
             'searches':{'type':'array','items':obj({'query':TEXT,'topics':_indices(len(data['topics'])),'reason':TEXT,'channel':CHANNEL})}})
         result=_call(call,'follow_up',
             '根據 items.evidence 的原文摘錄，判斷可加入教材的內容是否足以支持每個子題。title、scope 和 topics 只供定位，不是事實依據；沒有出現在摘錄中的機制不得自行補成已涵蓋。'
@@ -690,10 +708,13 @@ def advance(state,call,*,read_document=None):
             '研究限制不自動等於需求缺口：未要求精確量化、數值門檻、因果實驗、跨情境普遍定律或完整技術實作時，不得把缺少這些升級成 partial／missing 的理由。定性機制、理論解釋或有適用條件的案例也可以把觀念教清；按實際證據措辭即可。'
             '不同研究結果有分歧，若原文足以教清差異、條件與尚無定論，也可以 covered；不能為追求一致答案而排除反例或無限搜尋。'
             '教學案例可以依有依據的機制合理組合，不要求來源逐字使用相同情境。使用者接受資料流、程式碼或機制說明時，不擅自加上完整可執行程式、通用框架或生產驗證的要求。'
+            'needs_more 判斷是否仍有影響原始學習目標的必要缺口或正確性疑點，且存在具體可行的補查方向。少一個額外例子、完整報告格式或未要求的細項，不是繼續搜尋的理由；有可理解的補充就先交付。'
+            '部分細節仍未支持時保留 partial，不要為了停止而改成 covered；若剩下的只是非必要細節，needs_more=false 並讓 searches、read_next 留空。若缺的是使用者明確要求的核心機制，needs_more=true；more_batches=true 時還須完成既有原文批次，不可提早交付。'
             'topics 是搜尋時拆解的線索，不能把其中比原始 request 與 approved_scope 更細的術語、替代方案或通用規格擴張成必要條件；缺口必須對應使用者真正要求且仍無原文支持的內容。'
             '來源數量、身分去重、授權及取得狀態屬來源管理，不能要求每篇正文證明多來源已齊備，也不能為這些管理要求新增知識缺口。'
             'items 是已取得且符合匯入條件的正文來源；reference_only 僅供參考，不能代替可交付的教材內容。sources 使用本次 items 的 index。'
             '需求以使用者原始 request 與 approved_scope 為準，不把研究計畫自行舉出的例子或工具變成額外硬條件。'
+            'followup_guidance 是使用者調整的補查方向，只能針對已確認需求找來源或補機制，不能新增 topics、推翻 exclude 或加回已刪除項目。若已讀的總覽只說明一半流程，可查該具名操作的官方參考文件，不要反覆擴讀無關章節。'
             '這是分批核對，不保證已讀所有候選；重要結論的支持、條件與限制已足夠就停止，不能為清空候選而繼續深讀。read_next 可從 unread 選取需要升級深入的背景來源，或需擴大閱讀的既有來源；scope=sections 表示只核對了相關區段，不是全文。'
             '即使子題已有 covered，若存在會改變教學解釋的具體疑點（方法未核對、適用條件不明或相反結果），仍可提出 read_next 或 searches；已支持的內容不必因此整題降為缺失。沒有具體疑點就不為湊篇數或形式上再驗證而追加工作。'
             'unread 包含已初篩但尚未讀正文的來源；screening_decision=read 表示先前已判斷值得讀，不能當作已讀或已排除。已有可能補足缺口的來源時，可選 read_next 核對正文，不必先重複搜尋。'
@@ -704,7 +725,7 @@ def advance(state,call,*,read_document=None):
             '若有具體缺口，提出不同角度的新關鍵詞，或使用已有查詢（有 next_page 才能接續）補查；'
             'papers 的 query 用一至兩句英文表達一個具體研究問題，保留領域、研究對象、條件與機制，使用自然語意而非關鍵字串；web 才使用精簡關鍵詞。'
             '缺少原理時可換同義概念或學術用語，但不能刪掉領域背景而搜到其他領域的同名概念。'
-            '各子題先查論文，已查論文仍缺乏支持時才改用 web 補查官方文件或教材；只搜尋尚未涵蓋的細節，不為已涵蓋主題擴展其他管道。'
+            '依具體缺口選來源：研究結果與方法比較可查 papers，操作與版本行為優先官方文件，基礎說明與例題可找開放教材；不要求先查論文。只搜尋尚未涵蓋的主要需求或會影響結論的具體疑點，不為已涵蓋主題擴展其他管道。'
             '若只有無法匯入的背景參考，應改找有明示開放授權的教材或公開論文，不反覆深讀不能交付的同類網頁。'
             '下載失敗代表取得困難，不代表論文偏題或學界缺少證據；停止時 reason 應區分未取得正文、尚未讀到必要內容，以及原文顯示尚無定論。'
             '不要為湊數反覆搜尋已涵蓋的內容。若資料已足夠，或現有證據顯示繼續查找沒有可行方向，searches 留空。'
@@ -755,6 +776,10 @@ def advance(state,call,*,read_document=None):
         reviewed=all_reviewed
         data['summary']='已保存閱讀結果，依各子題的支持內容判斷下一步。'
         missing=any(c['status']!='covered' for c in coverage)
+        if result.get('needs_more') is False:
+            data.update(stage='organizing',finish_reason='covered' if not missing else 'partial_delivery'
+                if all_reviewed else 'references_only' if references else 'gaps_remaining')
+            return {'search_state':data,'candidates':candidates,'status':'searching','cursor':None}
         next_read=[unread[i] for i in _topics(result['read_next'],unread)]
         signature=canonical_sha256({'coverage':[{k:v for k,v in item.items() if k!='reason'} for item in coverage],
                                    'evidence':evidence_signature})
@@ -762,6 +787,7 @@ def advance(state,call,*,read_document=None):
         if unread_offset==0:
             repeated=data.get('last_evidence_signature')==signature
             data['stalled_checks']=data.get('stalled_checks',0)+1 if repeated else 0
+            if not repeated:data.pop('stalled_search_round',None)
             data['last_evidence_signature']=signature
         # 先探索已規劃但尚未搜尋的方向，避免在同一批背景來源反覆擴讀。
         if missing and any(s['status']=='pending' for s in data['searches']):
@@ -769,6 +795,7 @@ def advance(state,call,*,read_document=None):
             data['stage']='searching'
             return {'search_state':data,'candidates':candidates,'status':'searching','cursor':None}
         stalled=missing and unread_offset==0 and data.get('stalled_checks',0)>=2 and not continue_requested
+        planned=_searches(result['searches'],data['topics'])
         if stalled:
             # 先用完已選待讀正文；不能持續追加搜尋，讓待讀來源永遠無法收斂。
             if any(_needs_body(c) and c.get('access',{}).get('retry_at',0)<=time.time() for c in candidates):
@@ -777,19 +804,18 @@ def advance(state,call,*,read_document=None):
             # 初篩參考資料可在缺口判斷中升級為應讀；尚未讀過的選定來源不是重複取證。
             next_read=[c for c in next_read if c.get('review',{}).get('phase')!='body'
                        or c.get('review',{}).get('skipped_sections')]
-            if not next_read:
+            known_queries={(s['channel'],_key(s['query'])) for s in data['searches']}
+            novel=[s for s in planned if (s['channel'],_key(s['query'])) not in known_queries]
+            # 既有候選讀不到時，不能在處理新補查建議之前就停掉；同一份證據只再試一輪新方向。
+            if novel and not data.get('stalled_search_round'):
+                planned=novel
+                data['stalled_search_round']=True
+            elif not next_read:
                 data.update(stage='organizing',finish_reason='gaps_remaining')
                 data.setdefault('warnings',[]).append('RESEARCH_NO_NEW_EVIDENCE')
                 return {'search_state':data,'candidates':candidates,'status':'searching','cursor':None}
+            else:planned=[]
         # 涵蓋已有答案不等於方法／相反結果都已釐清；模型提出具體查證時沿原範圍繼續。
-        planned=_searches(result['searches'],data['topics']) if not stalled else []
-        # 搜尋管道由流程保證優先級，不把核心子題是否查論文交給模型任意分流。
-        paper_topics={i for search in data['searches'] if search['channel']=='papers'
-                      and search['status'] in ('searched','failed') for i in search['topics']}
-        for search in planned:
-            if search['channel']=='web' and not set(search['topics'])<=paper_topics:
-                search['channel']='papers'
-        planned.sort(key=lambda search:search['channel']!='papers')
         known={(s['channel'],_key(s['query'])):s for s in data['searches']};added=False
         for search in planned:
             identity=(search['channel'],_key(search['query']))
@@ -841,4 +867,4 @@ def advance(state,call,*,read_document=None):
     else:raise SourceError('RESEARCH_REVIEW_FAILED')
     return {'search_state':data,'candidates':candidates,'status':'selecting' if data['stage']=='complete' else 'searching','cursor':None,
             'search_query':'\n'.join(s['query'] for s in data.get('searches',[])),
-            'error_code':'RESEARCH_PARTIAL_SEARCH' if data.get('warnings') else None}
+            'error_code':'RESEARCH_PARTIAL_SEARCH' if any(w!='RESEARCH_NO_NEW_EVIDENCE' for w in data.get('warnings',[])) else None}

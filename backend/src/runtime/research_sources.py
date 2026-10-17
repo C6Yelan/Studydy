@@ -331,6 +331,8 @@ def merge_candidates(existing,incoming):
         kept=known.get(key) or ids[row['id']]
         kept['discovered_by']=list(dict.fromkeys(kept.get('discovered_by',[])+row.get('discovered_by',[])))
         kept['research_topics']=list(dict.fromkeys(kept.get('research_topics',[])+row.get('research_topics',[])))
+        # 自動補查再次找到同一筆，不得清除已停止取得的紀錄並重新追逐。
+        if kept.get('access',{}).get('exhausted'):continue
         if row.get('description') and (not kept.get('description') or row.get('description_kind')=='abstract' and kept.get('description_kind')!='abstract'):
             kept['description']=row['description'];kept['description_kind']=row.get('description_kind','search_description')
             if kept.get('review',{}).get('phase')!='body' and not kept.get('_read_offset'):

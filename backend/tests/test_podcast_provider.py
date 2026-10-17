@@ -153,3 +153,17 @@ def test_voice_and_podcast_responses_use_the_same_dynamic_pause_identity(metadat
     assert 'dynamic-pauses/v1' in headers['X-Studydy-Audio-Provider']
     assert 'spoken-input/v12' not in headers['X-Studydy-Audio-Provider']
     assert handler.wfile.getvalue()==b'RIFF-test'
+
+
+def test_formula_keeps_nearby_variable_definition_without_using_a_foreign_or_distant_one():
+    request=body();request['claims'][0].update(text='估計值 p < t 時升級。',evidence=[
+        {'evidence_id':'formula','page_ref':'p0','source_id':'s0','quote':'p < t'}])
+    pages={'p0':{'source_id':'s0','blocks':[
+        {'evidence_id':'definition','block_order':0,'text':'p denotes the probability of a correct prediction.','region':[50,100,500,145]},
+        {'evidence_id':'wrong-column','block_order':1,'text':'p represents an unrelated quantity.','region':[600,100,800,145]},
+        {'evidence_id':'formula','block_order':3,'text':'Escalate if p < t.','region':[50,200,400,240]},
+        {'evidence_id':'distant','block_order':30,'text':'p denotes another statistic.','region':[50,700,500,745]}]},
+        'foreign':{'source_id':'other','blocks':[{'evidence_id':'other','text':'p denotes failure probability.'}]}}
+    result=provider.script_context(request['claims'],pages)
+    assert list(result)==['p0']
+    assert [b['evidence_id'] for b in result['p0']['blocks']]==['definition','formula']

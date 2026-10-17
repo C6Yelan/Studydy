@@ -67,8 +67,7 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await panel.getByText('研究詳情', { exact: true }).click();
-  await panel.getByText('尚未取得正文的來源 · 1 份', { exact: true }).click();
-  await expect(panel).toContainText('此入口回應 403');
+  await expect(panel).not.toContainText('此入口回應 403');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await panel.scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath(`${mode}-research-progress.png`) });
@@ -95,8 +94,8 @@ test('research can finish with verified sources without claiming full coverage',
   await page.getByRole('checkbox', { name: '選取 Agent ready', exact: true }).check();
   await expect(page.getByRole('button', { name: '取得選取的 1 份來源', exact: true })).toBeEnabled();
   await page.getByText('研究詳情', { exact: true }).click();
-  await page.getByText('子題涵蓋情況', { exact: true }).click();
-  await expect(page.getByText('缺少完整案例。', { exact: true })).toBeVisible();
+  await expect(page.getByText('缺少完整案例。', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', {name:'背景研究進度'})).toContainText('可先使用已核對的來源');
 });
 
 test('prepared sources remain explicitly outside the map until submitted, and review results are not claimed complete', async ({page}) => {
@@ -132,4 +131,40 @@ test('stopped research is preserved in collapsed history while the current task 
   await expect(page.getByRole('heading',{name:'已停止的舊測試查詢',exact:true})).not.toBeVisible();
   await page.getByText('已停止的查詢 · 1 筆',{exact:true}).click();
   await expect(page.getByRole('heading',{name:'已停止的舊測試查詢',exact:true})).toBeVisible();
+});
+
+
+test('focused followup preserves the confirmed scope and sends the optional direction', async ({page}) => {
+  await mockKnowledgeMapApi(page, structureView());
+  const scope={title:'Agent',level:'入門',goals:['理解迴圈'],topics:['Agent 執行迴圈'],exclude:['完整程式']};
+  let work:any={research_id:researchId,material_id:materialId,query:'Agent',mode:'review',approved_scope:scope,
+    status:'selecting',candidates:[source('ready')],selection:[],cursor:null,error_code:null,run_id:null,is_current_revision:true};
+  await page.route(`**/v1/research/${researchId}`,r=>json(r,work));
+  await page.route(`**/v1/research/${researchId}/actions`,r=>{
+    expect(r.request().postDataJSON()).toEqual({action:'more',guidance:'只補停止條件的官方說明'});
+    work={...work,status:'searching'};return json(r,work);
+  });
+  await page.goto(`/materials/${materialId}/research/${researchId}`);
+  await page.getByText('調整補查方向',{exact:true}).click();
+  await page.getByLabel('補查方向（選填）').fill('只補停止條件的官方說明');
+  await page.getByRole('button',{name:'依缺口繼續研究',exact:true}).click();
+  await expect(page.getByRole('button',{name:'停止處理',exact:true})).toBeVisible();
+  expect(work.approved_scope).toEqual(scope);
+});
+
+
+test('published partial delivery can retry failed sources without claiming they were included', async ({page}) => {
+  await mockKnowledgeMapApi(page, structureView());
+  let work:any={research_id:researchId,material_id:materialId,query:'Partial source delivery',mode:'review',
+    status:'submitted',candidates:[{...source('ready'),state:'ready'},{...source('failed'),state:'failed',error_code:'RESEARCH_DOWNLOAD_FAILED'}],
+    selection:['ready','failed'],cursor:null,error_code:'RESEARCH_ITEMS_FAILED',run_id:'33333333-3333-4333-8333-333333333333',run:{status:'succeeded',error_code:null}};
+  await page.route(`**/v1/research/${researchId}`,r=>json(r,work));
+  await page.route(`**/v1/research/${researchId}/actions`,r=>{
+    expect(r.request().postDataJSON()).toEqual({action:'retry'});
+    work={...work,status:'acquiring',run_id:null,run:null};return json(r,work);
+  });
+  await page.goto(`/materials/${materialId}/research/${researchId}`);
+  await expect(page.getByText('已將 1 份來源加入教材，可查看更新後的知識地圖。',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'重試未完成來源',exact:true}).click();
+  await expect(page.getByRole('button',{name:'停止處理',exact:true})).toBeVisible();
 });
