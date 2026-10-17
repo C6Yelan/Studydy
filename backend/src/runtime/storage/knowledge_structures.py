@@ -207,7 +207,7 @@ def publish_knowledge_structure(
 
 def _prune_unreferenced_structures(session, owner, material_id, head):
     """保留被引用的地圖及工作的重播依據。"""
-    from .tables import CardSet, Podcast, StudySession, VoiceConversation
+    from .tables import CardSet, MaterialResearch, Podcast, StudySession, VoiceConversation
 
     rows = session.scalars(
         select(KnowledgeStructure).where(
@@ -241,7 +241,14 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
             VoiceConversation.knowledge_structure_revision == row.structure_revision,
             VoiceConversation.deleted_at.is_(None),
         ).limit(1))
-        if referenced is None and active is None and card_set is None and podcast is None and conversation is None:
+        # 尚保留的研究以舊版本作比較依據；教材追加後仍須能回查該版本。
+        research = session.scalar(select(MaterialResearch.research_id).where(
+            MaterialResearch.learner_id == owner,
+            MaterialResearch.material_id == material_id,
+            MaterialResearch.base_revision == row.structure_revision,
+            MaterialResearch.deleted_at.is_(None),
+        ).limit(1))
+        if referenced is None and active is None and card_set is None and podcast is None and conversation is None and research is None:
             session.delete(row)
 
 

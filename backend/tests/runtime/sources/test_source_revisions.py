@@ -189,6 +189,25 @@ def test_run_only_cancel_retains_head_and_unreferenced_old_map_is_pruned_on_succ
     assert start([second],'cancel',old['revision']).run_id==run.run_id
 
 
+def test_research_base_revision_is_retained_after_append(revisions):
+    from research_fixtures import create_confirmed_research
+    from runtime import research
+    from runtime.storage.knowledge_structures import _prune_unreferenced_structures
+    learner,material,settings,dsn,add,start,execute,_,old,_=revisions
+    work=create_confirmed_research(learner.learner_id,material,'補充佇列','keep-base',dsn=dsn)
+    second=add('B.pdf','A queue removes the first inserted element first.')
+    start([second],'append',old['revision']);result=execute()
+    assert result.status=='succeeded',result.error_code
+    assert read_knowledge_structure(learner.learner_id,material,revision=old['revision'],dsn=dsn).document==old
+    research.delete(learner.learner_id,work['research_id'],dsn=dsn)
+    with database_session(dsn) as session:
+        head=session.get(Material,material).head_revision
+        _prune_unreferenced_structures(session,learner.learner_id,material,head)
+        session.flush()
+        assert session.scalar(select(KnowledgeStructure).where(KnowledgeStructure.material_id==material,
+            KnowledgeStructure.structure_revision==old['revision'])) is None
+
+
 def test_late_upload_does_not_change_frozen_input_and_duplicate_bytes_are_rejected(revisions):
     learner,material,settings,dsn,add,start,execute,r1,old,_=revisions
     second=add('B.pdf','Queue content.')
