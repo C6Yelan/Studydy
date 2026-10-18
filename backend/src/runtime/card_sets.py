@@ -123,7 +123,8 @@ def list_card_sets(owner, *, dsn=None):
         }
 
 
-def _set_material_id(session, owner, card_set_id):
+def _owned_card(session, owner, card_set_id, *, read=False, allow_deleted=False):
+    """先鎖教材再讀卡組；刪除收據只有刪除入口可重播。"""
     material_id = session.scalar(
         select(CardSet.material_id).where(
             CardSet.learner_id == owner,
@@ -132,16 +133,17 @@ def _set_material_id(session, owner, card_set_id):
     )
     if material_id is None:
         raise CardSetError("RESOURCE_NOT_FOUND")
-    return material_id
+    material = require_material(session, owner, material_id, read=read)
+    row = session.get(CardSet, card_set_id)
+    if row is None or (not allow_deleted and row.deleted_at is not None):
+        raise CardSetError("RESOURCE_NOT_FOUND")
+    return row, material
 
 
 def read_card_set(owner, card_set_id, *, dsn=None):
     with database_session(dsn) as session:
-        material_id = _set_material_id(session, owner, card_set_id)
-        material = require_material(session, owner, material_id, read=True)
-        row = session.get(CardSet, card_set_id)
-        if row is None or row.deleted_at is not None:
-            raise CardSetError("RESOURCE_NOT_FOUND")
+        row, material = _owned_card(session, owner, card_set_id, read=True)
+        material_id = material.material_id
         document = _read_verified_document(
             session,
             owner,
@@ -177,11 +179,8 @@ def update_card_set(
     owner, card_set_id, name, expected_version, concept_ids=None, *, dsn=None
 ):
     with database_session(dsn) as session:
-        material_id = _set_material_id(session, owner, card_set_id)
-        material = require_material(session, owner, material_id)
-        row = session.get(CardSet, card_set_id)
-        if row is None or row.deleted_at is not None:
-            raise CardSetError("RESOURCE_NOT_FOUND")
+        row, material = _owned_card(session, owner, card_set_id)
+        material_id = material.material_id
         selection = row.concept_ids if concept_ids is None else concept_ids
         name = validate_concept_selection(name, selection)
         document = _read_verified_document(
@@ -225,11 +224,8 @@ def update_card_set(
 
 def delete_card_set(owner, card_set_id, *, dsn=None):
     with database_session(dsn) as session:
-        material_id = _set_material_id(session, owner, card_set_id)
-        material = require_material(session, owner, material_id)
-        row = session.get(CardSet, card_set_id)
-        if row is None:
-            raise CardSetError("RESOURCE_NOT_FOUND")
+        row, material = _owned_card(session, owner, card_set_id, allow_deleted=True)
+        material_id = material.material_id
         if row.deleted_at is None:
             # 留下最小重送收據，舊建立請求不能在刪除後復活卡組；同時釋放版本引用。
             row.deleted_at = datetime.now(UTC)
@@ -250,11 +246,7 @@ def delete_card_set(owner, card_set_id, *, dsn=None):
 
 def generation_status(owner, card_set_id, *, retry=False, dsn=None):
     with database_session(dsn) as session:
-        material_id = _set_material_id(session, owner, card_set_id)
-        require_material(session, owner, material_id, read=not retry)
-        row = session.get(CardSet, card_set_id)
-        if row is None or row.deleted_at is not None:
-            raise CardSetError("RESOURCE_NOT_FOUND")
+        row, _ = _owned_card(session, owner, card_set_id, read=not retry)
         if retry and row.status == "failed":
             row.generation = {**row.generation, "error_code": None}
             row.status = "pending"
@@ -266,11 +258,7 @@ def save_card_count(
 ):
     """保存擁有者瀏覽器的排版結果；舊選材或未完成精簡的張數不得寫入。"""
     with database_session(dsn) as session:
-        material_id = _set_material_id(session, owner, card_set_id)
-        material = require_material(session, owner, material_id)
-        row = session.get(CardSet, card_set_id)
-        if row is None or row.deleted_at is not None:
-            raise CardSetError("RESOURCE_NOT_FOUND")
+        row, material = _owned_card(session, owner, card_set_id)
         if row.version != expected_version or row.status != "ready":
             raise CardSetError("CARD_SET_CONFLICT")
         if concept_counts:
@@ -296,12 +284,8 @@ def save_card_count(
 
 def read_card_study(owner, card_set_id, *, offset=0, expected_version=None, dsn=None):
     with database_session(dsn) as session:
-        material_id = _set_material_id(session, owner, card_set_id)
-        # 與選材更新及舊卡組一次性補索引共用父鎖，避免版本混用或重複建立。
-        material = require_material(session, owner, material_id)
-        row = session.get(CardSet, card_set_id)
-        if row is None or row.deleted_at is not None:
-            raise CardSetError("RESOURCE_NOT_FOUND")
+        row, material = _owned_card(session, owner, card_set_id)
+        material_id = material.material_id
         if expected_version is not None and (
             row.version != expected_version or row.status != "ready"
         ):
