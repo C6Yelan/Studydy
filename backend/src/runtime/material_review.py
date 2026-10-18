@@ -237,6 +237,55 @@ def _review_response_schema(unit):
     return schema
 
 
+def _decode_review_response(value):
+    """將 wire 的 keyed assignments 轉成既有提案；不補造來源或概念編號。"""
+    assignments = value.get("assignments") if isinstance(value, dict) else None
+    aliases = value.get("alias_edits") if isinstance(value, dict) else None
+    if (
+        not isinstance(assignments, dict)
+        or any(
+            not isinstance(handle, str)
+            or not handle.isascii()
+            or not handle.isdecimal()
+            or str(int(handle)) != handle
+            or not isinstance(row, dict)
+            or "concept" in row
+            or "concept_source" not in row
+            or not isinstance(row.get("decision"), dict)
+            or "concept" in row["decision"]
+            or not isinstance(row["decision"].get("evidence"), list)
+            for handle, row in assignments.items()
+        )
+        or not isinstance(aliases, list)
+        or any(
+            not isinstance(edit, dict)
+            or "concept_source" not in edit
+            or not isinstance(edit.get("evidence"), list)
+            for edit in aliases
+        )
+    ):
+        raise ReviewError("REVIEW_RESPONSE_INVALID")
+    return {
+        **value,
+        "assignments": [
+            {
+                "concept": int(handle),
+                **row["decision"],
+                "evidence": [row["concept_source"], *row["decision"]["evidence"]],
+            }
+            for handle, row in assignments.items()
+        ],
+        # 兩種引用都由模型明確選取；不替它補上任意一筆既有來源。
+        "alias_edits": [
+            {
+                **{key: item for key, item in edit.items() if key != "concept_source"},
+                "evidence": [edit["concept_source"], *edit["evidence"]],
+            }
+            for edit in aliases
+        ],
+    }
+
+
 def _checked_review(
     unit, index, lock, archive, client, check_cancel, wait_cancellation_check=None
 ):
@@ -344,57 +393,13 @@ def _checked_review(
         name = f"call-{index:06d}" + (f"-repair-{attempt:02d}" if attempt else "")
         archive.save_review(f"{name}/wire-response", value)
         # 固定欄位承載概念身分，不靠陣列順序或替模型修正重複編號。
-        assignments = value.get("assignments") if isinstance(value, dict) else None
-        aliases = value.get("alias_edits") if isinstance(value, dict) else None
-        if (
-            not isinstance(assignments, dict)
-            or any(
-                not isinstance(handle, str)
-                or not handle.isascii()
-                or not handle.isdecimal()
-                or str(int(handle)) != handle
-                or not isinstance(row, dict)
-                or "concept" in row
-                or "concept_source" not in row
-                or not isinstance(row.get("decision"), dict)
-                or "concept" in row["decision"]
-                or not isinstance(row["decision"].get("evidence"), list)
-                for handle, row in assignments.items()
-            )
-            or not isinstance(aliases, list)
-            or any(
-                not isinstance(edit, dict)
-                or "concept_source" not in edit
-                or not isinstance(edit.get("evidence"), list)
-                for edit in aliases
-            )
-        ):
+        try:
+            decoded = _decode_review_response(value)
+        except ReviewError:
             if rejection_code is None:
                 rejected, rejection_code = deepcopy(value), "REVIEW_RESPONSE_INVALID"
-            raise ReviewError("REVIEW_RESPONSE_INVALID")
-        value = {
-            **value,
-            "assignments": [
-                {
-                    "concept": int(handle),
-                    **row["decision"],
-                    "evidence": [row["concept_source"], *row["decision"]["evidence"]],
-                }
-                for handle, row in assignments.items()
-            ],
-            # 兩種引用都由模型明確選取；不替它補上任意一筆既有來源。
-            "alias_edits": [
-                {
-                    **{
-                        key: item
-                        for key, item in edit.items()
-                        if key != "concept_source"
-                    },
-                    "evidence": [edit["concept_source"], *edit["evidence"]],
-                }
-                for edit in aliases
-            ],
-        }
+            raise
+        value = decoded
         edits = value.get("claim_edits")
         for edit in edits if isinstance(edits, list) else []:
             if not isinstance(edit, dict) or type(edit.get("claim")) is not int:

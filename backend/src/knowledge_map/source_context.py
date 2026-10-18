@@ -1,4 +1,5 @@
 """從逐頁 Evidence 建立有序的教材與章節脈絡。"""
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -10,7 +11,8 @@ from .structure_rules import _CODE_OR_FORMULA, _id, _text
 
 def _ordered_pages(pages: Any) -> list[dict[str, Any]]:
     if (
-        not isinstance(pages, list) or not pages
+        not isinstance(pages, list)
+        or not pages
         or any(not isinstance(page, dict) for page in pages)
     ):
         raise ValueError("DOCUMENT_EVIDENCE_INVALID")
@@ -34,14 +36,20 @@ def _ordered_pages(pages: Any) -> list[dict[str, Any]]:
     evidence_ids: set[str] = set()
     for page in ordered:
         blocks = page.get("evidence_blocks")
-        if page.get("schema") != "page-evidence/v1" or not isinstance(blocks, list) or not blocks:
+        if (
+            page.get("schema") != "page-evidence/v1"
+            or not isinstance(blocks, list)
+            or not blocks
+        ):
             raise ValueError("DOCUMENT_EVIDENCE_INVALID")
         if page.get("page_ref") != _id(
             "page",
             {"source_sha256": source_sha256, "page_number": page["page_number"]},
         ):
             raise ValueError("DOCUMENT_EVIDENCE_INVALID")
-        orders = [block.get("reading_order") for block in blocks if isinstance(block, dict)]
+        orders = [
+            block.get("reading_order") for block in blocks if isinstance(block, dict)
+        ]
         if len(orders) != len(blocks) or orders != sorted(set(orders)):
             raise ValueError("DOCUMENT_EVIDENCE_INVALID")
         for block in blocks:
@@ -97,8 +105,11 @@ def _non_content_evidence_ids(pages: list[dict[str, Any]]) -> set[str]:
         for block in page["evidence_blocks"]:
             box = block["locator"]["region"]
             edge = (
-                "bottom" if box[1] >= bounds[1] + height * 0.9
-                else "top" if box[3] <= bounds[1] + height * 0.08 else None
+                "bottom"
+                if box[1] >= bounds[1] + height * 0.9
+                else "top"
+                if box[3] <= bounds[1] + height * 0.08
+                else None
             )
             text = " ".join(block["text"].split())
             if edge is None or len(text) > 200:
@@ -108,20 +119,26 @@ def _non_content_evidence_ids(pages: list[dict[str, Any]]) -> set[str]:
                 continue
             if re.search(
                 r"©\s*\d{4}|\bcopyright\s*(?:©|\(c\))?\s*\d{4}|all rights reserved|版權所有",
-                text, re.IGNORECASE,
+                text,
+                re.IGNORECASE,
             ):
                 excluded.add(block["evidence_id"])
                 continue
             if block["kind"] == "heading" or _CODE_OR_FORMULA.search(text):
                 continue
             # 頁碼須跨頁同位置且保持頁序差；固定數值不是頁碼。
-            number = re.fullmatch(r"(?:(?:page|p\.)\s*)?(?:(\d+)\.)?(\d{1,4})", text, re.IGNORECASE)
+            number = re.fullmatch(
+                r"(?:(?:page|p\.)\s*)?(?:(\d+)\.)?(\d{1,4})", text, re.IGNORECASE
+            )
             identity = (
                 ("page", number[1], int(number[2]) - page["page_number"])
-                if number else ("running", text)
+                if number
+                else ("running", text)
             )
             key = (edge, round((box[0] - bounds[0]) / width, 1), *identity)
-            recurring.setdefault(key, []).append((page["page_number"], block["evidence_id"]))
+            recurring.setdefault(key, []).append(
+                (page["page_number"], block["evidence_id"])
+            )
     for occurrences in recurring.values():
         if len({page for page, _ in occurrences}) >= 2:
             excluded.update(reference for _, reference in occurrences)
@@ -135,7 +152,9 @@ def _section_title(text: str) -> str:
     cleaned = _text(text, maximum=max(512, len(text)))
     if len(cleaned) <= 512:
         return cleaned
-    first_line = next(" ".join(line.split()) for line in text.splitlines() if line.strip())
+    first_line = next(
+        " ".join(line.split()) for line in text.splitlines() if line.strip()
+    )
     return first_line if len(first_line) <= 512 else first_line[:511].rstrip() + "…"
 
 
@@ -159,18 +178,28 @@ def build_document_context(
     last_included_page: int | None = None
     for page in ordered:
         if (
-            source_pages and last_included_page is not None
-            and (source_pages[page["page_number"] - 1]["source_id"]
-                 != source_pages[last_included_page - 1]["source_id"]
-                 or source_pages[page["page_number"] - 1]["normalized_page"]
-                 != source_pages[last_included_page - 1]["normalized_page"] + 1)
+            source_pages
+            and last_included_page is not None
+            and (
+                source_pages[page["page_number"] - 1]["source_id"]
+                != source_pages[last_included_page - 1]["source_id"]
+                or source_pages[page["page_number"] - 1]["normalized_page"]
+                != source_pages[last_included_page - 1]["normalized_page"] + 1
+            )
         ):
             current = None
-        if last_included_page is not None and page["page_number"] != last_included_page + 1:
+        if (
+            last_included_page is not None
+            and page["page_number"] != last_included_page + 1
+        ):
             current = None
         for block in page["evidence_blocks"]:
             if current is None or block["kind"] == "heading":
-                title = _section_title(block["text"]) if block["kind"] == "heading" else "教材開頭"
+                title = (
+                    _section_title(block["text"])
+                    if block["kind"] == "heading"
+                    else "教材開頭"
+                )
                 section_id = _id(
                     "section",
                     {
@@ -188,14 +217,7 @@ def build_document_context(
                     "evidence_ids": [],
                 }
                 sections.append(current)
-            locator = block.get("locator")
-            if (
-                not isinstance(locator, dict)
-                or locator.get("page") != page["page_number"]
-                or locator.get("block_id") != block.get("block_id")
-                or not isinstance(locator.get("region"), list)
-            ):
-                raise ValueError("DOCUMENT_EVIDENCE_INVALID")
+            locator = block["locator"]  # _ordered_pages 已核對來源頁、區塊與完整身分。
             item = {
                 "evidence_id": block["evidence_id"],
                 "page_ref": page["page_ref"],
@@ -218,7 +240,9 @@ def build_document_context(
     if not evidence:
         raise ValueError("NO_USABLE_EVIDENCE")
     for index, section in enumerate(sections):
-        section["previous_section_title"] = sections[index - 1]["title"] if index else None
+        section["previous_section_title"] = (
+            sections[index - 1]["title"] if index else None
+        )
         section["next_section_title"] = (
             sections[index + 1]["title"] if index + 1 < len(sections) else None
         )
