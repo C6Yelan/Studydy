@@ -7,7 +7,8 @@ from sqlalchemy import select, literal_column
 from product_fixtures import closed_loop
 from runtime import retrieval
 from runtime.errors import SourceError
-from runtime.storage.tables import MaterialPassage, MaterialRetrievalIndex, database_session
+from runtime.storage.tables import MaterialPassage, MaterialRetrievalIndex
+from runtime.storage.database import database_session
 
 
 def test_published_material_has_searchable_index_and_exact_evidence(closed_loop):

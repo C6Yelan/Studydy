@@ -1,6 +1,6 @@
 """檢索式問答的受控回應；驗證流程，不代表真實模型品質。"""
 from runtime import retrieval
-from runtime.storage.tables import database_session
+from runtime.storage.database import database_session
 
 
 def grounded_answer(state, dsn, text='依照教材說明這個概念。'):

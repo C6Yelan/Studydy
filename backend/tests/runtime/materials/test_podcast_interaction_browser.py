@@ -5,7 +5,8 @@ from sqlalchemy import select, func
 import runtime.api.app as api
 from runtime import voice, podcast_scenes as scenes, podcast_videos as videos
 from runtime.scene_alignment import normalized
-from runtime.storage.tables import VoiceConversation, VoiceTurn, StudySession, AnswerEvent, database_session
+from runtime.storage.tables import VoiceConversation, VoiceTurn, StudySession, AnswerEvent
+from runtime.storage.database import database_session
 from browser_e2e_runner import PORT, local_api, main as run_browser
 from product_fixtures import closed_loop
 from materials.test_podcasts import wav

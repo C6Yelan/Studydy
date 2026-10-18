@@ -15,7 +15,8 @@ from sqlalchemy import select
 
 from content_identity import canonical_bytes, canonical_sha256
 from .artifacts import _root, _sync_directory
-from .tables import Material, MaterialProcessingRun, database_session
+from .tables import Material, MaterialProcessingRun
+from .database import database_session
 from ..material_runtime import same_material_runtime
 from ..semantic_service import SemanticServiceError
 

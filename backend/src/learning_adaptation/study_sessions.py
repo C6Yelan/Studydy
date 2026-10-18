@@ -11,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import StudySession, database_session
+from runtime.storage.tables import StudySession
+from runtime.storage.database import database_session
 
 from .map_context import MapContext, _context_from_validated_document
 from runtime.storage.knowledge_structures import _read_verified_document, KnowledgeStructureStoreError

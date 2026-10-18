@@ -10,7 +10,8 @@ from pdf_evidence import material_pipeline
 from pdf_evidence.local_ai_process import LocalAIProcess
 import runtime.material_processing as processing
 import runtime.workers as workers
-from runtime.storage.tables import Material, MaterialProcessingRun, database_session
+from runtime.storage.tables import Material, MaterialProcessingRun
+from runtime.storage.database import database_session
 from test_inference_controlled_exit import blocked_http
 from test_source_revisions import revisions
 from product_fixtures import closed_loop

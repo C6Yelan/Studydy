@@ -17,7 +17,8 @@ from runtime.source_resolver import bind_structure_input
 from runtime.storage.knowledge_structures import resolve_evidence_source
 from runtime.storage.knowledge_structures import read_knowledge_structure
 from runtime.storage.artifacts import open_verified_artifact
-from runtime.storage.tables import MaterialSourceSet,SourceNormalization,Artifact,database_session
+from runtime.storage.tables import MaterialSourceSet, SourceNormalization, Artifact
+from runtime.storage.database import database_session
 from runtime.material_processing import claim_next_material_processing_run, _record_progress
 from runtime.material_discard import request_material_discard
 from product_fixtures import publish_fixture_structure, closed_loop

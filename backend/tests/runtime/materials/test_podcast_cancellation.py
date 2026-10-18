@@ -11,7 +11,8 @@ from product_fixtures import closed_loop
 from materials.test_podcasts import create, script, wav
 from runtime import podcasts, podcast_process
 from runtime.podcast_worker import PodcastWorker
-from runtime.storage.tables import Podcast, PodcastScenes, PodcastVideo, database_session
+from runtime.storage.tables import Podcast, PodcastScenes, PodcastVideo
+from runtime.storage.database import database_session
 from test_podcast_process import provider_server, provider, wait_until, alive
 from runtime.generation_jobs import cancellable_job
 

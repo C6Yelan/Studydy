@@ -10,7 +10,8 @@ from sqlalchemy import select
 
 import runtime.api.app as api
 from learning_adaptation import assessment_sets as sets
-from runtime.storage.tables import AssessmentSet, AnswerEvent, database_session
+from runtime.storage.tables import AssessmentSet, AnswerEvent
+from runtime.storage.database import database_session
 from browser_e2e_runner import PORT, local_api, main as run_browser
 from product_fixtures import closed_loop
 from assessment_fixtures import concept_fixture, model_for

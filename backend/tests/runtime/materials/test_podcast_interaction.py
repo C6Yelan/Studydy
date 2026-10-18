@@ -16,7 +16,8 @@ from runtime.podcast_script import SCHEMA, digest
 from runtime.podcast_timeline import build_timeline, webvtt
 from runtime.scene_alignment import normalized
 from runtime.errors import SourceError
-from runtime.storage.tables import Podcast, PodcastScenes, PodcastVideo, VoiceTurn, AnswerEvent, database_session
+from runtime.storage.tables import Podcast, PodcastScenes, PodcastVideo, VoiceTurn, AnswerEvent
+from runtime.storage.database import database_session
 from runtime.storage.migrations import run_migrations
 from runtime.material_processing import claim_next_material_processing_run, _record_progress
 from learning_adaptation.study_sessions import create_study_session, set_current_study_concept

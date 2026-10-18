@@ -148,9 +148,3 @@ class RuntimeWorkers:
                     return
                 logging.getLogger(__name__).warning("RUNTIME_WORKER_ITERATION_FAILED")
             self._stop.wait(_IDLE_WAIT_SECONDS)
-
-
-def start_runtime_workers(*, dsn: str | None, local_config: dict) -> RuntimeWorkers:
-    workers = RuntimeWorkers(dsn, deepcopy(local_config))
-    workers.start()
-    return workers

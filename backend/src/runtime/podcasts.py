@@ -22,14 +22,8 @@ from .storage.knowledge_structures import (
     _read_verified_document,
     _view,
 )
-from .storage.tables import (
-    Artifact,
-    Material,
-    Podcast,
-    PodcastScenes,
-    PodcastVideo,
-    database_session,
-)
+from .storage.tables import Artifact, Material, Podcast, PodcastScenes, PodcastVideo
+from .storage.database import database_session
 from .podcast_script import digest, validate_script
 from .podcast_sources import plan_episodes, source_context, _context_pages
 from . import retrieval

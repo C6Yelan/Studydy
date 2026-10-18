@@ -15,7 +15,8 @@ from knowledge_map.structure import (
     validate_knowledge_structure,
 )
 
-from .tables import KnowledgeStructure, Material, MaterialProcessingRun, database_session
+from .tables import KnowledgeStructure, Material, MaterialProcessingRun
+from .database import database_session
 from .artifacts import open_verified_artifact
 from ..errors import SourceError
 from ..source_resolver import verify_structure_input, verify_source_files

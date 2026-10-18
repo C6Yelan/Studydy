@@ -11,7 +11,8 @@ from research_fixtures import review_provider, search_to_selection
 from runtime import research
 from runtime.source_normalization import normalize_next, read_sources
 from runtime.storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
-from runtime.storage.tables import Material, MaterialRetrievalIndex, MaterialSourceSet, SourceNormalization, database_session
+from runtime.storage.tables import Material, MaterialRetrievalIndex, MaterialSourceSet, SourceNormalization
+from runtime.storage.database import database_session
 
 
 def test_source_set_preserves_nul_in_selected_quotes(revisions, monkeypatch):

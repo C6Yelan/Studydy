@@ -11,7 +11,8 @@ from research_fixtures import review_provider,search_to_selection
 from runtime.source_normalization import normalize_next
 from runtime.errors import SourceError
 from runtime.material_discard import request_material_discard
-from runtime.storage.tables import TopicScope,MaterialResearch,Material,database_session
+from runtime.storage.tables import TopicScope, MaterialResearch, Material
+from runtime.storage.database import database_session
 
 PLAN={'title':'佇列入門','goals':['理解 FIFO，不討論實作效能最佳化'],'topics':['佇列的資料順序']}
 CANDIDATE={'id':'paper','kind':'paper','title':'Queue source','authors':'Fixture','year':2026,'description':'A queue removes the first inserted item first.','doi':None,

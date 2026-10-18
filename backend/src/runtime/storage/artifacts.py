@@ -14,7 +14,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from .tables import Artifact, database_session
+from .tables import Artifact
+from .database import database_session
 
 ARTIFACT_ROOT_ENV = "STUDYDY_ARTIFACT_ROOT"
 _CHUNK = 1024 * 1024

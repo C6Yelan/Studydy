@@ -8,7 +8,8 @@ from materials.test_podcasts import create,complete,wav
 from runtime import podcast_scenes as scenes,podcasts
 from runtime.scene_alignment import normalized
 from runtime.errors import SourceError
-from runtime.storage.tables import PodcastScenes,Podcast,database_session
+from runtime.storage.tables import PodcastScenes, Podcast
+from runtime.storage.database import database_session
 
 
 def ready(fixture):

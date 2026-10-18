@@ -16,7 +16,8 @@ from .generation_jobs import WORKER_LEASE_TTL, check_job
 from .semantic_service import request_semantics, semantic_client, SemanticServiceError
 from .text_budget import estimate_o200k_tokens
 from .storage import card_sources, knowledge_reads
-from .storage.tables import CardSet, Material, database_session
+from .storage.tables import CardSet, Material
+from .storage.database import database_session
 
 
 def configured_lock():

@@ -8,7 +8,8 @@ from sqlalchemy import select, text
 
 from content_identity import canonical_sha256
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import Material, database_session
+from runtime.storage.tables import Material
+from runtime.storage.database import database_session
 
 from .answer_events import _read_events
 from .learning_states import ConceptLearningState, derive_learning_states

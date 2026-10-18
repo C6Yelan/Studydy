@@ -6,7 +6,8 @@ import pytest
 from product_fixtures import closed_loop
 from runtime import voice, topics, research, podcast_process
 from runtime.generation_jobs import cancellable_job
-from runtime.storage.tables import VoiceTurn, TopicScope, MaterialResearch, database_session
+from runtime.storage.tables import VoiceTurn, TopicScope, MaterialResearch
+from runtime.storage.database import database_session
 from test_podcast_process import provider_server, wait_until
 
 

@@ -61,7 +61,8 @@ def test_publishing_and_terminal_primitive_is_unchanged(cancellation_run):
 @pytest.mark.parametrize('terminal', ['failed', 'cancelled', 'interrupted'])
 def test_review_progress_persists_through_failure_cancel_and_recovery(cancellation_run, terminal):
     from datetime import UTC, datetime, timedelta
-    from runtime.storage.tables import MaterialProcessingRun, database_session
+    from runtime.storage.tables import MaterialProcessingRun
+    from runtime.storage.database import database_session
     learner, _, _, _, dsn, run = cancellation_run
     processing.claim_next_material_processing_run(dsn=dsn)
     processing._record_progress(run.run_id, 'evidence', 368, 368, dsn=dsn)

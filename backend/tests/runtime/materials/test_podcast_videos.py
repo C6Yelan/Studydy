@@ -16,7 +16,8 @@ from runtime.material_discard import request_material_discard
 from runtime.podcast_video_plan import POLICY
 from runtime.scene_alignment import normalized
 from runtime.errors import SourceError
-from runtime.storage.tables import Artifact,Podcast,PodcastVideo,database_session
+from runtime.storage.tables import Artifact, Podcast, PodcastVideo
+from runtime.storage.database import database_session
 
 
 def bundle(state, motion=False):

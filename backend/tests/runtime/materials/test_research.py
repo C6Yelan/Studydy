@@ -12,7 +12,8 @@ from research_fixtures import review_provider,search_to_selection,continue_provi
 from runtime.storage.materials import MaterialLibraryError
 from runtime.source_normalization import normalize_next
 from runtime.errors import SourceError
-from runtime.storage.tables import MaterialResearch,MaterialSource,Material,database_session
+from runtime.storage.tables import MaterialResearch, MaterialSource, Material
+from runtime.storage.database import database_session
 from runtime.storage.knowledge_structures import read_knowledge_structure
 
 
@@ -359,7 +360,8 @@ def test_summary_migration_preserves_cancelled_work_and_lossless_source_text(clo
 
 
 def test_research_snapshot_survives_restart_and_upstream_changes(closed_loop,monkeypatch):
-    from runtime.storage.tables import ResearchDocument,dispose_database_engine
+    from runtime.storage.tables import ResearchDocument
+    from runtime.storage.database import dispose_database_engine
     from runtime.storage.artifacts import open_verified_artifact
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     original=mock_search(monkeypatch)
@@ -406,7 +408,8 @@ def test_snapshot_scope_and_integrity_are_checked_before_use(closed_loop,monkeyp
 
 def test_html_paper_snapshot_survives_restart_and_normalizes_selected_passages(closed_loop,monkeypatch):
     from hashlib import sha256
-    from runtime.storage.tables import ResearchDocument,SourceNormalization,dispose_database_engine
+    from runtime.storage.tables import ResearchDocument, SourceNormalization
+    from runtime.storage.database import dispose_database_engine
     from runtime.storage.artifacts import open_verified_artifact
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)

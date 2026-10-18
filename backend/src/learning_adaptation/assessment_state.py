@@ -4,15 +4,8 @@ from sqlalchemy import select, text
 
 from runtime.learner_session import TrustedLearner
 from runtime.storage.knowledge_structures import _read_verified_document
-from runtime.storage.tables import (
-    Assessment,
-    AssessmentSet,
-    AssessmentSetItem,
-    AnswerEvent,
-    Material,
-    StudySession,
-    database_session,
-)
+from runtime.storage.tables import Assessment, AssessmentSet, AssessmentSetItem, AnswerEvent, Material, StudySession
+from runtime.storage.database import database_session
 from . import assessments
 from .learning_states import claim_completion
 from .map_context import _context_from_validated_document

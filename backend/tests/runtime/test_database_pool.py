@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy import text
 
-from runtime.storage.tables import database_session, dispose_database_engine
+from runtime.storage.database import database_session, dispose_database_engine
 
 
 def test_sessions_reuse_connection_without_sharing_transactions(clean_database_dsn):

@@ -26,7 +26,8 @@ from runtime.source_resolver import _input, bind_structure_input
 from runtime.source_revisions import create_revision
 from runtime.storage.knowledge_structures import publish_knowledge_structure
 from runtime.storage.migrations import load_migrations, run_migrations
-from runtime.storage.tables import Material, MaterialProcessingRun, database_session
+from runtime.storage.tables import Material, MaterialProcessingRun
+from runtime.storage.database import database_session
 from structure_fixtures import build_knowledge_structure
 
 

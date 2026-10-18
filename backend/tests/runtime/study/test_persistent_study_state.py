@@ -8,7 +8,8 @@ from sqlalchemy import func, select
 
 from learning_adaptation.study_sessions import StudySessionError, create_study_session
 from runtime.storage.materials import read_material_library
-from runtime.storage.tables import StudySession, database_session
+from runtime.storage.tables import StudySession
+from runtime.storage.database import database_session
 from assessment_fixtures import answer, concept_fixture, create, finish_set, learning_records
 from product_fixtures import HEADERS, ORIGIN, _app, closed_loop, library_materials, product_snapshot
 

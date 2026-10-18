@@ -14,12 +14,8 @@ from sqlalchemy import delete, or_, select, tuple_
 from .errors import SourceError
 from .storage.artifacts import _key_digest
 from .storage.knowledge_structures import _prune_unreferenced_structures
-from .storage.tables import (
-    VoiceConversation as Conversation,
-    VoiceTurn as Turn,
-    Material,
-    database_session,
-)
+from .storage.tables import VoiceConversation as Conversation, VoiceTurn as Turn, Material
+from .storage.database import database_session
 from .audio import validate_audio
 from .generation_jobs import cancellable_job
 from . import retrieval, material_qa

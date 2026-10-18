@@ -18,7 +18,8 @@ from runtime.source_normalization import create_draft, normalize_next, read_sour
 from runtime.errors import SourceError
 from runtime.source_revisions import create_revision
 from runtime.storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
-from runtime.storage.tables import KnowledgeStructure, Material, MaterialSourceSet, database_session
+from runtime.storage.tables import KnowledgeStructure, Material, MaterialSourceSet
+from runtime.storage.database import database_session
 
 
 

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 import runtime.material_discard as discard
 from runtime.storage.artifacts import _root
-from runtime.storage.tables import database_session
+from runtime.storage.database import database_session
 from product_fixtures import HEADERS, ORIGIN, _app, library_materials, product_snapshot, closed_loop
 from assessment_fixtures import learning_records
 

@@ -20,7 +20,8 @@ from learning_adaptation import assessment_sets as sets
 from learning_adaptation.answer_events import read_answer_events
 from runtime.learner_session import TrustedLearner
 from runtime.material_discard import request_material_discard
-from runtime.storage.tables import Assessment, AssessmentSet, AssessmentSetItem, Material, StudySession, database_session
+from runtime.storage.tables import Assessment, AssessmentSet, AssessmentSetItem, Material, StudySession
+from runtime.storage.database import database_session
 
 
 # 保留單題及多題的動態範圍；三題完整流程另由 API／整組交卷案例驗證。

@@ -18,7 +18,8 @@ from .storage.knowledge_structures import (
     _read_verified_document,
     _view,
 )
-from .storage.tables import CardSet, Material, database_session
+from .storage.tables import CardSet, Material
+from .storage.database import database_session
 from .storage import card_sources, knowledge_reads
 from . import card_generation
 

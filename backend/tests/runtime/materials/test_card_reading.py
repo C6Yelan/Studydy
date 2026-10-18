@@ -12,7 +12,8 @@ from runtime.learner_session import register_account
 from runtime.material_processing import claim_next_material_processing_run, _record_progress
 from runtime.storage import knowledge_reads
 from runtime.storage.knowledge_structures import read_knowledge_structure, KnowledgeStructureStoreError
-from runtime.storage.tables import CardSet, CardSourceConcept, database_session
+from runtime.storage.tables import CardSet, CardSourceConcept
+from runtime.storage.database import database_session
 
 
 def large_deck(fixture):

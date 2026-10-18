@@ -8,7 +8,8 @@ from sources.test_source_revisions import revisions
 from runtime import voice
 from qa_fixtures import grounded_answer, qa_model
 from runtime.errors import SourceError
-from runtime.storage.tables import VoiceConversation, VoiceTurn, database_session
+from runtime.storage.tables import VoiceConversation, VoiceTurn
+from runtime.storage.database import database_session
 from runtime.material_discard import request_material_discard
 import runtime.api.app as api
 

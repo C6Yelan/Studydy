@@ -15,13 +15,8 @@ from runtime.material_runtime import validate_runtime_lock
 from content_identity import canonical_sha256
 from runtime.learner_session import TrustedLearner
 from runtime.semantic_service import SemanticServiceError, request_semantics
-from runtime.storage.tables import (
-    Assessment,
-    AssessmentSet,
-    AssessmentSetItem,
-    AnswerEvent,
-    database_session,
-)
+from runtime.storage.tables import Assessment, AssessmentSet, AssessmentSetItem, AnswerEvent
+from runtime.storage.database import database_session
 from . import assessments
 from .assessment_state import (
     ACTIVE,

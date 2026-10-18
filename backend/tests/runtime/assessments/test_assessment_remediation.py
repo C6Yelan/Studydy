@@ -12,7 +12,8 @@ from learning_adaptation.answer_events import read_answer_events
 from learning_adaptation.learner_progress import derive_learner_progress
 from runtime.material_discard import request_material_discard
 from runtime.storage.database import connect_database
-from runtime.storage.tables import Assessment, AssessmentSet, database_session
+from runtime.storage.tables import Assessment, AssessmentSet
+from runtime.storage.database import database_session
 from assessment_fixtures import (
     answers_for,
     concept_fixture,

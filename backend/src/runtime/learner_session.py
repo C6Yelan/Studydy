@@ -14,7 +14,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .storage.database import DatabaseConfigurationError
-from .storage.tables import Learner, LearnerSession, database_session
+from .storage.tables import Learner, LearnerSession
+from .storage.database import database_session
 
 IDLE_LIFETIME = timedelta(days=7)
 ABSOLUTE_LIFETIME = timedelta(days=30)

@@ -10,7 +10,8 @@ from sqlalchemy import or_, select
 from content_identity import canonical_sha256
 from . import podcasts
 from .errors import SourceError
-from .storage.tables import PodcastScenes as Scenes, Podcast, Material, database_session
+from .storage.tables import PodcastScenes as Scenes, Podcast, Material
+from .storage.database import database_session
 from .storage.knowledge_structures import _read_verified_document
 from .storage.artifacts import open_verified_artifact
 from .provider_http import provider

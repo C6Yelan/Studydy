@@ -24,7 +24,8 @@ from runtime.learner_session import register_account
 from runtime.errors import SourceError
 from runtime.storage.knowledge_structures import KnowledgeStructureStoreError, read_knowledge_structure
 from runtime.storage.migrations import run_migrations
-from runtime.storage.tables import Material, MaterialProcessingRun as RunRow, database_session
+from runtime.storage.tables import Material, MaterialProcessingRun as RunRow
+from runtime.storage.database import database_session
 
 ORIGIN = "http://127.0.0.1:4173"
 

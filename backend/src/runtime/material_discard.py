@@ -7,27 +7,8 @@ from sqlalchemy import delete, func, or_, select, update
 from .material_processing import _request_cancellation_locked
 from .storage.analysis_archive import remove_material_analysis
 from .storage.artifacts import quarantine_artifact, reconcile_discarded_artifacts
-from .storage.tables import (
-    AnswerEvent,
-    Artifact,
-    Assessment,
-    AssessmentSet,
-    AssessmentSetItem,
-    CardSet,
-    VoiceConversation,
-    MaterialResearch,
-    TopicScope,
-    Podcast,
-    KnowledgeStructure,
-    Material,
-    MaterialProcessingRun,
-    MaterialSource,
-    MaterialSourceSet,
-    MaterialSourceSetItem,
-    SourceNormalization,
-    StudySession,
-    database_session,
-)
+from .storage.tables import AnswerEvent, Artifact, Assessment, AssessmentSet, AssessmentSetItem, CardSet, VoiceConversation, MaterialResearch, TopicScope, Podcast, KnowledgeStructure, Material, MaterialProcessingRun, MaterialSource, MaterialSourceSet, MaterialSourceSetItem, SourceNormalization, StudySession
+from .storage.database import database_session
 
 
 class MaterialDiscardError(RuntimeError):

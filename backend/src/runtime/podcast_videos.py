@@ -33,13 +33,8 @@ from .storage.artifacts import (
     open_verified_artifact,
     write_blob,
 )
-from .storage.tables import (
-    Artifact,
-    Material,
-    Podcast,
-    PodcastVideo as Video,
-    database_session,
-)
+from .storage.tables import Artifact, Material, Podcast, PodcastVideo as Video
+from .storage.database import database_session
 
 WORK_LOCK = 851_048_188_100_421_213
 

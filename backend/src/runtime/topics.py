@@ -11,13 +11,8 @@ from .source_normalization import create_draft
 from .errors import SourceError
 from .storage.materials import require_material
 from .storage.artifacts import _key_digest
-from .storage.tables import (
-    TopicScope,
-    MaterialResearch,
-    Learner,
-    Material,
-    database_session,
-)
+from .storage.tables import TopicScope, MaterialResearch, Learner, Material
+from .storage.database import database_session
 from .provider_http import provider
 from .generation_jobs import cancellable_job
 

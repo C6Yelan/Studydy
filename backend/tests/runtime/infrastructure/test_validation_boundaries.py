@@ -12,7 +12,8 @@ from content_identity import canonical_sha256
 from runtime import material_processing
 from runtime.storage import artifacts
 from runtime.storage.knowledge_structures import read_knowledge_structure, KnowledgeStructureStoreError, resolve_evidence_source
-from runtime.storage.tables import Assessment, AssessmentSet, MaterialProcessingRun, database_session
+from runtime.storage.tables import Assessment, AssessmentSet, MaterialProcessingRun
+from runtime.storage.database import database_session
 from product_fixtures import closed_loop
 from assessment_fixtures import concept_fixture, create, read, model_for, finish, answer
 

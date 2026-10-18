@@ -9,15 +9,8 @@ from content_identity import canonical_sha256
 from pdf_evidence.analysis_scope import selected_pages
 from knowledge_map.structure import finalize_knowledge_structure
 
-from .storage.tables import (
-    Artifact,
-    MaterialProcessingRun,
-    MaterialSourceSet,
-    MaterialSourceSetItem,
-    MaterialSource,
-    SourceNormalization,
-    database_session,
-)
+from .storage.tables import Artifact, MaterialProcessingRun, MaterialSourceSet, MaterialSourceSetItem, MaterialSource, SourceNormalization
+from .storage.database import database_session
 from .storage.artifacts import open_verified_artifact
 from .errors import SourceError
 from .material_runtime import lock_matches_binding

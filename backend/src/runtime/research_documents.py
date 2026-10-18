@@ -7,7 +7,8 @@ from hashlib import sha256
 from sqlalchemy import delete, select
 
 from .errors import SourceError
-from .storage.tables import ResearchDocument, database_session
+from .storage.tables import ResearchDocument
+from .storage.database import database_session
 
 
 def snapshot(data, metadata):

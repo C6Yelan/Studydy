@@ -2,7 +2,8 @@
 from copy import deepcopy
 from sqlalchemy import select,text
 from product_fixtures import closed_loop
-from runtime.storage.tables import KnowledgeStructure,Podcast,VoiceConversation,VoiceTurn,database_session
+from runtime.storage.tables import KnowledgeStructure, Podcast, VoiceConversation, VoiceTurn
+from runtime.storage.database import database_session
 from runtime.storage.evidence_json import EvidenceJSONB
 from runtime import podcasts,voice
 from content_identity import canonical_sha256

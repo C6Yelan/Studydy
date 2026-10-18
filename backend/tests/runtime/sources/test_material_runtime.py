@@ -9,7 +9,8 @@ import pytest
 import runtime.material_processing as processing
 from runtime.material_runtime import lock_matches_binding, runtime_binding, same_material_runtime
 from runtime.storage.analysis_archive import _material_directory
-from runtime.storage.tables import MaterialProcessingRun, database_session
+from runtime.storage.tables import MaterialProcessingRun
+from runtime.storage.database import database_session
 from product_fixtures import _settings, closed_loop
 from test_source_revisions import revisions
 

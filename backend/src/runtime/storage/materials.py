@@ -7,16 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from .database import DatabaseConfigurationError
-from .tables import (
-    Artifact,
-    KnowledgeStructure,
-    Material,
-    MaterialProcessingRun,
-    MaterialSource,
-    SourceNormalization,
-    StudySession,
-    database_session,
-)
+from .tables import Artifact, KnowledgeStructure, Material, MaterialProcessingRun, MaterialSource, SourceNormalization, StudySession
+from .database import database_session
 
 
 class MaterialLibraryError(RuntimeError):

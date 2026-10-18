@@ -8,7 +8,8 @@ from runtime import material_processing as processing
 from runtime.local_app import _runtime_lock
 from runtime.semantic_service import SemanticServiceError
 from runtime.storage.analysis_archive import AnalysisArchive,_material_directory
-from runtime.storage.tables import MaterialProcessingRun,database_session
+from runtime.storage.tables import MaterialProcessingRun
+from runtime.storage.database import database_session
 from test_source_revisions import revisions
 from product_fixtures import closed_loop
 

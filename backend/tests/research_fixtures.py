@@ -49,7 +49,8 @@ def requested_coverage(body,items):
 def create_confirmed_research(owner,material,request,key,*,dsn):
     """來源流程測試從已確認範圍開始；確認前不搜尋由 topics 案例獨立驗證。"""
     from runtime import topics,research
-    from runtime.storage.tables import TopicScope,database_session
+    from runtime.storage.tables import TopicScope
+    from runtime.storage.database import database_session
     scope=topics.create(owner,request,key,material_id=material,dsn=dsn)
     with database_session(dsn) as db:
         row=db.get(TopicScope,scope['topic_id'])

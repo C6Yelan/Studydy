@@ -20,7 +20,8 @@ from runtime.learner_session import register_account
 from runtime.material_discard import request_material_discard
 from runtime.material_processing import claim_next_material_processing_run, _record_progress
 from runtime.storage.knowledge_structures import _prune_unreferenced_structures, read_knowledge_structure
-from runtime.storage.tables import Material, Podcast, Artifact, database_session
+from runtime.storage.tables import Material, Podcast, Artifact
+from runtime.storage.database import database_session
 
 
 def create(fixture, *, delivery="solo", key="podcast"):

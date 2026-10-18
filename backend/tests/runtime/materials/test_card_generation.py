@@ -4,7 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 from product_fixtures import closed_loop
 from runtime import card_generation, card_sets
-from runtime.storage.tables import CardSet, database_session
+from runtime.storage.tables import CardSet
+from runtime.storage.database import database_session
 
 
 def create(fixture, key='cards'):

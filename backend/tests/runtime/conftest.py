@@ -196,7 +196,7 @@ def clean_database_dsn(postgres_dsn: str):
             ).fetchone() == (0,)
         yield case_dsn
     finally:
-        from runtime.storage.tables import dispose_database_engine
+        from runtime.storage.database import dispose_database_engine
         dispose_database_engine(case_dsn)
         with psycopg.connect(postgres_dsn, autocommit=True) as connection:
             connection.execute(

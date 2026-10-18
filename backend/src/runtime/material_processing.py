@@ -35,7 +35,8 @@ from .material_runtime import (
 )
 from .material_review import review_structure
 from knowledge_map.material_review import ReviewError
-from .storage.tables import Material, MaterialProcessingRun as RunRow, database_session
+from .storage.tables import Material, MaterialProcessingRun as RunRow
+from .storage.database import database_session
 
 
 _LEASE_HEARTBEAT_SECONDS = 30

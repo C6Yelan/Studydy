@@ -45,99 +45,80 @@ class MaterialAnalysisError(RuntimeError):
         self.reason_code = reason_code
 
 
-def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, Any]:
-    """依分析或評量用途驗證 runtime lock。"""
+def _validate_versions_contract(lock):
+    if (
+        lock["schema"] != "studydy-runtime-lock/v1"
+        or lock["python"] != "3.12"
+        or lock["packages"]
+        != {
+            "studydy-local-ai": "0.1.0",
+            "torch": "2.10.0+cu128",
+            "torchvision": "0.25.0+cu128",
+            "transformers": "4.57.1",
+        }
+    ):
+        raise ValueError
 
-    try:
-        if not isinstance(lock, dict) or set(lock) - {"material_review"} != {
-            "schema",
-            "python",
-            "packages",
-            "ocr",
-            "semantic_service",
-            "material_semantics",
-            "assessment",
-        }:
-            raise ValueError
-        if "material_review" in lock:
-            review = lock["material_review"]
-            if (
-                set(review) - {"consolidation_policy"}
-                != {"policy", "prompt", "max_tokens", "generation"}
-                or (
-                    "consolidation_policy" in review
-                    and review["consolidation_policy"]
-                    != "source-preserving-consolidation/v1"
-                )
-                or review["policy"] != "material-review/v1"
-                or not isinstance(review["prompt"], str)
-                or not review["prompt"].strip()
-                or type(review["max_tokens"]) is not int
-                or not 1
-                <= review["max_tokens"]
-                <= lock["semantic_service"]["max_model_len"]
-                or review["generation"] != lock["material_semantics"]["generation"]
-            ):
-                raise ValueError
-        semantic = lock["semantic_service"]
-        material = lock["material_semantics"]
-        if not isinstance(material, dict):
-            raise ValueError
-        independent = material.get("bundle_policy") == "independent-evidence-blocks/v1"
-        assessment_settings = lock["assessment"]
-        ocr = lock["ocr"]
-        if (
-            lock["schema"] != "studydy-runtime-lock/v1"
-            or lock["python"] != "3.12"
-            or lock["packages"]
-            != {
-                "studydy-local-ai": "0.1.0",
-                "torch": "2.10.0+cu128",
-                "torchvision": "0.25.0+cu128",
-                "transformers": "4.57.1",
-            }
-            or set(ocr)
-            != {
-                "model_id",
-                "revision",
-                "prompt",
-                "page_schema",
-                "native_schema",
-                "processing_policy",
-                "normalizer_policy",
-                "render",
-            }
-            or ocr["model_id"] != "Unlimited-OCR"
-            or re.fullmatch(r"[0-9a-f]{40}", ocr["revision"]) is None
-            or not isinstance(ocr["prompt"], str)
-            or not ocr["prompt"]
-            or ocr["render"] != {"dpi": 200, "colorspace": "RGB", "format": "PNG"}
-            or set(semantic)
-            != {
-                "model_id",
-                "revision",
-                "api_protocol",
-                "base_url",
-                "max_model_len",
-                "max_num_seqs",
-                "server",
-                "authentication",
-            }
-            or not isinstance(semantic["model_id"], str)
-            or not semantic["model_id"].strip()
-            or not isinstance(semantic["revision"], str)
-            or not semantic["revision"].strip()
-            or semantic["api_protocol"]
+
+def _validate_ocr_contract(ocr):
+    if (
+        set(ocr)
+        != {
+            "model_id",
+            "revision",
+            "prompt",
+            "page_schema",
+            "native_schema",
+            "processing_policy",
+            "normalizer_policy",
+            "render",
+        }
+        or ocr["model_id"] != "Unlimited-OCR"
+        or re.fullmatch("[0-9a-f]{40}", ocr["revision"]) is None
+        or (not isinstance(ocr["prompt"], str))
+        or (not ocr["prompt"])
+        or (ocr["render"] != {"dpi": 200, "colorspace": "RGB", "format": "PNG"})
+        or (ocr["page_schema"] != "page-evidence/v1")
+        or (ocr["native_schema"] != "page-native/v1")
+        or (ocr["processing_policy"] != "native-first-page-evidence/v1")
+        or (ocr["normalizer_policy"] != "ocr-text-nfc-line-preserving/v1")
+    ):
+        raise ValueError
+
+
+def _validate_semantic_contract(semantic):
+    if (
+        set(semantic)
+        != {
+            "model_id",
+            "revision",
+            "api_protocol",
+            "base_url",
+            "max_model_len",
+            "max_num_seqs",
+            "server",
+            "authentication",
+        }
+        or not isinstance(semantic["model_id"], str)
+        or (not semantic["model_id"].strip())
+        or (not isinstance(semantic["revision"], str))
+        or (not semantic["revision"].strip())
+        or (
+            semantic["api_protocol"]
             not in {"openai-chat-completions/v1", "codex-exec-luna/v1"}
-            or semantic["base_url"] != "http://127.0.0.1:18000"
-            or semantic["max_model_len"]
+        )
+        or (semantic["base_url"] != "http://127.0.0.1:18000")
+        or (
+            semantic["max_model_len"]
             not in (
                 (32768, 65536, 272000)
                 if semantic["api_protocol"] == "codex-exec-luna/v1"
                 else (32768, 65536)
             )
-            or semantic["max_num_seqs"] != 1
-            or semantic["server"]
+        )
+        or (semantic["max_num_seqs"] != 1)
+        or (
+            semantic["server"]
             != (
                 {"package": "codex-exec", "version": "luna-test/v1", "python": "3.12"}
                 if semantic["api_protocol"] == "codex-exec-luna/v1"
@@ -150,139 +131,191 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
                     "transformers": "5.15.1",
                 }
             )
-            or semantic["authentication"] != "environment-bearer:VLLM_API_KEY"
-            or set(material)
-            != (
-                {
-                    "request_schema",
-                    "response_schema",
-                    "bundle_policy",
-                    "max_tokens",
-                    "prompt",
-                    "retry_attempts",
-                    "generation",
-                    "max_new_input_tokens",
-                }
-                | ({"max_concurrency"} if independent else set())
-                | (
-                    {"localization_policy"}
-                    if "localization_policy" in material
-                    else set()
-                )
+        )
+        or (semantic["authentication"] != "environment-bearer:VLLM_API_KEY")
+    ):
+        raise ValueError
+
+
+def _validate_material_contract(material, semantic):
+    independent = material.get("bundle_policy") == "independent-evidence-blocks/v1"
+    if (
+        set(material)
+        != {
+            "request_schema",
+            "response_schema",
+            "bundle_policy",
+            "max_tokens",
+            "prompt",
+            "retry_attempts",
+            "generation",
+            "max_new_input_tokens",
+        }
+        | ({"max_concurrency"} if independent else set())
+        | ({"localization_policy"} if "localization_policy" in material else set())
+        or (
+            "localization_policy" in material
+            and (
+                not independent
+                or material["localization_policy"] != "traditional-chinese-literals/v1"
             )
-            or (
-                "localization_policy" in material
-                and (
-                    not independent
-                    or material["localization_policy"]
-                    != "traditional-chinese-literals/v1"
-                )
-            )
-            or material["request_schema"]
-            != (
-                "material-block-request/v1"
-                if independent
-                else "material-semantics-request/v1"
-            )
-            or material["response_schema"]
+        )
+        or material["request_schema"]
+        != (
+            "material-block-request/v1"
+            if independent
+            else "material-semantics-request/v1"
+        )
+        or (
+            material["response_schema"]
             != (
                 "material-block-response/v1"
                 if independent
                 else "material-semantics-response/v1"
             )
-            or material["bundle_policy"]
+        )
+        or (
+            material["bundle_policy"]
             != (
                 "independent-evidence-blocks/v1"
                 if independent
                 else "contiguous-evidence-new-input/v1"
             )
-            or material["max_new_input_tokens"] != (4096 if independent else 1536)
-            or (
-                independent
-                and (
-                    type(material["max_concurrency"]) is not int
-                    or not 1 <= material["max_concurrency"] <= 8
-                )
+        )
+        or (material["max_new_input_tokens"] != (4096 if independent else 1536))
+        or (
+            independent
+            and (
+                type(material["max_concurrency"]) is not int
+                or not 1 <= material["max_concurrency"] <= 8
             )
-            or type(material["max_tokens"]) is not int
-            or not 1 <= material["max_tokens"] <= semantic["max_model_len"]
-            or material["generation"]
+        )
+        or (type(material["max_tokens"]) is not int)
+        or (not 1 <= material["max_tokens"] <= semantic["max_model_len"])
+        or (
+            material["generation"]
             != {
                 "temperature": 1.0,
                 "top_p": 0.95,
                 "top_k": 64,
                 "chat_template_kwargs": {"enable_thinking": True},
             }
-            or not isinstance(material["prompt"], str)
-            or not material["prompt"]
-            or (
-                assessment
-                and (
-                    set(assessment_settings)
-                    != {
-                        "request_schema",
-                        "response_schema",
-                        "public_schema",
-                        "private_schema",
-                        "provenance_schema",
-                        "policy",
-                        "candidate_count",
-                        "option_count",
-                        "max_tokens",
-                        "generation",
-                        "prompt",
-                        "check_max_tokens",
-                        "check_generation",
-                        "check_prompt",
-                    }
-                    or assessment_settings["request_schema"]
-                    != "assessment-semantics-request/v1"
-                    or assessment_settings["response_schema"]
-                    != "assessment-semantics-response/v1"
-                    or assessment_settings["public_schema"]
-                    != "single-choice-assessment/v1"
-                    or assessment_settings["private_schema"]
-                    != "single-choice-answer/v1"
-                    or assessment_settings["provenance_schema"]
-                    != "assessment-generation-provenance/v1"
-                    or assessment_settings["policy"] != "source-span-single-choice/v1"
-                    or assessment_settings["candidate_count"] != 3
-                    or assessment_settings["option_count"] != 4
-                    or type(assessment_settings["max_tokens"]) is not int
-                    or not 1
-                    <= assessment_settings["max_tokens"]
-                    <= semantic["max_model_len"]
-                    or assessment_settings["generation"]
-                    != {
-                        "temperature": 1.0,
-                        "top_p": 0.95,
-                        "top_k": 64,
-                        "chat_template_kwargs": {"enable_thinking": True},
-                    }
-                    or not isinstance(assessment_settings["prompt"], str)
-                    or not assessment_settings["prompt"]
-                    or type(assessment_settings["check_max_tokens"]) is not int
-                    or not 1
-                    <= assessment_settings["check_max_tokens"]
-                    <= semantic["max_model_len"]
-                    or assessment_settings["check_generation"]
-                    != {
-                        "temperature": 1.0,
-                        "top_p": 0.95,
-                        "top_k": 64,
-                        "chat_template_kwargs": {"enable_thinking": True},
-                    }
-                    or not isinstance(assessment_settings["check_prompt"], str)
-                    or not assessment_settings["check_prompt"]
-                )
-            )
-            or ocr["page_schema"] != "page-evidence/v1"
-            or ocr["native_schema"] != "page-native/v1"
-            or ocr["processing_policy"] != "native-first-page-evidence/v1"
-            or ocr["normalizer_policy"] != "ocr-text-nfc-line-preserving/v1"
-            or material["retry_attempts"] != 2
-        ):
+        )
+        or (not isinstance(material["prompt"], str))
+        or (not material["prompt"])
+        or (material["retry_attempts"] != 2)
+    ):
+        raise ValueError
+
+
+def _validate_assessment_contract(assessment_settings, semantic):
+    if (
+        set(assessment_settings)
+        != {
+            "request_schema",
+            "response_schema",
+            "public_schema",
+            "private_schema",
+            "provenance_schema",
+            "policy",
+            "candidate_count",
+            "option_count",
+            "max_tokens",
+            "generation",
+            "prompt",
+            "check_max_tokens",
+            "check_generation",
+            "check_prompt",
+        }
+        or assessment_settings["request_schema"] != "assessment-semantics-request/v1"
+        or assessment_settings["response_schema"] != "assessment-semantics-response/v1"
+        or (assessment_settings["public_schema"] != "single-choice-assessment/v1")
+        or (assessment_settings["private_schema"] != "single-choice-answer/v1")
+        or (
+            assessment_settings["provenance_schema"]
+            != "assessment-generation-provenance/v1"
+        )
+        or (assessment_settings["policy"] != "source-span-single-choice/v1")
+        or (assessment_settings["candidate_count"] != 3)
+        or (assessment_settings["option_count"] != 4)
+        or (type(assessment_settings["max_tokens"]) is not int)
+        or (not 1 <= assessment_settings["max_tokens"] <= semantic["max_model_len"])
+        or (
+            assessment_settings["generation"]
+            != {
+                "temperature": 1.0,
+                "top_p": 0.95,
+                "top_k": 64,
+                "chat_template_kwargs": {"enable_thinking": True},
+            }
+        )
+        or (not isinstance(assessment_settings["prompt"], str))
+        or (not assessment_settings["prompt"])
+        or (type(assessment_settings["check_max_tokens"]) is not int)
+        or (
+            not 1
+            <= assessment_settings["check_max_tokens"]
+            <= semantic["max_model_len"]
+        )
+        or (
+            assessment_settings["check_generation"]
+            != {
+                "temperature": 1.0,
+                "top_p": 0.95,
+                "top_k": 64,
+                "chat_template_kwargs": {"enable_thinking": True},
+            }
+        )
+        or (not isinstance(assessment_settings["check_prompt"], str))
+        or (not assessment_settings["check_prompt"])
+    ):
+        raise ValueError
+
+
+def _validate_review_contract(lock):
+    review = lock["material_review"]
+    if (
+        set(review) - {"consolidation_policy"}
+        != {"policy", "prompt", "max_tokens", "generation"}
+        or (
+            "consolidation_policy" in review
+            and review["consolidation_policy"] != "source-preserving-consolidation/v1"
+        )
+        or review["policy"] != "material-review/v1"
+        or (not isinstance(review["prompt"], str))
+        or (not review["prompt"].strip())
+        or (type(review["max_tokens"]) is not int)
+        or (not 1 <= review["max_tokens"] <= lock["semantic_service"]["max_model_len"])
+        or (review["generation"] != lock["material_semantics"]["generation"])
+    ):
+        raise ValueError
+
+
+def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, Any]:
+    """各用途獨立核對既有契約；不改寫已封存的模型、政策或 hash。"""
+    try:
+        if not isinstance(lock, dict) or set(lock) - {"material_review"} != {
+            "schema",
+            "python",
+            "packages",
+            "ocr",
+            "semantic_service",
+            "material_semantics",
+            "assessment",
+        }:
             raise ValueError
+        if "material_review" in lock:
+            _validate_review_contract(lock)
+        semantic = lock["semantic_service"]
+        material = lock["material_semantics"]
+        if not isinstance(material, dict):
+            raise ValueError
+        _validate_versions_contract(lock)
+        _validate_ocr_contract(lock["ocr"])
+        _validate_semantic_contract(semantic)
+        _validate_material_contract(material, semantic)
+        if assessment:
+            _validate_assessment_contract(lock["assessment"], semantic)
         return lock
     except (KeyError, TypeError, ValueError):
         raise MaterialAnalysisError("RUNTIME_LOCK_INVALID") from None

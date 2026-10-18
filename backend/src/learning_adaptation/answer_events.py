@@ -10,7 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import AnswerEvent, Assessment, database_session
+from runtime.storage.tables import AnswerEvent, Assessment
+from runtime.storage.database import database_session
 
 from .assessments import AssessmentError, _stored as validate_stored_assessment, _provenance_for_row
 from .study_sessions import StudySessionError, _learner, _row, _validate

@@ -9,7 +9,8 @@ from sqlalchemy import delete
 from product_fixtures import ORIGIN, _app, closed_loop
 from assessment_fixtures import concept_fixture, create, finish
 from runtime.storage import knowledge_reads
-from runtime.storage.tables import CardSourceConcept, KnowledgeReadIndex, database_session
+from runtime.storage.tables import CardSourceConcept, KnowledgeReadIndex
+from runtime.storage.database import database_session
 from runtime.api.models import project_knowledge_structure
 from learning_adaptation.learner_progress import derive_learner_progress
 

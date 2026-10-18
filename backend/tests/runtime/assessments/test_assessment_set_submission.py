@@ -10,7 +10,8 @@ from sqlalchemy import select
 
 from learning_adaptation import assessment_state
 from learning_adaptation import answer_events, assessment_sets as sets
-from runtime.storage.tables import Assessment, AnswerEvent, StudySession, database_session
+from runtime.storage.tables import Assessment, AnswerEvent, StudySession
+from runtime.storage.database import database_session
 from product_fixtures import HEADERS, ORIGIN, _app, closed_loop
 from assessment_fixtures import concept_fixture, create, finish_set, read, answers_for, send
 

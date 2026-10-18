@@ -17,7 +17,8 @@ from content_identity import canonical_sha256
 from product_fixtures import closed_loop, library_materials, publish_fixture_structure, seed_pdf, seed_run
 from runtime.material_processing import _record_progress, claim_next_material_processing_run
 from runtime.semantic_service import SemanticServiceError
-from runtime.storage.tables import Assessment, database_session
+from runtime.storage.tables import Assessment
+from runtime.storage.database import database_session
 from structure_fixtures import build_knowledge_structure
 
 

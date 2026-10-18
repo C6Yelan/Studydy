@@ -58,7 +58,7 @@ def test_reconciliation_skips_active_writer_then_obeys_commit(
 ):
     from runtime.source_normalization import create_draft
     from runtime.storage.artifacts import write_blob, reconcile_new_artifacts
-    from runtime.storage.tables import database_session
+    from runtime.storage.database import database_session
     dsn = artifact_database_dsn
     owner = _learner(dsn)
     material = create_draft(owner, 'Synthetic', 'lock-test', dsn=dsn)
@@ -86,7 +86,7 @@ def test_reconciliation_skips_active_writer_then_obeys_commit(
 def test_reconciliation_skips_active_discard_then_restores_rollback(artifact_database_dsn, artifact_root):
     from runtime.source_normalization import create_draft
     from runtime.storage.artifacts import write_blob
-    from runtime.storage.tables import database_session
+    from runtime.storage.database import database_session
     dsn = artifact_database_dsn
     owner = _learner(dsn)
     material = create_draft(owner, 'Synthetic', 'discard-lock-test', dsn=dsn)
@@ -113,7 +113,8 @@ def test_reconciliation_skips_active_discard_then_restores_rollback(artifact_dat
 def test_database_lock_timeout_rolls_back_and_next_transaction_can_write(artifact_database_dsn):
     from sqlalchemy.exc import OperationalError
     from runtime.source_normalization import create_draft
-    from runtime.storage.tables import database_session, Material
+    from runtime.storage.tables import Material
+    from runtime.storage.database import database_session
     dsn = artifact_database_dsn
     owner = _learner(dsn)
     material = create_draft(owner, 'Before', 'timeout-test', dsn=dsn)
