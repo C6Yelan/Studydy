@@ -28,8 +28,11 @@ from .audio import validate_audio
 from .podcast_sources import source_context
 from .podcast_script import digest
 from .provider_http import generation_response
-from .storage.artifacts import quarantine_source_pdf
-from .storage.source_artifacts import open_verified_artifact, write_blob
+from .storage.artifacts import (
+    quarantine_artifact,
+    open_verified_artifact,
+    write_blob,
+)
 from .storage.tables import (
     Artifact,
     Material,
@@ -201,7 +204,7 @@ def discard(db, podcast_id):
     db.execute(delete(Video).where(Video.podcast_id == podcast_id))
     db.flush()
     for artifact_id in artifacts:
-        quarantine_source_pdf(db, artifact_id)
+        quarantine_artifact(db, artifact_id)
         db.delete(db.get(Artifact, artifact_id))
     return artifacts
 

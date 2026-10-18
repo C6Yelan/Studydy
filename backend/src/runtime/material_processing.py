@@ -571,7 +571,7 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
         }
         check_cancel()
         from .source_resolver import _input, bind_structure_input
-        from .storage.source_artifacts import open_verified_artifact
+        from .storage.artifacts import open_verified_artifact
         from .storage.knowledge_structures import read_knowledge_structure
 
         binding = _input(run.learner_id, run.run_id, dsn=dsn)

@@ -12,8 +12,9 @@ from sqlalchemy import delete, or_, select, update
 from content_identity import canonical_sha256
 from .storage.artifacts import (
     _key_digest,
-    quarantine_source_pdf,
-    reconcile_discarded_sources,
+    quarantine_artifact,
+    reconcile_discarded_artifacts,
+    write_blob,
 )
 from .storage.tables import KnowledgeStructure
 from .storage.knowledge_structures import (
@@ -21,7 +22,6 @@ from .storage.knowledge_structures import (
     _read_verified_document,
     _view,
 )
-from .storage.source_artifacts import write_blob
 from .storage.tables import (
     Artifact,
     Material,
@@ -298,7 +298,7 @@ def delete_podcast(owner, identity, *, expected_version=None, dsn=None):
                     if episode.get("audio"):
                         artifact_id = UUID(episode["audio"]["artifact_id"])
                         artifacts.append(artifact_id)
-                        quarantine_source_pdf(db, artifact_id)
+                        quarantine_artifact(db, artifact_id)
                         db.delete(db.get(Artifact, artifact_id))
                 row.status = "deleted"
                 row.lease_token = row.lease_expires_at = None
@@ -312,7 +312,7 @@ def delete_podcast(owner, identity, *, expected_version=None, dsn=None):
                 )
     finally:
         for artifact_id in artifacts:
-            reconcile_discarded_sources(dsn=dsn, artifact_id=artifact_id)
+            reconcile_discarded_artifacts(dsn=dsn, artifact_id=artifact_id)
     return {"schema": "podcast-deleted/v1", "podcast_id": identity}
 
 

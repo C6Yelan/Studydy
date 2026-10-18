@@ -326,19 +326,19 @@ def test_crash_quarantine_is_reconciled_after_restart(unused, monkeypatch, commi
     quarantined=[]
     with monkeypatch.context() as patch:
         if committed:
-            patch.setattr(discard, 'reconcile_discarded_sources', lambda **kw: (_ for _ in ()).throw(SimulatedProcessCrash()))
+            patch.setattr(discard, 'reconcile_discarded_artifacts', lambda **kw: (_ for _ in ()).throw(SimulatedProcessCrash()))
         else:
-            original = discard.quarantine_source_pdf
+            original = discard.quarantine_artifact
             def crash(session, identity):
                 original(session, identity)
                 quarantined.append(identity)
                 raise SimulatedProcessCrash()
-            patch.setattr(discard, 'quarantine_source_pdf', crash)
+            patch.setattr(discard, 'quarantine_artifact', crash)
         with pytest.raises(SimulatedProcessCrash): request(unused)
     moved=unused.source.artifact_id if committed else quarantined[0]
     assert (unused.root / '.trash' / moved.hex).exists()
     assert not (unused.root / 'objects' / moved.hex).exists()
-    artifacts.reconcile_discarded_sources(dsn=unused.dsn)
+    artifacts.reconcile_discarded_artifacts(dsn=unused.dsn)
     if committed: assert_removed(unused)
     else:
         with artifacts.open_verified_source_pdf(unused.learner.learner_id, unused.source.artifact_id, dsn=unused.dsn) as source: assert source.file.read()

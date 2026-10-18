@@ -5,7 +5,7 @@ from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
 from .. import podcast_videos
 from ..errors import SourceError
-from ..storage.source_artifacts import open_verified_artifact
+from ..storage.artifacts import open_verified_artifact
 from .media import artifact_response
 
 

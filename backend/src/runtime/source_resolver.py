@@ -18,7 +18,7 @@ from .storage.tables import (
     SourceNormalization,
     database_session,
 )
-from .storage.source_artifacts import open_verified_artifact
+from .storage.artifacts import open_verified_artifact
 from .errors import SourceError
 from .material_runtime import lock_matches_binding
 

@@ -360,7 +360,7 @@ def test_summary_migration_preserves_cancelled_work_and_lossless_source_text(clo
 
 def test_research_snapshot_survives_restart_and_upstream_changes(closed_loop,monkeypatch):
     from runtime.storage.tables import ResearchDocument,dispose_database_engine
-    from runtime.storage.source_artifacts import open_verified_artifact
+    from runtime.storage.artifacts import open_verified_artifact
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     original=mock_search(monkeypatch)
     work=create_confirmed_research(owner,source.material_id,'queue','snapshot-restart',dsn=dsn)
@@ -407,7 +407,7 @@ def test_snapshot_scope_and_integrity_are_checked_before_use(closed_loop,monkeyp
 def test_html_paper_snapshot_survives_restart_and_normalizes_selected_passages(closed_loop,monkeypatch):
     from hashlib import sha256
     from runtime.storage.tables import ResearchDocument,SourceNormalization,dispose_database_engine
-    from runtime.storage.source_artifacts import open_verified_artifact
+    from runtime.storage.artifacts import open_verified_artifact
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
     prefix='Synthetic queue\nSource: https://example.org/paper1\n\n'

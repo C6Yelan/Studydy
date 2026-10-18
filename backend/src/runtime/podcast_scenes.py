@@ -12,7 +12,7 @@ from . import podcasts
 from .errors import SourceError
 from .storage.tables import PodcastScenes as Scenes, Podcast, Material, database_session
 from .storage.knowledge_structures import _read_verified_document
-from .storage.source_artifacts import open_verified_artifact
+from .storage.artifacts import open_verified_artifact
 from .provider_http import provider
 from .generation_jobs import WORKER_LEASE_TTL, cancellable_job
 from .audio import validate_audio

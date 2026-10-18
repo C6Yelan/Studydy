@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import Request
 from starlette.concurrency import run_in_threadpool
 from .. import podcasts
-from ..storage.source_artifacts import open_verified_artifact
+from ..storage.artifacts import open_verified_artifact
 from . import request_context
 from .media import artifact_response
 from .models import (

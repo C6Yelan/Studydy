@@ -14,7 +14,7 @@ from .material_processing import (
 )
 from .material_discard import finish_material_discards
 from .source_normalization import normalize_next
-from .storage.source_artifacts import reconcile_new_artifacts
+from .storage.artifacts import reconcile_new_artifacts
 from .storage.analysis_archive import (
     reconcile_removed_material_analysis,
     reconcile_published_checkpoints,

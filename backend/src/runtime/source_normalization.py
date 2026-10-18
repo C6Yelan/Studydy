@@ -19,8 +19,8 @@ from document_normalization.converter import (
     convert,
 )
 from content_identity import canonical_bytes, canonical_sha256
-from .storage.artifacts import _key_digest
-from .storage.source_artifacts import (
+from .storage.artifacts import (
+    _key_digest,
     open_verified_artifact,
     reconcile_new_artifacts,
     write_blob,
@@ -483,7 +483,7 @@ def retry_normalization(owner, material_id, identity, *, dsn=None):
 
 
 def remove_staged_source(owner, material_id, source_id, *, dsn=None):
-    from .storage.artifacts import quarantine_source_pdf, reconcile_discarded_sources
+    from .storage.artifacts import quarantine_artifact, reconcile_discarded_artifacts
 
     artifacts = []
     try:
@@ -544,7 +544,7 @@ def remove_staged_source(owner, material_id, source_id, *, dsn=None):
                     material.source_artifact_id = None
                 return
             for identity in artifacts:
-                quarantine_source_pdf(session, identity)
+                quarantine_artifact(session, identity)
             if material.source_artifact_id in artifacts:
                 material.source_artifact_id = None
                 session.flush()
@@ -564,4 +564,4 @@ def remove_staged_source(owner, material_id, source_id, *, dsn=None):
             )
     finally:
         for identity in artifacts:
-            reconcile_discarded_sources(dsn=dsn, artifact_id=identity)
+            reconcile_discarded_artifacts(dsn=dsn, artifact_id=identity)

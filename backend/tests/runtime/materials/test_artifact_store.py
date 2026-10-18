@@ -57,7 +57,7 @@ def test_reconciliation_skips_active_writer_then_obeys_commit(
     artifact_database_dsn, artifact_root, commit,
 ):
     from runtime.source_normalization import create_draft
-    from runtime.storage.source_artifacts import write_blob, reconcile_new_artifacts
+    from runtime.storage.artifacts import write_blob, reconcile_new_artifacts
     from runtime.storage.tables import database_session
     dsn = artifact_database_dsn
     owner = _learner(dsn)
@@ -85,7 +85,7 @@ def test_reconciliation_skips_active_writer_then_obeys_commit(
 
 def test_reconciliation_skips_active_discard_then_restores_rollback(artifact_database_dsn, artifact_root):
     from runtime.source_normalization import create_draft
-    from runtime.storage.source_artifacts import write_blob
+    from runtime.storage.artifacts import write_blob
     from runtime.storage.tables import database_session
     dsn = artifact_database_dsn
     owner = _learner(dsn)
@@ -101,11 +101,11 @@ def test_reconciliation_skips_active_discard_then_restores_rollback(artifact_dat
     with ThreadPoolExecutor(max_workers=1) as pool:
         with pytest.raises(Rollback):
             with database_session(dsn) as session:
-                artifact_storage.quarantine_source_pdf(session, artifact.artifact_id)
-                pool.submit(artifact_storage.reconcile_discarded_sources, dsn=dsn).result(timeout=2)
+                artifact_storage.quarantine_artifact(session, artifact.artifact_id)
+                pool.submit(artifact_storage.reconcile_discarded_artifacts, dsn=dsn).result(timeout=2)
                 assert trash.exists() and not path.exists()
                 raise Rollback()
-    artifact_storage.reconcile_discarded_sources(dsn=dsn)
+    artifact_storage.reconcile_discarded_artifacts(dsn=dsn)
     assert path.read_bytes() == b'synthetic'
     assert not trash.exists()
 
@@ -124,11 +124,11 @@ def test_database_lock_timeout_rolls_back_and_next_transaction_can_write(artifac
             row = session.get(Material, material)
             row.display_name = 'Must roll back'
             session.flush()
-            artifact_storage._lock_source_discard(session, identity)
+            artifact_storage._lock_artifact_discard(session, identity)
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         with database_session(dsn) as session:
-            artifact_storage._lock_source_discard(session, identity)
+            artifact_storage._lock_artifact_discard(session, identity)
             with pytest.raises(OperationalError) as caught:
                 pool.submit(blocked).result(timeout=8)
             assert caught.value.orig.sqlstate == '55P03'

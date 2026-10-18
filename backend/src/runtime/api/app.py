@@ -65,14 +65,16 @@ from .study_routes import install as install_study_routes
 from .card_routes import install as install_card_routes
 from .podcast_routes import install as install_podcast_routes
 from ..source_revisions import create_revision
-from ..storage.artifacts import open_verified_source_pdf
+from ..storage.artifacts import (
+    open_verified_source_pdf,
+    open_verified_artifact,
+)
 from ..storage.knowledge_structures import resolve_evidence_source
 from ..storage.materials import (
     MaterialLibraryError,
     read_material_library,
     rename_material,
 )
-from ..storage.source_artifacts import open_verified_artifact
 from ..storage.tables import Artifact, Material, MaterialSource, database_session
 from ..workers import start_runtime_workers
 from .models import (

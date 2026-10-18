@@ -244,7 +244,7 @@ def test_material_discard_fences_podcast_and_removes_its_artifacts(closed_loop):
 
 
 def test_artifact_write_failure_rolls_back_and_reconciles_orphan(closed_loop, monkeypatch):
-    from runtime.storage.source_artifacts import reconcile_new_artifacts
+    from runtime.storage.artifacts import reconcile_new_artifacts
     from runtime.storage.artifacts import _object_path, _root
     owner, _, _, _, dsn, _ = closed_loop
     identity = create(closed_loop)["podcast_id"]

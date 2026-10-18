@@ -221,7 +221,7 @@ def test_late_upload_does_not_change_frozen_input_and_duplicate_bytes_are_reject
     document=read_knowledge_structure(learner.learner_id,material,run_id=result.run_id,dsn=dsn).document
     assert [item['original_name'] for item in document['input_binding']['manifest']['items']]==['A.pdf','B.pdf']
     assert next(s for s in read_sources(learner.learner_id,material,dsn=dsn) if s['normalization_id']==third)['included'] is False
-    from runtime.storage.source_artifacts import open_verified_artifact
+    from runtime.storage.artifacts import open_verified_artifact
     original_id=next(s['original_artifact_id'] for s in read_sources(learner.learner_id,material,dsn=dsn) if s['original_name']=='B.pdf')
     with open_verified_artifact(learner.learner_id,original_id,dsn=dsn) as stream: same_bytes=stream.file.read()
     with pytest.raises(SourceError,match='DUPLICATE_SOURCE'):
@@ -609,7 +609,7 @@ def test_failed_initial_source_can_be_removed_and_reuploaded_without_rewriting_h
     from runtime.source_normalization import remove_staged_source, retry_normalization
     from runtime.storage.database import connect_database
     from runtime.storage.materials import read_material_library
-    from runtime.storage.source_artifacts import open_verified_artifact
+    from runtime.storage.artifacts import open_verified_artifact
     from runtime.storage.tables import MaterialSource
 
     learner, _, settings, dsn, _, _, execute, _, _, _ = revisions
@@ -662,7 +662,7 @@ def test_failed_initial_source_can_be_removed_and_reuploaded_without_rewriting_h
 
 def test_staged_source_removal_is_owned_and_keeps_published_sources(revisions):
     from runtime.source_normalization import remove_staged_source
-    from runtime.storage.source_artifacts import open_verified_artifact
+    from runtime.storage.artifacts import open_verified_artifact
     from runtime.storage.artifacts import ArtifactError
     learner,material,settings,dsn,add,start,execute,r1,old,_=revisions
     addition=add('staged.pdf','Unsealed staging content.')
