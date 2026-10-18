@@ -60,21 +60,21 @@ def test_splitting_preserves_technical_literals():
 
 
 def test_podcast_context_marks_missing_middle_and_preserves_contiguous_parts(monkeypatch):
-    from runtime import podcasts
+    from runtime import podcast_sources
     value=document();value['evidence'][0]['exact_text']='條件與例外必須保留。'*900
     rows=build_passages(value)
     chosen=[rows[0],rows[-2],rows[-1]]
-    monkeypatch.setattr(podcasts.retrieval,'evidence_context',lambda *a:chosen)
-    context=podcasts.source_context(None,None,None,None,{'claims':[{'label':'佇列','text':'佇列採先進先出；空佇列不可取出元素。','evidence':[{'evidence_id':'e1'}]}]})
+    monkeypatch.setattr(podcast_sources.retrieval,'evidence_context',lambda *a:chosen)
+    context=podcast_sources.source_context(None,None,None,None,{'claims':[{'label':'佇列','text':'佇列採先進先出；空佇列不可取出元素。','evidence':[{'evidence_id':'e1'}]}]})
     assert context['p1']['blocks'][0]['text']==rows[0]['text']+'\n[…]\n'+rows[-2]['text']+rows[-1]['text']
 
 
 def test_podcast_keeps_all_required_text_when_optional_neighbors_do_not_fit(monkeypatch):
-    from runtime import podcasts
+    from runtime import podcast_sources
     required=build_passages(document())[0]
     neighbor=deepcopy(required);neighbor.update(position=1,evidence_id='other',text='額外背景。'*2500)
     neighbor['evidence']['evidence_id']='other';neighbor['end']=len(neighbor['text'])
-    monkeypatch.setattr(podcasts.retrieval,'evidence_context',lambda *a:[required,neighbor])
-    context=podcasts.source_context(None,None,None,None,{'claims':[{'label':'佇列','text':'佇列採先進先出；空佇列不可取出元素。','evidence':[{'evidence_id':'e1'}]}]})
+    monkeypatch.setattr(podcast_sources.retrieval,'evidence_context',lambda *a:[required,neighbor])
+    context=podcast_sources.source_context(None,None,None,None,{'claims':[{'label':'佇列','text':'佇列採先進先出；空佇列不可取出元素。','evidence':[{'evidence_id':'e1'}]}]})
     assert [b['evidence_id'] for b in context['p1']['blocks']]==['e1']
     assert context['p1']['blocks'][0]['text']==required['text']

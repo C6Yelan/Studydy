@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from runtime.errors import PodcastError
+
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -285,7 +287,7 @@ def _fixed_exception(error: Exception) -> str:
     if isinstance(error, assessment_state.AssessmentSetError):
         return _ASSESSMENT_SET_ERRORS.get(reason, "INTERNAL_ERROR")
     if (
-        isinstance(error, (SourceError, NormalizationError, MaterialProcessingError, SessionError, card_sets.CardSetError, podcasts.PodcastError))
+        isinstance(error, (SourceError, NormalizationError, MaterialProcessingError, SessionError, card_sets.CardSetError, PodcastError))
         and reason in _ERROR_STATUS
     ):
         return reason

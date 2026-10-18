@@ -1,4 +1,5 @@
 """Provider 的工作取消與子程序生命週期；不接資料庫、不記錄教材內容。"""
+
 from contextlib import contextmanager
 import os
 import signal
@@ -14,9 +15,9 @@ _jobs_lock = Lock()
 
 def _key(body):
     try:
-        return str(UUID(body['job_id'])), str(UUID(body['job_token']))
+        return str(UUID(body["job_id"])), str(UUID(body["job_token"]))
     except (KeyError, ValueError, TypeError, AttributeError):
-        raise ValueError('REQUEST_INVALID') from None
+        raise ValueError("REQUEST_INVALID") from None
 
 
 def cancel(body):
@@ -26,7 +27,7 @@ def cancel(body):
         # 取消可能早於生成 HTTP 請求到達；保留本次 lease 的取消訊號。
         event, _, _ = _jobs.setdefault(key, (Event(), time.monotonic(), 0))
         event.set()
-    return {'cancelled': True}
+    return {"cancelled": True}
 
 
 def _prune():
@@ -37,7 +38,7 @@ def _prune():
 
 @contextmanager
 def job(body, *, required=False):
-    if not required and 'job_id' not in body and 'job_token' not in body:
+    if not required and "job_id" not in body and "job_token" not in body:
         # Voice 等非 Podcast 呼叫仍使用原有協定。
         yield None
         return
@@ -61,7 +62,7 @@ def job(body, *, required=False):
                 _jobs.pop(key, None)
 
 
-def check(cancelled, code='PODCAST_CANCELLED'):
+def check(cancelled, code="PODCAST_CANCELLED"):
     if cancelled is not None and cancelled.is_set():
         raise ValueError(code)
 
@@ -75,8 +76,10 @@ def locked(lock, cancelled, *, timeout=None):
             check(cancelled)
             remaining = deadline - time.monotonic() if deadline is not None else None
             if remaining is not None and remaining <= 0:
-                raise RuntimeError('PODCAST_PROVIDER_UNAVAILABLE')
-            acquired = lock.acquire(timeout=.2 if remaining is None else min(.2, remaining))
+                raise RuntimeError("PODCAST_PROVIDER_UNAVAILABLE")
+            acquired = lock.acquire(
+                timeout=0.2 if remaining is None else min(0.2, remaining)
+            )
         check(cancelled)
         yield
     finally:
@@ -102,15 +105,30 @@ def _stop(process):
         process.wait()
 
 
-def run(args, *, input=None, env=None, timeout, cancelled=None, cancel_code='PODCAST_CANCELLED'):
+def run(
+    args,
+    *,
+    input=None,
+    env=None,
+    timeout,
+    cancelled=None,
+    cancel_code="PODCAST_CANCELLED",
+):
     check(cancelled, cancel_code)
-    with subprocess.Popen(args, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                          text=not isinstance(input, bytes), env=env, start_new_session=True) as process:
+    with subprocess.Popen(
+        args,
+        stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=not isinstance(input, bytes),
+        env=env,
+        start_new_session=True,
+    ) as process:
         # communicate 只執行一次。Python 3.12 在短 timeout 後以 input=None
         # 重入時，不會繼續寫完尚未送出的 stdin，會讓子程序永遠等不到 EOF。
         finished = Event()
         failures = []
+
         def communicate():
             try:
                 process.communicate(input=input)
@@ -118,18 +136,22 @@ def run(args, *, input=None, env=None, timeout, cancelled=None, cancel_code='POD
                 failures.append(error)
             finally:
                 finished.set()
-        io_thread = Thread(target=communicate, name='provider-process-io', daemon=True)
+
+        io_thread = Thread(target=communicate, name="provider-process-io", daemon=True)
         io_thread.start()
         deadline = time.monotonic() + timeout if timeout is not None else None
         try:
             while True:
                 check(cancelled, cancel_code)
-                remaining = deadline - time.monotonic() if deadline is not None else None
+                remaining = (
+                    deadline - time.monotonic() if deadline is not None else None
+                )
                 if remaining is not None and remaining <= 0:
                     raise subprocess.TimeoutExpired(args, timeout)
-                if finished.wait(.2 if remaining is None else min(.2, remaining)):
+                if finished.wait(0.2 if remaining is None else min(0.2, remaining)):
                     check(cancelled, cancel_code)
-                    if failures: raise failures[0]
+                    if failures:
+                        raise failures[0]
                     return subprocess.CompletedProcess(args, process.returncode)
         except BaseException:
             _stop(process)

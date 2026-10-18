@@ -1,4 +1,5 @@
 """Podcast 真 DB／API 回歸；來源與音訊均為合成 fixture，不宣稱模型品質。"""
+from runtime.errors import PodcastError
 from migration_fixtures import legacy_sql
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -14,7 +15,7 @@ from sqlalchemy import select
 
 import runtime.api.app as api
 from product_fixtures import closed_loop, seed_run, _structure, publish_fixture_structure
-from runtime import podcasts
+from runtime import podcasts, podcast_script
 from runtime.learner_session import register_account
 from runtime.material_discard import request_material_discard
 from runtime.material_processing import claim_next_material_processing_run, _record_progress
@@ -56,7 +57,7 @@ def test_persistent_script_audio_retry_and_idempotency(closed_loop):
         results = list(pool.map(lambda _: create(closed_loop), range(2)))
     assert results[0] == results[1]
     identity = results[0]["podcast_id"]
-    with pytest.raises(podcasts.PodcastError, match="IDEMPOTENCY_CONFLICT"):
+    with pytest.raises(PodcastError, match="IDEMPOTENCY_CONFLICT"):
         create(closed_loop, delivery="dialogue")
     claim = podcasts.claim_step(dsn=dsn)
     assert podcasts.claim_step(dsn=dsn) is None
@@ -115,11 +116,11 @@ def test_cancel_expired_lease_and_delete_fence_late_results(closed_loop):
     podcasts.change_podcast(owner.learner_id, identity, "cancel", view["version"], dsn=dsn)
     assert not podcasts.finish_step(new, script=script(new), dsn=dsn)
     assert podcasts.list_podcasts(owner.learner_id, dsn=dsn)["podcasts"] == []
-    with pytest.raises(podcasts.PodcastError, match="RESOURCE_NOT_FOUND"):
+    with pytest.raises(PodcastError, match="RESOURCE_NOT_FOUND"):
         podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
-    with pytest.raises(podcasts.PodcastError, match="RESOURCE_NOT_FOUND"):
+    with pytest.raises(PodcastError, match="RESOURCE_NOT_FOUND"):
         podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
-    with pytest.raises(podcasts.PodcastError, match="RESOURCE_NOT_FOUND"):
+    with pytest.raises(PodcastError, match="RESOURCE_NOT_FOUND"):
         create(closed_loop)
 
 
@@ -129,11 +130,11 @@ def test_reject_wrong_script_and_truncated_audio_without_publishing(closed_loop)
     claim = podcasts.claim_step(dsn=dsn)
     wrong = script(claim)
     wrong["segments"][0]["claim_id"] = "different-source"
-    with pytest.raises(podcasts.PodcastError, match="SCRIPT_INVALID"):
+    with pytest.raises(PodcastError, match="SCRIPT_INVALID"):
         podcasts.finish_step(claim, script=wrong, dsn=dsn)
     assert podcasts.finish_step(claim, script=script(claim), dsn=dsn)
     claim = podcasts.claim_step(dsn=dsn)
-    with pytest.raises(podcasts.PodcastError, match="AUDIO_INVALID"):
+    with pytest.raises(PodcastError, match="AUDIO_INVALID"):
         podcasts.finish_step(claim, audio=wav()[:-10], audio_provider="synthetic-test", dsn=dsn)
     assert podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)["completed_episodes"] == 0
     assert podcasts.finish_step(claim, audio=wav(), audio_provider="synthetic-test", dsn=dsn)
@@ -295,7 +296,7 @@ def test_dialogue_persists_turns_and_rejects_wrong_speaker_or_source(closed_loop
         {"speaker": "guest", "text": c["text"]},
     ]} for c in claim["episode"]["claims"]]}
     bad = deepcopy(dialogue); bad["segments"][0]["turns"][1]["speaker"] = "unknown"
-    with pytest.raises(podcasts.PodcastError, match="SCRIPT_INVALID"):
+    with pytest.raises(PodcastError, match="SCRIPT_INVALID"):
         podcasts.finish_step(claim, script=bad, dsn=dsn)
     assert podcasts.finish_step(claim, script=dialogue, dsn=dsn)
     audio_claim = podcasts.claim_step(dsn=dsn)
@@ -336,7 +337,7 @@ def test_extended_dialogue_and_actual_audio_provider_are_preserved(closed_loop):
         for i in range(8)]} for c in claim["episode"]["claims"]]}
     assert podcasts.finish_step(claim, script=value, dsn=dsn)
     claim = podcasts.claim_step(dsn=dsn)
-    with pytest.raises(podcasts.PodcastError, match="PODCAST_AUDIO_INVALID"):
+    with pytest.raises(PodcastError, match="PODCAST_AUDIO_INVALID"):
         podcasts.finish_step(claim, audio=wav(), dsn=dsn)
     assert podcasts.finish_step(claim, audio=wav(), audio_provider="synthetic-voice/exact-engine", dsn=dsn)
     view = podcasts.read_podcast(owner.learner_id, result["podcast_id"], dsn=dsn)
@@ -350,10 +351,10 @@ def test_dialogue_roles_are_required_per_episode_not_per_claim():
         {"claim_id": "one", "turns": [{"speaker": "guest", "text": "先把一個觀念說清楚，再讓對方自然接話。"}]},
         {"claim_id": "two", "turns": [{"speaker": "host", "text": "原來我剛才把兩種順序混在一起了。"}]},
     ]}
-    assert podcasts.validate_script(value, episode) == value
+    assert podcast_script.validate_script(value, episode) == value
     value["segments"][1]["turns"][0]["speaker"] = "guest"
-    with pytest.raises(podcasts.PodcastError, match="PODCAST_SCRIPT_INVALID"):
-        podcasts.validate_script(value, episode)
+    with pytest.raises(PodcastError, match="PODCAST_SCRIPT_INVALID"):
+        podcast_script.validate_script(value, episode)
 
 
 def test_v2_podcast_finishes_without_quality_verdicts_or_loudness_report(closed_loop):

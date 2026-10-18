@@ -1,6 +1,7 @@
 """分集保留所選來源與實際處理容量，不評分講稿風格。"""
 import pytest
-from runtime.podcasts import plan_episodes, PodcastError
+from runtime.podcast_sources import plan_episodes
+from runtime.errors import PodcastError
 
 
 def claims(count=4, text='必須先確認條件，再執行操作。'):

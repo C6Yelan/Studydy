@@ -1,17 +1,47 @@
 """只產生 TTS 輸入；原講稿不改。依字詞類型處理，不設術語替換表。"""
+
 import re
 from decimal import Decimal
 from functools import lru_cache
 import cmudict
 import wordninja
 
-_PREFIX = {'': '', 'k': 'kilo', 'K': 'kilo', 'M': 'mega', 'G': 'giga', 'T': 'tera', 'P': 'peta', 'E': 'exa'}
+_PREFIX = {
+    "": "",
+    "k": "kilo",
+    "K": "kilo",
+    "M": "mega",
+    "G": "giga",
+    "T": "tera",
+    "P": "peta",
+    "E": "exa",
+}
 # 資訊量／速率的大小寫是語意：僅在數值旁辨識單位，不把一般字母 B 當 byte。
-_UNIT = r'(?<![A-Za-z0-9_])(?P<number>[+-]?\d+(?:\.\d+)?)\s*(?P<prefix>[kKMGTPE]?)(?P<base>[Bb])(?P<rate>/s|ps)?(?![A-Za-z0-9_])'
-_LATIN = r'[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)*'
-_PARTS = re.compile(f'(?P<unit>{_UNIT})|(?P<latin>{_LATIN})')
-_CAMEL = re.compile(r'[A-Z]+(?=[A-Z][a-z]|\d|$)|[A-Z]?[a-z]+|\d+|[A-Z]')
-_GREEK = dict(zip('αβγδεθλμρστφω', ['alpha','beta','gamma','delta','epsilon','theta','lambda','mu','rho','sigma','tau','phi','omega']))
+_UNIT = r"(?<![A-Za-z0-9_])(?P<number>[+-]?\d+(?:\.\d+)?)\s*(?P<prefix>[kKMGTPE]?)(?P<base>[Bb])(?P<rate>/s|ps)?(?![A-Za-z0-9_])"
+_LATIN = r"[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)*"
+_PARTS = re.compile(f"(?P<unit>{_UNIT})|(?P<latin>{_LATIN})")
+_CAMEL = re.compile(r"[A-Z]+(?=[A-Z][a-z]|\d|$)|[A-Z]?[a-z]+|\d+|[A-Z]")
+_GREEK = dict(
+    zip(
+        "αβγδεθλμρστφω",
+        [
+            "alpha",
+            "beta",
+            "gamma",
+            "delta",
+            "epsilon",
+            "theta",
+            "lambda",
+            "mu",
+            "rho",
+            "sigma",
+            "tau",
+            "phi",
+            "omega",
+        ],
+    )
+)
+
 
 @lru_cache(maxsize=1)
 def lexicon():
@@ -21,13 +51,13 @@ def lexicon():
 def letter_phones(letter):
     choices = lexicon().get(letter.lower())
     if not choices:
-        raise ValueError('UNSUPPORTED_LETTER')
+        raise ValueError("UNSUPPORTED_LETTER")
     # 單獨字母使用有重音的字母名稱，避免 A 被讀成冠詞的弱讀音。
-    return max(choices, key=lambda p: sum('1' in x for x in p))
+    return max(choices, key=lambda p: sum("1" in x for x in p))
 
 
 def _same_sounds(a, b):
-    return [re.sub(r'\d', '', p) for p in a] == [re.sub(r'\d', '', p) for p in b]
+    return [re.sub(r"\d", "", p) for p in a] == [re.sub(r"\d", "", p) for p in b]
 
 
 def initialism(token):
@@ -43,29 +73,36 @@ def english_words(token, normalize_number):
     if token.isdigit():
         return normalize_number(token)
     if initialism(token):
-        return ' '.join(token.upper())
+        return " ".join(token.upper())
     # 一般英文複合詞的連字號不朗讀；代碼、縮寫及數值中的符號仍保留。
-    words = token.split('-')
-    if len(words) > 1 and all(word.isalpha() and not initialism(word)
-                              and word.lower() in lexicon() for word in words):
-        return ' '.join(word.lower() for word in words)
-    if '_' in token or '-' in token or (not token.islower() and not token.isupper()) or any(c.isdigit() for c in token):
-        chunks=[]
-        for part in re.split(r'([_-])',token):
-            if part in {'_', '-'}:
-                chunks.append('underscore' if part == '_' else 'hyphen')
+    words = token.split("-")
+    if len(words) > 1 and all(
+        word.isalpha() and not initialism(word) and word.lower() in lexicon()
+        for word in words
+    ):
+        return " ".join(word.lower() for word in words)
+    if (
+        "_" in token
+        or "-" in token
+        or (not token.islower() and not token.isupper())
+        or any(c.isdigit() for c in token)
+    ):
+        chunks = []
+        for part in re.split(r"([_-])", token):
+            if part in {"_", "-"}:
+                chunks.append("underscore" if part == "_" else "hyphen")
             else:
                 pieces = _CAMEL.findall(part)
                 if pieces == [token]:
                     return english_words(token.lower(), normalize_number)
                 chunks.extend(english_words(p, normalize_number) for p in pieces)
-        return ' '.join(chunks)
+        return " ".join(chunks)
     if token.lower() in lexicon():
         return token.lower()
     pieces = wordninja.split(token.lower())
-    if len(pieces)>1 and all(p in lexicon() for p in pieces):
-        return ' '.join(pieces)
-    return ' '.join(token.upper())
+    if len(pieces) > 1 and all(p in lexicon() for p in pieces):
+        return " ".join(pieces)
+    return " ".join(token.upper())
 
 
 def spoken_phrases(text):
@@ -75,22 +112,45 @@ def spoken_phrases(text):
         sentence = match.group().strip()
         # 全形斜線的三項以上中文詞串可辨識為列舉；兩項比值、ASCII 路徑與單位不套用。
         list_boundaries = set()
-        for listing in re.finditer(r'(?:[\u3400-\u9fff]+|<[\u3400-\u9fff]+>)(?:／(?:[\u3400-\u9fff]+|<[\u3400-\u9fff]+>)){2,}', sentence):
-            list_boundaries.update(i for i in range(listing.start(), listing.end()) if sentence[i] == '／')
-        start = 0; stack = []; code = False
+        for listing in re.finditer(
+            r"(?:[\u3400-\u9fff]+|<[\u3400-\u9fff]+>)(?:／(?:[\u3400-\u9fff]+|<[\u3400-\u9fff]+>)){2,}",
+            sentence,
+        ):
+            list_boundaries.update(
+                i for i in range(listing.start(), listing.end()) if sentence[i] == "／"
+            )
+        start = 0
+        stack = []
+        code = False
         for i, char in enumerate(sentence):
-            if char == '`': code = not code
-            if code: continue
-            if char in '([{（': stack.append(char)
-            elif char in ')]}）' and stack: stack.pop()
-            if stack: continue
-            separator = char in '；;、' or char in '，,' and i-start >= 24 or i in list_boundaries
-            if char == ',' and 0 < i < len(sentence)-1 and sentence[i-1].isdigit() and sentence[i+1].isdigit():
+            if char == "`":
+                code = not code
+            if code:
+                continue
+            if char in "([{（":
+                stack.append(char)
+            elif char in ")]}）" and stack:
+                stack.pop()
+            if stack:
+                continue
+            separator = (
+                char in "；;、"
+                or char in "，,"
+                and i - start >= 24
+                or i in list_boundaries
+            )
+            if (
+                char == ","
+                and 0 < i < len(sentence) - 1
+                and sentence[i - 1].isdigit()
+                and sentence[i + 1].isdigit()
+            ):
                 separator = False
-            if separator and sentence[start:i+1].strip():
-                yield sentence[start:i+1].strip(), char
-                start = i+1
-        if sentence[start:].strip(): yield sentence[start:].strip(), None
+            if separator and sentence[start : i + 1].strip():
+                yield sentence[start : i + 1].strip(), char
+                start = i + 1
+        if sentence[start:].strip():
+            yield sentence[start:].strip(), None
 
 
 def mixed_sentences(text, normalize_zh, normalize_en):
@@ -100,39 +160,83 @@ def mixed_sentences(text, normalize_zh, normalize_en):
         if not source_text:
             continue
         # 判斷句長使用原文字；縮寫、數值的朗讀展開不改變停頓類型。
-        sentence = re.sub(r'(?<![A-Za-z0-9_.])\d{1,3}(?:,\d{3})+(?:\.\d+)?', lambda m: m[0].replace(',', ''), source_text)
-        sentence = re.sub(r'(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*ms\b', r'\1 毫秒', sentence)
-        sentence = re.sub(r'<([\u3400-\u9fff]+)>', r'\1標記', sentence)
-        if separator == '／': sentence = sentence[:-1] + '，'
-        sentence = sentence.replace('→', '，右箭頭，').replace('←', '，左箭頭，')
+        sentence = re.sub(
+            r"(?<![A-Za-z0-9_.])\d{1,3}(?:,\d{3})+(?:\.\d+)?",
+            lambda m: m[0].replace(",", ""),
+            source_text,
+        )
+        sentence = re.sub(
+            r"(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*ms\b", r"\1 毫秒", sentence
+        )
+        sentence = re.sub(r"<([\u3400-\u9fff]+)>", r"\1標記", sentence)
+        if separator == "／":
+            sentence = sentence[:-1] + "，"
+        sentence = sentence.replace("→", "，右箭頭，").replace("←", "，左箭頭，")
         # 只展開可辨識的運算符；程式字面值與路徑保留原符號，不能變成數學敘述。
-        pieces=re.split(r'(`[^`]*`|(?:https?://|(?<!\w)/|(?<!\w)[A-Za-z]:\\)[^\s，。；、]+)',sentence)
-        for i in range(0,len(pieces),2):
-            pieces[i]=re.sub(r'(?<=[\w)])\s*(<=|>=|≤|≥|<|>)\s*(?=[\w(])',
-                lambda match: ' '+{'<=':'小於或等於','>=':'大於或等於','≤':'小於或等於','≥':'大於或等於','<':'小於','>':'大於'}[match[1]]+' ',pieces[i])
-            pieces[i]=re.sub(r'[αβγδεθλμρστφω]',lambda match:' '+_GREEK[match[0]]+' ',pieces[i])
-        sentence=''.join(pieces)
+        pieces = re.split(
+            r"(`[^`]*`|(?:https?://|(?<!\w)/|(?<!\w)[A-Za-z]:\\)[^\s，。；、]+)",
+            sentence,
+        )
+        for i in range(0, len(pieces), 2):
+            pieces[i] = re.sub(
+                r"(?<=[\w)])\s*(<=|>=|≤|≥|<|>)\s*(?=[\w(])",
+                lambda match: " "
+                + {
+                    "<=": "小於或等於",
+                    ">=": "大於或等於",
+                    "≤": "小於或等於",
+                    "≥": "大於或等於",
+                    "<": "小於",
+                    ">": "大於",
+                }[match[1]]
+                + " ",
+                pieces[i],
+            )
+            pieces[i] = re.sub(
+                r"[αβγδεθλμρστφω]",
+                lambda match: " " + _GREEK[match[0]] + " ",
+                pieces[i],
+            )
+        sentence = "".join(pieces)
         parts = []
         cursor = 0
         for match in _PARTS.finditer(sentence):
-            prefix = sentence[cursor:match.start()]
+            prefix = sentence[cursor : match.start()]
             parts.append(normalize_zh(prefix) if prefix.strip() else prefix)
-            if match.group('unit'):
-                base = 'byte' if match.group('base') == 'B' else 'bit'
-                if abs(Decimal(match.group('number'))) != 1:
-                    base += 's'
-                value = normalize_en(match.group('number')) + ' ' + _PREFIX[match.group('prefix')] + base
-                if match.group('rate'):
-                    value += ' per second'
+            if match.group("unit"):
+                base = "byte" if match.group("base") == "B" else "bit"
+                if abs(Decimal(match.group("number"))) != 1:
+                    base += "s"
+                value = (
+                    normalize_en(match.group("number"))
+                    + " "
+                    + _PREFIX[match.group("prefix")]
+                    + base
+                )
+                if match.group("rate"):
+                    value += " per second"
             else:
-                token = match.group('latin')
+                token = match.group("latin")
                 # 小寫 a 是冠詞；全大寫縮寫才逐字母讀，保留同句中文連接詞。
-                value = token.lower() if not token.isupper() and (token.lower() in lexicon() or token in _GREEK.values()) else english_words(token, normalize_en)
-            parts.append(' ' + value + ' ')
+                value = (
+                    token.lower()
+                    if not token.isupper()
+                    and (token.lower() in lexicon() or token in _GREEK.values())
+                    else english_words(token, normalize_en)
+                )
+            parts.append(" " + value + " ")
             cursor = match.end()
         suffix = sentence[cursor:]
         parts.append(normalize_zh(suffix) if suffix.strip() else suffix)
-        value = re.sub(r'\s+', ' ', ''.join(parts)).strip()
-        result.append({'language': 'mixed', 'text': value, 'source_text': source_text,
-                       'ending': separator if separator is not None else source_text.rstrip('」』”\'"）)]')[-1]})
+        value = re.sub(r"\s+", " ", "".join(parts)).strip()
+        result.append(
+            {
+                "language": "mixed",
+                "text": value,
+                "source_text": source_text,
+                "ending": separator
+                if separator is not None
+                else source_text.rstrip("」』”'\"）)]")[-1],
+            }
+        )
     return result

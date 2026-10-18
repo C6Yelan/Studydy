@@ -1,10 +1,20 @@
 """多來源 beat、逐字 cue 與來源位置保持一致。"""
 from copy import deepcopy
 import pytest
-from runtime.podcast_script import SCHEMA, validate, references, sources, digest
+from runtime.podcast_script import SCHEMA, digest, validate, references, sources
 from runtime.podcast_video_plan import timeline_for_video, validate_plan
 from runtime.podcast_timeline import webvtt
 from runtime.scene_alignment import normalized
+
+
+def test_script_identity_keeps_its_existing_json_contract():
+    # 講稿 hash 與 Evidence codec 的 NaN／surrogate 規則不同，不可互換。
+    script = {'segments': [], 'provider': '測試'}
+    assert digest(script) == 'd938ebe7082dd616ba9360a9fe3deec635d54a1941742025c1de4db2af72c4ac'
+    script['review'] = {'score': float('nan')}
+    assert digest(script) == 'f5a147d88550b66e8812fc03d4932ccf1c100d15ff7cec7032820a63423d5599'
+    with pytest.raises(UnicodeEncodeError):
+        digest({'provider': '\ud800'})
 
 
 def sample():
@@ -86,7 +96,7 @@ def test_script_does_not_require_review_or_exhaustive_coverage():
     episode,_,_=sample();script=episode['script']
     script.pop('review')
     script['segments'][0]['turns'][0]['parts'][1]['source_refs']=[]
-    from runtime.podcasts import validate_script
+    from runtime.podcast_script import validate_script
     assert validate_script(script,episode)==script
     script['review']={'teaching_quality':{'passed':False,'reason':'舊評分保留，不阻擋讀取'}}
     assert validate_script(script,episode)==script

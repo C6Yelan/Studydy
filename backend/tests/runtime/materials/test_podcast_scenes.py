@@ -1,3 +1,4 @@
+from runtime.errors import PodcastError
 from copy import deepcopy
 from uuid import uuid4
 import pytest
@@ -35,7 +36,7 @@ def test_prepare_publish_reopen_and_preserve_audio(closed_loop):
     assert manifest['alignment_producer']=='synthetic-test'
     assert [s['claim_id'] for s in manifest['scenes']]==[c['claim_id'] for c in before['episodes'][0]['claims']]
     assert podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)==before
-    with pytest.raises(podcasts.PodcastError,match='RESOURCE_NOT_FOUND'):scenes.read(uuid4(),identity,dsn=dsn)
+    with pytest.raises(PodcastError,match='RESOURCE_NOT_FOUND'):scenes.read(uuid4(),identity,dsn=dsn)
 
 
 def test_cancel_and_delete_reject_late_scene_results(closed_loop):
@@ -46,7 +47,7 @@ def test_cancel_and_delete_reject_late_scene_results(closed_loop):
     assert scenes.read(owner.learner_id,identity,dsn=dsn)['episodes'][0]['status']=='cancelled'
     scenes.action(owner.learner_id,identity,0,'retry',2,dsn=dsn);state=scenes.claim(dsn=dsn)
     podcasts.delete_podcast(owner.learner_id,identity,dsn=dsn)
-    with pytest.raises(podcasts.PodcastError,match='RESOURCE_NOT_FOUND'):scenes.finish(state,alignment(state),dsn=dsn)
+    with pytest.raises(PodcastError,match='RESOURCE_NOT_FOUND'):scenes.finish(state,alignment(state),dsn=dsn)
     with database_session(dsn) as db:assert not db.scalars(select(PodcastScenes)).all()
 
 
