@@ -101,6 +101,58 @@ def test_mask_protects_whole_code_and_latex_without_overlapping_tokens():
     assert masked == text
 
 
+def test_pdf_wrapped_inline_code_keeps_neighboring_prose_translatable():
+    mask, unknown = '`[\nMASK]`', '`[UNK]`'
+    source = f'Use {mask} for masked-out tokens and {unknown} for unknown tokens.'
+    context = build_document_context([_page(1, [_block(1, 0, 'paragraph', source)])], page_count=1)
+    bundle = {'evidence': context['evidence'], 'sections': context['sections']}
+    response = {'concepts': [{'l': '特殊標記', 'a': [], 'c': [{'m': None, 's': [0]}]}], 'relations': []}
+
+    def translate(request, schema):
+        item = request['localization']['claim_0_0']
+        tokens = {value: key for key, value in item['literals'].items()}
+        assert set(tokens) == {mask, unknown}
+        assert 'for masked-out tokens and' in item['text']
+        return {'claim_0_0': f'{tokens[mask]} 表示遮蔽標記，{tokens[unknown]} 表示未知標記。'}
+
+    result = localize_block(response, context, bundle, translate)
+    meaning = result['concepts'][0]['c'][0]['m']
+    assert meaning == f'{mask} 表示遮蔽標記，{unknown} 表示未知標記。'
+    assert preserves_literals(meaning, context['evidence'])
+    assert not preserves_literals(meaning.replace('MASK', 'PAD'), context['evidence'])
+    assert not _needs_translation(meaning)
+    assert context['evidence'][0]['exact_text'] == source
+
+
+def test_inline_code_does_not_join_unclosed_delimiters_across_paragraphs():
+    source = '`unclosed\n\nTranslate this explanation, then `stable_id`.'
+    masked, literals = mask_literals(source)
+    assert list(literals.values()) == ['`stable_id`']
+    assert 'Translate this explanation' in masked
+    assert restore_literals(masked, literals) == source
+
+
+def test_pseudocode_field_access_does_not_require_translating_control_flow():
+    code = 'if c.name /∈P.tools then return DENY(scope)'
+    source = 'Reject tools outside the policy.\n' + code
+    context = build_document_context([_page(1, [_block(1, 0, 'paragraph', source)])], page_count=1)
+    bundle = {'evidence': context['evidence'], 'sections': context['sections']}
+    response = {'concepts': [{'l': '工具政策', 'a': [], 'c': [{'m': None, 's': [0]}]}], 'relations': []}
+    calls = []
+
+    def translate(request, schema):
+        calls.append(request)
+        item = request['localization']['claim_0_0']
+        assert {'c.name', 'P.tools', 'DENY(scope)'} <= set(item['literals'].values())
+        return {'claim_0_0': item['text'].replace('Reject tools outside the policy.', '拒絕政策範圍外的工具。')}
+
+    result = localize_block(response, context, bundle, translate)
+    assert len(calls) == 1
+    assert result['concepts'][0]['c'][0]['m'] == '拒絕政策範圍外的工具。\n' + code
+    assert _needs_translation('中文說明：Reject tools outside the policy.\n' + code)
+    assert context['evidence'][0]['exact_text'] == source
+
+
 def test_restore_does_not_expand_placeholder_text_inside_an_original_literal():
     literals = {'⟪保留值0⟫': '`⟪保留1⟫`', '⟪保留1⟫': '8 MB/s'}
     assert restore_literals('⟪保留值0⟫ / ⟪保留1⟫', literals) == '`⟪保留1⟫` / 8 MB/s'

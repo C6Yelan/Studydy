@@ -238,7 +238,8 @@ def semantic_request(
         } if context.get("incremental") else {}),
         **({
             "source_pages": [
-                source_pages[page - 1]
+                # checkpoint JSON 會重排物件欄位；固定提示順序，讓重試的容量估算與批次邊界一致。
+                {key: source_pages[page - 1][key] for key in ("page", "source_id", "normalized_page")}
                 for page in sorted({item['page'] for item in bundle['evidence']})
             ],
             "source_policy": (

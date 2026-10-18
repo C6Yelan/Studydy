@@ -232,6 +232,18 @@ def test_confirmed_learning_scope_is_bound_only_to_sources_in_the_block():
     assert 'excluded' in request['source_policy']
 
 
+def test_checkpoint_json_roundtrip_keeps_model_input_byte_identical():
+    ctx = context(2)
+    ctx['source_pages'] = [{'page': 1, 'source_id': 'selected-source', 'normalized_page': 7}]
+    original = json.dumps(ctx, ensure_ascii=False)
+    before = block_request(ctx, {'evidence': ctx['evidence'], 'sections': ctx['sections']})
+    restored = json.loads(json.dumps(ctx, ensure_ascii=False, sort_keys=True))
+    after = block_request(restored, {'evidence': restored['evidence'], 'sections': restored['sections']})
+    assert json.dumps(after, ensure_ascii=False) == json.dumps(before, ensure_ascii=False)
+    assert after['source_pages'] == ctx['source_pages']
+    assert json.dumps(ctx, ensure_ascii=False) == original
+
+
 def test_new_learning_scope_cannot_reuse_an_old_semantic_checkpoint_and_legacy_digest_stays_stable():
     from types import SimpleNamespace
     from runtime.storage.analysis_archive import _checkpoint_input_digest,_same_analysis_inputs

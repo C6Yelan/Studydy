@@ -13,12 +13,16 @@ _QUANTITY = re.compile(
     rf'(?<![A-Za-z0-9_.]){_NUMBER}(?:\s*{_UNIT}(?![A-Za-z]))?'
 )
 _QUOTED = re.compile(
-    r'(?<!`)`[^`\n]+`(?!`)|(?<![A-Za-z0-9])\'(?:\\.|[^\'\\\n]){1,80}\''
+    # PDF 可在行內程式碼中換行；不能把其結尾反引號誤當下一段的開頭。
+    # 仍不跨空白段落配對，避免把一般說明一起保護成程式碼。
+    r'(?<!`)`(?:(?!\n[ \t\r]*\n)[^`])+`(?!`)|(?<![A-Za-z0-9])\'(?:\\.|[^\'\\\n]){1,80}\''
     r'|(?<![A-Za-z0-9])"(?:\\.|[^"\\\n]){1,80}"'
     r'|\\(?:[0abfnrtv\\\'"?]|x[0-9A-Fa-f]+|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})'
 )
 _CODE_FENCE = re.compile(r'(?<!`)(`{3,})([\s\S]*?)\1(?!`)')
 _CALL = re.compile(r'(?<![A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*(?:\([^()\n]{0,80}\)|\[[^\]\n]{1,80}\])')
+# 保留物件欄位存取，避免把 P.tools then return 的尾端誤認為英文散文。
+_MEMBER = re.compile(r'\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b')
 _GLOSS = re.compile(r'[（(]([A-Za-z][A-Za-z0-9_-]*|[α-ωΑ-Ω])[）)]')
 _OPERAND = r'(?:[A-Za-zα-ωΑ-Ω][A-Za-z0-9_α-ωΑ-Ω]*|\d+(?:\.\d+)?)'
 _EXPRESSION = re.compile(
@@ -64,7 +68,7 @@ def _literals(text: str) -> set[str]:
 
 def _literal_ranges(text: str, kind: str):
     spans = [(match.start(), match.end()) for pattern in (
-        _QUANTITY, _QUOTED, _CODE_FENCE, _CALL, _EXPRESSION, _FLOW_EXPRESSION, _SUBTRACTION, _DIRECTION, _GLOSS, _DECLARATION, _LATEX,
+        _QUANTITY, _QUOTED, _CODE_FENCE, _CALL, _MEMBER, _EXPRESSION, _FLOW_EXPRESSION, _SUBTRACTION, _DIRECTION, _GLOSS, _DECLARATION, _LATEX,
     ) for match in pattern.finditer(text)]
     if kind in {'code', 'formula'} or _formula_text(text):
         spans = [(0, len(text))]
