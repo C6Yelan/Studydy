@@ -309,14 +309,10 @@ def _indices(count):
     }
 
 
-def _screening(candidate):
-    return candidate.get("screening")
-
-
 def _needs_preview(candidate):
     if candidate.get("review", {}).get("phase") == "body":
         return False
-    screen = _screening(candidate)
+    screen = candidate.get("screening")
     return (
         not screen
         and not candidate.get("preview")
@@ -332,7 +328,7 @@ def _needs_body(candidate):
     access = candidate.get("access", {})
     if access.get("exhausted"):
         return False
-    screen = _screening(candidate)
+    screen = candidate.get("screening")
     # 公開 PDF 可能尚未查過同篇正式授權頁；相關參考來源也應完成這項核對。
     license_pending = bool(
         screen
@@ -353,7 +349,7 @@ def _needs_body(candidate):
 def _pending(candidate):
     return (
         _needs_preview(candidate)
-        or not _screening(candidate)
+        or not candidate.get("screening")
         or (
             _needs_body(candidate)
             and candidate.get("access", {}).get("retry_at", 0) <= time.time()
@@ -367,7 +363,7 @@ def _next_stage(workflow, candidates):
         for c in candidates
     ):
         return "reading"
-    if any(c.get("preview") and not _screening(c) for c in candidates):
+    if any(c.get("preview") and not c.get("screening") for c in candidates):
         return "screening"
     if any(_needs_preview(c) for c in candidates):
         return "collecting"
@@ -393,6 +389,23 @@ def source_allowed(candidate):
         and review.get("document_key")
         and review["document_key"] == _document_key(candidate)
     )
+
+
+def validate_selection(candidates, selected):
+    """既有教材與新主題共用同一份匯入資格；必須先完成正文與來源類型核對。"""
+    known = {candidate["id"]: candidate for candidate in candidates}
+    if (
+        not selected
+        or len(set(selected)) != len(selected)
+        or any(
+            identity not in known
+            or not known[identity]["eligible"]
+            or known[identity].get("review", {}).get("phase") != "body"
+            or not source_allowed(known[identity])
+            for identity in selected
+        )
+    ):
+        raise SourceError("REQUEST_INVALID")
 
 
 def _reading_order(candidate):
@@ -482,11 +495,12 @@ def progress(state, candidates):
         for c in read
         if source_allowed(c) and c.get("review", {}).get("phase") == "body"
     ]
-    screened = [c for c in candidates if _screening(c) and not _needs_preview(c)]
+    screened = [c for c in candidates if c.get("screening") and not _needs_preview(c)]
     deep = [
         c
         for c in candidates
-        if _screening(c) and _screening(c)["decision"] in ("read", "uncertain")
+        if c.get("screening")
+        and c.get("screening")["decision"] in ("read", "uncertain")
     ]
     if stage in ("planning", "following_up", "organizing"):
         done = total = None
@@ -533,11 +547,13 @@ def progress(state, candidates):
         "screened_count": len(screened),
         "deep_read_count": len(deep),
         "reference_count": sum(
-            _screening(c)["decision"] == "reference" for c in screened
+            c.get("screening")["decision"] == "reference" for c in screened
         ),
-        "excluded_count": sum(_screening(c)["decision"] == "exclude" for c in screened),
+        "excluded_count": sum(
+            c.get("screening")["decision"] == "exclude" for c in screened
+        ),
         "uncertain_count": sum(
-            _screening(c)["decision"] == "uncertain" for c in screened
+            c.get("screening")["decision"] == "uncertain" for c in screened
         ),
         "recommended_count": sum(
             c.get("review", {}).get("phase") == "body"
@@ -730,7 +746,7 @@ def _search_sources(workflow, candidates):
 
 def _screen_candidates(workflow, candidates, context, call):
     """依已有預覽分流本批候選。"""
-    batch = [c for c in candidates if c.get("preview") and not _screening(c)][
+    batch = [c for c in candidates if c.get("preview") and not c.get("screening")][
         :SCREEN_BATCH
     ]
     if batch:
@@ -1084,7 +1100,7 @@ def _locate_sections(workflow, candidates, context, call):
                     "title": target["title"],
                     "url": target["url"],
                     "verified_type": target["kind"],
-                    "screening": _screening(target),
+                    "screening": target.get("screening"),
                     "focus": target.get("reading_focus"),
                     "sections": [
                         {"index": offset + i, **w} for i, w in enumerate(batch)
@@ -1443,8 +1459,8 @@ def _follow_up(workflow, candidates, context, call):
         retry_sources = [
             c
             for c in candidates
-            if _screening(c)
-            and _screening(c).get("basis") == "importability"
+            if c.get("screening")
+            and c.get("screening").get("basis") == "importability"
             and c.get("review", {}).get("phase") != "body"
             and any(
                 attempt.get("error_code")
@@ -1589,10 +1605,12 @@ def _follow_up(workflow, candidates, context, call):
         c
         for c in candidates
         if c.get("access", {}).get("status") != "unavailable"
-        and not (_screening(c) and _screening(c).get("basis") == "importability")
+        and not (
+            c.get("screening") and c.get("screening").get("basis") == "importability"
+        )
         and (
-            _screening(c)
-            and _screening(c)["decision"] in ("read", "uncertain", "reference")
+            c.get("screening")
+            and c.get("screening")["decision"] in ("read", "uncertain", "reference")
             and c.get("review", {}).get("phase") != "body"
             or c.get("eligible")
             and c.get("review", {}).get("phase") == "body"
@@ -1629,7 +1647,7 @@ def _follow_up(workflow, candidates, context, call):
             bool(gaps) and not gaps.intersection(c.get("review", {}).get("topics", [])),
             not (
                 c.get("review", {}).get("phase") != "body"
-                and _screening(c)["decision"] in ("read", "uncertain")
+                and c.get("screening")["decision"] in ("read", "uncertain")
             ),
         )
     )
@@ -1653,7 +1671,7 @@ def _follow_up(workflow, candidates, context, call):
             "title": c["title"],
             "url": c["url"],
             "topics": c.get("review", {}).get("topics", []),
-            "screening_decision": (_screening(c) or {}).get("decision", "read"),
+            "screening_decision": (c.get("screening") or {}).get("decision", "read"),
             "verified_type": c.get("source_type_review", {}).get("type")
             if source_allowed(c)
             else None,
@@ -1668,7 +1686,7 @@ def _follow_up(workflow, candidates, context, call):
                 for section in clues
             ],
             "skipped_section_count": len(sections),
-            "reason": (_screening(c) or {}).get(
+            "reason": (c.get("screening") or {}).get(
                 "reason", "來源已有正文核對紀錄，可依本次缺口覆核。"
             ),
         }
@@ -2158,7 +2176,7 @@ def advance(state, call, *, read_document=None, retrieve_existing=None):
     elif stage == "collecting":
         batch = [c for c in candidates if _needs_preview(c)][:SCREEN_BATCH]
         for target in batch:
-            target.update(prepare_preview(target, expand=bool(_screening(target))))
+            target.update(prepare_preview(target, expand=bool(target.get("screening"))))
             target.pop("screening", None)
         workflow["stage"] = "screening" if batch else _next_stage(workflow, candidates)
     elif stage == "screening":
