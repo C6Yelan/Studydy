@@ -10,6 +10,7 @@ from psycopg.conninfo import make_conninfo
 from .local_app import run_local_app
 from .semantic_service import _origin, SERVICE_URL_ENV
 from .storage.migrations import run_migrations
+from .storage.baseline import BaselineError
 
 
 def initialize_data(root: Path, uid: int, gid: int) -> None:
@@ -52,7 +53,8 @@ def check_sandbox() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("init", "migrate", "serve", "prepare-read-indexes"))
+    parser.add_argument("command", choices=("init", "migrate", "serve", "prepare-read-indexes",
+                                            "baseline-check", "baseline-apply", "baseline-restore-ledger"))
     command = parser.parse_args().command
     try:
         if command == "init":
@@ -62,6 +64,18 @@ def main() -> None:
             _origin(os.environ[SERVICE_URL_ENV])
             check_sandbox()
         configure_database(os.environ)
+        if command.startswith('baseline-'):
+            import json
+            from .storage.baseline import check_or_adopt, restore_legacy_ledger
+            from .storage.migrations import load_migrations
+            migrations = load_migrations()
+            if command == 'baseline-restore-ledger':
+                result = restore_legacy_ledger(None, migrations)
+            else:
+                result = check_or_adopt(None, migrations, Path(os.environ['STUDYDY_ARTIFACT_ROOT']),
+                                       apply=command == 'baseline-apply')
+            print(json.dumps(result), flush=True)
+            return
         # 啟動時核對已套用的 checksum，再以交易執行待套用的 migration。
         run_migrations()
         if command == "migrate":
@@ -71,6 +85,9 @@ def main() -> None:
             print(f"Prepared read indexes: {backfill()}", flush=True)
             return
         run_local_app(host="0.0.0.0", port=8001)
+    except BaselineError as error:
+        print(f"BASELINE_FAILED: {error}", flush=True)
+        raise SystemExit(1) from None
     except Exception:
         # 不把含密碼的 conninfo、模型位址或 SQL 例外輸出至容器 log。
         print("CONTAINER_OPERATION_FAILED: check configuration, database and sandbox", flush=True)

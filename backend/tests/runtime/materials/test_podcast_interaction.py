@@ -1,4 +1,5 @@
 """Podcast → exact-revision Voice／Assessment；只用隔離 DB 與合成內容。"""
+from migration_fixtures import legacy_sql
 from copy import deepcopy
 from qa_fixtures import grounded_answer
 from pathlib import Path
@@ -160,7 +161,7 @@ def test_additive_migration_preserves_legacy_artifacts(closed_loop):
     with database_session(dsn) as db:
         db.execute(text('ALTER TABLE voice_turns DROP COLUMN context'))
         # 隔離重播這項 additive DDL；帳本保持連續，不假造已套用後續 migration 的舊版本。
-        db.execute(text((Path(__file__).parents[3]/'migrations/0016_voice_podcast_context.sql').read_text()))
+        db.execute(text(legacy_sql('0016_voice_podcast_context.sql')))
     assert run_migrations(dsn)==()
     assert podcasts.read_podcast(owner.learner_id,saved['podcast_id'],dsn=dsn)==before
     assert videos.ready_manifest(owner.learner_id,saved['podcast_id'],0,dsn=dsn)==video_before

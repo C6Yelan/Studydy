@@ -1,4 +1,5 @@
 from research_fixtures import create_confirmed_research
+from migration_fixtures import legacy_sql
 from copy import deepcopy
 from uuid import uuid4,UUID
 from concurrent.futures import ThreadPoolExecutor
@@ -347,7 +348,7 @@ def test_summary_migration_preserves_cancelled_work_and_lossless_source_text(clo
         row=db.get(MaterialResearch,identity);row.status='cancelled'
         row.search_state={'stage':'assessing','round':1,'topics':['queue'],'searches':[]}
         row.candidates=[finished,partial,candidate('pending')]
-    migration=(Path(__file__).resolve().parents[3]/'migrations/0021_research_summary_screening.sql').read_text()
+    migration=legacy_sql('0021_research_summary_screening.sql')
     with database_session(dsn) as db:db.execute(text(migration))
     with database_session(dsn) as db:
         row=db.get(MaterialResearch,identity)

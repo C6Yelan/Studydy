@@ -2,6 +2,8 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import shutil
+from migration_fixtures import create_legacy_database, apply_legacy_data_case
+from runtime.storage.baseline import check_or_adopt, read_marker
 from uuid import uuid4
 
 import psycopg
@@ -16,12 +18,9 @@ from runtime.storage.migrations import (
 
 
 def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_dsn, migrations_dir, tmp_path):
-    baseline = tmp_path / 'baseline'
-    baseline.mkdir()
-    for migration in migrations_dir.glob('*.sql'):
-        if int(migration.name[:4]) <= 4:
-            shutil.copy2(migration, baseline / migration.name)
-    assert run_migrations(clean_database_dsn, migrations_dir=baseline) == (1, 2, 3, 4)
+    create_legacy_database(clean_database_dsn)
+    artifacts = tmp_path / 'artifacts'
+    (artifacts / 'objects').mkdir(parents=True)
     learner_id, session_id = uuid4(), uuid4()
     with psycopg.connect(clean_database_dsn) as connection:
         connection.execute(
@@ -46,16 +45,14 @@ def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_
         ledger = connection.execute(
             "SELECT * FROM schema_migrations ORDER BY version"
         ).fetchall()
-    assert run_migrations(clean_database_dsn) == tuple(m.version for m in load_migrations() if m.version > 4)
+    assert check_or_adopt(clean_database_dsn, load_migrations(), artifacts, apply=True)['applied']
     assert run_migrations(clean_database_dsn) == ()
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute(
             "SELECT to_jsonb(l), to_jsonb(s) "
             "FROM learners l JOIN learner_sessions s USING (learner_id)"
         ).fetchall() == before
-        assert connection.execute(
-            "SELECT * FROM schema_migrations WHERE version <= 4 ORDER BY version"
-        ).fetchall() == ledger
+        assert read_marker(connection)[3] == [[v, h, t.isoformat()] for v, h, t in ledger]
 
 
 def test_draft_uses_source_collection_and_rejects_retired_artifact_kind(clean_database_dsn):
@@ -157,10 +154,8 @@ def test_remove_topic_level_preserves_background_and_approval_identity(clean_dat
     from runtime.storage.artifacts import _key_digest
     from runtime import topics
 
-    baseline=tmp_path/'before-topic-level-removal';baseline.mkdir()
-    for migration in migrations_dir.glob('*.sql'):
-        if int(migration.name[:4])<=30:shutil.copy2(migration,baseline/migration.name)
-    run_migrations(clean_database_dsn,migrations_dir=baseline)
+    # 歷史 JSON 轉換仍獨立驗證；新初始化不再重播這些 DML。
+    run_migrations(clean_database_dsn)
     owner=uuid4();records=[]
     with psycopg.connect(clean_database_dsn) as connection:
         connection.execute('INSERT INTO learners (learner_id,created_at) VALUES (%s,now())',(owner,))
@@ -176,7 +171,7 @@ def test_remove_topic_level_preserves_background_and_approval_identity(clean_dat
             expected={k:v for k,v in proposal.items() if k not in ('level','exclude')}
             if index==3:expected['goals']=[*expected['goals'],'學習背景與需求：'+level]
             records.append((identity,request,status,key,expected))
-    assert run_migrations(clean_database_dsn)==(31,32)
+    apply_legacy_data_case(clean_database_dsn, '0031_remove_topic_level.sql', '0032_remove_topic_exclusions.sql')
     with psycopg.connect(clean_database_dsn) as connection:
         for identity,request,status,key,expected in records:
             value=connection.execute('SELECT proposal,approved_sha256,request,version,status,approval_key_sha256 FROM topic_scopes WHERE topic_id=%s',(identity,)).fetchone()
@@ -198,10 +193,8 @@ def test_remove_topic_exclusions_keeps_constraints_editable(clean_database_dsn, 
     from runtime.storage.artifacts import _key_digest
     from runtime import topics
 
-    baseline=tmp_path/'before-exclusions-removal';baseline.mkdir()
-    for migration in migrations_dir.glob('*.sql'):
-        if int(migration.name[:4])<=31:shutil.copy2(migration,baseline/migration.name)
-    run_migrations(clean_database_dsn,migrations_dir=baseline)
+    # 歷史 JSON 轉換仍獨立驗證；新初始化不再重播這些 DML。
+    run_migrations(clean_database_dsn)
     owner=uuid4();records=[]
     with psycopg.connect(clean_database_dsn) as connection:
         connection.execute('INSERT INTO learners (learner_id,created_at) VALUES (%s,now())',(owner,))
@@ -216,7 +209,7 @@ def test_remove_topic_exclusions_keeps_constraints_editable(clean_database_dsn, 
                 (identity,owner,Jsonb(original),status,canonical_sha256(original) if status=='approved' else None,
                  _key_digest(key) if status=='approved' else None,_key_digest('create-'+key)))
             records.append((identity,status,key,expected))
-    assert run_migrations(clean_database_dsn)==(32,)
+    apply_legacy_data_case(clean_database_dsn, '0032_remove_topic_exclusions.sql')
     for identity,status,key,expected in records:
         saved=topics.read(owner,identity,dsn=clean_database_dsn)
         assert saved['version']==9 and saved['status']==status

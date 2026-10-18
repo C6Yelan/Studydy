@@ -1,4 +1,5 @@
 """Podcast 真 DB／API 回歸；來源與音訊均為合成 fixture，不宣稱模型品質。"""
+from migration_fixtures import legacy_sql
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -320,7 +321,7 @@ def test_turn_migration_preserves_saved_text_references_and_audio(closed_loop, m
                 segment["text"] = segment.pop("turns")[0]["text"]
         row.episodes = episodes
         db.flush()
-        db.execute(sql_text((migrations_dir / "0009_podcast_turns.sql").read_text()))
+        db.execute(sql_text(legacy_sql("0009_podcast_turns.sql")))
     after = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
     assert after == before
 

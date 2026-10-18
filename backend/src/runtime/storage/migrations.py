@@ -10,6 +10,13 @@ import psycopg
 from psycopg import Connection
 
 from .database import connect_database
+from .baseline import (
+    BaselineError,
+    legacy_manifest,
+    read_marker,
+    record_fresh,
+    verify_marker,
+)
 
 DEFAULT_MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "migrations"
 MIGRATION_FILENAME = re.compile(r"^(?P<version>[0-9]{4})_[a-z0-9_]+\.sql$")
@@ -39,7 +46,9 @@ class Migration:
     sql_sha256: str
 
 
-def load_migrations(migrations_dir: Path = DEFAULT_MIGRATIONS_DIR) -> tuple[Migration, ...]:
+def load_migrations(
+    migrations_dir: Path = DEFAULT_MIGRATIONS_DIR,
+) -> tuple[Migration, ...]:
     """載入連續且命名明確的 migration，拒絕模糊順序。"""
 
     try:
@@ -122,6 +131,20 @@ def run_migrations(
             applied = _read_applied_migrations(connection)
         except psycopg.Error:
             raise MigrationSqlError("MIGRATION_LEDGER_READ_FAILED") from None
+        marker = read_marker(connection)
+        if marker is not None:
+            verify_marker(marker, migrations)
+        elif applied:
+            if {
+                str(version): checksum for version, checksum in applied.items()
+            } == legacy_manifest()["migrations"]:
+                raise BaselineError("MIGRATION_BASELINE_REQUIRED")
+            _verify_applied_migrations(migrations, applied)
+            raise BaselineError("BASELINE_MARKER_MISSING")
+        elif connection.execute(
+            "SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public')"
+        ).fetchone()[0]:
+            raise BaselineError("MIGRATION_DATABASE_NOT_EMPTY")
         _verify_applied_migrations(migrations, applied)
 
         for migration in migrations:
@@ -130,6 +153,8 @@ def run_migrations(
             try:
                 with connection.transaction():
                     connection.execute(migration.sql)
+                    if migration.version == 1:
+                        record_fresh(connection, migrations)
                     connection.execute(
                         """
                         INSERT INTO schema_migrations (

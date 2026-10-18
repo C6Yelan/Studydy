@@ -105,6 +105,8 @@ PYTEST
 
 記錄實際命令、範圍、結果與限制。合成測試提供程式回歸證據；模型品質須另以指定素材及標準，透過產品流程生成並人工核對。
 
+`runtime/infrastructure/test_migration_baseline.py` 驗證獨立舊終態與新初始化等價、Check 零寫入、接軌與回退資料不變、並行接軌、普通寫入者鎖定、初始化中斷續跑，以及帳本／約束／索引／trigger／提案／檔案損壞的拒絕。固定舊 Schema 與仍有回歸用途的少量歷史 DML 只放在測試 fixtures；產品不保留舊 migration 鏈。既存 DB／Artifact 副本的實際驗證仍須另外執行，不能以合成案例替代。
+
 Podcast 的可重跑入口為 `backend/tests/runtime/materials/test_podcasts.py`（隔離 DB／API／音訊保存與取消）及 `backend/tests/test_podcast_provider.py`（無模型的單次生成、格式與合法來源綁定）。前端 client 測試包含錯來源腳本與不完整音訊 manifest 的拒絕。provider 的容器測試使用 `compose.test.yaml`，不需安裝 TTS 或呼叫模型。
 
 本輪另以 Playwright MCP 直接操作隔離真 API：先使用受控音訊驗證取消／刪除／帳號隔離，再以合成素材呼叫真實 Luna＋Kokoro，驗證 13 個概念全選成三集、完整模式單概念、播放／seek／重開及連續播放。其後另於公開站完成已授權的真實教材驗收：31 個概念／189 個重點生成 32 集，全部 WAV 端點與來源綁定核對通過；末集續播、連續播放、取消／重試、刪除及登入隔離由 MCP 驗證。這不代表原教材 `needs_review` 已轉為合格，也不代表人工音質驗收已完成。

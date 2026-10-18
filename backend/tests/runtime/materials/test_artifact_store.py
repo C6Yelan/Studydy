@@ -12,13 +12,13 @@ import runtime.storage.artifacts as artifact_storage
 
 from runtime.storage.artifacts import ArtifactError, open_verified_source_pdf
 from runtime.errors import SourceError
-from runtime.storage.migrations import run_migrations
+from runtime.storage.migrations import load_migrations, run_migrations
 from product_fixtures import seed_pdf
 
 
 @pytest.fixture
 def artifact_database_dsn(clean_database_dsn: str, migrations_dir: Path) -> str:
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (1, 2, 3, 4, 5, 6, 7)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == tuple(m.version for m in load_migrations(migrations_dir))
     return clean_database_dsn
 
 
