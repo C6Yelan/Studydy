@@ -6,6 +6,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
+from learning_adaptation import assessment_state
 from learning_adaptation import answer_events, assessment_sets as sets
 from learning_adaptation.answer_events import read_answer_events
 from learning_adaptation.learner_progress import derive_learner_progress
@@ -108,7 +109,7 @@ def test_remediation_targets_only_remaining_wrong_points(closed_loop):
         fixture["learner"], fixture["study"].study_session_id, dsn=fixture["dsn"],
     )
     assert progress.next_action.action == "continue_set"
-    with pytest.raises(sets.AssessmentSetError, match="CONFLICT"):
+    with pytest.raises(assessment_state.AssessmentSetError, match="CONFLICT"):
         supplement(fixture, root)
 
     finish(fixture, "first supplement")
@@ -334,7 +335,7 @@ def test_unanswered_is_not_wrong_and_remains_assessable(closed_loop):
 
     # 建立「題組已結束、只作答一題」的狀態，驗證未答不算答錯。
     with database_session(fixture["dsn"]) as session:
-        study, _, _ = sets._scope(
+        study, _, _ = assessment_state._scope(
             session, fixture["learner"], fixture["study"].study_session_id, lock=True,
         )
         assessment = session.get(Assessment, answers[0]["assessment_revision"])
@@ -354,7 +355,7 @@ def test_unanswered_is_not_wrong_and_remains_assessable(closed_loop):
         fixture["learner"], fixture["study"].study_session_id, dsn=fixture["dsn"],
     )
     assert progress.next_action.action == "assess"
-    with pytest.raises(sets.AssessmentSetError, match="CONFLICT"):
+    with pytest.raises(assessment_state.AssessmentSetError, match="CONFLICT"):
         supplement(fixture, root)
 
 
@@ -373,7 +374,7 @@ def test_preparing_and_provider_failure_are_not_unavailable_but_no_safe_is(close
     assert failed.status == 'not_started' and progress.next_action.action == 'assess'
     with database_session(fixture['dsn']) as db:
         group = db.get(AssessmentSet, root)
-        sets._items(db, group)[0].failure_reason = 'NO_SAFE_ASSESSMENT'
+        assessment_state._items(db, group)[0].failure_reason = 'NO_SAFE_ASSESSMENT'
     no_safe, progress = state()
     assert not no_safe.assessable_claim_ids and len(no_safe.unavailable_claim_ids) == 1
     assert no_safe.status == 'not_started' and not no_safe.weak_claim_ids
@@ -384,7 +385,7 @@ def test_verified_new_question_overrides_legacy_no_safe_flag(closed_loop):
     fixture = concept_fixture(closed_loop, 1)
     root = create(fixture)
     with database_session(fixture['dsn']) as db:
-        study, _, _ = sets._scope(db, fixture['learner'], fixture['study'].study_session_id)
+        study, _, _ = assessment_state._scope(db, fixture['learner'], fixture['study'].study_session_id)
         study.no_safe_claim_ids = [fixture['concept']['claims'][0]['claim_id']]
     finish(fixture)
     progress = derive_learner_progress(fixture['learner'], fixture['study'].study_session_id, dsn=fixture['dsn'])

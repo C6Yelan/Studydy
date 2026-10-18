@@ -7,7 +7,12 @@ from uuid import UUID
 from sqlalchemy import select
 
 from knowledge_map.source_identity import unchanged_claims
-from runtime.storage.tables import AssessmentSet, KnowledgeStructure, MaterialProcessingRun, StudySession
+from runtime.storage.tables import (
+    AssessmentSet,
+    KnowledgeStructure,
+    MaterialProcessingRun,
+    StudySession,
+)
 
 from .answer_events import _read_events
 from .study_sessions import _row, _validate_plan
@@ -26,31 +31,38 @@ class InheritedAnswerEvidence:
 
 
 def preferred_focus(session, owner, material_id, revision):
-    current = session.scalar(select(KnowledgeStructure).where(
-        KnowledgeStructure.learner_id == owner,
-        KnowledgeStructure.material_id == material_id,
-        KnowledgeStructure.structure_revision == revision,
-    ))
+    current = session.scalar(
+        select(KnowledgeStructure).where(
+            KnowledgeStructure.learner_id == owner,
+            KnowledgeStructure.material_id == material_id,
+            KnowledgeStructure.structure_revision == revision,
+        )
+    )
     run = session.get(MaterialProcessingRun, current.run_id)
     if not run.base_revision:
         return None
 
     previous_study = session.scalar(
-        select(StudySession).where(
+        select(StudySession)
+        .where(
             StudySession.learner_id == owner,
             StudySession.material_id == material_id,
             StudySession.knowledge_structure_revision == run.base_revision,
             StudySession.status.in_(("active", "no_safe")),
-        ).order_by(StudySession.started_at.desc()).limit(1)
+        )
+        .order_by(StudySession.started_at.desc())
+        .limit(1)
     )
     if previous_study is None or previous_study.current_concept_id is None:
         return None
 
-    previous_structure = session.scalar(select(KnowledgeStructure).where(
-        KnowledgeStructure.learner_id == owner,
-        KnowledgeStructure.material_id == material_id,
-        KnowledgeStructure.structure_revision == run.base_revision,
-    ))
+    previous_structure = session.scalar(
+        select(KnowledgeStructure).where(
+            KnowledgeStructure.learner_id == owner,
+            KnowledgeStructure.material_id == material_id,
+            KnowledgeStructure.structure_revision == run.base_revision,
+        )
+    )
     if previous_structure is None:
         return None
 
@@ -66,18 +78,26 @@ def preferred_focus(session, owner, material_id, revision):
 
 def inherited_progress(session, learner, study, plan, *, include_cycles=True):
     from runtime.storage.knowledge_reads import learning
-    from .assessment_sets import _cycle
+    from .assessment_state import _cycle
+
     snapshot = session.info.get("read_snapshot")
     cache = snapshot["inherited"] if snapshot is not None else None
-    key = (learner.learner_id, study.study_session_id, study.knowledge_structure_revision, include_cycles)
+    key = (
+        learner.learner_id,
+        study.study_session_id,
+        study.knowledge_structure_revision,
+        include_cycles,
+    )
     if cache is not None and key in cache:
         return cache[key]
     # 此處只需版本時間與 run，不再解碼一次完整教材 JSON。
-    current = session.execute(select(KnowledgeStructure.run_id, KnowledgeStructure.created_at).where(
-        KnowledgeStructure.learner_id == learner.learner_id,
-        KnowledgeStructure.material_id == study.material_id,
-        KnowledgeStructure.structure_revision == study.knowledge_structure_revision,
-    )).one_or_none()
+    current = session.execute(
+        select(KnowledgeStructure.run_id, KnowledgeStructure.created_at).where(
+            KnowledgeStructure.learner_id == learner.learner_id,
+            KnowledgeStructure.material_id == study.material_id,
+            KnowledgeStructure.structure_revision == study.knowledge_structure_revision,
+        )
+    ).one_or_none()
     if current is None:
         raise ValueError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
     run = session.get(MaterialProcessingRun, current.run_id)
@@ -86,11 +106,17 @@ def inherited_progress(session, learner, study, plan, *, include_cycles=True):
 
     previous_sessions = session.execute(
         select(StudySession.study_session_id, StudySession.knowledge_structure_revision)
-        .join(KnowledgeStructure, (
-            (KnowledgeStructure.learner_id == StudySession.learner_id)
-            & (KnowledgeStructure.material_id == StudySession.material_id)
-            & (KnowledgeStructure.structure_revision == StudySession.knowledge_structure_revision)
-        ))
+        .join(
+            KnowledgeStructure,
+            (
+                (KnowledgeStructure.learner_id == StudySession.learner_id)
+                & (KnowledgeStructure.material_id == StudySession.material_id)
+                & (
+                    KnowledgeStructure.structure_revision
+                    == StudySession.knowledge_structure_revision
+                )
+            ),
+        )
         .where(
             StudySession.learner_id == learner.learner_id,
             StudySession.material_id == study.material_id,
@@ -102,15 +128,17 @@ def inherited_progress(session, learner, study, plan, *, include_cycles=True):
     inherited = []
     latest_cycles = {}
     current_claims = {
-        concept["concept_id"]: set(concept["claim_ids"])
-        for concept in plan["concepts"]
+        concept["concept_id"]: set(concept["claim_ids"]) for concept in plan["concepts"]
     }
     for session_id, revision in previous_sessions:
         previous = learning(session, learner.learner_id, study.material_id, revision)
         # 與 unchanged_claims 相同的一對一來源／文字簽章，簽章在發布時固定。
-        matches = {tuple(origins[0]): tuple(plan['claim_signatures'][identity][0])
-                   for identity, origins in previous['claim_signatures'].items()
-                   if len(origins) == 1 and len(plan['claim_signatures'].get(identity, [])) == 1}
+        matches = {
+            tuple(origins[0]): tuple(plan["claim_signatures"][identity][0])
+            for identity, origins in previous["claim_signatures"].items()
+            if len(origins) == 1
+            and len(plan["claim_signatures"].get(identity, [])) == 1
+        }
         if not matches:
             continue
         previous_study = _row(session, learner.learner_id, session_id)
@@ -119,14 +147,25 @@ def inherited_progress(session, learner, study, plan, *, include_cycles=True):
             concept["concept_id"]: set(concept["claim_ids"])
             for concept in previous["concepts"]
         }
-        for root in (session.scalars(select(AssessmentSet).where(
-            AssessmentSet.study_session_id == session_id,
-            AssessmentSet.kind == "diagnostic",
-        )) if include_cycles else ()):
-            cycle = {key: value for key, value in _cycle(session, previous_study, root).items()
-                     if key not in ("points", "can_create_remediation")}
+        for root in (
+            session.scalars(
+                select(AssessmentSet).where(
+                    AssessmentSet.study_session_id == session_id,
+                    AssessmentSet.kind == "diagnostic",
+                )
+            )
+            if include_cycles
+            else ()
+        ):
+            cycle = {
+                key: value
+                for key, value in _cycle(session, previous_study, root).items()
+                if key not in ("points", "can_create_remediation")
+            }
             origin = cycle["concept_id"]
-            targets = [matches.get((origin, claim)) for claim in previous_claims[origin]]
+            targets = [
+                matches.get((origin, claim)) for claim in previous_claims[origin]
+            ]
             if not targets or any(target is None for target in targets):
                 continue
             target_ids = {target[0] for target in targets}
@@ -144,7 +183,8 @@ def inherited_progress(session, learner, study, plan, *, include_cycles=True):
             inherited_cycle = None
             if cycle["outcome"] == "passed" and cycle["active_set_id"] is None:
                 inherited_cycle = {
-                    **cycle, "concept_id": target_id,
+                    **cycle,
+                    "concept_id": target_id,
                     "inherited_from": {
                         "study_session_id": str(session_id),
                         "knowledge_structure_revision": revision,
@@ -156,19 +196,25 @@ def inherited_progress(session, learner, study, plan, *, include_cycles=True):
         for event in _read_events(session, previous_study):
             target = matches.get((event.target_concept_id, event.target_claim_id))
             if target is not None:
-                inherited.append(InheritedAnswerEvidence(
-                    *target,
-                    event.semantic_identity,
-                    event.is_correct,
-                    event.mastery_qualified,
-                    event.created_at,
-                    event.answer_event_id,
-                    event.assisted,
-                ))
-    result = (tuple(inherited), [
-        latest_cycles[key][1] for key in sorted(latest_cycles)
-        if latest_cycles[key][1] is not None
-    ])
+                inherited.append(
+                    InheritedAnswerEvidence(
+                        *target,
+                        event.semantic_identity,
+                        event.is_correct,
+                        event.mastery_qualified,
+                        event.created_at,
+                        event.answer_event_id,
+                        event.assisted,
+                    )
+                )
+    result = (
+        tuple(inherited),
+        [
+            latest_cycles[key][1]
+            for key in sorted(latest_cycles)
+            if latest_cycles[key][1] is not None
+        ],
+    )
     if cache is not None:
         cache[key] = result
         # 已取得完整繼承結果時，題組的作答證據檢查可直接重用其中的 events。

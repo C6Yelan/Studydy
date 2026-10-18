@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from learning_adaptation import assessment_sets
+from learning_adaptation import assessment_state
 from learning_adaptation.learner_progress import progress_snapshot
 from .errors import SourceError
 from .material_processing import read_material_processing_run
@@ -50,7 +50,7 @@ def read_workspace(
         _check_scope(study, plan, material_id, revision, run_id)
         meta = knowledge_reads.metadata(db, learner.learner_id, material_id, revision)
         run = read_material_processing_run(learner.learner_id, run_id, dsn=dsn)
-        rounds = assessment_sets._list_sets(db, study)["sets"]
+        rounds = assessment_state._list_sets(db, study)["sets"]
         selected_id, selected = _selection(rounds, study.current_concept_id, set_id)
         identities = list(
             dict.fromkeys(
@@ -104,7 +104,7 @@ def read_workspace(
             "focus_concept_ids": identities,
             "assessment_sets": rounds,
             "selected_set_id": selected_id,
-            "selected_set": assessment_sets._read_set(db, study, UUID(selected_id))
+            "selected_set": assessment_state._read_set(db, study, UUID(selected_id))
             if selected_id
             else None,
         }
@@ -124,7 +124,7 @@ def read_resume(
             db, learner.learner_id, material_id, revision=revision
         )
         run = read_material_processing_run(learner.learner_id, run_id, dsn=dsn)
-        rounds = assessment_sets._list_sets(db, study)["sets"]
+        rounds = assessment_state._list_sets(db, study)["sets"]
         selected_id, _ = _selection(rounds, study.current_concept_id, set_id)
         return {
             "session": study,
@@ -134,7 +134,7 @@ def read_resume(
             "progress": progress,
             "assessment_sets": rounds,
             "selected_set_id": selected_id,
-            "selected_set": assessment_sets._read_set(db, study, UUID(selected_id))
+            "selected_set": assessment_state._read_set(db, study, UUID(selected_id))
             if selected_id is not None
             else None,
         }

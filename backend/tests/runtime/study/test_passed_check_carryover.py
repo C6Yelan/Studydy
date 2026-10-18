@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from assessment_fixtures import concept_fixture, create, finish, answer, read, supplement, change
 from product_fixtures import closed_loop, publish_fixture_structure, ORIGIN, _app
+from learning_adaptation import assessment_state
 from learning_adaptation import assessment_sets as sets
 from learning_adaptation.learner_progress import derive_learner_progress, apply_guidance
 from learning_adaptation.study_sessions import create_study_session
@@ -97,7 +98,7 @@ def test_complete_check_and_followup_carry_to_appended_revision_and_keep_history
     assert state.status == 'completed' and len(state.completed_claim_ids) == 5
     assert progress.next_action.action == 'advance'
     assert progress.next_action.target_concept_id != new['concept']['concept_id']
-    assert sets.list_sets(new['learner'], new['study'].study_session_id, dsn=new['dsn'])['sets'] == []
+    assert assessment_state.list_sets(new['learner'], new['study'].study_session_id, dsn=new['dsn'])['sets'] == []
     client = TestClient(_app(new['dsn'], tmp_path, monkeypatch), base_url=ORIGIN)
     client.cookies.set('studydy_session', new['token'])
     path = (f"/v1/materials/{new['source'].material_id}/knowledge-structures/{new['document']['revision']}"

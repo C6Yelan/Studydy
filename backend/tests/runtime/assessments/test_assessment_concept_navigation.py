@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
+from learning_adaptation import assessment_state
 from learning_adaptation import assessment_sets as sets
 from learning_adaptation.study_sessions import read_study_session
 from product_fixtures import HEADERS, ORIGIN, _app, closed_loop
@@ -88,7 +89,7 @@ def test_other_concept_work_does_not_block_remediation_or_failed_item_retry(clos
     assert read(f, root)["cycle"]["can_create_remediation"]
 
     child = supplement(f, root)
-    active = sets.list_sets(f["learner"], f["study"].study_session_id, dsn=f["dsn"])["active_set_ids"]
+    active = assessment_state.list_sets(f["learner"], f["study"].study_session_id, dsn=f["dsn"])["active_set_ids"]
     assert set(active) == {str(other), str(child)}
     reserved_other = sets.claim_set_work(dsn=f["dsn"])
     assert reserved_other.set_id == other

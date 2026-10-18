@@ -2,7 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 
-from learning_adaptation.assessment_sets import _list_sets
+from learning_adaptation.assessment_state import _list_sets
 from learning_adaptation.learner_progress import derive_learner_progress, progress_snapshot
 from product_fixtures import ORIGIN, _app, closed_loop
 from assessment_fixtures import answer, finish, concept_fixture, create, read

@@ -21,7 +21,7 @@ from starlette.routing import Match
 from document_normalization.converter import (
     MAX_FILE_BYTES, MIME, NormalizationError, normalizer_available,
 )
-from learning_adaptation import assessment_sets
+from learning_adaptation import assessment_sets, assessment_state
 from .. import card_sets, podcasts
 from ..podcast_worker import PodcastWorker
 from ..voice_worker import VoiceWorker
@@ -282,7 +282,7 @@ def _error_response(reason_code: str, *, status_code: int | None = None) -> JSON
 def _fixed_exception(error: Exception) -> str:
     """只把已知內部原因碼轉成固定的公開 API 原因碼。"""
     reason = str(error)
-    if isinstance(error, assessment_sets.AssessmentSetError):
+    if isinstance(error, assessment_state.AssessmentSetError):
         return _ASSESSMENT_SET_ERRORS.get(reason, "INTERNAL_ERROR")
     if (
         isinstance(error, (SourceError, NormalizationError, MaterialProcessingError, SessionError, card_sets.CardSetError, podcasts.PodcastError))
@@ -1145,7 +1145,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         ))
 
     def read_set_view(learner: TrustedLearner, study_session_id: UUID, set_id: UUID):
-        return AssessmentSetView.model_validate(assessment_sets.read_set(
+        return AssessmentSetView.model_validate(assessment_state.read_set(
             learner, study_session_id, set_id, dsn=settings.dsn,
         ))
 
@@ -1156,7 +1156,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
     )
     def get_assessment_plan(request: Request, study_session_id: UUID, concept_id: str):
         _require_query(request, {'concept_id'})
-        return AssessmentPlanView.model_validate(assessment_sets.read_plan(
+        return AssessmentPlanView.model_validate(assessment_state.read_plan(
             _trusted_learner(request, settings), study_session_id, concept_id,
             dsn=settings.dsn,
         ))
@@ -1168,7 +1168,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
     )
     def list_assessment_sets(request: Request, study_session_id: UUID):
         _require_query(request, set())
-        return AssessmentSetListView.model_validate(assessment_sets.list_sets(
+        return AssessmentSetListView.model_validate(assessment_state.list_sets(
             _trusted_learner(request, settings), study_session_id, dsn=settings.dsn,
         ))
 

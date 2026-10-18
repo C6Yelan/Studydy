@@ -10,6 +10,7 @@ import pymupdf
 import pytest
 
 from knowledge_map.structure import SemanticState, apply_semantic_response, build_document_context
+from learning_adaptation import assessment_state
 from learning_adaptation import assessment_sets as sets
 from learning_adaptation.study_sessions import create_study_session
 from content_identity import canonical_sha256
@@ -180,7 +181,7 @@ def create(fixture, key="round"):
 
 
 def read(fixture, identity):
-    return sets.read_set(
+    return assessment_state.read_set(
         fixture["learner"], fixture["study"].study_session_id, identity, dsn=fixture["dsn"],
     )
 

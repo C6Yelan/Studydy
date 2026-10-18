@@ -1,4 +1,5 @@
 """單一觀念的持久題組：短交易保留工作，交易外出題，逐題檢查後原子發布。"""
+
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -8,195 +9,110 @@ from threading import Event, Thread
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from runtime.material_runtime import validate_runtime_lock
 from content_identity import canonical_sha256
 from runtime.learner_session import TrustedLearner
 from runtime.semantic_service import SemanticServiceError, request_semantics
 from runtime.storage.tables import (
-    Assessment, AssessmentSet, AssessmentSetItem, AnswerEvent,
-    Material, StudySession, database_session,
+    Assessment,
+    AssessmentSet,
+    AssessmentSetItem,
+    AnswerEvent,
+    database_session,
 )
 from . import assessments
-from .learning_states import claim_completion, plan_concept_content
-from .map_context import _context_from_validated_document
-from runtime.storage.knowledge_structures import _read_verified_document
+from .assessment_state import (
+    ACTIVE,
+    MAX_ATTEMPTS,
+    AssessmentSetError,
+    _scope,
+    _round,
+    _items,
+    has_active_set,
+    _cycle,
+)
+from .learning_states import plan_concept_content
 
-ACTIVE = ('preparing', 'partial_ready', 'ready', 'in_progress')
 LEASE_SECONDS = 600
 _LEASE_HEARTBEAT_SECONDS = 30
-MAX_ATTEMPTS = 2
-
-
-class AssessmentSetError(RuntimeError):
-    pass
-
-
-def _key(value):
-    return assessments._key(value)
 
 
 def _now():
     return datetime.now(UTC)
 
 
-def _scope(session, learner, sid, *, lock=False):
-    if not isinstance(learner, TrustedLearner):
-        raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
-    material_id = session.scalar(select(StudySession.material_id).where(
-        StudySession.learner_id == learner.learner_id,
-        StudySession.study_session_id == sid,
-    ))
-    material_query = select(Material).where(
-        Material.learner_id == learner.learner_id,
-        Material.material_id == material_id,
-    )
-    material = session.scalar(material_query)
-    if material is None or material.discard_requested_at is not None:
-        raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
-    study_query = select(StudySession).where(
-        StudySession.learner_id == learner.learner_id,
-        StudySession.study_session_id == sid,
-    )
-    study = session.scalar(study_query)
-    if study is None:
-        raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
-    document = _read_verified_document(session, learner.learner_id, material_id,
-                                       revision=study.knowledge_structure_revision)
-    context = _context_from_validated_document(material_id, document)
-    if lock:
-        # 整份固定版本驗證先完成；寫入鎖只保護後續狀態變更，避免大型教材阻塞其他功能。
-        revision = study.knowledge_structure_revision
-        material = session.scalar(material_query.with_for_update().execution_options(populate_existing=True))
-        study = session.scalar(study_query.with_for_update().execution_options(populate_existing=True))
-        if (material is None or material.discard_requested_at is not None or study is None
-                or study.knowledge_structure_revision != revision):
-            raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
-    return study, context, document
-
-
-def _read_scope(session, learner, sid):
-    from .study_sessions import _validate_plan
-    from runtime.storage.knowledge_reads import learning
-    if not isinstance(learner, TrustedLearner):
-        raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
-    study = session.scalar(select(StudySession).join(Material, Material.material_id == StudySession.material_id).where(
-        StudySession.learner_id == learner.learner_id, StudySession.study_session_id == sid,
-        Material.learner_id == learner.learner_id, Material.discard_requested_at.is_(None)))
-    if study is None:
-        raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
-    plan = learning(session, learner.learner_id, study.material_id, study.knowledge_structure_revision)
-    _validate_plan(study, plan)
-    return study, plan
-
-
-def _round(session, study, set_id, *, lock=False):
-    query = select(AssessmentSet).where(
-        AssessmentSet.set_id == set_id,
-        AssessmentSet.study_session_id == study.study_session_id,
-        AssessmentSet.learner_id == study.learner_id,
-        AssessmentSet.material_id == study.material_id,
-        AssessmentSet.knowledge_structure_revision == study.knowledge_structure_revision,
-    )
-    value = session.scalar(query.with_for_update() if lock else query)
-    if value is None:
-        raise AssessmentSetError('ASSESSMENT_SET_NOT_FOUND')
-    return value
-
-
-def _items(session, group):
-    return list(session.scalars(
-        select(AssessmentSetItem).where(
-            AssessmentSetItem.set_id == group.set_id
-        ).order_by(AssessmentSetItem.ordinal)
-    ))
-
-
-def has_active_set(session, study_session_id, concept_id=None):
-    query = select(AssessmentSet.set_id).where(
-        AssessmentSet.study_session_id == study_session_id,
-        AssessmentSet.status.in_(ACTIVE),
-    )
-    if concept_id is not None:
-        query = query.where(AssessmentSet.target_concept_id == concept_id)
-    return session.scalar(query.limit(1)) is not None
-
-
 def plan_concept(context, concept_id):
-    concept = next((item for item in context.concepts if item.concept_id == concept_id), None)
+    concept = next(
+        (item for item in context.concepts if item.concept_id == concept_id), None
+    )
     if concept is None:
-        raise AssessmentSetError('ASSESSMENT_SET_TARGET_INVALID')
+        raise AssessmentSetError("ASSESSMENT_SET_TARGET_INVALID")
     return plan_concept_content(concept)
 
 
-
-
-def read_plan(learner, sid, concept_id, *, dsn=None):
-    with database_session(dsn) as session:
-        session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
-        study, indexed = _read_scope(session, learner, sid)
-        concept = next((c for c in indexed['concepts'] if c['concept_id'] == concept_id), None)
-        if concept is None:
-            raise AssessmentSetError('ASSESSMENT_SET_TARGET_INVALID')
-        covered = {identity for target in concept['targets'] for identity in target['covered_claim_ids']}
-        return {'schema': 'assessment-plan/v1', 'study_session_id': str(sid),
-                'knowledge_structure_revision': study.knowledge_structure_revision,
-                'policy': 'single-concept-grounded-points/v1', 'concept_id': concept_id,
-                'point_count': len(concept['claim_ids']), 'targets': concept['targets'],
-                'excluded': [{'claim_id': identity, 'reason': 'no_content_evidence'}
-                             for identity in concept['claim_ids'] if identity not in covered],
-                'requested_count': len(concept['targets'])}
-
-
 def create_set(learner, sid, concept_id, idempotency_key, local_config, *, dsn=None):
-    key = _key(idempotency_key)
-    fingerprint = bytes.fromhex(canonical_sha256({'session': str(sid), 'concept': concept_id}))
+    key = assessments._key(idempotency_key)
+    fingerprint = bytes.fromhex(
+        canonical_sha256({"session": str(sid), "concept": concept_id})
+    )
     with database_session(dsn) as session:
         study, context, document = _scope(session, learner, sid, lock=True)
-        old = session.scalar(select(AssessmentSet).where(AssessmentSet.study_session_id == sid,
-                                                        AssessmentSet.idempotency_key_sha256 == key))
+        old = session.scalar(
+            select(AssessmentSet).where(
+                AssessmentSet.study_session_id == sid,
+                AssessmentSet.idempotency_key_sha256 == key,
+            )
+        )
         if old is not None:
             if bytes(old.request_fingerprint) != fingerprint:
-                raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
+                raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
             return old.set_id
-        if study.status not in ('active', 'no_safe', 'completed'):
-            raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
+        if study.status not in ("active", "no_safe", "completed"):
+            raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
         if has_active_set(session, sid, concept_id):
-            raise AssessmentSetError('ASSESSMENT_SET_ACTIVE')
+            raise AssessmentSetError("ASSESSMENT_SET_ACTIVE")
         plan = plan_concept(context, concept_id)
-        study.status, study.completed_at = 'active', None
-        lock = deepcopy(validate_runtime_lock(local_config['runtime_lock']))
+        study.status, study.completed_at = "active", None
+        lock = deepcopy(validate_runtime_lock(local_config["runtime_lock"]))
         study.current_concept_id = concept_id
         study.last_applied_guidance_revision = study.last_applied_progress_sha256 = None
-        group = AssessmentSet(set_id=uuid4(), learner_id=study.learner_id, material_id=study.material_id,
-            study_session_id=sid, knowledge_structure_revision=study.knowledge_structure_revision,
-            target_concept_id=concept_id, kind='diagnostic', target_plan=plan,
-            requested_count=len(plan['targets']),
+        group = AssessmentSet(
+            set_id=uuid4(),
+            learner_id=study.learner_id,
+            material_id=study.material_id,
+            study_session_id=sid,
+            knowledge_structure_revision=study.knowledge_structure_revision,
+            target_concept_id=concept_id,
+            kind="diagnostic",
+            target_plan=plan,
+            requested_count=len(plan["targets"]),
             runtime_lock_document=lock,
-            status='preparing' if plan['targets'] else 'failed', set_version=1,
-            idempotency_key_sha256=key, request_fingerprint=fingerprint, action_receipts={},
-            created_at=_now(), updated_at=_now())
-        session.add(group); session.flush()
-        for ordinal, target in enumerate(plan['targets'], 1):
-            session.add(AssessmentSetItem(set_id=group.set_id, ordinal=ordinal, study_session_id=sid,
-                knowledge_structure_revision=study.knowledge_structure_revision, target_concept_id=concept_id,
-                target_claim_id=target['claim_id'], state='pending', attempts=0))
+            status="preparing" if plan["targets"] else "failed",
+            set_version=1,
+            idempotency_key_sha256=key,
+            request_fingerprint=fingerprint,
+            action_receipts={},
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        session.add(group)
+        session.flush()
+        for ordinal, target in enumerate(plan["targets"], 1):
+            session.add(
+                AssessmentSetItem(
+                    set_id=group.set_id,
+                    ordinal=ordinal,
+                    study_session_id=sid,
+                    knowledge_structure_revision=study.knowledge_structure_revision,
+                    target_concept_id=concept_id,
+                    target_claim_id=target["claim_id"],
+                    state="pending",
+                    attempts=0,
+                )
+            )
         return group.set_id
-
-
-def membership_can_submit(session, study, assessment):
-    membership = session.execute(select(AssessmentSetItem, AssessmentSet).join(AssessmentSet,
-        AssessmentSet.set_id == AssessmentSetItem.set_id).where(
-        AssessmentSetItem.assessment_revision == assessment.assessment_revision)).first()
-    if membership is None:
-        return False
-    item, group = membership
-    return (study.status in ('active', 'no_safe') and group.learner_id == study.learner_id
-            and group.study_session_id == study.study_session_id
-            and group.knowledge_structure_revision == study.knowledge_structure_revision
-            and group.status in ('ready', 'in_progress') and group.sealed_at is not None
-            and item.state == 'published')
 
 
 def _touch_diagnostic(session, group):
@@ -214,482 +130,240 @@ def record_set_answer(session, assessment):
         .with_for_update()
     )
     if group is not None:
-        group.status = 'in_progress'
+        group.status = "in_progress"
         group.set_version += 1
         group.updated_at = _now()
         _touch_diagnostic(session, group)
 
 
-def _cycle(session, study, root):
-    """同一初篩及其補強的投影；AnswerEvent 是唯一作答事實，不保存閱讀確認或暫緩決定。"""
-    snapshot = session.info.get("read_snapshot")
-    cache = snapshot["cycles"] if snapshot is not None else None
-    key = (study.study_session_id, root.set_id)
-    if cache is not None and key in cache:
-        return cache[key]
-    family = list(session.scalars(
-        select(AssessmentSet).where(
-            (AssessmentSet.set_id == root.set_id)
-            | (AssessmentSet.diagnostic_set_id == root.set_id)
-        ).order_by(AssessmentSet.created_at, AssessmentSet.set_id)
-    ))
-    groups = {group.set_id: group for group in family}
-    items = list(session.scalars(
-        select(AssessmentSetItem).where(AssessmentSetItem.set_id.in_(groups))
-    ))
-    by_revision = {item.assessment_revision: item for item in items if item.assessment_revision}
-    events = list(session.scalars(
-        select(AnswerEvent).where(
-            AnswerEvent.study_session_id == study.study_session_id,
-            AnswerEvent.assessment_revision.in_(by_revision),
-        ).order_by(AnswerEvent.event_number)
-    )) if by_revision else []
-    by_claim = {}
-    for event in events:
-        by_claim.setdefault(event.target_claim_id, []).append(event)
-    prior_events = list(session.scalars(select(AnswerEvent).where(
-        AnswerEvent.study_session_id == study.study_session_id,
-        AnswerEvent.target_concept_id == root.target_concept_id,
-        AnswerEvent.created_at < root.created_at,
-    ).order_by(AnswerEvent.event_number)))
-    # 新版本沿用未變重點的錯題歷史，不能因 revision 改變退回首答規則。
-    if session.scalar(select(StudySession.study_session_id).where(
-        StudySession.learner_id == study.learner_id,
-        StudySession.material_id == study.material_id,
-        StudySession.started_at < study.started_at,
-    ).limit(1)):
-        from .inherited_progress import inherited_progress
-        from runtime.storage.knowledge_reads import learning
-        plan = learning(session, study.learner_id, study.material_id, study.knowledge_structure_revision)
-        inherited, _ = inherited_progress(session, TrustedLearner(learner_id=study.learner_id),
-                                          study, plan, include_cycles=False)
-        prior_events = sorted([event for event in inherited if event.created_at < root.created_at]
-                              + prior_events, key=lambda event: (event.created_at, str(event.answer_event_id)))
-    initial = {item.target_claim_id: item for item in items if item.set_id == root.set_id}
-    latest_items = {}
-    for group in family:
-        for candidate in items:
-            if candidate.set_id == group.set_id:
-                latest_items[candidate.target_claim_id] = candidate
-    active = next((group for group in family if group.status in ACTIVE), None)
-    other_active = session.scalar(select(AssessmentSet.set_id).where(
-        AssessmentSet.study_session_id == study.study_session_id,
-        AssessmentSet.status.in_(ACTIVE),
-        AssessmentSet.set_id.not_in(groups),
-        AssessmentSet.target_concept_id == root.target_concept_id,
-    ).limit(1)) is not None
-    points = []
-    for target in root.target_plan['targets']:
-        claim_id = target['claim_id']
-        item = initial[claim_id]
-        history = by_claim.get(claim_id, [])
-        initial_answer = next(
-            (event for event in history if event.assessment_revision == item.assessment_revision),
-            None,
-        )
-        latest = history[-1] if history else None
-        prior = [event for event in prior_events if event.target_claim_id in target['covered_claim_ids']]
-        # 尚未完成的錯題不能靠另開初篩跳過雙題補強；已完成者另算本次練習。
-        completion_history = history if claim_completion(prior)[0] else prior + history
-        latest_item = latest_items[claim_id]
-        group = groups[latest_item.set_id]
-        unavailable = not latest_item.assessment_revision and (
-            latest_item.failure_reason == 'NO_SAFE_ASSESSMENT' or group.sealed_at is not None
-        )
-        if unavailable:
-            result = 'unavailable'
-        elif initial_answer is None:
-            result = 'unanswered' if item.assessment_revision else 'unavailable'
-        elif initial_answer.is_correct and claim_completion(completion_history)[0]:
-            result = 'diagnostic_pass'
-        elif claim_completion(completion_history)[0]:
-            result = 'remediation_pass'
-        else:
-            result = 'needs_review'
-        points.append({
-            'claim_id': claim_id,
-            'result': result,
-            'latest_answer_event_id': str(latest.answer_event_id) if latest else None,
-            'latest_set_id': (
-                str(by_revision[latest.assessment_revision].set_id) if latest else None
-            ),
-        })
-    counts = {name: sum(point['result'] == name for point in points) for name in (
-        'diagnostic_pass', 'remediation_pass', 'needs_review', 'unanswered', 'unavailable')}
-    pending = counts['needs_review']
-    unavailable = counts['unavailable'] + len(root.target_plan['excluded'])
-    passed = counts['diagnostic_pass'] + counts['remediation_pass']
-    if active:
-        outcome = 'in_progress'
-    elif pending:
-        outcome = 'needs_review'
-    elif passed > 0 and passed == len(points) - counts['unavailable']:
-        outcome = 'passed'
-    else:
-        outcome = 'incomplete'
-    can_act = (
-        study.status in ('active', 'no_safe')
-        and root.status == 'completed'
-        and not active and not other_active
-    )
-    result = {
-        'diagnostic_set_id': str(root.set_id),
-        'concept_id': root.target_concept_id,
-        'set_version': root.set_version,
-        'outcome': outcome,
-        'active_set_id': str(active.set_id) if active else None,
-        'passed_count': passed,
-        'remediation_passed_count': counts['remediation_pass'],
-        'pending_count': pending,
-        'unanswered_count': counts['unanswered'],
-        'unavailable_count': unavailable,
-        'can_create_remediation': can_act and pending > 0,
-        'points': points,
-    }
-    if cache is not None:
-        cache[key] = result
-    return result
-
-
-def _read_cycles(session, study):
-    roots = list(session.scalars(
-        select(AssessmentSet).where(
-            AssessmentSet.study_session_id == study.study_session_id,
-            AssessmentSet.kind == 'diagnostic',
-        ).order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)
-    ))
-    latest = {}
-    for root in roots:
-        if root.target_concept_id not in latest:
-            cycle = _cycle(session, study, root)
-            latest[root.target_concept_id] = {
-                key: value for key, value in cycle.items()
-                if key not in ('points', 'can_create_remediation')
+def create_remediation(
+    learner, sid, root_id, expected_version, key, local_config, *, dsn=None
+):
+    digest = assessments._key(key)
+    fingerprint = bytes.fromhex(
+        canonical_sha256(
+            {
+                "diagnostic_set_id": str(root_id),
+                "version": expected_version,
             }
-    return list(latest.values())
-
-
-def unavailable_claims(session, study, context):
-    unavailable = set(study.no_safe_claim_ids)
-    roots = list(session.scalars(select(AssessmentSet).where(
-        AssessmentSet.study_session_id == study.study_session_id,
-        AssessmentSet.kind == 'diagnostic',
-    ).order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)))
-    seen = set()
-    for root in roots:
-        if root.target_concept_id in seen:
-            continue
-        seen.add(root.target_concept_id)
-        latest = {}
-        for item, sealed_at in session.execute(
-            select(AssessmentSetItem, AssessmentSet.sealed_at)
-            .join(AssessmentSet, AssessmentSet.set_id == AssessmentSetItem.set_id)
-            .where((AssessmentSet.set_id == root.set_id)
-                   | (AssessmentSet.diagnostic_set_id == root.set_id))
-            .order_by(AssessmentSet.created_at, AssessmentSet.set_id)
-        ):
-            latest[item.target_claim_id] = (item, sealed_at)
-        for target in root.target_plan['targets']:
-            item, sealed_at = latest[target['claim_id']]
-            # 尚未準備好或暫時 provider 失敗不等於已確認無安全題。
-            if item.assessment_revision:
-                unavailable.difference_update(target['covered_claim_ids'])
-            elif item.failure_reason == 'NO_SAFE_ASSESSMENT' or sealed_at is not None:
-                unavailable.update(target['covered_claim_ids'])
-    return unavailable
-
-
-def completed_concepts(session, study):
-    """重建曾完成的概念，避免後續練習或可出題範圍改變撤銷完成。"""
-    roots = session.scalars(select(AssessmentSet).where(
-        AssessmentSet.study_session_id == study.study_session_id,
-        AssessmentSet.kind == 'diagnostic',
-        AssessmentSet.status == 'completed',
-    ))
-    return {root.target_concept_id for root in roots
-            if _cycle(session, study, root)['outcome'] == 'passed'}
-
-
-def create_remediation(learner, sid, root_id, expected_version, key, local_config, *, dsn=None):
-    digest = _key(key)
-    fingerprint = bytes.fromhex(canonical_sha256({
-        'diagnostic_set_id': str(root_id), 'version': expected_version,
-    }))
+        )
+    )
     with database_session(dsn) as session:
         study, _, _ = _scope(session, learner, sid, lock=True)
-        old = session.scalar(select(AssessmentSet).where(AssessmentSet.study_session_id == sid,
-            AssessmentSet.idempotency_key_sha256 == digest))
+        old = session.scalar(
+            select(AssessmentSet).where(
+                AssessmentSet.study_session_id == sid,
+                AssessmentSet.idempotency_key_sha256 == digest,
+            )
+        )
         if old is not None:
             if bytes(old.request_fingerprint) != fingerprint:
-                raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
+                raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
             return old.set_id
         root = _round(session, study, root_id, lock=True)
         cycle = _cycle(session, study, root)
         if (
-            root.kind != 'diagnostic'
+            root.kind != "diagnostic"
             or root.set_version != expected_version
-            or not cycle['can_create_remediation']
+            or not cycle["can_create_remediation"]
         ):
-            raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
-        selected = {point['claim_id'] for point in cycle['points'] if point['result'] == 'needs_review'}
+            raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
+        selected = {
+            point["claim_id"]
+            for point in cycle["points"]
+            if point["result"] == "needs_review"
+        }
         targets = [
-            deepcopy(target) for target in root.target_plan['targets']
-            if target['claim_id'] in selected
+            deepcopy(target)
+            for target in root.target_plan["targets"]
+            if target["claim_id"] in selected
         ]
-        plan = {'policy': 'needs-review-points/v1', 'concept_id': root.target_concept_id,
-            'point_count': len(targets), 'targets': targets, 'excluded': []}
-        lock = deepcopy(validate_runtime_lock(local_config['runtime_lock']))
-        group = AssessmentSet(set_id=uuid4(), learner_id=study.learner_id, material_id=study.material_id,
-            study_session_id=sid, knowledge_structure_revision=study.knowledge_structure_revision,
-            target_concept_id=root.target_concept_id, kind='remediation', diagnostic_set_id=root.set_id,
-            target_plan=plan, requested_count=len(targets),
+        plan = {
+            "policy": "needs-review-points/v1",
+            "concept_id": root.target_concept_id,
+            "point_count": len(targets),
+            "targets": targets,
+            "excluded": [],
+        }
+        lock = deepcopy(validate_runtime_lock(local_config["runtime_lock"]))
+        group = AssessmentSet(
+            set_id=uuid4(),
+            learner_id=study.learner_id,
+            material_id=study.material_id,
+            study_session_id=sid,
+            knowledge_structure_revision=study.knowledge_structure_revision,
+            target_concept_id=root.target_concept_id,
+            kind="remediation",
+            diagnostic_set_id=root.set_id,
+            target_plan=plan,
+            requested_count=len(targets),
             runtime_lock_document=lock,
-            status='preparing', set_version=1, idempotency_key_sha256=digest, request_fingerprint=fingerprint,
-            action_receipts={}, created_at=_now(), updated_at=_now())
-        session.add(group); session.flush()
+            status="preparing",
+            set_version=1,
+            idempotency_key_sha256=digest,
+            request_fingerprint=fingerprint,
+            action_receipts={},
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        session.add(group)
+        session.flush()
         for ordinal, target in enumerate(targets, 1):
-            session.add(AssessmentSetItem(set_id=group.set_id, ordinal=ordinal, study_session_id=sid,
-                knowledge_structure_revision=study.knowledge_structure_revision,
-                target_concept_id=root.target_concept_id,
-                target_claim_id=target['claim_id'], state='pending', attempts=0))
+            session.add(
+                AssessmentSetItem(
+                    set_id=group.set_id,
+                    ordinal=ordinal,
+                    study_session_id=sid,
+                    knowledge_structure_revision=study.knowledge_structure_revision,
+                    target_concept_id=root.target_concept_id,
+                    target_claim_id=target["claim_id"],
+                    state="pending",
+                    attempts=0,
+                )
+            )
         study.current_concept_id = root.target_concept_id
         root.set_version += 1
         root.updated_at = _now()
         return group.set_id
 
 
-def _summary(session, group, items=None):
-    rows = _items(session, group) if items is None else items
-    revisions = [item.assessment_revision for item in rows if item.assessment_revision]
-    answers = list(session.scalars(select(AnswerEvent).where(
-        AnswerEvent.study_session_id == group.study_session_id,
-        AnswerEvent.assessment_revision.in_(revisions),
-    ))) if revisions else []
-    return {
-        'set_id': str(group.set_id),
-        'target_concept_id': group.target_concept_id,
-        'kind': group.kind,
-        'diagnostic_set_id': (
-            str(group.diagnostic_set_id) if group.diagnostic_set_id else None
-        ),
-        'status': group.status,
-        'set_version': group.set_version,
-        'requested_count': group.requested_count,
-        'published_count': len(revisions),
-        'answered_count': len(answers),
-        'passed_count': sum(item.is_correct for item in answers),
-        'assessment_revisions': revisions,
-        'created_at': group.created_at,
-        'completed_at': group.completed_at,
-    }
-
-
-def list_sets(learner, sid, *, dsn=None):
-    with database_session(dsn) as session:
-        session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
-        study, _, _ = _scope(session, learner, sid)
-        return _list_sets(session, study)
-
-def _list_sets(session, study):
-    groups = list(session.scalars(
-        select(AssessmentSet).where(
-            AssessmentSet.study_session_id == study.study_session_id
-        ).order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)
-    ))
-    return {
-        'schema': 'assessment-set-list/v1',
-        'study_session_id': str(study.study_session_id),
-        'knowledge_structure_revision': study.knowledge_structure_revision,
-        'active_set_ids': [str(item.set_id) for item in groups if item.status in ACTIVE],
-        'sets': [_summary(session, group) for group in groups],
-    }
-
-def read_set(learner, sid, set_id, *, dsn=None):
-    with database_session(dsn) as session:
-        session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
-        session.info['read_snapshot'] = {'documents': {}, 'inherited': {}, 'cycles': {}}
-        study, _ = _read_scope(session, learner, sid)
-        return _read_set(session, study, set_id)
-
-
-def _read_set(session, study, set_id):
-    """由已驗證教材的同一 snapshot 投影題組；仍只輸出公開題目及本人作答回饋。"""
-    from .answer_events import _event, _feedback
-    sid = study.study_session_id
-    group = _round(session, study, set_id)
-    rows = _items(session, group)
-    expected_provenance = assessments._provenance(group)
-    projected = []
-    for item in rows:
-        public = feedback = created = None
-        can_submit = False
-        if item.assessment_revision is not None:
-            assessment = session.get(Assessment, item.assessment_revision)
-            stored = assessments._stored(assessment, expected_provenance)
-            public, created = stored.public_document, assessment.created_at
-            event = session.scalar(select(AnswerEvent).where(AnswerEvent.study_session_id == sid,
-                AnswerEvent.assessment_revision == item.assessment_revision))
-            if event is not None:
-                feedback = _feedback(_event(event, assessment, study), assessment).model_dump(by_alias=True)
-            else:
-                can_submit = membership_can_submit(session, study, assessment)
-        projected.append({
-            'ordinal': item.ordinal,
-            'target_claim_id': item.target_claim_id,
-            'state': item.state,
-            'attempts': item.attempts,
-            'failure_reason': item.failure_reason,
-            'assessment': public,
-            'feedback': feedback,
-            'created_at': created,
-            'can_submit': can_submit,
-        })
-    summary = _summary(session, group, rows)
-    other_active = session.scalar(select(AssessmentSet.set_id).where(
-        AssessmentSet.study_session_id == sid,
-        AssessmentSet.set_id != set_id, AssessmentSet.status.in_(ACTIVE),
-        AssessmentSet.target_concept_id == group.target_concept_id).limit(1)) is not None
-    cycle_root = (
-        session.get(AssessmentSet, group.diagnostic_set_id)
-        if group.diagnostic_set_id else group
-    )
-    return {
-        'schema': 'assessment-set/v1',
-        'study_session_id': str(sid),
-        'material_id': str(study.material_id),
-        'knowledge_structure_revision': study.knowledge_structure_revision,
-        **summary,
-        'kind': group.kind,
-        'selection_policy': group.target_plan['policy'],
-        'point_count': group.target_plan['point_count'],
-        'excluded_count': len(group.target_plan['excluded']),
-        'verified_count': sum(
-            item.state in ('verified', 'published') for item in rows
-        ),
-        'can_retry': (
-            group.status in ('partial_ready', 'failed')
-            and not other_active
-            and study.status in ('active', 'no_safe')
-            and any(
-                item.state == 'failed' and item.attempts < MAX_ATTEMPTS
-                for item in rows
-            )
-        ),
-        'can_publish_partial': (
-            group.status == 'partial_ready'
-            and any(item.state == 'verified' for item in rows)
-        ),
-        'can_complete': group.status in ('ready', 'in_progress'),
-        'items': projected,
-        'cycle': _cycle(session, study, cycle_root),
-    }
-
-
 def _assessment_row(study, item, prepared):
-    public, private, provenance = (prepared[name] for name in ('public', 'private', 'provenance'))
+    public, private, provenance = (
+        prepared[name] for name in ("public", "private", "provenance")
+    )
     return Assessment(
-        assessment_revision=public['assessment_revision'],
+        assessment_revision=public["assessment_revision"],
         study_session_id=study.study_session_id,
-        knowledge_structure_revision=study.knowledge_structure_revision, question_id=public['question_id'],
-        semantic_identity=prepared['semantic_identity'], learning_angle=provenance['learning_angle'],
-        target_concept_id=item.target_concept_id, target_claim_id=item.target_claim_id,
-        public_document=public, private_answer_document=private, generation_provenance=provenance,
-        mastery_qualified=True, request_idempotency_key_sha256=_key(f'set:{item.set_id}:{item.ordinal}'),
-        request_fingerprint=assessments._fingerprint(
-            study.study_session_id, study.knowledge_structure_revision, item.target_claim_id,
+        knowledge_structure_revision=study.knowledge_structure_revision,
+        question_id=public["question_id"],
+        semantic_identity=prepared["semantic_identity"],
+        learning_angle=provenance["learning_angle"],
+        target_concept_id=item.target_concept_id,
+        target_claim_id=item.target_claim_id,
+        public_document=public,
+        private_answer_document=private,
+        generation_provenance=provenance,
+        mastery_qualified=True,
+        request_idempotency_key_sha256=assessments._key(
+            f"set:{item.set_id}:{item.ordinal}"
         ),
-        created_at=_now())
+        request_fingerprint=assessments._fingerprint(
+            study.study_session_id,
+            study.knowledge_structure_revision,
+            item.target_claim_id,
+        ),
+        created_at=_now(),
+    )
 
 
 def _seal(session, study, group, items):
     if group.sealed_at is not None:
-        raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
+        raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
     expected_provenance = assessments._provenance(group)
     for item in items:
-        if item.state == 'verified':
+        if item.state == "verified":
             row = _assessment_row(study, item, item.prepared_document)
             assessments._stored(row, expected_provenance)
-            session.add(row); session.flush()
+            session.add(row)
+            session.flush()
             item.assessment_revision = row.assessment_revision
-            item.state, item.prepared_document = 'published', None
+            item.state, item.prepared_document = "published", None
         else:
-            item.state, item.prepared_document = 'omitted', None
-    group.status, group.sealed_at = 'ready', _now()
+            item.state, item.prepared_document = "omitted", None
+    group.status, group.sealed_at = "ready", _now()
     group.lease_token = group.lease_expires_at = None
 
 
-def submit_set_answers(learner, sid, set_id, answers, expected_version, idempotency_key, *, dsn=None):
+def submit_set_answers(
+    learner, sid, set_id, answers, expected_version, idempotency_key, *, dsn=None
+):
     """整組驗證、評分與結束在同一交易內；回應遺失可用同一意圖查回／重送。"""
     from . import answer_events
+
     if (
-        type(expected_version) is not int or expected_version < 1
-        or not isinstance(answers, list) or not answers
+        type(expected_version) is not int
+        or expected_version < 1
+        or not isinstance(answers, list)
+        or not answers
         or any(
             not isinstance(answer, dict)
-            or set(answer) != {
-                'assessment_revision', 'question_id', 'selected_option_id',
+            or set(answer)
+            != {
+                "assessment_revision",
+                "question_id",
+                "selected_option_id",
             }
             or not all(isinstance(value, str) for value in answer.values())
             for answer in answers
         )
     ):
-        raise AssessmentSetError('ASSESSMENT_SET_REQUEST_INVALID')
-    by_revision = {answer['assessment_revision']: answer for answer in answers}
+        raise AssessmentSetError("ASSESSMENT_SET_REQUEST_INVALID")
+    by_revision = {answer["assessment_revision"]: answer for answer in answers}
     if len(by_revision) != len(answers):
-        raise AssessmentSetError('ASSESSMENT_SET_REQUEST_INVALID')
-    key = _key(idempotency_key).hex()
-    fingerprint = canonical_sha256({
-        'action': 'submit-set',
-        'version': expected_version,
-        'answers': sorted(answers, key=lambda answer: answer['assessment_revision']),
-    })
+        raise AssessmentSetError("ASSESSMENT_SET_REQUEST_INVALID")
+    key = assessments._key(idempotency_key).hex()
+    fingerprint = canonical_sha256(
+        {
+            "action": "submit-set",
+            "version": expected_version,
+            "answers": sorted(
+                answers, key=lambda answer: answer["assessment_revision"]
+            ),
+        }
+    )
     with database_session(dsn) as session:
         study, _, _ = _scope(session, learner, sid, lock=True)
         group = _round(session, study, set_id, lock=True)
         previous = group.action_receipts.get(key)
         if previous is not None:
             if previous != fingerprint:
-                raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
+                raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
             return
         if (
             group.set_version != expected_version
-            or group.status not in ('ready', 'in_progress')
+            or group.status not in ("ready", "in_progress")
             or group.sealed_at is None
-            or study.status not in ('active', 'no_safe')
+            or study.status not in ("active", "no_safe")
         ):
-            raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
-        items = [item for item in _items(session, group) if item.state == 'published']
-        if not items or set(by_revision) != {item.assessment_revision for item in items}:
-            raise AssessmentSetError('ASSESSMENT_SET_REQUEST_INVALID')
+            raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
+        items = [item for item in _items(session, group) if item.state == "published"]
+        if not items or set(by_revision) != {
+            item.assessment_revision for item in items
+        }:
+            raise AssessmentSetError("ASSESSMENT_SET_REQUEST_INVALID")
         validated = []
         provenance_by_set = {group.set_id: assessments._provenance(group)}
         for item in items:
-            row = answer_events._assessment(session, study, item.assessment_revision, provenance_by_set)
+            row = answer_events._assessment(
+                session, study, item.assessment_revision, provenance_by_set
+            )
             answer = by_revision[row.assessment_revision]
-            if (
-                answer['question_id'] != row.question_id
-                or answer['selected_option_id'] not in {
-                    option['option_id'] for option in row.public_document['options']
-                }
-            ):
-                raise AssessmentSetError('ASSESSMENT_SET_REQUEST_INVALID')
-            saved = session.scalar(select(AnswerEvent).where(
-                AnswerEvent.study_session_id == sid,
-                AnswerEvent.assessment_revision == row.assessment_revision,
-            ))
+            if answer["question_id"] != row.question_id or answer[
+                "selected_option_id"
+            ] not in {option["option_id"] for option in row.public_document["options"]}:
+                raise AssessmentSetError("ASSESSMENT_SET_REQUEST_INVALID")
+            saved = session.scalar(
+                select(AnswerEvent).where(
+                    AnswerEvent.study_session_id == sid,
+                    AnswerEvent.assessment_revision == row.assessment_revision,
+                )
+            )
             if saved is not None:
                 answer_events._event(saved, row, study)
-                if saved.selected_option_id != answer['selected_option_id']:
-                    raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
-            validated.append((item.ordinal, row, answer['selected_option_id'], saved))
+                if saved.selected_option_id != answer["selected_option_id"]:
+                    raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
+            validated.append((item.ordinal, row, answer["selected_option_id"], saved))
         # 先驗完整組再寫；任一寫入／commit 失敗會一起回滾。
         for ordinal, row, selected, saved in validated:
             if saved is None:
                 answer_events.record_answer(
-                    session, study, row, selected,
-                    f'set-submit:{set_id}:{key}:{ordinal}',
+                    session,
+                    study,
+                    row,
+                    selected,
+                    f"set-submit:{set_id}:{key}:{ordinal}",
                 )
-        group.status, group.completed_at = 'completed', _now()
+        group.status, group.completed_at = "completed", _now()
         group.set_version += 1
         group.updated_at = _now()
         group.action_receipts = {**group.action_receipts, key: fingerprint}
@@ -697,37 +371,54 @@ def submit_set_answers(learner, sid, set_id, answers, expected_version, idempote
         session.flush()
 
 
-def change_set(learner, sid, set_id, action, expected_version, idempotency_key, *, dsn=None):
-    if action not in ('retry', 'publish-partial') or type(expected_version) is not int:
-        raise AssessmentSetError('ASSESSMENT_SET_REQUEST_INVALID')
-    key = _key(idempotency_key).hex()
-    fingerprint = canonical_sha256({'action': action, 'version': expected_version})
+def change_set(
+    learner, sid, set_id, action, expected_version, idempotency_key, *, dsn=None
+):
+    if action not in ("retry", "publish-partial") or type(expected_version) is not int:
+        raise AssessmentSetError("ASSESSMENT_SET_REQUEST_INVALID")
+    key = assessments._key(idempotency_key).hex()
+    fingerprint = canonical_sha256({"action": action, "version": expected_version})
     with database_session(dsn) as session:
         study, _, _ = _scope(session, learner, sid, lock=True)
         group = _round(session, study, set_id, lock=True)
         previous = group.action_receipts.get(key)
         if previous is not None:
             if previous != fingerprint:
-                raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
+                raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
             return
         if group.set_version != expected_version:
-            raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
+            raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
         rows = _items(session, group)
-        if action == 'retry':
-            other = session.scalar(select(AssessmentSet.set_id).where(AssessmentSet.study_session_id == sid,
-                AssessmentSet.set_id != set_id, AssessmentSet.status.in_(ACTIVE),
-                AssessmentSet.target_concept_id == group.target_concept_id).limit(1))
-            if (other is not None or study.status not in ('active', 'no_safe')
-                or group.status not in ('partial_ready', 'failed')
-                or not any(item.state == 'failed' and item.attempts < MAX_ATTEMPTS for item in rows)):
-                raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
+        if action == "retry":
+            other = session.scalar(
+                select(AssessmentSet.set_id)
+                .where(
+                    AssessmentSet.study_session_id == sid,
+                    AssessmentSet.set_id != set_id,
+                    AssessmentSet.status.in_(ACTIVE),
+                    AssessmentSet.target_concept_id == group.target_concept_id,
+                )
+                .limit(1)
+            )
+            if (
+                other is not None
+                or study.status not in ("active", "no_safe")
+                or group.status not in ("partial_ready", "failed")
+                or not any(
+                    item.state == "failed" and item.attempts < MAX_ATTEMPTS
+                    for item in rows
+                )
+            ):
+                raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
             for item in rows:
-                if item.state == 'failed' and item.attempts < MAX_ATTEMPTS:
-                    item.state, item.failure_reason = 'pending', None
-            group.status = 'preparing'
-        elif action == 'publish-partial':
-            if group.status != 'partial_ready' or not any(item.state == 'verified' for item in rows):
-                raise AssessmentSetError('ASSESSMENT_SET_CONFLICT')
+                if item.state == "failed" and item.attempts < MAX_ATTEMPTS:
+                    item.state, item.failure_reason = "pending", None
+            group.status = "preparing"
+        elif action == "publish-partial":
+            if group.status != "partial_ready" or not any(
+                item.state == "verified" for item in rows
+            ):
+                raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
             _seal(session, study, group, rows)
         group.set_version += 1
         group.updated_at = _now()
@@ -746,12 +437,16 @@ class SetWork:
 
 
 def _settle(session, study, group, items):
-    if any(item.state in ('pending', 'generating') for item in items):
+    if any(item.state in ("pending", "generating") for item in items):
         return
-    if items and all(item.state == 'verified' for item in items):
+    if items and all(item.state == "verified" for item in items):
         _seal(session, study, group, items)
     else:
-        group.status = 'partial_ready' if any(item.state == 'verified' for item in items) else 'failed'
+        group.status = (
+            "partial_ready"
+            if any(item.state == "verified" for item in items)
+            else "failed"
+        )
         group.lease_token = group.lease_expires_at = None
     group.set_version += 1
     group.updated_at = _now()
@@ -766,37 +461,43 @@ def claim_set_work(*, dsn=None):
                 AssessmentSet.learner_id,
                 AssessmentSet.study_session_id,
                 AssessmentSet.set_id,
-            ).where(
-                AssessmentSet.status == 'preparing'
-            ).order_by(AssessmentSet.created_at)
+            )
+            .where(AssessmentSet.status == "preparing")
+            .order_by(AssessmentSet.created_at)
         ).all()
     for owner, sid, set_id in candidates:
         try:
             with database_session(dsn) as session:
                 study, _, _ = _scope(session, TrustedLearner(owner), sid, lock=True)
                 group = _round(session, study, set_id, lock=True)
-                if (
-                    group.status != 'preparing'
-                    or (group.lease_expires_at is not None and group.lease_expires_at > _now())
+                if group.status != "preparing" or (
+                    group.lease_expires_at is not None
+                    and group.lease_expires_at > _now()
                 ):
                     continue
                 rows = _items(session, group)
                 for item in rows:
-                    if item.state == 'generating':
-                        item.state, item.failure_reason = 'failed', 'GENERATION_INTERRUPTED'
-                if study.status not in ('active', 'no_safe'):
-                    group.status = 'cancelled'
+                    if item.state == "generating":
+                        item.state, item.failure_reason = (
+                            "failed",
+                            "GENERATION_INTERRUPTED",
+                        )
+                if study.status not in ("active", "no_safe"):
+                    group.status = "cancelled"
                     group.lease_token = group.lease_expires_at = None
                     group.set_version += 1
                     _touch_diagnostic(session, group)
                     continue
-                pending = next((item for item in rows if item.state == 'pending'), None)
+                pending = next((item for item in rows if item.state == "pending"), None)
                 if pending is None:
                     _settle(session, study, group, rows)
                     continue
                 token = uuid4()
-                group.lease_token, group.lease_expires_at = token, _now() + timedelta(seconds=LEASE_SECONDS)
-                pending.state, pending.attempts = 'generating', pending.attempts + 1
+                group.lease_token, group.lease_expires_at = (
+                    token,
+                    _now() + timedelta(seconds=LEASE_SECONDS),
+                )
+                pending.state, pending.attempts = "generating", pending.attempts + 1
                 group.set_version += 1
                 group.updated_at = _now()
                 _touch_diagnostic(session, group)
@@ -808,13 +509,20 @@ def claim_set_work(*, dsn=None):
 
 def _leased(session, work):
     study, context, document = _scope(
-        session, TrustedLearner(work.learner_id), work.study_session_id, lock=True,
+        session,
+        TrustedLearner(work.learner_id),
+        work.study_session_id,
+        lock=True,
     )
     group = _round(session, study, work.set_id, lock=True)
-    if (group.status != 'preparing' or group.lease_token != work.token
-        or group.lease_expires_at is None or group.lease_expires_at <= _now()
-        or study.status not in ('active', 'no_safe')):
-        raise AssessmentSetError('ASSESSMENT_SET_STALE_WORK')
+    if (
+        group.status != "preparing"
+        or group.lease_token != work.token
+        or group.lease_expires_at is None
+        or group.lease_expires_at <= _now()
+        or study.status not in ("active", "no_safe")
+    ):
+        raise AssessmentSetError("ASSESSMENT_SET_STALE_WORK")
     return study, context, document, group
 
 
@@ -835,16 +543,24 @@ def _heartbeat(work, stop, dsn, stale=None):
 
 def _bounded_prior(prior, claim):
     evidence = {item.evidence_id for item in claim.evidence}
-    ordered = sorted(prior, key=lambda row: (
-        row.target_claim_id != claim.claim_id,
-        not bool(evidence.intersection(row.public_document['source_evidence_ids'])),
-    ))
+    ordered = sorted(
+        prior,
+        key=lambda row: (
+            row.target_claim_id != claim.claim_id,
+            not bool(evidence.intersection(row.public_document["source_evidence_ids"])),
+        ),
+    )
     selected, size = [], 0
     for item in ordered:
-        cost = len(json.dumps({
-            'public': item.public_document,
-            'answer': item.private_answer_document['correct_answer'],
-        }, ensure_ascii=False).encode())
+        cost = len(
+            json.dumps(
+                {
+                    "public": item.public_document,
+                    "answer": item.private_answer_document["correct_answer"],
+                },
+                ensure_ascii=False,
+            ).encode()
+        )
         if size + cost > assessments._PRIOR_CONTEXT_MAX_BYTES:
             continue
         selected.append(item)
@@ -857,9 +573,11 @@ def _bounded_prior(prior, claim):
 def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdown=None):
     stop = Event()
     stale = Event()
+
     def check_wait():
         if stale.is_set() or (shutdown is not None and shutdown.is_set()):
-            raise AssessmentSetError('ASSESSMENT_SET_STALE_WORK')
+            raise AssessmentSetError("ASSESSMENT_SET_STALE_WORK")
+
     heartbeat = Thread(target=_heartbeat, args=(work, stop, dsn, stale), daemon=True)
     heartbeat.start()
     prepared = None
@@ -869,23 +587,42 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
         with database_session(dsn) as session:
             study, context, _, group = _leased(session, work)
             item = session.get(AssessmentSetItem, (work.set_id, work.ordinal))
-            if item.state != 'generating':
-                raise AssessmentSetError('ASSESSMENT_SET_STALE_WORK')
-            concept = next(item for item in context.concepts if item.concept_id == group.target_concept_id)
-            claim = next(point for point in concept.claims if point.claim_id == item.target_claim_id)
+            if item.state != "generating":
+                raise AssessmentSetError("ASSESSMENT_SET_STALE_WORK")
+            concept = next(
+                item
+                for item in context.concepts
+                if item.concept_id == group.target_concept_id
+            )
+            claim = next(
+                point
+                for point in concept.claims
+                if point.claim_id == item.target_claim_id
+            )
             lock = deepcopy(group.runtime_lock_document)
-            study_data = SimpleNamespace(study_session_id=study.study_session_id,
-                                         knowledge_structure_revision=study.knowledge_structure_revision)
+            study_data = SimpleNamespace(
+                study_session_id=study.study_session_id,
+                knowledge_structure_revision=study.knowledge_structure_revision,
+            )
             prior = assessments._prior_questions(session, study, claim)
             expected_provenance = assessments._provenance(group)
-            verified = [row for row in _items(session, group) if row.state == 'verified']
+            verified = [
+                row for row in _items(session, group) if row.state == "verified"
+            ]
             staged = [
-                assessments._stored(_assessment_row(study, row, row.prepared_document), expected_provenance)
+                assessments._stored(
+                    _assessment_row(study, row, row.prepared_document),
+                    expected_provenance,
+                )
                 for row in verified
             ]
-            used = set(session.scalars(select(Assessment.semantic_identity).where(
-                Assessment.study_session_id == study.study_session_id
-            )))
+            used = set(
+                session.scalars(
+                    select(Assessment.semantic_identity).where(
+                        Assessment.study_session_id == study.study_session_id
+                    )
+                )
+            )
             used.update(row.semantic_identity for row in staged)
             prior = _bounded_prior([*staged, *prior], claim)
 
@@ -900,33 +637,54 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
             return result
 
         chosen = assessments.prepare_assessment(
-            study_data, concept, claim, prior, used,
-            runtime_lock=lock, semantic_call=model,
+            study_data,
+            concept,
+            claim,
+            prior,
+            used,
+            runtime_lock=lock,
+            semantic_call=model,
         )
         if chosen is None:
-            reason = 'NO_SAFE_ASSESSMENT'
+            reason = "NO_SAFE_ASSESSMENT"
         else:
             public, private, provenance, _ = assessments._documents(
-                study_data, concept, claim, chosen, runtime_lock=lock,
+                study_data,
+                concept,
+                claim,
+                chosen,
+                runtime_lock=lock,
             )
-            prepared = {'public': public, 'private': private, 'provenance': provenance,
-                        'semantic_identity': chosen['semantic_identity']}
+            prepared = {
+                "public": public,
+                "private": private,
+                "provenance": provenance,
+                "semantic_identity": chosen["semantic_identity"],
+            }
     except AssessmentSetError:
         return
     except (
         assessments.AssessmentError,
         SemanticServiceError,
     ) as error:
-        allowed = {'NO_SAFE_ASSESSMENT', 'ASSESSMENT_OUTPUT_INVALID', 'ASSESSMENT_CHECK_INVALID',
-                   'ASSESSMENT_CONFIGURATION_INVALID', 'SEMANTIC_SERVICE_UNAVAILABLE',
-                   'SEMANTIC_SERVICE_TIMEOUT',
-                   'SEMANTIC_RESPONSE_INVALID', 'SEMANTIC_INPUT_TOO_LARGE', 'SEMANTIC_OUTPUT_TRUNCATED',
-                   'ASSESSMENT_STORE_FAILED'}
-        reason = str(error) if str(error) in allowed else 'ASSESSMENT_GENERATION_FAILED'
+        allowed = {
+            "NO_SAFE_ASSESSMENT",
+            "ASSESSMENT_OUTPUT_INVALID",
+            "ASSESSMENT_CHECK_INVALID",
+            "ASSESSMENT_CONFIGURATION_INVALID",
+            "SEMANTIC_SERVICE_UNAVAILABLE",
+            "SEMANTIC_SERVICE_TIMEOUT",
+            "SEMANTIC_RESPONSE_INVALID",
+            "SEMANTIC_INPUT_TOO_LARGE",
+            "SEMANTIC_OUTPUT_TRUNCATED",
+            "ASSESSMENT_STORE_FAILED",
+        }
+        reason = str(error) if str(error) in allowed else "ASSESSMENT_GENERATION_FAILED"
     except Exception:
-        reason = 'ASSESSMENT_GENERATION_FAILED'
+        reason = "ASSESSMENT_GENERATION_FAILED"
     finally:
-        stop.set(); heartbeat.join()
+        stop.set()
+        heartbeat.join()
     # commit 回應遺失時先重讀 lease／狀態；同一份已驗證結果最多補存一次，不再呼叫模型。
     for _ in range(2):
         try:
@@ -937,7 +695,8 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
             return
         except Exception:
             logging.getLogger(__name__).warning(
-                'ASSESSMENT_SET_STORE_FAILED', extra={'set_id': str(work.set_id)},
+                "ASSESSMENT_SET_STORE_FAILED",
+                extra={"set_id": str(work.set_id)},
             )
 
 
@@ -945,16 +704,21 @@ def _commit_prepared(work, prepared, reason, *, dsn):
     with database_session(dsn) as session:
         study, _, _, group = _leased(session, work)
         item = session.get(AssessmentSetItem, (work.set_id, work.ordinal))
-        if item.state != 'generating':
+        if item.state != "generating":
             return
         if prepared is not None:
             # 同一 session 的題目若在推論期間已發布，不能再給相同題目第二份 credit。
-            duplicate = session.scalar(select(Assessment.assessment_revision).where(
-                Assessment.study_session_id == study.study_session_id,
-                Assessment.semantic_identity == prepared['semantic_identity']).limit(1))
+            duplicate = session.scalar(
+                select(Assessment.assessment_revision)
+                .where(
+                    Assessment.study_session_id == study.study_session_id,
+                    Assessment.semantic_identity == prepared["semantic_identity"],
+                )
+                .limit(1)
+            )
             if duplicate is not None:
-                prepared, reason = None, 'NO_SAFE_ASSESSMENT'
-        item.state = 'verified' if prepared is not None else 'failed'
+                prepared, reason = None, "NO_SAFE_ASSESSMENT"
+        item.state = "verified" if prepared is not None else "failed"
         item.prepared_document, item.failure_reason = prepared, reason
         group.lease_token = group.lease_expires_at = None
         group.set_version += 1
