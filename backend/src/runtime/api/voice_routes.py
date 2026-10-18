@@ -1,11 +1,12 @@
 import json
 from typing import Literal
 from uuid import UUID
-from fastapi import Request, Response
+from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from .. import voice
 from ..source_normalization import SourceError
+from .media import bytes_response
 
 
 class PodcastReference(BaseModel):
@@ -89,4 +90,4 @@ def install(app,settings,trusted,key,query):
 
     @app.get('/v1/voice-conversations/{identity}/turns/{turn_id}/audio')
     def audio(request:Request,identity:UUID,turn_id:UUID):
-        return Response(voice.audio(owner(request),identity,turn_id,dsn=settings.dsn),media_type='audio/wav')
+        return bytes_response(request,voice.audio(owner(request),identity,turn_id,dsn=settings.dsn),'audio/wav')

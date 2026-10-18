@@ -228,20 +228,19 @@ def claim(*, dsn=None):
         if turn.status=='transcribing':
             recent=db.scalar(select(Turn).where(Turn.conversation_id==row.conversation_id,Turn.answer.is_not(None),
                 tuple_(Turn.created_at,Turn.turn_id)<tuple_(turn.created_at,turn.turn_id)).order_by(Turn.created_at.desc(),Turn.turn_id.desc()).limit(1))
-            words=[]
+            # 話題切換後仍保留教材主題，避免辨識提示只剩上一輪的局部詞彙。
+            words=[db.get(Material,row.material_id).display_name[:80]]
             if recent:
                 evidence_ids=list(dict.fromkeys(reference['evidence_id'] for citation in recent.answer.get('citations',[])
                     for reference in citation['evidence']))
                 passages=retrieval.evidence_context(db,row.learner_id,row.material_id,row.knowledge_structure_revision,evidence_ids) if evidence_ids else retrieval.search(
                     db,row.learner_id,row.material_id,row.knowledge_structure_revision,[recent.question],limit=4,neighbors=False)
-                words=list(recent.answer.get('speech_terms',[]))
+                words.extend(recent.answer.get('speech_terms',[]))
                 groups={}
                 for passage in passages:
                     hints=groups.setdefault(passage['source_id'],[])
                     hints.extend(hint for hint in passage['hints'] if 1<len(hint)<=30 and hint not in hints)
                 words.extend(word for group in zip_longest(*groups.values()) for word in group if word)
-            else:
-                words=[db.get(Material,row.material_id).display_name[:80]]
             chosen=[]
             for word in dict.fromkeys(words):
                 word=' '.join(word.split())

@@ -15,6 +15,9 @@ SOURCE_TOKENS = 7500
 HISTORY_TOKENS = 1200
 SUMMARY_TOKENS = 550
 
+SPOKEN_STYLE = '''\n這次回答會直接朗讀，使用者無須看螢幕也要能理解。一般概念先用簡短中文說清楚，無須每次另加例子。除非使用者明確要求原句、逐字內容、拼寫或程式碼，否則不要展示或拼讀示例原字串、字母片段、分詞清單或程式語法，即使只列一兩個片段也不需要；需要例子時用中文口語情境說明機制，只保留回答核心所需的技術名稱。
+使用者要求的精確字面值、核心公式、條件、數值與否定仍須保留，不得為口語化改錯或省略。不要使用 Markdown 格式符號。覆核時也檢查這項要求；不必要的逐字例子應在 correction 改述為來源支持的機制，不要補成更長的字元清單。\n'''
+
 
 def obj(properties):
     return {'type': 'object', 'properties': properties, 'required': list(properties), 'additionalProperties': False}
@@ -203,6 +206,8 @@ def _segments(value, count):
 
 
 def answer(question, history, context, *, retrieve, call, catalog=(), memory=None, user_history=(), spoken=False,recognition=None):
+    answer_prompt = ANSWER_PROMPT + (SPOKEN_STYLE if spoken else '')
+    review_prompt = REVIEW_PROMPT + (SPOKEN_STYLE if spoken else '')
     original_question = question
     metrics = {'calls': 0, 'estimated_input_tokens': [], 'retrieval_rounds': 0, 'source_count': 0, 'summary_calls': 0}
     history, memory_update = history_context(history, memory, call, metrics)
@@ -293,7 +298,7 @@ def answer(question, history, context, *, retrieve, call, catalog=(), memory=Non
     for attempt in range(2):
         fixed = {'question': question, 'history': history, 'context': context, 'sources': [],
                  'catalog_for_search_only': outline, 'can_search_again': attempt == 0}
-        remaining = INPUT_TOKENS - _luna_token_count(ANSWER_PROMPT) - _count(fixed) - _count(ANSWER_SCHEMA) - 300
+        remaining = INPUT_TOKENS - _luna_token_count(answer_prompt) - _count(fixed) - _count(ANSWER_SCHEMA) - 300
         # 問題與對話變長時縮小原文額度，並替下一步逐段核對保留空間。
         budget = max(0, min(SOURCE_TOKENS, remaining, INPUT_TOKENS - _count(question) - _count(history) - 3500))
         sources, bound = _sources(passages, budget)
@@ -302,7 +307,7 @@ def answer(question, history, context, *, retrieve, call, catalog=(), memory=Non
         payload = {'question': question, 'history': history, 'context': context,
                    'sources': sources, 'catalog_for_search_only': outline,
                    'can_search_again': attempt == 0}
-        generated = _request(call, ANSWER_PROMPT, payload, ANSWER_SCHEMA, metrics)
+        generated = _request(call, answer_prompt, payload, ANSWER_SCHEMA, metrics)
         segments, next_queries, missing = _segments(generated, len(bound))
         generated_queries = next_queries
         if segments:
@@ -323,10 +328,10 @@ def answer(question, history, context, *, retrieve, call, catalog=(), memory=Non
             review_payload = {'question': question, 'history': history, 'segments': [
                 {'index': i, 'text': segment['text'], 'citations': list(dict.fromkeys(segment['citations']))}
                 for i, segment in enumerate(segments)], 'sources': review_sources}
-            review = _request(call, REVIEW_PROMPT, review_payload, review_schema, metrics)
+            review = _request(call, review_prompt, review_payload, review_schema, metrics)
             if any(item.get('supported') is False and item.get('correction') for item in review.get('items', [])):
                 # 實測出現「提供可用修正文卻標成不支持」；讓核對者修正矛盾，不擅自升格為支持。
-                review = _request(call, REVIEW_PROMPT, {**review_payload,
+                review = _request(call, review_prompt, {**review_payload,
                     'validation_feedback':
                     'supported=false 的 correction 必須為空。若修正文已由引用支持，應核對後標 true；若仍無依據，刪去並核對是否漏答主要子題，必要時填 missing 與原文語言的 queries。'}, review_schema, metrics)
             next_queries, missing = _search_plan(review)

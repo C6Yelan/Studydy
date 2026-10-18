@@ -171,6 +171,37 @@ def audio_fixture():
     return output.getvalue()
 
 
+def test_saved_voice_audio_supports_seeking_without_bypassing_owner(closed_loop):
+    from runtime.learner_session import register_account
+    _,_,settings,_,dsn,token=closed_loop
+    owner,_,cid,_=setup(closed_loop)
+    turn=voice.add_turn(owner,cid,'range-audio','教材問題',mode='voice',dsn=dsn)
+    state=voice.claim(dsn=dsn)
+    voice.finish(state,grounded_answer(state,dsn),dsn=dsn)
+    voice.finish(voice.claim(dsn=dsn),audio_fixture(),dsn=dsn)
+    origin='http://127.0.0.1:4183'
+    app=api.create_app(api.ApiSettings(profile='local',public_origin=origin,secure_cookie=False,local_config=settings,dsn=dsn))
+    client=TestClient(app,base_url=origin)
+    url=f'/v1/voice-conversations/{cid}/turns/{turn["turn_id"]}/audio'
+    assert client.get(url,headers={'Range':'invalid'}).status_code==401
+    client.cookies.set('studydy_session',token)
+    full=client.get(url)
+    assert full.status_code==200 and full.content==audio_fixture()
+    assert full.headers['accept-ranges']=='bytes' and full.headers['cache-control']=='private, no-store'
+    for value,expected in [('bytes=0-43',audio_fixture()[:44]),('bytes=44-',audio_fixture()[44:]),('bytes=-20',audio_fixture()[-20:])]:
+        response=client.get(url,headers={'Range':value})
+        assert response.status_code==206 and response.content==expected
+        assert response.headers['content-range'].endswith(f'/{len(audio_fixture())}')
+        assert int(response.headers['content-length'])==len(expected)
+    for value in ('bytes=999999-','bytes=-0','bytes=20-1','bytes=1-2,5-6','invalid'):
+        response=client.get(url,headers={'Range':value})
+        assert response.status_code==416 and not response.content
+    stranger=register_account('voice-range-other@example.com','Synthetic other password 42',dsn=dsn)
+    client.cookies.set('studydy_session',stranger.raw_token)
+    assert client.get(url,headers={'Range':'bytes=0-43'}).status_code==404
+    assert voice.audio(owner,cid,turn['turn_id'],dsn=dsn)==audio_fixture()
+
+
 def test_voice_worker_auto_chains_transcript_answer_audio_without_send(closed_loop, monkeypatch):
     owner, _, cid, dsn = setup(closed_loop)
     turn = voice.add_turn(owner, cid, 'voice-auto', recording=b'synthetic recording', dsn=dsn)
@@ -221,6 +252,24 @@ def test_text_worker_finishes_without_audio_provider_and_mode_is_part_of_intent(
     assert ready['turn_id'] == turn['turn_id'] and ready['mode'] == 'text'
     assert ready['status'] == 'ready' and ready['audio_url'] is None
     assert paths == ['/semantics', '/semantics', '/semantics']
+
+
+def test_recording_keeps_material_topic_when_recent_answer_changes_topic(closed_loop):
+    from runtime.storage.tables import Material
+    owner,material,cid,dsn=setup(closed_loop)
+    title='檢索與 LLM 入門'
+    with database_session(dsn) as db:
+        db.get(Material,material).display_name=title
+    voice.add_turn(owner,cid,'previous-topic','什麼是堆疊？',dsn=dsn)
+    state=voice.claim(dsn=dsn)
+    answer=grounded_answer(state,dsn)
+    answer['speech_terms']=['堆疊','LIFO']
+    voice.finish(state,answer,dsn=dsn)
+    voice.add_turn(owner,cid,'new-recording',recording=b'synthetic recording',dsn=dsn)
+    state=voice.claim(dsn=dsn)
+    assert state['status']=='transcribing'
+    assert title in state['stt_hints'] and '堆疊' in state['stt_hints'] and 'LIFO' in state['stt_hints']
+    assert len(state['stt_hints'])<=320
 
 
 @pytest.mark.parametrize('phase', ['transcribing', 'answering', 'speaking'])
