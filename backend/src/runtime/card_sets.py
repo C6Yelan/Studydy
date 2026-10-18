@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from .storage.artifacts import _key_digest
 from .storage.knowledge_structures import _prune_unreferenced_structures, _read_verified_document, _view
 from .storage.tables import CardSet, Material, database_session

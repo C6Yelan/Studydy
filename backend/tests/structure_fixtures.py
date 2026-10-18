@@ -1,7 +1,7 @@
 """純合成的來源集合 binding，讓結構單元測試使用正式 v1；不冒充產品來源。"""
 
 from knowledge_map.structure import build_structure_draft, finalize_knowledge_structure
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 
 
 def build_knowledge_structure(context, state, **kwargs):

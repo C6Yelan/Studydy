@@ -16,7 +16,7 @@ from knowledge_map.structure import (
 )
 from knowledge_map.semantic_projection import _project_claim
 from knowledge_map.structure_rules import RELATION_BASIS
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 
 
 RUN_ID = "00000000-0000-4000-8000-000000000001"

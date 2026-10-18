@@ -21,7 +21,7 @@ import runtime.storage.artifacts as artifacts
 import runtime.workers as workers
 from product_fixtures import _pdf, _structure, closed_loop, publish_fixture_structure, seed_pdf, seed_run
 from runtime.learner_session import register_account
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 from runtime.storage.knowledge_structures import KnowledgeStructureStoreError, read_knowledge_structure
 from runtime.storage.migrations import run_migrations
 from runtime.storage.tables import Material, MaterialProcessingRun as RunRow, database_session

@@ -1,47 +1,27 @@
 """教材內的持久問答；錄音只是輸入，引用始終回到固定 KS。"""
+
+from .provider_http import provider
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import base64
 import json
-import os
 from itertools import zip_longest
 from uuid import UUID, uuid4
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
 from sqlalchemy import delete, or_, select, tuple_
 from .card_sets import _material
-from .source_normalization import SourceError
+from .errors import SourceError
 from .storage.artifacts import _key_digest
 from .storage.knowledge_structures import _prune_unreferenced_structures
 from .storage.tables import VoiceConversation as Conversation, VoiceTurn as Turn, Material, database_session
 from .podcasts import validate_audio
-from .generation_jobs import generation_response, cancellable_job
+from .generation_jobs import cancellable_job
 from . import retrieval, material_qa
 
 
 ACTIVE = ('transcribing', 'pending', 'answering', 'speaking')
 
 
-def provider(path, body):
-    base = os.environ.get('STUDYDY_PODCAST_PROVIDER_URL', '').rstrip('/')
-    token = os.environ.get('STUDYDY_PODCAST_PROVIDER_TOKEN', '')
-    if not base or not token:
-        raise SourceError('VOICE_PROVIDER_UNAVAILABLE')
-    request = Request(base + path, data=json.dumps(body, ensure_ascii=False).encode(),
-        headers={'Content-Type':'application/json','Authorization': 'Bearer ' + token})
-    try:
-        with (urlopen(request, timeout=5) if path == '/luna-health' else generation_response(request)) as response:
-            data = response.read(20 * 1024 * 1024 + 1)
-    except HTTPError as error:
-        try: code=json.loads(error.read(4096)).get('error_code')
-        except Exception: code=None
-        if code in {'VOICE_TRANSCRIPT_INVALID','PODCAST_AUDIO_INVALID','LUNA_GENERATION_FAILED','LUNA_GENERATION_TIMEOUT','SCENE_ALIGNMENT_FAILED'}:
-            raise SourceError(code) from None
-        raise SourceError('VOICE_PROVIDER_UNAVAILABLE' if error.code==503 else 'VOICE_PROVIDER_FAILED') from None
-    if len(data) > 20 * 1024 * 1024:
-        raise SourceError('VOICE_PROVIDER_FAILED')
-    return data if path == '/audio' else json.loads(data)
 
 
 def _conversation(db, owner, identity, *, read=False):

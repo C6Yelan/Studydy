@@ -9,14 +9,8 @@ from knowledge_map.structure import (
     SemanticState, apply_semantic_response, build_document_context,
     build_semantic_bundles, semantic_request, semantic_response_schema,
 )
-from pdf_evidence.ocr_page_evidence import (
-    _native_text_blocks,
-    build_native_page_evidence,
-    build_page_evidence,
-    canonical_bytes,
-    extract_page,
-    route_page,
-)
+from pdf_evidence.ocr_page_evidence import _native_text_blocks, build_native_page_evidence, build_page_evidence, extract_page, route_page
+from content_identity import canonical_bytes
 
 
 def test_canonical_bytes_preserves_existing_utf8_and_lone_surrogates():

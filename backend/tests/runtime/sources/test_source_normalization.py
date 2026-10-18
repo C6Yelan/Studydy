@@ -10,7 +10,8 @@ import psycopg
 import pytest
 from sqlalchemy import select
 from document_normalization.converter import convert,conversion_policy,MIME
-from runtime.source_normalization import create_draft,upload_source,read_sources,normalize_next,SourceError
+from runtime.source_normalization import create_draft, upload_source, read_sources, normalize_next
+from runtime.errors import SourceError
 from runtime.source_revisions import create_revision
 from runtime.source_resolver import bind_structure_input
 from runtime.storage.knowledge_structures import resolve_evidence_source

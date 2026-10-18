@@ -5,7 +5,7 @@ from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from .. import voice
-from ..source_normalization import SourceError
+from ..errors import SourceError
 from .media import bytes_response
 
 

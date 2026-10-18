@@ -6,7 +6,7 @@ from knowledge_map.semantic_projection import SemanticState, build_semantic_bund
 from knowledge_map.independent_blocks import block_request, block_schema, project_block, merge_block
 from knowledge_map.localization import localize_block, POLICY as LOCALIZATION_POLICY
 from runtime.semantic_service import semantic_client, SemanticServiceError
-from .ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 
 
 def analyze_blocks(context, state, progress, *, lock, fits, semantic_call, archive,

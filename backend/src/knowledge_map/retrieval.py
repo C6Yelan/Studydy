@@ -6,7 +6,7 @@ import math
 import re
 import unicodedata
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 
 
 POLICY = 'evidence-passages/v1'

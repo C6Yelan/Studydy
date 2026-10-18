@@ -8,7 +8,7 @@ import pytest
 
 from learning_adaptation import assessment_sets as sets, assessments
 from learning_adaptation.learner_progress import derive_learner_progress
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from runtime import material_processing
 from runtime.storage import artifacts, source_artifacts
 from runtime.storage.knowledge_structures import read_knowledge_structure, KnowledgeStructureStoreError, resolve_evidence_source

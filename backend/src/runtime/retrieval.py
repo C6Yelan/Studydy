@@ -8,8 +8,8 @@ from sqlalchemy import func, literal_column, select
 from sqlalchemy.dialects.postgresql import insert
 
 from knowledge_map.retrieval import POLICY, distinct_passages, rank_texts, terms
-from pdf_evidence.ocr_page_evidence import canonical_sha256
-from .source_normalization import SourceError
+from content_identity import canonical_sha256
+from .errors import SourceError
 from .storage.tables import Material, MaterialPassage, MaterialRetrievalIndex
 
 

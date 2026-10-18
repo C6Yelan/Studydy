@@ -7,7 +7,7 @@ from product_fixtures import closed_loop
 from sources.test_source_revisions import revisions
 from runtime import voice
 from qa_fixtures import grounded_answer, qa_model
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 from runtime.card_sets import CardSetError
 from runtime.storage.tables import VoiceConversation, VoiceTurn, database_session
 from runtime.material_discard import request_material_discard

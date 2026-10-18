@@ -1,5 +1,5 @@
 from runtime import research_reading as reading, research_sources as sources
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 from test_research_web import BODY
 
 

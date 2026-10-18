@@ -15,7 +15,7 @@ from runtime.learner_session import register_account
 from runtime.material_discard import request_material_discard
 from runtime.podcast_video_plan import POLICY
 from runtime.scene_alignment import normalized
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 from runtime.storage.tables import Artifact,Podcast,PodcastVideo,database_session
 
 

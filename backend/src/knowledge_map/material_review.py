@@ -9,7 +9,7 @@ import unicodedata
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from .semantic_projection import _project_claim
 from .structure_rules import (
     RELATION_BASIS, RELATION_PRIORITY,

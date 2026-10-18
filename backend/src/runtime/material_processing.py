@@ -13,7 +13,8 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import case, func, select, update
 
-from pdf_evidence.material_pipeline import MaterialAnalysisError, analyze_material
+from pdf_evidence.material_pipeline import analyze_material
+from runtime.material_runtime import MaterialAnalysisError
 from runtime.semantic_service import SemanticServiceError
 
 from .storage.knowledge_structures import KnowledgeStructureStoreError, publish_knowledge_structure

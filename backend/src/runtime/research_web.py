@@ -14,7 +14,7 @@ import httpx
 from trafilatura import extract, extract_metadata
 from trafilatura.utils import load_html
 
-from .source_normalization import SourceError
+from .errors import SourceError
 
 _search_cache=OrderedDict()
 _search_lock=Lock()

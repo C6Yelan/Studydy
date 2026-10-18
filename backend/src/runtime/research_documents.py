@@ -5,7 +5,7 @@ from hashlib import sha256
 
 from sqlalchemy import delete, select
 
-from .source_normalization import SourceError
+from .errors import SourceError
 from .storage.tables import ResearchDocument, database_session
 
 

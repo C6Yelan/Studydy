@@ -8,7 +8,7 @@ import math
 import re
 from typing import Any
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from .claim_literals import preserves_literals
 
 from .structure_rules import (

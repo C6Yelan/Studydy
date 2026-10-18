@@ -13,11 +13,12 @@ from urllib.error import HTTPError
 from urllib.request import Request
 
 from sqlalchemy import delete, select, text
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from . import podcasts
 from .podcast_video_plan import POLICY, script_digest, timeline_for_video, validate_plan, validate_visual_timing
-from .source_normalization import SourceError
-from .generation_jobs import cancellable_job, generation_response
+from .errors import SourceError
+from .generation_jobs import cancellable_job
+from .provider_http import generation_response
 from .storage.artifacts import quarantine_source_pdf
 from .storage.knowledge_structures import _read_verified_document
 from .storage.source_artifacts import open_verified_artifact, write_blob

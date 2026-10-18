@@ -153,7 +153,7 @@ def test_concurrent_install_applies_each_version_once(clean_database_dsn):
 
 def test_remove_topic_level_preserves_background_and_approval_identity(clean_database_dsn, migrations_dir, tmp_path):
     from psycopg.types.json import Jsonb
-    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    from content_identity import canonical_sha256
     from runtime.storage.artifacts import _key_digest
     from runtime import topics
 
@@ -194,7 +194,7 @@ def test_remove_topic_level_preserves_background_and_approval_identity(clean_dat
 
 def test_remove_topic_exclusions_keeps_constraints_editable(clean_database_dsn, migrations_dir, tmp_path):
     from psycopg.types.json import Jsonb
-    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    from content_identity import canonical_sha256
     from runtime.storage.artifacts import _key_digest
     from runtime import topics
 

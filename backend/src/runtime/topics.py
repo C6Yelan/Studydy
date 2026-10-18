@@ -3,13 +3,14 @@ from copy import deepcopy
 from datetime import UTC,datetime,timedelta
 from uuid import uuid4
 from sqlalchemy import or_,select
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from . import research
 from . import research_documents
-from .source_normalization import SourceError,create_draft
+from .source_normalization import create_draft
+from .errors import SourceError
 from .storage.artifacts import _key_digest
 from .storage.tables import TopicScope,MaterialResearch,Learner,Material,database_session
-from .voice import provider
+from .provider_http import provider
 from .generation_jobs import cancellable_job
 
 

@@ -8,7 +8,8 @@ from sources.test_source_revisions import revisions,pdf
 from runtime import topics,research
 from runtime.card_sets import CardSetError
 from research_fixtures import review_provider,search_to_selection
-from runtime.source_normalization import SourceError,normalize_next
+from runtime.source_normalization import normalize_next
+from runtime.errors import SourceError
 from runtime.material_discard import request_material_discard
 from runtime.storage.tables import TopicScope,MaterialResearch,Material,database_session
 

@@ -9,7 +9,8 @@ from sources.test_source_revisions import revisions,pdf
 from runtime import research,voice
 from research_fixtures import review_provider,search_to_selection,continue_provider
 from runtime.card_sets import CardSetError
-from runtime.source_normalization import SourceError,normalize_next
+from runtime.source_normalization import normalize_next
+from runtime.errors import SourceError
 from runtime.storage.tables import MaterialResearch,MaterialSource,Material,database_session
 from runtime.storage.knowledge_structures import read_knowledge_structure
 
@@ -159,7 +160,7 @@ def test_waiting_normalization_does_not_starve_new_search(closed_loop,monkeypatc
 def test_analysis_retry_updates_research_entry_atomically(revisions,monkeypatch):
     from runtime import material_processing as processing
     from runtime.source_revisions import retry_revision
-    from pdf_evidence.material_pipeline import MaterialAnalysisError
+    from runtime.material_runtime import MaterialAnalysisError
     learner,material,settings,dsn,_,_,execute,_,_,_=revisions;owner=learner.learner_id
     identity=ready(owner,material,dsn,monkeypatch)
     submitted=research.submit(owner,identity,settings,dsn=dsn)

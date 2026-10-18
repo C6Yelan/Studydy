@@ -3,7 +3,7 @@
 from collections import defaultdict
 from copy import deepcopy
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 
 from .semantic_projection import SemanticState
 

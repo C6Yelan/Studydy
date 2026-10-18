@@ -12,7 +12,7 @@ from knowledge_map.localization import POLICY as LOCALIZATION_POLICY, _needs_tra
 from knowledge_map.claim_literals import language_correction_template, restore_literals
 from knowledge_map.structure import build_knowledge_structure_view, _revision
 from knowledge_map.structure_rules import RELATION_TYPES
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from .semantic_service import SemanticServiceError, request_semantics, semantic_client
 
 

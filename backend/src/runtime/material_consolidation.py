@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from knowledge_map import consolidation as merge
 from knowledge_map.material_review import ReviewError, _name
 from knowledge_map.structure_rules import _revision
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from .semantic_service import SemanticServiceError, request_semantics, semantic_client
 
 

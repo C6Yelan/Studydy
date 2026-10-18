@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from sqlalchemy import or_, select
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from . import card_design as design
 from .generation_jobs import WORKER_LEASE_TTL, check_job
 from .semantic_service import _luna_token_count, request_semantics, semantic_client, SemanticServiceError

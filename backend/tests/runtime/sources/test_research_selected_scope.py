@@ -17,7 +17,7 @@ from runtime.storage.tables import Material, MaterialRetrievalIndex, MaterialSou
 def test_source_set_preserves_nul_in_selected_quotes(revisions, monkeypatch):
     learner, material, _, dsn, add, start, _, _, old, _ = revisions
     from runtime.source_revisions import _descriptor
-    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    from content_identity import canonical_sha256
     identity = add('Selected.pdf', 'A queue removes the first inserted item first.')
     with database_session(dsn) as db:
         job = db.get(SourceNormalization, identity)

@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from .ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from .source_pdf import snapshot_pdf_source
 from .analysis_scope import selected_pages, scoped_page
 

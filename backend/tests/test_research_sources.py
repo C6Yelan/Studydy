@@ -1,6 +1,6 @@
 import pytest
 from runtime import research_sources as sources
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 
 @pytest.mark.parametrize('url',['http://example.org/x','https://127.0.0.1/x','https://[::1]/x','https://user:password@example.org/x','https://example.org:8443/x','file:///tmp/a'])
 def test_reject_unsafe_download_targets(url):

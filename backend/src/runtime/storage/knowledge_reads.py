@@ -5,7 +5,7 @@ from sqlalchemy import insert, select, text
 from knowledge_map.source_identity import _claims
 from learning_adaptation.learning_states import progress_plan
 from learning_adaptation.map_context import _context_from_validated_document
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from . import card_sources
 from .knowledge_structures import KnowledgeStructureStoreError, _read_verified_document
 from .tables import (CardSourceConcept, KnowledgeReadIndex, KnowledgeEvidenceRef, KnowledgeStructure, Material,
@@ -127,7 +127,7 @@ def concept_context(session, owner, material_id, revision, identities, *, neighb
 
 
 def evidence_source(session, owner, material_id, revision, evidence_id):
-    from ..source_normalization import SourceError
+    from ..errors import SourceError
     metadata(session, owner, material_id, revision)
     reference = session.get(KnowledgeEvidenceRef, (owner, material_id, revision, evidence_id))
     if reference is None:

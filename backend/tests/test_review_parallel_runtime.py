@@ -122,7 +122,7 @@ def test_capacity_split_scopes_complete_pages_and_keeps_approved_scope(tmp_path,
 
 def test_oversized_single_concept_keeps_complete_cited_pages_and_cached_resume(tmp_path, monkeypatch):
     from knowledge_map.material_review import _pack_review
-    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    from content_identity import canonical_sha256
     view, original = inputs(2)
     # 同一概念跨兩頁引用；同頁其他段落也必須保留。
     view['concepts'][0]['claims'][0]['evidence'].append(deepcopy(view['concepts'][5]['claims'][0]['evidence'][0]))

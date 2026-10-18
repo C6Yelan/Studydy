@@ -23,7 +23,7 @@ def _lock() -> dict:
 def test_gemma_64k_capacity_upgrade_preserves_old_binding_and_rejects_downgrade():
     from copy import deepcopy
     from runtime.material_runtime import runtime_binding, runtime_binding_is_valid, same_material_runtime
-    from pdf_evidence.material_pipeline import validate_runtime_lock
+    from runtime.material_runtime import validate_runtime_lock
     from runtime.local_app import read_local_ai_config_from_environment
     old = read_local_ai_config_from_environment({})
     old['runtime_lock'] = _lock()
@@ -51,7 +51,7 @@ def test_gemma_64k_still_reserves_material_output_room(count, fits):
 @pytest.mark.parametrize('field', ['max_tokens', 'check_max_tokens'])
 @pytest.mark.parametrize('value', [0, -1, True, '16384', 32769])
 def test_assessment_budget_must_be_an_integer_within_context(field, value):
-    from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
+    from runtime.material_runtime import MaterialAnalysisError, validate_runtime_lock
 
     lock = _lock()
     lock['assessment'][field] = value
@@ -124,7 +124,7 @@ def test_tasks_share_configured_http_wire(task, budget):
     ('example/semantic-model', 32768, True, False),
 ])
 def test_preflight_checks_configured_model_and_service_identity(model, context, extra_model, accepted):
-    from pdf_evidence.material_pipeline import validate_runtime_lock
+    from runtime.material_runtime import validate_runtime_lock
 
     lock = _lock()
     lock["semantic_service"].update(model_id="example/semantic-model", revision="a" * 40)
@@ -239,7 +239,7 @@ def test_offline_ai_requests_report_fixed_service_error(failure, reason):
 ])
 def test_wrong_contract_is_rejected_by_lock_and_client_before_network(field, value):
     """模型身分不可為空；服務網路位置與能力限制仍在呼叫前檢查。"""
-    from pdf_evidence.material_pipeline import MaterialAnalysisError, validate_runtime_lock
+    from runtime.material_runtime import MaterialAnalysisError, validate_runtime_lock
     lock = _lock()
     validate_runtime_lock(lock)
     lock["semantic_service"][field] = value

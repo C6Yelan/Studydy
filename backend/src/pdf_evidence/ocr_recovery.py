@@ -8,7 +8,8 @@ import tempfile
 import pymupdf
 
 from .local_ai_process import LocalAIError, start_ocr_process
-from .ocr_page_evidence import canonical_sha256, _normalized_text
+from .ocr_page_evidence import _normalized_text
+from content_identity import canonical_sha256
 from .source_pdf import snapshot_pdf_source
 
 

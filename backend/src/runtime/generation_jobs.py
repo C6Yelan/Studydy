@@ -1,15 +1,11 @@
 """背景生成的續租、取消與 HTTP 等待；生成耗時不等於工作失聯。"""
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from http.client import HTTPConnection, HTTPSConnection
-from io import BytesIO
 import json
 import logging
 import os
 from threading import Event, Thread
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError
-from urllib.parse import urlsplit
 from uuid import uuid4
 from sqlalchemy import update
 from sqlalchemy.exc import SQLAlchemyError
@@ -116,25 +112,3 @@ def cancellable_job(model, identity, lease_token, *, dsn, statuses=('running',))
         check_job(model, identity, lease_token, dsn=dsn, statuses=statuses)
     with provider_job(check, {'job_id':str(identity),'job_token':str(lease_token)}) as metadata:
         yield metadata
-
-
-@contextmanager
-def generation_response(request):
-    """連線仍有期限；連上後等待生成完成，不以固定秒數截斷生成。"""
-    target = urlsplit(request.full_url)
-    if target.scheme not in ('http', 'https'):
-        raise ValueError('GENERATION_PROVIDER_UNAVAILABLE')
-    connection = (HTTPSConnection if target.scheme == 'https' else HTTPConnection)(
-        target.hostname, target.port, timeout=10)
-    try:
-        connection.connect()
-        connection.sock.settimeout(None)
-        connection.request(request.get_method(), request.selector, body=request.data,
-                           headers=dict(request.header_items()))
-        with connection.getresponse() as response:
-            if response.status >= 400:
-                raise HTTPError(request.full_url, response.status, response.reason,
-                                response.headers, BytesIO(response.read(4096)))
-            yield response
-    finally:
-        connection.close()

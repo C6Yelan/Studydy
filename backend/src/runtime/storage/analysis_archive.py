@@ -13,7 +13,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
+from content_identity import canonical_bytes, canonical_sha256
 from .artifacts import _root, _sync_directory
 from .tables import Material, MaterialProcessingRun, database_session
 from ..material_runtime import same_material_runtime

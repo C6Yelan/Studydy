@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 
 import pytest
-from runtime import podcast_process
+from runtime import podcast_process, provider_http
 from test_podcast_provider import provider
 
 
@@ -199,8 +199,7 @@ def test_no_generation_deadline_even_when_clock_passes_old_limits(monkeypatch,tm
 
 
 def test_audio_transport_keeps_connection_timeout_but_not_generation_timeout(provider_server,monkeypatch):
-    from runtime import generation_jobs
-    observed=[];connection=generation_jobs.HTTPConnection
+    observed=[];connection=provider_http.HTTPConnection
     class ObservedConnection(connection):
         def connect(self):
             observed.append(self.timeout)
@@ -208,11 +207,11 @@ def test_audio_transport_keeps_connection_timeout_but_not_generation_timeout(pro
         def getresponse(self):
             observed.append(self.sock.gettimeout())
             return super().getresponse()
-    monkeypatch.setattr(generation_jobs,'HTTPConnection',ObservedConnection)
+    monkeypatch.setattr(provider_http,'HTTPConnection',ObservedConnection)
     monkeypatch.setattr(provider,'audio',lambda *a,**k:(b'RIFFsynthetic',None))
     request=Request(provider_server+'/audio',data=b'{"purpose":"podcast"}',headers={
         'Content-Type':'application/json','Authorization':'Bearer synthetic-provider-token'})
-    with generation_jobs.generation_response(request) as response:
+    with provider_http.generation_response(request) as response:
         assert response.read()==b'RIFFsynthetic'
     assert observed==[10,None]
 

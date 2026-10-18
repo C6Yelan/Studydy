@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from sqlalchemy import select
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from .knowledge_structures import _binding, _view, _read_verified_document, KnowledgeStructureStoreError
 from .tables import CardSourceConcept, CardSourceIndex, KnowledgeStructure, MaterialProcessingRun, MaterialSourceSet
 

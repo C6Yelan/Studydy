@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 
 
 STRUCTURE_SCHEMA = "knowledge-structure/v1"

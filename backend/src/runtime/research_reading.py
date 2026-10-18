@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlsplit
 from lxml import etree
 from . import research_sources as sources
 from .research_web import canonical_url, html_document
-from .source_normalization import SourceError
+from .errors import SourceError
 
 
 def access_failure(error, url):

@@ -22,7 +22,7 @@ def _environment(tmp_path: Path) -> dict[str, str]:
 @pytest.mark.parametrize("field,value", [("model_id", "example/other-model"), ("model_revision", "a" * 40)])
 def test_stored_runtime_binding_rejects_wrong_identity_even_with_valid_hash(tmp_path, field, value):
     """重算 binding hash 不能讓與保存快照不同的模型身分通過。"""
-    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    from content_identity import canonical_sha256
     from runtime.material_runtime import lock_matches_binding
     config = local_app.read_local_ai_config_from_environment(_environment(tmp_path))
     binding = runtime_binding(config)
@@ -75,7 +75,7 @@ def test_runtime_verify_loads_only_ocr_sidecar(tmp_path, monkeypatch):
 
 
 def test_runtime_verify_reports_lock_contention_as_busy():
-    from pdf_evidence.material_pipeline import MaterialAnalysisError
+    from runtime.material_runtime import MaterialAnalysisError
     assert local_runtime._failure(MaterialAnalysisError('RUNTIME_BUSY'))['reason'] == 'RUNTIME_BUSY'
 
 

@@ -12,7 +12,7 @@ import pytest
 from knowledge_map.structure import SemanticState, apply_semantic_response, build_document_context
 from learning_adaptation import assessment_sets as sets
 from learning_adaptation.study_sessions import create_study_session
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from product_fixtures import closed_loop, library_materials, publish_fixture_structure, seed_pdf, seed_run
 from runtime.material_processing import _record_progress, claim_next_material_processing_run
 from runtime.semantic_service import SemanticServiceError

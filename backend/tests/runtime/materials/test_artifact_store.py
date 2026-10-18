@@ -11,7 +11,7 @@ import pytest
 import runtime.storage.artifacts as artifact_storage
 
 from runtime.storage.artifacts import ArtifactError, open_verified_source_pdf
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 from runtime.storage.migrations import run_migrations
 from product_fixtures import seed_pdf
 

@@ -6,7 +6,7 @@ from product_fixtures import closed_loop
 from materials.test_podcasts import create,complete,wav
 from runtime import podcast_scenes as scenes,podcasts
 from runtime.scene_alignment import normalized
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 from runtime.storage.tables import PodcastScenes,Podcast,database_session
 
 

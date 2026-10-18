@@ -17,7 +17,7 @@ from knowledge_map.structure import (
 
 from .tables import KnowledgeStructure, Material, MaterialProcessingRun, database_session
 from .source_artifacts import open_verified_artifact
-from ..source_normalization import SourceError
+from ..errors import SourceError
 from ..source_resolver import verify_structure_input, verify_source_files
 
 

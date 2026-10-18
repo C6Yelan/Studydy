@@ -4,8 +4,8 @@ from runtime.luna_test import test_lock as luna_lock
 from runtime.local_app import _runtime_lock as _current_runtime_lock,read_local_ai_config_from_environment
 from runtime.material_runtime import runtime_binding,runtime_binding_is_valid,lock_matches_binding
 from runtime.semantic_service import request_semantics,preflight_semantic_service,material_request_fits
-from pdf_evidence.material_pipeline import validate_runtime_lock
-from runtime import voice
+from runtime.material_runtime import validate_runtime_lock
+from runtime import provider_http
 from test_podcast_process import provider_server
 
 
@@ -34,7 +34,7 @@ def test_luna_semantics_and_preflight_never_call_gemma(monkeypatch):
     def provider(path,body):
         calls.append((path,body))
         return {'model':'gpt-5.6-luna'} if path=='/luna-health' else {'concepts':[],'relations':[]}
-    monkeypatch.setattr(voice,'provider',provider)
+    monkeypatch.setattr(provider_http,'provider',provider)
     class NoGemma:
         def __getattr__(self,name):raise AssertionError('Gemma must not be called')
     preflight_semantic_service(lock,client=NoGemma())
@@ -104,7 +104,7 @@ def test_luna_all_semantic_tasks_block_before_provider_at_shared_64k_limit(monke
     count = 65536 - reserve
     monkeypatch.setattr(service, '_luna_input_tokens', lambda *_: count)
     calls = []
-    monkeypatch.setattr(voice, 'provider', lambda *args: calls.append(args) or {'ok': True})
+    monkeypatch.setattr(provider_http, 'provider', lambda *args: calls.append(args) or {'ok': True})
     arguments = dict(runtime_lock=lock, task=task, request={}, response_schema={})
     assert request_semantics(None, **arguments) == {'ok': True}
     count += 1
@@ -119,7 +119,7 @@ def test_luna_rejects_returned_output_over_remaining_budget(monkeypatch, output_
     lock = luna_lock(_runtime_lock())
     monkeypatch.setattr(service, '_luna_input_tokens', lambda *_: 57344)
     monkeypatch.setattr(service, '_luna_token_count', lambda *_: output_tokens)
-    monkeypatch.setattr(voice, 'provider', lambda *_: {'ok': True})
+    monkeypatch.setattr(provider_http, 'provider', lambda *_: {'ok': True})
     arguments = dict(runtime_lock=lock, task='material_semantics', request={}, response_schema={})
     if accepted:
         assert request_semantics(None, **arguments) == {'ok': True}

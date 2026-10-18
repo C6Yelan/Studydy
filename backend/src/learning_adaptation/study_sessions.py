@@ -15,7 +15,7 @@ from runtime.storage.tables import StudySession, database_session
 
 from .map_context import MapContext, _context_from_validated_document
 from runtime.storage.knowledge_structures import _read_verified_document, KnowledgeStructureStoreError
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 
 
 _REVISION = re.compile(r"knowledge-structure:sha256:[0-9a-f]{64}")

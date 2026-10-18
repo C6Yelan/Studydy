@@ -7,7 +7,7 @@ import re
 
 from knowledge_map.retrieval import rank_texts
 from .semantic_service import _luna_token_count
-from .source_normalization import SourceError
+from .errors import SourceError
 
 
 INPUT_TOKENS = 12000

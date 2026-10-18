@@ -11,7 +11,7 @@ from test_source_revisions import pdf, revisions
 from runtime import material_processing as processing
 from runtime.source_normalization import create_draft, upload_source, normalize_next, read_sources
 from runtime.source_revisions import create_revision
-from pdf_evidence.material_pipeline import MaterialAnalysisError
+from runtime.material_runtime import MaterialAnalysisError
 
 
 def test_failed_initial_source_can_be_replaced_in_browser(revisions, monkeypatch, tmp_path):

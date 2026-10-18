@@ -5,7 +5,7 @@ from product_fixtures import closed_loop
 from runtime.storage.tables import KnowledgeStructure,Podcast,VoiceConversation,VoiceTurn,database_session
 from runtime.storage.evidence_json import EvidenceJSONB
 from runtime import podcasts,voice
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 
 
 def test_lossless_json_database_roundtrip_preserves_literals_and_hash(closed_loop):

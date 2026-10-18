@@ -7,7 +7,8 @@ from urllib.request import Request
 from urllib.error import HTTPError
 
 from . import podcasts
-from .generation_jobs import cancellable_job, generation_response
+from .generation_jobs import cancellable_job
+from .provider_http import generation_response
 from .storage.tables import Podcast
 
 

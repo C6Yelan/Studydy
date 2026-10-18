@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from pdf_evidence.ocr_page_evidence import canonical_bytes
+from content_identity import canonical_bytes
 
 
 API_KEY_ENV = "VLLM_API_KEY"
@@ -168,7 +168,7 @@ def preflight_semantic_service(
 
     from .luna_test import enabled
     if enabled(runtime_lock):
-        from .voice import provider
+        from .provider_http import provider
         try:
             result = provider('/luna-health', {})
         except Exception:
@@ -315,7 +315,7 @@ def request_semantics(
     from .luna_test import enabled
     if enabled(runtime_lock):
         if task not in MIN_OUTPUT_TOKENS: raise SemanticServiceError('SEMANTIC_SERVICE_CONFIG_INVALID')
-        from .voice import provider
+        from .provider_http import provider
         if cancellation_check: cancellation_check()
         task_lock = runtime_lock['assessment' if task == 'assessment_check' else task]
         prefix = 'check_' if task == 'assessment_check' else ''

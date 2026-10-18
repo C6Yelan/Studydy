@@ -1,7 +1,7 @@
 """整個概念的卡面設計；模型安排重點與圖解，原文與 Evidence 保留不動。"""
 from copy import deepcopy
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 
 POLICY = 'concept-card-design/v1'
 ICONS = ('none', 'book', 'bulb', 'database', 'cpu', 'network', 'arrows-exchange', 'shield', 'code', 'list-check', 'hierarchy', 'clock')

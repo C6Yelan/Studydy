@@ -1,7 +1,7 @@
 from copy import deepcopy
 import pytest
 from runtime import research_workflow as flow
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 from research_fixtures import review_provider, requested_coverage
 
 

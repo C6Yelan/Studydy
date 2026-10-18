@@ -8,11 +8,11 @@ from urllib.parse import urlsplit
 
 from . import research_sources
 from .research_reading import inspect_candidate, access_failure
-from .source_normalization import SourceError
+from .errors import SourceError
 from .research_web import canonical_url, wikipedia_article
 from .research_preview import prepare_preview, reading_windows
 from knowledge_map.retrieval import rank_texts
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 
 # 這些大小只切分模型請求與 worker 工作，不截斷來源、不決定品質是否合格。
 SCREEN_BATCH = 8

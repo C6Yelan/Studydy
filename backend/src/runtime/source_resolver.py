@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from pdf_evidence.analysis_scope import selected_pages
 from knowledge_map.structure import finalize_knowledge_structure
 
@@ -19,7 +19,7 @@ from .storage.tables import (
     database_session,
 )
 from .storage.source_artifacts import open_verified_artifact
-from .source_normalization import SourceError
+from .errors import SourceError
 from .material_runtime import lock_matches_binding
 
 

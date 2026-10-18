@@ -11,7 +11,7 @@ from uuid import UUID
 
 from sqlalchemy import case, or_, select
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from runtime.semantic_service import request_semantics, semantic_client
 from runtime.storage.tables import Assessment, StudySession, AssessmentSet, AssessmentSetItem
 

@@ -11,8 +11,8 @@ import pytest
 from knowledge_map.structure import build_document_context, SemanticState
 from knowledge_map.independent_blocks import block_request, block_schema, project_block, merge_block
 from pdf_evidence.semantic_blocks import analyze_blocks
-from pdf_evidence.ocr_page_evidence import canonical_sha256
-from pdf_evidence.material_pipeline import validate_runtime_lock
+from content_identity import canonical_sha256
+from runtime.material_runtime import validate_runtime_lock
 from runtime.local_app import _runtime_lock
 from runtime.luna_test import test_lock as luna_lock
 from runtime.material_runtime import runtime_binding, same_material_runtime

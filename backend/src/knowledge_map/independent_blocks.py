@@ -1,6 +1,6 @@
 """獨立來源子圖：模型只使用本地索引，全域身分及來源關係由程式維護。"""
 from .semantic_projection import SemanticState, semantic_request, semantic_response_schema, apply_semantic_response
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 
 POLICY = 'independent-evidence-blocks/v1'
 

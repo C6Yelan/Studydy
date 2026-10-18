@@ -14,7 +14,8 @@ from runtime.material_processing import (
     claim_next_material_processing_run, execute_claimed_material_processing_run,
     request_material_processing_cancellation,
 )
-from runtime.source_normalization import SourceError, create_draft, normalize_next, read_sources, upload_source
+from runtime.source_normalization import create_draft, normalize_next, read_sources, upload_source
+from runtime.errors import SourceError
 from runtime.source_revisions import create_revision
 from runtime.storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
 from runtime.storage.tables import KnowledgeStructure, Material, MaterialSourceSet, database_session
@@ -603,7 +604,7 @@ def test_worker_renews_lease_while_semantic_call_is_waiting(revisions,monkeypatc
 
 def test_failed_initial_source_can_be_removed_and_reuploaded_without_rewriting_history(revisions, monkeypatch):
     import psycopg
-    from pdf_evidence.material_pipeline import MaterialAnalysisError
+    from runtime.material_runtime import MaterialAnalysisError
     import runtime.material_processing as processing
     from runtime.source_normalization import remove_staged_source, retry_normalization
     from runtime.storage.database import connect_database

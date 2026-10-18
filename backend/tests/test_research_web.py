@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from runtime import research_sources as sources, research_web as web
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 
 
 BODY='''<html><head><title>A learning example</title><meta name="author" content="A Teacher">

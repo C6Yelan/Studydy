@@ -6,9 +6,10 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from pdf_evidence.analysis_scope import selected_pages
-from .source_normalization import SourceError, _material
+from .source_normalization import _material
+from .errors import SourceError
 from .material_runtime import runtime_binding
 from .storage.artifacts import _key_digest
 from .storage.tables import (

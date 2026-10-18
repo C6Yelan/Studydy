@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .errors import SourceError
+
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import PurePath
@@ -10,7 +12,7 @@ from uuid import uuid4
 from sqlalchemy import delete, or_, select
 
 from document_normalization.converter import MAX_FILE_BYTES, MIME, NormalizationError, conversion_policy, convert
-from pdf_evidence.ocr_page_evidence import canonical_bytes, canonical_sha256
+from content_identity import canonical_bytes, canonical_sha256
 from .storage.artifacts import _key_digest
 from .storage.source_artifacts import open_verified_artifact, reconcile_new_artifacts, write_blob
 from .storage.tables import (
@@ -25,8 +27,6 @@ from .storage.tables import (
 )
 
 
-class SourceError(RuntimeError):
-    pass
 
 
 def _material(session, owner, identity):

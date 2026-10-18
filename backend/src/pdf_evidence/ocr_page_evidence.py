@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from content_identity import canonical_bytes, canonical_sha256
+
 import hashlib
-import json
 import math
 import re
 from typing import Any
@@ -27,19 +28,8 @@ RENDER_POLICY = f"pymupdf-rgb-{RENDER_DPI}dpi/v1"
 _OCR_TYPE = re.compile(r"[A-Za-z_][\w-]*")
 
 
-def canonical_bytes(value: Any) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    # PDF 字型擷取可能含孤立 surrogate；以 JSON escape 無損保存，既有 UTF-8 hash 不變。
-    ).encode("utf-8", errors="backslashreplace")
 
 
-def canonical_sha256(value: Any) -> str:
-    return hashlib.sha256(canonical_bytes(value)).hexdigest()
 
 
 def _ref(kind: str, value: Any) -> str:

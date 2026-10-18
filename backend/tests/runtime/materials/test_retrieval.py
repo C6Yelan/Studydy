@@ -6,7 +6,7 @@ from sqlalchemy import select, literal_column
 
 from product_fixtures import closed_loop
 from runtime import retrieval
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 from runtime.storage.tables import MaterialPassage, MaterialRetrievalIndex, database_session
 
 

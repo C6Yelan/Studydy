@@ -6,21 +6,20 @@ import json
 import logging
 from threading import Event, Thread
 from types import SimpleNamespace
-import unicodedata
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, text
 
-from pdf_evidence.material_pipeline import validate_runtime_lock
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from runtime.material_runtime import validate_runtime_lock
+from content_identity import canonical_sha256
 from runtime.learner_session import TrustedLearner
 from runtime.semantic_service import SemanticServiceError, request_semantics
 from runtime.storage.tables import (
     Assessment, AssessmentSet, AssessmentSetItem, AnswerEvent,
-    KnowledgeStructure, Material, StudySession, database_session,
+    Material, StudySession, database_session,
 )
 from . import assessments
-from .learning_states import claim_completion
+from .learning_states import claim_completion, plan_concept_content
 from .map_context import _context_from_validated_document
 from runtime.storage.knowledge_structures import _read_verified_document
 
@@ -131,34 +130,6 @@ def plan_concept(context, concept_id):
     return plan_concept_content(concept)
 
 
-def plan_concept_content(concept):
-    targets, excluded, known = [], [], {}
-    for claim in concept.claims:
-        # 上游可能把完整定義／假設標成 heading；出題資格依引用內容，不能只靠版面類型。
-        if not any(item.quote.strip() for item in claim.evidence):
-            excluded.append({'claim_id': claim.claim_id, 'reason': 'no_content_evidence'})
-            continue
-        # 只合併相同來源與文字的重點；保留大小寫、數值與條件，不猜測語意等價。
-        identity = (
-            unicodedata.normalize('NFC', ' '.join(claim.text.split())),
-            tuple(sorted(item.evidence_id for item in claim.evidence)),
-        )
-        if identity in known:
-            targets[known[identity]]['covered_claim_ids'].append(claim.claim_id)
-            continue
-        known[identity] = len(targets)
-        targets.append({
-            'claim_id': claim.claim_id,
-            'covered_claim_ids': [claim.claim_id],
-            'reason': 'distinct_grounded_point',
-        })
-    return {
-        'policy': 'single-concept-grounded-points/v1',
-        'concept_id': concept.concept_id,
-        'point_count': len(concept.claims),
-        'targets': targets,
-        'excluded': excluded,
-    }
 
 
 def read_plan(learner, sid, concept_id, *, dsn=None):
@@ -544,7 +515,6 @@ def read_set(learner, sid, set_id, *, dsn=None):
 def _read_set(session, study, set_id):
     """由已驗證教材的同一 snapshot 投影題組；仍只輸出公開題目及本人作答回饋。"""
     from .answer_events import _event, _feedback
-    from runtime.api.models import project_answer_feedback
     sid = study.study_session_id
     group = _round(session, study, set_id)
     rows = _items(session, group)
@@ -560,9 +530,7 @@ def _read_set(session, study, set_id):
             event = session.scalar(select(AnswerEvent).where(AnswerEvent.study_session_id == sid,
                 AnswerEvent.assessment_revision == item.assessment_revision))
             if event is not None:
-                feedback = project_answer_feedback(
-                    _feedback(_event(event, assessment, study), assessment)
-                ).model_dump(by_alias=True)
+                feedback = _feedback(_event(event, assessment, study), assessment).model_dump(by_alias=True)
             else:
                 can_submit = membership_can_submit(session, study, assessment)
         projected.append({

@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, text
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from runtime.learner_session import TrustedLearner
 from runtime.storage.tables import Material, database_session
 

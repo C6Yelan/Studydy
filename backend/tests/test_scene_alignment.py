@@ -53,7 +53,7 @@ def test_unique_short_opening_keeps_its_measured_boundary():
 def test_diagram_requires_source_check_and_unsupported_result_keeps_original_text():
     from types import SimpleNamespace
     from runtime import podcast_scenes as scenes
-    from runtime.source_normalization import SourceError
+    from runtime.errors import SourceError
     claim={'claim_id':'synthetic-claim','concept_id':'synthetic-concept','label':'傳送流程',
         'text':'傳送步驟：1. 用戶端送出請求；2. 伺服器回覆結果','evidence':[]}
     spoken='第一步由用戶端送出請求，第二步伺服器回覆結果。'

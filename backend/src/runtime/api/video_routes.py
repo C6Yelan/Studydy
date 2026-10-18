@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
 from .. import podcast_videos
-from ..source_normalization import SourceError
+from ..errors import SourceError
 from ..storage.source_artifacts import open_verified_artifact
 from .media import artifact_response
 

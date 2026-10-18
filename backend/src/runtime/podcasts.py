@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import delete, or_, select, update
 
-from pdf_evidence.ocr_page_evidence import canonical_sha256
+from content_identity import canonical_sha256
 from .card_sets import _material, _validate_selection
 from .storage.artifacts import _key_digest, quarantine_source_pdf, reconcile_discarded_sources
 from .storage.tables import KnowledgeStructure
@@ -20,7 +20,7 @@ from .storage.tables import Artifact, Material, Podcast, PodcastScenes, PodcastV
 from .podcast_script import MAX_EPISODE_CLAIMS, MAX_SOURCE_TOKENS, MAX_SCRIPT_INPUT_TOKENS, script_input
 from . import retrieval
 from .semantic_service import _luna_token_count
-from .source_normalization import SourceError
+from .errors import SourceError
 
 
 from .generation_jobs import WORKER_LEASE_TTL

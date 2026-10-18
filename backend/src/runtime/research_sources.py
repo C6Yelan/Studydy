@@ -18,7 +18,7 @@ import unicodedata
 from html.parser import HTMLParser
 from html import unescape
 from urllib.parse import urlencode, urljoin, urlsplit, quote
-from .source_normalization import SourceError
+from .errors import SourceError
 
 MAX_BYTES=90*1024*1024
 LICENSES={'cc-by':'https://creativecommons.org/licenses/', 'cc0':'https://creativecommons.org/publicdomain/zero/1.0/'}

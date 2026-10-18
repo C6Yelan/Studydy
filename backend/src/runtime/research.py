@@ -7,10 +7,11 @@ from sqlalchemy import and_,or_,select,func,case
 from sqlalchemy.orm import object_session
 from . import research_sources
 from .card_sets import _material
-from .source_normalization import SourceError,upload_source
+from .source_normalization import upload_source
+from .errors import SourceError
 from .source_revisions import create_revision
 from .storage.tables import Material,MaterialResearch as Research,SourceNormalization,MaterialProcessingRun,TopicScope,KnowledgeStructure,database_session
-from .voice import provider
+from .provider_http import provider
 from .generation_jobs import cancellable_job
 from . import research_workflow
 from . import research_documents
@@ -181,7 +182,7 @@ def submit(owner,identity,config,*,dsn=None,attempt_token=None):
         if not items:raise SourceError('SOURCE_NOT_READY')
         material_id,base_revision=row.material_id,row.base_revision
         normalizations=list(dict.fromkeys(UUID(c['normalization_id']) for c in items))
-    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    from content_identity import canonical_sha256
     create_revision(owner,material_id,normalizations,'research:'+str(identity)+':'+canonical_sha256(base_revision),config,
         base_revision=base_revision,dsn=dsn,research_id=identity,research_token=attempt_token)
     with database_session(dsn) as db:research_documents.discard(db,identity,keep_sha256=keep_snapshots)

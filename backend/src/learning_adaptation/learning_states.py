@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from .answer_events import StoredAnswerEvent
+from typing import TYPE_CHECKING
+import unicodedata
+
+if TYPE_CHECKING:
+    from .answer_events import StoredAnswerEvent
 from .map_context import MapContext
 
 
@@ -36,18 +40,55 @@ def claim_completion(events) -> tuple[bool, int]:
     return False, len(correct_questions)
 
 
+def plan_concept_content(concept):
+    targets, excluded, known = [], [], {}
+    for claim in concept.claims:
+        # 上游可能把完整定義／假設標成 heading；出題資格依引用內容，不能只靠版面類型。
+        if not any(item.quote.strip() for item in claim.evidence):
+            excluded.append(
+                {"claim_id": claim.claim_id, "reason": "no_content_evidence"}
+            )
+            continue
+        # 只合併相同來源與文字的重點；保留大小寫、數值與條件，不猜測語意等價。
+        identity = (
+            unicodedata.normalize("NFC", " ".join(claim.text.split())),
+            tuple(sorted(item.evidence_id for item in claim.evidence)),
+        )
+        if identity in known:
+            targets[known[identity]]["covered_claim_ids"].append(claim.claim_id)
+            continue
+        known[identity] = len(targets)
+        targets.append(
+            {
+                "claim_id": claim.claim_id,
+                "covered_claim_ids": [claim.claim_id],
+                "reason": "distinct_grounded_point",
+            }
+        )
+    return {
+        "policy": "single-concept-grounded-points/v1",
+        "concept_id": concept.concept_id,
+        "point_count": len(concept.claims),
+        "targets": targets,
+        "excluded": excluded,
+    }
+
+
 def progress_plan(context: MapContext) -> dict:
     """發布時計算固定的可檢測重點，日常進度不必再讀文字與全部 Evidence。"""
-    from .assessment_sets import plan_concept_content
     return {
-        'knowledge_structure_revision': context.knowledge_structure_revision,
-        'initial_learning_path': list(context.initial_learning_path),
-        'concepts': [{
-            'concept_id': concept.concept_id, 'label': concept.label,
-            'claim_ids': [claim.claim_id for claim in concept.claims],
-            'prerequisite_ids': list(concept.prerequisite_ids),
-            'targets': plan_concept_content(concept)['targets'],
-        } for concept in context.concepts],
+        "knowledge_structure_revision": context.knowledge_structure_revision,
+        "initial_learning_path": list(context.initial_learning_path),
+        "concepts": [
+            {
+                "concept_id": concept.concept_id,
+                "label": concept.label,
+                "claim_ids": [claim.claim_id for claim in concept.claims],
+                "prerequisite_ids": list(concept.prerequisite_ids),
+                "targets": plan_concept_content(concept)["targets"],
+            }
+            for concept in context.concepts
+        ],
     }
 
 
@@ -64,12 +105,14 @@ def derive_learning_states(
     by_concept = {}
     for event in events:
         by_concept.setdefault(event.target_concept_id, []).append(event)
-    for concept in plan['concepts']:
-        concept_events = by_concept.get(concept['concept_id'], [])
+    for concept in plan["concepts"]:
+        concept_events = by_concept.get(concept["concept_id"], [])
         completed, covered, weak, assessable = set(), set(), set(), set()
-        for target in concept['targets']:
-            ids = set(target['covered_claim_ids'])
-            history = [event for event in concept_events if event.target_claim_id in ids]
+        for target in concept["targets"]:
+            ids = set(target["covered_claim_ids"])
+            history = [
+                event for event in concept_events if event.target_claim_id in ids
+            ]
             done, _ = claim_completion(history)
             if history:
                 covered.update(ids)
@@ -80,7 +123,9 @@ def derive_learning_states(
                 if history and not done:
                     weak.update(ids)
         # 曾完成的重點保留完成事實；目前無題的重點不形成補強 gate。
-        if concept['concept_id'] in (completed_concept_ids or set()) or (assessable and assessable <= completed):
+        if concept["concept_id"] in (completed_concept_ids or set()) or (
+            assessable and assessable <= completed
+        ):
             status = "completed"
             weak.clear()
         elif weak:
@@ -89,20 +134,31 @@ def derive_learning_states(
             status = "in_progress"
         else:
             status = "not_started"
-        claims = concept['claim_ids']
-        states.append(ConceptLearningState(
-            concept_id=concept['concept_id'],
-            label=concept['label'],
-            status=status,
-            attempts=len(concept_events),
-            correct_answers=sum(event.is_correct for event in concept_events),
-            qualified_correct_items=len({event.semantic_identity for event in concept_events
-                                         if event.is_correct and event.mastery_qualified}),
-            covered_claim_ids=[claim for claim in claims if claim in covered],
-            completed_claim_ids=[claim for claim in claims if claim in completed],
-            weak_claim_ids=[claim for claim in claims if claim in weak],
-            assessable_claim_ids=[claim for claim in claims if claim in assessable],
-            unavailable_claim_ids=[claim for claim in claims if claim not in assessable],
-            latest_is_correct=concept_events[-1].is_correct if concept_events else None,
-        ))
+        claims = concept["claim_ids"]
+        states.append(
+            ConceptLearningState(
+                concept_id=concept["concept_id"],
+                label=concept["label"],
+                status=status,
+                attempts=len(concept_events),
+                correct_answers=sum(event.is_correct for event in concept_events),
+                qualified_correct_items=len(
+                    {
+                        event.semantic_identity
+                        for event in concept_events
+                        if event.is_correct and event.mastery_qualified
+                    }
+                ),
+                covered_claim_ids=[claim for claim in claims if claim in covered],
+                completed_claim_ids=[claim for claim in claims if claim in completed],
+                weak_claim_ids=[claim for claim in claims if claim in weak],
+                assessable_claim_ids=[claim for claim in claims if claim in assessable],
+                unavailable_claim_ids=[
+                    claim for claim in claims if claim not in assessable
+                ],
+                latest_is_correct=concept_events[-1].is_correct
+                if concept_events
+                else None,
+            )
+        )
     return tuple(states)

@@ -3,7 +3,7 @@ from copy import deepcopy
 import pytest
 
 from runtime import material_qa as qa
-from runtime.source_normalization import SourceError
+from runtime.errors import SourceError
 
 
 def passage(identity='p0', text='A queue removes the first inserted element first.'):

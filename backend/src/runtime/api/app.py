@@ -51,10 +51,8 @@ from ..material_processing import (
     MaterialProcessingError, read_material_processing_run,
 )
 from ..material_runtime import MaterialRuntimeError, runtime_binding
-from ..source_normalization import (
-    SourceError, create_draft, read_sources, remove_staged_source,
-    retry_normalization, upload_source,
-)
+from ..source_normalization import create_draft, read_sources, remove_staged_source, retry_normalization, upload_source
+from ..errors import SourceError
 from ..source_revisions import create_revision
 from ..storage.artifacts import open_verified_source_pdf
 from ..storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
