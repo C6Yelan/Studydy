@@ -15,7 +15,10 @@ from .material_processing import (
 from .material_discard import finish_material_discards
 from .source_normalization import normalize_next
 from .storage.source_artifacts import reconcile_new_artifacts
-from .storage.analysis_archive import reconcile_removed_material_analysis, reconcile_published_checkpoints
+from .storage.analysis_archive import (
+    reconcile_removed_material_analysis,
+    reconcile_published_checkpoints,
+)
 from learning_adaptation.assessment_sets import run_next_set
 
 _IDLE_WAIT_SECONDS = 0.1
@@ -38,9 +41,14 @@ class RuntimeWorkers:
         if self._thread is not None:
             raise RuntimeError("RUNTIME_WORKERS_ALREADY_STARTED")
         from .luna_test import enabled
-        self._separate_assessments = os.environ.get('STUDYDY_LUNA_PARALLEL_TEST') == '1' and enabled(self.local_config.get('runtime_lock', {}))
+
+        self._separate_assessments = os.environ.get(
+            "STUDYDY_LUNA_PARALLEL_TEST"
+        ) == "1" and enabled(self.local_config.get("runtime_lock", {}))
         # lease／checkpoint 負責中斷恢復，阻塞的 I/O 不應卡住程序退出。
-        self._thread = Thread(target=self._loop, name="studydy-material-worker", daemon=True)
+        self._thread = Thread(
+            target=self._loop, name="studydy-material-worker", daemon=True
+        )
         try:
             self._thread.start()
         except Exception:
@@ -56,14 +64,18 @@ class RuntimeWorkers:
             self._thread = None
             raise startup_error
         if self._separate_assessments:
-            self._assessment_thread = Thread(target=self._assessment_loop, name='studydy-assessment-worker', daemon=True)
+            self._assessment_thread = Thread(
+                target=self._assessment_loop,
+                name="studydy-assessment-worker",
+                daemon=True,
+            )
             try:
                 self._assessment_thread.start()
             except Exception:
                 self._stop.set()
                 self._thread.join(timeout=_SHUTDOWN_WAIT_SECONDS)
                 self._assessment_thread = None
-                raise RuntimeError('RUNTIME_WORKERS_START_FAILED') from None
+                raise RuntimeError("RUNTIME_WORKERS_START_FAILED") from None
 
     def stop(self) -> None:
         self._stop.set()
@@ -78,7 +90,9 @@ class RuntimeWorkers:
             try:
                 run_next_set(dsn=self.dsn, shutdown=self._stop)
             except Exception:
-                logging.getLogger(__name__).warning('ASSESSMENT_WORKER_ITERATION_FAILED')
+                logging.getLogger(__name__).warning(
+                    "ASSESSMENT_WORKER_ITERATION_FAILED"
+                )
             self._stop.wait(_IDLE_WAIT_SECONDS)
 
     def _loop(self) -> None:
@@ -88,8 +102,10 @@ class RuntimeWorkers:
             try:
                 if is_starting:
                     for recover in (
-                        reconcile_new_artifacts, reconcile_removed_material_analysis,
-                        reconcile_published_checkpoints, recover_interrupted_material_runs,
+                        reconcile_new_artifacts,
+                        reconcile_removed_material_analysis,
+                        reconcile_published_checkpoints,
+                        recover_interrupted_material_runs,
                         finish_material_discards,
                     ):
                         if self._stop.is_set():
@@ -113,7 +129,10 @@ class RuntimeWorkers:
                 claim = claim_next_material_processing_run(dsn=self.dsn)
                 if claim is not None:
                     execute_claimed_material_processing_run(
-                        claim, deepcopy(self.local_config), dsn=self.dsn, shutdown=self._stop
+                        claim,
+                        deepcopy(self.local_config),
+                        dsn=self.dsn,
+                        shutdown=self._stop,
                     )
                 if self._stop.is_set():
                     return

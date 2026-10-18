@@ -22,32 +22,53 @@ def rebase_page(page, digest, number):
     )
     for block in result["evidence_blocks"]:
         region = block["locator"]["region"]
-        block_id = _ref("block", {
-            "page_ref": page_ref,
-            "reading_order": block["reading_order"],
-            "region": region,
-        })
+        block_id = _ref(
+            "block",
+            {
+                "page_ref": page_ref,
+                "reading_order": block["reading_order"],
+                "region": region,
+            },
+        )
         block["block_id"] = block_id
         block["locator"] = {"page": number, "block_id": block_id, "region": region}
-        block["evidence_id"] = _ref("evidence", {
-            "page_ref": page_ref,
-            "block_id": block_id,
-            "kind": block["kind"],
-            "source": block["source"],
-            "text": block["text"],
-            "reading_order": block["reading_order"],
-            "region": region,
-        })
+        block["evidence_id"] = _ref(
+            "evidence",
+            {
+                "page_ref": page_ref,
+                "block_id": block_id,
+                "kind": block["kind"],
+                "source": block["source"],
+                "text": block["text"],
+                "reading_order": block["reading_order"],
+                "region": region,
+            },
+        )
     return result
 
 
 def collect_source_set(
-    inputs, binding, base, directory, settings, produced_at, report, check_cancel, extract, *, analysis_archive=None,
+    inputs,
+    binding,
+    base,
+    directory,
+    settings,
+    produced_at,
+    report,
+    check_cancel,
+    extract,
+    *,
+    analysis_archive=None,
 ):
     digest = binding["source_set_digest"]
     total_pages = len(binding["bundle"]["pages"])
     pages, excluded, ocr_calls = [], [], 0
     offset = 0
+    # 追加大型教材時依頁重用原 Evidence，避免每一頁重掃整份既有地圖。
+    base_evidence = {}
+    if base is not None:
+        for evidence in base["evidence"]:
+            base_evidence.setdefault(evidence["page"], []).append(evidence)
     for index, (source, item) in enumerate(zip(inputs, binding["manifest"]["items"])):
         check_cancel()
         snapshot = directory / f"source-{index}.pdf"
@@ -60,14 +81,13 @@ def collect_source_set(
             raise ValueError("SOURCE_BINDING_INVALID")
         selected = selected_pages(item)
         page_count = len(selected)
-        positions = {number: offset + index + 1 for index, number in enumerate(selected)}
+        positions = {
+            number: offset + index + 1 for index, number in enumerate(selected)
+        }
         if base is not None and offset + page_count <= base["page_count"]:
             # 重用頁面 Evidence，依本次來源集合重新綁定身分，不重跑 OCR。
             for number in range(offset + 1, offset + page_count + 1):
-                prior_blocks = [
-                    evidence for evidence in base["evidence"]
-                    if evidence["page"] == number
-                ]
+                prior_blocks = base_evidence.get(number, [])
                 if prior_blocks:
                     page = {
                         "schema": "page-evidence/v1",
@@ -85,45 +105,72 @@ def collect_source_set(
                     pages.append(rebase_page(page, digest, number))
                 else:
                     prior = next(
-                        entry for entry in base["excluded_pages"]
+                        entry
+                        for entry in base["excluded_pages"]
                         if entry["page"] == number
                     )
-                    excluded.append({
-                        **deepcopy(prior),
-                        "page_ref": _ref("page", {
-                            "source_sha256": digest,
-                            "page_number": number,
-                        }),
-                    })
+                    excluded.append(
+                        {
+                            **deepcopy(prior),
+                            "page_ref": _ref(
+                                "page",
+                                {
+                                    "source_sha256": digest,
+                                    "page_number": number,
+                                },
+                            ),
+                        }
+                    )
                 report("evidence", number, total_pages)
         else:
             found, failed, source_ocr_calls = extract(
-                snapshot, item["normalized_sha256"], selected,
-                settings, produced_at,
+                snapshot,
+                item["normalized_sha256"],
+                selected,
+                settings,
+                produced_at,
                 lambda stage, completed, _total: report(
                     stage, offset + completed, total_pages
                 ),
                 check_cancel,
-                **({
-                    'load_page': lambda number: analysis_archive.load_evidence_page(positions[number]),
-                    'save_page': lambda number, page: analysis_archive.save_evidence_page(positions[number], page),
-                } if analysis_archive is not None else {}),
+                **(
+                    {
+                        "load_page": lambda number: analysis_archive.load_evidence_page(
+                            positions[number]
+                        ),
+                        "save_page": lambda number,
+                        page: analysis_archive.save_evidence_page(
+                            positions[number], page
+                        ),
+                    }
+                    if analysis_archive is not None
+                    else {}
+                ),
             )
             ocr_calls += source_ocr_calls
             pages.extend(
-                rebase_page(scoped_page(page, item['analysis_scope']), digest, positions[page["page_number"]])
+                rebase_page(
+                    scoped_page(page, item["analysis_scope"]),
+                    digest,
+                    positions[page["page_number"]],
+                )
                 for page in found
             )
             for failure in failed:
                 number = positions[failure["page"]]
-                excluded.append({
-                    **failure,
-                    "page": number,
-                    "page_ref": _ref("page", {
-                        "source_sha256": digest,
-                        "page_number": number,
-                    }),
-                })
+                excluded.append(
+                    {
+                        **failure,
+                        "page": number,
+                        "page_ref": _ref(
+                            "page",
+                            {
+                                "source_sha256": digest,
+                                "page_number": number,
+                            },
+                        ),
+                    }
+                )
         offset += page_count
     if offset != total_pages:
         raise ValueError("SOURCE_BINDING_INVALID")
