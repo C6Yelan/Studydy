@@ -11,7 +11,18 @@ from uuid import uuid4
 from sqlalchemy import update
 from sqlalchemy.exc import SQLAlchemyError
 
-from .storage.tables import Material, CardSet, Podcast, PodcastVideo, PodcastScenes, VoiceTurn, VoiceConversation, TopicScope, MaterialResearch, SourceNormalization
+from .storage.tables import (
+    Material,
+    CardSet,
+    Podcast,
+    PodcastVideo,
+    PodcastScenes,
+    VoiceTurn,
+    VoiceConversation,
+    TopicScope,
+    MaterialResearch,
+    SourceNormalization,
+)
 from .storage.database import database_session
 
 WORKER_LEASE_TTL = timedelta(minutes=15)

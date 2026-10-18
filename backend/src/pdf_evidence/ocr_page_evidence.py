@@ -28,10 +28,6 @@ RENDER_POLICY = f"pymupdf-rgb-{RENDER_DPI}dpi/v1"
 _OCR_TYPE = re.compile(r"[A-Za-z_][\w-]*")
 
 
-
-
-
-
 def _ref(kind: str, value: Any) -> str:
     return f"{kind}:sha256:{canonical_sha256(value)}"
 
@@ -70,7 +66,11 @@ def extract_page(
     if page.number + 1 != page_number:
         raise ValueError("OCR_LOCATOR_INVALID")
     visible = page.rect
-    if visible.width <= 0 or visible.height <= 0 or page.rotation not in (0, 90, 180, 270):
+    if (
+        visible.width <= 0
+        or visible.height <= 0
+        or page.rotation not in (0, 90, 180, 270)
+    ):
         raise ValueError("OCR_LOCATOR_INVALID")
     estimated_width = math.ceil(visible.width * RENDER_DPI / PDF_POINTS_PER_INCH)
     estimated_height = math.ceil(visible.height * RENDER_DPI / PDF_POINTS_PER_INCH)
@@ -94,7 +94,9 @@ def extract_page(
         raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
     material_id = f"material:sha256:{source_sha256}"
     material_revision = _ref("material-revision", {"source_sha256": source_sha256})
-    page_ref = _ref("page", {"source_sha256": source_sha256, "page_number": page_number})
+    page_ref = _ref(
+        "page", {"source_sha256": source_sha256, "page_number": page_number}
+    )
     native_evidence = {
         "schema": NATIVE_SCHEMA,
         "material_id": material_id,
@@ -164,11 +166,16 @@ def _kind(ocr_type: str) -> str:
     return "other"
 
 
-def _locator(normalized_bbox: Any, page: dict[str, Any]) -> tuple[list[float], list[float]]:
+def _locator(
+    normalized_bbox: Any, page: dict[str, Any]
+) -> tuple[list[float], list[float]]:
     if (
         not isinstance(normalized_bbox, list)
         or len(normalized_bbox) != 4
-        or any(type(number) not in {int, float} or not math.isfinite(number) for number in normalized_bbox)
+        or any(
+            type(number) not in {int, float} or not math.isfinite(number)
+            for number in normalized_bbox
+        )
         or not (
             0 <= normalized_bbox[0] < normalized_bbox[2] <= 1000
             and 0 <= normalized_bbox[1] < normalized_bbox[3] <= 1000
@@ -264,10 +271,7 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
                     font_samples.append(
                         (
                             float(size),
-                            sum(
-                                not character.isspace()
-                                for character in text
-                            )
+                            sum(not character.isspace() for character in text)
                             if isinstance(text, str)
                             else 0,
                         )
@@ -314,15 +318,12 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
         is_heading = (
             not is_centered_title_page
             and body_font_size > 0
-            and block["font_size"] - body_font_size
-            >= max(1.5, body_font_size * 0.15)
+            and block["font_size"] - body_font_size >= max(1.5, body_font_size * 0.15)
             and 2 <= len(visible_text) <= 160
             and sum(character.isalnum() for character in visible_text) >= 2
             and block["bbox"][3] < boundary.y0 + boundary.height * 0.9
         )
-        block["type"] = (
-            "title" if is_centered_title_page or is_heading else "text"
-        )
+        block["type"] = "title" if is_centered_title_page or is_heading else "text"
     grouped: list[dict[str, Any]] = []
     for block in blocks:
         previous = grouped[-1] if grouped else None
@@ -332,18 +333,23 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
             last = previous["last_bbox"]
             height = max(last[3] - last[1], box[3] - box[1])
             overlap = min(last[2], box[2]) - max(last[0], box[0])
-            new_item = re.match(r"^(?:[•▪►●◦‣\uf06e]|[-–]\s|\d+[.)]\s)", block["text"].lstrip())
-            wrapped = (
-                not re.search(r"[.!?。！？:：;；}]\s*$", previous["text"])
-                and abs(box[0] - last[0]) <= max(24, block["font_size"] * 2)
+            new_item = re.match(
+                r"^(?:[•▪►●◦‣\uf06e]|[-–]\s|\d+[.)]\s)", block["text"].lstrip()
             )
+            wrapped = not re.search(
+                r"[.!?。！？:：;；}]\s*$", previous["text"]
+            ) and abs(box[0] - last[0]) <= max(24, block["font_size"] * 2)
             # 形式定義的 ::= 後方縮排說明屬於該定義；下一個定義必須另起單位。
             definition_body = (
                 previous["definition_indent"] is not None
                 and box[0] >= previous["definition_indent"] + block["font_size"] * 0.5
             )
             continuous = (
-                (block["source_index"] == previous["source_index"] or wrapped or definition_body)
+                (
+                    block["source_index"] == previous["source_index"]
+                    or wrapped
+                    or definition_body
+                )
                 and not definition_start
                 and not new_item
                 and block["type"] == previous["type"]
@@ -363,15 +369,14 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
                 previous["last_bbox"] = box
                 previous["source_index"] = block["source_index"]
                 continue
-        grouped.append({
-            **block,
-            "last_bbox": box,
-            "definition_indent": box[0] if definition_start else None,
-        })
-    return [
-        {key: block[key] for key in ("type", "text", "bbox")}
-        for block in grouped
-    ]
+        grouped.append(
+            {
+                **block,
+                "last_bbox": box,
+                "definition_indent": box[0] if definition_start else None,
+            }
+        )
+    return [{key: block[key] for key in ("type", "text", "bbox")} for block in grouped]
 
 
 def _native_text_readable(page: dict[str, Any]) -> bool:
@@ -386,8 +391,7 @@ def _native_text_readable(page: dict[str, Any]) -> bool:
     if len(visible) < 8:
         return False
     bad = sum(
-        character == "\ufffd"
-        or unicodedata.category(character) in {"Cc", "Cs", "Co"}
+        character == "\ufffd" or unicodedata.category(character) in {"Cc", "Cs", "Co"}
         for character in visible
     )
     meaningful = sum(character.isalnum() for character in visible)
@@ -416,7 +420,9 @@ def _uncovered_image_regions(page: dict[str, Any]) -> list[list[float]]:
         area = region.get_area()
         if area < boundary.get_area() * 0.01:
             continue
-        covered = sum((region & pymupdf.Rect(block["bbox"])).get_area() for block in blocks)
+        covered = sum(
+            (region & pymupdf.Rect(block["bbox"])).get_area() for block in blocks
+        )
         if covered < area * 0.1:
             regions.append(_box(region))
     return regions
@@ -431,13 +437,14 @@ def route_page(page: dict[str, Any]) -> str:
     )
 
 
-def _native_region(
-    bbox: Any, page: dict[str, Any]
-) -> tuple[list[float], list[float]]:
+def _native_region(bbox: Any, page: dict[str, Any]) -> tuple[list[float], list[float]]:
     if (
         not isinstance(bbox, list)
         or len(bbox) != 4
-        or any(type(number) not in {int, float} or not math.isfinite(number) for number in bbox)
+        or any(
+            type(number) not in {int, float} or not math.isfinite(number)
+            for number in bbox
+        )
     ):
         raise ValueError("OCR_LOCATOR_INVALID")
     region = [float(number) for number in bbox]
@@ -484,7 +491,10 @@ def build_page_evidence(
                 or not isinstance(block["text"], str)
             ):
                 raise ValueError("OCR_OUTPUT_INVALID")
-            if not isinstance(block["type"], str) or _OCR_TYPE.fullmatch(block["type"]) is None:
+            if (
+                not isinstance(block["type"], str)
+                or _OCR_TYPE.fullmatch(block["type"]) is None
+            ):
                 raise ValueError("OCR_OUTPUT_INVALID")
             _, bbox = _locator(block["bbox"], page)
             box = pymupdf.Rect(bbox)
@@ -559,10 +569,16 @@ def _build_page_evidence(
     entries = [(block, source) for block in source_blocks]
     if native_blocks is not None:
         entries.extend((block, "native_text") for block in native_blocks)
+
         def position(entry):
             block, origin = entry
-            bbox = block["bbox"] if origin == "native_text" else _locator(block["bbox"], page)[1]
+            bbox = (
+                block["bbox"]
+                if origin == "native_text"
+                else _locator(block["bbox"], page)[1]
+            )
             return (bbox[1], bbox[0])
+
         entries.sort(key=position)
     for reading_order, (block, source) in enumerate(entries):
         if not isinstance(block, dict) or set(block) != {"type", "text", "bbox"}:
@@ -583,7 +599,11 @@ def _build_page_evidence(
             continue
         block_id = _ref(
             "block",
-            {"page_ref": page["page_ref"], "reading_order": reading_order, "region": region},
+            {
+                "page_ref": page["page_ref"],
+                "reading_order": reading_order,
+                "region": region,
+            },
         )
         kind = _kind(ocr_type)
         identity = {
@@ -635,12 +655,15 @@ def _build_page_evidence(
             block["evidence_id"]
             for block in evidence_blocks
             if block["kind"] == "caption"
-            and _distance(region, block["locator"]["region"])
-            <= CAPTION_DISTANCE_POINTS
+            and _distance(region, block["locator"]["region"]) <= CAPTION_DISTANCE_POINTS
         ]
         nearby = sorted(
             (
-                (_distance(region, block["locator"]["region"]), block["reading_order"], block["evidence_id"])
+                (
+                    _distance(region, block["locator"]["region"]),
+                    block["reading_order"],
+                    block["evidence_id"],
+                )
                 for block in evidence_blocks
                 if block["kind"] != "caption"
                 and _distance(region, block["locator"]["region"])
@@ -649,11 +672,14 @@ def _build_page_evidence(
         )
         image_artifacts.append(
             {
-                "image_id": _ref("image", {
-                    "page_ref": page["page_ref"],
-                    "ordinal": ordinal,
-                    "region": region,
-                }),
+                "image_id": _ref(
+                    "image",
+                    {
+                        "page_ref": page["page_ref"],
+                        "ordinal": ordinal,
+                        "region": region,
+                    },
+                ),
                 "image_hash": image.get("digest"),
                 "region": region,
                 "caption_evidence_ids": sorted(set(captions)),
@@ -686,7 +712,9 @@ def _build_page_evidence(
         "produced_at": produced_at,
         "processing": (
             "partial"
-            if has_rejected_block or has_rejected_image or "IMAGE_TEXT_NOT_RECOVERED" in reasons
+            if has_rejected_block
+            or has_rejected_image
+            or "IMAGE_TEXT_NOT_RECOVERED" in reasons
             else "succeeded"
         ),
         "quality": "needs_review",

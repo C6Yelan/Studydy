@@ -40,11 +40,7 @@ def _failure(error: Exception) -> dict[str, Any]:
         "status": "failed",
         "command": "verify",
         "component": component if component is not None else "layout",
-        "reason": (
-            reason
-            if reason is not None
-            else "LOCAL_RUNTIME_SETTINGS_MISMATCH"
-        ),
+        "reason": (reason if reason is not None else "LOCAL_RUNTIME_SETTINGS_MISMATCH"),
     }
 
 

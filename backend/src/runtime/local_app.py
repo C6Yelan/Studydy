@@ -59,7 +59,9 @@ def _app_arguments_from_environment(environment: Mapping[str, str]) -> dict[str,
         "secure_cookie": values["secure_cookie"] == "true",
         "local_config": local_config,
         "dsn": None,
-        "upload_max_bytes": int(environment.get("STUDYDY_UPLOAD_MAX_BYTES", str(MAX_FILE_BYTES))),
+        "upload_max_bytes": int(
+            environment.get("STUDYDY_UPLOAD_MAX_BYTES", str(MAX_FILE_BYTES))
+        ),
     }
 
 
@@ -81,8 +83,9 @@ def read_local_ai_config_from_environment(
     else:
         root = Path(root_value)
     runtime_lock = _runtime_lock()
-    if environment.get('STUDYDY_TEXT_TEST_PROVIDER') == 'codex-exec-luna':
+    if environment.get("STUDYDY_TEXT_TEST_PROVIDER") == "codex-exec-luna":
         from .luna_test import test_lock
+
         runtime_lock = test_lock(runtime_lock)
     values: dict[str, Any] = {
         "private_runtime_root": str(root / "runtime"),

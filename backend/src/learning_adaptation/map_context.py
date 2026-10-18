@@ -48,12 +48,18 @@ def context_from_structure(material_id: UUID, document: dict[str, Any]) -> MapCo
     return _context_from_validated_document(material_id, document)
 
 
-def _context_from_validated_document(material_id: UUID, document: dict[str, Any]) -> MapContext:
+def _context_from_validated_document(
+    material_id: UUID, document: dict[str, Any]
+) -> MapContext:
     evidence_by_id = {item["evidence_id"]: item for item in document["evidence"]}
-    prerequisites: dict[str, list[str]] = {concept["concept_id"]: [] for concept in document["concepts"]}
+    prerequisites: dict[str, list[str]] = {
+        concept["concept_id"]: [] for concept in document["concepts"]
+    }
     for relation in document["relations"]:
         if relation["type"] == "prerequisite":
-            prerequisites[relation["target_concept_id"]].append(relation["source_concept_id"])
+            prerequisites[relation["target_concept_id"]].append(
+                relation["source_concept_id"]
+            )
     concepts = []
     for concept in document["concepts"]:
         claims = []

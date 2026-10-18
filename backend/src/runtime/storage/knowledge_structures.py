@@ -79,7 +79,9 @@ def publish_knowledge_structure(
     worker_token: UUID | None = None,
     retrieval_passages: list[dict] | None = None,
 ) -> StoredKnowledgeStructure:
-    if not validate_knowledge_structure(document) or document.get("run_id") != str(run_id):
+    if not validate_knowledge_structure(document) or document.get("run_id") != str(
+        run_id
+    ):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_INVALID")
 
     binding = _binding(document)
@@ -87,18 +89,31 @@ def publish_knowledge_structure(
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_INVALID")
     from knowledge_map.retrieval import build_passages
     from ..retrieval import publish_index
-    passages = retrieval_passages if retrieval_passages is not None else build_passages(document)
+
+    passages = (
+        retrieval_passages
+        if retrieval_passages is not None
+        else build_passages(document)
+    )
     try:
         with database_session(dsn) as session:
-            material = session.scalar(select(Material).where(
-                Material.learner_id == learner_id,
-                Material.material_id == material_id,
-            ).with_for_update())
-            locked_run = session.scalar(select(MaterialProcessingRun).where(
-                MaterialProcessingRun.learner_id == learner_id,
-                MaterialProcessingRun.material_id == material_id,
-                MaterialProcessingRun.run_id == run_id,
-            ).with_for_update())
+            material = session.scalar(
+                select(Material)
+                .where(
+                    Material.learner_id == learner_id,
+                    Material.material_id == material_id,
+                )
+                .with_for_update()
+            )
+            locked_run = session.scalar(
+                select(MaterialProcessingRun)
+                .where(
+                    MaterialProcessingRun.learner_id == learner_id,
+                    MaterialProcessingRun.material_id == material_id,
+                    MaterialProcessingRun.run_id == run_id,
+                )
+                .with_for_update()
+            )
             if (
                 material is None
                 or material.discard_requested_at is not None
@@ -116,11 +131,14 @@ def publish_knowledge_structure(
             if locked_run.base_revision is not None:
                 if material.head_revision != locked_run.base_revision:
                     raise KnowledgeStructureStoreError("REVISION_CONFLICT")
-                base = session.scalar(select(KnowledgeStructure.document).where(
-                    KnowledgeStructure.learner_id == learner_id,
-                    KnowledgeStructure.material_id == material_id,
-                    KnowledgeStructure.structure_revision == locked_run.base_revision,
-                ))
+                base = session.scalar(
+                    select(KnowledgeStructure.document).where(
+                        KnowledgeStructure.learner_id == learner_id,
+                        KnowledgeStructure.material_id == material_id,
+                        KnowledgeStructure.structure_revision
+                        == locked_run.base_revision,
+                    )
+                )
                 if base is None:
                     raise KnowledgeStructureStoreError("REVISION_CONFLICT")
                 added_evidence = {
@@ -131,7 +149,8 @@ def publish_knowledge_structure(
                 # 追加必須有可用新 Claim；僅重用已發布內容不能算完成。
                 review_only = (
                     document.get("source_set_sha256") is not None
-                    and document.get("source_set_sha256") == base.get("source_set_sha256")
+                    and document.get("source_set_sha256")
+                    == base.get("source_set_sha256")
                     and "material_review" in locked_run.runtime_lock_document
                 )
                 if not review_only and not any(
@@ -140,7 +159,10 @@ def publish_knowledge_structure(
                     for claim in concept["claims"]
                 ):
                     raise KnowledgeStructureStoreError("NO_USABLE_ADDED_CONTENT")
-            if locked_run.status != "running" or locked_run.progress_stage != "publishing":
+            if (
+                locked_run.status != "running"
+                or locked_run.progress_stage != "publishing"
+            ):
                 raise KnowledgeStructureStoreError("MATERIAL_RUN_UNAVAILABLE")
             source_binding = verify_structure_input(session, locked_run, document)
             verify_source_files(learner_id, source_binding, dsn=dsn)
@@ -167,6 +189,7 @@ def publish_knowledge_structure(
                 raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_CONFLICT")
             publish_index(session, learner_id, material_id, document, passages)
             from .knowledge_reads import prepare
+
             prepare(session, learner_id, material_id, document)
             status = binding["processing"]
             updated = session.execute(
@@ -196,7 +219,9 @@ def publish_knowledge_structure(
             material.source_artifact_id = locked_run.source_artifact_id
             session.flush()
             if locked_run.base_revision is not None and not review_only:
-                _prune_unreferenced_structures(session, learner_id, material_id, material.head_revision)
+                _prune_unreferenced_structures(
+                    session, learner_id, material_id, material.head_revision
+                )
     except KnowledgeStructureStoreError:
         raise
     except Exception:
@@ -208,52 +233,97 @@ def publish_knowledge_structure(
 
 def _prune_unreferenced_structures(session, owner, material_id, head):
     """保留被引用的地圖及工作的重播依據。"""
-    from .tables import CardSet, MaterialResearch, Podcast, StudySession, VoiceConversation
+    from .tables import (
+        CardSet,
+        MaterialResearch,
+        Podcast,
+        StudySession,
+        VoiceConversation,
+    )
 
     rows = session.scalars(
-        select(KnowledgeStructure).where(
+        select(KnowledgeStructure)
+        .where(
             KnowledgeStructure.learner_id == owner,
             KnowledgeStructure.material_id == material_id,
             KnowledgeStructure.structure_revision != head,
-        ).order_by(KnowledgeStructure.structure_revision).with_for_update()
+        )
+        .order_by(KnowledgeStructure.structure_revision)
+        .with_for_update()
     ).all()
     for row in rows:
-        referenced = session.scalar(select(StudySession.study_session_id).where(
-            StudySession.learner_id == owner,
-            StudySession.material_id == material_id,
-            StudySession.knowledge_structure_revision == row.structure_revision,
-        ).limit(1))
-        active = session.scalar(select(MaterialProcessingRun.run_id).where(
-            MaterialProcessingRun.material_id == material_id,
-            MaterialProcessingRun.base_revision == row.structure_revision,
-            MaterialProcessingRun.status.in_(("pending", "running")),
-        ).limit(1))
-        card_set = session.scalar(select(CardSet.card_set_id).where(
-            CardSet.learner_id == owner, CardSet.material_id == material_id,
-            CardSet.knowledge_structure_revision == row.structure_revision,
-            CardSet.deleted_at.is_(None),
-        ).limit(1))
-        podcast = session.scalar(select(Podcast.podcast_id).where(
-            Podcast.learner_id == owner, Podcast.material_id == material_id,
-            Podcast.knowledge_structure_revision == row.structure_revision,
-        ).limit(1))
-        conversation = session.scalar(select(VoiceConversation.conversation_id).where(
-            VoiceConversation.material_id == material_id,
-            VoiceConversation.knowledge_structure_revision == row.structure_revision,
-            VoiceConversation.deleted_at.is_(None),
-        ).limit(1))
+        referenced = session.scalar(
+            select(StudySession.study_session_id)
+            .where(
+                StudySession.learner_id == owner,
+                StudySession.material_id == material_id,
+                StudySession.knowledge_structure_revision == row.structure_revision,
+            )
+            .limit(1)
+        )
+        active = session.scalar(
+            select(MaterialProcessingRun.run_id)
+            .where(
+                MaterialProcessingRun.material_id == material_id,
+                MaterialProcessingRun.base_revision == row.structure_revision,
+                MaterialProcessingRun.status.in_(("pending", "running")),
+            )
+            .limit(1)
+        )
+        card_set = session.scalar(
+            select(CardSet.card_set_id)
+            .where(
+                CardSet.learner_id == owner,
+                CardSet.material_id == material_id,
+                CardSet.knowledge_structure_revision == row.structure_revision,
+                CardSet.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        podcast = session.scalar(
+            select(Podcast.podcast_id)
+            .where(
+                Podcast.learner_id == owner,
+                Podcast.material_id == material_id,
+                Podcast.knowledge_structure_revision == row.structure_revision,
+            )
+            .limit(1)
+        )
+        conversation = session.scalar(
+            select(VoiceConversation.conversation_id)
+            .where(
+                VoiceConversation.material_id == material_id,
+                VoiceConversation.knowledge_structure_revision
+                == row.structure_revision,
+                VoiceConversation.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
         # 尚保留的研究以舊版本作比較依據；教材追加後仍須能回查該版本。
-        research = session.scalar(select(MaterialResearch.research_id).where(
-            MaterialResearch.learner_id == owner,
-            MaterialResearch.material_id == material_id,
-            MaterialResearch.base_revision == row.structure_revision,
-            MaterialResearch.deleted_at.is_(None),
-        ).limit(1))
-        if referenced is None and active is None and card_set is None and podcast is None and conversation is None and research is None:
+        research = session.scalar(
+            select(MaterialResearch.research_id)
+            .where(
+                MaterialResearch.learner_id == owner,
+                MaterialResearch.material_id == material_id,
+                MaterialResearch.base_revision == row.structure_revision,
+                MaterialResearch.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        if (
+            referenced is None
+            and active is None
+            and card_set is None
+            and podcast is None
+            and conversation is None
+            and research is None
+        ):
             session.delete(row)
 
 
-def _read_verified_document(session, learner_id, material_id, *, run_id=None, revision=None, lock=False):
+def _read_verified_document(
+    session, learner_id, material_id, *, run_id=None, revision=None, lock=False
+):
     """在呼叫者 snapshot 驗證結構、執行快照及來源關係；不掃描原檔。"""
     if (run_id is None) == (revision is None):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
@@ -263,12 +333,23 @@ def _read_verified_document(session, learner_id, material_id, *, run_id=None, re
     key = (learner_id, material_id, run_id, revision)
     if cache is not None and key in cache:
         return cache[key]
-    statement = select(
-        KnowledgeStructure.document, MaterialProcessingRun, KnowledgeStructure.structure_revision,
-    ).join(MaterialProcessingRun, KnowledgeStructure.run_id == MaterialProcessingRun.run_id).where(
-        KnowledgeStructure.learner_id == learner_id, KnowledgeStructure.material_id == material_id,
-        MaterialProcessingRun.learner_id == learner_id, MaterialProcessingRun.material_id == material_id,
-        MaterialProcessingRun.status.in_(("succeeded", "partial")),
+    statement = (
+        select(
+            KnowledgeStructure.document,
+            MaterialProcessingRun,
+            KnowledgeStructure.structure_revision,
+        )
+        .join(
+            MaterialProcessingRun,
+            KnowledgeStructure.run_id == MaterialProcessingRun.run_id,
+        )
+        .where(
+            KnowledgeStructure.learner_id == learner_id,
+            KnowledgeStructure.material_id == material_id,
+            MaterialProcessingRun.learner_id == learner_id,
+            MaterialProcessingRun.material_id == material_id,
+            MaterialProcessingRun.status.in_(("succeeded", "partial")),
+        )
     )
     statement = statement.where(
         KnowledgeStructure.run_id == run_id
@@ -281,8 +362,8 @@ def _read_verified_document(session, learner_id, material_id, *, run_id=None, re
     if row is None:
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
     document, run, stored_revision = row
-    if document.get('input_binding', {}).get('schema') != 'structure-input-binding/v2':
-        raise KnowledgeStructureStoreError('MATERIAL_FORMAT_UNSUPPORTED')
+    if document.get("input_binding", {}).get("schema") != "structure-input-binding/v2":
+        raise KnowledgeStructureStoreError("MATERIAL_FORMAT_UNSUPPORTED")
     if (
         not validate_knowledge_structure(document)
         or document["revision"] != stored_revision
@@ -307,10 +388,16 @@ def read_knowledge_structure(
     try:
         with database_session(dsn) as session:
             document = _read_verified_document(
-                session, learner_id, material_id, run_id=run_id, revision=revision,
+                session,
+                learner_id,
+                material_id,
+                run_id=run_id,
+                revision=revision,
             )
         # session 已結束，這份 JSON 專屬本次讀取；不再複製完整大型教材。
-        return StoredKnowledgeStructure(document["revision"], document, _view(document, material_id))
+        return StoredKnowledgeStructure(
+            document["revision"], document, _view(document, material_id)
+        )
     except KnowledgeStructureStoreError:
         raise
     except Exception:
@@ -319,10 +406,15 @@ def read_knowledge_structure(
 
 def resolve_evidence_source(owner, material_id, revision, evidence_id, *, dsn=None):
     from .knowledge_reads import evidence_source
+
     with database_session(dsn) as session:
-        source, evidence = evidence_source(session, owner, material_id, revision, evidence_id)
-    normalized_page = evidence['normalized_page']
-    with open_verified_artifact(owner, UUID(source["mapping_artifact_id"]), dsn=dsn) as opened:
+        source, evidence = evidence_source(
+            session, owner, material_id, revision, evidence_id
+        )
+    normalized_page = evidence["normalized_page"]
+    with open_verified_artifact(
+        owner, UUID(source["mapping_artifact_id"]), dsn=dsn
+    ) as opened:
         mapping = json.loads(opened.file.read())
     if (
         mapping["original_sha256"] != source["original_sha256"]
@@ -340,7 +432,8 @@ def resolve_evidence_source(owner, material_id, revision, evidence_id, *, dsn=No
         )
 
     records = [
-        record for record in mapping["records"]
+        record
+        for record in mapping["records"]
         if (record.get("normalized_page") == normalized_page and overlaps(record))
         or any(
             candidate["normalized_page"] == normalized_page and overlaps(candidate)

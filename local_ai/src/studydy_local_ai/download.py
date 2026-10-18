@@ -13,13 +13,22 @@ def download_ocr(root: Path, revision: str) -> None:
     if re.fullmatch(r"[0-9a-f]{40}", revision) is None:
         raise ValueError("OCR_REVISION_INVALID")
     root.mkdir(parents=True, exist_ok=True)
-    if root.is_symlink() or marker.is_symlink() or (marker.exists() and marker.read_text() != revision):
+    if (
+        root.is_symlink()
+        or marker.is_symlink()
+        or (marker.exists() and marker.read_text() != revision)
+    ):
         raise ValueError("OCR_TARGET_NOT_EMPTY")
     if not marker.exists():
         if any(root.iterdir()):
             raise ValueError("OCR_TARGET_NOT_EMPTY")
         marker.write_text(revision)
-    snapshot_download("baidu/Unlimited-OCR", revision=revision, local_dir=root, ignore_patterns=["*.pdf"])
+    snapshot_download(
+        "baidu/Unlimited-OCR",
+        revision=revision,
+        local_dir=root,
+        ignore_patterns=["*.pdf"],
+    )
 
 
 def main() -> None:
@@ -31,7 +40,10 @@ def main() -> None:
         lock = json.loads(args.lock.read_text())
         download_ocr(args.output, lock["ocr"]["revision"])
     except Exception:
-        print("OCR_DOWNLOAD_FAILED: check target directory, model revision and network", flush=True)
+        print(
+            "OCR_DOWNLOAD_FAILED: check target directory, model revision and network",
+            flush=True,
+        )
         raise SystemExit(1) from None
 
 

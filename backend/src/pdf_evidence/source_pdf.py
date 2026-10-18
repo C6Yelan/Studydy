@@ -13,13 +13,13 @@ import pymupdf
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
-def snapshot_pdf_source(
-    request: Any, snapshot_path: Path
-) -> dict[str, Any]:
+def snapshot_pdf_source(request: Any, snapshot_path: Path) -> dict[str, Any]:
     """從單一來源 FD 驗證 hash 並複製快照，再確認完整 PDF 頁數。"""
 
     if not isinstance(request, dict) or set(request) != {
-        "media_type", "source_path", "expected_source_sha256"
+        "media_type",
+        "source_path",
+        "expected_source_sha256",
     }:
         raise ValueError("SOURCE_READ_FAILED")
     if request["media_type"] != "application/pdf":
@@ -36,9 +36,7 @@ def snapshot_pdf_source(
             raise ValueError("SOURCE_READ_FAILED")
         source_descriptor = os.open(
             source_path,
-            os.O_RDONLY
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_NONBLOCK", 0),
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
         )
     except FileNotFoundError:
         raise ValueError("SOURCE_READ_FAILED") from None

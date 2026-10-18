@@ -43,9 +43,15 @@ docker compose -p studydy-unit-tests -f compose.test.yaml run --build --rm unit
 
 容器不掛載產品資料，不需要 GPU 或模型。前端映像建置包含 Node tests、TypeScript 與 production build。
 
+完整後端映像從固定的 [Ubuntu snapshot](https://snapshot.ubuntu.com/) 安裝轉檔套件，避免一般套件站移除已鎖定的 LibreOffice 版本後無法重建。快照日期見 `ops/docker/backend.Dockerfile`；更新它與轉檔版本時須重新驗證實際輸出及來源 mapping。
+
+測試容器的 tmpfs 提供 3 GiB 容量與執行權限，讓短片實際編碼及合成子程序取消測試能執行，保留 renderer 的空間檢查。
+
 ## 原始碼測試
 
 需先準備 backend/.venv、frontend/node_modules；真轉檔還需要部署相同的 LibreOffice、字型及 Bubblewrap。依賴版本以 lock files 為準，不重建其他 checkout 共用的環境。
+
+獨立測試環境使用 `uv sync --project backend --locked --extra test` 安裝測試依賴；`test` extra 包含 CPU 音訊處理、字詞切分與影片繪製所需的套件，版本沿用現有媒體執行環境。它不安裝 GPU／模型推論環境，也不影響未啟用 extra 的產品安裝。
 
 ~~~bash
 PYTHONPATH=backend/src:backend/tests:local_ai/src \
@@ -106,6 +112,8 @@ PYTEST
 記錄實際命令、範圍、結果與限制。合成測試提供程式回歸證據；模型品質須另以指定素材及標準，透過產品流程生成並人工核對。
 
 `runtime/infrastructure/test_migration_baseline.py` 驗證獨立舊終態與新初始化等價、Check 零寫入、接軌與回退資料不變、並行接軌、普通寫入者鎖定、初始化中斷續跑，以及帳本／約束／索引／trigger／提案／檔案損壞的拒絕。固定舊 Schema 與仍有回歸用途的少量歷史 DML 只放在測試 fixtures；產品不保留舊 migration 鏈。既存 DB／Artifact 副本的實際驗證仍須另外執行，不能以合成案例替代。
+
+`runtime/infrastructure/test_api_lifespan.py` 在各 worker 啟動位置注入失敗，核對已啟動工作的清理；單一 stop 失敗時仍處理其他 worker。正常啟停順序維持原契約，測試不啟動模型或連線產品 DB。
 
 Podcast 的可重跑入口為 `backend/tests/runtime/materials/test_podcasts.py`（隔離 DB／API／音訊保存與取消）及 `backend/tests/test_podcast_provider.py`（無模型的單次生成、格式與合法來源綁定）。前端 client 測試包含錯來源腳本與不完整音訊 manifest 的拒絕。provider 的容器測試使用 `compose.test.yaml`，不需安裝 TTS 或呼叫模型。
 
@@ -476,7 +484,7 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src .studydy-runtime/research-venv
 
 ## 跨語言學習內容
 
-`test_cross_language_claims.py`、`test_material_localization.py`、`test_review_language.py` 覆蓋原文引用不變、數值／單位／程式保護、跨段公式邊界、代號遺漏與重複、混入外語詞、修正後保留的完整來源，以及語言補正失敗不得發布。獨立子圖與審查回歸另核對呼叫計數、已完成結果重用及舊工作提示不可被新政策覆蓋。
+`test_cross_language_claims.py`、`test_material_localization.py`、`test_review_language.py` 覆蓋原文引用不變、數值／單位／程式保護、跨段公式邊界、代號遺漏與重複、混入外語詞及修正後保留的完整來源。子圖語言補正失敗會阻止該批完成；Review 的局部語言修正無法核對時保留原文並標記 `needs_review`，其他合法修改仍可套用，保留代號遺漏或重複的提案則仍拒絕。獨立子圖與審查回歸另核對呼叫計數、已完成結果重用及舊工作提示不可被新政策覆蓋。
 
 2026-10-15 使用三份完整簡報與一份完整英文 PDF，共 52 頁，經正式上傳、分析及審查。完成版為 53 個概念、105 個重點、35 條關係；逐條核對學習文字、必要原文術語與來源，並修正實測中發現的跨段公式保護及混入外語詞問題。原始 Evidence 不變；原教材內容不足的 `SOURCE_REVIEW_SUGGESTED` 保留，不把語言與功能驗證等同內容全面認可。
 

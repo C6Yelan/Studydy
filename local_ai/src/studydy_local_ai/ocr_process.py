@@ -34,7 +34,9 @@ DET_BLOCK = re.compile(
 
 def normalize_candidate_text(text: str) -> str:
     """只做鎖定的換行、NFC 與行尾空白正規化。"""
-    normalized = unicodedata.normalize("NFC", text.replace("\r\n", "\n").replace("\r", "\n"))
+    normalized = unicodedata.normalize(
+        "NFC", text.replace("\r\n", "\n").replace("\r", "\n")
+    )
     return "\n".join(line.rstrip() for line in normalized.split("\n"))
 
 
@@ -53,7 +55,10 @@ def parse_det_blocks(model_text: str) -> list[dict[str, Any]]:
         if (
             not isinstance(bbox, list)
             or len(bbox) != 4
-            or any(type(number) not in {int, float} or not math.isfinite(number) for number in bbox)
+            or any(
+                type(number) not in {int, float} or not math.isfinite(number)
+                for number in bbox
+            )
             or not (0 <= bbox[0] < bbox[2] <= 1000 and 0 <= bbox[1] < bbox[3] <= 1000)
         ):
             raise ProtocolError("OCR_OUTPUT_INVALID")
@@ -82,12 +87,16 @@ def load_ocr_model(model_root: Path) -> tuple[Any, Any]:
         local_files_only=True,
         trust_remote_code=True,
     )
-    model = AutoModel.from_pretrained(
-        model_root,
-        local_files_only=True,
-        trust_remote_code=True,
-        torch_dtype=torch.bfloat16,
-    ).eval().cuda()
+    model = (
+        AutoModel.from_pretrained(
+            model_root,
+            local_files_only=True,
+            trust_remote_code=True,
+            torch_dtype=torch.bfloat16,
+        )
+        .eval()
+        .cuda()
+    )
     return model, tokenizer
 
 
@@ -142,7 +151,10 @@ def serve(model: Any, tokenizer: Any) -> None:
         if request is None:
             return
         validated = validate_ocr_request(request)
-        if hashlib.sha256(validated["png_bytes"]).hexdigest() != validated["render_sha256"]:
+        if (
+            hashlib.sha256(validated["png_bytes"]).hexdigest()
+            != validated["render_sha256"]
+        ):
             raise ProtocolError("CHILD_REQUEST_INVALID")
         model_text = run_ocr(model, tokenizer, validated["png_bytes"])
         if not isinstance(model_text, str):

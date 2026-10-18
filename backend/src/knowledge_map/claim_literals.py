@@ -1,76 +1,113 @@
 """翻譯可改寫散文；數量、單位、程式片段與公式仍須逐項對回來源。"""
+
 from __future__ import annotations
 
 import re
 
 
-_NUMBER = r'[+−-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+−-]?\d+)?'
+_NUMBER = r"[+−-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+−-]?\d+)?"
 _UNIT = (
-    r'(?:[%％]|°[CF]|(?:[fpnumkKMGTµμ]?(?:mol|Hz|Pa|Wb|[smgAKNJWCVFΩSTHBb])'
-    r'|bits?|bytes?)(?:\^?[²³23])?(?:/(?:[munµμ]?s|[km]?m|h)(?:\^?[²³23])?)?)'
+    r"(?:[%％]|°[CF]|(?:[fpnumkKMGTµμ]?(?:mol|Hz|Pa|Wb|[smgAKNJWCVFΩSTHBb])"
+    r"|bits?|bytes?)(?:\^?[²³23])?(?:/(?:[munµμ]?s|[km]?m|h)(?:\^?[²³23])?)?)"
 )
-_QUANTITY = re.compile(
-    rf'(?<![A-Za-z0-9_.]){_NUMBER}(?:\s*{_UNIT}(?![A-Za-z]))?'
-)
+_QUANTITY = re.compile(rf"(?<![A-Za-z0-9_.]){_NUMBER}(?:\s*{_UNIT}(?![A-Za-z]))?")
 _QUOTED = re.compile(
     # PDF 可在行內程式碼中換行；不能把其結尾反引號誤當下一段的開頭。
     # 仍不跨空白段落配對，避免把一般說明一起保護成程式碼。
-    r'(?<!`)`(?:(?!\n[ \t\r]*\n)[^`])+`(?!`)|(?<![A-Za-z0-9])\'(?:\\.|[^\'\\\n]){1,80}\''
+    r"(?<!`)`(?:(?!\n[ \t\r]*\n)[^`])+`(?!`)|(?<![A-Za-z0-9])\'(?:\\.|[^\'\\\n]){1,80}\'"
     r'|(?<![A-Za-z0-9])"(?:\\.|[^"\\\n]){1,80}"'
     r'|\\(?:[0abfnrtv\\\'"?]|x[0-9A-Fa-f]+|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})'
 )
-_CODE_FENCE = re.compile(r'(?<!`)(`{3,})([\s\S]*?)\1(?!`)')
-_CALL = re.compile(r'(?<![A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*(?:\([^()\n]{0,80}\)|\[[^\]\n]{1,80}\])')
+_CODE_FENCE = re.compile(r"(?<!`)(`{3,})([\s\S]*?)\1(?!`)")
+_CALL = re.compile(
+    r"(?<![A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*(?:\([^()\n]{0,80}\)|\[[^\]\n]{1,80}\])"
+)
 # 保留物件欄位存取，避免把 P.tools then return 的尾端誤認為英文散文。
-_MEMBER = re.compile(r'\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b')
-_GLOSS = re.compile(r'[（(]([A-Za-z][A-Za-z0-9_-]*|[α-ωΑ-Ω])[）)]')
-_OPERAND = r'(?:[A-Za-zα-ωΑ-Ω][A-Za-z0-9_α-ωΑ-Ω]*|\d+(?:\.\d+)?)'
+_MEMBER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b")
+_GLOSS = re.compile(r"[（(]([A-Za-z][A-Za-z0-9_-]*|[α-ωΑ-Ω])[）)]")
+_OPERAND = r"(?:[A-Za-zα-ωΑ-Ω][A-Za-z0-9_α-ωΑ-Ω]*|\d+(?:\.\d+)?)"
 _EXPRESSION = re.compile(
-    rf'(?<![A-Za-z0-9_*])(?:[A-Za-zα-ωΑ-Ω](?:_[A-Za-z0-9]+)?|\d+(?:\.\d+)?)'
-    rf'(?:\s*(?:==|!=|<=|>=|->|=|\+|\*|/|\^|<|>|≤|≥|≠)\s*{_OPERAND})+(?![A-Za-z0-9_α-ωΑ-Ω*])'
+    rf"(?<![A-Za-z0-9_*])(?:[A-Za-zα-ωΑ-Ω](?:_[A-Za-z0-9]+)?|\d+(?:\.\d+)?)"
+    rf"(?:\s*(?:==|!=|<=|>=|->|=|\+|\*|/|\^|<|>|≤|≥|≠)\s*{_OPERAND})+(?![A-Za-z0-9_α-ωΑ-Ω*])"
 )
 # 翻譯流程圖時保護多字母節點；不將這些節點加入已發布內容的字面值契約，
 # 也不把 difference +0.1 等一般敘述或 HTML 標籤辨識為運算式。
 _FLOW_EXPRESSION = re.compile(
-    rf'(?<![A-Za-z0-9_*]){_OPERAND}'
-    rf'(?:[ \t]*(?:=|\+|\*|/|\^|≤|≥|≠|<=|>=)[ \t]*{_OPERAND})*'
-    rf'(?:[ \t]*->[ \t]*{_OPERAND})+'
-    rf'(?:[ \t]*(?:=|\+|\*|/|\^|≤|≥|≠|<=|>=)[ \t]*{_OPERAND})*'
-    rf'(?![A-Za-z0-9_α-ωΑ-Ω*])'
+    rf"(?<![A-Za-z0-9_*]){_OPERAND}"
+    rf"(?:[ \t]*(?:=|\+|\*|/|\^|≤|≥|≠|<=|>=)[ \t]*{_OPERAND})*"
+    rf"(?:[ \t]*->[ \t]*{_OPERAND})+"
+    rf"(?:[ \t]*(?:=|\+|\*|/|\^|≤|≥|≠|<=|>=)[ \t]*{_OPERAND})*"
+    rf"(?![A-Za-z0-9_α-ωΑ-Ω*])"
 )
-_SUBTRACTION = re.compile(r'(?<![A-Za-z0-9_])(?:[A-Za-zα-ωΑ-Ω]|\d+(?:\.\d+)?)\s*[-−]\s*(?:[A-Za-zα-ωΑ-Ω]|\d+(?:\.\d+)?)(?![A-Za-z0-9_])')
-_DIRECTION = re.compile(r'[↑↓←→↔⇐⇒⇔≤≥≠±∓]')
-_DECLARATION = re.compile(r'\b(?:(?:const|static|unsigned|signed)\s+)*(?:char|int|float|double|bool|void)\s+[*&\w\s]+;')
-_LATEX = re.compile(r'\$\$[\s\S]+?\$\$|\$[^$\n]+\$')
-_MONTHS = ('January February March April May June July August September October November December').split()
-_NAMED_DATE = re.compile(r'\b('+'|'.join(_MONTHS)+r')\s+(?:\d{1,2}(?:st|nd|rd|th)?,?\s+)?(\d{4})\b',re.I)
+_SUBTRACTION = re.compile(
+    r"(?<![A-Za-z0-9_])(?:[A-Za-zα-ωΑ-Ω]|\d+(?:\.\d+)?)\s*[-−]\s*(?:[A-Za-zα-ωΑ-Ω]|\d+(?:\.\d+)?)(?![A-Za-z0-9_])"
+)
+_DIRECTION = re.compile(r"[↑↓←→↔⇐⇒⇔≤≥≠±∓]")
+_DECLARATION = re.compile(
+    r"\b(?:(?:const|static|unsigned|signed)\s+)*(?:char|int|float|double|bool|void)\s+[*&\w\s]+;"
+)
+_LATEX = re.compile(r"\$\$[\s\S]+?\$\$|\$[^$\n]+\$")
+_MONTHS = (
+    "January February March April May June July August September October November December"
+).split()
+_NAMED_DATE = re.compile(
+    r"\b(" + "|".join(_MONTHS) + r")\s+(?:\d{1,2}(?:st|nd|rd|th)?,?\s+)?(\d{4})\b", re.I
+)
 
 
 def _formula_text(text):
-    if not re.match(r'^\s*[A-Za-z_α-ωΑ-Ω][A-Za-z0-9_α-ωΑ-Ω]*(?:\([^()\n]*\))?\s*(?:=|∼|≈|∈)', text):
+    if not re.match(
+        r"^\s*[A-Za-z_α-ωΑ-Ω][A-Za-z0-9_α-ωΑ-Ω]*(?:\([^()\n]*\))?\s*(?:=|∼|≈|∈)", text
+    ):
         return False
-    without_functions = re.sub(r'\b[A-Za-z_][A-Za-z0-9_]*(?=\s*\()', '', text)
-    return re.search(r'[\u3400-\u9fff]|\b[a-z]{4,}\b', without_functions) is None
+    without_functions = re.sub(r"\b[A-Za-z_][A-Za-z0-9_]*(?=\s*\()", "", text)
+    return re.search(r"[\u3400-\u9fff]|\b[a-z]{4,}\b", without_functions) is None
 
 
 def _compact(value: str) -> str:
-    return re.sub(r'\s+', '', value)
+    return re.sub(r"\s+", "", value)
 
 
 def _literals(text: str) -> set[str]:
     # 英文連字號與一般括注不代表程式碼；f(x)、陣列及數學運算才保護整個片段。
-    result = {_compact(match[0].strip('`')) for pattern in (
-        _QUANTITY, _QUOTED, _CALL, _EXPRESSION, _SUBTRACTION, _DIRECTION,
-    ) for match in pattern.finditer(text)}
-    result.update(match[0] if len(match[1]) == 1 else match[1] for match in _GLOSS.finditer(text))
+    result = {
+        _compact(match[0].strip("`"))
+        for pattern in (
+            _QUANTITY,
+            _QUOTED,
+            _CALL,
+            _EXPRESSION,
+            _SUBTRACTION,
+            _DIRECTION,
+        )
+        for match in pattern.finditer(text)
+    }
+    result.update(
+        match[0] if len(match[1]) == 1 else match[1] for match in _GLOSS.finditer(text)
+    )
     return result
 
 
 def _literal_ranges(text: str, kind: str):
-    spans = [(match.start(), match.end()) for pattern in (
-        _QUANTITY, _QUOTED, _CODE_FENCE, _CALL, _MEMBER, _EXPRESSION, _FLOW_EXPRESSION, _SUBTRACTION, _DIRECTION, _GLOSS, _DECLARATION, _LATEX,
-    ) for match in pattern.finditer(text)]
-    if kind in {'code', 'formula'} or _formula_text(text):
+    spans = [
+        (match.start(), match.end())
+        for pattern in (
+            _QUANTITY,
+            _QUOTED,
+            _CODE_FENCE,
+            _CALL,
+            _MEMBER,
+            _EXPRESSION,
+            _FLOW_EXPRESSION,
+            _SUBTRACTION,
+            _DIRECTION,
+            _GLOSS,
+            _DECLARATION,
+            _LATEX,
+        )
+        for match in pattern.finditer(text)
+    ]
+    if kind in {"code", "formula"} or _formula_text(text):
         spans = [(0, len(text))]
     merged = []
     for start, end in sorted(spans):
@@ -81,83 +118,106 @@ def _literal_ranges(text: str, kind: str):
     return merged
 
 
-def mask_literals(text: str, kind: str = 'paragraph', *, token_start=0) -> tuple[str, dict[str, str]]:
+def mask_literals(
+    text: str, kind: str = "paragraph", *, token_start=0
+) -> tuple[str, dict[str, str]]:
     """翻譯時以位置代號保留技術片段；重疊的公式／數字只保留一次。"""
     merged = _literal_ranges(text, kind)
-    prefix = '⟪保留'
+    prefix = "⟪保留"
     while prefix in text:
-        prefix += '值'
+        prefix += "值"
     pieces, literals, cursor = [], {}, 0
     for number, (start, end) in enumerate(merged, start=token_start):
-        token = f'{prefix}{number}⟫'
+        token = f"{prefix}{number}⟫"
         pieces.extend((text[cursor:start], token))
         literals[token] = text[start:end]
         cursor = end
     pieces.append(text[cursor:])
-    return ''.join(pieces), literals
+    return "".join(pieces), literals
 
 
 def language_correction_template(text: str):
     """中文只混入外語詞時，保護其餘整段，避免修字時擅自重排原公式。"""
-    if not re.search(r'[\u3400-\u9fff]', text):
+    if not re.search(r"[\u3400-\u9fff]", text):
         return mask_literals(text)
-    protected = _literal_ranges(text, 'paragraph')
-    foreign = [match.span() for match in re.finditer(r'[\u0400-\u1cff]+(?:\s+[\u0400-\u1cff]+)*', text)
-               if not any(start <= match.start() and match.end() <= end for start, end in protected)]
+    protected = _literal_ranges(text, "paragraph")
+    foreign = [
+        match.span()
+        for match in re.finditer(r"[\u0400-\u1cff]+(?:\s+[\u0400-\u1cff]+)*", text)
+        if not any(
+            start <= match.start() and match.end() <= end for start, end in protected
+        )
+    ]
     if not foreign:
         return mask_literals(text)
-    prefix = '⟪保留'
+    prefix = "⟪保留"
     while prefix in text:
-        prefix += '值'
+        prefix += "值"
     parts, literals, cursor = [], {}, 0
     for start, end in [*foreign, (len(text), len(text))]:
         if start > cursor:
-            token = f'{prefix}{len(literals)}⟫'
+            token = f"{prefix}{len(literals)}⟫"
             literals[token] = text[cursor:start]
             parts.append(token)
         parts.append(text[start:end])
         cursor = end
-    return ''.join(parts), literals
+    return "".join(parts), literals
 
 
 def restore_literals(value, literals):
     if not isinstance(value, str) or any(value.count(token) != 1 for token in literals):
-        raise ValueError('SEMANTIC_OUTPUT_INVALID')
-    if any(token not in literals for token in re.findall(r'⟪保留值*\d+⟫', value)):
-        raise ValueError('SEMANTIC_OUTPUT_INVALID')
+        raise ValueError("SEMANTIC_OUTPUT_INVALID")
+    if any(token not in literals for token in re.findall(r"⟪保留值*\d+⟫", value)):
+        raise ValueError("SEMANTIC_OUTPUT_INVALID")
     if not literals:
         return value
     # 一次還原，不把原始程式字串中的代號再次當成另一個替換目標。
-    return re.sub('|'.join(re.escape(token) for token in literals), lambda match: literals[match[0]], value)
+    return re.sub(
+        "|".join(re.escape(token) for token in literals),
+        lambda match: literals[match[0]],
+        value,
+    )
 
 
 def preserves_literals(meaning: str, sources: list[dict]) -> bool:
     """共用於生成投影、審查修正及發布驗證，不以英文全文相等代替忠實度檢查。"""
-    source_text = ' '.join(source['exact_text'] for source in sources)
-    normalized = ' '.join(meaning.split())
-    if normalized == ' '.join(source_text.split()):
+    source_text = " ".join(source["exact_text"] for source in sources)
+    normalized = " ".join(meaning.split())
+    if normalized == " ".join(source_text.split()):
         return True
     # 不把前一區塊末尾與下一區塊開頭誤接成另一個公式或單位。
-    source_literals = set().union(*(_literals(source['exact_text']) for source in sources))
+    source_literals = set().union(
+        *(_literals(source["exact_text"]) for source in sources)
+    )
     meaning_literals = _literals(meaning)
     compact_source, compact_meaning = _compact(source_text), _compact(meaning)
     # 英文日期的月份可譯成中文數字月份；仍須保留同一年及原數值，不能憑月份放行任意新數字。
-    calendar_numbers=set()
+    calendar_numbers = set()
     for date in _NAMED_DATE.finditer(source_text):
-        month=next(i for i,name in enumerate(_MONTHS,1) if name.casefold()==date[1].casefold())
-        if re.search(re.escape(date[2])+r'\s*年\s*'+str(month)+r'\s*月',meaning):
+        month = next(
+            i
+            for i, name in enumerate(_MONTHS, 1)
+            if name.casefold() == date[1].casefold()
+        )
+        if re.search(re.escape(date[2]) + r"\s*年\s*" + str(month) + r"\s*月", meaning):
             calendar_numbers.add(str(month))
     # 原文括注可移到句中，但不得換成不同術語；保留空白差異，其他字面值不改。
     if any(literal not in compact_meaning for literal in source_literals):
         return False
-    if any(literal not in compact_source and literal not in calendar_numbers for literal in meaning_literals):
+    if any(
+        literal not in compact_source and literal not in calendar_numbers
+        for literal in meaning_literals
+    ):
         return False
     for source in sources:
-        text = source['exact_text']
-        if source.get('kind') in {'code', 'formula'} and ' '.join(text.split()) not in normalized:
+        text = source["exact_text"]
+        if (
+            source.get("kind") in {"code", "formula"}
+            and " ".join(text.split()) not in normalized
+        ):
             return False
         # 原生文字有時把 C 類宣告標成 paragraph；不能因翻譯而丟掉宣告內容。
         for declaration in _DECLARATION.finditer(text):
-            if ' '.join(declaration[0].split()) not in normalized:
+            if " ".join(declaration[0].split()) not in normalized:
                 return False
     return True

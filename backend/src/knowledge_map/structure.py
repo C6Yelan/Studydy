@@ -1,4 +1,5 @@
 """建構與驗證綁定來源的正式知識地圖。"""
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -7,13 +8,22 @@ import re
 from typing import Any
 from uuid import UUID
 
-from .source_context import build_document_context
+# 組建入口的公開符號；分析呼叫端同時使用脈絡、語意投影與正式文件建構。
+from .source_context import build_document_context as build_document_context
 from .semantic_projection import (
-    SemanticState, apply_semantic_response, build_semantic_bundles,
-    semantic_request, semantic_response_schema,
+    SemanticState,
+    apply_semantic_response as apply_semantic_response,
+    build_semantic_bundles as build_semantic_bundles,
+    semantic_request as semantic_request,
+    semantic_response_schema as semantic_response_schema,
 )
 from .structure_rules import (
-    STRUCTURE_SCHEMA, RELATION_PRIORITY, _cycle, _id, _path, _revision,
+    STRUCTURE_SCHEMA,
+    RELATION_PRIORITY,
+    _cycle,
+    _id,
+    _path,
+    _revision,
 )
 from .structure_validation import validate_knowledge_structure, validate_structure_draft
 
@@ -42,8 +52,10 @@ def build_structure_draft(
         context.get("material_id") != f"material:sha256:{source_sha256}"
         or parsed_time.tzinfo is None
         or re.fullmatch(r"[0-9a-f]{64}", runtime_lock_sha256) is None
-        or not isinstance(model_id, str) or not model_id
-        or not isinstance(model_revision, str) or not model_revision
+        or not isinstance(model_id, str)
+        or not model_id
+        or not isinstance(model_revision, str)
+        or not model_revision
     ):
         raise ValueError("MATERIAL_IDENTITY_INVALID")
     evidence_by_id = {item["evidence_id"]: item for item in context["evidence"]}
@@ -56,16 +68,18 @@ def build_structure_draft(
         claims = []
         for claim in item["claims"]:
             claim = deepcopy(claim)
-            claim["evidence_refs"] = list(dict.fromkeys(
-                span["evidence_id"] for span in claim["source_spans"]
-            ))
+            claim["evidence_refs"] = list(
+                dict.fromkeys(span["evidence_id"] for span in claim["source_spans"])
+            )
             claim["claim_id"] = _id("claim", claim)
             claims.append(claim)
         if not claims:
             continue
-        references = list(dict.fromkeys(
-            reference for claim in claims for reference in claim["evidence_refs"]
-        ))
+        references = list(
+            dict.fromkeys(
+                reference for claim in claims for reference in claim["evidence_refs"]
+            )
+        )
         identity = {
             "label": item["label"],
             "aliases": aliases,
@@ -85,12 +99,15 @@ def build_structure_draft(
                 "aliases": aliases,
                 "claims": claims,
                 "evidence_refs": references,
-                "section_ids": list(dict.fromkeys(
-                    evidence_by_id[reference]["section_id"] for reference in references
-                )),
-                "source_pages": sorted({
-                    evidence_by_id[reference]["page"] for reference in references
-                }),
+                "section_ids": list(
+                    dict.fromkeys(
+                        evidence_by_id[reference]["section_id"]
+                        for reference in references
+                    )
+                ),
+                "source_pages": sorted(
+                    {evidence_by_id[reference]["page"] for reference in references}
+                ),
             }
         )
     concepts.sort(
@@ -116,7 +133,9 @@ def build_structure_draft(
         if identity in directed_relations or reverse in directed_relations:
             rejected_relations += 1
             continue
-        if relation_type == "prerequisite" and _cycle(prerequisite_edges, (source, target)):
+        if relation_type == "prerequisite" and _cycle(
+            prerequisite_edges, (source, target)
+        ):
             rejected_relations += 1
             continue
         relation = {
@@ -174,7 +193,9 @@ def build_structure_draft(
         reasons.append("NO_CANONICAL_CONCEPT")
     status = {
         "processing": (
-            "partial" if reasons and concepts else ("failed" if not concepts else "succeeded")
+            "partial"
+            if reasons and concepts
+            else ("failed" if not concepts else "succeeded")
         ),
         "quality": "needs_review" if reasons else "accepted",
         "decision": "reject" if not concepts else ("review" if reasons else "retain"),
@@ -194,7 +215,10 @@ def build_structure_draft(
         "page_count": context["page_count"],
         "evidence": deepcopy(context["evidence"]),
         "excluded_pages": deepcopy(context["excluded_pages"]),
-        "document_tree": {"material_id": context["material_id"], "sections": section_nodes},
+        "document_tree": {
+            "material_id": context["material_id"],
+            "sections": section_nodes,
+        },
         "concepts": concepts,
         "relations": relations,
         "initial_learning_path": _path(concepts, relations),
@@ -243,7 +267,11 @@ def _view_from_validated_document(document: dict[str, Any]) -> dict[str, Any]:
     evidence = {item["evidence_id"]: item for item in document["evidence"]}
     concepts = []
     for concept in document["concepts"]:
-        public = {key: deepcopy(value) for key, value in concept.items() if key != "evidence_refs"}
+        public = {
+            key: deepcopy(value)
+            for key, value in concept.items()
+            if key != "evidence_refs"
+        }
         for claim in public["claims"]:
             claim["evidence"] = [
                 {

@@ -12,7 +12,17 @@ from .source_normalization import _material
 from .errors import SourceError
 from .material_runtime import runtime_binding
 from .storage.artifacts import _key_digest
-from .storage.tables import Artifact, KnowledgeStructure, MaterialProcessingRun, MaterialSource, MaterialSourceSet, MaterialSourceSetItem, MaterialResearch, SourceNormalization, TopicScope
+from .storage.tables import (
+    Artifact,
+    KnowledgeStructure,
+    MaterialProcessingRun,
+    MaterialSource,
+    MaterialSourceSet,
+    MaterialSourceSetItem,
+    MaterialResearch,
+    SourceNormalization,
+    TopicScope,
+)
 from .storage.database import database_session
 
 

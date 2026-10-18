@@ -13,26 +13,31 @@ def page_source(document, page):
     binding = document["input_binding"]
     location = binding["bundle"]["pages"][page - 1]
     source = next(
-        item for item in binding["manifest"]["items"]
+        item
+        for item in binding["manifest"]["items"]
         if item["source_id"] == location["source_id"]
     )
-    source_digest = canonical_sha256({
-        "original": source["original_sha256"],
-        "normalized": source["normalized_sha256"],
-    })
+    source_digest = canonical_sha256(
+        {
+            "original": source["original_sha256"],
+            "normalized": source["normalized_sha256"],
+        }
+    )
     return source_digest, location["normalized_page"]
 
 
 def evidence_identity(document, evidence):
     source_digest, source_page = page_source(document, evidence["page"])
-    return canonical_sha256({
-        "normalized_sha256": source_digest,
-        "page": source_page,
-        "kind": evidence["kind"],
-        "text": evidence["exact_text"],
-        "order": evidence["block_order"],
-        "region": evidence["source_locator"]["region"],
-    })
+    return canonical_sha256(
+        {
+            "normalized_sha256": source_digest,
+            "page": source_page,
+            "kind": evidence["kind"],
+            "text": evidence["exact_text"],
+            "order": evidence["block_order"],
+            "region": evidence["source_locator"]["region"],
+        }
+    )
 
 
 def _claims(document):
@@ -43,12 +48,14 @@ def _claims(document):
     result = defaultdict(list)
     for concept in document["concepts"]:
         for claim in concept["claims"]:
-            identity = canonical_sha256({
-                "text": claim["text"],
-                "evidence": sorted(
-                    evidence[span["evidence_id"]] for span in claim["source_spans"]
-                ),
-            })
+            identity = canonical_sha256(
+                {
+                    "text": claim["text"],
+                    "evidence": sorted(
+                        evidence[span["evidence_id"]] for span in claim["source_spans"]
+                    ),
+                }
+            )
             result[identity].append((concept["concept_id"], claim["claim_id"]))
     return result
 
@@ -67,30 +74,67 @@ def unchanged_claims(before, after):
 
 def unchanged_concepts(before, after):
     """增補時只略過內容、章節脈絡及相連關係皆不變的概念；不是新的品質驗收。"""
+
     def identities(document):
-        evidence = {item['evidence_id']: evidence_identity(document, item) for item in document['evidence']}
-        titles = {section['section_id']: section['title'] for section in document['document_tree']['sections']}
+        evidence = {
+            item["evidence_id"]: evidence_identity(document, item)
+            for item in document["evidence"]
+        }
+        titles = {
+            section["section_id"]: section["title"]
+            for section in document["document_tree"]["sections"]
+        }
         concepts = {}
-        for concept in document['concepts']:
-            concepts[concept['concept_id']] = canonical_sha256({
-                'label': concept['label'], 'aliases': concept['aliases'],
-                'sections': [titles[identity] for identity in concept['section_ids']],
-                'claims': [{'text': claim['text'], 'projection': claim['projection'],
-                            'sources': [(evidence[span['evidence_id']], span['quote']) for span in claim['source_spans']]}
-                           for claim in concept['claims']],
-            })
+        for concept in document["concepts"]:
+            concepts[concept["concept_id"]] = canonical_sha256(
+                {
+                    "label": concept["label"],
+                    "aliases": concept["aliases"],
+                    "sections": [
+                        titles[identity] for identity in concept["section_ids"]
+                    ],
+                    "claims": [
+                        {
+                            "text": claim["text"],
+                            "projection": claim["projection"],
+                            "sources": [
+                                (evidence[span["evidence_id"]], span["quote"])
+                                for span in claim["source_spans"]
+                            ],
+                        }
+                        for claim in concept["claims"]
+                    ],
+                }
+            )
         relations = defaultdict(list)
-        for relation in document['relations']:
-            signature = canonical_sha256({
-                'source': concepts[relation['source_concept_id']],
-                'target': concepts[relation['target_concept_id']],
-                **{key: relation[key] for key in ('type', 'learner_reason', 'inference_basis', 'confidence')},
-                'evidence': [evidence[identity] for identity in relation['evidence_refs']],
-            })
-            for endpoint in ('source_concept_id', 'target_concept_id'):
+        for relation in document["relations"]:
+            signature = canonical_sha256(
+                {
+                    "source": concepts[relation["source_concept_id"]],
+                    "target": concepts[relation["target_concept_id"]],
+                    **{
+                        key: relation[key]
+                        for key in (
+                            "type",
+                            "learner_reason",
+                            "inference_basis",
+                            "confidence",
+                        )
+                    },
+                    "evidence": [
+                        evidence[identity] for identity in relation["evidence_refs"]
+                    ],
+                }
+            )
+            for endpoint in ("source_concept_id", "target_concept_id"):
                 relations[relation[endpoint]].append(signature)
-        return {identity: canonical_sha256({'content': signature, 'relations': sorted(relations[identity])})
-                for identity, signature in concepts.items()}
+        return {
+            identity: canonical_sha256(
+                {"content": signature, "relations": sorted(relations[identity])}
+            )
+            for identity, signature in concepts.items()
+        }
+
     old = defaultdict(list)
     for identity, signature in identities(before).items():
         old[signature].append(identity)
@@ -98,7 +142,11 @@ def unchanged_concepts(before, after):
     counts = defaultdict(int)
     for signature in new.values():
         counts[signature] += 1
-    return {identity for identity, signature in new.items() if len(old[signature]) == counts[signature] == 1}
+    return {
+        identity
+        for identity, signature in new.items()
+        if len(old[signature]) == counts[signature] == 1
+    }
 
 
 def seed_incremental_state(before, context, binding):
@@ -133,11 +181,13 @@ def seed_incremental_state(before, context, binding):
                 }
                 for span in claim["source_spans"]
             ]
-            claims.append({
-                "text": claim["text"],
-                "projection": claim["projection"],
-                "source_spans": source_spans,
-            })
+            claims.append(
+                {
+                    "text": claim["text"],
+                    "projection": claim["projection"],
+                    "source_spans": source_spans,
+                }
+            )
         state.concepts[keys[concept["concept_id"]]] = {
             "label": concept["label"],
             "aliases": deepcopy(concept["aliases"]),
@@ -146,16 +196,23 @@ def seed_incremental_state(before, context, binding):
 
     for relation in before["relations"]:
         matched = [references[reference] for reference in relation["evidence_refs"]]
-        state.relations.append({
-            "source_concept": keys[relation["source_concept_id"]],
-            "target_concept": keys[relation["target_concept_id"]],
-            **{
-                key: deepcopy(relation[key])
-                for key in ("type", "learner_reason", "inference_basis", "confidence")
-            },
-            "evidence_refs": [item["evidence_id"] for item in matched],
-            "context_refs": list(dict.fromkeys(
-                item["section_id"] for item in matched
-            )),
-        })
+        state.relations.append(
+            {
+                "source_concept": keys[relation["source_concept_id"]],
+                "target_concept": keys[relation["target_concept_id"]],
+                **{
+                    key: deepcopy(relation[key])
+                    for key in (
+                        "type",
+                        "learner_reason",
+                        "inference_basis",
+                        "confidence",
+                    )
+                },
+                "evidence_refs": [item["evidence_id"] for item in matched],
+                "context_refs": list(
+                    dict.fromkeys(item["section_id"] for item in matched)
+                ),
+            }
+        )
     return state

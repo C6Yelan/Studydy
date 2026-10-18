@@ -38,7 +38,9 @@ def _depth(value: Any, current: int = 0) -> int:
     if current > 32:
         raise ProtocolError("PROTOCOL_LIMIT_EXCEEDED")
     if isinstance(value, dict):
-        return max((_depth(item, current + 1) for item in value.values()), default=current)
+        return max(
+            (_depth(item, current + 1) for item in value.values()), default=current
+        )
     if isinstance(value, list):
         return max((_depth(item, current + 1) for item in value), default=current)
     return current
@@ -96,12 +98,21 @@ def _request_id(value: Any) -> str:
 
 
 def validate_ocr_request(request: Any) -> dict[str, Any]:
-    if not isinstance(request, dict) or set(request) != {"schema", "request_id", "render"}:
+    if not isinstance(request, dict) or set(request) != {
+        "schema",
+        "request_id",
+        "render",
+    }:
         raise ProtocolError("CHILD_REQUEST_INVALID")
     if request["schema"] != OCR_REQUEST_SCHEMA:
         raise ProtocolError("CHILD_REQUEST_INVALID")
     render = request["render"]
-    if not isinstance(render, dict) or set(render) != {"sha256", "width", "height", "png_base64"}:
+    if not isinstance(render, dict) or set(render) != {
+        "sha256",
+        "width",
+        "height",
+        "png_base64",
+    }:
         raise ProtocolError("CHILD_REQUEST_INVALID")
     width, height = render["width"], render["height"]
     if (
@@ -121,7 +132,9 @@ def validate_ocr_request(request: Any) -> dict[str, Any]:
         png_bytes = base64.b64decode(render["png_base64"], validate=True)
     except (ValueError, TypeError) as error:
         raise ProtocolError("CHILD_REQUEST_INVALID") from error
-    if len(png_bytes) > 64 * 1024 * 1024 or not png_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+    if len(png_bytes) > 64 * 1024 * 1024 or not png_bytes.startswith(
+        b"\x89PNG\r\n\x1a\n"
+    ):
         raise ProtocolError("CHILD_REQUEST_INVALID")
     return {
         "request_id": _request_id(request["request_id"]),

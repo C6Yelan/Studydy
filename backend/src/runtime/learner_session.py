@@ -67,13 +67,18 @@ def _add_session(session: Session, learner_id: UUID) -> CreatedSession:
     """為指定使用者建立登入 session。"""
     token_bytes = secrets.token_bytes(32)
     now = _utc_now()
-    session.add(LearnerSession(
-        session_id=uuid4(), learner_id=learner_id,
-        token_sha256=sha256(token_bytes).digest(), created_at=now,
-        idle_expires_at=now + IDLE_LIFETIME,
-        absolute_expires_at=now + ABSOLUTE_LIFETIME,
-        revoked_at=None, updated_at=now,
-    ))
+    session.add(
+        LearnerSession(
+            session_id=uuid4(),
+            learner_id=learner_id,
+            token_sha256=sha256(token_bytes).digest(),
+            created_at=now,
+            idle_expires_at=now + IDLE_LIFETIME,
+            absolute_expires_at=now + ABSOLUTE_LIFETIME,
+            revoked_at=None,
+            updated_at=now,
+        )
+    )
     return CreatedSession(learner_id=learner_id, raw_token=_encode_token(token_bytes))
 
 
@@ -89,11 +94,20 @@ def _credentials(email: str, password: str) -> str:
     return email
 
 
-def _password_digest(password: str, salt: bytes, profile: tuple[int, int, int] = _CURRENT_SCRYPT) -> bytes:
+def _password_digest(
+    password: str, salt: bytes, profile: tuple[int, int, int] = _CURRENT_SCRYPT
+) -> bytes:
     # 預設雜湊約使用 16 MiB；驗證依雜湊記錄的參數，密碼不截斷。
     n, r, p = profile
-    return scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p,
-                  maxmem=_SCRYPT_MAXMEM[profile], dklen=32)
+    return scrypt(
+        password.encode("utf-8"),
+        salt=salt,
+        n=n,
+        r=r,
+        p=p,
+        maxmem=_SCRYPT_MAXMEM[profile],
+        dklen=32,
+    )
 
 
 def _password_hash(password: str) -> str:
@@ -102,15 +116,23 @@ def _password_hash(password: str) -> str:
     return f"scrypt${n}${r}${p}${salt.hex()}${_password_digest(password, salt).hex()}"
 
 
-def register_account(email: str, password: str, *, dsn: str | None = None) -> CreatedSession:
+def register_account(
+    email: str, password: str, *, dsn: str | None = None
+) -> CreatedSession:
     """以同一交易建立帳號與登入 session。"""
     email = _credentials(email, password)
     password_hash = _password_hash(password)
     learner_id = uuid4()
     try:
         with database_session(dsn) as session:
-            session.add(Learner(learner_id=learner_id, created_at=_utc_now(),
-                                email=email, password_hash=password_hash))
+            session.add(
+                Learner(
+                    learner_id=learner_id,
+                    created_at=_utc_now(),
+                    email=email,
+                    password_hash=password_hash,
+                )
+            )
             session.flush()
             created = _add_session(session, learner_id)
     except IntegrityError as error:
@@ -122,7 +144,9 @@ def register_account(email: str, password: str, *, dsn: str | None = None) -> Cr
     return created
 
 
-def login_account(email: str, password: str, *, dsn: str | None = None) -> CreatedSession:
+def login_account(
+    email: str, password: str, *, dsn: str | None = None
+) -> CreatedSession:
     """驗證密碼後為原 learner 建立 session；失效 token 不會被復活。"""
     email = _credentials(email, password)
     try:
@@ -133,7 +157,11 @@ def login_account(email: str, password: str, *, dsn: str | None = None) -> Creat
             parts = stored.split("$") if stored else None
             try:
                 profile = tuple(map(int, parts[1:4])) if parts else _CURRENT_SCRYPT
-                if parts and (len(parts) != 6 or parts[0] != "scrypt" or profile not in _SCRYPT_MAXMEM):
+                if parts and (
+                    len(parts) != 6
+                    or parts[0] != "scrypt"
+                    or profile not in _SCRYPT_MAXMEM
+                ):
                     raise ValueError
                 salt = bytes.fromhex(parts[4]) if parts else bytes(16)
             except (TypeError, ValueError):

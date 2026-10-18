@@ -1,7 +1,12 @@
 FROM ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78 AS dependencies
 COPY --from=ghcr.io/astral-sh/uv:latest@sha256:04d046b13e60d6bcec73cbc5e1cad25d680dea90c8573340950a0ac2d1aef424 /uv /usr/local/bin/uv
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates tzdata bubblewrap fontconfig fonts-noto-cjk \
+# 保留已驗證的轉檔版本；一般套件站不保證保存已被取代的版本。
+# Ubuntu snapshot：https://snapshot.ubuntu.com/
+ARG UBUNTU_SNAPSHOT=20261005T060000Z
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get update --snapshot "$UBUNTU_SNAPSHOT" \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --snapshot "$UBUNTU_SNAPSHOT" \
+    tzdata bubblewrap fontconfig fonts-noto-cjk \
     libreoffice-writer-nogui=4:26.2.5.2-0ubuntu0.26.04.1 \
     libreoffice-impress-nogui=4:26.2.5.2-0ubuntu0.26.04.1 \
     && rm -rf /var/lib/apt/lists/*

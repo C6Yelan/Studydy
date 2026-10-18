@@ -60,8 +60,9 @@ def test_timeline_api_authorization_and_unprepared_state(monkeypatch):
     monkeypatch.setattr(scene_routes.podcasts, 'read_podcast', read)
     monkeypatch.setattr(scene_routes.podcast_videos, 'ready_manifest', lambda *a, **kw: None)
     monkeypatch.setattr(scene_routes.podcast_scenes, 'read', lambda *a, **kw: {'episodes': [state]})
+    monkeypatch.setattr(scene_routes.request_context, 'trusted_learner', trusted)
     app = FastAPI()
-    scene_routes.install(app, SimpleNamespace(dsn=None), trusted, lambda *a: None)
+    scene_routes.install(app, SimpleNamespace(dsn=None))
     url = f'/v1/podcasts/{uuid4()}/episodes/0'
     with TestClient(app) as client:
         assert client.get(url + '/timeline').status_code == 401

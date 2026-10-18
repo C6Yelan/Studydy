@@ -13,7 +13,16 @@ from .knowledge_structures import (
     _view,
     _binding,
 )
-from .tables import CardSourceIndex, CardSourceConcept, KnowledgeReadIndex, KnowledgeEvidenceRef, KnowledgeStructure, Material, MaterialProcessingRun, MaterialSourceSet
+from .tables import (
+    CardSourceIndex,
+    CardSourceConcept,
+    KnowledgeReadIndex,
+    KnowledgeEvidenceRef,
+    KnowledgeStructure,
+    Material,
+    MaterialProcessingRun,
+    MaterialSourceSet,
+)
 from .database import database_session
 
 

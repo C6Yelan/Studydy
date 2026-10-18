@@ -57,7 +57,7 @@ try {
     if(seeks.some(s=>s.revealed!==(s.time>=3)))throw Error(`reveal/seek mismatch at ${fps}fps`);
     report.push({fps,seeks});
   }
-  const decision='Keep 60fps: measured half-speed presentation drops from about 30 to 15 frames/s at 30fps, so motion equivalence is not established despite stable render savings.';
+  const decision='Keep 60fps until the recorded playback measurements and visual motion are reviewed; this synthetic run does not establish motion equivalence.';
   writeFileSync(join(directory,'browser-summary.json'),JSON.stringify({synthetic:true,browser:'Chromium headless',measurements:report,decision},null,2));
   const summary=JSON.parse(readFileSync(join(directory,'summary.json'),'utf8'));summary.decision=decision;
   writeFileSync(join(directory,'summary.json'),JSON.stringify(summary,null,2));

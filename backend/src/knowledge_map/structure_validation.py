@@ -1,4 +1,5 @@
 """驗證知識地圖的來源、Evidence、概念與關係。"""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -10,16 +11,35 @@ from uuid import UUID
 from .semantic_projection import _unsupported_null_meaning
 from .claim_literals import preserves_literals
 from .structure_rules import (
-    STRUCTURE_SCHEMA, RELATION_BASIS, RELATION_PRIORITY, RELATION_TYPES,
-    _CODE_OR_FORMULA, _GENERIC_REASONS, _TECHNICAL, _cycle, _id, _path,
+    STRUCTURE_SCHEMA,
+    RELATION_BASIS,
+    RELATION_PRIORITY,
+    RELATION_TYPES,
+    _CODE_OR_FORMULA,
+    _GENERIC_REASONS,
+    _TECHNICAL,
+    _cycle,
+    _id,
+    _path,
     _revision,
 )
 
 
 _DRAFT_FIELDS = {
-    "material_id", "source_sha256", "run_id", "produced_at", "provenance",
-    "page_count", "evidence", "excluded_pages", "document_tree", "concepts",
-    "relations", "initial_learning_path", "metrics", "status",
+    "material_id",
+    "source_sha256",
+    "run_id",
+    "produced_at",
+    "provenance",
+    "page_count",
+    "evidence",
+    "excluded_pages",
+    "document_tree",
+    "concepts",
+    "relations",
+    "initial_learning_path",
+    "metrics",
+    "status",
 }
 
 
@@ -45,7 +65,10 @@ def validate_knowledge_structure(document: Any) -> bool:
     """只接受已綁定來源的 knowledge-structure/v1；重驗 revision 與內容。"""
     try:
         fields = (_DRAFT_FIELDS - {"source_sha256"}) | {
-            "schema", "revision", "source_set_sha256", "input_binding",
+            "schema",
+            "revision",
+            "source_set_sha256",
+            "input_binding",
         }
         if not isinstance(document, dict) or not _structure_fields(document, fields):
             return False
@@ -55,9 +78,15 @@ def validate_knowledge_structure(document: Any) -> bool:
             or document["revision"] != _revision(document)
             or not isinstance(binding, dict)
             or binding.get("schema") != "structure-input-binding/v2"
-            or set(binding) != {
-                "schema", "source_set_id", "source_set_digest", "bundle_manifest_sha256",
-                "manifest", "bundle", "base_revision",
+            or set(binding)
+            != {
+                "schema",
+                "source_set_id",
+                "source_set_digest",
+                "bundle_manifest_sha256",
+                "manifest",
+                "bundle",
+                "base_revision",
             }
             or not isinstance(binding["manifest"], dict)
             or binding["manifest"].get("schema") != "source-set/v2"
@@ -79,16 +108,24 @@ def _validate_evidence_and_pages(document, source_digest):
     if len(evidence_ids) != len(set(evidence_ids)):
         return False
     evidence_positions = [(item["page"], item["block_order"]) for item in evidence]
-    if (
-        evidence_positions != sorted(evidence_positions)
-        or len(evidence_positions) != len(set(evidence_positions))
-    ):
+    if evidence_positions != sorted(evidence_positions) or len(
+        evidence_positions
+    ) != len(set(evidence_positions)):
         return False
     if any(
         not isinstance(item, dict)
-        or set(item) != {
-            "evidence_id", "page_ref", "page", "block_order", "kind", "source",
-            "exact_text", "heading", "section_id", "source_locator",
+        or set(item)
+        != {
+            "evidence_id",
+            "page_ref",
+            "page",
+            "block_order",
+            "kind",
+            "source",
+            "exact_text",
+            "heading",
+            "section_id",
+            "source_locator",
         }
         or item["source"] not in {"native_text", "unlimited_ocr"}
         or not isinstance(item["kind"], str)
@@ -167,7 +204,8 @@ def _validate_evidence_and_pages(document, source_digest):
             or excluded["stage"] != "evidence"
             or not isinstance(excluded["reason_code"], str)
             or re.fullmatch(r"[A-Z][A-Z0-9_]{0,99}", excluded["reason_code"]) is None
-            or excluded["page_ref"] != _id(
+            or excluded["page_ref"]
+            != _id(
                 "page",
                 {
                     "source_sha256": source_digest,
@@ -196,12 +234,20 @@ def _validate_concepts(document):
     evidence_ids = [item["evidence_id"] for item in evidence]
     known_evidence = set(evidence_ids)
     evidence_by_id = {item["evidence_id"]: item for item in evidence}
-    evidence_order = {evidence_id: index for index, evidence_id in enumerate(evidence_ids)}
+    evidence_order = {
+        evidence_id: index for index, evidence_id in enumerate(evidence_ids)
+    }
     for concept in concepts:
         if (
-            set(concept) != {
-                "concept_id", "label", "aliases", "claims", "evidence_refs",
-                "section_ids", "source_pages",
+            set(concept)
+            != {
+                "concept_id",
+                "label",
+                "aliases",
+                "claims",
+                "evidence_refs",
+                "section_ids",
+                "source_pages",
             }
             or not concept["claims"]
             or not isinstance(concept["label"], str)
@@ -222,17 +268,18 @@ def _validate_concepts(document):
                 for reference in concept["evidence_refs"]
             )
         )
-        expected_pages = sorted({
-            evidence_by_id[reference]["page"]
-            for reference in concept["evidence_refs"]
-        })
+        expected_pages = sorted(
+            {
+                evidence_by_id[reference]["page"]
+                for reference in concept["evidence_refs"]
+            }
+        )
         claim_ids: set[str] = set()
         for claim in concept["claims"]:
             if (
                 not isinstance(claim, dict)
-                or set(claim) != {
-                    "claim_id", "text", "source_spans", "projection", "evidence_refs"
-                }
+                or set(claim)
+                != {"claim_id", "text", "source_spans", "projection", "evidence_refs"}
                 or claim["claim_id"] in claim_ids
                 or not isinstance(claim["text"], str)
                 or not claim["text"].strip()
@@ -285,9 +332,13 @@ def _validate_concepts(document):
                 ):
                     return False
             elif claim["projection"] == "localized_meaning":
-                if not preserves_literals(claim['text'], [
-                    evidence_by_id[span['evidence_id']] for span in claim['source_spans']
-                ]):
+                if not preserves_literals(
+                    claim["text"],
+                    [
+                        evidence_by_id[span["evidence_id"]]
+                        for span in claim["source_spans"]
+                    ],
+                ):
                     return False
             else:
                 return False
@@ -332,7 +383,9 @@ def _validate_document_tree(document):
     known_concepts = {concept["concept_id"] for concept in concepts}
     section_concepts = {}
     for concept in concepts:
-        section_concepts.setdefault(concept["section_ids"][0], []).append(concept["concept_id"])
+        section_concepts.setdefault(concept["section_ids"][0], []).append(
+            concept["concept_id"]
+        )
     tree = document["document_tree"]
     if (
         not isinstance(tree, dict)
@@ -341,21 +394,26 @@ def _validate_document_tree(document):
     ):
         return False
     sections = tree["sections"]
-    if (
-        not isinstance(sections, list)
-        or [section.get("order") for section in sections] != list(range(len(sections)))
-    ):
+    if not isinstance(sections, list) or [
+        section.get("order") for section in sections
+    ] != list(range(len(sections))):
         return False
     tree_concepts = [
         concept_id
         for section in sections
         for concept_id in section.get("concept_ids", [])
     ]
-    if len(tree_concepts) != len(set(tree_concepts)) or set(tree_concepts) != known_concepts:
+    if (
+        len(tree_concepts) != len(set(tree_concepts))
+        or set(tree_concepts) != known_concepts
+    ):
         return False
     expected_sections = []
     for item in evidence:
-        if not expected_sections or expected_sections[-1]["section_id"] != item["section_id"]:
+        if (
+            not expected_sections
+            or expected_sections[-1]["section_id"] != item["section_id"]
+        ):
             if item["section_id"] != _id(
                 "section",
                 {
@@ -397,12 +455,20 @@ def _validate_relations_and_path(document):
     evidence_by_id = {item["evidence_id"]: item for item in evidence}
     for relation in relations:
         if not isinstance(relation, dict) or set(relation) != {
-            "relation_id", "source_concept_id", "target_concept_id", "type",
-            "learner_reason", "evidence_refs", "context_refs", "inference_basis",
+            "relation_id",
+            "source_concept_id",
+            "target_concept_id",
+            "type",
+            "learner_reason",
+            "evidence_refs",
+            "context_refs",
+            "inference_basis",
             "confidence",
         }:
             return False
-        identity = {key: value for key, value in relation.items() if key != "relation_id"}
+        identity = {
+            key: value for key, value in relation.items() if key != "relation_id"
+        }
         relation_type = relation["type"]
         source_id = relation["source_concept_id"]
         target_id = relation["target_concept_id"]
@@ -422,10 +488,7 @@ def _validate_relations_and_path(document):
             relation_type,
         )
         reverse = (direction[1], direction[0], direction[2])
-        if (
-            direction in relation_directions
-            or reverse in relation_directions
-        ):
+        if direction in relation_directions or reverse in relation_directions:
             return False
         reason = relation["learner_reason"]
         if (
@@ -504,7 +567,9 @@ def _validate_status(document):
         reasons.append("NO_CANONICAL_CONCEPT")
     expected_status = {
         "processing": (
-            "partial" if reasons and concepts else ("failed" if not concepts else "succeeded")
+            "partial"
+            if reasons and concepts
+            else ("failed" if not concepts else "succeeded")
         ),
         "quality": "needs_review" if reasons else "accepted",
         "decision": "reject" if not concepts else ("review" if reasons else "retain"),
@@ -530,13 +595,15 @@ def _validate_structure_content(document, source_digest):
         if (
             produced_at.tzinfo is None
             or not isinstance(provenance, dict)
-            or set(provenance) != {
-                "runtime_lock_sha256", "model_id", "model_revision", "semantic_policy"
-            }
+            or set(provenance)
+            != {"runtime_lock_sha256", "model_id", "model_revision", "semantic_policy"}
             or re.fullmatch(r"[0-9a-f]{64}", provenance["runtime_lock_sha256"]) is None
-            or not isinstance(provenance["model_id"], str) or not provenance["model_id"]
-            or not isinstance(provenance["model_revision"], str) or not provenance["model_revision"]
-            or provenance["semantic_policy"] != "unified-material-evidence-projection/v1"
+            or not isinstance(provenance["model_id"], str)
+            or not provenance["model_id"]
+            or not isinstance(provenance["model_revision"], str)
+            or not provenance["model_revision"]
+            or provenance["semantic_policy"]
+            != "unified-material-evidence-projection/v1"
         ):
             return False
         evidence = document["evidence"]
@@ -555,9 +622,14 @@ def _validate_structure_content(document, source_digest):
         metrics = document["metrics"]
         if (
             not isinstance(metrics, dict)
-            or set(metrics) != {
-                "semantic_calls", "ocr_calls", "evidence_duration_ms",
-                "semantic_duration_ms", "literal_repairs", "rejected_claims",
+            or set(metrics)
+            != {
+                "semantic_calls",
+                "ocr_calls",
+                "evidence_duration_ms",
+                "semantic_duration_ms",
+                "literal_repairs",
+                "rejected_claims",
                 "rejected_relations",
             }
             or any(type(value) is not int or value < 0 for value in metrics.values())

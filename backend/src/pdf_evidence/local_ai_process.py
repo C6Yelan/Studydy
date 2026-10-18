@@ -65,7 +65,9 @@ def _read_response(stream: Any, max_bytes: int) -> dict[str, Any]:
 class LocalAIProcess:
     """管理單一 child 的 request、timeout 與終止。"""
 
-    def __init__(self, command: list[str], *, request_limit: int, response_limit: int) -> None:
+    def __init__(
+        self, command: list[str], *, request_limit: int, response_limit: int
+    ) -> None:
         self._request_limit = request_limit
         self._response_limit = response_limit
         self._is_closed = False
@@ -102,8 +104,11 @@ class LocalAIProcess:
                 pass
 
     def request(
-        self, request: dict[str, Any], timeout_seconds: float | None,
-        *, cancellation_check: Callable[[], None] | None = None,
+        self,
+        request: dict[str, Any],
+        timeout_seconds: float | None,
+        *,
+        cancellation_check: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         try:
             encoded = json.dumps(
@@ -128,7 +133,9 @@ class LocalAIProcess:
                     cancellation_check()
                 remaining = None if deadline is None else max(0, deadline - monotonic())
                 try:
-                    response = future.result(timeout=min(0.1, remaining) if remaining is not None else 0.1)
+                    response = future.result(
+                        timeout=min(0.1, remaining) if remaining is not None else 0.1
+                    )
                     if cancellation_check is not None:
                         cancellation_check()
                     return response

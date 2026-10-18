@@ -16,33 +16,41 @@ import sysconfig
 
 
 MIME = {
-    '.pdf': 'application/pdf',
-    '.doc': 'application/msword',
-    '.ppt': 'application/vnd.ms-powerpoint',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    '.txt': 'text/plain',
-    '.md': 'text/markdown',
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
 }
 MAX_FILE_BYTES = 100 * 1024 * 1024
 POLICY = {
-    'schema': 'normalization-policy/v1',
-    'version': 2,
-    'olefile': '0.47',
-    'max_file_bytes': MAX_FILE_BYTES,
-    'libreoffice': '26.2.5.2',
-    'pymupdf': '1.28.0',
-    'markdown_it': '3.0.0',
-    'visible_slides_only': True,
-    'notes': False,
-    'remote_resources': 'best-effort',
-    'text_columns': 72,
+    "schema": "normalization-policy/v1",
+    "version": 2,
+    "olefile": "0.47",
+    "max_file_bytes": MAX_FILE_BYTES,
+    "libreoffice": "26.2.5.2",
+    "pymupdf": "1.28.0",
+    "markdown_it": "3.0.0",
+    "visible_slides_only": True,
+    "notes": False,
+    "remote_resources": "best-effort",
+    "text_columns": 72,
 }
 _SAFE_ERRORS = {
-    'UNSUPPORTED_MEDIA_TYPE', 'MATERIAL_TOO_LARGE', 'PDF_UNUSABLE', 'PDF_DAMAGED',
-    'ZIP_PATH', 'OFFICE_ACTIVE_OR_ENCRYPTED',
-    'OFFICE_TYPE_MISMATCH', 'OFFICE_INVALID_PACKAGE', 'UTF8_REQUIRED',
-    'SLIDE_PAGE_COUNT_MISMATCH', 'UNSAFE_RENDER_HTML', 'NORMALIZER_VERSION_MISMATCH',
+    "UNSUPPORTED_MEDIA_TYPE",
+    "MATERIAL_TOO_LARGE",
+    "PDF_UNUSABLE",
+    "PDF_DAMAGED",
+    "ZIP_PATH",
+    "OFFICE_ACTIVE_OR_ENCRYPTED",
+    "OFFICE_TYPE_MISMATCH",
+    "OFFICE_INVALID_PACKAGE",
+    "UTF8_REQUIRED",
+    "SLIDE_PAGE_COUNT_MISMATCH",
+    "UNSAFE_RENDER_HTML",
+    "NORMALIZER_VERSION_MISMATCH",
 }
 
 
@@ -53,17 +61,19 @@ class NormalizationError(RuntimeError):
 def normalizer_available():
     """核對轉檔工具與字型版本，建立來源 mapping 使用的政策身分。"""
     return (
-        all(shutil.which(tool) for tool in ('bwrap', 'fc-list'))
-        and Path('/usr/lib/libreoffice/program/soffice').is_file()
+        all(shutil.which(tool) for tool in ("bwrap", "fc-list"))
+        and Path("/usr/lib/libreoffice/program/soffice").is_file()
     )
 
 
 def conversion_policy():
     if not normalizer_available():
-        raise NormalizationError('NORMALIZER_UNAVAILABLE')
-    fonts = subprocess.check_output(['fc-list', ':lang=zh', 'file', 'family'], text=True)
-    font_lines = '\n'.join(sorted(fonts.splitlines()))
-    return {**POLICY, 'fonts_sha256': hashlib.sha256(font_lines.encode()).hexdigest()}
+        raise NormalizationError("NORMALIZER_UNAVAILABLE")
+    fonts = subprocess.check_output(
+        ["fc-list", ":lang=zh", "file", "family"], text=True
+    )
+    font_lines = "\n".join(sorted(fonts.splitlines()))
+    return {**POLICY, "fonts_sha256": hashlib.sha256(font_lines.encode()).hexdigest()}
 
 
 def _limits():
@@ -77,69 +87,139 @@ def _limits():
         resource.setrlimit(kind, (value, value))
 
 
-def convert(data: bytes, extension: str, media_type: str, policy: dict, *, cancellation_check=None) -> tuple[bytes, dict]:
+def convert(
+    data: bytes,
+    extension: str,
+    media_type: str,
+    policy: dict,
+    *,
+    cancellation_check=None,
+) -> tuple[bytes, dict]:
     """只接受當前政策；子程序產物須對回原檔與輸出 PDF 的雜湊。"""
     if policy != conversion_policy():
-        raise NormalizationError('NORMALIZER_VERSION_MISMATCH')
+        raise NormalizationError("NORMALIZER_VERSION_MISMATCH")
     if extension not in MIME or MIME[extension] != media_type:
-        raise NormalizationError('UNSUPPORTED_MEDIA_TYPE')
+        raise NormalizationError("UNSUPPORTED_MEDIA_TYPE")
 
-    if cancellation_check: cancellation_check()
+    if cancellation_check:
+        cancellation_check()
 
     # venv 的 Python 為 symlink，須掛載基底直譯器及套件目錄。
     base = Path(sys.base_prefix)
-    site = Path(sysconfig.get_path('purelib'))
+    site = Path(sysconfig.get_path("purelib"))
     if not site.is_dir():
-        raise NormalizationError('NORMALIZER_UNAVAILABLE')
+        raise NormalizationError("NORMALIZER_UNAVAILABLE")
 
-    with tempfile.TemporaryDirectory(prefix='studydy-normalize-') as temporary:
+    with tempfile.TemporaryDirectory(prefix="studydy-normalize-") as temporary:
         root = Path(temporary)
-        source = root / 'input'
-        output = root / 'output'
+        source = root / "input"
+        output = root / "output"
         source.mkdir()
         output.mkdir()
-        (source / ('source' + extension)).write_bytes(data)
+        (source / ("source" + extension)).write_bytes(data)
 
         # 子程序只讀所需 runtime／系統資源，僅 output 可寫；不繼承外部環境。
         command = [
-            'bwrap', '--unshare-all', '--die-with-parent', '--new-session',
-            *(['--share-net', '--ro-bind', '/etc/resolv.conf', '/etc/resolv.conf',
-               '--ro-bind', '/etc/ssl', '/etc/ssl']
-              if extension in ('.docx', '.pptx', '.doc', '.ppt') else []),
-            '--cap-drop', 'ALL',
-            '--ro-bind', '/usr', '/usr',
-            '--symlink', 'usr/bin', '/bin',
-            '--symlink', 'usr/lib', '/lib',
-            '--symlink', 'usr/lib64', '/lib64',
-            '--ro-bind', '/etc/fonts', '/etc/fonts',
-            '--ro-bind', '/etc/libreoffice', '/etc/libreoffice',
-            '--ro-bind', '/etc/ld.so.cache', '/etc/ld.so.cache',
-            '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
-            '--ro-bind', str(base), '/runtime',
-            '--ro-bind', str(site), '/runtime/lib/python3.12/site-packages',
-            '--ro-bind', str(Path(__file__).with_name('renderer.py')), '/renderer.py',
-            '--ro-bind', str(source), '/input',
-            '--bind', str(output), '/output',
-            '--clearenv',
-            '--setenv', 'HOME', '/tmp',
-            '--setenv', 'PATH', '/usr/bin',
-            '--setenv', 'LANG', 'C.UTF-8',
-            '--setenv', 'SAL_USE_VCLPLUGIN', 'svp',
+            "bwrap",
+            "--unshare-all",
+            "--die-with-parent",
+            "--new-session",
+            *(
+                [
+                    "--share-net",
+                    "--ro-bind",
+                    "/etc/resolv.conf",
+                    "/etc/resolv.conf",
+                    "--ro-bind",
+                    "/etc/ssl",
+                    "/etc/ssl",
+                ]
+                if extension in (".docx", ".pptx", ".doc", ".ppt")
+                else []
+            ),
+            "--cap-drop",
+            "ALL",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--symlink",
+            "usr/bin",
+            "/bin",
+            "--symlink",
+            "usr/lib",
+            "/lib",
+            "--symlink",
+            "usr/lib64",
+            "/lib64",
+            "--ro-bind",
+            "/etc/fonts",
+            "/etc/fonts",
+            "--ro-bind",
+            "/etc/libreoffice",
+            "/etc/libreoffice",
+            "--ro-bind",
+            "/etc/ld.so.cache",
+            "/etc/ld.so.cache",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+            "--ro-bind",
+            str(base),
+            "/runtime",
+            "--ro-bind",
+            str(site),
+            "/runtime/lib/python3.12/site-packages",
+            "--ro-bind",
+            str(Path(__file__).with_name("renderer.py")),
+            "/renderer.py",
+            "--ro-bind",
+            str(source),
+            "/input",
+            "--bind",
+            str(output),
+            "/output",
+            "--clearenv",
+            "--setenv",
+            "HOME",
+            "/tmp",
+            "--setenv",
+            "PATH",
+            "/usr/bin",
+            "--setenv",
+            "LANG",
+            "C.UTF-8",
+            "--setenv",
+            "SAL_USE_VCLPLUGIN",
+            "svp",
             # 避免 LibreOffice 依主機 CPU 數開大量工作執行緒，耗盡 2 GiB 位址空間。
-            '--setenv', 'MAX_CONCURRENCY', '2',
-            '--setenv', 'XDG_CACHE_HOME', '/tmp/cache',
-            '/runtime/bin/python3.12', '/renderer.py',
-            '/input/source' + extension, '/output', media_type,
+            "--setenv",
+            "MAX_CONCURRENCY",
+            "2",
+            "--setenv",
+            "XDG_CACHE_HOME",
+            "/tmp/cache",
+            "/runtime/bin/python3.12",
+            "/renderer.py",
+            "/input/source" + extension,
+            "/output",
+            media_type,
         ]
         process = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            start_new_session=True, preexec_fn=_limits,
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            preexec_fn=_limits,
         )
         try:
             while True:
-                if cancellation_check: cancellation_check()
+                if cancellation_check:
+                    cancellation_check()
                 try:
-                    stdout, _ = process.communicate(timeout=.5)
+                    stdout, _ = process.communicate(timeout=0.5)
                     break
                 except subprocess.TimeoutExpired:
                     continue
@@ -148,18 +228,21 @@ def convert(data: bytes, extension: str, media_type: str, policy: dict, *, cance
             process.communicate()
             raise
         if process.returncode:
-            reason = stdout.decode(errors='replace').strip()
-            raise NormalizationError(reason if reason in _SAFE_ERRORS else 'NORMALIZATION_FAILED')
+            reason = stdout.decode(errors="replace").strip()
+            raise NormalizationError(
+                reason if reason in _SAFE_ERRORS else "NORMALIZATION_FAILED"
+            )
 
         try:
-            pdf = (output / 'normalized.pdf').read_bytes()
-            mapping = json.loads((output / 'mapping.json').read_text())
+            pdf = (output / "normalized.pdf").read_bytes()
+            mapping = json.loads((output / "mapping.json").read_text())
             if (
-                not pdf or len(pdf) > MAX_FILE_BYTES
-                or mapping['original_sha256'] != hashlib.sha256(data).hexdigest()
-                or mapping['normalized_sha256'] != hashlib.sha256(pdf).hexdigest()
+                not pdf
+                or len(pdf) > MAX_FILE_BYTES
+                or mapping["original_sha256"] != hashlib.sha256(data).hexdigest()
+                or mapping["normalized_sha256"] != hashlib.sha256(pdf).hexdigest()
             ):
                 raise ValueError
         except (OSError, KeyError, ValueError):
-            raise NormalizationError('NORMALIZATION_FAILED') from None
+            raise NormalizationError("NORMALIZATION_FAILED") from None
         return pdf, mapping

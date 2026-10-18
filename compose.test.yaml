@@ -11,4 +11,5 @@ services:
       - no-new-privileges:true
       - seccomp=./ops/docker/bubblewrap-seccomp.json
     tmpfs:
-      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+      # 合成子程序須可執行；短片測試沿用 renderer 的 2 GiB 可用空間檢查。
+      - /tmp:rw,exec,nosuid,nodev,size=3g,mode=1777

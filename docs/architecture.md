@@ -39,6 +39,12 @@ Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；wor
 | [workers.py](../backend/src/runtime/workers.py) | 工作領取、lease、執行與恢復 |
 | [local_ai](../local_ai/) | OCR adapter、protocol 與模型執行設定 |
 
+功能路由直接共用 [request_context.py](../backend/src/runtime/api/request_context.py) 的 session、query 與冪等鍵檢查；[study_workspace.py](../backend/src/runtime/study_workspace.py) 組合學習查詢，HTTP 層只投影公開資料。題組的查詢與完成判定位於 [assessment_state.py](../backend/src/learning_adaptation/assessment_state.py)，建立、交卷及生成工作由 `assessment_sets.py` 負責。
+
+[database.py](../backend/src/runtime/storage/database.py) 管理連線池與每次交易，`tables.py` 只做 ORM 映射。[artifacts.py](../backend/src/runtime/storage/artifacts.py) 統一原檔、轉檔及媒體的保存、完整性檢查與清理；PDF 預覽仍保留自己的型別限制。共同教材投影由 `knowledge_reads.py` 提供，`card_sources.py` 只處理卡組導覽與分批顯示。
+
+[provider_http.py](../backend/src/runtime/provider_http.py) 管理既有 provider 傳輸，工作續租與取消仍屬各執行流程。內容序列化使用 `content_identity.py`；講稿沿用 `podcast_script.py` 的獨立雜湊規則，避免改變已保存的身分。
+
 ## 模型與驗證
 
 模型提出觀念、重點、關係及題目候選；程式驗證來源、頁碼／區塊、字面值、schema、關係循環、授權與答案保密。Structured Output 只保證可解析，結果須完成來源綁定與驗證，再計算 revision 並發布。
@@ -62,7 +68,7 @@ Migration runner 核對 [SQL序列](../backend/migrations/) 與 checksum，每�
 
 新初始化鏈以 `schema_baseline` 區分既有 0032 帳本與新的七步初始化；接軌是明確的維護操作，不在服務啟動時自動重寫帳本。接軌前後比較實體 Schema、全部業務列及檔案身分，保留舊帳本收據；操作與回退邊界見安裝文件。
 
-語意生成先取得實際輸入 token 數，再使用 32K 上下文剩餘空間，以上限設定為界。分析／教材檢核至少預留 8K 輸出，出題／題目檢核至少預留 16K（若明確設定較小上限則依該值）。只變更額度時可接續已驗證的分析 checkpoint，原工作快照維持不變。截斷失敗僅保存階段、結束原因與 token 數供排查。
+Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文容量分配剩餘輸出；Luna 暫用路徑以 o200k 估算，並受 64K 上限限制。分析／教材檢核至少預留 8K 輸出，出題／題目檢核至少預留 16K（若明確設定較小上限則依該值）。只變更額度時可接續已驗證的分析 checkpoint，原工作快照維持不變。截斷失敗僅保存階段、結束原因與 token 數供排查。
 
 ## 教材檢索與選讀
 

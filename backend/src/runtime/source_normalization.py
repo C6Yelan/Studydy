@@ -25,7 +25,15 @@ from .storage.artifacts import (
     reconcile_new_artifacts,
     write_blob,
 )
-from .storage.tables import Artifact, Learner, Material, MaterialProcessingRun, MaterialSource, MaterialSourceSetItem, SourceNormalization
+from .storage.tables import (
+    Artifact,
+    Learner,
+    Material,
+    MaterialProcessingRun,
+    MaterialSource,
+    MaterialSourceSetItem,
+    SourceNormalization,
+)
 from .storage.database import database_session
 
 

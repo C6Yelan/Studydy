@@ -11,7 +11,14 @@ from . import research_sources
 from .source_normalization import upload_source
 from .errors import SourceError
 from .source_revisions import create_revision
-from .storage.tables import Material, MaterialResearch as Research, SourceNormalization, MaterialProcessingRun, TopicScope, KnowledgeStructure
+from .storage.tables import (
+    Material,
+    MaterialResearch as Research,
+    SourceNormalization,
+    MaterialProcessingRun,
+    TopicScope,
+    KnowledgeStructure,
+)
 from .storage.database import database_session
 from .provider_http import provider
 from .generation_jobs import cancellable_job
