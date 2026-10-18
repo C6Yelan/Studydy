@@ -8,6 +8,7 @@ from . import research
 from . import research_documents
 from .source_normalization import create_draft
 from .errors import SourceError
+from .storage.materials import require_material
 from .storage.artifacts import _key_digest
 from .storage.tables import TopicScope,MaterialResearch,Learner,Material,database_session
 from .provider_http import provider
@@ -55,7 +56,7 @@ def _owned(db,owner,identity,lock=False):
     row=db.scalar(statement)
     if not row:raise SourceError('RESOURCE_NOT_FOUND')
     # 與教材刪除一致，先鎖教材再鎖規劃，避免確認與刪除互相等待。
-    if row.material_id:research._material(db,owner,row.material_id,read=not lock)
+    if row.material_id:require_material(db,owner,row.material_id,read=not lock)
     if lock:row=db.scalar(statement.with_for_update().execution_options(populate_existing=True))
     return row
 
@@ -67,7 +68,7 @@ def _view(row):
 def create(owner,request,key,*,material_id=None,dsn=None):
     request=_text(request,1000);digest=_key_digest(key)
     with database_session(dsn) as db:
-        material=research._material(db,owner,material_id) if material_id else None
+        material=require_material(db,owner,material_id) if material_id else None
         if material:
             if not material.head_revision:raise SourceError('SOURCE_NOT_READY')
             from .retrieval import _scope
@@ -85,7 +86,7 @@ def create(owner,request,key,*,material_id=None,dsn=None):
 
 def listing(owner,*,material_id=None,dsn=None):
     with database_session(dsn) as db:
-        if material_id:research._material(db,owner,material_id,read=True)
+        if material_id:require_material(db,owner,material_id,read=True)
         rows=db.execute(select(TopicScope,MaterialResearch).outerjoin(
             MaterialResearch,TopicScope.research_id==MaterialResearch.research_id).where(
             TopicScope.learner_id==owner,TopicScope.material_id==material_id,
@@ -176,7 +177,7 @@ def step(*,dsn=None):
             if material_id:
                 from .retrieval import search
                 with database_session(dsn) as db:
-                    material=research._material(db,owner,material_id,read=True)
+                    material=require_material(db,owner,material_id,read=True)
                     passages=search(db,owner,material_id,revision,[request],neighbors=False)
                     context={'material_title':material.display_name,
                         'existing_concepts':list(dict.fromkeys(hint for p in passages for hint in p['hints']))[:80]}

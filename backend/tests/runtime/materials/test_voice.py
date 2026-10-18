@@ -8,7 +8,6 @@ from sources.test_source_revisions import revisions
 from runtime import voice
 from qa_fixtures import grounded_answer, qa_model
 from runtime.errors import SourceError
-from runtime.card_sets import CardSetError
 from runtime.storage.tables import VoiceConversation, VoiceTurn, database_session
 from runtime.material_discard import request_material_discard
 import runtime.api.app as api
@@ -21,10 +20,10 @@ def setup(f):
 
 
 def test_conversation_reads_do_not_wait_for_another_material_reader(closed_loop):
-    from runtime.card_sets import _material
+    from runtime.storage.materials import require_material
     owner, material, identity, dsn = setup(closed_loop)
     with database_session(dsn) as db:
-        _material(db, owner, material, read=True)
+        require_material(db, owner, material, read=True)
         assert voice.listing(owner, material, dsn=dsn)['conversations'][0]['conversation_id'] == identity
         assert voice.read(owner, identity, dsn=dsn)['turns'] == []
 

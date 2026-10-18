@@ -9,7 +9,7 @@ from product_fixtures import closed_loop
 from sources.test_source_revisions import revisions,pdf
 from runtime import research,voice
 from research_fixtures import review_provider,search_to_selection,continue_provider
-from runtime.card_sets import CardSetError
+from runtime.storage.materials import MaterialLibraryError
 from runtime.source_normalization import normalize_next
 from runtime.errors import SourceError
 from runtime.storage.tables import MaterialResearch,MaterialSource,Material,database_session
@@ -143,7 +143,7 @@ def test_research_history_is_a_summary_and_reads_share_material_lock(closed_loop
     assert history['researches'][0]['created_at'] is not None
     assert 'candidates' not in history['researches'][0]
     assert detail['candidates'][0]['license']=='cc-by'
-    with pytest.raises(CardSetError,match='RESOURCE_NOT_FOUND'):
+    with pytest.raises(MaterialLibraryError,match='RESOURCE_NOT_FOUND'):
         research.listing(uuid4(),source.material_id,dsn=dsn)
 
 

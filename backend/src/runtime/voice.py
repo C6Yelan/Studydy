@@ -1,4 +1,5 @@
 """教材內的持久問答；錄音只是輸入，引用始終回到固定 KS。"""
+from .storage.materials import require_material
 
 from .provider_http import provider
 from copy import deepcopy
@@ -9,7 +10,6 @@ import json
 from itertools import zip_longest
 from uuid import UUID, uuid4
 from sqlalchemy import delete, or_, select, tuple_
-from .card_sets import _material
 from .errors import SourceError
 from .storage.artifacts import _key_digest
 from .storage.knowledge_structures import _prune_unreferenced_structures
@@ -28,7 +28,7 @@ def _conversation(db, owner, identity, *, read=False):
     row = db.get(Conversation, identity)
     if row is None or row.learner_id != owner:
         raise SourceError('RESOURCE_NOT_FOUND')
-    material = _material(db, owner, row.material_id, read=read)
+    material = require_material(db, owner, row.material_id, read=read)
     db.refresh(row)
     if row.deleted_at is not None:
         raise SourceError('RESOURCE_NOT_FOUND')
@@ -41,7 +41,7 @@ def _summary(row):
 
 def create(owner, material_id, key, *, revision=None, dsn=None):
     with database_session(dsn) as db:
-        material = _material(db, owner, material_id)
+        material = require_material(db, owner, material_id)
         digest = _key_digest(key)
         row = db.scalar(select(Conversation).where(Conversation.material_id == material_id,
             Conversation.idempotency_key_sha256 == digest))
@@ -61,7 +61,7 @@ def create(owner, material_id, key, *, revision=None, dsn=None):
 
 def listing(owner, material_id, *, dsn=None):
     with database_session(dsn) as db:
-        _material(db, owner, material_id, read=True)
+        require_material(db, owner, material_id, read=True)
         return {'conversations':[_summary(r) for r in db.scalars(select(Conversation).where(
             Conversation.material_id == material_id,Conversation.deleted_at.is_(None)).order_by(Conversation.created_at.desc()))]}
 

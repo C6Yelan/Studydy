@@ -12,6 +12,7 @@ from sqlalchemy import select
 import runtime.api.app as api
 from product_fixtures import closed_loop, seed_run, _structure, publish_fixture_structure
 from runtime import card_sets
+from runtime.storage.materials import MaterialLibraryError
 from runtime.learner_session import register_account
 from runtime.material_discard import request_material_discard
 from runtime.material_processing import claim_next_material_processing_run, _record_progress
@@ -50,7 +51,7 @@ def test_concurrent_replay_conflict_and_delete_cannot_resurrect(closed_loop):
     identity = results[0]["card_set_id"]
     assert card_sets.delete_card_set(owner.learner_id, identity, dsn=dsn) == card_sets.delete_card_set(owner.learner_id, identity, dsn=dsn)
     assert card_sets.list_card_sets(owner.learner_id, dsn=dsn)["card_sets"] == []
-    with pytest.raises(card_sets.CardSetError, match="RESOURCE_NOT_FOUND"):
+    with pytest.raises(MaterialLibraryError, match="RESOURCE_NOT_FOUND"):
         create(closed_loop)
     with pytest.raises(card_sets.CardSetError, match="RESOURCE_NOT_FOUND"):
         card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)
@@ -58,7 +59,7 @@ def test_concurrent_replay_conflict_and_delete_cannot_resurrect(closed_loop):
 
 @pytest.mark.parametrize("name,ids", [(" ", None), ("x\n", None), ("x" * 201, None), ("卡組", []), ("卡組", ["concept:sha256:" + "0" * 64])])
 def test_invalid_selection_or_name_does_not_save(closed_loop, name, ids):
-    with pytest.raises(card_sets.CardSetError, match="REQUEST_INVALID"):
+    with pytest.raises(MaterialLibraryError, match="REQUEST_INVALID"):
         create(closed_loop, name=name, ids=ids)
 
 
@@ -92,7 +93,7 @@ def test_discard_synthetic_material_cleans_sets_and_blocks_replay(closed_loop):
     saved = create(closed_loop)
     assert request_material_discard(owner.learner_id, source.material_id, dsn=dsn) == "removed"
     assert card_sets.list_card_sets(owner.learner_id, dsn=dsn)["card_sets"] == []
-    with pytest.raises(card_sets.CardSetError, match="RESOURCE_NOT_FOUND"):
+    with pytest.raises(MaterialLibraryError, match="RESOURCE_NOT_FOUND"):
         create(closed_loop)
     with psycopg.connect(dsn) as db:
         assert db.execute("SELECT count(*) FROM card_sets WHERE card_set_id=%s", (saved["card_set_id"],)).fetchone() == (0,)
@@ -154,7 +155,7 @@ def test_edit_selection_stays_on_original_revision_and_deleted_set_cannot_be_edi
     saved = create(closed_loop)
     original = card_sets.read_card_set(owner.learner_id, saved["card_set_id"], dsn=dsn)
     identity = saved["card_set_id"]
-    with pytest.raises(card_sets.CardSetError, match="REQUEST_INVALID"):
+    with pytest.raises(MaterialLibraryError, match="REQUEST_INVALID"):
         card_sets.update_card_set(owner.learner_id, identity, "編輯", 1, ["concept:sha256:" + "f" * 64], dsn=dsn)
     updated = card_sets.update_card_set(owner.learner_id, identity, "編輯", 1,
                                        [c["concept_id"] for c in original["cards"]], dsn=dsn)
@@ -179,7 +180,7 @@ def test_add_remove_concepts_and_concurrent_edit_conflict(closed_loop):
     candidate["concepts"].append(other)
     publish_fixture_structure(owner.learner_id, source.material_id, run.run_id, candidate, dsn=dsn)
     ids = [c["concept_id"] for c in candidate["concepts"]]
-    with pytest.raises(card_sets.CardSetError, match="REQUEST_INVALID"):
+    with pytest.raises(MaterialLibraryError, match="REQUEST_INVALID"):
         card_sets.update_card_set(owner.learner_id, old["card_set_id"], "舊版本", 1, ids, dsn=dsn)
     saved = card_sets.create_card_set(owner.learner_id, source.material_id, candidate["revision"], "編輯", ids[:1], "two", dsn=dsn)
     identity = saved["card_set_id"]

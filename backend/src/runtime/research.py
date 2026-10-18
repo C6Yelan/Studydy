@@ -1,4 +1,5 @@
 """補充研究的逐項取得與既有來源／revision 交接。"""
+from .storage.materials import require_material
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from uuid import UUID,uuid4
@@ -6,7 +7,6 @@ import re
 from sqlalchemy import and_,or_,select,func,case
 from sqlalchemy.orm import object_session
 from . import research_sources
-from .card_sets import _material
 from .source_normalization import upload_source
 from .errors import SourceError
 from .source_revisions import create_revision
@@ -22,7 +22,7 @@ ACTIVE=('searching','acquiring','normalizing')
 def _owned(db,owner,identity,*,read=False,allow_deleted=False):
     row=db.get(Research,identity)
     if not row or row.learner_id!=owner:raise SourceError('RESOURCE_NOT_FOUND')
-    material=_material(db,owner,row.material_id,read=read) if row.material_id else None
+    material=require_material(db,owner,row.material_id,read=read) if row.material_id else None
     if not material:
         scope=db.scalar(select(TopicScope).where(TopicScope.topic_id==row.topic_id,TopicScope.learner_id==owner).with_for_update(read=read))
         if not scope:raise SourceError('RESOURCE_NOT_FOUND')
@@ -61,7 +61,7 @@ def _view(row):
 
 def listing(owner,material_id,*,dsn=None):
     with database_session(dsn) as db:
-        _material(db,owner,material_id,read=True)
+        require_material(db,owner,material_id,read=True)
         # 任務卡只讀數量與分析狀態；不為列表載入候選全文或逐筆查詢 run。
         columns=(Research.research_id,Research.query,Research.mode,Research.status,
             Research.selection,Research.error_code,Research.run_id,Research.created_at,

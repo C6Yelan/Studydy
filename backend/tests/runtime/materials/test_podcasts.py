@@ -90,13 +90,13 @@ def test_podcast_read_can_coexist_with_material_readers(closed_loop):
 
 
 def test_slow_podcast_source_verification_does_not_block_result_saving(closed_loop, monkeypatch):
-    from runtime.card_sets import _material
+    from runtime.storage.materials import require_material
     owner, source, _, _, dsn, _ = closed_loop
     identity = create(closed_loop)['podcast_id']
     verify = podcasts._read_verified_document
     def while_reading(*args, **kwargs):
         with database_session(dsn) as writer:
-            _material(writer, owner.learner_id, source.material_id)
+            require_material(writer, owner.learner_id, source.material_id)
         return verify(*args, **kwargs)
     monkeypatch.setattr(podcasts, '_read_verified_document', while_reading)
     assert podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)['podcast_id'] == identity

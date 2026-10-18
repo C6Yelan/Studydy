@@ -6,7 +6,7 @@ from sqlalchemy import select,func
 from product_fixtures import closed_loop
 from sources.test_source_revisions import revisions,pdf
 from runtime import topics,research
-from runtime.card_sets import CardSetError
+from runtime.storage.materials import MaterialLibraryError
 from research_fixtures import review_provider,search_to_selection
 from runtime.source_normalization import normalize_next
 from runtime.errors import SourceError
@@ -189,7 +189,7 @@ def test_supplement_uses_confirmed_scope_and_never_searches_before_approval(clos
     assert not calls
     search_to_selection(owner,approved['research_id'],dsn)
     assert calls
-    with pytest.raises(CardSetError,match='RESOURCE_NOT_FOUND'):
+    with pytest.raises(MaterialLibraryError,match='RESOURCE_NOT_FOUND'):
         topics.create(uuid4(),'foreign material','foreign',material_id=source.material_id,dsn=dsn)
     with pytest.raises(SourceError,match='TOPIC_CONFLICT'):
         topics.create_material(owner,scope['topic_id'],['paper'],dsn=dsn)

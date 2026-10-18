@@ -1,4 +1,5 @@
 """固定來源的分集 Podcast；每次只確認一個腳本或音訊，重試不重做已保存結果。"""
+from .storage.materials import require_material, validate_concept_selection
 from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -11,7 +12,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, or_, select, update
 
 from content_identity import canonical_sha256
-from .card_sets import _material, _validate_selection
 from .storage.artifacts import _key_digest, quarantine_source_pdf, reconcile_discarded_sources
 from .storage.tables import KnowledgeStructure
 from .storage.knowledge_structures import _prune_unreferenced_structures, _read_verified_document, _view
@@ -135,14 +135,14 @@ def plan_episodes(view, concept_ids, source_pages):
 
 
 def create_podcast(owner, material_id, revision, name, concept_ids, key, *, delivery, dsn=None):
-    name = _validate_selection(name, concept_ids)
+    name = validate_concept_selection(name, concept_ids)
     if delivery not in {"solo", "dialogue"}:
         raise PodcastError("REQUEST_INVALID")
     digest = _key_digest(key)
     selection = {"revision": revision, "name": name, "concept_ids": concept_ids, "delivery": delivery}
     fingerprint = bytes.fromhex(canonical_sha256(selection))
     with database_session(dsn) as db:
-        material = _material(db, owner, material_id)
+        material = require_material(db, owner, material_id)
         row = db.scalar(select(Podcast).where(Podcast.learner_id == owner,
             Podcast.material_id == material_id, Podcast.idempotency_key_sha256 == digest))
         if row:
@@ -184,7 +184,7 @@ def _locked(db, owner, identity, *, allow_deleted=False, read=False):
         if material is None:
             raise PodcastError('RESOURCE_NOT_FOUND')
     else:
-        material = _material(db, owner, material_id)
+        material = require_material(db, owner, material_id)
     row = db.get(Podcast, identity, populate_existing=True)
     if row is None or (row.status == "deleted" and not allow_deleted):
         raise PodcastError("RESOURCE_NOT_FOUND")
@@ -230,7 +230,7 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
         if action == 'retry':
             retrieval._scope(db,owner,row.material_id,row.knowledge_structure_revision)
         if action == "rename":
-            row.name = _validate_selection(name, row.concept_ids)
+            row.name = validate_concept_selection(name, row.concept_ids)
         elif action == "retry" and row.status == "ready":
             from .podcast_videos import enqueue
             if not _summary(row, material, db)['generation']['retryable_videos']:

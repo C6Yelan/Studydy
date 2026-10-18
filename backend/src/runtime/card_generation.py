@@ -14,7 +14,7 @@ from content_identity import canonical_sha256
 from . import card_design as design
 from .generation_jobs import WORKER_LEASE_TTL, check_job
 from .semantic_service import _luna_token_count, request_semantics, semantic_client, SemanticServiceError
-from .storage import card_sources
+from .storage import card_sources, knowledge_reads
 from .storage.tables import CardSet, Material, database_session
 
 
@@ -81,7 +81,7 @@ def _save(claim, state, status, dsn):
 def _inputs(claim, identity, dsn):
     with database_session(dsn) as db:
         row = db.get(CardSet, claim['id'])
-        meta = card_sources.metadata(db, claim['owner'], claim['material_id'], claim['revision'])
+        meta = knowledge_reads.source_metadata(db, claim['owner'], claim['material_id'], claim['revision'])
         batch = card_sources.batch(db, row, meta, row.concept_ids.index(identity), 1)
         card = batch['cards'][0]
         payload, bindings = design.source_input(card, batch['context'])
