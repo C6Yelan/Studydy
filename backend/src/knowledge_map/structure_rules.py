@@ -1,7 +1,9 @@
 """Knowledge Structure 的 ID、字面值與關係排序規則。"""
+
 from __future__ import annotations
 
 import re
+from heapq import heapify, heappop, heappush
 from typing import Any
 
 from content_identity import canonical_sha256
@@ -31,7 +33,14 @@ _TECHNICAL = re.compile(
     r"|(?<!\w)[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:\s?(?:%|[A-Za-zµμ°][A-Za-z0-9µμ°/^.-]{0,15}))?"
 )
 _CODE_OR_FORMULA = re.compile(r"[;{}]|\[[^\]]*\]|\([^\n()]*\)|\^|(?<![<>=!])=(?!=)")
-_GENERIC_REASONS = {"有關", "內容相似", "同一主題", "一起出現", "related", "similar topic"}
+_GENERIC_REASONS = {
+    "有關",
+    "內容相似",
+    "同一主題",
+    "一起出現",
+    "related",
+    "similar topic",
+}
 
 
 def _id(kind: str, value: Any) -> str:
@@ -63,33 +72,49 @@ def _cycle(edges: list[tuple[str, str]], candidate: tuple[str, str]) -> bool:
     return False
 
 
-def _path(concepts: list[dict[str, Any]], relations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _path(
+    concepts: list[dict[str, Any]], relations: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     baseline = {concept["concept_id"]: index for index, concept in enumerate(concepts)}
     outgoing = {concept_id: set() for concept_id in baseline}
     incoming = {concept_id: set() for concept_id in baseline}
     for relation in relations:
         if relation["type"] == "prerequisite":
-            source, target = relation["source_concept_id"], relation["target_concept_id"]
+            source, target = (
+                relation["source_concept_id"],
+                relation["target_concept_id"],
+            )
             outgoing[source].add(target)
             incoming[target].add(source)
     prerequisites = {target for target, sources in incoming.items() if sources}
-    ready = sorted((key for key, values in incoming.items() if not values), key=baseline.get)
+    ready_ids = {key for key, values in incoming.items() if not values}
+    ready = [(baseline[key], key) for key in ready_ids]
+    heapify(ready)
+    completed = set()
     ordered: list[str] = []
     while ready:
-        source = ready.pop(0)
+        _, source = heappop(ready)
+        ready_ids.remove(source)
         ordered.append(source)
+        completed.add(source)
         for target in sorted(outgoing[source], key=baseline.get):
             incoming[target].discard(source)
-            if not incoming[target] and target not in ordered and target not in ready:
-                ready.append(target)
-                ready.sort(key=baseline.get)
+            if (
+                not incoming[target]
+                and target not in completed
+                and target not in ready_ids
+            ):
+                ready_ids.add(target)
+                heappush(ready, (baseline[target], target))
     if len(ordered) != len(concepts):
         raise ValueError("PREREQUISITE_CYCLE")
     return [
         {
             "position": index,
             "concept_id": concept_id,
-            "reason": "prerequisite" if concept_id in prerequisites else "document_order",
+            "reason": "prerequisite"
+            if concept_id in prerequisites
+            else "document_order",
         }
         for index, concept_id in enumerate(ordered, start=1)
     ]

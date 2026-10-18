@@ -782,3 +782,15 @@ def test_long_heading_survives_final_structure_validation():
     assert validate_knowledge_structure(document)
     assert document['evidence'][0]['exact_text']==heading
     assert document['document_tree']['sections'][0]['heading_evidence_id']==context['evidence'][0]['evidence_id']
+
+
+def test_newly_available_prerequisite_target_uses_original_document_priority():
+    from knowledge_map.structure_rules import _path
+
+    concepts = [{'concept_id': identity} for identity in ('a', 'b', 'c', 'd')]
+    relations = [{'type': 'prerequisite', 'source_concept_id': source, 'target_concept_id': 'a'}
+                 for source in ('b', 'c')]
+    path = _path(concepts, relations)
+    # a 解鎖後應回到文件順序，不排在已等待的 d 後面。
+    assert [step['concept_id'] for step in path] == ['b', 'c', 'a', 'd']
+    assert [step['reason'] for step in path] == ['document_order', 'document_order', 'prerequisite', 'document_order']
