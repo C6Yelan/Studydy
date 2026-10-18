@@ -68,12 +68,12 @@ def test_full_original_blocks_control_capacity_even_when_claim_quotes_are_short(
     for episode in result:
         ids={e['evidence_id'] for c in episode['claims'] for e in c['evidence']}
         kept={key:{**page,'blocks':[b for b in page['blocks'] if b['evidence_id'] in ids]} for key,page in source.items()}
-        from runtime.semantic_service import _luna_token_count
+        from runtime.text_budget import estimate_o200k_tokens
         import json
         from runtime.podcast_script import script_input
         projected = script_input(episode['claims'], kept)
-        assert _luna_token_count(json.dumps(projected['page_context'],ensure_ascii=False))<=8000
-        assert _luna_token_count(json.dumps(projected,ensure_ascii=False))<=10000
+        assert estimate_o200k_tokens(json.dumps(projected['page_context'],ensure_ascii=False))<=8000
+        assert estimate_o200k_tokens(json.dumps(projected,ensure_ascii=False))<=10000
 
 
 def test_missing_source_blocks_are_not_silently_omitted():

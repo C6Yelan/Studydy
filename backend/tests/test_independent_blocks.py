@@ -182,7 +182,7 @@ def test_cross_language_policy_does_not_reuse_old_semantic_checkpoints(tmp_path)
 @pytest.mark.parametrize('length,expected',[(4096,True),(4097,False)])
 def test_independent_budget_counts_source_tokens_not_json_chars(monkeypatch,length,expected):
     from runtime import semantic_service as service
-    monkeypatch.setattr(service,'_luna_input_tokens',lambda prompt,r:900+sum(len(e[3]) for s in r['sections'] for e in s['evidence']))
+    monkeypatch.setattr(service,'estimate_prompt_tokens',lambda prompt,r:900+sum(len(e[3]) for s in r['sections'] for e in s['evidence']))
     request={'sections':[{'evidence':[[0,1,'paragraph','a'*(length-1)],[1,1,'paragraph','b']]}]}
     assert service.material_request_fits(None,luna_lock(_runtime_lock()),request) is expected
 

@@ -621,12 +621,12 @@ def large_reference_pool():
 
 
 def test_large_candidate_metadata_is_batched_without_omissions_or_false_stalls():
-    from runtime.semantic_service import _luna_token_count
+    from runtime.text_budget import estimate_o200k_tokens
     import json
     value=large_reference_pool();seen=[];batches=[]
     def provider(path,body):
         payload=body['request'];assert payload['task']=='follow_up'
-        assert _luna_token_count(json.dumps(payload['unread'],ensure_ascii=False))<=flow.FOLLOW_UP_UNREAD_TOKENS
+        assert estimate_o200k_tokens(json.dumps(payload['unread'],ensure_ascii=False))<=flow.FOLLOW_UP_UNREAD_TOKENS
         seen.extend(c['url'] for c in payload['unread']);batches.append(payload['unread_more'])
         return {'coverage':requested_coverage(body,[{'topic':0,'status':'missing','reason':'No verified body','sources':[]}]),'read_next':[],'searches':[]}
     result,_=drive(value,provider)
@@ -669,7 +669,7 @@ def test_large_book_keeps_all_unread_ranges_but_only_sends_relevant_clues():
 
 
 def test_gap_evidence_budget_keeps_multiple_topics_and_exact_original_text():
-    from runtime.semantic_service import _luna_token_count
+    from runtime.text_budget import estimate_o200k_tokens
     import json
     reviewed=[]
     for topic in range(2):
@@ -679,7 +679,7 @@ def test_gap_evidence_budget_keeps_multiple_topics_and_exact_original_text():
         reviewed.append(source)
     items,visible,next_offset=flow._coverage_items(reviewed,{'topics':['Agent tool loop','Sandbox permissions'],'searches':[]})
     assert visible==[{0},{1}]
-    assert _luna_token_count(json.dumps(items,ensure_ascii=False))<=flow.FOLLOW_UP_EVIDENCE_TOKENS
+    assert estimate_o200k_tokens(json.dumps(items,ensure_ascii=False))<=flow.FOLLOW_UP_EVIDENCE_TOKENS
     for i,item in enumerate(items):
         assert 'review' not in item
         originals={q['quote'] for q in reviewed[i]['review']['quotes']}
@@ -761,7 +761,7 @@ def test_gap_review_paginates_all_saved_evidence_before_requesting_more_sources(
 
 
 def test_later_unrelated_batch_cannot_erase_verified_topic_coverage(monkeypatch):
-    monkeypatch.setattr('runtime.semantic_service._luna_token_count',len)
+    monkeypatch.setattr('runtime.text_budget.estimate_o200k_tokens',len)
     monkeypatch.setattr(flow,'FOLLOW_UP_EVIDENCE_TOKENS',3500)
     value=state();value['search_state'].update(stage='following_up',topics=['Diffusion','Agent tools'])
     for topic,quote in enumerate(['Diffusion training adds noise; generation removes noise.'+'a'*2000,
@@ -974,7 +974,7 @@ def test_changed_topic_rechecks_old_and_new_evidence_without_reassessing_other_t
 
 def test_topic_evidence_and_complete_request_share_the_input_budget():
     import json
-    from runtime.semantic_service import _luna_input_tokens,_luna_token_count
+    from runtime.text_budget import estimate_prompt_tokens, estimate_o200k_tokens
     value=state();value['search_state'].update(stage='following_up',topics=['Tokens and context limits'])
     source=inspect(candidate());source.update(screening={'decision':'read','basis':'abstract','reason':'Saved'},
         review={'phase':'body','scope':'full','relevance':'direct','reason':'Saved','topics':[0],
@@ -982,10 +982,10 @@ def test_topic_evidence_and_complete_request_share_the_input_budget():
     value['candidates']=[source];counts=[]
     def provider(path,body):
         request=body['request']
-        total=_luna_input_tokens(body['prompt'],request)+_luna_token_count(json.dumps(body['schema'],ensure_ascii=False))
+        total=estimate_prompt_tokens(body['prompt'],request)+estimate_o200k_tokens(json.dumps(body['schema'],ensure_ascii=False))
         counts.append(total)
         assert 24000<total<=flow.RESEARCH_INPUT_TOKENS
-        assert _luna_token_count(json.dumps(request['items'],ensure_ascii=False))<=flow.FOLLOW_UP_EVIDENCE_TOKENS
+        assert estimate_o200k_tokens(json.dumps(request['items'],ensure_ascii=False))<=flow.FOLLOW_UP_EVIDENCE_TOKENS
         return {'coverage':[{'topic':0,'status':'partial','reason':'Verified partial evidence','sources':[0]}],
                 'read_next':[],'searches':[]}
     flow.advance(value,provider)
@@ -1148,7 +1148,7 @@ def test_partial_delivery_preserves_partial_status_without_chasing_optional_deta
 
 
 def test_bounded_reading_notes_do_not_drop_saved_notes_or_selected_originals(monkeypatch):
-    from runtime.semantic_service import _luna_token_count
+    from runtime.text_budget import estimate_o200k_tokens
     import json
     monkeypatch.setattr(flow,'READ_CHARS',400)
     text='\n\n'.join(f'Section {i}: Agent memory stores observation {i} and preserves its condition. '+('Context matters. '*12) for i in range(14))
@@ -1160,7 +1160,7 @@ def test_bounded_reading_notes_do_not_drop_saved_notes_or_selected_originals(mon
         result=review_provider(path,body)
         if body['request']['task']=='read':
             read_count+=1
-            sizes.append(_luna_token_count(json.dumps(body['request']['previous_notes'],ensure_ascii=False)))
+            sizes.append(estimate_o200k_tokens(json.dumps(body['request']['previous_notes'],ensure_ascii=False)))
             result['reason']=f'Read {read_count}: '+('Agent memory context and conditions remain important. '*45)
         return result
     done,_=drive(state(),provider)

@@ -3,10 +3,8 @@ from .storage.materials import require_material, validate_concept_selection
 from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
-import io
 import json
 import math
-import wave
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, or_, select, update
@@ -19,15 +17,14 @@ from .storage.source_artifacts import write_blob
 from .storage.tables import Artifact, Material, Podcast, PodcastScenes, PodcastVideo, database_session
 from .podcast_script import MAX_EPISODE_CLAIMS, MAX_SOURCE_TOKENS, MAX_SCRIPT_INPUT_TOKENS, script_input
 from . import retrieval
-from .semantic_service import _luna_token_count
-from .errors import SourceError
+from .text_budget import estimate_o200k_tokens
+from .errors import SourceError, PodcastError
+from .audio import validate_audio
 
 
 from .generation_jobs import WORKER_LEASE_TTL
 
 
-class PodcastError(RuntimeError):
-    pass
 
 
 def _summary(row, material, db):
@@ -86,14 +83,14 @@ def plan_episodes(view, concept_ids, source_pages):
     previous = [None] * (len(claims) + 1)
     # 依 provider 實際送入模型的投影估算，不把僅供回填的 hash／locator 算成講稿輸入。
     projected = script_input(claims, source_pages)
-    token_sizes = [_luna_token_count(json.dumps(source, ensure_ascii=False)) + 4
+    token_sizes = [estimate_o200k_tokens(json.dumps(source, ensure_ascii=False)) + 4
                    for source in projected['sources']]
     # 引用片語可能只佔原區塊一小部分；分集必須另計索引原文及定位欄位，不能只算 claim.quote。
     block_costs = {}; page_costs = {}
     for (page_ref, page), compact in zip(source_pages.items(), projected['page_context']):
-        page_costs[page_ref] = _luna_token_count(json.dumps({**compact,'blocks':[]},ensure_ascii=False)) + 4
+        page_costs[page_ref] = estimate_o200k_tokens(json.dumps({**compact,'blocks':[]},ensure_ascii=False)) + 4
         for block, compact_block in zip(page['blocks'], compact['blocks']):
-            block_costs[block['evidence_id']] = (page_ref, _luna_token_count(json.dumps(compact_block,ensure_ascii=False)) + 4)
+            block_costs[block['evidence_id']] = (page_ref, estimate_o200k_tokens(json.dumps(compact_block,ensure_ascii=False)) + 4)
     if any(e['evidence_id'] not in block_costs for claim in claims for e in claim['evidence']):
         raise PodcastError('PODCAST_SOURCE_INSUFFICIENT')
     for end in range(1, len(claims) + 1):
@@ -321,8 +318,8 @@ def source_context(db, owner, material_id, revision, episode):
     pages = _context_pages(selected)
     def fits(context):
         projected = script_input(episode['claims'], context)
-        return (_luna_token_count(json.dumps(projected['page_context'], ensure_ascii=False)) <= MAX_SOURCE_TOKENS
-                and _luna_token_count(json.dumps(projected, ensure_ascii=False)) <= MAX_SCRIPT_INPUT_TOKENS)
+        return (estimate_o200k_tokens(json.dumps(projected['page_context'], ensure_ascii=False)) <= MAX_SOURCE_TOKENS
+                and estimate_o200k_tokens(json.dumps(projected, ensure_ascii=False)) <= MAX_SCRIPT_INPUT_TOKENS)
     if not fits(pages):
         raise PodcastError('PODCAST_SOURCE_TOO_LARGE')
     for passage in passages:
@@ -398,17 +395,6 @@ def validate_script(script, episode):
     return deepcopy(script)
 
 
-def validate_audio(data):
-    try:
-        with wave.open(io.BytesIO(data), "rb") as audio:
-            duration = audio.getnframes() / audio.getframerate()
-            if (audio.getnchannels() != 1 or audio.getsampwidth() != 2
-                or audio.getframerate() != 24000 or not 0.5 <= duration <= 1800
-                or len(audio.readframes(audio.getnframes())) != audio.getnframes() * 2):
-                raise ValueError()
-        return duration
-    except Exception:
-        raise PodcastError("PODCAST_AUDIO_INVALID") from None
 
 
 def finish_step(claim, *, script=None, audio=None, audio_provider=None, audio_mastering=None, error=None, dsn=None):

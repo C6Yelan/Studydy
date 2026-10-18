@@ -192,7 +192,7 @@ def _key(query):
 
 def _coverage_items(reviewed, workflow):
     """缺口判斷直接取已核對的原文，按子題輪流分配容量，不只看模型的閱讀摘要。"""
-    from .semantic_service import _luna_token_count
+    from .text_budget import estimate_o200k_tokens
 
     items = [
         {
@@ -277,7 +277,7 @@ def _coverage_items(reviewed, workflow):
         item = items[group["source"]]
         item["evidence"].extend(evidence)
         if (
-            _luna_token_count(json.dumps(items, ensure_ascii=False))
+            estimate_o200k_tokens(json.dumps(items, ensure_ascii=False))
             > FOLLOW_UP_EVIDENCE_TOKENS
         ):
             del item["evidence"][-len(evidence) :]
@@ -1208,18 +1208,18 @@ def _assess_sections(workflow, candidates, state, context, call, retrieve_existi
             text, [item["text"] for item in related], limit=len(related)
         )
         comparison = []
-        from .semantic_service import _luna_token_count
+        from .text_budget import estimate_o200k_tokens
 
         for i, _ in ranked:
             if (
-                _luna_token_count(
+                estimate_o200k_tokens(
                     json.dumps([*comparison, related[i]], ensure_ascii=False)
                 )
                 <= 1800
             ):
                 comparison.append(related[i])
         notes = [part["reason"] for part in c.get("_review_chunks", [])]
-        note_tokens = _luna_token_count(json.dumps(notes, ensure_ascii=False))
+        note_tokens = estimate_o200k_tokens(json.dumps(notes, ensure_ascii=False))
         if note_tokens > 600:
             order = list(
                 dict.fromkeys(
@@ -1239,7 +1239,7 @@ def _assess_sections(workflow, candidates, state, context, call, retrieve_existi
             kept = []
             for i in order:
                 if (
-                    _luna_token_count(
+                    estimate_o200k_tokens(
                         json.dumps(
                             [notes[j] for j in sorted([*kept, i])], ensure_ascii=False
                         )
@@ -1604,7 +1604,7 @@ def _follow_up(workflow, candidates, context, call):
         )
     ]
     # 候選線索也會超出上下文；按需求排序後分批提供，沒有採用時可接著查看下一批。
-    from .semantic_service import _luna_token_count
+    from .text_budget import estimate_o200k_tokens
 
     ranked = [
         i
@@ -1673,7 +1673,7 @@ def _follow_up(workflow, candidates, context, call):
             ),
         }
         if (
-            _luna_token_count(json.dumps([*unread_input, item], ensure_ascii=False))
+            estimate_o200k_tokens(json.dumps([*unread_input, item], ensure_ascii=False))
             > FOLLOW_UP_UNREAD_TOKENS
         ):
             if not unread:
@@ -2100,11 +2100,11 @@ def advance(state, call, *, read_document=None, retrieve_existing=None):
     provider_call = call
 
     def call(path, body):
-        from .semantic_service import _luna_input_tokens, _luna_token_count
+        from .text_budget import estimate_prompt_tokens, estimate_o200k_tokens
 
-        estimate = _luna_input_tokens(
+        estimate = estimate_prompt_tokens(
             body["prompt"], body["request"]
-        ) + _luna_token_count(json.dumps(body["schema"], ensure_ascii=False))
+        ) + estimate_o200k_tokens(json.dumps(body["schema"], ensure_ascii=False))
         if estimate > RESEARCH_INPUT_TOKENS:
             raise SourceError("RESEARCH_CONTEXT_TOO_LARGE")
         started = time.monotonic()
@@ -2118,7 +2118,7 @@ def advance(state, call, *, read_document=None, retrieve_existing=None):
         metrics["max_input_tokens"] = max(metrics.get("max_input_tokens", 0), estimate)
         if task == "read":
             for field in ("previous_notes", "related_content"):
-                size = _luna_token_count(
+                size = estimate_o200k_tokens(
                     json.dumps(body["request"].get(field, []), ensure_ascii=False)
                 )
                 metrics[field + "_tokens"] = metrics.get(field + "_tokens", 0) + size
@@ -2127,7 +2127,7 @@ def advance(state, call, *, read_document=None, retrieve_existing=None):
                 )
         if task == "follow_up":
             for field in ("items", "previous_coverage", "research_coverage", "unread"):
-                size = _luna_token_count(
+                size = estimate_o200k_tokens(
                     json.dumps(body["request"].get(field, []), ensure_ascii=False)
                 )
                 metrics[field + "_tokens"] = metrics.get(field + "_tokens", 0) + size

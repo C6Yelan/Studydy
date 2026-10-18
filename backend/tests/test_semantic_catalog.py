@@ -54,7 +54,10 @@ def test_reordered_candidates_keep_their_own_source_ids():
         _page(1, [_block(1, 0, 'heading', 'Earlier'), _block(1, 1, 'paragraph', 'Earlier fact.')]),
         _page(2, [_block(2, 0, 'heading', 'Current'), _block(2, 1, 'paragraph', 'TCP fact.')]),
     ], page_count=2)
-    context['source_pages'] = [{'source_id': 'old-source'}, {'source_id': 'new-source'}]
+    context['source_pages'] = [
+        {'page': 1, 'source_id': 'old-source', 'normalized_page': 1},
+        {'page': 2, 'source_id': 'new-source', 'normalized_page': 1},
+    ]
     def concept(label, i):
         e = context['evidence'][i]
         return {'label': label, 'aliases': [], 'claims': [{'text': e['exact_text'], 'source_spans': [{'evidence_id': e['evidence_id'], 'quote': e['exact_text']}]}]}
@@ -94,7 +97,7 @@ def test_catalog_token_budget_applies_even_to_single_evidence(monkeypatch, provi
     lock = _runtime_lock()
     if provider == 'luna':
         lock = test_lock(lock)
-        monkeypatch.setattr(service, '_luna_input_tokens', lambda prompt, request: 100 + (catalog_tokens if request['existing_concepts'] else 0))
+        monkeypatch.setattr(service, 'estimate_prompt_tokens', lambda prompt, request: 100 + (catalog_tokens if request['existing_concepts'] else 0))
     else:
         import json
         def count(client, config, messages, template, check):

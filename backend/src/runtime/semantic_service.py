@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from .text_budget import estimate_o200k_tokens, estimate_prompt_tokens
 from content_identity import canonical_bytes
 
 
@@ -258,15 +259,8 @@ def _messages(prompt: str, request: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
-def _luna_token_count(text: str) -> int:
-    # CLI 未提供精確 tokenizer；後端統一使用 o200k 估算，不冒充模型實測值。
-    import tiktoken
-    return len(tiktoken.get_encoding('o200k_base').encode(text, disallowed_special=()))
 
 
-def _luna_input_tokens(prompt: str, request: dict[str, Any]) -> int:
-    # 與現有 provider 的 prompt 序列化一致；不修改 Codex 或 provider。
-    return _luna_token_count(prompt + '\nINPUT:\n' + json.dumps(request, ensure_ascii=False))
 
 
 def _token_count(
@@ -320,7 +314,7 @@ def request_semantics(
         task_lock = runtime_lock['assessment' if task == 'assessment_check' else task]
         prefix = 'check_' if task == 'assessment_check' else ''
         prompt = task_lock[prefix + 'prompt']
-        input_tokens = _luna_input_tokens(prompt, request)
+        input_tokens = estimate_prompt_tokens(prompt, request)
         # 舊工作保留封存的 272K lock，但不得繞過現行後端的 64K 上限。
         output_budget = _output_budget(task, task_lock[prefix + 'max_tokens'], input_tokens,
                                        min(65536, runtime_lock['semantic_service']['max_model_len']))
@@ -333,7 +327,7 @@ def request_semantics(
             code = 'SEMANTIC_SERVICE_TIMEOUT' if str(error)=='LUNA_GENERATION_TIMEOUT' else 'SEMANTIC_SERVICE_UNAVAILABLE'
             raise SemanticServiceError(code) from None
         if cancellation_check: cancellation_check()
-        if _luna_token_count(json.dumps(result, ensure_ascii=False)) > output_budget:
+        if estimate_o200k_tokens(json.dumps(result, ensure_ascii=False)) > output_budget:
             raise SemanticServiceError('SEMANTIC_OUTPUT_TOO_LARGE')
         return result
     service = _service(runtime_lock)
@@ -441,8 +435,8 @@ def material_request_fits(
         if cancellation_check:
             cancellation_check()
         if enabled(runtime_lock):
-            count = _luna_input_tokens(task['prompt'], request)
-            base_count = _luna_input_tokens(task['prompt'], fixed)
+            count = estimate_prompt_tokens(task['prompt'], request)
+            base_count = estimate_prompt_tokens(task['prompt'], fixed)
             context_limit = min(65536, runtime_lock['semantic_service']['max_model_len'])
         else:
             service = _service(runtime_lock)
@@ -463,8 +457,8 @@ def material_request_fits(
         if cancellation_check: cancellation_check()
         fresh = {**request, 'existing_concepts': []}
         task = runtime_lock['material_semantics']
-        count = _luna_input_tokens(task['prompt'], request)
-        fresh_count = _luna_input_tokens(task['prompt'], fresh) if request.get('existing_concepts') else count
+        count = estimate_prompt_tokens(task['prompt'], request)
+        fresh_count = estimate_prompt_tokens(task['prompt'], fresh) if request.get('existing_concepts') else count
         if count - fresh_count > MAX_MATERIAL_CATALOG_TOKENS:
             return False
         try:

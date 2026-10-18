@@ -102,7 +102,7 @@ def test_luna_all_semantic_tasks_block_before_provider_at_shared_64k_limit(monke
     lock = luna_lock(_runtime_lock())
     lock['semantic_service']['max_model_len'] = saved_context
     count = 65536 - reserve
-    monkeypatch.setattr(service, '_luna_input_tokens', lambda *_: count)
+    monkeypatch.setattr(service, 'estimate_prompt_tokens', lambda *_: count)
     calls = []
     monkeypatch.setattr(provider_http, 'provider', lambda *args: calls.append(args) or {'ok': True})
     arguments = dict(runtime_lock=lock, task=task, request={}, response_schema={})
@@ -117,8 +117,8 @@ def test_luna_all_semantic_tasks_block_before_provider_at_shared_64k_limit(monke
 def test_luna_rejects_returned_output_over_remaining_budget(monkeypatch, output_tokens, accepted):
     from runtime import semantic_service as service
     lock = luna_lock(_runtime_lock())
-    monkeypatch.setattr(service, '_luna_input_tokens', lambda *_: 57344)
-    monkeypatch.setattr(service, '_luna_token_count', lambda *_: output_tokens)
+    monkeypatch.setattr(service, 'estimate_prompt_tokens', lambda *_: 57344)
+    monkeypatch.setattr(service, 'estimate_o200k_tokens', lambda *_: output_tokens)
     monkeypatch.setattr(provider_http, 'provider', lambda *_: {'ok': True})
     arguments = dict(runtime_lock=lock, task='material_semantics', request={}, response_schema={})
     if accepted:

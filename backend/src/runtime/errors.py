@@ -3,3 +3,7 @@
 
 class SourceError(RuntimeError):
     pass
+
+
+class PodcastError(RuntimeError):
+    pass

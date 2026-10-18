@@ -13,7 +13,8 @@ from sqlalchemy import or_, select
 from content_identity import canonical_sha256
 from . import card_design as design
 from .generation_jobs import WORKER_LEASE_TTL, check_job
-from .semantic_service import _luna_token_count, request_semantics, semantic_client, SemanticServiceError
+from .semantic_service import request_semantics, semantic_client, SemanticServiceError
+from .text_budget import estimate_o200k_tokens
 from .storage import card_sources, knowledge_reads
 from .storage.tables import CardSet, Material, database_session
 
@@ -111,8 +112,8 @@ def _request(claim, state, prompt, payload, schema, dsn, call):
     lock = configured_lock()
     if provider_identity(lock) != state['provider']:
         raise design.CardDesignError('CARD_PROVIDER_CHANGED')
-    estimate = _luna_token_count(prompt + '\nINPUT:\n' + json.dumps(payload, ensure_ascii=False))
-    estimate += _luna_token_count(json.dumps(schema, ensure_ascii=False))
+    estimate = estimate_o200k_tokens(prompt + '\nINPUT:\n' + json.dumps(payload, ensure_ascii=False))
+    estimate += estimate_o200k_tokens(json.dumps(schema, ensure_ascii=False))
     if estimate > 65536 - 8192: raise design.CardDesignError('CARD_CONTEXT_TOO_LARGE')
     started = time.monotonic()
     usage = {}
@@ -136,7 +137,7 @@ def _request(claim, state, prompt, payload, schema, dsn, call):
             recorded['calls'] += 1
             for key, value in usage.items(): recorded[key] = recorded.get(key, 0) + value
     check()
-    state['saved_output_tokens'] += _luna_token_count(json.dumps(result, ensure_ascii=False))
+    state['saved_output_tokens'] += estimate_o200k_tokens(json.dumps(result, ensure_ascii=False))
     return result
 
 
