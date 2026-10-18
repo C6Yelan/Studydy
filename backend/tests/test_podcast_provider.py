@@ -150,7 +150,7 @@ def test_voice_and_podcast_responses_use_the_same_dynamic_pause_identity(metadat
     handler.send_header=lambda key,value: headers.update({key:value})
     handler.end_headers=lambda: None
     handler.respond(b'RIFF-test','audio/wav',metadata)
-    assert 'dynamic-pauses/v1' in headers['X-Studydy-Audio-Provider']
+    assert 'dynamic-pauses/v2' in headers['X-Studydy-Audio-Provider']
     assert 'spoken-input/v12' not in headers['X-Studydy-Audio-Provider']
     assert handler.wfile.getvalue()==b'RIFF-test'
 

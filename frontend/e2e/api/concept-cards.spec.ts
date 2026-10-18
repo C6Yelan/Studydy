@@ -24,7 +24,7 @@ test("real API persists selected cards across fresh login and resolves original 
   await expect(page.locator(".visual-concept-card")).toHaveAttribute("title", "Stack｜概念卡");
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   const savedPath = new URL(page.url()).pathname;
-  await page.getByRole("button", { name: "翻面", exact: true }).click();
+  await page.getByText("完整重點與來源", { exact: true }).click();
   await expect(page.locator(".flashcard-point")).toContainText("LIFO");
   await page.getByRole("button", { name: "Synthetic.pdf · 第 1 頁", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "教材來源" });

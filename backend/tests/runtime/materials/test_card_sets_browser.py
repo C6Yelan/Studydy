@@ -2,10 +2,13 @@
 
 import httpx
 import psycopg
+from threading import Event, Thread
 
 import runtime.api.app as api
+from runtime import card_generation
 from browser_e2e_runner import PORT, local_api, main as run_browser
 from product_fixtures import closed_loop
+from materials.test_card_generation import response
 
 
 def test_card_sets_browser(closed_loop, monkeypatch):
@@ -18,8 +21,26 @@ def test_card_sets_browser(closed_loop, monkeypatch):
         profile="local", public_origin=f"http://127.0.0.1:{PORT}", secure_cookie=False,
         local_config=settings, dsn=dsn,
     ))
-    with local_api(app):
-        assert run_browser("e2e/api/concept-cards.spec.ts") == 0
+    stop = Event()
+    failures = []
+
+    def generate():
+        try:
+            while not stop.wait(.05):
+                card_generation.step(dsn=dsn, call=response)
+        except Exception as error:
+            failures.append(error)
+
+    worker = Thread(target=generate, daemon=True)
+    worker.start()
+    try:
+        with local_api(app):
+            assert run_browser("e2e/api/concept-cards.spec.ts") == 0
+    finally:
+        stop.set()
+        worker.join(timeout=10)
+    assert not worker.is_alive()
+    assert failures == []
     with psycopg.connect(dsn) as connection:
         assert connection.execute("SELECT count(*) FROM study_sessions").fetchone() == (0,)
         assert connection.execute("SELECT count(*) FROM answer_events").fetchone() == (0,)
