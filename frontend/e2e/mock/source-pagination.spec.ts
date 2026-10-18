@@ -7,10 +7,10 @@ const source = (i: number) => ({ id: `source-${i}`, kind: i % 2 ? 'paper' : 'web
   authors: 'Fixture', year: 2026, url: 'https://example.org/agent', doi: null, license: 'CC-BY-4.0',
   license_url: null, version: '1', eligible: true, reason: 'fixture', state: 'candidate' });
 
-for (const mode of ['research', 'topic']) test(`${mode} paginates sources, retains selection and fetches only beyond loaded pages`, async ({ page }, testInfo) => {
+for (const mode of ['research', 'topic']) test(`${mode} paginates loaded sources and retains selection across explicit followup`, async ({ page }, testInfo) => {
   await mockKnowledgeMapApi(page, structureView());
   let work: any = { research_id: researchId, material_id: mode === 'research' ? materialId : null,
-    query: 'Agent', mode: 'review', status: 'selecting', candidates: Array.from({ length: 20 }, (_, i) => source(i)),
+    query: 'Agent', mode: 'review', approved_scope: { title: 'Agent', goals: ['工具呼叫'], topics: ['Agent'] }, status: 'selecting', candidates: Array.from({ length: 20 }, (_, i) => source(i)),
     selection: [], cursor: 'next', error_code: null, run_id: null, is_current_revision: true };
   let requests = 0;
   await page.route(`**/v1/research/${researchId}`, r => json(r, work));
@@ -19,7 +19,7 @@ for (const mode of ['research', 'topic']) test(`${mode} paginates sources, retai
     work = { ...work, status: 'searching' }; return json(r, work);
   });
   const topic = () => ({ topic_id: topicId, request: 'Agent', version: 3, status: 'approved', error_code: null,
-    proposal: { title: 'Agent', level: '入門', goals: ['工具呼叫'], topics: ['Agent'], exclude: [] }, research_id: researchId, research: work });
+    proposal: { title: 'Agent', goals: ['工具呼叫'], topics: ['Agent'] }, research_id: researchId, research: work });
   await page.route('**/v1/topics', r => json(r, { topics: [] }));
   await page.route(`**/v1/topics/${topicId}`, r => json(r, topic()));
   await page.goto(mode === 'research' ? `/materials/${materialId}/research/${researchId}` : `/topics/${topicId}`);
@@ -32,15 +32,20 @@ for (const mode of ['research', 'topic']) test(`${mode} paginates sources, retai
   await expect(page.getByRole('checkbox', { name: '選取 Agent 來源 0', exact: true })).toBeChecked();
   expect(requests).toBe(0);
   await pager.getByRole('button', { name: '下一頁', exact: true }).click();
-  await pager.getByRole('button', { name: '下一頁（繼續搜尋）', exact: true }).click();
-  await expect(pager.getByRole('button', { name: '搜尋中…', exact: true })).toBeDisabled();
+  await expect(pager.getByRole('button', { name: '下一頁', exact: true })).toBeDisabled();
+  expect(requests).toBe(0);
+  await page.getByRole('button', { name: '依缺口繼續研究', exact: true }).click();
+  await expect.poll(() => requests).toBe(1);
   work = { ...work, status: 'selecting', cursor: 'again', candidates: [...work.candidates, source(20), source(21), source(22)] };
+  await pager.getByRole('button', { name: '第 3 頁', exact: true }).click();
   await expect(pager.getByRole('button', { name: '第 3 頁', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.research-candidates article')).toHaveCount(3);
   await page.getByRole('checkbox', { name: '選取 Agent 來源 22', exact: true }).check();
-  await pager.getByRole('button', { name: '下一頁（繼續搜尋）', exact: true }).click();
+  await page.getByRole('button', { name: '依缺口繼續研究', exact: true }).click();
+  await expect.poll(() => requests).toBe(2);
   work = { ...work, status: 'selecting', cursor: null };
-  await expect(page.locator('.source-page-notice')).toContainText('未增加新的一頁');
+  await expect(page.getByRole('button', { name: '依缺口繼續研究', exact: true })).toBeVisible();
+  await expect(pager.getByRole('button', { name: '第 4 頁', exact: true })).toHaveCount(0);
   await expect(pager.getByRole('button', { name: '下一頁', exact: true })).toBeDisabled();
   expect(requests).toBe(2);
   await page.getByLabel('只看已選', { exact: true }).check();

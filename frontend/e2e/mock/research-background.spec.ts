@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { materialId, structureView, mockKnowledgeMapApi, json } from '../fixtures/knowledge-map';
+import { materialId, runId, structureRevision, structureView, mockKnowledgeMapApi, json } from '../fixtures/knowledge-map';
 
 const researchId = '55555555-5555-4555-8555-555555555555';
 const topicId = '77777777-7777-4777-8777-777777777777';
@@ -16,7 +16,7 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
     topics: [{ topic: 'Agent 執行迴圈', status: 'partial', reason: '缺少完整案例。', source_ids: [] }],
     unavailable_sources: [{ id: 'blocked', title: '未完成的來源', url: 'https://example.org/blocked', access: { status: 'unavailable',
       attempts: [{ url: 'https://example.org/' + 'long-path-'.repeat(30), outcome: 'failed', http_status: 403, error_code: 'RESEARCH_SOURCE_BLOCKED' }] } }] };
-  let work: any = { research_id: researchId, material_id: mode === 'research' ? materialId : null, query: 'Agent 原理', mode: 'review', approved_scope:{title:'Agent',level:'入門',goals:['理解迴圈'],topics:['Agent 執行迴圈'],exclude:[]},
+  let work: any = { research_id: researchId, material_id: mode === 'research' ? materialId : null, query: 'Agent 原理', mode: 'review', approved_scope:{title:'Agent',goals:['理解迴圈'],topics:['Agent 執行迴圈']},
     status: 'searching', candidates: [source('ready'), { ...source('reference', 'related', false), screening: { decision: 'reference', reason: '提供背景概念', basis: 'abstract' }, review: { phase: 'metadata', relevance: 'related', reason: '摘要說明背景概念', topics: [0] } }, source('unrelated', 'unrelated', false), { ...source('duplicate', 'direct', false), duplicate_of: 'ready' }],
     selection: [], cursor: null, error_code: null, run_id: null, is_current_revision: true, progress };
   await page.route(`**/v1/research/${researchId}`, r => json(r, work));
@@ -27,7 +27,7 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   });
   await page.route('**/v1/topics', r => json(r, { topics: [] }));
   await page.route(`**/v1/topics/${topicId}`, r => json(r, { topic_id: topicId, request: 'Agent', version: 3, status: 'approved',
-    proposal: { title: 'Agent', level: '入門', goals: ['工具呼叫'], topics: ['Agent 執行迴圈'], exclude: [] }, research_id: researchId, research: work }));
+    proposal: { title: 'Agent', goals: ['工具呼叫'], topics: ['Agent 執行迴圈'] }, research_id: researchId, research: work }));
   const path = mode === 'research' ? `/materials/${materialId}/research/${researchId}` : `/topics/${topicId}`;
   await page.goto(path);
   const panel = page.getByRole('region', { name: '背景研究進度' });
@@ -45,10 +45,16 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   await page.getByRole('button', { name: mode === 'research' ? '重試未完成部分' : '接續處理', exact: true }).click();
   await expect(panel.getByRole('progressbar')).toBeVisible();
   work = { ...work, status: 'selecting', progress: { ...progress, stage: 'complete', completed: null, total: null, finish_reason: 'gaps_remaining', summary: '已整理可用來源，仍缺少案例。' } };
-  await expect(panel).toContainText('研究部分完成');
-  await expect(page.locator('.research-candidates article')).toHaveCount(2);
-  await expect(page.getByRole('checkbox', { name: '選取 Agent reference', exact: true })).toBeDisabled();
-  await expect(page.getByText('C++ memory', { exact: true })).toHaveCount(0);
+  await expect(panel).toContainText('研究已完成，可選擇要加入的來源');
+  await expect(page.locator('.research-candidates article')).toHaveCount(1);
+  await expect(page.getByRole('checkbox', { name: '選取 Agent reference', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Agent reference', { exact: true })).not.toBeVisible();
+  await page.locator('.source-other-results > summary').click();
+  await expect(page.getByText('Agent reference', { exact: true })).toBeVisible();
+  await expect(page.locator('.source-other-results')).toContainText('尚未核對正文');
+  await expect(page.getByText('僅供查看', { exact: true })).toHaveCount(0);
+  await page.locator('.source-other-results > summary').click();
+  await expect(page.getByText('C++ memory', { exact: true })).not.toBeVisible();
   const first = page.locator('.research-candidates article').first();
   await first.getByText('查看存取紀錄', { exact: true }).click();
   await expect(first).toContainText('403'); await expect(first).toContainText('已取得（rss）');
@@ -68,45 +74,25 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   await page.setViewportSize({ width: 390, height: 844 });
   await panel.getByText('研究詳情', { exact: true }).click();
   await expect(panel).not.toContainText('此入口回應 403');
+  await expect(panel).toContainText('本次尚未完整涵蓋：Agent 執行迴圈。');
+  await expect(panel).toContainText('本輪排定的查找與核對已結束。');
+  await expect(panel).not.toContainText('因此研究結束');
+  await expect(panel.locator('.research-progress-counts')).not.toContainText('／');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await panel.scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath(`${mode}-research-progress.png`) });
 });
 
 
-test('research can finish with verified sources without claiming full coverage', async ({ page }) => {
-  await mockKnowledgeMapApi(page, structureView());
-  const progress = { stage: 'reading', round: 2, completed: 1, total: 3, unit: 'sources', candidate_count: 1,
-    read_count: 1, recommended_count: 1, importable_count: 1, summary: '仍缺一個子題', warnings: [], finish_reason: null,
-    topics: [{ topic: 'Agent 執行迴圈', status: 'partial', reason: '缺少完整案例。', source_ids: [] }], unavailable_sources: [] };
-  let work: any = { research_id: researchId, material_id: materialId, query: 'Agent 原理', mode: 'review', approved_scope:{title:'Agent',level:'入門',goals:['理解迴圈'],topics:['Agent 執行迴圈'],exclude:[]},
-    status: 'cancelled', candidates: [source('ready')], selection: [], cursor: null, error_code: null, run_id: null,
-    is_current_revision: true, progress };
-  await page.route(`**/v1/research/${researchId}`, r => json(r, work));
-  await page.route(`**/v1/research/${researchId}/actions`, r => {
-    expect(r.request().postDataJSON()).toEqual({ action: 'finish' });
-    work = { ...work, status: 'selecting', progress: { ...progress, stage: 'complete', finish_reason: 'user_stopped', summary: '已停止擴查；缺口保留。' } };
-    return json(r, work);
-  });
-  await page.goto(`/materials/${materialId}/research/${researchId}`);
-  await page.getByRole('button', { name: '使用目前已核對的來源', exact: true }).click();
-  await expect(page.getByRole('checkbox', { name: '選取 Agent ready', exact: true })).toBeEnabled();
-  await page.getByRole('checkbox', { name: '選取 Agent ready', exact: true }).check();
-  await expect(page.getByRole('button', { name: '取得選取的 1 份來源', exact: true })).toBeEnabled();
-  await page.getByText('研究詳情', { exact: true }).click();
-  await expect(page.getByText('缺少完整案例。', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('region', {name:'背景研究進度'})).toContainText('可先使用已核對的來源');
-});
-
-test('prepared sources remain explicitly outside the map until submitted, and review results are not claimed complete', async ({page}) => {
+test('prepared sources require submission and published partial results open the map without another confirmation', async ({page}) => {
   await mockKnowledgeMapApi(page, structureView());
   let work:any={research_id:researchId,material_id:materialId,query:'補充教材狀態',mode:'review',
-    status:'ready',candidates:[{...source('ready'),state:'ready'}],selection:['ready'],cursor:null,error_code:null,run_id:null,is_current_revision:true};
+    status:'ready',approved_scope:{title:'Agent',topics:['Agent 執行迴圈'],goals:['理解迴圈']},candidates:[{...source('ready'),state:'ready'}],selection:['ready'],cursor:null,error_code:null,run_id:null,is_current_revision:true};
   let submits=0;
   await page.route(`**/v1/research/${researchId}`, r=>json(r,work));
   await page.route(`**/v1/research/${researchId}/submit`, r=>{
     expect(r.request().postDataJSON()).toEqual({confirmed:true});submits++;
-    work={...work,status:'submitted',run_id:'33333333-3333-4333-8333-333333333333',run:{status:'partial',error_code:null}};
+    work={...work,status:'submitted',run_id:runId,run:{status:'partial',error_code:null,output_binding:{knowledge_structure_revision:structureRevision}}};
     return json(r,work,202);
   });
   await page.goto(`/materials/${materialId}/research/${researchId}`);
@@ -114,9 +100,13 @@ test('prepared sources remain explicitly outside the map until submitted, and re
   const submit=page.getByRole('button',{name:'確認加入教材',exact:true});
   await expect(submit).toBeDisabled();expect(submits).toBe(0);
   await page.getByRole('checkbox',{name:'我了解加入後不可逆',exact:true}).check();await submit.click();
-  await expect(page.getByRole('heading',{name:'分析結果仍需確認',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'補充教材可查看',exact:true})).toBeVisible();
   await expect(page.getByRole('heading',{name:'補充教材已建立',exact:true})).toHaveCount(0);
+  await expect(page.getByText('本次補充範圍',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'確認加入教材',exact:true})).toHaveCount(0);
   expect(submits).toBe(1);
+  await page.getByRole('button',{name:'查看補充教材',exact:true}).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}$`));
 });
 
 test('stopped research is preserved in collapsed history while the current task stays visible', async ({page}) => {
@@ -136,7 +126,7 @@ test('stopped research is preserved in collapsed history while the current task 
 
 test('focused followup preserves the confirmed scope and sends the optional direction', async ({page}) => {
   await mockKnowledgeMapApi(page, structureView());
-  const scope={title:'Agent',level:'入門',goals:['理解迴圈'],topics:['Agent 執行迴圈'],exclude:['完整程式']};
+  const scope={title:'Agent',goals:['理解迴圈，不需要完整程式'],topics:['Agent 執行迴圈']};
   let work:any={research_id:researchId,material_id:materialId,query:'Agent',mode:'review',approved_scope:scope,
     status:'selecting',candidates:[source('ready')],selection:[],cursor:null,error_code:null,run_id:null,is_current_revision:true};
   await page.route(`**/v1/research/${researchId}`,r=>json(r,work));

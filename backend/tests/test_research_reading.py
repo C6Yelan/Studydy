@@ -362,3 +362,11 @@ def test_real_repeated_failure_stops_but_unsent_host_cooldown_does_not(monkeypat
     monkeypatch.setattr(sources,'public_page',cooldown)
     cooling=reading.inspect_candidate(first)
     assert cooling['access']['failed_acquisitions']==1 and not cooling['access'].get('exhausted')
+
+
+def test_word_only_paper_landing_is_not_treated_as_full_text(monkeypatch):
+    body='<html><head><title>A paper</title><meta name="citation_title" content="A paper"></head><body><h1>A paper</h1><p>This is the repository description of a research paper, not its full text.</p><a href="/files/paper.docx?download=1">Download</a></body></html>'
+    monkeypatch.setattr(sources,'public_page',lambda url,**kw:(body.encode(),url,'text/html'))
+    result=reading.inspect_candidate({'id':'paper','kind':'paper','url':'https://example.org/article','title':'A paper','eligible':False,'license':'unknown'})
+    assert not result['eligible'] and result['_reading_text']==''
+    assert result['access']['fulltext_unavailable'] and 'Word' in result['reason']

@@ -60,7 +60,8 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
     onDraftChange?.({query:view.query,tasks:{...draft?.tasks,[researchId]:{selected,editing,sourceQuery}}});back();
   };
   const working = busy || !!view && researchActive.has(view.status), submitted = view?.status === 'submitted';
-  const completed = view?.run?.status === 'succeeded';
+  const completed = ['succeeded', 'partial'].includes(view?.run?.status ?? '');
+  const publishedRevision = completed ? view?.run?.output_binding?.knowledge_structure_revision : undefined;
   const selectionMatches = !!view && view.selection.length === selected.length && view.selection.every(id => selected.includes(id));
   const canConfirm = view?.status === 'ready' && !editing && selectionMatches;
   const info = view ? researchTaskInfo(researchSummary(view)) : null;
@@ -98,13 +99,15 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
           </li>)}</ol>{submitted && <p>已送入教材分析，來源不可再修改。</p>}</nav>
           <section id="research-stage-content" className="surface research-detail-body tool-stage" aria-label="查詢來源與進度">
       {view.error_code && <p className="tool-notice">{reasons[view.error_code] ?? '處理未完成，已保存取得的結果。'}</p>}
-      {view.approved_scope && <details><summary>已確認的觀念與重點／細節</summary><ul>{view.approved_scope.topics.map((topic,i)=><li key={i}>{topic}</li>)}</ul></details>}
+      {view.approved_scope && <details><summary>本次補充範圍</summary><ul>{view.approved_scope.topics.map((topic,i)=><li key={i}>{topic}</li>)}</ul></details>}
       {view.is_current_revision === false && !submitted && <p className="tool-notice">教材已更新，這次搜尋不能直接加入舊版本。請以目前教材重新搜尋。</p>}
       {stage === 2 && submitted && <div className={`tool-result${completed ? ' is-complete' : ''}`}>
         <span className="tool-result-icon"><Icon name={completed ? 'check' : 'process'} size={24} /></span>
-        <div><h3>{completed ? '補充教材已建立' : view.run?.status === 'partial' ? '分析結果仍需確認' : view.run?.status === 'failed' ? '教材分析尚未完成' : view.run?.status === 'cancelled' ? '教材分析已取消' : '正在建立補充教材'}</h3>
-          <p>{completed ? `已將 ${acquiredCount} 份來源加入教材，可查看更新後的知識地圖。` : view.run?.status === 'partial' ? '已產生可查看的教材分析結果，部分內容仍需確認。' : '已選來源會保留。可到教材分析頁查看進度或接續處理。'}</p></div>
-        {view.run_id && <button className="primary-button" onClick={() => { writeRoute({ name: 'material-run', materialId, runId: view.run_id! }); }}>查看教材分析<Icon name="chevron-right" size={16} /></button>}
+        <div><h3>{view.run?.status === 'partial' ? '補充教材可查看' : completed ? '補充教材已建立' : view.run?.status === 'failed' ? '教材分析尚未完成' : view.run?.status === 'cancelled' ? '教材分析已取消' : '正在建立補充教材'}</h3>
+          <p>{view.run?.status === 'partial' ? '已產生補充內容，可查看知識地圖與各項內容的原文來源。' : completed ? `已將 ${acquiredCount} 份來源加入教材，可查看更新後的知識地圖。` : '已選來源會保留。可到教材分析頁查看進度或接續處理。'}</p></div>
+        {view.run_id && <button className="primary-button" onClick={() => { writeRoute(publishedRevision
+          ? { name: 'knowledge-map', materialId, runId: view.run_id!, structureRevision: publishedRevision }
+          : { name: 'material-run', materialId, runId: view.run_id! }); }}>{publishedRevision ? '查看補充教材' : '查看教材分析'}<Icon name="chevron-right" size={16} /></button>}
         {['succeeded','partial'].includes(view.run?.status ?? '') && view.candidates.some(c => view.selection.includes(c.id) && c.state === 'failed') && <button className="secondary-button" disabled={busy} onClick={() => void perform('retry')}>重試未完成來源</button>}
       </div>}
       {view.progress && stage !== 2 && <ResearchProgress progress={view.progress} running={view.status === 'searching'} />}
@@ -118,7 +121,6 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
       {!submitted && <footer className="tool-stage-footer">
         <div className="tool-footer-secondary">
       {view.status === 'selecting' && view.approved_scope && <details><summary>調整補查方向</summary><label>補查方向（選填）<textarea rows={2} maxLength={1000} value={guidance} onChange={e => setGuidance(e.target.value)} placeholder="說明想補足的機制、例子或來源類型" disabled={busy}/></label></details>}
-          {view.progress && ['searching','cancelled'].includes(view.status) && view.progress.read_count > 0 && <button className="secondary-button" disabled={busy} onClick={() => void perform('finish')}>使用目前已核對的來源</button>}
           {researchActive.has(view.status) && <button className="secondary-button" disabled={busy} onClick={() => void perform('cancel')}>停止處理</button>}
           {view.status === 'selecting' && <button className="text-button" disabled={busy} onClick={() => {
             if(view.approved_scope)void perform('more');

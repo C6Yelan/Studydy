@@ -96,32 +96,30 @@ def test_web_discovery_preserves_all_candidates_for_background_reading(monkeypat
     requests=[];checked=[]
     def search(query,page):
         requests.append((query,page))
-        return {'results':[{'url':f'https://site{i//5}.org/lesson{i}?utm_source=test','title':f'Lesson {i}','engines':['yahoo']} for i in range(20)],'unresponsive_engines':[['wikibooks','timeout']]}
+        return {'results':[{'url':f'https://en.wikipedia.org/wiki/Lesson_{i}?utm_source=test','title':f'Lesson {i}','engines':['yahoo']} for i in range(20)],'unresponsive_engines':[['wikibooks','timeout']]}
     def document(url):
         checked.append(url)
         return {'url':url,'title':'Actual page title','authors':'Author','license':'CC-BY-4.0','license_url':'https://creativecommons.org/licenses/by/4.0/','page_identity':'identity'}
     monkeypatch.setattr(web,'_searx',search);monkeypatch.setattr(web,'_web_document',document)
-    rows,next_page,warnings=web.search_web(['topic tutorial','主題 教學'],1)
+    rows,next_page,warnings=web.search_wikipedia(['topic tutorial','主題 教學'],1)
     assert len(rows)==20 and len(checked)==0 and sum(r['eligible'] for r in rows)==0
     assert next_page==2 and warnings==['SearXNG:wikibooks']
     assert all('utm_' not in row['id'] for row in rows)
-    assert requests==[('topic tutorial',1),('主題 教學',1)]
+    assert requests==[('site:en.wikipedia.org topic tutorial',1),('site:en.wikipedia.org 主題 教學',1)]
     assert not any('text' in row for row in rows)
 
 
 def test_free_web_search_joins_existing_search_and_pagination_without_rewriting_query(monkeypatch):
     calls=[]
     monkeypatch.setattr(sources,'openalex_search',lambda query,cursor:(calls.append(('academic',query,cursor)) or [],None))
-    monkeypatch.setattr(sources,'official_search',lambda *a:[])
-    monkeypatch.setattr(sources,'mdn_search',lambda *a:[])
     monkeypatch.delenv('STUDYDY_SEMANTIC_SCHOLAR_API_KEY',raising=False)
     def search(queries,page):
         calls.append(('web',queries,page));return [],page+1 if page<3 else None,['SearXNG:partial']
-    monkeypatch.setattr(web,'search_web',search)
-    rows,cursor,warnings=sources.search('network tutorial\n網路 教學',channel='web')
+    monkeypatch.setattr(web,'search_wikipedia',search)
+    rows,cursor,warnings=sources.search('network tutorial\n網路 教學',channel='wikipedia')
     assert calls==[('web',['network tutorial','網路 教學'],1)]
     assert json.loads(cursor)=={'web':2} and warnings==['SearXNG:partial']
-    calls.clear();sources.search('network tutorial\n網路 教學',cursor,channel='web')
+    calls.clear();sources.search('network tutorial\n網路 教學',cursor,channel='wikipedia')
     assert calls==[('web',['network tutorial','網路 教學'],2)]
 
 
@@ -182,7 +180,7 @@ def test_later_verified_web_result_preserves_id_and_its_identity_binding():
 def test_search_service_retry_time_reaches_the_background_worker(monkeypatch):
     def limited(*args):raise sources.SourceAccessError('RESEARCH_RATE_LIMITED',status=429,retry_at=1700007200)
     monkeypatch.setattr(web,'_searx',limited)
-    with pytest.raises(sources.SourceAccessError) as caught:web.search_web(['generic topic'],1)
+    with pytest.raises(sources.SourceAccessError) as caught:web.search_wikipedia(['generic topic'],1)
     assert caught.value.retry_at==1700007200
 
 

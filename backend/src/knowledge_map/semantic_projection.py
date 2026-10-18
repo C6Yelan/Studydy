@@ -244,7 +244,7 @@ def semantic_request(
             "source_policy": (
                 "Each source has an independent scope. claim_sources aligns with saved Claims. "
                 "Source order alone does not establish prerequisites."
-                + (" When learning_scopes is supplied, extract teaching content for that source's confirmed goals, level and topics. "
+                + (" When learning_scopes is supplied, extract teaching content for that source's confirmed goals and topics. "
                 "Adjacent text is context, not permission to add excluded or unrelated topics. Keep necessary definitions and qualifying conditions, "
                 "but do not expand an incidental example, other API option or excluded subject into a new required concept."
                 if context.get('learning_scopes') else '')

@@ -41,6 +41,13 @@ HTTPServer(('0.0.0.0',8001),Handler).serve_forever()
         run('exec', name+'-frontend', 'nginx', '-t', '-c', '/tmp/nginx.conf')
         for host in ['studydy.net', '127.0.0.1:4183', 'localhost:4183']:
             assert request('GET', '/materials/deep/link', host)[0] == 200
+        for path in ['/', '/topics', '/index.html']:
+            connection = http.client.HTTPConnection('127.0.0.1', 4183, timeout=5)
+            connection.request('GET', path, headers={'Host': 'studydy.net'})
+            response = connection.getresponse()
+            assert response.status == 200 and response.getheader('Cache-Control') == 'no-cache'
+            assert b'<html' in response.read()
+            connection.close()
         for host in ['evil.example', 'studydy.net.evil.example', '']:
             for path in ['/', '/v1/session']:
                 assert request('GET', path, host)[0] == 400

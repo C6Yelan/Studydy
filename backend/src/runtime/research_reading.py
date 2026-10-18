@@ -112,6 +112,13 @@ def read_public_document(url, *, attempts=None, entries=None):
                         queue.append((link,'pdf'))
                     queue.extend((urljoin(final,href),'rss') for href in tree.xpath('//link[@rel="alternate" and (@type="application/rss+xml" or @type="application/atom+xml")]/@href'))
                 doc=html_document(data,final,media)
+                if tree is not None and not fulltext and not doc.get('paper_body') and tree.xpath('//meta[@name="citation_title"]'):
+                    # 有 Word 全文附件的論文介紹頁不是正文；目前研究讀取只處理 PDF／HTML。
+                    word_files=[urljoin(final,link.get('href')) for link in tree.xpath('//a[@href]')
+                                if urlsplit(link.get('href')).path.lower().endswith('.docx')]
+                    if word_files:
+                        doc.update(access_method='landing_page',fulltext_unavailable=True,
+                                   fulltext_error='RESEARCH_FORMAT_UNSUPPORTED')
                 if tree is not None and fulltext:
                     # 優先保留原 PDF 的圖表與排版；正文 HTML 是 PDF 不可取得時的補救。
                     doc['_html_fallback']=bool(not tree.xpath('//meta[starts-with(@name,"citation_")] | //iframe[@src] | //embed[@src] | //object[@data]')
@@ -150,7 +157,8 @@ def inspect_candidate(candidate,*,document=None):
         row['arxiv_license_checked']=True
         try:
             row.update(sources.arxiv_metadata(row['url']))
-            if row.get('screening',{}).get('decision')=='reference':
+            if (row.get('screening',{}).get('decision')=='reference'
+                    and row['screening'].get('basis')=='importability'):
                 row['screening']={'decision':'read','basis':'license_verified','reason':'同篇正式頁已確認全文使用條件，接續核對正文。'}
         except Exception as error:
             attempts.append(access_failure(error,sources.arxiv_abstract_url(row['url'])))
@@ -208,7 +216,9 @@ def inspect_candidate(candidate,*,document=None):
         row['reason']='已取得正文並確認使用條件。' if importable else '已讀取公開內容；全文匯入條件尚未確認，可查看原始來源。'
         if doc.get('fulltext_unavailable'):
             row['access']['fulltext_unavailable']=True
-            row['reason']='已讀取公開頁面，但該頁公布的全文入口未能取得；請查看存取紀錄。'
+            row['reason']=('全文只有 Word 檔，目前補充研究尚未支援讀取此格式；可至原始來源下載。'
+                           if doc.get('fulltext_error')=='RESEARCH_FORMAT_UNSUPPORTED' else
+                           '已讀取公開頁面，但該頁公布的全文入口未能取得；請查看存取紀錄。')
             # 介紹頁即使可讀或有授權，也不是尚未取得的全文，不能交給正文驗收。
             row['access']['status']='unavailable';row['_reading_text']='';row['eligible']=False
             future=[a['retry_at'] for a in attempts if a.get('retry_at') and a['retry_at']>time.time()]

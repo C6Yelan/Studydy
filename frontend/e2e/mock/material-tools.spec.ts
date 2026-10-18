@@ -274,7 +274,7 @@ test('research detail rejects a foreign material and late reads cannot replace a
 
 test('supplement requires editable scope confirmation before creating research',async({page})=>{
  await mockKnowledgeMapApi(page,structureView());let searches=0,plans=0;
- const proposal={title:'停止與求助',level:'有基礎',goals:['了解何時求助'],topics:['信心：如何判斷不確定性','停止：何時結束重試'],exclude:[]};
+ const proposal={title:'停止與求助',goals:['了解何時求助'],topics:['信心：如何判斷不確定性','停止：何時結束重試']};
  let scope:any={topic_id:tid,material_id:materialId,request:'代理何時停止並詢問人類？',proposal,version:2,status:'ready',research_id:null,error_code:null};
  const work={research_id:cid,material_id:materialId,query:scope.request,mode:'review',status:'searching',selection:[],candidates:[],cursor:null,error_code:null,run_id:null,created_at:'2026-10-06T00:00:00Z'};
  await page.route(`**/v1/materials/${materialId}/research`,r=>{expect(r.request().method()).toBe('GET');return json(r,{researches:searches?[researchSummary(work)]:[]});});

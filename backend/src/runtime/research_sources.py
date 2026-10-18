@@ -94,7 +94,6 @@ def public_page(url,*,limit=5*1024*1024):
             while len(_PUBLIC_CACHE)>16:_PUBLIC_CACHE.popitem(last=False)
     return result
 
-_python_index=None
 _semantic_lock=Lock()
 _semantic_next=0
 
@@ -182,47 +181,6 @@ def main_text(html):
     text=''.join(parser.parts).strip()
     if not text:raise SourceError('RESEARCH_FORMAT_UNSUPPORTED')
     return text
-
-
-def official_search(query):
-    global _python_index
-    if _python_index is None or time.monotonic()-_python_index[0]>86400:
-        data,_,_=fetch('https://docs.python.org/3/searchindex.js',limit=12*1024*1024)
-        _python_index=(time.monotonic(),json.loads(data.decode().removeprefix('Search.setIndex(').removesuffix(')')))
-    index=_python_index[1]
-    words=set(re.findall(r'[a-z][a-z0-9]+',query.lower()))-{'the','and','for','with','about','of','to','a','in'}
-    scores={}
-    for word in words:
-        for field,weight in [('titleterms',8),('terms',1)]:
-            ids=index.get(field,{}).get(word,[])
-            if isinstance(ids,int):ids=[ids]
-            for identity in ids:scores[identity]=scores.get(identity,0)+weight
-    results=[]
-    for i in sorted(scores,key=lambda x:(-scores[x],x))[:15]:
-        path=index['docnames'][i]
-        if not path.startswith(('tutorial/','library/','howto/')):continue
-        title=unescape(re.sub(r'<[^>]+>', '', index['titles'][i]))
-        url='https://docs.python.org/3/'+path+'.html'
-        results.append({'id':url,'kind':'official','title':title,'authors':'Python Software Foundation',
-            'year':None,'doi':None,'url':url,'download_url':url,'license':'PSF-2.0','license_url':'https://docs.python.org/3/license.html',
-            'version':'Python 3 documentation; exact bytes recorded on acquisition',
-            'eligible':True,'reason':'官方文件，保留 PSF 授權與版權聲明','state':'candidate'})
-    return results
-
-
-def mdn_search(query):
-    data,_,_=fetch('https://developer.mozilla.org/api/v1/search?'+urlencode({'q':query,'locale':'en-US'}),limit=2000000)
-    rows=[]
-    for item in json.loads(data).get('documents',[]):
-        path=item.get('mdn_url','')
-        if not path.startswith('/en-US/docs/'):continue
-        url='https://developer.mozilla.org'+path
-        rows.append({'id':url,'kind':'official','title':item['title'],'authors':'Mozilla Contributors',
-            'year':None,'doi':None,'url':url,'download_url':url,'license':'CC-BY-SA-2.5-or-later',
-            'license_url':'https://developer.mozilla.org/en-US/docs/MDN/Writing_guidelines/Attrib_copyright_license',
-            'version':'MDN Web Docs; exact bytes recorded on acquisition','eligible':True,
-            'reason':'保留作者與來源；衍生文字適用相同授權','state':'candidate'})
-    return rows
 
 
 def _doi(value):
@@ -354,7 +312,7 @@ def merge_candidates(existing,incoming):
 
 
 def search(query,cursor=None,*,channel='papers'):
-    if channel not in ('web','papers'):raise SourceError('REQUEST_INVALID')
+    if channel not in ('wikipedia','papers'):raise SourceError('REQUEST_INVALID')
     if cursor:
         try:state=json.loads(cursor)
         except (ValueError,TypeError):raise SourceError('REQUEST_INVALID') from None
@@ -365,22 +323,15 @@ def search(query,cursor=None,*,channel='papers'):
     queries=list(dict.fromkeys(line.strip() for line in query.splitlines() if line.strip()))[:3]
     primary=queries[0] if queries else query
     web_enabled=bool(os.environ.get('STUDYDY_SEARXNG_URL','').strip())
-    if not cursor and web_enabled and channel=='web':state['web']=1
+    if not cursor and web_enabled and channel=='wikipedia':state['web']=1
     providers={'openalex':openalex_search,'semantic_scholar':semantic_scholar_search}
     rows=[];warnings=[];next_state={};successes=0;failures=[]
     with ThreadPoolExecutor(max_workers=4) as pool:
         jobs={name:pool.submit(providers[name],primary,position) for name,position in state.items() if name in providers}
-        # 專門文件庫只用於明確指定其技術的查詢，不能每個主題都搜尋 Python／瀏覽器文件。
-        official_jobs={}
-        terms=set(re.findall(r'[a-z]+',primary.casefold()))
-        if not cursor and channel!='papers':
-            if 'python' in terms:official_jobs['Python']=pool.submit(official_search,primary)
-            if terms & {'javascript','typescript','html','css','mdn','dom'}:
-                official_jobs['MDN']=pool.submit(mdn_search,primary)
         web_job=None
         if web_enabled and 'web' in state:
-            from .research_web import search_web
-            web_job=pool.submit(search_web,queries,state['web'])
+            from .research_web import search_wikipedia
+            web_job=pool.submit(search_wikipedia,queries,state['web'])
         for name,job in jobs.items():
             try:
                 found,next_cursor=job.result();rows.extend(found);successes+=1
@@ -389,9 +340,6 @@ def search(query,cursor=None,*,channel='papers'):
                 warnings.append(name);next_state[name]=state[name]
                 failures.append({'provider':name,'error_code':str(error) if isinstance(error,SourceError) else 'RESEARCH_SEARCH_FAILED',
                                  'retry_at':getattr(error,'retry_at',None)})
-        for name,job in official_jobs.items():
-            try:rows.extend(job.result());successes+=1
-            except Exception:warnings.append(name)
         if web_job:
             try:
                 found,next_page,partial=web_job.result();rows.extend(found);successes+=1
@@ -567,7 +515,9 @@ def _acquire_location(candidate, *, attempts=None):
             for page in doc:
                 blocks=page.get_text('blocks')
                 if not first_text:
-                    title_blocks=[normalize(block[4]) for block in blocks if block[6]==0]
+                    # 題名可能與期刊／系列名稱共用一個區塊；仍逐行核對完整題名，不做模糊比對。
+                    title_blocks=[normalize(line) for block in blocks if block[6]==0
+                                  for line in block[4].splitlines() if line.strip()]
                     first_text=' '.join(block[4] for block in blocks if block[6]==0).strip()
                     # 排版可能把完整題名切成相鄰區塊；仍須逐字匹配，不以共有術語或相似比例認定身分。
                     for start in range(len(title_blocks)):

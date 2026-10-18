@@ -11,7 +11,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
   onMaterialUpdated: () => void; contentNavigation?: ReactNode;
 }) {
   const [query, setQuery] = useState(draft?.query ?? ''), [list, setList] = useState<ResearchSummary[] | null>(null);
-  const [scopes,setScopes]=useState<Topic[]>([]);
+  const [scopes,setScopes]=useState<Topic[]>([]), [removingScope,setRemovingScope]=useState<string|null>(null);
   const [busy, setBusy] = useState(false), [searchError, setSearchError] = useState(''), [listError, setListError] = useState('');
   const tasks = useRef(draft?.tasks ?? {}), deleted = useRef(new Set<string>()), notified = useRef(new Set<string>());
   const alive = useRef(false), creating = useRef(false), listRead = useRef(0), heading = useRef<HTMLDivElement>(null);
@@ -55,6 +55,19 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
     } catch (error) { if (alive.current) setSearchError(errorMessage(error)); }
     finally { creating.current = false; if (alive.current) setBusy(false); }
   };
+  const removeScope = async (scope: Topic) => {
+    if (!window.confirm('刪除這份搜尋範圍？這不會刪除教材或其他查詢。')) return;
+    setRemovingScope(scope.topic_id); setListError('');
+    try {
+      await api.studyTools(`/v1/topics/${scope.topic_id}/actions`, {action:'cancel',expected_version:scope.version});
+      if (alive.current) {
+        ++listRead.current;
+        setScopes(previous => previous.filter(item => item.topic_id !== scope.topic_id));
+        heading.current?.focus();
+      }
+    } catch (error) { if (alive.current) setListError(errorMessage(error)); }
+    finally { if (alive.current) setRemovingScope(null); }
+  };
   const stopped = list?.filter(item => item.status === 'cancelled') ?? [];
   const renderRecord = (item: ResearchSummary) => {
         const info = researchTaskInfo(item), route = {name:'research' as const,materialId,researchId:item.research_id};
@@ -82,11 +95,11 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
       <section className="surface research-compose" aria-labelledby="research-prompt"><h2 id="research-prompt">想補充什麼內容？</h2>
         <form onSubmit={event => { event.preventDefault(); void search(); }}><input type="search" aria-label="想多了解什麼？" placeholder="輸入想補充的內容…" maxLength={1000} value={query} onChange={event => setQuery(event.target.value)}/>
           <button className="primary-button" type="submit" disabled={busy || !query.trim()}>{busy ? '正在建立規劃…' : '產生搜尋範圍'}<Icon name="chevron-right" size={16}/></button></form>
-        <p>先確認要查找的觀念與細節，再開始搜尋。</p>
+        <p>先確認要查找的觀念與細節，再搜尋論文與 Wikipedia。</p>
         {searchError && <p className="form-error" role="alert">{searchError}</p>}
       </section>
       {listError && <p className="form-error" role="alert">{listError}<button className="text-button" type="button" onClick={() => void refresh().catch(error => setListError(errorMessage(error)))}>重新讀取查詢</button></p>}
-      {scopes.map(scope=><article className="surface research-record" key={scope.topic_id}><h2>{scope.request}</h2><p>{scope.status==='pending'?'正在整理觀念與細節，尚未搜尋。':scope.status==='failed'?'需求規劃未完成，可重試。':'待確認搜尋範圍，尚未搜尋。'}</p><button className="primary-button" onClick={()=>writeRoute({name:'topic',topicId:scope.topic_id})}>查看搜尋範圍</button></article>)}
+      {scopes.map(scope=><article className="surface research-record" key={scope.topic_id}><h2>{scope.request}</h2><p>{scope.status==='pending'?'正在整理觀念與細節，尚未搜尋。':scope.status==='failed'?'需求規劃未完成，可重試。':'待確認搜尋範圍，尚未搜尋。'}</p><div className="tool-footer-secondary"><button className="primary-button" disabled={removingScope!==null} onClick={()=>writeRoute({name:'topic',topicId:scope.topic_id})}>查看搜尋範圍</button><button className="text-button" disabled={removingScope!==null} onClick={()=>void removeScope(scope)}>{removingScope===scope.topic_id?'正在刪除…':'刪除搜尋範圍'}</button></div></article>)}
       {list?.length === 0 && scopes.length===0 && <p className="research-empty">還沒有補充查詢。建立查詢後，可從卡片開啟來源與處理進度。</p>}
       <div className="library-grid research-records" role="region" tabIndex={0} aria-label="補充搜尋紀錄">{list?.filter(item => item.status !== 'cancelled').map(renderRecord)}</div>
       {!!stopped.length && <details className="research-stopped">

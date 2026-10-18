@@ -225,7 +225,7 @@ def test_pipeline_restores_old_checkpoint_without_extracting_completed_pdf(tmp_p
 def test_confirmed_learning_scope_is_bound_only_to_sources_in_the_block():
     ctx=context(2)
     ctx['source_pages']=[{'page':1,'source_id':'selected-source','normalized_page':1}]
-    scope={'title':'HTTP cache','level':'beginner','goals':['Explain caching'],'topics':['max-age and ETag'],'exclude':['CDN']}
+    scope={'title':'HTTP cache','goals':['Explain caching without CDN configuration'],'topics':['max-age and ETag']}
     ctx['learning_scopes']={'selected-source':scope,'other-source':{'topics':['Unrelated']}}
     request=block_request(ctx,{'evidence':ctx['evidence'],'sections':ctx['sections']})
     assert request['learning_scopes']=={'selected-source':scope}
@@ -238,6 +238,6 @@ def test_new_learning_scope_cannot_reuse_an_old_semantic_checkpoint_and_legacy_d
     old=SimpleNamespace(source_artifact_id='a',input_source_set_id='b',base_revision='old',runtime_binding={},learning_scopes={})
     expected=canonical_sha256({'source_artifact_id':'a','source_set_id':'b','base_revision':'old','runtime_binding':{}})
     assert _checkpoint_input_digest(old)==expected
-    changed=SimpleNamespace(**{**old.__dict__,'learning_scopes':{'source':{'exclude':['CDN']}}})
+    changed=SimpleNamespace(**{**old.__dict__,'learning_scopes':{'source':{'goals':['Do not cover CDN configuration']}}})
     assert _checkpoint_input_digest(changed)!=expected
     assert not _same_analysis_inputs(old,changed)

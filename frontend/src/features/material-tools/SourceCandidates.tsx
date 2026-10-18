@@ -6,11 +6,13 @@ export type Candidate = {
   discovered_by?: string[]; version: string; eligible: boolean; reason: string; state: string; error_code?: string;
   duplicate_of?: string;
   screening?: { decision: string; reason: string; basis: string };
+  source_type_review?: { type: string };
   acquisition?: { license_text?: string; acquired_at: string };
   review?: { phase: string; relevance: string; reason: string; topics: number[]; scope?: string };
-  access?: { status: string; method?: string; attempts: { url: string; outcome: string; error_code?: string; http_status?: number | null; method?: string }[] };
+  access?: { status: string; method?: string; fulltext_unavailable?: boolean; attempts: { url: string; outcome: string; error_code?: string; http_status?: number | null; method?: string }[] };
 };
 export const sourceReasons: Record<string, string> = {
+  RESEARCH_SOURCE_TYPE_UNCONFIRMED: '尚未核對為論文或 Wikipedia，請接續研究。',
   RESEARCH_SCOPE_REQUIRED: '請先確認要查找的觀念與細節，再開始搜尋。已保存的來源仍可查看。',
   RESEARCH_SNAPSHOT_UNAVAILABLE: '無法讀取這次研究保留的原文，請重新研究。',
   RESEARCH_PARTIAL_SEARCH: '已保留搜尋結果；部分主題仍缺少正文依據，或有來源未完成。請查看涵蓋情況與各來源說明。',
@@ -36,6 +38,16 @@ const states: Record<string, string> = { normalizing: '轉換中', ready: '已�
 
 const PAGE_SIZE = 10;
 
+function unavailableStatus(candidate: Candidate) {
+  if (candidate.access?.fulltext_unavailable || candidate.access?.status === 'unavailable') return '未取得全文';
+  if (candidate.source_type_review?.type === 'other') return '不符合來源範圍';
+  if (candidate.source_type_review?.type === 'uncertain') return '來源類型未確認';
+  if (candidate.screening?.basis === 'importability') return '匯入條件未確認';
+  if (candidate.screening?.decision === 'exclude') return '未採用';
+  if (candidate.review?.phase !== 'body') return '尚未核對正文';
+  return '目前無法加入';
+}
+
 export function SourceCandidates({ candidates, selected, disabled, onChange, readOnly = false, search, inlineSearch = false, showAcquisitionDetails = true, compact = false }: {
   candidates: Candidate[]; selected: string[]; disabled: boolean; compact?: boolean;
   onChange: (ids: string[]) => void; readOnly?: boolean; inlineSearch?: boolean; showAcquisitionDetails?: boolean; search?: { value: string; onChange: (value: string) => void };
@@ -52,7 +64,8 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
   const allSelected = eligible.length > 0 && eligible.every(candidate => selected.includes(candidate.id));
   const partiallySelected = !allSelected && eligible.some(candidate => selected.includes(candidate.id));
   useEffect(() => { if (selectAll.current) selectAll.current.indeterminate = partiallySelected; }, [partiallySelected, readOnly]);
-  const available = readOnly ? candidates : candidates.filter(c => !c.duplicate_of && (c.review ? c.review.phase === 'body' && c.review.relevance !== 'unrelated' || c.screening?.decision === 'reference' : c.eligible));
+  const available = readOnly ? candidates : candidates.filter(c => !c.duplicate_of && c.eligible);
+  const otherResults = candidates.filter(c => !c.duplicate_of && !c.eligible);
   const visible = available.filter(c =>
     (kind === 'all' || c.kind === kind) && (readOnly || !onlySelected || selected.includes(c.id)) &&
     `${c.title} ${c.authors}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
@@ -69,7 +82,7 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
       <div className={`source-picker-filters${search && !inlineSearch ? " is-external-search" : ""}`}>
         {(!search || inlineSearch) && <input type="search" aria-label={inlineSearch ? "篩選來源" : "搜尋來源"} placeholder={inlineSearch ? "篩選目前結果的來源名稱或作者…" : "搜尋來源名稱或作者…"} value={query} onChange={e => setQuery(e.target.value)} />}
         <select aria-label="來源類型" value={kind} onChange={e => setKind(e.target.value)}>
-          <option value="all">全部來源</option><option value="official">官方教學</option><option value="paper">學術論文</option><option value="web">網頁文章</option>
+          <option value="all">全部來源</option><option value="paper">學術論文</option><option value="wikipedia">Wikipedia</option>
         </select>
         {compact && !readOnly && <>
           <label className="source-toolbar-check"><input type="checkbox" checked={onlySelected} onChange={event => setOnlySelected(event.target.checked)}/>只看已選</label>
@@ -84,11 +97,11 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
     </>}
     <div ref={list} className="research-candidates" tabIndex={0} aria-label={readOnly ? '已選來源' : '來源搜尋結果'}>
       {pageItems.map(c => {
-        const metadata = [c.kind === 'official' ? '官方教學' : c.kind === 'web' ? '網頁文章' : '學術論文', c.authors, c.year].filter(Boolean).join(' · ');
+        const metadata = [c.kind === 'wikipedia' ? 'Wikipedia' : c.kind === 'official' ? '官方教學' : c.kind === 'web' ? '網頁文章' : '學術論文', c.authors, c.year].filter(Boolean).join(' · ');
         return <article key={c.id} className={selected.includes(c.id) ? 'is-selected' : undefined}>
         <div className="source-candidate-heading">
           <label>{!readOnly && <input type="checkbox" aria-label={`選取 ${c.title}`} disabled={!c.eligible || disabled} checked={selected.includes(c.id)} onChange={e => onChange(e.target.checked ? [...selected, c.id] : selected.filter(x => x !== c.id))} />}<strong>{c.title}</strong></label>
-          {(!compact || !c.eligible || c.error_code || c.state === 'failed' || readOnly && c.state === 'normalizing') && <span className={`source-state${c.error_code ? ' is-failed' : ''}`}>{!c.eligible ? '僅供查看' : c.error_code ? '取得失敗' : states[c.state] ?? '可加入'}</span>}
+          {(!compact || !c.eligible || c.error_code || c.state === 'failed' || readOnly && c.state === 'normalizing') && <span className={`source-state${c.error_code ? ' is-failed' : ''}`}>{!c.eligible ? unavailableStatus(c) : c.error_code ? '取得失敗' : states[c.state] ?? '可加入'}</span>}
         </div>
         <p className="source-byline" title={metadata}>{metadata}</p>
         {c.review?.phase === 'body' && <p className="source-purpose">{c.review.reason.split(/(?<=[。！？])/).slice(0, 2).join('')}</p>}
@@ -108,7 +121,7 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
           </div></details>}
         </div>
       </article>; })}
-      {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前沒有可直接匯入的來源，可查看參考連結或依缺口繼續研究。</p>}
+      {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前尚無已核對可加入的來源，可查看其他搜尋結果的原因或接續研究。</p>}
       {!visible.length && available.length > 0 && <p className="source-picker-empty">{onlySelected ? '目前沒有符合篩選的已選來源。' : '沒有符合篩選的來源。'}<button className="text-button" onClick={() => { setQuery(''); setKind('all'); setOnlySelected(false); }}>清除篩選</button></p>}
     </div>
     {visible.length > 0 && <nav className="source-pagination" aria-label="來源分頁">
@@ -122,5 +135,13 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
         <button type="button" className="text-button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>下一頁</button>
       </div>
     </nav>}
+    {!readOnly && otherResults.length > 0 && <details className="source-review source-other-results">
+      <summary>其他搜尋結果 · {otherResults.length} 份</summary>
+      <p>這些項目尚未完成核對，或目前無法加入教材；不代表都與需求無關。上方只列本輪已核對可選的來源。</p>
+      <ul>{otherResults.map(c => <li key={c.id}>
+        <strong>{c.title}</strong><p>{unavailableStatus(c)} · {c.screening?.basis === 'importability' || c.access?.fulltext_unavailable || c.source_type_review ? c.reason : c.screening?.reason ?? '本輪尚未閱讀這份來源，未判定其內容是否可用。'}</p>
+        <a href={/^https?:\/\//.test(c.url) ? c.url : undefined} target="_blank" rel="noreferrer">原始來源 ↗</a>
+      </li>)}</ul>
+    </details>}
   </div>;
 }

@@ -7,7 +7,7 @@ from .. import research
 
 class Action(BaseModel):
     model_config=ConfigDict(extra='forbid')
-    action:Literal['more','acquire','cancel','retry','finish']
+    action:Literal['more','acquire','cancel','retry']
     selected:list[str]|None=None
     guidance:str|None=Field(default=None,max_length=1000)
 class Confirm(BaseModel):

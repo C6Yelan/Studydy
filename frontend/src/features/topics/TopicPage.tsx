@@ -13,17 +13,11 @@ import type {Research} from '../material-tools/research';
 import '../material-tools/styles.css';
 import './styles.css';
 
-type Scope={title:string;level:string;goals:string[];topics:string[];exclude:string[]};
+type Scope={title:string;goals:string[];topics:string[]};
 type Work=Research&{material_id:string|null;run?:{status:string;error_code:string|null;output_binding?:{knowledge_structure_revision:string}|null}};
 export type Topic={topic_id:string;material_id:string|null;request:string;proposal:Scope|null;version:number;status:string;research_id:string|null;research?:Work;error_code:string|null};
 const active=new Set(['searching','acquiring','normalizing','ready']);
 const stages:Record<string,string>={searching:'正在搜尋來源',selecting:'選擇想加入的來源',acquiring:'正在取得選取來源',normalizing:'正在轉換文件',ready:'正在建立教材分析',submitted:'已送入教材分析',failed:'處理未完成',cancelled:'已停止'};
-
-const learningLevels=[
- {value:'入門',description:'第一次接觸：基本概念、先備知識與入門教學。'},
- {value:'有基礎',description:'已有基本認識：原理、實作教學與應用案例。'},
- {value:'深入',description:'研究細節：技術規格、限制、取捨與研究論文。'},
-];
 
 function ScopeFields({draft,onChange,busy}:{draft:Scope;onChange:(scope:Scope)=>void;busy:boolean}){
  const [editingTitle,setEditingTitle]=useState(false),[editingGoals,setEditingGoals]=useState(false),[editingTopic,setEditingTopic]=useState<number|null>(null);
@@ -33,8 +27,6 @@ function ScopeFields({draft,onChange,busy}:{draft:Scope;onChange:(scope:Scope)=>
   if(field==='title'){setEditingTitle(false);titleButton.current?.focus();}
   if(field==='goals'){setEditingGoals(false);goalsButton.current?.focus();}
  };
- const originalLevel=useRef(draft.level);
- const customLevel=learningLevels.some(level=>level.value===originalLevel.current)?null:originalLevel.current;
  const hasGoals=draft.goals.some(x=>x.trim()),hasTopics=draft.topics.some(x=>x.trim());
  return <>
  <div className="topic-scope-name">
@@ -42,16 +34,9 @@ function ScopeFields({draft,onChange,busy}:{draft:Scope;onChange:(scope:Scope)=>
   {editingTitle&&<div className="topic-inline-editor"><label className="tool-field">教材名稱<input autoFocus aria-label="教材名稱" disabled={busy} value={draft.title} maxLength={180} aria-invalid={!draft.title.trim()} aria-describedby={!draft.title.trim()?'scope-title-error':undefined} onChange={e=>onChange({...draft,title:e.target.value})} onKeyDown={e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing&&draft.title.trim()){e.preventDefault();finish('title');}}}/></label><button className="secondary-button" disabled={busy||!draft.title.trim()} onClick={()=>finish('title')}>完成名稱編輯</button></div>}
   {!draft.title.trim()&&<p id="scope-title-error" className="form-error" role="alert">請填寫教材名稱。</p>}
  </div>
- <div className="topic-scope-level">
- <label className="tool-field">學習程度<select aria-label="學習程度" aria-describedby="scope-level-help" disabled={busy} value={draft.level} onChange={e=>onChange({...draft,level:e.target.value})}>
- {customLevel&&<option value={customLevel}>原有程度：{customLevel}</option>}
- {learningLevels.map(level=><option key={level.value} value={level.value}>{level.value}</option>)}
- </select></label>
- <p id="scope-level-help">{learningLevels.find(level=>level.value===draft.level)?.description??'保留原有程度描述作為搜尋依據，也可改選上方程度。'}<small>影響搜尋資料的深度，不影響正確性標準。</small></p>
- </div>
  <div className="topic-scope-grid">
  <section aria-labelledby="scope-topics-heading"><div className="topic-scope-row"><h3 id="scope-topics-heading">觀念與重點／細節</h3><span className="topic-scope-count">{draft.topics.filter(x=>x.trim()).length} 項</span></div>
- <p>每項寫清楚要理解的觀念與具體問題；確認後會逐項尋找論文並核對正文。</p><ul className="topic-scope-items">{draft.topics.map((topic,index)=><li key={index}>
+ <p>每項寫清楚想理解的觀念、具體問題與限制；確認後依這些內容查找來源。</p><ul className="topic-scope-items">{draft.topics.map((topic,index)=><li key={index}>
  {editingTopic===index?<textarea rows={3} autoFocus aria-label={`主題 ${index+1}`} value={topic} disabled={busy} onChange={e=>onChange({...draft,topics:draft.topics.map((value,i)=>i===index?e.target.value:value)})} onKeyDown={e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing){e.preventDefault();setEditingTopic(null);topicButtons.current[index]?.focus();}}}/>:<span>{topic.trim()?topic:'空白主題（確認時略過）'}</span>}
  <button ref={node=>{topicButtons.current[index]=node;}} className="text-button" disabled={busy} aria-label={`${editingTopic===index?'完成':'編輯'}主題 ${index+1}`} onClick={()=>{setEditingTopic(editingTopic===index?null:index);}}>{editingTopic===index?'完成':'編輯'}</button>
  <button className="text-button" disabled={busy} aria-label={`移除主題 ${index+1}`} onClick={()=>{onChange({...draft,topics:draft.topics.filter((_,i)=>i!==index)});setEditingTopic(null);addButton.current?.focus();}}>移除</button>
@@ -64,7 +49,6 @@ function ScopeFields({draft,onChange,busy}:{draft:Scope;onChange:(scope:Scope)=>
  {!hasGoals&&<p id="scope-goals-error" className="form-error" role="alert">請至少保留一個學習目標。</p>}
  </section>
  </div>
- <details className="topic-exclude"><summary>進階設定<span>本次不涵蓋{draft.exclude.some(x=>x.trim())?` · ${draft.exclude.filter(x=>x.trim()).length} 項`:'（選填）'}</span></summary><label className="tool-field">本次不涵蓋<textarea aria-label="本次不涵蓋" rows={3} disabled={busy} value={draft.exclude.join('\n')} onChange={e=>onChange({...draft,exclude:e.target.value.split('\n')})}/><small>每行一項；可以留白。</small></label></details>
  </>;
 }
 
@@ -91,6 +75,14 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const work=view?.research,working=!!work&&active.has(work.status);
  useEffect(()=>{if(view?.material_id&&view.status==='approved'&&view.research_id)writeRoute({name:'research',materialId:view.material_id,researchId:view.research_id});},[view?.material_id,view?.status,view?.research_id]);
  const back=()=>writeRoute(view?.material_id?{name:'material-content',materialId:view.material_id,kind:'research'}:{name:'materials'});
+
+ const removeScope=()=>{
+  if(!view||!window.confirm('刪除這份搜尋範圍？這不會刪除教材或其他查詢。'))return;
+  void perform(async()=>{
+   await api.studyTools(`/v1/topics/${view.topic_id}/actions`,{action:'cancel',expected_version:view.version});
+   if(alive.current)back();
+  });
+ };
 
  const [loadedRun,setLoadedRun]=useState<MaterialProcessingRunView|null>(null),[runError,setRunError]=useState(''),[runReload,setRunReload]=useState(0),[now,setNow]=useState(Date.now);
  const materialRun=loadedRun?.run_id===work?.run_id&&loadedRun?.material_id===work?.material_id?loadedRun:null;
@@ -137,14 +129,14 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  {!inputStage&&draft&&view.status==='ready'&&<section className="surface topic-section topic-scope"><header className="tool-stage-heading"><div><h2>確認學習範圍</h2><p>請確認每項觀念與細節是否符合需求；確認前不會搜尋外部來源。</p></div><button className="text-button" disabled={busy} onClick={()=>setEditingRequest(true)}>修改學習需求</button></header>
  <ScopeFields draft={draft} onChange={setDraft} busy={busy}/>
  {errorNotice}
- <footer className="tool-stage-footer"><span>確認後依需求查找適合的來源，再閱讀正文核對內容。</span><button className="primary-button" disabled={busy||!draft.title.trim()||!draft.level.trim()||!draft.topics.some(x=>x.trim())||!draft.goals.some(x=>x.trim())} onClick={()=>{const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim()),exclude:draft.exclude.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const body=JSON.stringify(clean);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,{expected_version:view.version,proposal:clean},approveIntent.current.key);approveIntent.current=null;if(alive.current)writeRoute(view.material_id&&approved.research_id?{name:'research',materialId:view.material_id,researchId:approved.research_id}:{name:'materials'});});}}>確認範圍並搜尋<Icon name="chevron-right" size={16}/></button></footer></section>}
+ <footer className="tool-stage-footer"><div className="tool-footer-secondary"><button className="text-button" disabled={busy} onClick={removeScope}>刪除搜尋範圍</button><span>確認後依需求查找適合的來源，再閱讀正文核對內容。</span></div><button className="primary-button" disabled={busy||!draft.title.trim()||!draft.topics.some(x=>x.trim())||!draft.goals.some(x=>x.trim())} onClick={()=>{const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const body=JSON.stringify(clean);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,{expected_version:view.version,proposal:clean},approveIntent.current.key);approveIntent.current=null;if(alive.current)writeRoute(view.material_id&&approved.research_id?{name:'research',materialId:view.material_id,researchId:approved.research_id}:{name:'materials'});});}}>確認範圍並搜尋<Icon name="chevron-right" size={16}/></button></footer></section>}
  {!inputStage&&view?.status==='approved'&&<>
 
  {work&&<section className={`surface topic-section topic-sources${!hasMaterial?' is-selecting':''}`}>
  {hasMaterial?<header className="tool-stage-heading"><div><h2>{work.run_id?(completed?'教材與知識地圖已建立':cancelled?'已取消教材處理':failed?'教材處理失敗':cancelling?'正在取消教材處理':materialRun?.status==='pending'?'等待開始處理':materialRun?'正在分析教材':'正在讀取處理狀態'):work.deleted?'查詢已刪除':'正在建立教材'}</h2><p>{completed?(materialRun?.status==='partial'?'知識地圖已建立，可先查看已整理的內容；部分內容未完整整理。':`使用你選擇的 ${work.selection.length} 份來源，已完成這份教材。`):cancelling?'已收到取消要求，會在目前進行中的步驟完成後安全停止。':cancelled?'這次分析已停止。':failed?materialFailureMessage(materialRun.error_code??'MATERIAL_ANALYSIS_FAILED'):'取得的來源會保留，可離開頁面，稍後回來查看進度。'}</p></div>
  </header>:<header className="tool-stage-heading"><div><h2>選擇教材來源</h2><p>研究完成後，勾選適合的論文、教學或網頁來源，再建立知識地圖。</p></div><span className="tool-status">{stages[work.status]}</span></header>}
 
- <div className="topic-approved-summary"><div><strong>{view.proposal?.title}</strong><span>{view.proposal?.level}</span></div><details><summary>已確認的學習範圍</summary><dl><dt>涵蓋主題</dt><dd>{view.proposal?.topics.join('；')}</dd><dt>學習目標</dt><dd>{view.proposal?.goals.join('；')}</dd><dt>不涵蓋</dt><dd>{view.proposal?.exclude.join('；')||'未另外指定'}</dd></dl></details><button className="text-button" disabled={busy} onClick={()=>setEditingRequest(true)}>重新規劃</button></div>
+ <div className="topic-approved-summary"><div><strong>{view.proposal?.title}</strong></div><details><summary>已確認的學習範圍</summary><dl><dt>涵蓋主題</dt><dd>{view.proposal?.topics.join('；')}</dd><dt>學習目標</dt><dd>{view.proposal?.goals.join('；')}</dd></dl></details><button className="text-button" disabled={busy} onClick={()=>setEditingRequest(true)}>重新規劃</button></div>
  {work.deleted&&<p className="tool-notice">查詢紀錄已刪除，已建立的教材與來源仍可查看。</p>}
  {work.error_code&&<p className="tool-notice">{sourceReasons[work.error_code]??'目前無法完成，已取得資料會保留。'}</p>}
  {work.status==='searching'&&<div className="tool-wait" role="status"><span className="loading-ring"/><p>正在搜尋論文與官方教學。</p></div>}

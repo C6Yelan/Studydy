@@ -241,19 +241,19 @@ def test_cross_provider_more_deduplicates_without_replacing_candidate_or_exposin
     assert research.read(owner,work['research_id'],dsn=dsn)['selection']==[first['id']]
 
 
-def test_web_source_uses_existing_normalization_and_records_acquisition(revisions,monkeypatch):
+def test_wikipedia_source_uses_existing_normalization_and_records_acquisition(revisions,monkeypatch):
     from runtime import research_web
     from test_research_web import BODY
     learner,material,settings,dsn,*_=revisions
     owner=learner.learner_id
     monkeypatch.setattr(research.research_sources,'public_page',lambda url,**kwargs:(BODY.encode(),url,'text/html'))
-    doc=research_web._web_document('https://example.org/lesson')
-    item={**candidate('web-source'),'kind':'web','title':doc['title'],'authors':doc['authors'],
+    doc=research_web._web_document('https://en.wikipedia.org/wiki/Queue')
+    item={**candidate('web-source'),'kind':'wikipedia','title':doc['title'],'authors':doc['authors'],
           'url':doc['url'],'download_url':doc['url'],'license':doc['license'],'license_url':doc['license_url'],
           'page_identity':doc['page_identity'],'version':'取得時的網頁版本'}
     monkeypatch.setattr(research,'provider',review_provider)
     monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([item],None,[]))
-    identity=create_confirmed_research(owner,material,'網頁補充','web-research',dsn=dsn)['research_id']
+    identity=create_confirmed_research(owner,material,'Wikipedia 補充','web-research',dsn=dsn)['research_id']
     search_to_selection(owner,identity,dsn)
     research.action(owner,identity,'acquire',['web-source'],dsn=dsn)
     assert research.step(dsn=dsn)
@@ -354,27 +354,6 @@ def test_summary_migration_preserves_cancelled_work_and_lossless_source_text(clo
         assert row.candidates[0]['review']==finished['review']
         assert row.candidates[1]['_reading_text']=='literal\x00source' and row.candidates[1]['_read_offset']==3
         assert [c.get('screening',{}).get('decision') for c in row.candidates]==['read','read',None]
-
-
-def test_finish_keeps_verified_sources_and_rejects_late_worker(closed_loop,monkeypatch):
-    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
-    mock_search(monkeypatch)
-    identity=create_confirmed_research(owner,source.material_id,'queue','finish-sources',dsn=dsn)['research_id']
-    with pytest.raises(SourceError,match='SOURCE_NOT_READY'):
-        research.action(owner,identity,'finish',dsn=dsn)
-    search_to_selection(owner,identity,dsn)
-    research.action(owner,identity,'more',dsn=dsn)
-    stale=research.claim(dsn=dsn)
-    with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):
-        research.action(uuid4(),identity,'finish',dsn=dsn)
-    result=research.action(owner,identity,'finish',dsn=dsn)
-    assert result['status']=='selecting' and result['progress']['finish_reason']=='user_stopped'
-    assert result['candidates'][0]['eligible']
-    assert not research.save(stale,lambda row:setattr(row,'status','searching'),dsn=dsn)
-    research.action(owner,identity,'cancel',dsn=dsn)
-    restored=research.action(owner,identity,'finish',dsn=dsn)
-    assert restored['status']=='selecting'
-    assert research.action(owner,identity,'acquire',['paper1'],dsn=dsn)['status']=='acquiring'
 
 
 def test_research_snapshot_survives_restart_and_upstream_changes(closed_loop,monkeypatch):
@@ -484,6 +463,7 @@ def test_partial_acquisition_submits_only_ready_sources_and_keeps_failures(revis
         row=db.get(MaterialResearch,identity)
         candidates=[*row.candidates,{**candidate('failed'),'state':'failed','error_code':'RESEARCH_DOWNLOAD_FAILED',
             'inspection_sha256':sha256(new_data).hexdigest(),
+            'source_type_review':{'type':'paper','reason':'Controlled reviewed-paper fixture','document_key':sha256(new_data).hexdigest()},
             '_acquired_document':(new_data,{'id':'failed','license':'cc-by'}),
             'review':{'phase':'body','relevance':'direct','topics':[0],'reason':'Useful new operation','quotes':[{'topic':0,'quote':new_text}]}}]
         research.research_documents.persist(db,identity,candidates)

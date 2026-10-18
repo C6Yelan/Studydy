@@ -6,7 +6,9 @@ from research_fixtures import review_provider, requested_coverage
 
 
 def candidate(identity='one',title='Agent memory'):
-    return {'id':identity,'kind':'web','title':title,'authors':'Fixture','url':'https://example.org/'+identity,
+    # 本組以受控類型判斷聚焦閱讀／涵蓋流程；來源類型邊界另由 source_policy 案例驗證。
+    return {'id':identity,'inspection_sha256':identity,
+            'source_type_review':{'type':'paper','reason':'Controlled fixture','document_key':identity},'kind':'paper','title':title,'authors':'Fixture','url':'https://example.org/'+identity,
             'eligible':False,'state':'candidate','license':'unknown','reason':'not checked','description':'Synthetic agent memory and tool usage.'}
 
 
@@ -16,7 +18,8 @@ def state():
 
 
 def inspect(c):
-    return {**c,'eligible':True,'access':{'status':'read','method':'html','characters':len('Agent memory stores observations.')},
+    return {**c,'inspection_sha256':c.get('inspection_sha256') or c['id'],
+            'source_type_review':{'type':'paper','reason':'Controlled fixture','document_key':c.get('inspection_sha256') or c['id']},'eligible':True,'access':{'status':'read','method':'html','characters':len('Agent memory stores observations.')},
             '_reading_text':'Agent memory stores observations.'}
 
 
@@ -29,18 +32,18 @@ def drive(value,provider=review_provider):
     pytest.fail('workflow did not finish')
 
 
-def test_stages_are_resumable_and_sufficient_evidence_stops_unneeded_searches(monkeypatch):
+def test_stages_are_resumable_and_complete_all_planned_searches(monkeypatch):
     calls=[]
     def provider(path,body):
         if body['request']['task']=='plan':return {'summary':'agent','topics':['Agent memory'],
-            'searches':[{'query':'LLM agent memory','channel':'web','topics':[0],'reason':'English'},{'query':'智慧代理 記憶 原理','channel':'web','topics':[0],'reason':'Chinese'}]}
+            'searches':[{'query':'LLM agent memory','channel':'wikipedia','topics':[0],'reason':'English'},{'query':'智慧代理 記憶 原理','channel':'wikipedia','topics':[0],'reason':'Chinese'}]}
         return review_provider(path,body)
     monkeypatch.setattr(flow.research_sources,'search',lambda q,c,**kwargs:(calls.append(q) or [candidate()],None,[]))
     monkeypatch.setattr(flow,'inspect_candidate',inspect)
     saved={**state(),**flow.advance(state(),provider)}
     assert saved['search_state']['stage']=='searching' and calls==[]
     done,stages=drive(deepcopy(saved),provider)
-    assert calls==['LLM agent memory']
+    assert calls==['LLM agent memory','智慧代理 記憶 原理']
     assert set(stages)>={'searching','screening','reading','assessing','following_up','organizing'}
     assert done['search_state']['finish_reason']=='covered'
     assert done['candidates'][0]['review']['quotes'][0]['quote']=='Agent memory stores observations.'
@@ -95,7 +98,7 @@ def test_resuming_after_evidence_rule_change_rechecks_saved_quotes_without_rerea
     called=[]
     def check(path,body):
         assert body['request']['task']=='follow_up'
-        assert body['request']['coverage_topic']==0
+        assert body['request']['coverage_topics']==[0]
         assert body['request']['items'][0]['evidence']
         called.append(body)
         return review_provider(path,body)
@@ -114,7 +117,7 @@ def test_missing_topic_triggers_another_round_without_user_pagination(monkeypatc
             rounds.append(request['round']);result=review_provider(path,body)
             if request['round']==1:
                 result['coverage'][0].update(status='partial',reason='missing case')
-                result['searches']=[{'query':'agent memory worked example','channel':'web','topics':[0],'reason':'find missing case'}]
+                result['searches']=[{'query':'agent memory worked example','channel':'wikipedia','topics':[0],'reason':'find missing case'}]
             return result
         return review_provider(path,body)
     monkeypatch.setattr(flow.research_sources,'search',search);monkeypatch.setattr(flow,'inspect_candidate',inspect)
@@ -160,7 +163,7 @@ def test_repeated_query_without_more_results_finishes_with_honest_gap(monkeypatc
     monkeypatch.setattr(flow.research_sources,'search',lambda *a,**kwargs:([],None,[]))
     def provider(path,body):
         r=review_provider(path,body)
-        if body['request']['task']=='follow_up':r['searches']=[{'query':'queue tutorial','channel':'web','topics':[0],'reason':'no new direction'}]
+        if body['request']['task']=='follow_up':r['searches']=[{'query':'queue tutorial','channel':'wikipedia','topics':[0],'reason':'no new direction'}]
         return r
     done,_=drive(state(),provider)
     assert done['search_state']['finish_reason']=='gaps_remaining' and done['candidates']==[]
@@ -189,7 +192,7 @@ def test_reference_coverage_is_separate_from_import_permission(monkeypatch):
 def test_explicit_retry_after_is_saved_instead_of_busy_waiting(monkeypatch):
     monkeypatch.setattr(flow.time,'time',lambda:1000)
     value=state();value['search_state'].update(stage='searching',topics=['queue'],coverage=[],
-        searches=[{'query':'queue','channel':'web','topics':[0],'status':'pending','cursor':None,'pages':0,'seen_ids':[]}])
+        searches=[{'query':'queue','channel':'wikipedia','topics':[0],'status':'pending','cursor':None,'pages':0,'seen_ids':[]}])
     def fail(*args,**kwargs):raise flow.research_sources.SourceAccessError('RESEARCH_RATE_LIMITED',retry_at=1600)
     monkeypatch.setattr(flow.research_sources,'search',fail)
     for _ in range(6):value.update(flow.advance(value,review_provider))
@@ -223,7 +226,6 @@ def test_resuming_previously_completed_research_reads_remaining_candidates(monke
 
 
 def test_review_batches_do_not_drop_previously_verified_sources(monkeypatch):
-    monkeypatch.setattr(flow,'READ_CHECK_BATCH',5)
     monkeypatch.setattr(flow,'SCREEN_BATCH',2)
     monkeypatch.setattr(flow.research_sources,'search',lambda *a,**kwargs:([candidate(str(i)) for i in range(5)],None,[]))
     monkeypatch.setattr(flow,'inspect_candidate',inspect)
@@ -268,10 +270,6 @@ def test_deferred_source_waits_only_after_checking_available_evidence(monkeypatc
     for _ in range(10):
         value.update(flow.advance(value,provider))
         if value['search_state'].get('waiting_until') or value['status']=='selecting':break
-    if sufficient:
-        assert value['status']=='selecting' and read==['other']
-        assert next(c for c in value['candidates'] if c['id']=='deferred')['review']['phase']=='metadata'
-        return
     assert read==['other'] and value['search_state']['waiting_until']==1600
     assert flow.progress(value['search_state'],value['candidates'])['completed']==1
     monkeypatch.setattr(flow.time,'time',lambda:1600)
@@ -301,6 +299,7 @@ def test_duplicate_organization_keeps_importable_copy_and_combines_verified_supp
     value=state();reference=candidate('reference');usable=candidate('usable')
     for c in [reference,usable]:
         c.update(url='https://arxiv.org/abs/2401.12345',kind='paper',inspection_sha256='b'*64,
+                 source_type_review={'type':'paper','reason':'Controlled fixture','document_key':'b'*64},
                  review={'phase':'body','relevance':'direct','reason':'read','quotes':[{'topic':0,'quote':'The agent observes results.'}],'topics':[0]})
     usable.update(eligible=True,review={**usable['review'],'relevance':'related','quotes':[{'topic':1,'quote':'The agent calls a tool.'}],'topics':[1]})
     value['candidates']=[reference,usable];value['search_state'].update(stage='organizing',finish_reason='covered',coverage=[])
@@ -484,7 +483,7 @@ def test_old_workflow_is_not_silently_upgraded_or_sent_to_model():
 
 
 @pytest.mark.parametrize("already_planned", [True, False])
-def test_gap_explores_new_search_before_expanding_a_read_source(already_planned):
+def test_planned_work_precedes_coverage_and_selected_recheck_precedes_new_search(already_planned):
     value=state();source=inspect(candidate())
     source['screening']={'decision':'read','reason':'Related','basis':'abstract'}
     source['review']={'phase':'body','scope':'sections','relevance':'direct','reason':'Saved',
@@ -492,42 +491,48 @@ def test_gap_explores_new_search_before_expanding_a_read_source(already_planned)
                      'skipped_sections':[{'start':100,'end':200,'headings':['Methods'],'reason':'Not yet read'}]}
     value['candidates']=[source]
     value['search_state'].update(stage='following_up',topics=['Agent memory and tools'],searches=[
-        {'query':'Agent tools execution','channel':'web','topics':[0],'reason':'Unexplored mechanism',
+        {'query':'Agent tools execution','channel':'wikipedia','topics':[0],'reason':'Unexplored mechanism',
          'status':'pending','pages':0,'cursor':None,'seen_ids':[]}] if already_planned else [])
     def provider(path,body):
         return {'coverage':requested_coverage(body,[{'topic':0,'status':'partial','reason':'Missing tool execution','sources':[0]}]),
                 'read_next':[0],'searches':[] if already_planned else [
-                    {'query':'Agent tools execution','channel':'web','topics':[0],'reason':'Unexplored mechanism'}]}
+                    {'query':'Agent tools execution','channel':'wikipedia','topics':[0],'reason':'Unexplored mechanism'}]}
     result=flow.advance(value,provider)
-    assert result['search_state']['stage']=='searching'
-    assert result['candidates'][0]['review']==source['review']
-    result['search_state'].update(stage='following_up',stalled_checks=1)
-    resumed=flow.advance({**value,**result},provider)
-    assert resumed['search_state']['stage']=='searching'
+    if already_planned:
+        assert result['search_state']['stage']=='searching'
+        assert result['candidates'][0]['review']==source['review']
+        assert not result['search_state'].get('metrics')
+        return
+    assert result['search_state']['stage']=='reading'
+    assert result['search_state']['read_queue']==[source['id']]
+    assert result['candidates'][0]['_prior_review']==source['review']
+    assert result['candidates'][0]['review']['phase']=='metadata'
+    assert result['search_state']['searches']==value['search_state']['searches']
 
 
 def test_pending_search_without_new_reading_reuses_existing_gap_assessment():
     value=state()
     value['search_state'].update(stage='following_up',topics=['Agent tools'],
-        searches=[{'query':'Agent tools execution','topics':[0],'channel':'web',
+        searches=[{'query':'Agent tools execution','topics':[0],'channel':'wikipedia',
                    'status':'pending','pages':0,'cursor':None}])
     def provider(*args):
         return {'coverage':requested_coverage(args[1],[{'topic':0,'status':'missing','reason':'No supporting text','sources':[]}]),
                 'read_next':[],'searches':[]}
     first={**value,**flow.advance(value,provider)}
-    coverage=deepcopy(first['search_state']['coverage'])
-    # 不可匯入的頁面也會增加已讀數，但沒有新教材證據。
-    first['search_state'].update(stage='following_up',read_since_check=4)
+    assert not first['search_state'].get('metrics')
+    # 排定查詢尚未完成時，不先重算涵蓋。
+    first['search_state'].update(stage='following_up')
     def forbidden(*args):
         pytest.fail('Unchanged evidence must not trigger another model call')
     result=flow.advance(first,forbidden)
     assert result['search_state']['stage']=='searching'
-    assert result['search_state']['coverage']==coverage
+    assert not result['search_state'].get('metrics')
     source=inspect(candidate())
     source.update(screening={'decision':'read','basis':'abstract','reason':'New source'},
         review={'phase':'body','scope':'full','relevance':'direct','reason':'New evidence','topics':[0],
                 'quotes':[{'topic':0,'quote':'Agent memory stores observations.'}]})
     resumed={**first,**result,'candidates':[source]};resumed['search_state']['stage']='following_up'
+    resumed['search_state']['searches'][0]['status']='searched'
     calls=[]
     def changed(*args):
         calls.append(True)
@@ -543,7 +548,7 @@ def test_pending_search_without_new_reading_reuses_existing_gap_assessment():
         assert payload['unchanged_evidence'] and payload['items']==[]
         assert payload['previous_coverage'][0]['status']=='partial'
         return {'coverage':requested_coverage(body,[{'topic':0,'status':'missing','reason':'No text in this batch','sources':[]}]),
-                'read_next':[],'searches':[{'query':'Agent execution','channel':'web','topics':[0],'reason':'Fill gap'}]}
+                'read_next':[],'searches':[{'query':'Agent execution','channel':'wikipedia','topics':[0],'reason':'Fill gap'}]}
     planned=flow.advance(final,plan_only)
     assert planned['search_state']['coverage']==updated['search_state']['coverage']
     assert planned['search_state']['stage']=='searching'
@@ -552,7 +557,7 @@ def test_pending_search_without_new_reading_reuses_existing_gap_assessment():
 
 def test_search_reordering_does_not_invalidate_verified_evidence():
     value=state();value['search_state'].update(stage='following_up',topics=['Agent tools'],searches=[
-        {'query':'Agent execution','topics':[0],'channel':'web','status':'pending','pages':0,'cursor':None}])
+        {'query':'Agent execution','topics':[0],'channel':'wikipedia','status':'searched','pages':0,'cursor':None}])
     for identity in ['first','second']:
         source=inspect(candidate(identity))
         source.update(screening={'decision':'read','basis':'abstract','reason':'Saved'},
@@ -567,6 +572,7 @@ def test_search_reordering_does_not_invalidate_verified_evidence():
     saved['candidates'].reverse()
     for source in saved['candidates']:source['review']['quotes'].reverse()
     saved['search_state']['stage']='following_up'
+    saved['search_state']['searches'][0]['status']='pending'
     result=flow.advance(saved,lambda *args:pytest.fail('Only ordering changed'))
     assert result['search_state']['stage']=='searching'
     assert result['search_state']['coverage']==saved['search_state']['coverage']
@@ -578,7 +584,7 @@ def test_new_search_results_are_read_before_old_screened_candidates(monkeypatch)
                review={'phase':'metadata','relevance':'direct','topics':[0],'reason':'Related','quotes':[]})
     value['candidates']=[old]
     value['search_state'].update(stage='searching',topics=['Agent memory'],searches=[
-        {'query':'Agent memory new direction','channel':'web','topics':[0],'reason':'New angle',
+        {'query':'Agent memory new direction','channel':'wikipedia','topics':[0],'reason':'New angle',
          'status':'pending','pages':0,'cursor':None,'seen_ids':[]}])
     monkeypatch.setattr(flow.research_sources,'search',lambda *a,**k:([candidate('fresh')],None,[]))
     fetched=[]
@@ -591,18 +597,15 @@ def test_new_search_results_are_read_before_old_screened_candidates(monkeypatch)
     assert any(c['id']=='old' for c in result['candidates'])
 
 
-def test_new_gap_query_does_not_wait_for_every_old_candidate_to_be_read():
+def test_selected_body_is_completed_before_planning_a_new_gap_query():
     value=state();old=candidate('old')
     old.update(preview={'kind':'abstract'},screening={'decision':'read','basis':'abstract','reason':'Related'},
                review={'phase':'metadata','relevance':'related','topics':[0],'reason':'Related','quotes':[]})
     value['candidates']=[old]
     value['search_state'].update(stage='following_up',topics=['Agent tools'])
-    def provider(path,body):
-        return {'coverage':requested_coverage(body,[{'topic':0,'status':'missing','reason':'Need an importable tool example','sources':[]}]),
-                'read_next':[],'searches':[{'query':'open textbook agent tool execution','channel':'web','topics':[0],'reason':'Deliverable teaching source'}]}
-    result=flow.advance(value,provider)
-    assert result['search_state']['stage']=='searching'
-    assert result['search_state']['searches'][0]['query']=='open textbook agent tool execution'
+    result=flow.advance(value,lambda *args:pytest.fail('Finish the selected body before asking for more searches'))
+    assert result['search_state']['stage']=='reading'
+    assert result['search_state']['searches']==[]
     assert result['candidates']==[old]
 
 
@@ -660,7 +663,7 @@ def test_large_book_keeps_all_unread_ranges_but_only_sends_relevant_clues():
         assert payload['unread'][0]['skipped_section_count']==1500
         assert len(payload['unread'][0]['skipped_sections'])==flow.READ_WINDOW_CANDIDATES
         return {'coverage':requested_coverage(body,[{'topic':0,'status':'partial','reason':'Need loop example','sources':[0]}]),
-                'read_next':[],'searches':[{'query':'agent tool loop','topics':[0],'reason':'New source','channel':'web'}]}
+                'read_next':[],'searches':[{'query':'agent tool loop','topics':[0],'reason':'New source','channel':'wikipedia'}]}
     result=flow.advance(value,provider)
     assert result['candidates'][0]['review']['skipped_sections']==sections
 
@@ -744,7 +747,7 @@ def test_gap_review_paginates_all_saved_evidence_before_requesting_more_sources(
         if len(calls)>1:assert payload['previous_coverage'][0]['status']=='partial'
         final=not payload['more_batches']
         return {'coverage':requested_coverage(body,[{'topic':0,'status':'covered' if final else 'partial','reason':'Verified saved evidence','sources':[0]}]),
-            'read_next':[],'searches':[] if final else [{'query':'premature search','channel':'web','topics':[0],'reason':'Ignored until evidence is read'}]}
+            'read_next':[],'searches':[] if final else [{'query':'premature search','channel':'wikipedia','topics':[0],'reason':'Ignored until evidence is read'}]}
     for _ in range(20):
         value={**value,**flow.advance(value,provider)}
         if value['search_state']['stage']!='following_up':break
@@ -758,20 +761,21 @@ def test_gap_review_paginates_all_saved_evidence_before_requesting_more_sources(
 
 
 def test_later_unrelated_batch_cannot_erase_verified_topic_coverage(monkeypatch):
-    monkeypatch.setattr(flow,'SCREEN_BATCH',1)
+    monkeypatch.setattr('runtime.semantic_service._luna_token_count',len)
+    monkeypatch.setattr(flow,'FOLLOW_UP_EVIDENCE_TOKENS',3500)
     value=state();value['search_state'].update(stage='following_up',topics=['Diffusion','Agent tools'])
-    for topic,quote in enumerate(['Diffusion training adds noise; generation removes noise.',
-                                  'The framework executes tool calls and returns observations.']):
+    for topic,quote in enumerate(['Diffusion training adds noise; generation removes noise.'+'a'*2000,
+                                  'The framework executes tool calls and returns observations.'+'b'*2000]):
         source=inspect(candidate(str(topic)))
         source.update(screening={'decision':'read','basis':'abstract','reason':'Saved'},
             review={'phase':'body','scope':'full','relevance':'direct','reason':'Saved',
                     'topics':[topic],'quotes':[{'topic':topic,'quote':quote}]})
         value['candidates'].append(source)
     def provider(path,body):
-        topic=body['request']['items'][0]['evidence'][0]['topics'][0]
+        topic=body['request']['coverage_topics'][0]
         return {'coverage':requested_coverage(body,[{'topic':i,'status':'covered' if i==topic else 'missing',
                 'reason':'Verified original mechanism' if i==topic else 'No evidence in this batch',
-                'sources':[0] if i==topic else []} for i in range(2)]),'read_next':[],'searches':[]}
+                'sources':[item['index'] for item in body['request']['items'] if any(i in q['topics'] for q in item['evidence'])]} for i in range(2)]),'read_next':[],'searches':[]}
     first={**value,**flow.advance(value,provider)}
     done=flow.advance(first,provider)
     assert done['search_state']['coverage'][0]==first['search_state']['coverage'][0]
@@ -802,7 +806,7 @@ def test_changed_topic_rechecks_its_complete_current_evidence(change):
     else:saved['candidates'][0]['eligible']=False
     def updated(path,body):
         payload=body['request']
-        assert payload['coverage_topic']==0
+        assert payload['coverage_topics']==[0]
         assert payload['previous_coverage'][0]['status']=='missing'
         evidence=[e['text'] for item in payload['items'] for e in item['evidence']]
         if change=='append':
@@ -824,7 +828,7 @@ def test_changed_topic_rechecks_its_complete_current_evidence(change):
 
 def test_expanding_saved_source_keeps_verified_evidence_until_new_reading_finishes():
     value=state();value['search_state'].update(stage='following_up',topics=['Agent tools'],searches=[
-        {'query':'Agent retries','topics':[0],'channel':'web','status':'pending','pages':0,'cursor':None}])
+        {'query':'Agent retries','topics':[0],'channel':'wikipedia','status':'searched','pages':0,'cursor':None}])
     source=inspect(candidate())
     prior={'phase':'body','scope':'sections','relevance':'direct','reason':'Verified execution',
            'topics':[0],'quotes':[{'topic':0,'quote':'The framework executes a tool and returns its observation.'}]}
@@ -848,51 +852,34 @@ def test_expanding_saved_source_keeps_verified_evidence_until_new_reading_finish
 
 
 @pytest.mark.parametrize('decision',['read','uncertain'])
-def test_followup_can_schedule_screened_sources_awaiting_body(decision,monkeypatch):
+def test_screened_sources_awaiting_body_run_before_coverage(decision,monkeypatch):
     value=state();source=candidate('foundation','Agent memory fundamentals')
     source['screening']={'decision':decision,'basis':'search_snippet','reason':'Explains missing foundation'}
     source['review']={'phase':'metadata','relevance':'direct','topics':[0],'reason':'Body not read','quotes':[]}
     value['candidates']=[source]
     value['search_state'].update(stage='following_up',topics=['Agent memory'])
-    def provider(path,body):
-        unread=body['request']['unread']
-        assert len(unread)==1 and unread[0]['url']==source['url']
-        assert unread[0]['screening_decision']==decision
-        assert body['request']['items']==[]
-        return {'coverage':requested_coverage(body,[{'topic':0,'status':'missing','reason':'Need body','sources':[]}]),
-                'read_next':[0],'searches':[]}
-    value={**value,**flow.advance(value,provider)}
+    source['preview']={'expanded':True}
+    value={**value,**flow.advance(value,lambda *args:pytest.fail('Already selected reading needs no coverage approval'))}
     assert value['search_state']['stage']=='reading'
-    assert value['search_state']['read_queue']==['foundation']
     inspected=[]
     monkeypatch.setattr(flow,'inspect_candidate',lambda c:(inspected.append(c['id']) or inspect(c)))
     flow.advance(value,review_provider)
     assert inspected==['foundation']
 
 
-@pytest.mark.parametrize('propose_search', [False, True])
-def test_unchanged_evidence_does_not_stop_before_pending_body_is_read(propose_search):
-    value=state();source=candidate('pending','Agent memory fundamentals')
-    source['screening']={'decision':'read','basis':'search_snippet','reason':'Needs body'}
-    source['review']={'phase':'metadata','relevance':'direct','topics':[0],'reason':'Not read','quotes':[]}
+def test_no_new_evidence_stop_does_not_skip_pending_body():
+    value=state();source=candidate('pending')
+    source.update(screening={'decision':'read','basis':'abstract','reason':'Needs body'},
+                  review={'phase':'metadata','relevance':'direct','topics':[0],'quotes':[]})
     value['candidates']=[source]
-    value['search_state'].update(stage='following_up',topics=['Agent memory'])
-    calls = []
-    def provider(path,body):
-        calls.append(body)
-        return {'coverage':requested_coverage(body,[{'topic':0,'status':'missing','reason':'Need body','sources':[]}]),
-                'read_next':[],'searches':[{'query':'Another agent memory search','channel':'web','topics':[0],
-                    'reason':'A new wording'}] if propose_search and len(calls)>1 else []}
-    value={**value,**flow.advance(value,provider)}
-    value['search_state'].update(stage='following_up',stalled_checks=1)
-    result=flow.advance(value,provider)
-    assert result['search_state']['stalled_checks']==2
+    value['search_state'].update(stage='following_up',topics=['Agent memory'],stalled_checks=2,
+        coverage=[{'topic':'Agent memory','status':'covered','source_ids':[]}])
+    result=flow.advance(value,lambda *args:pytest.fail('Pending work cannot be skipped by coverage or no-new-evidence stop'))
     assert result['search_state']['stage']=='reading'
-    assert result['search_state']['searches'] == []
     assert 'RESEARCH_NO_NEW_EVIDENCE' not in result['search_state']['warnings']
 
 
-def test_pending_foundation_precedes_old_expansion_in_followup_batch():
+def test_pending_foundation_precedes_old_expansion(monkeypatch):
     value=state();old=inspect(candidate('old','Agent memory tool detailed survey'));old.pop('_reading_text')
     old['screening']={'decision':'read','basis':'abstract','reason':'Agent memory tools'}
     old['review']={'phase':'body','scope':'sections','relevance':'direct','topics':[0],
@@ -903,33 +890,27 @@ def test_pending_foundation_precedes_old_expansion_in_followup_batch():
     fresh['review']={'phase':'metadata','relevance':'direct','topics':[0],'reason':'Foundation','quotes':[]}
     value['candidates']=[old,fresh]
     value['search_state'].update(stage='following_up',topics=['Agent memory tools'])
-    def provider(path,body):
-        assert [x['url'] for x in body['request']['unread']]==[fresh['url'],old['url']]
-        return {'coverage':requested_coverage(body,[{'topic':0,'status':'partial','reason':'Need foundation','sources':[0]}]),
-                'read_next':[0],'searches':[]}
-    result=flow.advance(value,provider)
-    assert result['search_state']['read_queue']==['fresh']
+    result=flow.advance(value,lambda *args:pytest.fail('Read selected foundation before coverage'))
+    assert result['search_state']['stage']=='reading'
+    assert result['candidates'][0]['review']==old['review']
+    inspected=[]
+    monkeypatch.setattr(flow,'inspect_candidate',lambda c:(inspected.append(c['id']) or inspect(c)))
+    flow.advance({**value,**result},review_provider)
+    assert inspected==['fresh']
 
 
-def test_stalled_research_can_stop_without_expanding_every_unknown_preview():
+def test_no_new_evidence_stop_does_not_skip_unresolved_screening():
     value=large_reference_pool()
     uncertain=candidate('uncertain')
     uncertain.update(screening={'decision':'uncertain','basis':'search_snippet','reason':'Cannot tell from snippet'},
                      preview={'expanded':False},
                      review={'phase':'metadata','relevance':'related','topics':[0],'reason':'Unknown','quotes':[]})
     value['candidates'].append(uncertain)
-    def provider(path,body):
-        assert body['request']['unread_more']
-        return {'coverage':requested_coverage(body,[{'topic':0,'status':'missing','reason':'No body evidence','sources':[]}]),
-                'read_next':[],'searches':[]}
-    value={**value,**flow.advance(value,provider)}
-    value['search_state'].update(stage='following_up',stalled_checks=1)
-    value['search_state'].pop('unread_offset',None)
-    result=flow.advance(value,provider)
-    assert result['search_state']['stage']=='organizing'
-    assert result['search_state']['coverage'][0]['status']=='missing'
-    assert result['search_state']['finish_reason']=='gaps_remaining'
+    value['search_state']['stalled_checks']=2
+    result=flow.advance(value,lambda *args:pytest.fail('Unresolved screening must finish before coverage'))
+    assert result['search_state']['stage']=='collecting'
     assert len(result['candidates'])==len(value['candidates'])
+    assert 'RESEARCH_NO_NEW_EVIDENCE' not in result['search_state']['warnings']
 
 
 def test_new_query_gets_one_followup_round_but_cannot_bypass_no_evidence_stop_forever():
@@ -939,7 +920,7 @@ def test_new_query_gets_one_followup_round_but_cannot_bypass_no_evidence_stop_fo
         calls.append(body)
         return {'coverage': requested_coverage(body, [{'topic': 0, 'status': 'missing',
             'reason': 'Still no verified body', 'sources': []}]), 'read_next': [],
-            'searches': [{'query': f'Agent tools alternative {len(calls)}', 'channel': 'web',
+            'searches': [{'query': f'Agent tools alternative {len(calls)}', 'channel': 'wikipedia',
                          'topics': [0], 'reason': 'Another wording'}]}
     value = {**value, **flow.advance(value, provider)}
     for search in value['search_state']['searches']:
@@ -969,25 +950,24 @@ def test_changed_topic_rechecks_old_and_new_evidence_without_reassessing_other_t
         value['candidates'].append(source)
     seen=[]
     def provider(path,body):
-        request=body['request'];topic=request['coverage_topic'];seen.append(topic)
-        assert all(e['topics']==[topic] for item in request['items'] for e in item['evidence'])
-        assert body['schema']['properties']['coverage']['items']['properties']['topic']['enum']==[topic]
+        request=body['request'];topics=request['coverage_topics'];seen.append(topics)
+        assert body['schema']['properties']['coverage']['items']['properties']['topic']['enum']==topics
         return {'coverage':[{'topic':topic,'status':'covered','reason':'Verified mechanism',
-                             'sources':[i['index'] for i in request['items']]}],'read_next':[],'searches':[]}
-    for _ in range(2):value={**value,**flow.advance(value,provider)}
-    assert seen==[0,1]
+                'sources':[i['index'] for i in request['items'] if any(topic in q['topics'] for q in i['evidence'])]}
+                for topic in topics],'read_next':[],'searches':[]}
+    value={**value,**flow.advance(value,provider)}
     unchanged=deepcopy(value['search_state']['coverage'][1])
     value['search_state']['stage']='following_up'
     value['candidates'][0]['review']['quotes'].append({'topic':0,'quote':'Position encodings carry order information.'})
     def changed(path,body):
-        request=body['request'];assert request['coverage_topic']==0
+        request=body['request'];assert request['coverage_topics']==[0]
         quotes={e['text'] for item in request['items'] for e in item['evidence']}
         assert quotes=={'Text becomes token IDs and embeddings.','The context window limits the total token count.',
                         'Position encodings carry order information.'}
         assert len(request['items'])==2
         return provider(path,body)
     done=flow.advance(value,changed)
-    assert seen==[0,1,0]
+    assert seen==[[0,1],[0]]
     assert done['search_state']['coverage'][1]==unchanged
     assert done['search_state']['stage']=='organizing'
 
@@ -1030,16 +1010,6 @@ def test_gap_source_precedes_newly_queued_sources_for_already_covered_topics(mon
             screening={'decision':'read','basis':'abstract','reason':'Relevant'},
             review={'phase':'metadata','relevance':'direct','topics':[topic],'reason':'Relevant','quotes':[]})
         value['candidates'].append(c)
-    def first(path,body):
-        return {'coverage':[{'topic':0,'status':'covered','reason':'Verified','sources':[0]}],'read_next':[],'searches':[]}
-    value={**value,**flow.advance(value,first)}
-    value['search_state']['stage']='following_up';planned=[]
-    def plan(path,body):
-        request=body['request'];assert request['research_coverage']==[]
-        planned.extend(c['url'] for c in request['unread'])
-        return {'coverage':[],'read_next':[],'searches':[]}
-    value={**value,**flow.advance(value,plan)}
-    assert planned[0].endswith('/older')
     value['search_state'].update(stage='reading',read_queue=['recent'])
     fetched=[];monkeypatch.setattr(flow,'inspect_candidate',lambda c:fetched.append(c['id']) or inspect(c))
     flow.advance(value,lambda *args:pytest.fail('Fetch uses no model'))
@@ -1083,7 +1053,7 @@ def test_provided_url_normalization_deduplicates_arxiv_and_rejects_credentials()
 
 
 def test_organizing_saved_results_keeps_gaps_and_excludes_unreviewed_sources():
-    data=flow.new_state();data.update(topics=['A','B'],finish_reason='user_stopped',
+    data=flow.new_state();data.update(topics=['A','B'],finish_reason='partial_delivery',
         coverage=[{'topic':'A','status':'covered','source_ids':['one']},
                   {'topic':'B','status':'missing','source_ids':[]}])
     good=candidate();good.update(eligible=True,review={'phase':'body','relevance':'direct','quotes':[]})
@@ -1116,10 +1086,10 @@ def test_planning_requires_confirmation_and_keeps_each_approved_detail():
         assert 'topics' not in body['schema']['properties']
         return {'summary':'Confirmed needs','searches':[
             {'query':'How does a decision system estimate uncertainty?','channel':'papers','topics':[0],'reason':'confidence'},
-            {'query':'When should an agent stop retrying and defer to a human?','channel':'web','topics':[1],'reason':'stopping'}]}
+            {'query':'When should an agent stop retrying and defer to a human?','channel':'wikipedia','topics':[1],'reason':'stopping'}]}
     result=flow.advance(value,provider)
     assert result['search_state']['topics']==topics
-    assert [s['channel'] for s in result['search_state']['searches']]==['papers','web']
+    assert [s['channel'] for s in result['search_state']['searches']]==['papers','wikipedia']
     def missing(path,body):
         result=provider(path,body);result['searches'].pop();return result
     with pytest.raises(SourceError,match='RESEARCH_REVIEW_FAILED'):flow.advance(value,missing)
@@ -1169,7 +1139,7 @@ def test_partial_delivery_preserves_partial_status_without_chasing_optional_deta
     value['candidates']=[source];value['search_state'].update(stage='following_up',topics=['Agent memory'])
     def provider(path,body):
         return {'coverage':[{'topic':0,'status':'partial','reason':'Core mechanism is supported; an extra example is unavailable.','sources':[0]}],
-                'needs_more':False,'read_next':[],'searches':[]}
+                'read_next':[],'searches':[]}
     result=flow.advance(value,provider)
     assert result['search_state']['finish_reason']=='partial_delivery'
     assert result['search_state']['coverage'][0]['status']=='partial'
@@ -1199,3 +1169,119 @@ def test_bounded_reading_notes_do_not_drop_saved_notes_or_selected_originals(mon
     assert 'Read 1:' in source['review']['reason'] and f'Read {read_count}:' in source['review']['reason']
     assert len(source['review']['quotes'])==read_count
     assert done['search_state']['metrics']['read']['max_previous_notes_unbounded_tokens']>600
+
+
+def test_shared_original_evidence_is_sent_once_with_separate_topic_judgments():
+    value=state();value['search_state'].update(stage='following_up',topics=['Retry limits','Human handoff'])
+    source=inspect(candidate());quote='Retry only temporary failures within the budget; ask a human when permission is missing.'
+    source.update(screening={'decision':'read','basis':'abstract','reason':'Saved'},
+        review={'phase':'body','scope':'full','relevance':'direct','reason':'Saved','topics':[0,1],
+                'quotes':[{'topic':0,'quote':quote},{'topic':1,'quote':quote}]})
+    value['candidates']=[source];calls=[]
+    def provider(path,body):
+        request=body['request'];calls.append(request)
+        assert request['coverage_topics']==[0,1]
+        assert request['items'][0]['evidence']==[{'topics':[0,1],'text':quote}]
+        assert [c['index'] for c in request['previous_coverage']]==[0,1]
+        return {'coverage':[{'topic':i,'status':'covered','reason':'Verified condition','sources':[0]} for i in [0,1]],
+                'read_next':[],'searches':[]}
+    done=flow.advance(value,provider)
+    assert len(calls)==1 and done['search_state']['stage']=='organizing'
+    assert [c['source_ids'] for c in done['search_state']['coverage']]==[['one'],['one']]
+    assert set(done['search_state']['checked_topic_evidence'])=={'0','1'}
+
+
+def test_batched_coverage_rejects_missing_or_duplicate_topic_results():
+    value=state();value['search_state'].update(stage='following_up',topics=['Retry limits','Human handoff'])
+    source=inspect(candidate());source.update(screening={'decision':'read','basis':'abstract','reason':'Saved'},
+        review={'phase':'body','scope':'full','relevance':'direct','reason':'Saved','topics':[0,1],
+                'quotes':[{'topic':i,'quote':'Stop after budget exhaustion.'} for i in [0,1]]})
+    value['candidates']=[source]
+    for reported in ([0],[0,0]):
+        with pytest.raises(SourceError,match='RESEARCH_REVIEW_FAILED'):
+            flow.advance(value,lambda *args:{'coverage':[{'topic':i,'status':'covered','reason':'bad','sources':[0]} for i in reported],
+                'read_next':[],'searches':[]})
+
+
+def test_search_prioritizes_uncovered_topics_without_dropping_other_queries(monkeypatch):
+    value=state();value['search_state'].update(stage='searching',topics=['Known','Gap'],
+        coverage=[{'status':'covered'},{'status':'missing'}],searches=[
+            {'query':query,'topics':[topic],'channel':'papers','status':'pending','cursor':None,'pages':0,'seen_ids':[]}
+            for query,topic in [('More background',0),('Missing mechanism',1)]])
+    called=[]
+    monkeypatch.setattr(flow.research_sources,'search',lambda query,*args,**kw:(called.append(query) or [],None,[]))
+    result=flow.advance(value,lambda *args:pytest.fail('Search uses no model'))
+    assert called==['Missing mechanism']
+    assert result['search_state']['searches'][0]['status']=='pending'
+
+
+def test_background_arxiv_reference_is_not_promoted_by_available_license():
+    source=candidate();source['url']='https://arxiv.org/abs/2602.08964'
+    source.update(eligible=True,screening={'decision':'reference','basis':'abstract','reason':'Background only'},
+                  review={'phase':'metadata','relevance':'related','topics':[0],'reason':'Background only','quotes':[]})
+    assert not flow._needs_body(source)
+    source['screening']={'decision':'read','basis':'gap_followup','reason':'Specific missing condition'}
+    assert flow._needs_body(source)
+
+
+def test_explicit_continuation_rechecks_failed_identity_once_without_rereading_verified_sources():
+    blocked=candidate('blocked');blocked.update(screening={'decision':'reference','basis':'importability','reason':'identity failed'},review={'phase':'metadata','relevance':'direct','topics':[0]},access={'status':'not_reviewed','attempts':[{'error_code':'RESEARCH_IDENTITY_UNCONFIRMED'}]})
+    value=state();value['candidates']=[blocked];value['search_state'].update(stage='following_up',topics=['Agent memory'],continue_requested=True)
+    result=flow.advance(value,lambda *args:pytest.fail('No model needed to retry a known failed entry'))
+    assert result['search_state']['stage']=='reading' and not result['search_state'].get('continue_requested')
+    assert result['candidates'][0]['screening']['decision']=='read'
+
+
+def test_finishing_read_queue_still_completes_other_screened_reads(monkeypatch):
+    inspected=[]
+    monkeypatch.setattr(flow,'inspect_candidate',lambda c:(inspected.append(c['id']) or inspect(c)))
+    sources=[]
+    for identity in ('planned','not-planned'):
+        c=candidate(identity);c.update(screening={'decision':'read','basis':'abstract','reason':'relevant'},review={'phase':'metadata','relevance':'direct','topics':[0]});sources.append(c)
+    value=state();value['candidates']=sources;value['search_state'].update(stage='reading',topics=['Agent memory'],read_queue=['planned'])
+    for _ in range(10):
+        value={**value,**flow.advance(value,review_provider)}
+        if value['search_state']['stage']=='following_up':break
+    assert value['search_state']['stage']=='following_up'
+    assert inspected==['planned','not-planned']
+    assert all(c['review']['phase']=='body' for c in value['candidates'])
+
+
+def test_reader_receives_verified_type_and_versions_its_evidence():
+    c=inspect(candidate());text=c['_reading_text'];c.update(screening={'decision':'read','basis':'abstract','reason':'Relevant'},review={'phase':'metadata','relevance':'direct','topics':[0]},_read_plan=[[0,len(text)]],_read_plan_cursor=0,_reading_scope='full')
+    value=state();value['candidates']=[c];value['search_state'].update(stage='assessing',topics=['Agent memory'],read_queue=[c['id']])
+    def provider(path,body):
+        assert body['request']['task']=='read'
+        assert body['request']['source']['verified_type']=='paper'
+        return {'relevance':'direct','reason':'An architecture proposal, not empirical validation.','supports':[{'topic':0,'passages':[0]}]}
+    result=flow.advance(value,provider)
+    assert result['candidates'][0]['review']['evidence_policy']==flow.EVIDENCE_POLICY
+    assert result['candidates'][0]['review']['quotes']==[{'topic':0,'quote':text}]
+
+
+def test_selected_old_reading_can_recheck_previously_read_text_but_current_reading_does_not_repeat_it():
+    text='First passage.\n\nSecond passage.'
+    c=candidate();c.update(_reading_text=text,_prior_review={'read_ranges':[[0,len(text)]],'evidence_policy':'research-evidence/old'})
+    data=flow.new_state()
+    assert flow._windows(c,data)
+    c['_prior_review']['evidence_policy']=flow.EVIDENCE_POLICY
+    assert flow._windows(c,data)==[]
+
+
+def test_coverage_keeps_each_fitting_topic_together_instead_of_splitting_it_across_batches(monkeypatch):
+    monkeypatch.setattr(flow,'FOLLOW_UP_EVIDENCE_TOKENS',500)
+    value=state();value['search_state'].update(stage='following_up',topics=['First mechanism','Second mechanism'])
+    texts=['First mechanism. '+'alpha '*200,'Second mechanism. '+'beta '*200]
+    for i,text in enumerate(texts):
+        c=inspect(candidate(str(i)));c.pop('_reading_text');c['screening']={'decision':'read','basis':'abstract','reason':'Relevant'}
+        c['review']={'phase':'body','evidence_policy':flow.EVIDENCE_POLICY,'relevance':'direct','scope':'full','reason':'Checked','topics':[i],'quotes':[{'topic':i,'quote':text}]}
+        value['candidates'].append(c)
+    calls=[]
+    def provider(path,body):
+        request=body['request'];topics=request['coverage_topics'];assert len(topics)==1
+        topic=topics[0];assert request['items'][0]['evidence']==[{'topics':[topic],'text':texts[topic]}]
+        calls.append(topic)
+        return {'coverage':[{'topic':topic,'status':'covered','reason':'Complete evidence for this topic','sources':[0]}],'read_next':[],'searches':[]}
+    done,_=drive(value,provider)
+    assert calls==[0,1]
+    assert all(c['status']=='covered' for c in done['search_state']['coverage'])

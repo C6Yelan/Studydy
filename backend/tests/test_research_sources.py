@@ -58,7 +58,6 @@ def test_pagination_continues_each_provider_and_failure_keeps_other_results(monk
     def scholar(query,offset):
         calls.append(('scholar',offset));return [paper('cr','10.2/crossref',[location()])],20 if offset==0 else None
     monkeypatch.setattr(sources,'openalex_search',oa);monkeypatch.setattr(sources,'semantic_scholar_search',scholar)
-    monkeypatch.setattr(sources,'official_search',lambda q:[]);monkeypatch.setattr(sources,'mdn_search',lambda q:[])
     monkeypatch.setenv('STUDYDY_SEMANTIC_SCHOLAR_API_KEY','test-only')
     rows,cursor,warnings=sources.search('retrieval augmented generation')
     assert len(rows)==1 and warnings==['openalex']
@@ -73,25 +72,19 @@ def test_pagination_continues_each_provider_and_failure_keeps_other_results(monk
     assert calls==[]
 
 
-@pytest.mark.parametrize('query,expected',[
-    ('LLM tokenization embeddings context window',[]),
-    ('Python generators',['Python']),
-    ('JavaScript DOM events',['MDN']),
-])
-def test_specialized_docs_only_run_for_the_requested_technology(monkeypatch,query,expected):
+@pytest.mark.parametrize('query',['Python generators','JavaScript DOM events','LLM tokenization'])
+def test_wikipedia_channel_only_uses_wikipedia_search(monkeypatch,query):
     from runtime import research_web
     called=[]
     monkeypatch.setenv('STUDYDY_SEARXNG_URL','http://search.test')
-    monkeypatch.setattr(research_web,'search_web',lambda *args:([],None,[]))
-    monkeypatch.setattr(sources,'official_search',lambda q:called.append('Python') or [])
-    monkeypatch.setattr(sources,'mdn_search',lambda q:called.append('MDN') or [])
-    assert sources.search(query,channel='web')==([],None,[])
-    assert called==expected
+    monkeypatch.setattr(research_web,'search_wikipedia',lambda queries,page:(called.append((queries,page)) or [],None,[]))
+    assert sources.search(query,channel='wikipedia')==([],None,[])
+    assert called==[([query],1)]
 
 
 def test_all_search_services_failing_is_not_an_empty_success(monkeypatch):
     def fail(*args):raise SourceError('RESEARCH_SEARCH_FAILED')
-    for name in ['openalex_search','official_search','mdn_search']:monkeypatch.setattr(sources,name,fail)
+    for name in ['openalex_search']:monkeypatch.setattr(sources,name,fail)
     monkeypatch.delenv('STUDYDY_SEMANTIC_SCHOLAR_API_KEY',raising=False)
     with pytest.raises(SourceError,match='RESEARCH_SEARCH_FAILED'):sources.search('topic')
 
@@ -136,14 +129,6 @@ def test_unpaywall_is_opt_in_and_cannot_change_document_identity(monkeypatch):
     monkeypatch.setattr(sources,'_json',lambda *a,**k:{'doi':'10.9999/other','oa_locations':[]})
     with pytest.raises(SourceError,match='RESEARCH_IDENTITY_UNCONFIRMED'):sources._unpaywall_locations(paper())
 
-
-def test_python_index_is_cached(monkeypatch):
-    calls=[]
-    monkeypatch.setattr(sources,'_python_index',None)
-    def fetch(*a,**k):calls.append(a);return b'Search.setIndex({"docnames":[],"titles":[],"terms":{},"titleterms":{}})','https://docs.python.org/3/searchindex.js','text/javascript'
-    monkeypatch.setattr(sources,'fetch',fetch)
-    assert sources.official_search('python')==sources.official_search('python')==[]
-    assert len(calls)==1
 
 
 def test_https_upgrade_does_not_expand_license_policy():
@@ -232,6 +217,19 @@ def test_pdf_identity_accepts_a_complete_title_split_across_adjacent_blocks(monk
     item=paper(locations=[location()]);item.update(title='A complete research title continued across PDF blocks')
     assert sources.acquire(item)[0]==data
     item['title']='A complete research title with a different conclusion'
+    with pytest.raises(SourceError,match='RESEARCH_IDENTITY_UNCONFIRMED'):sources.acquire(item)
+
+
+def test_pdf_identity_accepts_title_lines_in_a_block_with_a_series_heading(monkeypatch):
+    import fitz
+    with fitz.open() as pdf:
+        page=pdf.new_page()
+        page.insert_text((50,50),'Example Research Series\nAgent Interoperability and\nConsequential Handoffs')
+        data=pdf.tobytes()
+    monkeypatch.setattr(sources,'public_page',lambda url,**kw:(data,url,'application/pdf'))
+    item=paper(locations=[location()]);item.update(title='Agent Interoperability and Consequential Handoffs',doi=None)
+    assert sources.acquire(item)[0]==data
+    item['title']='Interoperability and Consequential'
     with pytest.raises(SourceError,match='RESEARCH_IDENTITY_UNCONFIRMED'):sources.acquire(item)
 
 

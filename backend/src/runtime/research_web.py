@@ -8,7 +8,7 @@ import os
 import re
 from threading import Lock
 import time
-from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 from trafilatura import extract, extract_metadata
@@ -205,26 +205,34 @@ def _paper_body(tree,text):
     return False
 
 
-def search_web(queries,page):
+def wikipedia_article(url):
+    parsed=urlsplit(url or '')
+    host=parsed.hostname or ''
+    path=unquote(parsed.path)
+    return bool(re.fullmatch(r'[a-z][a-z0-9-]*(?:\.m)?\.wikipedia\.org',host)
+                and path.startswith('/wiki/') and path[6:] and ':' not in path[6:])
+
+
+def search_wikipedia(queries,page):
     if type(page) is not int or page<1:raise SourceError('RESEARCH_SEARCH_FAILED')
     rows=OrderedDict();warnings=[];successes=0;result_sets=[];failures=[]
     for query in queries:
         try:
-            data=_searx(query,page);successes+=1
+            data=_searx('site:en.wikipedia.org '+re.sub(r'\bsite:\S+', '',query).strip(),page);successes+=1
         except SourceError as error:
             failures.append(error);warnings.append('SearXNG');continue
         warnings.extend('SearXNG:'+str(item[0]) for item in data.get('unresponsive_engines',[]) if isinstance(item,list) and item)
         result_sets.append(data['results'])
-    # 交錯中英文／子題結果，避免第一組查詢耗盡正文核對額度。
+    # 自動搜尋只收英文條目，避免同一主題的各語言版本重複閱讀；查詢間仍交錯合併。
     for group in zip_longest(*result_sets):
         for item in group:
             if not isinstance(item,dict):continue
             url=canonical_url(item.get('url'))
-            if not url:continue
+            if not url or not wikipedia_article(url) or urlsplit(url).hostname not in ('en.wikipedia.org','en.m.wikipedia.org'):continue
             providers=['SearXNG:'+str(name) for name in item.get('engines',[]) if isinstance(name,str)]
             if url in rows:
                 rows[url]['discovered_by']=list(dict.fromkeys(rows[url]['discovered_by']+providers));continue
-            rows[url]={'id':url,'kind':'web','title':str(item.get('title') or url),'authors':urlsplit(url).hostname,
+            rows[url]={'id':url,'kind':'wikipedia','title':str(item.get('title') or url),'authors':urlsplit(url).hostname,
                        'year':None,'doi':None,'url':url,'download_url':url,'license':'unknown','license_url':None,
                        'description':str(item.get('content') or ''),
                        'description_kind':'search_snippet',

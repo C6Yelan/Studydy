@@ -149,3 +149,78 @@ def test_concurrent_install_applies_each_version_once(clean_database_dsn):
         )) == {
             m.version: m.sql_sha256 for m in load_migrations()
         }
+
+
+def test_remove_topic_level_preserves_background_and_approval_identity(clean_database_dsn, migrations_dir, tmp_path):
+    from psycopg.types.json import Jsonb
+    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    from runtime.storage.artifacts import _key_digest
+    from runtime import topics
+
+    baseline=tmp_path/'before-topic-level-removal';baseline.mkdir()
+    for migration in migrations_dir.glob('*.sql'):
+        if int(migration.name[:4])<=30:shutil.copy2(migration,baseline/migration.name)
+    run_migrations(clean_database_dsn,migrations_dir=baseline)
+    owner=uuid4();records=[]
+    with psycopg.connect(clean_database_dsn) as connection:
+        connection.execute('INSERT INTO learners (learner_id,created_at) VALUES (%s,now())',(owner,))
+        for index,level in enumerate(['入門','有基礎','深入','熟悉 Python，想理解「機率」公式與限制 \\ "例子"']):
+            identity=uuid4();request='理解 Agent 的停止條件';status='approved' if index%2 else 'ready'
+            proposal={'title':'Agent 停止條件','level':level,'goals':['理解成本與風險'],'topics':['比較重試與求助'],'exclude':[]}
+            key='scope-'+str(index)
+            connection.execute('''INSERT INTO topic_scopes
+                (topic_id,learner_id,request,proposal,version,status,approved_sha256,approval_key_sha256,idempotency_key_sha256,created_at)
+                VALUES (%s,%s,%s,%s,2,%s,%s,%s,%s,now())''',
+                (identity,owner,request,Jsonb(proposal),status,canonical_sha256(proposal) if status=='approved' else None,
+                 _key_digest(key) if status=='approved' else None,_key_digest('create-'+key)))
+            expected={k:v for k,v in proposal.items() if k not in ('level','exclude')}
+            if index==3:expected['goals']=[*expected['goals'],'學習背景與需求：'+level]
+            records.append((identity,request,status,key,expected))
+    assert run_migrations(clean_database_dsn)==(31,32)
+    with psycopg.connect(clean_database_dsn) as connection:
+        for identity,request,status,key,expected in records:
+            value=connection.execute('SELECT proposal,approved_sha256,request,version,status,approval_key_sha256 FROM topic_scopes WHERE topic_id=%s',(identity,)).fetchone()
+            assert value==(expected,canonical_sha256(expected) if status=='approved' else None,request,4,status,
+                           _key_digest(key) if status=='approved' else None)
+        assert connection.execute("SELECT to_regprocedure('pg_temp.topic_scope_json(jsonb)')").fetchone()==(None,)
+    for identity,_,status,key,expected in records:
+        if status=='approved':
+            assert topics.approve(owner,identity,4,expected,key,dsn=clean_database_dsn)['proposal']==expected
+        else:
+            with pytest.raises(topics.SourceError,match='TOPIC_CONFLICT'):
+                topics.approve(owner,identity,2,expected,key,dsn=clean_database_dsn)
+    assert run_migrations(clean_database_dsn)==()
+
+
+def test_remove_topic_exclusions_keeps_constraints_editable(clean_database_dsn, migrations_dir, tmp_path):
+    from psycopg.types.json import Jsonb
+    from pdf_evidence.ocr_page_evidence import canonical_sha256
+    from runtime.storage.artifacts import _key_digest
+    from runtime import topics
+
+    baseline=tmp_path/'before-exclusions-removal';baseline.mkdir()
+    for migration in migrations_dir.glob('*.sql'):
+        if int(migration.name[:4])<=31:shutil.copy2(migration,baseline/migration.name)
+    run_migrations(clean_database_dsn,migrations_dir=baseline)
+    owner=uuid4();records=[]
+    with psycopg.connect(clean_database_dsn) as connection:
+        connection.execute('INSERT INTO learners (learner_id,created_at) VALUES (%s,now())',(owner,))
+        for index,excluded in enumerate([[],['完整程式','雲端部署'],['套件 "A" 與路徑 \\ 的操作教學','   ']]):
+            identity=uuid4();status='approved' if index else 'ready';key='exclude-'+str(index)
+            original={'title':'Agent 決策','goals':['比較停止與重試'],'topics':['成本、風險與限制'],'exclude':excluded}
+            expected={k:v for k,v in original.items() if k!='exclude'}
+            expected['goals']=[*expected['goals'],*['範圍限制：不涵蓋「'+item+'」。' for item in excluded if item.strip()]]
+            connection.execute('''INSERT INTO topic_scopes
+                (topic_id,learner_id,request,proposal,version,status,approved_sha256,approval_key_sha256,idempotency_key_sha256,created_at)
+                VALUES (%s,%s,'比較 Agent 決策',%s,8,%s,%s,%s,%s,now())''',
+                (identity,owner,Jsonb(original),status,canonical_sha256(original) if status=='approved' else None,
+                 _key_digest(key) if status=='approved' else None,_key_digest('create-'+key)))
+            records.append((identity,status,key,expected))
+    assert run_migrations(clean_database_dsn)==(32,)
+    for identity,status,key,expected in records:
+        saved=topics.read(owner,identity,dsn=clean_database_dsn)
+        assert saved['version']==9 and saved['status']==status
+        assert saved['proposal']==topics.proposal(expected)==expected
+        if status=='approved':
+            assert topics.approve(owner,identity,9,expected,key,dsn=clean_database_dsn)['proposal']==expected
+    assert run_migrations(clean_database_dsn)==()

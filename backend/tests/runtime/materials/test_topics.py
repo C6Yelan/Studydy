@@ -12,7 +12,7 @@ from runtime.source_normalization import SourceError,normalize_next
 from runtime.material_discard import request_material_discard
 from runtime.storage.tables import TopicScope,MaterialResearch,Material,database_session
 
-PLAN={'title':'佇列入門','level':'入門','goals':['理解 FIFO'],'topics':['佇列的資料順序'],'exclude':['實作效能最佳化']}
+PLAN={'title':'佇列入門','goals':['理解 FIFO，不討論實作效能最佳化'],'topics':['佇列的資料順序']}
 CANDIDATE={'id':'paper','kind':'paper','title':'Queue source','authors':'Fixture','year':2026,'description':'A queue removes the first inserted item first.','doi':None,
     'url':'https://example.org/paper','download_url':'https://example.org/paper.pdf','license':'cc-by','license_url':None,
     'version':'publishedVersion','eligible':True,'reason':'fixture','state':'candidate'}
@@ -42,7 +42,7 @@ def test_topic_approval_then_real_source_pipeline(revisions,monkeypatch):
     settings=revisions[2]
     with database_session(dsn) as db:before=db.scalar(select(func.count()).select_from(Material))
     view,calls=prepare(owner,dsn,monkeypatch)
-    edited={**PLAN,'level':'有基礎','goals':['確認資料移除順序']}
+    edited={**PLAN,'goals':['確認資料移除順序']}
     approved=topics.approve(owner,view['topic_id'],view['version'],edited,'approve',dsn=dsn)
     assert topics.approve(owner,view['topic_id'],view['version'],edited,'approve',dsn=dsn)==approved
     assert calls==[]
@@ -126,7 +126,7 @@ def test_topic_api_requires_identity_origin_and_exact_scope(closed_loop,monkeypa
     r=client.post('/v1/topics',headers=headers,json={'request':'佇列'});assert r.status_code==202
     identity=r.json()['topic_id'];topics.step(dsn=dsn)
     assert client.post('/v1/materials/'+str(closed_loop[1].material_id)+'/research',headers=headers,json={'query':'bypass','mode':'review'}).status_code==405
-    view=client.get('/v1/topics/'+identity).json();assert view['generation_provider']=='codex-exec:gpt-5.6-luna;scope/v3'
+    view=client.get('/v1/topics/'+identity).json();assert view['generation_provider']=='codex-exec:gpt-5.6-luna;scope/v6'
     r=client.post('/v1/topics/'+identity+'/approve',headers=headers,json={'expected_version':view['version'],'proposal':PLAN})
     assert r.status_code==200 and r.json()['approved_at']
     assert client.get('/v1/topics/'+identity).headers['cache-control']=='private, no-store'
@@ -143,31 +143,26 @@ def test_topic_api_requires_identity_origin_and_exact_scope(closed_loop,monkeypa
 
 
 
-@pytest.mark.parametrize('level,expected_hint',[
-    ('入門','基本概念'),('有基礎','實作教學'),('深入','技術規格'),
-    ('熟悉 Python，初次接觸 RAG',None),
-])
-def test_confirmed_level_controls_search_prompt_without_changing_saved_scope(closed_loop,monkeypatch,level,expected_hint):
+def test_confirmed_requirements_reach_search_without_degree_labels(closed_loop,monkeypatch):
     learner,_,_,_,dsn,_=closed_loop;owner=learner.learner_id
-    view,calls=prepare(owner,dsn,monkeypatch)
-    edited={**PLAN,'level':level}
-    approved=topics.approve(owner,view['topic_id'],view['version'],edited,'level-approve',dsn=dsn)
+    view,_=prepare(owner,dsn,monkeypatch)
+    edited={**PLAN,'goals':['已有 Python 基礎，想理解資料移除的原理與限制']}
+    approved=topics.approve(owner,view['topic_id'],view['version'],edited,'approve-scope',dsn=dsn)
     payloads=[]
     def query(path,body):
-        assert path=='/semantics'
         payloads.append(deepcopy(body['request']))
         return review_provider(path,body)
     monkeypatch.setattr(research,'provider',query)
     assert research.step(dsn=dsn)
-    scope=payloads[0]['approved_scope']
-    assert {k:v for k,v in scope.items() if k!='level'}=={k:v for k,v in edited.items() if k!='level'}
-    if expected_hint:
-        assert scope['level'].startswith(level+'：') and expected_hint in scope['level']
-    else:assert scope['level']==level
-    search_to_selection(owner,approved['research_id'],dsn)
-    assert calls[0][0]=='queue tutorial'
+    assert payloads[0]['approved_scope']==edited
     assert topics.read(owner,view['topic_id'],dsn=dsn)['proposal']==edited
-    assert topics.approve(owner,view['topic_id'],view['version'],edited,'level-approve',dsn=dsn)['research_id']==approved['research_id']
+    assert topics.approve(owner,view['topic_id'],view['version'],edited,'approve-scope',dsn=dsn)['research_id']==approved['research_id']
+
+
+@pytest.mark.parametrize('field,value',[('level','入門'),('exclude',['雲端部署'])])
+def test_scope_rejects_removed_settings(field,value):
+    with pytest.raises(SourceError,match='REQUEST_INVALID'):
+        topics.proposal({**PLAN,field:value})
 
 
 def test_supplement_uses_confirmed_scope_and_never_searches_before_approval(closed_loop,monkeypatch):
@@ -219,3 +214,23 @@ def test_discard_cancels_pending_supplement_scope_without_resurrection(closed_lo
     saved=topics.read(learner.learner_id,scope['topic_id'],dsn=dsn)
     assert saved['status']=='cancelled' and saved['material_id'] is None and saved['research_id'] is None
     assert not topics.step(dsn=dsn) and not research.step(dsn=dsn)
+
+
+@pytest.mark.parametrize('supplement',[False,True])
+def test_cancel_unconfirmed_scope_removes_only_the_plan(closed_loop,monkeypatch,supplement):
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    fixtures(monkeypatch)
+    material_id=source.material_id if supplement else None
+    with database_session(dsn) as db:
+        original_head=db.get(Material,source.material_id).head_revision
+    created=topics.create(owner,'需要確認的搜尋範圍','delete-plan',material_id=material_id,dsn=dsn)
+    assert topics.step(dsn=dsn)
+    ready=topics.read(owner,created['topic_id'],dsn=dsn)
+    assert ready['status']=='ready' and ready['research_id'] is None
+    topics.action(owner,ready['topic_id'],'cancel',ready['version'],dsn=dsn)
+    assert topics.listing(owner,material_id=material_id,dsn=dsn)['topics']==[]
+    with pytest.raises(SourceError,match='TOPIC_CONFLICT'):
+        topics.approve(owner,ready['topic_id'],ready['version'],PLAN,'late-approval',dsn=dsn)
+    with database_session(dsn) as db:
+        assert db.get(Material,source.material_id).head_revision==original_head
+        assert not db.scalars(select(MaterialResearch)).all()

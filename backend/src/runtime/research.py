@@ -18,23 +18,6 @@ from . import research_documents
 ACTIVE=('searching','acquiring','normalizing')
 
 
-# 搜尋偏好由後端展開；只改送給 query provider 的副本，不改已確認範圍或來源資格。
-TOPIC_SEARCH_LEVELS={
-    '入門':'第一次接觸此主題；搜尋基本概念、必要先備知識與入門教學，優先概念介紹及循序說明。',
-    '有基礎':'已有基本概念；搜尋運作原理、實作教學與應用案例，著重方法與案例比較。',
-    '深入':'已有原理與實作基礎；搜尋技術規格、進階分析、限制與取捨，以及相關研究論文。',
-}
-
-
-def _search_scope(scope):
-    if scope is None:return None
-    scope=deepcopy(scope)
-    level=scope['level']
-    if level in TOPIC_SEARCH_LEVELS:
-        scope['level']=level+'：'+TOPIC_SEARCH_LEVELS[level]+' 這是搜尋偏好，不以來源類型硬性排除資料，也不擴張 topics 或納入 exclude。'
-    return scope
-
-
 def _owned(db,owner,identity,*,read=False,allow_deleted=False):
     row=db.get(Research,identity)
     if not row or row.learner_id!=owner:raise SourceError('RESOURCE_NOT_FOUND')
@@ -61,6 +44,9 @@ def _view(row):
         item.pop('_review_chunks',None)
         item.pop('_prior_review',None)
         item.pop('_read_offset',None)
+        if not research_workflow.source_allowed(item):
+            item['eligible']=False
+            if not item.get('source_type_review'):item['reason']='尚未核對論文／Wikipedia 文件類型；可接續研究。'
         item.pop('inspection_sha256',None);item.pop('inspection_text_sha256',None)
         item.pop('public_entries',None);item.pop('entry_lookup_done',None)
         for field in ('description','_preview_text','_read_plan','_read_plan_cursor','_window_scan_offset','_selected_windows','_reading_scope','_skipped_sections','reading_mode','reading_focus'):item.pop(field,None)
@@ -119,16 +105,7 @@ def action(owner,identity,action,selected=None,*,guidance=None,dsn=None):
         if row.topic_id and db.get(TopicScope,row.topic_id).status!='approved':raise SourceError('TOPIC_CONFLICT')
         if (not row.topic_id or (row.search_state or {}).get('schema')!='material-research/v3') and (action=='more' or action=='retry' and not row.selection):
             raise SourceError('RESEARCH_SCOPE_REQUIRED')
-        if action=='finish':
-            if row.status not in ('searching','selecting','cancelled'):raise SourceError('REQUEST_INVALID')
-            candidates=deepcopy(row.candidates)
-            if not any((c.get('_prior_review') or c.get('review',{})).get('phase')=='body' for c in candidates):
-                raise SourceError('SOURCE_NOT_READY')
-            progress=deepcopy(row.search_state)
-            progress.update(finish_reason='user_stopped',waiting_until=None)
-            research_workflow.organize(progress,candidates)
-            row.search_state=progress;row.candidates=candidates;row.status='selecting'
-        elif action=='more':
+        if action=='more':
             if row.status!='selecting':raise SourceError('REQUEST_INVALID')
             progress=deepcopy(row.search_state)
             progress.update(stage='following_up',summary='依目前缺口接續研究。',continue_requested=True)
@@ -141,7 +118,7 @@ def action(owner,identity,action,selected=None,*,guidance=None,dsn=None):
             if row.status not in ('selecting','ready','failed'):raise SourceError('REQUEST_INVALID')
             known={c['id']:c for c in row.candidates}
             if not selected or len(set(selected))!=len(selected) or any(i not in known or not known[i]['eligible'] or
-                known[i].get('review',{}).get('phase')!='body' for i in selected):
+                known[i].get('review',{}).get('phase')!='body' or not research_workflow.source_allowed(known[i]) for i in selected):
                 raise SourceError('REQUEST_INVALID')
             row.selection=list(selected)
             candidates=deepcopy(row.candidates)
@@ -256,7 +233,6 @@ def step(*,dsn=None,config=None):
         with cancellable_job(Research, state['research_id'], state['lease_token'], dsn=dsn, statuses=(state['status'],)) as job:
             if state['status']=='searching':
                 if not state['approved_scope']:raise SourceError('RESEARCH_SCOPE_REQUIRED')
-                state['approved_scope']=_search_scope(state['approved_scope'])
                 if state['material_id'] and (state['search_state'] or {}).get('stage','planning')=='planning':
                     from .retrieval import search
                     with database_session(dsn) as db:
@@ -283,6 +259,7 @@ def step(*,dsn=None,config=None):
                 if candidate is None:
                     save(state,lambda r:setattr(r,'status','normalizing'),dsn=dsn);return True
                 try:
+                    if not research_workflow.source_allowed(candidate):raise SourceError('RESEARCH_SOURCE_TYPE_UNCONFIRMED')
                     metadata=state['staged_metadata']
                     if state['staged_content'] and metadata and metadata['id']==candidate['id']:
                         data=state['staged_content'];media=metadata['media'];suffix=metadata['suffix']
