@@ -260,3 +260,33 @@ def test_adopted_marker_does_not_hide_catalog_corruption(legacy_copy):
         connection.execute("ALTER TABLE artifacts DROP CONSTRAINT artifact_role_media")
     with pytest.raises(baseline.BaselineError, match="BASELINE_SCHEMA_MISMATCH"):
         baseline.check_or_adopt(dsn, load_migrations(), artifacts, apply=True)
+
+
+def test_ledger_rollback_entrypoint_does_not_require_the_http_application(legacy_copy):
+    import json
+    import os
+    import subprocess
+    import sys
+
+    dsn, artifacts, _ = legacy_copy
+    baseline.check_or_adopt(dsn, load_migrations(), artifacts, apply=True)
+    command = """import runpy,sys
+sys.modules['runtime.api'] = None
+sys.argv = ['baseline', 'restore-ledger']
+runpy.run_module('runtime.storage.baseline', run_name='__main__')
+"""
+    environment = {**os.environ, "STUDYDY_DATABASE_DSN": str(dsn)}
+    result = subprocess.run(
+        [sys.executable, "-c", command],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["restored_legacy_ledger"]
+    with psycopg.connect(dsn) as connection:
+        assert baseline.read_marker(connection) is None
+        assert connection.execute(
+            "SELECT count(*) FROM schema_migrations"
+        ).fetchone() == (32,)

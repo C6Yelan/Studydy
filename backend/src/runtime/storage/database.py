@@ -5,7 +5,7 @@ from typing import Any
 
 import psycopg
 from psycopg import Connection
-from psycopg.conninfo import conninfo_to_dict
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 DATABASE_DSN_ENV = "STUDYDY_DATABASE_DSN"
 
@@ -44,3 +44,17 @@ def connect_database(
         return psycopg.connect(resolved_dsn, autocommit=autocommit)
     except psycopg.Error:
         raise DatabaseConnectionError("DATABASE_CONNECTION_FAILED") from None
+
+
+def configure_database(environment) -> None:
+    password = environment["POSTGRES_PASSWORD"]
+    if not password:
+        raise ValueError("CONTAINER_DATABASE_INVALID")
+    os.environ["STUDYDY_DATABASE_DSN"] = make_conninfo(
+        host="postgres",
+        port="5432",
+        dbname=environment["POSTGRES_DB"],
+        user=environment["POSTGRES_USER"],
+        password=password,
+        connect_timeout="5",
+    )

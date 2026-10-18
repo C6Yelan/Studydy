@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from psycopg.conninfo import make_conninfo
+from .storage.database import configure_database
 
 from .local_app import run_local_app
 from .semantic_service import _origin, SERVICE_URL_ENV
@@ -20,8 +20,10 @@ def initialize_data(root: Path, uid: int, gid: int) -> None:
     root.chmod(0o700)
     os.chown(root, uid, gid)
     for relative, owner, group in (
-        ("artifacts", uid, gid), ("models", uid, gid),
-        ("models/unlimited-ocr", uid, gid), ("postgres", 999, 999),
+        ("artifacts", uid, gid),
+        ("models", uid, gid),
+        ("models/unlimited-ocr", uid, gid),
+        ("postgres", 999, 999),
     ):
         path = root / relative
         if path.is_symlink():
@@ -31,21 +33,14 @@ def initialize_data(root: Path, uid: int, gid: int) -> None:
         os.chown(path, owner, group)
 
 
-def configure_database(environment) -> None:
-    password = environment["POSTGRES_PASSWORD"]
-    if not password:
-        raise ValueError("CONTAINER_DATABASE_INVALID")
-    os.environ["STUDYDY_DATABASE_DSN"] = make_conninfo(
-        host="postgres", port="5432", dbname=environment["POSTGRES_DB"],
-        user=environment["POSTGRES_USER"], password=password, connect_timeout="5",
-    )
-
-
 def check_sandbox() -> None:
     result = subprocess.run(
         ["bwrap", "--unshare-all", "--ro-bind", "/", "/", "/usr/bin/true"],
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        timeout=5, check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=5,
+        check=False,
     )
     if result.returncode:
         raise RuntimeError("CONTAINER_SANDBOX_UNAVAILABLE")
@@ -53,35 +48,29 @@ def check_sandbox() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("init", "migrate", "serve", "prepare-read-indexes",
-                                            "baseline-check", "baseline-apply", "baseline-restore-ledger"))
+    parser.add_argument(
+        "command", choices=("init", "migrate", "serve", "prepare-read-indexes")
+    )
     command = parser.parse_args().command
     try:
         if command == "init":
-            initialize_data(Path("/data"), int(os.environ["STUDYDY_UID"]), int(os.environ["STUDYDY_GID"]))
+            initialize_data(
+                Path("/data"),
+                int(os.environ["STUDYDY_UID"]),
+                int(os.environ["STUDYDY_GID"]),
+            )
             return
         if command == "serve":
             _origin(os.environ[SERVICE_URL_ENV])
             check_sandbox()
         configure_database(os.environ)
-        if command.startswith('baseline-'):
-            import json
-            from .storage.baseline import check_or_adopt, restore_legacy_ledger
-            from .storage.migrations import load_migrations
-            migrations = load_migrations()
-            if command == 'baseline-restore-ledger':
-                result = restore_legacy_ledger(None, migrations)
-            else:
-                result = check_or_adopt(None, migrations, Path(os.environ['STUDYDY_ARTIFACT_ROOT']),
-                                       apply=command == 'baseline-apply')
-            print(json.dumps(result), flush=True)
-            return
         # 啟動時核對已套用的 checksum，再以交易執行待套用的 migration。
         run_migrations()
         if command == "migrate":
             return
         if command == "prepare-read-indexes":
             from .storage.knowledge_reads import backfill
+
             print(f"Prepared read indexes: {backfill()}", flush=True)
             return
         run_local_app(host="0.0.0.0", port=8001)
@@ -90,7 +79,10 @@ def main() -> None:
         raise SystemExit(1) from None
     except Exception:
         # 不把含密碼的 conninfo、模型位址或 SQL 例外輸出至容器 log。
-        print("CONTAINER_OPERATION_FAILED: check configuration, database and sandbox", flush=True)
+        print(
+            "CONTAINER_OPERATION_FAILED: check configuration, database and sandbox",
+            flush=True,
+        )
         raise SystemExit(1) from None
 
 

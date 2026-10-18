@@ -415,3 +415,39 @@ def restore_legacy_ledger(dsn, migrations):
                 return {"baseline_id": BASELINE_ID, "restored_legacy_ledger": True}
         finally:
             connection.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK_KEY,))
+
+
+def main():
+    """維護入口不載入 HTTP API；應用啟動失敗時仍可核對或回退控制帳本。"""
+    import argparse
+    import os
+    from .database import configure_database
+    from .migrations import load_migrations
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("check", "apply", "restore-ledger"))
+    action = parser.parse_args().action
+    try:
+        if not os.environ.get("STUDYDY_DATABASE_DSN"):
+            configure_database(os.environ)
+        migrations = load_migrations()
+        if action == "restore-ledger":
+            result = restore_legacy_ledger(None, migrations)
+        else:
+            result = check_or_adopt(
+                None,
+                migrations,
+                Path(os.environ["STUDYDY_ARTIFACT_ROOT"]),
+                apply=action == "apply",
+            )
+        print(json.dumps(result), flush=True)
+    except BaselineError as error:
+        print(json.dumps({"error": str(error)}), flush=True)
+        raise SystemExit(1) from None
+    except Exception:
+        print(json.dumps({"error": "BASELINE_OPERATION_FAILED"}), flush=True)
+        raise SystemExit(1) from None
+
+
+if __name__ == "__main__":
+    main()
