@@ -1,4 +1,5 @@
 """HTTPS 與上傳入口契約；只使用 fixture DB，不建立外部連線。"""
+from runtime.api import request_context
 from uuid import uuid4
 from types import SimpleNamespace
 
@@ -44,13 +45,13 @@ def test_https_cookie_origin_and_forged_identity(clean_database_dsn, tmp_path, m
 @pytest.mark.parametrize('limit', [1024, 90 * 1024 * 1024])
 def test_upload_limit_capability_stream_and_rejected_state(limit, tmp_path, monkeypatch):
     application = app(tmp_path, monkeypatch, limit=limit)
-    monkeypatch.setattr(api, '_trusted_learner', lambda *_: SimpleNamespace(learner_id=uuid4()))
+    monkeypatch.setattr(request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=uuid4()))
     monkeypatch.setattr(api, 'normalizer_available', lambda: False)
     accepted = []
     # Storage sentinel proves oversize is rejected before any source write.
     def store(*args, **kwargs):
         accepted.append(len(args[2]))
-        raise api._ApiFailure('STORAGE_UNAVAILABLE')
+        raise request_context.ApiFailure('STORAGE_UNAVAILABLE')
     monkeypatch.setattr(api, 'upload_source', store)
     client = TestClient(application, base_url=ORIGIN)
     assert client.get('/v1/source-capabilities').json()['formats'][0]['max_bytes'] == limit

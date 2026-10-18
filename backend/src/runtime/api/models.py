@@ -25,7 +25,9 @@ class AccountCredentials(_Closed):
 
 
 class LearnerIdentityView(_Closed):
-    schema_: Literal["learner-identity/v1"] = Field(default="learner-identity/v1", alias="schema")
+    schema_: Literal["learner-identity/v1"] = Field(
+        default="learner-identity/v1", alias="schema"
+    )
     learner_id: UUID
 
 
@@ -36,22 +38,38 @@ class MaterialOutputBindingView(_Closed):
 
 
 class MaterialDiscardView(_Closed):
-    schema_: Literal["material-discard/v1"] = Field(default="material-discard/v1", alias="schema")
+    schema_: Literal["material-discard/v1"] = Field(
+        default="material-discard/v1", alias="schema"
+    )
     material_id: UUID
     state: Literal["removing", "removed"]
 
 
 class MaterialProcessingRunView(_Closed):
     analysis_saved: bool = False
-    base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
-    source_names: list[str] | None = Field(default=None,exclude_if=lambda value:value is None)
+    base_revision: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    source_names: list[str] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     schema_: Literal["material-processing-run/v1"] = Field(alias="schema")
-    input_source_set_id: UUID | None = Field(default=None,exclude_if=lambda value:value is None)
+    input_source_set_id: UUID | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     run_id: UUID
     material_id: UUID
     source_artifact_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed", "cancelled"]
-    progress_stage: Literal["queued", "evidence", "semantics", "review", "indexing", "publishing", "completed"]
+    progress_stage: Literal[
+        "queued",
+        "evidence",
+        "semantics",
+        "review",
+        "indexing",
+        "publishing",
+        "completed",
+    ]
     completed_pages: int
     total_pages: int | None
     completed_units: int | None = None
@@ -65,10 +83,20 @@ class MaterialProcessingRunView(_Closed):
 
 
 class MaterialAttemptView(_Closed):
-    base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
+    base_revision: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     run_id: UUID
     status: Literal["pending", "running", "succeeded", "partial", "failed", "cancelled"]
-    progress_stage: Literal["queued", "evidence", "semantics", "review", "indexing", "publishing", "completed"]
+    progress_stage: Literal[
+        "queued",
+        "evidence",
+        "semantics",
+        "review",
+        "indexing",
+        "publishing",
+        "completed",
+    ]
     completed_pages: int
     total_pages: int | None
     error_code: str | None
@@ -77,7 +105,9 @@ class MaterialAttemptView(_Closed):
 
 
 class MaterialStructureLink(_Closed):
-    base_revision: str | None = Field(default=None,exclude_if=lambda value:value is None)
+    base_revision: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     run_id: UUID
     knowledge_structure_revision: str
     created_at: datetime
@@ -101,11 +131,11 @@ class SourceView(_Closed):
     original_artifact_id: UUID
     original_name: str
     media_type: str
-    status: Literal['pending','running','ready','failed']
+    status: Literal["pending", "running", "ready", "failed"]
     normalized_artifact_id: UUID | None
     page_count: int | None
     analysis_page_count: int | None = None
-    analysis_mode: Literal['full', 'selected'] = 'full'
+    analysis_mode: Literal["full", "selected"] = "full"
     error_code: str | None
 
 
@@ -113,7 +143,9 @@ class MaterialLibraryItem(_Closed):
     head_revision: str | None = None
     source_count: int = 1
     schema_: Literal["material-library-item/v1"] = Field(alias="schema")
-    source: SourceView | None = Field(default=None,exclude_if=lambda value:value is None)
+    source: SourceView | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     material_id: UUID
     source_artifact_id: UUID | None
     display_name: str
@@ -130,7 +162,9 @@ class MaterialRename(_Closed):
 
 
 class MaterialLibraryView(_Closed):
-    schema_: Literal["material-library/v1"] = Field(default="material-library/v1", alias="schema")
+    schema_: Literal["material-library/v1"] = Field(
+        default="material-library/v1", alias="schema"
+    )
     materials: list[MaterialLibraryItem]
 
 
@@ -141,9 +175,13 @@ class SourceLocatorView(_Closed):
 
 
 class EvidenceView(_Closed):
-    source_id: str | None = Field(default=None,exclude_if=lambda value:value is None)
-    source_name: str | None = Field(default=None,exclude_if=lambda value:value is None)
-    normalized_page: int | None = Field(default=None,exclude_if=lambda value:value is None)
+    source_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    source_name: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    normalized_page: int | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     evidence_id: str
     page_ref: str
     page: int
@@ -237,7 +275,7 @@ class OutlineRelationView(_Closed):
 
 
 class KnowledgeOutlineView(_Closed):
-    schema_: Literal['knowledge-outline/v1'] = Field(alias='schema')
+    schema_: Literal["knowledge-outline/v1"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
     run_id: UUID
@@ -251,7 +289,7 @@ class KnowledgeOutlineView(_Closed):
 
 
 class KnowledgeConceptsView(_Closed):
-    schema_: Literal['knowledge-concepts/v1'] = Field(alias='schema')
+    schema_: Literal["knowledge-concepts/v1"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
     requested_concept_ids: list[str]
@@ -263,7 +301,7 @@ class KnowledgeConceptsView(_Closed):
 
 
 class KnowledgeSearchView(_Closed):
-    schema_: Literal['knowledge-search/v1'] = Field(alias='schema')
+    schema_: Literal["knowledge-search/v1"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
     concept_ids: list[str]
@@ -277,8 +315,8 @@ class CardSetCreate(_Closed):
 
 
 class CardGenerationView(_Closed):
-    status: Literal['pending', 'running', 'ready', 'failed']
-    stage: Literal['preparing', 'compacting', 'designing', 'checking', 'complete']
+    status: Literal["pending", "running", "ready", "failed"]
+    stage: Literal["preparing", "compacting", "designing", "checking", "complete"]
     completed: int
     total: int
     error_code: str | None
@@ -317,7 +355,7 @@ class CardCountSave(_Closed):
     card_count: int | None = Field(default=None, ge=1, le=1_000_000, strict=True)
     concept_counts: dict[str, StrictInt] = Field(default_factory=dict)
     # 分頁規則更新時須同步此政策與前端，並以 migration 清除舊張數。
-    layout_policy: Literal['visual-concept-card/v4']
+    layout_policy: Literal["visual-concept-card/v4"]
 
 
 class CardTextEdit(_Closed):
@@ -357,14 +395,14 @@ class CardDesignLink(CardDesignSources):
 
 class CardDesignPage(_Closed):
     title: str
-    layout: Literal['focus', 'compare', 'flow', 'grid']
+    layout: Literal["focus", "compare", "flow", "grid"]
     takeaway: CardDesignText
     blocks: list[CardDesignBlock]
     links: list[CardDesignLink]
 
 
 class CardDesignView(_Closed):
-    schema_: Literal['concept-card-design/v1'] = Field(alias='schema')
+    schema_: Literal["concept-card-design/v1"] = Field(alias="schema")
     revision: str
     pages: list[CardDesignPage]
     details_claim_ids: list[str]
@@ -385,7 +423,7 @@ class CardContextView(_Closed):
 
 
 class CardBatchView(_Closed):
-    schema_: Literal['card-batch/v1'] = Field(alias='schema')
+    schema_: Literal["card-batch/v1"] = Field(alias="schema")
     card_set_id: UUID
     version: int
     offset: int
@@ -401,7 +439,7 @@ class CardNavigationView(_Closed):
 
 
 class CardStudyView(CardSetSummary):
-    schema_: Literal['card-study/v1'] = Field(alias='schema')
+    schema_: Literal["card-study/v1"] = Field(alias="schema")
     source_resolver: str
     status: StatusView
     navigation: list[CardNavigationView]
@@ -420,6 +458,7 @@ class CardSetDeletedView(_Closed):
 
 class StudySessionCreate(_Closed):
     """Ensure a persistent state; current_concept_id applies only to its initial creation."""
+
     schema_: Literal["study-session-create/v1"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
@@ -479,7 +518,9 @@ class AnswerFeedbackView(_Closed):
 
 
 class StudyResumeView(_Closed):
-    schema_: Literal["study-resume/v1"] = Field(default="study-resume/v1", alias="schema")
+    schema_: Literal["study-resume/v1"] = Field(
+        default="study-resume/v1", alias="schema"
+    )
     session: StudySessionView
     run_id: UUID
     source_artifact_id: UUID
@@ -491,12 +532,12 @@ class StudyResumeView(_Closed):
 
 
 class AssessmentSetCreate(_Closed):
-    schema_: Literal['assessment-set-create/v1'] = Field(alias='schema')
+    schema_: Literal["assessment-set-create/v1"] = Field(alias="schema")
     target_concept_id: str
 
 
 class AssessmentSetAction(_Closed):
-    schema_: Literal['assessment-set-action/v1'] = Field(alias='schema')
+    schema_: Literal["assessment-set-action/v1"] = Field(alias="schema")
     expected_set_version: int = Field(ge=1, strict=True)
 
 
@@ -507,7 +548,7 @@ class AssessmentSetAnswer(_Closed):
 
 
 class AssessmentSetSubmission(_Closed):
-    schema_: Literal['assessment-set-submission/v1'] = Field(alias='schema')
+    schema_: Literal["assessment-set-submission/v1"] = Field(alias="schema")
     expected_set_version: int = Field(ge=1, strict=True)
     answers: list[AssessmentSetAnswer] = Field(min_length=1)
 
@@ -515,19 +556,19 @@ class AssessmentSetSubmission(_Closed):
 class AssessmentPlanTarget(_Closed):
     claim_id: str
     covered_claim_ids: list[str]
-    reason: Literal['distinct_grounded_point']
+    reason: Literal["distinct_grounded_point"]
 
 
 class AssessmentPlanExcluded(_Closed):
     claim_id: str
-    reason: Literal['no_content_evidence']
+    reason: Literal["no_content_evidence"]
 
 
 class AssessmentPlanView(_Closed):
-    schema_: Literal['assessment-plan/v1'] = Field(alias='schema')
+    schema_: Literal["assessment-plan/v1"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
-    policy: Literal['single-concept-grounded-points/v1']
+    policy: Literal["single-concept-grounded-points/v1"]
     concept_id: str
     point_count: int
     requested_count: int
@@ -546,7 +587,7 @@ class AssessmentCycleSummary(_Closed):
     diagnostic_set_id: UUID
     concept_id: str
     set_version: int
-    outcome: Literal['in_progress','needs_review','passed','incomplete']
+    outcome: Literal["in_progress", "needs_review", "passed", "incomplete"]
     active_set_id: UUID | None
     passed_count: int
     remediation_passed_count: int
@@ -557,7 +598,13 @@ class AssessmentCycleSummary(_Closed):
 
 class AssessmentCyclePoint(_Closed):
     claim_id: str
-    result: Literal['unavailable','unanswered','diagnostic_pass','needs_review','remediation_pass']
+    result: Literal[
+        "unavailable",
+        "unanswered",
+        "diagnostic_pass",
+        "needs_review",
+        "remediation_pass",
+    ]
     latest_answer_event_id: UUID | None
     latest_set_id: UUID | None
 
@@ -568,11 +615,19 @@ class AssessmentCycleView(AssessmentCycleSummary):
 
 
 class AssessmentSetSummary(_Closed):
-    kind: Literal['diagnostic','remediation']
+    kind: Literal["diagnostic", "remediation"]
     diagnostic_set_id: UUID | None
     set_id: UUID
     target_concept_id: str
-    status: Literal['preparing','partial_ready','failed','ready','in_progress','completed','cancelled']
+    status: Literal[
+        "preparing",
+        "partial_ready",
+        "failed",
+        "ready",
+        "in_progress",
+        "completed",
+        "cancelled",
+    ]
     set_version: int
     requested_count: int
     published_count: int
@@ -584,7 +639,7 @@ class AssessmentSetSummary(_Closed):
 
 
 class AssessmentSetListView(_Closed):
-    schema_: Literal['assessment-set-list/v1'] = Field(alias='schema')
+    schema_: Literal["assessment-set-list/v1"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
     active_set_ids: list[UUID]
@@ -594,7 +649,9 @@ class AssessmentSetListView(_Closed):
 class AssessmentSetItemView(_Closed):
     ordinal: int
     target_claim_id: str
-    state: Literal['pending','generating','verified','published','failed','omitted']
+    state: Literal[
+        "pending", "generating", "verified", "published", "failed", "omitted"
+    ]
     attempts: int
     failure_reason: str | None
     assessment: AssessmentView | None
@@ -604,11 +661,13 @@ class AssessmentSetItemView(_Closed):
 
 
 class AssessmentSetView(AssessmentSetSummary):
-    schema_: Literal['assessment-set/v1'] = Field(alias='schema')
+    schema_: Literal["assessment-set/v1"] = Field(alias="schema")
     study_session_id: UUID
     material_id: UUID
     knowledge_structure_revision: str
-    selection_policy: Literal['single-concept-grounded-points/v1','needs-review-points/v1']
+    selection_policy: Literal[
+        "single-concept-grounded-points/v1", "needs-review-points/v1"
+    ]
     point_count: int
     excluded_count: int
     verified_count: int
@@ -639,19 +698,19 @@ class LearnerProgressView(_Closed):
 
 
 class StudyProgressView(LearnerProgressView):
-    schema_: Literal['study-progress/v1'] = Field(alias='schema')
+    schema_: Literal["study-progress/v1"] = Field(alias="schema")
     concept_count: int
 
 
 class MapConceptStateView(_Closed):
     concept_id: str
-    status: Literal['not_started', 'in_progress', 'needs_review', 'completed']
+    status: Literal["not_started", "in_progress", "needs_review", "completed"]
     attempts: int
     assessable: bool
 
 
 class MapProgressView(_Closed):
-    schema_: Literal['map-progress/v1'] = Field(alias='schema')
+    schema_: Literal["map-progress/v1"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
     current_concept_id: str | None
@@ -666,7 +725,7 @@ class StudyConceptLabelView(_Closed):
 
 
 class StudyNavigationView(_Closed):
-    schema_: Literal['study-navigation/v1'] = Field(alias='schema')
+    schema_: Literal["study-navigation/v1"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
     run_id: UUID
@@ -678,7 +737,7 @@ class StudyNavigationView(_Closed):
 
 
 class StudyWorkspaceView(_Closed):
-    schema_: Literal['study-workspace/v1'] = Field(alias='schema')
+    schema_: Literal["study-workspace/v1"] = Field(alias="schema")
     session: StudySessionView
     run_id: UUID
     source_artifact_id: UUID
@@ -693,76 +752,97 @@ class StudyWorkspaceView(_Closed):
 def project_material_run(run: Any) -> MaterialProcessingRunView:
     from ..storage.analysis_archive import has_analysis_checkpoint
 
-    return MaterialProcessingRunView.model_validate({
-        "analysis_saved": (
-            run.status == "failed"
-            and has_analysis_checkpoint(run.learner_id, run.material_id, run.run_id)
-        ),
-        "schema": "material-processing-run/v1",
-        "input_source_set_id": getattr(run, "input_source_set_id", None),
-        "base_revision": getattr(run, "base_revision", None),
-        "source_names": list(run.source_names) if getattr(run, "source_names", ()) else None,
-        "output_binding": (
-            {
-                "schema": run.output_binding["schema"],
-                "knowledge_structure_revision": run.output_binding["knowledge_structure_revision"],
-                "page_count": run.output_binding["page_count"],
-            }
-            if run.output_binding is not None else None
-        ),
-        **{name: getattr(run, name) for name in (
-            "run_id", "material_id", "source_artifact_id", "status", "progress_stage",
-            "completed_pages", "total_pages", "completed_units", "total_units", "error_code", "cancel_requested_at",
-            "created_at", "updated_at", "completed_at",
-        )},
-    })
+    return MaterialProcessingRunView.model_validate(
+        {
+            "analysis_saved": (
+                run.status == "failed"
+                and has_analysis_checkpoint(run.learner_id, run.material_id, run.run_id)
+            ),
+            "schema": "material-processing-run/v1",
+            "input_source_set_id": getattr(run, "input_source_set_id", None),
+            "base_revision": getattr(run, "base_revision", None),
+            "source_names": list(run.source_names)
+            if getattr(run, "source_names", ())
+            else None,
+            "output_binding": (
+                {
+                    "schema": run.output_binding["schema"],
+                    "knowledge_structure_revision": run.output_binding[
+                        "knowledge_structure_revision"
+                    ],
+                    "page_count": run.output_binding["page_count"],
+                }
+                if run.output_binding is not None
+                else None
+            ),
+            **{
+                name: getattr(run, name)
+                for name in (
+                    "run_id",
+                    "material_id",
+                    "source_artifact_id",
+                    "status",
+                    "progress_stage",
+                    "completed_pages",
+                    "total_pages",
+                    "completed_units",
+                    "total_units",
+                    "error_code",
+                    "cancel_requested_at",
+                    "created_at",
+                    "updated_at",
+                    "completed_at",
+                )
+            },
+        }
+    )
 
 
 def project_knowledge_structure(view: dict[str, Any]) -> KnowledgeStructureView:
     """公開學習地圖與 Evidence；內部歸屬和推論資料留在正式 KS。"""
-    return KnowledgeStructureView.model_validate({
-        **view,
-        "concepts": [
-            {
-                "concept_id": concept["concept_id"],
-                "label": concept["label"],
-                "aliases": concept["aliases"],
-                "claims": concept["claims"],
-            }
-            for concept in view["concepts"]
-        ],
-        "relations": [
-            {
-                "relation_id": relation["relation_id"],
-                "source_concept_id": relation["source_concept_id"],
-                "target_concept_id": relation["target_concept_id"],
-                "type": relation["type"],
-                "learner_reason": relation["learner_reason"],
-                "evidence_refs": relation["evidence_refs"],
-            }
-            for relation in view["relations"]
-        ],
-    })
+    return KnowledgeStructureView.model_validate(
+        {
+            **view,
+            "concepts": [
+                {
+                    "concept_id": concept["concept_id"],
+                    "label": concept["label"],
+                    "aliases": concept["aliases"],
+                    "claims": concept["claims"],
+                }
+                for concept in view["concepts"]
+            ],
+            "relations": [
+                {
+                    "relation_id": relation["relation_id"],
+                    "source_concept_id": relation["source_concept_id"],
+                    "target_concept_id": relation["target_concept_id"],
+                    "type": relation["type"],
+                    "learner_reason": relation["learner_reason"],
+                    "evidence_refs": relation["evidence_refs"],
+                }
+                for relation in view["relations"]
+            ],
+        }
+    )
 
 
 def project_study_session(session: Any) -> StudySessionView:
-    return StudySessionView.model_validate({
-        "schema": "study-session/v1",
-        "study_session_id": session.study_session_id,
-        "material_id": session.material_id,
-        "knowledge_structure_revision": session.knowledge_structure_revision,
-        "current_concept_id": session.current_concept_id,
-        "deferred_concept_ids": list(session.deferred_concept_ids),
-        "no_safe_claim_ids": list(session.no_safe_claim_ids),
-        "status": session.status,
-        "started_at": session.started_at,
-        "completed_at": session.completed_at,
-        "event_watermark": session.last_event_number,
-    })
-
-
-def project_answer_feedback(feedback: Any) -> AnswerFeedbackView:
-    return AnswerFeedbackView.model_validate(feedback.model_dump(by_alias=True))
+    return StudySessionView.model_validate(
+        {
+            "schema": "study-session/v1",
+            "study_session_id": session.study_session_id,
+            "material_id": session.material_id,
+            "knowledge_structure_revision": session.knowledge_structure_revision,
+            "current_concept_id": session.current_concept_id,
+            "deferred_concept_ids": list(session.deferred_concept_ids),
+            "no_safe_claim_ids": list(session.no_safe_claim_ids),
+            "status": session.status,
+            "started_at": session.started_at,
+            "completed_at": session.completed_at,
+            "event_watermark": session.last_event_number,
+        }
+    )
 
 
 def project_learner_progress(progress: Any) -> LearnerProgressView:
@@ -772,73 +852,88 @@ def project_learner_progress(progress: Any) -> LearnerProgressView:
 
 
 class MaterialDraftCreate(_Closed):
-    schema_: Literal['material-draft-create/v1'] = Field(alias='schema')
+    schema_: Literal["material-draft-create/v1"] = Field(alias="schema")
     display_name: str
 
+
 class MaterialDraftView(_Closed):
-    schema_: Literal['material-draft/v1'] = Field(default='material-draft/v1', alias='schema')
+    schema_: Literal["material-draft/v1"] = Field(
+        default="material-draft/v1", alias="schema"
+    )
     material_id: UUID
+
 
 class SourceListView(_Closed):
     discard_requested: bool = False
-    schema_: Literal['material-sources/v1'] = Field(
-        default='material-sources/v1', alias='schema',
+    schema_: Literal["material-sources/v1"] = Field(
+        default="material-sources/v1",
+        alias="schema",
     )
     material_id: UUID
     sources: list[SourceView]
 
+
 class RevisionCreate(_Closed):
-    schema_: Literal['material-revision-create/v1'] = Field(alias='schema')
+    schema_: Literal["material-revision-create/v1"] = Field(alias="schema")
     base_revision: str | None = Field(
-        default=None, pattern=r'^knowledge-structure:sha256:[0-9a-f]{64}$',
+        default=None,
+        pattern=r"^knowledge-structure:sha256:[0-9a-f]{64}$",
     )
     normalization_ids: list[UUID] = Field(min_length=1)
 
 
 class RevisionCancel(_Closed):
-    schema_: Literal['material-revision-cancel/v1'] = Field(alias='schema')
-    base_revision: str = Field(pattern=r'^knowledge-structure:sha256:[0-9a-f]{64}$')
+    schema_: Literal["material-revision-cancel/v1"] = Field(alias="schema")
+    base_revision: str = Field(pattern=r"^knowledge-structure:sha256:[0-9a-f]{64}$")
 
 
 class MaterialReviewCreate(_Closed):
-    schema_: Literal['material-review-create/v1'] = Field(alias='schema')
-    base_revision: str = Field(pattern=r'^knowledge-structure:sha256:[0-9a-f]{64}$')
+    schema_: Literal["material-review-create/v1"] = Field(alias="schema")
+    base_revision: str = Field(pattern=r"^knowledge-structure:sha256:[0-9a-f]{64}$")
+
 
 class FormatCapability(_Closed):
     extension: str
     media_type: str
     max_bytes: int
 
+
 class SourceCapabilities(_Closed):
-    schema_: Literal['source-capabilities/v1'] = Field(
-        default='source-capabilities/v1', alias='schema',
+    schema_: Literal["source-capabilities/v1"] = Field(
+        default="source-capabilities/v1",
+        alias="schema",
     )
     formats: list[FormatCapability]
 
+
 class PdfOrigin(_Closed):
     original_page: int = Field(ge=1)
+
 
 class SlideOrigin(_Closed):
     original_slide_number: int = Field(ge=1)
     slide_id: str
     hidden: bool
 
+
 class DocumentOrigin(_Closed):
     document_part: Literal["word/document.xml"]
     paragraph: int = Field(ge=1)
+
 
 class TextOrigin(_Closed):
     line_start: int = Field(ge=1)
     line_end: int = Field(ge=1)
 
+
 class EvidenceSourceView(_Closed):
-    schema_: Literal['evidence-source/v1'] = Field(alias='schema')
-    format: Literal['pdf', 'docx', 'pptx', 'doc', 'ppt', 'txt', 'md']
+    schema_: Literal["evidence-source/v1"] = Field(alias="schema")
+    format: Literal["pdf", "docx", "pptx", "doc", "ppt", "txt", "md"]
     original_name: str
     original_url: str
     preview_url: str
     normalized_page: int
-    accuracy: Literal['exact', 'ambiguous', 'unavailable']
+    accuracy: Literal["exact", "ambiguous", "unavailable"]
     origin_locators: list[PdfOrigin | SlideOrigin | DocumentOrigin | TextOrigin]
     label: str
 
@@ -935,14 +1030,14 @@ class PodcastReview(_Closed):
 
 
 class PodcastBeatScript(_Closed):
-    schema_: Literal['podcast-script/v2'] = Field(alias='schema')
+    schema_: Literal["podcast-script/v2"] = Field(alias="schema")
     segments: list[PodcastBeat]
     provider: str
     review: PodcastReview | None = None
 
 
 class PodcastMastering(_Closed):
-    policy: Literal['podcast-mastering/v1']
+    policy: Literal["podcast-mastering/v1"]
     integrated_lufs: float
     true_peak_dbtp: float
     loudness_range_lu: float

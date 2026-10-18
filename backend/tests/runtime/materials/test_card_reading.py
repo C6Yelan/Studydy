@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import runtime.api.app as api
+from runtime.api.models import project_knowledge_structure
 from product_fixtures import closed_loop, seed_run, publish_fixture_structure
 from runtime import card_sets
 from runtime.learner_session import register_account
@@ -43,7 +44,7 @@ def test_batches_preserve_neighbor_context_without_reloading_document(closed_loo
     owner, material, _, _, dsn, _ = closed_loop
     identity, document, ids = large_deck(closed_loop)
     original = read_knowledge_structure(owner.learner_id, material.material_id, revision=document['revision'], dsn=dsn).view
-    original = api.project_knowledge_structure(original).model_dump(by_alias=True, mode='json')
+    original = project_knowledge_structure(original).model_dump(by_alias=True, mode='json')
     monkeypatch.setattr(knowledge_reads, '_read_verified_document', lambda *a, **kw: pytest.fail('must use prepared source index'))
     monkeypatch.setattr(card_sets, '_read_verified_document', lambda *a, **kw: pytest.fail('must not read full material'))
     study = card_sets.read_card_study(owner.learner_id, identity, dsn=dsn)

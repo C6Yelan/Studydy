@@ -1,3 +1,4 @@
+from runtime.api import request_context
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -94,7 +95,7 @@ def test_waiting_storage_does_not_block_other_api_requests(tmp_path, monkeypatch
         profile='local', public_origin='http://127.0.0.1:4173', secure_cookie=False,
         local_config=config, dsn=None,
     ))
-    monkeypatch.setattr(api, '_trusted_learner', lambda *_: SimpleNamespace(learner_id=uuid4()))
+    monkeypatch.setattr(request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=uuid4()))
 
     async def scenario():
         entered = asyncio.Event()
@@ -145,7 +146,7 @@ def test_empty_body_dependency_rejects_content_before_storage(tmp_path, monkeypa
         profile='local', public_origin='http://127.0.0.1:4173', secure_cookie=False,
         local_config=config, dsn=None,
     ))
-    monkeypatch.setattr(api, '_trusted_learner', lambda *_: pytest.fail('body must be checked first'))
+    monkeypatch.setattr(request_context, 'trusted_learner', lambda *_: pytest.fail('body must be checked first'))
     response = TestClient(app).request('DELETE', f'/v1/materials/{uuid4()}/sources/{uuid4()}',
         headers={'Origin': 'http://127.0.0.1:4173'}, content=b'unexpected')
     assert response.status_code == 400
