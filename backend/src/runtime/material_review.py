@@ -6,7 +6,7 @@ from threading import Event
 import os
 import time
 
-from knowledge_map.material_review import (ReviewError, _pack_review, _corrected_claim, _claim_edit_sources, apply_review, combine_reviews,
+from knowledge_map.material_review import (ReviewError, _pack_review, apply_review, combine_reviews,
                                           response_schema, validate_proposal)
 from knowledge_map.localization import POLICY as LOCALIZATION_POLICY, _needs_translation
 from knowledge_map.claim_literals import language_correction_template, restore_literals
@@ -51,15 +51,15 @@ def review_inputs(document, *, preserved_concept_ids=frozenset()):
         chunks.append((source_id, pages, current))
     units = []
     for source, pages, concepts in chunks:
-        refs = {e['evidence_id'] for c in concepts for q in c['claims'] for e in q['evidence']}
-        context = [e for e in evidence.values() if e['evidence_id'] in refs or
+        cited_pages = {e['page'] for c in concepts for q in c['claims'] for e in q['evidence']}
+        context = [e for e in evidence.values() if e['page'] in cited_pages or
                    (e['source_id'] == source and min(pages) <= e['page'] <= max(pages))]
         title = f"{context[0]['source_name']}：第 {min(e['normalized_page'] for e in context if e['source_id'] == source)}–{max(e['normalized_page'] for e in context if e['source_id'] == source)} 頁"
         unit=_pack_review(view, concepts, context, title)
         scope=binding['bundle'].get('learning_scopes',{}).get(source)
         if scope:
             unit.payload['learning_scope']=deepcopy(scope)
-            unit.payload['learning_scope_policy']='依已確認的程度、目標與排除範圍整理。相鄰原文只供理解，不把範圍外細節變成必學概念；必要的前提、反例與限制仍須保留。'
+            unit.payload['learning_scope_policy']='依已確認的目標、主題細節及其中明列的限制整理。相鄰原文只供理解，不把範圍外細節變成必學概念；必要的前提、反例與限制仍須保留。'
         units.append(unit)
     return view, units
 
@@ -77,7 +77,9 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
             payload['language_corrections'].append({'claim': i, 'original_evidence': [
                 handles[e['evidence_id']] for e in unit.claims[i]['evidence']], 'text': template, 'literals': literals,
                 'instruction': 'claim_edits.meaning 必須沿用 text 的所有保留代號且每個恰好一次，不可展開代號。僅修正未保護的外語文字，literals 只供理解原上下文。'})
-    key = canonical_sha256({'source': unit.source_digest, 'request': payload,
+    # 完整地圖 revision 包含本次 run 身分；重試仍須能重用相同原文與請求的審查。
+    # source_digest 繼續用於套用前的整圖核對，快取則綁定本批實際來源。
+    key = canonical_sha256({'source': canonical_sha256(unit.evidence), 'request': payload,
                             'policy': lock['material_review']})
     rejected = None
     rejection_code = None
@@ -91,13 +93,7 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
     def validate_saved(value):
         nonlocal rejected, rejection_code
         try:
-            parsed = validate_proposal(unit, value)
-            edits = {edit.claim: edit for edit in parsed.claim_edits}
-            if localized and (any(_needs_translation(edit.meaning, _claim_edit_sources(unit, edit)) for edit in parsed.claim_edits) or any(
-                i not in edits or _corrected_claim(edits[i], _claim_edit_sources(unit, edits[i])) is None
-                for i in translations
-            )):
-                raise ReviewError('REVIEW_CLAIM_EDIT_INVALID')
+            validate_proposal(unit, value)
         except ReviewError as error:
             if str(error) in repairable and rejection_code is None:
                 rejected = deepcopy(value)
@@ -359,6 +355,24 @@ def _checked_review(unit, index, lock, archive, client, check_cancel, wait_cance
     return response, calls
 
 
+def _review_part(view, unit, concepts, title, *, cited_pages_only=False):
+    pages = {}
+    for concept in concepts:
+        for claim in concept['claims']:
+            for evidence in claim['evidence']:
+                pages.setdefault(evidence['source_id'], set()).add(evidence['normalized_page'])
+    evidence = [e for e in unit.evidence if e['source_id'] in pages and (
+        e['normalized_page'] in pages[e['source_id']] if cited_pages_only else
+        min(pages[e['source_id']]) <= e['normalized_page'] <= max(pages[e['source_id']])
+    )]
+    part = _pack_review(view, concepts, evidence, title)
+    # 拆批不能丟掉使用者已確認的學習範圍。
+    for key in ('learning_scope', 'learning_scope_policy'):
+        if key in unit.payload:
+            part.payload[key] = deepcopy(unit.payload[key])
+    return part
+
+
 def _review_units(view, units, lock, archive, check_cancel, progress, wait_cancellation_check=None):
     """協調者分派／合併；失敗後不再派送，收完在途批次以保留有效結果。"""
     from .luna_test import enabled
@@ -400,24 +414,24 @@ def _review_units(view, units, lock, archive, check_cancel, progress, wait_cance
                     if len(unit.concepts) == 1:
                         # 舊分段先按原輸入重用成功快取。只對仍超額的單一概念收斂來源頁面，
                         # 保留每個引用及其所在頁的完整區塊，不截文字、不刪 Claim 或改 Evidence。
-                        pages = {(e['source_id'], e['normalized_page'])
-                                 for c in unit.concepts for q in c['claims'] for e in q['evidence']}
-                        evidence = [e for e in unit.evidence
-                                    if (e['source_id'], e['normalized_page']) in pages]
-                        if len(evidence) == len(unit.evidence):
+                        part = _review_part(view, unit, unit.concepts,
+                            f"{unit.payload['title']}（引用頁面完整來源）", cited_pages_only=True)
+                        if len(part.evidence) == len(unit.evidence):
                             failure = failure or error
                             continue
-                        units.append(_pack_review(view, unit.concepts, evidence,
-                            f"{unit.payload['title']}（引用頁面完整來源）"))
+                        units.append(part)
                         split = {'reason': error.reason_code, 'concept_counts': [1],
                                  'source_scope': 'cited-pages/v1',
                                  'before_evidence_blocks': len(unit.evidence),
-                                 'after_evidence_blocks': len(evidence)}
+                                 'after_evidence_blocks': len(part.evidence)}
                     else:
                         middle = len(unit.concepts) // 2
-                        # 先沿用既有分段身分，避免重新推論已完成的子批次。
-                        parts = [unit.concepts[:middle], unit.concepts[middle:]]
-                        units.extend(_pack_review(view, concepts, unit.evidence,
+                        # 同一來源的相鄰頁一起拆；每個子批次保留其引用跨度內的完整頁面，
+                        # 不再把整個父批次原文重複送到每個子批次。
+                        ordered = sorted(unit.concepts, key=lambda c: min(
+                            (e['page'], e['block_order']) for q in c['claims'] for e in q['evidence']))
+                        parts = [ordered[:middle], ordered[middle:]]
+                        units.extend(_review_part(view, unit, concepts,
                             f"{unit.payload['title']}（容量分段 {part}/2）")
                             for part, concepts in enumerate(parts, 1))
                         split = {'reason': error.reason_code, 'concept_counts': [len(part) for part in parts]}
@@ -443,6 +457,7 @@ def _review_units(view, units, lock, archive, check_cancel, progress, wait_cance
 
 def review_structure(document, lock, archive, check_cancel, progress, *, wait_cancellation_check=None, base_structure=None):
     """重用已保存的有效批次，檢核與發布仍由單一協調者完成。"""
+    from .material_consolidation import consolidate_structure
     if 'material_review' not in lock:
         return document
     from knowledge_map.source_identity import unchanged_concepts
@@ -457,19 +472,32 @@ def review_structure(document, lock, archive, check_cancel, progress, *, wait_ca
         progress('review', 0, 0)
         archive.save_review('result', {'source_revision': document['revision'], 'applied_revision': document['revision'],
             'model_calls': 0, 'units': 0, 'reused_batches': [], 'projection': None, 'proposal': None})
-        return document
+        return consolidate_structure(document, lock, archive, check_cancel, progress,
+                                     wait_cancellation_check=wait_cancellation_check)
     started = time.monotonic()
     reviews, calls = _review_units(view, units, lock, archive, check_cancel, progress, wait_cancellation_check)
     unit, proposal = combine_reviews(view, reviews)
+    localized = lock.get('material_semantics', {}).get('localization_policy') == LOCALIZATION_POLICY
+    # 整理提案不是重新匯入門檻。局部翻譯未改善時，保留已可回查的原主張，
+    # 不因一筆混用外文的修正就讓整批補充失敗。
+    language_edits = [edit for edit in proposal['claim_edits'] if localized and _needs_translation(
+        edit['meaning'], [*unit.claims[edit['claim']]['evidence'], *(unit.evidence[h] for h in edit['evidence'])],
+    )]
+    proposal['claim_edits'] = [edit for edit in proposal['claim_edits'] if edit not in language_edits]
     result, projection = apply_review(document, view, unit, proposal)
+    projection['blocked_changes'].extend({'claim_id': unit.claims[edit['claim']]['claim_id'],
+        'reason': 'LOCALIZATION_RETAINED_ORIGINAL'} for edit in language_edits)
     reviewed_claims = {q['claim_id'] for part in units for q in part.claims}
     evidence_by_id = {item['evidence_id']: item for item in result['evidence']}
-    if (lock.get('material_semantics', {}).get('localization_policy') == LOCALIZATION_POLICY
-        and any(q['claim_id'] in reviewed_claims and _needs_translation(
+    language_pending = localized and any(q['claim_id'] in reviewed_claims and _needs_translation(
                     q['text'], [evidence_by_id[ref] for ref in q['evidence_refs']],
                 )
-                for c in result['concepts'] for q in c['claims'])):
-        raise ReviewError('REVIEW_CLAIM_EDIT_INVALID')
+                for c in result['concepts'] for q in c['claims'])
+    if language_edits or language_pending:
+        result['source_review_required'] = True
+        if 'SOURCE_REVIEW_SUGGESTED' not in result['status']['reason_codes']:
+            result['status']['reason_codes'].append('SOURCE_REVIEW_SUGGESTED')
+        result['status'].update(processing='partial', quality='needs_review', decision='review')
     # 語意回應用量含重用；新增呼叫由 receipt 分別計數。
     result['metrics']['semantic_calls'] += len(reviews)
     result['metrics']['semantic_duration_ms'] += round((time.monotonic() - started) * 1000)
@@ -477,4 +505,9 @@ def review_structure(document, lock, archive, check_cancel, progress, *, wait_ca
     archive.save_review('result', {'source_revision': document['revision'], 'applied_revision': result['revision'],
         'model_calls': calls, 'units': len(reviews), 'reused_batches': deepcopy(archive.review_reuses),
         'projection': projection, 'proposal': proposal})
-    return result
+    # 同一持久 review 階段接續去重，不把已完成批次的進度倒退成零。
+    def consolidation_progress(stage, completed, total):
+        progress(stage, len(reviews) + completed, len(reviews) + total)
+
+    return consolidate_structure(result, lock, archive, check_cancel, consolidation_progress,
+                                 wait_cancellation_check=wait_cancellation_check)

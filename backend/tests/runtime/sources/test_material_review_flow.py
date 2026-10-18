@@ -13,10 +13,89 @@ from product_fixtures import closed_loop
 from test_source_revisions import revisions
 
 
-def enable_review(settings):
+def enable_review(settings, *, consolidation=False):
     path = Path(__file__).parents[4] / "local_ai/runtime-lock.json"
     lock = json.loads(path.read_text())
     settings["runtime_lock"]["material_review"] = lock["material_review"]
+    if not consolidation:
+        settings['runtime_lock']['material_review'].pop('consolidation_policy', None)
+
+
+def test_consolidation_review_only_preserves_source_locations_and_old_revision(revisions, monkeypatch):
+    from runtime.storage.knowledge_structures import resolve_evidence_source
+    from test_material_consolidation import approved
+    owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
+    second = add('Same-definition.pdf', original['concepts'][0]['claims'][0]['text'])
+    start([second], 'append-duplicate', original['revision'])
+    prior = execute()
+    old = read_knowledge_structure(owner.learner_id, material, run_id=prior.run_id, dsn=dsn).document
+    assert len(old['concepts']) == 2
+    enable_review(settings, consolidation=True)
+    monkeypatch.setattr('runtime.material_review.request_semantics', lambda _client, **kw: keep_response(kw['request']))
+    operations = []
+    def model(_client, **kw):
+        request = kw['request']
+        operations.append(request['operation'])
+        if request['operation'] == 'consolidation_candidates':
+            return {'groups': [{'concepts': [0, 1], 'reason': '兩個來源為相同定義。'}]}
+        if request['operation'] == 'consolidation_rewrite':
+            return {'concepts': [{'concepts': [0, 1], 'title_from': 0,
+                'claims': [{'claims': [0, 1], 'text': request['claims'][0]['text']}], 'reason': '相同定義只呈現一次。'}]}
+        return approved(request)
+    monkeypatch.setattr('runtime.material_consolidation.request_semantics', model)
+    monkeypatch.setattr('runtime.material_processing.analyze_material', lambda *a, **kw: pytest.fail('analysis rerun'))
+    monkeypatch.setattr('runtime.material_processing.runtime_preflight', lambda *a, **kw: pytest.fail('OCR/POD preflight'))
+    before_requests = len(requests)
+    new = create_revision(owner.learner_id, material, [], 'consolidate', settings, base_revision=old['revision'], dsn=dsn)
+    completed = execute()
+    assert completed.status == 'succeeded', completed.error_code
+    doc = read_knowledge_structure(owner.learner_id, material, run_id=new.run_id, dsn=dsn).document
+    assert validate_knowledge_structure(doc) and len(doc['concepts']) == 1
+    assert doc['evidence'] == old['evidence'] and doc['input_binding']['manifest'] == old['input_binding']['manifest']
+    assert len(requests) == before_requests
+    assert doc['metrics']['ocr_calls'] == doc['metrics']['evidence_duration_ms'] == 0
+    assert doc['metrics']['semantic_calls'] == 2 + len(operations)
+    locations = [resolve_evidence_source(owner.learner_id, material, doc['revision'], ref, dsn=dsn)
+                 for ref in doc['concepts'][0]['evidence_refs']]
+    assert [(r['original_name'], r['normalized_page']) for r in locations] == [('A.pdf', 1), ('Same-definition.pdf', 1)]
+    assert read_knowledge_structure(owner.learner_id, material, revision=old['revision'], dsn=dsn).document == old
+
+
+def test_failed_consolidation_reuses_rejected_draft_only_as_repair_input(revisions, monkeypatch):
+    from runtime.semantic_service import SemanticServiceError
+    from test_material_consolidation import approved, keep
+    owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
+    enable_review(settings, consolidation=True)
+    monkeypatch.setattr('runtime.material_review.request_semantics', lambda _client, **kw: keep_response(kw['request']))
+    def fail(_client, **kw):
+        request = kw['request']
+        assert request['operation'] == 'consolidation_rewrite'
+        if request.get('correction'):
+            raise SemanticServiceError('SEMANTIC_SERVICE_UNAVAILABLE')
+        result = keep(request)
+        result['concepts'][0]['claims'][0]['claims'] = [99]
+        return result
+    monkeypatch.setattr('runtime.material_consolidation.request_semantics', fail)
+    start([], 'failed-consolidation', original['revision'])
+    failed = execute()
+    assert failed.status == 'failed' and failed.error_code == 'SEMANTIC_SERVICE_UNAVAILABLE'
+    operations = []
+    def repaired(_client, **kw):
+        request = kw['request']
+        operations.append(request['operation'])
+        if request['operation'] == 'consolidation_rewrite':
+            assert request['correction']['details']['unexpected_handles'] == [99]
+            assert request['correction']['details']['concepts'] == [0]
+            return keep(request)
+        return approved(request)
+    monkeypatch.setattr('runtime.material_consolidation.request_semantics', repaired)
+    monkeypatch.setattr('runtime.material_review.request_semantics', lambda *a, **kw: pytest.fail('regular review replayed'))
+    retry_revision(owner.learner_id, failed.run_id, 'repair-consolidation', settings, dsn=dsn)
+    completed = execute()
+    assert completed.status == 'succeeded', completed.error_code
+    assert operations == ['consolidation_rewrite', 'consolidation_check']
+    updated = read_knowledge_structure(owner.learner_id, material, run_id=completed.run_id, dsn=dsn).document
+    assert updated['concepts'] == original['concepts'] and updated['evidence'] == original['evidence']
 
 
 def keep_response(request):
@@ -250,7 +329,11 @@ def test_review_capacity_splits_concepts_without_truncating_sources(revisions, m
     result = execute()
     assert len(all_requests[0]['concepts']) > 1
     if single_fits:
-        assert all(r['evidence'] == all_requests[0]['evidence'] for r in all_requests)
+        # 容量分段沿用完整引用頁，無須把其他來源整批重送；所有原文仍須完整保留。
+        def original_block(e):
+            return e['source_name'], e['page'], e['kind'], e['text']
+        assert {original_block(e) for r in model_calls for e in r['evidence']} == {
+            original_block(e) for e in all_requests[0]['evidence']}
         assert result.status == 'succeeded', result.error_code
         doc = read_knowledge_structure(owner.learner_id, material, run_id=result.run_id, dsn=dsn).document
         assert validate_knowledge_structure(doc)

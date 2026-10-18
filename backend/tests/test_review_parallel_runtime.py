@@ -92,6 +92,34 @@ def test_parallel_cancel_stops_both_requests_before_more_dispatch(tmp_path, monk
     assert not list(archive.root.glob('cache-*'))
 
 
+def test_capacity_split_scopes_complete_pages_and_keeps_approved_scope(tmp_path, monkeypatch):
+    from knowledge_map.material_review import _pack_review
+    view, original = inputs(4)
+    evidence = [e for unit in original for e in unit.evidence]
+    # 模擬來源批次亂序完成，拆批仍按頁面保留連續範圍。
+    concepts = view['concepts'][10:] + view['concepts'][:10]
+    unit = _pack_review(view, concepts, evidence, 'Four pages')
+    unit.payload.update(learning_scope={'goals': ['保留明確限制'], 'topics': ['條件判斷']}, learning_scope_policy='依已確認範圍')
+    seen = []
+    def model(client, **kwargs):
+        request = kwargs['request']; seen.append(deepcopy(request))
+        if len(request['evidence']) > 10:
+            raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
+        assert request['learning_scope'] == unit.payload['learning_scope']
+        assert request['learning_scope_policy'] == unit.payload['learning_scope_policy']
+        return wire_proposal(response(request))
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path / 'archive')
+    before = deepcopy(unit)
+    reviews, calls = _review_units(view, [unit], config(), archive, lambda: None, lambda *p: None)
+    assert calls == 2 and len(seen) == 3 and unit == before
+    assert [{e['page'] for e in r['evidence']} for r in seen[1:]] == [{1, 2}, {3, 4}]
+    assert {e['evidence_id'] for u, _ in reviews for e in u.evidence} == {e['evidence_id'] for e in evidence}
+    merged, proposal = combine_reviews(view, reviews)
+    assert len(merged.concepts) == 20
+    project_review(view, merged, proposal)
+
+
 def test_oversized_single_concept_keeps_complete_cited_pages_and_cached_resume(tmp_path, monkeypatch):
     from knowledge_map.material_review import _pack_review
     from pdf_evidence.ocr_page_evidence import canonical_sha256
@@ -127,7 +155,7 @@ def test_oversized_single_concept_keeps_complete_cited_pages_and_cached_resume(t
     monkeypatch.setattr('runtime.material_review.request_semantics', only_capacity)
     assert _review_units(view, [unit], config(), archive, lambda: None, lambda *p: None)[1] == 0
     # 原範圍若已有成功結果，優先重用，不因新分批策略作廢它。
-    key = canonical_sha256({'source': unit.source_digest, 'request': unit.payload, 'policy': config()['material_review']})
+    key = canonical_sha256({'source': canonical_sha256(unit.evidence), 'request': unit.payload, 'policy': config()['material_review']})
     archive.save_review(f'cache-{key}', response(unit.payload))
     monkeypatch.setattr('runtime.material_review.request_semantics', lambda *a, **k: pytest.fail('valid old response replayed'))
     restored, count = _review_units(view, [unit], config(), archive, lambda: None, lambda *p: None)
@@ -148,3 +176,25 @@ def test_single_concept_that_still_exceeds_capacity_stops_without_truncation(tmp
         _review_units(view, [unit], config(), archive, lambda: None, lambda *p: None)
     assert [{k: v for k, v in request.items() if k != 'assignment_format'} for request in calls] == [unit.payload]
     assert not list(archive.root.glob('cache-*'))
+
+
+def test_review_cache_reuses_same_input_across_run_revisions_but_not_source_changes(tmp_path, monkeypatch):
+    from knowledge_map.material_review import _pack_review
+    view, units = inputs(1)
+    calls = []
+    def model(client, **kwargs):
+        calls.append(deepcopy(kwargs['request']))
+        return wire_proposal(response(kwargs['request']))
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path / 'archive')
+    assert _review_units(view, units, config(), archive, lambda: None, lambda *p: None)[1] == 1
+    retry_view = deepcopy(view)
+    retry_view['knowledge_structure_revision'] = 'another-run-revision'
+    unit = _pack_review(retry_view, retry_view['concepts'], units[0].evidence, units[0].payload['title'])
+    assert unit.source_digest != units[0].source_digest
+    assert _review_units(retry_view, [unit], config(), archive, lambda: None, lambda *p: None)[1] == 0
+    changed = deepcopy(unit.evidence)
+    changed[0]['quote'] += '新增限制。'
+    unit = _pack_review(retry_view, retry_view['concepts'], changed, unit.payload['title'])
+    assert _review_units(retry_view, [unit], config(), archive, lambda: None, lambda *p: None)[1] == 1
+    assert len(calls) == 2

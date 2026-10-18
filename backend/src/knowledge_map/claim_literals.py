@@ -25,6 +25,15 @@ _EXPRESSION = re.compile(
     rf'(?<![A-Za-z0-9_*])(?:[A-Za-zα-ωΑ-Ω](?:_[A-Za-z0-9]+)?|\d+(?:\.\d+)?)'
     rf'(?:\s*(?:==|!=|<=|>=|->|=|\+|\*|/|\^|<|>|≤|≥|≠)\s*{_OPERAND})+(?![A-Za-z0-9_α-ωΑ-Ω*])'
 )
+# 翻譯流程圖時保護多字母節點；不將這些節點加入已發布內容的字面值契約，
+# 也不把 difference +0.1 等一般敘述或 HTML 標籤辨識為運算式。
+_FLOW_EXPRESSION = re.compile(
+    rf'(?<![A-Za-z0-9_*]){_OPERAND}'
+    rf'(?:[ \t]*(?:=|\+|\*|/|\^|≤|≥|≠|<=|>=)[ \t]*{_OPERAND})*'
+    rf'(?:[ \t]*->[ \t]*{_OPERAND})+'
+    rf'(?:[ \t]*(?:=|\+|\*|/|\^|≤|≥|≠|<=|>=)[ \t]*{_OPERAND})*'
+    rf'(?![A-Za-z0-9_α-ωΑ-Ω*])'
+)
 _SUBTRACTION = re.compile(r'(?<![A-Za-z0-9_])(?:[A-Za-zα-ωΑ-Ω]|\d+(?:\.\d+)?)\s*[-−]\s*(?:[A-Za-zα-ωΑ-Ω]|\d+(?:\.\d+)?)(?![A-Za-z0-9_])')
 _DIRECTION = re.compile(r'[↑↓←→↔⇐⇒⇔≤≥≠±∓]')
 _DECLARATION = re.compile(r'\b(?:(?:const|static|unsigned|signed)\s+)*(?:char|int|float|double|bool|void)\s+[*&\w\s]+;')
@@ -55,7 +64,7 @@ def _literals(text: str) -> set[str]:
 
 def _literal_ranges(text: str, kind: str):
     spans = [(match.start(), match.end()) for pattern in (
-        _QUANTITY, _QUOTED, _CODE_FENCE, _CALL, _EXPRESSION, _SUBTRACTION, _DIRECTION, _GLOSS, _DECLARATION, _LATEX,
+        _QUANTITY, _QUOTED, _CODE_FENCE, _CALL, _EXPRESSION, _FLOW_EXPRESSION, _SUBTRACTION, _DIRECTION, _GLOSS, _DECLARATION, _LATEX,
     ) for match in pattern.finditer(text)]
     if kind in {'code', 'formula'} or _formula_text(text):
         spans = [(0, len(text))]

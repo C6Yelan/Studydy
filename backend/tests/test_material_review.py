@@ -173,6 +173,68 @@ def test_applied_groups_preserve_canonical_owners_and_literal_guard():
     assert any(e['reason'] == 'CLAIM_CORRECTION_NOT_SUPPORTED' for e in audit['blocked_changes'])
 
 
+def test_review_context_keeps_the_whole_page_of_a_cross_page_citation():
+    from test_knowledge_structure_v1 import _block, _page
+    from knowledge_map.structure import SemanticState, build_document_context, apply_semantic_response
+    from runtime.material_review import review_inputs
+    context = build_document_context([
+        _page(1, [_block(1, 0, 'paragraph', '停止條件由下一頁定義。')]),
+        _page(2, [_block(2, 0, 'paragraph', '資源不足時停止。'),
+                  _block(2, 1, 'paragraph', '停止前須先保存已驗證結果。')]),
+    ], page_count=2)
+    state = SemanticState()
+    apply_semantic_response({'concepts': [{'k': 'a', 'l': '停止條件', 'a': [], 'c': [{'m': None, 's': [0, 1]}]}], 'relations': []},
+        context=context, bundle={'evidence': context['evidence'], 'sections': context['sections']}, state=state)
+    doc = build_knowledge_structure(context, state, source_sha256='1' * 64,
+        run_id='00000000-0000-4000-8000-000000000001', produced_at='2026-10-17T00:00:00+00:00',
+        runtime_lock_sha256='2' * 64, model_id='synthetic', model_revision='synthetic', semantic_calls=1, ocr_calls=0)
+    _, units = review_inputs(doc)
+    assert len(units) == 1
+    assert {e['evidence_id'] for e in units[0].evidence} == {e['evidence_id'] for e in doc['evidence']}
+
+
+def test_local_translation_issue_preserves_original_without_blocking_other_review_edits(tmp_path, monkeypatch):
+    from test_knowledge_structure_v1 import _block, _page
+    from test_review_parallel_feasibility import Archive
+    from knowledge_map.structure import SemanticState, build_document_context, apply_semantic_response, validate_knowledge_structure
+    from runtime.material_review import review_structure
+    context = build_document_context([_page(1, [
+        _block(1, 0, 'paragraph', 'The system may stop or handoff.'),
+        _block(1, 1, 'paragraph', 'The limit is 5.'),
+    ])], page_count=1)
+    state = SemanticState()
+    meanings = ['系統可以停止或交接。', '限制為5。']
+    apply_semantic_response({'concepts': [
+        {'k': str(i), 'l': label, 'a': [], 'c': [{'m': meanings[i], 's': [i]}]}
+        for i, label in enumerate(['停止與交接', '資源限制'])
+    ], 'relations': []}, context=context, bundle={'evidence': context['evidence'], 'sections': context['sections']}, state=state)
+    doc = build_knowledge_structure(context, state, source_sha256='1' * 64,
+        run_id='00000000-0000-4000-8000-000000000001', produced_at='2026-10-17T00:00:00+00:00',
+        runtime_lock_sha256='2' * 64, model_id='synthetic', model_revision='synthetic', semantic_calls=1, ocr_calls=0)
+    calls = []
+    def model(client, **kwargs):
+        request = kwargs['request']; calls.append(request)
+        return wire_proposal({'assignments': [
+            {'concept': c['h'], 'action': 'keep', 'target': None, 'issue': 'none', 'reason': '來源支持。', 'evidence': c['evidence']}
+            for c in request['concepts']], 'alias_edits': [], 'relation_edits': [],
+            'claim_edits': [
+                {'claim': 0, 'meaning': '系統可 stop or handoff。', 'evidence': [0], 'reason': '整理說明。'},
+                {'claim': 1, 'meaning': '上限為5。', 'evidence': [1], 'reason': '整理說明。'},
+            ]})
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path / 'archive'); archive.review_reuses = []
+    lock = {'material_review': {'prompt': 'synthetic'},
+            'material_semantics': {'localization_policy': 'traditional-chinese-literals/v1'},
+            'semantic_service': {'api_protocol': 'codex-exec-luna/v1'}}
+    result = review_structure(doc, lock, archive, lambda: None, lambda *args: None)
+    assert len(calls) == 1
+    assert validate_knowledge_structure(result)
+    assert [q['text'] for c in result['concepts'] for q in c['claims']] == [meanings[0], '上限為5。']
+    assert result['evidence'] == doc['evidence']
+    assert result['status']['quality'] == 'needs_review'
+    assert 'LOCALIZATION_RETAINED_ORIGINAL' in (archive.root / 'result.json').read_text()
+
+
 def test_examples_remain_attached_and_metadata_does_not_remove_source_content():
     response = proposal()
     response["assignments"][1].update(action="example", target=0, issue="case", evidence=[0, 1])

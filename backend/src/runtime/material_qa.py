@@ -247,7 +247,9 @@ def answer(question, history, context, *, retrieve, call, catalog=(), memory=Non
         outline.append(entry)
     # 無前文指涉時先用原問題檢索；有段落不等於已答對，仍須生成、核對與必要補查。
     contextual = bool(history['turns'] or history['summary'] or history.get('recalled_user_turns') or context)
-    multiple = len(re.findall(r'[?？]', question)) > 1 or bool(re.search(r'\n\s*2[.、．]|另外|兩件事|分別|比較', question))
+    # 同一句的列舉也是多項需求；不能因只有一個問號，就用單一查詢略過後半題。
+    multiple = len(re.findall(r'[?？]', question)) > 1 or bool(re.search(
+        r'\n\s*2[.、．]|另外|兩件事|分別|比較|以及|、[^。！？\n]*、', question))
     passages = [] if contextual or multiple or spoken else retrieve([question])
     if contextual or multiple or spoken or not passages:
         recognition_context = None

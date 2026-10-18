@@ -334,7 +334,8 @@ class AnalysisArchive:
                     if validate_response is None:
                         continue
                     # 先看同批次較新的補正稿；整個路徑排序會因 '/' 大於 '-' 而先挑原稿。
-                    for request_path in sorted(directory.glob('call-*/request.json'),
+                    for request_path in sorted([*directory.glob('call-*/request.json'),
+                                                *directory.glob('consolidation/call-*/request.json')],
                                                key=lambda path: path.parent.name, reverse=True):
                         request = _read_envelope(request_path, run_id, signature)
                         if request['data'].get('cache_key') != key:

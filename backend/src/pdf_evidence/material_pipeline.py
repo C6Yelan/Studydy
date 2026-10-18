@@ -65,7 +65,9 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             raise ValueError
         if 'material_review' in lock:
             review = lock['material_review']
-            if (set(review) != {'policy', 'prompt', 'max_tokens', 'generation'}
+            if (set(review) - {'consolidation_policy'} != {'policy', 'prompt', 'max_tokens', 'generation'}
+                or ('consolidation_policy' in review and
+                    review['consolidation_policy'] != 'source-preserving-consolidation/v1')
                 or review['policy'] != 'material-review/v1' or not isinstance(review['prompt'], str)
                 or not review['prompt'].strip() or type(review['max_tokens']) is not int
                 or not 1 <= review['max_tokens'] <= lock['semantic_service']['max_model_len']

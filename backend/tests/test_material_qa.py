@@ -78,6 +78,26 @@ def test_empty_direct_retrieval_uses_search_planning_before_answering():
     assert result['supported'] and result['retrieval']['calls'] == 3
 
 
+@pytest.mark.parametrize('question', [
+    '請說明佇列的順序、操作，以及滿載時應提供哪些資訊。',
+    '請說明佇列的順序、操作、滿載處理。',
+])
+def test_enumerated_requirements_are_planned_before_direct_retrieval(question):
+    calls, searches = [], []
+    respond = fake_model([response(), checked(True)], calls)
+    def call(path, body):
+        if body['schema']['required'] == ['queries']:
+            calls.append(deepcopy(body))
+            return {'queries': ['queue FIFO operations', 'bounded queue full status']}
+        return respond(path, body)
+    def retrieve(queries):
+        searches.append(queries)
+        return [passage()]
+    result = qa.answer(question, [], None, retrieve=retrieve, call=call)
+    assert searches == [['queue FIFO operations', 'bounded queue full status']]
+    assert result['supported'] and len(calls) == 3
+
+
 def test_invalid_search_plan_is_rejected_before_database_lookup():
     with pytest.raises(SourceError, match='VOICE_ANSWER_INVALID'):
         qa.answer('question', [{'question':'Queue?', 'answer':'FIFO.'}], None, retrieve=lambda _: pytest.fail('Invalid plan reached retrieval'),
