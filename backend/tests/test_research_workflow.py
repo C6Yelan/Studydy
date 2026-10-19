@@ -1171,6 +1171,46 @@ def test_bounded_reading_notes_do_not_drop_saved_notes_or_selected_originals(mon
     assert done['search_state']['metrics']['read']['max_previous_notes_unbounded_tokens']>600
 
 
+@pytest.mark.parametrize('next_reason', ['The appendix has no additional support.', 'The first section explains memory.'])
+def test_gap_read_preserves_the_explanation_for_retained_evidence(monkeypatch, next_reason):
+    monkeypatch.setattr(flow, 'READ_CHARS', 45)
+    text = 'Agent memory stores observations.\n\nAppendix: copyright and site navigation.'
+    windows = flow.reading_windows(text, size=flow.READ_CHARS)
+    assert len(windows) == 2
+    prior = {
+        'phase': 'body', 'scope': 'sections', 'relevance': 'direct',
+        'reason': 'The first section explains memory.', 'topics': [0],
+        'quotes': [{'topic': 0, 'quote': 'Agent memory stores observations.'}],
+        'read_ranges': [[windows[0]['start'], windows[0]['end']]],
+        'evidence_policy': flow.EVIDENCE_POLICY,
+    }
+    source = inspect(candidate())
+    source.update(
+        _reading_text=text, _read_offset=windows[0]['end'],
+        _prior_review=deepcopy(prior), review={**deepcopy(prior), 'phase': 'metadata'},
+        reading_focus=['Agent memory'],
+        screening={'decision': 'read', 'basis': 'gap_followup', 'reason': 'Check the remaining section'},
+    )
+    value = state()
+    value['candidates'] = [source]
+    value['search_state'].update(stage='locating', topics=['Agent memory'], read_queue=[source['id']])
+    located = {**value, **flow.advance(value, lambda *args: pytest.fail('Saved reading position needs no model'))}
+    calls = []
+
+    def read(path, body):
+        request = body['request']
+        assert request['task'] == 'read' and request['source']['offset'] == windows[1]['start']
+        calls.append(request)
+        return {'relevance': 'unrelated', 'reason': next_reason, 'supports': []}
+
+    kept = flow.advance(located, read)['candidates'][0]['review']
+    assert len(calls) == 1 and kept['relevance'] == 'direct'
+    assert kept['quotes'] == prior['quotes'] and kept['topics'] == prior['topics']
+    assert kept['scope'] == 'full'
+    expected = prior['reason'] if next_reason == prior['reason'] else prior['reason'] + '\n' + next_reason
+    assert kept['reason'] == expected
+
+
 def test_shared_original_evidence_is_sent_once_with_separate_topic_judgments():
     value=state();value['search_state'].update(stage='following_up',topics=['Retry limits','Human handoff'])
     source=inspect(candidate());quote='Retry only temporary failures within the budget; ask a human when permission is missing.'

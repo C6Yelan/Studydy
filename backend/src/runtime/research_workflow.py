@@ -1331,11 +1331,13 @@ def _assess_sections(workflow, candidates, state, context, call, retrieve_existi
                 if related or direct
                 else "unrelated"
             )
+            # 擴讀沿用已核對的證據時，也保留其說明，避免最後一段無關內容覆蓋支持理由。
+            reasons = [prior.get("reason", ""), *(part["reason"] for part in chunks)]
             c["review"] = {
                 "phase": "body",
                 "evidence_policy": EVIDENCE_POLICY,
                 "relevance": relevance,
-                "reason": "\n".join(dict.fromkeys(part["reason"] for part in chunks)),
+                "reason": "\n".join(dict.fromkeys(reason for reason in reasons if reason)),
                 "quotes": all_quotes,
                 "topics": list(dict.fromkeys(q["topic"] for q in all_quotes)),
                 "scope": c.get("_reading_scope", "full"),
