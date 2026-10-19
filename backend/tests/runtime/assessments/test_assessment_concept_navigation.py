@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from learning_adaptation import assessment_state
 from learning_adaptation import assessment_sets as sets
-from learning_adaptation.study_sessions import read_study_session
+from product_fixtures import read_study_session
 from product_fixtures import HEADERS, ORIGIN, _app, closed_loop
 from assessment_fixtures import (
     answer,

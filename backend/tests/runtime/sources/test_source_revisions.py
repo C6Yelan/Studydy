@@ -438,7 +438,7 @@ def test_empty_update_never_replaces_head_even_with_a_review_flag(revisions,monk
 def test_model_review_flag_is_advisory_and_keeps_old_claims_and_learning(revisions,monkeypatch):
     from pdf_evidence import material_pipeline
     import runtime.material_processing as processing
-    from learning_adaptation.study_sessions import read_study_session
+    from product_fixtures import read_study_session
     learner,material,settings,dsn,add,start,execute,_,old,_=revisions
     study=create_study_session(learner,material,old['revision'],'before-review-notice',dsn=dsn)
     second=add('B.pdf','A queue removes the first inserted element first.')

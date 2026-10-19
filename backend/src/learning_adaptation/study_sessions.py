@@ -268,21 +268,6 @@ def create_study_session(
         raise StudySessionError("STUDY_SESSION_STORAGE_FAILED") from None
 
 
-def read_study_session(
-    learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None
-) -> StoredStudySession:
-    learner_id = _learner(learner)
-    try:
-        with database_session(dsn) as session:
-            stored = _row(session, learner_id, study_session_id)
-            _validate(session, stored)
-            return _stored(stored)
-    except StudySessionError:
-        raise
-    except Exception:
-        raise StudySessionError("STUDY_SESSION_STORAGE_FAILED") from None
-
-
 def set_current_study_concept(
     learner: TrustedLearner,
     study_session_id: UUID,

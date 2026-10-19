@@ -17,7 +17,7 @@ from product_fixtures import HEADERS, ORIGIN, _app, closed_loop
 from assessment_fixtures import concept_fixture, create, finish_set, model_for, read
 from learning_adaptation import assessment_state
 from learning_adaptation import assessment_sets as sets
-from learning_adaptation.answer_events import read_answer_events
+from product_fixtures import read_answer_events
 from runtime.learner_session import TrustedLearner
 from runtime.material_discard import request_material_discard
 from runtime.storage.tables import Assessment, AssessmentSet, AssessmentSetItem, Material, StudySession

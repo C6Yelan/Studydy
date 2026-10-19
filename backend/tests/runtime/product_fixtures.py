@@ -31,6 +31,27 @@ from runtime.storage.database import database_session
 from structure_fixtures import build_knowledge_structure
 
 
+def read_answer_events(learner, study_session_id, *, dsn):
+    """測試查驗原始事件；產品讀取由 progress snapshot 擁有交易與 scope。"""
+    from learning_adaptation.answer_events import _read_events
+    from learning_adaptation.study_sessions import _learner, _row, _validate
+
+    with database_session(dsn) as session:
+        study = _row(session, _learner(learner), study_session_id)
+        _validate(session, study)
+        return _read_events(session, study)
+
+
+def read_study_session(learner, study_session_id, *, dsn):
+    """測試查驗保存前後的學習狀態，不增加產品的獨立讀取入口。"""
+    from learning_adaptation.study_sessions import _learner, _row, _stored, _validate
+
+    with database_session(dsn) as session:
+        study = _row(session, _learner(learner), study_session_id)
+        _validate(session, study)
+        return _stored(study)
+
+
 
 def seed_pdf(owner, stream, key, *, dsn, display_name=None):
     data = stream.read()

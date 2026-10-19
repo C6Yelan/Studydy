@@ -3,7 +3,7 @@
 from copy import deepcopy
 
 from learning_adaptation import assessment_sets as sets
-from learning_adaptation.answer_events import read_answer_events
+from product_fixtures import read_answer_events
 from assessment_fixtures import answer, concept_fixture, create, model_for, read
 from product_fixtures import closed_loop
 

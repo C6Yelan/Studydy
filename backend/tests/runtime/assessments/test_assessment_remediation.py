@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from learning_adaptation import assessment_state
 from learning_adaptation import answer_events, assessment_sets as sets
-from learning_adaptation.answer_events import read_answer_events
+from product_fixtures import read_answer_events
 from learning_adaptation.learner_progress import derive_learner_progress
 from runtime.material_discard import request_material_discard
 from runtime.storage.database import connect_database

@@ -9,11 +9,9 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
-from runtime.learner_session import TrustedLearner
 from runtime.storage.tables import (
     AnswerEvent, Assessment, AssessmentSet, AssessmentSetItem,
 )
-from runtime.storage.database import database_session
 
 from .assessments import (
     AssessmentError,
@@ -21,7 +19,6 @@ from .assessments import (
     _provenance,
     _provenance_for_row,
 )
-from .study_sessions import StudySessionError, _learner, _row, _validate
 
 
 class AnswerSubmissionError(RuntimeError):
@@ -251,21 +248,6 @@ def record_answer(session, study, assessment, selected_option_id, idempotency_ke
         assisted=assessment_revision in _assisted_revisions(session, study_session_id),
     )
     return AnswerSubmission(event, _feedback(event, assessment))
-
-
-def read_answer_events(
-    learner: TrustedLearner, study_session_id: UUID, *, dsn: str | None = None
-) -> tuple[StoredAnswerEvent, ...]:
-    learner_id = _learner(learner)
-    try:
-        with database_session(dsn) as session:
-            study = _row(session, learner_id, study_session_id)
-            _validate(session, study)
-            return _read_events(session, study)
-    except (AnswerSubmissionError, StudySessionError):
-        raise
-    except Exception:
-        raise AnswerSubmissionError("ANSWER_STORAGE_FAILED") from None
 
 
 def _read_events(session, study):
