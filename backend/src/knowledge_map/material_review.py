@@ -647,6 +647,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
     relations, excluded = [], []
     for original in view["relations"]:
         row = deepcopy(original)
+        evidence_ids = []
         edit = relation_changes.get(row["relation_id"])
         if edit:
             applied = True
@@ -685,6 +686,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
                     row["type"] = edit.relation_type
             if applied:
                 row["learner_reason"] = edit.reason
+                evidence_ids = [unit.evidence[h]["evidence_id"] for h in edit.evidence]
         s, t = row["source_concept_id"], row["target_concept_id"]
         if roles[s] == "metadata" or roles[t] == "metadata":
             excluded.append(
@@ -707,6 +709,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
                 "target_concept_id": t,
                 "type": row["type"],
                 "reason": row["learner_reason"],
+                "evidence_ids": evidence_ids,
             }
         )
     try:
@@ -861,6 +864,16 @@ def apply_review(
             type=proposed["type"],
             learner_reason=proposed["reason"],
             inference_basis=RELATION_BASIS[proposed["type"]],
+        )
+        # 保留原關係的支持，並帶入本次實際套用的修正引用及其章節。
+        row["evidence_refs"] = list(
+            dict.fromkeys(row["evidence_refs"] + proposed["evidence_ids"])
+        )
+        row["context_refs"] = list(
+            dict.fromkeys(
+                row["context_refs"]
+                + [evidence[ref]["section_id"] for ref in proposed["evidence_ids"]]
+            )
         )
         key = (
             frozenset((row["source_concept_id"], row["target_concept_id"])),

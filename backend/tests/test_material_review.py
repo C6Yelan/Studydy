@@ -432,6 +432,60 @@ def test_relation_reverse_and_prerequisite_integrity():
     assert any(unit["concept_id"] == "c1" for unit in result["learning_units"])
 
 
+@pytest.mark.parametrize('action', ['reverse', 'retype', 'blocked', 'unchanged', 'unrelated'])
+def test_applied_relation_keeps_original_and_new_review_evidence(action):
+    from test_knowledge_structure_v1 import _block, _page
+    from knowledge_map.structure import SemanticState, build_document_context, apply_semantic_response, validate_knowledge_structure
+    from knowledge_map.material_review import apply_review
+    from runtime.material_review import review_inputs
+    context = build_document_context([
+        _page(page, [_block(page, 0, 'heading', title), _block(page, 1, 'paragraph', text)])
+        for page, title, text in [(1, '組成', '元件屬於系統的一部分。'), (2, '用途', '系統使用元件完成資料處理。'), (3, '其他', '天氣觀測記錄溫度。')]
+    ], page_count=3)
+    state = SemanticState()
+    original_type = 'prerequisite' if action == 'blocked' else 'part_of'
+    apply_semantic_response({'concepts': [
+        {'k': key, 'l': label, 'a': [], 'c': [{'m': None, 's': [handle]}]}
+        for key, label, handle in [('a', '元件', 1), ('b', '系統', 3), ('c', '天氣', 5)]
+    ], 'relations': [{'s': 'a', 't': 'b', 'k': original_type, 'r': '元件支持系統的運作。', 'e': [1], 'c': 0.8}]},
+        context=context, bundle={'evidence': context['evidence'], 'sections': context['sections']}, state=state)
+    document = build_knowledge_structure(context, state, source_sha256='1'*64,
+        run_id='00000000-0000-4000-8000-000000000001', produced_at='2026-10-19T00:00:00+00:00',
+        runtime_lock_sha256='2'*64, model_id='synthetic', model_revision='synthetic', semantic_calls=1, ocr_calls=0)
+    before = deepcopy(document)
+    view, units = review_inputs(document)
+    unit = units[0]
+    selected = next(i for i, item in enumerate(unit.evidence) if item['page'] == (3 if action == 'unrelated' else 2) and item['kind'] == 'paragraph')
+    response = {'assignments': [
+        {'concept': c['h'], 'action': 'keep', 'target': None, 'issue': 'none', 'reason': '保留來源支持的概念。', 'evidence': c['evidence']}
+        for c in unit.payload['concepts']
+    ], 'alias_edits': [], 'claim_edits': [], 'relation_edits': []}
+    if action != 'unchanged':
+        response['relation_edits'] = [{'relation': 0, 'action': 'reverse' if action in ('reverse', 'unrelated') else 'retype',
+            'relation_type': None if action in ('reverse', 'unrelated') else 'application',
+            'reason': '依第二頁的系統用途修正關係。', 'evidence': [selected]}]
+    if action == 'unrelated':
+        with pytest.raises(ReviewError, match='REVIEW_RELATION_EDIT_INVALID'):
+            apply_review(document, view, unit, response)
+        assert document == before
+        return
+    result, audit = apply_review(document, view, unit, response)
+    assert document == before and result['evidence'] == before['evidence']
+    assert validate_knowledge_structure(result)
+    relation = result['relations'][0]
+    original = document['relations'][0]
+    if action in ('reverse', 'retype'):
+        selected_evidence = unit.evidence[selected]
+        assert relation['evidence_refs'] == [*original['evidence_refs'], selected_evidence['evidence_id']]
+        assert relation['context_refs'] == [*original['context_refs'], selected_evidence['section_id']]
+        assert relation['relation_id'] != original['relation_id']
+        assert audit['relations'][0]['evidence_ids'] == [selected_evidence['evidence_id']]
+        assert relation['source_concept_id'] == original['target_concept_id'] if action == 'reverse' else relation['type'] == 'application'
+    else:
+        assert relation == original
+        assert audit['relations'][0]['evidence_ids'] == []
+
+
 def test_removing_wrong_parent_can_use_same_page_heading_context_but_not_unrelated_page():
     document = view()
     document['concepts'][4]['claims'][0]['evidence'][0]['kind'] = 'heading'
