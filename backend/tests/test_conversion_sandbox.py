@@ -31,7 +31,7 @@ def test_renderer_cannot_access_parent_files_environment_or_loopback(tmp_path, m
         monkeypatch.setattr(converter, '__file__', str(tmp_path / 'converter.py'))
 
         def spawn(command, **kwargs):
-            if command[0] != 'bwrap':
+            if 'bwrap' not in command:
                 return original(command, **kwargs)
             source = Path(command[command.index('/input') - 1])
             (source / 'renderer_impl.py').write_text(renderer)

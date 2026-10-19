@@ -141,6 +141,7 @@ def test_old_luna_272k_checkpoint_identity_can_resume_under_64k_policy():
 
 def test_luna_semantic_cancellation_stops_inflight_provider_process(monkeypatch, tmp_path, provider_server):
     import sys
+    import time
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
     from runtime import podcast_process
@@ -161,9 +162,12 @@ def test_luna_semantic_cancellation_stops_inflight_provider_process(monkeypatch,
         try:
             wait_until(lambda: marker.exists() and marker.stat().st_size)
             pid = int(marker.read_text())
+            started = time.monotonic()
             stopped.set()
             with pytest.raises(RuntimeError, match='synthetic cancellation'): future.result(timeout=4)
-            assert not alive(pid)
+            # HTTP 等待可先結束；provider 的取消訊號仍須在同一個四秒期限內收掉子程序。
+            wait_until(lambda: not alive(pid), timeout=max(0, 4 - (time.monotonic() - started)))
+            assert time.monotonic() - started < 4
         finally: stopped.set()
 
 
