@@ -27,7 +27,7 @@ def append_revision(fixture, *, mutation=None):
         payload = pdf.tobytes()
     source_id = upload_source(owner, material, payload, 'Additional.pdf', 'application/pdf', str(uuid4()), dsn=dsn)
     assert normalize_next(dsn=dsn)
-    source = next(s for s in read_sources(owner, material, dsn=dsn) if s['source_id'] == source_id)
+    source = next(s for s in read_sources(owner, material, dsn=dsn)["sources"] if s['source_id'] == source_id)
     run = create_revision(owner, material, [source['normalization_id']], str(uuid4()),
                           fixture['settings'], base_revision=old['revision'], dsn=dsn)
     assert claim_next_material_processing_run(dsn=dsn).run.run_id == run.run_id

@@ -119,7 +119,7 @@ def test_research_only_analyzes_relevant_page_and_preserves_original_locator(rev
     for _ in range(3):
         research.step(dsn=dsn)
     assert research.read(learner.learner_id, identity, dsn=dsn)['status'] == 'ready'
-    selected = next(s for s in read_sources(learner.learner_id, material, dsn=dsn) if s['origin'] == 'research')
+    selected = next(s for s in read_sources(learner.learner_id, material, dsn=dsn)["sources"] if s['origin'] == 'research')
     assert selected['page_count'] == 10 and selected['analysis_page_count'] == 1 and selected['analysis_mode'] == 'selected'
     result = research.submit(learner.learner_id, identity, settings, dsn=dsn)
     requests.clear()

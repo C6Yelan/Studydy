@@ -53,7 +53,7 @@ def test_research_full_append_preserves_voice_and_idempotence(revisions,monkeypa
     conversation=voice.create(owner,material,'voice',dsn=dsn)
     identity=ready(owner,material,dsn,monkeypatch)
     from runtime.source_normalization import read_sources
-    sources = read_sources(owner, material, dsn=dsn)
+    sources = read_sources(owner, material, dsn=dsn)["sources"]
     with database_session(dsn) as db:
         row = db.get(MaterialResearch, identity)
         acquired = {c['source_id'] for c in row.candidates if c.get('source_id')}
@@ -79,7 +79,7 @@ def test_research_full_append_preserves_voice_and_idempotence(revisions,monkeypa
     assert len(summary['selection'])==1
     research.delete(owner,identity,dsn=dsn)
     assert read_knowledge_structure(owner,material,revision=old['revision'],dsn=dsn).document==old
-    assert any(s['origin']=='research' for s in read_sources(owner,material,dsn=dsn))
+    assert any(s['origin']=='research' for s in read_sources(owner,material,dsn=dsn)["sources"])
     with database_session(dsn) as db:
         from runtime.storage.tables import MaterialProcessingRun
         assert db.get(MaterialProcessingRun,outcome.run_id).status=='succeeded'
@@ -211,10 +211,10 @@ def test_deleted_research_keeps_source_files_and_research_origin(revisions,monke
     learner,material,_,dsn,*_=revisions;owner=learner.learner_id
     identity=ready(owner,material,dsn,monkeypatch)
     from runtime.source_normalization import read_sources
-    before=read_sources(owner,material,dsn=dsn)
+    before=read_sources(owner,material,dsn=dsn)["sources"]
     assert any(source['origin']=='research' for source in before)
     research.delete(owner,identity,dsn=dsn)
-    assert read_sources(owner,material,dsn=dsn)==before
+    assert read_sources(owner,material,dsn=dsn)["sources"]==before
     with database_session(dsn) as db:
         row=db.get(MaterialResearch,identity)
         assert row.deleted_at is not None and row.lease_token is None

@@ -77,7 +77,7 @@ def revisions(closed_loop, monkeypatch):
         assert normalize_next(dsn=dsn)
         return next(
             source["normalization_id"]
-            for source in read_sources(learner.learner_id, material, dsn=dsn)
+            for source in read_sources(learner.learner_id, material, dsn=dsn)["sources"]
             if source["source_id"] == identity
         )
 
@@ -133,7 +133,7 @@ def test_initial_multiple_sources_freeze_order_and_then_allow_incremental_append
     def add(name,data,media):
         identity=upload_source(learner.learner_id,material,data,name,media,str(uuid4()),dsn=dsn)
         assert normalize_next(dsn=dsn)
-        return next(item['normalization_id'] for item in read_sources(learner.learner_id,material,dsn=dsn) if item['source_id']==identity)
+        return next(item['normalization_id'] for item in read_sources(learner.learner_id,material,dsn=dsn)["sources"] if item['source_id']==identity)
     a=add('A.pdf',pdf('A stack follows last in first out order.'),'application/pdf')
     b=add('B.txt',b'A queue follows first in first out order.','text/plain')
     start=lambda ids,key,base=None:create_revision(learner.learner_id,material,ids,key,settings,base_revision=base,dsn=dsn)
@@ -164,8 +164,8 @@ def test_initial_multiple_sources_reject_unready_or_foreign_members_without_part
     upload_source(learner.learner_id,material,pdf('A stack follows last in first out order.'),'A.pdf','application/pdf','a',dsn=dsn)
     assert normalize_next(dsn=dsn)
     upload_source(learner.learner_id,material,b'Queue uses FIFO.','B.txt','text/plain','b',dsn=dsn)
-    a,b=read_sources(learner.learner_id,material,dsn=dsn)
-    foreign=read_sources(learner.learner_id,other_material,dsn=dsn)[0]['normalization_id']
+    a,b=read_sources(learner.learner_id,material,dsn=dsn)["sources"]
+    foreign=read_sources(learner.learner_id,other_material,dsn=dsn)["sources"][0]['normalization_id']
     for member in (b['normalization_id'],foreign):
         with pytest.raises(SourceError,match='SOURCE_NOT_READY'):
             create_revision(learner.learner_id,material,[a['normalization_id'],member],str(uuid4()),settings,dsn=dsn)
@@ -221,9 +221,9 @@ def test_late_upload_does_not_change_frozen_input_and_duplicate_bytes_are_reject
     result=execute();assert result.status=='succeeded',result.error_code
     document=read_knowledge_structure(learner.learner_id,material,run_id=result.run_id,dsn=dsn).document
     assert [item['original_name'] for item in document['input_binding']['manifest']['items']]==['A.pdf','B.pdf']
-    assert next(s for s in read_sources(learner.learner_id,material,dsn=dsn) if s['normalization_id']==third)['included'] is False
+    assert next(s for s in read_sources(learner.learner_id,material,dsn=dsn)["sources"] if s['normalization_id']==third)['included'] is False
     from runtime.storage.artifacts import open_verified_artifact
-    original_id=next(s['original_artifact_id'] for s in read_sources(learner.learner_id,material,dsn=dsn) if s['original_name']=='B.pdf')
+    original_id=next(s['original_artifact_id'] for s in read_sources(learner.learner_id,material,dsn=dsn)["sources"] if s['original_name']=='B.pdf')
     with open_verified_artifact(learner.learner_id,original_id,dsn=dsn) as stream: same_bytes=stream.file.read()
     with pytest.raises(SourceError,match='DUPLICATE_SOURCE'):
         upload_source(learner.learner_id,material,same_bytes,'renamed.pdf','application/pdf','duplicate-bytes',dsn=dsn)
@@ -312,7 +312,7 @@ def test_retry_without_usable_added_claims_reuses_evidence_but_retries_semantics
         document.new_page().insert_text((72,72),'A binary tree has left and right child nodes.')
         identity=upload_source(learner.learner_id,material,document.tobytes(),'B.pdf','application/pdf','two-pages',dsn=dsn)
     assert normalize_next(dsn=dsn)
-    second=next(item['normalization_id'] for item in read_sources(learner.learner_id,material,dsn=dsn) if item['source_id']==identity)
+    second=next(item['normalization_id'] for item in read_sources(learner.learner_id,material,dsn=dsn)["sources"] if item['source_id']==identity)
     monkeypatch.setattr(material_pipeline,'material_request_fits',lambda _client,_lock,request,**kwargs:sum(len(section['evidence']) for section in request['sections'])<=1)
     start([second],'no-added-claims',old['revision'])
     with monkeypatch.context() as patch:
@@ -337,7 +337,7 @@ def test_retry_api_reuses_exact_frozen_order_and_ignores_later_uploads(revisions
     def add(name,text):
         identity=upload_source(learner.learner_id,material,pdf(text),name,'application/pdf',name,dsn=dsn)
         assert normalize_next(dsn=dsn)
-        return next(s['normalization_id'] for s in read_sources(learner.learner_id,material,dsn=dsn) if s['source_id']==identity)
+        return next(s['normalization_id'] for s in read_sources(learner.learner_id,material,dsn=dsn)["sources"] if s['source_id']==identity)
     b=add('B.pdf','A queue removes the first inserted element first.')
     c=add('C.pdf','A binary tree has left and right child nodes.')
     original=create_revision(learner.learner_id,material,[c,b],'frozen-failed',settings,base_revision=old['revision'] if append else None,dsn=dsn)
@@ -380,7 +380,7 @@ def test_retry_continues_at_failed_block_then_cleans_checkpoints_and_keeps_call_
         page.insert_text((72,180),'A binary tree has left and right child nodes.')
         identity=upload_source(learner.learner_id,material,doc.tobytes(),'Two blocks.pdf','application/pdf','two-blocks',dsn=dsn)
     assert normalize_next(dsn=dsn)
-    source=next(item for item in read_sources(learner.learner_id,material,dsn=dsn) if item['source_id']==identity)
+    source=next(item for item in read_sources(learner.learner_id,material,dsn=dsn)["sources"] if item['source_id']==identity)
     monkeypatch.setattr(material_pipeline,'material_request_fits',lambda _client,_lock,request,**kwargs:sum(len(section['evidence']) for section in request['sections'])<=1)
     calls=[];fail_later=True
     def semantic(_client,**kwargs):
@@ -471,7 +471,7 @@ def test_retry_reuses_previously_blocked_review_response_before_requesting_remai
         document.new_page().insert_text((72,72),'A graph contains vertices connected by edges.')
         source_id=upload_source(learner.learner_id,material,document.tobytes(),'B.pdf','application/pdf','review-replay-source',dsn=dsn)
     assert normalize_next(dsn=dsn)
-    source=next(item for item in read_sources(learner.learner_id,material,dsn=dsn) if item['source_id']==source_id)
+    source=next(item for item in read_sources(learner.learner_id,material,dsn=dsn)["sources"] if item['source_id']==source_id)
     monkeypatch.setattr(material_pipeline,'material_request_fits',lambda _client,_lock,request,**kwargs:sum(len(section['evidence']) for section in request['sections'])<=1)
     calls=[]
     def semantic(_client,**kwargs):
@@ -619,7 +619,7 @@ def test_failed_initial_source_can_be_removed_and_reuploaded_without_rewriting_h
     data = pdf('A stack removes the last inserted element first.')
     source = upload_source(owner, material, data, 'initial.pdf', 'application/pdf', 'first-file', dsn=dsn)
     assert normalize_next(dsn=dsn)
-    original, = read_sources(owner, material, dsn=dsn)
+    original, = read_sources(owner, material, dsn=dsn)["sources"]
     run = create_revision(owner, material, [original['normalization_id']], 'initial-run', settings, dsn=dsn)
     with pytest.raises(SourceError, match='SOURCE_IN_USE'):
         remove_staged_source(owner, material, source, dsn=dsn)
@@ -632,7 +632,7 @@ def test_failed_initial_source_can_be_removed_and_reuploaded_without_rewriting_h
         snapshot = deepcopy(session.get(MaterialSourceSet, run.input_source_set_id).manifest)
     remove_staged_source(owner, material, source, dsn=dsn)
     remove_staged_source(owner, material, source, dsn=dsn)
-    assert read_sources(owner, material, dsn=dsn) == []
+    assert read_sources(owner, material, dsn=dsn)["sources"] == []
     assert next(item for item in read_material_library(owner, dsn=dsn)
                 if item['material_id'] == material)['source_count'] == 0
     with open_verified_artifact(owner, original['original_artifact_id'], dsn=dsn) as stored:
@@ -654,7 +654,7 @@ def test_failed_initial_source_can_be_removed_and_reuploaded_without_rewriting_h
     replacement = upload_source(owner, material, data, 'initial.pdf', 'application/pdf', 'new-file', dsn=dsn)
     assert replacement != source
     assert normalize_next(dsn=dsn)
-    current, = read_sources(owner, material, dsn=dsn)
+    current, = read_sources(owner, material, dsn=dsn)["sources"]
     create_revision(owner, material, [current['normalization_id']], 'replacement-run', settings, dsn=dsn)
     assert execute().status == 'succeeded'
     with pytest.raises(SourceError, match='SOURCE_IN_USE'):
@@ -667,7 +667,7 @@ def test_staged_source_removal_is_owned_and_keeps_published_sources(revisions):
     from runtime.storage.artifacts import ArtifactError
     learner,material,settings,dsn,add,start,execute,r1,old,_=revisions
     addition=add('staged.pdf','Unsealed staging content.')
-    sources=read_sources(learner.learner_id,material,dsn=dsn)
+    sources=read_sources(learner.learner_id,material,dsn=dsn)["sources"]
     staged=next(source for source in sources if source['normalization_id']==addition)
     published=next(source for source in sources if source['included'])
     with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):
@@ -678,7 +678,7 @@ def test_staged_source_removal_is_owned_and_keeps_published_sources(revisions):
     remove_staged_source(learner.learner_id,material,staged['source_id'],dsn=dsn)
     with pytest.raises(ArtifactError,match='ARTIFACT_NOT_AVAILABLE'):
         with open_verified_artifact(learner.learner_id,staged['original_artifact_id'],dsn=dsn):pass
-    assert len(read_sources(learner.learner_id,material,dsn=dsn))==1
+    assert len(read_sources(learner.learner_id,material,dsn=dsn)["sources"])==1
     assert read_knowledge_structure(learner.learner_id,material,revision=old['revision'],dsn=dsn).document==old
 
 

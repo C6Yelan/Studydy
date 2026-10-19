@@ -87,7 +87,7 @@ def seed_pdf(owner, stream, key, *, dsn, display_name=None):
         source_id = normalization.upload_source(owner, material, data, name, "application/pdf", key, dsn=dsn)
     with patch.object(normalization, "convert", side_effect=identity):
         while True:
-            sources = normalization.read_sources(owner, material, dsn=dsn)
+            sources = normalization.read_sources(owner, material, dsn=dsn)["sources"]
             source = next(item for item in sources if item["source_id"] == source_id)
             if source["status"] == "ready":
                 break
@@ -104,7 +104,7 @@ def seed_run(owner, material, key, settings, *, dsn):
     with database_session(dsn) as session:
         base_revision = session.get(Material, material).head_revision
     normalization_ids = (
-        [source["normalization_id"] for source in normalization.read_sources(owner, material, dsn=dsn)]
+        [source["normalization_id"] for source in normalization.read_sources(owner, material, dsn=dsn)["sources"]]
         if base_revision is None else []
     )
     config = deepcopy(settings)

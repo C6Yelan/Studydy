@@ -20,7 +20,7 @@ def test_failed_initial_source_can_be_replaced_in_browser(revisions, monkeypatch
     upload_source(learner.learner_id, material, pdf('Initial readable source.'), 'Initial.pdf',
                   'application/pdf', str(uuid4()), dsn=dsn)
     assert normalize_next(dsn=dsn)
-    source, = read_sources(learner.learner_id, material, dsn=dsn)
+    source, = read_sources(learner.learner_id, material, dsn=dsn)["sources"]
     create_revision(learner.learner_id, material, [source['normalization_id']], str(uuid4()), settings, dsn=dsn)
     with monkeypatch.context() as patch:
         def fail(*args, **kwargs):

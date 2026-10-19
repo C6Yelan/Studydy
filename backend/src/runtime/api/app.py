@@ -68,7 +68,7 @@ from ..storage.materials import (
     read_material_library,
     rename_material,
 )
-from ..storage.tables import Artifact, Material, MaterialSource
+from ..storage.tables import Artifact, MaterialSource
 from ..storage.database import database_ready, database_session
 from ..workers import run_workers
 from .models import (
@@ -755,24 +755,6 @@ def create_app(settings: ApiSettings) -> FastAPI:
             )
         )
 
-    def source_listing(owner, material_id):
-        sources = read_sources(owner, material_id, dsn=settings.dsn)
-        with database_session(settings.dsn) as session:
-            material = session.scalar(
-                select(Material).where(
-                    Material.learner_id == owner,
-                    Material.material_id == material_id,
-                )
-            )
-            if material is None:
-                raise SourceError("RESOURCE_NOT_FOUND")
-            discarding = material.discard_requested_at is not None
-        return SourceListView(
-            material_id=material_id,
-            sources=sources,
-            discard_requested=discarding,
-        )
-
     @app.get("/v1/source-capabilities", response_model=SourceCapabilities)
     def source_capabilities(request: Request):
         request_context.require_query(request, set())
@@ -836,13 +818,13 @@ def create_app(settings: ApiSettings) -> FastAPI:
             key,
             dsn=settings.dsn,
         )
-        return await run_in_threadpool(source_listing, owner, material_id)
+        return await run_in_threadpool(read_sources, owner, material_id, dsn=settings.dsn)
 
     @app.get("/v1/materials/{material_id}/sources", response_model=SourceListView)
     def get_material_sources(request: Request, material_id: UUID):
         request_context.require_query(request, set())
         owner = request_context.trusted_learner(request, settings).learner_id
-        return source_listing(owner, material_id)
+        return read_sources(owner, material_id, dsn=settings.dsn)
 
     @app.post(
         "/v1/materials/{material_id}/sources/{normalization_id}/retry",
@@ -855,7 +837,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         request_context.require_query(request, set())
         owner = request_context.trusted_learner(request, settings).learner_id
         retry_normalization(owner, material_id, normalization_id, dsn=settings.dsn)
-        return source_listing(owner, material_id)
+        return read_sources(owner, material_id, dsn=settings.dsn)
 
     @app.post(
         "/v1/materials/{material_id}/revisions",
@@ -952,7 +934,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         request_context.require_query(request, set())
         owner = request_context.trusted_learner(request, settings).learner_id
         remove_staged_source(owner, material_id, source_id, dsn=settings.dsn)
-        return source_listing(owner, material_id)
+        return read_sources(owner, material_id, dsn=settings.dsn)
 
     @app.get(
         "/v1/materials/{material_id}/knowledge-structures/{revision}/evidence/{evidence_id}/source",

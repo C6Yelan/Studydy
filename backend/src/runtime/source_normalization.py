@@ -290,7 +290,7 @@ def read_sources(owner, material_id, *, dsn=None):
             for candidate in candidates
             if candidate.get("source_id")
         }
-        return [
+        sources = [
             {
                 "origin": "research"
                 if str(source.source_id) in research_sources
@@ -312,6 +312,12 @@ def read_sources(owner, material_id, *, dsn=None):
             }
             for source, job in rows
         ]
+        return {
+            "schema": "material-sources/v1",
+            "material_id": material_id,
+            "sources": sources,
+            "discard_requested": material.discard_requested_at is not None,
+        }
 
 
 def normalize_next(*, dsn=None):

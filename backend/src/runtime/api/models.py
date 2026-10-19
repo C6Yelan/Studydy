@@ -759,10 +759,10 @@ def project_material_run(run: Any) -> MaterialProcessingRunView:
                 and has_analysis_checkpoint(run.learner_id, run.material_id, run.run_id)
             ),
             "schema": "material-processing-run/v1",
-            "input_source_set_id": getattr(run, "input_source_set_id", None),
-            "base_revision": getattr(run, "base_revision", None),
+            "input_source_set_id": run.input_source_set_id,
+            "base_revision": run.base_revision,
             "source_names": list(run.source_names)
-            if getattr(run, "source_names", ())
+            if run.source_names
             else None,
             "output_binding": (
                 {

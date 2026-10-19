@@ -230,6 +230,6 @@ def test_failed_normalization_retains_private_source_and_no_public_pdf(artifact_
     def reject(*args):raise NormalizationError('PDF_DAMAGED')
     monkeypatch.setattr(sources,'convert',reject)
     assert sources.normalize_next(dsn=artifact_database_dsn)
-    item=sources.read_sources(owner,material,dsn=artifact_database_dsn)[0]
+    item=sources.read_sources(owner,material,dsn=artifact_database_dsn)["sources"][0]
     assert item['status']=='failed' and item['normalized_artifact_id'] is None
     assert (artifact_root/'objects'/item['original_artifact_id'].hex).is_file()
