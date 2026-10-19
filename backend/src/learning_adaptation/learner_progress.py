@@ -153,7 +153,9 @@ def _snapshot(
         WeaknessFinding(
             concept_id=state.concept_id,
             claim_ids=state.weak_claim_ids,
-            reason="latest_answer_incorrect",
+            reason="remediation_incomplete"
+            if state.latest_is_correct
+            else "latest_answer_incorrect",
         )
         for state in states
         if state.weak_claim_ids

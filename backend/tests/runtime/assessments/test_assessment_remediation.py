@@ -36,6 +36,8 @@ def test_new_remediation_uses_current_budget_without_rewriting_diagnostic_histor
     finish(fixture)
     answer(fixture, root, wrong={1})
     old_items = read(fixture, root)['items']
+    progress = derive_learner_progress(fixture['learner'], fixture['study'].study_session_id, dsn=fixture['dsn'])
+    assert [weakness.reason for weakness in progress.weaknesses] == ['latest_answer_incorrect']
 
     fixture['settings']['runtime_lock'] = current_lock
     child = supplement(fixture, root)
@@ -51,10 +53,17 @@ def test_new_remediation_uses_current_budget_without_rewriting_diagnostic_histor
     assert read(fixture, root)['items'] == old_items
     answer(fixture, child)
     assert read(fixture, root)['cycle']['outcome'] == 'needs_review'
+    progress = derive_learner_progress(fixture['learner'], fixture['study'].study_session_id, dsn=fixture['dsn'])
+    state = next(state for state in progress.concept_states if state.concept_id == fixture['concept']['concept_id'])
+    assert state.latest_is_correct is True and state.status == 'needs_review'
+    assert [weakness.reason for weakness in progress.weaknesses] == ['remediation_incomplete']
+    assert progress.next_action.action == 'remediate'
     second = supplement(fixture, root)
     finish(fixture, 'second-new-budget-remediation')
     answer(fixture, second)
     assert read(fixture, root)['cycle']['outcome'] == 'passed'
+    progress = derive_learner_progress(fixture['learner'], fixture['study'].study_session_id, dsn=fixture['dsn'])
+    assert progress.weaknesses == []
 
 
 def test_remediation_origin_is_immutable_in_database(closed_loop):
@@ -186,6 +195,8 @@ def test_completed_concept_survives_incorrect_practice_and_keeps_answer_history(
         group = create(fixture, f"round-{index}")
         finish(fixture, f"round-{index}")
         answer(fixture, group, wrong={1} if index == 2 else set())
+        progress = derive_learner_progress(fixture['learner'], fixture['study'].study_session_id, dsn=fixture['dsn'])
+        assert progress.weaknesses == []
 
     child = supplement(fixture, group)
     finish(fixture, "assisted")
