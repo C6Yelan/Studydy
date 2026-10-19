@@ -4,17 +4,19 @@ from collections import Counter
 import hashlib
 import html
 from html.parser import HTMLParser
-from http.client import HTTPException
+from http.client import HTTPConnection, HTTPException
+import ipaddress
 import json
 import mimetypes
 from pathlib import Path, PurePosixPath
 import posixpath
+import socket
+import ssl
 import subprocess
 import sys
 import time
 import unicodedata
-from urllib.request import urlopen
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 import zipfile
 from xml.dom import minidom
 import xml.etree.ElementTree as ET
@@ -179,6 +181,80 @@ def validate(source):
         raise ValueError("UNSUPPORTED_MEDIA_TYPE")
 
 
+def _image_resource(url, *, limit, deadline):
+    """逐次核對公開目的地並固定連線 IP；只回傳有界圖片，不讀代理設定。"""
+    for _ in range(5):
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or any(ord(char) < 33 for char in url)
+        ):
+            raise ValueError
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        addresses = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
+        if not addresses or any(
+            not ipaddress.ip_address(address[4][0]).is_global for address in addresses
+        ):
+            raise ValueError
+        connection = HTTPConnection(parsed.hostname, port=port)
+        response = None
+        try:
+            for index, address in enumerate(addresses):
+                timeout = min(3, deadline - time.monotonic())
+                if timeout <= 0:
+                    raise TimeoutError
+                raw = socket.socket(address[0], address[1], address[2])
+                try:
+                    raw.settimeout(timeout)
+                    # 不再次依 hostname 解析，避免核對與真正連線之間換成內網位址。
+                    raw.connect(address[4])
+                    connection.sock = (
+                        ssl.create_default_context().wrap_socket(raw, server_hostname=parsed.hostname)
+                        if parsed.scheme == "https" else raw
+                    )
+                    break
+                except OSError:
+                    raw.close()
+                    if index == len(addresses) - 1:
+                        raise
+            connection.request(
+                "GET",
+                (parsed.path or "/") + ("?" + parsed.query if parsed.query else ""),
+                headers={"Accept-Encoding": "identity"},
+            )
+            response = connection.getresponse()
+            if response.status in (301, 302, 303, 307, 308):
+                location = response.getheader("Location")
+                if not location:
+                    raise ValueError
+                url = urljoin(url, location)
+                continue
+            media_type = response.headers.get_content_type()
+            if response.status != 200 or not media_type.startswith("image/"):
+                raise ValueError
+            blob = bytearray()
+            while True:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError
+                chunk = response.read1(min(65536, limit + 1 - len(blob)))
+                if not chunk:
+                    break
+                blob.extend(chunk)
+                if len(blob) > limit:
+                    raise ValueError
+            if not blob:
+                raise ValueError
+            return bytes(blob), media_type
+        finally:
+            if response is not None:
+                response.close()
+            connection.close()
+    raise ValueError
+
+
 def office_resources(source, target):
     """只修改轉檔副本：超連結保留，外部素材取得後內嵌，失敗就略過。"""
     deadline = time.monotonic() + 15
@@ -206,30 +282,15 @@ def office_resources(source, target):
                         continue
                     url = relation.get("Target", "")
                     try:
-                        timeout = min(3, deadline - time.monotonic())
                         if (
-                            timeout <= 0
+                            deadline <= time.monotonic()
                             or remaining <= 0
-                            or urlsplit(url).scheme not in ("http", "https")
+                            or not relation.get("Type", "").endswith("/image")
                         ):
                             raise ValueError
-                        with urlopen(url, timeout=timeout) as response:
-                            media_type = response.headers.get_content_type()
-                            limit = min(10 * 1024 * 1024, remaining)
-                            blob = bytearray()
-                            while True:
-                                if time.monotonic() >= deadline:
-                                    raise TimeoutError
-                                chunk = response.read1(
-                                    min(65536, limit + 1 - len(blob))
-                                )
-                                if not chunk:
-                                    break
-                                blob.extend(chunk)
-                                if len(blob) > limit:
-                                    raise ValueError
-                        if not blob:
-                            raise ValueError
+                        blob, media_type = _image_resource(
+                            url, limit=min(10 * 1024 * 1024, remaining), deadline=deadline
+                        )
                     except (OSError, ValueError, HTTPException):
                         relationships.remove(relation)
                         continue
@@ -481,13 +542,16 @@ def main():
         raise ValueError("NORMALIZER_VERSION_MISMATCH")
 
     validate(source)
+    if len(sys.argv) == 5 and sys.argv[4] == "--prepare-office":
+        office_resources(source, output / ("render" + source.suffix))
+        return
     target = output / "normalized.pdf"
     extension = source.suffix
     if extension == ".pdf":
         target.write_bytes(source.read_bytes())
     elif extension in (".docx", ".pptx", ".doc", ".ppt"):
         render_source = (
-            office_resources(source, output / ("render" + extension))
+            output / ("render" + extension)
             if extension in (".docx", ".pptx")
             else source
         )

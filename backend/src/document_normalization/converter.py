@@ -26,7 +26,7 @@ MIME = {
 MAX_FILE_BYTES = 100 * 1024 * 1024
 POLICY = {
     "schema": "normalization-policy/v1",
-    "version": 2,
+    "version": 3,
     "olefile": "0.47",
     "max_file_bytes": MAX_FILE_BYTES,
     "libreoffice": "26.2.5.2",
@@ -34,7 +34,7 @@ POLICY = {
     "markdown_it": "3.0.0",
     "visible_slides_only": True,
     "notes": False,
-    "remote_resources": "best-effort",
+    "remote_resources": "public-images-best-effort",
     "text_columns": 72,
 }
 _SAFE_ERRORS = {
@@ -119,19 +119,6 @@ def convert(
             "--unshare-all",
             "--die-with-parent",
             "--new-session",
-            *(
-                [
-                    "--share-net",
-                    "--ro-bind",
-                    "/etc/resolv.conf",
-                    "/etc/resolv.conf",
-                    "--ro-bind",
-                    "/etc/ssl",
-                    "/etc/ssl",
-                ]
-                if extension in (".docx", ".pptx", ".doc", ".ppt")
-                else []
-            ),
             "--cap-drop",
             "ALL",
             "--ro-bind",
@@ -196,36 +183,48 @@ def convert(
             "--setenv",
             "XDG_CACHE_HOME",
             "/tmp/cache",
+        ]
+        renderer = [
             "/runtime/bin/python3.12",
             "/renderer.py",
             "/input/source" + extension,
             "/output",
             media_type,
         ]
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        )
-        try:
-            while True:
-                if cancellation_check:
-                    cancellation_check()
-                try:
-                    stdout, _ = process.communicate(timeout=0.5)
-                    break
-                except subprocess.TimeoutExpired:
-                    continue
-        except BaseException:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
-            raise
-        if process.returncode:
-            reason = stdout.decode(errors="replace").strip()
-            raise NormalizationError(
-                reason if reason in _SAFE_ERRORS else "NORMALIZATION_FAILED"
+        # 只讓受控圖片下載階段連網；實際 Office 及 PDF 解析始終在斷網沙箱。
+        for prepare in (True, False) if extension in (".docx", ".pptx") else (False,):
+            network = (
+                [
+                    "--share-net",
+                    "--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf",
+                    "--ro-bind", "/etc/ssl", "/etc/ssl",
+                ]
+                if prepare else []
             )
+            process = subprocess.Popen(
+                command + network + renderer + (["--prepare-office"] if prepare else []),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+            try:
+                while True:
+                    if cancellation_check:
+                        cancellation_check()
+                    try:
+                        stdout, _ = process.communicate(timeout=0.5)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+            except BaseException:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+                raise
+            if process.returncode:
+                reason = stdout.decode(errors="replace").strip()
+                raise NormalizationError(
+                    reason if reason in _SAFE_ERRORS else "NORMALIZATION_FAILED"
+                )
 
         try:
             pdf = (output / "normalized.pdf").read_bytes()

@@ -35,6 +35,8 @@
 
 測試通過後，只有新變更、失敗或未解疑慮才擴大或重跑。
 
+`test_office_external_resources.py` 以隔離 HTTP server 與固定的合成公網 DNS 驗證圖片取得、逐次 redirect／目的 IP 核對、TLS hostname、大小／時間上限及原檔保留，測試不連到真實內部服務。真實 Office 案例另核對內網圖片不送出請求、下載後的圖片仍可離線轉檔，以及只有圖片準備階段能連網。`test_normalization_cancellation.py` 驗證多執行緒取消、啟動失敗與限額；由既有 `prlimit` 在 exec 後設定 AS／FSIZE／NOFILE／NPROC，沒有 Python `preexec_fn`。
+
 ## 無網路容器測試
 
 ~~~bash
