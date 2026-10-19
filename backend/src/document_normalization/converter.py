@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import resource
 import signal
 import shutil
 import subprocess
@@ -61,7 +60,7 @@ class NormalizationError(RuntimeError):
 def normalizer_available():
     """核對轉檔工具與字型版本，建立來源 mapping 使用的政策身分。"""
     return (
-        all(shutil.which(tool) for tool in ("bwrap", "fc-list"))
+        all(shutil.which(tool) for tool in ("prlimit", "bwrap", "fc-list"))
         and Path("/usr/lib/libreoffice/program/soffice").is_file()
     )
 
@@ -74,17 +73,6 @@ def conversion_policy():
     )
     font_lines = "\n".join(sorted(fonts.splitlines()))
     return {**POLICY, "fonts_sha256": hashlib.sha256(font_lines.encode()).hexdigest()}
-
-
-def _limits():
-    limits = (
-        (resource.RLIMIT_AS, 2 * 1024**3),
-        (resource.RLIMIT_FSIZE, MAX_FILE_BYTES),
-        (resource.RLIMIT_NOFILE, 128),
-        (resource.RLIMIT_NPROC, 1024),
-    )
-    for kind, value in limits:
-        resource.setrlimit(kind, (value, value))
 
 
 def convert(
@@ -120,6 +108,13 @@ def convert(
 
         # 子程序只讀所需 runtime／系統資源，僅 output 可寫；不繼承外部環境。
         command = [
+            # 由已 exec 的工具設限，避免在背景 Thread 的 fork 子程序執行 Python。
+            "prlimit",
+            f"--as={2 * 1024**3}",
+            f"--fsize={MAX_FILE_BYTES}",
+            "--nofile=128",
+            "--nproc=1024",
+            "--",
             "bwrap",
             "--unshare-all",
             "--die-with-parent",
@@ -212,7 +207,6 @@ def convert(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
-            preexec_fn=_limits,
         )
         try:
             while True:
