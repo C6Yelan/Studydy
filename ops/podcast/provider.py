@@ -678,7 +678,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    job_log = Path(__file__).resolve().parents[2] / "data/podcast/job-events.jsonl"
+    # 程式碼可由核准分支部署，持久日誌仍由正式環境指定位置。
+    job_log = Path(
+        os.environ.get(
+            "STUDYDY_PODCAST_JOB_LOG",
+            str(Path(__file__).resolve().parents[2] / "data/podcast/job-events.jsonl"),
+        )
+    )
     job_log.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     logger = logging.getLogger("studydy.podcast.jobs")
     logger.setLevel(logging.INFO)

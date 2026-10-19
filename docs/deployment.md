@@ -4,6 +4,27 @@
 日常 rebuild、Compose 管理、設定與 source-of-truth 都在這個 checkout；build context
 是本目錄 `.`，不需要先複製 source 到其他目錄。
 
+## 032 終態接軌至 7 份領域 baseline
+
+新後端不自動改寫舊 migration 帳本。既有站點切換前，先在獨立的 DB／Artifact 副本完成
+`runtime.storage.baseline check`、`apply` 與讀取驗證，再於正式站停止寫入、保存配對備份及舊映像後，
+以新映像執行同一個維護入口。入口使用 `STUDYDY_DATABASE_DSN`（或既有 `POSTGRES_*` 設定）與
+`STUDYDY_ARTIFACT_ROOT`；不必載入 API 或啟動 worker。
+
+`python -m runtime.storage.baseline apply` 會在交易內重新鎖表，核對舊 32 份 checksum、實體 schema、
+全部業務資料、內容身分與檔案 hash。只有完整相符才保存舊帳本收據並接軌；任何驗證失敗都回滾。
+核對成功後才啟動新後端，持久資料掛載仍使用正式站的 `main/data/`，不得改接驗證副本。
+
+若尚未增加後續 migration，可在停寫後由新映像執行
+`python -m runtime.storage.baseline restore-ledger`，重新驗證並只回復舊帳本，再切回原後端映像。
+這不還原業務資料或覆蓋部署後的新內容；未知 schema、被修改的 checksum 或後續 DDL 都會拒絕。
+詳細操作與副本驗證見 [安裝文件](getting-started.md)。
+
+從核准的獨立分支部署時，Compose 管理目錄與資料仍固定在 `main`，映像身分記錄實際分支 SHA。
+主機 Podcast provider 的 `ExecStart` 可指定該分支程式，但沿用原 Python／模型環境與
+`STUDYDY_VIDEO_WORK_DIR`；以 `STUDYDY_PODCAST_JOB_LOG` 指向原有工作日誌。
+未設定此變數時，日誌位置仍為程式 checkout 的 `data/podcast/job-events.jsonl`。
+
 首次部署曾以 committed SHA 的 `git archive` 匯出到 `/tmp/studydy-main-release-*/source`
 做建置與驗證。這些是一次性歷史證據，不是目前 production working directory、資料來源，
 也不是下次 rebuild 的輸入。容器內 `/tmp` 的 Nginx 設定與 cache 是 tmpfs，不是另一份 source。
