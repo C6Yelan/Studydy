@@ -1,5 +1,5 @@
 from pathlib import Path
-from benchmark import fetch_record, qualify, sources
+from benchmark import fetch_record, qualify, sources, main_text
 
 
 def test_snapshot_write_failure_cannot_count_as_full_text(tmp_path,monkeypatch):
@@ -35,3 +35,18 @@ def test_raw_xml_and_unsupported_license_do_not_inflate_coverage():
         dict(base,method='B',extraction_quality='xml-body-poc',identity_match=False)]
     qualify(rows)
     assert [r['qualified_full_text'] for r in rows]==[False,True,False,False]
+
+
+def test_extract_official_main_ignores_navigation_script_and_keeps_literals():
+    text='Important condition: x != 0. '+('Network data ' * 15)
+    assert text in main_text('<nav>ignore</nav><main><p>'+text+'</p><script>secret</script><pre>a &lt; b</pre></main>')
+    result=main_text('<main>'+text+'<script>secret</script></main>')
+    assert 'secret' not in result
+
+
+def test_official_self_closing_break_and_table_cells_keep_text_boundaries():
+    prefix='A documented prerequisite must remain intact. '*3
+    value=main_text('<main><p>'+prefix+'before<br/>after</p><table><tr><td>TCP</td><td>reliable</td></tr></table><p>Final required condition.</p></main>')
+    assert 'before\nafter' in value
+    assert '\tTCP\treliable' in value
+    assert 'Final required condition.' in value

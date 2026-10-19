@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+from html.parser import HTMLParser
 import http.client
 import ipaddress
 import json
@@ -15,9 +16,74 @@ from egress import Gate
 from urllib.parse import urlsplit
 from xml.etree import ElementTree as ET
 from runtime import research_sources as sources
+from runtime.errors import SourceError
 
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLES = json.loads(Path(__file__).with_name("samples.json").read_text())
+
+
+class MainText(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.depth = 0
+        self.parts = []
+        self.hidden = 0
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if self.depth:
+            self.depth += (
+                1
+                if tag
+                not in {"br", "hr", "img", "input", "meta", "link", "wbr", "source"}
+                else 0
+            )
+        elif tag == "main" or a.get("role") == "main":
+            self.depth = 1
+        if tag in {"script", "style"}:
+            self.hidden += 1
+        if self.depth and tag in {"td", "th"}:
+            self.parts.append("\t")
+        if self.depth and tag in {
+            "p",
+            "div",
+            "section",
+            "pre",
+            "li",
+            "h1",
+            "h2",
+            "h3",
+            "tr",
+            "br",
+        }:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in {"br", "hr", "img", "input", "meta", "link", "wbr", "source"}:
+            return
+        if tag in {"script", "style"}:
+            self.hidden = max(0, self.hidden - 1)
+        if self.depth:
+            self.depth -= 1
+        if tag in {"p", "pre", "li", "h1", "h2", "h3", "tr"}:
+            self.parts.append("\n")
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
+
+    def handle_data(self, data):
+        if self.depth and not self.hidden:
+            self.parts.append(data)
+
+
+def main_text(html):
+    parser = MainText()
+    parser.feed(html)
+    text = "".join(parser.parts).strip()
+    if not text:
+        raise SourceError("RESEARCH_FORMAT_UNSUPPORTED")
+    return text
 
 
 def digest(data):
@@ -128,7 +194,7 @@ def fetch_record(sample, method, url, directory):
             ):
                 row.update(license=sample["license"], license_source=license_url)
             try:
-                text = sources.main_text(text)
+                text = main_text(text)
             except sources.SourceError as error:
                 row["failure_reason"] = str(error)
                 text = ""

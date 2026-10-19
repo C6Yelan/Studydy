@@ -1,5 +1,7 @@
 # 公開來源取得比較（2026-10-07）
 
+本頁記錄當時的比較與政策。舊 `MainText` parser 及其測試現已移至 `ops/research/`，只供重跑這份比較；產品的 HTML 正文由 `runtime.research_web` 擷取，現行來源範圍見 [教材文件](materials.md)。
+
 保留 production 的 direct HTTP／provider API 與 metadata-only fallback；本次不加入 Chromium runtime。十個固定公開樣本中，A direct 與 C Chromium 均取得九份回應，符合本次正文／身分／授權檢查的各三份；A+B 的聯集為四份。B 新增的是 Europe PMC JATS XML 的開發解析，尚未接入產品。這是小型、目的性選樣的結果，不代表全網 coverage 或模型品質。
 
 ## 範圍與可重跑入口
@@ -25,7 +27,7 @@ node --check ops/research/browser.mjs
 
 ## 方法與檢查
 
-A 使用現行 `research_sources.fetch`，保留 DNS 全 IP 檢查、固定 IP 連線、TLS server name、HTTPS 443、redirect 與 credential 規則。HTML 用現行 MainText。JSON／XML 另記診斷內容；A 的 XML 不冒充現行 production 支援。
+A 使用 `research_sources.fetch`，保留 DNS 全 IP 檢查、固定 IP 連線、TLS server name、HTTPS 443、redirect 與 credential 規則。HTML 沿用比較工具內的 MainText。JSON／XML 另記診斷內容；A 的 XML 不冒充 production 支援。
 
 B 對同一文件使用官方正規路徑。Python 的 B 是 canonical URL，與 A 相同；XML 的 A/B URL 也相同，差別是 B 明確使用 PoC JATS parser。不是所有樣本都有正式 API，缺少者記 `not-available`，不當作網路失敗。
 
