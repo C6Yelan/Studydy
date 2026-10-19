@@ -2,11 +2,9 @@
 
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-import json
 import logging
-import os
 from threading import Event, Thread
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
 from uuid import uuid4
 from sqlalchemy import update
 from sqlalchemy.exc import SQLAlchemyError
@@ -24,6 +22,8 @@ from .storage.tables import (
     SourceNormalization,
 )
 from .storage.database import database_session
+from .provider_http import provider_request
+from .errors import SourceError
 
 WORKER_LEASE_TTL = timedelta(minutes=15)
 
@@ -88,18 +88,13 @@ def provider_job(cancellation_check, metadata=None):
                 except Exception as error:
                     failures.append(error)
             try:
-                base = os.environ.get("STUDYDY_PODCAST_PROVIDER_URL", "").rstrip("/")
-                token = os.environ.get("STUDYDY_PODCAST_PROVIDER_TOKEN", "")
-                if not base or not token:
+                try:
+                    request = provider_request(
+                        "/jobs/cancel", metadata,
+                        unavailable=SourceError("GENERATION_PROVIDER_UNAVAILABLE"),
+                    )
+                except SourceError:
                     return
-                request = Request(
-                    base + "/jobs/cancel",
-                    data=json.dumps(metadata).encode(),
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer " + token,
-                    },
-                )
                 with urlopen(request, timeout=5) as response:
                     response.read(4096)
                 return

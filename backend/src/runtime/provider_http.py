@@ -44,18 +44,33 @@ def generation_response(request):
         connection.close()
 
 
-def provider(path, body):
+def provider_request(path, body, *, unavailable):
+    """統一既有 provider 的位址、認證與 JSON；錯誤語意由呼叫功能決定。"""
     base = os.environ.get("STUDYDY_PODCAST_PROVIDER_URL", "").rstrip("/")
     token = os.environ.get("STUDYDY_PODCAST_PROVIDER_TOKEN", "")
     if not base or not token:
-        raise SourceError("VOICE_PROVIDER_UNAVAILABLE")
-    request = Request(
+        raise unavailable
+    return Request(
         base + path,
         data=json.dumps(body, ensure_ascii=False).encode(),
         headers={
             "Content-Type": "application/json",
             "Authorization": "Bearer " + token,
         },
+    )
+
+
+def provider_error_code(error):
+    """錯誤回應也有讀取上限；各功能仍各自限制可公開的錯誤碼。"""
+    try:
+        return json.loads(error.read(4096)).get("error_code")
+    except Exception:
+        return None
+
+
+def provider(path, body):
+    request = provider_request(
+        path, body, unavailable=SourceError("VOICE_PROVIDER_UNAVAILABLE")
     )
     try:
         with (
@@ -65,10 +80,7 @@ def provider(path, body):
         ) as response:
             data = response.read(20 * 1024 * 1024 + 1)
     except HTTPError as error:
-        try:
-            code = json.loads(error.read(4096)).get("error_code")
-        except Exception:
-            code = None
+        code = provider_error_code(error)
         if code in {
             "VOICE_TRANSCRIPT_INVALID",
             "PODCAST_AUDIO_INVALID",

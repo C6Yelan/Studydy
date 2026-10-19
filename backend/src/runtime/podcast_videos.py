@@ -8,9 +8,7 @@ import base64
 import json
 import logging
 import math
-import os
 from urllib.error import HTTPError
-from urllib.request import Request
 
 from sqlalchemy import delete, select, text
 from content_identity import canonical_sha256
@@ -26,7 +24,7 @@ from .generation_jobs import WORKER_LEASE_TTL, cancellable_job
 from .audio import validate_audio
 from .podcast_sources import source_context
 from .podcast_script import digest
-from .provider_http import generation_response
+from .provider_http import generation_response, provider_request, provider_error_code
 from .storage.artifacts import (
     quarantine_artifact,
     open_verified_artifact,
@@ -381,10 +379,6 @@ def finish(state, *, bundle=None, error=None, dsn=None):
 
 
 def provider(state, audio):
-    base = os.environ.get("STUDYDY_PODCAST_PROVIDER_URL", "").rstrip("/")
-    token = os.environ.get("STUDYDY_PODCAST_PROVIDER_TOKEN", "")
-    if not base or not token:
-        raise SourceError("VIDEO_PROVIDER_UNAVAILABLE")
     body = {key: state[key] for key in ("episode", "source_context", "source_resolver")}
     body.update(
         podcast_id=str(state["podcast_id"]),
@@ -393,22 +387,14 @@ def provider(state, audio):
         job_id=str(state["video_id"]),
         job_token=str(state["token"]),
     )
-    request = Request(
-        base + "/video",
-        data=json.dumps(body, ensure_ascii=False).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + token,
-        },
+    request = provider_request(
+        "/video", body, unavailable=SourceError("VIDEO_PROVIDER_UNAVAILABLE")
     )
     try:
         with generation_response(request) as response:
             raw = response.read(140 * 1024 * 1024 + 1)
     except HTTPError as error:
-        try:
-            code = json.loads(error.read(4096)).get("error_code", "")
-        except Exception:
-            code = ""
+        code = provider_error_code(error)
         allowed = {
             "VIDEO_AUDIO_INVALID",
             "VIDEO_CANCELLED",

@@ -3,13 +3,11 @@
 from runtime.errors import PodcastError
 import json
 import logging
-import os
-from urllib.request import Request
 from urllib.error import HTTPError
 
 from . import podcasts
 from .generation_jobs import cancellable_job
-from .provider_http import generation_response
+from .provider_http import generation_response, provider_request, provider_error_code
 from .storage.tables import Podcast
 
 
@@ -20,10 +18,6 @@ def step(*, dsn=None):
         claim = podcasts.claim_step(dsn=dsn)
         if claim is None:
             return
-        base = os.environ.get("STUDYDY_PODCAST_PROVIDER_URL", "").rstrip("/")
-        token = os.environ.get("STUDYDY_PODCAST_PROVIDER_TOKEN", "")
-        if not base or not token:
-            raise PodcastError("PODCAST_PROVIDER_UNAVAILABLE")
         episode = claim["episode"]
         audio = bool(episode["script"])
         with cancellable_job(
@@ -44,13 +38,10 @@ def step(*, dsn=None):
             )
             body.update(job)
             body["episode_index"] = claim["index"]
-            request = Request(
-                base + ("/audio" if audio else "/script"),
-                data=json.dumps(body, ensure_ascii=False).encode(),
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {token}",
-                },
+            request = provider_request(
+                "/audio" if audio else "/script",
+                body,
+                unavailable=PodcastError("PODCAST_PROVIDER_UNAVAILABLE"),
             )
             try:
                 with generation_response(request) as response:
@@ -71,10 +62,7 @@ def step(*, dsn=None):
                             json.loads(raw_metadata) if raw_metadata else None
                         )
             except HTTPError as failure:
-                try:
-                    code = json.loads(failure.read(4096)).get("error_code")
-                except Exception:
-                    code = None
+                code = provider_error_code(failure)
                 if code in {
                     "PODCAST_SCRIPT_INVALID",
                     "PODCAST_SCRIPT_NEEDS_REVIEW",
