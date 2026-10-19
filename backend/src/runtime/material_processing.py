@@ -164,7 +164,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
                 for reason in output["reason_codes"]
             )
             and type(output["ocr_calls"]) is int
-            and 0 <= output["ocr_calls"] <= output["page_count"]
+            and output["ocr_calls"] >= 0
             and type(output["semantic_calls"]) is int
             and output["semantic_calls"] >= 1
             and row.progress_stage == "completed"
