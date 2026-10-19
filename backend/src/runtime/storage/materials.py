@@ -17,6 +17,7 @@ from .tables import (
     StudySession,
 )
 from .database import database_session
+from ..errors import SourceError
 
 
 class MaterialLibraryError(RuntimeError):
@@ -35,6 +36,20 @@ def require_material(session, owner, material_id, *, read=False):
     )
     if material is None:
         raise MaterialLibraryError("RESOURCE_NOT_FOUND")
+    return material
+
+
+def require_source_material(session, owner, material_id):
+    """來源編修須鎖住已要求刪除的父項，回報衝突；媒體入口則視為不存在。"""
+    material = session.scalar(
+        select(Material)
+        .where(Material.learner_id == owner, Material.material_id == material_id)
+        .with_for_update()
+    )
+    if material is None:
+        raise SourceError("RESOURCE_NOT_FOUND")
+    if material.discard_requested_at is not None:
+        raise SourceError("MATERIAL_NOT_DISCARDABLE")
     return material
 
 

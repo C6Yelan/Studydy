@@ -36,22 +36,7 @@ from .storage.tables import (
 )
 from .generation_jobs import lease_is_current
 from .storage.database import database_session
-
-
-def _material(session, owner, identity):
-    row = session.scalar(
-        select(Material)
-        .where(
-            Material.learner_id == owner,
-            Material.material_id == identity,
-        )
-        .with_for_update()
-    )
-    if row is None:
-        raise SourceError("RESOURCE_NOT_FOUND")
-    if row.discard_requested_at is not None:
-        raise SourceError("MATERIAL_NOT_DISCARDABLE")
-    return row
+from .storage.materials import require_source_material
 
 
 def _name(value):
@@ -134,7 +119,7 @@ def upload_source(
     )
     try:
         with database_session(dsn) as session:
-            material = _material(session, owner, material_id)
+            material = require_source_material(session, owner, material_id)
             if research_attempt is not None:
                 from .storage.tables import MaterialResearch
 
@@ -398,7 +383,7 @@ def normalize_next(*, dsn=None):
             except ValueError as error:
                 raise SourceError(str(error)) from None
         with database_session(dsn) as session:
-            material = _material(session, owner, material_id)
+            material = require_source_material(session, owner, material_id)
             job = session.scalar(
                 select(SourceNormalization)
                 .where(
@@ -462,7 +447,7 @@ def normalize_next(*, dsn=None):
 
 def retry_normalization(owner, material_id, identity, *, dsn=None):
     with database_session(dsn) as session:
-        _material(session, owner, material_id)
+        require_source_material(session, owner, material_id)
         job = session.scalar(
             select(SourceNormalization)
             .where(
@@ -492,7 +477,7 @@ def remove_staged_source(owner, material_id, source_id, *, dsn=None):
     artifacts = []
     try:
         with database_session(dsn) as session:
-            material = _material(session, owner, material_id)
+            material = require_source_material(session, owner, material_id)
             source = session.scalar(
                 select(MaterialSource)
                 .where(

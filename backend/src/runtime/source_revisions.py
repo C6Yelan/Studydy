@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 
 from content_identity import canonical_sha256
 from pdf_evidence.analysis_scope import selected_pages
-from .source_normalization import _material
+from .storage.materials import require_source_material
 from .errors import SourceError
 from .material_runtime import runtime_binding
 from .storage.artifacts import _key_digest
@@ -81,7 +81,7 @@ def retry_revision(owner, run_id, key, config, *, dsn=None):
             raise SourceError("RESOURCE_NOT_FOUND")
         if run.status != "failed" or run.input_source_set_id is None:
             raise SourceError("REQUEST_INVALID")
-        _material(session, owner, run.material_id)
+        require_source_material(session, owner, run.material_id)
         source_set = session.get(MaterialSourceSet, run.input_source_set_id)
         prefix = 0
         if run.base_revision:
@@ -122,7 +122,7 @@ def _check_revision_intent(
     session, owner, material_id, digest, normalization_ids, base_revision
 ):
     """兩個交易都須在父鎖內重驗意圖與 head；共用規則，不省略第二次核對。"""
-    material = _material(session, owner, material_id)
+    material = require_source_material(session, owner, material_id)
     existing = session.scalar(
         select(MaterialProcessingRun).where(
             MaterialProcessingRun.learner_id == owner,
