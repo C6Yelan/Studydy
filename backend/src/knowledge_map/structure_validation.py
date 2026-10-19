@@ -18,7 +18,6 @@ from .structure_rules import (
     _CODE_OR_FORMULA,
     _GENERIC_REASONS,
     _TECHNICAL,
-    _cycle,
     _id,
     _path,
     _revision,
@@ -448,7 +447,6 @@ def _validate_relations_and_path(document):
     sections = document["document_tree"]["sections"]
     known_evidence = {item["evidence_id"] for item in evidence}
     known_concepts = {concept["concept_id"] for concept in concepts}
-    edges = []
     relation_ids = set()
     relation_directions: set[tuple[str, str, str]] = set()
     known_sections = {section["section_id"] for section in sections}
@@ -525,10 +523,6 @@ def _validate_relations_and_path(document):
             return False
         relation_ids.add(relation["relation_id"])
         relation_directions.add(direction)
-        if relation_type == "prerequisite":
-            if _cycle(edges, (source_id, target_id)):
-                return False
-            edges.append((source_id, target_id))
     if relations != sorted(
         relations,
         key=lambda relation: (
@@ -542,6 +536,7 @@ def _validate_relations_and_path(document):
     path_ids = [step["concept_id"] for step in document["initial_learning_path"]]
     if len(path_ids) != len(set(path_ids)) or set(path_ids) != known_concepts:
         return False
+    # 拓撲排序同時拒絕環；不必為每條已保存的邊再建圖檢查。
     if document["initial_learning_path"] != _path(concepts, relations):
         return False
     return True

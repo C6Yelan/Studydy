@@ -56,10 +56,7 @@ def _text(value: Any, *, maximum: int = 4096) -> str:
     return cleaned
 
 
-def _cycle(edges: list[tuple[str, str]], candidate: tuple[str, str]) -> bool:
-    graph: dict[str, set[str]] = {}
-    for source, target in [*edges, candidate]:
-        graph.setdefault(source, set()).add(target)
+def _cycle(graph: dict[str, set[str]], candidate: tuple[str, str]) -> bool:
     pending = [candidate[1]]
     visited: set[str] = set()
     while pending:

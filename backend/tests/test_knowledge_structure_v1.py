@@ -382,6 +382,28 @@ def test_cycle_and_forbidden_or_generic_relations_never_publish():
     assert structure["metrics"]["rejected_relations"] == 2
 
 
+def test_three_node_cycle_is_rejected_during_generation_and_canonical_read():
+    from test_material_consolidation import document
+    from knowledge_map.structure_rules import _id, RELATION_PRIORITY
+
+    structure = document(relations=[
+        {'s': str(source), 't': str(target), 'k': 'prerequisite',
+         'r': '先完成此步驟才可進行下一步。', 'e': [source, target], 'c': .8}
+        for source, target in [(0, 1), (1, 2), (2, 0)]
+    ])
+    assert validate_knowledge_structure(structure)
+    assert len(structure['relations']) == 2
+    assert structure['metrics']['rejected_relations'] == 1
+    row = deepcopy(structure['relations'][0])
+    row.update(source_concept_id=structure['concepts'][2]['concept_id'],
+               target_concept_id=structure['concepts'][0]['concept_id'])
+    row['relation_id'] = _id('relation', {key: value for key, value in row.items() if key != 'relation_id'})
+    structure['relations'].append(row)
+    structure['relations'].sort(key=lambda r: (RELATION_PRIORITY[r['type']], r['source_concept_id'], r['target_concept_id'], r['relation_id']))
+    structure['revision'] = _revision(structure)
+    assert not validate_knowledge_structure(structure)
+
+
 def test_relation_cannot_borrow_request_invisible_document_evidence():
     context = _context()
     state = SemanticState()

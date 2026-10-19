@@ -118,7 +118,7 @@ def build_structure_draft(
     )
     relations: list[dict[str, Any]] = []
     directed_relations: set[tuple[str, str, str]] = set()
-    prerequisite_edges: list[tuple[str, str]] = []
+    prerequisite_graph: dict[str, set[str]] = {}
     rejected_relations = 0
     for proposal in state.relations:
         source = key_to_id.get(proposal["source_concept"])
@@ -134,7 +134,7 @@ def build_structure_draft(
             rejected_relations += 1
             continue
         if relation_type == "prerequisite" and _cycle(
-            prerequisite_edges, (source, target)
+            prerequisite_graph, (source, target)
         ):
             rejected_relations += 1
             continue
@@ -152,7 +152,7 @@ def build_structure_draft(
         relations.append(relation)
         directed_relations.add(identity)
         if relation_type == "prerequisite":
-            prerequisite_edges.append((source, target))
+            prerequisite_graph.setdefault(source, set()).add(target)
     relations.sort(
         key=lambda relation: (
             RELATION_PRIORITY[relation["type"]],
