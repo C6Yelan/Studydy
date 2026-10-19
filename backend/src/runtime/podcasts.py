@@ -34,19 +34,22 @@ from .audio import validate_audio
 from .generation_jobs import WORKER_LEASE_TTL, lease_is_current
 
 
-def _summary(row, material, db):
-    videos = list(
-        db.scalars(
-            select(PodcastVideo.status).where(PodcastVideo.podcast_id == row.podcast_id)
-        )
-    )
-    scenes = list(
-        db.scalars(
-            select(PodcastScenes.status).where(
-                PodcastScenes.podcast_id == row.podcast_id
-            )
-        )
-    )
+def _child_statuses(db, podcast_ids):
+    statuses = {identity: {"videos": [], "scenes": []} for identity in podcast_ids}
+    if statuses:
+        for model, kind in ((PodcastVideo, "videos"), (PodcastScenes, "scenes")):
+            for identity, status in db.execute(
+                select(model.podcast_id, model.status).where(
+                    model.podcast_id.in_(statuses)
+                )
+            ):
+                statuses[identity][kind].append(status)
+    return statuses
+
+
+def _summary(row, material, child_statuses):
+    videos = child_statuses[row.podcast_id]["videos"]
+    scenes = child_statuses[row.podcast_id]["scenes"]
     # 分鏡 worker 只接 ready 節目；失敗節目的待處理分鏡不代表仍在生成。
     active_children = videos + (scenes if row.status == "ready" else [])
     generation = {
@@ -111,7 +114,7 @@ def create_podcast(
                 raise PodcastError("IDEMPOTENCY_CONFLICT")
             if row.status == "deleted":
                 raise PodcastError("RESOURCE_NOT_FOUND")
-            return _summary(row, material, db)
+            return _summary(row, material, _child_statuses(db, [row.podcast_id]))
         document = _read_verified_document(db, owner, material_id, revision=revision)
         retrieval._scope(db, owner, material_id, revision)
         view = _view(document, material_id)
@@ -146,7 +149,7 @@ def create_podcast(
         )
         db.add(row)
         db.flush()
-        return _summary(row, material, db)
+        return _summary(row, material, _child_statuses(db, [row.podcast_id]))
 
 
 def _locked(db, owner, identity, *, allow_deleted=False, read=False):
@@ -188,9 +191,10 @@ def list_podcasts(owner, *, dsn=None):
             )
             .order_by(Podcast.created_at.desc())
         ).all()
+        statuses = _child_statuses(db, [row.podcast_id for row, _ in rows])
         return {
             "schema": "podcast-list/v1",
-            "podcasts": [_summary(*row, db) for row in rows],
+            "podcasts": [_summary(*row, statuses) for row in rows],
         }
 
 
@@ -217,7 +221,7 @@ def read_podcast(owner, identity, *, dsn=None):
         return {
             "schema": "podcast/v1",
             "run_id": str(run_id),
-            **_summary(row, material, db),
+            **_summary(row, material, _child_statuses(db, [row.podcast_id])),
             "source_resolver": meta["source_resolver"],
             "source_status": meta["status"],
             "excluded_pages": meta["excluded_pages"],
@@ -244,7 +248,8 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
         elif action == "retry" and row.status == "ready":
             from .podcast_videos import enqueue
 
-            if not _summary(row, material, db)["generation"]["retryable_videos"]:
+            summary = _summary(row, material, _child_statuses(db, [row.podcast_id]))
+            if not summary["generation"]["retryable_videos"]:
                 raise PodcastError("PODCAST_CONFLICT")
             for index in range(len(row.episodes)):
                 video = enqueue(db, row, index)
@@ -271,7 +276,7 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
             raise PodcastError("PODCAST_CONFLICT")
         row.version += 1
         db.flush()
-        return _summary(row, material, db)
+        return _summary(row, material, _child_statuses(db, [row.podcast_id]))
 
 
 def delete_podcast(owner, identity, *, expected_version=None, dsn=None):

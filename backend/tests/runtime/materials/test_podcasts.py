@@ -407,3 +407,80 @@ def test_playback_metadata_keeps_sources_without_building_all_concept_views(clos
     after = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
     assert after == before
     assert after['source_resolver'].startswith(f'/v1/materials/{source.material_id}/')
+
+
+def test_podcast_list_batches_child_states_without_changing_summaries(closed_loop, record_property):
+    from sqlalchemy import event
+    from runtime.storage.database import _database_engine
+    from runtime.storage.tables import PodcastScenes, PodcastVideo
+
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)['podcast_id']
+    complete(dsn)
+    # 這裡只測狀態彙總；音訊與影片內容不作為真實生成品質證據。
+    with database_session(dsn) as db:
+        original = db.get(Podcast, identity)
+        template = {column.name: deepcopy(getattr(original, column.name))
+                    for column in Podcast.__table__.columns}
+        db.query(PodcastScenes).filter(PodcastScenes.podcast_id == identity).delete()
+        db.query(PodcastVideo).filter(PodcastVideo.podcast_id == identity).delete()
+    base = podcasts.list_podcasts(owner.learner_id, dsn=dsn)['podcasts'][0]
+    # Podcast、影片、分鏡狀態，以及既有五個 generation 欄位的預期值。
+    cases = [
+        ('ready', None, None, (False, 0, 0, False, True)),
+        ('pending', None, None, (True, 0, 0, False, False)),
+        ('ready', 'ready', None, (False, 1, 0, True, False)),
+        ('ready', 'failed', None, (False, 0, 1, False, True)),
+        ('ready', 'cancelled', None, (False, 0, 0, False, True)),
+        ('ready', 'pending', None, (True, 0, 0, False, False)),
+        ('failed', None, 'pending', (False, 0, 0, False, False)),
+        ('ready', None, 'pending', (True, 0, 0, False, True)),
+        ('cancelled', 'running', None, (True, 0, 0, False, False)),
+    ]
+    expected = [base]
+    counts = []
+    engine = _database_engine(dsn)
+    for size in (1, 10, 100):
+        with database_session(dsn) as db:
+            for index in range(len(expected), size):
+                status, video, scene, generation = cases[index % len(cases)]
+                values = deepcopy(template)
+                values.update(podcast_id=uuid4(), name=f'節目 {index}', status=status,
+                              created_at=template['created_at'] + timedelta(seconds=index),
+                              idempotency_key_sha256=index.to_bytes(32, 'big'))
+                db.add(Podcast(**values))
+                db.flush()
+                if video:
+                    db.add(PodcastVideo(
+                        video_id=uuid4(), podcast_id=values['podcast_id'], episode_index=0,
+                        source_sha256='a' * 64, status=video, version=1,
+                        created_at=values['created_at'],
+                        artifact_id=template['episodes'][0]['audio']['artifact_id'] if video == 'ready' else None,
+                        manifest={} if video == 'ready' else None,
+                        lease_token=uuid4() if video == 'running' else None,
+                        lease_expires_at=datetime.now(UTC) + timedelta(minutes=1) if video == 'running' else None,
+                    ))
+                if scene:
+                    db.add(PodcastScenes(
+                        scene_id=uuid4(), podcast_id=values['podcast_id'], episode_index=0,
+                        input_sha256='a' * 64, status=scene, version=1, created_at=values['created_at'],
+                    ))
+                expected.append({**base, 'podcast_id': values['podcast_id'], 'name': values['name'],
+                                 'status': status, 'created_at': values['created_at'],
+                                 'generation': dict(zip(('active', 'completed_videos', 'failed_videos',
+                                                        'preview_ready', 'retryable_videos'), generation))})
+        statements = []
+
+        def count_query(connection, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().upper().startswith('SELECT'):
+                statements.append(statement)
+
+        event.listen(engine, 'before_cursor_execute', count_query)
+        try:
+            result = podcasts.list_podcasts(owner.learner_id, dsn=dsn)
+        finally:
+            event.remove(engine, 'before_cursor_execute', count_query)
+        assert result == {'schema': 'podcast-list/v1', 'podcasts': list(reversed(expected))}
+        counts.append((size, len(statements)))
+    record_property('podcast_count_list_queries', counts)
+    assert len({queries for _, queries in counts}) == 1, counts

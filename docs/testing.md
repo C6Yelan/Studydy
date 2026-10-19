@@ -94,6 +94,8 @@ env -u STUDYDY_TEST_POSTGRES_DSN -u STUDYDY_DATABASE_DSN \
 - frontend/e2e/api 由 Python fixture 啟動真 API、隔離 DB 及必要 worker；模型回應受控。故障注入案例會明確攔截個別請求。
 
 `runtime/study/test_progress_snapshot.py` 以 1／10／100 題與 1／10／100 個題組驗證讀取查詢數不逐筆成長，並保留來源設定、私有答案、事件順序及一致 snapshot 的檢查。這是隔離 PostgreSQL 的查詢量回歸，不代表正式環境延遲或模型品質量測。
+
+`runtime/materials/test_podcasts.py` 同樣以 1／10／100 筆節目驗證清單固定三次 SELECT，並逐筆核對摘要、順序與影片／分鏡狀態。清單仍回傳所有節目，這項回歸不代表回傳資料量已有上限。
 - fixture 負責設定啟用旗標；不要手動設旗標或把 skip 當通過。
 
 執行 mock browser，沿用上述 build 與 ports：

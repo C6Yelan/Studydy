@@ -260,20 +260,22 @@ def read_sources(owner, material_id, *, dsn=None):
 
         revision = material.head_revision
         structure = (
-            session.scalar(
-                select(KnowledgeStructure).where(
+            session.execute(
+                select(
+                    KnowledgeStructure.document["input_binding"].label("input_binding")
+                ).where(
                     KnowledgeStructure.learner_id == owner,
                     KnowledgeStructure.material_id == material_id,
                     KnowledgeStructure.structure_revision == revision,
                 )
-            )
+            ).first()
             if revision
             else None
         )
         included = (
             {
                 item["source_id"]
-                for item in structure.document["input_binding"]["manifest"]["items"]
+                for item in structure.input_binding["manifest"]["items"]
             }
             if structure
             else set()
