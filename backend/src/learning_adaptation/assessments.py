@@ -780,7 +780,7 @@ def _documents(
     candidate: dict[str, Any],
     *,
     runtime_lock: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     question_identity = {
         "study_session_id": str(study.study_session_id),
         "knowledge_structure_revision": study.knowledge_structure_revision,
@@ -870,7 +870,7 @@ def _documents(
     public = {**public_core, "assessment_revision": revision}
     private = {**private_core, "assessment_revision": revision}
     provenance = {**provenance_core, "assessment_revision": revision}
-    return public, private, provenance, mastery_qualified
+    return public, private, provenance
 
 
 def prepare_assessment(

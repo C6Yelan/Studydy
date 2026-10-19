@@ -52,13 +52,55 @@ def plan_concept(context, concept_id):
     return plan_concept_content(concept)
 
 
+def _create_group(
+    session, study, plan, *, lock, key, fingerprint, diagnostic_set_id=None
+):
+    """初篩與補強共用題組／成員保存；呼叫者負責各自的資格與狀態轉移。"""
+    group = AssessmentSet(
+        set_id=uuid4(),
+        learner_id=study.learner_id,
+        material_id=study.material_id,
+        study_session_id=study.study_session_id,
+        knowledge_structure_revision=study.knowledge_structure_revision,
+        target_concept_id=plan["concept_id"],
+        kind="remediation" if diagnostic_set_id is not None else "diagnostic",
+        diagnostic_set_id=diagnostic_set_id,
+        target_plan=plan,
+        requested_count=len(plan["targets"]),
+        runtime_lock_document=lock,
+        status="preparing" if plan["targets"] else "failed",
+        set_version=1,
+        idempotency_key_sha256=key,
+        request_fingerprint=fingerprint,
+        action_receipts={},
+        created_at=_now(),
+        updated_at=_now(),
+    )
+    session.add(group)
+    session.flush()
+    for ordinal, target in enumerate(plan["targets"], 1):
+        session.add(
+            AssessmentSetItem(
+                set_id=group.set_id,
+                ordinal=ordinal,
+                study_session_id=study.study_session_id,
+                knowledge_structure_revision=study.knowledge_structure_revision,
+                target_concept_id=plan["concept_id"],
+                target_claim_id=target["claim_id"],
+                state="pending",
+                attempts=0,
+            )
+        )
+    return group
+
+
 def create_set(learner, sid, concept_id, idempotency_key, local_config, *, dsn=None):
     key = assessments._key(idempotency_key)
     fingerprint = bytes.fromhex(
         canonical_sha256({"session": str(sid), "concept": concept_id})
     )
     with database_session(dsn) as session:
-        study, context, document = _scope(session, learner, sid, lock=True)
+        study, context, _ = _scope(session, learner, sid, lock=True)
         old = session.scalar(
             select(AssessmentSet).where(
                 AssessmentSet.study_session_id == sid,
@@ -78,40 +120,9 @@ def create_set(learner, sid, concept_id, idempotency_key, local_config, *, dsn=N
         lock = deepcopy(validate_runtime_lock(local_config["runtime_lock"]))
         study.current_concept_id = concept_id
         study.last_applied_guidance_revision = study.last_applied_progress_sha256 = None
-        group = AssessmentSet(
-            set_id=uuid4(),
-            learner_id=study.learner_id,
-            material_id=study.material_id,
-            study_session_id=sid,
-            knowledge_structure_revision=study.knowledge_structure_revision,
-            target_concept_id=concept_id,
-            kind="diagnostic",
-            target_plan=plan,
-            requested_count=len(plan["targets"]),
-            runtime_lock_document=lock,
-            status="preparing" if plan["targets"] else "failed",
-            set_version=1,
-            idempotency_key_sha256=key,
-            request_fingerprint=fingerprint,
-            action_receipts={},
-            created_at=_now(),
-            updated_at=_now(),
+        group = _create_group(
+            session, study, plan, lock=lock, key=key, fingerprint=fingerprint
         )
-        session.add(group)
-        session.flush()
-        for ordinal, target in enumerate(plan["targets"], 1):
-            session.add(
-                AssessmentSetItem(
-                    set_id=group.set_id,
-                    ordinal=ordinal,
-                    study_session_id=sid,
-                    knowledge_structure_revision=study.knowledge_structure_revision,
-                    target_concept_id=concept_id,
-                    target_claim_id=target["claim_id"],
-                    state="pending",
-                    attempts=0,
-                )
-            )
         return group.set_id
 
 
@@ -186,41 +197,10 @@ def create_remediation(
             "excluded": [],
         }
         lock = deepcopy(validate_runtime_lock(local_config["runtime_lock"]))
-        group = AssessmentSet(
-            set_id=uuid4(),
-            learner_id=study.learner_id,
-            material_id=study.material_id,
-            study_session_id=sid,
-            knowledge_structure_revision=study.knowledge_structure_revision,
-            target_concept_id=root.target_concept_id,
-            kind="remediation",
+        group = _create_group(
+            session, study, plan, lock=lock, key=digest, fingerprint=fingerprint,
             diagnostic_set_id=root.set_id,
-            target_plan=plan,
-            requested_count=len(targets),
-            runtime_lock_document=lock,
-            status="preparing",
-            set_version=1,
-            idempotency_key_sha256=digest,
-            request_fingerprint=fingerprint,
-            action_receipts={},
-            created_at=_now(),
-            updated_at=_now(),
         )
-        session.add(group)
-        session.flush()
-        for ordinal, target in enumerate(targets, 1):
-            session.add(
-                AssessmentSetItem(
-                    set_id=group.set_id,
-                    ordinal=ordinal,
-                    study_session_id=sid,
-                    knowledge_structure_revision=study.knowledge_structure_revision,
-                    target_concept_id=root.target_concept_id,
-                    target_claim_id=target["claim_id"],
-                    state="pending",
-                    attempts=0,
-                )
-            )
         study.current_concept_id = root.target_concept_id
         root.set_version += 1
         root.updated_at = _now()
@@ -648,7 +628,7 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
         if chosen is None:
             reason = "NO_SAFE_ASSESSMENT"
         else:
-            public, private, provenance, _ = assessments._documents(
+            public, private, provenance = assessments._documents(
                 study_data,
                 concept,
                 claim,

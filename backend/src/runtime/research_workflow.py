@@ -346,17 +346,6 @@ def _needs_body(candidate):
     )
 
 
-def _pending(candidate):
-    return (
-        _needs_preview(candidate)
-        or not candidate.get("screening")
-        or (
-            _needs_body(candidate)
-            and candidate.get("access", {}).get("retry_at", 0) <= time.time()
-        )
-    )
-
-
 def _next_stage(workflow, candidates):
     if any(
         _needs_body(c) and c.get("access", {}).get("retry_at", 0) <= time.time()

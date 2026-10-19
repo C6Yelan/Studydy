@@ -83,7 +83,6 @@ def test_set_list_query_count_does_not_grow_per_set(closed_loop, record_property
 def test_progress_validates_structure_once_and_keeps_a_consistent_snapshot(closed_loop, monkeypatch):
     import runtime.storage.knowledge_structures as storage
     import knowledge_map.structure as structure
-    import learning_adaptation.map_context as context
 
     fixture = concept_fixture(closed_loop, 2)
     root = create(fixture)
@@ -95,7 +94,7 @@ def test_progress_validates_structure_once_and_keeps_a_consistent_snapshot(close
         checks.append(document["revision"])
         return validate(document)
 
-    for module in (storage, structure, context):
+    for module in (storage, structure):
         monkeypatch.setattr(module, "validate_knowledge_structure", counted)
     with progress_snapshot(
         fixture["learner"], fixture["study"].study_session_id, dsn=fixture["dsn"],

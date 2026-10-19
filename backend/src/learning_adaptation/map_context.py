@@ -4,13 +4,6 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from knowledge_map.structure import validate_knowledge_structure
-
-
-class MapContextError(RuntimeError):
-    pass
-
-
 @dataclass(frozen=True)
 class EvidenceContext:
     evidence_id: str
@@ -40,12 +33,6 @@ class MapContext:
     knowledge_structure_revision: str
     concepts: tuple[ConceptContext, ...]
     initial_learning_path: tuple[str, ...]
-
-
-def context_from_structure(material_id: UUID, document: dict[str, Any]) -> MapContext:
-    if not isinstance(material_id, UUID) or not validate_knowledge_structure(document):
-        raise MapContextError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
-    return _context_from_validated_document(material_id, document)
 
 
 def _context_from_validated_document(

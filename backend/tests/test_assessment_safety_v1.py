@@ -113,14 +113,14 @@ def test_exact_duplicate_is_blocked_but_checked_item_does_not_require_novelty():
     )
     concept = ConceptContext(study.current_concept_id, "Null character", (_claim(),), ())
     lock = json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
-    public, private, provenance, qualified = _documents(
+    public, private, provenance = _documents(
         study, concept, _claim(), projected, runtime_lock=lock
     )
     assert public["schema"] == "single-choice-assessment/v1"
     assert "correct_option_id" not in public
     assert private["correct_answer"] == "8 bytes"
     assert provenance["model_id"] == "google/gemma-4-31B-it-qat-w4a16-ct"
-    assert qualified is True
+    assert provenance["mastery_qualified"] is True
 
 
 def test_visually_equivalent_unicode_question_is_an_exact_duplicate():
