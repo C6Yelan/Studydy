@@ -372,6 +372,16 @@ def _next_stage(workflow, candidates):
     return "following_up"
 
 
+def _finish_reading(workflow, candidates, candidate):
+    """移除本次已處理來源，再依所有候選排定下一步，保留未完成的閱讀。"""
+    workflow["read_queue"] = [
+        identity
+        for identity in workflow.get("read_queue", [])
+        if identity != candidate["id"]
+    ]
+    workflow["stage"] = _next_stage(workflow, candidates)
+
+
 def _document_key(candidate):
     fingerprint = candidate.get("inspection_text_sha256") or candidate.get(
         "inspection_sha256"
@@ -408,13 +418,6 @@ def validate_selection(candidates, selected):
         raise SourceError("REQUEST_INVALID")
 
 
-def _reading_order(candidate):
-    return (
-        candidate.get("review", {}).get("relevance") != "direct",
-        not candidate.get("eligible", False),
-    )
-
-
 def _ordered_reading(workflow, candidates):
     queue = workflow.get("read_queue", [])
     gaps = {
@@ -428,7 +431,8 @@ def _ordered_reading(workflow, candidates):
         key=lambda c: (
             bool(gaps) and not gaps.intersection(c.get("review", {}).get("topics", [])),
             queue.index(c["id"]) if c["id"] in queue else len(queue),
-            *_reading_order(c),
+            c.get("review", {}).get("relevance") != "direct",
+            not c.get("eligible", False),
         ),
     )
 
@@ -657,7 +661,7 @@ def _plan_search(workflow, candidates, state, context, call):
 
 def _search_sources(workflow, candidates):
     """取得一個查詢的候選，保留原優先序與重試時間。"""
-    waiting = workflow.pop("waiting_until", None)
+    workflow.pop("waiting_until", None)
     gaps = {
         i
         for i, topic in enumerate(workflow.get("coverage", []))
@@ -932,12 +936,7 @@ def _read_source(workflow, candidates, call, read_document):
                 "quotes": [],
                 "reason": verdict["reason"],
             }
-            workflow["read_queue"] = [
-                identity
-                for identity in workflow.get("read_queue", [])
-                if identity != target["id"]
-            ]
-            workflow["stage"] = _next_stage(workflow, candidates)
+            _finish_reading(workflow, candidates, target)
             return {
                 "search_state": workflow,
                 "candidates": candidates,
@@ -960,12 +959,7 @@ def _read_source(workflow, candidates, call, read_document):
             target["review"] = target.pop("_prior_review")
         target.pop("_reading_text", None)
         target.pop("_review_chunks", None)
-        workflow["read_queue"] = [
-            identity
-            for identity in workflow.get("read_queue", [])
-            if identity != target["id"]
-        ]
-        workflow["stage"] = _next_stage(workflow, candidates)
+        _finish_reading(workflow, candidates, target)
         return {
             "search_state": workflow,
             "candidates": candidates,
@@ -1012,12 +1006,7 @@ def _locate_sections(workflow, candidates, context, call):
         target.pop("_review_chunks", None)
         if target["review"]["relevance"] == "unrelated":
             target["eligible"] = False
-        workflow["read_queue"] = [
-            identity
-            for identity in workflow.get("read_queue", [])
-            if identity != target["id"]
-        ]
-        workflow["stage"] = _next_stage(workflow, candidates)
+        _finish_reading(workflow, candidates, target)
     else:
         windows = _windows(target, workflow)
         if not windows:
@@ -1030,12 +1019,7 @@ def _locate_sections(workflow, candidates, context, call):
                     "reason": "目前沒有尚未核對的候選段落。",
                 }
             target.pop("_reading_text", None)
-            workflow["read_queue"] = [
-                identity
-                for identity in workflow.get("read_queue", [])
-                if identity != target["id"]
-            ]
-            workflow["stage"] = _next_stage(workflow, candidates)
+            _finish_reading(workflow, candidates, target)
             return {
                 "search_state": workflow,
                 "candidates": candidates,
@@ -1155,12 +1139,7 @@ def _locate_sections(workflow, candidates, context, call):
                         "_skipped_sections",
                     ):
                         target.pop(field, None)
-                    workflow["read_queue"] = [
-                        identity
-                        for identity in workflow.get("read_queue", [])
-                        if identity != target["id"]
-                    ]
-                    workflow["stage"] = _next_stage(workflow, candidates)
+                    _finish_reading(workflow, candidates, target)
                 else:
                     target["_read_plan"] = [
                         [windows[i]["start"], windows[i]["end"]] for i in chosen
@@ -1411,15 +1390,23 @@ def _assess_sections(workflow, candidates, state, context, call, retrieve_existi
                     c["reason"] = (
                         "本次核對未選出適合加入的內容；原來源與閱讀判斷仍保留。"
                     )
-            workflow["read_queue"] = [
-                identity
-                for identity in workflow.get("read_queue", [])
-                if identity != c["id"]
-            ]
-            workflow["stage"] = _next_stage(workflow, candidates)
+            _finish_reading(workflow, candidates, c)
     else:
         workflow["stage"] = _next_stage(workflow, candidates)
     return _step_result(workflow, candidates)
+
+
+def _reviewed_for_topics(candidates, topics):
+    """投影本次要核對的原文；不修改已保存的完整審閱與引用順序。"""
+    selected = []
+    for candidate in candidates:
+        quotes = [q for q in candidate["review"]["quotes"] if q["topic"] in topics]
+        if quotes:
+            selected.append({
+                **candidate,
+                "review": {**candidate["review"], "quotes": quotes},
+            })
+    return selected
 
 
 def _follow_up(workflow, candidates, context, call):
@@ -1502,17 +1489,7 @@ def _follow_up(workflow, candidates, context, call):
         ]
     )
     topic_sources = {
-        topic: [
-            {
-                **c,
-                "review": {
-                    **c["review"],
-                    "quotes": [q for q in c["review"]["quotes"] if q["topic"] == topic],
-                },
-            }
-            for c in all_reviewed
-            if any(q["topic"] == topic for q in c["review"]["quotes"])
-        ]
+        topic: _reviewed_for_topics(all_reviewed, {topic})
         for topic in range(len(workflow["topics"]))
     }
     topic_signatures = {
@@ -1541,17 +1518,7 @@ def _follow_up(workflow, candidates, context, call):
         if checked.get(str(topic)) != topic_signatures[str(topic)]
     ]
     unchanged_evidence = not dirty
-    reviewed = [
-        {
-            **c,
-            "review": {
-                **c["review"],
-                "quotes": [q for q in c["review"]["quotes"] if q["topic"] in dirty],
-            },
-        }
-        for c in all_reviewed
-        if any(q["topic"] in dirty for q in c["review"]["quotes"])
-    ]
+    reviewed = _reviewed_for_topics(all_reviewed, dirty)
     # 任一題的來源變更時重查該題完整原文；同批題目共享的段落由 _coverage_items 去重。
     assessment_key = canonical_sha256(
         {str(topic): topic_signatures[str(topic)] for topic in dirty}
@@ -1576,19 +1543,7 @@ def _follow_up(workflow, candidates, context, call):
             fitting_sources = None
             for topic in dirty:
                 trial = fitting_topics + [topic]
-                sources = [
-                    {
-                        **c,
-                        "review": {
-                            **c["review"],
-                            "quotes": [
-                                q for q in c["review"]["quotes"] if q["topic"] in trial
-                            ],
-                        },
-                    }
-                    for c in reviewed
-                    if any(q["topic"] in trial for q in c["review"]["quotes"])
-                ]
+                sources = _reviewed_for_topics(reviewed, trial)
                 if (
                     _coverage_items(sources, {**workflow, "evidence_offset": 0})[2]
                     is None
@@ -1908,7 +1863,6 @@ def _follow_up(workflow, candidates, context, call):
     workflow.pop("coverage_offset", None)
     for field in ("checked_source_quotes", "checked_source_signatures"):
         workflow.pop(field, None)
-    reviewed = all_reviewed
     workflow["summary"] = "已保存閱讀結果，依各子題的支持內容判斷下一步。"
     missing = any(c["status"] != "covered" for c in coverage)
     next_read = [unread[i] for i in _topics(result["read_next"], unread)]
