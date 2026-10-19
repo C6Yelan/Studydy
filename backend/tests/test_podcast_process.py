@@ -216,6 +216,119 @@ def test_audio_transport_keeps_connection_timeout_but_not_generation_timeout(pro
     assert observed==[10,None]
 
 
+@pytest.mark.parametrize('waiting_for', ['headers', 'body'])
+def test_cancel_releases_local_http_wait_even_when_provider_cancel_delivery_fails(monkeypatch, waiting_for):
+    from http.server import BaseHTTPRequestHandler
+    from runtime import generation_jobs
+
+    entered, release, cancel, delivered, finished = (Event() for _ in range(5))
+    errors = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers['Content-Length']))
+            if waiting_for == 'body':
+                self.send_response(200)
+                self.send_header('Content-Length', '100')
+                self.end_headers()
+                self.wfile.write(b'{')
+                self.wfile.flush()
+            entered.set()
+            release.wait(10)
+
+    def check():
+        if cancel.is_set():
+            raise generation_jobs.JobCancelled()
+
+    def failed_cancel(*args, **kwargs):
+        delivered.set()
+        raise OSError('synthetic cancel endpoint unavailable')
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    serving = Thread(target=server.serve_forever, daemon=True)
+    serving.start()
+    monkeypatch.setenv('STUDYDY_PODCAST_PROVIDER_URL', f'http://127.0.0.1:{server.server_port}')
+    monkeypatch.setenv('STUDYDY_PODCAST_PROVIDER_TOKEN', 'synthetic-token')
+    monkeypatch.setattr(generation_jobs, 'urlopen', failed_cancel)
+
+    def run():
+        try:
+            with generation_jobs.provider_job(check):
+                provider_http.provider('/semantics', {})
+        except Exception as error:
+            errors.append(error)
+        finally:
+            finished.set()
+
+    worker = Thread(target=run)
+    worker.start()
+    try:
+        assert entered.wait(3)
+        cancel.set()
+        assert delivered.wait(2)
+        assert finished.wait(2), 'cancelled generation still occupies the local worker'
+        assert len(errors) == 1 and isinstance(errors[0], generation_jobs.JobCancelled)
+    finally:
+        release.set()
+        worker.join(timeout=3)
+        server.shutdown()
+        server.server_close()
+        serving.join(timeout=2)
+
+
+def test_cancel_during_connect_does_not_send_generation_or_affect_the_next_scope(provider_server, monkeypatch):
+    from runtime import generation_jobs
+
+    connecting, release, cancelled, delivered = (Event() for _ in range(4))
+    connection = provider_http.HTTPConnection
+    generated = []
+
+    class DelayedConnection(connection):
+        def connect(self):
+            connecting.set()
+            assert release.wait(5)
+            super().connect()
+
+    def check():
+        if cancelled.is_set():
+            raise generation_jobs.JobCancelled()
+
+    def failed_cancel(*args, **kwargs):
+        delivered.set()
+        raise OSError('synthetic cancel endpoint unavailable')
+
+    def audio(*args, **kwargs):
+        generated.append(True)
+        return b'RIFFsynthetic', None
+
+    monkeypatch.setattr(provider_http, 'HTTPConnection', DelayedConnection)
+    monkeypatch.setattr(generation_jobs, 'urlopen', failed_cancel)
+    monkeypatch.setattr(provider, 'audio', audio)
+
+    def run():
+        with generation_jobs.provider_job(check):
+            return provider_http.provider('/audio', {'purpose': 'podcast'})
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(run)
+        try:
+            assert connecting.wait(2)
+            cancelled.set()
+            assert delivered.wait(2)
+        finally:
+            release.set()
+        with pytest.raises(generation_jobs.JobCancelled):
+            future.result(timeout=3)
+        assert generated == []
+        # 重用同一個 thread；已取消 scope 不得污染下一個工作。
+        cancelled.clear()
+        assert pool.submit(run).result(timeout=3) == b'RIFFsynthetic'
+        assert generated == [True]
+
+
 def test_resource_queue_has_no_default_deadline_and_health_does_not_queue(provider_server, monkeypatch):
     import threading
     cancelled = Event()

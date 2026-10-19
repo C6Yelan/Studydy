@@ -22,7 +22,7 @@ from .storage.tables import (
     SourceNormalization,
 )
 from .storage.database import database_session
-from .provider_http import provider_request
+from .provider_http import generation_cancellation, provider_request
 from .errors import SourceError
 
 WORKER_LEASE_TTL = timedelta(minutes=15)
@@ -96,6 +96,7 @@ def provider_job(cancellation_check, metadata=None):
                     continue
                 except Exception as error:
                     failures.append(error)
+                    cancel(error)
             try:
                 try:
                     request = provider_request(
@@ -110,13 +111,14 @@ def provider_job(cancellation_check, metadata=None):
             except Exception:
                 logging.getLogger(__name__).warning("GENERATION_CANCEL_DELIVERY_FAILED")
 
-    watcher = Thread(target=watch, name="generation-cancel-watch", daemon=True)
-    watcher.start()
-    try:
-        yield metadata
-    finally:
-        done.set()
-        watcher.join(timeout=6)
+    with generation_cancellation() as cancel:
+        watcher = Thread(target=watch, name="generation-cancel-watch", daemon=True)
+        watcher.start()
+        try:
+            yield metadata
+        finally:
+            done.set()
+            watcher.join(timeout=6)
 
 
 def check_job(model, identity, lease_token, *, dsn, statuses=("running",)):
