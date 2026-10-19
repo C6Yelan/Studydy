@@ -31,7 +31,7 @@ from .errors import SourceError, PodcastError
 from .audio import validate_audio
 
 
-from .generation_jobs import WORKER_LEASE_TTL
+from .generation_jobs import WORKER_LEASE_TTL, lease_is_current
 
 
 def _summary(row, material, db):
@@ -385,8 +385,7 @@ def finish_step(
             return False
         if (
             row.status != "running"
-            or row.lease_token != claim["token"]
-            or row.lease_expires_at <= datetime.now(UTC)
+            or not lease_is_current(row, claim["token"])
         ):
             return False
         episodes = deepcopy(row.episodes)

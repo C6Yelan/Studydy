@@ -33,6 +33,15 @@ class JobCancelled(RuntimeError):
         super().__init__("GENERATION_CANCELLED")
 
 
+def lease_is_current(row, token, *, now=None):
+    """續租與保存共用租約判定；狀態、擁有權及父資料由各工作交易核對。"""
+    return (
+        row.lease_token == token
+        and row.lease_expires_at is not None
+        and row.lease_expires_at > (now if now is not None else datetime.now(UTC))
+    )
+
+
 def _source_active(db, row):
     if isinstance(row, CardSet):
         if row.deleted_at is not None:
@@ -118,9 +127,7 @@ def check_job(model, identity, lease_token, *, dsn, statuses=("running",)):
             active = (
                 row is not None
                 and row.status in statuses
-                and row.lease_token == lease_token
-                and row.lease_expires_at is not None
-                and row.lease_expires_at > now
+                and lease_is_current(row, lease_token, now=now)
                 and _source_active(db, row)
             )
             if active and row.lease_expires_at < now + WORKER_LEASE_TTL / 2:

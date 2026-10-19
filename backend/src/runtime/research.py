@@ -21,7 +21,7 @@ from .storage.tables import (
 )
 from .storage.database import database_session
 from .provider_http import provider
-from .generation_jobs import cancellable_job
+from .generation_jobs import cancellable_job, lease_is_current
 from . import research_workflow
 from . import research_documents
 
@@ -455,7 +455,7 @@ def save(state, mutate, *, dsn=None, release=True):
         )
         if (
             not row
-            or row.lease_token != state["lease_token"]
+            or not lease_is_current(row, state["lease_token"])
             or row.status != state["status"]
         ):
             return False

@@ -12,7 +12,7 @@ from sqlalchemy import or_, select
 
 from content_identity import canonical_sha256
 from . import card_design as design
-from .generation_jobs import WORKER_LEASE_TTL, check_job
+from .generation_jobs import WORKER_LEASE_TTL, check_job, lease_is_current
 from .semantic_service import request_semantics, semantic_client, SemanticServiceError
 from .text_budget import estimate_o200k_tokens
 from .storage import card_sources, knowledge_reads
@@ -129,9 +129,7 @@ def _save(claim, state, status, dsn):
             row is None
             or row.deleted_at is not None
             or row.status != "running"
-            or row.lease_token != claim["token"]
-            or row.lease_expires_at is None
-            or row.lease_expires_at <= datetime.now(UTC)
+            or not lease_is_current(row, claim["token"])
             or material is None
             or material.discard_requested_at is not None
         ):

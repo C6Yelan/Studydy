@@ -21,7 +21,7 @@ from .storage.tables import (
 )
 from .storage.database import database_session
 from .audio import validate_audio
-from .generation_jobs import cancellable_job
+from .generation_jobs import cancellable_job, lease_is_current
 from . import retrieval, material_qa
 
 
@@ -601,10 +601,8 @@ def finish(state, result=None, error=None, *, dsn=None):
         turn = db.get(Turn, state["turn_id"])
         if (
             not turn
-            or turn.lease_token != state["lease_token"]
+            or not lease_is_current(turn, state["lease_token"])
             or turn.status != state["status"]
-            or turn.lease_expires_at is None
-            or turn.lease_expires_at <= datetime.now(UTC)
         ):
             return
         turn.lease_token = turn.lease_expires_at = None

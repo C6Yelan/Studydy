@@ -15,7 +15,7 @@ from .storage.database import database_session
 from .storage.knowledge_structures import _read_verified_document
 from .storage.artifacts import open_verified_artifact
 from .provider_http import provider
-from .generation_jobs import WORKER_LEASE_TTL, cancellable_job
+from .generation_jobs import WORKER_LEASE_TTL, cancellable_job, lease_is_current
 from .audio import validate_audio
 from .podcast_sources import source_context
 from .scene_alignment import normalized
@@ -502,7 +502,7 @@ def save_alignment(state, alignment, *, dsn=None):
         if (
             not row
             or row.status != "running"
-            or row.lease_token != state["lease_token"]
+            or not lease_is_current(row, state["lease_token"])
         ):
             return False
         if podcast.status != "ready" or row.input_sha256 != identity(
@@ -521,7 +521,7 @@ def finish(state, alignment=None, error=None, checks=None, *, dsn=None):
         if (
             not row
             or row.status != "running"
-            or row.lease_token != state["lease_token"]
+            or not lease_is_current(row, state["lease_token"])
         ):
             return
         row.lease_token = row.lease_expires_at = None
@@ -552,7 +552,7 @@ def save_checks(state, checks, *, dsn=None):
         if (
             not row
             or row.status != "running"
-            or row.lease_token != state["lease_token"]
+            or not lease_is_current(row, state["lease_token"])
         ):
             return False
         if podcast.status != "ready" or row.input_sha256 != identity(

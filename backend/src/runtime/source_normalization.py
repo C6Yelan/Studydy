@@ -34,6 +34,7 @@ from .storage.tables import (
     MaterialSourceSetItem,
     SourceNormalization,
 )
+from .generation_jobs import lease_is_current
 from .storage.database import database_session
 
 
@@ -149,7 +150,7 @@ def upload_source(
                 if (
                     research is None
                     or research.status != "acquiring"
-                    or research.lease_token != research_attempt[1]
+                    or not lease_is_current(research, research_attempt[1])
                 ):
                     raise SourceError("REQUEST_INVALID")
             existing = session.scalar(
@@ -402,9 +403,8 @@ def normalize_next(*, dsn=None):
             )
             if (
                 job is None
-                or job.lease_token != token
+                or not lease_is_current(job, token)
                 or job.status != "running"
-                or job.lease_expires_at <= datetime.now(UTC)
             ):
                 return True
             normalized = write_blob(
@@ -439,9 +439,8 @@ def normalize_next(*, dsn=None):
             )
             if (
                 job
-                and job.lease_token == token
+                and lease_is_current(job, token)
                 and job.status == "running"
-                and job.lease_expires_at > datetime.now(UTC)
             ):
                 job.status = "failed"
                 job.error_code = (

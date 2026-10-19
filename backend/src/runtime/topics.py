@@ -14,7 +14,7 @@ from .storage.artifacts import _key_digest
 from .storage.tables import TopicScope, MaterialResearch, Learner, Material
 from .storage.database import database_session
 from .provider_http import provider
-from .generation_jobs import cancellable_job
+from .generation_jobs import cancellable_job, lease_is_current
 
 
 SCOPE_SCHEMA = {
@@ -362,7 +362,7 @@ def step(*, dsn=None):
         row = db.scalar(
             select(TopicScope).where(TopicScope.topic_id == identity).with_for_update()
         )
-        if row.lease_token == token and row.status == "pending":
+        if row.status == "pending" and lease_is_current(row, token):
             row.proposal = result
             row.generation_provider = producer
             row.status = "failed" if error else "ready"

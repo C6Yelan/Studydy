@@ -20,7 +20,7 @@ from .podcast_video_plan import (
     validate_visual_timing,
 )
 from .errors import SourceError
-from .generation_jobs import WORKER_LEASE_TTL, cancellable_job
+from .generation_jobs import WORKER_LEASE_TTL, cancellable_job, lease_is_current
 from .audio import validate_audio
 from .podcast_sources import source_context
 from .podcast_script import digest
@@ -350,8 +350,7 @@ def finish(state, *, bundle=None, error=None, dsn=None):
         if (
             not row
             or row.status != "running"
-            or row.lease_token != state["token"]
-            or row.lease_expires_at <= datetime.now(UTC)
+            or not lease_is_current(row, state["token"])
         ):
             return False
         if row.source_sha256 != identity(podcast, _episode(podcast, state["index"])):

@@ -115,6 +115,8 @@ PYTEST
 
 `runtime/infrastructure/test_api_lifespan.py` 在各 worker 啟動位置注入失敗，核對已啟動工作的清理；單一 stop 失敗時仍處理其他 worker。正常啟停順序維持原契約，測試不啟動模型或連線產品 DB。
 
+`runtime/materials/test_generation_fencing.py` 使用隔離 DB，驗證研究、主題及分鏡在 token 未變但租約已到期時，不得保存中間結果、成功或失敗，也不得建立來源 Artifact 或交接新的 Revision 工作。有效租約與被重新領取的租約分別作為正反對照；各功能仍在自己的交易核對狀態與父資料，續租 watcher 不能代替保存前的檢查。
+
 Podcast 的可重跑入口為 `backend/tests/runtime/materials/test_podcasts.py`（隔離 DB／API／音訊保存與取消）及 `backend/tests/test_podcast_provider.py`（無模型的單次生成、格式與合法來源綁定）。前端 client 測試包含錯來源腳本與不完整音訊 manifest 的拒絕。provider 的容器測試使用 `compose.test.yaml`，不需安裝 TTS 或呼叫模型。
 
 本輪另以 Playwright MCP 直接操作隔離真 API：先使用受控音訊驗證取消／刪除／帳號隔離，再以合成素材呼叫真實 Luna＋Kokoro，驗證 13 個概念全選成三集、完整模式單概念、播放／seek／重開及連續播放。其後另於公開站完成已授權的真實教材驗收：31 個概念／189 個重點生成 32 集，全部 WAV 端點與來源綁定核對通過；末集續播、連續播放、取消／重試、刪除及登入隔離由 MCP 驗證。這不代表原教材 `needs_review` 已轉為合格，也不代表人工音質驗收已完成。

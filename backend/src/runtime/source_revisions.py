@@ -23,6 +23,7 @@ from .storage.tables import (
     SourceNormalization,
     TopicScope,
 )
+from .generation_jobs import lease_is_current
 from .storage.database import database_session
 
 
@@ -247,7 +248,9 @@ def create_revision(
                 or research.base_revision != base_revision
             ):
                 raise SourceError("SOURCE_NOT_READY")
-            if research_token is not None and research.lease_token != research_token:
+            if research_token is not None and not lease_is_current(
+                research, research_token
+            ):
                 raise SourceError("SOURCE_NOT_READY")
             selected = {c["id"]: c for c in research.candidates}
             if any(
