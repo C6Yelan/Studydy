@@ -9,7 +9,7 @@ flowchart LR
     UI[React] --> API[FastAPI]
     API --> DB[(PostgreSQL)]
     API --> Store[(Artifact Store)]
-    DB --> Worker[串行 Worker]
+    DB --> Worker[教材 Worker]
     Worker --> Convert[隔離轉檔]
     Worker --> Evidence[原生文字／Unlimited-OCR]
     Evidence --> Model[語意模型服務]
@@ -23,6 +23,8 @@ flowchart LR
 ~~~
 
 Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；worker 執行轉檔、分析／檢核與題組準備。PostgreSQL 保存狀態與 metadata，檔案位於 STUDYDY_DATA_DIR/artifacts。
+
+教材處理、題組準備與定期資料復原各有執行緒，不依賴模型種類或 Luna 測試旗標。啟動復原完成後才開始領取工作；每個領取與發布仍須通過原有 PG lease／token 與來源版本檢查。這項排程隔離不代表模型能同時推論，實際容量仍由既有 provider 控制。
 
 後端管理本機 OCR 子程序。外部語意模型獨立運行；模型離線時仍可登入及讀取已保存內容。
 

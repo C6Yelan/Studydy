@@ -448,6 +448,8 @@ def test_worker_shutdown_interrupts_assessment_and_does_not_claim_again(closed_l
             worker.stop()
             worker.stop()
             assert not worker._thread.is_alive()
+            assert not worker._assessment_thread.is_alive()
+            assert not worker._maintenance_thread.is_alive()
             assert len(claimed) == 1
             with database_session(fixture['dsn']) as session:
                 group = session.get(AssessmentSet, set_id)

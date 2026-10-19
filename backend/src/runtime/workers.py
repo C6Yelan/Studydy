@@ -5,7 +5,6 @@ from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass, field
 from functools import partial
 import logging
-import os
 from threading import Event, Thread
 from time import monotonic
 
@@ -106,17 +105,12 @@ class RuntimeWorkers:
     _started: Event = field(default_factory=Event, init=False, repr=False)
     _thread: Thread | None = field(default=None, init=False, repr=False)
     _assessment_thread: Thread | None = field(default=None, init=False, repr=False)
-    _separate_assessments: bool = field(default=False, init=False, repr=False)
+    _maintenance_thread: Thread | None = field(default=None, init=False, repr=False)
     _startup_error: Exception | None = field(default=None, init=False, repr=False)
 
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError("RUNTIME_WORKERS_ALREADY_STARTED")
-        from .luna_test import enabled
-
-        self._separate_assessments = os.environ.get(
-            "STUDYDY_LUNA_PARALLEL_TEST"
-        ) == "1" and enabled(self.local_config.get("runtime_lock", {}))
         # lease／checkpoint 負責中斷恢復，阻塞的 I/O 不應卡住程序退出。
         self._thread = Thread(
             target=self._loop, name="studydy-material-worker", daemon=True
@@ -135,27 +129,34 @@ class RuntimeWorkers:
             self._thread.join()
             self._thread = None
             raise startup_error
-        if self._separate_assessments:
-            self._assessment_thread = Thread(
-                target=self._assessment_loop,
-                name="studydy-assessment-worker",
+        # 排程不依賴模型或測試旗標；長教材工作不能阻塞評量與資料復原。
+        for attribute, target, name in (
+            ("_assessment_thread", self._assessment_loop, "studydy-assessment-worker"),
+            ("_maintenance_thread", self._maintenance_loop, "studydy-maintenance-worker"),
+        ):
+            thread = Thread(
+                target=target,
+                name=name,
                 daemon=True,
             )
             try:
-                self._assessment_thread.start()
+                thread.start()
+                setattr(self, attribute, thread)
             except Exception:
-                self._stop.set()
-                self._thread.join(timeout=_SHUTDOWN_WAIT_SECONDS)
-                self._assessment_thread = None
+                try:
+                    self.stop()
+                except RuntimeError:
+                    logging.getLogger(__name__).warning("RUNTIME_WORKERS_STOP_FAILED")
                 raise RuntimeError("RUNTIME_WORKERS_START_FAILED") from None
 
     def stop(self) -> None:
         self._stop.set()
-        for thread in (self._thread, self._assessment_thread):
+        threads = (self._thread, self._assessment_thread, self._maintenance_thread)
+        for thread in threads:
             if thread is not None:
                 thread.join(timeout=_SHUTDOWN_WAIT_SECONDS)
-            if thread is not None and thread.is_alive():
-                raise RuntimeError("RUNTIME_WORKERS_STOP_FAILED")
+        if any(thread is not None and thread.is_alive() for thread in threads):
+            raise RuntimeError("RUNTIME_WORKERS_STOP_FAILED")
 
     def _assessment_loop(self):
         while not self._stop.is_set():
@@ -167,9 +168,29 @@ class RuntimeWorkers:
                 )
             self._stop.wait(_IDLE_WAIT_SECONDS)
 
+    def _maintenance_loop(self):
+        next_recovery = monotonic() + 10
+        while not self._stop.is_set():
+            try:
+                if monotonic() >= next_recovery:
+                    for recover in (
+                        reconcile_new_artifacts,
+                        recover_interrupted_material_runs,
+                        reconcile_published_checkpoints,
+                    ):
+                        if self._stop.is_set():
+                            return
+                        recover(dsn=self.dsn)
+                    next_recovery = monotonic() + 10
+                if self._stop.is_set():
+                    return
+                finish_material_discards(dsn=self.dsn)
+            except Exception:
+                logging.getLogger(__name__).warning("MAINTENANCE_WORKER_ITERATION_FAILED")
+            self._stop.wait(_IDLE_WAIT_SECONDS)
+
     def _loop(self) -> None:
         is_starting = True
-        next_recovery = 0.0
         while not self._stop.is_set():
             try:
                 if is_starting:
@@ -185,14 +206,8 @@ class RuntimeWorkers:
                         recover(dsn=self.dsn)
                     if self._stop.is_set():
                         return
-                    next_recovery = monotonic() + 10
                     self._started.set()
                     is_starting = False
-                if monotonic() >= next_recovery:
-                    reconcile_new_artifacts(dsn=self.dsn)
-                    recover_interrupted_material_runs(dsn=self.dsn)
-                    reconcile_published_checkpoints(dsn=self.dsn)
-                    next_recovery = monotonic() + 10
                 if self._stop.is_set():
                     return
                 normalize_next(dsn=self.dsn)
@@ -206,13 +221,6 @@ class RuntimeWorkers:
                         dsn=self.dsn,
                         shutdown=self._stop,
                     )
-                if self._stop.is_set():
-                    return
-                if not self._separate_assessments:
-                    run_next_set(dsn=self.dsn, shutdown=self._stop)
-                if self._stop.is_set():
-                    return
-                finish_material_discards(dsn=self.dsn)
             except Exception as error:
                 if is_starting:
                     self._startup_error = error

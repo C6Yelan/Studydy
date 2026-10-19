@@ -226,10 +226,14 @@ def test_worker_stop_reports_busy_and_stops_before_claiming_next_work(monkeypatc
 
 
 @pytest.mark.parametrize('luna', [True, False])
-def test_temporary_assessment_worker_is_independent_and_luna_only(monkeypatch, luna):
+@pytest.mark.parametrize('parallel_flag', ['0', '1'])
+def test_assessment_and_maintenance_continue_during_material_generation(monkeypatch, luna, parallel_flag):
+    from itertools import count
     from threading import Event
-    entered, release, assessed = Event(), Event(), Event()
-    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', '1')
+    entered, release, assessed, recovered, discarded = (Event() for _ in range(5))
+    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', parallel_flag)
+    clock = count(0, 20)
+    monkeypatch.setattr(workers_module, 'monotonic', lambda: next(clock))
     for name in ('reconcile_new_artifacts', 'reconcile_removed_material_analysis',
                  'reconcile_published_checkpoints', 'recover_interrupted_material_runs',
                  'finish_material_discards', 'normalize_next'):
@@ -239,19 +243,70 @@ def test_temporary_assessment_worker_is_independent_and_luna_only(monkeypatch, l
         entered.set()
         assert release.wait(5)
     monkeypatch.setattr(workers_module, 'execute_claimed_material_processing_run', execute)
-    monkeypatch.setattr(workers_module, 'run_next_set', lambda **_: assessed.set())
+    monkeypatch.setattr(workers_module, 'run_next_set', lambda **_: entered.is_set() and assessed.set())
+    monkeypatch.setattr(workers_module, 'reconcile_new_artifacts', lambda **_: entered.is_set() and recovered.set())
+    monkeypatch.setattr(workers_module, 'finish_material_discards', lambda **_: entered.is_set() and discarded.set())
     config = {'runtime_lock': {'semantic_service': {'api_protocol': 'codex-exec-luna/v1' if luna else 'openai/v1'}}}
     worker = workers_module.RuntimeWorkers(None, config)
     worker.start()
     try:
         assert entered.wait(1)
-        if luna:
-            assert assessed.wait(1)
-            assert worker._assessment_thread.is_alive()
-        else:
-            assert worker._assessment_thread is None and not assessed.is_set()
+        assert assessed.wait(1)
+        assert recovered.wait(1)
+        assert discarded.wait(1)
+        assert worker._assessment_thread.is_alive()
+        assert worker._maintenance_thread.is_alive()
     finally:
         release.set()
         worker.stop()
     assert not worker._thread.is_alive()
+    assert not worker._assessment_thread.is_alive()
+    assert not worker._maintenance_thread.is_alive()
+
+
+@pytest.mark.parametrize('failing_name', ['studydy-assessment-worker', 'studydy-maintenance-worker'])
+def test_core_thread_start_failure_stops_previously_started_threads(monkeypatch, failing_name):
+    from threading import Thread
+
+    for name in ('reconcile_new_artifacts', 'reconcile_removed_material_analysis',
+                 'reconcile_published_checkpoints', 'recover_interrupted_material_runs',
+                 'finish_material_discards', 'normalize_next',
+                 'claim_next_material_processing_run', 'run_next_set'):
+        monkeypatch.setattr(workers_module, name, lambda **_: None)
+
+    class FailingThread(Thread):
+        def start(self):
+            if self.name == failing_name:
+                raise RuntimeError('synthetic start failure')
+            return super().start()
+
+    monkeypatch.setattr(workers_module, 'Thread', FailingThread)
+    worker = workers_module.RuntimeWorkers(None, {})
+    with pytest.raises(RuntimeError, match='RUNTIME_WORKERS_START_FAILED'):
+        worker.start()
+    worker.stop()
+    assert not worker._thread.is_alive()
     assert worker._assessment_thread is None or not worker._assessment_thread.is_alive()
+    assert worker._maintenance_thread is None
+
+
+def test_core_shutdown_joins_all_threads_before_reporting_busy():
+    joined = []
+
+    class BusyThread:
+        def __init__(self, name):
+            self.name = name
+
+        def join(self, **_):
+            joined.append(self.name)
+
+        def is_alive(self):
+            return self.name == 'material'
+
+    worker = workers_module.RuntimeWorkers(None, {})
+    worker._thread = BusyThread('material')
+    worker._assessment_thread = BusyThread('assessment')
+    worker._maintenance_thread = BusyThread('maintenance')
+    with pytest.raises(RuntimeError, match='RUNTIME_WORKERS_STOP_FAILED'):
+        worker.stop()
+    assert joined == ['material', 'assessment', 'maintenance']
