@@ -4,12 +4,12 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select, text
 
 from product_fixtures import ORIGIN, _app, closed_loop
 from assessment_fixtures import concept_fixture, create, finish
 from runtime.storage import knowledge_reads
-from runtime.storage.tables import CardSourceConcept, KnowledgeReadIndex
+from runtime.storage.tables import CardSet, CardSourceConcept, CardSourceIndex, KnowledgeReadIndex, KnowledgeStructure
 from runtime.storage.database import database_session
 from runtime.api.models import project_knowledge_structure
 from learning_adaptation.learner_progress import derive_learner_progress
@@ -98,3 +98,105 @@ def test_backfill_recreates_only_missing_projection_without_changing_canonical_d
     assert knowledge_reads.backfill(dsn=dsn) == 0
     with database_session(dsn) as db:
         assert knowledge_reads.outline(db, owner.learner_id, source.material_id, document['revision']) == before
+
+
+@pytest.mark.parametrize('missing', [(), ('concept',), ('learning',), ('concept', 'learning')])
+def test_readonly_index_lookup_never_repairs_missing_indexes(closed_loop, missing):
+    from runtime.storage.knowledge_structures import KnowledgeStructureStoreError
+    owner, source, _, document, dsn, _ = closed_loop
+    key = (owner.learner_id, source.material_id, document['revision'])
+    with database_session(dsn) as db:
+        before = deepcopy(knowledge_reads.outline(db, *key))
+        for name in missing:
+            db.execute(delete(CardSourceIndex if name == 'concept' else KnowledgeReadIndex))
+    with database_session(dsn) as db:
+        db.execute(text('SET TRANSACTION READ ONLY'))
+        if missing:
+            with pytest.raises(KnowledgeStructureStoreError, match='^KNOWLEDGE_STRUCTURE_UNAVAILABLE$'):
+                knowledge_reads.outline(db, *key)
+        else:
+            assert knowledge_reads.outline(db, *key) == before
+    with database_session(dsn) as db:
+        assert (db.get(CardSourceIndex, key) is None) == ('concept' in missing)
+        assert (db.get(KnowledgeReadIndex, key) is None) == ('learning' in missing)
+    assert knowledge_reads.backfill(dsn=dsn) == int(bool(missing))
+    assert knowledge_reads.backfill(dsn=dsn) == 0
+    with database_session(dsn) as db:
+        assert knowledge_reads.outline(db, *key) == before
+        assert db.get(KnowledgeStructure, key).document == document
+
+
+def test_relation_only_evidence_survives_read_projection_and_existing_index_repair(closed_loop):
+    from io import BytesIO
+    import pymupdf
+    from content_identity import canonical_sha256
+    from knowledge_map.structure import SemanticState, apply_semantic_response, build_document_context
+    from product_fixtures import seed_pdf, seed_run, publish_fixture_structure
+    from runtime import card_sets
+    from runtime.material_processing import claim_next_material_processing_run, _record_progress
+    from runtime.storage.knowledge_structures import KnowledgeStructureStoreError
+    from structure_fixtures import build_knowledge_structure
+    from test_knowledge_structure_v1 import _block, _page
+
+    owner, _, settings, _, dsn, _ = closed_loop
+    passages = ['Queues remove the first item.', 'Stacks remove the last item.',
+                'Queues and stacks have contrasting removal orders.']
+    with pymupdf.open() as pdf:
+        page = pdf.new_page()
+        for index, passage in enumerate(passages):
+            page.insert_text((72, 72 + index * 30), passage)
+        source = seed_pdf(owner.learner_id, BytesIO(pdf.tobytes()), 'relation-only', dsn=dsn)
+    run = seed_run(owner.learner_id, source.material_id, 'relation-only-run', settings, dsn=dsn)
+    assert claim_next_material_processing_run(dsn=dsn).run.run_id == run.run_id
+    for stage in ('evidence', 'semantics', 'publishing'):
+        _record_progress(run.run_id, stage, 1, 1, dsn=dsn)
+    context = build_document_context([_page(1, [_block(1, i, 'paragraph', value)
+                                              for i, value in enumerate(passages)])], page_count=1)
+    state = SemanticState()
+    apply_semantic_response({
+        'concepts': [{'k': key, 'l': key, 'a': [], 'c': [{'m': None, 's': [index]}]}
+                     for index, key in enumerate(('Queue', 'Stack'))],
+        'relations': [{'s': 'Queue', 't': 'Stack', 'k': 'contrast', 'r': passages[2], 'e': [2], 'c': 1.0}],
+    }, context=context, bundle={'sections': context['sections'], 'evidence': context['evidence']}, state=state)
+    lock = settings['runtime_lock']
+    document = build_knowledge_structure(
+        context, state, source_sha256=context['material_id'].rsplit(':', 1)[-1], run_id=str(run.run_id),
+        produced_at='2026-10-19T00:00:00+00:00', runtime_lock_sha256=canonical_sha256(lock),
+        model_id=lock['semantic_service']['model_id'], model_revision=lock['semantic_service']['revision'],
+        semantic_calls=1, ocr_calls=0,
+    )
+    publish_fixture_structure(owner.learner_id, source.material_id, run.run_id, document, dsn=dsn)
+    assert len(document['relations']) == 1
+    relation = document['relations'][0]
+    ref = relation['evidence_refs'][0]
+    assert all(ref not in claim['evidence_refs'] for concept in document['concepts'] for claim in concept['claims'])
+    evidence = next(item for item in document['evidence'] if item['evidence_id'] == ref)
+    ids = [concept['concept_id'] for concept in document['concepts']]
+    key = (owner.learner_id, source.material_id, document['revision'])
+    with database_session(dsn) as db:
+        detail = knowledge_reads.concept_context(db, *key, ids)
+    quote = detail['relation_evidence'][0]
+    assert quote['evidence_id'] == ref and quote['quote'] == passages[2]
+    assert quote['source_locator'] == evidence['source_locator']
+    assert quote['normalized_page'] == quote['page'] == 1
+    assert quote['source_id'] == document['input_binding']['manifest']['items'][0]['source_id']
+    deck = card_sets.create_card_set(owner.learner_id, source.material_id, document['revision'],
+                                    'Relation sources', ids, 'relation-only-deck', dsn=dsn)
+    with database_session(dsn) as db:
+        db.get(CardSet, deck['card_set_id']).status = 'ready'
+    batch = card_sets.read_card_study(owner.learner_id, deck['card_set_id'], dsn=dsn)['batch']
+    assert batch['context']['relation_evidence'] == [quote]
+    with database_session(dsn) as db, pytest.raises(KnowledgeStructureStoreError):
+        knowledge_reads.concept_context(db, uuid4(), source.material_id, document['revision'], ids)
+
+    # 重現舊索引合法雜湊下的漏引用，不改 canonical KnowledgeStructure。
+    with database_session(dsn) as db:
+        rows = db.scalars(select(CardSourceConcept).where(CardSourceConcept.material_id == source.material_id)).all()
+        for row in rows:
+            row.payload = {**row.payload, 'relation_evidence': []}
+            row.content_sha256 = canonical_sha256(row.payload)
+    assert knowledge_reads.backfill(dsn=dsn) == 1
+    assert knowledge_reads.backfill(dsn=dsn) == 0
+    with database_session(dsn) as db:
+        assert db.get(KnowledgeStructure, key).document == document
+        assert knowledge_reads.concept_context(db, *key, ids) == detail

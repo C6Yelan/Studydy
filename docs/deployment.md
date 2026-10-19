@@ -211,6 +211,8 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 此命令先套用 migration，再逐版本驗證並補建缺少的索引；可重跑、不呼叫模型。確認沒有進行中的發布工作，更新 backend，再重跑補建以涵蓋切換期間完成的舊版工作，最後更新 frontend。不要在一般 GET 交易內補建大型索引。
 
+此命令也會修復舊概念索引遺漏的關係專屬 Evidence：保留既有 Claim 節錄，只從 canonical Evidence 補回關係缺少的原文、頁碼與來源位置，原地更新衍生 payload／hash。教材、Revision、原檔及學習紀錄不重寫；完成後重跑回報 0。缺少概念或學習索引的正常讀取回報 `KNOWLEDGE_STRUCTURE_UNAVAILABLE`，不隱式寫入。
+
 舊完整教材／resume API 暫時保留給部署前已開啟的頁面；新版使用 outline、concepts、map-progress 與 workspace 讀取。API 仍為 `private, no-store`，每次核對 owner、發布版本、runtime／來源綁定與投影雜湊。瀏覽器記憶體快取隨帳號 client 清除，不存入 localStorage。
 
 0027 套用後不可直接重啟不認識該 migration 的舊 backend；採相容新 schema 的前向修正，不自動還原 DB。前端可單獨退回先前映像，其完整 API 仍可使用。

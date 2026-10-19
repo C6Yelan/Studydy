@@ -26,10 +26,12 @@ from .tables import (
 from .database import database_session
 
 
-def prepare_concept_index(session, owner, material_id, revision, *, document=None):
+def prepare_concept_index(
+    session, owner, material_id, revision, *, document=None, rebuild=False
+):
     key = (owner, material_id, revision)
     index = session.get(CardSourceIndex, key)
-    if index is not None:
+    if index is not None and not rebuild:
         return index
     # 新卡組沿用建立時已驗證的文件；升級前的卡組只補建一次，不呼叫模型。
     document = document or _read_verified_document(
@@ -64,26 +66,63 @@ def prepare_concept_index(session, owner, material_id, revision, *, document=Non
         for key in ("source_set_id", "source_set_digest", "bundle_manifest_sha256")
     }
     metadata["labels"] = {c["concept_id"]: c["label"] for c in view["concepts"]}
-    index = CardSourceIndex(
-        learner_id=owner,
-        material_id=material_id,
-        structure_revision=revision,
-        metadata_=metadata,
-        content_sha256=canonical_sha256(metadata),
-    )
-    session.add(index)
+    if index is None:
+        index = CardSourceIndex(
+            learner_id=owner,
+            material_id=material_id,
+            structure_revision=revision,
+        )
+        session.add(index)
+    index.metadata_ = metadata
+    index.content_sha256 = canonical_sha256(metadata)
     session.flush()
     adjacent = defaultdict(list)
     for relation in view["relations"]:
         for identity in {relation["source_concept_id"], relation["target_concept_id"]}:
             adjacent[identity].append(relation)
-    # 與完整前端索引相同：同一 Evidence 的最後一份概念投影為關係來源。
+    # 保留既有 Claim 節錄；關係專屬 Evidence 則使用 canonical 原文與來源位置。
     evidence = {
         e["evidence_id"]: e
         for concept in view["concepts"]
         for claim in concept["claims"]
         for e in claim["evidence"]
     }
+    canonical = {item["evidence_id"]: item for item in document["evidence"]}
+    sources = {
+        item["source_id"]: item for item in document["input_binding"]["manifest"]["items"]
+    }
+    pages = document["input_binding"]["bundle"]["pages"]
+    for relation in view["relations"]:
+        for reference in relation["evidence_refs"]:
+            if reference in evidence:
+                continue
+            item = canonical[reference]
+            location = pages[item["page"] - 1]
+            evidence[reference] = {
+                **{
+                    key: item[key]
+                    for key in (
+                        "evidence_id", "page_ref", "page", "block_order",
+                        "kind", "source", "source_locator",
+                    )
+                },
+                "quote": item["exact_text"],
+                "source_id": location["source_id"],
+                "source_name": sources[location["source_id"]]["original_name"],
+                "normalized_page": location["normalized_page"],
+            }
+    stored = {}
+    if rebuild:
+        stored = {
+            row.concept_id: row
+            for row in session.scalars(
+                select(CardSourceConcept).where(
+                    CardSourceConcept.learner_id == owner,
+                    CardSourceConcept.material_id == material_id,
+                    CardSourceConcept.structure_revision == revision,
+                )
+            )
+        }
     for position, concept in enumerate(view["concepts"]):
         relations = adjacent[concept["concept_id"]]
         refs = dict.fromkeys(
@@ -92,19 +131,20 @@ def prepare_concept_index(session, owner, material_id, revision, *, document=Non
         payload = {
             "concept": concept,
             "relations": relations,
-            "relation_evidence": [evidence[ref] for ref in refs if ref in evidence],
+            "relation_evidence": [evidence[ref] for ref in refs],
         }
-        session.add(
-            CardSourceConcept(
+        row = stored.get(concept["concept_id"])
+        if row is None:
+            row = CardSourceConcept(
                 learner_id=owner,
                 material_id=material_id,
                 structure_revision=revision,
                 concept_id=concept["concept_id"],
-                position=position,
-                payload=payload,
-                content_sha256=canonical_sha256(payload),
             )
-        )
+            session.add(row)
+        row.position = position
+        row.payload = payload
+        row.content_sha256 = canonical_sha256(payload)
     session.flush()
     return index
 
@@ -112,7 +152,7 @@ def prepare_concept_index(session, owner, material_id, revision, *, document=Non
 def source_metadata(session, owner, material_id, revision):
     index = session.get(CardSourceIndex, (owner, material_id, revision))
     if index is None:
-        index = prepare_concept_index(session, owner, material_id, revision)
+        raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
     value = index.metadata_
     binding = session.execute(
         select(
@@ -418,25 +458,24 @@ def search(session, owner, material_id, revision, query):
 
 
 def backfill(*, dsn=None):
-    """部署時補建既有發布版本，不改原教材、revision、答案或來源。"""
+    """明確補建缺失索引／關係引用；只更新衍生投影，不改 canonical 資料。"""
     with database_session(dsn) as session:
-        rows = session.execute(
-            select(
-                KnowledgeStructure.learner_id,
-                KnowledgeStructure.material_id,
-                KnowledgeStructure.structure_revision,
-            )
-            .outerjoin(
-                KnowledgeReadIndex,
-                (KnowledgeReadIndex.learner_id == KnowledgeStructure.learner_id)
-                & (KnowledgeReadIndex.material_id == KnowledgeStructure.material_id)
-                & (
-                    KnowledgeReadIndex.structure_revision
-                    == KnowledgeStructure.structure_revision
-                ),
-            )
-            .where(KnowledgeReadIndex.structure_revision.is_(None))
-        ).all()
+        rows = session.execute(text("""
+            SELECT k.learner_id, k.material_id, k.structure_revision
+            FROM knowledge_structures k
+            LEFT JOIN card_source_indexes c USING (learner_id, material_id, structure_revision)
+            LEFT JOIN knowledge_read_indexes r USING (learner_id, material_id, structure_revision)
+            WHERE c.structure_revision IS NULL OR r.structure_revision IS NULL
+               OR EXISTS (
+                   SELECT 1 FROM card_source_concepts p
+                   WHERE p.learner_id=k.learner_id AND p.material_id=k.material_id
+                     AND p.structure_revision=k.structure_revision
+                     AND NOT (
+                         jsonb_path_query_array(p.payload, '$.relation_evidence[*].evidence_id')
+                         @> jsonb_path_query_array(p.payload, '$.relations[*].evidence_refs[*]')
+                     )
+               )
+        """)).all()
     for owner, material_id, revision in rows:
         with database_session(dsn) as session:
             session.scalar(
@@ -448,6 +487,9 @@ def backfill(*, dsn=None):
             )
             document = _read_verified_document(
                 session, owner, material_id, revision=revision
+            )
+            prepare_concept_index(
+                session, owner, material_id, revision, document=document, rebuild=True
             )
             prepare(session, owner, material_id, document)
     return len(rows)
