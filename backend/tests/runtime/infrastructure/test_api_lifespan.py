@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import runtime.api.app as api
+import runtime.workers as workers
 
 
 START_ORDER = ("runtime", "voice", "scene", "video", "research", "card", "podcast")
@@ -34,19 +35,11 @@ def application(monkeypatch, *, fail_start=None, fail_stop=None):
             if self.name == fail_stop:
                 raise RuntimeError("synthetic shutdown failure")
 
-    for name, symbol in zip(
-        START_ORDER,
-        (
-            "RuntimeWorkers",
-            "VoiceWorker",
-            "SceneWorker",
-            "VideoWorker",
-            "ResearchWorker",
-            "CardWorker",
-            "PodcastWorker",
-        ),
-    ):
-        monkeypatch.setattr(api, symbol, lambda *_, name=name: Worker(name))
+    monkeypatch.setattr(workers, "RuntimeWorkers", lambda *_: Worker("runtime"))
+    monkeypatch.setattr(
+        workers, "BackgroundWorker",
+        lambda *_, error_code, **__: Worker(error_code.removesuffix("_WORKER_FAILED").lower()),
+    )
     monkeypatch.setattr(api, "runtime_binding", lambda _: {})
     settings = api.ApiSettings(
         profile="local",

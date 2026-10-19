@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import time
-from threading import Event, Thread
 from uuid import uuid4
 
 from sqlalchemy import or_, select
@@ -377,27 +376,3 @@ def step(*, dsn=None, call=None):
             "CARD_GENERATION_FAILED type=%s", type(error).__name__
         )
     return True
-
-
-class CardWorker:
-    def __init__(self, dsn):
-        self.dsn = dsn
-        self.stop_event = Event()
-        self.thread = Thread(target=self.loop, name="studydy-cards", daemon=True)
-
-    def start(self):
-        self.thread.start()
-        return self
-
-    def stop(self):
-        self.stop_event.set()
-        self.thread.join(timeout=2)
-
-    def loop(self):
-        while not self.stop_event.is_set():
-            try:
-                if not step(dsn=self.dsn):
-                    self.stop_event.wait(2)
-            except Exception:
-                logging.getLogger(__name__).warning("CARD_WORKER_FAILED")
-                self.stop_event.wait(2)

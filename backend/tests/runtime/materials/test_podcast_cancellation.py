@@ -10,7 +10,9 @@ from sqlalchemy import select
 from product_fixtures import closed_loop
 from materials.test_podcasts import create, script, wav
 from runtime import podcasts, podcast_process
-from runtime.podcast_worker import PodcastWorker
+from functools import partial
+from runtime.podcast_worker import step
+from runtime.workers import BackgroundWorker
 from runtime.storage.tables import Podcast, PodcastScenes, PodcastVideo
 from runtime.storage.database import database_session
 from test_podcast_process import provider_server, provider, wait_until, alive
@@ -47,7 +49,9 @@ def test_cancel_or_delete_running_job_kills_child_and_unblocks_next(closed_loop,
 
     monkeypatch.setattr(provider, 'script', generate_script)
     monkeypatch.setattr(provider, 'audio', generate_audio)
-    worker = PodcastWorker(dsn).start()
+    worker = BackgroundWorker(
+        partial(step, dsn=dsn), name="test-podcast", error_code="PODCAST_WORKER_FAILED"
+    ).start()
     try:
         wait_until(lambda: marker.exists() and marker.stat().st_size)
         pid = int(marker.read_text())

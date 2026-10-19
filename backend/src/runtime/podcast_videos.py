@@ -9,7 +9,6 @@ import json
 import logging
 import math
 import os
-from threading import Event, Thread
 from urllib.error import HTTPError
 from urllib.request import Request
 
@@ -464,25 +463,3 @@ def step(*, dsn=None):
         except Exception:
             logging.getLogger(__name__).warning("VIDEO_RESULT_SAVE_FAILED")
     return True
-
-
-class VideoWorker:
-    def __init__(self, dsn):
-        self.dsn = dsn
-        self.event = Event()
-        self.thread = Thread(target=self.loop, name="podcast-video-worker", daemon=True)
-
-    def start(self):
-        self.thread.start()
-        return self
-
-    def stop(self):
-        self.event.set()
-        self.thread.join(timeout=2)
-
-    def loop(self):
-        while not self.event.wait(1):
-            try:
-                step(dsn=self.dsn)
-            except Exception:
-                logging.getLogger(__name__).warning("VIDEO_WORKER_FAILED")

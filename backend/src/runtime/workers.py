@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass, field
+from functools import partial
 import logging
 import os
 from threading import Event, Thread
@@ -24,6 +26,76 @@ from learning_adaptation.assessment_sets import run_next_set
 _IDLE_WAIT_SECONDS = 0.1
 _STARTUP_WAIT_SECONDS = 5
 _SHUTDOWN_WAIT_SECONDS = 10
+
+
+class BackgroundWorker:
+    """共用執行緒啟停；卡片與研究持續推進到無工作，其餘每秒輪詢。"""
+
+    def __init__(self, step, *, name, error_code, drain=False):
+        self.step = step
+        self.error_code = error_code
+        self.drain = drain
+        self.stop_event = Event()
+        self.thread = Thread(target=self.loop, name=name, daemon=True)
+
+    def start(self):
+        self.thread.start()
+        return self
+
+    def stop(self):
+        self.stop_event.set()
+        self.thread.join(timeout=2)
+
+    def loop(self):
+        delay = 0 if self.drain else 1
+        while not self.stop_event.wait(delay):
+            try:
+                progressed = self.step()
+            except Exception:
+                logging.getLogger(__name__).warning(self.error_code)
+                progressed = False
+            delay = (0 if progressed else 2) if self.drain else 1
+
+
+@contextmanager
+def run_workers(dsn, local_config):
+    """集中管理啟停順序；部分啟動或關閉失敗仍須清理其他工作。"""
+    from . import card_generation, podcast_scenes, podcast_videos, podcast_worker
+    from . import research, topics, voice
+
+    research_config = deepcopy(local_config)
+
+    def research_step():
+        progressed = topics.step(dsn=dsn)
+        # 兩者都須執行，不能讓短路求值跳過 research。
+        return research.step(dsn=dsn, config=research_config) or progressed
+
+    active = {"runtime": RuntimeWorkers(dsn, deepcopy(local_config))}
+    try:
+        active["runtime"].start()
+        for key, step, name in (
+            ("voice", partial(voice.step, dsn=dsn), "studydy-voice"),
+            ("scene", partial(podcast_scenes.step, dsn=dsn), "studydy-scenes"),
+            ("video", partial(podcast_videos.step, dsn=dsn), "podcast-video-worker"),
+            ("research", research_step, "studydy-research"),
+            ("card", partial(card_generation.step, dsn=dsn), "studydy-cards"),
+            ("podcast", partial(podcast_worker.step, dsn=dsn), "studydy-podcast-worker"),
+        ):
+            active[key] = BackgroundWorker(
+                step,
+                name=name,
+                error_code=f"{key.upper()}_WORKER_FAILED",
+                drain=key in {"research", "card"},
+            ).start()
+        yield
+    finally:
+        # ExitStack 確保一個 stop 拋錯時仍呼叫其餘 stop。
+        with ExitStack() as shutdown:
+            for key in reversed(
+                ("podcast", "scene", "video", "research", "card", "voice", "runtime")
+            ):
+                if key in active:
+                    shutdown.callback(active[key].stop)
 
 
 @dataclass

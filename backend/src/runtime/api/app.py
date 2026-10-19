@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from contextlib import ExitStack, asynccontextmanager
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 import ipaddress
@@ -27,16 +27,10 @@ from document_normalization.converter import (
 )
 from learning_adaptation import assessment_state
 from .. import card_sets
-from ..podcast_worker import PodcastWorker
-from ..voice_worker import VoiceWorker
-from ..research_worker import ResearchWorker
-from ..card_generation import CardWorker
 from .research_routes import install as install_research
 from .topic_routes import install as install_topics
 from .scene_routes import install as install_scenes
 from .video_routes import install as install_videos
-from ..podcast_videos import VideoWorker
-from ..scene_worker import SceneWorker
 from .voice_routes import install as install_voice
 from ..learner_session import (
     IDLE_LIFETIME,
@@ -77,7 +71,7 @@ from ..storage.materials import (
 )
 from ..storage.tables import Artifact, Material, MaterialSource
 from ..storage.database import database_session
-from ..workers import RuntimeWorkers
+from ..workers import run_workers
 from .models import (
     AccountCredentials,
     ApiErrorView,
@@ -552,38 +546,8 @@ def create_app(settings: ApiSettings) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        workers = RuntimeWorkers(settings.dsn, deepcopy(settings.local_config))
-        podcast_worker = None
-        voice_worker = scene_worker = video_worker = research_worker = card_worker = (
-            None
-        )
-        try:
-            workers.start()
-            voice_worker = VoiceWorker(settings.dsn).start()
-            scene_worker = SceneWorker(settings.dsn).start()
-            video_worker = VideoWorker(settings.dsn).start()
-            research_worker = ResearchWorker(
-                settings.dsn, deepcopy(settings.local_config)
-            ).start()
-            card_worker = CardWorker(settings.dsn).start()
-            podcast_worker = PodcastWorker(settings.dsn).start()
+        with run_workers(settings.dsn, settings.local_config):
             yield
-        finally:
-            # 沿用正常關閉順序；啟動中途或某個 stop 失敗也須處理其餘已啟動工作。
-            with ExitStack() as shutdown:
-                for worker in reversed(
-                    (
-                        podcast_worker,
-                        scene_worker,
-                        video_worker,
-                        research_worker,
-                        card_worker,
-                        voice_worker,
-                        workers,
-                    )
-                ):
-                    if worker is not None:
-                        shutdown.callback(worker.stop)
 
     app = FastAPI(
         title="Studydy API",
