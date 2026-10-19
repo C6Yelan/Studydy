@@ -133,6 +133,7 @@ for (const width of [1536, 390])
     await page.keyboard.press("Escape");
     const search = page.getByRole("searchbox", { name: "搜尋概念或關鍵字" });
     await search.fill(view.concepts[30].label);
+    await expect(page.locator(".map-search-results button")).toContainText(view.concepts[30].label);
     await search.press("Enter");
     await expect(
       page

@@ -83,6 +83,8 @@ for (const width of [1536, 390]) {
         case "/v1/session":
         case "/v1/session/refresh":
           return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
+        case "/v1/topics":
+          return route.fulfill({ json: { topics: [] } });
         case "/v1/materials":
           return route.fulfill({ json: { schema: "material-library/v1", materials: [item] } });
         case `/v1/materials/${materialId}`:

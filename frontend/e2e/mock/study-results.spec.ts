@@ -10,7 +10,7 @@ for (const width of [1366, 390]) {
     await expect(summary).toHaveCount(1);
     await expect(summary).toContainText("答對2 / 4 題");
     await expect(summary).toContainText("待補強2 個重點");
-    await expect(summary).toContainText("已完成4 / 4 題");
+    await expect(summary).toContainText("已作答4 / 4 題");
     await expect(summary).not.toContainText(/未作答|未檢測|其中補強通過/);
     const history = page.locator(".assessment-set-history");
     await expect(history.locator("summary")).toHaveText("觀念題組紀錄（2）");
@@ -45,13 +45,13 @@ for (const width of [1366, 390]) {
 }
 
 for (const [name, scenario, expected] of [
-  ["all correct", { wrong: [] }, ["答對4 / 4 題", "已完成4 / 4 題"]],
+  ["all correct", { wrong: [] }, ["答對4 / 4 題", "已作答4 / 4 題"]],
   ["unanswered", { wrong: [1], unanswered: 1 }, ["未作答1 個重點"]],
   ["unavailable", { wrong: [1], unavailable: 1 }, ["未檢測1 個重點"]],
   [
     "remediation",
     { kind: "remediation", wrong: [3] },
-    ["本次補強通過3 / 4 題", "仍待補強1 個重點", "已完成補強4 / 4 題"],
+    ["本次答對3 / 4 題", "仍待補強1 個重點", "已作答4 / 4 題"],
   ],
 ] as const) {
   test(`result metrics: ${name}`, async ({ page }) => {

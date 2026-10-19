@@ -68,6 +68,8 @@ test.beforeEach(async ({ page }) => {
     const path = new URL(request.url()).pathname;
     expect(request.method()).toBe(path === "/v1/session/refresh" ? "POST" : "GET");
     switch (path) {
+      case "/v1/topics":
+        return route.fulfill({ json: { topics: [] } });
       case "/v1/session":
       case "/v1/session/refresh":
         return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
@@ -388,9 +390,9 @@ for (const viewport of [
     await expect(page.locator(".file-drop")).toContainText("PDF、TXT");
     await expectApplicationFrame();
     expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
-    const uploadColumns = await page
-      .locator(".upload-layout")
-      .evaluate((element) => getComputedStyle(element).gridTemplateColumns);
+    const uploadColumns = await page.locator(".upload-layout").evaluate((element) =>
+      getComputedStyle(element).gridTemplateColumns.split(" ").map(Number.parseFloat));
+    const uploadWidth = (await page.locator(".upload-layout").boundingBox())!.width;
     const uploadMascot = await page.locator(".upload-hero > img").boundingBox();
     await page.goto(`/materials/${materialId}/sources`);
     await expect(page.getByRole("link", { name: "預覽 PDF", exact: true })).toBeVisible();
@@ -400,11 +402,13 @@ for (const viewport of [
       44,
     );
     await expect(page.locator(".source-page .primary-button")).toHaveCount(1);
-    expect(
-      await page
-        .locator(".upload-layout")
-        .evaluate((element) => getComputedStyle(element).gridTemplateColumns),
-    ).toBe(uploadColumns);
+    const sourceColumns = await page.locator(".upload-layout").evaluate((element) =>
+      getComputedStyle(element).gridTemplateColumns.split(" ").map(Number.parseFloat));
+    const sourceWidth = (await page.locator(".upload-layout").boundingBox())!.width;
+    // 教材來源使用沒有側欄的工作區；保留同樣欄數與固定導覽欄，主欄填滿可用寬度。
+    expect(sourceColumns.length).toBe(uploadColumns.length);
+    expect(sourceColumns.slice(1)).toEqual(uploadColumns.slice(1));
+    expect(sourceColumns[0] - uploadColumns[0]).toBeCloseTo(sourceWidth - uploadWidth, 1);
     const mascot = (await page.locator(".upload-hero > img").boundingBox())!;
     expect(mascot.width).toBe(uploadMascot!.width);
     expect(mascot.height).toBe(uploadMascot!.height);

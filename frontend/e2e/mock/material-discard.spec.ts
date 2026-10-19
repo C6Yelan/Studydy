@@ -67,6 +67,10 @@ test.beforeEach(async ({ page }) => {
       expect(route.request().method()).toBe(path.endsWith("/refresh") ? "POST" : "GET");
       return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: id(900) } });
     }
+    if (path === "/v1/topics") {
+      expect(route.request().method()).toBe("GET");
+      return route.fulfill({ json: { topics: [] } });
+    }
     if (path === "/v1/source-capabilities") {
       expect(route.request().method()).toBe("GET");
       return route.fulfill({

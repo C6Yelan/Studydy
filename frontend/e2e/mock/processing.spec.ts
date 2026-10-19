@@ -220,6 +220,8 @@ for (const status of ["succeeded", "partial"] as const)
     );
     const openMap = processing.getByRole("button", { name: "開啟知識地圖", exact: true });
     await expect(openMap).toHaveClass("primary-button");
+    // 進度斷言完成後恢復計時，讓地圖的 lazy/Suspense 轉場正常完成。
+    await page.clock.resume();
     await openMap.click();
     await expect(page).toHaveURL(
       new RegExp(`${runPath}/knowledge-structures/${encodeURIComponent(revision)}$`),

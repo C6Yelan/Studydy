@@ -94,7 +94,7 @@ test("bootstrap and persisted pageshow preserve the frame, route and selected ma
   });
   let mapReads = 0;
   await page.route(
-    `**/v1/materials/${materialId}/knowledge-structures/${encodeURIComponent(structureRevision)}`,
+    `**/v1/materials/${materialId}/knowledge-structures/${encodeURIComponent(structureRevision)}/outline`,
     async (route) => {
       expect(route.request().method()).toBe("GET");
       mapReads++;
@@ -114,7 +114,7 @@ test("bootstrap and persisted pageshow preserve the frame, route and selected ma
   await expect(page).toHaveURL(`${browserOrigin}${mapPath}`);
   expect(mapReads).toBe(0);
   releaseBootstrap();
-  await page.getByRole("tab", { name: "複習重點", exact: true }).click();
+  await page.getByRole("tab", { name: "測驗", exact: true }).click();
   await page.evaluate(() =>
     window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
   );
@@ -124,7 +124,7 @@ test("bootstrap and persisted pageshow preserve the frame, route and selected ma
   await expect(page.locator(".map-workspace")).toHaveCount(0);
   releaseRestore();
   await expect(page).toHaveURL(`${browserOrigin}${mapPath}`);
-  await expect(page.getByRole("tab", { name: "複習重點", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: "測驗", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",
   );

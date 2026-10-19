@@ -18,31 +18,31 @@ test('material voice text flow saves, cites, reopens and closes',async({page})=>
  await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();
  await page.getByLabel('問題／辨識文字').fill('堆疊是什麼？');await page.getByRole('button',{name:'送出問題',exact:true}).click();
  await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
- await page.getByText(/^查看來源 ·/).click();await expect(page.getByRole('button',{name:'查看第 1 頁來源'})).toBeVisible();
- await page.getByRole('button',{name:'查看第 1 頁來源'}).click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材來源'})).toHaveCount(0);await expect(page.getByRole('dialog',{name:'教材問答'})).toBeVisible();
+ await page.getByText(/^查看來源 ·/).click();await expect(page.getByRole('button',{name:/來源 1.*PDF 第 1 頁/})).toBeVisible();
+ await page.getByRole('button',{name:/來源 1.*PDF 第 1 頁/}).click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材來源'})).toHaveCount(0);await expect(page.getByRole('dialog',{name:'教材問答'})).toBeVisible();
  await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByLabel('問題／辨識文字')).toHaveCount(0);await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();
- await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.getByLabel('已保存的對話').selectOption(cid);await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
+ await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
  await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材問答'})).toHaveCount(0);await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();
 });
 
 test('late microphone permission after cancel stops tracks and sends nothing',async({page})=>{
  await mockKnowledgeMapApi(page,structureView());await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[]}));
  await page.addInitScript(()=>{let resolve:(value:MediaStream)=>void;Object.assign(window,{stopped:false,allowMic:()=>resolve({getTracks:()=>[{stop:()=>{(window as any).stopped=true;}}]} as unknown as MediaStream)});Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:()=>new Promise(r=>resolve=r)});});
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'語音模式',exact:true}).click();await page.getByRole('button',{name:'開始錄音'}).click();await page.getByRole('button',{name:'取消等待麥克風'}).click();await page.evaluate(()=>(window as any).allowMic());await expect.poll(()=>page.evaluate(()=>(window as any).stopped)).toBe(true);
- await expect(page.getByRole('button',{name:'開始錄音'})).toBeEnabled();
+ await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('switch',{name:'語音模式',exact:true}).click();await expect(page.locator('.voice-composer-status')).toContainText('等待麥克風權限');await page.getByRole('switch',{name:'語音模式',exact:true}).click();await page.evaluate(()=>(window as any).allowMic());await expect.poll(()=>page.evaluate(()=>(window as any).stopped)).toBe(true);
+ await expect(page.getByRole('switch',{name:'語音模式',exact:true})).toHaveAttribute('aria-checked','false');
 });
 
 test('research preserves arbitrary source selection and requires irreversible confirmation',async({page})=>{
  await mockKnowledgeMapApi(page,structureView());
- const candidates=Array.from({length:5},(_,i)=>({id:`source-${i}`,kind:i===0?'web':'official',title:`官方教材 ${i+1}`,authors:'Fixture',year:2026,url:'https://docs.python.org/3/',doi:null,license:'PSF-2.0',license_url:'https://docs.python.org/3/license.html',version:'3',eligible:true,reason:'可使用',state:'candidate'}));
- Object.assign(candidates[0],{title:'網頁教材 1',url:'https://example.org/lesson',license:'CC-BY-4.0',license_url:'https://creativecommons.org/licenses/by/4.0/',version:'取得時的網頁版本'});
+ const candidates=Array.from({length:5},(_,i)=>({id:`source-${i}`,kind:i===0?'wikipedia':'paper',title:`官方教材 ${i+1}`,authors:'Fixture',year:2026,url:'https://docs.python.org/3/',doi:null,license:'PSF-2.0',license_url:'https://docs.python.org/3/license.html',version:'3',eligible:true,reason:'可使用',state:'candidate'}));
+ Object.assign(candidates[0],{title:'維基百科教材 1',url:'https://zh.wikipedia.org/wiki/Internet',license:'CC-BY-4.0',license_url:'https://creativecommons.org/licenses/by/4.0/',version:'取得時的網頁版本'});
  let value:any={research_id:cid,material_id:materialId,query:'網路通訊',mode:'review',status:'selecting',candidates,selection:[],cursor:null,error_code:null,run_id:null,is_current_revision:true};
  await page.route('**/v1/materials/*/research',r=>r.request().method()==='POST'?json(r,value,202):json(r,{researches:[researchSummary(value)]}));
  await page.route(`**/v1/research/${cid}`,r=>json(r,value));
  await page.route(`**/v1/research/${cid}/actions`,r=>{const b=r.request().postDataJSON();expect(b.selected).toHaveLength(5);value={...value,status:'ready',selection:b.selected,candidates:candidates.map(c=>({...c,state:'ready'}))};return json(r,value);});
  let submits=0;await page.route(`**/v1/research/${cid}/submit`,r=>{expect(r.request().postDataJSON()).toEqual({confirmed:true});submits++;value={...value,status:'submitted',run_id:runId};return json(r,value,202);});
  await page.goto(mapPath);await page.getByRole('tab',{name:'補充學習',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/research$`));await expect(page.getByRole('dialog',{name:'補充學習'})).toHaveCount(0);await page.locator('.research-card-link').click();
- await page.getByLabel('來源類型',{exact:true}).selectOption('web');await expect(page.locator('.research-candidates article')).toHaveCount(1);await expect(page.locator('.source-byline')).toContainText('網頁文章');await page.getByLabel('來源類型',{exact:true}).selectOption('all');
+ await page.getByLabel('來源類型',{exact:true}).selectOption('wikipedia');await expect(page.locator('.research-candidates article')).toHaveCount(1);await expect(page.locator('.source-byline')).toContainText('Wikipedia');await page.getByLabel('來源類型',{exact:true}).selectOption('all');
  await page.getByRole('checkbox',{name:'全選可用來源'}).check();
  await page.getByRole('tablist',{name:'教材學習內容'}).getByRole('tab',{name:'概念地圖',exact:true}).click();await expect(page.locator('.research-panel')).toHaveCount(0);
  await page.getByRole('tab',{name:'補充學習',exact:true}).click();await expect(page.locator('.research-candidates')).toHaveCount(0);await page.locator('.research-card-link').click();await expect(page.locator('.research-candidates input:checked')).toHaveCount(5);
@@ -58,21 +58,22 @@ test('closing a conversation releases every private audio element',async({page})
  await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[conversation]}));
  await page.route(`**/v1/voice-conversations/${cid}`,r=>json(r,{...conversation,is_current_revision:true,source_resolver:structure.source_resolver,turns:[0,1].map(i=>({turn_id:`turn-${i}`,question:'合成問題',answer:{text:'合成回答',supported:false,citations:[]},status:'ready',error_code:null,audio_url:`/v1/voice-conversations/${cid}/turns/${i}/audio`}))}));
  await page.route(`**/v1/voice-conversations/${cid}/turns/*/audio`,r=>r.fulfill({status:200,contentType:'audio/wav',body:wav}));
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.getByLabel('已保存的對話').selectOption(cid);await expect(page.locator('.voice-turn audio')).toHaveCount(2);
+ await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();await expect(page.locator('.voice-turn audio')).toHaveCount(2);
  await page.evaluate(async()=>{const clips=Array.from(document.querySelectorAll<HTMLAudioElement>('.voice-turn audio'));(window as any).__clips=clips;for(const a of clips)await a.play();});
  expect(await page.evaluate(()=>(window as any).__clips[0].paused)).toBe(true);
  await page.getByRole('button',{name:'關閉',exact:true}).click();
  expect(await page.evaluate(()=>(window as any).__clips.every((a:HTMLAudioElement)=>a.paused&&!a.getAttribute('src')))).toBe(true);
 });
 
-test('late permission failure cannot stop a newer recording',async({page})=>{
+test('late permission failure cannot stop a newer voice session',async({page})=>{
+ await page.route('**/assets/voice-vad-*.js',route=>route.fulfill({contentType:'text/javascript',body:'export async function createVoiceVad(){return {pause:async()=>{},start:async()=>{},destroy:async()=>{}};}'}));
  await mockKnowledgeMapApi(page,structureView());await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[]}));
  await page.addInitScript(()=>{
    let count=0;const state:any={stopped:false};(window as any).micRace=state;
    Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:()=>new Promise((resolve,reject)=>{count++;if(count===1)state.rejectOld=()=>reject(new Error('old request rejected'));else state.allowNew=()=>resolve({getTracks:()=>[{stop:()=>{state.stopped=true;}}]});})});
-   (window as any).MediaRecorder=class{state='inactive';onstop?:()=>void;start(){this.state='recording';}stop(){this.state='inactive';queueMicrotask(()=>this.onstop?.());}};
+   (window as any).AudioContext=class{state='running';resume(){return Promise.resolve();}close(){this.state='closed';return Promise.resolve();}};
  });
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'語音模式',exact:true}).click();await page.getByRole('button',{name:'開始錄音',exact:true}).click();await page.getByRole('button',{name:'取消等待麥克風'}).click();await page.getByRole('button',{name:'開始錄音',exact:true}).click();await page.evaluate(()=>(window as any).micRace.allowNew());await expect(page.getByRole('button',{name:'停止錄音並送出'})).toBeVisible();
+ await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('switch',{name:'語音模式',exact:true}).click();await expect(page.locator('.voice-composer-status')).toContainText('等待麥克風權限');await page.getByRole('switch',{name:'語音模式',exact:true}).click();await page.getByRole('switch',{name:'語音模式',exact:true}).click();await expect.poll(()=>page.evaluate(()=>typeof (window as any).micRace.allowNew)).toBe('function');await page.evaluate(()=>(window as any).micRace.allowNew());await expect(page.locator('.voice-composer-status')).toContainText('正在聆聽');
  await page.evaluate(()=>(window as any).micRace.rejectOld());expect(await page.evaluate(()=>(window as any).micRace.stopped)).toBe(false);
  await page.getByRole('button',{name:'關閉',exact:true}).click();expect(await page.evaluate(()=>(window as any).micRace.stopped)).toBe(true);
 });
@@ -106,9 +107,9 @@ test('one underline tab row opens review and preserves keyboard focus across mat
  await page.route('**/v1/materials/*/research',r=>json(r,{researches:[]}));
  await page.route('**/v1/card-sets',r=>json(r,{schema:'card-set-list/v1',card_sets:[]}));
  await page.route(`**/v1/materials/${materialId}/sources`,r=>json(r,{schema:'material-sources/v1',material_id:materialId,sources:[],discard_requested:false}));
- await page.goto(mapPath);const tabs=page.getByRole('tablist',{name:'教材學習內容'});await expect(tabs).toHaveCount(1);await expect(tabs.getByRole('tab')).toHaveText(['概念地圖','複習重點','概念卡','Podcast','補充學習','教材來源']);
- await page.getByRole('tab',{name:'補充學習',exact:true}).click();await page.getByRole('tab',{name:'複習重點',exact:true}).click();await expect(page.locator('#map-panel-review')).toBeVisible();await expect(page.getByRole('tab',{name:'複習重點',exact:true})).toHaveAttribute('aria-selected','true');
- await page.getByRole('tab',{name:'複習重點',exact:true}).focus();await page.keyboard.press('ArrowRight');await expect(page.getByRole('tab',{name:'概念卡',exact:true})).toBeFocused();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
+ await page.goto(mapPath);const tabs=page.getByRole('tablist',{name:'教材學習內容'});await expect(tabs).toHaveCount(1);await expect(tabs.getByRole('tab')).toHaveText(['概念地圖','測驗','概念卡','Podcast','補充學習','教材來源']);
+ await page.getByRole('tab',{name:'補充學習',exact:true}).click();await page.getByRole('tab',{name:'測驗',exact:true}).click();await expect(page.locator('#map-panel-review')).toBeVisible();await expect(page.getByRole('tab',{name:'測驗',exact:true})).toHaveAttribute('aria-selected','true');
+ await page.getByRole('tab',{name:'測驗',exact:true}).focus();await page.keyboard.press('ArrowRight');await expect(page.getByRole('tab',{name:'概念卡',exact:true})).toBeFocused();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
  await page.keyboard.press('End');await expect(page.getByRole('tab',{name:'教材來源',exact:true})).toBeFocused();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/sources$`));
  await page.keyboard.press('ArrowRight');await expect(page.getByRole('tab',{name:'概念地圖',exact:true})).toBeFocused();await expect(page.locator('#map-panel-focus')).toBeVisible();
  const style=await page.getByRole('tab',{name:'概念地圖',exact:true}).evaluate(e=>{const s=getComputedStyle(e);return {background:s.backgroundColor,bottom:s.borderBottomWidth,top:s.borderTopWidth};});expect(style.background).toBe('rgba(0, 0, 0, 0)');expect(style.bottom).toBe('2px');expect(style.top).toBe('0px');
@@ -124,7 +125,7 @@ test('material search fields stay at one anchor across tabs on desktop and mobil
  for(const width of [1440,390]){
   await page.setViewportSize({width,height:844});await page.goto(mapPath);const anchor=await page.getByLabel('搜尋概念或關鍵字',{exact:true}).boundingBox();expect(anchor).not.toBeNull();const nav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(nav).not.toBeNull();expect(anchor!.y).toBeGreaterThanOrEqual(nav!.y+nav!.height);
   const header=await page.locator('.app-header').boundingBox();expect(nav!.y-header!.y-header!.height).toBeGreaterThanOrEqual(0);expect(nav!.y-header!.y-header!.height).toBeLessThanOrEqual(12);
-  for(const [tab,label] of [['複習重點','搜尋概念或關鍵字'],['概念卡','搜尋卡組'],['Podcast','搜尋 Podcast'],['補充學習','想多了解什麼？'],['教材來源','搜尋教材來源']]){
+  for(const [tab,label] of [['測驗','搜尋概念或關鍵字'],['概念卡','搜尋卡組'],['Podcast','搜尋 Podcast'],['補充學習','想多了解什麼？'],['教材來源','搜尋教材來源']]){
    await page.getByRole('tab',{name:tab,exact:true}).click();await page.getByLabel(label,{exact:true}).waitFor();const box=await page.getByLabel(label,{exact:true}).boundingBox();expect(box).not.toBeNull();
    if(tab !== '補充學習') for(const field of ['x','y','width','height'] as const)expect(Math.abs(box![field]-anchor![field])).toBeLessThanOrEqual(1);
    const currentNav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(Math.abs(currentNav!.y-nav!.y)).toBeLessThanOrEqual(1);

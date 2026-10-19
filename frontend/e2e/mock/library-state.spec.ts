@@ -46,7 +46,7 @@ test("library loading, read failure and empty state retain usable actions", asyn
     { times: 1 },
   );
   await page.goto("/materials");
-  await expect(page.getByRole("heading", { name: "正在讀取教材庫", exact: true })).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("正在讀取教材庫");
   expect(reads).toBe(1);
   releaseRead();
   await expect(page.getByRole("heading", { name: "無法讀取教材", exact: true })).toBeVisible();

@@ -10,6 +10,7 @@ const responses: Record<string, unknown> = {
     formats: [{ extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 }],
     quality_notice: "PDF",
   },
+  "/v1/topics": { topics: [] },
   "/v1/materials": { schema: "material-library/v1", materials: [] },
 };
 

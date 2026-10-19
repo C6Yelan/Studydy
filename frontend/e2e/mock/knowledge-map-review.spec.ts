@@ -1,7 +1,8 @@
 import {expect,test,type Page} from '@playwright/test';
+import { outlineView } from '../fixtures/knowledge-read-views.mjs';
 import {materialId,runId,sessionId,artifactId,structureRevision,structureView,run,session,progress,json,mockKnowledgeMapApi,workspaceView} from '../fixtures/knowledge-map';
 const mapPath=`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
-const progressPath=`/v1/study-sessions/${sessionId}/progress`;
+const progressPath=`/v1/study-sessions/${sessionId}/map-progress`;
 async function mockOwnedReview(
   page: Page,
   view: ReturnType<typeof structureView>,
@@ -136,8 +137,8 @@ test("switching materials never reuses the previous material's answers", async (
     study_sessions: [],
   }));
   await page.route(`**/v1/material-processing-runs/${otherRunId}`, route => json(route, otherRun));
-  await page.route(url => decodeURIComponent(url.pathname) === `/v1/materials/${otherId}/knowledge-structures/${structureRevision}`,
-    route => json(route, otherView));
+  await page.route(url => decodeURIComponent(url.pathname) === `/v1/materials/${otherId}/knowledge-structures/${structureRevision}/outline`,
+    route => json(route, outlineView(otherView, otherId, otherRunId)));
   await page.goto(mapPath);
   await page.getByRole("tab", { name: "測驗", exact: true }).click();
   await expect(page.locator(".assessment-concept-list li")).toHaveCount(1);

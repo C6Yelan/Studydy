@@ -64,6 +64,10 @@ test.beforeEach(async ({ page }) => {
       expect(route.request().method()).toBe(path.endsWith("/refresh") ? "POST" : "GET");
       return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
     }
+    if (path === "/v1/topics") {
+      expect(route.request().method()).toBe("GET");
+      return route.fulfill({ json: { topics: [] } });
+    }
     if (path === "/v1/source-capabilities") {
       expect(route.request().method()).toBe("GET");
       return route.fulfill({
@@ -295,13 +299,15 @@ test("dashboard stats count each material once using its head and remain outside
   await expect(page.getByRole("navigation", { name: "主要導覽" }).getByRole("button")).toHaveText([
     "首頁",
     "我的教材",
+    "概念卡",
+    "Podcast",
   ]);
   await expect(page.locator(".nav-unavailable")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "建立你的知識地圖", level: 2, exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".dashboard-hero").getByRole("button")).toHaveText(["上傳教材"]);
+  await expect(page.locator(".dashboard-hero").getByRole("button")).toHaveText(["上傳教材", "從主題建立教材"]);
   await expect(page.getByRole("button", { name: "前往我的教材", exact: true })).toHaveCount(0);
   await expect(page.locator(".dashboard-help article")).toHaveCount(4);
   await expect(page.locator(".dashboard-help").getByRole("button")).toHaveCount(0);
@@ -334,9 +340,14 @@ test("dashboard stats count each material once using its head and remain outside
   }
   await page.getByRole("button", { name: "上傳教材", exact: true }).focus();
   await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "從主題建立教材", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeFocused();
   await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "從主題建立教材", exact: true })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("button", { name: "上傳教材", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
   await page.keyboard.press("Enter");
   await expect

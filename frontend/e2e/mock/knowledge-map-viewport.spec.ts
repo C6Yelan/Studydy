@@ -238,7 +238,7 @@ test("compact map retains manual viewport through details, progress reload and r
   const view = learningMap(20);
   await mockLearningMapApi(page, view, true);
   await page.route(
-    `**/v1/study-sessions/${sessionId}/progress`,
+    `**/v1/study-sessions/${sessionId}/map-progress`,
     (route) =>
       json(
         route,

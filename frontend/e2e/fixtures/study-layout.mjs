@@ -372,7 +372,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
 
       const hasPendingNavigation = scenario?.navigation && !guidanceApplied;
       let targetConceptId = current;
-      if (hasPendingNavigation) targetConceptId = nextAction === "advance" ? nextConceptId : null;
+      if (hasPendingNavigation) targetConceptId = nextAction === "advance" ? nextConceptId : nextAction === "complete" ? null : current;
 
       let assessmentSets = [];
       if (!scenario?.noHistory && !scenario?.inheritedCheck) {
@@ -399,20 +399,27 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
         event_watermark: 1,
         current_concept_id: current,
         deferred_concept_ids: [],
-        concept_states: knowledgeStructure.concepts.map((concept) => ({
-          concept_id: concept.concept_id,
-          label: concept.label,
-          status: assessmentStage === "completed" ? "completed" : "in_progress",
-          attempts: 1,
-          correct_answers: 1,
-          qualified_correct_items: 1,
-          covered_claim_ids: [concept.claims[0].claim_id],
-          completed_claim_ids: assessmentStage === "completed" ? concept.claims.map(c=>c.claim_id) : [],
-          assessable_claim_ids: assessmentStage === "no-safe" ? [] : concept.claims.map(c=>c.claim_id),
-          unavailable_claim_ids: [],
-          weak_claim_ids: [],
-          latest_is_correct: true,
-        })),
+        concept_states: knowledgeStructure.concepts.map((concept) => {
+          const status = concept.concept_id === conceptId && scenario?.conceptStatus
+            ? scenario.conceptStatus
+            : assessmentStage === "completed" ? "completed" : "in_progress";
+          return {
+            concept_id: concept.concept_id,
+            label: concept.label,
+            status,
+            attempts: 1,
+            correct_answers: 1,
+            qualified_correct_items: 1,
+            covered_claim_ids: [concept.claims[0].claim_id],
+            completed_claim_ids: status === "completed" ? concept.claims.map(c=>c.claim_id) : [],
+            assessable_claim_ids: assessmentStage === "no-safe" ? [] : concept.claims.map(c=>c.claim_id),
+            unavailable_claim_ids: [],
+            weak_claim_ids: concept.concept_id === conceptId && status === "needs_review"
+              ? buildAssessmentSet().cycle.points.filter(point => point.result === "needs_review").map(point => point.claim_id)
+              : [],
+            latest_is_correct: status !== "needs_review",
+          };
+        }),
         weaknesses: [],
         next_action: {
           action: hasPendingNavigation ? nextAction : "assess",

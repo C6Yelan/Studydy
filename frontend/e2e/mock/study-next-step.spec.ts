@@ -75,15 +75,15 @@ test("complete applies authority before showing completion", async ({ page }) =>
   const release = await holdGuidanceApply(page);
   await page.getByRole("button", { name: "完成本次學習", exact: true }).click();
   await expect(page.getByRole("button", { name: "正在完成…", exact: true })).toBeDisabled();
-  await expect(page.getByRole("heading", { name: "學習已完成", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toHaveCount(0);
   release();
-  await expect(page.getByRole("heading", { name: "學習已完成", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(fixture.path + "$"));
   await expect(page.getByRole("button", { name: /下一個觀念|完成本次學習/ })).toHaveCount(0);
 });
 
 for (const [name, stage, scenario] of [
-  ["wrong points", "completed", { wrong: [2] }],
+  ["wrong points", "completed", { wrong: [2], conceptStatus: "needs_review", nextAction: "assess" }],
   ["active remediation", "ready", { kind: "remediation" }],
   ["preparing remediation", "preparing", { kind: "remediation" }],
   ["another active set", "completed", { wrong: [], preparingHistory: true }],
@@ -95,6 +95,17 @@ for (const [name, stage, scenario] of [
     if (name === "wrong points")
       await expect(page.getByRole("button", { name: "開始補強 1 題", exact: true })).toBeVisible();
   });
+
+test("a completed concept retains navigation after a wrong practice answer", async ({ page }) => {
+  const fixture = await studyLayoutFixture(page, "completed", {
+    navigation: true, wrong: [2], conceptStatus: "completed",
+  });
+  await fixture.open();
+  await expect(page.getByText("本次練習有需要加強的重點，先前的完成紀錄會保留。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "開始補強 1 題", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "下一個觀念：使用者端", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "使用者端", level: 1, exact: true })).toBeVisible();
+});
 
 test("failed apply keeps result and allows retry with the same guidance", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "completed", { navigation: true, wrong: [] });
@@ -141,7 +152,7 @@ test("stale guidance refreshes the decision without automatic apply", async ({ p
   await expect(page).toHaveURL(before);
   expect(revisions).toHaveLength(1);
   await page.getByRole("button", { name: "完成本次學習", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "學習已完成", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toBeVisible();
   expect(revisions[1]).toBe("learner-guidance:sha256:" + "2".padStart(64, "0"));
 });
 

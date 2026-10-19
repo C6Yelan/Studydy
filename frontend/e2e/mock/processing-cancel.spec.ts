@@ -56,6 +56,8 @@ test.beforeEach(async ({ page }) => {
     const path = new URL(request.url()).pathname;
     expect(request.method()).toBe(path === "/v1/session/refresh" ? "POST" : "GET");
     switch (path) {
+      case "/v1/topics":
+        return route.fulfill({ json: { topics: [] } });
       case "/v1/session":
       case "/v1/session/refresh":
         return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
