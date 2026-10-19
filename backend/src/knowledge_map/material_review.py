@@ -11,6 +11,7 @@ import unicodedata
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from content_identity import canonical_sha256
+from .claim_literals import LITERAL_PROJECTION
 from .semantic_projection import _project_claim
 from .structure_rules import (
     RELATION_BASIS,
@@ -435,7 +436,7 @@ def _corrected_claim(edit: ClaimEdit, sources: list[dict]) -> str | None:
     )
     return (
         projected["text"]
-        if projected and projected["projection"] == "localized_meaning"
+        if projected and projected["projection"] == LITERAL_PROJECTION
         else None
     )
 
@@ -809,7 +810,7 @@ def apply_review(
                     },
                     evidence,
                 )
-                if projected is None or projected["projection"] != "localized_meaning":
+                if projected is None or projected["projection"] != LITERAL_PROJECTION:
                     rejected_claim_edits.add(original["claim_id"])
                 else:
                     claim.update(projected, evidence_refs=refs)

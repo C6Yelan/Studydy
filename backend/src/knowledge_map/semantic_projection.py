@@ -10,7 +10,7 @@ import re
 from typing import Any
 
 from content_identity import canonical_sha256
-from .claim_literals import preserves_literals
+from .claim_literals import LITERAL_PROJECTION, preserves_literals
 
 from .structure_rules import (
     RELATION_BASIS,
@@ -449,7 +449,7 @@ def _project_claim(
         "source_spans": projected,
         "projection": "source_literal_repair"
         if needs_literal_repair
-        else "localized_meaning",
+        else LITERAL_PROJECTION,
     }
 
 

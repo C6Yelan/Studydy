@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 
 
+LITERAL_PROJECTION = "localized_meaning_v2"
+
 _NUMBER = r"[+−-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+−-]?\d+)?"
 _UNIT = (
     r"(?:[%％]|°[CF]|(?:[fpnumkKMGTµμ]?(?:mol|Hz|Pa|Wb|[smgAKNJWCVFΩSTHBb])"
@@ -179,12 +181,11 @@ def restore_literals(value, literals):
     )
 
 
-def preserves_literals(meaning: str, sources: list[dict]) -> bool:
-    """共用於生成投影、審查修正及發布驗證，不以英文全文相等代替忠實度檢查。"""
+def literal_differences(
+    meaning: str, sources: list[dict], *, legacy: bool = False
+) -> tuple[set[str], set[str]]:
+    """驗證與模型補正共用缺漏／新增字面值，不讓診斷再次漏掉短數值。"""
     source_text = " ".join(source["exact_text"] for source in sources)
-    normalized = " ".join(meaning.split())
-    if normalized == " ".join(source_text.split()):
-        return True
     # 不把前一區塊末尾與下一區塊開頭誤接成另一個公式或單位。
     source_literals = set().union(
         *(_literals(source["exact_text"]) for source in sources)
@@ -201,13 +202,33 @@ def preserves_literals(meaning: str, sources: list[dict]) -> bool:
         )
         if re.search(re.escape(date[2]) + r"\s*年\s*" + str(month) + r"\s*月", meaning):
             calendar_numbers.add(str(month))
-    # 原文括注可移到句中，但不得換成不同術語；保留空白差異，其他字面值不改。
-    if any(literal not in compact_meaning for literal in source_literals):
-        return False
-    if any(
-        literal not in compact_source and literal not in calendar_numbers
-        for literal in meaning_literals
-    ):
+    # 原文括注可移到句中；保留既有非數量字面值規則。
+    missing = {literal for literal in source_literals if literal not in compact_meaning}
+    unexpected = {
+        literal for literal in meaning_literals
+        if literal not in compact_source and literal not in calendar_numbers
+    }
+    if not legacy:
+        # 數量以完整 token 比較；獨立的 1 不能由 10 或 -1 代替。
+        # 不比次數，允許同一事實去重；逐個來源取值，避免跨區塊拼成單位。
+        source_quantities = {
+            _compact(match[0])
+            for source in sources
+            for match in _QUANTITY.finditer(source["exact_text"])
+        }
+        meaning_quantities = {_compact(match[0]) for match in _QUANTITY.finditer(meaning)}
+        missing.update(source_quantities - meaning_quantities)
+        unexpected.update(meaning_quantities - source_quantities - calendar_numbers)
+    return missing, unexpected
+
+
+def preserves_literals(meaning: str, sources: list[dict], *, legacy: bool = False) -> bool:
+    """共用於生成投影、審查修正及發布驗證，不以英文全文相等代替忠實度檢查。"""
+    source_text = " ".join(source["exact_text"] for source in sources)
+    normalized = " ".join(meaning.split())
+    if normalized == " ".join(source_text.split()):
+        return True
+    if any(literal_differences(meaning, sources, legacy=legacy)):
         return False
     for source in sources:
         text = source["exact_text"]

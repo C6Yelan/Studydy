@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from .semantic_projection import _unsupported_null_meaning
-from .claim_literals import preserves_literals
+from .claim_literals import LITERAL_PROJECTION, preserves_literals
 from .structure_rules import (
     STRUCTURE_SCHEMA,
     RELATION_BASIS,
@@ -330,13 +330,14 @@ def _validate_concepts(document):
                     )
                 ):
                     return False
-            elif claim["projection"] == "localized_meaning":
+            elif claim["projection"] in {"localized_meaning", LITERAL_PROJECTION}:
                 if not preserves_literals(
                     claim["text"],
                     [
                         evidence_by_id[span["evidence_id"]]
                         for span in claim["source_spans"]
                     ],
+                    legacy=claim["projection"] == "localized_meaning",
                 ):
                     return False
             else:

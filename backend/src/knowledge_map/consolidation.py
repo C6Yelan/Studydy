@@ -5,7 +5,7 @@ from collections import Counter
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .claim_literals import preserves_literals, _literals, _compact
+from .claim_literals import LITERAL_PROJECTION, literal_differences, preserves_literals
 from .material_review import ReviewError
 from .semantic_projection import _project_claim
 from .structure_rules import _coalesce_relations, _id, _path, _revision
@@ -184,7 +184,7 @@ def project(document, handles, response):
                 )
                 if (
                     projected is None
-                    or projected["projection"] != "localized_meaning"
+                    or projected["projection"] != LITERAL_PROJECTION
                     or not preserves_literals(
                         edit.text, [{"exact_text": q["text"]} for q in original_claims]
                     )
@@ -192,21 +192,18 @@ def project(document, handles, response):
                     original_texts = [q["text"] for q in original_claims] + [
                         evidence[r]["exact_text"] for r in refs
                     ]
-                    required = set().union(
-                        *(_literals(text) for text in original_texts)
+                    missing, _ = literal_differences(
+                        edit.text, [{"exact_text": text} for text in original_texts]
                     )
-                    compact = _compact(edit.text)
-                    source = _compact(" ".join(evidence[r]["exact_text"] for r in refs))
+                    _, unexpected = literal_differences(
+                        edit.text, [evidence[r] for r in refs]
+                    )
                     literal_issues.append(
                         {
                             "concepts": concept.concepts,
                             "claims": edit.claims,
-                            "missing_literals": sorted(
-                                v for v in required if v not in compact
-                            ),
-                            "unexpected_literals": sorted(
-                                v for v in _literals(edit.text) if v not in source
-                            ),
+                            "missing_literals": sorted(missing),
+                            "unexpected_literals": sorted(unexpected),
                             "instruction": "保留來源及原 Claim 的全部數值、條件、公式與程式碼，包含章節號、表號及實驗設定。"
                             "缺漏值須放回原有對象與脈絡，不能只在末尾列數字補過檢查；code/formula 須逐字保留。",
                         }

@@ -28,7 +28,7 @@ def test_translation_survives_projection_and_review_with_exact_evidence(source, 
         {'evidence_id': 'e1', 'quote': source},
     ]}, evidence)
     assert projected['text'] == meaning
-    assert projected['projection'] == 'localized_meaning'
+    assert projected['projection'] == 'localized_meaning_v2'
     assert projected['source_spans'][0]['quote'] == source
     edit = ClaimEdit(claim=0, meaning=meaning, evidence=[0], reason='翻譯原文。')
     assert _corrected_claim(edit, [{'evidence_id': 'e1', 'quote': source, 'kind': 'paragraph'}]) == meaning
@@ -58,7 +58,7 @@ def test_fenced_code_does_not_turn_following_translated_prose_into_a_code_litera
     meaning='設定：\n```\nCache-Control: max-age=3600\n```\n這允許重用。`max-age` 指示詞設定新鮮期限。'
     evidence={'e1':{'exact_text':source,'kind':'paragraph'}}
     result=_project_claim({'meaning':meaning,'source_spans':[{'evidence_id':'e1','quote':source}]},evidence)
-    assert result['projection']=='localized_meaning'
+    assert result['projection']=='localized_meaning_v2'
     assert not preserves_literals(meaning.replace('3600','3601'),list(evidence.values()))
 
 
@@ -78,3 +78,64 @@ def test_named_month_can_translate_to_the_same_chinese_calendar_date_only():
     assert preserves_literals('自 2015 年 7 月起可用。',sources)
     assert not preserves_literals('自 2015 年 8 月起可用。',sources)
     assert not preserves_literals('2015 年可用，改善 7%。',sources)
+
+
+@pytest.mark.parametrize('source,meaning', [
+    ('值為 1 或 10。', '值為 10。'),
+    ('值為 1.5 或 11.5。', '值為 11.5。'),
+    ('質量為 5 kg 或 15 kg。', '質量為 15 kg。'),
+    ('比例為 1% 或 10%。', '比例為 10%。'),
+    ('值為 1e3 或 11e3。', '值為 11e3。'),
+    ('值為 1 或 -1。', '值為 -1。'),
+    ('值為 1,000 或 11,000。', '值為 11,000。'),
+    ('值為 10。', '值為 1 或 10。'),
+])
+def test_complete_quantity_tokens_cannot_be_replaced_by_numeric_substrings(source, meaning):
+    evidence = {'e1': {'exact_text': source, 'kind': 'paragraph'}}
+    assert not preserves_literals(meaning, list(evidence.values()))
+    projected = _project_claim({'meaning': meaning, 'source_spans': [
+        {'evidence_id': 'e1', 'quote': source},
+    ]}, evidence)
+    assert projected['projection'] == 'source_literal_repair'
+    assert projected['text'] == source
+
+
+def test_quantity_guard_allows_repetition_removal_spacing_and_reordered_independent_sources():
+    sources = [{'exact_text': 'The mass is 5 kg. The mass is 5 kg.', 'kind': 'paragraph'},
+               {'exact_text': 'The rate is 10 MB/s.', 'kind': 'paragraph'}]
+    assert preserves_literals('速率為 10 MB/s，質量為5kg。', sources)
+
+
+def test_persisted_legacy_claims_remain_readable_but_new_projection_rejects_numeric_loss():
+    from copy import deepcopy
+    from test_material_consolidation import document
+    from knowledge_map.structure_rules import _id, _revision
+    from knowledge_map.structure_validation import validate_knowledge_structure
+
+    original = document(['值為 1 或 10。'], ['數值'])
+    assert original['concepts'][0]['claims'][0]['projection'] == 'localized_meaning_v2'
+    assert validate_knowledge_structure(original)
+    legacy = deepcopy(original)
+    concept = legacy['concepts'][0]
+    claim = concept['claims'][0]
+    claim.update(text='值為 10。', projection='localized_meaning')
+
+    def rebind():
+        previous = concept['concept_id']
+        claim['claim_id'] = _id('claim', {key: value for key, value in claim.items() if key != 'claim_id'})
+        concept['concept_id'] = _id('concept', {
+            'label': concept['label'], 'aliases': concept['aliases'],
+            'claim_ids': [claim['claim_id']], 'evidence_refs': concept['evidence_refs'],
+        })
+        for section in legacy['document_tree']['sections']:
+            section['concept_ids'] = [concept['concept_id'] if key == previous else key for key in section['concept_ids']]
+        legacy['initial_learning_path'][0]['concept_id'] = concept['concept_id']
+        legacy['revision'] = _revision(legacy)
+
+    rebind()
+    before = deepcopy(legacy)
+    assert validate_knowledge_structure(legacy) and legacy == before
+    claim['projection'] = 'localized_meaning_v2'
+    rebind()
+    assert not validate_knowledge_structure(legacy)
+    assert original['evidence'] == legacy['evidence']

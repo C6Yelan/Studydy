@@ -84,6 +84,16 @@ def test_literal_repair_reports_every_missing_value_with_its_claim():
     assert '8' in issues[0]['missing_literals'] and 'k=5' in issues[1]['missing_literals']
 
 
+def test_literal_repair_names_the_independent_short_quantity_instead_of_accepting_its_substring():
+    doc = document(['值為 1 或 10。'], ['數值'])
+    value = keep(merge.pack(doc, [0])[0])
+    value['concepts'][0]['claims'][0]['text'] = '值為 10。'
+    with pytest.raises(ReviewError, match='CONSOLIDATION_LITERAL_LOSS') as caught:
+        merge.project(doc, [0], value)
+    issue = caught.value.details['claims'][0]
+    assert issue['missing_literals'] == ['1'] and issue['unexpected_literals'] == []
+
+
 @pytest.mark.parametrize('bad', ['omit_claim', 'repeat_concept', 'wrong_number', 'move_claim'])
 def test_untrusted_merges_cannot_drop_claims_reuse_owners_change_numbers_or_move_sources(bad):
     doc = document()
