@@ -250,7 +250,7 @@ def test_wikipedia_source_uses_existing_normalization_and_records_acquisition(re
     learner,material,settings,dsn,*_=revisions
     owner=learner.learner_id
     monkeypatch.setattr(research.research_sources,'public_page',lambda url,**kwargs:(BODY.encode(),url,'text/html'))
-    doc=research_web._web_document('https://en.wikipedia.org/wiki/Queue')
+    doc=research_web.html_document(BODY.encode(),'https://en.wikipedia.org/wiki/Queue','text/html')
     item={**candidate('web-source'),'kind':'wikipedia','title':doc['title'],'authors':doc['authors'],
           'url':doc['url'],'download_url':doc['url'],'license':doc['license'],'license_url':doc['license_url'],
           'page_identity':doc['page_identity'],'version':'取得時的網頁版本'}

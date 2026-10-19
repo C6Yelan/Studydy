@@ -281,6 +281,13 @@ def main_text(html):
     return text
 
 
+def normalized_title(value):
+    """文件身分比對共用 Unicode 正規化；各入口仍保留完整或包含比對規則。"""
+    return "".join(
+        c for c in unicodedata.normalize("NFKC", value).casefold() if c.isalnum()
+    )
+
+
 def _doi(value):
     value = (value or "").strip().lower()
     return re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", "", value)
@@ -757,9 +764,6 @@ def acquire(candidate, *, attempts=None):
         from .research_web import acquire_web
 
         return acquire_web(candidate)
-    # 舊研究仍保存 official 候選；取得／重新核對沿用該來源，不能改換文件。
-    if candidate["kind"] == "official":
-        return _acquire_location(candidate, attempts=attempts)
     original_version = candidate.get("version", "unknown")
     primary = _location(
         candidate.get("download_url"),
@@ -846,8 +850,6 @@ def acquire(candidate, *, attempts=None):
 
 
 def _acquire_location(candidate, *, attempts=None):
-    if not candidate.get("eligible"):
-        raise SourceError("RESEARCH_LICENSE_UNCONFIRMED")
     url = candidate["download_url"]
     data, final, media = public_page(url, limit=MAX_BYTES)
     metadata = {
@@ -881,12 +883,9 @@ def _acquire_location(candidate, *, attempts=None):
                 raise SourceError("RESEARCH_BODY_UNAVAILABLE")
             from .research_web import document_artifact
 
-            normalize = lambda value: "".join(
-                c
-                for c in unicodedata.normalize("NFKC", value).casefold()
-                if c.isalnum()
-            )
-            if normalize(candidate["title"]) not in normalize(document["title"]):
+            if normalized_title(candidate["title"]) not in normalized_title(
+                document["title"]
+            ):
                 raise SourceError("RESEARCH_IDENTITY_UNCONFIRMED")
             # 此入口與授權來自同篇、同版本 metadata，仍以原頁正文核對身分。
             if not document.get("license_url"):
@@ -915,72 +914,16 @@ def _acquire_location(candidate, *, attempts=None):
         and metadata["original_sha256"] != candidate["inspection_sha256"]
     ):
         raise SourceError("RESEARCH_SOURCE_CHANGED")
-    if (
-        candidate["kind"] == "official"
-        and urlsplit(url).hostname == "developer.mozilla.org"
-    ):
-        if urlsplit(final).hostname != "developer.mozilla.org" or not urlsplit(
-            final
-        ).path.startswith("/en-US/docs/"):
-            raise SourceError("RESEARCH_URL_REJECTED")
-        html = data.decode("utf-8")
-        if "/docs/MDN/Writing_guidelines/Attrib_copyright_license" not in html:
-            raise SourceError("RESEARCH_LICENSE_UNCONFIRMED")
-        text = main_text(html)
-        license_data, _, _ = public_page(candidate["license_url"], limit=2000000)
-        metadata["license_text"] = main_text(license_data.decode("utf-8"))
-        metadata["license_snapshot_sha256"] = hashlib.sha256(license_data).hexdigest()
-        metadata["derivative_license"] = "CC-BY-SA-2.5-or-later"
-        text = (
-            candidate["title"]
-            + "\n來源："
-            + final
-            + "\n作者：Mozilla Contributors\n"
-            + "授權：CC BY-SA 2.5 或更新版本；程式範例依 MDN code sample 條款。\n"
-            + "變更：由官方 HTML 擷取正文為純文字；教學整理／翻譯仍保留來源與相同文字授權。\n"
-            + "授權說明："
-            + candidate["license_url"]
-            + "\n\n"
-            + text
-        )
-        return text.encode(), "text/plain", ".txt", metadata
-    if candidate["kind"] == "official":
-        if urlsplit(final).hostname != "docs.python.org" or not urlsplit(
-            final
-        ).path.startswith("/3/"):
-            raise SourceError("RESEARCH_URL_REJECTED")
-        text = main_text(data.decode("utf-8"))
-        license_data, license_final, _ = public_page(
-            "https://docs.python.org/3/license.html", limit=2000000
-        )
-        license_text = main_text(license_data.decode("utf-8"))
-        metadata["license_snapshot_sha256"] = hashlib.sha256(license_data).hexdigest()
-        metadata["license_text"] = license_text
-        text = (
-            candidate["title"]
-            + "\n來源："
-            + final
-            + "\n作者：Python Software Foundation\n"
-            + "變更說明：擷取官方 HTML 的正文為純文字供教材分析；未加入其他來源。\n\n"
-            + text
-            + "\n\nCopyright © Python Software Foundation. All rights reserved.\n授權：PSF-2.0；完整授權與版權聲明保存於此來源的取得紀錄："
-            + license_final
-        )
-        return text.encode(), "text/plain", ".txt", metadata
     if candidate["license"] not in LICENSES or not data.startswith(b"%PDF-"):
         raise SourceError("RESEARCH_LICENSE_UNCONFIRMED")
     import fitz
 
     try:
         with fitz.open(stream=data, filetype="pdf") as doc:
-            normalize = lambda value: "".join(
-                c
-                for c in unicodedata.normalize("NFKC", value or "").casefold()
-                if c.isalnum()
-            )
-            expected = normalize(candidate["title"])
+            expected = normalized_title(candidate["title"] or "")
             title_matches = bool(
-                expected and normalize((doc.metadata or {}).get("title")) == expected
+                expected
+                and normalized_title((doc.metadata or {}).get("title") or "") == expected
             )
             first_text = ""
             for page in doc:
@@ -988,7 +931,7 @@ def _acquire_location(candidate, *, attempts=None):
                 if not first_text:
                     # 題名可能與期刊／系列名稱共用一個區塊；仍逐行核對完整題名，不做模糊比對。
                     title_blocks = [
-                        normalize(line)
+                        normalized_title(line)
                         for block in blocks
                         if block[6] == 0
                         for line in block[4].splitlines()
@@ -1007,7 +950,9 @@ def _acquire_location(candidate, *, attempts=None):
                             if len(joined) >= len(expected):
                                 break
                 if expected and any(
-                    normalize(block[4]) == expected for block in blocks if block[6] == 0
+                    normalized_title(block[4]) == expected
+                    for block in blocks
+                    if block[6] == 0
                 ):
                     title_matches = True
             doi = _doi(candidate.get("doi"))

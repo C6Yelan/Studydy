@@ -5,7 +5,6 @@ from hashlib import sha256
 from html import escape
 import re
 import time
-import unicodedata
 from urllib.parse import urljoin, urlsplit
 
 from lxml import etree
@@ -160,13 +159,12 @@ def read_public_document(url, *, attempts=None, entries=None):
                 doc = _pdf_document(data, final)
                 if canonical_url(target) != canonical_url(url):
                     expected = declared.get(target)
-                    compact = lambda value: "".join(
-                        c
-                        for c in unicodedata.normalize("NFKC", value or "").casefold()
-                        if c.isalnum()
-                    )
-                    if not expected or compact(expected) not in compact(
-                        doc.get("title_page_text") or doc.get("title")
+                    if (
+                        not expected
+                        or sources.normalized_title(expected)
+                        not in sources.normalized_title(
+                            doc.get("title_page_text") or doc.get("title") or ""
+                        )
                     ):
                         raise SourceError("RESEARCH_IDENTITY_UNCONFIRMED")
                     doc["title"] = expected
@@ -373,11 +371,8 @@ def inspect_candidate(candidate, *, document=None):
     if (
         doc is None
         and not row.get("web_document")
-        and (
-            row["kind"] == "official"
-            or row["kind"] == "paper"
-            and (row.get("eligible") or licensed_pdf)
-        )
+        and row["kind"] == "paper"
+        and (row.get("eligible") or licensed_pdf)
     ):
         try:
             row["eligible"] = True
@@ -390,9 +385,7 @@ def inspect_candidate(candidate, *, document=None):
                 doc = {
                     "text": data.decode("utf-8")[metadata.get("body_offset", 0) :],
                     "access_url": metadata.get("download_url") or row["url"],
-                    "access_method": "official"
-                    if row["kind"] == "official"
-                    else metadata.get("access_method", "html"),
+                    "access_method": metadata.get("access_method", "html"),
                 }
             importable = True
             for key in ("license", "license_url"):
@@ -418,13 +411,10 @@ def inspect_candidate(candidate, *, document=None):
         try:
             doc = read_public_document(row["url"], attempts=attempts)
             # 論文改用 HTML 入口仍須對回原論文，不能因 redirect 到另一篇 CC 文章就替換來源。
-            normalize = lambda value: "".join(
-                c
-                for c in unicodedata.normalize("NFKC", value).casefold()
-                if c.isalnum()
+            expected = sources.normalized_title(row.get("title", ""))
+            actual = sources.normalized_title(
+                doc.get("title_page_text") or doc.get("title", "")
             )
-            expected = normalize(row.get("title", ""))
-            actual = normalize(doc.get("title_page_text") or doc.get("title", ""))
             same_paper = row["kind"] != "paper" or bool(expected and expected in actual)
             if not same_paper:
                 attempts.append(

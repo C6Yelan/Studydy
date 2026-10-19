@@ -47,7 +47,7 @@ def test_search_cache_avoids_repeating_upstream_and_keeps_caller_mutations_priva
 
 def test_html_body_preserves_literals_structure_and_provenance(monkeypatch):
     monkeypatch.setattr(sources,'public_page',lambda url,**kwargs:(BODY.encode(),url,'text/html'))
-    doc=web._web_document('https://example.org/lesson')
+    doc=web.html_document(BODY.encode(),'https://example.org/lesson','text/html')
     assert doc['authors']=='A Teacher' and doc['license']=='CC-BY-SA-4.0'
     assert 'if x < 10:\n    return x != 0' in doc['text']
     assert '| Code | Meaning |' in doc['text'] and '| 200 | Success |' in doc['text']
@@ -70,12 +70,13 @@ def test_html_body_preserves_literals_structure_and_provenance(monkeypatch):
 def test_citation_image_or_unapproved_license_cannot_authorize_the_whole_page(monkeypatch,replacement):
     body=BODY.replace('<link rel="license" href="https://creativecommons.org/licenses/by-sa/4.0/">','').replace('</article>',replacement+'</article>')
     monkeypatch.setattr(sources,'public_page',lambda url,**kwargs:(body.encode(),url,'text/html'))
-    with pytest.raises(SourceError,match='RESEARCH_LICENSE_UNCONFIRMED'):web._web_document('https://example.org/lesson')
+    with pytest.raises(SourceError,match='RESEARCH_LICENSE_UNCONFIRMED'):
+        web.acquire_web({'download_url':'https://example.org/lesson'})
 
 
 def test_acquisition_rechecks_identity_and_license(monkeypatch):
     monkeypatch.setattr(sources,'public_page',lambda url,**kwargs:(BODY.encode(),url,'text/html'))
-    doc=web._web_document('https://example.org/lesson')
+    doc=web.html_document(BODY.encode(),'https://example.org/lesson','text/html')
     row={**doc,'download_url':doc['url'],'id':'one','version':'web'}
     changed={**doc,'page_identity':'different'}
     from runtime import research_reading
@@ -88,7 +89,8 @@ def test_acquisition_rechecks_identity_and_license(monkeypatch):
 def test_captcha_page_is_not_treated_as_body_and_does_not_block_other_entries(monkeypatch):
     body=BODY.replace('A learning example</title>','Verify you are human</title>')
     monkeypatch.setattr(sources,'public_page',lambda url,**kwargs:(body.encode(),url,'text/html'))
-    with pytest.raises(SourceError,match='RESEARCH_CHALLENGE_REQUIRED'):web._web_document('https://example.org/lesson')
+    with pytest.raises(SourceError,match='RESEARCH_CHALLENGE_REQUIRED'):
+        web.html_document(body.encode(),'https://example.org/lesson','text/html')
     sources._reserve_host('example.org')
 
 
@@ -97,10 +99,10 @@ def test_web_discovery_preserves_all_candidates_for_background_reading(monkeypat
     def search(query,page):
         requests.append((query,page))
         return {'results':[{'url':f'https://en.wikipedia.org/wiki/Lesson_{i}?utm_source=test','title':f'Lesson {i}','engines':['yahoo']} for i in range(20)],'unresponsive_engines':[['wikibooks','timeout']]}
-    def document(url):
+    def document(url,**kwargs):
         checked.append(url)
-        return {'url':url,'title':'Actual page title','authors':'Author','license':'CC-BY-4.0','license_url':'https://creativecommons.org/licenses/by/4.0/','page_identity':'identity'}
-    monkeypatch.setattr(web,'_searx',search);monkeypatch.setattr(web,'_web_document',document)
+        pytest.fail('Discovery must not acquire a document')
+    monkeypatch.setattr(web,'_searx',search);monkeypatch.setattr(sources,'public_page',document)
     rows,next_page,warnings=web.search_wikipedia(['topic tutorial','主題 教學'],1)
     assert len(rows)==20 and len(checked)==0 and sum(r['eligible'] for r in rows)==0
     assert next_page==2 and warnings==['SearXNG:wikibooks']

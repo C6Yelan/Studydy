@@ -251,14 +251,7 @@ def _linked_license(tree, base):
     return {"license_attempts": attempts}
 
 
-def _web_document(url, *, require_license=True):
-    from .research_sources import public_page
-
-    data, final, media = public_page(url)
-    return html_document(data, final, media, require_license=require_license)
-
-
-def html_document(data, final, media, *, require_license=False):
+def html_document(data, final, media):
     if "html" not in media.lower():
         raise SourceError("RESEARCH_FORMAT_UNSUPPORTED")
     tree = load_html(data)
@@ -282,8 +275,6 @@ def html_document(data, final, media, *, require_license=False):
             policy.get("license", "unknown"),
             policy.get("license_url"),
         )
-        if require_license and not license_url:
-            raise SourceError("RESEARCH_LICENSE_UNCONFIRMED")
     metadata = extract_metadata(tree, default_url=final)
     text = extract(
         tree,
