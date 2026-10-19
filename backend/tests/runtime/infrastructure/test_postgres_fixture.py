@@ -50,6 +50,32 @@ def test_explicit_test_postgres_dsn_rejects_production_or_invalid_targets(
         _test_postgres_dsn_from_environment(environment)
 
 
+@pytest.mark.parametrize("target", [
+    "host=localhost hostaddr=198.51.100.1",
+    "host=localhost hostaddr=127.0.0.1",
+    "host=localhost service=unresolved",
+    "host=/tmp,remote.example",
+])
+def test_libpq_destination_overrides_are_rejected_before_connecting(monkeypatch, target):
+    monkeypatch.setattr(fixture_module.psycopg, "connect", lambda *_: pytest.fail("must not connect"))
+    with pytest.raises(ValueError, match="TEST_POSTGRES_DSN_INVALID"):
+        _test_postgres_dsn_from_environment({
+            "STUDYDY_TEST_POSTGRES_DSN": target + " dbname=studydy_test_control"
+        })
+
+
+@pytest.mark.parametrize("variable", [
+    "PGHOST", "PGHOSTADDR", "PGPORT", "PGSERVICE", "PGSERVICEFILE", "PGSYSCONFDIR"
+])
+@pytest.mark.parametrize("explicit_dsn", [False, True])
+def test_inherited_libpq_routing_is_rejected_for_external_and_disposable_tests(variable, explicit_dsn):
+    environment = {variable: "synthetic-routing-override"}
+    if explicit_dsn:
+        environment["STUDYDY_TEST_POSTGRES_DSN"] = "host=127.0.0.1 dbname=studydy_test_control"
+    with pytest.raises(ValueError, match="TEST_POSTGRES_DSN_INVALID"):
+        _test_postgres_dsn_from_environment(environment)
+
+
 def test_postgres_preflight_requires_superuser_before_database_tests(
     monkeypatch,
 ):

@@ -46,6 +46,11 @@ def _test_postgres_dsn_from_environment(
 ) -> DatabaseDsn | None:
     """只接受明確 test control database；錯誤不回顯 DSN。"""
 
+    # libpq 可用 hostaddr／service 或環境覆蓋實際目的地；預設容器也不可繼承。
+    if any(environment.get(key) for key in (
+        "PGHOST", "PGHOSTADDR", "PGPORT", "PGSERVICE", "PGSERVICEFILE", "PGSYSCONFDIR"
+    )):
+        raise ValueError("TEST_POSTGRES_DSN_INVALID")
     raw_dsn = environment.get(TEST_POSTGRES_DSN_ENVIRONMENT)
     if raw_dsn is None:
         return None
@@ -64,7 +69,10 @@ def _test_postgres_dsn_from_environment(
     if (
         not isinstance(database_name, str)
         or not database_name.startswith("studydy_test")
+        or "hostaddr" in fields
+        or "service" in fields
         or not isinstance(host, str)
+        or "," in host
         or (
             host not in {"", "127.0.0.1", "localhost"}
             and not host.startswith("/")

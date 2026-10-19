@@ -74,6 +74,8 @@ Runtime 按 accounts、assessments、infrastructure、materials、sources、stud
 
 如需指定資料庫，STUDYDY_TEST_POSTGRES_DSN 只接受本機、名稱以 studydy_test 開頭的專用 control database，並核對版本及 superuser 權限。
 
+測試入口拒絕 `hostaddr`、未解析的 `service`、多主機地址及繼承的 `PGHOST`／`PGHOSTADDR`／`PGPORT`／`PGSERVICE`／service 設定路徑，避免 libpq 連到與已驗證 host 不同的目的地。執行測試前清除這些連線環境設定；不會回顯其值。
+
 完整 runtime 測試需要獨立前端 build 與 ports：
 
 ~~~bash
