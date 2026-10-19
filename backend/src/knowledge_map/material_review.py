@@ -14,7 +14,7 @@ from content_identity import canonical_sha256
 from .semantic_projection import _project_claim
 from .structure_rules import (
     RELATION_BASIS,
-    RELATION_PRIORITY,
+    _coalesce_relations,
     _id,
     _path,
     _revision,
@@ -855,7 +855,7 @@ def apply_review(
         key=lambda c: (min(order[e] for e in c["evidence_refs"]), c["concept_id"])
     )
     original_relations = {r["relation_id"]: r for r in document["relations"]}
-    relations, seen = [], set()
+    relations = []
     for proposed in projection["relations"]:
         row = deepcopy(original_relations[proposed["original_relation_id"]])
         row.update(
@@ -875,25 +875,11 @@ def apply_review(
                 + [evidence[ref]["section_id"] for ref in proposed["evidence_ids"]]
             )
         )
-        key = (
-            frozenset((row["source_concept_id"], row["target_concept_id"])),
-            row["type"],
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        row["relation_id"] = _id(
-            "relation", {k: v for k, v in row.items() if k != "relation_id"}
-        )
         relations.append(row)
-    relations.sort(
-        key=lambda relation: (
-            RELATION_PRIORITY[relation["type"]],
-            relation["source_concept_id"],
-            relation["target_concept_id"],
-            relation["relation_id"],
-        )
-    )
+    try:
+        relations = _coalesce_relations(relations)
+    except ValueError:
+        raise ReviewError("REVIEW_RELATION_CONFLICT") from None
     result.update(
         concepts=concepts,
         relations=relations,

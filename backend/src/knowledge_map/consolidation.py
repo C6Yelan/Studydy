@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from .claim_literals import preserves_literals, _literals, _compact
 from .material_review import ReviewError
 from .semantic_projection import _project_claim
-from .structure_rules import _id, _path, _revision, RELATION_PRIORITY
+from .structure_rules import _coalesce_relations, _id, _path, _revision
 from .structure_validation import validate_knowledge_structure
 
 
@@ -281,7 +281,7 @@ def apply(document, changes):
     concepts.sort(
         key=lambda c: (min(order[r] for r in c["evidence_refs"]), c["concept_id"])
     )
-    relations, internalized = {}, []
+    relations, internalized = [], []
     for original in document["relations"]:
         row = deepcopy(original)
         row["source_concept_id"] = remap[row["source_concept_id"]]
@@ -289,41 +289,11 @@ def apply(document, changes):
         if row["source_concept_id"] == row["target_concept_id"]:
             internalized.append(original["relation_id"])
             continue
-        key = (
-            frozenset((row["source_concept_id"], row["target_concept_id"])),
-            row["type"],
-        )
-        if key in relations:
-            other = relations[key]
-            if (
-                row["type"] != "contrast"
-                and row["source_concept_id"] != other["source_concept_id"]
-            ):
-                raise ReviewError("CONSOLIDATION_RELATION_CONFLICT")
-            other["evidence_refs"] = list(
-                dict.fromkeys(other["evidence_refs"] + row["evidence_refs"])
-            )
-            other["context_refs"] = list(
-                dict.fromkeys(other["context_refs"] + row["context_refs"])
-            )
-            other["confidence"] = min(other["confidence"], row["confidence"])
-            if row["learner_reason"] != other["learner_reason"]:
-                other["learner_reason"] += "；" + row["learner_reason"]
-        else:
-            relations[key] = row
-    relations = list(relations.values())
-    for row in relations:
-        row["relation_id"] = _id(
-            "relation", {k: v for k, v in row.items() if k != "relation_id"}
-        )
-    relations.sort(
-        key=lambda r: (
-            RELATION_PRIORITY[r["type"]],
-            r["source_concept_id"],
-            r["target_concept_id"],
-            r["relation_id"],
-        )
-    )
+        relations.append(row)
+    try:
+        relations = _coalesce_relations(relations)
+    except ValueError:
+        raise ReviewError("CONSOLIDATION_RELATION_CONFLICT") from None
     try:
         path = _path(concepts, relations)
     except ValueError:

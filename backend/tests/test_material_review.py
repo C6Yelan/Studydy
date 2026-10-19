@@ -612,3 +612,42 @@ def test_proposed_prerequisite_protects_endpoints_from_simultaneous_grouping():
     relation = next(x for x in result['relations'] if x['original_relation_id'] == 'r0')
     assert relation['type'] == 'prerequisite'
     assert relation['source_concept_id'] != relation['target_concept_id']
+
+
+@pytest.mark.parametrize('opposed', [False, True])
+def test_retyped_relation_collision_preserves_all_support_or_rejects_direction_conflict(opposed):
+    from test_material_consolidation import document
+    from knowledge_map.material_review import apply_review
+    from knowledge_map.structure_validation import validate_knowledge_structure
+    from runtime.material_review import review_inputs
+
+    original = document(relations=[
+        {'s': '0', 't': '1', 'k': 'part_of', 'r': '第一頁的關係說明。', 'e': [0], 'c': .8},
+        {'s': '1' if opposed else '0', 't': '0' if opposed else '1',
+         'k': 'example', 'r': '第二頁的既有例子說明。', 'e': [1], 'c': .6},
+    ])
+    before = deepcopy(original)
+    source_view, units = review_inputs(original)
+    unit = units[0]
+    response = {'assignments': [
+        {'concept': c['h'], 'action': 'keep', 'target': None, 'issue': 'none',
+         'reason': '保留原概念。', 'evidence': c['evidence']}
+        for c in unit.payload['concepts']
+    ], 'alias_edits': [], 'claim_edits': [], 'relation_edits': [
+        {'relation': 0, 'action': 'retype', 'relation_type': 'example',
+         'reason': '第一頁支持此例子。', 'evidence': [0]},
+    ]}
+    if opposed:
+        with pytest.raises(ReviewError, match='REVIEW_RELATION_CONFLICT'):
+            apply_review(original, source_view, unit, response)
+        assert original == before
+        return
+    result, _ = apply_review(original, source_view, unit, response)
+    assert original == before and result['evidence'] == original['evidence']
+    assert validate_knowledge_structure(result) and len(result['relations']) == 1
+    relation = result['relations'][0]
+    assert set(relation['evidence_refs']) == {ref for row in original['relations'] for ref in row['evidence_refs']}
+    assert set(relation['context_refs']) == {ref for row in original['relations'] for ref in row['context_refs']}
+    assert relation['confidence'] == .6
+    assert relation['learner_reason'] == '第一頁支持此例子。；第二頁的既有例子說明。'
+    assert relation['relation_id'] not in {row['relation_id'] for row in original['relations']}
