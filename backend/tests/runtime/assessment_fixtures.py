@@ -29,7 +29,7 @@ def concept_fixture(closed_loop, count=3, *, facts=None, label="Signals", eviden
     count = len(points)
     evidence_texts = [*points, "Other topic uses EXTERNAL."]
     with pymupdf.open() as pdf:
-        page = pdf.new_page()
+        page = pdf.new_page(height=max(842, 100 + len(evidence_texts) * 22))
         for index, value in enumerate(evidence_texts):
             page.insert_text((72, 72 + index * 22), value)
         regions = [list(page.search_for(value)[0]) for value in evidence_texts]

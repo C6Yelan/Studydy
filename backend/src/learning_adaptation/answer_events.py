@@ -10,12 +10,15 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from runtime.learner_session import TrustedLearner
-from runtime.storage.tables import AnswerEvent, Assessment
+from runtime.storage.tables import (
+    AnswerEvent, Assessment, AssessmentSet, AssessmentSetItem,
+)
 from runtime.storage.database import database_session
 
 from .assessments import (
     AssessmentError,
     _stored as validate_stored_assessment,
+    _provenance,
     _provenance_for_row,
 )
 from .study_sessions import StudySessionError, _learner, _row, _validate
@@ -117,8 +120,6 @@ def _assessment(session, study, revision: str, provenance_by_set) -> Assessment:
 
 
 def _assisted_revisions(session, sid):
-    from runtime.storage.tables import AssessmentSet, AssessmentSetItem
-
     return set(
         session.scalars(
             select(AssessmentSetItem.assessment_revision)
@@ -269,26 +270,50 @@ def read_answer_events(
 
 def _read_events(session, study):
     """Study 與教材 scope 已在同一 snapshot 驗證；保留逐筆作答與私有答案檢核。"""
-    rows = list(
-        session.scalars(
-            select(AnswerEvent)
-            .where(AnswerEvent.study_session_id == study.study_session_id)
-            .order_by(AnswerEvent.event_number)
+    rows = session.execute(
+        select(AnswerEvent, Assessment, AssessmentSet)
+        .outerjoin(
+            Assessment,
+            (Assessment.assessment_revision == AnswerEvent.assessment_revision)
+            & (Assessment.study_session_id == study.study_session_id)
+            & (
+                Assessment.knowledge_structure_revision
+                == study.knowledge_structure_revision
+            ),
         )
-    )
-    assisted = _assisted_revisions(session, study.study_session_id)
+        .outerjoin(
+            AssessmentSetItem,
+            AssessmentSetItem.assessment_revision == Assessment.assessment_revision,
+        )
+        .outerjoin(
+            AssessmentSet,
+            (AssessmentSet.set_id == AssessmentSetItem.set_id)
+            & (AssessmentSet.study_session_id == study.study_session_id)
+            & (
+                AssessmentSet.knowledge_structure_revision
+                == study.knowledge_structure_revision
+            ),
+        )
+        .where(AnswerEvent.study_session_id == study.study_session_id)
+        .order_by(AnswerEvent.event_number)
+    ).all()
     provenance_by_set = {}
-    events = tuple(
-        _event(
-            row,
-            _assessment(session, study, row.assessment_revision, provenance_by_set),
-            study,
-            assisted=row.assessment_revision in assisted,
+    events = []
+    for row, assessment, group in rows:
+        # 外連接保留缺題目／題組的事件，不能因 join 遺漏而把損壞歷史當作未作答。
+        if assessment is None or group is None:
+            raise AnswerSubmissionError("ANSWER_ASSESSMENT_UNAVAILABLE")
+        try:
+            if group.set_id not in provenance_by_set:
+                provenance_by_set[group.set_id] = _provenance(group)
+            validate_stored_assessment(assessment, provenance_by_set[group.set_id])
+        except AssessmentError:
+            raise AnswerSubmissionError("ANSWER_ASSESSMENT_UNAVAILABLE") from None
+        events.append(
+            _event(row, assessment, study, assisted=group.kind == "remediation")
         )
-        for row in rows
-    )
     if [event.event_number for event in events] != list(
         range(1, len(events) + 1)
     ) or len(events) > study.last_event_number:
         raise AnswerSubmissionError("ANSWER_EVENT_UNAVAILABLE")
-    return events
+    return tuple(events)

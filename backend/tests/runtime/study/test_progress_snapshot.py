@@ -8,6 +8,78 @@ from product_fixtures import ORIGIN, _app, closed_loop
 from assessment_fixtures import answer, finish, concept_fixture, create, read
 
 
+def test_set_and_progress_query_counts_do_not_grow_per_question(closed_loop, record_property):
+    from sqlalchemy import event
+    from runtime.storage.database import _database_engine
+
+    counts = []
+    for size in (1, 10, 100):
+        fixture = concept_fixture(closed_loop, size)
+        root = create(fixture)
+        finish(fixture)
+        statements = []
+        engine = _database_engine(fixture['dsn'])
+
+        def count_query(connection, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().upper().startswith('SELECT'):
+                statements.append(statement)
+
+        event.listen(engine, 'before_cursor_execute', count_query)
+        try:
+            ready = read(fixture, root)
+        finally:
+            event.remove(engine, 'before_cursor_execute', count_query)
+        assert len(ready['items']) == size and all(item['can_submit'] for item in ready['items'])
+        assert all('correct_option_id' not in item['assessment'] for item in ready['items'])
+        set_count = len(statements)
+        answer(fixture, root)
+        statements.clear()
+        event.listen(engine, 'before_cursor_execute', count_query)
+        try:
+            progress = derive_learner_progress(fixture['learner'], fixture['study'].study_session_id, dsn=fixture['dsn'])
+        finally:
+            event.remove(engine, 'before_cursor_execute', count_query)
+        assert progress.event_watermark == size
+        assert progress.assessment_cycles[0]['outcome'] == 'passed'
+        counts.append((size, set_count, len(statements)))
+    record_property('question_count_set_queries_progress_queries', counts)
+    assert len({(set_count, progress_count) for _, set_count, progress_count in counts}) == 1, counts
+
+
+def test_set_list_query_count_does_not_grow_per_set(closed_loop, record_property):
+    from sqlalchemy import event
+    from learning_adaptation.assessment_state import list_sets
+    from runtime.storage.database import _database_engine
+
+    fixture = concept_fixture(closed_loop, 1)
+    engine = _database_engine(fixture['dsn'])
+    counts = []
+    created = 0
+    for size in (1, 10, 100):
+        while created < size:
+            create(fixture, key=f'failed-attempt-{created}')
+            finish(fixture, fail={0})
+            created += 1
+        statements = []
+
+        def count_query(connection, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().upper().startswith('SELECT'):
+                statements.append(statement)
+
+        event.listen(engine, 'before_cursor_execute', count_query)
+        try:
+            result = list_sets(fixture['learner'], fixture['study'].study_session_id, dsn=fixture['dsn'])
+        finally:
+            event.remove(engine, 'before_cursor_execute', count_query)
+        assert len(result['sets']) == size
+        assert result['active_set_ids'] == []
+        assert all(group['published_count'] == group['answered_count'] == group['passed_count'] == 0
+                   for group in result['sets'])
+        counts.append((size, len(statements)))
+    record_property('set_count_list_queries', counts)
+    assert len({queries for _, queries in counts}) == 1, counts
+
+
 def test_progress_validates_structure_once_and_keeps_a_consistent_snapshot(closed_loop, monkeypatch):
     import runtime.storage.knowledge_structures as storage
     import knowledge_map.structure as structure

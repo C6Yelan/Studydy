@@ -170,26 +170,6 @@ def read_plan(learner, sid, concept_id, *, dsn=None):
         }
 
 
-def membership_can_submit(session, study, assessment):
-    membership = session.execute(
-        select(AssessmentSetItem, AssessmentSet)
-        .join(AssessmentSet, AssessmentSet.set_id == AssessmentSetItem.set_id)
-        .where(AssessmentSetItem.assessment_revision == assessment.assessment_revision)
-    ).first()
-    if membership is None:
-        return False
-    item, group = membership
-    return (
-        study.status in ("active", "no_safe")
-        and group.learner_id == study.learner_id
-        and group.study_session_id == study.study_session_id
-        and group.knowledge_structure_revision == study.knowledge_structure_revision
-        and group.status in ("ready", "in_progress")
-        and group.sealed_at is not None
-        and item.state == "published"
-    )
-
-
 def _cycle(session, study, root):
     """同一初篩及其補強的投影；AnswerEvent 是唯一作答事實，不保存閱讀確認或暫緩決定。"""
     snapshot = session.info.get("read_snapshot")
@@ -471,21 +451,8 @@ def completed_concepts(session, study):
     }
 
 
-def _summary(session, group, items=None):
-    rows = _items(session, group) if items is None else items
+def _summary(group, rows, answers):
     revisions = [item.assessment_revision for item in rows if item.assessment_revision]
-    answers = (
-        list(
-            session.scalars(
-                select(AnswerEvent).where(
-                    AnswerEvent.study_session_id == group.study_session_id,
-                    AnswerEvent.assessment_revision.in_(revisions),
-                )
-            )
-        )
-        if revisions
-        else []
-    )
     return {
         "set_id": str(group.set_id),
         "target_concept_id": group.target_concept_id,
@@ -522,6 +489,25 @@ def _list_sets(session, study):
             .order_by(AssessmentSet.created_at.desc(), AssessmentSet.set_id)
         )
     )
+    items_by_set = {group.set_id: [] for group in groups}
+    answers_by_set = {group.set_id: [] for group in groups}
+    if groups:
+        for item, answer in session.execute(
+            select(AssessmentSetItem, AnswerEvent)
+            .outerjoin(
+                AnswerEvent,
+                (AnswerEvent.study_session_id == study.study_session_id)
+                & (
+                    AnswerEvent.assessment_revision
+                    == AssessmentSetItem.assessment_revision
+                ),
+            )
+            .where(AssessmentSetItem.set_id.in_(items_by_set))
+            .order_by(AssessmentSetItem.ordinal)
+        ):
+            items_by_set[item.set_id].append(item)
+            if answer is not None:
+                answers_by_set[item.set_id].append(answer)
     return {
         "schema": "assessment-set-list/v1",
         "study_session_id": str(study.study_session_id),
@@ -529,7 +515,10 @@ def _list_sets(session, study):
         "active_set_ids": [
             str(item.set_id) for item in groups if item.status in ACTIVE
         ],
-        "sets": [_summary(session, group) for group in groups],
+        "sets": [
+            _summary(group, items_by_set[group.set_id], answers_by_set[group.set_id])
+            for group in groups
+        ],
     }
 
 
@@ -551,26 +540,41 @@ def _read_set(session, study, set_id):
     group = _round(session, study, set_id)
     rows = _items(session, group)
     expected_provenance = assessments._provenance(group)
+    revisions = [item.assessment_revision for item in rows if item.assessment_revision]
+    published = {}
+    if revisions:
+        published = {
+            assessment.assessment_revision: (assessment, event)
+            for assessment, event in session.execute(
+                select(Assessment, AnswerEvent)
+                .outerjoin(
+                    AnswerEvent,
+                    (AnswerEvent.study_session_id == sid)
+                    & (AnswerEvent.assessment_revision == Assessment.assessment_revision),
+                )
+                .where(Assessment.assessment_revision.in_(revisions))
+            )
+        }
     projected = []
     for item in rows:
         public = feedback = created = None
         can_submit = False
         if item.assessment_revision is not None:
-            assessment = session.get(Assessment, item.assessment_revision)
+            assessment, event = published[item.assessment_revision]
             stored = assessments._stored(assessment, expected_provenance)
             public, created = stored.public_document, assessment.created_at
-            event = session.scalar(
-                select(AnswerEvent).where(
-                    AnswerEvent.study_session_id == sid,
-                    AnswerEvent.assessment_revision == item.assessment_revision,
-                )
-            )
             if event is not None:
                 feedback = _feedback(
                     _event(event, assessment, study), assessment
                 ).model_dump(by_alias=True)
             else:
-                can_submit = membership_can_submit(session, study, assessment)
+                # _round 已驗證題組 scope；每題隸屬此組且 assessment_revision 在 DB 中唯一。
+                can_submit = (
+                    study.status in ("active", "no_safe")
+                    and group.status in ("ready", "in_progress")
+                    and group.sealed_at is not None
+                    and item.state == "published"
+                )
         projected.append(
             {
                 "ordinal": item.ordinal,
@@ -584,7 +588,9 @@ def _read_set(session, study, set_id):
                 "can_submit": can_submit,
             }
         )
-    summary = _summary(session, group, rows)
+    summary = _summary(
+        group, rows, [event for _, event in published.values() if event is not None]
+    )
     other_active = (
         session.scalar(
             select(AssessmentSet.set_id)
