@@ -167,7 +167,7 @@ def upload_source(
                     raise SourceError("IDEMPOTENCY_CONFLICT")
                 return existing.source_id
             duplicate = session.scalar(
-                select(MaterialSource.source_id)
+                select(MaterialSource)
                 .join(
                     Artifact,
                     Artifact.artifact_id == MaterialSource.original_artifact_id,
@@ -202,9 +202,12 @@ def upload_source(
                         if head
                         else set()
                     )
-                    # 衝突後重新搜尋可重用相同 bytes 的 staged 來源；不重複保存，也不把已發布來源再追加一次。
-                    if str(duplicate) not in included:
-                        return duplicate
+                    # 只有相同分析範圍才能重用 staged 原檔；來源的範圍與已發布引用均不可被新研究覆寫。
+                    if (
+                        str(duplicate.source_id) not in included
+                        and duplicate.analysis_scope == analysis_scope
+                    ):
+                        return duplicate.source_id
                 raise SourceError("DUPLICATE_SOURCE")
             policy = conversion_policy()
             blob = write_blob(session, owner, material_id, data, "original", media)

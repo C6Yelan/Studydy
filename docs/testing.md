@@ -456,6 +456,8 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src .studydy-runtime/research-venv
 
 新契約以 `test_analysis_scope.py`、`test_material_retrieval.py`、`test_material_qa.py` 檢查原文範圍、去重、輸入預算、補查及逐段核對。`runtime/sources/test_research_selected_scope.py` 使用合成十頁 PDF，驗證只分析第七頁並回查原始第七頁，以及索引儲存失敗不發布新 head。`runtime/materials/test_retrieval.py` 保護 owner／revision 邊界與相鄰來源範圍。這些測試不代表真實 Luna 品質。
 
+研究重用 staged 原檔時，bytes 與分析範圍必須同時相同。`test_research_selected_scope.py` 以兩個有效研究租約驗證同範圍重播可重用；引文、區域或全文／局部模式不同時回報既有 `DUPLICATE_SOURCE`，不修改來源範圍或新增 Artifact／正規化工作。
+
 語音與文字沿用 `runtime/materials/test_voice.py`，但回答改用受控 `/semantics` 與 `material-answer/v2`，不再保留舊 `/answer` 或舊引用轉接測試。研究／主題回歸核對早停、選段匯入、相同原文重用與補讀不重複範圍。瀏覽器回歸使用 `voice-chat.spec.ts`、`processing.spec.ts`、`topics.spec.ts`、`research-background.spec.ts`、`source-pagination.spec.ts`；包含索引的準備流程共六個階段。
 
 本輪測試依賴位於 `/tmp/studydy-rag-test-venv`，未修改共用 backend/.venv。主機 Office 版本與正式轉檔契約不同，因此四個真 Office 轉檔案例在目前正式 runtime 映像的一次性、無外網、無產品資料容器中執行，不放寬版本檢查。

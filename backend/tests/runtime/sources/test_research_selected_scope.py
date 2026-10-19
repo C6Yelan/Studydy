@@ -1,18 +1,74 @@
 from research_fixtures import create_confirmed_research
 from copy import deepcopy
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from uuid import uuid4
 
 import pymupdf
-from sqlalchemy import select
+import pytest
+from sqlalchemy import func, select
 
 from product_fixtures import closed_loop
 from sources.test_source_revisions import revisions
 from research_fixtures import review_provider, search_to_selection
 from runtime import research
-from runtime.source_normalization import normalize_next, read_sources
+from runtime.errors import SourceError
+from runtime.source_normalization import normalize_next, read_sources, upload_source
 from runtime.storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
-from runtime.storage.tables import Material, MaterialRetrievalIndex, MaterialSourceSet, SourceNormalization
+from runtime.storage.tables import Artifact, Material, MaterialResearch, MaterialRetrievalIndex, MaterialSource, MaterialSourceSet, SourceNormalization
 from runtime.storage.database import database_session
+
+
+@pytest.mark.parametrize("scope_change", ["same", "quotes", "pages", "full"])
+def test_research_reuses_staged_bytes_only_with_the_same_scope(closed_loop, scope_change):
+    from sources.test_source_revisions import pdf
+
+    learner, source, _, _, dsn, _ = closed_loop
+    attempts = []
+    for index in range(2):
+        view = create_confirmed_research(
+            learner.learner_id, source.material_id, "合成範圍驗證", f"scope-{index}", dsn=dsn
+        )
+        token = uuid4()
+        with database_session(dsn) as db:
+            row = db.get(MaterialResearch, view["research_id"])
+            row.status = "acquiring"
+            row.lease_token = token
+            row.lease_expires_at = datetime.now(UTC) + timedelta(minutes=5)
+        attempts.append((view["research_id"], token))
+    data = pdf("A queue removes the first inserted item first.")
+    scope = {
+        "schema": "source-analysis-scope/v1", "source_sha256": sha256(data).hexdigest(),
+        "quotes": ["A queue removes the first inserted item first."],
+        "pages": [{"page": 1, "regions": [[0, 0, 400, 400]]}],
+    }
+
+    def upload(key, attempt, requested_scope):
+        return upload_source(
+            learner.learner_id, source.material_id, data, "scope.pdf", "application/pdf", key,
+            dsn=dsn, research_attempt=attempt, analysis_scope=requested_scope,
+        )
+
+    identity = upload("first-source", attempts[0], scope)
+    assert upload("first-source", attempts[0], deepcopy(scope)) == identity
+    models = (Artifact, MaterialSource, SourceNormalization)
+    with database_session(dsn) as db:
+        counts = [db.scalar(select(func.count()).select_from(model)) for model in models]
+    changed = deepcopy(scope)
+    if scope_change == "quotes":
+        changed["quotes"] = ["A different requested passage."]
+    elif scope_change == "pages":
+        changed["pages"][0]["regions"] = [[0, 0, 200, 200]]
+    elif scope_change == "full":
+        changed = None
+    if scope_change == "same":
+        assert upload("second-source", attempts[1], changed) == identity
+    else:
+        with pytest.raises(SourceError, match="^DUPLICATE_SOURCE$"):
+            upload("second-source", attempts[1], changed)
+    with database_session(dsn) as db:
+        assert db.get(MaterialSource, identity).analysis_scope == scope
+        assert [db.scalar(select(func.count()).select_from(model)) for model in models] == counts
 
 
 def test_source_set_preserves_nul_in_selected_quotes(revisions, monkeypatch):
