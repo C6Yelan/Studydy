@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -188,39 +187,6 @@ def _verify_file(path: Path, expected_digest: bytes, expected_size: int) -> Bina
         raise ArtifactError("ARTIFACT_NOT_AVAILABLE") from None
 
 
-@contextmanager
-def open_verified_source_pdf(
-    learner_id: UUID, artifact_id: UUID, *, dsn: str | None = None
-) -> Generator[VerifiedArtifact, None, None]:
-    if not isinstance(learner_id, UUID) or not isinstance(artifact_id, UUID):
-        raise ArtifactError("ARTIFACT_NOT_AVAILABLE")
-    try:
-        with database_session(dsn) as session:
-            row = session.execute(
-                select(
-                    Artifact.material_id, Artifact.sha256, Artifact.size_bytes
-                ).where(
-                    Artifact.learner_id == learner_id,
-                    Artifact.artifact_id == artifact_id,
-                    Artifact.kind == "normalized_pdf",
-                )
-            ).one_or_none()
-        if row is None:
-            raise ArtifactError("ARTIFACT_NOT_AVAILABLE")
-        opened = _verify_file(_object_path(_root(), artifact_id), bytes(row[1]), row[2])
-    except ArtifactError:
-        raise
-    except Exception:
-        raise ArtifactError("ARTIFACT_NOT_AVAILABLE") from None
-    try:
-        yield VerifiedArtifact(row[0], artifact_id, bytes(row[1]).hex(), row[2], opened)
-    finally:
-        try:
-            opened.close()
-        except Exception:
-            pass
-
-
 def write_blob(
     session, learner_id, material_id, data: bytes, kind: str, media_type: str
 ):
@@ -269,24 +235,29 @@ def reconcile_new_artifacts(*, dsn=None):
 
 
 @contextmanager
-def open_verified_artifact(learner_id, artifact_id, *, dsn=None):
-    with database_session(dsn) as session:
-        row = session.scalar(
-            select(Artifact).where(
-                Artifact.learner_id == learner_id,
-                Artifact.artifact_id == artifact_id,
-            )
+def open_verified_artifact(learner_id, artifact_id, *, dsn=None, session=None, kind=None):
+    """核對 owner、用途與實體 bytes；發布可沿用已鎖住父資料的交易。"""
+    if not isinstance(learner_id, UUID) or not isinstance(artifact_id, UUID):
+        raise ArtifactError("ARTIFACT_NOT_AVAILABLE")
+    try:
+        query = select(Artifact.material_id, Artifact.sha256, Artifact.size_bytes).where(
+            Artifact.learner_id == learner_id,
+            Artifact.artifact_id == artifact_id,
         )
+        if kind is not None:
+            query = query.where(Artifact.kind == kind)
+        transaction = nullcontext(session) if session is not None else database_session(dsn)
+        with transaction as active:
+            row = active.execute(query).one_or_none()
         if row is None:
             raise ArtifactError("ARTIFACT_NOT_AVAILABLE")
         digest = bytes(row.sha256)
-        opened = _verify_file(
-            _object_path(_root(), artifact_id), digest, row.size_bytes
-        )
-        result = VerifiedArtifact(
-            row.material_id, artifact_id, digest.hex(), row.size_bytes, opened
-        )
+        opened = _verify_file(_object_path(_root(), artifact_id), digest, row.size_bytes)
+    except ArtifactError:
+        raise
+    except Exception:
+        raise ArtifactError("ARTIFACT_NOT_AVAILABLE") from None
     try:
-        yield result
+        yield VerifiedArtifact(row.material_id, artifact_id, digest.hex(), row.size_bytes, opened)
     finally:
         opened.close()

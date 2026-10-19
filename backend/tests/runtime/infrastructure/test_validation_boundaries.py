@@ -101,6 +101,27 @@ def test_evidence_locator_hashes_only_the_mapping_it_uses(closed_loop, monkeypat
 
 
 @pytest.mark.parametrize('role', ['original', 'normalized', 'mapping'])
+def test_artifact_verification_reuses_publication_transaction_and_keeps_pdf_boundary(closed_loop, monkeypatch, role):
+    from runtime.source_resolver import verify_source_files
+    from runtime.storage.database import database_session
+
+    learner, _, _, document, dsn, _ = closed_loop
+    binding = document['input_binding']
+    identity = UUID(binding['manifest']['items'][0][role + '_artifact_id'])
+    with database_session(dsn) as db:
+        monkeypatch.setattr(artifacts, 'database_session', lambda *_:
+                            pytest.fail('Publication must not open a nested artifact session'))
+        verify_source_files(db, learner.learner_id, binding)
+        if role == 'normalized':
+            with artifacts.open_verified_artifact(learner.learner_id, identity, session=db, kind='normalized_pdf') as opened:
+                assert opened.file.read(5) == b'%PDF-'
+        else:
+            with pytest.raises(artifacts.ArtifactError, match='^ARTIFACT_NOT_AVAILABLE$'):
+                with artifacts.open_verified_artifact(learner.learner_id, identity, session=db, kind='normalized_pdf'):
+                    pytest.fail('The PDF preview must not expose original or mapping artifacts')
+
+
+@pytest.mark.parametrize('role', ['original', 'normalized', 'mapping'])
 def test_file_tampering_fails_when_used_and_at_publication(closed_loop, role):
     learner, source, settings, document, dsn, _ = closed_loop
     binding = document['input_binding']

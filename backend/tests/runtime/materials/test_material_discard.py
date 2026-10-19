@@ -312,7 +312,7 @@ def test_storage_failures_reconcile_source_with_database(unused, monkeypatch, fa
     if failure == 'commit':
         assert_removed(unused)
     else:
-        with artifacts.open_verified_source_pdf(unused.learner.learner_id, unused.source.artifact_id, dsn=unused.dsn) as source:
+        with artifacts.open_verified_artifact(unused.learner.learner_id, unused.source.artifact_id, dsn=unused.dsn, kind="normalized_pdf") as source:
             assert source.file.read()
         assert not list((unused.root / '.trash').iterdir())
         assert request(unused) == 'removed'
@@ -342,7 +342,7 @@ def test_crash_quarantine_is_reconciled_after_restart(unused, monkeypatch, commi
     artifacts.reconcile_discarded_artifacts(dsn=unused.dsn)
     if committed: assert_removed(unused)
     else:
-        with artifacts.open_verified_source_pdf(unused.learner.learner_id, unused.source.artifact_id, dsn=unused.dsn) as source: assert source.file.read()
+        with artifacts.open_verified_artifact(unused.learner.learner_id, unused.source.artifact_id, dsn=unused.dsn, kind="normalized_pdf") as source: assert source.file.read()
         discard.finish_material_discards(dsn=unused.dsn)
         assert_removed(unused)
 
@@ -412,7 +412,7 @@ def test_discard_api_filesystem_failure_is_safe_503_and_retryable(unused, monkey
         response = client.delete(f'/v1/materials/{unused.source.material_id}', headers={'Origin': ORIGIN})
     assert response.status_code == 503 and response.json()['reason_code'] == 'STORAGE_UNAVAILABLE'
     assert response.json()['retryable'] is True and 'private-file-details' not in response.text
-    with artifacts.open_verified_source_pdf(unused.learner.learner_id, unused.source.artifact_id, dsn=unused.dsn) as source: assert source.file.read()
+    with artifacts.open_verified_artifact(unused.learner.learner_id, unused.source.artifact_id, dsn=unused.dsn, kind="normalized_pdf") as source: assert source.file.read()
     assert client.delete(f'/v1/materials/{unused.source.material_id}', headers={'Origin': ORIGIN}).json()['state'] == 'removed'
     assert_removed(unused)
 

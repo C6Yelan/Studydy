@@ -10,7 +10,7 @@ import pymupdf
 import pytest
 import runtime.storage.artifacts as artifact_storage
 
-from runtime.storage.artifacts import ArtifactError, open_verified_source_pdf
+from runtime.storage.artifacts import ArtifactError, open_verified_artifact
 from runtime.errors import SourceError
 from runtime.storage.migrations import load_migrations, run_migrations
 from product_fixtures import seed_pdf
@@ -149,11 +149,11 @@ def test_source_publish_verified_read_and_owner_isolation(
     content = _pdf()
     published = _publish_source(owner, content, artifact_database_dsn)
     assert (artifact_root / "objects" / published.artifact_id.hex).stat().st_mode & 0o777 == 0o400
-    with open_verified_source_pdf(owner, published.artifact_id, dsn=artifact_database_dsn) as opened:
+    with open_verified_artifact(owner, published.artifact_id, dsn=artifact_database_dsn, kind="normalized_pdf") as opened:
         assert opened.file.read() == content
         assert opened.material_id == published.material_id
     with pytest.raises(ArtifactError, match="ARTIFACT_NOT_AVAILABLE"):
-        with open_verified_source_pdf(other, published.artifact_id, dsn=artifact_database_dsn):
+        with open_verified_artifact(other, published.artifact_id, dsn=artifact_database_dsn, kind="normalized_pdf"):
             pass
 
 
@@ -183,7 +183,7 @@ def test_verified_read_rejects_changed_object_hash(
     changed[-1] ^= 1
     path.write_bytes(changed)
     with pytest.raises(ArtifactError, match="ARTIFACT_NOT_AVAILABLE"):
-        with open_verified_source_pdf(learner, published.artifact_id, dsn=artifact_database_dsn):
+        with open_verified_artifact(learner, published.artifact_id, dsn=artifact_database_dsn, kind="normalized_pdf"):
             pass
 
 

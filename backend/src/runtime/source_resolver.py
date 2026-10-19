@@ -164,12 +164,12 @@ def _input(owner, run_id, *, dsn=None):
         return _bound_input(session, owner, session.get(MaterialProcessingRun, run_id))
 
 
-def verify_source_files(owner, binding, *, dsn=None):
+def verify_source_files(session, owner, binding):
     """發布邊界檢查完整來源檔案；下載／預覽另由開檔入口檢查實際 bytes。"""
     for item in binding["manifest"]["items"]:
         for prefix in ("original", "normalized", "mapping"):
             with open_verified_artifact(
-                owner, UUID(item[f"{prefix}_artifact_id"]), dsn=dsn
+                owner, UUID(item[f"{prefix}_artifact_id"]), session=session
             ) as blob:
                 if blob.sha256 != item[f"{prefix}_sha256"]:
                     raise SourceError("SOURCE_BINDING_INVALID")

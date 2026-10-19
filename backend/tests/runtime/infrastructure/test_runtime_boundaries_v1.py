@@ -114,7 +114,7 @@ def test_waiting_storage_does_not_block_other_api_requests(tmp_path, monkeypatch
             yield  # pragma: no cover
 
         monkeypatch.setattr(api, 'remove_staged_source', wait_for_storage)
-        monkeypatch.setattr(api, 'open_verified_source_pdf', open_source)
+        monkeypatch.setattr(api, 'open_verified_artifact', open_source)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url='http://127.0.0.1:4173') as client:
             if operation == 'remove-source':
                 request = client.delete(f'/v1/materials/{uuid4()}/sources/{uuid4()}',

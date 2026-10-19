@@ -165,7 +165,7 @@ def publish_knowledge_structure(
             ):
                 raise KnowledgeStructureStoreError("MATERIAL_RUN_UNAVAILABLE")
             source_binding = verify_structure_input(session, locked_run, document)
-            verify_source_files(learner_id, source_binding, dsn=dsn)
+            verify_source_files(session, learner_id, source_binding)
             session.execute(
                 pg_insert(KnowledgeStructure)
                 .values(

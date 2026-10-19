@@ -60,7 +60,6 @@ from .card_routes import install as install_card_routes
 from .podcast_routes import install as install_podcast_routes
 from ..source_revisions import create_revision
 from ..storage.artifacts import (
-    open_verified_source_pdf,
     open_verified_artifact,
 )
 from ..storage.knowledge_structures import resolve_evidence_source
@@ -1053,8 +1052,8 @@ def create_app(settings: ApiSettings) -> FastAPI:
     def read_artifact_route(request: Request, artifact_id: UUID) -> StreamingResponse:
         request_context.require_query(request, set())
         learner = request_context.trusted_learner(request, settings)
-        context = open_verified_source_pdf(
-            learner.learner_id, artifact_id, dsn=settings.dsn
+        context = open_verified_artifact(
+            learner.learner_id, artifact_id, dsn=settings.dsn, kind="normalized_pdf"
         )
         try:
             source = context.__enter__()
