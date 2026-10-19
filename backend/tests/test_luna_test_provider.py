@@ -171,15 +171,15 @@ def test_luna_semantic_cancellation_stops_inflight_provider_process(monkeypatch,
         finally: stopped.set()
 
 
-def test_search_query_uses_one_generation_for_multilingual_queries(monkeypatch,provider_server):
-    from test_podcast_process import post,provider
-    seen=[]
-    def fake_luna(prompt,schema,**kwargs):
-        seen.append((prompt,schema))
-        return {'query':'network reliability\n網路 可靠傳輸'}
-    monkeypatch.setattr(provider,'luna',fake_luna)
-    status,data=post(provider_server,'/search-query',{'query':'網路入門','material_title':'Synthetic','mode':'self-study'})
-    assert status==200 and len(seen)==1
-    assert data['query'].splitlines()==['network reliability','網路 可靠傳輸']
-    assert '不包含搜尋引擎的特殊指令' in seen[0][0]
-    assert seen[0][1]['properties']['query']['maxLength']==300
+@pytest.mark.parametrize('path', ['/search-query', '/video/cancel'])
+def test_retired_provider_routes_cannot_dispatch_model_or_cancel_job(monkeypatch, provider_server, path):
+    from uuid import uuid4
+    from test_podcast_process import post, provider
+
+    seen = []
+    monkeypatch.setattr(provider, 'luna', lambda *args, **kwargs: seen.append('model') or {'query': 'synthetic'})
+    monkeypatch.setattr(provider.podcast_process, 'cancel', lambda body: seen.append('cancel') or {'cancelled': True})
+    assert post(provider_server, path, {
+        'query': 'synthetic source', 'job_id': str(uuid4()), 'job_token': str(uuid4()),
+    })[0] == 404
+    assert seen == []
