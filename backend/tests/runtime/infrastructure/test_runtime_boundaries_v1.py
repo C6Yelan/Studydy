@@ -256,12 +256,14 @@ def test_assessment_and_maintenance_continue_during_material_generation(monkeypa
         assert discarded.wait(1)
         assert worker._assessment_thread.is_alive()
         assert worker._maintenance_thread.is_alive()
+        assert worker.is_alive()
     finally:
         release.set()
         worker.stop()
     assert not worker._thread.is_alive()
     assert not worker._assessment_thread.is_alive()
     assert not worker._maintenance_thread.is_alive()
+    assert not worker.is_alive()
 
 
 @pytest.mark.parametrize('failing_name', ['studydy-assessment-worker', 'studydy-maintenance-worker'])
@@ -310,3 +312,21 @@ def test_core_shutdown_joins_all_threads_before_reporting_busy():
     with pytest.raises(RuntimeError, match='RUNTIME_WORKERS_STOP_FAILED'):
         worker.stop()
     assert joined == ['material', 'assessment', 'maintenance']
+
+
+@pytest.mark.parametrize('exited_loop', ['_assessment_loop', '_maintenance_loop'])
+def test_core_readiness_rejects_an_unexpectedly_exited_thread(monkeypatch, exited_loop):
+    for name in ('reconcile_new_artifacts', 'reconcile_removed_material_analysis',
+                 'reconcile_published_checkpoints', 'recover_interrupted_material_runs',
+                 'finish_material_discards', 'normalize_next',
+                 'claim_next_material_processing_run', 'run_next_set'):
+        monkeypatch.setattr(workers_module, name, lambda **_: None)
+    monkeypatch.setattr(workers_module.RuntimeWorkers, exited_loop, lambda _: None)
+    worker = workers_module.RuntimeWorkers(None, {})
+    worker.start()
+    try:
+        thread = worker._assessment_thread if exited_loop == '_assessment_loop' else worker._maintenance_thread
+        thread.join(timeout=1)
+        assert not worker.is_alive()
+    finally:
+        worker.stop()

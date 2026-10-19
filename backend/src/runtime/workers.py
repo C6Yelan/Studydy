@@ -44,14 +44,21 @@ class BackgroundWorker:
     def stop(self):
         self.stop_event.set()
         self.thread.join(timeout=2)
+        if self.thread.is_alive():
+            raise RuntimeError(self.error_code.removesuffix("_FAILED") + "_STOP_FAILED")
+
+    def is_alive(self):
+        return not self.stop_event.is_set() and self.thread.is_alive()
 
     def loop(self):
         delay = 0 if self.drain else 1
         while not self.stop_event.wait(delay):
             try:
                 progressed = self.step()
-            except Exception:
-                logging.getLogger(__name__).warning(self.error_code)
+            except Exception as error:
+                logging.getLogger(__name__).warning(
+                    "%s error_type=%s", self.error_code, type(error).__name__
+                )
                 progressed = False
             delay = (0 if progressed else 2) if self.drain else 1
 
@@ -86,7 +93,7 @@ def run_workers(dsn, local_config):
                 error_code=f"{key.upper()}_WORKER_FAILED",
                 drain=key in {"research", "card"},
             ).start()
-        yield
+        yield lambda: all(worker.is_alive() for worker in active.values())
     finally:
         # ExitStack 確保一個 stop 拋錯時仍呼叫其餘 stop。
         with ExitStack() as shutdown:
@@ -158,13 +165,19 @@ class RuntimeWorkers:
         if any(thread is not None and thread.is_alive() for thread in threads):
             raise RuntimeError("RUNTIME_WORKERS_STOP_FAILED")
 
+    def is_alive(self):
+        return self._started.is_set() and not self._stop.is_set() and all(
+            thread is not None and thread.is_alive()
+            for thread in (self._thread, self._assessment_thread, self._maintenance_thread)
+        )
+
     def _assessment_loop(self):
         while not self._stop.is_set():
             try:
                 run_next_set(dsn=self.dsn, shutdown=self._stop)
-            except Exception:
+            except Exception as error:
                 logging.getLogger(__name__).warning(
-                    "ASSESSMENT_WORKER_ITERATION_FAILED"
+                    "ASSESSMENT_WORKER_ITERATION_FAILED error_type=%s", type(error).__name__
                 )
             self._stop.wait(_IDLE_WAIT_SECONDS)
 
@@ -185,8 +198,10 @@ class RuntimeWorkers:
                 if self._stop.is_set():
                     return
                 finish_material_discards(dsn=self.dsn)
-            except Exception:
-                logging.getLogger(__name__).warning("MAINTENANCE_WORKER_ITERATION_FAILED")
+            except Exception as error:
+                logging.getLogger(__name__).warning(
+                    "MAINTENANCE_WORKER_ITERATION_FAILED error_type=%s", type(error).__name__
+                )
             self._stop.wait(_IDLE_WAIT_SECONDS)
 
     def _loop(self) -> None:
@@ -226,5 +241,7 @@ class RuntimeWorkers:
                     self._startup_error = error
                     self._started.set()
                     return
-                logging.getLogger(__name__).warning("RUNTIME_WORKER_ITERATION_FAILED")
+                logging.getLogger(__name__).warning(
+                    "RUNTIME_WORKER_ITERATION_FAILED error_type=%s", type(error).__name__
+                )
             self._stop.wait(_IDLE_WAIT_SECONDS)

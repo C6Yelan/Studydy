@@ -52,8 +52,10 @@ def main() -> None:
         "command", choices=("init", "migrate", "serve", "prepare-read-indexes")
     )
     command = parser.parse_args().command
+    stage = "configuration"
     try:
         if command == "init":
+            stage = "data_initialization"
             initialize_data(
                 Path("/data"),
                 int(os.environ["STUDYDY_UID"]),
@@ -61,26 +63,32 @@ def main() -> None:
             )
             return
         if command == "serve":
+            stage = "semantic_configuration"
             _origin(os.environ[SERVICE_URL_ENV])
+            stage = "sandbox"
             check_sandbox()
+        stage = "database_configuration"
         configure_database(os.environ)
         # 啟動時核對已套用的 checksum，再以交易執行待套用的 migration。
+        stage = "migrations"
         run_migrations()
         if command == "migrate":
             return
         if command == "prepare-read-indexes":
             from .storage.knowledge_reads import backfill
 
+            stage = "read_indexes"
             print(f"Prepared read indexes: {backfill()}", flush=True)
             return
+        stage = "api"
         run_local_app(host="0.0.0.0", port=8001)
     except BaselineError as error:
         print(f"BASELINE_FAILED: {error}", flush=True)
         raise SystemExit(1) from None
-    except Exception:
+    except Exception as error:
         # 不把含密碼的 conninfo、模型位址或 SQL 例外輸出至容器 log。
         print(
-            "CONTAINER_OPERATION_FAILED: check configuration, database and sandbox",
+            f"CONTAINER_OPERATION_FAILED stage={stage} error_type={type(error).__name__}",
             flush=True,
         )
         raise SystemExit(1) from None

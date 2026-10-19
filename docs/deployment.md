@@ -21,9 +21,12 @@
 詳細操作與副本驗證見 [安裝文件](getting-started.md)。
 
 從核准的獨立分支部署時，Compose 管理目錄與資料仍固定在 `main`，映像身分記錄實際分支 SHA。
-主機 Podcast provider 的 `ExecStart` 可指定該分支程式，但沿用原 Python／模型環境與
-`STUDYDY_VIDEO_WORK_DIR`；以 `STUDYDY_PODCAST_JOB_LOG` 指向原有工作日誌。
-未設定此變數時，日誌位置仍為程式 checkout 的 `data/podcast/job-events.jsonl`。
+主機 Podcast provider 與每次請求啟動的子程序必須使用同一個已驗證 SHA 的唯讀 runtime bundle，
+保存於 `main/data/deployments/<release>/provider-source`，不要直接載入仍在修改的分支 checkout。
+bundle 只包含需要的 `backend/src`、`ops` 與 `local_ai/runtime-lock.json`，沿用原 Python／模型環境、
+瀏覽器依賴與 `STUDYDY_VIDEO_WORK_DIR`；以 `STUDYDY_PODCAST_JOB_LOG` 明確指向原有工作日誌。
+切換前確認沒有進行中的工作，再更新 service 的 `WorkingDirectory`／`ExecStart` 並重啟。
+同時記錄 bundle SHA、檔案 hash 與實際啟動路徑，避免容器與主機 provider 運行不同版本。
 
 首次部署曾以 committed SHA 的 `git archive` 匯出到 `/tmp/studydy-main-release-*/source`
 做建置與驗證。這些是一次性歷史證據，不是目前 production working directory、資料來源，
@@ -36,6 +39,7 @@
 - cloudflared 僅 edge；frontend 為 edge＋application；backend／model bridge 的網路不變，
   database 保持 internal。公開 route 為 `studydy.net → http://frontend:8080`。
 - 維護入口維持 `127.0.0.1:4173`，backend／DB／model／metrics 不發布 host ports。
+- backend healthcheck 使用容器內 `/internal/ready`，要求啟動復原完成、所有 worker 執行緒存活及 DB `SELECT 1` 成功；不呼叫模型。此路徑不由 Nginx 代理，也不列入產品 OpenAPI。`/v1/openapi.json` 仍可作 HTTP 存活檢查；readiness 不代表每個生成工作仍有進展或模型可用。
 - 持久資料固定在本 checkout 的 `data/`；既有 DB／artifacts／模型掛載不可因建置位置改變。
 - 私有 `.env` 留在本 checkout；token 檔留在 repo 外
   `/home/jerry/.config/studydy/cloudflared-main-token`，只由 cloudflared 唯讀掛載。
@@ -50,11 +54,11 @@
 
 已移除公開比較頁與試聽 WAV、Compose 靜態掛載。`/podcast-voice-comparison` 及其子路徑回 404，避免舊網址回到 SPA。正式 provider 已改採 V／W 指令與 v13 整句混讀；舊 Podcast 音訊保留，新建內容套用新版。回復資訊保存在 `data/deployments/podcast-b-v11-*/`，私有 provider 設定備份不輸出或提交。
 
-教材問答也共用 Podcast 的整句混讀、台灣口音指令、原 host 聲線、停頓修正與音量處理。舊的中英文分段合成分支已刪除，沒有 legacy 開關；既有音訊保留，新合成與重試使用共用流程。provider 每次音訊請求啟動 checkout 的 `ops/podcast/synthesize.py`，此腳本更新不需重啟 provider 或重建 backend。
+教材問答也共用 Podcast 的整句混讀、台灣口音指令、原 host 聲線、停頓修正與音量處理。舊的中英文分段合成分支已刪除，沒有 legacy 開關；既有音訊保留，新合成與重試使用共用流程。provider 每次音訊請求啟動同一個已部署 runtime bundle 的 `ops/podcast/synthesize.py`；腳本更新需建立新 bundle 並切換 provider，不能改動正在使用的版本。
 
 新語音統一使用 `dynamic-pauses/v1`：短句續講 250ms、一般句尾 550ms、20 字以上長句 850ms、問句與一般換人 650ms、簡短接話前 350ms、換主題 1100ms。依原講稿的文字與數字計數，短句為 6 字以內；縮寫與數值的朗讀展開不改變分類。換段優先，符合一個條件就選定停頓，不疊加；現有片段兩端靜音計入目標。固定停頓機制與臨時試聽設定已移除，`/pause-preview` 及其資產回 404。既有影音不改時間軸，新建節目以新音訊重新對齊字幕及影片。
 
-跨語言教材更新需一起部署後端與 runtime lock。新分析的 `localized_meaning` 投影必須使用支援此驗證規則的後端讀取；不能只回退到不識別它的舊映像。原有知識結構與來源不搬移、不改 hash；舊分析提示的 checkpoint 不與新的翻譯政策混用。修正採前向更新，仍保留既有資料與可回查的來源。
+跨語言教材更新需一起部署後端與 runtime lock。新分析寫入 `localized_meaning_v2`，以完整數量 token 保護短數值；既有 `localized_meaning`／`semantic_meaning` 仍依各自已保存的規則讀取。寫入 v2 後，回復版本必須能讀取 v2；第一輪 `816150aa` 映像單獨使用並不相容，需經驗證的相容映像或前向修復。原有知識結構與來源不搬移、不改 hash；舊分析提示的 checkpoint 不與新的翻譯政策混用。
 
 ## 核准 source 與直接建置
 

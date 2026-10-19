@@ -69,7 +69,7 @@ from ..storage.materials import (
     rename_material,
 )
 from ..storage.tables import Artifact, Material, MaterialSource
-from ..storage.database import database_session
+from ..storage.database import database_ready, database_session
 from ..workers import run_workers
 from .models import (
     AccountCredentials,
@@ -543,10 +543,17 @@ def create_app(settings: ApiSettings) -> FastAPI:
     if not isinstance(settings, ApiSettings):
         raise ValueError("API_SETTINGS_INVALID")
 
+    workers_ready = lambda: False
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        with run_workers(settings.dsn, settings.local_config):
-            yield
+        nonlocal workers_ready
+        with run_workers(settings.dsn, settings.local_config) as ready:
+            workers_ready = ready
+            try:
+                yield
+            finally:
+                workers_ready = lambda: False
 
     app = FastAPI(
         title="Studydy API",
@@ -561,6 +568,14 @@ def create_app(settings: ApiSettings) -> FastAPI:
     @app.get("/v1/openapi.json", include_in_schema=False)
     async def openapi_document() -> Response:
         return Response(canonical_openapi_bytes(app), media_type="application/json")
+
+    @app.get("/internal/ready", include_in_schema=False)
+    def readiness() -> Response:
+        ready = workers_ready() and database_ready(settings.dsn)
+        return JSONResponse(
+            {"status": "ready" if ready else "unavailable"},
+            status_code=200 if ready else 503,
+        )
 
     @app.middleware("http")
     async def enforce_transport_boundary(request: Request, call_next: Callable):

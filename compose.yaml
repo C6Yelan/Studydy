@@ -81,7 +81,7 @@ services:
       - seccomp=./ops/docker/bubblewrap-seccomp.json
     pids_limit: 512
     healthcheck:
-      test: ["CMD", "/app/backend/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/v1/openapi.json', timeout=3).close()"]
+      test: ["CMD", "/app/backend/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/internal/ready', timeout=3).close()"]
       interval: 5s
       timeout: 4s
       retries: 12

@@ -66,6 +66,18 @@ def configure_database(environment) -> None:
     )
 
 
+def database_ready(dsn: str | None = None) -> bool:
+    """健康檢查只做有界連線與 SELECT；不等待工作交易或觸發模型。"""
+    try:
+        with psycopg.connect(
+            resolve_database_dsn(dsn), connect_timeout=2,
+            options="-c statement_timeout=1000", autocommit=True,
+        ) as connection:
+            return connection.execute("SELECT 1").fetchone() == (1,)
+    except (psycopg.Error, DatabaseConfigurationError):
+        return False
+
+
 _database_engines: dict[str, Engine] = {}
 
 

@@ -43,6 +43,8 @@ def test_invalid_endpoint_stops_before_database_and_errors_do_not_leak(monkeypat
     assert failure.value.code == 1
     output = capsys.readouterr().out
     assert 'CONTAINER_OPERATION_FAILED' in output
+    assert 'stage=semantic_configuration' in output
+    assert 'error_type=' in output
     assert 'synthetic-secret' not in output
 
 
@@ -51,3 +53,22 @@ def test_sandbox_failure_is_reported(monkeypatch):
     monkeypatch.setattr(container_app.subprocess, 'run', lambda *a, **kw: SimpleNamespace(returncode=1))
     with pytest.raises(RuntimeError, match='CONTAINER_SANDBOX_UNAVAILABLE'):
         container_app.check_sandbox()
+
+
+@pytest.mark.parametrize('failed,stage', [
+    ('check_sandbox', 'sandbox'), ('run_migrations', 'migrations'), ('run_local_app', 'api'),
+])
+def test_startup_failure_identifies_stage_without_exception_message(monkeypatch, capsys, failed, stage):
+    monkeypatch.setattr('sys.argv', ['container_app', 'serve'])
+    monkeypatch.setenv('STUDYDY_SEMANTIC_BASE_URL', 'http://127.0.0.1:8100')
+    for name in ('check_sandbox', 'configure_database', 'run_migrations', 'run_local_app'):
+        monkeypatch.setattr(container_app, name, lambda *_, **__: None)
+
+    def fail(*_, **__):
+        raise RuntimeError('synthetic-secret from DSN or prompt')
+
+    monkeypatch.setattr(container_app, failed, fail)
+    with pytest.raises(SystemExit) as failure:
+        container_app.main()
+    assert failure.value.code == 1
+    assert capsys.readouterr().out == f'CONTAINER_OPERATION_FAILED stage={stage} error_type=RuntimeError\n'

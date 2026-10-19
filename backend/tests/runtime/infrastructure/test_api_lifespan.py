@@ -35,6 +35,9 @@ def application(monkeypatch, *, fail_start=None, fail_stop=None):
             if self.name == fail_stop:
                 raise RuntimeError("synthetic shutdown failure")
 
+        def is_alive(self):
+            return self.name in active
+
     monkeypatch.setattr(workers, "RuntimeWorkers", lambda *_: Worker("runtime"))
     monkeypatch.setattr(
         workers, "BackgroundWorker",
@@ -76,10 +79,35 @@ def test_normal_start_and_stop_orders_are_preserved(monkeypatch):
     ]
 
 
-def test_stop_failure_does_not_leave_other_workers_running(monkeypatch):
-    app, active, events = application(monkeypatch, fail_stop="scene")
+@pytest.mark.parametrize("failed", STOP_ORDER)
+def test_stop_failure_does_not_leave_other_workers_running(monkeypatch, failed):
+    app, active, events = application(monkeypatch, fail_stop=failed)
     with pytest.raises(RuntimeError, match="synthetic shutdown failure"):
         with TestClient(app):
             pass
     assert active == set()
     assert [name for action, name in events if action == "stop"] == list(STOP_ORDER)
+
+
+@pytest.mark.parametrize("failed", START_ORDER)
+def test_readiness_requires_started_workers_and_database_without_changing_api(monkeypatch, failed):
+    app, active, _ = application(monkeypatch)
+    calls = []
+    monkeypatch.setattr(api, "database_ready", lambda _: calls.append("database") or True)
+    client = TestClient(app)
+    before = client.get("/v1/openapi.json").content
+    assert client.get("/internal/ready").status_code == 503
+    assert not calls
+    with client:
+        assert client.get("/internal/ready").json() == {"status": "ready"}
+        assert calls == ["database"]
+        active.remove(failed)
+        response = client.get("/internal/ready")
+        assert response.status_code == 503
+        assert response.json() == {"status": "unavailable"}
+        assert calls == ["database"]
+        active.add(failed)
+        monkeypatch.setattr(api, "database_ready", lambda _: False)
+        assert client.get("/internal/ready").status_code == 503
+        assert client.get("/v1/openapi.json").content == before
+    assert client.get("/internal/ready").status_code == 503

@@ -30,6 +30,7 @@ def test_polling_preserves_busy_idle_and_error_delays(drain, delays, caplog):
     assert waits == delays
     assert len(calls) == 3
     assert "TEST_WORKER_FAILED" in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
     assert "synthetic failure" not in caplog.text
 
 
@@ -69,3 +70,26 @@ def test_research_runs_both_steps_in_order(monkeypatch, topic_progress, research
         pass
     assert calls == ["topic", "research"]
     assert results == [topic_progress or research_progress]
+
+
+def test_background_stop_reports_a_thread_still_running():
+    from threading import Event
+    entered, release = Event(), Event()
+
+    def blocked():
+        entered.set()
+        release.wait(5)
+
+    worker = workers.BackgroundWorker(blocked, name="test", error_code="TEST_WORKER_FAILED", drain=True)
+    worker.start()
+    try:
+        assert entered.wait(1)
+        assert worker.is_alive()
+        with pytest.raises(RuntimeError, match="TEST_WORKER_STOP_FAILED"):
+            worker.stop()
+        assert worker.thread.is_alive()
+        assert not worker.is_alive()
+    finally:
+        release.set()
+        worker.thread.join(timeout=2)
+        worker.stop()
