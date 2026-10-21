@@ -143,7 +143,7 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
                 <ul>{result.concepts.map((concept) => <li key={`${concept.material_id}:${concept.concept_id}`}>
                   <button type="button" onClick={() => { close(); openConcept(concept); }}>
                     <Icon name="map" size={18} />
-                    <span><b>{concept.label}</b><small>{concept.material_name} · {concept.claim_count} 個重點</small></span>
+                    <span><b>{concept.label}</b><small>{concept.claim_count} 個重點 · {concept.material_name}</small></span>
                   </button>
                 </li>)}</ul>
                 {result.concepts_truncated && <p className="search-hint">只顯示前 {result.concepts.length} 個概念，輸入更多關鍵字可縮小範圍。</p>}

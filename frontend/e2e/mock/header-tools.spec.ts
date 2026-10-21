@@ -43,7 +43,7 @@ test("slash opens site search and a concept on the current map opens its detail"
   const input = dialog.getByRole("searchbox", { name: "搜尋概念或教材" });
   await expect(input).toBeFocused();
   await input.fill("arr");
-  await expect(dialog.getByRole("region", { name: "概念" }).getByRole("button")).toHaveText(["ArrayData structures.pdf · 1 個重點"]);
+  await expect(dialog.getByRole("region", { name: "概念" }).getByRole("button")).toHaveText(["Array1 個重點 · Data structures.pdf"]);
   // 停止輸入後才送出一次查詢。
   expect(queries).toEqual(["arr"]);
   await dialog.getByRole("region", { name: "概念" }).getByRole("button", { name: /^Array/ }).click();

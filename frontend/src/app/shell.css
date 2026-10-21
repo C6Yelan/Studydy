@@ -356,6 +356,10 @@
   background: transparent;
   font-size: 17px;
 }
+/* 已有關閉按鈕；隱藏瀏覽器內建的清除鈕，避免出現兩個 ×。 */
+.search-dialog input::-webkit-search-cancel-button {
+  display: none;
+}
 .search-dialog input:focus-visible {
   box-shadow: none;
   outline: none;
