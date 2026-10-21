@@ -6,9 +6,9 @@ import { Icon } from "../ui/Icon";
 import { writeRoute } from "./routes";
 
 // 頁首與首頁共用的學習活動；換頁或回到視窗時讀取（client 短時間內共用同一次結果）。
-// 讀取失敗時回傳 null，畫面隱藏相關數字，不顯示推測值。
-export function useLearningActivity(apiClient: StudydyApiClient, options: { fresh?: boolean } = {}): LearningActivityView | null {
-  const [activity, setActivity] = useState<LearningActivityView | null>(null);
+// 讀取中回傳 undefined（可顯示骨架）；讀取失敗時回傳 null，畫面隱藏相關數字，不顯示推測值。
+export function useLearningActivity(apiClient: StudydyApiClient, options: { fresh?: boolean } = {}): LearningActivityView | null | undefined {
+  const [activity, setActivity] = useState<LearningActivityView | null | undefined>(undefined);
   const fresh = !!options.fresh;
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +66,7 @@ export function LearningProgressPill({ apiClient, learnerId }: { apiClient: Stud
   const [celebrate, setCelebrate] = useState<number | null>(null);
   const key = `studydy.level-seen:${learnerId}`;
   const level = activity?.xp.level;
-  const [newBadges, clearBadges] = useNewBadges(activity, learnerId);
+  const [newBadges, clearBadges] = useNewBadges(activity ?? null, learnerId);
   useEffect(() => {
     if (level === undefined) return;
     const seen = seenLevel(key);

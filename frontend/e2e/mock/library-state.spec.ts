@@ -47,6 +47,13 @@ test("library loading, read failure and empty state retain usable actions", asyn
   );
   await page.goto("/materials");
   await expect(page.getByRole("status")).toHaveText("正在讀取教材庫");
+  // 讀取中以教材庫版型的骨架佔位；偏好減少動態時光澤動畫停止。
+  const skeleton = page.locator(".page-skeleton.is-library");
+  await expect(skeleton).toHaveAttribute("aria-busy", "true");
+  await expect(skeleton.locator(".skeleton-card").first()).toBeVisible();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect.poll(() => skeleton.locator(".skeleton-bone").first().evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   expect(reads).toBe(1);
   releaseRead();
   await expect(page.getByRole("heading", { name: "無法讀取教材", exact: true })).toBeVisible();

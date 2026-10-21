@@ -61,7 +61,7 @@ export function CreatePodcast({ apiClient, route, embedded = false }: {
     finally { saving.current = false; if (active.current) setBusy(false); }
   };
   if (!view || error) return <section className="cards-page"><StateView title={error ? "無法讀取教材" : "正在準備 Podcast"}
-    description={error ?? "正在讀取概念與來源。"} tone={error ? "failure" : "loading"} live={!error}
+    description={error ?? "正在讀取概念與來源。"} tone={error ? "failure" : "loading"} live={!error} skeleton="page"
     action={error ? <button type="button" onClick={() => setReload((v) => v + 1)}>重新讀取</button> : undefined} /></section>;
   const matches = view.concepts.filter(c => `${c.label} ${c.aliases.join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const visible = matches.filter(c => !onlySelected || selected.has(c.concept_id));

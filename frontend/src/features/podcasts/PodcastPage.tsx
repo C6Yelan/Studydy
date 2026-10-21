@@ -122,7 +122,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   };
   const back = <button type="button" className="cards-back text-button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "podcasts" } : { name: "podcasts" })}><Icon name="arrow-left" size={17} /> 返回 Podcast</button>;
   if (error || !view) return <section className="cards-page podcast-page">{back}<StateView title={error ? "無法讀取 Podcast" : "正在讀取 Podcast"}
-    description={error ?? "正在載入已保存的內容。"} tone={error ? "failure" : "loading"} live={!error}
+    description={error ?? "正在載入已保存的內容。"} tone={error ? "failure" : "loading"} live={!error} skeleton="media"
     action={error ? <button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button> : undefined} /></section>;
   const episode = view.episodes[index];
   const previewReady = podcastPreviewReady(view);

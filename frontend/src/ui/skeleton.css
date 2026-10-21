@@ -1,0 +1,118 @@
+/* 骨架畫面：沿用知識群島的冷色底與圓角；稍候才淡入，快速完成的讀取不閃一下。 */
+.quiet-loading.page-skeleton {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: var(--space-5);
+  margin: 0 auto;
+  padding: var(--space-2) 0 var(--space-8);
+  animation: skeleton-in 0.2s ease 0.12s both;
+}
+.quiet-loading.page-skeleton.is-block {
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+}
+.skeleton-bone {
+  display: block;
+  min-width: 0;
+  border-radius: 12px;
+  background: linear-gradient(100deg, var(--page-cool-2) 20%, #f7fbff 45%, var(--page-cool-2) 70%) 0 0 / 300% 100%;
+  animation: skeleton-shine 1.6s ease-in-out infinite;
+}
+.skeleton-bone.is-line { width: 100%; height: 14px; border-radius: 999px; }
+.skeleton-bone.is-title { height: 26px; }
+.skeleton-bone.is-pill { width: 96px; height: 38px; border-radius: 999px; flex: none; }
+.skeleton-bone.is-thumb { width: 44px; height: 44px; border-radius: 14px; flex: none; }
+.skeleton-bone.is-art { height: 112px; border-radius: 18px; }
+.skeleton-bone.is-panel { height: 92px; border-radius: var(--radius-card); }
+.skeleton-bone.is-row { height: 40px; border-radius: var(--radius-input); }
+.skeleton-bone.is-node { position: absolute; height: 84px; border-radius: 22px; }
+.skeleton-bone.is-node.is-center { top: calc(50% - 50px); left: calc(50% - 130px); width: 260px; height: 100px; }
+.skeleton-bone.is-node.is-left { top: 16%; left: 6%; width: 22%; }
+.skeleton-bone.is-node.is-right { right: 6%; bottom: 14%; width: 22%; }
+.skeleton-bone.is-flashcard { width: min(560px, 100%); aspect-ratio: 4 / 3; margin: 0 auto; border-radius: var(--radius-panel); }
+.skeleton-bone.is-video { width: 100%; aspect-ratio: 16 / 9; max-height: 520px; border-radius: var(--radius-panel); }
+
+.skeleton-heading,
+.skeleton-stack,
+.skeleton-card,
+.skeleton-map-side,
+.skeleton-material-bar > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+}
+.skeleton-material-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.skeleton-material-bar > div { flex: 1; gap: var(--space-2); }
+.skeleton-tabs {
+  display: flex;
+  gap: var(--space-2);
+  overflow: hidden;
+}
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+.skeleton-card,
+.skeleton-map-side {
+  padding: var(--space-4);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.skeleton-map {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(260px, 24vw, 340px);
+  gap: var(--space-4);
+}
+.skeleton-map-canvas {
+  position: relative;
+  min-height: min(560px, 62vh);
+  border-radius: var(--radius-panel);
+  background: linear-gradient(180deg, #e3f4ff, #d2ecfb);
+  overflow: hidden;
+}
+.skeleton-deck,
+.skeleton-actions {
+  display: grid;
+  gap: var(--space-4);
+}
+.skeleton-actions {
+  grid-auto-flow: column;
+  justify-content: center;
+}
+.skeleton-label {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+}
+
+@keyframes skeleton-shine {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+@keyframes skeleton-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 720px) {
+  .skeleton-map { grid-template-columns: minmax(0, 1fr); }
+  .skeleton-map-canvas { min-height: 46vh; }
+  .skeleton-bone.is-node.is-center { left: calc(50% - 110px); width: 220px; }
+  .skeleton-map-side .skeleton-bone.is-row:nth-of-type(n + 5) { display: none; }
+  .skeleton-grid { grid-template-columns: minmax(0, 1fr); }
+  .skeleton-grid .skeleton-card:nth-child(n + 3) { display: none; }
+}
+
+/* 偏好減少動態：不跑光澤、不淡入，保持靜態佔位。 */
+@media (prefers-reduced-motion: reduce) {
+  .page-skeleton,
+  .skeleton-bone { animation: none; }
+}

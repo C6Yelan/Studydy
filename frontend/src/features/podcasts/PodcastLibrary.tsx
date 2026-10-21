@@ -65,7 +65,7 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
       <div role={material ? "tabpanel" : undefined} id={material ? "material-panel-podcasts" : undefined} aria-labelledby={material ? "material-tab-podcasts" : undefined}>
     {error && items !== null && <p className="form-error" role="alert">無法更新 Podcast 列表。{error}<button className="text-button" onClick={()=>setReload(value=>value+1)}>重新讀取</button></p>}
     {error && items === null ? <StateView title="無法讀取 Podcast" description={error} tone="failure" action={<button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button>} />
-      : items === null ? <StateView title="正在讀取 Podcast" description="正在找回你保存的內容。" tone="loading" live />
+      : items === null ? <StateView title="正在讀取 Podcast" description="正在找回你保存的內容。" tone="loading" live skeleton="library" />
       : items.length === 0 ? <StateView tone="empty" icon="headphones" title="讓教材說給你聽" description="挑選概念，選擇快速或完整模式。生成後保存在你的帳號，隨時可以再聽。" />
       : <>
         <div className="library-grid">{filtered?.map((item) => <article className="surface library-item podcast-tile" key={item.podcast_id}>

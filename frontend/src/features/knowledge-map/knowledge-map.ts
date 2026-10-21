@@ -135,3 +135,27 @@ export function focusGraph(view: MapView, selectedId: string) {
     }
   return { nodes, relations, totalNodes: visits.size, totalRelations: eligibleRelations.length };
 }
+
+// 學習導覽一次最多畫出的概念列數；超過兩倍才分段，一般教材維持完整清單。
+export const NAVIGATOR_WINDOW = 120;
+export type NavigatorRange = { start: number; end: number };
+
+/** 目前範圍仍包含選取概念時沿用（含使用者展開過的範圍）；否則以選取概念為中心重新取一段。 */
+export function navigatorRange(current: NavigatorRange | null, selectedIndex: number, total: number): NavigatorRange {
+  if (total <= NAVIGATOR_WINDOW * 2) return current && current.start === 0 && current.end === total ? current : { start: 0, end: total };
+  if (current && selectedIndex >= current.start && selectedIndex < current.end && current.end <= total) return current;
+  const start = Math.max(0, Math.min(selectedIndex - NAVIGATOR_WINDOW / 2, total - NAVIGATOR_WINDOW));
+  return { start, end: Math.min(total, start + NAVIGATOR_WINDOW) };
+}
+
+/** 依顯示範圍切出各區域的可見項目；完全不在範圍內的區域不畫。 */
+export function groupSlices<T extends { items: unknown[] }>(groups: T[], range: NavigatorRange) {
+  const slices: { group: T; slice: T["items"] }[] = [];
+  let offset = 0;
+  for (const group of groups) {
+    const from = Math.max(range.start, offset), to = Math.min(range.end, offset + group.items.length);
+    if (from < to) slices.push({ group, slice: group.items.slice(from - offset, to - offset) });
+    offset += group.items.length;
+  }
+  return slices;
+}

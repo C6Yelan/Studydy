@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { Icon, type IconName } from "./Icon";
+import { PageSkeleton, type SkeletonVariant } from "./Skeleton";
 import "./styles.css";
 
 type StateTone = "loading" | "empty" | "failure";
@@ -10,6 +10,7 @@ export function StateView({
   icon = "warning",
   image,
   live = false,
+  skeleton = "block",
   title,
   tone,
 }: {
@@ -18,19 +19,12 @@ export function StateView({
   icon?: IconName;
   image?: string;
   live?: boolean;
+  /** 讀取中顯示的骨架版型；頁面層級的讀取指定對應版型，區塊內預設為幾行佔位。 */
+  skeleton?: SkeletonVariant;
   title: string;
   tone: StateTone;
 }) {
-  const [loadingVisible, setLoadingVisible] = useState(false);
-  useEffect(() => {
-    setLoadingVisible(false);
-    if (tone !== "loading") return;
-    const timer = setTimeout(() => setLoadingVisible(true), 350);
-    return () => clearTimeout(timer);
-  }, [tone, title]);
-  if (tone === "loading") return <section className="state-view quiet-loading" aria-busy="true" aria-live={loadingVisible && live ? "polite" : undefined}>
-    {loadingVisible && <p role="status">{title}</p>}
-  </section>;
+  if (tone === "loading") return <PageSkeleton variant={skeleton} label={title} live={live} />;
   const isFailure = tone === "failure";
   return (
     <section

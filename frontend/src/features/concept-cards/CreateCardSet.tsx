@@ -136,7 +136,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     <section className="cards-page">
       {!embedded && <button className="text-button" type="button" onClick={back}>← {backLabel}</button>}
       <StateView title={error ? "無法讀取概念" : "正在準備概念卡"}
-        description={error ?? "正在載入教材的概念與重點。"} tone={error ? "failure" : "loading"} live={!error}
+        description={error ?? "正在載入教材的概念與重點。"} tone={error ? "failure" : "loading"} live={!error} skeleton="page"
         action={error ? <button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button> : undefined} />
     </section>
   );

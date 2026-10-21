@@ -1116,3 +1116,13 @@
   color: var(--text-muted);
   font-size: 11px;
 }
+
+/* 大型教材的學習導覽分段顯示：兩端的展開按鈕 */
+.navigator-list .navigator-more {
+  justify-content: center;
+  margin: var(--space-1) 0;
+  border: 1px dashed var(--border);
+  color: var(--studydy-blue);
+  font-weight: 700;
+  text-align: center;
+}

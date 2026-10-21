@@ -10,6 +10,7 @@ import { writeRoute, type AppRoute } from "../../app/routes";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { ProgressRing } from "../../ui/art/ProgressRing";
 import { Icon } from "../../ui/Icon";
+import { Bone } from "../../ui/Skeleton";
 import "./styles.css";
 
 // 群島上的島位（百分比）；教材多於島位時其餘改從列表檢視進入。
@@ -195,6 +196,9 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
               <div className="archipelago-viewport">
                 <div className="archipelago-stage" aria-busy={materials === null}>
                   <Sea />
+                  {materials === null && <div className="archipelago-skeleton" aria-hidden="true">
+                    {slots.slice(0, 3).map((slot) => <Bone key={`${slot.x}-${slot.y}`} className="is-island" style={{ left: `${slot.x}%`, top: `${slot.y}%`, width: `${slot.w}%` }} />)}
+                  </div>}
                   <ul className="archipelago-islands" aria-label="教材島嶼">
                     {shown.map((material, index) => {
                       const state = islandState(material);
@@ -244,6 +248,10 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
           </section>
         </div>
         <aside className="dashboard-side">
+          {activity === undefined && <>
+            <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "45%" }} /><Bone className="is-line" /><Bone className="is-line" style={{ width: "70%" }} /></div>
+            <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "35%" }} /><Bone className="is-row" /><Bone className="is-row" /></div>
+          </>}
           {activity && <LevelCard activity={activity} />}
           {activity && <BadgeShelf activity={activity} />}
           {activity && activity.quests.length > 0 && <DailyQuests quests={activity.quests} onOpen={openQuest} />}
@@ -262,6 +270,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
             </div>
           </section>
           {activity && <WeekRhythm activity={activity} />}
+          {cardSets === null && <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "40%" }} /><Bone className="is-panel" /></div>}
           {cardSets && <section className="dashboard-review surface" aria-labelledby="dashboard-review-title">
             <header>
               <h2 id="dashboard-review-title">概念卡複習</h2>

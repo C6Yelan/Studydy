@@ -4,6 +4,7 @@ import type { CardReviewItem, CardReviewQueueView, CardReviewRating } from "../.
 import { writeRoute } from "../../app/routes";
 import { Icon, type IconName } from "../../ui/Icon";
 import "./review-deck.css";
+import { PageSkeleton } from "../../ui/Skeleton";
 
 const grades: { rating: CardReviewRating; label: string; icon: IconName }[] = [
   { rating: "forgot", label: "忘了", icon: "refresh" },
@@ -111,7 +112,7 @@ export function ReviewDeck({ apiClient, cardSetId, onQueue, variant = "page" }: 
     <p>無法讀取複習清單。{loadError}</p>
     <button className="secondary-button" type="button" onClick={() => setReload((value) => value + 1)}>重新讀取</button>
   </div>;
-  if (!queue) return <div className={`review-deck is-${variant}`}><p role="status">正在讀取今天要複習的卡片…</p></div>;
+  if (!queue) return <div className={`review-deck is-${variant}`}><PageSkeleton label="正在讀取今天要複習的卡片…" /></div>;
   if (!current) return <div className={`review-deck is-${variant} is-done`}>
     <img src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
     <b>{reviewed ? "今天的複習完成！" : "目前沒有要複習的卡片"}</b>

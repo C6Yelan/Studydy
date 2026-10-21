@@ -1,11 +1,9 @@
-import { lazy, Suspense, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import type { ResearchDraft } from "../material-tools/research";
-import { TopicPage } from "../topics/TopicPage";
 import type { StudydyApiClient } from "../../api/client";
 import type { AppRoute } from "../../app/routes";
-import { StateView } from "../../ui/StateView";
+import { PageSkeleton, type SkeletonVariant } from "../../ui/Skeleton";
 import "../knowledge-map/styles.css";
-import { StudySessionPage } from "../study-session/StudySessionPage";
 import { Dashboard } from "../dashboard/Dashboard";
 import { MaterialContent } from "./MaterialContent";
 import { MaterialLibrary } from "./MaterialLibrary";
@@ -13,16 +11,40 @@ import { RunView } from "./RunView";
 import { SourceView } from "./SourceView";
 import { UploadView } from "./UploadView";
 import { CardSetLibrary } from "../concept-cards/CardSetLibrary";
-import { CreateCardSet } from "../concept-cards/CreateCardSet";
-import { CardSetPage } from "../concept-cards/CardSetPage";
 import { PodcastLibrary } from "../podcasts/PodcastLibrary";
-import { CreateStudyContent } from "./CreateStudyContent";
-import { PodcastPage } from "../podcasts/PodcastPage";
 import "../podcasts/styles.css";
 import "../concept-cards/styles.css";
 import "./styles.css";
 
-const KnowledgeMap = lazy(() => import("../knowledge-map/App"));
+// 首頁、教材庫、教材分頁與上傳／轉換／分析進度頁直接載入（輪詢中的頁面不經 Suspense 切換）；
+// 其餘頁面與知識地圖拆成獨立 chunk，首次開啟較輕，畫面空閒後再預先載入，之後切換頁面不必等下載。
+const routeModules = {
+  knowledgeMap: () => import("../knowledge-map/App"),
+  studySession: () => import("../study-session/StudySessionPage"),
+  topic: () => import("../topics/TopicPage"),
+  cardSet: () => import("../concept-cards/CardSetPage"),
+  createCardSet: () => import("../concept-cards/CreateCardSet"),
+  podcast: () => import("../podcasts/PodcastPage"),
+  createContent: () => import("./CreateStudyContent"),
+};
+const KnowledgeMap = lazy(routeModules.knowledgeMap);
+const StudySessionPage = lazy(() => routeModules.studySession().then((m) => ({ default: m.StudySessionPage })));
+const TopicPage = lazy(() => routeModules.topic().then((m) => ({ default: m.TopicPage })));
+const CardSetPage = lazy(() => routeModules.cardSet().then((m) => ({ default: m.CardSetPage })));
+const CreateCardSet = lazy(() => routeModules.createCardSet().then((m) => ({ default: m.CreateCardSet })));
+const PodcastPage = lazy(() => routeModules.podcast().then((m) => ({ default: m.PodcastPage })));
+const CreateStudyContent = lazy(() => routeModules.createContent().then((m) => ({ default: m.CreateStudyContent })));
+
+function prefetchRoutes() {
+  for (const load of Object.values(routeModules)) void load().catch(() => undefined);
+}
+
+function routeSkeleton(route: AppRoute): SkeletonVariant {
+  if (route.name === "knowledge-map") return "map";
+  if (route.name === "card-set") return "deck";
+  if (route.name === "podcast") return "media";
+  return "page";
+}
 
 function MaterialFlowBody({
   apiClient,
@@ -66,13 +88,11 @@ function MaterialFlowBody({
     return <RunView key={route.runId} apiClient={apiClient} route={route} />;
   if (route.name === "knowledge-map")
     return (
-      <Suspense fallback={<StateView title="正在讀取知識地圖" description="正在載入教材概念與學習順序。" tone="loading" live />}>
-        <KnowledgeMap
-          key={`${route.materialId}/${route.runId}/${route.structureRevision}`}
-          apiClient={apiClient}
-          route={route}
-        />
-      </Suspense>
+      <KnowledgeMap
+        key={`${route.materialId}/${route.runId}/${route.structureRevision}`}
+        apiClient={apiClient}
+        route={route}
+      />
     );
   return (
     <StudySessionPage
@@ -88,5 +108,13 @@ export function MaterialFlow(props: {apiClient:StudydyApiClient;route:AppRoute;l
  const researchDrafts = useRef(new Map<string, ResearchDraft>());
  const researchDraft = materialId ? researchDrafts.current.get(materialId) : undefined;
  const onResearchDraftChange = (draft: ResearchDraft) => { if (materialId) researchDrafts.current.set(materialId, draft); };
- return <MaterialFlowBody {...props} researchDraft={researchDraft} onResearchDraftChange={onResearchDraftChange}/>;
+ useEffect(() => {
+  const idle = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 1500));
+  const cancel = window.cancelIdleCallback ?? window.clearTimeout;
+  const handle = idle(prefetchRoutes, { timeout: 4000 });
+  return () => cancel(handle);
+ }, []);
+ return <Suspense fallback={<PageSkeleton variant={routeSkeleton(props.route)} label="正在載入頁面" />}>
+  <MaterialFlowBody {...props} researchDraft={researchDraft} onResearchDraftChange={onResearchDraftChange}/>
+ </Suspense>;
 }

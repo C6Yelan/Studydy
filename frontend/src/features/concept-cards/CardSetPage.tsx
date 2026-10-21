@@ -46,7 +46,7 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
     <button className="cards-back text-button" type="button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}><Icon name="arrow-left" size={17} /> 返回卡組</button>
     {view && view.generation.status !== "ready" && !error ? <CardGenerationProgress view={view} onRetry={() => {
       void apiClient.retryCardGeneration(cardSetId).then(() => setReload(n => n + 1)).catch(failure => setError(errorMessage(failure)));
-    }} /> : error || !view?.batch ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入第一批卡片。"} tone={error ? "failure" : "loading"} live={!error} action={error ? <button className="primary-button" onClick={() => setReload(n => n + 1)}>重新讀取</button> : undefined} />
+    }} /> : error || !view?.batch ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入第一批卡片。"} tone={error ? "failure" : "loading"} live={!error} skeleton="deck" action={error ? <button className="primary-button" onClick={() => setReload(n => n + 1)}>重新讀取</button> : undefined} />
       : <>
         <CardReviewStrip apiClient={apiClient} cardSetId={cardSetId} reviewing={reviewing} onToggle={() => setReviewing(value => !value)} />
         {reviewing ? <section className="cards-review-mode" aria-label="間隔複習">

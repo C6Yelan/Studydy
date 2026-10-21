@@ -146,6 +146,22 @@ def test_streak_counts_any_activity_and_listening_needs_a_minute(closed_loop):
     assert (quests["review_due_cards"]["progress"], quests["review_due_cards"]["target"], quests["review_due_cards"]["done"]) == (0, 1, False)
 
 
+def test_podcast_quest_reads_episode_lists_saved_with_nul_text(closed_loop):
+    """含 U+0000 的集數清單以 {"items": [...]} 保存；今日任務仍要算得出集數，不可讓學習活動失敗。"""
+    fixture = concept_fixture(closed_loop, 2)
+    podcast = ready_podcast(fixture)
+    with database_session(fixture["dsn"]) as db:
+        row = db.get(Podcast, podcast)
+        episodes = deepcopy(row.episodes)
+        episodes[0]["title"] = "含\x00字元"
+        row.episodes = episodes
+    with database_session(fixture["dsn"]) as db:
+        assert db.execute(text("SELECT jsonb_typeof(episodes) FROM podcasts WHERE podcast_id = :p"),
+                          {"p": podcast}).scalar_one() == "object"
+    quests = {q["kind"]: q for q in activity(fixture)["quests"]}
+    assert (quests["finish_podcast_episode"]["podcast_id"], quests["finish_podcast_episode"]["episode_index"]) == (podcast, 0)
+
+
 def test_repeated_question_counts_only_the_first_answer(closed_loop):
     fixture = concept_fixture(closed_loop, 2)
     dsn = fixture["dsn"]

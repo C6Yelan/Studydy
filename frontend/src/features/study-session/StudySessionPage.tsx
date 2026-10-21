@@ -169,6 +169,7 @@ export function StudySessionPage({
       <StateView
         description="正在復原教材結構與學習進度狀態。"
         live
+        skeleton="page"
         title="正在讀取學習進度"
         tone="loading"
       />

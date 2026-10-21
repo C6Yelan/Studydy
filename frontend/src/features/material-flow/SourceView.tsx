@@ -246,6 +246,7 @@ export function SourceView({
         description="已上傳的原檔會保留，重新整理不會重複轉換。"
         tone="loading"
         live
+        skeleton="page"
       />
     );
   const waiting = selectedSources.filter(

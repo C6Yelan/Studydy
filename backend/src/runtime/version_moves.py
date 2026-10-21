@@ -7,9 +7,10 @@
 Podcast 維持建立時的版本，不承接。
 """
 
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from datetime import UTC, datetime
 from hashlib import sha256
+from threading import Lock
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -207,6 +208,37 @@ def _completed(learner, study, dsn):
     return {s.concept_id for s in progress.concept_states if s.status == "completed"}
 
 
+# 知識結構版本以內容雜湊命名、發布後不再改變；預覽每次重讀並驗證新舊兩份完整結構，
+# 千頁教材需數秒並占住 API。第一次完整驗證後，在本程序保留只由結構推導的名稱、順序與
+# 概念對應（不含任何學習紀錄），鍵含使用者、教材與版本；卡組、排程與進度仍每次即時讀取。
+_DERIVED_LIMIT = 16
+_derived = OrderedDict()
+_derived_lock = Lock()
+
+
+def _remembered(key, compute, enabled):
+    if enabled:
+        with _derived_lock:
+            if key in _derived:
+                _derived.move_to_end(key)
+                return _derived[key]
+    value = compute()
+    if enabled:
+        with _derived_lock:
+            _derived[key] = value
+            while len(_derived) > _DERIVED_LIMIT:
+                _derived.popitem(last=False)
+    return value
+
+
+def _structure_facts(document):
+    return {
+        "labels": {c["concept_id"]: c["label"] for c in document["concepts"]},
+        "order": [c["concept_id"] for c in document["concepts"]],
+        "first_step": next((step["concept_id"] for step in document["initial_learning_path"]), None),
+    }
+
+
 def _empty(material_id, head):
     return {
         "schema": "version-move-preview/v1",
@@ -280,18 +312,24 @@ def _plan(session, learner, material, *, dsn, lock=False):
             )
         return documents[revision]
 
-    head_document = document(head)
-    new_labels = {c["concept_id"]: c["label"] for c in head_document["concepts"]}
-    new_order = [c["concept_id"] for c in head_document["concepts"]]
-    mappings = {}
+    # 預覽沿用已驗證結構推導出的名稱、順序與概念對應；實際承接（lock）一律重新讀取驗證。
+    remember = not lock
+
+    def facts(revision):
+        return _remembered(("facts", owner, material_id, revision), lambda: _structure_facts(document(revision)), remember)
 
     def mapping(revision):
-        if revision not in mappings:
-            mappings[revision] = map_concepts(document(revision), head_document)
-        return mappings[revision]
+        return _remembered(
+            ("mapping", owner, material_id, revision, head),
+            lambda: map_concepts(document(revision), document(head)),
+            remember,
+        )
+
+    head_facts = facts(head)
+    new_labels, new_order = head_facts["labels"], head_facts["order"]
 
     def old_labels(revision):
-        return {c["concept_id"]: c["label"] for c in document(revision)["concepts"]}
+        return facts(revision)["labels"]
 
     card_items, internal_cards = [], {}
     for row in card_rows:
@@ -375,7 +413,7 @@ def _plan(session, learner, material, *, dsn, lock=False):
             if by_target[target] and target not in already
             and all(old in completed for old in by_target[target])
         ]
-        old_order = [c["concept_id"] for c in document(revision)["concepts"]]
+        old_order = facts(revision)["order"]
         not_carried = []
         for concept in old_order:
             if concept not in completed:
@@ -405,9 +443,7 @@ def _plan(session, learner, material, *, dsn, lock=False):
             }
             internal_study = {
                 "source": source_study, "head": head_study, "carried": carried,
-                "current": current or next(
-                    (step["concept_id"] for step in head_document["initial_learning_path"]), None
-                ),
+                "current": current or head_facts["first_step"],
             }
 
     kept_podcasts = len(session.scalars(
@@ -444,7 +480,10 @@ def _plan(session, learner, material, *, dsn, lock=False):
         "study": study_item,
         "kept_podcasts": kept_podcasts,
     }
-    return preview, {"cards": internal_cards, "study": internal_study, "head_document": head_document}
+    return preview, {
+        "cards": internal_cards, "study": internal_study,
+        "head_document": document(head) if lock else None,
+    }
 
 
 def preview_version_move(learner, material_id, *, dsn=None):

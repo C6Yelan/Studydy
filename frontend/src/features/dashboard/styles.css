@@ -825,3 +825,18 @@
   min-height: 32px;
   font-size: 13px;
 }
+
+/* 首頁骨架：群島讀取中先畫三座島的輪廓，右欄卡片保留位置，避免讀完後版面跳動。 */
+.archipelago-skeleton { position: absolute; inset: 0; pointer-events: none; }
+.archipelago-skeleton .skeleton-bone.is-island {
+  position: absolute;
+  aspect-ratio: 840 / 470;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0.55;
+}
+.dashboard-skeleton-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+}

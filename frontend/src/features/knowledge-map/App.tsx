@@ -256,6 +256,7 @@ export default function KnowledgeMap({
       <StateView
         description="正在載入教材概念與學習順序。"
         live
+        skeleton="map"
         title="正在讀取知識地圖"
         tone="loading"
       />

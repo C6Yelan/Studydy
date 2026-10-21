@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { learningNavigationItems, initialFocusConceptId, focusGraph } from "./knowledge-map.ts";
+import { learningNavigationItems, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW } from "./knowledge-map.ts";
 
 const view = {
   concepts: ["a", "b", "c", "d"].map((concept_id) => ({ concept_id })),
@@ -213,4 +213,25 @@ test("map regions are used only when they cover exactly the outline concepts", a
   assert.equal(mapRegions(outline, regions([["a"], ["b"]])), null);
   assert.equal(mapRegions(outline, regions([["a", "b"], ["c", "x"]])), null);
   assert.equal(mapRegions(outline, null), null);
+});
+
+test("large learning navigators render a window around the selected concept", () => {
+  // 一般教材維持完整清單。
+  assert.deepEqual(navigatorRange(null, 5, 200), { start: 0, end: 200 });
+  const total = 4902;
+  const first = navigatorRange(null, 2000, total);
+  assert.deepEqual(first, { start: 2000 - NAVIGATOR_WINDOW / 2, end: 2000 + NAVIGATOR_WINDOW / 2 });
+  // 範圍仍包含選取概念時沿用（包含使用者展開過的範圍）。
+  const expanded = { start: first.start, end: first.end + NAVIGATOR_WINDOW };
+  assert.equal(navigatorRange(expanded, first.end + 10, total), expanded);
+  // 移出範圍時重新置中；靠近兩端時不超出清單。
+  assert.deepEqual(navigatorRange(first, 3, total), { start: 0, end: NAVIGATOR_WINDOW });
+  assert.deepEqual(navigatorRange(first, total - 1, total), { start: total - NAVIGATOR_WINDOW, end: total });
+});
+
+test("grouped navigator windows keep region order and skip regions outside the range", () => {
+  const groups = [{ id: "a", items: [1, 2, 3] }, { id: "b", items: [4, 5] }, { id: "c", items: [6, 7, 8] }];
+  assert.deepEqual(groupSlices(groups, { start: 2, end: 6 }).map(({ group, slice }) => [group.id, slice]),
+    [["a", [3]], ["b", [4, 5]], ["c", [6]]]);
+  assert.deepEqual(groupSlices(groups, { start: 3, end: 5 }).map(({ group }) => group.id), ["b"]);
 });

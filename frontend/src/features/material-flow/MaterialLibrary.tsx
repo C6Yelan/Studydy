@@ -155,6 +155,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
         description="正在載入你的教材與已發布結果。"
         tone="loading"
         live
+        skeleton="library"
       />
     );
     return <section className={libraryClass}>{state}</section>;

@@ -87,7 +87,7 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
     {contentNavigation}
     <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
       <header className="cards-page-header research-detail-header"><button className="text-button" type="button" onClick={back}><Icon name="arrow-left" size={17}/>返回補充學習</button><div><details className="research-request"><summary><h1>{view?.query ?? '查詢詳情'}</h1></summary><p>{view?.query}</p></details></div></header>
-      {!view ? <StateView title={error ? '無法讀取查詢' : '正在讀取查詢'} description={error || '正在載入來源與處理進度。'} tone={error ? 'failure' : 'loading'} live={!error}
+      {!view ? <StateView title={error ? '無法讀取查詢' : '正在讀取查詢'} description={error || '正在載入來源與處理進度。'} tone={error ? 'failure' : 'loading'} live={!error} skeleton="page"
         action={error ? <button type="button" className="secondary-button" onClick={() => setReload(value => value + 1)}>重新讀取</button> : undefined}/> : <>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="research-workspace">

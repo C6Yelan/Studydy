@@ -215,6 +215,30 @@ def test_preview_then_move_cards_and_progress_without_touching_the_old_version(c
     assert [s["card_set_id"] for s in again["card_sets"]] == [old_set] and again["study"] is None
 
 
+def test_preview_reuses_verified_structures_but_still_reads_current_records(closed_loop, monkeypatch):
+    """預覽沿用已驗證結構推導的對應；卡組與排程仍即時讀取，確認承接時重新驗證結構。"""
+    fixture, old_set = learned(closed_loop)
+    learner, dsn = fixture["learner"], fixture["dsn"]
+    owner, material = learner.learner_id, fixture["source"].material_id
+    head = new_revision(fixture, "rewrite")["revision"]
+    first = version_moves.preview_version_move(learner, material, dsn=dsn)
+    reads = []
+    original = version_moves._read_verified_document
+    monkeypatch.setattr(version_moves, "_read_verified_document",
+                        lambda *args, **kwargs: reads.append(kwargs.get("lock")) or original(*args, **kwargs))
+    assert version_moves.preview_version_move(learner, material, dsn=dsn) == first and reads == []
+    # 之後複習另一張卡：預覽即時反映新的排程，不沿用先前結果。
+    other = next(c["concept_id"] for c in fixture["document"]["concepts"]
+                 if c["concept_id"] != fixture["concept"]["concept_id"])
+    card_reviews.submit_review(owner, old_set, other, "remembered", 0, "later-review", dsn=dsn)
+    changed = version_moves.preview_version_move(learner, material, dsn=dsn)
+    assert reads == [] and first["card_sets"][0]["carried_reviews"] == 1
+    assert changed["card_sets"][0]["carried_reviews"] == 2
+    version_moves.execute_version_move(learner, material, head, [old_set], True,
+                                       changed["preview_digest"], "cached-move", dsn=dsn)
+    assert True in reads
+
+
 def test_unmapped_concepts_are_listed_and_not_carried(closed_loop):
     fixture, old_set = learned(closed_loop)
     learner, dsn = fixture["learner"], fixture["dsn"]

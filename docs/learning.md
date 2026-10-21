@@ -34,7 +34,7 @@ NO_SAFE_ASSESSMENT 或部分發布時省略的重點是系統能力限制，不�
 
 ## 學習活動與地圖區域
 
-`GET /v1/learning-activity`（`learning-activity/v2`）由作答、概念卡複習與 Podcast 收聽紀錄即時彙總，不另存累計點數或任務狀態；只能讀自己的紀錄，以台灣日期為界。回傳連續天數、本週一到週日每天的作答／答對數、卡片複習數與實際收聽秒數、經驗值（XP）與等級、今日任務，以及徽章（`badges`）。讀取失敗時頁首與首頁隱藏相關數字，不顯示推測值。
+`GET /v1/learning-activity`（`learning-activity/v2`）由作答、概念卡複習與 Podcast 收聽紀錄即時彙總，不另存累計點數或任務狀態；只能讀自己的紀錄，以台灣日期為界。回傳連續天數、本週一到週日每天的作答／答對數、卡片複習數與實際收聽秒數、經驗值（XP）與等級、今日任務，以及徽章（`badges`）。讀取失敗時頁首與首頁隱藏相關數字，不顯示推測值。概念完成的作答重播在 API 程序內保留各版本學習計畫的精簡對應（以使用者、教材、版本與計畫雜湊為鍵），作答與可出題範圍每次即時讀取。
 
 ### 經驗值、等級與連續天數（規則 `xp-rules/v1`，可依需要修改）
 
@@ -111,7 +111,7 @@ Progress 與 resume 使用同一 DB snapshot，核對 session、run、知識結�
 
 教材重新分析或重新檢核產生新版本後，舊版的卡組、複習排程與學習照常保留，不會自動搬動。教材頁（地圖、卡組、Podcast、補充學習、來源各分頁上方）在學生仍有舊版卡組或學習時顯示「有新版本」，按「移到新版」先看預覽，確認後才承接。Podcast 維持建立時的版本，不承接。前端只在教材保留舊版本（`available_structures` 有 head 以外的版本）時才讀取預覽。
 
-`GET /v1/materials/{id}/version-move` 回傳預覽（`version-move-preview/v1`）：可移動的舊版卡組（未刪除、已生成、尚未移過）與最近一個舊版學習，各自列出可對應的概念、無法對應的概念及原因、會沿用的複習排程數、可直接沿用的卡面數，以及維持舊版的 Podcast 數；`preview_digest` 綁定這份預覽。沒有可承接項目時 `card_sets` 為空、`study` 為 null。`POST` 同一路徑需要 Idempotency-Key 與預覽的 `preview_digest`、`to_revision`（目前 head）及要移動的卡組／是否移動學習：重送同一個鍵取得同一筆結果；預覽在確認前變了（教材又更新、另一個分頁已移動）回 `VERSION_MOVE_STALE`，前端重新讀取預覽。
+`GET /v1/materials/{id}/version-move` 回傳預覽（`version-move-preview/v1`）：可移動的舊版卡組（未刪除、已生成、尚未移過）與最近一個舊版學習，各自列出可對應的概念、無法對應的概念及原因、會沿用的複習排程數、可直接沿用的卡面數，以及維持舊版的 Podcast 數；`preview_digest` 綁定這份預覽。沒有可承接項目時 `card_sets` 為空、`study` 為 null。`POST` 同一路徑需要 Idempotency-Key 與預覽的 `preview_digest`、`to_revision`（目前 head）及要移動的卡組／是否移動學習：重送同一個鍵取得同一筆結果；預覽在確認前變了（教材又更新、另一個分頁已移動）回 `VERSION_MOVE_STALE`，前端重新讀取預覽。知識結構版本不可變，預覽在第一次完整驗證後於 API 程序內沿用由結構推導的概念名稱、順序與對應（千頁教材首讀約 6 秒，之後約 0.5 秒）；卡組、排程與學習進度每次即時讀取，確認承接時仍重新讀取並驗證完整結構。
 
 概念對應規則（`map_concepts`，[source_identity.py](../backend/src/knowledge_map/source_identity.py)）：
 

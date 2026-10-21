@@ -5,10 +5,12 @@ XP、等級、連續天數、今日任務與徽章都從既有紀錄推導，不
 推導結果隨之改變；沒有紀錄的過去活動不補算。
 """
 
+from collections import OrderedDict
 from datetime import datetime, time, timedelta
+from threading import Lock
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 TIMEZONE = "Asia/Taipei"
 RULE_VERSION = "xp-rules/v1"
@@ -155,10 +157,51 @@ def first_completions(plan, events, unavailable):
     return completed
 
 
+# 學習計畫以內容雜湊驗證且版本不可變；每次首頁與頁首都重讀並驗證大型教材的完整計畫
+# 會拖慢學習活動。第一次完整讀取後，在本程序以「使用者、教材、版本、計畫雜湊」保留
+# 重播所需的概念與重點對應（不含作答），作答與無法出題的重點仍每次即時讀取。
+_PLAN_LIMIT = 16
+_plans = OrderedDict()
+_plans_lock = Lock()
+
+
+def _completion_plan(session, owner, material_id, revision):
+    from .knowledge_reads import learning
+    from .tables import KnowledgeReadIndex
+
+    digest = session.scalar(select(KnowledgeReadIndex.learning_sha256).where(
+        KnowledgeReadIndex.learner_id == owner,
+        KnowledgeReadIndex.material_id == material_id,
+        KnowledgeReadIndex.structure_revision == revision,
+    ))
+    key = (owner, material_id, revision, digest)
+    if digest is not None:
+        with _plans_lock:
+            if key in _plans:
+                _plans.move_to_end(key)
+                return _plans[key]
+    plan = learning(session, owner, material_id, revision)
+    compact = {"concepts": [
+        {
+            "concept_id": concept["concept_id"],
+            "targets": [
+                {"claim_id": target["claim_id"], "covered_claim_ids": list(target["covered_claim_ids"])}
+                for target in concept["targets"]
+            ],
+        }
+        for concept in plan["concepts"]
+    ]}
+    if digest is not None:
+        with _plans_lock:
+            _plans[key] = compact
+            while len(_plans) > _PLAN_LIMIT:
+                _plans.popitem(last=False)
+    return compact
+
+
 def _concept_completions(session, owner, zone):
     """每份未刪除教材的每個概念只算一次，取各學習版本中最早的完成時間。"""
     from learning_adaptation.assessment_state import unavailable_claims
-    from .knowledge_reads import learning
     from .tables import StudySession
 
     sessions = session.execute(text(
@@ -184,7 +227,7 @@ def _concept_completions(session, owner, zone):
                 """
             ), {"owner": owner, "material": study.material_id}).all()
         try:
-            plan = learning(session, owner, study.material_id, study.knowledge_structure_revision)
+            plan = _completion_plan(session, owner, study.material_id, study.knowledge_structure_revision)
         except Exception:
             # 版本無法通過驗證時不推測完成狀態。
             continue
@@ -296,7 +339,10 @@ def _podcast_quest(session, owner, start, end):
     """聽完 1 集還沒聽完的 Podcast；沒有未聽完的集數且今天也沒聽完任何一集時不顯示。"""
     rows = session.execute(text(
         """
-        SELECT p.podcast_id, p.material_id, jsonb_array_length(p.episodes) AS episodes,
+        SELECT p.podcast_id, p.material_id,
+               -- 含 U+0000 的清單以 {"items": [...]} 保存（storage.evidence_json）。
+               jsonb_array_length(CASE WHEN jsonb_typeof(p.episodes) = 'array'
+                                       THEN p.episodes ELSE p.episodes -> 'items' END) AS episodes,
                coalesce(array_agg(g.episode_index) FILTER (WHERE g.completed_at IS NOT NULL), '{}') AS finished,
                max(g.updated_at) AS touched,
                count(*) FILTER (WHERE g.completed_at >= :start AND g.completed_at < :end) AS finished_today,

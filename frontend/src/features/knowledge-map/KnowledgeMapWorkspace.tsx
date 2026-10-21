@@ -34,7 +34,7 @@ import { ConceptContent } from "../../ui/ConceptContent";
 import { Icon } from "../../ui/Icon";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
-import { learningNavigationItems, focusGraph, initialFocusConceptId, mapRegions, type MapRegions } from "./knowledge-map";
+import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, type MapRegions, type NavigatorRange } from "./knowledge-map";
 
 type Concept = KnowledgeOutlineView["concepts"][number];
 type Mode = "focus" | "review";
@@ -241,10 +241,21 @@ function LearningNavigator({
   focusConcept: (id: string) => void;
 }) {
   const items = useMemo(() => learningNavigationItems(view), [view]);
-  // 兩個以上區域才分組；組內維持建議學習順序。
-  const groups = useMemo(() => regions && regions.regions.length > 1
-    ? regions.regions.map((region) => ({ ...region, items: items.filter(({ concept }) => regions.byConcept.get(concept.concept_id) === region.index) }))
-    : null, [items, regions]);
+  // 兩個以上區域才分組；組內維持建議學習順序。單次分桶，避免區域數×概念數的重複篩選。
+  const groups = useMemo(() => {
+    if (!regions || regions.regions.length <= 1) return null;
+    const buckets = regions.regions.map((region) => ({ ...region, items: [] as typeof items }));
+    for (const item of items) buckets[regions.byConcept.get(item.concept.concept_id)!]?.items.push(item);
+    return buckets;
+  }, [items, regions]);
+  // 顯示順序（分組時依區域攤平）；千頁教材有數千個概念，一次畫出全部列會讓手機卡住數秒，
+  // 因此只畫選取概念附近的一段，兩端可再展開；選取概念移出範圍時重新置中。
+  const ordered = useMemo(() => groups ? groups.flatMap((group) => group.items) : items, [groups, items]);
+  const positionOf = useMemo(() => new Map(ordered.map((item, index) => [item.concept.concept_id, index])), [ordered]);
+  const selectedIndex = positionOf.get(selectedConceptId) ?? 0;
+  const [range, setRange] = useState<NavigatorRange | null>(null);
+  const shown = navigatorRange(range, selectedIndex, ordered.length);
+  if (shown !== range && (range !== null || shown.end - shown.start < ordered.length)) setRange(shown);
   const states = useMemo(
     () => new Map(progress?.concept_states.map((state) => [state.concept_id, state])),
     [progress],
@@ -357,21 +368,31 @@ function LearningNavigator({
         </p>
       )}
       <div className="navigator-list" id="focus-concept-list" ref={list}>
+        {shown.start > 0 && (
+          <button type="button" className="navigator-more" onClick={() => setRange({ start: Math.max(0, shown.start - NAVIGATOR_WINDOW), end: shown.end })}>
+            顯示前 {Math.min(NAVIGATOR_WINDOW, shown.start)} 個概念
+          </button>
+        )}
         {groups ? (
           <ul className="navigator-regions">
-            {groups.map((group) => (
+            {groupSlices(groups, shown).map(({ group, slice }) => (
               <li key={group.id} className="navigator-region">
                 <h3 title={group.label}>
                   <i style={{ background: islandColors(regionPalette(view.material_id, group.index)).c2 }} aria-hidden="true" />
                   <span>{group.label}</span>
                   <small>{group.items.length} 個</small>
                 </h3>
-                <ul>{group.items.map(renderItem)}</ul>
+                <ul>{slice.map(renderItem)}</ul>
               </li>
             ))}
           </ul>
         ) : (
-          <ul>{items.map(renderItem)}</ul>
+          <ul>{ordered.slice(shown.start, shown.end).map(renderItem)}</ul>
+        )}
+        {shown.end < ordered.length && (
+          <button type="button" className="navigator-more" onClick={() => setRange({ start: shown.start, end: Math.min(ordered.length, shown.end + NAVIGATOR_WINDOW) })}>
+            顯示後 {Math.min(NAVIGATOR_WINDOW, ordered.length - shown.end)} 個概念
+          </button>
         )}
       </div>
     </nav>
