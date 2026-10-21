@@ -114,6 +114,8 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
             maxLength={200}
             value={text}
             onChange={(event) => setText(event.currentTarget.value)}
+            // 搜尋欄有文字時，瀏覽器的 Escape 只會清空欄位；這裡一律直接關閉搜尋。
+            onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); close(); } }}
           />
           <button className="header-dialog-close" type="button" aria-label="關閉搜尋" onClick={close}>×</button>
         </form>

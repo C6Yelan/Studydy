@@ -87,8 +87,9 @@ test("site search shows empty and failed results, retries, and opens unbuilt mat
   await dialog.getByRole("button", { name: "重新搜尋" }).click();
   await dialog.getByRole("region", { name: "教材" }).getByRole("button", { name: /Array 講義草稿/ }).click();
   await expect.poll(() => new URL(page.url()).pathname).toBe("/materials");
-  // Escape 關閉並把焦點還給觸發按鈕。
+  // 欄位有文字時 Escape 也直接關閉，並把焦點還給觸發按鈕。
   await page.getByRole("button", { name: "搜尋概念或教材" }).click();
+  await dialog.getByRole("searchbox").fill("array");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(page.getByRole("button", { name: "搜尋概念或教材" })).toBeFocused();
