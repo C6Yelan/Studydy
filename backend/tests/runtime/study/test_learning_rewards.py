@@ -164,3 +164,53 @@ def test_repeated_question_counts_only_the_first_answer(closed_loop):
     assert after["xp"]["sources"]["answers"] == (10 if rows[0] else 3) < before
     # 作答數與連續天數仍逐筆計算。
     assert after["total_answers"] == first["total_answers"] == len(rows)
+
+
+def test_badges_follow_real_records_and_their_dates(closed_loop):
+    fixture = concept_fixture(closed_loop, 2)
+    owner, dsn = fixture["learner"].learner_id, fixture["dsn"]
+    now = datetime(2026, 10, 22, 12, 0, tzinfo=TAIPEI)
+    empty = {b["badge_id"]: b for b in activity(fixture, now=now)["badges"]["items"]}
+    assert activity(fixture, now=now)["badges"]["rule_version"] == "badge-rules/v1"
+    assert not any(b["earned"] for b in empty.values())
+
+    set_id = create(fixture)
+    finish(fixture)
+    answer(fixture, set_id)
+    set_id_cards, ids = ready_cards(fixture)
+    card_reviews.submit_review(owner, set_id_cards, ids[0], "remembered", 0, "c1", dsn=dsn)
+    card_reviews.submit_review(owner, set_id_cards, ids[1], "remembered", 0, "c2", dsn=dsn)
+    with database_session(dsn) as db:
+        answers = db.execute(text("SELECT count(*) FROM answer_events")).scalar_one()
+        # 作答在 10/16，兩次卡片複習分別在 10/17、10/18（台灣），學習於 10/19 凌晨（台灣）完成。
+        db.execute(text("UPDATE answer_events SET created_at = '2026-10-16T09:00:00+08:00'"))
+        db.execute(text(
+            """
+            UPDATE card_review_events v SET created_at = '2026-10-16T09:00:00+08:00'::timestamptz + n * interval '1 day'
+            FROM (SELECT review_event_id, row_number() OVER (ORDER BY created_at) AS n FROM card_review_events) o
+            WHERE o.review_event_id = v.review_event_id
+            """
+        ))
+        db.execute(text(
+            "UPDATE study_sessions SET status = 'completed', completed_at = '2026-10-18T16:30:00+00:00'"
+        ))
+    view = activity(fixture, now=now)
+    badges = {b["badge_id"]: b for b in view["badges"]["items"]}
+    day = lambda value: datetime.fromisoformat(value).date()
+    assert (badges["first_answer"]["earned"], badges["first_answer"]["earned_on"]) == (True, day("2026-10-16"))
+    assert (badges["answers_100"]["earned"], badges["answers_100"]["progress"]) == (False, answers)
+    # 概念首次完成時間由作答重播推導，因此同為 10/16。
+    assert (badges["first_concept"]["earned"], badges["first_concept"]["earned_on"]) == (True, day("2026-10-16"))
+    assert (badges["first_material"]["earned"], badges["first_material"]["earned_on"]) == (True, day("2026-10-19"))
+    assert (badges["cards_100"]["earned"], badges["cards_100"]["progress"]) == (False, 2)
+    # 10/16 作答、10/17 與 10/18 複習卡片：連續 3 天於 10/18 達成；之後中斷，streak_7 進度為目前連續天數 0。
+    assert (badges["streak_3"]["earned"], badges["streak_3"]["earned_on"]) == (True, day("2026-10-18"))
+    assert (badges["streak_7"]["earned"], badges["streak_7"]["progress"]) == (False, view["streak_days"]) == (False, 0)
+    assert (badges["listen_30_minutes"]["progress"], badges["level_5"]["progress"]) == (0, view["xp"]["level"])
+
+    # 教材移除後，相關的完成與教材徽章不再成立（作答紀錄仍在，作答徽章保留）。
+    with database_session(dsn) as db:
+        db.execute(text("UPDATE materials SET discard_requested_at = now()"))
+    after = {b["badge_id"]: b for b in activity(fixture, now=now)["badges"]["items"]}
+    assert not after["first_material"]["earned"] and not after["first_concept"]["earned"]
+    assert after["first_answer"]["earned"]

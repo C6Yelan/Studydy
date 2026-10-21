@@ -376,6 +376,23 @@ class LearningQuestView(_Closed):
     episode_index: int | None
 
 
+class LearningBadgeView(_Closed):
+    badge_id: Literal[
+        "first_answer", "answers_100", "first_concept", "concepts_25", "first_material",
+        "cards_100", "listen_30_minutes", "streak_3", "streak_7", "level_5",
+    ]
+    earned: bool
+    # 取得日期（台灣日期）；推導不出日期時為 null。
+    earned_on: date_type | None
+    progress: int
+    target: int
+
+
+class LearningBadgesView(_Closed):
+    rule_version: Literal["badge-rules/v1"]
+    items: list[LearningBadgeView]
+
+
 class LearningActivityView(_Closed):
     schema_: Literal["learning-activity/v2"] = Field(alias="schema")
     timezone: Literal["Asia/Taipei"]
@@ -388,6 +405,7 @@ class LearningActivityView(_Closed):
     total_correct: int
     xp: LearningXpView
     quests: list[LearningQuestView]
+    badges: LearningBadgesView
 
 
 class KnowledgeConceptsView(_Closed):

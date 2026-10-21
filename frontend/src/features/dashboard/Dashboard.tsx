@@ -3,6 +3,7 @@ import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardReviewQueueView, CardSetSummary, LearningQuest, MaterialLibraryItem, PodcastSummary, StudySessionLink } from "../../api/contracts";
 import { useLearningActivity } from "../../app/LearningProgress";
 import { DailyQuests, LevelCard, WeekRhythm } from "./LearningCards";
+import { BadgeShelf } from "../badges/Badges";
 import { useProfile } from "../../app/HeaderTools";
 import { ReviewDeck } from "../concept-cards/ReviewDeck";
 import { writeRoute, type AppRoute } from "../../app/routes";
@@ -244,6 +245,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
         </div>
         <aside className="dashboard-side">
           {activity && <LevelCard activity={activity} />}
+          {activity && <BadgeShelf activity={activity} />}
           {activity && activity.quests.length > 0 && <DailyQuests quests={activity.quests} onOpen={openQuest} />}
           <section className="dashboard-overview surface" aria-label="學習總覽">
             <h2>學習總覽</h2>

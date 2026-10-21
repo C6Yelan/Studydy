@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { StudydyApiClient } from "../api/client";
 import type { LearningActivityView } from "../api/contracts";
+import { BadgeEarned, useNewBadges } from "../features/badges/Badges";
 import { Icon } from "../ui/Icon";
 import { writeRoute } from "./routes";
 
@@ -65,6 +66,7 @@ export function LearningProgressPill({ apiClient, learnerId }: { apiClient: Stud
   const [celebrate, setCelebrate] = useState<number | null>(null);
   const key = `studydy.level-seen:${learnerId}`;
   const level = activity?.xp.level;
+  const [newBadges, clearBadges] = useNewBadges(activity, learnerId);
   useEffect(() => {
     if (level === undefined) return;
     const seen = seenLevel(key);
@@ -83,5 +85,7 @@ export function LearningProgressPill({ apiClient, learnerId }: { apiClient: Stud
       <span className="header-xp"><Icon name="sparkle" size={15} />{xp.total} XP</span>
     </button>
     {celebrate !== null && <LevelUp level={celebrate} onClose={() => setCelebrate(null)} />}
+    {/* 同時升級與取得徽章時，先看升級，關閉後再顯示徽章。 */}
+    {celebrate === null && newBadges.length > 0 && <BadgeEarned badges={newBadges} onClose={clearBadges} />}
   </>;
 }

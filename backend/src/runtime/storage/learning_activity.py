@@ -1,7 +1,7 @@
 """學習活動：由作答、概念卡複習與 Podcast 收聽紀錄即時彙總，以台灣日期為界。
 
-XP、等級、連續天數與今日任務都從既有紀錄推導，不另存累計點數或任務狀態
-（規則 xp-rules/v1，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
+XP、等級、連續天數、今日任務與徽章都從既有紀錄推導，不另存累計點數、任務或
+徽章狀態（規則 xp-rules/v1 與 badge-rules/v1，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
 推導結果隨之改變；沒有紀錄的過去活動不補算。
 """
 
@@ -20,6 +20,21 @@ XP_LISTEN_STEP, XP_LISTEN_SECONDS, XP_LISTEN_DAILY_CAP = 5, 300, 60
 # 當天實際收聽滿 1 分鐘才算當天有學習活動。
 ACTIVE_LISTEN_SECONDS = 60
 NEW_CARD_QUEST = 5
+
+BADGE_RULE_VERSION = "badge-rules/v1"
+# 徽章依顯示順序列出：(代號, 計量, 門檻)。計量見 _badge_metrics；修改時一併更新版本字串與文件。
+BADGES = (
+    ("first_answer", "answers", 1),
+    ("answers_100", "answers", 100),
+    ("first_concept", "concepts", 1),
+    ("concepts_25", "concepts", 25),
+    ("first_material", "materials", 1),
+    ("cards_100", "card_reviews", 100),
+    ("listen_30_minutes", "listened_minutes", 30),
+    ("streak_3", "streak", 3),
+    ("streak_7", "streak", 7),
+    ("level_5", "level", 5),
+)
 
 
 def level_for(total):
@@ -43,6 +58,66 @@ def streak_days(active, today):
         streak += 1
         cursor -= timedelta(days=1)
     return streak
+
+
+def reached_on(per_day, target):
+    """依日期累加，回傳累計第一次達到 target 的日期；沒有達到回傳 None。"""
+    total = 0
+    for day in sorted(per_day):
+        total += per_day[day]
+        if total >= target:
+            return day
+    return None
+
+
+def run_reached_on(active, length):
+    """回傳第一次連續 length 天有學習活動的那一天；沒有達到回傳 None。"""
+    run, previous = 0, None
+    for day in sorted(active):
+        run = run + 1 if previous is not None and day - previous == timedelta(days=1) else 1
+        previous = day
+        if run >= length:
+            return day
+    return None
+
+
+def xp_threshold(level):
+    """到達第 level 級所需的總 XP（第 n 級升到 n+1 需 100×n）。"""
+    return sum(100 * n for n in range(1, level))
+
+
+def derive_badges(*, answers, concepts, materials, card_reviews, listening, xp, active, streak, level):
+    """由每日紀錄推導徽章（規則 badge-rules/v1）。
+
+    answers／concepts／materials／card_reviews／listening（秒）／xp 皆為 {台灣日期: 當天數量}；
+    active 為有學習活動的日期集合。進度一律來自這些紀錄：累計型徽章的取得日期是累計
+    第一次達標的那天，連續天數是第一次連續達標的那天，等級是累計 XP 第一次達到門檻的
+    那天；未取得的連續天數徽章以目前連續天數作為進度。
+    """
+    listened = sum(listening.values())
+    metrics = {
+        "answers": (sum(answers.values()), lambda target: reached_on(answers, target)),
+        "concepts": (sum(concepts.values()), lambda target: reached_on(concepts, target)),
+        "materials": (sum(materials.values()), lambda target: reached_on(materials, target)),
+        "card_reviews": (sum(card_reviews.values()), lambda target: reached_on(card_reviews, target)),
+        "listened_minutes": (listened // 60, lambda target: reached_on(listening, target * 60)),
+        "level": (level, lambda target: reached_on(xp, xp_threshold(target))),
+    }
+    items = []
+    for badge_id, metric, target in BADGES:
+        if metric == "streak":
+            earned_on = run_reached_on(active, target)
+            earned = earned_on is not None
+            value = target if earned else streak
+        else:
+            value, dated = metrics[metric]
+            earned = value >= target
+            earned_on = dated(target) if earned else None
+        items.append({
+            "badge_id": badge_id, "earned": earned, "earned_on": earned_on,
+            "progress": min(value, target), "target": target,
+        })
+    return {"rule_version": BADGE_RULE_VERSION, "items": items}
 
 
 def first_completions(plan, events, unavailable):
@@ -120,6 +195,23 @@ def _concept_completions(session, owner, zone):
                 earliest[key] = at
     days = {}
     for at in earliest.values():
+        day = at.astimezone(zone).date()
+        days[day] = days.get(day, 0) + 1
+    return days
+
+
+def _material_completions(session, owner, zone):
+    """每份未刪除教材第一次有學習版本完成（study session completed）的台灣日期。"""
+    days = {}
+    for at in session.execute(text(
+        """
+        SELECT min(s.completed_at) FROM study_sessions s
+        JOIN materials m ON m.material_id = s.material_id AND m.learner_id = s.learner_id
+        WHERE s.learner_id = :owner AND s.status = 'completed' AND m.discard_requested_at IS NULL
+        GROUP BY s.material_id
+        """
+    ), {"owner": owner}).scalars().all():
+        # completed 狀態必有完成時間（資料表約束），因此取得日期一定可推導。
         day = at.astimezone(zone).date()
         days[day] = days.get(day, 0) + 1
     return days
@@ -301,6 +393,24 @@ def learning_activity(session, owner, *, now=None):
         + cards.get(today, (0, 0))[1] * XP_CARD + listening_xp(listening.get(today, 0))
     )
     level, level_xp, level_target = level_for(total)
+    daily_xp = {}
+    for day, value in (
+        list(answer_xp.items())
+        + [(day, count * XP_CONCEPT) for day, count in concepts.items()]
+        + [(day, distinct * XP_CARD) for day, (_, distinct) in cards.items()]
+        + [(day, listening_xp(seconds)) for day, seconds in listening.items()]
+    ):
+        daily_xp[day] = daily_xp.get(day, 0) + value
+    materials = _material_completions(session, owner, zone)
+    streak = streak_days(active, today)
+    badges = derive_badges(
+        answers={day: count for day, (count, _) in answers.items()},
+        concepts=concepts,
+        materials={day: count for day, count in materials.items() if day <= today},
+        card_reviews={day: reviews for day, (reviews, _) in cards.items()},
+        listening=listening, xp=daily_xp, active=active,
+        streak=streak, level=level,
+    )
     monday = today - timedelta(days=today.weekday())
     week = []
     for offset in range(7):
@@ -325,7 +435,7 @@ def learning_activity(session, owner, *, now=None):
         "timezone": TIMEZONE,
         "rule_version": RULE_VERSION,
         "today": today,
-        "streak_days": streak_days(active, today),
+        "streak_days": streak,
         "active_today": today in active,
         "week": week,
         "total_answers": sum(a for a, _ in answers.values()),
@@ -338,4 +448,5 @@ def learning_activity(session, owner, *, now=None):
             {"material_id": None, "study_session_id": None, "podcast_id": None, "episode_index": None, **quest}
             for quest in quests
         ],
+        "badges": badges,
     }

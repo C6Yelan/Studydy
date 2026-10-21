@@ -1,0 +1,236 @@
+/* 徽章：自繪獎章，取得時依類別上色，未取得為灰階並顯示鎖頭 */
+.badge-medal {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  --badge-main: var(--studydy-blue);
+  --badge-soft: var(--studydy-blue-soft);
+}
+.badge-medal > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.badge-medal.is-green { --badge-main: var(--success); --badge-soft: var(--success-soft); }
+.badge-medal.is-amber { --badge-main: var(--amber-deep); --badge-soft: var(--warning-soft); }
+.badge-medal.is-violet { --badge-main: var(--violet); --badge-soft: var(--violet-soft); }
+.badge-medal.is-sea { --badge-main: #1f9fd6; --badge-soft: #e2f5fd; }
+.badge-medal.is-coral { --badge-main: var(--coral); --badge-soft: var(--error-soft); }
+.badge-medal.is-gold { --badge-main: var(--warning); --badge-soft: var(--warning-soft); }
+.badge-medal.is-locked {
+  --badge-main: #c3cbdb;
+  --badge-soft: var(--page-cool);
+}
+.badge-rim {
+  fill: var(--badge-main);
+}
+.badge-face {
+  fill: var(--badge-soft);
+  stroke: #fff;
+  stroke-width: 3;
+}
+.badge-ribbon {
+  fill: var(--badge-main);
+  opacity: 0.75;
+}
+.badge-star {
+  fill: var(--warning);
+  stroke: #fff;
+  stroke-width: 1.2;
+}
+.badge-medal.is-locked .badge-star {
+  fill: #c3cbdb;
+}
+.badge-glyph {
+  position: relative;
+  display: grid;
+  margin-top: -9%;
+  color: var(--badge-main);
+}
+.badge-medal.is-locked .badge-glyph {
+  color: var(--text-muted);
+}
+
+/* 首頁徽章卡 */
+.dashboard-badges header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.dashboard-badges header .text-button {
+  margin-left: auto;
+}
+.badge-count {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--warning-soft);
+  color: var(--amber-deep);
+  font-size: 13px;
+  font-weight: 900;
+}
+.badge-shelf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.badge-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.badge-next {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 18px;
+  background: var(--page-cool);
+}
+.badge-next-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.badge-next small {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.badge-progress {
+  display: grid;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.badge-progress-bar {
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+.badge-progress-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--warning), var(--amber-deep));
+}
+
+/* 徽章牆 */
+.badge-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(720px, 88dvh);
+}
+.badge-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 16px 12px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.badge-dialog-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.badge-dialog-head small {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+.badge-wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 16px 20px;
+  overflow-y: auto;
+  list-style: none;
+}
+.badge-wall li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+.badge-wall li.is-earned {
+  border-color: transparent;
+  background: var(--warning-soft);
+}
+.badge-wall-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.badge-wall-text small {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.badge-earned-on {
+  color: var(--amber-deep);
+  font-size: 12px;
+  font-weight: 800;
+}
+.badge-wall .badge-progress {
+  margin-top: 4px;
+}
+.badge-note {
+  margin: 0;
+  padding: 0 24px 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* 取得徽章的一次性提示（沿用升級動畫外框） */
+.badge-earned-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin: 4px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.badge-earned-list li {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  max-width: 140px;
+}
+.badge-earned-list b {
+  color: var(--text-primary);
+  font-size: 17px;
+}
+.badge-earned-list small {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.badge-earned .badge-medal {
+  animation: badge-pop 0.6s 0.15s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+@keyframes badge-pop {
+  from { opacity: 0; transform: scale(0.4) rotate(-20deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge-earned .badge-medal {
+    animation: none;
+  }
+}
+@media (max-width: 520px) {
+  .badge-wall {
+    grid-template-columns: 1fr;
+    padding: 12px 16px;
+  }
+}

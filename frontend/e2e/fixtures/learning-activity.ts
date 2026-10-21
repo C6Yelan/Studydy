@@ -6,9 +6,18 @@ type Quest = {
   material_id?: string | null; study_session_id?: string | null; podcast_id?: string | null; episode_index?: number | null;
 };
 
+type Badge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
+// badge-rules/v1 的代號與門檻；預設全部未取得，等級徽章進度為目前等級。
+const badgeTargets: [string, number][] = [
+  ["first_answer", 1], ["answers_100", 100], ["first_concept", 1], ["concepts_25", 25], ["first_material", 1],
+  ["cards_100", 100], ["listen_30_minutes", 30], ["streak_3", 3], ["streak_7", 7], ["level_5", 5],
+];
+
 export function learningActivity(options: {
   today?: string; streak?: number; days?: Partial<Day>[]; total?: number; todayXp?: number; level?: [number, number, number];
   sources?: { answers: number; concepts: number; cards: number; podcast: number }; quests?: Quest[];
+  // 指定徽章的進度；有 earned_on 即視為已取得（進度等於門檻）。
+  badges?: Record<string, { progress?: number; earned_on?: string | null; earned?: boolean }>;
 } = {}) {
   const today = options.today ?? "2026-10-21";
   const monday = new Date(`${today}T00:00:00Z`);
@@ -31,6 +40,16 @@ export function learningActivity(options: {
     xp: {
       total: options.total ?? 0, today: options.todayXp ?? 0, level, level_xp: levelXp, level_target: levelTarget,
       sources: options.sources ?? { answers: options.total ?? 0, concepts: 0, cards: 0, podcast: 0 },
+    },
+    badges: {
+      rule_version: "badge-rules/v1",
+      items: badgeTargets.map(([badge_id, target]): Badge => {
+        const custom = options.badges?.[badge_id];
+        // 等級徽章預設跟隨目前等級（達到第 5 級即已取得）。
+        const earned = custom?.earned ?? (!!custom?.earned_on || (badge_id === "level_5" && level >= target));
+        const progress = earned ? target : custom?.progress ?? (badge_id === "level_5" ? level : 0);
+        return { badge_id, earned, earned_on: earned ? custom?.earned_on ?? null : null, progress, target };
+      }),
     },
     quests: (options.quests ?? []).map((quest) => ({
       material_id: null, study_session_id: null, podcast_id: null, episode_index: null, ...quest,

@@ -30,6 +30,9 @@ const responses: Record<string, unknown> = {
       { kind: "continue_study", progress: 1, target: 1, done: true },
       { kind: "finish_podcast_episode", progress: 0, target: 1, done: false },
     ],
+    // 多個已取得徽章與長條件的下一個徽章，一併檢查徽章卡不溢出。
+    badges: Object.fromEntries(["first_answer", "answers_100", "first_concept", "concepts_25", "first_material", "cards_100", "streak_3", "streak_7"]
+      .map((id) => [id, { earned_on: "2026-10-16" }])),
   }),
 };
 
@@ -61,6 +64,7 @@ for (const width of [2560, 1920, 1680, 1536, 1440, 1366, 1281, 1100, 1024, 900, 
         await expect(page.getByRole("region", { name: "學習總覽" })).toBeVisible();
         await expect(page.locator(".dashboard-stats")).toHaveAttribute("aria-busy", "false");
         await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
+        await expect(page.getByRole("region", { name: "我的徽章" }).locator(".badge-count")).toHaveText("9 / 10");
         // 頁首學習進度與品牌、帳號工具不重疊，也不超出視窗。
         const pill = page.getByRole("button", { name: "連續學習 128 天，第 15 級，累計 12450 XP" });
         await expect(pill).toBeVisible();

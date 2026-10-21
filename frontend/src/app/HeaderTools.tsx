@@ -18,7 +18,7 @@ export function useProfile(apiClient: StudydyApiClient): LearnerProfile | null {
   return profile;
 }
 
-function Modal({ label, open, onClose, className, children }: {
+export function Modal({ label, open, onClose, className, children }: {
   label: string; open: boolean; onClose: () => void; className: string; children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);

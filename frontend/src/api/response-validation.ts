@@ -706,10 +706,20 @@ function learningQuest(value: unknown): boolean {
     && (quest.episode_index === null || count(quest.episode_index));
 }
 
+function learningBadge(value: unknown): boolean {
+  const badge = object(value);
+  return !!badge && typeof badge.badge_id === "string" && typeof badge.earned === "boolean"
+    && count(badge.progress) && count(badge.target) && Number(badge.target) > 0 && Number(badge.progress) <= Number(badge.target)
+    && (badge.earned_on === null || (typeof badge.earned_on === "string" && isoDate.test(badge.earned_on)))
+    // 取得與否須和進度一致；未取得的徽章不帶日期。
+    && badge.earned === (badge.progress === badge.target) && (badge.earned || badge.earned_on === null);
+}
+
 export function learningActivity(value: unknown): value is LearningActivityView {
   const item = object(value);
   const xp = object(item?.xp);
   const sources = object(xp?.sources);
+  const badges = object(item?.badges);
   return !!item && item.schema === "learning-activity/v2" && item.timezone === "Asia/Taipei"
     && item.rule_version === "xp-rules/v1"
     && typeof item.today === "string" && isoDate.test(item.today)
@@ -725,7 +735,8 @@ export function learningActivity(value: unknown): value is LearningActivityView 
     && Number.isInteger(xp.level) && Number(xp.level) >= 1 && Number(xp.level_xp) < Number(xp.level_target)
     && Number(xp.today) <= Number(xp.total)
     && ["answers", "concepts", "cards", "podcast"].every(key => count(sources[key]))
-    && Array.isArray(item.quests) && item.quests.every(learningQuest);
+    && Array.isArray(item.quests) && item.quests.every(learningQuest)
+    && !!badges && badges.rule_version === "badge-rules/v1" && Array.isArray(badges.items) && badges.items.every(learningBadge);
 }
 
 export function podcastProgress(value: unknown): value is PodcastProgressView {

@@ -1383,12 +1383,16 @@ function activityView(change = () => undefined) {
     streak_days: 1, active_today: true, week, total_answers: 4, total_correct: 3,
     xp: { total: 120, today: 40, level: 2, level_xp: 20, level_target: 200, sources: { answers: 33, concepts: 30, cards: 4, podcast: 5 } },
     quests: [{ kind: "continue_study", progress: 1, target: 1, done: true, material_id: materialId, study_session_id: sessionId, podcast_id: null, episode_index: null }],
+    badges: { rule_version: "badge-rules/v1", items: [
+      { badge_id: "first_answer", earned: true, earned_on: "2026-10-16", progress: 1, target: 1 },
+      { badge_id: "answers_100", earned: false, earned_on: null, progress: 4, target: 100 },
+    ] },
   };
   change(value);
   return value;
 }
 
-test("learning activity requires XP, level and quests from the v2 rules", async () => {
+test("learning activity requires XP, level, quests and badges from the v2 rules", async () => {
   const read = (value) => new StudydyApiClient(async () => Response.json(value)).getLearningActivity();
   assert.equal((await read(activityView())).xp.level, 2);
   for (const change of [
@@ -1401,6 +1405,13 @@ test("learning activity requires XP, level and quests from the v2 rules", async 
     (value) => { value.quests[0].kind = "badge"; },
     (value) => { value.quests[0].progress = 2; },
     (value) => { value.quests[0].study_session_id = "x"; },
+    (value) => { delete value.badges; },
+    (value) => { value.badges.rule_version = "badge-rules/v2"; },
+    (value) => { value.badges.items[1].progress = 101; },
+    // 取得與進度不一致、未取得卻有日期、日期格式錯誤都不採用。
+    (value) => { value.badges.items[1].earned = true; },
+    (value) => { value.badges.items[1].earned_on = "2026-10-20"; },
+    (value) => { value.badges.items[0].earned_on = "10/16"; },
   ]) await assert.rejects(read(activityView(change)), ApiClientError);
 });
 

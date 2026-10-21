@@ -357,11 +357,68 @@ test("level-up plays once when the level is above the last level seen in this br
   await expect(page.getByRole("status").filter({ hasText: "升級了！" })).toHaveCount(0);
 });
 
+test("badge shelf and wall show earned dates and real progress", async ({ page }) => {
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    badges: {
+      first_answer: { earned_on: "2026-10-16" }, streak_3: { earned: true }, answers_100: { progress: 42 },
+      // 前端不認得的代號不顯示。
+      future_badge: { earned_on: "2026-10-20" },
+    },
+  }) }));
+  await page.goto("/");
+  const shelf = page.getByRole("region", { name: "我的徽章" });
+  await expect(shelf.locator(".badge-count")).toHaveText("2 / 10");
+  await expect(shelf.getByRole("list", { name: "已取得的徽章" }).getByRole("listitem")).toHaveText(["初次作答", "三日不間斷"]);
+  // 下一個徽章取進度比例最高的未取得徽章（42/100 高於第 1 級 / 5）。
+  await expect(shelf.locator(".badge-next")).toContainText("百題挑戰");
+  await expect(shelf.locator(".badge-next").getByRole("progressbar")).toHaveAttribute("aria-valuetext", "42 / 100 題");
+  await shelf.getByRole("button", { name: "全部徽章" }).click();
+  const wall = page.getByRole("dialog", { name: "我的徽章" });
+  await expect(wall.getByText("已取得 2 / 10 個")).toBeVisible();
+  const items = wall.locator(".badge-wall > li");
+  await expect(items).toHaveCount(10);
+  await expect(items.nth(0)).toContainText("2026/10/16 取得");
+  await expect(items.filter({ hasText: "三日不間斷" })).toContainText("已取得");
+  await expect(items.filter({ hasText: "進階探險家" }).getByRole("progressbar")).toHaveAttribute("aria-valuetext", "目前第 1 級");
+  await expect(items.filter({ hasText: "用耳朵學習" }).getByRole("progressbar")).toHaveAttribute("aria-valuetext", "0 / 30 分鐘");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const box = await wall.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.keyboard.press("Escape");
+  await expect(wall).toBeHidden();
+  await expect(shelf.getByRole("button", { name: "全部徽章" })).toBeFocused();
+});
+
+test("new badge notice shows once per badge after the first visit in this browser", async ({ page }) => {
+  let earned: Record<string, { earned_on: string }> = { first_answer: { earned_on: "2026-10-16" } };
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ badges: earned }) }));
+  const key = `studydy.badges-seen:${learnerId}`;
+  // 第一次在此瀏覽器讀到時只記下既有徽章，不提示。
+  await page.goto("/");
+  await expect(page.getByRole("region", { name: "我的徽章" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "獲得新徽章！" })).toHaveCount(0);
+  expect(JSON.parse(await page.evaluate((name) => localStorage.getItem(name) ?? "null", key))).toEqual(["first_answer"]);
+  earned = { ...earned, first_concept: { earned_on: "2026-10-22" } };
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  const notice = page.getByRole("status").filter({ hasText: "獲得新徽章！" });
+  await expect(notice).toContainText("點亮概念");
+  await expect(notice).not.toContainText("初次作答");
+  await expect(notice.locator(".badge-medal")).toHaveCSS("animation-name", "none");
+  await notice.getByRole("button", { name: "太好了" }).click();
+  await expect(notice).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("region", { name: "我的徽章" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "獲得新徽章！" })).toHaveCount(0);
+});
+
 test("dashboard hides the week rhythm when learning activity is unavailable", async ({ page }) => {
   await mockLibrary(page, () => [withStudy()]);
   await page.goto("/");
   await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "本週學習節奏" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "今日任務" })).toHaveCount(0);
-  await expect(page.locator(".dashboard-level, .header-progress")).toHaveCount(0);
+  await expect(page.locator(".dashboard-level, .dashboard-badges, .header-progress")).toHaveCount(0);
 });

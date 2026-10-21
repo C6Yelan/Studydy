@@ -261,6 +261,11 @@ export type LearningXp = {
   total: number; today: number; level: number; level_xp: number; level_target: number;
   sources: { answers: number; concepts: number; cards: number; podcast: number };
 };
+// 徽章（規則 badge-rules/v1）只由真實紀錄推導；未知代號由畫面忽略。
+export type LearningBadgeId =
+  | "first_answer" | "answers_100" | "first_concept" | "concepts_25" | "first_material"
+  | "cards_100" | "listen_30_minutes" | "streak_3" | "streak_7" | "level_5";
+export type LearningBadge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
 export type LearningActivityView = {
   schema: "learning-activity/v2"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v1"; today: string;
   streak_days: number; active_today: boolean;
@@ -268,6 +273,7 @@ export type LearningActivityView = {
   total_answers: number; total_correct: number;
   xp: LearningXp;
   quests: LearningQuest[];
+  badges: { rule_version: "badge-rules/v1"; items: LearningBadge[] };
 };
 
 export type PodcastProgressView = {
