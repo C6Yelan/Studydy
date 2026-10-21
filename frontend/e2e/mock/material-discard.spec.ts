@@ -80,6 +80,8 @@ test.beforeEach(async ({ page }) => {
         },
       });
     }
+    // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
+    if (path === "/v1/profile") return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
     throw new Error(`Unexpected material management request: ${route.request().method()} ${path}`);
   });
 });
@@ -430,6 +432,11 @@ for (const touch of [false, true])
       };
       await expect(cards).toHaveCount(2);
       const before = await first.boundingBox();
+      // 頁首空白處取品牌與右側按鈕之間的中點；觸控點擊會吸附到附近的按鈕。
+      const [brand, controls, header] = await Promise.all(
+        [".brand", ".account-controls", ".app-header"].map((selector) => page.locator(selector).boundingBox()),
+      );
+      const headerGap = { x: (brand!.x + brand!.width + controls!.x) / 2 - header!.x, y: 4 };
       const closed = async () => {
         await expect(menu).toHaveJSProperty("open", false);
         await expect(menu.locator("button").first()).toBeHidden();
@@ -439,7 +446,7 @@ for (const touch of [false, true])
         { locator: first.getByRole("heading"), position: { x: 5, y: 5 } },
         { locator: second.getByRole("heading") },
         { locator: page.getByRole("searchbox") },
-        { locator: page.locator(".app-header"), position: { x: 200, y: 5 } },
+        { locator: page.locator(".app-header"), position: headerGap },
       ]) {
         await activate(trigger);
         await expect(menu).toHaveJSProperty("open", true);

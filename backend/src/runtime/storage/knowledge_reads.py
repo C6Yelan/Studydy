@@ -611,3 +611,92 @@ def regions(session, owner, material_id, revision):
         "basis": basis,
         "regions": grouped,
     }
+
+
+LIBRARY_SEARCH_CONCEPTS = 30
+LIBRARY_SEARCH_MATERIALS = 10
+
+
+def search_library(session, owner, query):
+    """跨教材查教材名稱與各教材目前版本的概念名稱／別名。
+
+    只讀每份教材一筆的 outline 索引，不掃描重點全文，千頁教材也能即時回應；
+    概念的完整內容與來源仍由各教材的讀取 API 核對後提供。
+    """
+    query = query.strip()
+    if not query:
+        raise ValueError("REQUEST_INVALID")
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    values = {
+        "owner": owner,
+        "exact": query.lower(),
+        "prefix": escaped + "%",
+        "pattern": "%" + escaped + "%",
+    }
+    materials = session.execute(
+        text(
+            """
+            SELECT m.material_id, m.display_name, k.run_id, k.structure_revision
+            FROM materials m
+            LEFT JOIN knowledge_structures k ON k.learner_id = m.learner_id
+              AND k.material_id = m.material_id AND k.structure_revision = m.head_revision
+            WHERE m.learner_id = :owner AND m.discard_requested_at IS NULL
+              AND m.display_name ILIKE :pattern
+            ORDER BY m.created_at DESC
+            LIMIT :limit
+            """
+        ),
+        {**values, "limit": LIBRARY_SEARCH_MATERIALS},
+    ).all()
+    concepts = session.execute(
+        text(
+            """
+            SELECT m.material_id, m.display_name, k.run_id, k.structure_revision,
+                   c.value->>'concept_id', c.value->>'label', (c.value->>'claim_count')::int,
+                   CASE
+                     WHEN lower(c.value->>'label') = :exact THEN 0
+                     WHEN c.value->>'label' ILIKE :prefix THEN 1
+                     WHEN c.value->>'label' ILIKE :pattern THEN 2
+                     ELSE 3
+                   END AS rank
+            FROM materials m
+            JOIN knowledge_structures k ON k.learner_id = m.learner_id
+              AND k.material_id = m.material_id AND k.structure_revision = m.head_revision
+            JOIN knowledge_read_indexes r ON r.learner_id = m.learner_id
+              AND r.material_id = m.material_id AND r.structure_revision = m.head_revision
+            CROSS JOIN LATERAL jsonb_array_elements(r.outline->'concepts') WITH ORDINALITY AS c(value, position)
+            WHERE m.learner_id = :owner AND m.discard_requested_at IS NULL
+              AND (c.value->>'label' ILIKE :pattern OR EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(c.value->'aliases') a WHERE a ILIKE :pattern))
+            ORDER BY rank, m.created_at DESC, c.position
+            LIMIT :limit
+            """
+        ),
+        {**values, "limit": LIBRARY_SEARCH_CONCEPTS + 1},
+    ).all()
+    return {
+        "schema": "library-search/v1",
+        "query": query,
+        "materials": [
+            {
+                "material_id": material_id,
+                "display_name": name,
+                "run_id": run_id,
+                "knowledge_structure_revision": revision,
+            }
+            for material_id, name, run_id, revision in materials
+        ],
+        "concepts": [
+            {
+                "material_id": row[0],
+                "material_name": row[1],
+                "run_id": row[2],
+                "knowledge_structure_revision": row[3],
+                "concept_id": row[4],
+                "label": row[5],
+                "claim_count": row[6],
+            }
+            for row in concepts[:LIBRARY_SEARCH_CONCEPTS]
+        ],
+        "concepts_truncated": len(concepts) > LIBRARY_SEARCH_CONCEPTS,
+    }

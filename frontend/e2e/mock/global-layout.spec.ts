@@ -14,6 +14,8 @@ const responses: Record<string, unknown> = {
   "/v1/materials": { schema: "material-library/v1", materials: [] },
   "/v1/card-sets": { schema: "card-set-list/v1", card_sets: [] },
   "/v1/podcasts": { schema: "podcast-list/v1", podcasts: [] },
+  // 較長名稱，檢查頁首在各寬度不溢出。
+  "/v1/profile": { schema: "learner-profile/v1", display_name: "林以安同學的學習帳號" },
   // 有作答紀錄的本週節奏，讓各寬度一併檢查首頁右欄不溢出。
   "/v1/learning-activity": {
     schema: "learning-activity/v1", timezone: "Asia/Taipei", today: "2026-10-21",

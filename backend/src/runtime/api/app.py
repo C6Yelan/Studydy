@@ -26,7 +26,7 @@ from document_normalization.converter import (
     normalizer_available,
 )
 from learning_adaptation import assessment_state
-from .. import card_sets
+from .. import card_sets, learner_profile
 from .research_routes import install as install_research
 from .topic_routes import install as install_topics
 from .scene_routes import install as install_scenes
@@ -76,6 +76,8 @@ from .models import (
     ApiErrorView,
     EvidenceSourceView,
     LearnerIdentityView,
+    LearnerProfileUpdate,
+    LearnerProfileView,
     MaterialDiscardView,
     MaterialDraftCreate,
     MaterialDraftView,
@@ -666,6 +668,30 @@ def create_app(settings: ApiSettings) -> FastAPI:
         request_context.require_query(request, set())
         return LearnerIdentityView(
             learner_id=request_context.trusted_learner(request, settings).learner_id
+        )
+
+    @app.get(
+        "/v1/profile",
+        response_model=LearnerProfileView,
+        operation_id="readProfile",
+        tags=["session"],
+    )
+    def read_profile_route(request: Request):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        return learner_profile.read_profile(learner.learner_id, dsn=settings.dsn)
+
+    @app.post(
+        "/v1/profile",
+        response_model=LearnerProfileView,
+        operation_id="updateProfile",
+        tags=["session"],
+    )
+    def update_profile_route(request: Request, body: LearnerProfileUpdate):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        return learner_profile.update_profile(
+            learner.learner_id, body.display_name, dsn=settings.dsn
         )
 
     @app.post(

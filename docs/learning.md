@@ -38,6 +38,12 @@ NO_SAFE_ASSESSMENT 或部分發布時省略的重點是系統能力限制，不�
 
 `GET .../knowledge-structures/{revision}/regions` 把概念分成地圖區域，只作呈現用途，不改寫知識結構或 hash。多來源教材依每個概念重點 Evidence 最常引用的來源檔分區（區名為去副檔名的檔名）；只有一個主要來源時依學習順序切成至多四段，`basis` 標為 `learning_order`，畫面註明「非教材章節」。前端只在區域剛好涵蓋地圖全部概念時分區，否則維持不分區的導覽。
 
+## 個人名稱與全站搜尋
+
+`GET／POST /v1/profile` 讀寫學生自己的顯示名稱（migration 0008 新增的 nullable `learners.display_name`）。名稱經 NFC 正規化並去除前後空白，空字串視為清除；限 20 字、不得含控制字元或換行，DB 約束同步把關。名稱只顯示在頁首與首頁問候語，不進入 `learner-identity/v1`，未設定時沿用原問候。
+
+`GET /v1/search?q=` 只查自己未刪除教材的名稱，以及各教材目前版本（head revision）的概念名稱與別名；資料來自每份教材一筆的 outline 讀取索引，不掃描重點全文。排序依完全相符、開頭相符、名稱包含、別名相符；概念最多 30 筆並以 `concepts_truncated` 標示。選取概念後開啟該教材地圖並直接顯示概念詳情；重點全文搜尋仍在各教材地圖內進行。
+
 ## 恢復與版本承接
 
 Progress 與 resume 使用同一 DB snapshot，核對 session、run、知識結構版本、題組成員與事件序號。URL 可定位原題組；讀取、刷新與重新登入不產生題目或答案事件。

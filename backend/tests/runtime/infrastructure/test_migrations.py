@@ -3,7 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import shutil
 from migration_fixtures import create_legacy_database, apply_legacy_data_case
-from runtime.storage.baseline import check_or_adopt, read_marker
+from runtime.storage.baseline import BASELINE_VERSIONS, check_or_adopt, read_marker
 from uuid import uuid4
 
 import psycopg
@@ -46,10 +46,12 @@ def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_
             "SELECT * FROM schema_migrations ORDER BY version"
         ).fetchall()
     assert check_or_adopt(clean_database_dsn, load_migrations(), artifacts, apply=True)['applied']
+    # 接軌後只套用 baseline 之後追加的版本，再次執行無待套用。
+    assert run_migrations(clean_database_dsn) == tuple(m.version for m in load_migrations()[BASELINE_VERSIONS:])
     assert run_migrations(clean_database_dsn) == ()
     with psycopg.connect(clean_database_dsn) as connection:
         assert connection.execute(
-            "SELECT to_jsonb(l), to_jsonb(s) "
+            "SELECT to_jsonb(l) - 'display_name', to_jsonb(s) "
             "FROM learners l JOIN learner_sessions s USING (learner_id)"
         ).fetchall() == before
         assert read_marker(connection)[3] == [[v, h, t.isoformat()] for v, h, t in ledger]

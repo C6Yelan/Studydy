@@ -24,6 +24,7 @@ from .models import (
     KnowledgeRegionsView,
     KnowledgeSearchView,
     LearningActivityView,
+    LibrarySearchView,
     MapProgressView,
     StudyWorkspaceView,
     AssessmentPlanView,
@@ -71,6 +72,21 @@ def install(app, settings):
             return knowledge_reads.regions(
                 db, learner.learner_id, material_id, structure_revision
             )
+
+    @app.get(
+        "/v1/search",
+        response_model=LibrarySearchView,
+        tags=["review"],
+    )
+    def search_library(
+        request: Request, q: str = Query(min_length=1, max_length=200)
+    ):
+        request_context.require_query(request, {"q"})
+        if not q.strip():
+            raise request_context.ApiFailure("REQUEST_INVALID")
+        learner = request_context.trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            return knowledge_reads.search_library(db, learner.learner_id, q)
 
     @app.get(
         "/v1/learning-activity",

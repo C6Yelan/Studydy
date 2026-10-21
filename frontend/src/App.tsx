@@ -4,6 +4,7 @@ import { ApiClientError, errorMessage, StudydyApiClient } from "./api/client";
 import type { LearnerIdentity } from "./api/contracts";
 import { readSessionHint, saveSessionHint } from "./api/session-hint";
 import { AppShell } from "./app/AppShell";
+import { HeaderTools } from "./app/HeaderTools";
 import { readRoute, writeRoute, type AppRoute } from "./app/routes";
 import { MaterialFlow } from "./features/material-flow/MaterialFlow";
 import { StateView } from "./ui/StateView";
@@ -190,10 +191,13 @@ export default function App() {
     <AppShell
       route={route}
       accountAction={
-        <button className="account-button" type="button" onClick={() => void logout()}>
-          <Icon name="logout" size={18} />
-          登出
-        </button>
+        <>
+          <HeaderTools apiClient={session.api} />
+          <button className="account-button" type="button" onClick={() => void logout()}>
+            <Icon name="logout" size={18} />
+            登出
+          </button>
+        </>
       }
     >
       <MaterialFlow

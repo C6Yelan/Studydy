@@ -234,3 +234,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 在既有正式環境更新五個研究 runtime 檔案：首次閱讀的公開替代版本、PDF 優先及 HTML 正文補救、文字快照，以及保留有限證據的閱讀／涵蓋規則。沿用 0029 的研究準備表，沒有新增 SQL migration；前端、Podcast renderer 與共用依賴沿用原部署。舊工作續接時重核不同政策的涵蓋快取，原檔與已讀引用保留。
 
 本機 `data/deployments/research-quality-20261016T162315Z/` 保存部署前 DB dump、五個 source 的快照／hash、實際映像、必要模型與原文定位證據，以及公開入口驗收。升級後的文字快照需由支援該格式的後端讀取，故採前向修正，不直接切回只識別 PDF 快照的舊程式或覆蓋產品 DB。驗證結果與尚存缺口見 [測試文件](testing.md)。
+
+## 0008 個人顯示名稱（2026-10-21）
+
+0008 只在 `learners` 新增 nullable `display_name` 與 CHECK，不回填、不改寫既有資料；baseline 仍只鎖定 0001–0007，接軌後由啟動流程套用 0008。上線前在正式 DB dump 的一次性副本上執行，30 張業務表資料不變。套用後不能直接重啟只識別 0001–0007 的舊後端，採前向修正；前端可單獨退回。

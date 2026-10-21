@@ -63,6 +63,9 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
       case "/v1/materials":
         return route.fulfill({ json: { schema: "material-library/v1", materials: [] } });
+      // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
+      case "/v1/profile":
+        return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
       default:
         throw new Error(`Unexpected cancellation request: ${request.method()} ${path}`);
     }

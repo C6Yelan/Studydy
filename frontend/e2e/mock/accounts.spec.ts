@@ -64,6 +64,10 @@ test.beforeEach(async ({ page }) => {
       case "/v1/podcasts":
         expect(request.method()).toBe("GET");
         return route.fulfill({ json: { schema: "podcast-list/v1", podcasts: [] } });
+      // 頁首帳號設定與首頁問候；新帳號沒有名稱。
+      case "/v1/profile":
+        expect(request.method()).toBe("GET");
+        return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
       // 首頁「本週學習節奏」；新帳號沒有作答紀錄。
       case "/v1/learning-activity":
         expect(request.method()).toBe("GET");

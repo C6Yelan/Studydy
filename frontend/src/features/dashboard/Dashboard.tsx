@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardSetSummary, LearningActivityView, MaterialLibraryItem, PodcastSummary, StudySessionLink } from "../../api/contracts";
+import { useProfile } from "../../app/HeaderTools";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { ProgressRing } from "../../ui/art/ProgressRing";
@@ -111,6 +112,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   const [cardSets, setCardSets] = useState<CardSetSummary[] | null>(null);
   const [podcasts, setPodcasts] = useState<PodcastSummary[] | null>(null);
   const [activity, setActivity] = useState<LearningActivityView | null>(null);
+  const name = useProfile(apiClient)?.display_name;
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -172,14 +174,17 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   const completedConcepts = [...progress.values()].reduce((sum, item) => sum + item.completed, 0);
   const latestCards = cardSets?.filter((item) => item.card_count !== null).sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   const latestPodcast = podcasts?.filter((item) => item.status === "ready").sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-  const today = new Intl.DateTimeFormat("zh-TW", { weekday: "long", month: "long", day: "numeric" }).format(new Date());
+  const now = new Date();
+  const today = new Intl.DateTimeFormat("zh-TW", { weekday: "long", month: "long", day: "numeric" }).format(now);
+  const hour = now.getHours();
+  const greeting = name ? `${hour >= 5 && hour < 11 ? "早安" : hour >= 11 && hour < 18 ? "午安" : "晚安"}，${name}！` : "歡迎回來！";
 
   return (
     <section className="dashboard">
       <header className="dashboard-greeting">
         <div>
           <p className="eyebrow">{today}</p>
-          <h1>歡迎回來！今天想探索哪座島？</h1>
+          <h1>{greeting}今天想探索哪座島？</h1>
         </div>
         <div className="dashboard-actions">
           <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}><Icon name="sparkle" size={18} />從主題建立教材</button>

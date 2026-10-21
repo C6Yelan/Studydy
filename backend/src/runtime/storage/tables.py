@@ -42,6 +42,8 @@ class Learner(Base):
     )
     email: Mapped[str | None] = mapped_column(Text, unique=True)
     password_hash: Mapped[str | None] = mapped_column(Text)
+    # 只在個人檔案讀寫時載入；登入與 session 解析不需要名稱。
+    display_name: Mapped[str | None] = mapped_column(Text, deferred=True)
 
 
 class LearnerSession(Base):

@@ -22,6 +22,8 @@ import type {
   KnowledgeStructureView,
   KnownApiReasonCode,
   LearnerIdentity,
+  LearnerProfile,
+  LibrarySearchView,
   LearnerProgressView,
   MaterialDiscardView,
   MaterialLibraryItem,
@@ -151,6 +153,9 @@ export class StudydyApiClient {
   private readonly structures = new Map<string, Promise<KnowledgeStructureView>>();
   private readonly outlines = new Map<string, Promise<KnowledgeOutlineView>>();
   private readonly conceptContexts = new Map<string, Promise<KnowledgeConceptsView>>();
+  // 名稱同時顯示在頁首與首頁；同一登入共用一次讀取，儲存後通知訂閱者。
+  private profile: Promise<LearnerProfile> | null = null;
+  private readonly profileListeners = new Set<(profile: LearnerProfile) => void>();
   private readonly pending = new Set<AbortController>();
   private readonly fetchRequest: FetchRequest;
   onSessionExpired: (() => void) | null = null;
@@ -652,6 +657,37 @@ export class StudydyApiClient {
     return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/regions`,
       { method: "GET" }, (value): value is KnowledgeRegionsView => validate.knowledgeRegions(value)
         && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
+  }
+
+  getProfile(): Promise<LearnerProfile> {
+    this.requireActive();
+    if (!this.profile) {
+      const task = this.json("/v1/profile", { method: "GET" }, validate.learnerProfile);
+      this.profile = task;
+      task.catch(() => { if (this.profile === task) this.profile = null; });
+    }
+    return this.profile;
+  }
+
+  async updateProfile(displayName: string | null): Promise<LearnerProfile> {
+    const profile = await this.json("/v1/profile", {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ schema: "learner-profile-update/v1", display_name: displayName }),
+    }, validate.learnerProfile);
+    this.profile = Promise.resolve(profile);
+    for (const listener of this.profileListeners) listener(profile);
+    return profile;
+  }
+
+  onProfileChange(listener: (profile: LearnerProfile) => void): () => void {
+    this.profileListeners.add(listener);
+    return () => { this.profileListeners.delete(listener); };
+  }
+
+  searchLibrary(text: string): Promise<LibrarySearchView> {
+    const query = new URLSearchParams({ q: text });
+    return this.json(`/v1/search?${query}`, { method: "GET" },
+      (value): value is LibrarySearchView => validate.librarySearch(value) && value.query === text.trim());
   }
 
   getLearningActivity(): Promise<LearningActivityView> {

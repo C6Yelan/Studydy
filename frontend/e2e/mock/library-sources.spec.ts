@@ -101,6 +101,9 @@ for (const width of [1536, 390]) {
           return route.fulfill({
             json: { schema: "material-sources/v1", material_id: materialId, sources },
           });
+        // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
+        case "/v1/profile":
+          return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
         default:
           throw new Error(`Unexpected library source request: ${request.method()} ${path}`);
       }

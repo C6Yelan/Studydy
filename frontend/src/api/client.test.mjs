@@ -1276,3 +1276,49 @@ test('on-demand outlines, concepts and workspace enforce material/version/select
   await assert.rejects(client.getKnowledgeOutline(request), error => error.reasonCode === 'SESSION_REQUIRED');
   await assert.rejects(client.getConceptContext(request, [conceptId]), error => error.reasonCode === 'SESSION_REQUIRED');
 });
+
+test("profile is read once per login, updated with Origin and pushed to listeners", async () => {
+  const requests = [];
+  let stored = null;
+  const client = new StudydyApiClient(async (path, init) => {
+    requests.push([path, init.method, init.headers?.Origin ?? null, init.body ?? null]);
+    if (init.method === "POST") stored = JSON.parse(init.body).display_name;
+    return Response.json({ schema: "learner-profile/v1", display_name: stored });
+  });
+  assert.equal((await client.getProfile()).display_name, null);
+  await client.getProfile();
+  assert.equal(requests.length, 1);
+  const seen = [];
+  const stop = client.onProfileChange((profile) => seen.push(profile.display_name));
+  assert.equal((await client.updateProfile("以安")).display_name, "以安");
+  assert.deepEqual(JSON.parse(requests[1][3]), { schema: "learner-profile-update/v1", display_name: "以安" });
+  assert.equal(requests[1][2], globalThis.location?.origin ?? requests[1][2]);
+  assert.equal((await client.getProfile()).display_name, "以安");
+  assert.equal(requests.length, 2);
+  stop();
+  await client.updateProfile(null);
+  assert.deepEqual(seen, ["以安"]);
+  const tooLong = new StudydyApiClient(async () => Response.json({ schema: "learner-profile/v1", display_name: "一".repeat(21) }));
+  await assert.rejects(tooLong.getProfile(), ApiClientError);
+});
+
+test("library search rejects mismatched queries and malformed hits", async () => {
+  const body = (change = () => undefined) => {
+    const value = {
+      schema: "library-search/v1", query: "堆疊", concepts_truncated: false,
+      materials: [{ material_id: materialId, display_name: "資料結構", run_id: null, knowledge_structure_revision: null }],
+      concepts: [{ material_id: materialId, material_name: "資料結構", run_id: runId, knowledge_structure_revision: structureRevision, concept_id: conceptId, label: "堆疊", claim_count: 2 }],
+    };
+    change(value);
+    return value;
+  };
+  const search = (value, text = " 堆疊 ") => new StudydyApiClient(async () => Response.json(value)).searchLibrary(text);
+  assert.equal((await search(body())).concepts[0].label, "堆疊");
+  await assert.rejects(search(body(), "佇列"), ApiClientError);
+  for (const change of [
+    (value) => { value.concepts[0].concept_id = "concept:bad"; },
+    (value) => { value.concepts[0].run_id = null; },
+    (value) => { value.materials[0].run_id = runId; },
+    (value) => { value.concepts[0].claim_count = -1; },
+  ]) await assert.rejects(search(body(change)), ApiClientError);
+});

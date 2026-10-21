@@ -47,6 +47,8 @@ async function setup(page: Page) {
       `Unexpected upload request: ${route.request().method()} ${route.request().url()}`,
     );
   });
+  // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
+  await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } }));
   await page.route("**/v1/session", (route) =>
     route.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }),
   );

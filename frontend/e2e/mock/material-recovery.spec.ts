@@ -72,6 +72,8 @@ test.beforeEach(async ({ page }) => {
   };
   await page.route(/\/v[12]\//, (route) => {
     const path = new URL(route.request().url()).pathname;
+    // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
+    if (path === "/v1/profile") return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
     if (!responses[path])
       throw new Error(`Unexpected recovery request: ${route.request().method()} ${path}`);
     expect(route.request().method()).toBe(path === "/v1/session/refresh" ? "POST" : "GET");

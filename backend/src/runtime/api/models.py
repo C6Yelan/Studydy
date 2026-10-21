@@ -31,6 +31,42 @@ class LearnerIdentityView(_Closed):
     learner_id: UUID
 
 
+class LearnerProfileView(_Closed):
+    schema_: Literal["learner-profile/v1"] = Field(alias="schema")
+    display_name: str | None
+
+
+class LearnerProfileUpdate(_Closed):
+    schema_: Literal["learner-profile-update/v1"] = Field(alias="schema")
+    # 長度與字元在正規化後由 learner_profile 核對；這裡只限制請求大小。
+    display_name: str | None = Field(max_length=200)
+
+
+class LibrarySearchMaterialView(_Closed):
+    material_id: UUID
+    display_name: str
+    run_id: UUID | None
+    knowledge_structure_revision: str | None
+
+
+class LibrarySearchConceptView(_Closed):
+    material_id: UUID
+    material_name: str
+    run_id: UUID
+    knowledge_structure_revision: str
+    concept_id: str
+    label: str
+    claim_count: int
+
+
+class LibrarySearchView(_Closed):
+    schema_: Literal["library-search/v1"] = Field(alias="schema")
+    query: str
+    materials: list[LibrarySearchMaterialView]
+    concepts: list[LibrarySearchConceptView]
+    concepts_truncated: bool
+
+
 class MaterialOutputBindingView(_Closed):
     schema_: Literal["material-run-output-binding/v1"] = Field(alias="schema")
     knowledge_structure_revision: str

@@ -8,9 +8,9 @@ import psycopg
 import pytest
 
 from content_identity import canonical_sha256
-from migration_fixtures import create_legacy_database
+from migration_fixtures import baseline_migrations_dir, create_legacy_database, legacy_account
 from product_fixtures import seed_pdf, _pdf
-from runtime.learner_session import register_account, resolve_session
+from runtime.learner_session import resolve_session
 from runtime.storage import baseline
 from runtime.storage.migrations import load_migrations, run_migrations
 
@@ -21,8 +21,8 @@ def legacy_copy(clean_database_dsn, tmp_path, monkeypatch):
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir(mode=0o700)
     monkeypatch.setenv("STUDYDY_ARTIFACT_ROOT", str(artifacts))
-    account = register_account(
-        "baseline@example.com", "Synthetic baseline password 42", dsn=clean_database_dsn
+    account = legacy_account(
+        clean_database_dsn, "baseline@example.com", "Synthetic baseline password 42"
     )
     seed_pdf(
         account.learner_id, BytesIO(_pdf()), "baseline-source", dsn=clean_database_dsn
@@ -37,7 +37,7 @@ def snapshot(dsn):
         ).fetchall()
 
 
-def test_check_adopt_repeat_and_restore_preserve_existing_data(legacy_copy):
+def test_check_adopt_repeat_and_restore_preserve_existing_data(legacy_copy, tmp_path):
     dsn, artifacts, account = legacy_copy
     before, ledger = snapshot(dsn)
     with pytest.raises(baseline.BaselineError, match="MIGRATION_BASELINE_REQUIRED"):
@@ -49,7 +49,8 @@ def test_check_adopt_repeat_and_restore_preserve_existing_data(legacy_copy):
         assert baseline.read_marker(connection) is None
     adopted = baseline.check_or_adopt(dsn, load_migrations(), artifacts, apply=True)
     assert adopted["applied"] and snapshot(dsn)[0] == before
-    assert run_migrations(dsn) == ()
+    # 只看 baseline 版本時不應再有待套用；之後的 migration 由下一個測試涵蓋。
+    assert run_migrations(dsn, migrations_dir=baseline_migrations_dir(tmp_path)) == ()
     assert baseline.check_or_adopt(dsn, load_migrations(), artifacts, apply=True)[
         "already_adopted"
     ]
@@ -61,14 +62,34 @@ def test_check_adopt_repeat_and_restore_preserve_existing_data(legacy_copy):
     assert resolve_session(account.raw_token, dsn=dsn).learner_id == account.learner_id
 
 
-def test_fresh_schema_matches_independent_legacy_fixture(clean_database_dsn):
-    run_migrations(clean_database_dsn)
+def test_fresh_schema_matches_independent_legacy_fixture(clean_database_dsn, tmp_path):
+    run_migrations(clean_database_dsn, migrations_dir=baseline_migrations_dir(tmp_path))
     with psycopg.connect(clean_database_dsn) as connection:
         assert (
             canonical_sha256(baseline.schema_snapshot(connection))
             == baseline.legacy_manifest()["schema_sha256"]
         )
         assert baseline.read_marker(connection)[2] == "fresh"
+
+
+def test_post_baseline_migrations_apply_after_adoption_and_block_ledger_restore(legacy_copy):
+    dsn, artifacts, account = legacy_copy
+    with psycopg.connect(dsn) as connection:
+        learners = connection.execute("SELECT to_jsonb(l) FROM learners l ORDER BY learner_id").fetchall()
+    baseline.check_or_adopt(dsn, load_migrations(), artifacts, apply=True)
+    later = tuple(m.version for m in load_migrations()[baseline.BASELINE_VERSIONS:])
+    assert later and run_migrations(dsn) == later
+    assert run_migrations(dsn) == ()
+    with psycopg.connect(dsn) as connection:
+        # 新欄位為 NULL，原有帳號欄位不變。
+        assert connection.execute(
+            "SELECT to_jsonb(l) - 'display_name', l.display_name FROM learners l ORDER BY learner_id"
+        ).fetchall() == [(row, None) for (row,) in learners]
+    assert baseline.check_or_adopt(dsn, load_migrations(), artifacts, apply=True)["already_adopted"]
+    assert resolve_session(account.raw_token, dsn=dsn).learner_id == account.learner_id
+    # 套用後續 DDL 後，不能只把帳本退回舊版。
+    with pytest.raises(baseline.BaselineError, match="BASELINE_ROLLBACK_UNAVAILABLE"):
+        baseline.restore_legacy_ledger(dsn, load_migrations())
 
 
 @pytest.mark.parametrize(

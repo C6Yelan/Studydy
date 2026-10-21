@@ -18,6 +18,8 @@ import type {
   EvidenceSourceView,
   KnowledgeStructureView,
   LearnerIdentity,
+  LearnerProfile,
+  LibrarySearchView,
   LearnerProgressView,
   MaterialDiscardView,
   MaterialLibraryItem,
@@ -610,6 +612,30 @@ export function knowledgeSearch(value: unknown): value is KnowledgeSearchView {
   return !!item && item.schema === "knowledge-search/v1" && isUuid(item.material_id)
     && revision(item.knowledge_structure_revision, "knowledge-structure") && strings(item.concept_ids)
     && item.concept_ids.every(id => revision(id, "concept")) && new Set(item.concept_ids).size === item.concept_ids.length;
+}
+
+export function learnerProfile(value: unknown): value is LearnerProfile {
+  const item = object(value);
+  return !!item && item.schema === "learner-profile/v1"
+    && (item.display_name === null || (typeof item.display_name === "string" && item.display_name.length > 0 && [...item.display_name].length <= 20));
+}
+
+export function librarySearch(value: unknown): value is LibrarySearchView {
+  const item = object(value);
+  return !!item && item.schema === "library-search/v1" && typeof item.query === "string"
+    && typeof item.concepts_truncated === "boolean"
+    && Array.isArray(item.materials) && item.materials.every(value => {
+      const m = object(value);
+      return !!m && isUuid(m.material_id) && typeof m.display_name === "string"
+        && ((m.run_id === null && m.knowledge_structure_revision === null)
+          || (isUuid(m.run_id) && revision(m.knowledge_structure_revision, "knowledge-structure")));
+    })
+    && Array.isArray(item.concepts) && item.concepts.every(value => {
+      const c = object(value);
+      return !!c && isUuid(c.material_id) && typeof c.material_name === "string" && isUuid(c.run_id)
+        && revision(c.knowledge_structure_revision, "knowledge-structure") && revision(c.concept_id, "concept")
+        && typeof c.label === "string" && c.label.length > 0 && count(c.claim_count);
+    });
 }
 
 export function knowledgeRegions(value: unknown): value is KnowledgeRegionsView {

@@ -969,6 +969,20 @@ export function KnowledgeMapWorkspace({
     return () => { cancelled = true; };
   }, [apiClient, view.material_id, view.knowledge_structure_revision]);
   const regions = useMemo(() => mapRegions(view, regionsView), [view, regionsView]);
+  // 全站搜尋選到同一張地圖的概念時，地圖不會重新掛載；改由 popstate 開啟該概念。
+  const openFromSearch = useRef<(id: string) => void>(() => undefined);
+  const handledSearchFocus = useRef<unknown>(window.history.state?.searchFocus?.at);
+  useEffect(() => {
+    const onNavigate = () => {
+      const focus = window.history.state?.searchFocus;
+      if (!focus || focus.revision !== view.knowledge_structure_revision || focus.at === handledSearchFocus.current) return;
+      if (!view.concepts.some((concept) => concept.concept_id === focus.concept)) return;
+      handledSearchFocus.current = focus.at;
+      openFromSearch.current(focus.concept);
+    };
+    window.addEventListener("popstate", onNavigate);
+    return () => window.removeEventListener("popstate", onNavigate);
+  }, [view.knowledge_structure_revision, view.concepts]);
   const regionLabel = (id: string) =>
     regions && regions.regions.length > 1 ? regions.regions[regions.byConcept.get(id)!].label : null;
 
@@ -1009,6 +1023,10 @@ export function KnowledgeMapWorkspace({
     setSelectedConceptId(id);
     setDetailConceptId(id);
     setRelationId(null);
+  };
+  openFromSearch.current = (id) => {
+    setMode("focus");
+    openConceptDetail(id);
   };
   const chooseSearchResult = (id: string) => {
     setMode("focus");
