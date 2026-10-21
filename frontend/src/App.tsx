@@ -5,6 +5,7 @@ import type { LearnerIdentity } from "./api/contracts";
 import { readSessionHint, saveSessionHint } from "./api/session-hint";
 import { AppShell } from "./app/AppShell";
 import { HeaderTools } from "./app/HeaderTools";
+import { LearningProgressPill } from "./app/LearningProgress";
 import { readRoute, writeRoute, type AppRoute } from "./app/routes";
 import { MaterialFlow } from "./features/material-flow/MaterialFlow";
 import { StateView } from "./ui/StateView";
@@ -190,12 +191,13 @@ export default function App() {
   return (
     <AppShell
       route={route}
+      status={<LearningProgressPill apiClient={session.api} learnerId={session.identity.learner_id} />}
       accountAction={
         <>
           <HeaderTools apiClient={session.api} />
           <button className="account-button" type="button" onClick={() => void logout()}>
             <Icon name="logout" size={18} />
-            登出
+            <span className="account-button-label">登出</span>
           </button>
         </>
       }

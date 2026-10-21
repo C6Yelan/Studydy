@@ -1372,3 +1372,69 @@ test("card review sends the intent key and requires the next review count", asyn
   await assert.rejects(new StudydyApiClient(reply({ ...review, review_count: 2 })).submitCardReview(setId, conceptId, "remembered", 2, "k"), ApiClientError);
   await assert.rejects(new StudydyApiClient(reply({ ...review, rating: "forgot" })).submitCardReview(setId, conceptId, "remembered", 2, "k"), ApiClientError);
 });
+
+function activityView(change = () => undefined) {
+  const week = [19, 20, 21, 22, 23, 24, 25].map((day) => ({
+    date: `2026-10-${day}`, answers: 0, correct: 0, card_reviews: 0, listened_seconds: 0, active: false,
+  }));
+  week[2] = { ...week[2], answers: 4, correct: 3, card_reviews: 2, listened_seconds: 360, active: true };
+  const value = {
+    schema: "learning-activity/v2", timezone: "Asia/Taipei", rule_version: "xp-rules/v1", today: "2026-10-21",
+    streak_days: 1, active_today: true, week, total_answers: 4, total_correct: 3,
+    xp: { total: 120, today: 40, level: 2, level_xp: 20, level_target: 200, sources: { answers: 33, concepts: 30, cards: 4, podcast: 5 } },
+    quests: [{ kind: "continue_study", progress: 1, target: 1, done: true, material_id: materialId, study_session_id: sessionId, podcast_id: null, episode_index: null }],
+  };
+  change(value);
+  return value;
+}
+
+test("learning activity requires XP, level and quests from the v2 rules", async () => {
+  const read = (value) => new StudydyApiClient(async () => Response.json(value)).getLearningActivity();
+  assert.equal((await read(activityView())).xp.level, 2);
+  for (const change of [
+    (value) => { value.schema = "learning-activity/v1"; },
+    (value) => { value.rule_version = "xp-rules/v2"; },
+    (value) => { value.xp.level_xp = 200; },
+    (value) => { value.xp.today = 121; },
+    (value) => { value.xp.sources.cards = -2; },
+    (value) => { delete value.week[0].listened_seconds; },
+    (value) => { value.quests[0].kind = "badge"; },
+    (value) => { value.quests[0].progress = 2; },
+    (value) => { value.quests[0].study_session_id = "x"; },
+  ]) await assert.rejects(read(activityView(change)), ApiClientError);
+});
+
+test("learning activity is shared briefly and re-read after a review", async () => {
+  let reads = 0;
+  const review = { schema: "card-review/v1", card_set_id: setId, concept_id: conceptId, rating: "remembered", review_count: 1,
+    interval_days: 1, due_at: "2026-10-22T16:00:00Z", reviewed_at: "2026-10-21T12:00:00Z" };
+  const client = new StudydyApiClient(async (path) => {
+    if (path === "/v1/learning-activity") { reads++; return Response.json(activityView()); }
+    return Response.json(review);
+  });
+  const seen = [];
+  client.onLearningActivityChange((value) => seen.push(value.xp.total));
+  await client.getLearningActivity();
+  await client.getLearningActivity();
+  await client.getLearningActivity({ fresh: true });
+  assert.equal(reads, 1);
+  await client.submitCardReview(setId, conceptId, "remembered", 0, "k");
+  await client.getLearningActivity();
+  assert.equal(reads, 2);
+  assert.deepEqual(seen, [120, 120]);
+});
+
+test("podcast progress posts listening reports with keepalive and checks the podcast", async () => {
+  const podcastId = "77777777-7777-4777-8777-777777777777";
+  const sent = [];
+  const progress = { schema: "podcast-progress/v1", podcast_id: podcastId, credited_seconds: 15,
+    current: { episode_index: 1, position_seconds: 42.5, updated_at: "2026-10-21T00:00:00Z" },
+    episodes: [{ episode_index: 1, position_seconds: 42.5, completed: false }] };
+  const client = new StudydyApiClient(async (path, init) => { sent.push([path, init.method, init.keepalive, init.body && JSON.parse(init.body)]); return Response.json(progress); });
+  const body = { schema: "podcast-progress-update/v1", episode_index: 1, position_seconds: 42.5, listened_seconds: 15 };
+  assert.equal((await client.savePodcastProgress(podcastId, body, { keepalive: true })).credited_seconds, 15);
+  assert.deepEqual(sent[0], [`/v1/podcasts/${podcastId}/progress`, "POST", true, body]);
+  assert.equal((await client.getPodcastProgress(podcastId)).current.episode_index, 1);
+  await assert.rejects(new StudydyApiClient(async () => Response.json({ ...progress, podcast_id: setId })).getPodcastProgress(podcastId), ApiClientError);
+  await assert.rejects(new StudydyApiClient(async () => Response.json({ ...progress, credited_seconds: -1 })).getPodcastProgress(podcastId), ApiClientError);
+});

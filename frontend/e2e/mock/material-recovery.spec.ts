@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { MaterialLibraryItem, MaterialProcessingRunView } from "../../src/api/contracts";
+import { emptyLearningActivity } from "../fixtures/learning-activity";
 
 const materialId = "11111111-1111-4111-8111-111111111111";
 const oldId = "22222222-2222-4222-8222-222222222222";
@@ -74,6 +75,8 @@ test.beforeEach(async ({ page }) => {
     const path = new URL(route.request().url()).pathname;
     // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
     if (path === "/v1/profile") return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
+    // 頁首學習進度；這些案例不涉及學習紀錄。
+    if (path === "/v1/learning-activity") return route.fulfill({ json: emptyLearningActivity });
     if (!responses[path])
       throw new Error(`Unexpected recovery request: ${route.request().method()} ${path}`);
     expect(route.request().method()).toBe(path === "/v1/session/refresh" ? "POST" : "GET");

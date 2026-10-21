@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { MaterialLibraryItem, StudySessionLink } from "../../src/api/contracts";
+import { learningActivity } from "../fixtures/learning-activity";
 
 const uuid = (seed: number) => `00000000-0000-4000-8000-${String(seed).padStart(12, "0")}`;
 const materialId = uuid(1);
@@ -270,21 +271,90 @@ test("dashboard uses each material's head study and keeps stats out of keyboard 
     );
 });
 
-test("dashboard week rhythm shows answer counts from learning activity", async ({ page }) => {
-  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: {
-    schema: "learning-activity/v1", timezone: "Asia/Taipei", today: "2026-10-21",
-    streak_days: 3, active_today: true, total_answers: 40, total_correct: 30,
-    week: [[19, 2, 1], [20, 0, 0], [21, 5, 4], [22, 0, 0], [23, 0, 0], [24, 0, 0], [25, 0, 0]]
-      .map(([day, answers, correct]) => ({ date: `2026-10-${day}`, answers, correct })),
-  } }));
+test("dashboard week rhythm shows answers, card reviews and listening per day", async ({ page }) => {
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    streak: 3, total: 40,
+    days: [
+      { answers: 2, correct: 1, active: true }, { listened_seconds: 59 }, { answers: 5, correct: 4, card_reviews: 6, listened_seconds: 600, active: true },
+    ],
+  }) }));
   await page.goto("/");
   const week = page.getByRole("region", { name: "本週學習節奏" });
   await expect(week.getByText("連續 3 天")).toBeVisible();
   await expect(week.getByRole("listitem")).toHaveCount(7);
-  await expect(week.getByRole("listitem", { name: "星期三 10/21（今天）：作答 5 題，答對 4 題" })).toHaveClass(/is-today/);
-  await expect(week.getByRole("listitem", { name: "星期二 10/20：沒有作答" })).toBeVisible();
+  await expect(week.getByRole("listitem", { name: "星期三 10/21（今天）：作答 5 題，答對 4 題，複習 6 張卡，收聽 10 分鐘" })).toHaveClass(/is-today/);
+  // 收聽不滿 1 分鐘不顯示分鐘數，也不算當天活躍。
+  await expect(week.getByRole("listitem", { name: "星期二 10/20：沒有學習紀錄" })).not.toHaveClass(/is-active/);
   await expect(week.getByRole("listitem", { name: "星期四 10/22：尚未到" })).toHaveClass(/is-future/);
-  await expect(week.locator(".week-summary")).toHaveText("本週作答 7 題 · 答對率 71%");
+  await expect(week.locator(".week-summary")).toHaveText("本週作答 7 題（答對率 71%） · 複習 6 張卡 · 收聽 10 分鐘");
+});
+
+test("level card and header show XP from learning activity without inventing numbers", async ({ page }) => {
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    streak: 4, total: 245, todayXp: 32, level: [2, 145, 200],
+    sources: { answers: 180, concepts: 30, cards: 20, podcast: 15 },
+  }) }));
+  await page.goto("/");
+  const level = page.getByRole("region", { name: "第 2 級" });
+  await expect(level.getByText("累計 245 XP · 今天 +32")).toBeVisible();
+  await expect(level.getByRole("progressbar", { name: "第 2 級經驗值" })).toHaveAttribute("aria-valuetext", "145 / 200 XP");
+  await expect(level.getByText("再 55 XP 升到第 3 級")).toBeVisible();
+  await expect(level.getByRole("list", { name: "經驗值來源" }).getByRole("listitem")).toHaveText(["作答 180", "概念完成 30", "概念卡 20", "Podcast 15"]);
+  const pill = page.getByRole("button", { name: "連續學習 4 天，第 2 級，累計 245 XP" });
+  await expect(pill).toContainText("Lv 2");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(pill.locator(".header-xp")).toHaveText("245 XP");
+  await expect(pill.locator(".header-level")).toBeHidden();
+  // 沒有任務時不顯示今日任務。
+  await expect(page.getByRole("region", { name: "今日任務" })).toHaveCount(0);
+});
+
+test("today quests show done state and open the matching place", async ({ page }) => {
+  await mockLibrary(page, () => [withStudy()]);
+  const podcastId = uuid(9);
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    quests: [
+      { kind: "review_new_cards", progress: 2, target: 5, done: false },
+      { kind: "continue_study", progress: 0, target: 1, done: false, material_id: materialId, study_session_id: sessionId },
+      { kind: "finish_podcast_episode", progress: 1, target: 1, done: true, material_id: materialId, podcast_id: podcastId, episode_index: 0 },
+    ],
+  }) }));
+  await page.goto("/");
+  const quests = page.getByRole("region", { name: "今日任務" });
+  await expect(quests.getByText("1 / 3")).toBeVisible();
+  await expect(quests.getByRole("listitem")).toHaveText([/複習 5 張新的概念卡已完成 2 \/ 5/, /完成 1 次題組作答今天還沒完成/, /聽完 1 集還沒聽完的 Podcast今天已完成/]);
+  // 已完成的任務不顯示動作按鈕。
+  await expect(quests.getByRole("button")).toHaveCount(2);
+  await quests.getByRole("button", { name: "繼續學習：完成 1 次題組作答" }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(studyPath);
+});
+
+test("level-up plays once when the level is above the last level seen in this browser", async ({ page }) => {
+  let level = 3;
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    total: level === 3 ? 320 : 100, level: level === 3 ? [3, 20, 300] : [2, 0, 200],
+  }) }));
+  // 第一次看到等級只記下，不播放。
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: /第 3 級/ })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "升級了！" })).toHaveCount(0);
+  expect(await page.evaluate((key) => localStorage.getItem(key), `studydy.level-seen:${learnerId}`)).toBe("3");
+  await page.evaluate((key) => localStorage.setItem(key, "2"), `studydy.level-seen:${learnerId}`);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  const celebration = page.getByRole("status").filter({ hasText: "升級了！" });
+  await expect(celebration).toContainText("第 3 級");
+  await expect(page.locator(".level-up-card")).toHaveCSS("animation-name", "none");
+  await celebration.getByRole("button", { name: "太好了" }).click();
+  await expect(celebration).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("button", { name: /第 3 級/ })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "升級了！" })).toHaveCount(0);
+  // 等級下降（例如刪除教材）不播放，也不覆蓋較高的已看等級。
+  level = 2;
+  await page.reload();
+  await expect(page.getByRole("button", { name: /第 2 級/ })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "升級了！" })).toHaveCount(0);
 });
 
 test("dashboard hides the week rhythm when learning activity is unavailable", async ({ page }) => {
@@ -292,4 +362,6 @@ test("dashboard hides the week rhythm when learning activity is unavailable", as
   await page.goto("/");
   await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "本週學習節奏" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "今日任務" })).toHaveCount(0);
+  await expect(page.locator(".dashboard-level, .header-progress")).toHaveCount(0);
 });

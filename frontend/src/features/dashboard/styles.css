@@ -568,25 +568,67 @@
   gap: 4px;
   color: var(--text-muted);
 }
-.week-bar {
+.week-bars {
   display: flex;
   align-items: flex-end;
-  width: 20px;
+  justify-content: center;
+  gap: 2px;
+  width: 30px;
   height: 56px;
+  padding: 0 3px;
   overflow: hidden;
   border-radius: 8px;
   background: #fff;
 }
-.week-bar i {
-  width: 100%;
-  border-radius: 8px;
-  background: var(--warning);
+.week-bars i {
+  flex: 1;
+  border-radius: 4px 4px 2px 2px;
 }
-.week-days li.is-today .week-bar {
+.dashboard-week .is-answers { --series: var(--warning); }
+.dashboard-week .is-cards { --series: var(--violet); }
+.dashboard-week .is-listen { --series: var(--sea); }
+.week-bars i {
+  background: var(--series);
+}
+.week-days li.is-today .week-bars {
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--amber-deep);
 }
-.week-days li.is-future .week-bar {
+.week-days li.is-future .week-bars {
   opacity: 0.5;
+}
+.week-active {
+  display: grid;
+  min-height: 18px;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+.week-days li.is-active .week-active {
+  color: var(--coral);
+}
+.week-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 10px 0 0;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  list-style: none;
+}
+.week-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.week-legend li::before {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--series);
+  content: "";
 }
 .week-days b {
   min-height: 18px;
@@ -635,4 +677,151 @@
   margin: 0;
   color: var(--text-secondary);
   font-size: 14px;
+}
+
+/* 個人等級：等級、累計經驗值與本級進度條 */
+.dashboard-level header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.dashboard-level header img {
+  width: 52px;
+  height: 52px;
+  padding: 4px;
+  border-radius: 18px;
+  background: var(--studydy-blue-soft);
+  object-fit: contain;
+}
+.dashboard-level h2 {
+  margin: 0;
+}
+.dashboard-level header small {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+.dashboard-level header small b {
+  color: var(--amber-deep);
+}
+.level-bar {
+  height: 14px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--page-cool);
+}
+.level-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--warning), var(--amber-deep));
+  transition: width 0.6s ease;
+}
+.level-next {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+.level-next span:first-child {
+  color: var(--text-primary);
+  font-weight: 900;
+}
+.level-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.level-sources li {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--page-cool);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.level-sources b {
+  color: var(--text-primary);
+}
+
+/* 今日任務：由真實資料推導，完成後打勾 */
+.dashboard-quests header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.quests-count {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--page-cool);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 900;
+}
+.quests-count.is-done {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.dashboard-quests ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dashboard-quests li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: var(--page-cool);
+}
+.quest-icon {
+  display: grid;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--studydy-blue);
+}
+.dashboard-quests li.is-done .quest-icon {
+  background: var(--success);
+  color: #fff;
+}
+.quest-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.quest-text b {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.dashboard-quests li.is-done .quest-text b {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-muted);
+}
+.quest-text small {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.dashboard-quests .text-button {
+  flex: none;
+  min-height: 32px;
+  font-size: 13px;
 }

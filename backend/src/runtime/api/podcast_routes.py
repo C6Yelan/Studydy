@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 from fastapi import Request
 from starlette.concurrency import run_in_threadpool
-from .. import podcasts
+from .. import podcast_progress, podcasts
 from ..storage.artifacts import open_verified_artifact
 from . import request_context
 from .media import artifact_response
@@ -16,6 +16,8 @@ from .models import (
     PodcastView,
     PodcastListView,
     PodcastDeletedView,
+    PodcastProgressUpdate,
+    PodcastProgressView,
 )
 
 
@@ -54,6 +56,37 @@ def install(app, settings):
         return podcasts.read_podcast(
             request_context.trusted_learner(request, settings).learner_id,
             podcast_id,
+            dsn=settings.dsn,
+        )
+
+    @app.get(
+        "/v1/podcasts/{podcast_id}/progress",
+        response_model=PodcastProgressView,
+        tags=["podcasts"],
+    )
+    def read_podcast_progress_route(request: Request, podcast_id: UUID):
+        request_context.require_query(request, set())
+        return podcast_progress.read_progress(
+            request_context.trusted_learner(request, settings).learner_id,
+            podcast_id,
+            dsn=settings.dsn,
+        )
+
+    @app.post(
+        "/v1/podcasts/{podcast_id}/progress",
+        response_model=PodcastProgressView,
+        tags=["podcasts"],
+    )
+    def save_podcast_progress_route(request: Request, podcast_id: UUID, body: PodcastProgressUpdate):
+        request_context.require_query(request, set())
+        return podcast_progress.save_progress(
+            request_context.trusted_learner(request, settings).learner_id,
+            podcast_id,
+            body.episode_index,
+            body.position_seconds,
+            body.listened_seconds,
+            body.ended,
+            body.legacy,
             dsn=settings.dsn,
         )
 

@@ -160,7 +160,7 @@ systemctl --user status studydy-podcast.service
 systemctl --user restart studydy-podcast.service
 ```
 
-未設定 provider 或服務不可達時，新生成會如實失敗，既有保存內容仍可讀取。啟動與健康檢查不代表文字或語音品質驗收；來源的 `needs_review` 狀態及缺頁提示仍保留。播放位置只存當前帳號在這台瀏覽器的 localStorage，沒有跨裝置同步。登出／換帳號會停止音訊並移除播放器來源；刪除 Podcast 會刪除其音訊與逐字稿，不刪原教材。刪除教材則同時移除其 Podcast。
+未設定 provider 或服務不可達時，新生成會如實失敗，既有保存內容仍可讀取。啟動與健康檢查不代表文字或語音品質驗收；來源的 `needs_review` 狀態及缺頁提示仍保留。播放位置與收聽秒數存在伺服器（migration 0010），同帳號可跨裝置接續；瀏覽器舊有位置只在伺服器沒有紀錄時上傳一次。登出／換帳號會停止音訊並移除播放器來源；刪除 Podcast 會刪除其音訊與逐字稿，不刪原教材。刪除教材則同時移除其 Podcast。
 
 ## F1／F2／F3／F5 本輪 Luna 替代測試
 

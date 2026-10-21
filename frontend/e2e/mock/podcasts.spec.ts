@@ -812,3 +812,62 @@ for(const entry of ['library','player']) test(`audio ready does not hide remaini
  await expect(page.getByRole('heading',{name:'讓教材說給你聽'})).toBeVisible();
  expect(mock.fixture.deletes()).toBe(1);
 });
+
+// 雲端收聽進度：開啟時以伺服器位置為準，舊瀏覽器位置只在伺服器沒有紀錄時上傳一次。
+async function mockProgress(page: Page, initial: { current: { episode_index: number; position_seconds: number } | null }) {
+  const posts: Record<string, unknown>[] = [];
+  let state = {
+    schema: 'podcast-progress/v1', podcast_id: podcastId, credited_seconds: 0,
+    current: initial.current && { ...initial.current, updated_at: '2026-10-21T00:00:00Z' },
+    episodes: initial.current ? [{ episode_index: initial.current.episode_index, position_seconds: initial.current.position_seconds, completed: false }] : [],
+  };
+  await page.route(`**/v1/podcasts/${podcastId}/progress`, route => {
+    if (route.request().method() === 'GET') return json(route, state);
+    const body = route.request().postDataJSON();
+    posts.push(body);
+    const episode = { episode_index: body.episode_index, position_seconds: body.position_seconds, completed: !!body.ended };
+    if (!(body.legacy && state.current)) state = {
+      ...state, credited_seconds: body.listened_seconds,
+      current: { episode_index: body.episode_index, position_seconds: body.position_seconds, updated_at: '2026-10-21T00:00:01Z' },
+      episodes: [...state.episodes.filter(e => e.episode_index !== body.episode_index), episode],
+    };
+    return json(route, state);
+  });
+  return posts;
+}
+
+test('cloud progress resumes the server episode and position over this browser', async ({ page }) => {
+  await mockEpisodeVideo(page);
+  const posts = await mockProgress(page, { current: { episode_index: 1, position_seconds: 4 } });
+  await page.addInitScript(([key]) => localStorage.setItem(key, JSON.stringify({ episode: 0, time: 9 })), [`studydy.podcast.position:${sessionId}:${podcastId}`]);
+  await page.goto(`/podcasts/${podcastId}`);
+  await expect(page.getByRole('region', { name: '第 2 集播放器' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '播放', exact: true })).toBeEnabled();
+  await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(4, 1);
+  // 伺服器已有紀錄：不上傳舊位置。
+  expect(posts.filter(p => p.legacy)).toEqual([]);
+});
+
+test('legacy browser position is uploaded once and playback reports real listening time', async ({ page }) => {
+  await mockEpisodeVideo(page);
+  const posts = await mockProgress(page, { current: null });
+  await page.addInitScript(([key]) => localStorage.setItem(key, JSON.stringify({ episode: 0, time: 3.5 })), [`studydy.podcast.position:${sessionId}:${podcastId}`]);
+  await page.goto(`/podcasts/${podcastId}`);
+  await expect(page.getByRole('button', { name: '播放', exact: true })).toBeEnabled();
+  await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(3.5, 1);
+  expect(posts).toEqual([{ schema: 'podcast-progress-update/v1', episode_index: 0, position_seconds: 3.5, listened_seconds: 0, legacy: true }]);
+  await page.getByRole('button', { name: '播放', exact: true }).click();
+  await page.waitForTimeout(1600);
+  await page.getByRole('button', { name: '暫停', exact: true }).click();
+  await expect.poll(() => posts.length).toBeGreaterThan(1);
+  const report = posts.at(-1)!;
+  expect(report.legacy).toBeUndefined();
+  expect(report.episode_index).toBe(0);
+  expect(report.listened_seconds).toBeGreaterThanOrEqual(1);
+  expect(report.listened_seconds).toBeLessThanOrEqual(3);
+  expect(Number(report.position_seconds)).toBeGreaterThan(3.5);
+  // 切到下一集時送出原集位置；播放到結尾時標記聽完。
+  await page.getByRole('slider', { name: '播放進度', exact: true }).fill('11.5');
+  await page.getByRole('button', { name: '播放', exact: true }).click();
+  await expect.poll(() => posts.some(p => p.ended === true && p.episode_index === 0), { timeout: 10_000 }).toBe(true);
+});

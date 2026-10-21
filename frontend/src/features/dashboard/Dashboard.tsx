@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { CardReviewQueueView, CardSetSummary, LearningActivityView, MaterialLibraryItem, PodcastSummary, StudySessionLink } from "../../api/contracts";
+import type { CardReviewQueueView, CardSetSummary, LearningQuest, MaterialLibraryItem, PodcastSummary, StudySessionLink } from "../../api/contracts";
+import { useLearningActivity } from "../../app/LearningProgress";
+import { DailyQuests, LevelCard, WeekRhythm } from "./LearningCards";
 import { useProfile } from "../../app/HeaderTools";
 import { ReviewDeck } from "../concept-cards/ReviewDeck";
 import { writeRoute, type AppRoute } from "../../app/routes";
@@ -53,40 +55,6 @@ function statusText(state: IslandState, progress: Progress | undefined) {
   return progress ? `已完成 ${progress.completed} / ${progress.total} 個概念` : "學習中";
 }
 
-const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
-
-// 本週節奏只顯示作答紀錄推導的真實數字；概念卡與 Podcast 尚未記錄，不計入。
-function WeekRhythm({ activity }: { activity: LearningActivityView }) {
-  const answers = activity.week.reduce((sum, day) => sum + day.answers, 0);
-  const correct = activity.week.reduce((sum, day) => sum + day.correct, 0);
-  const peak = Math.max(1, ...activity.week.map((day) => day.answers));
-  return <section className="dashboard-week surface" aria-labelledby="dashboard-week-title">
-    <header>
-      <h2 id="dashboard-week-title">本週學習節奏</h2>
-      <span className={`dashboard-streak${activity.streak_days ? "" : " is-idle"}`}>
-        <Icon name="flame" size={16} />{activity.streak_days ? `連續 ${activity.streak_days} 天` : "尚未連續"}
-      </span>
-    </header>
-    <ol className="week-days">
-      {activity.week.map((day, index) => {
-        const today = day.date === activity.today;
-        const future = day.date > activity.today;
-        return <li key={day.date} className={[today && "is-today", day.answers > 0 && "is-active", future && "is-future"].filter(Boolean).join(" ")}
-          aria-label={`星期${weekdays[index]} ${Number(day.date.slice(5, 7))}/${Number(day.date.slice(8))}${today ? "（今天）" : ""}：${future ? "尚未到" : day.answers ? `作答 ${day.answers} 題，答對 ${day.correct} 題` : "沒有作答"}`}>
-          <span className="week-bar" aria-hidden="true"><i style={{ height: `${day.answers ? Math.max(12, (day.answers / peak) * 100) : 0}%` }} /></span>
-          <b aria-hidden="true">{day.answers || (future ? "" : "–")}</b>
-          <small aria-hidden="true">{weekdays[index]}</small>
-        </li>;
-      })}
-    </ol>
-    <p className="week-summary">
-      {answers ? <>本週作答 <b>{answers}</b> 題 · 答對率 <b>{Math.round((correct / answers) * 100)}%</b></>
-        : activity.streak_days ? "今天作答一題，就能延續連續紀錄。" : "本週還沒有作答，完成一次練習就會出現在這裡。"}
-    </p>
-    <small className="week-note">依作答紀錄計算，以台灣時間為準。</small>
-  </section>;
-}
-
 function Sea() {
   const waves = [[8, 12], [30, 8], [44, 30], [90, 46], [6, 90], [52, 92], [36, 96], [96, 6]];
   return <svg className="archipelago-sea" viewBox="0 0 1000 560" preserveAspectRatio="none" aria-hidden="true">
@@ -112,7 +80,8 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   const [progress, setProgress] = useState<Map<string, Progress>>(new Map());
   const [cardSets, setCardSets] = useState<CardSetSummary[] | null>(null);
   const [podcasts, setPodcasts] = useState<PodcastSummary[] | null>(null);
-  const [activity, setActivity] = useState<LearningActivityView | null>(null);
+  // 首頁一律重新計算，頁首共用同一份結果。
+  const activity = useLearningActivity(apiClient, { fresh: true });
   const name = useProfile(apiClient)?.display_name;
   const [reviewQueue, setReviewQueue] = useState<CardReviewQueueView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -127,7 +96,6 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
     // 概念卡與 Podcast 只是首頁捷徑，讀取失敗時隱藏該卡，不阻擋群島。
     void apiClient.listCardSets().then((value) => { if (!cancelled) setCardSets(value.card_sets); }, () => { if (!cancelled) setCardSets([]); });
     void apiClient.listPodcasts().then((value) => { if (!cancelled) setPodcasts(value.podcasts); }, () => { if (!cancelled) setPodcasts([]); });
-    void apiClient.getLearningActivity().then((value) => { if (!cancelled) setActivity(value); }, () => { if (!cancelled) setActivity(null); });
     return () => { cancelled = true; };
   }, [apiClient, retry]);
 
@@ -172,6 +140,21 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   const continueRoute: AppRoute | null = focus && focusSession
     ? { name: "study-session", materialId: focus.material_id, runId: focusSession.run_id, structureRevision: focusSession.knowledge_structure_revision, studySessionId: focusSession.study_session_id }
     : null;
+  const openQuest = (quest: LearningQuest) => {
+    if (quest.kind === "review_due_cards" || quest.kind === "review_new_cards") {
+      document.getElementById("dashboard-review-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (quest.kind === "finish_podcast_episode" && quest.podcast_id && quest.material_id) {
+      writeRoute({ name: "podcast", podcastId: quest.podcast_id, materialId: quest.material_id });
+      return;
+    }
+    const material = materials?.find((item) => item.material_id === quest.material_id);
+    const link = material?.study_sessions.find((item) => item.study_session_id === quest.study_session_id);
+    if (material && link) writeRoute({ name: "study-session", materialId: material.material_id, runId: link.run_id, structureRevision: link.knowledge_structure_revision, studySessionId: link.study_session_id });
+    else if (material) openMaterial(material);
+    else writeRoute({ name: "materials" });
+  };
   const pages = (materials ?? []).reduce((sum, item) => sum + (item.latest_attempt?.total_pages ?? 0), 0);
   const completedConcepts = [...progress.values()].reduce((sum, item) => sum + item.completed, 0);
   const latestPodcast = podcasts?.filter((item) => item.status === "ready").sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
@@ -260,6 +243,8 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
           </section>
         </div>
         <aside className="dashboard-side">
+          {activity && <LevelCard activity={activity} />}
+          {activity && activity.quests.length > 0 && <DailyQuests quests={activity.quests} onOpen={openQuest} />}
           <section className="dashboard-overview surface" aria-label="學習總覽">
             <h2>學習總覽</h2>
             <div className="dashboard-stats" aria-busy={materials === null && !error}>
@@ -284,7 +269,11 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
               </span>}
               {cardSets.length > 0 && <button className="text-button" type="button" onClick={() => writeRoute({ name: "concept-cards" })}>全部<Icon name="chevron-right" size={16} /></button>}
             </header>
-            {cardSets.length ? <ReviewDeck apiClient={apiClient} variant="home" onQueue={setReviewQueue} />
+            {cardSets.length ? <ReviewDeck apiClient={apiClient} variant="home" onQueue={(queue) => {
+              // 評分後佇列會更新；同時重新讀取學習活動，讓任務與經驗值跟上（失敗時保留原畫面）。
+              if (reviewQueue) void apiClient.getLearningActivity().catch(() => undefined);
+              setReviewQueue(queue);
+            }} />
               : <p>還沒有概念卡。從教材的知識地圖挑選概念，就能建立一組。</p>}
           </section>}
           {podcasts && <section className="dashboard-shortcut is-podcast surface" aria-label="Podcast">

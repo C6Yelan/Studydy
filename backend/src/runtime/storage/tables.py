@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
+    Double,
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
@@ -853,3 +855,27 @@ class CardReviewState(Base):
     last_rating: Mapped[str] = mapped_column(Text)
     last_reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PodcastEpisodeProgress(Base):
+    __tablename__ = "podcast_episode_progress"
+    podcast_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("podcasts.podcast_id"), primary_key=True
+    )
+    episode_index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    position_seconds: Mapped[float] = mapped_column(Double)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PodcastListeningDay(Base):
+    __tablename__ = "podcast_listening_days"
+    podcast_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("podcasts.podcast_id"), primary_key=True
+    )
+    episode_index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    listened_on: Mapped[date] = mapped_column(Date, primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    listened_seconds: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

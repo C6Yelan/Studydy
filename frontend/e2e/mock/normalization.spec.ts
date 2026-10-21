@@ -4,6 +4,7 @@ import type {
   MaterialProcessingRunView,
   SourceView,
 } from "../../src/api/contracts";
+import { emptyLearningActivity } from "../fixtures/learning-activity";
 
 const uuid = (seed: number) => `00000000-0000-4000-8000-${String(seed).padStart(12, "0")}`;
 const materialId = uuid(1);
@@ -86,6 +87,9 @@ test.beforeEach(async ({ page }) => {
       // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
       case "/v1/profile":
         return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
+      // 頁首學習進度；這些案例不涉及學習紀錄。
+      case "/v1/learning-activity":
+        return route.fulfill({ json: emptyLearningActivity });
       default:
         throw new Error(`Unexpected normalization request: ${request.method()} ${path}`);
     }

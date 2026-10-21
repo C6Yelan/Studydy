@@ -3,6 +3,7 @@ import type { MaterialProcessingRunView } from "../../src/api/contracts";
 
 import { materialStageCountLabel } from "../../src/features/material-flow/material-flow";
 import { structureView, mockKnowledgeMapApi } from "../fixtures/knowledge-map";
+import { emptyLearningActivity } from "../fixtures/learning-activity";
 
 const materialId = "11111111-1111-4111-8111-111111111111";
 const runId = "22222222-2222-4222-8222-222222222222";
@@ -111,6 +112,9 @@ test.beforeEach(async ({ page }) => {
       // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
       case "/v1/profile":
         return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
+      // 頁首學習進度；這些案例不涉及學習紀錄。
+      case "/v1/learning-activity":
+        return route.fulfill({ json: emptyLearningActivity });
       default:
         throw new Error(`Unexpected processing request: ${request.method()} ${path}`);
     }

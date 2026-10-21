@@ -249,11 +249,38 @@ export type KnowledgeRegionsView = {
 };
 
 // 學習統計只由作答事件推導，日期以台灣時間為界。
+export type LearningActivityDay = {
+  date: string; answers: number; correct: number; card_reviews: number; listened_seconds: number; active: boolean;
+};
+export type LearningQuestKind = "review_due_cards" | "review_new_cards" | "continue_study" | "finish_podcast_episode";
+export type LearningQuest = {
+  kind: LearningQuestKind; progress: number; target: number; done: boolean;
+  material_id: string | null; study_session_id: string | null; podcast_id: string | null; episode_index: number | null;
+};
+export type LearningXp = {
+  total: number; today: number; level: number; level_xp: number; level_target: number;
+  sources: { answers: number; concepts: number; cards: number; podcast: number };
+};
 export type LearningActivityView = {
-  schema: "learning-activity/v1"; timezone: "Asia/Taipei"; today: string;
+  schema: "learning-activity/v2"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v1"; today: string;
   streak_days: number; active_today: boolean;
-  week: { date: string; answers: number; correct: number }[];
+  week: LearningActivityDay[];
   total_answers: number; total_correct: number;
+  xp: LearningXp;
+  quests: LearningQuest[];
+};
+
+export type PodcastProgressView = {
+  schema: "podcast-progress/v1";
+  podcast_id: string;
+  current: { episode_index: number; position_seconds: number; updated_at: string } | null;
+  episodes: { episode_index: number; position_seconds: number; completed: boolean }[];
+  credited_seconds: number;
+};
+
+export type PodcastProgressUpdate = {
+  schema: "podcast-progress-update/v1";
+  episode_index: number; position_seconds: number; listened_seconds: number; ended?: boolean; legacy?: boolean;
 };
 
 export type KnowledgeConceptsView = ConceptCardContext & {

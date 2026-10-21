@@ -1,6 +1,6 @@
 import * as validate from "./response-validation.ts";
 import type {
-  KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, StudyWorkspaceView,
+  KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, PodcastProgressView, PodcastProgressUpdate, StudyWorkspaceView,
   PodcastContext, PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
   ApiReasonCode,
   CardSetCreate,
@@ -102,6 +102,8 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
 
 const authTimeoutMs = 10_000;
 
+const activityReuseMs = 30_000;
+
 function origin(): string {
   return globalThis.location?.origin ?? "http://127.0.0.1:4173";
 }
@@ -160,6 +162,9 @@ export class StudydyApiClient {
   // 名稱同時顯示在頁首與首頁；同一登入共用一次讀取，儲存後通知訂閱者。
   private profile: Promise<LearnerProfile> | null = null;
   private readonly profileListeners = new Set<(profile: LearnerProfile) => void>();
+  // 學習活動同時供頁首與首頁使用；短時間內共用一次讀取，作答、複習或收聽後標記過期。
+  private activity: { task: Promise<LearningActivityView>; at: number } | null = null;
+  private readonly activityListeners = new Set<(activity: LearningActivityView) => void>();
   private readonly pending = new Set<AbortController>();
   private readonly fetchRequest: FetchRequest;
   onSessionExpired: (() => void) | null = null;
@@ -470,13 +475,15 @@ export class StudydyApiClient {
   }
 
   // key 由呼叫端在第一次評分時產生，網路失敗重送沿用同一個鍵，不會重複計次。
-  submitCardReview(cardSetId: string, conceptId: string, rating: CardReviewRating, expectedReviewCount: number, key: string): Promise<CardReviewView> {
-    return this.json(`/v1/card-sets/${encodeURIComponent(cardSetId)}/reviews`, {
+  async submitCardReview(cardSetId: string, conceptId: string, rating: CardReviewRating, expectedReviewCount: number, key: string): Promise<CardReviewView> {
+    const value = await this.json(`/v1/card-sets/${encodeURIComponent(cardSetId)}/reviews`, {
       method: "POST", headers: { "Content-Type": "application/json", Origin: origin(), "Idempotency-Key": key },
       body: JSON.stringify({ schema: "card-review-submit/v1", concept_id: conceptId, rating, expected_review_count: expectedReviewCount }),
     }, (value): value is CardReviewView => validate.cardReview(value)
       && value.card_set_id === cardSetId && value.concept_id === conceptId && value.rating === rating
       && value.review_count === expectedReviewCount + 1);
+    this.markActivityStale();
+    return value;
   }
 
   deleteCardSet(id: string): Promise<CardSetDeletedView> {
@@ -711,8 +718,43 @@ export class StudydyApiClient {
       (value): value is LibrarySearchView => validate.librarySearch(value) && value.query === text.trim());
   }
 
-  getLearningActivity(): Promise<LearningActivityView> {
-    return this.json("/v1/learning-activity", { method: "GET" }, validate.learningActivity);
+  getLearningActivity(options: { fresh?: boolean } = {}): Promise<LearningActivityView> {
+    this.requireActive();
+    // fresh 仍共用剛發出（2 秒內）的讀取，避免頁首與首頁同時載入時重複計算。
+    if (!this.activity || Date.now() - this.activity.at > (options.fresh ? 2_000 : activityReuseMs)) {
+      const task = this.json("/v1/learning-activity", { method: "GET" }, validate.learningActivity);
+      this.activity = { task, at: Date.now() };
+      task.then(
+        (value) => { if (this.activity?.task === task) for (const listener of this.activityListeners) listener(value); },
+        () => { if (this.activity?.task === task) this.activity = null; },
+      );
+    }
+    return this.activity.task;
+  }
+
+  onLearningActivityChange(listener: (activity: LearningActivityView) => void): () => void {
+    this.activityListeners.add(listener);
+    return () => { this.activityListeners.delete(listener); };
+  }
+
+  // 下次讀取時重新計算；不立即重算，避免每次評分都觸發彙總。
+  private markActivityStale(): void {
+    if (this.activity) this.activity.at = 0;
+  }
+
+  getPodcastProgress(id: string): Promise<PodcastProgressView> {
+    return this.json(`/v1/podcasts/${encodeURIComponent(id)}/progress`, { method: "GET" },
+      (value): value is PodcastProgressView => validate.podcastProgress(value) && value.podcast_id === id);
+  }
+
+  // keepalive 讓離開頁面（pagehide）時的最後一次回報仍能送出。
+  async savePodcastProgress(id: string, body: PodcastProgressUpdate, options: { keepalive?: boolean } = {}): Promise<PodcastProgressView> {
+    const value = await this.json(`/v1/podcasts/${encodeURIComponent(id)}/progress`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify(body), keepalive: options.keepalive,
+    }, (value): value is PodcastProgressView => validate.podcastProgress(value) && value.podcast_id === id);
+    if (value.credited_seconds > 0 || body.ended) this.markActivityStale();
+    return value;
   }
 
   readMapProgress(id: string, revision: string): Promise<MapProgressView> {
@@ -953,6 +995,7 @@ export class StudydyApiClient {
       )
     )
       throw schemaMismatch("題組範圍不一致。");
+    this.markActivityStale();
     return value;
   }
 

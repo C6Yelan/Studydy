@@ -1,5 +1,5 @@
 import type {
-  KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, StudyWorkspaceView,
+  KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, PodcastProgressView, StudyWorkspaceView,
   PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
   AnswerFeedbackView,
   CardSetSummary,
@@ -695,17 +695,50 @@ export function knowledgeRegions(value: unknown): value is KnowledgeRegionsView 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 const count = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
 
+const questKinds = ["review_due_cards", "review_new_cards", "continue_study", "finish_podcast_episode"];
+const nullableUuid = (value: unknown) => value === null || isUuid(value);
+
+function learningQuest(value: unknown): boolean {
+  const quest = object(value);
+  return !!quest && questKinds.includes(String(quest.kind)) && count(quest.progress) && count(quest.target)
+    && Number(quest.target) > 0 && Number(quest.progress) <= Number(quest.target) && typeof quest.done === "boolean"
+    && nullableUuid(quest.material_id) && nullableUuid(quest.study_session_id) && nullableUuid(quest.podcast_id)
+    && (quest.episode_index === null || count(quest.episode_index));
+}
+
 export function learningActivity(value: unknown): value is LearningActivityView {
   const item = object(value);
-  return !!item && item.schema === "learning-activity/v1" && item.timezone === "Asia/Taipei"
+  const xp = object(item?.xp);
+  const sources = object(xp?.sources);
+  return !!item && item.schema === "learning-activity/v2" && item.timezone === "Asia/Taipei"
+    && item.rule_version === "xp-rules/v1"
     && typeof item.today === "string" && isoDate.test(item.today)
     && count(item.streak_days) && typeof item.active_today === "boolean"
     && count(item.total_answers) && count(item.total_correct) && item.total_correct <= item.total_answers
     && Array.isArray(item.week) && item.week.length === 7 && item.week.every(value => {
       const day = object(value);
       return !!day && typeof day.date === "string" && isoDate.test(day.date)
-        && count(day.answers) && count(day.correct) && day.correct <= day.answers;
-    }) && item.week.some(day => object(day)!.date === item.today);
+        && count(day.answers) && count(day.correct) && day.correct <= day.answers
+        && count(day.card_reviews) && count(day.listened_seconds) && typeof day.active === "boolean";
+    }) && item.week.some(day => object(day)!.date === item.today)
+    && !!xp && !!sources && [xp.total, xp.today, xp.level_xp, xp.level_target].every(count)
+    && Number.isInteger(xp.level) && Number(xp.level) >= 1 && Number(xp.level_xp) < Number(xp.level_target)
+    && Number(xp.today) <= Number(xp.total)
+    && ["answers", "concepts", "cards", "podcast"].every(key => count(sources[key]))
+    && Array.isArray(item.quests) && item.quests.every(learningQuest);
+}
+
+export function podcastProgress(value: unknown): value is PodcastProgressView {
+  const item = object(value);
+  const current = item?.current === null ? null : object(item?.current);
+  const position = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  return !!item && item.schema === "podcast-progress/v1" && isUuid(item.podcast_id)
+    && (item.current === null || (!!current && count(current.episode_index) && position(current.position_seconds)
+      && typeof current.updated_at === "string"))
+    && Array.isArray(item.episodes) && item.episodes.every(value => {
+      const episode = object(value);
+      return !!episode && count(episode.episode_index) && position(episode.position_seconds) && typeof episode.completed === "boolean";
+    }) && count(item.credited_seconds);
 }
 
 export function mapProgress(value: unknown): value is MapProgressView {

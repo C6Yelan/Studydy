@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
-import type { PodcastView } from "../../api/contracts";
+import type { PodcastProgressUpdate, PodcastView } from "../../api/contracts";
 import { type VideoView, type usePodcastVideo } from "./PodcastVideo";
 
 export function savedPosition(key: string): { episode: number; time: number } {
@@ -33,11 +33,17 @@ function ControlIcon({ name }: { name: "play" | "pause" | "previous" | "next" | 
   </svg>;
 }
 
-export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPosition, autoPlay, onEnded, onPrevious, onNext, mediaRef, videoState }: {
+// 播放中每 15 秒回報一次位置與實際收聽秒數。
+const SYNC_INTERVAL_MS = 15_000;
+export type ProgressSync = (body: PodcastProgressUpdate, keepalive: boolean) => Promise<unknown>;
+
+export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPosition, autoPlay, onEnded, onPrevious, onNext, mediaRef, videoState, resumeAt, onSync }: {
   view: PodcastView; index: number; storageKey: string; settingsKey: string; rememberPosition: { current: boolean };
   mediaRef?: {current: HTMLMediaElement | null};
   videoState: ReturnType<typeof usePodcastVideo>;
   autoPlay: boolean; onEnded: (autoAdvance:boolean) => void; onPrevious: () => void; onNext: () => void;
+  // 伺服器保存的本集位置（跨裝置接續）；沒有時改用此瀏覽器保存的位置。
+  resumeAt?: number | null; onSync?: ProgressSync;
 }) {
   const internalMedia = useRef<HTMLMediaElement>(null);
   const media = mediaRef ?? internalMedia;
@@ -59,25 +65,53 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
   const [time, setTime] = useState(0), [length, setLength] = useState(view.episodes[index].audio?.duration_seconds ?? 0);
   const [error, setError] = useState<string | null>(null), [storageError, setStorageError] = useState(false);
   const lastSaved = useRef(0), lastVolume = useRef(settings.volume || 1);
+  // 實際收聽以播放中的牆鐘時間計算（不受倍速影響）；不足 1 秒的部分留到下次回報。
+  const listening = useRef<{ seconds: number; since: number | null }>({ seconds: 0, since: null });
+  const lastSynced = useRef<number | null>(null);
+  const measure = (playing: boolean) => {
+    const value = listening.current, now = performance.now();
+    if (value.since !== null) value.seconds += (now - value.since) / 1000;
+    value.since = playing ? now : null;
+  };
   const save = useCallback((element: HTMLMediaElement) => {
     if (!rememberPosition.current || !Number.isFinite(element.currentTime) || element.readyState === 0) return;
     try { localStorage.setItem(storageKey, JSON.stringify({ episode: index, time: element.currentTime })); }
     catch { setStorageError(true); }
   }, [storageKey,index,rememberPosition]);
+  const sync = useCallback((element: HTMLMediaElement, options: { ended?: boolean; keepalive?: boolean } = {}) => {
+    if (!onSync || !rememberPosition.current || !Number.isFinite(element.currentTime) || element.readyState === 0) return;
+    measure(!element.paused && !element.ended);
+    const seconds = Math.floor(listening.current.seconds);
+    const position = Math.max(0, element.currentTime);
+    // 位置沒變也沒有新的收聽時間時不送出。
+    if (!seconds && !options.ended && lastSynced.current !== null && Math.abs(position - lastSynced.current) < 0.5) return;
+    listening.current.seconds -= seconds;
+    lastSynced.current = position;
+    void onSync({ schema: "podcast-progress-update/v1", episode_index: index, position_seconds: position, listened_seconds: seconds, ...(options.ended ? { ended: true } : {}) }, !!options.keepalive)
+      .catch(() => { listening.current.seconds += seconds; lastSynced.current = null; });
+  }, [onSync, index, rememberPosition]);
   const attachMedia = useCallback((element:HTMLMediaElement|null) => {
     const previous=media.current;
     if(previous && previous!==element){
       // 尚未載入 metadata 的音訊沒有有效播放位置，不得覆蓋已保存的位置。
       handoff.current=previous.readyState>0?{time:previous.currentTime,playing:!previous.paused}:null;
-      save(previous);previous.pause();previous.removeAttribute('src');previous.load();
+      save(previous);sync(previous);previous.pause();previous.removeAttribute('src');previous.load();
     }
     media.current=element;
-  },[media,save]);
+  },[media,save,sync]);
   useEffect(()=>{
-    const leaving=()=>{if(media.current)save(media.current)};
+    // 離開頁面或切到背景時以 keepalive 送出最後一次進度。
+    const leaving=()=>{if(media.current){save(media.current);sync(media.current,{keepalive:true})}};
+    const hidden=()=>{if(document.visibilityState==='hidden')leaving()};
     window.addEventListener('pagehide',leaving);
-    return()=>window.removeEventListener('pagehide',leaving);
-  },[media,save]);
+    document.addEventListener('visibilitychange',hidden);
+    return()=>{window.removeEventListener('pagehide',leaving);document.removeEventListener('visibilitychange',hidden)};
+  },[media,save,sync]);
+  useEffect(()=>{
+    if(!playing)return;
+    const timer=window.setInterval(()=>{if(media.current)sync(media.current)},SYNC_INTERVAL_MS);
+    return()=>window.clearInterval(timer);
+  },[playing,media,sync]);
   useEffect(()=>{setReady(!!media.current && media.current.readyState>0)},[mediaSrc]);
   useEffect(() => {
     if (media.current) { media.current.playbackRate = settings.speed; media.current.volume = settings.volume; media.current.muted = settings.muted; }
@@ -165,18 +199,19 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     onLoadedMetadata: (e:SyntheticEvent<HTMLMediaElement>) => {
       if(e.currentTarget!==media.current)return;
       const element=e.currentTarget, position=savedPosition(storageKey), pending=handoff.current;
+      const resume=resumeAt ?? (position.episode===index ? position.time : null);
       setLength(element.duration);setReady(true);setError(null);
       if (pending && Number.isFinite(pending.time)) element.currentTime=Math.min(pending.time,Math.max(0,element.duration-.1));
-      else if (!autoPlay && position.episode===index && position.time<element.duration-1) element.currentTime=position.time;
-      handoff.current=null;setTime(element.currentTime);save(element);
+      else if (!autoPlay && resume!==null && resume<element.duration-1) element.currentTime=resume;
+      handoff.current=null;setTime(element.currentTime);save(element);lastSynced.current=element.currentTime;
       element.playbackRate=settings.speed;element.volume=settings.volume;element.muted=settings.muted;
       if (pending?.playing || autoPlay) void element.play().catch(e=>{if(e?.name!=="AbortError")setError("按播放即可繼續。");});
     },
-    onPlay:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current){setPlaying(true);setError(null)}},
-    onPause:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current){setPlaying(false);save(e.currentTarget)}},
+    onPlay:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current){setPlaying(true);setError(null);measure(true)}},
+    onPause:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current){setPlaying(false);save(e.currentTarget);if(!e.currentTarget.ended)sync(e.currentTarget)}},
     onTimeUpdate:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget!==media.current)return;setTime(e.currentTarget.currentTime);if(Date.now()-lastSaved.current>2000){save(e.currentTarget);lastSaved.current=Date.now()}},
     onSeeked:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current)save(e.currentTarget)},
-    onEnded:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget!==media.current)return;setPlaying(false);save(e.currentTarget);onEnded(settings.autoAdvance)},
+    onEnded:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget!==media.current)return;setPlaying(false);save(e.currentTarget);sync(e.currentTarget,{ended:true});onEnded(settings.autoAdvance)},
     onError:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current){setReady(false);setError("媒體讀取失敗，請重試。")}},
   };
   return <section className="media-player" aria-label={`第 ${index + 1} 集播放器`} onKeyDown={e => { if (e.key === "Escape" && menuOpen) { e.stopPropagation(); setMenuOpen(false); gear.current?.focus(); } }}>

@@ -480,3 +480,209 @@
     margin-top: 16px;
   }
 }
+
+/* 頁首學習進度：放在品牌旁；桌面顯示連續天數與等級，手機顯示連續天數與 XP。 */
+.header-start {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: start;
+  min-width: 0;
+}
+.header-progress {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 14px 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.header-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 10px 4px 7px;
+  border-radius: 999px;
+  background: #fff0ec;
+  color: var(--coral);
+}
+.header-streak b {
+  font-size: 15px;
+}
+.header-progress.is-idle .header-streak {
+  background: var(--page-cool);
+  color: var(--text-muted);
+}
+.header-level {
+  color: var(--studydy-blue);
+}
+.header-xp {
+  display: none;
+  align-items: center;
+  gap: 3px;
+  color: var(--amber-deep);
+}
+.header-progress:hover .header-level {
+  color: var(--studydy-blue-deep);
+}
+/* 頁首右側隨寬度收合：登出只留圖示（保留無障礙名稱）、隱藏名稱並縮短搜尋，避免與中央導覽重疊。 */
+@media (max-width: 1600px) {
+  .account-button {
+    justify-content: center;
+    width: 46px;
+    padding: 0;
+  }
+  .account-button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .account-name {
+    display: none;
+  }
+  .account-profile:has(.account-name) {
+    padding-right: 4px;
+  }
+}
+@media (min-width: 1281px) and (max-width: 1600px) {
+  .header-search-trigger {
+    min-width: 180px;
+  }
+}
+@media (max-width: 1280px) {
+  .header-progress {
+    padding-right: 6px;
+  }
+  .header-progress-wide,
+  .header-level {
+    display: none;
+  }
+}
+@media (max-width: 720px) {
+  .app-header:has(.header-progress) {
+    gap: 10px;
+  }
+  .header-start {
+    gap: 6px;
+  }
+  .account-controls {
+    gap: 6px;
+  }
+  .account-button {
+    width: 40px;
+  }
+  .header-progress {
+    min-height: 40px;
+    gap: 5px;
+    padding: 0 9px 0 4px;
+    font-size: 13px;
+  }
+  .header-streak {
+    padding: 3px 8px 3px 5px;
+  }
+  .header-xp {
+    display: inline-flex;
+  }
+}
+/* 窄螢幕頁首空間有限：有學習進度時品牌只留吉祥物（按鈕仍有無障礙名稱）。 */
+@media (max-width: 900px) {
+  .app-header:has(.header-progress) .brand span {
+    display: none;
+  }
+  .app-header:has(.header-progress) .brand {
+    padding-right: 8px;
+  }
+}
+@media (max-width: 380px) {
+  .header-xp {
+    display: none;
+  }
+}
+
+/* 升級動畫：只在等級比此瀏覽器上次看到的高時播放一次。 */
+.level-up {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(29, 39, 66, 0.28);
+  animation: level-up-fade 0.25s ease-out;
+}
+.level-up-card {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: min(360px, 100%);
+  padding: 28px 24px 24px;
+  overflow: hidden;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  text-align: center;
+  animation: level-up-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.level-up-burst {
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  width: 280px;
+  height: 280px;
+  margin-left: -140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--warning-soft) 0 45%, transparent 46%),
+    repeating-conic-gradient(var(--warning-soft) 0 10deg, transparent 10deg 20deg);
+  animation: level-up-spin 6s linear infinite;
+}
+.level-up-card > :not(.level-up-burst) {
+  position: relative;
+}
+.level-up-card img {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+}
+.level-up-eyebrow {
+  margin: 0;
+  color: var(--amber-deep);
+  font-weight: 900;
+}
+.level-up-card strong {
+  color: var(--text-primary);
+  font-size: 32px;
+  font-weight: 900;
+}
+.level-up-card p:not(.level-up-eyebrow) {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+@keyframes level-up-fade {
+  from { opacity: 0; }
+}
+@keyframes level-up-pop {
+  from { opacity: 0; transform: scale(0.6) translateY(20px); }
+}
+@keyframes level-up-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .level-up,
+  .level-up-card,
+  .level-up-burst {
+    animation: none;
+  }
+}

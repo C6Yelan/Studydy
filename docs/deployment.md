@@ -243,3 +243,6 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 0009 新增 `card_review_events`、`card_review_states` 兩張表，對卡組外鍵為 ON DELETE CASCADE，不修改既有資料。上線前在正式 DB dump 的一次性副本（等 PostgreSQL 初始化完成兩次啟動後才還原，並以 `--exit-on-error` 確認還原成功）套用，原 30 張業務表資料不變。套用後需使用識別 0009 的後端，採前向修正；前端可單獨退回。
 
+## 0010 Podcast 收聽進度（2026-10-22）
+
+0010 新增 `podcast_episode_progress`、`podcast_listening_days` 兩張表，對 Podcast 外鍵為 ON DELETE CASCADE，不修改既有資料。上線前須同 0009 先在正式 DB dump 的一次性副本套用，並核對原業務表資料不變。後端同時改為 `learning-activity/v2`，前端需一起更新（舊前端讀到 v2 時只會隱藏本週節奏）；套用後需使用識別 0010 的後端，採前向修正。

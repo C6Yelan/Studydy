@@ -288,8 +288,10 @@ def delete_podcast(owner, identity, *, expected_version=None, dsn=None):
                 raise PodcastError("PODCAST_CONFLICT")
             if row.status != "deleted":
                 from .podcast_videos import discard
+                from .podcast_progress import forget_positions
 
                 artifacts.extend(discard(db, identity))
+                forget_positions(db, identity)
                 db.execute(
                     delete(PodcastScenes).where(PodcastScenes.podcast_id == identity)
                 )

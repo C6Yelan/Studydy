@@ -23,10 +23,13 @@ export function AppShell({
   children,
   route,
   accountAction,
+  status,
 }: {
   children: React.ReactNode;
   route: AppRoute;
   accountAction?: React.ReactNode;
+  // 品牌旁的學習進度（連續天數／等級）；未登入時不顯示。
+  status?: React.ReactNode;
 }) {
   const isLearningWorkspace = ["knowledge-map", "study-session", "material-sources", "material-content", "research", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name);
   const section = currentSection(route);
@@ -34,15 +37,18 @@ export function AppShell({
   return (
     <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}`}>
       <header className="app-header">
-        <button
-          aria-label="返回 Studydy 首頁"
-          className="brand"
-          type="button"
-          onClick={() => writeRoute({ name: "home" })}
-        >
-          <img src="/assets/studydy/brand-idle.png" alt="" />
-          <span>Studydy</span>
-        </button>
+        <div className="header-start">
+          <button
+            aria-label="返回 Studydy 首頁"
+            className="brand"
+            type="button"
+            onClick={() => writeRoute({ name: "home" })}
+          >
+            <img src="/assets/studydy/brand-idle.png" alt="" />
+            <span>Studydy</span>
+          </button>
+          {status}
+        </div>
         <nav className="main-nav" aria-label="主要導覽">
           {sections.map((item) => (
             <button

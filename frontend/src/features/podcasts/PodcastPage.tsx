@@ -1,8 +1,8 @@
 import { usePodcastVideo } from "./PodcastVideo";
 import { PodcastTranscript } from "./PodcastTranscript";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { PodcastView } from "../../api/contracts";
+import type { PodcastProgressUpdate, PodcastProgressView, PodcastView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
 import { Icon } from "../../ui/Icon";
@@ -18,6 +18,8 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const storageKey = `studydy.podcast.position:${learnerId}:${podcastId}`;
   const [view, setView] = useState<PodcastView | null>(null);
   const [index, setIndex] = useState(() => savedPosition(storageKey).episode);
+  // 雲端進度：undefined 讀取中、null 讀取失敗（改用此瀏覽器保存的位置）。
+  const [progress, setProgress] = useState<PodcastProgressView | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -45,7 +47,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     window.addEventListener('resize', resize);
     resize();
     return () => { observer.disconnect(); window.removeEventListener('resize', resize); };
-  }, [view?.podcast_id, view?.status, view?.generation?.active, videoState.state?.status, actionError]);
+  }, [view?.podcast_id, view?.status, view?.generation?.active, videoState.state?.status, actionError, progress === undefined]);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +65,29 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     void read();
     return () => { cancelled = true; clearTimeout(timer); };
   }, [apiClient, podcastId, materialId, reload]);
+  const progressReady = view?.status === "ready";
+  useEffect(() => {
+    if (!progressReady) return;
+    let cancelled = false;
+    void (async () => {
+      let value = await apiClient.getPodcastProgress(podcastId);
+      // 舊版只存在此瀏覽器的位置：伺服器還沒有紀錄時上傳一次（不含收聽秒數）。
+      const local = savedPosition(storageKey);
+      if (!value.current && (local.episode > 0 || local.time > 0)) {
+        value = await apiClient.savePodcastProgress(podcastId, {
+          schema: "podcast-progress-update/v1", episode_index: local.episode, position_seconds: local.time, listened_seconds: 0, legacy: true,
+        }).catch(() => value);
+      }
+      if (cancelled) return;
+      setProgress(value);
+      if (value.current) setIndex(value.current.episode_index);
+    })().catch(() => { if (!cancelled) setProgress(null); });
+    return () => { cancelled = true; };
+    // 只在開啟節目時讀取一次；之後以每次回報的結果更新。
+  }, [apiClient, podcastId, progressReady]);
+  const syncProgress = useCallback((body: PodcastProgressUpdate, keepalive: boolean) =>
+    apiClient.savePodcastProgress(podcastId, body, { keepalive }).then((value) => { if (active.current) setProgress(value); }),
+  [apiClient, podcastId]);
   useEffect(() => {
     const focus = () => setReload((v) => v + 1);
     window.addEventListener("focus", focus);
@@ -111,8 +136,9 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     {!view.is_current_revision && <p className="podcast-meta-note">依建立時的教材版本保存</p>}
     {!previewReady && <PodcastProgress view={view} busy={busy} onAction={action => void act(action)} />}
     {previewReady && videoState.state?.status !== "ready" && <StateView title={videoState.error ? "無法載入影片" : "正在載入影片"} description={videoState.error || "正在確認本集影片。"} tone={videoState.error ? "failure" : "loading"} action={<button type="button" className="secondary-button" onClick={videoState.reload}>重新讀取</button>} />}
-    {previewReady && videoState.state?.status === "ready" && <div ref={workspace} className="podcast-listening-layout">
-        <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} videoState={videoState} mediaRef={media} storageKey={storageKey} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = view.status === "ready"; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = view.status === "ready"; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={(autoAdvance) => {
+    {previewReady && videoState.state?.status === "ready" && progress !== undefined && <div ref={workspace} className="podcast-listening-layout">
+        <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} videoState={videoState} mediaRef={media} storageKey={storageKey}
+          resumeAt={progress?.episodes.find((item) => item.episode_index === index)?.position_seconds ?? null} onSync={syncProgress} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = view.status === "ready"; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = view.status === "ready"; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={(autoAdvance) => {
           if (autoAdvance && index + 1 < view.episodes.length) { autoPlayNext.current = true; setIndex(index + 1); }
         }} />
       <div className="podcast-companion">

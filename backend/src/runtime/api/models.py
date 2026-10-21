@@ -343,17 +343,51 @@ class LearningActivityDayView(_Closed):
     date: date_type
     answers: int
     correct: int
+    card_reviews: int
+    listened_seconds: int
+    active: bool
+
+
+class LearningXpSources(_Closed):
+    answers: int
+    concepts: int
+    cards: int
+    podcast: int
+
+
+class LearningXpView(_Closed):
+    total: int
+    today: int
+    level: int
+    # 本級已得 XP 與升到下一級所需 XP。
+    level_xp: int
+    level_target: int
+    sources: LearningXpSources
+
+
+class LearningQuestView(_Closed):
+    kind: Literal["review_due_cards", "review_new_cards", "continue_study", "finish_podcast_episode"]
+    progress: int
+    target: int
+    done: bool
+    material_id: UUID | None
+    study_session_id: UUID | None
+    podcast_id: UUID | None
+    episode_index: int | None
 
 
 class LearningActivityView(_Closed):
-    schema_: Literal["learning-activity/v1"] = Field(alias="schema")
+    schema_: Literal["learning-activity/v2"] = Field(alias="schema")
     timezone: Literal["Asia/Taipei"]
+    rule_version: Literal["xp-rules/v1"]
     today: date_type
     streak_days: int
     active_today: bool
     week: list[LearningActivityDayView]
     total_answers: int
     total_correct: int
+    xp: LearningXpView
+    quests: list[LearningQuestView]
 
 
 class KnowledgeConceptsView(_Closed):
@@ -438,6 +472,37 @@ class CardSetView(CardSetSummary):
     excluded_pages: list[ExcludedPageView]
     cards: list[ConceptCardView]
     display_edits: dict[str, list[CardTextEdit]]
+
+
+class PodcastProgressUpdate(_Closed):
+    schema_: Literal["podcast-progress-update/v1"] = Field(alias="schema")
+    episode_index: int = Field(ge=0, le=1000, strict=True)
+    position_seconds: float = Field(ge=0, le=86400, allow_inf_nan=False)
+    # 距上次回報實際播放的秒數；伺服器只採計不超過實際經過時間的部分。
+    listened_seconds: int = Field(ge=0, le=3600, strict=True)
+    ended: bool = False
+    # 舊版瀏覽器保存的位置，只在伺服器沒有紀錄時採用。
+    legacy: bool = False
+
+
+class PodcastProgressCurrent(_Closed):
+    episode_index: int
+    position_seconds: float
+    updated_at: datetime
+
+
+class PodcastEpisodeProgressView(_Closed):
+    episode_index: int
+    position_seconds: float
+    completed: bool
+
+
+class PodcastProgressView(_Closed):
+    schema_: Literal["podcast-progress/v1"] = Field(alias="schema")
+    podcast_id: UUID
+    current: PodcastProgressCurrent | None
+    episodes: list[PodcastEpisodeProgressView]
+    credited_seconds: int
 
 
 class CardReviewSubmit(_Closed):

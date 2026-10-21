@@ -63,7 +63,7 @@ def test_learning_activity_counts_answers_by_taipei_day_for_the_owner_only(close
     response = client.get("/v1/learning-activity")
     assert response.status_code == 200, response.json()
     body = response.json()
-    assert body["schema"] == "learning-activity/v1" and body["timezone"] == "Asia/Taipei"
+    assert body["schema"] == "learning-activity/v2" and body["timezone"] == "Asia/Taipei"
     assert body["total_answers"] == 3 and len(body["week"]) == 7
     assert client.get("/v1/learning-activity", params={"learner_id": str(uuid4())}).status_code == 400
 
