@@ -1302,6 +1302,36 @@ test("profile is read once per login, updated with Origin and pushed to listener
   await assert.rejects(tooLong.getProfile(), ApiClientError);
 });
 
+test("account sessions and password change send Origin and validate the session count", async () => {
+  const requests = [];
+  const client = new StudydyApiClient(async (path, init) => {
+    requests.push([path, init.method, init.headers?.Origin ?? null, init.body ?? null]);
+    return Response.json({ schema: "account-sessions/v1", active_sessions: path === "/v1/account/sessions" ? 3 : 1 });
+  });
+  assert.equal((await client.getAccountSessions()).active_sessions, 3);
+  assert.equal((await client.revokeOtherSessions()).active_sessions, 1);
+  assert.equal((await client.changePassword("old synthetic secret", "new synthetic secret 1")).active_sessions, 1);
+  assert.deepEqual(requests.map(([path, method]) => [path, method]), [
+    ["/v1/account/sessions", "GET"], ["/v1/account/sessions/others", "DELETE"], ["/v1/account/password", "POST"],
+  ]);
+  assert.ok(requests[1][2] && requests[2][2]);
+  assert.deepEqual(JSON.parse(requests[2][3]), {
+    schema: "password-change/v1", current_password: "old synthetic secret", new_password: "new synthetic secret 1",
+  });
+  for (const body of [{ schema: "account-sessions/v1", active_sessions: 0 }, { schema: "account-sessions/v1", active_sessions: 1.5 }, { schema: "learner-profile/v1" }]) {
+    const broken = new StudydyApiClient(async () => Response.json(body));
+    await assert.rejects(broken.getAccountSessions(), ApiClientError);
+  }
+  const wrong = new StudydyApiClient(async () => Response.json(
+    { schema: "api-error/v1", request_id: materialId, reason_code: "CURRENT_PASSWORD_INVALID", retryable: false, message: "Request could not be completed." },
+    { status: 400 }));
+  await assert.rejects(wrong.changePassword("a", "new synthetic secret 1"), (error) => error.reasonCode === "CURRENT_PASSWORD_INVALID" && error.message === "目前密碼不正確。");
+  const limited = new StudydyApiClient(async () => Response.json(
+    { schema: "api-error/v1", request_id: materialId, reason_code: "TOO_MANY_ATTEMPTS", retryable: true, message: "Request could not be completed." },
+    { status: 429 }));
+  await assert.rejects(limited.changePassword("a", "new synthetic secret 1"), (error) => error.reasonCode === "TOO_MANY_ATTEMPTS" && error.retryable);
+});
+
 test("library search rejects mismatched queries and malformed hits", async () => {
   const body = (change = () => undefined) => {
     const value = {

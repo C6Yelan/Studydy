@@ -33,6 +33,8 @@ export type KnownApiReasonCode =
   | "INVALID_EMAIL"
   | "INVALID_CREDENTIALS"
   | "ACCOUNT_UNAVAILABLE"
+  | "CURRENT_PASSWORD_INVALID"
+  | "TOO_MANY_ATTEMPTS"
   | "REQUEST_INVALID"
   | "SESSION_REQUIRED"
   | "ORIGIN_NOT_ALLOWED"
@@ -67,6 +69,8 @@ export type ApiErrorView = {
 export type LearnerIdentity = { schema: "learner-identity/v1"; learner_id: string };
 // 個人顯示名稱；未設定為 null，畫面沿用不含名字的問候。
 export type LearnerProfile = { schema: "learner-profile/v1"; display_name: string | null };
+// 本人目前仍有效的登入數，含目前這個裝置。
+export type AccountSessions = { schema: "account-sessions/v1"; active_sessions: number };
 
 // 全站搜尋：只查教材名稱與各教材目前版本的概念名稱／別名。
 export type LibrarySearchView = {

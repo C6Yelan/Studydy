@@ -42,6 +42,21 @@ class LearnerProfileUpdate(_Closed):
     display_name: str | None = Field(max_length=200)
 
 
+class PasswordChange(_Closed):
+    schema_: Literal["password-change/v1"] = Field(alias="schema")
+    # 目前密碼只限制大小，錯誤一律回 CURRENT_PASSWORD_INVALID；新密碼沿用註冊規則。
+    current_password: str = Field(min_length=1, max_length=128, repr=False)
+    new_password: str = Field(min_length=15, max_length=128, repr=False)
+
+
+class AccountSessionsView(_Closed):
+    schema_: Literal["account-sessions/v1"] = Field(
+        default="account-sessions/v1", alias="schema"
+    )
+    # 本人仍有效的登入數，含目前這個。
+    active_sessions: int
+
+
 class LibrarySearchMaterialView(_Closed):
     material_id: UUID
     display_name: str

@@ -34,8 +34,12 @@ from .video_routes import install as install_videos
 from .voice_routes import install as install_voice
 from ..learner_session import (
     IDLE_LIFETIME,
+    PasswordAttemptLimiter,
     SessionError,
+    change_password,
+    count_active_sessions,
     login_account,
+    revoke_other_sessions,
     refresh_session,
     register_account,
     revoke_session,
@@ -78,6 +82,8 @@ from .models import (
     LearnerIdentityView,
     LearnerProfileUpdate,
     LearnerProfileView,
+    PasswordChange,
+    AccountSessionsView,
     MaterialDiscardView,
     MaterialDraftCreate,
     MaterialDraftView,
@@ -118,6 +124,8 @@ _ERROR_STATUS = {
     "REQUEST_INVALID": (400, False),
     "INVALID_EMAIL": (400, False),
     "INVALID_CREDENTIALS": (401, False),
+    "CURRENT_PASSWORD_INVALID": (400, False),
+    "TOO_MANY_ATTEMPTS": (429, True),
     "ACCOUNT_UNAVAILABLE": (409, False),
     "SESSION_REQUIRED": (401, False),
     "ORIGIN_NOT_ALLOWED": (403, False),
@@ -515,6 +523,8 @@ def _install_openapi(app: FastAPI) -> None:
                     response_codes.add(409)
                 if path == "/v1/session/login":
                     response_codes.add(401)
+                if path == "/v1/account/password":
+                    response_codes.add(429)
                 if path.endswith("/resume") or path in {
                     "/v1/card-sets/{card_set_id}/update",
                     "/v1/card-sets/{card_set_id}/count",
@@ -700,6 +710,65 @@ def create_app(settings: ApiSettings) -> FastAPI:
         return learner_profile.update_profile(
             learner.learner_id, body.display_name, dsn=settings.dsn
         )
+
+    password_attempts = PasswordAttemptLimiter()
+
+    @app.get(
+        "/v1/account/sessions",
+        response_model=AccountSessionsView,
+        operation_id="readAccountSessions",
+        tags=["session"],
+    )
+    def read_account_sessions_route(request: Request) -> AccountSessionsView:
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        return AccountSessionsView(
+            active_sessions=count_active_sessions(learner.learner_id, dsn=settings.dsn)
+        )
+
+    @app.delete(
+        "/v1/account/sessions/others",
+        response_model=AccountSessionsView,
+        operation_id="revokeOtherSessions",
+        tags=["session"],
+        dependencies=[Depends(request_context.require_empty_body)],
+    )
+    def revoke_other_sessions_route(request: Request) -> AccountSessionsView:
+        request_context.require_query(request, set())
+        request_context.trusted_learner(request, settings)
+        return AccountSessionsView(
+            active_sessions=revoke_other_sessions(
+                request.cookies.get(request_context.SESSION_COOKIE), dsn=settings.dsn
+            )
+        )
+
+    @app.post(
+        "/v1/account/password",
+        response_model=AccountSessionsView,
+        operation_id="changePassword",
+        tags=["session"],
+    )
+    def change_password_route(
+        request: Request, body: PasswordChange
+    ) -> AccountSessionsView:
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        # 節流在核對前檢查，暫停期間不再計算雜湊。
+        if password_attempts.blocked(learner.learner_id):
+            raise request_context.ApiFailure("TOO_MANY_ATTEMPTS")
+        try:
+            active = change_password(
+                request.cookies.get(request_context.SESSION_COOKIE),
+                body.current_password,
+                body.new_password,
+                dsn=settings.dsn,
+            )
+        except SessionError as error:
+            if str(error) == "CURRENT_PASSWORD_INVALID":
+                password_attempts.record_failure(learner.learner_id)
+            raise
+        password_attempts.reset(learner.learner_id)
+        return AccountSessionsView(active_sessions=active)
 
     @app.post(
         "/v1/session/refresh",

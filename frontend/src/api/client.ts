@@ -26,6 +26,7 @@ import type {
   KnownApiReasonCode,
   LearnerIdentity,
   LearnerProfile,
+  AccountSessions,
   LibrarySearchView,
   LearnerProgressView,
   MaterialDiscardView,
@@ -58,6 +59,8 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   INVALID_EMAIL: "請輸入有效的 Email 格式。",
   INVALID_CREDENTIALS: "Email 或密碼不正確。",
   ACCOUNT_UNAVAILABLE: "這個 Email 已被使用，請使用其他 Email。",
+  CURRENT_PASSWORD_INVALID: "目前密碼不正確。",
+  TOO_MANY_ATTEMPTS: "嘗試次數過多，請 15 分鐘後再試。",
   REQUEST_INVALID: genericApiMessage,
   SCENE_CONFLICT: "同步圖卡的狀態已變更，請重新讀取。",
   SCENE_ALIGNMENT_INVALID: "尚無法可靠對齊音訊，請重試。",
@@ -736,6 +739,24 @@ export class StudydyApiClient {
   onProfileChange(listener: (profile: LearnerProfile) => void): () => void {
     this.profileListeners.add(listener);
     return () => { this.profileListeners.delete(listener); };
+  }
+
+  getAccountSessions(): Promise<AccountSessions> {
+    return this.json("/v1/account/sessions", { method: "GET" }, validate.accountSessions);
+  }
+
+  // 撤銷其他裝置的登入，保留目前這個；回傳之後的有效登入數。
+  revokeOtherSessions(): Promise<AccountSessions> {
+    return this.json("/v1/account/sessions/others", { method: "DELETE", headers: { Origin: origin() } },
+      validate.accountSessions);
+  }
+
+  // 成功後其他裝置的登入全部失效，目前這個裝置維持登入。
+  changePassword(currentPassword: string, newPassword: string): Promise<AccountSessions> {
+    return this.json("/v1/account/password", {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ schema: "password-change/v1", current_password: currentPassword, new_password: newPassword }),
+    }, validate.accountSessions);
   }
 
   searchLibrary(text: string): Promise<LibrarySearchView> {

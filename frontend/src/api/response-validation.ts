@@ -21,6 +21,7 @@ import type {
   KnowledgeStructureView,
   LearnerIdentity,
   LearnerProfile,
+  AccountSessions,
   LibrarySearchView,
   LearnerProgressView,
   MaterialDiscardView,
@@ -713,6 +714,12 @@ export function learnerProfile(value: unknown): value is LearnerProfile {
   const item = object(value);
   return !!item && item.schema === "learner-profile/v1"
     && (item.display_name === null || (typeof item.display_name === "string" && item.display_name.length > 0 && [...item.display_name].length <= 20));
+}
+
+export function accountSessions(value: unknown): value is AccountSessions {
+  const item = object(value);
+  return !!item && item.schema === "account-sessions/v1" && Number.isSafeInteger(item.active_sessions)
+    && (item.active_sessions as number) >= 1;
 }
 
 export function librarySearch(value: unknown): value is LibrarySearchView {
