@@ -60,12 +60,12 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
     }
     await page.goto(map);
     if (stage !== "remediation") {
-      await page.getByRole("tab", { name: "測驗", exact: true }).click();
+      await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
       await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("目前還沒有測驗紀錄");
-      await page.getByRole("button", { name: "返回概念地圖", exact: true }).click();
+      await page.getByRole("tab", { name: "知識地圖", exact: true }).click();
     }
     if (stage === "remediation") {
-      await page.getByRole("tab", { name: "測驗", exact: true }).click();
+      await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
       await page.getByRole("button", { name: "繼續測驗", exact: true }).click();
     } else {
       await openMapConcept(page, "伺服器");
@@ -92,7 +92,7 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
       await expect(page.getByRole("progressbar", { name: "準備進度" })).toBeVisible();
       expect(fixture.requests.filter((r: { path: string }) => r.path.endsWith("/retry"))).toHaveLength(1);
     }
-    await page.getByRole("button", { name: "返回概念地圖", exact: true }).click();
+    await page.getByRole("tab", { name: "知識地圖", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "伺服器", exact: true })).toBeVisible();
     if (stage === "ready") await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("已完成");
   });
@@ -147,7 +147,7 @@ for (const stage of ["preparation", "completed"] as const) {
   await page.route(url=>decodeURIComponent(url.pathname)===`/v1/materials/${mid}/knowledge-structures/${revision}/outline`,route=>json(route,view));
   await page.route(`**/v1/study-sessions/${sid}/map-progress`,route=>json(route,snapshot.progress));
   await page.goto(fixture.path.split('/study-sessions/')[0]);
-  if(stage==='completed') await page.getByRole('tab',{name:'測驗',exact:true}).click();
+  if(stage==='completed') await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
   else await openMapConcept(page, '伺服器');
   await expect(page).not.toHaveURL(/study-sessions/);
   if(stage==='completed')await page.getByText(/已完成的概念 · 再次練習/).click();

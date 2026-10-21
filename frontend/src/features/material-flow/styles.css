@@ -1334,14 +1334,12 @@
   }
 }
 
-.material-content { width: 100%; min-height: calc(100dvh - 56px); padding: 8px var(--space-6) var(--space-4); }
+.material-content { width: 100%; min-height: calc(100dvh - var(--shell-offset)); padding: 0 0 var(--space-4); }
 .material-content-body { width: 100%; min-width: 0; }
 .material-content-body > .cards-page { max-width: none; }
 .material-content-body > .material-library { width: 100%; min-width: 0; }
 .material-content-body .cards-page h1 { font-size: 24px; }
-@media (max-width: 780px) { .material-content { padding: 8px 12px 12px; } }
-/* 底部保留語音入口的空間，讓手機內容末端的操作仍能完整點選。 */
-@media (max-width: 900px) { .material-content { padding-bottom:max(80px,calc(env(safe-area-inset-bottom) + 64px)); } }
+@media (max-width: 780px) { .material-content { padding: 0 0 12px; } }
 
 /* 內容總覽與地圖共用搜尋及建立操作的工具列。 */
 .collection-toolbar { flex-wrap: nowrap; gap: 16px; margin-bottom: 18px; }
@@ -1408,3 +1406,125 @@
 @media (max-width:1599px) { .material-bookshelf > .library-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media (max-width:1199px) { .material-bookshelf > .library-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:650px) { .material-bookshelf > .library-grid { grid-template-columns:minmax(0,1fr); } }
+
+/* 知識群島：教材卡片頂部是教材自己的島嶼。 */
+.library-item,
+.is-collection .library-item {
+  padding: 10px 16px 20px;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+.library-island {
+  display: block;
+  margin: 0 -6px 4px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #8fe0fb, #3aa6e2);
+}
+.library-island .island-art {
+  transform: scale(1.08);
+}
+.library-island.is-building {
+  background: linear-gradient(180deg, #c9d8e6, #9fb4c8);
+}
+.library-island.is-building .island-art {
+  filter: saturate(0.3);
+  opacity: 0.8;
+}
+.library-item h2 {
+  font-weight: 900;
+}
+.library-file-icon {
+  border-radius: 12px;
+}
+.library-item .library-state {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-weight: 700;
+}
+.is-collection .library-search input,
+.library-search input {
+  border: 0;
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+.library-item .material-management-menu {
+  top: 18px;
+  right: 22px;
+}
+.library-item .material-management-menu summary {
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 10px -4px rgba(10, 40, 80, 0.4);
+}
+.library-item .state-actions > .library-link {
+  min-height: 32px;
+  padding: 0 4px;
+  font-size: 13px;
+}
+
+/* 全域清單頁的標題（概念卡、Podcast）。 */
+.collection-intro {
+  margin-bottom: 18px;
+}
+.collection-intro .eyebrow {
+  margin-bottom: 6px;
+}
+.collection-intro h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.4vw, 1.9rem);
+}
+/* 卡組封面：兩張底卡加一張主卡。 */
+.card-set-art {
+  position: relative;
+  display: grid;
+  height: 132px;
+  margin: 0 -6px 6px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--studydy-blue-soft);
+}
+.card-set-art::before,
+.card-set-art::after,
+.card-set-art > span {
+  position: absolute;
+  width: 62%;
+  height: 100px;
+  border-radius: 14px;
+  background: linear-gradient(150deg, var(--card-from), var(--card-to));
+}
+.card-set-art::before {
+  content: "";
+  opacity: 0.45;
+  transform: translate(-14px, 6px) rotate(-6deg);
+}
+.card-set-art::after {
+  content: "";
+  opacity: 0.7;
+  transform: translate(10px, 2px) rotate(4deg);
+}
+.card-set-art > span {
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  padding: 12px 14px;
+  box-shadow: 0 10px 18px -10px rgba(0, 0, 0, 0.45);
+}
+.card-set-art b {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+.library-item:has(.card-set-art) .material-management-menu,
+.library-item:has(.library-island) .material-management-menu {
+  top: 18px;
+  right: 22px;
+}
+.is-collection .library-item > .state-actions > .primary-button:first-child { flex: 1; }

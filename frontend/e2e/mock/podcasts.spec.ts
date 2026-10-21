@@ -130,7 +130,7 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.locator('.podcast-tile')).toHaveCount(2);
   await page.goto(`/materials/${materialId}/podcasts`);
   await expect(page.locator('.podcast-tile')).toHaveCount(1);
-  await expect(page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab')).toHaveText(['概念地圖', '測驗', '概念卡', 'Podcast', '補充學習', '教材來源']);
+  await expect(page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab')).toHaveText(['知識地圖', '學習與測驗', '概念卡', 'Podcast', '補充學習', '教材來源']);
   await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveClass(/is-workspace/);
   const navBox = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
@@ -244,7 +244,8 @@ test('desktop podcast creation fills the workspace while long lists and previews
     const create = page.getByRole('button', {name:'開始生成 Podcast',exact:true});
     await expect(create).toBeInViewport(); await create.click({trial:true});
     const action = (await create.boundingBox())!, voice = (await page.getByRole('button', {name:'教材問答',exact:true}).boundingBox())!;
-    expect(action.y+action.height).toBeLessThan(voice.y);
+    // 問答入口在分頁列，不與底部的生成按鈕重疊。
+    expect(voice.y+voice.height).toBeLessThan(action.y);
     expect(action.y+action.height).toBeLessThan(height);
     expect(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1&&document.documentElement.scrollWidth===innerWidth)).toBe(true);
   }
@@ -704,7 +705,8 @@ test('desktop watch room fits measured page chrome and viewport height without s
     if ([1366, 1920, 2560].includes(width)) await page.screenshot({ path: testInfo.outputPath(`watch-${width}-${height}.png`) });
   }
   // 長標題與教材資訊改變時，依實際 chrome 高度重新計算，不以螢幕寬度猜測。
-  await page.setViewportSize({ width: 1440, height: 720 });
+  // 高度 900 時顯示完整教材資訊列（820 以下改收進分頁列）。
+  await page.setViewportSize({ width: 1440, height: 900 });
   fixture.fixture.view.name = '長標題：逐步確認必要條件與例外情境。'.repeat(8);
   await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByRole('button', { name: '播放', exact: true })).toBeEnabled();
@@ -714,7 +716,7 @@ test('desktop watch room fits measured page chrome and viewport height without s
   await expect.poll(async () => {
     const box = (await page.locator('.media-player').boundingBox())!;
     return box.y + box.height;
-  }).toBeLessThanOrEqual(700);
+  }).toBeLessThanOrEqual(880);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
   // 手機只受寬度限制；低高度的直向視窗也不縮成桌面模式。
   fixture.fixture.view.name = '我的 Podcast';
@@ -733,14 +735,14 @@ test('desktop watch room fits measured page chrome and viewport height without s
 });
 
 
-test('material podcast player keeps the chat entry at the viewport corner',async({page})=>{
+test('material podcast player keeps the chat entry in the material tab row',async({page})=>{
  const {fixture}=await mockEpisodeVideo(page);
  for(const episode of fixture.view.episodes){episode.script=fixture.script;episode.audio={...fixture.view.episodes[0].audio!};}
  for(const width of [1920,1440,390]){
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/podcasts/${podcastId}`);
   await expect(page.locator('.podcast-listening-layout')).toBeVisible();
   const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
-  expect(width-box.x-box.width).toBeCloseTo(width===390?16:24,0);expect(900-box.y-box.height).toBeCloseTo(width===390?16:24,0);
+  const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(toolbar.y);expect(box.y+box.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);expect(toolbar.x+toolbar.width-box.x-box.width).toBeLessThanOrEqual(12);
  }
 });
 

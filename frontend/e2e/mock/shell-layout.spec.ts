@@ -24,34 +24,34 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("standard and learning shells keep their navigation and header density", async ({ page }) => {
+test("every page shares the top navigation and phones use the bottom tab bar", async ({ page }) => {
   for (const width of [1536, 390]) {
     await page.setViewportSize({ width, height: 844 });
-    for (const [path, selector, currentNavigation] of [
+    for (const [path, selector, current] of [
       ["/", ".dashboard-content", "首頁"],
-      ["/materials", ".library-empty", "教材庫"],
-      [mapPath, ".map-workspace", null],
-      [studyPath, ".study-session-page", null],
+      ["/materials", ".library-empty", "我的教材"],
+      [mapPath, ".map-workspace", "我的教材"],
+      [studyPath, ".study-session-page", "我的教材"],
     ] as const) {
       await page.goto(path);
       await expect(page.locator(selector)).toBeVisible();
-      const workspace = currentNavigation === null;
-      expect((await page.locator(".app-header").boundingBox())!.height).toBe(
-        workspace ? 56 : width > 900 ? 74 : 72,
-      );
-      if (workspace) {
-        await expect(page.locator(".app-sidebar")).toHaveCount(0);
-        const navigation = page.getByRole("navigation", { name: "學習工作區導覽", exact: true });
-        await expect(navigation.getByRole("button")).toHaveText(
-          path === studyPath ? ["知識地圖", "我的教材"] : ["我的教材"],
-        );
+      await expect(page.locator(".app-sidebar")).toHaveCount(0);
+      const header = (await page.locator(".app-header").boundingBox())!;
+      expect(header.height).toBe(width > 720 ? 70 : 56);
+      const desktopNav = page.getByRole("navigation", { name: "主要導覽", exact: true });
+      const phoneNav = page.getByRole("navigation", { name: "手機導覽", exact: true });
+      if (width > 720) {
+        await expect(desktopNav).toBeVisible();
+        await expect(phoneNav).toBeHidden();
+        await expect(desktopNav.getByRole("button", { name: current, exact: true })).toHaveAttribute("aria-current", "page");
       } else {
-        const sidebar = page.getByRole("complementary", { name: "學習導覽區", exact: true });
-        await expect(sidebar).toBeVisible();
-        await expect(
-          sidebar.getByRole("button", { name: currentNavigation, exact: true }),
-        ).toHaveAttribute("aria-current", "page");
+        await expect(desktopNav).toBeHidden();
+        await expect(phoneNav).toBeVisible();
+        await expect(phoneNav.getByRole("button", { name: current === "我的教材" ? "教材" : current, exact: true })).toHaveAttribute("aria-current", "page");
+        await expect(phoneNav.getByRole("button", { name: "上傳教材", exact: true })).toBeVisible();
       }
+      if (selector === ".map-workspace" || selector === ".study-session-page")
+        await expect(page.getByRole("button", { name: "回到我的教材", exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     }
   }
@@ -71,10 +71,7 @@ for (const width of [320, 1366, 1920]) {
           width / 2,
         );
       }
-      await page
-        .locator(".app-header")
-        .getByRole("button", { name: "我的教材", exact: true })
-        .click();
+      await page.getByRole("button", { name: "回到我的教材", exact: true }).click();
       await expect(page).toHaveURL(/\/materials$/);
       await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
     }
@@ -114,7 +111,7 @@ test("bootstrap and persisted pageshow preserve the frame, route and selected ma
   await expect(page).toHaveURL(`${browserOrigin}${mapPath}`);
   expect(mapReads).toBe(0);
   releaseBootstrap();
-  await page.getByRole("tab", { name: "測驗", exact: true }).click();
+  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   await page.evaluate(() =>
     window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
   );
@@ -124,7 +121,7 @@ test("bootstrap and persisted pageshow preserve the frame, route and selected ma
   await expect(page.locator(".map-workspace")).toHaveCount(0);
   releaseRestore();
   await expect(page).toHaveURL(`${browserOrigin}${mapPath}`);
-  await expect(page.getByRole("tab", { name: "測驗", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: "學習與測驗", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",
   );

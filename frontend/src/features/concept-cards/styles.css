@@ -3,7 +3,8 @@
 .cards-page-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 30px; }
 .cards-page h1 { margin: 7px 0 10px; font-size: clamp(25px, 2.5vw, 34px); letter-spacing: -.035em; overflow-wrap: anywhere; }
 .cards-page-header p { margin: 0; color: var(--text-secondary); line-height: 1.7; }
-.cards-back { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 22px; }
+.cards-back { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; margin-bottom: 22px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); color: var(--text-secondary); font-weight: 800; }
+.cards-back:hover { color: var(--studydy-blue); }
 .cards-page input[type="search"], .cards-field input { width: 100%; min-height: 44px; padding: 11px 14px; border: 1px solid var(--border); border-radius: 9px; background: #fff; color: var(--text-primary); font: inherit; }
 .cards-empty, .cards-complete { text-align: center; padding: 65px 24px; border: 1px solid var(--border-light); border-radius: 18px; background: #fff; }
 .cards-empty-icon { display: grid; place-items: center; width: 80px; height: 80px; background: var(--studydy-blue-soft); color: var(--studydy-blue); border-radius: 24px; margin: 0 auto 24px; }

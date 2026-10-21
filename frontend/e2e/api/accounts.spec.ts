@@ -31,7 +31,7 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
   expect((await (await a.request.get(`${origin}/v1/session`)).json()).learner_id).toBe(learnerId);
   await expect(
-    page.getByRole("heading", { name: "歡迎回來！", level: 1, exact: true }),
+    page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主要導覽", exact: true })).toBeVisible();
 

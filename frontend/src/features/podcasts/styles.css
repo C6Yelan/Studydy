@@ -4,8 +4,15 @@
 .podcast-tile h2 { font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
 .podcast-tile p { overflow-wrap: anywhere; }
 .podcast-tile > .primary-button { margin-top: auto; align-self: flex-start; min-height: 40px; padding: 8px 12px; font-size: 13px; }
-.podcast-tile .podcast-cover { width: 32px; height: 32px; border-radius: 10px; margin-bottom: 6px; }
-.podcast-tile .podcast-cover svg { width: 20px; height: 20px; }
+/* 節目封面：機器人戴著聲波圈，左上標示單人或雙人。 */
+.podcast-tile .podcast-cover { position: relative; display: grid; width: auto; height: 132px; margin: 0 -6px 8px; overflow: hidden; border-radius: 18px; background: linear-gradient(160deg, #9b6bff, #ff7aa8); }
+.podcast-tile .podcast-cover img { position: relative; width: 104px; height: 100px; object-fit: contain; filter: drop-shadow(0 8px 10px rgba(40, 0, 60, .3)); }
+.podcast-tile .podcast-cover em { position: absolute; top: 10px; left: 10px; padding: 2px 9px; border-radius: 999px; background: rgba(0, 0, 0, .2); color: #fff; font-size: 11px; font-style: normal; font-weight: 900; }
+.podcast-cover-rings, .podcast-cover-rings::before, .podcast-cover-rings::after { position: absolute; top: 50%; left: 50%; border: 2px solid rgba(255, 255, 255, .25); border-radius: 50%; transform: translate(-50%, -50%); }
+.podcast-cover-rings { width: 120px; height: 120px; }
+.podcast-cover-rings::before, .podcast-cover-rings::after { content: ""; }
+.podcast-cover-rings::before { width: 180px; height: 180px; }
+.podcast-cover-rings::after { width: 240px; height: 240px; }
 .podcast-source-preview { padding: 26px; align-self: start; max-height: 680px; overflow-y: auto; }
 .podcast-source-preview h2 { font-size: 22px; margin-top: 0; }
 .podcast-source-preview article + article { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border-light); }
@@ -16,7 +23,7 @@
 .podcast-page > .cards-page-header { margin-bottom:8px; flex-wrap:nowrap; }
 .podcast-page > .cards-page-header > .cards-back { margin-bottom:0; flex-shrink:0; min-height:44px; }
 .podcast-page > .cards-page-header h1 { margin:0; overflow-wrap:anywhere; }
-.podcast-listening-layout { --watch-gap:20px; --watch-companion-width:clamp(320px, 26vw, 360px); --watch-room-height:max(0px, calc(100dvh - var(--watch-room-top, 0px) - 24px)); display:grid; grid-template-columns:minmax(0,1fr) var(--watch-companion-width); gap:var(--watch-gap); width:100%; margin:8px 0 0; align-items:start; container-type:inline-size; }
+.podcast-listening-layout { --watch-gap:20px; --watch-companion-width:clamp(320px, 26vw, 360px); --watch-room-height:max(0px, calc(100dvh - var(--watch-room-top, 0px) - 24px - var(--watch-room-shell-bottom, 0px))); display:grid; grid-template-columns:minmax(0,1fr) var(--watch-companion-width); gap:var(--watch-gap); width:100%; margin:8px 0 0; align-items:start; container-type:inline-size; }
 .podcast-listening-layout > .media-player { grid-column:1; grid-row:1; }
 .podcast-companion { grid-column:2; grid-row:1; display:flex; flex-direction:column; gap:12px; min-width:0; height:var(--watch-room-height,600px); overflow:hidden; }
 /* 播放器本身維持 16:9；字幕與控制列不另占影片外的高度。 */
@@ -262,3 +269,15 @@
 .podcast-generation-summary { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:12px 16px; margin-bottom:12px; }
 .podcast-generation-summary > p { margin:0; font-size:14px; }
 .podcast-generation-summary .cancel-confirmation { flex-basis:100%; }
+.podcast-tile > .primary-button { width: 100%; margin-top: auto; }
+.media-cover { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; overflow:hidden; padding-bottom:56px; background:linear-gradient(160deg, #6d5cff, #b56cff 55%, #ff7aa8); pointer-events:none; }
+.media-cover img { position:relative; width:min(26%, 180px); height:auto; filter:drop-shadow(0 12px 14px rgba(40, 0, 60, .35)); }
+.media-cover b { position:relative; padding:4px 14px; border-radius:999px; background:rgba(0, 0, 0, .22); color:#fff; font-size:14px; font-weight:900; }
+.media-cover .podcast-cover-rings { width:38%; height:auto; aspect-ratio:1; }
+.media-cover .podcast-cover-rings::before { width:150%; height:150%; }
+.media-cover .podcast-cover-rings::after { width:200%; height:200%; }
+/* 學習工作區外框已保留下緣留白，觀看室高度一併扣除，避免整頁多出捲動。 */
+.app-shell.is-workspace .podcast-listening-layout { --watch-room-shell-bottom: 16px; }
+@media (max-width: 720px) { .app-shell.is-workspace .podcast-listening-layout { --watch-room-shell-bottom: 0px; } }
+/* 新字型的中文字寬較大；手機字幕略縮，長句仍能留在畫面與控制列之間。 */
+@media (max-width: 480px) { .media-subtitles { font-size: 13px; line-height: 1.3; } }

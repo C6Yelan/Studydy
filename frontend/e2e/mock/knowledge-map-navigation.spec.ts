@@ -56,7 +56,7 @@ test("map tabs cycle and missing path references still fail the strict API contr
   await mockLearningMapApi(page, view, false);
   await page.goto(mapPath);
   const tabs = page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab");
-  await expect(tabs).toHaveText(["概念地圖", "測驗", "概念卡", "Podcast", "補充學習", "教材來源"]);
+  await expect(tabs).toHaveText(["知識地圖", "學習與測驗", "概念卡", "Podcast", "補充學習", "教材來源"]);
   await expect(page.getByRole("tab", { name: "學習順序", exact: true })).toHaveCount(0);
   await tabs.nth(1).focus();
   await page.keyboard.press("Home");
@@ -79,7 +79,7 @@ test("sectionless concepts remain selectable through navigation", async ({ page 
   await page.goto(mapPath);
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
   await expect(page.getByRole("tab", { name: "總覽", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("tabpanel", { name: "概念地圖", exact: true })).toBeVisible();
+  await expect(page.getByRole("tabpanel", { name: "知識地圖", exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: "學習導覽", exact: true });
   await toggle.click();
   await expect(page.locator(".navigator-label")).toHaveText(["Stack", "Array"]);
@@ -236,7 +236,7 @@ test("reload restores map presentation while local interaction does not restart 
     for (let i = 0; i < 5; i++) window.dispatchEvent(new Event("focus"));
   });
   await page.reload();
-  await expect(page.getByRole("tab", { name: "概念地圖", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("tab", { name: "知識地圖", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",
   );
@@ -245,7 +245,7 @@ test("reload restores map presentation while local interaction does not restart 
   await page.clock.fastForward(60 * 60 * 1000 + 1);
   expect(await context!.evaluate((node) => node.isConnected)).toBe(true);
   await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "Array", exact: true })).toHaveText("Array");
-  await page.getByRole("tab", { name: "概念地圖", exact: true }).click();
+  await page.getByRole("tab", { name: "知識地圖", exact: true }).click();
   await openMapConcept(page, "Array");
   await page.getByRole("searchbox").fill("Stack");
   await page.reload();

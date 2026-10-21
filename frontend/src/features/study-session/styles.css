@@ -1,7 +1,7 @@
 .study-session-page {
-  width: min(1440px, 100%);
+  width: 100%;
   margin: 0 auto;
-  padding: var(--space-7) var(--space-6) var(--space-10);
+  padding: 0 0 var(--space-10);
 }
 .study-header {
   margin-bottom: var(--space-5);
@@ -86,7 +86,7 @@
 }
 @media (max-width: 620px) {
   .study-session-page {
-    padding: var(--space-5) var(--space-3) var(--space-8);
+    padding: 0 0 var(--space-8);
   }
   .current-concept-card {
     padding: var(--space-5);

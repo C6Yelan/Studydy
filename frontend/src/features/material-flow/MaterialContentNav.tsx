@@ -1,25 +1,30 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import type { StudydyApiClient } from "../../api/client";
-import { Icon } from "../../ui/Icon";
+import { Icon, type IconName } from "../../ui/Icon";
+import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { MaterialTools } from "../material-tools/MaterialTools";
+import { rememberMaterial, rememberedMaterial } from "./material-memory";
 
 type Mode = "focus" | "review";
 type Content = "knowledge-map" | "review" | "concept-cards" | "podcasts" | "research" | "sources";
-const items: { id: Content; label: string }[] = [
-  { id: "knowledge-map", label: "概念地圖" }, { id: "review", label: "測驗" },
-  { id: "concept-cards", label: "概念卡" }, { id: "podcasts", label: "Podcast" },
-  { id: "research", label: "補充學習" }, { id: "sources", label: "教材來源" },
+const items: { id: Content; label: string; icon: IconName }[] = [
+  { id: "knowledge-map", label: "知識地圖", icon: "map" }, { id: "review", label: "學習與測驗", icon: "quiz" },
+  { id: "concept-cards", label: "概念卡", icon: "cards" }, { id: "podcasts", label: "Podcast", icon: "headphones" },
+  { id: "research", label: "補充學習", icon: "sparkle" }, { id: "sources", label: "教材來源", icon: "file" },
 ];
+const dateFormat = new Intl.DateTimeFormat("zh-TW", { year: "numeric", month: "2-digit", day: "2-digit" });
 const tabId = (id: Content) => id === "knowledge-map" ? "map-tab-focus" : id === "review" ? "map-tab-review" : `material-tab-${id}`;
 const panelId = (id: Content) => id === "knowledge-map" ? "map-panel-focus" : id === "review" ? "map-panel-review" : `material-panel-${id}`;
 
-export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName, assessmentDisabled = false }: {
+export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName, assessmentDisabled = false, loadMaterial = false }: {
   apiClient: StudydyApiClient; materialId: string;
   mapRoute: Extract<AppRoute, { name: "knowledge-map" }> | null; current: Content;
   onMapModeChange?: (mode: Mode) => void;
   onMapTabRef?: (mode: Mode, element: HTMLButtonElement | null) => void; materialName?: string;
   assessmentDisabled?: boolean;
+  /** 所在頁面本身不讀教材索引時，由資訊列補讀。 */
+  loadMaterial?: boolean;
 }) {
   const navigation = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -55,7 +60,31 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
       writeRoute(route, false, { focusMaterialTab: keyboard });
     }
   };
-  return <><div className="material-learning-toolbar">
+  // 失敗只少顯示資訊列，不影響頁面內容。
+  const [, setLoaded] = useState(0);
+  const material = rememberedMaterial(apiClient, materialId);
+  useEffect(() => {
+    if (material || !loadMaterial) return;
+    let cancelled = false;
+    void apiClient.getMaterial(materialId).then((value) => {
+      if (cancelled) return;
+      rememberMaterial(apiClient, value);
+      setLoaded((count) => count + 1);
+    }, () => undefined);
+    return () => { cancelled = true; };
+  }, [apiClient, materialId, material, loadMaterial]);
+  const name = material?.display_name ?? materialName;
+  const pages = material?.latest_attempt?.total_pages;
+  return <><header className="material-bar" aria-label="目前教材">
+    <button className="material-bar-back" type="button" aria-label="回到我的教材" onClick={() => writeRoute({ name: "materials" })}><Icon name="arrow-left" size={20}/></button>
+    <span className="material-bar-thumb" aria-hidden="true"><IslandArt palette={islandPalette(materialId)} landmarks={false}/></span>
+    <div className="material-bar-info">
+      {name && <p className="material-context"><span>{name}</span></p>}
+      {material && <p className="material-bar-meta">{[material.source_count ? `${material.source_count} 個來源` : null, pages ? `${pages} 頁` : null, `建立於 ${dateFormat.format(new Date(material.created_at))}`].filter(Boolean).join(" · ")}</p>}
+    </div>
+  </header>
+  <div className="material-learning-toolbar">
+    {name && <span className="material-toolbar-name" title={name}>{name}</span>}
     <div ref={navigation} className="material-content-nav map-tabs" role="tablist" aria-label="教材學習內容">
       {items.map((item, index) => <button key={item.id} type="button" id={tabId(item.id)} role="tab" aria-selected={current === item.id} aria-controls={panelId(item.id)}
         className={current === item.id ? "is-active" : undefined} tabIndex={current === item.id ? 0 : -1} disabled={(!mapRoute && item.id !== "sources") || (item.id === "review" && assessmentDisabled)}
@@ -68,7 +97,8 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
           else if (event.key === "End") next = items.length - 1;
           else return;
           event.preventDefault(); activate(items[next].id, true);
-        }}>{item.label}</button>)}
+        }}><Icon name={item.icon} size={18}/>{item.label}</button>)}
     </div>
-  </div>{materialName && <div className="material-context" aria-label="目前教材"><Icon name="book" size={15}/><span>{materialName}</span></div>}{mapRoute && <MaterialTools key={`${materialId}:${mapRoute.structureRevision}`} api={apiClient} materialId={materialId} revision={mapRoute.structureRevision} />}</>;
+    {mapRoute && <MaterialTools key={`${materialId}:${mapRoute.structureRevision}`} api={apiClient} materialId={materialId} revision={mapRoute.structureRevision} />}
+  </div></>;
 }

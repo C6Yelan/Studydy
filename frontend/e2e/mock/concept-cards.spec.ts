@@ -453,7 +453,8 @@ test("library stays aligned and card review keeps compact content and controls",
   // 教材書架已有獨立的三欄規則；卡組沿用緊湊網格，只要求左緣對齊。
   expect(cardTile.x).toBeCloseTo(materialCard.x, 0);
   expect(cardTile.width).toBeLessThan(320);
-  expect(cardTile.height).toBeLessThan(270);
+  // 卡組加上封面插畫後仍維持單張卡片高度上限。
+  expect(cardTile.height).toBeLessThan(420);
   await expect(page.getByRole('heading', { name: '我的概念卡', exact: true })).toHaveCount(0);
   await expect(page.locator('.library-item').getByRole('button', { name: '管理卡組', exact: true })).toHaveCount(0);
   await page.screenshot({ path: "../.studydy-runtime/card-preview/library-aligned.png", fullPage: true });
@@ -464,7 +465,7 @@ test("library stays aligned and card review keeps compact content and controls",
   const back = page.getByRole('button', {name:'返回卡組', exact:true});
   await expect(back).toBeVisible();
   const loadingBack = (await back.boundingBox())!;
-  const tabs = (await page.getByRole('tablist', {name:'教材學習內容'}).boundingBox())!;
+  const tabs = (await page.locator('.material-learning-toolbar').boundingBox())!;
   expect(loadingBack.x).toBeCloseTo(tabs.x, 0);
   release();
   await expect(page.locator(".visual-concept-card")).toBeVisible();
@@ -665,7 +666,7 @@ test("card library renames inline like materials without changing selected cards
 test("saved card views and editing stay inside the material workspace from either entry", async ({ page }) => {
   await mockCards(page, { saved: true });
   await page.goto('/concept-cards');
-  await expect(page.locator('.app-sidebar')).toBeVisible();
+  await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await page.getByRole('button', { name: '開始複習', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}$`));
   await expect(page.locator('.app-sidebar')).toHaveCount(0);
@@ -686,13 +687,13 @@ test("saved card views and editing stay inside the material workspace from eithe
 });
 
 
-test('saved material card review keeps the chat entry at the viewport corner',async({page})=>{
+test('saved material card review keeps the chat entry in the material tab row',async({page})=>{
  await mockCards(page,{saved:true});
  for(const width of [1920,1440,390]){
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   await expect(page.locator('.visual-concept-card')).toBeVisible();
   const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
-  expect(width-box.x-box.width).toBeCloseTo(width===390?16:24,0);expect(900-box.y-box.height).toBeCloseTo(width===390?16:24,0);
+  const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(toolbar.y);expect(box.y+box.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);expect(toolbar.x+toolbar.width-box.x-box.width).toBeLessThanOrEqual(12);
  }
 });
 

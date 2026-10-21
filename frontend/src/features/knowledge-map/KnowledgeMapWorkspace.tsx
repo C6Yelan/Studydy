@@ -31,6 +31,7 @@ import { useConceptContext } from "../material-flow/useConceptContext";
 import { errorMessage } from "../../api/client";
 import { ConceptContent } from "../../ui/ConceptContent";
 import { Icon } from "../../ui/Icon";
+import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
 import { learningNavigationItems, focusGraph, initialFocusConceptId } from "./knowledge-map";
 
@@ -38,12 +39,13 @@ type Concept = KnowledgeOutlineView["concepts"][number];
 type Mode = "focus" | "review";
 type RestoreFocus = () => void;
 
-const relationStyles: Record<RelationType, { label: string; color: string; dashed: boolean }> = {
-  prerequisite: { label: "先備", color: "#5B8DEF", dashed: false },
-  part_of: { label: "組成", color: "#22C55E", dashed: false },
-  application: { label: "應用", color: "#06B6D4", dashed: true },
-  example: { label: "例子", color: "#F59E0B", dashed: false },
-  contrast: { label: "對照", color: "#EF4444", dashed: true },
+// 五種關係畫成不同的橋：先備＝石橋、組成＝木橋、應用＝航線、例子＝踏石、對照＝對岸。
+const relationStyles: Record<RelationType, { label: string; bridge: string; color: string }> = {
+  prerequisite: { label: "先備", bridge: "石橋", color: "#2f6bff" },
+  part_of: { label: "組成", bridge: "木橋", color: "#22a865" },
+  application: { label: "應用", bridge: "航線", color: "#f08a00" },
+  example: { label: "例子", bridge: "踏石", color: "#1aa3b8" },
+  contrast: { label: "對照", bridge: "對岸", color: "#e0569a" },
 };
 
 const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
@@ -464,6 +466,9 @@ function MapGraph({
         }
       });
     }
+    const palette = islandPalette(view.material_id);
+    const position = new Map(view.initial_learning_path.map((step) => [step.concept_id, step.position]));
+    const states = new Map(progress?.concept_states.map((state) => [state.concept_id, state.status]));
     const nodes: Node[] = layout.map((node) => {
       const concept = conceptById.get(node.id)!;
       const current = node.id === selected.concept_id;
@@ -489,13 +494,21 @@ function MapGraph({
           handles: handlesByNode.get(node.id) ?? [],
           label: (
             <>
-              <strong>{concept.label}</strong>
-              <p>{previewRead.context?.concepts.find(c => c.concept_id === concept.concept_id)?.claims[0]?.text ?? (previewRead.error ? "點選查看概念重點" : "正在讀取重點…")}</p>
-              <LearningBadge conceptId={concept.concept_id} progress={progress} />
+              <span className="island-sign">
+                {position.has(node.id) && <em aria-hidden="true">{position.get(node.id)}</em>}
+                <span>
+                  <strong>{concept.label}</strong>
+                  <small>
+                    <LearningBadge conceptId={concept.concept_id} progress={progress} />
+                    {concept.claim_count} 個重點
+                  </small>
+                </span>
+              </span>
+              <span className="island-node-art"><IslandArt palette={palette} landmarks={current} /></span>
             </>
           ),
         },
-        className: `concept-flow-node${current ? " is-focus" : ""}${node.depth === 2 ? " is-secondary" : ""}`,
+        className: `concept-flow-node is-${states.get(node.id) ?? "not_started"}${current ? " is-focus" : ""}${node.depth === 2 ? " is-secondary" : ""}`,
         ariaLabel: `教材概念：${concept.label}`,
         ariaRole: "button",
         domAttributes: nodeKeyboardAction(
@@ -509,7 +522,7 @@ function MapGraph({
     const edges: Edge[] = projection.relations.map((relation) => {
       const source = layoutById.get(relation.source_concept_id)!;
       const target = layoutById.get(relation.target_concept_id)!;
-      const { label, color, dashed } = relationStyles[relation.type];
+      const { label, color } = relationStyles[relation.type];
       return {
         id: relation.relation_id,
         source: source.id,
@@ -522,16 +535,14 @@ function MapGraph({
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color,
-          width: 18,
-          height: 18,
+          width: 16,
+          height: 16,
+          markerUnits: "userSpaceOnUse",
         },
-        style: {
-          stroke: color,
-          strokeWidth: 1.5,
-          strokeDasharray: dashed ? "6 4" : undefined,
-        },
-        labelStyle: { fill: color, fontSize: 11 },
-        labelBgPadding: [4, 2],
+        labelStyle: { fill: "#fff", fontSize: 11, fontWeight: 800 },
+        labelBgStyle: { fill: color },
+        labelBgPadding: [7, 3],
+        labelBgBorderRadius: 999,
         className: `concept-flow-edge is-relation is-${relation.type}`,
         ariaLabel: `${label}：${previewRead.context?.relations.find(r => r.relation_id === relation.relation_id)?.learner_reason ?? `${conceptById.get(relation.source_concept_id)?.label} → ${conceptById.get(relation.target_concept_id)?.label}`}`,
         focusable: true,
@@ -596,15 +607,17 @@ function MapGraph({
       // 按需文字到達後，先讓節點量測更新，再計算第一次視野。
       secondFrame = requestAnimationFrame(() => {
         fittedConcept.current = selected.concept_id;
-        void graph.fitView(fitViewOptions);
+        // 手機畫布太窄，初次視野只框住中心與第一層，其餘可平移或縮小查看。
+        const narrow = graphElement.current!.clientWidth < 600;
+        void graph.fitView(narrow ? { ...fitViewOptions, minZoom: 0.5, nodes: layout.filter((node) => node.depth < 2).map((node) => ({ id: node.id })) } : fitViewOptions);
       });
     });
     return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
-  }, [initialized, canvasReady, graph, selected.concept_id, previewRead.context, previewRead.error]);
+  }, [initialized, canvasReady, graph, selected.concept_id, previewRead.context, previewRead.error, layout]);
   return (
     <section
       className={`focus-workspace${detail ? " has-inspector" : ""}`}
-      aria-label="概念地圖工作區"
+      aria-label="知識地圖工作區"
     >
       <div
         className="focus-graph surface"
@@ -634,7 +647,7 @@ function MapGraph({
           onNodeClick={(_, node) => openConcept(node.id, () => restoreGraphFocus(node.id))}
           onEdgeClick={(_, edge) => openRelation(edge.id, () => restoreGraphFocus(edge.id))}
         >
-          <Background color="var(--border)" gap={28} size={1} />
+
           <Controls
             aria-label="地圖縮放控制"
             showInteractive={false}
@@ -662,6 +675,7 @@ function MapGraph({
               setNavigatorOpen((value) => !value);
             }}
           >
+            <Icon name="route" size={18} />
             學習導覽
           </button>
           <div id="map-navigator" hidden={!navigatorOpen}>
@@ -678,10 +692,10 @@ function MapGraph({
         </div>
         <div className="map-annotations">
           <div className="relation-legend" aria-label="概念關係圖例">
-            {Object.entries(relationStyles).map(([type, { label, color, dashed }]) => (
+            {Object.entries(relationStyles).map(([type, { label, bridge, color }]) => (
               <span key={type} style={{ color }}>
-                <i className={`relation-swatch${dashed ? " is-dashed" : ""}`} aria-hidden="true" />
-                {label}
+                <i className={`relation-swatch is-${type}`} aria-hidden="true" />
+                {label}<small>{bridge}</small>
               </span>
             ))}
           </div>
@@ -786,8 +800,8 @@ function ReviewView({ view, progress, startStudy, busyLabel, loading, returnToMa
     <div className="view-heading"><div><h2 id="review-title">測驗紀錄</h2>
       <p>查看作答結果、繼續未完成的檢測，或再次練習已完成的概念。</p></div></div>
     {loading ? <p role="status">正在讀取學習進度…</p> : attempted.length === 0 ? <>
-      <p>目前還沒有測驗紀錄，可以從概念地圖選擇概念開始學習。</p>
-      <button className="secondary-button" type="button" onClick={returnToMap}>返回概念地圖</button>
+      <p>目前還沒有測驗紀錄，可以從知識地圖選擇概念開始學習。</p>
+      <button className="secondary-button" type="button" onClick={returnToMap}>回到知識地圖</button>
     </> : <>
       {pending.length > 0 && <h3>尚未完成／需要加強</h3>}
       {pending.length ? list(pending, false) : <p>已有作答紀錄的概念都已完成。</p>}

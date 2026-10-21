@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardSetSummary, MaterialLibraryItem } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
+import { islandColors, islandPalette } from "../../ui/art/Island";
 import { CardSetManagement } from "./CardSetManagement";
 import { useConceptArtwork } from "./VisualConceptCard";
 import { StateView } from "../../ui/StateView";
@@ -72,6 +73,10 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   return (
     <section className="material-library is-collection cards-library" aria-label={material ? "教材概念卡" : "我的概念卡"}>
       {contentNavigation}
+      {!material && <header className="collection-intro">
+        <p className="eyebrow">我的概念卡</p>
+        <h1>收藏一組值得反覆看的重點</h1>
+      </header>}
       <header className={`library-header library-header-compact collection-toolbar${material ? " material-search-row" : ""}`}>
           <form className="library-search" role="search" onSubmit={e => e.preventDefault()}><input type="search" aria-label={material ? "搜尋卡組" : "搜尋卡組或教材"} placeholder={material ? "搜尋卡組…" : "搜尋卡組或教材…"} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Escape") e.preventDefault(); }} /></form>
         <div className="collection-summary" ref={heading} tabIndex={-1}><p>{sets === null ? "—" : `已保存 ${sets.length} 個卡組`}</p></div>
@@ -82,13 +87,13 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
       {error && sets === null ? <StateView title="無法讀取卡組" description={error} tone="failure" action={<button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button>} />
         : sets === null ? <StateView title="正在讀取卡組" description="正在載入你保存的概念卡。" tone="loading" live />
         : sets.length === 0 ? (
-          <section className="library-empty surface" aria-label="空卡組引導"><div className="library-empty-illustration"><img src="/assets/studydy/empty-disappointed.png" alt="Studydy 坐在打開的空箱子旁" /></div><h2>收藏一組值得反覆看的重點</h2><p>選擇教材中的概念，建立你的第一組概念卡。</p><button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}>{material ? "建立卡組" : "選擇教材"}</button></section>
+          <section className="library-empty surface" aria-label="空卡組引導"><div className="library-empty-illustration"><img src="/assets/studydy/empty-disappointed.png" alt="Studydy 坐在打開的空箱子旁" /></div><h2>{material ? "收藏一組值得反覆看的重點" : "建立你的第一組概念卡"}</h2><p>選擇教材中的概念，建立你的第一組概念卡。</p><button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}>{material ? "建立卡組" : "選擇教材"}</button></section>
         ) : <>
 
           <div className="library-grid">
             {filtered?.map((item) => (
               <article className="surface library-item" key={item.card_set_id} aria-label={item.name}>
-                <span className="library-file-icon" aria-hidden="true"><Icon name="cards" size={25} /></span>
+                <CardSetArt item={item} />
                 <CardSetManagement item={item} materialId={item.material_id} apiClient={apiClient} onChanged={() => setReload(n => n + 1)}
                   confirmingDelete={removing?.card_set_id === item.card_set_id}
                   onDelete={element => {
@@ -118,6 +123,14 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
       </div>
     </section>
   );
+}
+
+// 卡組封面：疊起來的卡片，顏色沿用所屬教材的島嶼配色。
+function CardSetArt({ item }: { item: CardSetSummary }) {
+  const colors = islandColors(islandPalette(item.material_id));
+  return <span className="card-set-art" aria-hidden="true" style={{ "--card-from": colors.c2, "--card-to": colors.c3 } as CSSProperties}>
+    <span><b>{item.name}</b></span>
+  </span>;
 }
 
 type CountProps = { item: CardSetSummary; apiClient: StudydyApiClient; onSaved: (item: CardSetSummary) => void };

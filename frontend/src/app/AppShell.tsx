@@ -1,6 +1,23 @@
 import { writeRoute, type AppRoute } from "./routes";
-import { Icon } from "../ui/Icon";
+import { Icon, type IconName } from "../ui/Icon";
 import "./shell.css";
+
+type Section = "home" | "materials" | "cards" | "podcasts";
+const sections: { id: Section; label: string; short: string; icon: IconName; route: AppRoute }[] = [
+  { id: "home", label: "首頁", short: "首頁", icon: "home", route: { name: "home" } },
+  { id: "materials", label: "我的教材", short: "教材", icon: "book", route: { name: "materials" } },
+  { id: "cards", label: "概念卡", short: "概念卡", icon: "cards", route: { name: "concept-cards" } },
+  { id: "podcasts", label: "Podcast", short: "Podcast", icon: "headphones", route: { name: "podcasts" } },
+];
+
+// 教材內的概念卡／Podcast 屬於「我的教材」；全域清單才屬於各自分區。
+function currentSection(route: AppRoute): Section {
+  if (route.name === "home") return "home";
+  if ("materialId" in route && route.materialId) return "materials";
+  if (["concept-cards", "card-set", "card-set-edit", "card-set-new"].includes(route.name)) return "cards";
+  if (["podcasts", "podcast", "podcast-new"].includes(route.name)) return "podcasts";
+  return "materials";
+}
 
 export function AppShell({
   children,
@@ -12,10 +29,8 @@ export function AppShell({
   accountAction?: React.ReactNode;
 }) {
   const isLearningWorkspace = ["knowledge-map", "study-session", "material-sources", "material-content", "research", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name);
-  const isMaterialRoute = ["topics", "topic", "materials", "material-run", "material-sources", "material-content", "upload"].includes(route.name)
-    || ("materialId" in route && !!route.materialId);
-  const isCardsRoute = !isMaterialRoute && ["concept-cards", "card-set", "card-set-edit", "card-set-new"].includes(route.name);
-  const isPodcastRoute = !isMaterialRoute && ["podcasts", "podcast", "podcast-new"].includes(route.name);
+  const section = currentSection(route);
+  const navigate = (id: Section) => writeRoute(sections.find((item) => item.id === id)!.route);
   return (
     <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}`}>
       <header className="app-header">
@@ -26,66 +41,43 @@ export function AppShell({
           onClick={() => writeRoute({ name: "home" })}
         >
           <img src="/assets/studydy/brand-idle.png" alt="" />
-          <span>Studydy{!isLearningWorkspace && <small>AI 智慧學習平台</small>}</span>
+          <span>Studydy</span>
         </button>
-        {isLearningWorkspace && (
-          <nav className="workspace-nav" aria-label="學習工作區導覽">
-            {route.name === "study-session" && (
-              <button
-                type="button"
-                onClick={() =>
-                  writeRoute({
-                    name: "knowledge-map",
-                    materialId: route.materialId,
-                    runId: route.runId,
-                    structureRevision: route.structureRevision,
-                  })
-                }
-              >
-                <Icon name="map" size={18} />
-                知識地圖
-              </button>
-            )}
-            <button type="button" onClick={() => writeRoute({ name: "materials" })}>
-              <Icon name="book" size={18} />
-              我的教材
+        <nav className="main-nav" aria-label="主要導覽">
+          {sections.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={section === item.id ? "page" : undefined}
+              onClick={() => navigate(item.id)}
+            >
+              <Icon name={item.icon} size={18} />
+              <span>{item.label}</span>
             </button>
-          </nav>
-        )}
+          ))}
+        </nav>
         <div className="account-controls">{accountAction}</div>
       </header>
-      {!isLearningWorkspace && (
-        <aside className="app-sidebar" aria-label="學習導覽區">
-          <nav aria-label="主要導覽">
-            <button
-              aria-current={route.name === "home" ? "page" : undefined}
-              type="button"
-              onClick={() => writeRoute({ name: "home" })}
-            >
-              <Icon name="home" />
-              首頁
-            </button>
-            <button
-              aria-current={isMaterialRoute ? "page" : undefined}
-              aria-label="教材庫"
-              type="button"
-              onClick={() => writeRoute({ name: "materials" })}
-            >
-              <Icon name="book" />
-              我的教材
-            </button>
-            <button type="button" aria-current={isCardsRoute ? "page" : undefined} onClick={() => writeRoute({ name: "concept-cards" })}>
-              <Icon name="cards" />概念卡
-            </button>
-            <button type="button" aria-current={isPodcastRoute ? "page" : undefined} onClick={() => writeRoute({ name: "podcasts" })}>
-              <Icon name="headphones" />Podcast
-            </button>
-          </nav>
-        </aside>
-      )}
       <main className="app-main" id="main-content">
         {children}
       </main>
+      <nav className="tab-bar" aria-label="手機導覽">
+        {sections.slice(0, 2).map((item) => (
+          <button key={item.id} type="button" aria-current={section === item.id ? "page" : undefined} onClick={() => navigate(item.id)}>
+            <Icon name={item.icon} size={22} />
+            <span>{item.short}</span>
+          </button>
+        ))}
+        <button className="tab-bar-upload" type="button" aria-label="上傳教材" onClick={() => writeRoute({ name: "upload" })}>
+          <Icon name="plus" size={26} />
+        </button>
+        {sections.slice(2).map((item) => (
+          <button key={item.id} type="button" aria-current={section === item.id ? "page" : undefined} onClick={() => navigate(item.id)}>
+            <Icon name={item.icon} size={22} />
+            <span>{item.short}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

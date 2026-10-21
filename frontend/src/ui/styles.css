@@ -146,3 +146,10 @@
 
 .quiet-loading { min-height:160px; padding:32px 24px; }
 .quiet-loading p { margin:0; font-size:14px; color:var(--text-secondary); }
+
+/* 共用插畫元件。 */
+.island-art { display: block; width: 100%; height: 100%; overflow: visible; }
+.progress-ring { position: relative; display: inline-grid; flex: none; place-items: center; }
+.progress-ring svg { position: absolute; inset: 0; }
+.progress-ring em { position: relative; font-size: 11px; font-style: normal; font-weight: 900; color: var(--text-primary); }
+.progress-ring em svg { position: static; color: var(--amber-deep); }

@@ -57,6 +57,13 @@ test.beforeEach(async ({ page }) => {
       case "/v1/materials":
         expect(request.method()).toBe("GET");
         return route.fulfill({ json: { schema: "material-library/v1", materials: [] } });
+      // 首頁捷徑讀取概念卡與 Podcast 清單。
+      case "/v1/card-sets":
+        expect(request.method()).toBe("GET");
+        return route.fulfill({ json: { schema: "card-set-list/v1", card_sets: [] } });
+      case "/v1/podcasts":
+        expect(request.method()).toBe("GET");
+        return route.fulfill({ json: { schema: "podcast-list/v1", podcasts: [] } });
       default:
         throw new Error(`Unexpected account mock request: ${request.method()} ${path}`);
     }

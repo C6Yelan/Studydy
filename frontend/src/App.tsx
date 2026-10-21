@@ -7,6 +7,7 @@ import { AppShell } from "./app/AppShell";
 import { readRoute, writeRoute, type AppRoute } from "./app/routes";
 import { MaterialFlow } from "./features/material-flow/MaterialFlow";
 import { StateView } from "./ui/StateView";
+import { Icon } from "./ui/Icon";
 import { AccountPage } from "./features/account/AccountPage";
 
 type SessionState =
@@ -189,7 +190,8 @@ export default function App() {
     <AppShell
       route={route}
       accountAction={
-        <button className="secondary-button" type="button" onClick={() => void logout()}>
+        <button className="account-button" type="button" onClick={() => void logout()}>
+          <Icon name="logout" size={18} />
           登出
         </button>
       }

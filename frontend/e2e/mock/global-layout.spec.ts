@@ -12,6 +12,8 @@ const responses: Record<string, unknown> = {
   },
   "/v1/topics": { topics: [] },
   "/v1/materials": { schema: "material-library/v1", materials: [] },
+  "/v1/card-sets": { schema: "card-set-list/v1", card_sets: [] },
+  "/v1/podcasts": { schema: "podcast-list/v1", podcasts: [] },
 };
 
 test.beforeEach(async ({ page }) => {
@@ -29,7 +31,7 @@ for (const width of [2560, 1536, 1366, 1024, 900, 390, 320]) {
   test(`standard frames stay centered without clipping at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1080 });
     for (const [path, heading] of [
-      ["/", "歡迎回來！"],
+      ["/", "歡迎回來！今天想探索哪座島？"],
       ["/materials", "我的教材"],
       ["/upload", "上傳教材"],
     ]) {
@@ -54,7 +56,7 @@ for (const width of [2560, 1536, 1366, 1024, 900, 390, 320]) {
           width: box.width,
           usableWidth: bounds.width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight),
           top: box.y,
-          headingTop: element.querySelector("h1")!.getBoundingClientRect().y,
+          headingTop: element.firstElementChild!.getBoundingClientRect().y,
           documentWidth: document.documentElement.scrollWidth,
           clipped: Array.from(element.querySelectorAll("h1, h2, p, button, strong"))
             .filter((e) => e.scrollWidth > e.clientWidth + 1)

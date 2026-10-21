@@ -11,7 +11,7 @@ import type {
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { ConceptContent } from "../../ui/ConceptContent";
-import { MaterialTools } from "../material-tools/MaterialTools";
+import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import { StateView } from "../../ui/StateView";
 import { assessmentPhase, type AssessmentPhase } from "../assessment/assessment-phase";
 import { AssessmentSetPanel } from "../assessment/AssessmentSetPanel";
@@ -291,7 +291,12 @@ export function StudySessionPage({
   );
   return (
     <section className="study-session-page">
-      <MaterialTools key={`${route.materialId}:${route.structureRevision}`} api={apiClient} materialId={route.materialId} revision={route.structureRevision} />
+      <MaterialContentNav apiClient={apiClient} materialId={route.materialId} current="review" loadMaterial
+        mapRoute={{ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }}
+        // 從學習頁回到地圖時，聚焦剛才學習的概念。
+        onMapModeChange={(mode) => mode === "focus" ? back() : writeRoute(
+          { name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision },
+          false, { knowledgeMap: { revision: route.structureRevision, mode: "review" } })} />
       <header className="study-header">
         <div>
           <p className="eyebrow">學習進度</p>
@@ -302,7 +307,6 @@ export function StudySessionPage({
             {showMaterial && " · 學習進度會自動保存。"}
           </p>
         </div>
-        <button className="secondary-button" type="button" onClick={back}>返回概念地圖</button>
       </header>
       {continueError && (
         <div className="assessment-error" role="alert">

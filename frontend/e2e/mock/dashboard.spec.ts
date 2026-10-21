@@ -7,7 +7,8 @@ const runId = uuid(2);
 const sessionId = uuid(3);
 const learnerId = uuid(4);
 const revision = `knowledge-structure:sha256:${"a".repeat(64)}`;
-const studyPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(revision)}/study-sessions/${sessionId}`;
+const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(revision)}`;
+const studyPath = `${mapPath}/study-sessions/${sessionId}`;
 const longName =
   "資料結構與演算法：堆疊、佇列、遞迴與樹狀結構的概念整理及練習講義_" +
   "LongMaterialFilename".repeat(5) +
@@ -64,17 +65,11 @@ test.beforeEach(async ({ page }) => {
       expect(route.request().method()).toBe(path.endsWith("/refresh") ? "POST" : "GET");
       return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
     }
-    if (path === "/v1/topics") {
-      expect(route.request().method()).toBe("GET");
-      return route.fulfill({ json: { topics: [] } });
-    }
-    if (path === "/v1/source-capabilities") {
-      expect(route.request().method()).toBe("GET");
-      return route.fulfill({
-        json: { schema: "source-capabilities/v1", quality_notice: "PDF", formats: [] },
-      });
-    }
-    // 此檔驗證首頁導向，目的頁的資料流程由 study／upload spec 負責。
+    expect(route.request().method()).toBe("GET");
+    if (path === "/v1/topics") return route.fulfill({ json: { topics: [] } });
+    if (path === "/v1/source-capabilities")
+      return route.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF", formats: [] } });
+    // 概念數、進度、概念卡與 Podcast 只是首頁補充資訊；讀不到時首頁仍須可用。
     return route.fulfill({
       status: 404,
       json: { ...unavailable, reason_code: "RESOURCE_NOT_FOUND", retryable: false },
@@ -83,90 +78,63 @@ test.beforeEach(async ({ page }) => {
   await mockLibrary(page, () => []);
 });
 
-// 狀態與統計各驗一次；版面另以長檔名涵蓋每個 CSS 分支。
-for (const [state, items, counts] of [
-  ["empty", [], ["0", "0", "0", "0"]],
-  ["map", [material], ["1", "1", "0", "0"]],
-  ["unpublished", [{ ...material, available_structures: [] }], ["1", "0", "0", "0"]],
-  ["active", [withStudy("active")], ["1", "1", "1", "0"]],
-  ["no_safe", [withStudy("no_safe")], ["1", "1", "1", "0"]],
-  ["completed", [withStudy("completed")], ["1", "1", "1", "1"]],
+for (const [state, items, counts, action] of [
+  ["empty", [], ["0", "0", "0"], "上傳教材"],
+  ["map", [material], ["1", "0", "0"], "開啟知識地圖"],
+  ["unpublished", [{ ...material, available_structures: [] }], ["1", "0", "0"], null],
+  ["active", [withStudy("active")], ["1", "1", "0"], "繼續學習"],
+  ["no_safe", [withStudy("no_safe")], ["1", "1", "0"], "繼續學習"],
+  ["completed", [withStudy("completed")], ["1", "0", "0"], "查看學習成果"],
 ] as const) {
-  test(`dashboard ${state} shows material counts and the matching study action`, async ({
-    page,
-  }) => {
+  test(`dashboard ${state} shows counts, island status, and the matching next step`, async ({ page }) => {
     await mockLibrary(page, () => items);
     await page.goto("/");
-    await expect(page.locator(".dashboard-stat strong")).toHaveText([...counts]);
-    await expect(page.locator(".dashboard-stats")).toHaveAttribute("aria-busy", "false");
-    const hasStudy = items.some((item) => item.study_sessions.length > 0);
-    await expect(page.locator(".dashboard-resume")).toHaveCount(hasStudy ? 1 : 0);
-    if (hasStudy) {
-      await expect(page.locator(".dashboard-resume p")).toHaveText(longName);
-      const action = page.getByRole("button", {
-        name: state === "completed" ? "查看學習成果" : "繼續學習",
-        exact: true,
-      });
-      await action.focus();
-      await page.keyboard.press("Enter");
-      await expect.poll(() => new URL(page.url()).pathname).toBe(studyPath);
-    } else {
-      await expect(page.getByRole("button", { name: "上傳教材", exact: true })).toBeEnabled();
-      if (state === "empty") {
-        await page.getByRole("button", { name: "上傳教材", exact: true }).click();
-        await expect(page).toHaveURL(/\/upload$/);
-        await expect(page.getByRole("heading", { name: "上傳教材", exact: true })).toBeVisible();
-      }
+    const stats = page.locator(".dashboard-stats");
+    await expect(stats).toHaveAttribute("aria-busy", "false");
+    await expect(stats.locator("strong")).toHaveText([...counts]);
+    await expect(page.locator(".archipelago-island")).toHaveCount(items.length);
+    const foot = page.locator(".archipelago-foot");
+    if (!action) {
+      await expect(foot.getByRole("button")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: new RegExp(`^${longName.slice(0, 10)}.*建立未完成`) })).toBeVisible();
+      return;
     }
+    await foot.getByRole("button", { name: action, exact: true }).focus();
+    await page.keyboard.press("Enter");
+    const expected = state === "empty" ? "/upload" : state === "map" ? mapPath : studyPath;
+    await expect.poll(() => new URL(page.url()).pathname).toBe(expected);
   });
 }
 
-for (const [width, height, statColumns, featureColumns] of [
-  [1536, 1024, 4, 1],
-  [1366, 768, 4, 2],
-  [1024, 768, 2, 2],
-  [390, 844, 2, 1],
-  [320, 844, 1, 1],
-]) {
-  test(`dashboard long filename and responsive columns fit ${width}px`, async ({ page }) => {
+test("dashboard island opens the head knowledge map and marks the current material", async ({ page }) => {
+  await mockLibrary(page, () => [withStudy("active")]);
+  await page.goto("/");
+  const island = page.locator(".archipelago-island");
+  await expect(island).toHaveClass(/is-focus/);
+  await expect(island.locator(".island-pin")).toHaveText("你在這裡");
+  await island.getByRole("button", { name: `${longName}，學習中` }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(mapPath);
+});
+
+for (const [width, height] of [[1536, 1024], [1366, 768], [1024, 768], [390, 844], [320, 844]]) {
+  test(`dashboard long filename fits without page overflow at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await mockLibrary(page, () => [withStudy()]);
     await page.goto("/");
-    await expect(page.locator(".dashboard-resume p")).toHaveText(longName);
     await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
-    const help = page.getByRole("complementary", { name: "Studydy 學習協助" });
-    await expect(help).toBeVisible();
+    const flag = page.locator(".island-flag-text b");
+    await expect(flag).toHaveText(longName);
+    expect(await flag.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(221);
     const main = (await page.locator(".dashboard-primary").boundingBox())!;
-    const rail = (await help.boundingBox())!;
-    if (width >= 1440) {
-      expect(rail.x).toBeGreaterThanOrEqual(main.x + main.width + 20);
-      expect(rail.width).toBeGreaterThanOrEqual(280);
-      expect(rail.width).toBeLessThanOrEqual(320);
-      expect(Math.abs(main.y - rail.y)).toBeLessThan(2);
-    } else expect(rail.y).toBeGreaterThanOrEqual(main.y + main.height);
-    for (const [selector, columns] of [
-      [".dashboard-stats", statColumns],
-      [".dashboard-features", featureColumns],
-    ] as const)
-      expect(
-        await page
-          .locator(selector)
-          .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length),
-      ).toBe(columns);
-    const illustration = page.locator(".hero-illustration");
-    if (width > 600) {
-      await expect(illustration).toBeVisible();
-      await expect
-        .poll(() =>
-          illustration
-            .locator("img")
-            .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0),
-        )
-        .toBe(true);
-    } else await expect(illustration).toBeHidden();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    );
+    const side = (await page.locator(".dashboard-side").boundingBox())!;
+    if (width > 1200) {
+      expect(side.x).toBeGreaterThanOrEqual(main.x + main.width + 20);
+      expect(Math.abs(main.y - side.y)).toBeLessThan(2);
+    } else expect(side.y).toBeGreaterThanOrEqual(main.y + main.height);
+    await expect
+      .poll(() => page.locator(".archipelago-foot img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
+      .toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 }
 
@@ -182,38 +150,33 @@ test("dashboard loading keeps unknown counts until the library arrives", async (
   await page.goto("/");
   const stats = page.locator(".dashboard-stats");
   await expect(stats).toHaveAttribute("aria-busy", "true");
-  await expect(stats.locator("strong")).toHaveText(["—", "—", "—", "—"]);
-  await expect(stats.locator("small")).toHaveText(Array(4).fill("正在讀取…"));
-  await expect(page.locator(".dashboard-hero")).toBeVisible();
-  await expect(page.getByRole("button", { name: "上傳教材", exact: true })).toBeEnabled();
+  await expect(stats.locator("strong")).toHaveText(["—", "—", "—"]);
+  await expect(page.locator(".archipelago-stage")).toHaveAttribute("aria-busy", "true");
+  await expect(page.getByRole("button", { name: "上傳教材", exact: true }).first()).toBeEnabled();
   release();
-  await expect(stats.locator("strong")).toHaveText(["1", "1", "0", "0"]);
+  await expect(stats.locator("strong")).toHaveText(["1", "0", "0"]);
   await expect(stats).toHaveAttribute("aria-busy", "false");
 });
 
-test("dashboard read failure keeps hero and overview and recovers without reload", async ({
-  page,
-}) => {
+test("dashboard read failure keeps actions and recovers without reload", async ({ page }) => {
   await page.route(
     "**/v1/materials",
     (route) => route.fulfill({ status: 503, json: unavailable }),
     { times: 1 },
   );
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "歡迎回來！", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("歡迎回來！今天想探索哪座島？");
   await expect(page.getByRole("alert")).toContainText("資料服務暫時無法使用");
   const stats = page.locator(".dashboard-stats");
-  await expect(stats.locator("strong")).toHaveText(["—", "—", "—", "—"]);
-  await expect(stats.locator("small")).toHaveText(Array(4).fill("暫時無法讀取"));
+  await expect(stats.locator("strong")).toHaveText(["—", "—", "—"]);
   await expect(stats).toHaveAttribute("aria-busy", "false");
-  await expect(page.locator(".dashboard-hero")).toBeVisible();
   await expect(page.getByRole("button", { name: "上傳教材", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "重新讀取", exact: true }).click();
-  await expect(stats.locator("strong")).toHaveText(["0", "0", "0", "0"]);
+  await expect(stats.locator("strong")).toHaveText(["0", "0", "0"]);
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page
     .getByRole("navigation", { name: "主要導覽" })
-    .getByRole("button", { name: "教材庫", exact: true })
+    .getByRole("button", { name: "我的教材", exact: true })
     .click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("region", { name: "空教材引導" })).toBeVisible();
@@ -246,24 +209,23 @@ test("dashboard prefers active study over newer completion and ignores mismatche
   ];
   await mockLibrary(page, () => items);
   await page.goto("/");
-  await expect(page.locator(".dashboard-resume p")).toHaveText("Linear Algebra.pdf");
+  await expect(page.locator(".guide-bubble small")).toHaveText("上次停在 · Linear Algebra.pdf");
   await page.getByRole("button", { name: "繼續學習", exact: true }).click();
   await expect
     .poll(() => new URL(page.url()).pathname)
     .toBe(studyPath.replace(materialId, secondId));
   items = items.filter((item) => item.material_id !== secondId);
   await page.goto("/");
-  await expect(page.locator(".dashboard-resume p")).toHaveText("Calculus.pdf");
+  await expect(page.locator(".guide-bubble small")).toHaveText("已完成 · Calculus.pdf");
+  await expect(page.getByRole("button", { name: "查看學習成果", exact: true })).toBeVisible();
   items = items.filter((item) => item.display_name !== "Calculus.pdf");
   await page.reload();
-  await expect(page.locator(".dashboard-resume")).toHaveCount(0);
-  await expect(page.locator(".dashboard-stat strong")).toHaveText(["1", "1", "0", "0"]);
+  await expect(page.locator(".dashboard-stat strong")).toHaveText(["1", "0", "0"]);
   await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "開啟知識地圖", exact: true })).toBeVisible();
 });
 
-test("dashboard stats count each material once using its head and remain outside keyboard navigation", async ({
-  page,
-}) => {
+test("dashboard uses each material's head study and keeps stats out of keyboard navigation", async ({ page }) => {
   const headRevision = `knowledge-structure:sha256:${"b".repeat(64)}`;
   const headRunId = uuid(7);
   const headSession = {
@@ -278,11 +240,7 @@ test("dashboard stats count each material once using its head and remain outside
       head_revision: headRevision,
       available_structures: [
         material.available_structures[0],
-        {
-          ...material.available_structures[0],
-          run_id: headRunId,
-          knowledge_structure_revision: headRevision,
-        },
+        { ...material.available_structures[0], run_id: headRunId, knowledge_structure_revision: headRevision },
       ],
       study_sessions: [
         active,
@@ -293,63 +251,18 @@ test("dashboard stats count each material once using its head and remain outside
     },
   ]);
   await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "歡迎回來！", level: 1, exact: true }),
-  ).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主要導覽" }).getByRole("button")).toHaveText([
     "首頁",
     "我的教材",
     "概念卡",
     "Podcast",
   ]);
-  await expect(page.locator(".nav-unavailable")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "建立你的知識地圖", level: 2, exact: true }),
-  ).toBeVisible();
-  await expect(page.locator(".dashboard-hero").getByRole("button")).toHaveText(["上傳教材", "從主題建立教材"]);
-  await expect(page.getByRole("button", { name: "前往我的教材", exact: true })).toHaveCount(0);
-  await expect(page.locator(".dashboard-help article")).toHaveCount(4);
-  await expect(page.locator(".dashboard-help").getByRole("button")).toHaveCount(0);
   const stats = page.locator(".dashboard-stats");
-  await expect(stats.locator("article.dashboard-stat")).toHaveCount(4);
-  await expect(stats.locator(".dashboard-stat > svg")).toHaveCount(0);
-  await expect(stats.locator(".stat-icon svg")).toHaveCount(4);
-  await expect(stats.locator(".stat-copy > span")).toHaveText([
-    "教材",
-    "知識地圖",
-    "已開始學習",
-    "已完成",
-  ]);
-  await expect(stats.locator("strong")).toHaveText(["1", "1", "1", "0"]);
-  await expect(stats.locator("small")).toHaveText([
-    "已保存的教材",
-    "可開啟地圖的教材",
-    "有學習紀錄的教材",
-    "已完成學習的教材",
-  ]);
-  for (const stat of await stats.locator(".dashboard-stat").all()) {
-    await expect(stat).toHaveJSProperty("tabIndex", -1);
-    await expect(stat.locator("button, a, [role=button], [tabindex]")).toHaveCount(0);
-    const border = await stat.evaluate((element) => getComputedStyle(element).borderColor);
-    await stat.hover();
-    expect(await stat.evaluate((element) => getComputedStyle(element).borderColor)).toBe(border);
-    expect(await stat.evaluate((element) => getComputedStyle(element).cursor)).not.toBe("pointer");
-    await stat.click();
-    expect(new URL(page.url()).pathname).toBe("/");
-  }
-  await page.getByRole("button", { name: "上傳教材", exact: true }).focus();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "從主題建立教材", exact: true })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(page.getByRole("button", { name: "從主題建立教材", exact: true })).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(page.getByRole("button", { name: "上傳教材", exact: true })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await page.keyboard.press("Tab");
-  await page.keyboard.press("Enter");
+  await expect(stats.locator("strong")).toHaveText(["1", "1", "0"]);
+  await expect(stats.locator("small")).toHaveText(["份教材", "學習中的教材", "已完成概念"]);
+  await expect(stats.locator("button, a, [role=button], [tabindex]")).toHaveCount(0);
+  await page.getByRole("button", { name: "繼續學習", exact: true }).click();
   await expect
     .poll(() => new URL(page.url()).pathname)
     .toBe(

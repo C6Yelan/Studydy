@@ -439,7 +439,6 @@ for (const touch of [false, true])
         { locator: first.getByRole("heading"), position: { x: 5, y: 5 } },
         { locator: second.getByRole("heading") },
         { locator: page.getByRole("searchbox") },
-        { locator: page.locator(".app-sidebar"), position: { x: 2, y: 2 } },
         { locator: page.locator(".app-header"), position: { x: 200, y: 5 } },
       ]) {
         await activate(trigger);

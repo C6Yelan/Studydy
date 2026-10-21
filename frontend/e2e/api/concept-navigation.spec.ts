@@ -26,7 +26,7 @@ test("unfinished A does not block B and switching back resumes A", async ({ page
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic test password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "歡迎回來！", level: 1, exact: true }),
+    page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true }),
   ).toBeVisible();
   await page.goto(studyPath);
   await page.getByRole("button", { name: "開始本輪 1 題", exact: true }).click();

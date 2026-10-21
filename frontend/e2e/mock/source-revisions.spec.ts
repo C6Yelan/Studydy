@@ -212,7 +212,7 @@ for (const width of [1536, 390]) {
     await expect(page.getByRole("heading", { name: "已取消這次更新", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "開啟目前地圖", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${mapPath(oldRunId, revision)}$`));
-    await expect(page.getByRole("region", { name: "概念地圖工作區", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "知識地圖工作區", exact: true })).toBeVisible();
     await page.goto("/materials");
     await page.getByRole("button", { name: "繼續學習", exact: true }).click();
     await expect(page).toHaveURL(
@@ -296,7 +296,7 @@ for (const width of [1536, 390]) {
     await expect(page.getByRole("status")).toContainText("部分內容建議對照來源確認");
     await page.getByRole("button", { name: "開啟目前地圖", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${mapPath(newRunId, newRevision)}$`));
-    await expect(page.getByRole("region", { name: "概念地圖工作區", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "知識地圖工作區", exact: true })).toBeVisible();
     await page.goto("/materials");
     const card = page.getByRole("article", { name: item.display_name, exact: true });
     await expect(card).not.toContainText(/partial|needs_review|部分內容待複核/);

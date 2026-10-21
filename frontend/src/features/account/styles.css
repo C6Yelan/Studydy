@@ -3,105 +3,106 @@
   display: grid;
   place-items: center;
   padding: 32px 20px;
-  background: #f8f9fd;
+  background: linear-gradient(180deg, #d9efff 0, #eaf5ff 360px, var(--page-cool) 760px);
 }
 .auth-card {
   display: grid;
   grid-template-columns: 45% 55%;
   width: min(812px, 100%);
   min-height: 780px;
-  border-radius: 11px;
+  border-radius: var(--radius-panel);
   overflow: hidden;
   background: #fff;
-  box-shadow: 0 6px 22px rgba(28, 40, 75, 0.08);
+  box-shadow: var(--shadow);
 }
+/* 左側是海上的群島：品牌、歡迎語與功能說明在上，島嶼與吉祥物在下。 */
 .auth-illustration {
   position: relative;
   overflow: hidden;
   min-height: 780px;
-  background: #f1f5fe;
   padding: 34px 32px;
+  background: linear-gradient(180deg, #8fe0fb, #3aa6e2);
 }
 .auth-brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--studydy-blue);
-  font-size: 34px;
-  font-weight: 700;
+  width: max-content;
+  padding: 4px 18px 4px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 900;
 }
 .auth-brand img {
-  width: 32px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
 }
 .auth-illustration h2 {
   position: relative;
   z-index: 1;
-  margin: 38px 0 10px;
+  margin: 30px 0 8px;
+  color: #fff;
   font-size: 30px;
-  line-height: 1.4;
+  line-height: 1.35;
+  text-shadow: 0 2px 10px rgba(0, 50, 100, 0.25);
 }
 .auth-illustration > p {
   position: relative;
   z-index: 1;
   margin: 0;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.92);
   font-size: 16px;
+  font-weight: 700;
   line-height: 1.6;
 }
-.auth-study-tile {
-  position: absolute;
-  width: 68px;
-  height: 68px;
+.auth-features {
+  position: relative;
+  z-index: 1;
   display: grid;
-  place-items: center;
+  gap: 10px;
+  margin: 22px 0 0;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  list-style: none;
+}
+.auth-features li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 800;
+}
+.auth-features svg {
+  flex: none;
   color: var(--studydy-blue);
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  box-shadow: 3px 4px 0 #dce6fb;
 }
-.tile-chart {
-  left: 34px;
-  top: 260px;
-}
-.tile-clock {
-  right: 46px;
-  top: 240px;
-}
-.tile-book {
-  right: 32px;
-  top: 346px;
+.auth-island {
+  position: absolute;
+  right: -60px;
+  bottom: -40px;
+  left: -60px;
+  display: block;
+  aspect-ratio: 880 / 480;
 }
 .auth-mascot {
   position: absolute;
   z-index: 2;
-  left: 20px;
-  bottom: 124px;
-  width: 326px;
-  height: 272px;
+  left: 50%;
+  bottom: 150px;
+  width: 230px;
+  height: 200px;
   object-fit: contain;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 12px 10px rgba(0, 40, 80, 0.25));
 }
 .is-register .auth-mascot {
-  left: 48px;
-  width: 276px;
-  height: 282px;
-  bottom: 130px;
-}
-.auth-plant {
-  position: absolute;
-  z-index: 1;
-  bottom: 74px;
-  left: 10px;
-  width: 70px;
-  height: 100px;
-}
-.auth-waves {
-  position: absolute;
-  inset: auto 0 0;
-  width: 100%;
-  height: 120px;
+  width: 210px;
+  height: 200px;
 }
 .auth-form-panel {
   display: flex;
@@ -114,7 +115,7 @@
   margin: 0 0 32px;
   font-size: 30px;
   line-height: 1.4;
-  font-weight: 700;
+  font-weight: 900;
 }
 .auth-form {
   display: grid;
@@ -148,8 +149,8 @@
   min-width: 0;
   width: 100%;
   height: 56px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-input);
   padding: 0 42px;
   background: #fff;
   color: var(--text-primary);
@@ -244,10 +245,9 @@
     max-width: 210px;
     font-size: 12px;
   }
-  .auth-study-tile,
-  .auth-mascot,
-  .auth-plant,
-  .auth-waves {
+  .auth-features,
+  .auth-island,
+  .auth-mascot {
     display: none;
   }
   .auth-form-panel,

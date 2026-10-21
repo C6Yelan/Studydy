@@ -3,9 +3,7 @@
   width: 100%;
   min-height: 100%;
   margin: 0 auto;
-  padding: 8px var(--space-6) var(--space-4);
   color: var(--text-primary);
-  background: var(--page-cool);
 }
 .map-header {
   display: flex;
@@ -104,67 +102,197 @@
   font-size: 14px;
 }
 /* 畫布節點、連線與詳情面板。 */
-.focus-graph {
+.focus-graph,
+.focus-graph.surface {
   position: relative;
   min-height: 0;
   overflow: hidden;
-  background: var(--page-cool);
+  /* 海面：漸層加上淡淡的浪紋。 */
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='120'%3E%3Cpath d='M18 30q8-6 16 0t16 0M108 90q8-6 16 0t16 0' fill='none' stroke='%23fff' stroke-opacity='.4' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #8fe0fb, #4fb3ea);
 }
+/* 概念島：上方插旗（站號、名稱、狀態），下方是島嶼插畫。 */
 .concept-flow-node.react-flow__node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   min-height: 110px;
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
   color: var(--text-primary);
-  background: var(--surface);
+  background: transparent;
   text-align: left;
 }
-.concept-flow-node.react-flow__node.is-focus {
-  border: 1.5px solid var(--studydy-blue);
-  background: var(--studydy-blue-soft);
+.concept-flow-node .island-sign {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 12px 5px 5px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
+  transition: transform 0.2s;
 }
-.concept-flow-node strong,
-.concept-flow-node p {
+.concept-flow-node .island-sign::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -7px;
+  border: 7px solid transparent;
+  border-top-color: #fff;
+}
+.concept-flow-node .island-sign em {
+  display: grid;
+  flex: none;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  place-items: center;
+  border-radius: 16px;
+  background: var(--page-cool);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 900;
+}
+.concept-flow-node.is-in_progress .island-sign em { background: var(--warning); color: #3a2400; }
+.concept-flow-node.is-needs_review .island-sign em { background: var(--coral); color: #fff; }
+.concept-flow-node.is-completed .island-sign em { background: var(--success); color: #fff; }
+.concept-flow-node .island-sign > span {
+  min-width: 0;
+}
+.concept-flow-node strong {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
-}
-.concept-flow-node strong {
   font-size: 18px;
-  line-height: 1.4;
+  font-weight: 900;
+  line-height: 1.35;
 }
-.concept-flow-node p {
-  margin: 6px 0 0;
-  color: var(--text-secondary);
+.concept-flow-node small {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.concept-flow-node .map-learning-badge {
+  margin: 0;
+  padding: 1px 8px;
   font-size: 12px;
-  line-height: 1.5;
+}
+.concept-flow-node .island-node-art {
+  display: block;
+  width: 86%;
+  margin-top: -4px;
+  aspect-ratio: 840 / 470;
+  filter: drop-shadow(0 8px 6px rgba(0, 40, 80, 0.2));
+  transition: transform 0.25s cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+.concept-flow-node:hover .island-node-art,
+.concept-flow-node:focus-visible .island-node-art {
+  transform: translateY(-4px) scale(1.04);
+}
+.concept-flow-node.is-secondary .island-node-art {
+  width: 70%;
+}
+.concept-flow-node.is-focus .island-sign {
+  box-shadow: 0 0 0 4px var(--studydy-blue), 0 14px 26px -12px rgba(20, 60, 160, 0.55);
+}
+.concept-flow-node.is-focus .island-sign::after {
+  margin-top: 4px;
+  border-top-color: var(--studydy-blue);
+}
+.concept-flow-node.is-focus .island-node-art {
+  width: 100%;
+}
+.concept-flow-node.react-flow__node.selected,
+.concept-flow-node.react-flow__node:focus-visible {
+  outline: none;
+}
+.concept-flow-node.react-flow__node:focus-visible .island-sign {
+  outline: 3px solid rgba(47, 107, 255, 0.5);
+  outline-offset: 3px;
 }
 
 .concept-flow-node .react-flow__handle {
   opacity: 0;
 }
+.concept-flow-edge .react-flow__edge-path {
+  fill: none;
+  stroke-linecap: round;
+}
+.concept-flow-edge.is-prerequisite .react-flow__edge-path {
+  stroke: #c9b79c;
+  stroke-width: 10;
+  stroke-dasharray: 14 3;
+  stroke-linecap: butt;
+  filter: drop-shadow(0 2px 0 #8b7558);
+}
+.concept-flow-edge.is-part_of .react-flow__edge-path {
+  stroke: #c98a4b;
+  stroke-width: 8;
+  stroke-dasharray: 4 2;
+  stroke-linecap: butt;
+  filter: drop-shadow(0 2px 0 #7a4b23);
+}
+.concept-flow-edge.is-application .react-flow__edge-path {
+  stroke: #f08a00;
+  stroke-width: 3;
+  stroke-dasharray: 10 8;
+}
+.concept-flow-edge.is-example .react-flow__edge-path {
+  stroke: #e8f4f6;
+  stroke-width: 9;
+  stroke-dasharray: 0.1 15;
+  filter: drop-shadow(0 2px 0 #1aa3b8);
+}
+.concept-flow-edge.is-contrast .react-flow__edge-path {
+  stroke: #e0569a;
+  stroke-width: 2.5;
+  stroke-dasharray: 3 6;
+}
 .concept-flow-edge.selected .react-flow__edge-path,
 .concept-flow-edge:focus-visible .react-flow__edge-path {
-  stroke-width: 2;
+  filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 2px #fff);
+}
+.concept-flow-edge .react-flow__edge-text {
+  pointer-events: none;
 }
 .focus-graph .react-flow__controls {
-  border: 1px solid var(--border);
-  border-radius: 8px;
   overflow: hidden;
-  box-shadow: none;
+  border: 0;
+  border-radius: 18px;
+  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
 }
 .focus-graph .react-flow__controls-button {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-secondary);
 }
 .relation-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
+  gap: 6px 14px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 800;
+}
+.relation-legend small {
+  margin-left: 2px;
+  color: var(--text-muted);
+  font-weight: 700;
 }
 .detail-panel {
   margin: 0;
@@ -361,24 +489,16 @@
   gap: 6px;
 }
 .relation-swatch {
-  position: relative;
   display: inline-block;
-  width: 24px;
-  height: 0;
-  border-top: 1.5px solid currentColor;
+  width: 28px;
+  height: 8px;
+  border-radius: 4px;
 }
-.relation-swatch::after {
-  position: absolute;
-  right: -1px;
-  top: -4px;
-  content: "";
-  border-top: 3px solid transparent;
-  border-bottom: 3px solid transparent;
-  border-left: 5px solid currentColor;
-}
-.relation-swatch.is-dashed {
-  border-top-style: dashed;
-}
+.relation-swatch.is-prerequisite { background: repeating-linear-gradient(90deg, #c9b79c 0 9px, #8b7558 9px 11px); }
+.relation-swatch.is-part_of { background: repeating-linear-gradient(90deg, #c98a4b 0 4px, #7a4b23 4px 5px); }
+.relation-swatch.is-application { height: 3px; background: repeating-linear-gradient(90deg, #f08a00 0 7px, transparent 7px 11px); }
+.relation-swatch.is-example { background: radial-gradient(circle at 4px 4px, #1aa3b8 3px, transparent 3.5px) 0 0 / 10px 8px repeat-x; }
+.relation-swatch.is-contrast { height: 3px; background: repeating-linear-gradient(90deg, #e0569a 0 3px, transparent 3px 7px); }
 .map-header,
 .map-tabs {
   flex-shrink: 0;
@@ -388,7 +508,7 @@
 .map-workspace.is-focus-mode {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 56px);
+  height: calc(100dvh - var(--shell-offset));
   min-height: 620px;
 }
 .is-focus-mode > :not(.map-content) {
@@ -500,7 +620,7 @@
   z-index: 4;
   top: 12px;
   right: 12px;
-  max-width: min(430px, calc(100% - 150px));
+  max-width: min(640px, calc(100% - 170px));
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -849,6 +969,103 @@
 }
 
 .assessment-concept-list { list-style: none; padding: 0; display: grid; gap: 12px; }
-.assessment-concept-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; border: 1px solid var(--border, #dfe5e3); border-radius: 12px; }
+.assessment-concept-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border: 0; border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
 .assessment-concept-list li > div { display: grid; gap: 8px; }
 @media (max-width: 600px) { .assessment-concept-list li { align-items: stretch; flex-direction: column; } }
+
+/* 知識群島外觀：海面畫布、膠囊狀的導覽按鈕與圖例。 */
+.focus-workspace > .focus-graph {
+  border: 0;
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow);
+}
+.map-view {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.map-navigation > button {
+  min-height: 42px;
+  padding: 0 16px 0 12px;
+  border-radius: 999px;
+  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
+}
+.map-navigation > button[aria-expanded="true"] {
+  background: var(--text-primary);
+  color: #fff;
+}
+#map-navigator .focus-navigator {
+  border-radius: 22px;
+}
+.map-annotations > .relation-legend {
+  gap: 6px 12px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
+}
+.focus-context.surface {
+  border-radius: var(--radius-panel);
+}
+.map-header .map-search input {
+  height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+.detail-panel > .concept-study-action {
+  margin-bottom: calc(-1 * var(--space-4));
+  padding-bottom: var(--space-4);
+}
+.focus-context .detail-panel {
+  border: 0;
+}
+.detail-panel {
+  border: 0;
+  border-radius: var(--radius-panel);
+}
+.detail-panel:focus {
+  outline: none;
+}
+/* 手機：外框與畫布上下排列，畫布保留固定高度，圖例縮成一列。 */
+@media (max-width: 720px) {
+  .map-workspace,
+  .map-view {
+    padding: 0;
+  }
+  .map-workspace.is-focus-mode {
+    height: auto;
+    min-height: 0;
+  }
+  .is-focus-mode .map-content {
+    flex: none;
+    height: min(72dvh, 600px);
+  }
+  .map-workspace .material-search-row .map-header-actions {
+    display: none;
+  }
+  .map-annotations {
+    right: 10px;
+    max-width: calc(100% - 160px);
+  }
+  .map-annotations > .relation-legend {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    padding: 6px 12px;
+    border-radius: 14px;
+    font-size: 11px;
+  }
+  .relation-legend small {
+    display: none;
+  }
+  .relation-swatch {
+    width: 18px;
+  }
+}
+/* 鍵盤移到第一／最後一項時保留清單內距，不讓項目貼齊邊緣。 */
+.navigator-list {
+  scroll-padding-block: var(--space-2);
+}

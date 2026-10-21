@@ -7,7 +7,7 @@ async function login(page: Page) {
   await page.getByLabel("Email", { exact: true }).fill("learner_test@example.com");
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic test password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "歡迎回來！", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", exact: true })).toBeVisible();
 }
 
 test("real API persists selected cards across fresh login and resolves original evidence", async ({ browser }) => {

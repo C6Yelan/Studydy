@@ -15,7 +15,7 @@ async function login(page: Page) {
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic test password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "歡迎回來！", level: 1, exact: true }),
+    page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true }),
   ).toBeVisible();
 }
 

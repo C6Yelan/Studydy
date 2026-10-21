@@ -62,7 +62,8 @@ async function expectVisibleGraphFits(page: Page) {
     .poll(() =>
       page.locator(".focus-graph").evaluate((graph) => {
         const bounds = graph.getBoundingClientRect();
-        const nodes = [...graph.querySelectorAll(".react-flow__node")];
+        // 手機畫布只保證中心概念完整可讀，其餘概念以平移或縮小查看。
+        const nodes = [...graph.querySelectorAll(bounds.width < 600 ? ".react-flow__node.is-focus" : ".react-flow__node")];
         return (
           bounds.width > 0 &&
           bounds.height > 0 &&
@@ -367,29 +368,26 @@ for (const width of [1536, 390])
     expect(limitNote.y).toBeGreaterThanOrEqual(legend.y + legend.height + 4);
     const secondary = page.locator(".concept-flow-node.is-secondary");
     await expect(secondary).toHaveCount(23);
-    await expect(secondary.locator("p")).toHaveCount(23);
     await expect(secondary.locator(".map-learning-badge")).toHaveCount(23);
-    const summaries = await secondary.evaluateAll((nodes) =>
+    // 每座概念島的旗子顯示學習順序、名稱與重點數；第二層島只縮小插畫，不改旗子字級。
+    const labels = await secondary.evaluateAll((nodes) =>
       nodes.map((node) => ({
         id: node.getAttribute("data-id"),
-        text: node.querySelector("p")?.textContent,
+        text: node.querySelector(".island-sign strong")?.textContent,
       })),
     );
-    for (const summary of summaries)
-      expect(summary.text).toBe(
-        view.concepts.find((concept) => concept.concept_id === summary.id)!.claims[0].text,
-      );
-    const cardStyle = (element: Element) => ({
+    for (const label of labels)
+      expect(label.text).toBe(view.concepts.find((concept) => concept.concept_id === label.id)!.label);
+    const signStyle = (element: Element) => ({
       width: getComputedStyle(element).width,
-      padding: getComputedStyle(element).padding,
-      titleSize: getComputedStyle(element.querySelector("strong")!).fontSize,
-      summarySize: getComputedStyle(element.querySelector("p")!).fontSize,
+      titleSize: getComputedStyle(element.querySelector(".island-sign strong")!).fontSize,
+      noteSize: getComputedStyle(element.querySelector(".island-sign small")!).fontSize,
     });
-    expect(await secondary.first().evaluate(cardStyle)).toEqual(
+    expect(await secondary.first().evaluate(signStyle)).toEqual(
       await page
         .locator(".concept-flow-node:not(.is-focus):not(.is-secondary)")
         .first()
-        .evaluate(cardStyle),
+        .evaluate(signStyle),
     );
     await expectVisibleGraphFits(page);
     // 第一個第二層概念是 fixture 中的第 8 個，不從 DOM 自己產生預期值。
@@ -405,7 +403,7 @@ for (const width of [1536, 390])
       "data-id",
       target.concept_id,
     );
-    await expect(page.locator(".concept-flow-node.is-focus p")).toHaveCount(1);
+    await expect(page.locator(".concept-flow-node.is-focus .island-sign strong")).toHaveText(target.label);
     expect(await page.locator(".react-flow__node").count()).toBeLessThanOrEqual(30);
     expect(await page.locator(".concept-flow-edge").count()).toBeLessThanOrEqual(60);
     await page.keyboard.press("Escape");

@@ -8,6 +8,7 @@ import type {
 } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
+import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
 import { MaterialManagement } from "./MaterialManagement";
 import { formatFileSize } from "./material-flow";
@@ -190,11 +191,16 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
         </div>
         {total > 0 && (
           <div className="state-actions">
+            <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}>
+              <Icon name="sparkle" size={18} />
+              從主題建立
+            </button>
             <button
               className="primary-button"
               type="button"
               onClick={() => writeRoute({ name: "upload" })}
             >
+              <Icon name="upload" size={18} />
               上傳教材
             </button>
           </div>
@@ -241,7 +247,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
       )}
       <div className="library-grid">
         {filteredTopics.map(topic => <article className="surface library-item" key={topic.topic_id} aria-label={topic.proposal?.title ?? topic.request}>
-          <span className="library-file-icon" aria-hidden="true"><Icon name="learning" size={25}/></span>
+          <span className="library-island is-building" aria-hidden="true"><IslandArt palette={islandPalette(topic.topic_id)} landmarks={false}/></span>
           <h2>{topic.proposal?.title ?? topic.request}</h2>
           <p className="library-metadata">從主題建立 · 準備中的教材</p>
           <p className="library-state">{topicStages[topic.research!.status] ?? '等待更新'}</p>
@@ -306,8 +312,8 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
               key={item.material_id}
               aria-label={item.display_name}
             >
-              <span className="library-file-icon" aria-hidden="true">
-                <Icon name="file" size={25} />
+              <span className={`library-island${structure ? "" : " is-building"}`} aria-hidden="true">
+                <IslandArt palette={islandPalette(item.material_id)} landmarks={!!structure} />
               </span>
               <MaterialManagement
                 item={item}
@@ -372,8 +378,8 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                     </button>
                   )
                 )}
-                {structure && <><button className="secondary-button" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "concept-cards" })}><Icon name="cards" size={16} />概念卡</button>
-                  <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "podcasts" })}><Icon name="headphones" size={16} />Podcast</button></>}
+                {structure && <><button className="text-button library-link" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "concept-cards" })}><Icon name="cards" size={16} />概念卡</button>
+                  <button className="text-button library-link" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "podcasts" })}><Icon name="headphones" size={16} />Podcast</button></>}
               </fieldset>
             </article>
           );

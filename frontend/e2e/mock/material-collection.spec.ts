@@ -443,7 +443,8 @@ for (const viewport of [
   test(`bookshelf geometry and expanded management at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     const names = [
-      "微積分曲線描繪與函數極值：導數、凹凸性、漸近線及綜合應用練習講義（含例題詳解、課後習題與跨章節解題方法）",
+      // 取消側欄後卡片變寬，名稱需超過兩行才能驗證截斷。
+      "微積分曲線描繪與函數極值：導數、凹凸性、漸近線及綜合應用練習講義（含例題詳解、課後習題與跨章節解題方法，附期末複習重點與常見錯誤整理）",
       "資料結構與演算法",
       "線性代數",
       "程式設計",

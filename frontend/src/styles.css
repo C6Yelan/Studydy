@@ -1,34 +1,45 @@
+@import "@fontsource-variable/nunito";
+@import "@fontsource-variable/noto-sans-tc";
+
 :root {
-  color: #0c1228;
-  background: #f8f9fe;
-  font-family:
-    Inter, "Noto Sans TC", "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  color: #1d2742;
+  background: #f3f7fc;
+  font-family: "Nunito Variable", "Noto Sans TC Variable", "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
-  --studydy-blue: #0757ff;
-  --studydy-blue-deep: #0645ff;
-  --studydy-blue-hover: #064eeb;
-  --studydy-blue-soft: #eef3fe;
-  --studydy-blue-soft-2: #f4f7fe;
-  --text-primary: #0c1228;
-  --text-secondary: #5f687e;
-  --text-muted: #8a93a8;
+  /* 知識群島設計 token；舊名稱保留給各功能頁沿用。 */
+  --studydy-blue: #2f6bff;
+  --studydy-blue-deep: #1d4fd6;
+  --studydy-blue-hover: #255ff0;
+  --studydy-blue-soft: #e8efff;
+  --studydy-blue-soft-2: #f2f6ff;
+  --text-primary: #1d2742;
+  --text-secondary: #4a5677;
+  --text-muted: #8a94ad;
   --surface: #ffffff;
   --page: #ffffff;
-  --page-cool: #f8f9fe;
-  --page-cool-2: #f3f6fd;
-  --border: #e5e9f1;
-  --border-light: #edf0f5;
-  --success: #16b56b;
-  --success-soft: #e7f8ef;
-  --error: #ed3f3f;
-  --error-soft: #fff0f0;
-  --warning: #f4b51c;
-  --warning-soft: #fff6d8;
-  --radius-input: 7px;
-  --radius-button: 7px;
-  --radius-card: 11px;
+  --page-cool: #f3f7fc;
+  --page-cool-2: #eaf2fb;
+  --border: #e6ecf5;
+  --border-light: #eef2f8;
+  --success: #22a865;
+  --success-soft: #e3f8ec;
+  --error: #e5484d;
+  --error-soft: #ffebe8;
+  --warning: #ffb320;
+  --warning-soft: #fff4dc;
+  --amber-deep: #f08a00;
+  --coral: #ff6b5e;
+  --violet: #8b5cf6;
+  --violet-soft: #f1ebff;
+  --sea: #5cc8f2;
+  --shadow: 0 1px 0 rgba(29, 39, 66, 0.03), 0 12px 32px -14px rgba(29, 52, 110, 0.18);
+  --shadow-raised: 0 4px 0 var(--studydy-blue-deep), 0 12px 24px -10px rgba(47, 107, 255, 0.6);
+  --radius-input: 14px;
+  --radius-button: 999px;
+  --radius-card: 24px;
+  --radius-panel: 28px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -57,7 +68,7 @@ body,
 }
 
 body {
-  background: var(--page-cool);
+  background: linear-gradient(180deg, #d9efff 0, #eaf5ff 260px, var(--page-cool) 620px) no-repeat, var(--page-cool);
 }
 
 img {
@@ -82,7 +93,7 @@ button:focus-visible,
 input:focus-visible,
 a:focus-visible,
 .file-drop:focus-within {
-  outline: 3px solid rgba(7, 87, 255, 0.25);
+  outline: 3px solid rgba(47, 107, 255, 0.35);
   outline-offset: 2px;
 }
 
@@ -90,6 +101,8 @@ h1,
 h2,
 h3 {
   color: var(--text-primary);
+  font-weight: 900;
+  letter-spacing: -0.01em;
   line-height: 1.25;
 }
 
@@ -111,64 +124,70 @@ code {
 .surface {
   min-width: 0;
   overflow-wrap: anywhere;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 2px 10px rgba(20, 32, 60, 0.05);
+  box-shadow: var(--shadow);
 }
 
 .eyebrow {
   margin: 0 0 var(--space-2);
   color: var(--studydy-blue);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 .primary-button,
 .secondary-button,
 .text-button {
   display: inline-flex;
-  min-height: 48px;
+  min-height: 46px;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
   border-radius: var(--radius-button);
-  font-weight: 600;
+  font-weight: 800;
+  transition: transform 0.15s, box-shadow 0.2s, background 0.2s;
 }
 
 .primary-button {
   padding: 0 var(--space-5);
-  border: 1px solid var(--studydy-blue);
+  border: 0;
   color: #fff;
   background: var(--studydy-blue);
+  box-shadow: var(--shadow-raised);
 }
 
 .primary-button:hover:not(:disabled) {
-  border-color: var(--studydy-blue-hover);
   background: var(--studydy-blue-hover);
 }
 
 .primary-button:active:not(:disabled) {
-  background: var(--studydy-blue-deep);
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 var(--studydy-blue-deep);
 }
 
 .primary-button:disabled {
-  border-color: #9bb8ef;
-  background: #9bb8ef;
+  background: #a9c1f7;
+  box-shadow: 0 4px 0 #8fa9e6;
 }
 
 .secondary-button {
   padding: 0 var(--space-5);
-  border: 1px solid #a9c4f9;
-  color: var(--studydy-blue);
+  border: 0;
+  color: var(--text-primary);
   background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--border), 0 2px 0 var(--border);
 }
 
 .secondary-button:hover:not(:disabled) {
-  border-color: var(--studydy-blue);
+  color: var(--studydy-blue);
   background: var(--studydy-blue-soft-2);
+}
+
+.secondary-button:disabled {
+  color: var(--text-muted);
 }
 
 .text-button {
@@ -177,6 +196,7 @@ code {
   border: 0;
   color: var(--studydy-blue);
   background: transparent;
+  font-weight: 800;
 }
 
 .full-button {

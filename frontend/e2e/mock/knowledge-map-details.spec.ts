@@ -82,7 +82,7 @@ test("mobile map has a modal detail drawer with keyboard focus and source links"
   await page.setViewportSize({ width: 390, height: 844 });
   await mockKnowledgeMapApi(page);
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "概念地圖" }).click();
+  await page.getByRole("tab", { name: "知識地圖" }).click();
   await openMapConcept(page);
   const dialog = page.getByRole("dialog", { name: "概念詳情" });
   await expect(dialog).toBeInViewport();

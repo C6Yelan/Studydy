@@ -77,7 +77,8 @@ test('compact widget has one entry, chat bubbles, secondary sources and a growin
  await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveCount(0);await expect(panel.getByRole('heading',{name:'教材問答',exact:true})).toBeVisible();await expect(input).toBeFocused();
  await expect(page.getByLabel('已保存的對話')).not.toBeVisible();
  const box=(await panel.boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!,composer=(await page.locator('.voice-composer').boundingBox())!;
- expect(box.width).toBeLessThanOrEqual(380);expect(box.height).toBeLessThanOrEqual(520);expect(header.height).toBeLessThanOrEqual(56);expect(composer.height).toBeLessThan(110);
+ // 桌機改為頁首下方的右側抽屜。
+ expect(box.width).toBeLessThanOrEqual(420);expect(box.y).toBeGreaterThanOrEqual((await page.locator('.app-header').boundingBox())!.height);expect(box.y+box.height).toBeLessThanOrEqual(900);expect(header.height).toBeLessThanOrEqual(56);expect(composer.height).toBeLessThan(110);
  expect((await page.locator('.voice-turns').boundingBox())!.height).toBeGreaterThan(box.height*.6);
  await panel.screenshot({path:testInfo.outputPath('voice-empty-desktop.png')});
  await page.getByRole('button',{name:'主要觀念是什麼？',exact:true}).click();await expect(input).toHaveValue('主要觀念是什麼？');await expect(input).toBeFocused();
@@ -307,7 +308,7 @@ test('switching account releases private voice audio and never carries it into t
 
 test('opening voice questions pauses existing podcast media',async({page})=>{
  const mock=await mockVoice(page),conversation=mock.add(),turn=mock.turn(conversation,'合成音訊','ready',true);
- await page.goto(mapPath);await page.getByRole('tab',{name:'概念地圖',exact:true}).click();
+ await page.goto(mapPath);await page.getByRole('tab',{name:'知識地圖',exact:true}).click();
  await page.evaluate(async src=>{const audio=document.createElement('audio');audio.id='podcast-fixture';audio.src=src!;document.body.append(audio);await audio.play();},turn.audio_url);
  await expect.poll(()=>page.locator('#podcast-fixture').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
  await open(page);await expect.poll(()=>page.locator('#podcast-fixture').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(true);

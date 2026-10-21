@@ -226,8 +226,8 @@ for (const status of ["succeeded", "partial"] as const)
     await expect(page).toHaveURL(
       new RegExp(`${runPath}/knowledge-structures/${encodeURIComponent(revision)}$`),
     );
-    await expect(page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab", { name: "概念地圖", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("region", { name: "概念地圖工作區", exact: true })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab", { name: "知識地圖", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("region", { name: "知識地圖工作區", exact: true })).toBeVisible();
     await expect(page.locator(".concept-flow-node")).toHaveCount(view.concepts.length);
   });
 
@@ -377,7 +377,7 @@ test("polling uses backend progress, stops at terminal, and clears on unmount", 
   server = base;
   await page.goto(runPath);
   await expect(overall).toHaveAttribute("value", "6");
-  await page.getByRole("button", { name: "教材庫", exact: true }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("button", { name: "我的教材", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
   const unmountedReads = reads();

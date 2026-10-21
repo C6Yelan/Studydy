@@ -200,6 +200,12 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
           <track kind="subtitles" src={`/v1/podcasts/${view.podcast_id}/episodes/${index}/subtitles`} srcLang="zh-TW" label="繁體中文"
             onLoad={syncSubtitles} />
         </video>
+        {/* 尚未開始播放時顯示封面，避免整片深色空白。 */}
+        {!playing && time === 0 && <div className="media-cover" aria-hidden="true">
+          <span className="podcast-cover-rings" />
+          <img src="/assets/studydy/brand-idle.png" alt="" />
+          <b>第 {index + 1} 集</b>
+        </div>}
       </div>
       {video && caption && <div className="media-subtitles" aria-hidden="true" style={{ bottom: captionBottom }}>{caption}</div>}
       <div className="media-playback-controls" role="group" aria-label="播放控制">
