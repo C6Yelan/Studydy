@@ -70,7 +70,8 @@ function CardReviewStrip({ apiClient, cardSetId, reviewing, onToggle }: { apiCli
   const waiting = queue ? queue.due_count + queue.new_count : 0;
   return <div className="cards-review-strip surface" role="region" aria-label="今天要複習">
     <Icon name="refresh" size={20} />
-    <p>{!queue ? "間隔複習" : waiting ? <>今天要複習 <b>{queue.due_count}</b> 張{queue.new_count > 0 && ` · ${queue.new_count} 張新卡`}</> : "今天沒有要複習的卡片"}</p>
+    <p>{!queue ? "間隔複習" : queue.due_count ? <>今天要複習 <b>{queue.due_count}</b> 張{queue.new_count > 0 && ` · ${queue.new_count} 張新卡`}</>
+      : queue.new_count ? `${queue.new_count} 張新卡可以開始複習` : "今天沒有要複習的卡片"}</p>
     <button className={reviewing ? "secondary-button" : "primary-button"} type="button" disabled={!reviewing && !waiting} onClick={onToggle}>
       {reviewing ? "回到瀏覽" : "開始間隔複習"}
     </button>

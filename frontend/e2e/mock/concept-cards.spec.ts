@@ -1569,3 +1569,12 @@ test("card set page shows today's reviews and switches between review and browsi
   await expect(page.getByRole("region", { name: "間隔複習" })).toHaveCount(0);
   await expect(strip).toContainText("今天要複習 1 張");
 });
+
+test("card set page offers new cards without claiming any are due", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true });
+  await mockReviews(page, view, { due: [] });
+  await page.goto("/concept-cards");
+  await expect(page.locator(".card-review-due")).toHaveCount(0);
+  await page.getByRole("button", { name: "開始複習" }).click();
+  await expect(page.getByRole("region", { name: "今天要複習" })).toContainText("2 張新卡可以開始複習");
+});
