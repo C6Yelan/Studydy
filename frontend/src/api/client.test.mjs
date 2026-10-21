@@ -1449,3 +1449,53 @@ test("podcast progress posts listening reports with keepalive and checks the pod
   await assert.rejects(new StudydyApiClient(async () => Response.json({ ...progress, podcast_id: setId })).getPodcastProgress(podcastId), ApiClientError);
   await assert.rejects(new StudydyApiClient(async () => Response.json({ ...progress, credited_seconds: -1 })).getPodcastProgress(podcastId), ApiClientError);
 });
+
+function versionMovePreview(change = () => undefined) {
+  const value = {
+    schema: "version-move-preview/v1", material_id: materialId, to_revision: structureRevision,
+    preview_digest: `version-move:sha256:${"f".repeat(64)}`, kept_podcasts: 1,
+    card_sets: [{
+      card_set_id: setId, name: "複習", from_revision: `knowledge-structure:sha256:${"9".repeat(64)}`,
+      concept_count: 2, target_count: 1, carried_reviews: 1, reused_designs: 0, movable: true,
+      mapped: [{ from_concept_id: conceptId, from_label: "Stack", to_concept_id: conceptId, to_label: "堆疊", basis: "evidence" }],
+      unmapped: [{ concept_id: `concept:sha256:${"8".repeat(64)}`, label: "Queue", reason: "not_found" }],
+    }],
+    study: {
+      study_session_id: sessionId, from_revision: `knowledge-structure:sha256:${"9".repeat(64)}`,
+      target_study_session_id: null, completed_count: 1,
+      carried: [{ concept_id: conceptId, label: "堆疊", from_labels: ["Stack"] }], not_carried: [],
+      current_concept: { concept_id: conceptId, label: "堆疊" },
+    },
+  };
+  change(value);
+  return value;
+}
+
+test("version move preview keeps the mapping, reasons and digest shape", async () => {
+  const read = (value) => new StudydyApiClient(async () => Response.json(value)).getVersionMove(materialId);
+  assert.equal((await read(versionMovePreview())).card_sets[0].unmapped[0].reason, "not_found");
+  assert.equal((await read(versionMovePreview((value) => { value.study = null; value.card_sets = []; value.preview_digest = null; }))).study, null);
+  for (const change of [
+    (value) => { value.material_id = runId; },
+    (value) => { value.preview_digest = "sha256:x"; },
+    (value) => { value.card_sets[0].unmapped[0].reason = "guess"; },
+    (value) => { value.card_sets[0].mapped[0].basis = "similar"; },
+    (value) => { value.card_sets[0].carried_reviews = -1; },
+    (value) => { value.study.carried[0].from_labels = [1]; },
+    (value) => { value.study.current_concept = { label: "x" }; },
+  ]) await assert.rejects(read(versionMovePreview(change)), ApiClientError);
+});
+
+test("moving to a new version sends the confirmation key and checks the target", async () => {
+  const sent = [];
+  const result = { schema: "version-move/v1", move_id: runId, material_id: materialId, to_revision: structureRevision,
+    card_sets: [{ from_card_set_id: setId, card_set_id: sessionId, status: "pending" }], study_session_id: sessionId,
+    created_at: "2026-10-22T01:00:00Z" };
+  const reply = (body) => async (path, init) => { sent.push([path, init.headers["Idempotency-Key"], JSON.parse(init.body)]); return Response.json(body); };
+  const body = { schema: "version-move-create/v1", to_revision: structureRevision, card_set_ids: [setId], include_study: true,
+    preview_digest: `version-move:sha256:${"f".repeat(64)}` };
+  assert.equal((await new StudydyApiClient(reply(result)).moveToNewVersion(materialId, body, "move-1")).study_session_id, sessionId);
+  assert.deepEqual(sent[0], [`/v1/materials/${materialId}/version-move`, "move-1", body]);
+  await assert.rejects(new StudydyApiClient(reply({ ...result, to_revision: `knowledge-structure:sha256:${"1".repeat(64)}` })).moveToNewVersion(materialId, body, "k"), ApiClientError);
+  await assert.rejects(new StudydyApiClient(reply({ ...result, card_sets: [{ ...result.card_sets[0], status: "failed" }] })).moveToNewVersion(materialId, body, "k"), ApiClientError);
+});

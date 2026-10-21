@@ -5,6 +5,7 @@ import { Icon, type IconName } from "../../ui/Icon";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { MaterialTools } from "../material-tools/MaterialTools";
 import { rememberMaterial, rememberedMaterial } from "./material-memory";
+import { VersionMoveNotice } from "./VersionMoveNotice";
 
 type Mode = "focus" | "review";
 type Content = "knowledge-map" | "review" | "concept-cards" | "podcasts" | "research" | "sources";
@@ -83,6 +84,7 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
       {material && <p className="material-bar-meta">{[material.source_count ? `${material.source_count} 個來源` : null, pages ? `${pages} 頁` : null, `建立於 ${dateFormat.format(new Date(material.created_at))}`].filter(Boolean).join(" · ")}</p>}
     </div>
   </header>
+  <VersionMoveNotice apiClient={apiClient} materialId={materialId}/>
   <div className="material-learning-toolbar">
     {name && <span className="material-toolbar-name" title={name}>{name}</span>}
     <div ref={navigation} className="material-content-nav map-tabs" role="tablist" aria-label="教材學習內容">

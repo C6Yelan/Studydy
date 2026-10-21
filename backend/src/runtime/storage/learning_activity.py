@@ -217,19 +217,33 @@ def _material_completions(session, owner, zone):
     return days
 
 
-def _card_quest(session, owner, start, now):
-    """到期卡優先；沒有到期卡時改為今天複習 5 張新卡。都沒有就不顯示。"""
+def _card_quest(session, owner, start, now, origins):
+    """到期卡優先；沒有到期卡時改為今天複習 5 張新卡。都沒有就不顯示。
+
+    移到新版的卡片沿用舊卡的複習紀錄（origins），不會被當成沒學過的新卡。
+    """
+    from types import SimpleNamespace
     from ..card_reviews import _CARDS
 
-    rows = session.execute(text(_CARDS + """
-        SELECT r.due_at,
-               (SELECT min(v.created_at) FROM card_review_events v
-                WHERE v.card_set_id = cards.card_set_id AND v.concept_id = cards.concept_id) AS first_at,
-               (SELECT max(v.created_at) FROM card_review_events v
-                WHERE v.card_set_id = cards.card_set_id AND v.concept_id = cards.concept_id) AS last_at
+    times = {}
+    for card_set, concept, first_at, last_at in session.execute(text(
+        """
+        SELECT card_set_id, concept_id, min(created_at), max(created_at)
+        FROM card_review_events WHERE learner_id = :owner
+        GROUP BY card_set_id, concept_id
+        """
+    ), {"owner": owner}).all():
+        key = origins.get((card_set, concept), (card_set, concept))
+        earliest, latest = times.get(key, (first_at, last_at))
+        times[key] = (min(earliest, first_at), max(latest, last_at))
+    rows = []
+    for card_set, concept, due_at in session.execute(text(_CARDS + """
+        SELECT cards.card_set_id, cards.concept_id, r.due_at
         FROM cards
         LEFT JOIN card_review_states r ON r.card_set_id = cards.card_set_id AND r.concept_id = cards.concept_id
-    """), {"owner": owner, "card_set": None}).all()
+    """), {"owner": owner, "card_set": None}).all():
+        first_at, last_at = times.get(origins.get((card_set, concept), (card_set, concept)), (None, None))
+        rows.append(SimpleNamespace(due_at=due_at, first_at=first_at, last_at=last_at))
     # 今天以前就學過的卡：今天到期或今天已複習的都算進「到期卡」任務。
     learned = [row for row in rows if row.first_at is not None and row.first_at < start]
     due = sum(row.due_at is not None and row.due_at <= now for row in learned)
@@ -355,17 +369,23 @@ def learning_activity(session, owner, *, now=None):
         if day <= today:
             answer_xp[day] = answer_xp.get(day, 0) + (XP_CORRECT if correct else XP_WRONG)
     # 卡片以「卡組＋概念」識別，同一張卡同一天只計一次 XP；複習數仍逐次計算。
-    cards = {
-        day: (reviews, distinct) for day, reviews, distinct in session.execute(text(
-            """
-            SELECT (created_at AT TIME ZONE :zone)::date AS day, count(*),
-                   count(DISTINCT (card_set_id, concept_id))
-            FROM card_review_events WHERE learner_id = :owner
-            GROUP BY day
-            """
-        ), values).all()
-        if day <= today
-    }
+    # 移到新版的卡片沿用最初那張卡的身分，同一天在新舊卡組各評一次仍只算一次。
+    from ..version_moves import card_origins
+
+    origins = card_origins(session, owner)
+    reviewed = {}
+    for day, card_set, concept, reviews in session.execute(text(
+        """
+        SELECT (created_at AT TIME ZONE :zone)::date AS day, card_set_id, concept_id, count(*)
+        FROM card_review_events WHERE learner_id = :owner
+        GROUP BY day, card_set_id, concept_id
+        """
+    ), values).all():
+        if day <= today:
+            count, distinct = reviewed.setdefault(day, [0, set()])
+            reviewed[day][0] = count + reviews
+            distinct.add(origins.get((card_set, concept), (card_set, concept)))
+    cards = {day: (count, len(distinct)) for day, (count, distinct) in reviewed.items()}
     listening = {
         day: int(seconds) for day, seconds in session.execute(text(
             """
@@ -424,7 +444,7 @@ def learning_activity(session, owner, *, now=None):
         })
     quests = [
         quest for quest in (
-            _card_quest(session, owner, start, now),
+            _card_quest(session, owner, start, now, origins),
             _study_quest(session, owner, start, end),
             _podcast_quest(session, owner, start, end),
         )

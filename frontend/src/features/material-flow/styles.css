@@ -1530,3 +1530,36 @@
   right: 22px;
 }
 .is-collection .library-item > .state-actions > .primary-button:first-child { flex: 1; }
+
+/* 教材來源頁的重新檢核入口：沿用既有檢核流程，完成後產生新版本。 */
+.source-recheck {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin-top: var(--space-4);
+  padding: var(--space-5);
+  box-shadow: none;
+}
+.source-recheck h2 {
+  margin: 0 0 var(--space-1);
+  font-size: 17px;
+}
+.source-recheck p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.source-recheck > div {
+  flex: 1;
+  min-width: 0;
+}
+.source-recheck > button {
+  flex: none;
+}
+@media (max-width: 640px) {
+  .source-recheck {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

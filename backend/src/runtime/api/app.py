@@ -90,6 +90,9 @@ from .models import (
     RevisionCreate,
     SourceCapabilities,
     SourceListView,
+    VersionMoveCreate,
+    VersionMovePreviewView,
+    VersionMoveView,
     project_material_run,
 )
 
@@ -101,6 +104,7 @@ _ERROR_STATUS = {
     "PODCAST_SOURCE_TOO_LARGE": (422, False),
     "CARD_SET_CONFLICT": (409, False),
     "CARD_REVIEW_CONFLICT": (409, False),
+    "VERSION_MOVE_STALE": (409, False),
     "LEARNER_GUIDANCE_STALE": (409, True),
     "ASSESSMENT_SET_CONFLICT": (409, False),
     "ASSESSMENT_SET_ACTIVE": (409, False),
@@ -373,6 +377,7 @@ def _install_openapi(app: FastAPI) -> None:
         "/v1/material-processing-runs/{run_id}/retry",
         "/v1/materials/{material_id}/review",
         "/v1/card-sets/{card_set_id}/reviews",
+        "/v1/materials/{material_id}/version-move",
         "/v1/study-sessions",
         "/v1/study-sessions/{study_session_id}/assessment-sets",
         "/v1/study-sessions/{study_session_id}/assessment-sets/{set_id}/retry",
@@ -930,6 +935,45 @@ def create_app(settings: ApiSettings) -> FastAPI:
                 base_revision=body.base_revision,
                 dsn=settings.dsn,
             )
+        )
+
+    @app.get(
+        "/v1/materials/{material_id}/version-move",
+        response_model=VersionMovePreviewView,
+        response_model_by_alias=True,
+        operation_id="previewVersionMove",
+        tags=["materials"],
+    )
+    def preview_version_move_route(request: Request, material_id: UUID):
+        from ..version_moves import preview_version_move
+
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        return preview_version_move(learner, material_id, dsn=settings.dsn)
+
+    @app.post(
+        "/v1/materials/{material_id}/version-move",
+        response_model=VersionMoveView,
+        response_model_by_alias=True,
+        operation_id="executeVersionMove",
+        tags=["materials"],
+    )
+    def execute_version_move_route(
+        request: Request, material_id: UUID, body: VersionMoveCreate
+    ):
+        from ..version_moves import execute_version_move
+
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        return execute_version_move(
+            learner,
+            material_id,
+            body.to_revision,
+            body.card_set_ids,
+            body.include_study,
+            body.preview_digest,
+            request_context.idempotency_key(request),
+            dsn=settings.dsn,
         )
 
     @app.post(

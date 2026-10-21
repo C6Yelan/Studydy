@@ -28,7 +28,7 @@ class CardSetError(MaterialLibraryError):
     pass
 
 
-def _summary(row, material):
+def _summary(row, material, moved_to=None):
     return {
         "card_set_id": row.card_set_id,
         "material_id": row.material_id,
@@ -41,6 +41,8 @@ def _summary(row, material):
         "created_at": row.created_at,
         "is_current_revision": row.knowledge_structure_revision
         == material.head_revision,
+        # 學生已把這個舊版卡組移到新版時，指向仍存在的新版卡組。
+        "moved_to_card_set_id": moved_to,
     }
 
 
@@ -117,9 +119,14 @@ def list_card_sets(owner, *, dsn=None):
             )
             .order_by(CardSet.created_at.desc(), CardSet.card_set_id)
         ).all()
+        from .version_moves import moved_to
+
+        targets = moved_to(session, owner, [row[0].card_set_id for row in rows])
         return {
             "schema": "card-set-list/v1",
-            "card_sets": [_summary(*row) for row in rows],
+            "card_sets": [
+                _summary(*row, targets.get(row[0].card_set_id)) for row in rows
+            ],
         }
 
 
@@ -152,9 +159,12 @@ def read_card_set(owner, card_set_id, *, dsn=None):
         )
         view = _view(document, material_id)
         concepts = {concept["concept_id"]: concept for concept in view["concepts"]}
+        from .version_moves import moved_to
+
+        target = moved_to(session, owner, [row.card_set_id]).get(row.card_set_id)
         return {
             "schema": "card-set/v1",
-            **_summary(row, material),
+            **_summary(row, material, target),
             "source_resolver": view["source_resolver"],
             "status": view["status"],
             "excluded_pages": view["excluded_pages"],
@@ -297,9 +307,12 @@ def read_card_study(owner, card_set_id, *, offset=0, expected_version=None, dsn=
         )
         if expected_version is not None:
             return card_sources.batch(session, row, meta, offset, 8)
+        from .version_moves import moved_to
+
+        target = moved_to(session, owner, [row.card_set_id]).get(row.card_set_id)
         return {
             "schema": "card-study/v1",
-            **_summary(row, material),
+            **_summary(row, material, target),
             "source_resolver": meta["source_resolver"],
             "status": meta["status"],
             "navigation": card_sources.navigation(row, meta),

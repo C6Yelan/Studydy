@@ -122,7 +122,7 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
                 </form>}
                 <p className="library-metadata">{new Date(item.created_at).toLocaleDateString()} · <CardCount key={`${item.card_set_id}:${item.version}`} item={item} apiClient={apiClient} onSaved={countSaved} /></p>
                 {!material && <p className="cards-library-material" title={item.material_name}>{item.material_name}</p>}
-                {!item.is_current_revision && <p className="library-state">教材已有新版</p>}
+                {!item.is_current_revision && <p className="library-state">{item.moved_to_card_set_id ? "已移到新版（保留舊版卡面）" : "教材已有新版"}</p>}
                 {(reviewCounts.get(item.card_set_id)?.due ?? 0) > 0 && <p className="card-review-due"><Icon name="refresh" size={14} />今天要複習 {reviewCounts.get(item.card_set_id)!.due} 張</p>}
                 <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id })}>開始複習</button></div>
               </article>

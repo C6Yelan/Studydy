@@ -113,6 +113,12 @@ _CARDS = """
         CROSS JOIN LATERAL unnest(s.concept_ids) WITH ORDINALITY AS c(concept_id, position)
         WHERE s.learner_id = :owner AND s.deleted_at IS NULL AND s.status = 'ready'
           AND m.discard_requested_at IS NULL
+          -- 已移到新版的舊卡組不再列出，改由新版卡組沿用排程（runtime.version_moves）。
+          AND NOT EXISTS (
+              SELECT 1 FROM card_set_moves v
+              JOIN card_sets t ON t.card_set_id = v.target_card_set_id
+              WHERE v.source_card_set_id = s.card_set_id AND t.deleted_at IS NULL
+          )
           AND (CAST(:card_set AS uuid) IS NULL OR s.card_set_id = CAST(:card_set AS uuid))
     )
 """

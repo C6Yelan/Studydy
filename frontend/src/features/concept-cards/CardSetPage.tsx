@@ -235,7 +235,9 @@ function CardStudy({ view, apiClient, materialId, onReload }: { view: CardStudyV
   return <section className="cards-page cards-study" onKeyDown={keys}>
     {countError && <p className="form-error" role="alert">張數尚未保存。<button className="text-button" onClick={() => setCountRetry(n => n + 1)}>重試保存張數</button></p>}
     <header className="cards-study-heading"><div><h1>{view.name}</h1>{!materialId && <p><Icon name="book" size={15} /> {view.material_name}</p>}</div></header>
-    {!view.is_current_revision && <p className="cards-notice">教材已有新版。此卡組保留建立時的教材內容與來源。</p>}
+    {!view.is_current_revision && (view.moved_to_card_set_id
+      ? <p className="cards-notice">這個卡組已移到新版，這裡保留舊版的卡面與來源；複習排程由新版卡組沿用。<button className="text-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: view.moved_to_card_set_id!, materialId: view.material_id })}>前往新版卡組</button></p>
+      : <p className="cards-notice">教材已有新版。此卡組保留建立時的教材內容與來源。</p>)}
     <div className="cards-browse-layout"><nav className="cards-browse-list" aria-label="選擇概念卡">{order.map((i, orderIndex) => <button type="button" key={view.navigation[i].concept_id} aria-current={index === i ? 'true' : undefined} onClick={() => { setFinished(false); setPosition(orderIndex); setPageIndex(0); }}>{view.navigation[i].label}</button>)}</nav>
       <section ref={stage} tabIndex={-1} className="cards-study-stage" aria-label={finished ? "本輪瀏覽完成" : `第 ${absolute ?? localPage + 1} 張概念卡`}>
         {finished ? <div className="cards-complete"><h2>已瀏覽全部卡片</h2><p>{total !== null ? `這一輪看過了 ${total} 張概念卡。想再回顧一次嗎？` : "已瀏覽全部觀念與卡片，想再回顧一次嗎？"}</p><div className="state-actions"><button className="primary-button" onClick={() => restart(false)}>再看一次</button><button className="secondary-button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}>返回卡組</button></div></div>

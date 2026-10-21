@@ -39,6 +39,9 @@ import type {
   StudySessionCreate,
   StudySessionFocus,
   StudySessionView,
+  VersionMoveCreate,
+  VersionMovePreview,
+  VersionMoveResult,
 } from "./contracts";
 
 type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -51,6 +54,7 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   PODCAST_SOURCE_TOO_LARGE: "單一來源重點超出本集容量，請先選擇其他概念。",
   CARD_SET_CONFLICT: "卡組已在其他頁面更新，請重新讀取後再編輯。",
   CARD_REVIEW_CONFLICT: "這張卡已在其他頁面評分，已重新整理複習清單。",
+  VERSION_MOVE_STALE: "卡組或學習進度剛有變動，已重新整理可移到新版的項目，請再確認一次。",
   INVALID_EMAIL: "請輸入有效的 Email 格式。",
   INVALID_CREDENTIALS: "Email 或密碼不正確。",
   ACCOUNT_UNAVAILABLE: "這個 Email 已被使用，請使用其他 Email。",
@@ -565,6 +569,28 @@ export class StudydyApiClient {
       validate.materialRun,
     );
   }
+  /** 重新檢核目前版本：沿用已保存地圖與來源，只重跑檢核、去重與索引（後端 /review）。 */
+  reviewMaterial(materialId: string, baseRevision: string, key: string): Promise<MaterialProcessingRunView> {
+    return this.post(
+      `/v1/materials/${encodeURIComponent(materialId)}/review`,
+      { schema: "material-review-create/v1", base_revision: baseRevision },
+      key,
+      (value): value is MaterialProcessingRunView => validate.materialRun(value) && value.material_id === materialId,
+    );
+  }
+
+  getVersionMove(materialId: string): Promise<VersionMovePreview> {
+    return this.json(`/v1/materials/${encodeURIComponent(materialId)}/version-move`, { method: "GET" },
+      (value): value is VersionMovePreview => validate.versionMovePreview(value) && value.material_id === materialId);
+  }
+
+  // key 由確認時產生；回應遺失時以同一個鍵重送，取得同一筆承接結果。
+  moveToNewVersion(materialId: string, body: VersionMoveCreate, key: string): Promise<VersionMoveResult> {
+    return this.post(`/v1/materials/${encodeURIComponent(materialId)}/version-move`, body, key,
+      (value): value is VersionMoveResult => validate.versionMoveResult(value)
+        && value.material_id === materialId && value.to_revision === body.to_revision);
+  }
+
   cancelRevision(runId: string, baseRevision: string): Promise<MaterialProcessingRunView> {
     return this.post(
       `/v1/material-processing-runs/${encodeURIComponent(runId)}/cancel`,

@@ -455,6 +455,7 @@ class CardSetSummary(_Closed):
     version: int
     created_at: datetime
     is_current_revision: bool
+    moved_to_card_set_id: UUID | None = None
 
 
 class CardSetUpdate(_Closed):
@@ -1086,6 +1087,88 @@ class RevisionCreate(_Closed):
 class RevisionCancel(_Closed):
     schema_: Literal["material-revision-cancel/v1"] = Field(alias="schema")
     base_revision: str = Field(pattern=r"^knowledge-structure:sha256:[0-9a-f]{64}$")
+
+
+class VersionMoveConcept(_Closed):
+    from_concept_id: str
+    from_label: str
+    to_concept_id: str
+    to_label: str
+    basis: Literal["evidence", "label"]
+
+
+class VersionMoveUnmapped(_Closed):
+    concept_id: str
+    label: str
+    reason: Literal["split", "ambiguous", "not_found", "merged_unfinished"]
+
+
+class VersionMoveCardSet(_Closed):
+    card_set_id: UUID
+    name: str
+    from_revision: str
+    concept_count: int
+    target_count: int
+    carried_reviews: int
+    reused_designs: int
+    movable: bool
+    mapped: list[VersionMoveConcept]
+    unmapped: list[VersionMoveUnmapped]
+
+
+class VersionMoveCarried(_Closed):
+    concept_id: str
+    label: str
+    from_labels: list[str]
+
+
+class VersionMoveFocus(_Closed):
+    concept_id: str
+    label: str
+
+
+class VersionMoveStudy(_Closed):
+    study_session_id: UUID
+    from_revision: str
+    target_study_session_id: UUID | None
+    completed_count: int
+    carried: list[VersionMoveCarried]
+    not_carried: list[VersionMoveUnmapped]
+    current_concept: VersionMoveFocus | None
+
+
+class VersionMovePreviewView(_Closed):
+    schema_: Literal["version-move-preview/v1"] = Field(alias="schema")
+    material_id: UUID
+    to_revision: str | None
+    preview_digest: str | None
+    card_sets: list[VersionMoveCardSet]
+    study: VersionMoveStudy | None
+    kept_podcasts: int
+
+
+class VersionMoveCreate(_Closed):
+    schema_: Literal["version-move-create/v1"] = Field(alias="schema")
+    to_revision: str = Field(pattern=r"^knowledge-structure:sha256:[0-9a-f]{64}$")
+    card_set_ids: list[UUID] = Field(max_length=500)
+    include_study: bool = Field(strict=True)
+    preview_digest: str = Field(pattern=r"^version-move:sha256:[0-9a-f]{64}$")
+
+
+class VersionMoveCardSetResult(_Closed):
+    from_card_set_id: UUID
+    card_set_id: UUID
+    status: Literal["pending", "ready"]
+
+
+class VersionMoveView(_Closed):
+    schema_: Literal["version-move/v1"] = Field(alias="schema")
+    move_id: UUID
+    material_id: UUID
+    to_revision: str
+    card_sets: list[VersionMoveCardSetResult]
+    study_session_id: UUID | None
+    created_at: datetime
 
 
 class MaterialReviewCreate(_Closed):

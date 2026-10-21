@@ -32,6 +32,8 @@ import type {
   SourceView,
   StudyResumeView,
   StudySessionView,
+  VersionMovePreview,
+  VersionMoveResult,
 } from "./contracts";
 
 type Json = Record<string, unknown>;
@@ -359,6 +361,61 @@ export function cardSetSummary(value: unknown): value is CardSetSummary {
     && (item.card_count === null || Number.isInteger(item.card_count) && Number(item.card_count) > 0)
     && cardGeneration(item.generation)
     && typeof item.is_current_revision === "boolean";
+}
+
+const unmappedReasons = ["split", "ambiguous", "not_found", "merged_unfinished"];
+
+function versionMoveUnmapped(value: unknown): boolean {
+  const item = object(value);
+  return !!item && revision(item.concept_id, "concept") && typeof item.label === "string"
+    && unmappedReasons.includes(String(item.reason));
+}
+
+export function versionMovePreview(value: unknown): value is VersionMovePreview {
+  const item = object(value);
+  if (!item || item.schema !== "version-move-preview/v1" || !isUuid(item.material_id)
+    || !(item.to_revision === null || revision(item.to_revision, "knowledge-structure"))
+    || !(item.preview_digest === null || revision(item.preview_digest, "version-move"))
+    || !count(item.kept_podcasts) || !Array.isArray(item.card_sets)) return false;
+  const sets = item.card_sets.every((value) => {
+    const set = object(value);
+    return !!set && isUuid(set.card_set_id) && typeof set.name === "string"
+      && revision(set.from_revision, "knowledge-structure") && typeof set.movable === "boolean"
+      && [set.concept_count, set.target_count, set.carried_reviews, set.reused_designs].every(count)
+      && Array.isArray(set.unmapped) && set.unmapped.every(versionMoveUnmapped)
+      && Array.isArray(set.mapped) && set.mapped.every((value) => {
+        const row = object(value);
+        return !!row && revision(row.from_concept_id, "concept") && revision(row.to_concept_id, "concept")
+          && typeof row.from_label === "string" && typeof row.to_label === "string"
+          && (row.basis === "evidence" || row.basis === "label");
+      });
+  });
+  if (!sets) return false;
+  if (item.study === null) return true;
+  const study = object(item.study);
+  const focus = study && (study.current_concept === null ? true : object(study.current_concept));
+  return !!study && isUuid(study.study_session_id) && revision(study.from_revision, "knowledge-structure")
+    && (study.target_study_session_id === null || isUuid(study.target_study_session_id))
+    && count(study.completed_count) && !!focus
+    && (study.current_concept === null || revision((focus as Json).concept_id, "concept") && typeof (focus as Json).label === "string")
+    && Array.isArray(study.not_carried) && study.not_carried.every(versionMoveUnmapped)
+    && Array.isArray(study.carried) && study.carried.every((value) => {
+      const row = object(value);
+      return !!row && revision(row.concept_id, "concept") && typeof row.label === "string"
+        && Array.isArray(row.from_labels) && row.from_labels.every((label) => typeof label === "string");
+    });
+}
+
+export function versionMoveResult(value: unknown): value is VersionMoveResult {
+  const item = object(value);
+  return !!item && item.schema === "version-move/v1" && isUuid(item.move_id) && isUuid(item.material_id)
+    && revision(item.to_revision, "knowledge-structure") && timestamp(item.created_at)
+    && (item.study_session_id === null || isUuid(item.study_session_id))
+    && Array.isArray(item.card_sets) && item.card_sets.every((value) => {
+      const row = object(value);
+      return !!row && isUuid(row.from_card_set_id) && isUuid(row.card_set_id)
+        && (row.status === "pending" || row.status === "ready");
+    });
 }
 
 export function cardSetList(value: unknown): value is CardSetListView {

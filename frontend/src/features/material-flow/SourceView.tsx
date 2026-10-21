@@ -176,6 +176,17 @@ export function SourceView({
       );
       writeRoute({ name: "material-run", materialId, runId: created.run_id });
     });
+  // 重新檢核：沿用已保存地圖與來源產生新版本（後端 /review）；舊版卡組與進度保留，由學生自行移到新版。
+  const recheckIntent = useRef<{ base: string; key: string } | null>(null);
+  const recheck = () =>
+    perform(async () => {
+      if (!baseRevision || hasActiveRun) return;
+      if (!window.confirm("重新檢核會用模型重新檢查目前的重點與概念，完成後產生新版本。確定開始？")) return;
+      if (recheckIntent.current?.base !== baseRevision)
+        recheckIntent.current = { base: baseRevision, key: crypto.randomUUID() };
+      const created = await apiClient.reviewMaterial(materialId, baseRevision, recheckIntent.current.key);
+      writeRoute({ name: "material-run", materialId, runId: created.run_id });
+    });
   const chooseFiles = (files: FileList | null) => {
     if (!files?.length || submitting.current || discardAccepted.current) return;
     if (!formatsReady) {
@@ -610,6 +621,18 @@ export function SourceView({
               </footer>
             )}
           </section>
+          {currentStructure && !removing && !adjustingSources && (
+            <section className="surface source-recheck" aria-labelledby="source-recheck-title">
+              <div>
+                <h2 id="source-recheck-title">重新分析與重新檢核</h2>
+                <p>重新檢核沿用目前的地圖與來源，重新檢查重點、合併重複概念並更新檢索，不重新辨識或下載來源。完成後產生新版本；舊版的卡組與學習進度會保留，可在教材頁按「移到新版」承接。</p>
+                <p>要分析新的內容，請用「＋ 新增來源」加入教材後更新地圖。</p>
+              </div>
+              <button className="secondary-button" type="button" disabled={busy} onClick={() => void recheck()}>
+                {busy ? "正在建立檢核…" : "重新檢核"}
+              </button>
+            </section>
+          )}
           <div className="source-footer">
             <button className="text-button" onClick={() => writeRoute({ name: "materials" })}>
               <Icon name="arrow-left" />

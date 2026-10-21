@@ -879,3 +879,56 @@ class PodcastListeningDay(Base):
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
     listened_seconds: Mapped[int] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MaterialVersionMove(Base):
+    """學生確認的「移到新版」請求；result 為重送時原樣回傳的結果。"""
+
+    __tablename__ = "material_version_moves"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["learner_id", "material_id"],
+            ["materials.learner_id", "materials.material_id"],
+        ),
+    )
+    move_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    to_revision: Mapped[str] = mapped_column(Text)
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary)
+    result: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CardSetMove(Base):
+    __tablename__ = "card_set_moves"
+    target_card_set_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("card_sets.card_set_id"), primary_key=True
+    )
+    source_card_set_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("card_sets.card_set_id")
+    )
+    move_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("material_version_moves.move_id")
+    )
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    # {新版概念: 承接排程與卡片身分的舊版概念}
+    concept_map: Mapped[dict] = mapped_column(JSONB)
+
+
+class StudySessionMove(Base):
+    __tablename__ = "study_session_moves"
+    target_study_session_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("study_sessions.study_session_id"),
+        primary_key=True,
+    )
+    source_study_session_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("study_sessions.study_session_id")
+    )
+    move_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("material_version_moves.move_id")
+    )
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    completed_concept_ids: Mapped[list[str]] = mapped_column(ARRAY(Text))

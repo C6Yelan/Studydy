@@ -29,6 +29,7 @@ export type KnownApiReasonCode =
   | "PODCAST_SOURCE_TOO_LARGE"
   | "CARD_SET_CONFLICT"
   | "CARD_REVIEW_CONFLICT"
+  | "VERSION_MOVE_STALE"
   | "INVALID_EMAIL"
   | "INVALID_CREDENTIALS"
   | "ACCOUNT_UNAVAILABLE"
@@ -397,6 +398,8 @@ export type CardSetSummary = {
   generation: CardGeneration;
   created_at: string;
   is_current_revision: boolean;
+  /** 已移到新版時指向新版卡組（舊後端沒有此欄位）。 */
+  moved_to_card_set_id?: string | null;
 };
 
 export type CardSetView = CardSetSummary & {
@@ -735,3 +738,59 @@ export type PodcastAction = {
 };
 export type PodcastListView = { schema: "podcast-list/v1"; podcasts: PodcastSummary[] };
 export type PodcastDeletedView = { schema: "podcast-deleted/v1"; podcast_id: string };
+
+/** 教材新版承接（移到新版）的預覽；沒有可承接項目時 card_sets 為空、study 為 null。 */
+export type VersionMoveUnmapped = {
+  concept_id: string;
+  label: string;
+  reason: "split" | "ambiguous" | "not_found" | "merged_unfinished";
+};
+
+export type VersionMoveCardSet = {
+  card_set_id: string;
+  name: string;
+  from_revision: string;
+  concept_count: number;
+  target_count: number;
+  carried_reviews: number;
+  reused_designs: number;
+  movable: boolean;
+  mapped: { from_concept_id: string; from_label: string; to_concept_id: string; to_label: string; basis: "evidence" | "label" }[];
+  unmapped: VersionMoveUnmapped[];
+};
+
+export type VersionMovePreview = {
+  schema: "version-move-preview/v1";
+  material_id: string;
+  to_revision: string | null;
+  preview_digest: string | null;
+  card_sets: VersionMoveCardSet[];
+  study: {
+    study_session_id: string;
+    from_revision: string;
+    target_study_session_id: string | null;
+    completed_count: number;
+    carried: { concept_id: string; label: string; from_labels: string[] }[];
+    not_carried: VersionMoveUnmapped[];
+    current_concept: { concept_id: string; label: string } | null;
+  } | null;
+  kept_podcasts: number;
+};
+
+export type VersionMoveCreate = {
+  schema: "version-move-create/v1";
+  to_revision: string;
+  card_set_ids: string[];
+  include_study: boolean;
+  preview_digest: string;
+};
+
+export type VersionMoveResult = {
+  schema: "version-move/v1";
+  move_id: string;
+  material_id: string;
+  to_revision: string;
+  card_sets: { from_card_set_id: string; card_set_id: string; status: "pending" | "ready" }[];
+  study_session_id: string | null;
+  created_at: string;
+};

@@ -1,0 +1,171 @@
+/* 教材新版承接：教材頁的「有新版本」提示與移到新版對話框。 */
+.version-move-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
+  border-radius: var(--radius-card);
+  background: var(--violet-soft);
+  color: var(--text-primary);
+}
+.version-move-notice p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.version-move-notice .primary-button {
+  flex: none;
+}
+.version-move-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--radius-button);
+  background: var(--violet);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+}
+.version-move-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(760px, 90dvh);
+}
+.version-move-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+.version-move-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.version-move-body {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.version-move-body > p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.version-move-item {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--page-cool);
+}
+.version-move-item:disabled {
+  opacity: 0.7;
+}
+.version-move-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+.version-move-choice input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--studydy-blue);
+}
+.version-move-choice span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.version-move-choice small,
+.version-move-note {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.version-move-note {
+  margin: 0;
+}
+.version-move-unmapped {
+  padding: var(--space-3) var(--space-4);
+  border-radius: 14px;
+  background: var(--warning-soft);
+  color: #775b24;
+}
+.version-move-unmapped p {
+  margin: 0 0 var(--space-1);
+  font-weight: 700;
+}
+.version-move-unmapped ul,
+.version-move-details ul {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.version-move-unmapped li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--space-2);
+  overflow-wrap: anywhere;
+}
+.version-move-unmapped li span {
+  font-size: 12px;
+}
+.version-move-details summary {
+  color: var(--studydy-blue);
+  font-weight: 700;
+  cursor: pointer;
+}
+.version-move-details ul {
+  margin-top: var(--space-2);
+}
+.version-move-details li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.version-move-details li small {
+  margin-left: var(--space-1);
+  color: var(--text-muted);
+}
+.version-move-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+@media (max-width: 640px) {
+  .version-move-notice {
+    flex-wrap: wrap;
+    padding: var(--space-4);
+  }
+  .version-move-notice p {
+    flex-basis: 100%;
+  }
+  .version-move-notice .primary-button {
+    width: 100%;
+  }
+  .version-move-body {
+    padding: var(--space-4);
+  }
+  .version-move-actions > button {
+    flex: 1 1 auto;
+  }
+}

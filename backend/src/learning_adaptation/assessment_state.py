@@ -11,6 +11,7 @@ from runtime.storage.tables import (
     AnswerEvent,
     Material,
     StudySession,
+    StudySessionMove,
 )
 from runtime.storage.database import database_session
 from . import assessments
@@ -444,11 +445,17 @@ def completed_concepts(session, study):
             AssessmentSet.status == "completed",
         )
     )
+    # 學生確認「移到新版」時依概念對應承接的完成（runtime.version_moves）；不產生作答事件。
+    moved = session.scalar(
+        select(StudySessionMove.completed_concept_ids).where(
+            StudySessionMove.target_study_session_id == study.study_session_id
+        )
+    )
     return {
         root.target_concept_id
         for root in roots
         if _cycle(session, study, root)["outcome"] == "passed"
-    }
+    } | set(moved or ())
 
 
 def _summary(group, rows, answers):

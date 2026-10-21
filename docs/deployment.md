@@ -246,3 +246,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 ## 0010 Podcast 收聽進度（2026-10-22）
 
 0010 新增 `podcast_episode_progress`、`podcast_listening_days` 兩張表，對 Podcast 外鍵為 ON DELETE CASCADE，不修改既有資料。上線前須同 0009 先在正式 DB dump 的一次性副本套用，並核對原業務表資料不變。後端同時改為 `learning-activity/v2`，前端需一起更新（舊前端讀到 v2 時只會隱藏本週節奏）；套用後需使用識別 0010 的後端，採前向修正。
+
+## 0011 教材新版承接（2026-10-22）
+
+0011 新增 `material_version_moves`（學生確認「移到新版」的請求與重送結果）、`card_set_moves`（舊卡組→新版卡組及概念對應）、`study_session_moves`（舊版學習→新版學習及承接的已完成概念）三張表。舊卡組與學習需要能查詢的「已移轉」連結、合併時的卡片身分，以及整次確認的冪等紀錄，既有欄位沒有可用位置，因此追加 migration。對教材、卡組與學習的外鍵皆為 ON DELETE CASCADE（教材清除時一併刪除），不修改既有資料。上線前同 0009／0010 先在正式 DB dump 的一次性副本套用並核對原業務表資料不變；套用後需使用識別 0011 的後端，採前向修正。前端可單獨退回（舊前端不顯示「有新版本」，已承接的資料照常可讀）。
