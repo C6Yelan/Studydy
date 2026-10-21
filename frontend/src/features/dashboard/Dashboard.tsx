@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { CardSetSummary, LearningActivityView, MaterialLibraryItem, PodcastSummary, StudySessionLink } from "../../api/contracts";
+import type { CardReviewQueueView, CardSetSummary, LearningActivityView, MaterialLibraryItem, PodcastSummary, StudySessionLink } from "../../api/contracts";
 import { useProfile } from "../../app/HeaderTools";
+import { ReviewDeck } from "../concept-cards/ReviewDeck";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { ProgressRing } from "../../ui/art/ProgressRing";
@@ -113,6 +114,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   const [podcasts, setPodcasts] = useState<PodcastSummary[] | null>(null);
   const [activity, setActivity] = useState<LearningActivityView | null>(null);
   const name = useProfile(apiClient)?.display_name;
+  const [reviewQueue, setReviewQueue] = useState<CardReviewQueueView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -172,7 +174,6 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
     : null;
   const pages = (materials ?? []).reduce((sum, item) => sum + (item.latest_attempt?.total_pages ?? 0), 0);
   const completedConcepts = [...progress.values()].reduce((sum, item) => sum + item.completed, 0);
-  const latestCards = cardSets?.filter((item) => item.card_count !== null).sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   const latestPodcast = podcasts?.filter((item) => item.status === "ready").sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   const now = new Date();
   const today = new Intl.DateTimeFormat("zh-TW", { weekday: "long", month: "long", day: "numeric" }).format(now);
@@ -274,13 +275,17 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
             </div>
           </section>
           {activity && <WeekRhythm activity={activity} />}
-          {cardSets && <section className="dashboard-shortcut is-cards surface" aria-label="概念卡">
-            <header><h2>概念卡</h2>{cardSets.length > 0 && <button className="text-button" type="button" onClick={() => writeRoute({ name: "concept-cards" })}>全部<Icon name="chevron-right" size={16} /></button>}</header>
-            {latestCards ? <button type="button" className="shortcut-card" onClick={() => writeRoute({ name: "card-set", cardSetId: latestCards.card_set_id, materialId: latestCards.material_id })}>
-              <small>{latestCards.material_name}</small>
-              <b>{latestCards.name}</b>
-              <span><Icon name="cards" size={16} />{latestCards.card_count} 張卡片</span>
-            </button> : <p>還沒有概念卡。從教材的知識地圖挑選概念，就能建立一組。</p>}
+          {cardSets && <section className="dashboard-review surface" aria-labelledby="dashboard-review-title">
+            <header>
+              <h2 id="dashboard-review-title">概念卡複習</h2>
+              {reviewQueue && reviewQueue.due_count + reviewQueue.new_count > 0 && <span className="review-counts">
+                {reviewQueue.due_count > 0 && <b>{reviewQueue.due_count} 張到期</b>}
+                {reviewQueue.new_count > 0 && <small>{reviewQueue.new_count} 張新卡</small>}
+              </span>}
+              {cardSets.length > 0 && <button className="text-button" type="button" onClick={() => writeRoute({ name: "concept-cards" })}>全部<Icon name="chevron-right" size={16} /></button>}
+            </header>
+            {cardSets.length ? <ReviewDeck apiClient={apiClient} variant="home" onQueue={setReviewQueue} />
+              : <p>還沒有概念卡。從教材的知識地圖挑選概念，就能建立一組。</p>}
           </section>}
           {podcasts && <section className="dashboard-shortcut is-podcast surface" aria-label="Podcast">
             <header><h2>Podcast</h2>{podcasts.length > 0 && <button className="text-button" type="button" onClick={() => writeRoute({ name: "podcasts" })}>全部<Icon name="chevron-right" size={16} /></button>}</header>

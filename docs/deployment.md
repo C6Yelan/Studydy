@@ -238,3 +238,8 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 ## 0008 個人顯示名稱（2026-10-21）
 
 0008 只在 `learners` 新增 nullable `display_name` 與 CHECK，不回填、不改寫既有資料；baseline 仍只鎖定 0001–0007，接軌後由啟動流程套用 0008。上線前在正式 DB dump 的一次性副本上執行，30 張業務表資料不變。套用後不能直接重啟只識別 0001–0007 的舊後端，採前向修正；前端可單獨退回。
+
+## 0009 概念卡複習（2026-10-22）
+
+0009 新增 `card_review_events`、`card_review_states` 兩張表，對卡組外鍵為 ON DELETE CASCADE，不修改既有資料。上線前在正式 DB dump 的一次性副本（等 PostgreSQL 初始化完成兩次啟動後才還原，並以 `--exit-on-error` 確認還原成功）套用，原 30 張業務表資料不變。套用後需使用識別 0009 的後端，採前向修正；前端可單獨退回。
+

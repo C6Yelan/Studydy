@@ -1,0 +1,204 @@
+/* 概念卡間隔複習：首頁與卡組頁共用；翻卡後才能評分。 */
+.review-deck {
+  display: grid;
+  gap: 12px;
+}
+.review-flip {
+  position: relative;
+  margin-bottom: 18px;
+  perspective: 1000px;
+}
+.review-card {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  min-height: 172px;
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  text-align: left;
+  transform-style: preserve-3d;
+  transition: transform 0.55s cubic-bezier(0.3, 1.3, 0.5, 1);
+}
+.review-deck.is-page .review-card {
+  min-height: 260px;
+}
+.review-card.is-flipped {
+  transform: rotateY(180deg);
+}
+.review-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  overflow: hidden;
+  padding: 18px 20px;
+  border-radius: 22px;
+  backface-visibility: hidden;
+}
+.review-face.is-front {
+  background: linear-gradient(145deg, #3d7bff, #6a5cff);
+  box-shadow: 0 14px 26px -14px rgba(61, 90, 255, 0.8);
+  color: #fff;
+}
+.review-face.is-front::after {
+  content: "";
+  position: absolute;
+  top: -30px;
+  right: -30px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+}
+.review-face.is-back {
+  border: 2px solid var(--studydy-blue-soft);
+  background: var(--surface);
+  color: var(--text-primary);
+  transform: rotateY(180deg);
+}
+.review-tag {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 11px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.is-back .review-tag {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.review-question {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+.review-claims {
+  display: grid;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+.review-claims span {
+  padding-left: 12px;
+  border-left: 3px solid var(--studydy-blue-soft);
+}
+.review-face small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  opacity: 0.85;
+}
+.is-back small {
+  color: var(--text-muted);
+}
+.review-stack span {
+  position: absolute;
+  right: 12px;
+  bottom: -8px;
+  left: 12px;
+  z-index: 1;
+  height: 30px;
+  border-radius: 20px;
+  background: #c9d6ff;
+}
+.review-stack span + span {
+  right: 24px;
+  bottom: -16px;
+  left: 24px;
+  z-index: 0;
+  background: #e3eaff;
+}
+.review-grades {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.review-grades button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--page-cool);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  transition: transform 0.15s, background 0.2s;
+}
+.review-grades button:disabled {
+  opacity: 0.45;
+}
+.review-grades button:not(:disabled):hover {
+  transform: translateY(-2px);
+}
+.review-grades .is-forgot svg { color: var(--coral); }
+.review-grades .is-fuzzy svg { color: var(--amber-deep); }
+.review-grades .is-remembered svg { color: var(--success); }
+.review-grades .is-forgot:not(:disabled):hover { background: #ffe9e6; }
+.review-grades .is-fuzzy:not(:disabled):hover { background: var(--warning-soft); }
+.review-grades .is-remembered:not(:disabled):hover { background: var(--success-soft); }
+.review-status {
+  min-height: 20px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+.review-open-set {
+  justify-self: center;
+  font-size: 13px;
+}
+.review-deck.is-done {
+  justify-items: center;
+  padding: 8px 0;
+  text-align: center;
+}
+.review-deck.is-done img {
+  width: 72px;
+  height: auto;
+}
+.review-deck.is-done small {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.review-counts {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-right: auto;
+}
+.review-counts b {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #fff0ec;
+  color: var(--coral);
+  font-size: 12px;
+}
+.review-counts small {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+@media (prefers-reduced-motion: reduce) {
+  .review-card {
+    transition: none;
+  }
+}

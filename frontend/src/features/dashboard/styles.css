@@ -614,3 +614,25 @@
   color: var(--text-muted);
   font-size: 11px;
 }
+
+/* 概念卡複習：標題列放到期與新卡張數 */
+.dashboard-review header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.dashboard-review header h2 {
+  margin-right: 4px;
+}
+.dashboard-review header .text-button {
+  min-height: 28px;
+  margin-left: auto;
+  font-size: 13px;
+}
+.dashboard-review > p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}

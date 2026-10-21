@@ -440,6 +440,56 @@ class CardSetView(CardSetSummary):
     display_edits: dict[str, list[CardTextEdit]]
 
 
+class CardReviewSubmit(_Closed):
+    schema_: Literal["card-review-submit/v1"] = Field(alias="schema")
+    concept_id: str = Field(pattern=r"^concept:sha256:[0-9a-f]{64}$")
+    rating: Literal["forgot", "fuzzy", "remembered"]
+    # 送出前看到的複習次數；不一致代表另一個分頁已評過。
+    expected_review_count: int = Field(ge=0, le=1_000_000, strict=True)
+
+
+class CardReviewView(_Closed):
+    schema_: Literal["card-review/v1"] = Field(alias="schema")
+    card_set_id: UUID
+    concept_id: str
+    rating: Literal["forgot", "fuzzy", "remembered"]
+    review_count: int
+    interval_days: int
+    due_at: datetime
+    reviewed_at: datetime
+
+
+class CardReviewSetCount(_Closed):
+    card_set_id: UUID
+    due_count: int
+    new_count: int
+    reviewed_count: int
+
+
+class CardReviewItem(_Closed):
+    card_set_id: UUID
+    card_set_name: str
+    material_id: UUID
+    material_name: str
+    knowledge_structure_revision: str
+    source_resolver: str
+    state: Literal["due", "new"]
+    review_count: int
+    last_rating: Literal["forgot", "fuzzy", "remembered"] | None
+    due_at: datetime | None
+    card: ConceptCardView
+
+
+class CardReviewQueueView(_Closed):
+    schema_: Literal["card-review-queue/v1"] = Field(alias="schema")
+    rule_version: Literal["card-review/v1"]
+    due_count: int
+    new_count: int
+    next_due_at: datetime | None
+    sets: list[CardReviewSetCount]
+    cards: list[CardReviewItem]
+
+
 class CardDesignSources(_Closed):
     claim_ids: list[str]
     relation_ids: list[str]

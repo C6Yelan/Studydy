@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { CardStudyView, CardBatch } from "../../api/contracts";
+import type { CardStudyView, CardBatch, CardReviewQueueView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { ProcessingTimeline } from "../material-flow/ProcessingTimeline";
 import { Flashcard } from "./Flashcard";
+import { ReviewDeck } from "./ReviewDeck";
 import { useConceptArtwork } from "./VisualConceptCard";
 
 export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: StudydyApiClient; cardSetId: string; materialId?: string }) {
   const [view, setView] = useState<CardStudyView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [reviewing, setReviewing] = useState(false);
   // 繪圖模組與首批卡片一起載入，不等教材回應後才下載。
   useConceptArtwork();
   useEffect(() => {
@@ -45,8 +47,34 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
     {view && view.generation.status !== "ready" && !error ? <CardGenerationProgress view={view} onRetry={() => {
       void apiClient.retryCardGeneration(cardSetId).then(() => setReload(n => n + 1)).catch(failure => setError(errorMessage(failure)));
     }} /> : error || !view?.batch ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入第一批卡片。"} tone={error ? "failure" : "loading"} live={!error} action={error ? <button className="primary-button" onClick={() => setReload(n => n + 1)}>重新讀取</button> : undefined} />
-      : <CardStudy key={`${cardSetId}:${view.version}`} view={view} apiClient={apiClient} materialId={materialId} onReload={() => setReload(n => n + 1)} />}
+      : <>
+        <CardReviewStrip apiClient={apiClient} cardSetId={cardSetId} reviewing={reviewing} onToggle={() => setReviewing(value => !value)} />
+        {reviewing ? <section className="cards-review-mode" aria-label="間隔複習">
+          <header className="cards-study-heading"><div><h1>{view.name}</h1><p>間隔複習 · 先回想再翻卡，依記得的程度排下一次複習。</p></div></header>
+          <ReviewDeck apiClient={apiClient} cardSetId={cardSetId} />
+        </section>
+          : <CardStudy key={`${cardSetId}:${view.version}`} view={view} apiClient={apiClient} materialId={materialId} onReload={() => setReload(n => n + 1)} />}
+      </>}
   </section>;
+}
+
+// 卡組頁的「今天要複習」：只讀這個卡組的張數；複習模式與瀏覽模式切換，不改變卡組內容。
+function CardReviewStrip({ apiClient, cardSetId, reviewing, onToggle }: { apiClient: StudydyApiClient; cardSetId: string; reviewing: boolean; onToggle: () => void }) {
+  const [queue, setQueue] = useState<CardReviewQueueView | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void apiClient.getCardReviewQueue(cardSetId).then(value => { if (!cancelled) setQueue(value); }, () => undefined);
+    return () => { cancelled = true; };
+  }, [apiClient, cardSetId, reviewing]);
+  if (!queue && !reviewing) return null;
+  const waiting = queue ? queue.due_count + queue.new_count : 0;
+  return <div className="cards-review-strip surface" role="region" aria-label="今天要複習">
+    <Icon name="refresh" size={20} />
+    <p>{!queue ? "間隔複習" : waiting ? <>今天要複習 <b>{queue.due_count}</b> 張{queue.new_count > 0 && ` · ${queue.new_count} 張新卡`}</> : "今天沒有要複習的卡片"}</p>
+    <button className={reviewing ? "secondary-button" : "primary-button"} type="button" disabled={!reviewing && !waiting} onClick={onToggle}>
+      {reviewing ? "回到瀏覽" : "開始間隔複習"}
+    </button>
+  </div>;
 }
 
 function CardGenerationProgress({ view, onRetry }: { view: CardStudyView; onRetry: () => void }) {

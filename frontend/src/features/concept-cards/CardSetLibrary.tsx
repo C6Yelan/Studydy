@@ -12,6 +12,15 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   const [sets, setSets] = useState<CardSetSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  // 各卡組今天要複習的張數；讀取失敗只少顯示徽章，不影響卡組列表。
+  const [reviewCounts, setReviewCounts] = useState<Map<string, { due: number; fresh: number }>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    void apiClient.getCardReviewQueue().then(queue => {
+      if (!cancelled) setReviewCounts(new Map(queue.sets.map(set => [set.card_set_id, { due: set.due_count, fresh: set.new_count }])));
+    }, () => undefined);
+    return () => { cancelled = true; };
+  }, [apiClient, reload]);
   const [query, setQuery] = useState("");
   const [removing, setRemoving] = useState<CardSetSummary | null>(null);
   const [busy, setBusy] = useState(false);
@@ -114,6 +123,7 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
                 <p className="library-metadata">{new Date(item.created_at).toLocaleDateString()} · <CardCount key={`${item.card_set_id}:${item.version}`} item={item} apiClient={apiClient} onSaved={countSaved} /></p>
                 {!material && <p className="cards-library-material" title={item.material_name}>{item.material_name}</p>}
                 {!item.is_current_revision && <p className="library-state">教材已有新版</p>}
+                {(reviewCounts.get(item.card_set_id)?.due ?? 0) > 0 && <p className="card-review-due"><Icon name="refresh" size={14} />今天要複習 {reviewCounts.get(item.card_set_id)!.due} 張</p>}
                 <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id })}>開始複習</button></div>
               </article>
             ))}

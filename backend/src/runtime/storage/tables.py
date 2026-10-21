@@ -818,3 +818,38 @@ class PodcastVideo(Base):
     lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CardReviewEvent(Base):
+    __tablename__ = "card_review_events"
+    review_event_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True
+    )
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    card_set_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("card_sets.card_set_id")
+    )
+    concept_id: Mapped[str] = mapped_column(Text)
+    rating: Mapped[str] = mapped_column(Text)
+    rule_version: Mapped[str] = mapped_column(Text)
+    review_count: Mapped[int] = mapped_column(Integer)
+    interval_days: Mapped[int] = mapped_column(Integer)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CardReviewState(Base):
+    __tablename__ = "card_review_states"
+    card_set_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("card_sets.card_set_id"), primary_key=True
+    )
+    concept_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    streak: Mapped[int] = mapped_column(Integer)
+    review_count: Mapped[int] = mapped_column(Integer)
+    interval_days: Mapped[int] = mapped_column(Integer)
+    last_rating: Mapped[str] = mapped_column(Text)
+    last_reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

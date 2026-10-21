@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 from fastapi import Request, Query
 from starlette.concurrency import run_in_threadpool
-from .. import card_sets
+from .. import card_reviews, card_sets
 from . import request_context
 from .models import (
     CardSetCreate,
@@ -18,6 +18,9 @@ from .models import (
     CardSetListView,
     CardSetDeletedView,
     CardGenerationView,
+    CardReviewQueueView,
+    CardReviewSubmit,
+    CardReviewView,
 )
 
 
@@ -38,6 +41,36 @@ def install(app, settings):
             body.knowledge_structure_revision,
             body.name,
             body.concept_ids,
+            request_context.idempotency_key(request),
+            dsn=settings.dsn,
+        )
+
+    @app.get(
+        "/v1/card-reviews/queue",
+        response_model=CardReviewQueueView,
+        operation_id="readCardReviewQueue",
+        tags=["cards"],
+    )
+    def card_review_queue_route(request: Request, card_set_id: UUID | None = None):
+        request_context.require_query(request, {"card_set_id"})
+        owner = request_context.trusted_learner(request, settings).learner_id
+        return card_reviews.review_queue(owner, card_set_id=card_set_id, dsn=settings.dsn)
+
+    @app.post(
+        "/v1/card-sets/{card_set_id}/reviews",
+        response_model=CardReviewView,
+        operation_id="submitCardReview",
+        tags=["cards"],
+    )
+    def submit_card_review_route(request: Request, card_set_id: UUID, body: CardReviewSubmit):
+        request_context.require_query(request, set())
+        owner = request_context.trusted_learner(request, settings).learner_id
+        return card_reviews.submit_review(
+            owner,
+            card_set_id,
+            body.concept_id,
+            body.rating,
+            body.expected_review_count,
             request_context.idempotency_key(request),
             dsn=settings.dsn,
         )

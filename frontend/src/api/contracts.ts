@@ -28,6 +28,7 @@ export type KnownApiReasonCode =
   | "PODCAST_SOURCE_INSUFFICIENT"
   | "PODCAST_SOURCE_TOO_LARGE"
   | "CARD_SET_CONFLICT"
+  | "CARD_REVIEW_CONFLICT"
   | "INVALID_EMAIL"
   | "INVALID_CREDENTIALS"
   | "ACCOUNT_UNAVAILABLE"
@@ -304,6 +305,28 @@ export type CardDesign = {
   details_claim_ids: string[]; provider: { model_id: string; revision: string; api_protocol: string };
 };
 export type ConceptCard = Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "claims"> & { display_edits?: CardTextEdit[]; design?: CardDesign | null };
+
+export type CardReviewRating = "forgot" | "fuzzy" | "remembered";
+
+// 間隔重複：到期卡在前、新卡在後；張數依卡組彙總。
+export type CardReviewItem = {
+  card_set_id: string; card_set_name: string; material_id: string; material_name: string;
+  knowledge_structure_revision: string; source_resolver: string;
+  state: "due" | "new"; review_count: number; last_rating: CardReviewRating | null; due_at: string | null;
+  card: ConceptCard;
+};
+
+export type CardReviewQueueView = {
+  schema: "card-review-queue/v1"; rule_version: "card-review/v1";
+  due_count: number; new_count: number; next_due_at: string | null;
+  sets: { card_set_id: string; due_count: number; new_count: number; reviewed_count: number }[];
+  cards: CardReviewItem[];
+};
+
+export type CardReviewView = {
+  schema: "card-review/v1"; card_set_id: string; concept_id: string; rating: CardReviewRating;
+  review_count: number; interval_days: number; due_at: string; reviewed_at: string;
+};
 
 export type ConceptCardContext = Pick<KnowledgeStructureView, "source_resolver" | "status" | "concepts" | "relations"> & {
   relation_evidence?: EvidenceView[];

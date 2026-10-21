@@ -1322,3 +1322,53 @@ test("library search rejects mismatched queries and malformed hits", async () =>
     (value) => { value.concepts[0].claim_count = -1; },
   ]) await assert.rejects(search(body(change)), ApiClientError);
 });
+
+function reviewQueue(change = () => undefined) {
+  const { concept_id, label, claims } = structureView().concepts[0];
+  const value = {
+    schema: "card-review-queue/v1", rule_version: "card-review/v1", due_count: 1, new_count: 0, next_due_at: null,
+    sets: [{ card_set_id: setId, due_count: 1, new_count: 0, reviewed_count: 1 }],
+    cards: [{
+      card_set_id: setId, card_set_name: "複習", material_id: materialId, material_name: "Synthetic.pdf",
+      knowledge_structure_revision: structureRevision,
+      source_resolver: `/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`,
+      state: "due", review_count: 2, last_rating: "fuzzy", due_at: "2026-10-21T16:00:00Z",
+      card: { concept_id, label, claims },
+    }],
+  };
+  change(value);
+  return value;
+}
+
+test("review queue keeps cards bound to their card set, source and state", async () => {
+  const read = (value, id) => new StudydyApiClient(async () => Response.json(value)).getCardReviewQueue(id);
+  assert.equal((await read(reviewQueue())).cards[0].card.label, "Stack");
+  assert.equal((await read(reviewQueue(), setId)).cards.length, 1);
+  await assert.rejects(read(reviewQueue(), materialId), ApiClientError);
+  for (const change of [
+    (value) => { value.cards[0].source_resolver = "/v1/materials/x/evidence"; },
+    (value) => { value.cards[0].state = "new"; },
+    (value) => { value.cards[0].last_rating = "easy"; },
+    (value) => { value.cards.push(structuredClone(value.cards[0])); },
+    (value) => { value.cards[0].card.claims = []; },
+    (value) => { value.sets[0].due_count = -1; },
+    (value) => { value.rule_version = "card-review/v2"; },
+  ]) await assert.rejects(read(reviewQueue(change)), ApiClientError);
+});
+
+test("card review sends the intent key and requires the next review count", async () => {
+  const sent = [];
+  const reply = (body) => async (path, init) => {
+    sent.push([path, init.headers["Idempotency-Key"], JSON.parse(init.body)]);
+    return Response.json(body);
+  };
+  const review = { schema: "card-review/v1", card_set_id: setId, concept_id: conceptId, rating: "remembered", review_count: 3,
+    interval_days: 7, due_at: "2026-10-28T16:00:00Z", reviewed_at: "2026-10-21T12:00:00Z" };
+  const saved = await new StudydyApiClient(reply(review)).submitCardReview(setId, conceptId, "remembered", 2, "intent-1");
+  assert.equal(saved.interval_days, 7);
+  assert.deepEqual(sent[0], [`/v1/card-sets/${setId}/reviews`, "intent-1",
+    { schema: "card-review-submit/v1", concept_id: conceptId, rating: "remembered", expected_review_count: 2 }]);
+  // 回應的次數或評分與請求不符時不採用。
+  await assert.rejects(new StudydyApiClient(reply({ ...review, review_count: 2 })).submitCardReview(setId, conceptId, "remembered", 2, "k"), ApiClientError);
+  await assert.rejects(new StudydyApiClient(reply({ ...review, rating: "forgot" })).submitCardReview(setId, conceptId, "remembered", 2, "k"), ApiClientError);
+});

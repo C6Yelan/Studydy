@@ -7,6 +7,8 @@ import type {
   CardGeneration,
   CardSetListView,
   CardSetDeletedView,
+  CardReviewQueueView,
+  CardReviewView,
   ConceptCard,
   ApiErrorView,
   AssessmentCycleSummary,
@@ -363,6 +365,42 @@ export function cardSetList(value: unknown): value is CardSetListView {
   const item = object(value);
   return !!item && item.schema === "card-set-list/v1"
     && Array.isArray(item.card_sets) && item.card_sets.every(cardSetSummary);
+}
+
+const ratings = ["forgot", "fuzzy", "remembered"];
+
+export function cardReviewQueue(value: unknown): value is CardReviewQueueView {
+  const item = object(value);
+  if (!item || item.schema !== "card-review-queue/v1" || item.rule_version !== "card-review/v1"
+    || !Number.isInteger(item.due_count) || !Number.isInteger(item.new_count)
+    || !(item.next_due_at === null || timestamp(item.next_due_at))
+    || !Array.isArray(item.sets) || !Array.isArray(item.cards)) return false;
+  const sets = item.sets.map(object);
+  if (!sets.every(s => !!s && isUuid(s.card_set_id)
+    && [s.due_count, s.new_count, s.reviewed_count].every(n => Number.isInteger(n) && (n as number) >= 0))) return false;
+  const seen = new Set<string>();
+  return item.cards.every(value => {
+    const c = object(value);
+    if (!c || !isUuid(c.card_set_id) || !isUuid(c.material_id) || typeof c.card_set_name !== "string"
+      || typeof c.material_name !== "string" || !revision(c.knowledge_structure_revision, "knowledge-structure")
+      || c.source_resolver !== `/v1/materials/${c.material_id}/knowledge-structures/${c.knowledge_structure_revision}/evidence`
+      || !["due", "new"].includes(String(c.state)) || !Number.isInteger(c.review_count)
+      || (c.state === "new") !== (c.review_count === 0 && c.due_at === null && c.last_rating === null)
+      || !(c.due_at === null || timestamp(c.due_at)) || !(c.last_rating === null || ratings.includes(String(c.last_rating)))
+      || !conceptCard(c.card) || !c.card.claims.length) return false;
+    // 同一張卡不會在佇列重複出現。
+    const key = `${c.card_set_id}:${c.card.concept_id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function cardReview(value: unknown): value is CardReviewView {
+  const item = object(value);
+  return !!item && item.schema === "card-review/v1" && isUuid(item.card_set_id) && revision(item.concept_id, "concept")
+    && ratings.includes(String(item.rating)) && Number.isInteger(item.review_count) && (item.review_count as number) >= 1
+    && Number.isInteger(item.interval_days) && timestamp(item.due_at) && timestamp(item.reviewed_at);
 }
 
 export function cardSet(value: unknown): value is CardSetView {

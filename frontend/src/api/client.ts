@@ -11,6 +11,9 @@ import type {
   CardGeneration,
   CardSetListView,
   CardSetDeletedView,
+  CardReviewQueueView,
+  CardReviewRating,
+  CardReviewView,
   AssessmentPlanView,
   AssessmentSetAction,
   AssessmentSetAnswer,
@@ -47,6 +50,7 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   PODCAST_SOURCE_INSUFFICIENT: "所選概念缺少可回查的重點來源，請重新選擇。",
   PODCAST_SOURCE_TOO_LARGE: "單一來源重點超出本集容量，請先選擇其他概念。",
   CARD_SET_CONFLICT: "卡組已在其他頁面更新，請重新讀取後再編輯。",
+  CARD_REVIEW_CONFLICT: "這張卡已在其他頁面評分，已重新整理複習清單。",
   INVALID_EMAIL: "請輸入有效的 Email 格式。",
   INVALID_CREDENTIALS: "Email 或密碼不正確。",
   ACCOUNT_UNAVAILABLE: "這個 Email 已被使用，請使用其他 Email。",
@@ -456,6 +460,23 @@ export class StudydyApiClient {
       method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
       body: JSON.stringify(body),
     }, (value): value is CardSetSummary => validate.cardSetSummary(value) && value.card_set_id === id);
+  }
+
+  getCardReviewQueue(cardSetId?: string): Promise<CardReviewQueueView> {
+    const query = cardSetId ? `?${new URLSearchParams({ card_set_id: cardSetId })}` : "";
+    return this.json(`/v1/card-reviews/queue${query}`, { method: "GET" },
+      (value): value is CardReviewQueueView => validate.cardReviewQueue(value)
+        && (!cardSetId || value.cards.every((item) => item.card_set_id === cardSetId)));
+  }
+
+  // key 由呼叫端在第一次評分時產生，網路失敗重送沿用同一個鍵，不會重複計次。
+  submitCardReview(cardSetId: string, conceptId: string, rating: CardReviewRating, expectedReviewCount: number, key: string): Promise<CardReviewView> {
+    return this.json(`/v1/card-sets/${encodeURIComponent(cardSetId)}/reviews`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin(), "Idempotency-Key": key },
+      body: JSON.stringify({ schema: "card-review-submit/v1", concept_id: conceptId, rating, expected_review_count: expectedReviewCount }),
+    }, (value): value is CardReviewView => validate.cardReview(value)
+      && value.card_set_id === cardSetId && value.concept_id === conceptId && value.rating === rating
+      && value.review_count === expectedReviewCount + 1);
   }
 
   deleteCardSet(id: string): Promise<CardSetDeletedView> {
