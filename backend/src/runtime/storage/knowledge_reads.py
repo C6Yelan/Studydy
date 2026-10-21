@@ -516,3 +516,98 @@ def read_concepts(
     ):
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE")
     return rows
+
+
+def _source_label(name):
+    stem, dot, suffix = name.rpartition(".")
+    return stem if dot and stem and suffix.isascii() and suffix.isalnum() and len(suffix) <= 5 else name
+
+
+def group_regions(path, primary_sources):
+    """依學習順序排列的概念分區。
+
+    多來源教材以每個概念的主要來源檔分區；只有一個主要來源時改依學習順序
+    切成至多四段，並以 basis 標示為推導分段，不冒充教材章節。
+    """
+    sources = {}
+    for concept_id in path:
+        source = primary_sources.get(concept_id)
+        if source is not None:
+            sources.setdefault(source[0], source[1])
+    if len(sources) >= 2:
+        assigned, previous = {}, None
+        # 沒有來源的概念跟隨學習順序上的前一個概念；開頭缺來源者歸到第一個來源區。
+        for concept_id in path:
+            source = primary_sources.get(concept_id)
+            previous = source[0] if source is not None else previous
+            assigned[concept_id] = previous
+        first = next(iter(sources))
+        regions = {source_id: [] for source_id in sources}
+        for concept_id in path:
+            regions[assigned[concept_id] or first].append(concept_id)
+        return "source", [
+            {
+                "region_id": f"region:{index}",
+                "label": _source_label(sources[source_id]),
+                "source_id": source_id,
+                "concept_ids": concept_ids,
+            }
+            for index, (source_id, concept_ids) in enumerate(regions.items(), 1)
+        ]
+    count = min(4, max(1, len(path) // 4))
+    size, extra = divmod(len(path), count)
+    regions, start = [], 0
+    for index in range(count):
+        end = start + size + (index < extra)
+        regions.append(
+            {
+                "region_id": f"region:{index + 1}",
+                "label": f"第 {start + 1}–{end} 個概念" if end - start > 1 else f"第 {end} 個概念",
+                "source_id": None,
+                "concept_ids": path[start:end],
+            }
+        )
+        start = end
+    return "learning_order", regions
+
+
+def regions(session, owner, material_id, revision):
+    view = outline(session, owner, material_id, revision)
+    path = [
+        step["concept_id"]
+        for step in sorted(view["initial_learning_path"], key=lambda s: s["position"])
+    ]
+    seen = set(path)
+    path += [c["concept_id"] for c in view["concepts"] if c["concept_id"] not in seen]
+    # 只取每個概念重點 Evidence 的來源欄位，不把整份概念內容解碼到 API。
+    rows = session.execute(
+        text(
+            """
+            SELECT c.concept_id, e->>'source_id', e->>'source_name', count(*)
+            FROM card_source_concepts c
+            CROSS JOIN LATERAL jsonb_array_elements(c.payload->'concept'->'claims') claim
+            CROSS JOIN LATERAL jsonb_array_elements(claim->'evidence') e
+            WHERE c.learner_id = :owner AND c.material_id = :material
+              AND c.structure_revision = :revision
+            GROUP BY 1, 2, 3
+            """
+        ),
+        {"owner": owner, "material": material_id, "revision": revision},
+    ).all()
+    known = set(path)
+    best = {}
+    for concept_id, source_id, source_name, count in rows:
+        if concept_id not in known or source_id is None or source_name is None:
+            continue
+        # 取重點引用最多的來源；次數相同時依檔名決定，不受查詢順序影響。
+        rank = (-count, source_name)
+        if concept_id not in best or rank < best[concept_id][0]:
+            best[concept_id] = (rank, (source_id, source_name))
+    basis, grouped = group_regions(path, {k: v[1] for k, v in best.items()})
+    return {
+        "schema": "knowledge-regions/v1",
+        "material_id": str(material_id),
+        "knowledge_structure_revision": revision,
+        "basis": basis,
+        "regions": grouped,
+    }

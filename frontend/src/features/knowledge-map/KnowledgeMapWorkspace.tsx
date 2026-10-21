@@ -23,6 +23,7 @@ import "@xyflow/react/dist/style.css";
 import type { StudydyApiClient } from "../../api/client";
 import type {
   KnowledgeOutlineView,
+  KnowledgeRegionsView,
   RelationType,
   MapProgressView,
   StudySessionView,
@@ -31,9 +32,9 @@ import { useConceptContext } from "../material-flow/useConceptContext";
 import { errorMessage } from "../../api/client";
 import { ConceptContent } from "../../ui/ConceptContent";
 import { Icon } from "../../ui/Icon";
-import { IslandArt, islandPalette } from "../../ui/art/Island";
+import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
-import { learningNavigationItems, focusGraph, initialFocusConceptId } from "./knowledge-map";
+import { learningNavigationItems, focusGraph, initialFocusConceptId, mapRegions, type MapRegions } from "./knowledge-map";
 
 type Concept = KnowledgeOutlineView["concepts"][number];
 type Mode = "focus" | "review";
@@ -160,11 +161,13 @@ function ConceptDetail({
   studyAction,
   isLoadingProgress,
   progressMessage,
+  region,
 }: {
   view: KnowledgeOutlineView;
   progress: MapProgressView | null;
   apiClient: StudydyApiClient;
   concept: Concept;
+  region: string | null;
   close: () => void;
   studyAction: ReactNode;
   isLoadingProgress: boolean;
@@ -176,7 +179,7 @@ function ConceptDetail({
     <DetailPanel label="概念詳情" focusKey={concept.concept_id} close={close}>
       <header>
         <div>
-          <span className="detail-kicker">教材概念</span>
+          <span className="detail-kicker">{region ? `教材概念 · ${region}` : "教材概念"}</span>
           <h2>{concept.label}</h2>
         </div>
         <button aria-label="關閉概念詳情" className="panel-close" type="button" onClick={close}>
@@ -229,13 +232,19 @@ function LearningNavigator({
   selectedConceptId,
   focusConcept,
   progress,
+  regions,
 }: {
   progress: MapProgressView | null;
+  regions: MapRegions | null;
   view: KnowledgeOutlineView;
   selectedConceptId: string;
   focusConcept: (id: string) => void;
 }) {
   const items = useMemo(() => learningNavigationItems(view), [view]);
+  // 兩個以上區域才分組；組內維持建議學習順序。
+  const groups = useMemo(() => regions && regions.regions.length > 1
+    ? regions.regions.map((region) => ({ ...region, items: items.filter(({ concept }) => regions.byConcept.get(concept.concept_id) === region.index) }))
+    : null, [items, regions]);
   const states = useMemo(
     () => new Map(progress?.concept_states.map((state) => [state.concept_id, state])),
     [progress],
@@ -266,11 +275,68 @@ function LearningNavigator({
     observer.observe(rail);
     return () => observer.disconnect();
   }, [selectedConceptId]);
+  const renderItem = ({ concept, step }: (typeof items)[number]) => {
+    const selected = concept.concept_id === selectedConceptId;
+    const learningCurrent = concept.concept_id === progress?.current_concept_id;
+    const status = states.get(concept.concept_id)?.status;
+    const next = concept.concept_id === nextId && !learningCurrent;
+    const stateLabel =
+      status === "completed" ? "已完成" : status === "needs_review" ? "需要加強" : "";
+    const name = [
+      `第 ${step.position} 個，${concept.label}`,
+      learningCurrent && "目前學習",
+      stateLabel,
+      next && "下一步",
+    ]
+      .filter(Boolean)
+      .join("；");
+    return (
+      <li key={concept.concept_id}>
+        <button
+          ref={selected ? selectedRow : undefined}
+          type="button"
+          aria-label={name}
+          aria-current={selected ? "true" : undefined}
+          className={[
+            selected && "is-selected",
+            learningCurrent && "is-learning-current",
+            status === "completed" && "is-completed",
+            status === "needs_review" && "is-needs-review",
+            next && "is-next-suggested",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => focusConcept(concept.concept_id)}
+        >
+          <span className="navigator-position" aria-hidden="true">
+            {step.position}
+          </span>
+          <span className="navigator-concept">
+            <span className="navigator-label">{concept.label}</span>
+            {(learningCurrent || next) && (
+              <span className="navigator-notes">
+                {learningCurrent ? (
+                  <span className="navigator-current">目前學習</span>
+                ) : (
+                  <span>下一步</span>
+                )}
+              </span>
+            )}
+          </span>
+          {stateLabel && (
+            <span className="navigator-state" title={stateLabel} aria-hidden="true">
+              <Icon name={status === "completed" ? "check" : "warning"} size={15} />
+            </span>
+          )}
+        </button>
+      </li>
+    );
+  };
   return (
     <nav className="focus-navigator surface" aria-label="學習導覽">
       <header>
         <h2>學習導覽</h2>
-        <span>{view.concepts.length} 個概念</span>
+        <span>{groups ? `${groups.length} 個區域 · ` : ""}{view.concepts.length} 個概念</span>
       </header>
       {(progress || firstStep) && (
         <p className="navigator-summary">
@@ -285,66 +351,28 @@ function LearningNavigator({
           )}
         </p>
       )}
+      {groups && (
+        <p className="navigator-basis">
+          {regions!.basis === "source" ? "依各概念的主要來源檔分區" : "依學習順序分段，非教材章節"}
+        </p>
+      )}
       <div className="navigator-list" id="focus-concept-list" ref={list}>
-        <ul>
-          {items.map(({ concept, step }) => {
-            const selected = concept.concept_id === selectedConceptId;
-            const learningCurrent = concept.concept_id === progress?.current_concept_id;
-            const status = states.get(concept.concept_id)?.status;
-            const next = concept.concept_id === nextId && !learningCurrent;
-            const stateLabel =
-              status === "completed" ? "已完成" : status === "needs_review" ? "需要加強" : "";
-            const name = [
-              `第 ${step.position} 個，${concept.label}`,
-              learningCurrent && "目前學習",
-              stateLabel,
-              next && "下一步",
-            ]
-              .filter(Boolean)
-              .join("；");
-            return (
-              <li key={concept.concept_id}>
-                <button
-                  ref={selected ? selectedRow : undefined}
-                  type="button"
-                  aria-label={name}
-                  aria-current={selected ? "true" : undefined}
-                  className={[
-                    selected && "is-selected",
-                    learningCurrent && "is-learning-current",
-                    status === "completed" && "is-completed",
-                    status === "needs_review" && "is-needs-review",
-                    next && "is-next-suggested",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  onClick={() => focusConcept(concept.concept_id)}
-                >
-                  <span className="navigator-position" aria-hidden="true">
-                    {step.position}
-                  </span>
-                  <span className="navigator-concept">
-                    <span className="navigator-label">{concept.label}</span>
-                    {(learningCurrent || next) && (
-                      <span className="navigator-notes">
-                        {learningCurrent ? (
-                          <span className="navigator-current">目前學習</span>
-                        ) : (
-                          <span>下一步</span>
-                        )}
-                      </span>
-                    )}
-                  </span>
-                  {stateLabel && (
-                    <span className="navigator-state" title={stateLabel} aria-hidden="true">
-                      <Icon name={status === "completed" ? "check" : "warning"} size={15} />
-                    </span>
-                  )}
-                </button>
+        {groups ? (
+          <ul className="navigator-regions">
+            {groups.map((group) => (
+              <li key={group.id} className="navigator-region">
+                <h3>
+                  <i style={{ background: islandColors(regionPalette(view.material_id, group.index)).g2 }} aria-hidden="true" />
+                  <span>{group.label}</span>
+                  <small>{group.items.length} 個</small>
+                </h3>
+                <ul>{group.items.map(renderItem)}</ul>
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+        ) : (
+          <ul>{items.map(renderItem)}</ul>
+        )}
       </div>
     </nav>
   );
@@ -359,9 +387,11 @@ function MapGraph({
   progress,
   selectedRelationId,
   detail,
+  regions,
 }: {
   apiClient: StudydyApiClient;
   detail: ReactNode;
+  regions: MapRegions | null;
   selectedRelationId: string | null;
   progress: MapProgressView | null;
   openConcept: (id: string, restoreFocus?: RestoreFocus) => void;
@@ -504,7 +534,7 @@ function MapGraph({
                   </small>
                 </span>
               </span>
-              <span className="island-node-art"><IslandArt palette={palette} landmarks={current} /></span>
+              <span className="island-node-art"><IslandArt palette={regions ? regionPalette(view.material_id, regions.byConcept.get(node.id)!) : palette} landmarks={current} /></span>
             </>
           ),
         },
@@ -569,6 +599,7 @@ function MapGraph({
     openConcept,
     openRelation,
     measurements,
+    regions,
   ]);
   // resize 只保留世界座標中心；使用者按適應畫面才重新 fit。
   useEffect(() => {
@@ -680,6 +711,7 @@ function MapGraph({
           </button>
           <div id="map-navigator" hidden={!navigatorOpen}>
             <LearningNavigator
+              regions={regions}
               progress={progress}
               view={view}
               selectedConceptId={selected.concept_id}
@@ -927,6 +959,18 @@ export function KnowledgeMapWorkspace({
     () => view.concepts.find((concept) => concept.concept_id === detailConceptId) ?? null,
     [detailConceptId, view.concepts],
   );
+  // 區域只是呈現分組；讀取失敗或與地圖不一致時維持不分區的地圖。
+  const [regionsView, setRegionsView] = useState<KnowledgeRegionsView | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setRegionsView(null);
+    void apiClient.getKnowledgeRegions({ materialId: view.material_id, structureRevision: view.knowledge_structure_revision })
+      .then((value) => { if (!cancelled) setRegionsView(value); }, () => undefined);
+    return () => { cancelled = true; };
+  }, [apiClient, view.material_id, view.knowledge_structure_revision]);
+  const regions = useMemo(() => mapRegions(view, regionsView), [view, regionsView]);
+  const regionLabel = (id: string) =>
+    regions && regions.regions.length > 1 ? regions.regions[regions.byConcept.get(id)!].label : null;
 
   if (view.concepts.length === 0)
     return (
@@ -1042,6 +1086,7 @@ export function KnowledgeMapWorkspace({
             progress={progress}
             isLoadingProgress={isLoadingProgress}
             progressMessage={progressMessage}
+            region={regionLabel(selectedConcept.concept_id)}
           />
         )}
       </>
@@ -1114,6 +1159,11 @@ export function KnowledgeMapWorkspace({
             <span>
               <strong>{view.relations.length}</strong>關係
             </span>
+            {regions && regions.regions.length > 1 && (
+              <span title={regions.basis === "source" ? "依各概念的主要來源檔分區" : "依學習順序分段，非教材章節"}>
+                <strong>{regions.regions.length}</strong>區域
+              </span>
+            )}
           </div>
         </div>
       </header>
@@ -1155,6 +1205,7 @@ export function KnowledgeMapWorkspace({
                 selectedConceptId={selectedConceptId}
                 detail={detail}
                 view={view}
+                regions={regions}
               />
             </ReactFlowProvider>
           )}

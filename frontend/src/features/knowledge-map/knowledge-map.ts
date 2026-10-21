@@ -1,8 +1,28 @@
-import type { KnowledgeStructureView, KnowledgeOutlineView } from "../../api/contracts";
+import type { KnowledgeStructureView, KnowledgeOutlineView, KnowledgeRegionsView } from "../../api/contracts";
 
 type MapView = Pick<KnowledgeOutlineView, "relations" | "initial_learning_path"> & { concepts: Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "aliases">[] };
 
 type MapNode = { id: string; x: number; y: number; width: number; depth: 0 | 1 | 2 };
+
+export type MapRegions = {
+  basis: KnowledgeRegionsView["basis"];
+  regions: { id: string; label: string; index: number; conceptIds: string[] }[];
+  byConcept: Map<string, number>;
+};
+
+// 區域必須剛好涵蓋這份地圖的全部概念；版本或內容不一致時不分區，維持原本呈現。
+export function mapRegions(view: Pick<MapView, "concepts">, value: KnowledgeRegionsView | null): MapRegions | null {
+  if (!value) return null;
+  const byConcept = new Map<string, number>();
+  value.regions.forEach((region, index) => region.concept_ids.forEach((id) => byConcept.set(id, index)));
+  if (byConcept.size !== view.concepts.length || !view.concepts.every((concept) => byConcept.has(concept.concept_id)))
+    return null;
+  return {
+    basis: value.basis,
+    regions: value.regions.map((region, index) => ({ id: region.region_id, label: region.label, index, conceptIds: region.concept_ids })),
+    byConcept,
+  };
+}
 
 // API 已驗證路徑完整包含教材概念；導覽只依正式順序排列。
 export function learningNavigationItems(view: MapView) {

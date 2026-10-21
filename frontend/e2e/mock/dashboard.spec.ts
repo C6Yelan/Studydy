@@ -269,3 +269,27 @@ test("dashboard uses each material's head study and keeps stats out of keyboard 
       `/materials/${materialId}/runs/${headRunId}/knowledge-structures/${encodeURIComponent(headRevision)}/study-sessions/${headSession.study_session_id}`,
     );
 });
+
+test("dashboard week rhythm shows answer counts from learning activity", async ({ page }) => {
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: {
+    schema: "learning-activity/v1", timezone: "Asia/Taipei", today: "2026-10-21",
+    streak_days: 3, active_today: true, total_answers: 40, total_correct: 30,
+    week: [[19, 2, 1], [20, 0, 0], [21, 5, 4], [22, 0, 0], [23, 0, 0], [24, 0, 0], [25, 0, 0]]
+      .map(([day, answers, correct]) => ({ date: `2026-10-${day}`, answers, correct })),
+  } }));
+  await page.goto("/");
+  const week = page.getByRole("region", { name: "本週學習節奏" });
+  await expect(week.getByText("連續 3 天")).toBeVisible();
+  await expect(week.getByRole("listitem")).toHaveCount(7);
+  await expect(week.getByRole("listitem", { name: "星期三 10/21（今天）：作答 5 題，答對 4 題" })).toHaveClass(/is-today/);
+  await expect(week.getByRole("listitem", { name: "星期二 10/20：沒有作答" })).toBeVisible();
+  await expect(week.getByRole("listitem", { name: "星期四 10/22：尚未到" })).toHaveClass(/is-future/);
+  await expect(week.locator(".week-summary")).toHaveText("本週作答 7 題 · 答對率 71%");
+});
+
+test("dashboard hides the week rhythm when learning activity is unavailable", async ({ page }) => {
+  await mockLibrary(page, () => [withStudy()]);
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "本週學習節奏" })).toHaveCount(0);
+});

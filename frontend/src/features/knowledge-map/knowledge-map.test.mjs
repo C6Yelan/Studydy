@@ -199,3 +199,18 @@ test("direct neighbours also respect the node limit", () => {
   assert.equal(graph.relations.length, 29);
   assert.equal(graph.totalRelations, 99);
 });
+
+test("map regions are used only when they cover exactly the outline concepts", async () => {
+  const { mapRegions } = await import("./knowledge-map.ts");
+  const outline = { concepts: ["a", "b", "c"].map((concept_id) => ({ concept_id })) };
+  const regions = (groups) => ({
+    schema: "knowledge-regions/v1", material_id: "m", knowledge_structure_revision: "r", basis: "source",
+    regions: groups.map((concept_ids, index) => ({ region_id: `region:${index + 1}`, label: `R${index + 1}`, source_id: null, concept_ids })),
+  });
+  const value = mapRegions(outline, regions([["a", "c"], ["b"]]));
+  assert.deepEqual([...value.byConcept], [["a", 0], ["c", 0], ["b", 1]]);
+  assert.deepEqual(value.regions.map((r) => r.label), ["R1", "R2"]);
+  assert.equal(mapRegions(outline, regions([["a"], ["b"]])), null);
+  assert.equal(mapRegions(outline, regions([["a", "b"], ["c", "x"]])), null);
+  assert.equal(mapRegions(outline, null), null);
+});

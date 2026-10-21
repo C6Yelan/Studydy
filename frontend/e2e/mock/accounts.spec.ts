@@ -64,6 +64,14 @@ test.beforeEach(async ({ page }) => {
       case "/v1/podcasts":
         expect(request.method()).toBe("GET");
         return route.fulfill({ json: { schema: "podcast-list/v1", podcasts: [] } });
+      // 首頁「本週學習節奏」；新帳號沒有作答紀錄。
+      case "/v1/learning-activity":
+        expect(request.method()).toBe("GET");
+        return route.fulfill({ json: {
+          schema: "learning-activity/v1", timezone: "Asia/Taipei", today: "2026-10-21",
+          streak_days: 0, active_today: false, total_answers: 0, total_correct: 0,
+          week: [19, 20, 21, 22, 23, 24, 25].map((day) => ({ date: `2026-10-${day}`, answers: 0, correct: 0 })),
+        } });
       default:
         throw new Error(`Unexpected account mock request: ${request.method()} ${path}`);
     }

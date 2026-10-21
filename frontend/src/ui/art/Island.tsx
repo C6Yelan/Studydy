@@ -21,6 +21,11 @@ export function islandPalette(seed: string): IslandPalette {
   return paletteOrder[hash % paletteOrder.length];
 }
 
+// 地圖區域從教材本身的配色開始依序輪替，同一教材的第一區與首頁島嶼同色。
+export function regionPalette(seed: string, index: number): IslandPalette {
+  return paletteOrder[(paletteOrder.indexOf(islandPalette(seed)) + index) % paletteOrder.length];
+}
+
 export function islandColors(palette: IslandPalette) {
   return palettes[palette];
 }

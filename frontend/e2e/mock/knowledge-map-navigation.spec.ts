@@ -259,3 +259,43 @@ test("reload restores map presentation while local interaction does not restart 
   // 累積整段操作的請求，包含最後一次保留詳情與搜尋文字的重新整理。
   expect(auth).toEqual(["POST /v1/session/refresh"]);
 });
+
+test("learning navigator groups concepts by region and the detail names the region", async ({ page }) => {
+  const view = learningMap(8);
+  await mockLearningMapApi(page, view, true);
+  const ids = view.initial_learning_path.map((step) => step.concept_id);
+  await page.route(`**/v1/materials/${materialId}/knowledge-structures/*/regions`, (route) => route.fulfill({ json: {
+    schema: "knowledge-regions/v1", material_id: materialId, knowledge_structure_revision: view.knowledge_structure_revision,
+    basis: "source",
+    regions: [
+      { region_id: "region:1", label: "01_從生成到推論", source_id: artifactId, concept_ids: ids.slice(0, 5) },
+      { region_id: "region:2", label: "02_模型評估", source_id: runId, concept_ids: ids.slice(5) },
+    ],
+  } }));
+  await page.goto(mapPath);
+  await expect(page.getByLabel("地圖摘要")).toContainText("2區域");
+  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  const nav = page.getByRole("navigation", { name: "學習導覽" });
+  await expect(nav.getByRole("heading", { level: 3 })).toHaveText(["01_從生成到推論5 個", "02_模型評估3 個"]);
+  await expect(nav.getByText("依各概念的主要來源檔分區")).toBeVisible();
+  await expect(nav.getByRole("button")).toHaveCount(8);
+  await navigationConcept(page, "A").click();
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".detail-kicker")).toHaveText("教材概念 · 01_從生成到推論");
+});
+
+test("learning navigator stays flat when regions do not match the map", async ({ page }) => {
+  const view = learningMap(8);
+  await mockLearningMapApi(page, view, true);
+  const ids = view.initial_learning_path.map((step) => step.concept_id);
+  await page.route(`**/v1/materials/${materialId}/knowledge-structures/*/regions`, (route) => route.fulfill({ json: {
+    schema: "knowledge-regions/v1", material_id: materialId, knowledge_structure_revision: view.knowledge_structure_revision,
+    basis: "learning_order",
+    regions: [{ region_id: "region:1", label: "第 1–4 個概念", source_id: null, concept_ids: ids.slice(0, 4) }],
+  } }));
+  await page.goto(mapPath);
+  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  const nav = page.getByRole("navigation", { name: "學習導覽" });
+  await expect(nav.getByRole("button")).toHaveCount(8);
+  await expect(nav.getByRole("heading", { level: 3 })).toHaveCount(0);
+  await expect(page.getByLabel("地圖摘要")).not.toContainText("區域");
+});

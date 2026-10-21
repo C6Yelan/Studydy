@@ -14,13 +14,16 @@ from learning_adaptation.study_sessions import (
 from ..learner_session import TrustedLearner
 from ..storage.knowledge_structures import read_knowledge_structure
 from ..storage import knowledge_reads
+from ..storage.learning_activity import learning_activity
 from ..storage.database import database_session
 from ..study_workspace import read_workspace, read_resume
 from . import request_context
 from .models import (
     KnowledgeOutlineView,
     KnowledgeConceptsView,
+    KnowledgeRegionsView,
     KnowledgeSearchView,
+    LearningActivityView,
     MapProgressView,
     StudyWorkspaceView,
     AssessmentPlanView,
@@ -55,6 +58,30 @@ def install(app, settings):
             return knowledge_reads.outline(
                 db, learner.learner_id, material_id, structure_revision
             )
+
+    @app.get(
+        "/v1/materials/{material_id}/knowledge-structures/{structure_revision}/regions",
+        response_model=KnowledgeRegionsView,
+        tags=["review"],
+    )
+    def read_regions(request: Request, material_id: UUID, structure_revision: str):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            return knowledge_reads.regions(
+                db, learner.learner_id, material_id, structure_revision
+            )
+
+    @app.get(
+        "/v1/learning-activity",
+        response_model=LearningActivityView,
+        tags=["learning"],
+    )
+    def read_learning_activity(request: Request):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            return learning_activity(db, learner.learner_id)
 
     @app.get(
         "/v1/materials/{material_id}/knowledge-structures/{structure_revision}/concepts",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date as date_type, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -286,6 +286,38 @@ class KnowledgeOutlineView(_Closed):
     section_count: int
     initial_learning_path: list[LearningPathStepView]
     excluded_pages: list[ExcludedPageView]
+
+
+class KnowledgeRegionView(_Closed):
+    region_id: str
+    label: str
+    source_id: UUID | None
+    concept_ids: list[str]
+
+
+class KnowledgeRegionsView(_Closed):
+    schema_: Literal["knowledge-regions/v1"] = Field(alias="schema")
+    material_id: UUID
+    knowledge_structure_revision: str
+    basis: Literal["source", "learning_order"]
+    regions: list[KnowledgeRegionView]
+
+
+class LearningActivityDayView(_Closed):
+    date: date_type
+    answers: int
+    correct: int
+
+
+class LearningActivityView(_Closed):
+    schema_: Literal["learning-activity/v1"] = Field(alias="schema")
+    timezone: Literal["Asia/Taipei"]
+    today: date_type
+    streak_days: int
+    active_today: bool
+    week: list[LearningActivityDayView]
+    total_answers: int
+    total_correct: int
 
 
 class KnowledgeConceptsView(_Closed):

@@ -1,5 +1,5 @@
 import type {
-  KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeSearchView, MapProgressView, StudyWorkspaceView,
+  KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, StudyWorkspaceView,
   PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
   AnswerFeedbackView,
   CardSetSummary,
@@ -610,6 +610,38 @@ export function knowledgeSearch(value: unknown): value is KnowledgeSearchView {
   return !!item && item.schema === "knowledge-search/v1" && isUuid(item.material_id)
     && revision(item.knowledge_structure_revision, "knowledge-structure") && strings(item.concept_ids)
     && item.concept_ids.every(id => revision(id, "concept")) && new Set(item.concept_ids).size === item.concept_ids.length;
+}
+
+export function knowledgeRegions(value: unknown): value is KnowledgeRegionsView {
+  const item = object(value);
+  if (!item || item.schema !== "knowledge-regions/v1" || !isUuid(item.material_id)
+    || !revision(item.knowledge_structure_revision, "knowledge-structure")
+    || !["source", "learning_order"].includes(String(item.basis)) || !Array.isArray(item.regions)) return false;
+  const ids = item.regions.flatMap(value => {
+    const region = object(value);
+    return region && typeof region.region_id === "string" && typeof region.label === "string" && region.label
+      && (region.source_id === null || isUuid(region.source_id)) && strings(region.concept_ids)
+      && region.concept_ids.length > 0 && region.concept_ids.every(id => revision(id, "concept"))
+      ? region.concept_ids : [null];
+  });
+  // 每個概念只能屬於一個區域。
+  return !ids.includes(null) && new Set(ids).size === ids.length;
+}
+
+const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+const count = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
+
+export function learningActivity(value: unknown): value is LearningActivityView {
+  const item = object(value);
+  return !!item && item.schema === "learning-activity/v1" && item.timezone === "Asia/Taipei"
+    && typeof item.today === "string" && isoDate.test(item.today)
+    && count(item.streak_days) && typeof item.active_today === "boolean"
+    && count(item.total_answers) && count(item.total_correct) && item.total_correct <= item.total_answers
+    && Array.isArray(item.week) && item.week.length === 7 && item.week.every(value => {
+      const day = object(value);
+      return !!day && typeof day.date === "string" && isoDate.test(day.date)
+        && count(day.answers) && count(day.correct) && day.correct <= day.answers;
+    }) && item.week.some(day => object(day)!.date === item.today);
 }
 
 export function mapProgress(value: unknown): value is MapProgressView {

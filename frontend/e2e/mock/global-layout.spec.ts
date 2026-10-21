@@ -14,6 +14,13 @@ const responses: Record<string, unknown> = {
   "/v1/materials": { schema: "material-library/v1", materials: [] },
   "/v1/card-sets": { schema: "card-set-list/v1", card_sets: [] },
   "/v1/podcasts": { schema: "podcast-list/v1", podcasts: [] },
+  // 有作答紀錄的本週節奏，讓各寬度一併檢查首頁右欄不溢出。
+  "/v1/learning-activity": {
+    schema: "learning-activity/v1", timezone: "Asia/Taipei", today: "2026-10-21",
+    streak_days: 12, active_today: true, total_answers: 1250, total_correct: 1000,
+    week: [[19, 120], [20, 0], [21, 35], [22, 0], [23, 0], [24, 0], [25, 0]]
+      .map(([day, answers]) => ({ date: `2026-10-${day}`, answers, correct: Math.floor(answers * 0.8) })),
+  },
 };
 
 test.beforeEach(async ({ page }) => {

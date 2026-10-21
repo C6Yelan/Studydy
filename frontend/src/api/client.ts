@@ -1,6 +1,6 @@
 import * as validate from "./response-validation.ts";
 import type {
-  KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeSearchView, MapProgressView, StudyWorkspaceView,
+  KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, StudyWorkspaceView,
   PodcastContext, PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
   ApiReasonCode,
   CardSetCreate,
@@ -646,6 +646,16 @@ export class StudydyApiClient {
     return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/search?${query}`,
       { method: "GET" }, (value): value is KnowledgeSearchView => validate.knowledgeSearch(value)
         && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
+  }
+
+  getKnowledgeRegions(request: KnowledgeStructureRequest): Promise<KnowledgeRegionsView> {
+    return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/regions`,
+      { method: "GET" }, (value): value is KnowledgeRegionsView => validate.knowledgeRegions(value)
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
+  }
+
+  getLearningActivity(): Promise<LearningActivityView> {
+    return this.json("/v1/learning-activity", { method: "GET" }, validate.learningActivity);
   }
 
   readMapProgress(id: string, revision: string): Promise<MapProgressView> {

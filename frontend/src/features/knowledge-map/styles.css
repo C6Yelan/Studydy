@@ -1072,3 +1072,43 @@
 .navigator-list {
   scroll-padding-block: var(--space-2);
 }
+
+/* 學習導覽的區域分組：色塊對應地圖上該區島嶼的草地顏色 */
+.navigator-basis {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.navigator-list .navigator-regions {
+  gap: var(--space-3);
+}
+.navigator-region h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 900;
+}
+.navigator-region h3 i {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.navigator-region h3 span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.navigator-region h3 small {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+}

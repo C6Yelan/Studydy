@@ -32,6 +32,12 @@ NO_SAFE_ASSESSMENT 或部分發布時省略的重點是系統能力限制，不�
 
 完成狀態由 [learning_states.py](../backend/src/learning_adaptation/learning_states.py) 及歷史題組重建，不批次改寫過往答案。已完成 session 仍可開啟再次練習；單純閱讀或改變導覽焦點不重開 session。
 
+## 學習統計與地圖區域
+
+`GET /v1/learning-activity` 由作答事件即時彙總，不另存累計值：以台灣日期為界計算連續作答天數（今天尚未作答時保留到今天結束）、本週一到週日的每日作答與答對數，以及總作答數。概念卡複習與 Podcast 收聽目前沒有紀錄，不計入；首頁讀取失敗時隱藏「本週學習節奏」，不顯示推測數字。
+
+`GET .../knowledge-structures/{revision}/regions` 把概念分成地圖區域，只作呈現用途，不改寫知識結構或 hash。多來源教材依每個概念重點 Evidence 最常引用的來源檔分區（區名為去副檔名的檔名）；只有一個主要來源時依學習順序切成至多四段，`basis` 標為 `learning_order`，畫面註明「非教材章節」。前端只在區域剛好涵蓋地圖全部概念時分區，否則維持不分區的導覽。
+
 ## 恢復與版本承接
 
 Progress 與 resume 使用同一 DB snapshot，核對 session、run、知識結構版本、題組成員與事件序號。URL 可定位原題組；讀取、刷新與重新登入不產生題目或答案事件。

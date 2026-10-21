@@ -35,8 +35,8 @@ test("unfinished A does not block B and switching back resumes A", async ({ page
   const firstSetId = firstSetUrl.split("/").at(-1)!;
 
   await page
-    .getByRole("navigation", { name: "學習工作區導覽" })
-    .getByRole("button", { name: "知識地圖", exact: true })
+    .getByRole("tablist", { name: "教材學習內容" })
+    .getByRole("tab", { name: "知識地圖", exact: true })
     .click();
   await openConcept(page, "Other topic");
   const assessmentSetsPath = `/v1/study-sessions/${navigationData.session}/assessment-sets`;

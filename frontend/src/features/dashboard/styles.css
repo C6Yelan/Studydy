@@ -526,3 +526,91 @@
     width: 100%;
   }
 }
+
+/* 本週學習節奏：每日作答數長條，今天以琥珀框標示 */
+.dashboard-week header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.dashboard-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px 4px 8px;
+  border-radius: var(--radius-button);
+  background: #fff0ec;
+  color: var(--coral);
+  font-size: 13px;
+  font-weight: 900;
+}
+.dashboard-streak.is-idle {
+  background: var(--page-cool);
+  color: var(--text-muted);
+}
+.week-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin: 0;
+  padding: 12px 6px 10px;
+  border-radius: 20px;
+  background: var(--page-cool);
+  list-style: none;
+  text-align: center;
+}
+.week-days li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+.week-bar {
+  display: flex;
+  align-items: flex-end;
+  width: 20px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+}
+.week-bar i {
+  width: 100%;
+  border-radius: 8px;
+  background: var(--warning);
+}
+.week-days li.is-today .week-bar {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--amber-deep);
+}
+.week-days li.is-future .week-bar {
+  opacity: 0.5;
+}
+.week-days b {
+  min-height: 18px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 900;
+}
+.week-days small {
+  font-size: 11px;
+  font-weight: 800;
+}
+.week-days li.is-today small {
+  color: var(--amber-deep);
+}
+.week-summary {
+  margin: 12px 0 2px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+.week-summary b {
+  color: var(--text-primary);
+}
+.week-note {
+  color: var(--text-muted);
+  font-size: 11px;
+}

@@ -227,6 +227,21 @@ export type KnowledgeOutlineView = Pick<KnowledgeStructureView,
   concepts: { concept_id: string; label: string; aliases: string[]; claim_count: number }[];
 };
 
+// 地圖區域：多來源依主要來源檔分區；learning_order 是依學習順序推導的分段，不是教材章節。
+export type KnowledgeRegionsView = {
+  schema: "knowledge-regions/v1"; material_id: string; knowledge_structure_revision: string;
+  basis: "source" | "learning_order";
+  regions: { region_id: string; label: string; source_id: string | null; concept_ids: string[] }[];
+};
+
+// 學習統計只由作答事件推導，日期以台灣時間為界。
+export type LearningActivityView = {
+  schema: "learning-activity/v1"; timezone: "Asia/Taipei"; today: string;
+  streak_days: number; active_today: boolean;
+  week: { date: string; answers: number; correct: number }[];
+  total_answers: number; total_correct: number;
+};
+
 export type KnowledgeConceptsView = ConceptCardContext & {
   schema: "knowledge-concepts/v1";
   material_id: string;
