@@ -54,7 +54,7 @@ export function SourceButton({
     <>
       <button
         ref={opener}
-        className="text-button"
+        className="text-button source-chip"
         type="button"
         disabled={busy}
         onClick={() => void open()}

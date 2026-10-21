@@ -357,12 +357,13 @@
   width: 100%;
   padding: 10px;
   margin-top: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-input);
   background: var(--surface);
   color: var(--text-primary);
   text-align: left;
   overflow-wrap: anywhere;
+  background: var(--page-cool); border-radius: 16px;
 }
 .detail-related small,
 .detail-related strong {
@@ -564,7 +565,7 @@
   left: 12px;
   z-index: 5;
   max-width: calc(100% - 24px);
-  max-height: calc(100% - 110px);
+  max-height: calc(100% - 180px);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -631,7 +632,7 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: 12px;
   background: var(--surface);
   pointer-events: none;
   font-size: 11px;
@@ -752,8 +753,9 @@
   grid-area: actions;
   padding: 20px;
   background: var(--page-cool);
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-card);
+  background: var(--page-cool); border-radius: 16px;
 }
 .review-actions h3 {
   font-size: 16px;
@@ -832,9 +834,10 @@
   text-align: left;
   color: var(--text-primary);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-input);
   cursor: pointer;
+  background: var(--page-cool); border-radius: 16px;
 }
 .review-list button strong {
   overflow-wrap: anywhere;
@@ -859,7 +862,7 @@
   max-width: min(330px, 100%);
   margin: 0;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: 12px;
   background: var(--surface);
   color: var(--text-secondary);
   font-size: 12px;

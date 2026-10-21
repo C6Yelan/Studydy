@@ -221,3 +221,74 @@ code {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* 共用表單與元件的知識群島外觀；:where() 不增加權重，各元件的專屬樣式仍優先。 */
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]), select, textarea) {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]), select, textarea):focus-visible {
+  border-color: var(--studydy-blue);
+  outline: 3px solid rgba(47, 107, 255, 0.18);
+  outline-offset: 0;
+}
+:where(input[type="checkbox"], input[type="radio"]) {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--studydy-blue);
+}
+:where(input[type="range"]) {
+  accent-color: var(--studydy-blue);
+}
+:where(details > summary:not([class], [role="button"])) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 800;
+  list-style: none;
+}
+:where(details > summary:not([class], [role="button"]))::-webkit-details-marker {
+  display: none;
+}
+:where(details > summary:not([class], [role="button"]))::before {
+  content: "";
+  width: 0.42em;
+  height: 0.42em;
+  flex: none;
+  margin-inline: 0.1em;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.2s;
+}
+:where(details[open] > summary:not([class], [role="button"]))::before {
+  transform: rotate(45deg);
+}
+/* 教材來源入口：左對齊的淺藍膠囊，長檔名可換行。 */
+.text-button.source-chip {
+  display: inline-flex;
+  justify-content: flex-start;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 5px 12px;
+  border-radius: 12px;
+  background: var(--studydy-blue-soft);
+  color: var(--studydy-blue);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+  text-align: left;
+}
+.text-button.source-chip:hover:not(:disabled) {
+  background: var(--studydy-blue);
+  color: #fff;
+}
+:is(a.primary-button, a.secondary-button, a.text-button) {
+  text-decoration: none;
+}

@@ -148,7 +148,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
  return <div className="voice-panel" onKeyDown={event=>{
   if(event.key==='Escape'&&history.current?.open){event.stopPropagation();event.preventDefault();history.current.open=false;historyOpener.current?.focus();}
  }}>
-  <header className="voice-header"><div className="voice-identity"><Icon name="microphone" size={18}/><h2>教材問答</h2></div>
+  <header className="voice-header"><div className="voice-identity"><span className="voice-identity-icon" aria-hidden="true"><Icon name="chat" size={18}/></span><h2>教材問答</h2></div>
    <div className="voice-header-actions">
     <details className="voice-history-menu" ref={history}><summary ref={historyOpener} role="button" aria-label="對話紀錄" title="對話紀錄"><Icon name="clock" size={18}/></summary>
      <div className="voice-conversation-popover" role="group" aria-label="已保存的對話"><p>歷史對話</p><div className="voice-history-list">{list.map(c=><button type="button" key={c.conversation_id} data-conversation-id={c.conversation_id} title={c.title} aria-current={c.conversation_id===id?'true':undefined} disabled={busy} onClick={()=>{switchMode('text');choose(c.conversation_id);}}>{c.title}</button>)}{!list.length&&<p>尚無歷史對話</p>}</div>
@@ -157,8 +157,8 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
       }}>刪除對話</button>}
      </div>
     </details>
-    <button className="voice-icon-button" type="button" aria-label="新對話" title="新對話" disabled={busy||recording||preparing} onClick={()=>choose(null)}><span aria-hidden="true">＋</span></button>
-    <button className="voice-icon-button" type="button" aria-label="關閉" title="關閉" onClick={onClose}><span aria-hidden="true">×</span></button>
+    <button className="voice-icon-button" type="button" aria-label="新對話" title="新對話" disabled={busy||recording||preparing} onClick={()=>choose(null)}><Icon name="plus" size={18}/></button>
+    <button className="voice-icon-button" type="button" aria-label="關閉" title="關閉" onClick={onClose}><Icon name="close" size={18}/></button>
    </div>
   </header>
   <div className="voice-modes">
@@ -168,7 +168,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
   <div className="voice-turns" ref={transcript} aria-live="polite" aria-relevant="additions text" tabIndex={0} aria-label="教材問答紀錄" onScroll={event=>{
    const element=event.currentTarget;followLatest.current=element.scrollHeight-element.clientHeight-element.scrollTop<48;
   }}>
-   {(!id||view?.turns.length===0)&&<div className="voice-empty"><h3>教材裡哪個地方想再了解？</h3><p>{mode==='voice'?'正在聆聽。說完稍停，會自動送出；回答播放時可直接開口打斷。':'輸入問題，文字回答會附上教材來源。'}</p>{mode==='text'&&<div>{['主要觀念是什麼？','解釋最重要的概念'].map(text=><button type="button" className="voice-suggestion" key={text} onClick={()=>{setQuestion(text);input.current?.focus();}}>{text}</button>)}</div>}</div>}
+   {(!id||view?.turns.length===0)&&<div className="voice-empty"><img className="voice-empty-mascot" src="/assets/Studydy_角色素材/引導/guide_present.png" alt=""/><h3>教材裡哪個地方想再了解？</h3><p>{mode==='voice'?'正在聆聽。說完稍停，會自動送出；回答播放時可直接開口打斷。':'輸入問題，文字回答會附上教材來源。'}</p>{mode==='text'&&<div>{['主要觀念是什麼？','解釋最重要的概念'].map(text=><button type="button" className="voice-suggestion" key={text} onClick={()=>{setQuestion(text);input.current?.focus();}}>{text}</button>)}</div>}</div>}
    {id&&!view&&<p className="voice-inline-note" role="status">正在讀取對話…</p>}
    {turns.map(turn=>{
     const {sources,text:answerText}=answerSources(turn.answer);
@@ -198,7 +198,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
     <textarea ref={input} className="voice-composer-input" aria-label="問題／辨識文字" rows={1} maxLength={4000} value={question} disabled={busy||recording||preparing} onChange={event=>setQuestion(event.target.value)} placeholder="輸入問題……" title="Enter 送出，Shift+Enter 換行" onKeyDown={event=>{
      if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229){event.preventDefault();if(!busy&&!working&&!recording&&!preparing)send();}
     }}/>
-    <button className="voice-send" type="submit" aria-label="送出問題" title="送出問題" disabled={busy||working||recording||preparing||!question.trim()}><Icon name={busy?'process':'chevron-right'} size={20}/></button>
+    <button className="voice-send" type="submit" aria-label="送出問題" title="送出問題" disabled={busy||working||recording||preparing||!question.trim()}><Icon name={busy?'process':'send'} size={18}/></button>
    </div>}
   </form>
  </div>;

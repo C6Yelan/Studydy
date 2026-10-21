@@ -5,7 +5,7 @@
 .cards-page-header p { margin: 0; color: var(--text-secondary); line-height: 1.7; }
 .cards-back { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; margin-bottom: 22px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); color: var(--text-secondary); font-weight: 800; }
 .cards-back:hover { color: var(--studydy-blue); }
-.cards-page input[type="search"], .cards-field input { width: 100%; min-height: 44px; padding: 11px 14px; border: 1px solid var(--border); border-radius: 9px; background: #fff; color: var(--text-primary); font: inherit; }
+.cards-page input[type="search"], .cards-field input { width: 100%; min-height: 44px; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-input); background: #fff; color: var(--text-primary); font: inherit; }
 .cards-empty, .cards-complete { text-align: center; padding: 65px 24px; border: 1px solid var(--border-light); border-radius: 18px; background: #fff; }
 .cards-empty-icon { display: grid; place-items: center; width: 80px; height: 80px; background: var(--studydy-blue-soft); color: var(--studydy-blue); border-radius: 24px; margin: 0 auto 24px; }
 .cards-empty h2, .cards-complete h2 { margin: 0 0 12px; font-size: 23px; }
@@ -16,7 +16,7 @@
 .cards-material-picker header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
 .cards-material-picker h2 { margin: 0; font-size: 18px; }
 .cards-material-picker > div { display: grid; gap: 8px; max-height: 300px; overflow-y: auto; }
-.cards-material-picker > div > button { display: flex; align-items: center; gap: 12px; text-align: left; border: 1px solid var(--border-light); padding: 14px; border-radius: 8px; background: var(--page-cool); color: var(--text-primary); }
+.cards-material-picker > div > button { display: flex; align-items: center; gap: 12px; text-align: left; border: 1px solid var(--border-light); padding: 14px; border-radius: 12px; background: var(--page-cool); color: var(--text-primary); }
 .cards-material-picker > div > button span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
 .cards-material-picker svg { flex-shrink: 0; }
 .cards-dialog { max-width: min(440px, calc(100vw - 36px)); border: 1px solid var(--border); border-radius: 16px; padding: 28px; color: var(--text-primary); }
@@ -24,7 +24,7 @@
 .cards-dialog p { line-height: 1.8; overflow-wrap: anywhere; }
 .cards-dialog .state-actions { justify-content: flex-end; margin-top: 24px; }
 .cards-danger { background: #b13c3c; border-color: #b13c3c; }
-.cards-notice { border: 1px solid #ebdba6; background: #fffbef; color: #775b24; border-radius: 9px; padding: 12px 16px; font-size: 13px; line-height: 1.75; }
+.cards-notice { border: 1px solid #ebdba6; background: #fffbef; color: #775b24; border-radius: 14px; padding: 12px 16px; font-size: 13px; line-height: 1.75; }
 .cards-material-name { display: flex; align-items: center; gap: 7px; overflow-wrap: anywhere; }
 .cards-create-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 16px; align-items: start; }
 .cards-selection, .cards-preview { background: #fff; padding: 20px; border: 1px solid var(--border-light); border-radius: 14px; min-width: 0; }
@@ -38,18 +38,18 @@
 .cards-selection-actions { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text-muted); }
 .cards-selection-actions button { white-space: nowrap; }
 .cards-concept-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: max-content; gap: 8px; align-content: start; }
-.cards-concept-row { display: flex; align-items: center; gap: 8px; min-height: 60px; border: 1px solid var(--border-light); border-radius: 9px; padding: 8px; }
-.cards-concept-row.is-selected { background: #f3f7ff; border-color: #cbdcf4; }
+.cards-concept-row { display: flex; align-items: center; gap: 8px; min-height: 60px; border: 1px solid transparent; border-radius: 16px; padding: 8px 10px; background: var(--page-cool); }
+.cards-concept-row.is-selected { background: var(--studydy-blue-soft); border-color: #cbdcf4; }
 .cards-concept-row label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
 .cards-concept-row label > span { min-width: 0; }
 .cards-concept-row input { width: 17px; height: 17px; flex-shrink: 0; accent-color: var(--studydy-blue); }
-.cards-concept-row strong { display: block; font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.cards-concept-row strong { display: block; font-size: 14px; font-weight: 800; overflow-wrap: anywhere; }
 .cards-concept-row small { display: block; color: var(--text-muted); font-size: 12px; margin-top: 3px; }
 .cards-concept-row > button { flex-shrink: 0; font-size: 12px; }
 .cards-concept-pagination { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 14px; }
 .cards-concept-pagination button { min-height: 36px; padding: 7px 12px; font-size: 13px; }
 .cards-concept-pagination span { font-size: 12px; color: var(--text-secondary); }
-.cards-create-toolbar { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; margin-bottom: 16px; padding: 16px 20px; border: 1px solid var(--border-light); background: #fff; border-radius: 12px; }
+.cards-create-toolbar { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; margin-bottom: 16px; padding: 16px 20px; border: 1px solid var(--border-light); background: #fff; border-radius: 14px; }
 .cards-create-toolbar .cards-field { display: flex; align-items: center; flex: 1; min-width: 220px; gap: 12px; margin: 0; white-space: nowrap; }
 .cards-create-toolbar .cards-field input { flex: 1; min-width: 0; }
 .cards-create-summary { display: grid; gap: 5px; }
@@ -68,11 +68,11 @@
 .flashcard-point { display: flex; gap: 12px; align-items: flex-start; padding: 16px 0; border-top: 1px solid var(--border-light); }
 .flashcard-point-number { padding-top: 3px; color: var(--studydy-blue); font-size: 12px; font-weight: 600; flex-shrink: 0; }
 .flashcard-point p { min-width: 0; margin: 0; line-height: 1.9; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.flashcard-point p.is-code { overflow-x: auto; white-space: pre; font-family: ui-monospace, monospace; font-size: 13px; padding: 10px; background: var(--page-cool); border-radius: 6px; width: 100%; }
+.flashcard-point p.is-code { overflow-x: auto; white-space: pre; font-family: ui-monospace, monospace; font-size: 13px; padding: 10px; background: var(--page-cool); border-radius: 12px; width: 100%; }
 .flashcard-sources { margin-top:10px; border-top:1px solid var(--border-light); padding-top:12px; }
 .flashcard-sources h3 { margin:0 0 8px; color:var(--text-secondary); font-size:12px; font-weight:600; }
 .flashcard-source-links { display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start; }
-.flashcard-source-links > .text-button { display:block; max-width:100%; min-height:28px; padding:4px 8px; border:1px solid var(--border-light); border-radius:6px; background:var(--page-cool); font-size:12px; line-height:1.5; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.flashcard-source-links > .text-button { display:block; max-width:100%; min-height:28px; padding:4px 8px; border:1px solid var(--border-light); border-radius:12px; background:var(--page-cool); font-size:12px; line-height:1.5; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cards-study { width:100%; max-width:1440px; margin:0 auto; }
 .cards-study-page { width:100%; max-width:none; }
 .cards-study-page > .cards-back { margin-bottom:12px; }
@@ -137,7 +137,7 @@
 .creation-back { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 44px; }
 .creation-page > .cards-page-header p { color: var(--text-secondary); }
 .creation-material { display: grid; gap: 8px; margin: 22px 0 28px; font-weight: 600; }
-.creation-material select { width: 100%; padding: 13px 16px; border: 1px solid var(--border); border-radius: 10px; background: white; color: var(--text-primary); font: inherit; font-weight: 400; }
+.creation-material select { width: 100%; padding: 13px 16px; border: 1px solid var(--border); border-radius: 14px; background: white; color: var(--text-primary); font: inherit; font-weight: 400; }
 .creation-placeholder { display: grid; justify-items: center; gap: 15px; padding: 64px 24px; border: 1px dashed var(--border); border-radius: 16px; color: var(--text-muted); }
 
 /* 桌面建立頁依視窗分配剩餘高度，清單與長卡片內容在各自區域內閱讀。 */
@@ -169,16 +169,16 @@
   .cards-creation-page .flashcard-content { flex: 1; min-height: 0; max-height: none; }
 }
 
-.flashcard-review { display:block; width:fit-content; padding:4px 9px; border-radius:6px; background:#fff3d9; color:#78541b; font-size:12px; line-height:1.5; }
-.flashcard-relation { padding:14px; margin-block:12px; border:1px solid #cbdfe7; border-radius:12px; background:#f3f8fb; }
+.flashcard-review { display:block; width:fit-content; padding:4px 9px; border-radius:12px; background:#fff3d9; color:#78541b; font-size:12px; line-height:1.5; }
+.flashcard-relation { padding:14px; margin-block:12px; border:1px solid #cbdfe7; border-radius:14px; background:#f3f8fb; }
 .flashcard-relation h3 { margin:0; font-size:14px; }
 .flashcard-relation p { font-size:14px; line-height:1.7; overflow-wrap:anywhere; }
 
 /* PNG 圖卡與完整重點共用概念導覽。 */
 
 .cards-browse-layout { display:grid; grid-template-columns:170px minmax(0,1fr); gap:20px; align-items:start; }
-.cards-browse-list { display:grid; gap:6px; max-height:70vh; overflow:auto; padding:8px; border:1px solid var(--border-light); border-radius:12px; background:#fff; }
-.cards-browse-list button { border:0; border-radius:8px; padding:12px; text-align:left; background:transparent; color:var(--text-primary); line-height:1.5; }
+.cards-browse-list { display:grid; gap:6px; max-height:70vh; overflow:auto; padding:8px; border:1px solid var(--border-light); border-radius:14px; background:#fff; }
+.cards-browse-list button { border:0; border-radius:12px; padding:12px; text-align:left; background:transparent; color:var(--text-primary); line-height:1.5; }
 .cards-browse-list button[aria-current=true] { background:#eaf2ff; color:#285998; }
 
 @media(max-width:700px) { .cards-browse-layout { grid-template-columns:1fr; gap:12px; } .cards-browse-list { display:flex; max-height:100px; overflow:auto; } .cards-browse-list button { min-width:120px; }

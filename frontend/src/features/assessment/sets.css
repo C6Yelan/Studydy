@@ -173,9 +173,15 @@
 }
 .assessment-paper .assessment-set-item {
   padding: 1.5rem;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: var(--radius-card);
   background: var(--surface);
+  box-shadow: var(--shadow);
+}
+/* 交卷後的作答回顧放在白色面板內，題目改用淺色底區隔。 */
+details .assessment-paper .assessment-set-item {
+  background: var(--page-cool);
+  box-shadow: none;
 }
 .assessment-paper .assessment-set-number {
   margin: 0 0 0.75rem;
@@ -361,3 +367,5 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* 作答回顧的每一題已是淺色卡片，內層回饋不再疊一層白卡。 */
+.assessment-paper .assessment-set-item .assessment-card { padding: 0; background: transparent; box-shadow: none; }

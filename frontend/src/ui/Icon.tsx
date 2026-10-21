@@ -28,7 +28,8 @@ export type IconName =
   | "close"
   | "route"
   | "logout"
-  | "compass";
+  | "compass"
+  | "send";
 
 const paths: Record<IconName, React.ReactNode> = {
   microphone: <><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" /></>,
@@ -178,6 +179,12 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="12" cy="12" r="9" />
       <path d="m15.5 8.5-2 5-5 2 2-5Z" />
+    </>
+  ),
+  send: (
+    <>
+      <path d="M4 12 20 4l-6 16-3-7Z" />
+      <path d="m11 13 9-9" />
     </>
   ),
 };

@@ -1,10 +1,11 @@
 .assessment-card {
   padding: var(--space-6);
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: var(--radius-card);
   background: var(--surface);
   min-width: 0;
   overflow-wrap: anywhere;
+  border-radius: var(--radius-card);
 }
 
 .assessment-card h2 {
@@ -42,15 +43,16 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-input);
   color: var(--text-primary);
-  background: var(--surface);
   cursor: pointer;
+  background: var(--page-cool); border-radius: 16px;
 }
 
 .assessment-options:not(:disabled) label:hover {
   border-color: #9bb8ef;
+  background: var(--studydy-blue-soft-2);
 }
 
 .assessment-options label.is-selected {

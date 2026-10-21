@@ -21,7 +21,7 @@
 .topic-approved-summary strong { display:block; font-size:14px; overflow-wrap:anywhere; }
 .topic-approved-summary details { position:relative; font-size:12px; color:var(--text-secondary); }
 .topic-approved-summary summary { cursor:pointer; }
-.topic-approved-summary dl { position:absolute; z-index:3; right:0; width:min(420px,70vw); border:1px solid var(--border); box-shadow:0 8px 30px #17233b18; border-radius:9px; background:var(--surface); padding:16px; margin-top:10px; }
+.topic-approved-summary dl { position:absolute; z-index:3; right:0; width:min(420px,70vw); border:1px solid var(--border); box-shadow:0 8px 30px #17233b18; border-radius:14px; background:var(--surface); padding:16px; margin-top:10px; }
 .topic-approved-summary dt { font-weight:600; margin:0 0 4px; }
 .topic-approved-summary dd { margin:0 0 14px; line-height:1.7; overflow-wrap:anywhere; }
 .topic-approved-summary dd:last-child { margin-bottom:0; }
