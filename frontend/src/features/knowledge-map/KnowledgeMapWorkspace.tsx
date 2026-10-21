@@ -361,8 +361,8 @@ function LearningNavigator({
           <ul className="navigator-regions">
             {groups.map((group) => (
               <li key={group.id} className="navigator-region">
-                <h3>
-                  <i style={{ background: islandColors(regionPalette(view.material_id, group.index)).g2 }} aria-hidden="true" />
+                <h3 title={group.label}>
+                  <i style={{ background: islandColors(regionPalette(view.material_id, group.index)).c2 }} aria-hidden="true" />
                   <span>{group.label}</span>
                   <small>{group.items.length} 個</small>
                 </h3>

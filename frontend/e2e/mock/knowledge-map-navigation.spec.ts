@@ -260,6 +260,8 @@ test("reload restores map presentation while local interaction does not restart 
   expect(auth).toEqual(["POST /v1/session/refresh"]);
 });
 
+const sessionIdLike = "00000000-0000-4000-8000-000000000099";
+
 test("learning navigator groups concepts by region and the detail names the region", async ({ page }) => {
   const view = learningMap(8);
   await mockLearningMapApi(page, view, true);
@@ -269,14 +271,23 @@ test("learning navigator groups concepts by region and the detail names the regi
     basis: "source",
     regions: [
       { region_id: "region:1", label: "01_從生成到推論", source_id: artifactId, concept_ids: ids.slice(0, 5) },
-      { region_id: "region:2", label: "02_模型評估", source_id: runId, concept_ids: ids.slice(5) },
+      { region_id: "region:2", label: "02_模型評估", source_id: runId, concept_ids: ids.slice(5, 7) },
+      { region_id: "region:3", label: "補充｜Adaptive Reliability-Aware Reasoning for Large Language Model Agents", source_id: sessionIdLike, concept_ids: ids.slice(7) },
     ],
   } }));
   await page.goto(mapPath);
-  await expect(page.getByLabel("地圖摘要")).toContainText("2區域");
+  await expect(page.getByLabel("地圖摘要")).toContainText("3區域");
   await page.getByRole("button", { name: "學習導覽", exact: true }).click();
   const nav = page.getByRole("navigation", { name: "學習導覽" });
-  await expect(nav.getByRole("heading", { level: 3 })).toHaveText(["01_從生成到推論5 個", "02_模型評估3 個"]);
+  await expect(nav.getByRole("heading", { level: 3 })).toHaveText([
+    "01_從生成到推論5 個", "02_模型評估2 個", "補充｜Adaptive Reliability-Aware Reasoning for Large Language Model Agents1 個",
+  ]);
+  // 長來源檔名截斷在導覽欄內，張數仍可見。
+  const list = (await nav.locator(".navigator-list").boundingBox())!;
+  for (const count of await nav.locator(".navigator-region h3 small").all()) {
+    const box = (await count.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(list.x + list.width);
+  }
   await expect(nav.getByText("依各概念的主要來源檔分區")).toBeVisible();
   await expect(nav.getByRole("button")).toHaveCount(8);
   await navigationConcept(page, "A").click();

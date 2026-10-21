@@ -1084,6 +1084,10 @@
 .navigator-list .navigator-regions {
   gap: var(--space-3);
 }
+/* 長來源檔名不可撐寬導覽欄；以省略號截斷，完整名稱放在 title。 */
+.navigator-region {
+  min-width: 0;
+}
 .navigator-region h3 {
   display: flex;
   align-items: center;
