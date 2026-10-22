@@ -121,7 +121,7 @@ def semantic_schema(section_count):
 
 
 def _element(text, x, y, w, h, cue, color="ink", kind="text", maximum=42):
-    from .podcast_video_render import lines, font, line_step
+    from .podcast_video_text import lines, font, line_step
 
     padding = 32 if kind == "box" else 0
     size = next(
@@ -157,7 +157,7 @@ def _element(text, x, y, w, h, cue, color="ink", kind="text", maximum=42):
 
 def _fitted(text, x, y, w, h, cue, color, maximum):
     """文字元素只占實際行高，讓下一段緊接排列；字級仍由 _element 量測。"""
-    from .podcast_video_render import lines, line_step
+    from .podcast_video_text import lines, line_step
 
     element = _element(text, x, y, w, h, cue, color, "text", maximum)
     element["h"] = len(lines(text, element["size"], w)) * line_step(
