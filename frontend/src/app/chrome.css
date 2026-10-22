@@ -41,6 +41,22 @@
 .level-up {
   backdrop-filter: blur(3px);
 }
+/* 對話框本身就是全螢幕背景（點它即關閉），取消瀏覽器預設的置中框線與尺寸限制。 */
+dialog.level-up {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  color: inherit;
+}
+dialog.level-up:not([open]) {
+  display: none;
+}
+dialog.level-up::backdrop {
+  background: transparent;
+}
 .level-up-card {
   gap: 8px;
   width: min(380px, 100%);

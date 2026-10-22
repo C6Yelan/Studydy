@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { StudydyApiClient } from "../api/client";
 import type { LearningActivityView } from "../api/contracts";
 import { BadgeEarned, useNewBadges } from "../features/badges/Badges";
+import { CelebrationDialog } from "../ui/CelebrationDialog";
 import { Icon } from "../ui/Icon";
 import { writeRoute } from "./routes";
 
@@ -43,13 +44,7 @@ function rememberLevel(key: string, level: number) {
 }
 
 function LevelUp({ level, onClose }: { level: number; onClose: () => void }) {
-  useEffect(() => {
-    const timer = window.setTimeout(onClose, 8000);
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => { window.clearTimeout(timer); window.removeEventListener("keydown", onKey); };
-  }, [onClose]);
-  return <div className="level-up" role="status" aria-live="polite">
+  return <CelebrationDialog className="level-up" label={`升級了！第 ${level} 級`} onClose={onClose}>
     <div className="level-up-card">
       <span className="level-up-burst" aria-hidden="true" />
       <img src="/assets/studydy/success-jump.png" alt="" />
@@ -58,7 +53,7 @@ function LevelUp({ level, onClose }: { level: number; onClose: () => void }) {
       <p>持續作答、標記概念卡與收聽，累積經驗值。</p>
       <button className="primary-button" type="button" onClick={onClose}>太好了</button>
     </div>
-  </div>;
+  </CelebrationDialog>;
 }
 
 export function LearningProgressPill({ apiClient, learnerId }: { apiClient: StudydyApiClient; learnerId: string }) {

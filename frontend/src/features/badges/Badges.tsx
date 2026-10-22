@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../../api/contracts";
+import { CelebrationDialog } from "../../ui/CelebrationDialog";
 import { Icon, type IconName } from "../../ui/Icon";
 import "./styles.css";
 
@@ -246,14 +247,8 @@ export function useNewBadges(activity: LearningActivityView | null, learnerId: s
 }
 
 export function BadgeEarned({ badges, onClose }: { badges: KnownBadge[]; onClose: () => void }) {
-  useEffect(() => {
-    const timer = window.setTimeout(onClose, 8000);
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => { window.clearTimeout(timer); window.removeEventListener("keydown", onKey); };
-  }, [onClose]);
   const shown = badges.slice(0, 3);
-  return <div className="level-up badge-earned" role="status" aria-live="polite">
+  return <CelebrationDialog className="level-up badge-earned" label="獲得新徽章" onClose={onClose}>
     <div className="level-up-card">
       <span className="level-up-burst" aria-hidden="true" />
       <img src="/assets/studydy/success-jump.png" alt="" />
@@ -268,5 +263,5 @@ export function BadgeEarned({ badges, onClose }: { badges: KnownBadge[]; onClose
       {badges.length > shown.length && <p>另外還有 {badges.length - shown.length} 個新徽章，到「成就」頁查看。</p>}
       <button className="primary-button" type="button" onClick={onClose}>太好了</button>
     </div>
-  </div>;
+  </CelebrationDialog>;
 }
