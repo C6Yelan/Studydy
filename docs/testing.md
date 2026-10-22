@@ -12,6 +12,10 @@
 
 長音訊的細字幕對齊失敗時，會以含前後文的短音訊視窗重辨識長段 ASR 空缺；詞時間仍來自實際音訊。補入結果須通過完整原稿覆蓋與時間錨點驗證，失敗仍保留已驗證的段落時序。`test_podcast_align.py` 驗證重疊視窗不重複收取核心詞時間；實際語音與畫面另行核對，不以合成測試宣稱聽感通過。
 
+接點淡化與孤立句首脈衝是不同問題，刪除脈衝時須保護正常子音、短有聲字詞與後續語音。停頓須扣除兩側既有安靜區；語速依實際發音量及足夠長片段估計，短語氣詞與未知英文發音不自動調速。
+
+語速估計會受強調與句中停頓影響，數值一致不能代替自然度，短樣本音色偏好也不能當作長對談驗收。接點修正不能代替縮寫與單位發音的獨立核對，仍須以不同講稿、弱音與換人情境作真人聽評。
+
 ## Podcast 現行驗證範圍
 
 講稿與分鏡各生成一次，不執行獨立 AI correctness／teaching_quality 評分、逐點全覆蓋硬門檻、風格相似度／輪替／附和檢查、動態字數預算或自動重寫迴圈。
@@ -21,6 +25,8 @@
 分鏡模型只輸出每頁標題、圖解類型、節點文字與訊息方向，以及每個節點逐字取自講稿的 `anchor` 與 0～2 個逐字取自節點文字的 `key_terms`，仍是一次呼叫。每段講稿可拆成 1～3 頁（全集最多 24 頁），第 2 頁起由逐字頁 anchor 決定換頁，對不到時改用前後換頁點之間居中的實測起點；實測起點不足時多出的頁併入前一頁，不丟內容。exchange 至少兩則訊息。分頁依原稿段落與 ASR cue 歸屬建立；秒數、cue／字幕索引由程式以逐字 anchor 換算成實測起點，對不到就退回頁首或下一個實測起點，不整份失敗；不符的重點詞直接丟掉。concept／flow 以聚焦版面一次只亮正在講的那張卡，comparison 點亮正在講的那欄，exchange 依 anchor 出現訊息；內容停在底部字幕帶之上。沒有依特定教材、標題或句子設例外，也不以截字或補造內容修復結果。
 
 對應測試：`test_podcast_provider.py`、`test_podcast_beats.py`、`test_podcast_episode_plan.py`、`test_podcast_audio.py`、`test_podcast_video_service.py` 及 runtime 的 Podcast／video 案例。這些程式檢查不宣稱模型內容已經過獨立教學審查；實際品質以生成結果與播放檢查回報。
+
+Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs_review` 改成已驗收。影片驗證失敗時不得發布成品，也不能因此抹去已保存且可播放的原音訊。
 
 ## Podcast 取消與刪除
 
@@ -78,110 +84,19 @@ env -u STUDYDY_TEST_POSTGRES_DSN -u STUDYDY_DATABASE_DSN \
 - 同一 checkout 的 Playwright 案例串行執行；多個 runner 會共用並清理 `frontend/test-results`，可能造成 trace／network 檔案 `ENOENT`，不同 ports 不會隔離這個目錄。
 - fixture 負責啟用旗標；不要手動設旗標或把 skip 當作通過。
 
+headless 開新分頁若未進入 hidden 狀態，不能當成背景凍結／恢復證據。手機鎖屏與跨瀏覽器的背景恢復仍須實機驗證。
+
 `runtime/study/test_progress_snapshot.py` 以 1／10／100 題與 1／10／100 個題組驗證讀取查詢數不逐筆成長，並保留來源設定、私有答案、事件順序及一致 snapshot 的檢查。`runtime/materials/test_podcasts.py` 以 1／10／100 筆節目驗證清單固定三次 SELECT，並核對摘要、順序與影片／分鏡狀態。這些隔離 DB 回歸不代表正式環境延遲或回傳資料量已有上限。
 
 ## Office 固定版本容器
 
-`renderer.py` 與轉檔政策要求 **LibreOffice 26.2.5.2**。例如主機為 26.2.6.3 時，會回報 `NORMALIZER_VERSION_MISMATCH`；經來源工作執行的案例也可能呈現 `failed` 而非 `ready`。這是環境版本不符，應在正確容器內驗證，不是放寬契約的理由。
-
-以下沿用已驗證的映像、唯讀掛載、Bubblewrap 設定與一次性 PostgreSQL，執行八個 Office 外部資源案例及四個 runtime Office 案例，共十二項。命令不 build／pull、不使用產品 volume 或 Docker socket；退出時刪除本次容器與暫存依賴。連線設定只在測試容器行程內產生，不輸出或寫入檔案。
-
-先確認 Docker 可用，且下列命令中的兩個固定映像已在本機。若缺映像，先準備正確測試環境；不要改成自動建置大型映像。執行前用 `df -h /tmp /mnt/e` 檢查空間；WSL 的 E 槽預期超過 90% 時停止。Python 依賴只從本 checkout 的隔離 venv 複製五個純 Python 套件及 metadata，約 6.47 MB，不修改共用 venv。
-
-PostgreSQL 同時保留 `/var/run/postgresql` 與 `/test-pg` 兩個 socket 目錄：前者供官方 entrypoint 初始化，後者供測試容器。runner 的 `/tmp` 需有 3 GiB 額度與執行權限。
+從 checkout 根目錄以已安裝 test extra 的 `backend/.venv` 執行；本機須已有內含 LibreOffice 26.2.5.2 的 `studydy-backend-ocr:latest`（已驗證映像 ID `40172a3c484f`）與 `postgres:18.4-bookworm`，固定完整身分見 [office_container.py](../ops/tests/office_container.py)。
+先用 `df -h /tmp /mnt/e` 檢查空間，E 槽預期超過 90% 時停止；主機版本不同造成 Office 失敗是預期的環境不符，應使用此容器驗證。
+腳本不 build／pull、不碰產品 DB 或 volume，並在結束時刪除自己建立的容器與暫存依賴。
 
 ~~~bash
-backend/.venv/bin/python -B - <<'PY'
-from pathlib import Path
-from importlib.metadata import distribution
-import shutil
-import subprocess
-import tempfile
-
-root = Path.cwd()
-base = Path(tempfile.mkdtemp(prefix='studydy-office-'))
-overlay = base / 'deps'
-socket = base / 'socket'
-overlay.mkdir()
-socket.mkdir()
-base.chmod(0o755)
-socket.chmod(0o777)
-pg = base.name + '-pg'
-runner = base.name + '-runner'
-image = 'sha256:40172a3c484fd67dd80bc0ac014320a8cb3c6e44d8f7d32f4cb385d212a9e398'
-pg_image = 'postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382'
-def run(args, check=True):
-    return subprocess.run(args, check=check)
-bootstrap = """
-import os
-import sys
-from psycopg.conninfo import make_conninfo
-
-for name in tuple(os.environ):
-    if name.startswith("PG") or name in {
-        "STUDYDY_DATABASE_DSN", "STUDYDY_TEST_POSTGRES_DSN"
-    }:
-        os.environ.pop(name, None)
-os.environ["STUDYDY_TEST_POSTGRES_DSN"] = make_conninfo(
-    host="/test-pg", dbname="studydy_test", user="studydy_test_owner", connect_timeout=2
-)
-import pytest
-raise SystemExit(pytest.main(sys.argv[1:]))
-"""
-try:
-    for name in ['pytest', 'pluggy', 'iniconfig', 'packaging', 'pygments']:
-        dist = distribution(name)
-        for entry in dist.files or []:
-            if '..' in entry.parts or '__pycache__' in entry.parts:
-                continue
-            source = Path(dist.locate_file(entry))
-            if source.is_file():
-                target = overlay / entry
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, target)
-        print(f'overlay {name}=={dist.version}', flush=True)
-    run(['docker','run','--detach','--pull','never','--name',pg,'--network','none',
-         '--tmpfs','/var/lib/postgresql:rw,noexec,nosuid,nodev,size=1g,mode=0700,uid=999,gid=999',
-         '--tmpfs','/var/run/postgresql:rw,nosuid,nodev,mode=3777',
-         '--mount',f'type=bind,src={socket},dst=/test-pg',
-         '--env','POSTGRES_HOST_AUTH_METHOD=trust','--env','POSTGRES_DB=studydy_test',
-         '--env','POSTGRES_USER=studydy_test_owner','--env','PGDATA=/var/lib/postgresql/18/docker',
-         '--env','POSTGRES_INITDB_ARGS=--auth-local=trust --auth-host=trust --data-checksums --encoding=UTF8 --locale=C',
-         pg_image,'postgres','-c','unix_socket_directories=/var/run/postgresql,/test-pg'])
-    import time
-    time.sleep(3)
-    run(['docker','logs',pg],check=False)
-    # The existing fixture waits for PostgreSQL readiness and checks version/role.
-    args=['docker','run','--rm','--pull','never','--name',runner,'--network','none','--read-only',
-          '--cap-drop','ALL','--security-opt','no-new-privileges:true',
-          '--security-opt',f'seccomp={root}/ops/docker/bubblewrap-seccomp.json',
-          '--tmpfs','/tmp:rw,exec,nosuid,nodev,size=3g,mode=1777',
-          '--mount',f'type=bind,src={socket},dst=/test-pg,readonly',
-          '--mount',f'type=bind,src={overlay},dst=/testdeps,readonly']
-    for path in ['backend/src','backend/tests','backend/migrations','local_ai']:
-        args += ['--mount',f'type=bind,src={root / path},dst=/app/{path},readonly']
-    args += ['--env','PYTHONPATH=/app/backend/src:/app/backend/tests:/app/local_ai/src:/testdeps',
-             '--env','PYTHONDONTWRITEBYTECODE=1','--env','STUDYDY_DATABASE_DSN=',
-             '--entrypoint','/app/backend/.venv/bin/python',image,'-B','-c',bootstrap,'-q','-o','cache_dir=/tmp/pytest-cache',
-             'backend/tests/runtime/sources/test_source_normalization.py::test_real_converter_inside_sandbox[.docx]',
-             'backend/tests/runtime/sources/test_source_normalization.py::test_real_converter_inside_sandbox[.pptx]',
-             'backend/tests/runtime/sources/test_source_normalization.py::test_legacy_office_source_is_saved_and_converted',
-             'backend/tests/test_office_external_resources.py::test_real_conversion_skips_private_image_and_keeps_text',
-             'backend/tests/test_office_external_resources.py::test_downloaded_public_image_survives_offline_conversion']
-    result = run(args, check=False)
-    print(f'pytest_exit_code={result.returncode}', flush=True)
-finally:
-    run(['docker','logs',pg],check=False)
-    run(['docker','rm','--force',runner,pg],check=False)
-    shutil.rmtree(base)
-    run(['docker','ps','-a','--filter',f'name={base.name}','--format','{{.Names}} {{.Status}}'])
-    print(f'cleanup temporary_directory_exists={base.exists()}',flush=True)
-
-raise SystemExit(result.returncode)
-PY
+backend/.venv/bin/python -B ops/tests/office_container.py
 ~~~
-
-`compose.test.yaml` 的 unit target 也使用固定 [Ubuntu snapshot](https://snapshot.ubuntu.com/) 安裝轉檔套件，且提供無外網、唯讀根目錄與 3 GiB 可執行 tmpfs；但預設排除 `backend/tests/runtime`，不能當作完整 backend 驗證。更新轉檔套件與政策時，須另驗證實際 PDF、頁數及來源 mapping。
 
 後端映像的轉檔套件維持已驗證的舊快照，CA／libxml2／libcurl 則從獨立安全快照安裝明確版本，避免安全更新連帶更換 LibreOffice／Bubblewrap。兩個快照日期與套件版本見 `ops/docker/backend.Dockerfile`；調整後須重新驗證實際版本、轉檔輸出及來源 mapping。
 
@@ -234,7 +149,7 @@ Podcast 的可重跑入口為 `backend/tests/runtime/materials/test_podcasts.py`
 
 主題建立：`backend/tests/runtime/materials/test_topics.py` 驗證確認前無研究工作、選取前無空教材、批准重送、過期版本、跨帳號、取消晚到及刪除後不復活，並使用隔離 DB 沿原 publisher 建立地圖。`frontend/e2e/mock/topics.spec.ts` 驗證可修改範圍、選取後才建立、重開與零來源處理；這些替身測試與公開站真實 Luna／來源流程的證據分開記錄。
 
-場景對齊：`backend/tests/test_scene_alignment.py` 驗證測得時間點、同音字不改稿、不可杜撰時間及流程條件；`backend/tests/runtime/materials/test_podcast_scenes.py` 驗證真 DB 的依賴身分、準備重送、取消晚到、刪除與音訊不變。`frontend/e2e/mock/podcasts.spec.ts` 的同步案例使用測試 WAV 的實際 media clock，檢查暫停、seek、2× 倍速及版面；不能用此替代真實 Podcast 對齊驗收。
+場景對齊：`backend/tests/test_scene_alignment.py` 驗證測得時間點、同音字不改稿、不可杜撰時間及流程條件；`backend/tests/runtime/materials/test_podcast_scenes.py` 驗證真 DB 的依賴身分、準備重送、取消晚到、刪除與音訊不變。`frontend/e2e/mock/podcasts.spec.ts` 的同步案例使用測試 WAV 的實際 media clock，檢查暫停、seek、2× 倍速及版面；媒體時鐘與畫格同步量測只驗證播放器呈現，不能代替 ASR 精度、實際對齊或真人聽評。
 
 Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_video_layout.py`（anchor 換算與退回、段內拆頁與退回、頁數上限、重點詞驗證與丟棄、字幕帶上緣）、`test_podcast_video_motion.py`（聚焦時間窗、章節列、重點詞像素、往返 seek）、`test_podcast_video_render.py`、`test_podcast_video_service.py` 及 `backend/tests/runtime/materials/test_podcast_videos.py`（v2／v3／v4 結果保存與讀取）覆蓋。回歸包含單人與雙人節目的音訊完成自動排隊；長對談逐字還原、角色與 Evidence 關係；短問答合併 cue；來源核對失敗後重做仍須再驗證。`frontend/e2e/mock/podcasts.spec.ts` 另驗證雙人共用 cue 的角色標籤與跳轉。這些合成測試不代表真實音質或分鏡品質。
 
@@ -247,19 +162,29 @@ Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_
 - `runtime/materials/test_podcast_interaction_browser.py` 與 `e2e/api/podcast-interaction.spec.ts` 使用真 API／DB，驗證來源開啟、Voice 問答與語音、VTT、末集入口及原 revision Assessment handoff。字幕可以比教學單位細，Voice 仍收到完整原段落。
 - `e2e/mock/podcasts.spec.ts` 與 `material-tools.spec.ts` 覆蓋 seek、倍速、音訊切換影片、字幕開關、無 alignment 時手動選段、固定提問 context、已完成 session 不重開、過期 cue 拒絕及手機版面。
 
+分集須保留 claims 的順序、身分與引用，在容量允許時保持概念完整；planner 與 provider 共用現行容量契約。比較講稿或語音效果應固定來源與 revision，不以篇幅、時長或較少分集代替深入程度與教學成效。
+
+Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實體麥克風或辨識品質驗收。
+
 ## Podcast 動畫與影片快取
 
 `test_podcast_video_motion.py`、`test_podcast_video_layout.py`、`test_podcast_video_render.py` 與 `test_podcast_video_service.py` 覆蓋進場、焦點、關係、flow／exchange、換頁、reveal／emphasis、字幕錨點、往返 seek、媒體時鐘、既存格式與重複渲染；geometry、來源與時間驗證仍須通過。字形像素回歸核對透明度合成，快取回歸核對像素與進度更新，不以快取改變畫面內容。
 
 `runtime/materials/test_podcast_videos.py` 核對 ready 重開不重製、ownership／range、取消／重試／晚到結果，以及無效 motion anchor 不得寫入 artifact。影片維持 1920×1080／60fps；效能比較應固定分鏡、音訊、編碼參數與工作負載，核對完整解碼、音訊及換頁畫格，不以不同生成內容的總耗時宣稱加速。
 
-動畫依保存資料與播放時間計算，不累積影格狀態；反向 seek 與重訪相同時間須得到一致結果。既有粗錨點不得靠猜測細時序補動畫。工程檢查不代替真人觀看、音質或教學成效驗收。
+動畫依保存資料與播放時間計算，不累積影格狀態；反向 seek 與重訪相同時間須得到一致結果。工程檢查不代替真人觀看、音質或教學成效驗收。
+
+效能報告須分清繪圖、編碼與模型／TTS／ASR 的量測範圍，單一主機與素材的量測不保證其他素材同樣受益。慢速播放會放大低幀率的時間取樣差異，不能只因 CPU 收益就降低呈現規格。
+
+粗錨點可能同時呈現多項資訊，沒有新語意錨點時不憑空補動畫；crossfade 仍可能有短暫疊影。少量工程與播放抽查不能外推為多教材、長課程、行動裝置或所有瀏覽器均已全面驗收。
 
 ## 學習互動與生成租約
 
 隔離 DB 與受控 provider 驗證首答完成、錯後兩道不同題連對、再錯重計、再次練習保留完成、部分／零可檢測，以及未變重點的跨版本承接。前端回歸涵蓋測驗清單與直接接題、固定比例概念卡、Voice Mode 持續聆聽／靜音送出／打斷播放、權限失敗清理、歷史對話與來源編號。模擬音量只驗證互動，不代表真實麥克風或回音環境通過。
 
 `runtime/materials/test_generation_leases.py` 使用隔離 DB 驗證問答、主題與研究跨過原租約期限後仍不被重新領取，取消仍傳至 provider。轉檔取消與模型子程序回收由前述 `test_normalization_cancellation.py`、`test_podcast_process.py` 覆蓋，不呼叫真實模型。
+
+模型、語音、辨識及資源排隊的取消須傳到實際子程序，無生成期限不代表取消失效。健康檢查不得排在生成工作後面。
 
 ## 搜尋、網頁正文與研究閱讀
 
@@ -269,7 +194,11 @@ Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_
 
 定位結果須逐段列出 read／skip／uncertain 與理由，所有編號恰好一次；重複、漏列或越界不得靜默去重。略過區段的線索與理由須保存並供缺口檢查使用，避免把參考文獻誤判成漏讀正文。
 
-來源核對涵蓋無 `.pdf` 副檔名的下載入口、登入／下載標題頁與真正正文的區別，以及跨相鄰文字區塊的完整題名比對；取得 PDF 不等於取得匯入授權。同一論文且內容 hash 相同時可重用已完成的全文審閱，部分選讀不得代替全文，不同內容版本仍須重新閱讀；重用審閱不複製其他入口的匯入資格。
+來源核對涵蓋無 `.pdf` 副檔名的下載入口、登入／下載標題頁與真正正文的區別，以及跨相鄰文字區塊的完整題名比對，不以相似度放寬；取得 PDF 不等於取得匯入授權；只取得登入、下載入口或題名時，應回報正文未取得，不把它判成內容偏題。同一論文且內容 hash 相同時可重用已完成的全文審閱，部分選讀不得代替全文，不同內容版本仍須重新閱讀；重用審閱不複製其他入口的匯入資格。
+
+少量公開查詢或替代入口成功，不保證其他主題的來源可用性、長期穩定性或完整即時回答。局部閱讀流程的量測未包含搜尋、下載或補查時，不得當作端到端效能結論。
+
+僅列為參考的來源不能代替經正文核對、符合匯入條件的教材內容。資訊不足時可擴充導讀，具體缺口可促使背景來源升級閱讀或補讀既有來源，但不得僅因只讀過部分區段就重讀全文。
 
 ## 八路獨立子圖
 
@@ -286,6 +215,8 @@ Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_
 長對話回歸驗證按 token 超額壓縮、超過三輪的短對話完整保留、摘要沿用、不重壓舊輪次與無效摘要不得靜默丟棄歷史。Runtime 另驗證摘要與回答一起保存、取消隔離、重試舊問題不讀未來摘要、原始輪次保留及刪除時清除摘要。這些合成測試不等於真實摘要內容品質已通過。
 
 研究涵蓋核對以單一子題的已選原文為單位，變動時重算該題並保留其他題快取；請求容量不足時接續分批，不以新來源摘要覆蓋舊機制。`test_research_workflow.py` 驗證跨來源合併、變動子題隔離、來源撤回與更正、分批範圍及無原文不得宣稱涵蓋。
+
+補入更多檢索內容未必提升品質，還須核對原有例子與細節是否被擠掉。局部改善不能外推為所有教材都會受益。
 
 ## 概念卡整理、版面設計與持久進度
 
@@ -305,11 +236,15 @@ Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_
 
 `test_cross_language_claims.py`、`test_material_localization.py`、`test_review_language.py` 覆蓋原文引用不變、數值／單位／程式保護、跨段公式邊界、代號遺漏與重複、混入外語詞及修正後保留的完整來源。子圖語言補正失敗會阻止該批完成；Review 的局部語言修正無法核對時保留原文並標記 `needs_review`，其他合法修改仍可套用，保留代號遺漏或重複的提案則仍拒絕。獨立子圖與審查回歸另核對呼叫計數、已完成結果重用及舊工作提示不可被新政策覆蓋。
 
+語言與功能驗證不等於內容全面認可，原教材內容不足的 `SOURCE_REVIEW_SUGGESTED` 必須保留。有限語言樣本的檢查不能外推為所有語言、否定條件或專業術語均已驗收。
+
 ## 問答與補充研究的機制效率
 
 問答在沒有對話／Podcast 指涉時先檢索原問題；空結果再規劃查詢，仍保留回答、逐段引用核對與補查。`test_material_qa.py` 驗證直接路徑、空結果補救、對話指涉、否定與技術字面值、無依據拒答及上下文容量。
 
 補充研究先從使用者要求閱讀的網址取得原頁，沿用來源身分、授權與安全連線檢查；不把網址改成搜尋詞重找同一篇。來源數量／授權等管理要求不當作每篇正文必須回答的知識子題。「使用目前已核對的來源」會整理現有結果並保留缺口，不宣稱研究全部完成。workflow／來源單元測試、隔離研究 runtime 及 research-background 瀏覽器案例覆蓋網址排除、無授權不得匯入、停止後選用及晚到 worker 拒絕。
+
+問答核對必須回到原文，不能以 Claim 改述充當原文依據；無法支持的斷言不得發布。
 
 ## 持續語音的人聲判定
 
@@ -325,7 +260,9 @@ Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_
 
 已涵蓋的子題仍可查證具體方法或反例，原有支持來源不因此撤除；續接舊政策時重核原文涵蓋，不重抓或丟棄已讀來源。單一地區、個案或預印本的支持範圍須如實保留，部分支持不等於來源無用。`requested_scope` 只建立選取要求；必須另核對 `locate_scope` 的原文頁碼／區塊定位。
 
-`ops/research/qualify_scope.py` 使用已確認範圍驗證真實流程，部分涵蓋以非零結束碼回報。驗收須核對引用、原檔與研究限制，不以請求數或單次模型涵蓋判定當作品質分數。原始結果、失敗與中斷嘗試、來源核對及必要原檔只留本機私人紀錄，不加入 Git／CI。
+單次模型涵蓋判定不能視為穩定滿分；搜尋與模型輸出會變動，不能僅以涵蓋結果差異推定單一改動的效果。原檔保存與引用定位通過不等於搜尋或學術內容品質通過，仍須區分直接觀察、作者解釋及研究適用範圍。
+
+`ops/research/qualify_scope.py` 使用已確認範圍驗證真實流程，部分涵蓋以非零結束碼回報。原始結果、失敗與中斷嘗試、來源核對及必要原檔只留本機私人紀錄，不加入 Git／CI。
 
 ## 專用 UID 的隔離驗證
 
