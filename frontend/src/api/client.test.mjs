@@ -1083,7 +1083,7 @@ function podcastView() {
     schema: "podcast/v1", podcast_id: setId, material_id: materialId,
     material_name: view.material_name, knowledge_structure_revision: structureRevision,
     name: "聽重點", delivery: "solo", concept_ids: [conceptId], status: "ready", error_code: null,
-    version: 3, created_at: view.created_at, episode_count: 1, completed_episodes: 1,
+    version: 3, created_at: view.created_at, episode_count: 1, completed_episodes: 1, duration_seconds: 12,
     is_current_revision: true, source_resolver: view.source_resolver, source_status: view.status,
     excluded_pages: [], episodes: [{ delivery: "solo", claims: [{ ...view.cards[0].claims[0], concept_id: conceptId, label: "Stack" }],
       script: { provider: "synthetic-test", segments: [{ claim_id: claimId, turns: [{ speaker: "host", text: "堆疊遵循後進先出。" }] }] },
@@ -1098,8 +1098,12 @@ test("podcast playback rejects mismatched scripts, foreign sources and incomplet
     (v) => { v.source_resolver = v.source_resolver.replace(structureRevision, `knowledge-structure:sha256:${"f".repeat(64)}`); },
     (v) => { v.episodes[0].script.segments[0].claim_id = `claim:sha256:${"f".repeat(64)}`; },
     (v) => { v.episodes[0].claims[0].evidence = []; },
-    (v) => { v.episodes[0].audio = null; v.completed_episodes = 0; },
+    (v) => { v.episodes[0].audio = null; v.completed_episodes = 0; v.duration_seconds = null; },
     (v) => { v.episodes[0].script = null; },
+    // 總時長只在音訊全部完成時提供，且不可為負數。
+    (v) => { v.status = "running"; },
+    (v) => { v.duration_seconds = -1; },
+    (v) => { delete v.duration_seconds; },
   ]) {
     const value = podcastView(); change(value);
     await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getPodcast(setId), e => e.kind === "schema");

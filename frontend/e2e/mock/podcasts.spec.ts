@@ -17,7 +17,7 @@ async function mockPodcasts(page: Page) {
     material_name: "資料結構講義.pdf", knowledge_structure_revision: structureRevision,
     name: "我的 Podcast", delivery: "solo", concept_ids: claims.map(c => c.concept_id),
     status: "running", error_code: null, version: 1, created_at: "2026-10-03T00:00:00Z",
-    episode_count: 3, completed_episodes: 1, is_current_revision: true,
+    episode_count: 3, completed_episodes: 1, duration_seconds: null as number | null, is_current_revision: true,
     source_resolver: `/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`,
     source_status: structure.status, excluded_pages: [], episodes: [episode(), episode(), episode()],
   };
@@ -865,4 +865,25 @@ test('legacy browser position is uploaded once and playback reports real listeni
   await page.getByRole('slider', { name: '播放進度', exact: true }).fill('11.5');
   await page.getByRole('button', { name: '播放', exact: true }).click();
   await expect.poll(() => posts.some(p => p.ended === true && p.episode_index === 0), { timeout: 10_000 }).toBe(true);
+});
+
+test("podcast tiles show status only while work remains and leave version notes to the player", async ({ page }) => {
+  const fixture = await mockPodcasts(page);
+  const done = { ...fixture.view, name: "已完成的 Podcast", episode_count: 3, completed_episodes: 3, duration_seconds: 3910, status: "ready", is_current_revision: false,
+    generation: { active: false, preview_ready: true, completed_videos: 3, failed_videos: 0 } };
+  const working = { ...done, podcast_id: "88888888-8888-4888-8888-888888888888", name: "影片生成中", is_current_revision: true, status: "running", completed_episodes: 2, duration_seconds: null,
+    generation: { active: true, preview_ready: false, completed_videos: 1, failed_videos: 0 } };
+  await page.route("**/v1/podcasts", route => json(route, { schema: "podcast-list/v1", podcasts: [done, working] }));
+  await page.goto("/podcasts");
+  // 全部完成：按鈕已是「開啟播放」，不再顯示狀態列，也不在列表標示教材新版。
+  const finished = page.getByRole("article").filter({ hasText: "已完成的 Podcast" });
+  await expect(finished.getByRole("button", { name: "開啟播放" })).toBeVisible();
+  await expect(finished.locator(".library-state")).toHaveCount(0);
+  // 封面右下角是集數加總時長（滿 60 分鐘改用小時），螢幕閱讀器另有文字。
+  await expect(finished.locator(".podcast-cover i")).toHaveText("3 集 · 1 小時 5 分");
+  await expect(finished.locator(".sr-only")).toHaveText("單人解說 · 3 集 · 共 1 小時 5 分");
+  // 音訊還沒全部完成：不顯示會變動的總時長。
+  const pending = page.getByRole("article").filter({ hasText: "影片生成中" });
+  await expect(pending.locator(".podcast-cover i")).toHaveText("3 集");
+  await expect(pending.locator(".library-state")).toHaveText("正在生成 · 音訊 2 / 3 集 · 影片 1 / 3 集");
 });

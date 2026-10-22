@@ -107,7 +107,7 @@ test("site search also lists matching card sets and podcasts and opens them", as
       generation: { status: "ready", stage: "complete", completed: 1, total: 1, retained_original: 0, cached: 0, error_code: null } },
   ] } }));
   await page.route("**/v1/podcasts", (route) => route.fulfill({ json: { schema: "podcast-list/v1", podcasts: [
-    { ...common, podcast_id: podcastId, name: "陣列 Podcast", delivery: "solo", concept_ids: [concept], status: "ready", error_code: null, episode_count: 2, completed_episodes: 2 },
+    { ...common, podcast_id: podcastId, name: "陣列 Podcast", delivery: "solo", concept_ids: [concept], status: "ready", error_code: null, episode_count: 2, completed_episodes: 2, duration_seconds: 900 },
   ] } }));
   await page.goto("/");
   await page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" }).click();

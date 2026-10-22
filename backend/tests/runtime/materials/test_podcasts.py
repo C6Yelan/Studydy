@@ -68,6 +68,8 @@ def test_persistent_script_audio_retry_and_idempotency(closed_loop):
     assert podcasts.finish_step(audio_claim, error="PODCAST_PROVIDER_FAILED", dsn=dsn)
     view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
     assert view["status"] == "failed" and view["episodes"][0]["script"] == saved_script
+    # 音訊還沒全部完成時不給總時長。
+    assert view["duration_seconds"] is None
     podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
     retry = podcasts.claim_step(dsn=dsn)
     assert retry["episode"]["script"] == saved_script
@@ -75,6 +77,9 @@ def test_persistent_script_audio_retry_and_idempotency(closed_loop):
     view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
     assert view["status"] == "ready" and view["completed_episodes"] == 1
     assert view["episodes"][0]["audio"]["duration_seconds"] == 1
+    # 全部分集完成後，總時長是各集音訊長度的合計，清單也一樣。
+    assert view["duration_seconds"] == 1
+    assert podcasts.list_podcasts(owner.learner_id, dsn=dsn)["podcasts"][0]["duration_seconds"] == 1
     assert not podcasts.finish_step(audio_claim, audio=wav(), audio_provider="synthetic-test", dsn=dsn)
     with psycopg.connect(dsn) as db:
         assert db.execute("SELECT count(*) FROM study_sessions").fetchone() == (0,)
@@ -467,6 +472,8 @@ def test_podcast_list_batches_child_states_without_changing_summaries(closed_loo
                     ))
                 expected.append({**base, 'podcast_id': values['podcast_id'], 'name': values['name'],
                                  'status': status, 'created_at': values['created_at'],
+                                 # 總時長只在節目 ready（音訊全部完成）時提供。
+                                 'duration_seconds': base['duration_seconds'] if status == 'ready' else None,
                                  'generation': dict(zip(('active', 'completed_videos', 'failed_videos',
                                                         'preview_ready', 'retryable_videos'), generation))})
         statements = []

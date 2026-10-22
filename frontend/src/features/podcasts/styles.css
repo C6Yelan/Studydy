@@ -1,7 +1,8 @@
 .podcast-library .library-header { margin-bottom: 14px; }
 .podcast-library .library-header p { color: var(--text-secondary); margin: 8px 0 0; }
 .podcast-cover { display: inline-grid; place-items: center; width: 66px; height: 66px; border-radius: 20px; background: var(--studydy-blue-soft); color: var(--studydy-blue); flex: 0 0 auto; }
-.podcast-tile h2 { font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+/* 標題不預留第二行，單行標題與下方教材名稱之間不留空白。 */
+.podcast-library .podcast-tile h2 { min-height: 0; margin: 6px 0 4px; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
 .podcast-tile p { overflow-wrap: anywhere; }
 .podcast-tile > .primary-button { margin-top: auto; align-self: flex-start; min-height: 40px; padding: 8px 12px; font-size: 13px; }
 /* 節目封面：機器人戴著聲波圈，左上標示單人或雙人。 */

@@ -310,7 +310,7 @@ test("quick access resumes the most recently listened podcast that is not finish
   const podcast = (seed: number, name: string) => ({
     podcast_id: uuid(seed), material_id: materialId, material_name: longName, knowledge_structure_revision: revision,
     name, delivery: "solo", concept_ids: [`concept:sha256:${"b".repeat(64)}`], status: "ready", error_code: null,
-    version: 1, created_at: "2026-09-12T00:00:00Z", episode_count: 2, completed_episodes: 2, is_current_revision: true,
+    version: 1, created_at: "2026-09-12T00:00:00Z", episode_count: 2, completed_episodes: 2, duration_seconds: 600, is_current_revision: true,
   });
   // 30 號最新但兩集都聽完；31 號是聽到一半中最新的；32 號較舊。
   const progress: Record<string, unknown> = {

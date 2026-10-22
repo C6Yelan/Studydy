@@ -259,7 +259,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  justify-self: start;
+  /* 卡片內容是直向 flex，需用 align-self 才不會被拉滿寬度。 */
+  align-self: flex-start;
   margin: 0;
   padding: 2px 10px;
   border-radius: 999px;

@@ -1343,6 +1343,9 @@ export function podcastSummary(value: unknown): value is PodcastSummary {
     && Number.isInteger(item.episode_count) && Number(item.episode_count) > 0
     && Number.isInteger(item.completed_episodes) && Number(item.completed_episodes) >= 0
     && Number(item.completed_episodes) <= Number(item.episode_count)
+    // 總時長只在音訊全部完成（ready）時提供。
+    && (item.duration_seconds === null || typeof item.duration_seconds === "number" && Number.isFinite(item.duration_seconds)
+      && item.duration_seconds >= 0 && item.status === "ready" && item.completed_episodes === item.episode_count)
     && typeof item.is_current_revision === "boolean";
 }
 

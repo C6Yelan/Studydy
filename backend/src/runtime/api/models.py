@@ -1309,6 +1309,8 @@ class PodcastSummary(_Closed):
     created_at: datetime
     episode_count: int
     completed_episodes: int
+    # 所有分集音訊的總秒數；音訊未全部完成時為 null。
+    duration_seconds: float | None
     is_current_revision: bool
     generation: PodcastGeneration
 

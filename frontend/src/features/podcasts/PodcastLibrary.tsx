@@ -13,6 +13,10 @@ import { EmptyState } from "../../ui/EmptyState";
 
 export const podcastPreviewReady = (item: PodcastSummary) => item.status === 'ready' && item.generation?.preview_ready === true;
 
+// 音訊與影片都已完成、沒有進行中或失敗的影片。
+const podcastComplete = (item: PodcastSummary) => item.status === "ready" && !!item.generation && !item.generation.active
+  && !item.generation.failed_videos && item.generation.completed_videos >= item.episode_count;
+
 export const podcastStatus = { pending: "等待生成", running: "正在生成", ready: "可以播放", failed: "生成中斷", cancelled: "已取消" };
 
 export function PodcastLibrary({ apiClient, learnerId, material, contentNavigation }: { apiClient: StudydyApiClient; learnerId: string; material?: MaterialLibraryItem; contentNavigation?: ReactNode }) {
@@ -71,7 +75,8 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
       : <>
         <div className="library-grid">{items?.map((item) => <article className="surface library-item podcast-tile" key={item.podcast_id}>
           <PodcastCover item={item} />
-          <p className="library-metadata">{item.delivery === "dialogue" ? "雙人對談" : "單人解說"} · {item.episode_count} 集</p>
+          {/* 封面只是裝飾（aria-hidden），形式、集數與總時長另以文字提供給螢幕閱讀器。 */}
+          <p className="sr-only">{item.delivery === "dialogue" ? "雙人對談" : "單人解說"} · {item.episode_count} 集{item.duration_seconds !== null && ` · 共 ${podcastLength(item.duration_seconds)}`}</p>
           <PodcastManagement item={item} apiClient={apiClient} onChanged={() => {mutationVersion.current++;setReload(v => v + 1);}} onDeleted={() => {
             mutationVersion.current++;
             try { localStorage.removeItem(`studydy.podcast.position:${learnerId}:${item.podcast_id}`); } catch { /* 不影響伺服器刪除。 */ }
@@ -79,10 +84,10 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
             setReload(v=>v+1);heading.current?.focus();
           }} />
           {!material && <p className="podcast-material-name" title={item.material_name}>{item.material_name}</p>}
-          {item.generation ? <p className="library-state">{item.generation.active ? (item.status === 'ready' ? '影片／字幕生成中' : podcastStatus[item.status]) : item.generation.failed_videos ? '部分影片生成失敗' : podcastStatus[item.status]} · 音訊 {item.completed_episodes} / {item.episode_count} 集 · 影片 {item.generation.completed_videos} / {item.episode_count} 集</p>
+          {/* 全部完成時不顯示狀態（按鈕已是「開啟播放」）；生成中、中斷或部分影片失敗時才顯示進度。 */}
+          {item.generation ? !podcastComplete(item) && <p className="library-state">{item.generation.active ? (item.status === 'ready' ? '影片／字幕生成中' : podcastStatus[item.status]) : item.generation.failed_videos ? '部分影片生成失敗' : podcastStatus[item.status]} · 音訊 {item.completed_episodes} / {item.episode_count} 集 · 影片 {item.generation.completed_videos} / {item.episode_count} 集</p>
             : item.status !== "ready" && <p className="library-state">{podcastStatus[item.status]} · 音訊已完成 {item.completed_episodes} / {item.episode_count} 集</p>}
           {(item.generation?.active || ['pending','running'].includes(item.status)) && <PodcastCancelControl busy={deletingId!==null} onConfirm={()=>void cancelAndDelete(item.podcast_id)}/>}
-          {!item.is_current_revision && <p className="library-state is-version">教材已有新版 · 保留建立時版本</p>}
           <button type="button" className="primary-button" onClick={() => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id })}>{podcastPreviewReady(item) ? "開啟播放" : "查看進度"}</button>
         </article>)}</div></>}
     </div>
@@ -98,6 +103,13 @@ function PodcastCover({ item }: { item: PodcastSummary }) {
     <span className="podcast-cover-rings" />
     <img src="/assets/studydy/brand-idle.png" alt="" />
     <em>{item.delivery === "dialogue" ? "雙人對談" : "單人解說"}</em>
-    <i>{item.episode_count} 集</i>
+    <i>{item.episode_count} 集{item.duration_seconds !== null && ` · ${podcastLength(item.duration_seconds)}`}</i>
   </span>;
+}
+
+// 總時長以分鐘顯示（不足 1 分鐘算 1 分），滿 60 分鐘改成「N 小時 M 分」。
+export function podcastLength(seconds: number) {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} 分`;
+  return `${Math.floor(minutes / 60)} 小時${minutes % 60 ? ` ${minutes % 60} 分` : ""}`;
 }

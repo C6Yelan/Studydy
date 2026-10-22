@@ -81,6 +81,9 @@ def _summary(row, material, child_statuses):
         "episode_count": len(row.episodes),
         "generation": generation,
         "completed_episodes": sum(bool(e.get("audio")) for e in row.episodes),
+        # 全部分集的音訊都完成後才給總時長；生成中不顯示會變動的數字。
+        "duration_seconds": sum(e["audio"]["duration_seconds"] for e in row.episodes)
+        if row.status == "ready" and all(e.get("audio") for e in row.episodes) else None,
         "is_current_revision": row.knowledge_structure_revision
         == material.head_revision,
     }
