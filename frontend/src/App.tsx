@@ -202,7 +202,7 @@ export default function App() {
       status={<LearningProgressPill apiClient={session.api} learnerId={session.identity.learner_id} />}
       accountAction={
         <>
-          <HeaderTools apiClient={session.api} />
+          <HeaderTools apiClient={session.api} profileCurrent={route.name === "profile"} />
           <button className="account-button" type="button" onClick={() => void logout()}>
             <Icon name="logout" size={18} />
             <span className="account-button-label">登出</span>

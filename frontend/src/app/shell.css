@@ -13,7 +13,7 @@
   position: relative;
   min-height: 100vh;
 }
-/* 首頁在寬螢幕放寬版面，多出的寬度給群島地圖。 */
+/* 首頁與清單頁在寬螢幕放寬版面，多出的寬度給群島地圖與卡片格線。 */
 .app-shell.is-wide {
   --application-frame-max: 2200px;
 }
@@ -431,22 +431,13 @@
   font-size: 12px;
   font-weight: 700;
 }
-.profile-dialog > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 20px 24px 4px;
-}
-.profile-dialog h2 {
-  margin: 0;
-  font-size: 20px;
-}
-/* 三個分區在對話框內捲動，標題列固定。 */
+/* 個人檔案頁的帳號設定：三個分區上下排列，以分隔線區隔。 */
 .account-settings {
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 24px 24px;
+  padding: 20px 22px;
+}
+.account-settings h2 {
+  margin: 0;
+  font-size: 17px;
 }
 .account-settings section {
   display: grid;
@@ -495,6 +486,10 @@
   margin: 0;
   color: var(--text-muted);
   font-size: 13px;
+}
+/* 個人檔案頁時頭像按鈕標示目前位置。 */
+.account-profile[aria-current="page"] {
+  box-shadow: 0 0 0 2px var(--studydy-blue);
 }
 @media (max-width: 1280px) {
   .header-search-trigger {

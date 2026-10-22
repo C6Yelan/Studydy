@@ -1,0 +1,83 @@
+/* 個人檔案：頁首頭像與名稱；左欄學習成就，右欄帳號設定（窄螢幕上下排列）。 */
+.profile {
+  display: grid;
+  gap: 24px;
+}
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.profile-avatar {
+  display: grid;
+  flex: none;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--studydy-blue-soft);
+  color: var(--studydy-blue);
+  font-size: 30px;
+  font-weight: 900;
+}
+.profile-head .eyebrow { margin-bottom: 4px; }
+.profile-head h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.4vw, 1.9rem);
+  overflow-wrap: anywhere;
+}
+.profile-summary {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+.profile-settings-jump { margin-left: auto; flex: none; }
+.profile-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 24px;
+  align-items: start;
+}
+.profile-achievements { min-width: 0; }
+.profile-achievements-error { padding: 20px 22px; }
+.profile-achievements-error h2 { margin: 0 0 6px; font-size: 17px; }
+.profile-achievements-error p { margin: 0; color: var(--text-secondary); }
+/* 成就區：左欄等級與總覽、右欄本週節奏，徽章牆在下方全寬。 */
+.achievements-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "level week" "overview week" "badges badges";
+  gap: 24px;
+  align-items: start;
+}
+.achievements-grid > .surface {
+  padding: 20px 22px;
+}
+.achievements-grid h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.achievements-grid .dashboard-level { grid-area: level; }
+.achievements-grid .dashboard-overview { grid-area: overview; }
+.achievements-grid .dashboard-overview h2 { margin-bottom: 14px; }
+.achievements-grid .dashboard-stats { grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); }
+.achievements-grid .dashboard-week { grid-area: week; align-self: stretch; }
+.achievements-grid .badge-collection { grid-area: badges; }
+@media (min-width: 1201px) {
+  /* 寬螢幕帳號設定就在右欄，不需要跳轉按鈕（需高於共用按鈕樣式的優先順序）。 */
+  .profile-head .profile-settings-jump { display: none; }
+}
+@media (max-width: 1200px) {
+  .profile-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .achievements-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "level" "overview" "week" "badges";
+  }
+}
+@media (max-width: 720px) {
+  .profile-head { flex-wrap: wrap; }
+  .profile-avatar { width: 56px; height: 56px; font-size: 24px; }
+  .profile-settings-jump { width: 100%; margin-left: 0; }
+}

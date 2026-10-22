@@ -1407,6 +1407,9 @@
 @media (max-width:1599px) { .is-collection .library-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media (max-width:1199px) { .is-collection .library-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:650px) { .is-collection .library-grid { grid-template-columns:minmax(0,1fr); } }
+/* 寬螢幕清單頁放寬到 2200px：多加欄數，卡片維持約 350px 寬，不放大插圖。 */
+@media (min-width:1800px) { .is-collection .library-grid { grid-template-columns:repeat(5,minmax(0,1fr)); } }
+@media (min-width:2300px) { .is-collection .library-grid { grid-template-columns:repeat(6,minmax(0,1fr)); } }
 
 /* 知識群島：教材卡片頂部是教材自己的島嶼。 */
 .library-item,

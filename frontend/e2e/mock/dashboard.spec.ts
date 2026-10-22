@@ -300,11 +300,20 @@ test("home keeps only quests beside the map; achievements and reviews have their
   for (const name of ["第 2 級", "我的徽章", "本週學習節奏", "學習總覽", "Podcast", "概念卡複習"])
     await expect(page.getByRole("region", { name, exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: /第 2 級 · 245 XP/ }).click();
-  await expect(page).toHaveURL(/\/achievements$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("我的成就");
+  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page.getByRole("region", { name: "第 2 級" })).toBeVisible();
   await page.goto("/");
   await page.getByRole("button", { name: "開始複習：複習 5 張新的概念卡" }).click();
   await expect(page).toHaveURL(/\/concept-cards$/);
+});
+
+test("old achievements address opens the profile and home has no date line", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("歡迎回來！今天想探索哪座島？");
+  await expect(page.locator(".dashboard-greeting .eyebrow")).toHaveCount(0);
+  await page.goto("/achievements");
+  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page.getByRole("region", { name: "帳號設定" })).toBeVisible();
 });
 
 test("achievements week rhythm shows answers, card reviews and listening per day", async ({ page }) => {
@@ -314,7 +323,7 @@ test("achievements week rhythm shows answers, card reviews and listening per day
       { answers: 2, correct: 1, active: true }, { listened_seconds: 59 }, { answers: 5, correct: 4, card_reviews: 6, listened_seconds: 600, active: true },
     ],
   }) }));
-  await page.goto("/achievements");
+  await page.goto("/profile");
   const week = page.getByRole("region", { name: "本週學習節奏" });
   await expect(week.getByText("連續 3 天")).toBeVisible();
   await expect(week.getByRole("listitem")).toHaveCount(7);
@@ -332,10 +341,10 @@ test("achievements level card, overview and header show real numbers without inv
     sources: { answers: 180, concepts: 30, cards: 20, podcast: 15 },
   }) }));
   await page.goto("/");
-  const pill = page.getByRole("button", { name: "連續學習 4 天，第 2 級，累計 245 XP，查看成就" });
+  const pill = page.getByRole("button", { name: "連續學習 4 天，第 2 級，累計 245 XP，查看個人檔案" });
   await expect(pill).toContainText("Lv 2");
   await pill.click();
-  await expect(page).toHaveURL(/\/achievements$/);
+  await expect(page).toHaveURL(/\/profile$/);
   const level = page.getByRole("region", { name: "第 2 級" });
   await expect(level.getByText("累計 245 XP · 今天 +32")).toBeVisible();
   await expect(level.getByRole("progressbar", { name: "第 2 級經驗值" })).toHaveAttribute("aria-valuetext", "145 / 200 XP");
@@ -356,7 +365,7 @@ test("achievements level card, overview and header show real numbers without inv
 test("achievements overview shows dashes when the library cannot be read", async ({ page }) => {
   await page.route("**/v1/materials", (route) => route.fulfill({ status: 503, json: unavailable }));
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ days: [{ answers: 10, correct: 7, active: true }] }) }));
-  await page.goto("/achievements");
+  await page.goto("/profile");
   const stats = page.getByRole("region", { name: "學習總覽" }).locator(".dashboard-stats strong");
   // 作答數與答對率來自學習活動，不受教材清單失敗影響。
   await expect(stats).toHaveText(["—", "—", "—", "10", "70%"]);
@@ -418,7 +427,7 @@ test("achievements badge wall shows earned dates and real progress", async ({ pa
       future_badge: { earned_on: "2026-10-20" },
     },
   }) }));
-  await page.goto("/achievements");
+  await page.goto("/profile");
   const wall = page.getByRole("region", { name: "我的徽章" });
   await expect(wall.locator(".badge-count")).toHaveText("2 / 10");
   // 下一個徽章取進度比例最高的未取得徽章（42/100 高於第 1 級 / 5）。
@@ -466,9 +475,11 @@ test("dashboard hides learning numbers when learning activity is unavailable", a
   await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "今日任務" })).toHaveCount(0);
   await expect(page.locator(".dashboard-achievements, .header-progress")).toHaveCount(0);
-  await page.goto("/achievements");
+  await page.goto("/profile");
   await expect(page.getByText("無法讀取學習成就")).toBeVisible();
   await expect(page.locator(".dashboard-level, .badge-collection")).toHaveCount(0);
+  // 帳號設定不受影響。
+  await expect(page.getByRole("region", { name: "帳號設定" }).getByRole("button", { name: "儲存名稱" })).toBeEnabled();
 });
 
 for (const count of [3, 6, 9])
@@ -597,3 +608,25 @@ test("dashboard islands read the progress summary instead of the full outline", 
   expect(requested.some((path) => path.includes(`/progress-summary?study_session_id=${sessionId}`))).toBe(true);
   expect(requested.filter((path) => /\/outline|\/map-progress/.test(path))).toEqual([]);
 });
+
+for (const [width, height, fits] of [[1920, 950, true], [2560, 1300, true], [1440, 760, true], [1366, 680, false], [1024, 768, false]] as const)
+  test(`home ${fits ? "fits the window without scrolling" : "keeps a readable map and scrolls"} at ${width}×${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await mockLibrary(page, () => manyMaterials(9));
+    await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+      quests: [{ kind: "review_new_cards", progress: 0, target: 5, done: false }, { kind: "continue_study", progress: 0, target: 1, done: false }],
+    }) }));
+    await page.goto("/");
+    await expect(islands(page)).toHaveCount(9);
+    await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
+    const map = (await page.locator(".island-map-viewport").boundingBox())!;
+    if (fits) {
+      expect(overflow).toBeLessThanOrEqual(0);
+      await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeInViewport({ ratio: 1 });
+    } else {
+      // 較小的螢幕：地圖維持最小高度，頁面照常捲動。
+      expect(overflow).toBeGreaterThan(0);
+      expect(map.height).toBeGreaterThanOrEqual(380);
+    }
+  });

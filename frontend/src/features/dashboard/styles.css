@@ -5,12 +5,9 @@
 }
 .dashboard-greeting {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-}
-.dashboard-greeting .eyebrow {
-  margin-bottom: 6px;
 }
 .dashboard-greeting h1 {
   margin: 0;
@@ -822,6 +819,21 @@
 /* 寬螢幕：右欄維持固定寬度，多出的寬度都給地圖。 */
 @media (min-width: 1800px) {
   .dashboard-content { grid-template-columns: minmax(0, 1fr) 380px; }
+}
+/* 夠大的桌機螢幕（例如 1920×1080）：首頁剛好填滿視窗、不出現捲軸，地圖吃掉剩餘高度；
+   較小的螢幕維持地圖最小高度，頁面照常捲動。 */
+@media (min-width: 1201px) and (min-height: 760px) {
+  .app-shell.is-home .app-main { padding-bottom: 24px; }
+  /* 頁首 70px＋內容區上緣 26px＋下緣 24px（--shell-offset 在不同寬度不等於實際頁首位置，這裡用實測值）。 */
+  .dashboard {
+    height: calc(100dvh - 120px);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .dashboard-content { min-height: 0; align-items: stretch; }
+  .dashboard-content > .archipelago { display: flex; flex-direction: column; min-height: 0; }
+  .dashboard-content > .archipelago > .island-map { flex: 1; min-height: 0; }
+  .island-map-viewport { height: 100%; min-height: 380px; }
+  .dashboard-side { align-content: start; min-height: 0; overflow-y: auto; }
 }
 
 @media (max-width: 720px) {

@@ -109,39 +109,48 @@ test("display name is saved with Origin, validated, and greets on the home page"
   });
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("歡迎回來！今天想探索哪座島？");
-  const trigger = page.getByRole("button", { name: "帳號設定：尚未設定名稱" });
-  await trigger.click();
-  const dialog = page.getByRole("dialog", { name: "帳號設定" });
-  const field = dialog.getByRole("textbox", { name: "顯示名稱" });
+  await page.getByRole("button", { name: "個人檔案：尚未設定名稱" }).click();
+  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("尚未設定名稱");
+  await expect(page.getByRole("button", { name: "個人檔案：尚未設定名稱" })).toHaveAttribute("aria-current", "page");
+  const settings = page.getByRole("region", { name: "帳號設定" });
+  const field = settings.getByRole("textbox", { name: "顯示名稱" });
   await field.fill("一".repeat(21));
-  await expect(dialog.getByText("名稱最多 20 個字，目前 21 個字。")).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "儲存" })).toBeDisabled();
+  await expect(settings.getByText("名稱最多 20 個字，目前 21 個字。")).toBeVisible();
+  await expect(settings.getByRole("button", { name: "儲存名稱" })).toBeDisabled();
   await field.fill("  以安 ");
-  await dialog.getByRole("button", { name: "儲存" }).click();
-  await expect(dialog).toBeHidden();
+  await settings.getByRole("button", { name: "儲存名稱" }).click();
+  await expect(settings.getByRole("region", { name: "個人名稱" }).getByRole("status")).toHaveText("名稱已更新。");
   expect(posts).toEqual([{ origin: new URL(page.url()).origin, body: { schema: "learner-profile-update/v1", display_name: "以安" } }]);
-  await expect(page.getByRole("button", { name: "帳號設定：以安" })).toBeFocused();
+  // 頁首與個人檔案標題立即更新。
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("以安");
+  await expect(page.getByRole("button", { name: "個人檔案：以安" })).toBeVisible();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "首頁" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^(早安|午安|晚安)，以安！今天想探索哪座島？$/);
   // 清空即移除名稱，回到原本的問候。
-  await page.getByRole("button", { name: "帳號設定：以安" }).click();
-  await dialog.getByRole("textbox", { name: "顯示名稱" }).fill("");
-  await dialog.getByRole("button", { name: "儲存" }).click();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("歡迎回來！今天想探索哪座島？");
+  await page.getByRole("button", { name: "個人檔案：以安" }).click();
+  await settings.getByRole("textbox", { name: "顯示名稱" }).fill("");
+  await settings.getByRole("button", { name: "儲存名稱" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("尚未設定名稱");
   expect(posts.at(-1)!.body).toEqual({ schema: "learner-profile-update/v1", display_name: null });
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "首頁" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("歡迎回來！今天想探索哪座島？");
 });
 
-test("profile save failure keeps the dialog open with the entered name", async ({ page }) => {
+test("profile save failure keeps the entered name and shows the error", async ({ page }) => {
   await mockKnowledgeMapApi(page);
   await page.route("**/v1/profile", (route) => route.request().method() === "POST"
     ? route.fulfill({ status: 400, json: { schema: "api-error/v1", request_id: otherMaterial, reason_code: "REQUEST_INVALID", retryable: false, message: "x" } })
     : route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } }));
   await page.goto(mapPath);
-  await page.getByRole("button", { name: "帳號設定：尚未設定名稱" }).click();
-  const dialog = page.getByRole("dialog", { name: "帳號設定" });
-  await dialog.getByRole("textbox", { name: "顯示名稱" }).fill("以安");
-  await dialog.getByRole("button", { name: "儲存" }).click();
-  await expect(dialog.getByRole("alert")).toBeVisible();
-  await expect(dialog.getByRole("textbox", { name: "顯示名稱" })).toHaveValue("以安");
+  await page.getByRole("button", { name: "個人檔案：尚未設定名稱" }).click();
+  const settings = page.getByRole("region", { name: "帳號設定" });
+  await settings.getByRole("textbox", { name: "顯示名稱" }).fill("以安");
+  await settings.getByRole("button", { name: "儲存名稱" }).click();
+  await expect(settings.getByRole("alert")).toBeVisible();
+  await expect(settings.getByRole("textbox", { name: "顯示名稱" })).toHaveValue("以安");
+  // 學習活動讀不到時只有成就區顯示錯誤，帳號設定照常可用。
+  await expect(page.getByText("無法讀取學習成就")).toBeVisible();
 });
 
 function apiError(reason: string, status: number, retryable = false) {
@@ -174,9 +183,8 @@ test("password change validates input, reports a wrong current password and then
   const { writes, passwordReplies } = await mockAccount(page);
   passwordReplies.push(() => apiError("CURRENT_PASSWORD_INVALID", 400));
   passwordReplies.push(() => apiError("TOO_MANY_ATTEMPTS", 429, true));
-  await page.goto("/");
-  await page.getByRole("button", { name: "帳號設定：以安" }).click();
-  const dialog = page.getByRole("dialog", { name: "帳號設定" });
+  await page.goto("/profile");
+  const dialog = page.getByRole("region", { name: "帳號設定" });
   const section = dialog.getByRole("region", { name: "修改密碼" });
   await expect(dialog.getByRole("region", { name: "個人名稱" })).toBeVisible();
   await expect(dialog.getByRole("region", { name: "登入裝置" })).toContainText("目前有 3 個有效登入（含這個裝置）。");
@@ -210,9 +218,9 @@ test("password change validates input, reports a wrong current password and then
     expect(write).toMatchObject({ path: "password", method: "POST", origin: new URL(page.url()).origin });
     expect(write.body).toEqual({ schema: "password-change/v1", current_password: "old synthetic secret", new_password: "new synthetic secret 1" });
   }
-  // 重新開啟時不保留上次輸入與訊息。
-  await dialog.getByRole("button", { name: "關閉帳號設定" }).click();
-  await page.getByRole("button", { name: "帳號設定：以安" }).click();
+  // 離開再回到個人檔案時不保留上次輸入與訊息。
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "首頁" }).click();
+  await page.getByRole("button", { name: "個人檔案：以安" }).click();
   await expect(section.getByRole("status")).toHaveCount(0);
   await expect(section.getByLabel("新密碼", { exact: true })).toHaveValue("");
 });
@@ -221,22 +229,21 @@ test("sign out other devices keeps this device and hides the count when it canno
   await mockKnowledgeMapApi(page);
   const { writes } = await mockAccount(page, 2);
   await page.goto(mapPath);
-  await page.getByRole("button", { name: "帳號設定：以安" }).click();
-  const dialog = page.getByRole("dialog", { name: "帳號設定" });
+  await page.getByRole("button", { name: "個人檔案：以安" }).click();
+  const dialog = page.getByRole("region", { name: "帳號設定" });
   const devices = dialog.getByRole("region", { name: "登入裝置" });
   await expect(devices).toContainText("目前有 2 個有效登入（含這個裝置）。");
   await devices.getByRole("button", { name: "登出其他裝置" }).click();
   await expect(devices.getByRole("status")).toHaveText("已登出其他裝置，目前只有這個裝置登入中。");
   await expect(devices).toContainText("目前只有這個裝置登入中。");
   expect(writes).toEqual([{ path: "others", method: "DELETE", origin: new URL(page.url()).origin, body: null }]);
-  await expect(page).toHaveURL(new RegExp(`${mapPath.replaceAll("/", "\\/")}$`));
+  await expect(page).toHaveURL(/\/profile$/);
 
-  await dialog.getByRole("button", { name: "關閉帳號設定" }).click();
   await page.unroute("**/v1/account/sessions");
   await page.route("**/v1/account/sessions", (route) => route.fulfill(apiError("STORAGE_UNAVAILABLE", 503, true)));
   await page.unroute("**/v1/account/sessions/others");
   await page.route("**/v1/account/sessions/others", (route) => route.fulfill(apiError("STORAGE_UNAVAILABLE", 503, true)));
-  await page.getByRole("button", { name: "帳號設定：以安" }).click();
+  await page.reload();
   await expect(devices).toContainText("可讓其他裝置上的登入全部失效，這個裝置會維持登入。");
   await expect(devices).not.toContainText(/\d+ 個有效登入/);
   await devices.getByRole("button", { name: "登出其他裝置" }).click();
@@ -244,20 +251,23 @@ test("sign out other devices keeps this device and hides the count when it canno
   await expect(dialog).toBeVisible();
 });
 
-test("account settings fit a 390px phone without horizontal scroll", async ({ page }) => {
+test("profile fits a 390px phone and jumps to account settings", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockKnowledgeMapApi(page);
   await mockAccount(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "帳號設定：以安" }).click();
-  const dialog = page.getByRole("dialog", { name: "帳號設定" });
-  await expect(dialog.getByRole("region", { name: "登入裝置" })).toContainText("3 個有效登入");
-  const box = (await dialog.boundingBox())!;
+  await page.getByRole("button", { name: "個人檔案：以安" }).click();
+  const settings = page.getByRole("region", { name: "帳號設定" });
+  await expect(settings.getByRole("region", { name: "登入裝置" })).toContainText("3 個有效登入");
+  const box = (await settings.boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);
-  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-  const devicesButton = dialog.getByRole("button", { name: "登出其他裝置" });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: "帳號設定", exact: true }).click();
+  await expect(settings.getByRole("heading", { name: "帳號設定" })).toBeInViewport();
+  const devicesButton = settings.getByRole("button", { name: "登出其他裝置" });
   await devicesButton.scrollIntoViewIfNeeded();
   await expect(devicesButton).toBeInViewport();
-  await page.screenshot({ path: test.info().outputPath("account-settings-390.png") });
+  await page.screenshot({ path: test.info().outputPath("profile-390.png") });
 });

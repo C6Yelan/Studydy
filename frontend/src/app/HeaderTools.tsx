@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ApiClientError, errorMessage, type StudydyApiClient } from "../api/client";
-import type { AccountSessions, LearnerProfile, LibrarySearchView } from "../api/contracts";
+import { errorMessage, type StudydyApiClient } from "../api/client";
+import type { LearnerProfile, LibrarySearchView } from "../api/contracts";
 import { Icon } from "../ui/Icon";
 import { writeRoute } from "./routes";
-
-const NAME_LIMIT = 20;
 
 // 名稱與頁首、首頁共用；讀取失敗時視為未設定，不阻擋其他功能。
 export function useProfile(apiClient: StudydyApiClient): LearnerProfile | null {
@@ -159,213 +157,21 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
   );
 }
 
-function NameSection({ apiClient, initial, onBusy, onSaved }: {
-  apiClient: StudydyApiClient; initial: string; onBusy: (busy: boolean) => void; onSaved: () => void;
-}) {
-  const [draft, setDraft] = useState(initial);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const length = [...draft.trim()].length;
+// 頁首頭像：前往個人檔案（成就與帳號設定）。
+function ProfileButton({ apiClient, current }: { apiClient: StudydyApiClient; current: boolean }) {
+  const name = useProfile(apiClient)?.display_name ?? null;
   return (
-    <section aria-labelledby="account-name-heading">
-      <h3 id="account-name-heading">個人名稱</h3>
-      <form onSubmit={(event) => {
-        event.preventDefault();
-        if (busy || length > NAME_LIMIT) return;
-        setBusy(true);
-        onBusy(true);
-        setError(null);
-        void apiClient.updateProfile(draft.trim() || null).then(
-          () => { setBusy(false); onBusy(false); onSaved(); },
-          (failure) => { setBusy(false); onBusy(false); setError(errorMessage(failure)); },
-        );
-      }}>
-        <label className="profile-field">
-          <span>顯示名稱</span>
-          <input autoFocus value={draft} disabled={busy} placeholder="例如：以安"
-            aria-describedby="profile-name-help" aria-invalid={length > NAME_LIMIT || undefined}
-            onChange={(event) => setDraft(event.currentTarget.value)} />
-        </label>
-        <p id="profile-name-help" className={length > NAME_LIMIT ? "form-error" : "profile-help"}>
-          {length > NAME_LIMIT ? `名稱最多 ${NAME_LIMIT} 個字，目前 ${length} 個字。` : `會顯示在首頁問候語；留空即不顯示名稱。（${length}/${NAME_LIMIT}）`}
-        </p>
-        {error && <p className="form-error" role="alert">{error}</p>}
-        <footer>
-          <button className="primary-button" type="submit" disabled={busy || length > NAME_LIMIT}>{busy ? "正在儲存…" : "儲存名稱"}</button>
-        </footer>
-      </form>
-    </section>
+    <button className="account-profile" type="button" aria-current={current ? "page" : undefined}
+      aria-label={`個人檔案：${name ?? "尚未設定名稱"}`} onClick={() => writeRoute({ name: "profile" })}>
+      <span className="account-avatar" aria-hidden="true">{name ? [...name][0] : <Icon name="user" size={18} />}</span>
+      {name && <span className="account-name">{name}</span>}
+    </button>
   );
 }
 
-// 長度與註冊相同（15–128 個字元，以 Unicode 字元計算，與後端一致）。
-const PASSWORD_MIN = 15;
-const PASSWORD_MAX = 128;
-
-function PasswordSection({ apiClient, onBusy, onChanged }: {
-  apiClient: StudydyApiClient; onBusy: (busy: boolean) => void; onChanged: (sessions: AccountSessions) => void;
-}) {
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const currentField = useRef<HTMLInputElement>(null);
-  // 送出期間欄位停用；等重新啟用後才把焦點移回目前密碼。
-  const [refocus, setRefocus] = useState(0);
-  useEffect(() => { if (refocus) currentField.current?.focus(); }, [refocus]);
-  const nextLength = [...next].length;
-  const lengthInvalid = next !== "" && (nextLength < PASSWORD_MIN || nextLength > PASSWORD_MAX);
-  const mismatch = confirm !== "" && confirm !== next;
-  const ready = current !== "" && next !== "" && !lengthInvalid && confirm === next;
-  const edit = (setter: (value: string) => void) => (event: { currentTarget: HTMLInputElement }) => {
-    setter(event.currentTarget.value);
-    setDone(false);
-  };
-  return (
-    <section aria-labelledby="account-password-heading">
-      <h3 id="account-password-heading">修改密碼</h3>
-      <form onSubmit={(event) => {
-        event.preventDefault();
-        if (busy || !ready) return;
-        setBusy(true);
-        onBusy(true);
-        setError(null);
-        setDone(false);
-        void apiClient.changePassword(current, next).then(
-          (sessions) => {
-            setBusy(false);
-            onBusy(false);
-            setCurrent(""); setNext(""); setConfirm("");
-            setDone(true);
-            onChanged(sessions);
-          },
-          (failure) => {
-            setBusy(false);
-            onBusy(false);
-            const reason = failure instanceof ApiClientError ? failure.reasonCode : null;
-            setError(reason === "REQUEST_INVALID" ? `新密碼需為 ${PASSWORD_MIN}–${PASSWORD_MAX} 個字元。` : errorMessage(failure));
-            // 目前密碼錯誤時清空該欄重新輸入，新密碼保留。
-            if (reason === "CURRENT_PASSWORD_INVALID") {
-              setCurrent("");
-              setRefocus((value) => value + 1);
-            }
-          },
-        );
-      }}>
-        <label className="profile-field">
-          <span>目前密碼</span>
-          <input ref={currentField} type="password" autoComplete="current-password" maxLength={PASSWORD_MAX}
-            value={current} disabled={busy} onChange={edit(setCurrent)} />
-        </label>
-        <label className="profile-field">
-          <span>新密碼</span>
-          <input type="password" autoComplete="new-password" value={next} disabled={busy}
-            aria-describedby="account-password-help" aria-invalid={lengthInvalid || undefined} onChange={edit(setNext)} />
-        </label>
-        <p id="account-password-help" className={lengthInvalid ? "form-error" : "profile-help"}>
-          {lengthInvalid ? `新密碼需為 ${PASSWORD_MIN}–${PASSWORD_MAX} 個字元，目前 ${nextLength} 個字元。` : `${PASSWORD_MIN}–${PASSWORD_MAX} 個字元。更新後其他裝置需要用新密碼重新登入。`}
-        </p>
-        <label className="profile-field">
-          <span>確認新密碼</span>
-          <input type="password" autoComplete="new-password" value={confirm} disabled={busy}
-            aria-describedby={mismatch ? "account-password-mismatch" : undefined} aria-invalid={mismatch || undefined} onChange={edit(setConfirm)} />
-        </label>
-        {mismatch && <p id="account-password-mismatch" className="form-error">兩次輸入的新密碼不一致。</p>}
-        {error && <p className="form-error" role="alert">{error}</p>}
-        {done && <p className="form-success" role="status">密碼已更新，其他裝置已登出；這個裝置維持登入。</p>}
-        <footer>
-          <button className="primary-button" type="submit" disabled={busy || !ready}>{busy ? "正在更新…" : "更新密碼"}</button>
-        </footer>
-      </form>
-    </section>
-  );
-}
-
-function DevicesSection({ apiClient, sessions, onBusy, onChanged }: {
-  apiClient: StudydyApiClient; sessions: AccountSessions | null;
-  onBusy: (busy: boolean) => void; onChanged: (sessions: AccountSessions) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const count = sessions?.active_sessions ?? null;
-  return (
-    <section aria-labelledby="account-devices-heading">
-      <h3 id="account-devices-heading">登入裝置</h3>
-      {/* 讀不到數量時不顯示數字，仍可操作。 */}
-      <p className="profile-help">
-        {count === null ? "可讓其他裝置上的登入全部失效，這個裝置會維持登入。"
-          : count === 1 ? "目前只有這個裝置登入中。"
-          : `目前有 ${count} 個有效登入（含這個裝置）。`}
-      </p>
-      {error && <p className="form-error" role="alert">{error}</p>}
-      {done && <p className="form-success" role="status">已登出其他裝置，目前只有這個裝置登入中。</p>}
-      <footer>
-        <button className="secondary-button" type="button" disabled={busy || count === 1} onClick={() => {
-          setBusy(true);
-          onBusy(true);
-          setError(null);
-          setDone(false);
-          void apiClient.revokeOtherSessions().then(
-            (value) => { setBusy(false); onBusy(false); setDone(true); onChanged(value); },
-            (failure) => { setBusy(false); onBusy(false); setError(errorMessage(failure)); },
-          );
-        }}>{busy ? "正在登出…" : "登出其他裝置"}</button>
-      </footer>
-    </section>
-  );
-}
-
-function ProfileButton({ apiClient }: { apiClient: StudydyApiClient }) {
-  const profile = useProfile(apiClient);
-  const [open, setOpen] = useState(false);
-  // 每次開啟重新掛載各區，清除上次輸入的密碼與訊息。
-  const [opened, setOpened] = useState(0);
-  const [busy, setBusy] = useState(0);
-  const [sessions, setSessions] = useState<AccountSessions | null>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const name = profile?.display_name ?? null;
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setSessions(null);
-    void apiClient.getAccountSessions().then((value) => { if (!cancelled) setSessions(value); }, () => undefined);
-    return () => { cancelled = true; };
-  }, [apiClient, open, opened]);
-  const close = () => {
-    if (busy) return;
-    setOpen(false);
-    trigger.current?.focus({ preventScroll: true });
-  };
-  const track = (value: boolean) => setBusy((count) => count + (value ? 1 : -1));
-  return (
-    <>
-      <button ref={trigger} className="account-profile" type="button" aria-haspopup="dialog"
-        aria-label={`帳號設定：${name ?? "尚未設定名稱"}`}
-        onClick={() => { setOpened((value) => value + 1); setOpen(true); }}>
-        <span className="account-avatar" aria-hidden="true">{name ? [...name][0] : <Icon name="user" size={18} />}</span>
-        {name && <span className="account-name">{name}</span>}
-      </button>
-      <Modal label="帳號設定" open={open} onClose={close} className="profile-dialog">
-        <header>
-          <h2>帳號設定</h2>
-          <button className="header-dialog-close" type="button" aria-label="關閉帳號設定" disabled={busy > 0} onClick={close}>×</button>
-        </header>
-        <div className="account-settings" key={opened}>
-          <NameSection apiClient={apiClient} initial={name ?? ""} onBusy={track} onSaved={() => { setOpen(false); trigger.current?.focus({ preventScroll: true }); }} />
-          <PasswordSection apiClient={apiClient} onBusy={track} onChanged={setSessions} />
-          <DevicesSection apiClient={apiClient} sessions={sessions} onBusy={track} onChanged={setSessions} />
-        </div>
-      </Modal>
-    </>
-  );
-}
-
-export function HeaderTools({ apiClient }: { apiClient: StudydyApiClient }) {
+export function HeaderTools({ apiClient, profileCurrent = false }: { apiClient: StudydyApiClient; profileCurrent?: boolean }) {
   return <>
     <GlobalSearch apiClient={apiClient} />
-    <ProfileButton apiClient={apiClient} />
+    <ProfileButton apiClient={apiClient} current={profileCurrent} />
   </>;
 }

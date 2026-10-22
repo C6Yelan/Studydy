@@ -436,7 +436,7 @@ test("removing a search match preserves query and shows search no-result", async
 });
 
 for (const viewport of [
-  { width: 1920, height: 1080, columns: 4 },
+  { width: 1920, height: 1080, columns: 5 },
   { width: 1536, height: 1024, columns: 3 },
   { width: 1024, height: 768, columns: 2 },
   { width: 390, height: 844, columns: 1 },

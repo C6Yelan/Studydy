@@ -50,17 +50,13 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   };
   const pages = (materials ?? []).reduce((sum, item) => sum + (item.latest_attempt?.total_pages ?? 0), 0);
   const now = new Date();
-  const today = new Intl.DateTimeFormat("zh-TW", { weekday: "long", month: "long", day: "numeric" }).format(now);
   const hour = now.getHours();
   const greeting = name ? `${hour >= 5 && hour < 11 ? "早安" : hour >= 11 && hour < 18 ? "午安" : "晚安"}，${name}！` : "歡迎回來！";
 
   return (
     <section className="dashboard">
       <header className="dashboard-greeting">
-        <div>
-          <p className="eyebrow">{today}</p>
-          <h1>{greeting}今天想探索哪座島？</h1>
-        </div>
+        <h1>{greeting}今天想探索哪座島？</h1>
         <div className="dashboard-actions">
           <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}><Icon name="sparkle" size={18} />從主題建立教材</button>
           <button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}><Icon name="upload" size={18} />上傳教材</button>
@@ -116,7 +112,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
         <aside className="dashboard-side">
           {activity === undefined && <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "35%" }} /><Bone className="is-row" /><Bone className="is-row" /></div>}
           {activity && activity.quests.length > 0 && <DailyQuests quests={activity.quests} onOpen={openQuest} />}
-          {activity && <button className="dashboard-achievements surface" type="button" onClick={() => writeRoute({ name: "achievements" })}>
+          {activity && <button className="dashboard-achievements surface" type="button" onClick={() => writeRoute({ name: "profile" })}>
             <span className="stat-icon is-amber"><Icon name="sparkle" size={18} /></span>
             <span><b>第 {activity.xp.level} 級 · {activity.xp.total} XP</b><small>查看等級、徽章與本週學習節奏</small></span>
             <Icon name="chevron-right" size={16} />
