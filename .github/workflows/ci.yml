@@ -150,9 +150,7 @@ jobs:
                   payload += escaped
               print(prefix + payload, flush=True)
           commands = [
-              ('apparmor-userns', ['sysctl', 'kernel.apparmor_restrict_unprivileged_userns']),
-              ('userns-clone', ['sysctl', 'kernel.unprivileged_userns_clone']),
-              ('userns-limit', ['sysctl', 'user.max_user_namespaces']),
+              ('namespace-policy', ['sysctl', 'kernel.apparmor_restrict_unprivileged_userns', 'kernel.unprivileged_userns_clone', 'user.max_user_namespaces']),
               ('nproc', ['nproc']),
               ('memory', ['free', '-m']),
               ('ulimits', ['bash', '-c', 'ulimit -a']),
@@ -174,7 +172,11 @@ jobs:
           print(json.dumps({'kind': 'bwrap', 'exit_code': probe.returncode, 'stderr': probe.stderr}), flush=True)
           for attempt in range(1, 4):
               result = subprocess.run([sys.executable, '-m', 'pytest', '-rA', '-vv', '--color=no', '-o', 'cache_dir=/tmp/pytest-cache', 'backend/tests/test_office_external_resources.py'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
-              lines = [line for line in result.stdout.splitlines() if re.search(r'\S+::\S+.*\b(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b', line) or re.match(r'^(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b', line) or re.match(r'^=+.*\b(passed|failed|errors?|skipped)\b', line) or 'ERROR collecting' in line or line.startswith('INTERNALERROR>')]
+              output = result.stdout.splitlines()
+              short = [line for line in output if re.match(r'^(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b', line)]
+              verbose = [line for line in output if re.search(r'\S+::\S+.*\b(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b', line)]
+              summaries = [line for line in output if re.match(r'^=+.*\b(passed|failed|errors?|skipped)\b', line) or 'ERROR collecting' in line or line.startswith('INTERNALERROR>')]
+              lines = [line.replace('backend/tests/test_office_external_resources.py::', '') for line in (short or verbose) + summaries]
               print(json.dumps({'kind': f'office-round-{attempt}', 'exit_code': result.returncode, 'results': lines or ['No case result lines were produced']}), flush=True)
           """
               result = subprocess.run(['docker', 'compose', '-p', 'studydy', '-f', 'compose.test.yaml', 'run', '--rm', '--no-deps', '--entrypoint', '/app/backend/.venv/bin/python', 'unit', '-c', script], capture_output=True, text=True, check=False)
