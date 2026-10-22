@@ -686,7 +686,6 @@
 .is-collection .library-item > p { margin: 0 0 6px; font-size: 12px; line-height: 1.45; }
 .library-file-icon svg { width: 20px; height: 20px; }
 .library-item .cards-library-material, .library-item .podcast-material-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.is-collection .library-search { margin-bottom: 16px; max-width: 420px; }
 .library-header-compact { margin-bottom: 16px; gap: 12px; }
 .library-header-compact p { font-size: 13px; }
 .library-header-compact > button { min-height: 40px; font-size: 14px; }
@@ -745,26 +744,6 @@
   white-space: nowrap;
 }
 
-/* 教材搜尋、重新命名與管理選單。 */
-.library-search {
-  width: min(100%, 580px);
-  margin: -4px 0 22px;
-}
-.library-search input {
-  width: 100%;
-  min-width: 0;
-  height: 44px;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-input);
-  background: var(--surface);
-  color: var(--text-primary);
-  font: inherit;
-}
-.library-search input:focus-visible {
-  outline: 2px solid var(--studydy-blue);
-  outline-offset: 2px;
-}
 
 .material-management-menu {
   position: absolute;
@@ -1328,16 +1307,13 @@
 .material-content-body .cards-page h1 { font-size: 24px; }
 @media (max-width: 780px) { .material-content { padding: 0 0 12px; } }
 
-/* 內容總覽與地圖共用搜尋及建立操作的工具列。 */
+/* 教材頁內容分頁的工具列：數量與建立操作。 */
 .collection-toolbar { flex-wrap: nowrap; gap: 16px; margin-bottom: 18px; }
-.is-collection .collection-toolbar .library-search { flex: 1; width: auto; min-width: 160px; max-width: 520px; margin: 0 auto 0 0; }
-.collection-toolbar .library-search input { height: 40px; min-height: 40px; padding: 8px 12px; }
 .collection-summary { flex: 0 0 auto; color: var(--text-secondary); font-size: 12px; }
 .collection-summary p { margin: 0; white-space: nowrap; }
 .collection-toolbar > button { flex: 0 0 auto; }
 @media (max-width: 900px) {
   .collection-toolbar { flex-wrap: wrap; gap: 12px; }
-  .is-collection .collection-toolbar .library-search { order: 3; flex-basis: 100%; max-width: none; }
   .collection-toolbar > button { margin-left: auto; }
 }
 
@@ -1349,7 +1325,7 @@
 /* 頁籤下方共用搜尋與建立操作的位置。 */
 .material-content .material-search-row,
 .map-workspace .material-search-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:16px; min-height:40px; padding:0; margin:0 0 18px; }
-.material-content .material-search-row :is(.library-search,.material-search),
+.material-content .material-search-row .material-search,
 .map-workspace .material-search-row .map-search { position:relative; flex:1; min-width:0; width:auto; max-width:520px; margin:0 auto 0 0; }
 .material-content .material-search-row input[type=search],
 .map-workspace .material-search-row input[type=search] { display:block; width:100%; height:40px; min-height:40px; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-input); color:var(--text-primary); background:var(--surface); font:inherit; font-size:14px; }
@@ -1358,7 +1334,7 @@
 .source-picker-filters.is-external-search select { width:150px; max-width:100%; }
 @media(max-width:900px) {
  .material-content .material-search-row, .map-workspace .material-search-row { flex-wrap:wrap; gap:12px; }
- .material-content .material-search-row :is(.library-search,.material-search), .map-workspace .material-search-row .map-search { order:0; flex:1 0 100%; max-width:none; }
+ .material-content .material-search-row .material-search, .map-workspace .material-search-row .map-search { order:0; flex:1 0 100%; max-width:none; }
  .material-content .material-search-row .collection-summary { order:1; }
  .material-content .material-search-row > button { order:2; margin-left:auto; }
  .map-workspace .material-search-row .map-header-actions { order:1; min-height:40px; margin-left:auto; }
@@ -1433,12 +1409,6 @@
   border-radius: 999px;
   padding: 4px 10px;
   font-weight: 700;
-}
-.is-collection .library-search input,
-.library-search input {
-  border: 0;
-  border-radius: 999px;
-  box-shadow: var(--shadow);
 }
 .library-item .material-management-menu {
   top: 18px;
@@ -1562,16 +1532,10 @@
 .collection-head .library-subtitle b { color: var(--text-primary); }
 .collection-head-actions { flex-wrap: wrap; }
 .collection-head-actions > button { min-height: 44px; }
-.is-collection .collection-toolbar-row { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
-.is-collection .collection-toolbar-row .library-search { flex: 1; min-width: 0; max-width: 520px; margin: 0; }
-.is-collection .collection-toolbar-row .library-search input { width: 100%; height: 44px; min-height: 44px; padding: 10px 16px; font-size: 14px; }
-.collection-toolbar-row .collection-summary { margin-left: auto; padding: 6px 14px; border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); font-size: 13px; font-weight: 800; }
-.collection-toolbar-row .collection-summary:focus { outline: none; }
 @media (max-width: 720px) {
   .collection-head { align-items: flex-start; }
   .collection-head-actions { width: 100%; }
   .collection-head-actions > button { flex: 1; }
-  .is-collection .collection-toolbar-row { gap: 10px; }
 }
 
 /* 教材卡片的操作：主要操作整列，其餘入口同一列等寬（概念卡、Podcast、知識地圖位置固定）。 */
@@ -1680,11 +1644,6 @@ button.library-state:hover { background: var(--violet); color: #fff; }
 .material-bookshelf .library-item > .library-actions { min-height: 104px; } /* 含上方 12px 內距 */
 @media (max-width: 650px) {
   .material-bookshelf .library-item h2 { min-height: 2.9em; }
-}
-@media (max-width: 720px) {
-  .is-collection .collection-toolbar-row { flex-wrap: wrap; }
-  .is-collection .collection-toolbar-row .library-search { flex: 1 0 100%; max-width: none; }
-  .collection-toolbar-row .collection-summary { margin-left: 0; }
 }
 /* 次要入口固定同一列等寬（不換行），操作區高度在每張卡片都相同。 */
 .material-bookshelf .library-item > .library-actions > .secondary-button:not(:first-child) {

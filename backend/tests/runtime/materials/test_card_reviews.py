@@ -1,4 +1,4 @@
-"""概念卡複習的真 API／DB：佇列、冪等、並行、卡組改版／刪除與帳號隔離。"""
+"""概念卡學習標記的真 API／DB：需要加強清單、冪等、並行、卡組改版／刪除與帳號隔離。"""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -36,49 +36,58 @@ def ready_set(fixture, key="cards"):
     return saved["card_set_id"], ids
 
 
-def test_queue_review_schedule_and_replay(two_concepts):
+def test_marks_weak_list_and_replay(two_concepts):
     owner, _, _, document, dsn, _ = two_concepts
     set_id, ids = ready_set(two_concepts)
     learner = owner.learner_id
-    queue = card_reviews.review_queue(learner, dsn=dsn)
-    assert (queue["due_count"], queue["new_count"], queue["next_due_at"]) == (0, len(ids), None)
-    assert [c["card"]["concept_id"] for c in queue["cards"]] == ids
-    assert all(c["state"] == "new" and c["review_count"] == 0 for c in queue["cards"])
-    labels = {c["concept_id"]: c["label"] for c in document["concepts"]}
-    assert queue["cards"][0]["card"]["label"] == labels[ids[0]] and queue["cards"][0]["card"]["claims"]
+    empty = card_reviews.review_summary(learner, dsn=dsn)
+    # 沒標記的卡不算需要加強，也沒有「新卡」。
+    assert (empty["forgot_count"], empty["cards"], empty["marks"]) == (0, [], [])
+    assert empty["sets"] == [{"card_set_id": set_id, "card_count": len(ids), "forgot_count": 0, "remembered_count": 0}]
 
     now = datetime(2026, 10, 21, 20, 0, tzinfo=TAIPEI)
-    first = card_reviews.submit_review(learner, set_id, ids[0], "remembered", 0, "r1", dsn=dsn, now=now)
-    assert (first["review_count"], first["interval_days"]) == (1, 1)
-    assert first["due_at"] == datetime(2026, 10, 22, tzinfo=TAIPEI)
+    first = card_reviews.submit_review(learner, set_id, ids[1], "forgot", 0, "r1", dsn=dsn, now=now)
+    assert (first["schema"], first["rating"], first["review_count"]) == ("card-review/v2", "forgot", 1)
     # 同一個鍵重送取得同一筆結果，不會多算一次。
-    assert card_reviews.submit_review(learner, set_id, ids[0], "remembered", 0, "r1", dsn=dsn, now=now + timedelta(hours=1)) == first
+    assert card_reviews.submit_review(learner, set_id, ids[1], "forgot", 0, "r1", dsn=dsn, now=now + timedelta(hours=1)) == first
     with pytest.raises(card_sets.CardSetError, match="^IDEMPOTENCY_CONFLICT$"):
-        card_reviews.submit_review(learner, set_id, ids[0], "forgot", 0, "r1", dsn=dsn)
+        card_reviews.submit_review(learner, set_id, ids[1], "remembered", 0, "r1", dsn=dsn)
     # 另一個分頁還停在舊次數時拒絕。
     with pytest.raises(card_sets.CardSetError, match="^CARD_REVIEW_CONFLICT$"):
-        card_reviews.submit_review(learner, set_id, ids[0], "forgot", 0, "r2", dsn=dsn)
+        card_reviews.submit_review(learner, set_id, ids[1], "remembered", 0, "r2", dsn=dsn)
+    card_reviews.submit_review(learner, set_id, ids[0], "forgot", 0, "r3", dsn=dsn, now=now + timedelta(minutes=1))
 
-    later = card_reviews.review_queue(learner, dsn=dsn, now=now)
-    assert (later["due_count"], later["new_count"]) == (0, len(ids) - 1)
-    assert later["next_due_at"] == datetime(2026, 10, 22, tzinfo=TAIPEI)
-    assert later["sets"] == [{"card_set_id": set_id, "due_count": 0, "new_count": len(ids) - 1, "reviewed_count": 1}]
-    tomorrow = card_reviews.review_queue(learner, dsn=dsn, now=datetime(2026, 10, 22, 0, 1, tzinfo=TAIPEI))
-    assert tomorrow["due_count"] == 1
-    # 到期卡排在新卡之前。
-    assert tomorrow["cards"][0]["card"]["concept_id"] == ids[0] and tomorrow["cards"][0]["state"] == "due"
-    assert tomorrow["cards"][0]["last_rating"] == "remembered"
+    summary = card_reviews.review_summary(learner, dsn=dsn)
+    assert summary["forgot_count"] == 2
+    # 較久沒標記的在前；只有指定卡組時才列出各卡標記。
+    assert [c["card"]["concept_id"] for c in summary["cards"]] == [ids[1], ids[0]]
+    labels = {c["concept_id"]: c["label"] for c in document["concepts"]}
+    assert summary["cards"][0]["card"]["label"] == labels[ids[1]] and summary["cards"][0]["card"]["claims"]
+    assert summary["marks"] == []
+    one = card_reviews.review_summary(learner, card_set_id=set_id, dsn=dsn)
+    assert one["marks"] == [
+        {"card_set_id": set_id, "concept_id": ids[0], "rating": "forgot", "review_count": 1},
+        {"card_set_id": set_id, "concept_id": ids[1], "rating": "forgot", "review_count": 1},
+    ]
 
-    second = card_reviews.submit_review(learner, set_id, ids[0], "forgot", 1, "r3", dsn=dsn, now=now + timedelta(days=1))
-    assert (second["review_count"], second["interval_days"]) == (2, 0)
+    # 標成熟悉就離開需要加強清單。
+    second = card_reviews.submit_review(learner, set_id, ids[0], "remembered", 1, "r4", dsn=dsn, now=now + timedelta(days=1))
+    assert second["review_count"] == 2
+    later = card_reviews.review_summary(learner, dsn=dsn)
+    assert [c["card"]["concept_id"] for c in later["cards"]] == [ids[1]]
+    assert later["sets"][0]["remembered_count"] == 1
     with psycopg.connect(dsn) as db:
-        assert db.execute("SELECT count(*) FROM card_review_events WHERE card_set_id=%s", (set_id,)).fetchone() == (2,)
-        assert db.execute("SELECT streak, review_count, last_rating FROM card_review_states").fetchall() == [(0, 2, "forgot")]
+        assert db.execute("SELECT count(*) FROM card_review_events WHERE card_set_id=%s", (set_id,)).fetchone() == (3,)
+        assert db.execute("SELECT concept_id, review_count, last_rating FROM card_review_states ORDER BY concept_id").fetchall() == sorted(
+            [(ids[0], 2, "remembered"), (ids[1], 1, "forgot")])
 
     with pytest.raises(card_sets.CardSetError, match="^RESOURCE_NOT_FOUND$"):
-        card_reviews.submit_review(learner, set_id, f"concept:sha256:{'f' * 64}", "remembered", 0, "r4", dsn=dsn)
+        card_reviews.submit_review(learner, set_id, f"concept:sha256:{'f' * 64}", "remembered", 0, "r5", dsn=dsn)
     with pytest.raises(card_sets.CardSetError, match="^REQUEST_INVALID$"):
-        card_reviews.submit_review(learner, set_id, ids[0], "easy", 2, "r5", dsn=dsn)
+        card_reviews.submit_review(learner, set_id, ids[0], "easy", 2, "r6", dsn=dsn)
+    # 只剩不熟／熟悉兩種標記。
+    with pytest.raises(card_sets.CardSetError, match="^REQUEST_INVALID$"):
+        card_reviews.submit_review(learner, set_id, ids[0], "fuzzy", 2, "r7", dsn=dsn)
 
 
 def test_concurrent_reviews_of_the_same_card_count_once(two_concepts):
@@ -100,37 +109,36 @@ def test_edit_delete_and_discard_follow_the_card_set(two_concepts):
     owner, source, _, _, dsn, _ = two_concepts
     learner = owner.learner_id
     set_id, ids = ready_set(two_concepts)
-    card_reviews.submit_review(learner, set_id, ids[0], "fuzzy", 0, "k1", dsn=dsn)
-    # 移出卡組後不再列出；加回來沿用原本排程。
+    card_reviews.submit_review(learner, set_id, ids[0], "forgot", 0, "k1", dsn=dsn)
+    # 移出卡組後不再列出；加回來沿用原本標記。
     card_sets.update_card_set(learner, set_id, "複習", 1, ids[1:], dsn=dsn)
     with database_session(dsn) as db:
         db.get(CardSet, set_id).status = "ready"
-    queue = card_reviews.review_queue(learner, dsn=dsn)
-    assert ids[0] not in [c["card"]["concept_id"] for c in queue["cards"]]
-    assert queue["sets"][0]["reviewed_count"] == 0
+    summary = card_reviews.review_summary(learner, dsn=dsn)
+    assert summary["cards"] == [] and summary["sets"][0]["forgot_count"] == 0
     with pytest.raises(card_sets.CardSetError, match="^RESOURCE_NOT_FOUND$"):
         card_reviews.submit_review(learner, set_id, ids[0], "remembered", 1, "k2", dsn=dsn)
     card_sets.update_card_set(learner, set_id, "複習", 2, ids, dsn=dsn)
     with database_session(dsn) as db:
         db.get(CardSet, set_id).status = "ready"
-    assert card_reviews.review_queue(learner, dsn=dsn)["sets"][0]["reviewed_count"] == 1
-    # 生成中的卡組不列入佇列。
+    assert card_reviews.review_summary(learner, dsn=dsn)["sets"][0]["forgot_count"] == 1
+    # 生成中的卡組不列出。
     with database_session(dsn) as db:
         db.get(CardSet, set_id).status = "pending"
-    assert card_reviews.review_queue(learner, dsn=dsn)["sets"] == []
+    assert card_reviews.review_summary(learner, dsn=dsn)["sets"] == []
     with database_session(dsn) as db:
         db.get(CardSet, set_id).status = "ready"
 
     card_sets.delete_card_set(learner, set_id, dsn=dsn)
-    assert card_reviews.review_queue(learner, dsn=dsn)["cards"] == []
+    assert card_reviews.review_summary(learner, dsn=dsn)["cards"] == []
     other_set, _ = ready_set(two_concepts, key="second")
     card_reviews.submit_review(learner, other_set, ids[0], "remembered", 0, "k3", dsn=dsn)
     assert request_material_discard(learner, source.material_id, dsn=dsn) == "removed"
     with psycopg.connect(dsn) as db:
-        # 教材清除實際刪除卡組時，排程與事件一併刪除。
+        # 教材清除實際刪除卡組時，標記與事件一併刪除。
         assert db.execute("SELECT count(*) FROM card_review_states").fetchone() == (0,)
         assert db.execute("SELECT count(*) FROM card_review_events").fetchone() == (0,)
-    assert card_reviews.review_queue(learner, dsn=dsn)["cards"] == []
+    assert card_reviews.review_summary(learner, dsn=dsn)["sets"] == []
 
 
 def test_api_boundaries_and_owner_isolation(two_concepts, tmp_path, monkeypatch):
@@ -141,28 +149,29 @@ def test_api_boundaries_and_owner_isolation(two_concepts, tmp_path, monkeypatch)
     body = {"schema": "card-review-submit/v1", "concept_id": ids[0], "rating": "remembered", "expected_review_count": 0}
     keyed = {**HEADERS, "Idempotency-Key": "api-1"}
     assert client.post(url, headers=keyed, json=body).status_code == 401
-    assert client.get("/v1/card-reviews/queue").status_code == 401
+    assert client.get("/v1/card-reviews").status_code == 401
     client.cookies.set("studydy_session", token)
     assert client.post(url, json=body, headers={"Idempotency-Key": "api-1"}).status_code == 403
     assert client.post(url, headers=HEADERS, json=body).status_code == 400
-    for change in [{"rating": "easy"}, {"expected_review_count": -1}, {"concept_id": "concept:bad"}, {"schema": "x"}, {"extra": 1}]:
+    for change in [{"rating": "easy"}, {"rating": "fuzzy"}, {"expected_review_count": -1}, {"concept_id": "concept:bad"}, {"schema": "x"}, {"extra": 1}]:
         assert client.post(url, headers=keyed, json={**body, **change}).status_code == 400, change
     saved = client.post(url, headers=keyed, json=body)
     assert saved.status_code == 200, saved.json()
-    assert saved.json()["schema"] == "card-review/v1" and saved.json()["review_count"] == 1
+    assert saved.json()["schema"] == "card-review/v2" and saved.json()["review_count"] == 1
     assert client.post(url, headers=keyed, json=body).json() == saved.json()
     conflict = client.post(url, headers={**HEADERS, "Idempotency-Key": "api-2"}, json=body)
     assert conflict.status_code == 409 and conflict.json()["reason_code"] == "CARD_REVIEW_CONFLICT"
-    queue = client.get("/v1/card-reviews/queue", params={"card_set_id": str(set_id)})
-    assert queue.status_code == 200, queue.json()
-    assert queue.json()["schema"] == "card-review-queue/v1" and queue.json()["new_count"] == len(ids) - 1
-    assert client.get("/v1/card-reviews/queue", params={"card_set_id": "nope"}).status_code == 400
-    assert client.get("/v1/card-reviews/queue", params={"limit": "5"}).status_code == 400
+    summary = client.get("/v1/card-reviews", params={"card_set_id": str(set_id)})
+    assert summary.status_code == 200, summary.json()
+    assert summary.json()["schema"] == "card-reviews/v2"
+    assert [mark["rating"] for mark in summary.json()["marks"]] == ["remembered"]
+    assert client.get("/v1/card-reviews", params={"card_set_id": "nope"}).status_code == 400
+    assert client.get("/v1/card-reviews", params={"limit": "5"}).status_code == 400
 
     other = register_account(f"other_{uuid4().hex[:8]}@example.com", "Synthetic test password 42", dsn=dsn)
     foreign = TestClient(_app(dsn, tmp_path, monkeypatch), base_url=ORIGIN)
     foreign.cookies.set("studydy_session", other.raw_token)
-    assert foreign.get("/v1/card-reviews/queue").json()["cards"] == []
-    assert foreign.get("/v1/card-reviews/queue", params={"card_set_id": str(set_id)}).status_code == 404
+    assert foreign.get("/v1/card-reviews").json()["sets"] == []
+    assert foreign.get("/v1/card-reviews", params={"card_set_id": str(set_id)}).status_code == 404
     stolen = foreign.post(url, headers={**HEADERS, "Idempotency-Key": "x"}, json={**body, "expected_review_count": 1})
     assert stolen.status_code == 404

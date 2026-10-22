@@ -117,7 +117,7 @@ test('one underline tab row opens review and preserves keyboard focus across mat
 });
 
 
-test('material search fields stay at one anchor across tabs on desktop and mobile',async({page})=>{
+test('material tab search fields stay at one anchor and card and podcast tabs rely on the site search',async({page})=>{
  await mockKnowledgeMapApi(page,structureView());
  await page.route('**/v1/card-sets',r=>json(r,{schema:'card-set-list/v1',card_sets:[]}));
  await page.route('**/v1/podcasts',r=>json(r,{schema:'podcast-list/v1',podcasts:[]}));
@@ -127,11 +127,15 @@ test('material search fields stay at one anchor across tabs on desktop and mobil
   await page.setViewportSize({width,height:844});await page.goto(mapPath);const anchor=await page.getByLabel('搜尋概念或關鍵字',{exact:true}).boundingBox();expect(anchor).not.toBeNull();const nav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(nav).not.toBeNull();expect(anchor!.y).toBeGreaterThanOrEqual(nav!.y+nav!.height);
   // 頁首與分頁之間只放教材資訊列。
   const header=await page.locator('.app-header').boundingBox();const bar=await page.locator('.material-bar').boundingBox();expect(bar!.y).toBeGreaterThanOrEqual(header!.y+header!.height);expect(nav!.y-bar!.y-bar!.height).toBeGreaterThanOrEqual(0);expect(nav!.y-bar!.y-bar!.height).toBeLessThanOrEqual(24);
-  for(const [tab,label] of [['學習與測驗','搜尋概念或關鍵字'],['概念卡','搜尋卡組'],['Podcast','搜尋 Podcast'],['補充學習','想多了解什麼？'],['教材來源','搜尋教材來源']]){
-   await page.getByRole('tab',{name:tab,exact:true}).click();await page.getByLabel(label,{exact:true}).waitFor();const box=await page.getByLabel(label,{exact:true}).boundingBox();expect(box).not.toBeNull();
-   if(tab !== '補充學習') for(const field of ['x','y','width','height'] as const)expect(Math.abs(box![field]-anchor![field])).toBeLessThanOrEqual(1);
+  // 概念卡與 Podcast 分頁沒有自己的搜尋框（統一用頁首搜尋），工具列只有數量與建立按鈕。
+  for(const [tab,label] of [['學習與測驗','搜尋概念或關鍵字'],['概念卡',null],['Podcast',null],['補充學習','想多了解什麼？'],['教材來源','搜尋教材來源']] as const){
+   await page.getByRole('tab',{name:tab,exact:true}).click();
    const currentNav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(Math.abs(currentNav!.y-nav!.y)).toBeLessThanOrEqual(1);
-   expect(box!.y).toBeGreaterThanOrEqual(currentNav!.y+currentNav!.height);
+   if(label){
+    await page.getByLabel(label,{exact:true}).waitFor();const box=await page.getByLabel(label,{exact:true}).boundingBox();expect(box).not.toBeNull();
+    if(tab !== '補充學習') for(const field of ['x','y','width','height'] as const)expect(Math.abs(box![field]-anchor![field])).toBeLessThanOrEqual(1);
+    expect(box!.y).toBeGreaterThanOrEqual(currentNav!.y+currentNav!.height);
+   } else await expect(page.locator('.material-search-row').getByRole('searchbox')).toHaveCount(0);
    // 教材問答固定在分頁列右端，不浮在內容上。
    const voice=await page.getByRole('button',{name:'教材問答',exact:true}).boundingBox();const toolbar=await page.locator('.material-learning-toolbar').boundingBox();expect(voice!.y).toBeGreaterThanOrEqual(toolbar!.y);expect(voice!.y+voice!.height).toBeLessThanOrEqual(toolbar!.y+toolbar!.height);expect(toolbar!.x+toolbar!.width-voice!.x-voice!.width).toBeLessThanOrEqual(12);
    if(tab==='概念卡'||tab==='Podcast'){

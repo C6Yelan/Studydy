@@ -235,7 +235,7 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   expect(fixture.forbiddenMutations).toEqual([]);
 });
 
-test("card deletion confirms inline, cancels safely and retries once even when search hides a pending item", async ({ page }) => {
+test("card deletion confirms inline, cancels safely and retries once", async ({ page }) => {
   const title = "資料結構考前複習｜堆疊、陣列與佇列的核心概念";
   const fixture = await mockCards(page, { saved: true, title });
   let deletes = 0;
@@ -286,17 +286,10 @@ test("card deletion confirms inline, cancels safely and retries once even when s
   await expect(confirmation.getByRole("button", { name: "取消", exact: true })).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(confirmation).toBeVisible();
-  const search = page.getByRole("searchbox", { name: "搜尋卡組或教材", exact: true });
-  await search.fill("不存在的卡組");
-  await expect(card).toHaveCount(0);
-  await search.fill("");
-  await expect(confirmation.getByRole("button", { name: "正在刪除…", exact: true })).toBeDisabled();
-  await expect(confirmation.getByRole("button", { name: "取消", exact: true })).toBeDisabled();
-  await search.fill("不存在的卡組");
   release();
-  await expect(page.locator(".collection-summary")).toContainText("已保存 0 個卡組");
-  await expect(search).toBeFocused();
-  await search.fill("");
+  // 數量在標題下方的說明行；刪除後焦點回到頁面標題。
+  await expect(page.locator(".library-subtitle b")).toHaveText("已保存 0 個卡組");
+  await expect(page.getByRole("heading", { level: 1, name: "我的概念卡" })).toBeFocused();
   await expect(card).toHaveCount(0);
   await expect(page.getByRole("region", { name: "空卡組引導" })).toBeVisible();
   expect(deletes).toBe(2);
@@ -340,18 +333,18 @@ test("a late list read cannot restore a deleted card while another card is renam
   await other.getByLabel("卡組名稱").fill("已重新命名的卡組");
   await other.getByRole("button", { name: "儲存", exact: true }).click();
   await expect.poll(() => reads).toBe(2);
-  const search = page.getByRole("searchbox", { name: "搜尋卡組或教材", exact: true });
-  await search.focus();
+  const heading = page.getByRole("heading", { level: 1, name: "我的概念卡" });
+  await heading.focus();
   releaseDelete();
   await expect(target).toHaveCount(0);
   await expect(page.getByRole("article", { name: "已重新命名的卡組", exact: true })).toBeVisible();
-  await expect(search).toBeFocused();
+  await expect(heading).toBeFocused();
   const lateRead = page.waitForResponse(response => response.url().endsWith("/v1/card-sets"));
   releaseRead();
   await lateRead;
   await expect(page.locator(".library-item")).toHaveCount(1);
   await expect(target).toHaveCount(0);
-  await expect(page.locator(".collection-summary")).toContainText("已保存 1 個卡組");
+  await expect(page.locator(".library-subtitle b")).toHaveText("已保存 1 個卡組");
 });
 
 test("mobile keeps review status, long content and sources usable without page overflow", async ({ page }) => {
@@ -1439,124 +1432,156 @@ for (const [layout, count] of [['focus', 1], ['compare', 2], ['grid', 4], ['flow
   });
 }
 
-// 間隔複習 mock：依評分移出佇列；due 為一開始已到期的概念索引。
-async function mockReviews(page: Page, view: ReturnType<typeof structureView>, { due = [0], failFirstPost = false, conflictOnce = false } = {}) {
-  const counts = new Map(view.concepts.map((concept, index) => [concept.concept_id, due.includes(index) ? 1 : 0]));
-  const waiting = new Set(view.concepts.map(concept => concept.concept_id));
+// 學習標記 mock：marked 為一開始已標記的概念索引與標記；需要加強是標成不熟的卡（依概念順序）。
+async function mockMarks(page: Page, view: ReturnType<typeof structureView>, { marked = {} as Record<number, "forgot" | "remembered">, failFirstPost = false, conflictOnce = false, listed = true } = {}) {
+  const marks = new Map(Object.entries(marked).map(([index, rating]) => [view.concepts[Number(index)].concept_id, { rating, count: 1 }]));
   const posts: { key: string | undefined; body: { concept_id: string; rating: string; expected_review_count: number } }[] = [];
   let failed = false, conflicted = false;
-  const queue = (setFilter?: string | null) => {
-    const ids = view.concepts.map(c => c.concept_id).filter(id => waiting.has(id));
-    const ordered = [...ids.filter(id => counts.get(id)! > 0), ...ids.filter(id => counts.get(id) === 0)];
-    const cards = ordered.map(id => {
-      const { concept_id, label, claims } = view.concepts.find(c => c.concept_id === id)!;
-      const reviewed = counts.get(id)! > 0;
-      return { card_set_id: cardSetId, card_set_name: "資料結構 · 核心概念", material_id: materialId, material_name: "資料結構講義.pdf",
-        knowledge_structure_revision: structureRevision, source_resolver: decodeURIComponent(view.source_resolver),
-        state: reviewed ? "due" : "new", review_count: counts.get(id)!, last_rating: reviewed ? "fuzzy" : null,
-        due_at: reviewed ? "2026-10-21T00:00:00Z" : null, card: { concept_id, label, claims } };
-    });
-    const dueCount = cards.filter(c => c.state === "due").length;
-    return { schema: "card-review-queue/v1", rule_version: "card-review/v1", due_count: dueCount, new_count: cards.length - dueCount,
-      next_due_at: cards.length ? null : "2026-10-23T16:00:00Z",
-      sets: [{ card_set_id: cardSetId, due_count: dueCount, new_count: cards.length - dueCount, reviewed_count: view.concepts.length - (cards.length - dueCount) }],
-      cards: setFilter && setFilter !== cardSetId ? [] : cards };
+  const summary = (setFilter: string | null) => {
+    const ids = view.concepts.map(c => c.concept_id);
+    const count = (rating: string) => ids.filter(id => marks.get(id)?.rating === rating).length;
+    const weak = ids.filter(id => marks.get(id)?.rating === "forgot");
+    return {
+      schema: "card-reviews/v2", forgot_count: count("forgot"),
+      // 已移到新版的舊卡組不列入標記統計（listed = false）。
+      sets: listed ? [{ card_set_id: cardSetId, card_count: ids.length, forgot_count: count("forgot"), remembered_count: count("remembered") }] : [],
+      marks: setFilter && listed ? ids.filter(id => marks.has(id)).map(id => ({ card_set_id: cardSetId, concept_id: id, rating: marks.get(id)!.rating, review_count: marks.get(id)!.count })) : [],
+      cards: !listed ? [] : weak.map(id => {
+        const { concept_id, label, claims } = view.concepts.find(c => c.concept_id === id)!;
+        return { card_set_id: cardSetId, card_set_name: "資料結構 · 核心概念", material_id: materialId, material_name: "資料結構講義.pdf",
+          knowledge_structure_revision: structureRevision, source_resolver: decodeURIComponent(view.source_resolver),
+          review_count: marks.get(id)!.count, card: { concept_id, label, claims } };
+      }),
+    };
   };
-  await page.route("**/v1/card-reviews/queue*", route => json(route, queue(new URL(route.request().url()).searchParams.get("card_set_id"))));
+  await page.route("**/v1/card-reviews*", route => json(route, summary(new URL(route.request().url()).searchParams.get("card_set_id"))));
   await page.route(`**/v1/card-sets/${cardSetId}/reviews`, route => {
     const body = route.request().postDataJSON();
     posts.push({ key: route.request().headers()["idempotency-key"], body });
     if (failFirstPost && !failed) { failed = true; return route.abort("connectionreset"); }
+    const before = marks.get(body.concept_id)?.count ?? 0;
     if (conflictOnce && !conflicted) {
       conflicted = true;
-      counts.set(body.concept_id, counts.get(body.concept_id)! + 1);
-      waiting.delete(body.concept_id);
+      marks.set(body.concept_id, { rating: "remembered", count: before + 1 });
       return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "CARD_REVIEW_CONFLICT", retryable: false, message: "Request could not be completed." }, 409);
     }
-    expect(body.expected_review_count).toBe(counts.get(body.concept_id));
-    counts.set(body.concept_id, body.expected_review_count + 1);
-    waiting.delete(body.concept_id);
-    const days = { forgot: 0, fuzzy: 1, remembered: 3 }[body.rating as "forgot"];
-    return json(route, { schema: "card-review/v1", card_set_id: cardSetId, concept_id: body.concept_id, rating: body.rating,
-      review_count: body.expected_review_count + 1, interval_days: days, due_at: "2026-10-24T16:00:00Z", reviewed_at: "2026-10-21T04:00:00Z" });
+    expect(body.expected_review_count).toBe(before);
+    marks.set(body.concept_id, { rating: body.rating, count: before + 1 });
+    return json(route, { schema: "card-review/v2", card_set_id: cardSetId, concept_id: body.concept_id, rating: body.rating,
+      review_count: before + 1, reviewed_at: "2026-10-21T04:00:00Z" });
   });
   return { posts };
 }
 
-test("daily review deck flips before grading, follows the backend schedule and finishes the round", async ({ page }) => {
+test("needs-work strip stays one row, expands to flip weak cards and finishes the round", async ({ page }) => {
   const { view } = await mockCards(page, { saved: true });
-  const { posts } = await mockReviews(page, view, { due: [0] });
+  const { posts } = await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" } });
   await page.goto("/concept-cards");
-  const review = page.getByRole("region", { name: "從所有卡組挑出該複習的卡片" });
-  await expect(review.locator(".cards-daily-review-text p").last()).toHaveText("1 張到期 · 1 張新卡");
-  const card = review.getByRole("button", { name: "說說看：什麼是「堆疊（Stack）」？點一下看重點" });
-  await expect(review.getByRole("button", { name: "記得" })).toBeDisabled();
+  await expect(page.getByRole("article", { name: "資料結構 · 核心概念" }).locator(".card-review-due")).toHaveText("需要加強 2 張");
+  const strip = page.getByRole("region", { name: "需要加強" });
+  await expect(strip).toContainText("2 張卡片標成不熟");
+  // 平常只佔一列，按下才展開翻卡。
+  await expect(strip.locator(".review-deck")).toHaveCount(0);
+  await strip.getByRole("button", { name: "開始加強" }).click();
+  // 只有不熟／熟悉兩個按鈕；翻卡前不能標記。
+  const card = strip.getByRole("button", { name: "說說看：什麼是「堆疊（Stack）」？點一下看重點" });
+  await expect(strip.getByRole("group", { name: "標記這張卡" }).getByRole("button")).toHaveText(["不熟", "熟悉"]);
+  await expect(strip.getByRole("button", { name: "熟悉" })).toBeDisabled();
+  await expect(strip.locator(".review-tag").first()).toContainText("目前不熟");
   await card.click();
-  await expect(review.getByRole("button", { name: "堆疊（Stack）的教材重點" })).toHaveAttribute("aria-pressed", "true");
-  await expect(review.locator(".review-claims")).toContainText("後進先出");
-  await review.getByRole("button", { name: "模糊" }).click();
-  await expect(review.getByRole("status").first()).toHaveText("明天再複習這張。");
-  await expect(review.locator(".cards-daily-review-text p").last()).toHaveText("1 張新卡");
-  // 評分後焦點回到下一張卡，鍵盤可以繼續。
-  await expect(review.getByRole("button", { name: /陣列（Array）/ })).toBeFocused();
+  await expect(strip.getByRole("button", { name: "堆疊（Stack）的教材重點" })).toHaveAttribute("aria-pressed", "true");
+  await strip.getByRole("button", { name: "熟悉" }).click();
+  await expect(strip.getByRole("status").first()).toHaveText("已標成熟悉，離開需要加強。");
+  await expect(strip).toContainText("1 張卡片標成不熟");
+  // 標記後焦點回到下一張卡，鍵盤可以繼續。
+  await expect(strip.getByRole("button", { name: /陣列（Array）/ })).toBeFocused();
   await page.keyboard.press("Enter");
-  await review.getByRole("button", { name: "記得" }).click();
-  await expect(review.getByText("今天的複習完成！")).toBeVisible();
-  await expect(review.getByText(/這一輪複習了 2 張。下一張在.*到期。/)).toBeVisible();
-  expect(posts.map(p => [p.body.rating, p.body.expected_review_count])).toEqual([["fuzzy", 1], ["remembered", 0]]);
+  await strip.getByRole("button", { name: "不熟" }).click();
+  await expect(strip.getByText("這一輪加強完成！")).toBeVisible();
+  await expect(strip.getByText("這一輪標記了 2 張。")).toBeVisible();
+  await expect(strip.getByRole("button", { name: "再加強一輪" })).toBeVisible();
+  expect(posts.map(p => [p.body.concept_id === view.concepts[0].concept_id, p.body.rating, p.body.expected_review_count])).toEqual([[true, "remembered", 1], [false, "forgot", 1]]);
   expect(new Set(posts.map(p => p.key)).size).toBe(2);
+  await strip.getByRole("button", { name: "收起" }).click();
+  await expect(strip.locator(".review-deck")).toHaveCount(0);
 });
 
-test("a failed review keeps the card and retries with the same intent key", async ({ page }) => {
+test("a failed mark keeps the card and retries with the same intent key", async ({ page }) => {
   const { view } = await mockCards(page, { saved: true });
-  const { posts } = await mockReviews(page, view, { due: [], failFirstPost: true });
+  const { posts } = await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" }, failFirstPost: true });
   await page.goto("/concept-cards");
-  const review = page.getByRole("region", { name: "從所有卡組挑出該複習的卡片" });
-  await review.getByRole("button", { name: /堆疊（Stack）/ }).click();
-  await review.getByRole("button", { name: "忘了" }).click();
-  await expect(review.getByRole("alert")).toContainText("評分尚未保存");
-  await expect(review.getByRole("button", { name: "堆疊（Stack）的教材重點" })).toBeVisible();
-  await review.getByRole("button", { name: "重試" }).click();
-  await expect(review.getByRole("status").first()).toHaveText("沒關係，10 分鐘後再看一次。");
+  const strip = page.getByRole("region", { name: "需要加強" });
+  await strip.getByRole("button", { name: "開始加強" }).click();
+  await strip.getByRole("button", { name: /堆疊（Stack）/ }).click();
+  await strip.getByRole("button", { name: "不熟" }).click();
+  await expect(strip.getByRole("alert")).toContainText("標記尚未保存");
+  await expect(strip.getByRole("button", { name: "堆疊（Stack）的教材重點" })).toBeVisible();
+  await strip.getByRole("button", { name: "重試" }).click();
+  await expect(strip.getByRole("status").first()).toHaveText("已標成不熟，之後還會在需要加強看到它。");
   expect(posts.length).toBe(2);
   expect(posts[0].key).toBe(posts[1].key);
 });
 
-test("a review conflict from another tab reloads the queue instead of counting twice", async ({ page }) => {
+test("a mark conflict from another tab reloads the weak cards instead of counting twice", async ({ page }) => {
   const { view } = await mockCards(page, { saved: true });
-  const { posts } = await mockReviews(page, view, { due: [], conflictOnce: true });
+  const { posts } = await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" }, conflictOnce: true });
   await page.goto("/concept-cards");
-  const review = page.getByRole("region", { name: "從所有卡組挑出該複習的卡片" });
-  await review.getByRole("button", { name: /堆疊（Stack）/ }).click();
-  await review.getByRole("button", { name: "記得" }).click();
-  await expect(review.getByRole("status").first()).toHaveText("這張卡已在其他頁面評分，已重新整理複習清單。");
-  await expect(review.getByRole("button", { name: /陣列（Array）/ })).toBeVisible();
+  const strip = page.getByRole("region", { name: "需要加強" });
+  await strip.getByRole("button", { name: "開始加強" }).click();
+  await strip.getByRole("button", { name: /堆疊（Stack）/ }).click();
+  await strip.getByRole("button", { name: "熟悉" }).click();
+  await expect(strip.getByRole("status").first()).toHaveText("這張卡已在其他頁面標記過，已重新讀取最新標記。");
+  await expect(strip.getByRole("button", { name: /陣列（Array）/ })).toBeVisible();
   expect(posts.length).toBe(1);
 });
 
-test("card set page shows today's reviews and switches between review and browsing", async ({ page }) => {
+test("card set page shows its weak cards and switches between strengthening and browsing", async ({ page }) => {
   const { view } = await mockCards(page, { saved: true });
-  await mockReviews(page, view, { due: [0, 1] });
+  await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" } });
   await page.goto("/concept-cards");
-  await expect(page.getByRole("article", { name: "資料結構 · 核心概念" }).locator(".card-review-due")).toHaveText("今天要複習 2 張");
   await page.getByRole("button", { name: "開始複習" }).click();
-  const strip = page.getByRole("region", { name: "今天要複習" });
-  await expect(strip).toContainText("今天要複習 2 張");
-  await strip.getByRole("button", { name: "開始間隔複習" }).click();
-  const mode = page.getByRole("region", { name: "間隔複習" });
+  const strip = page.getByRole("region", { name: "需要加強" });
+  await expect(strip).toContainText("需要加強 2 張");
+  await strip.getByRole("button", { name: "開始加強" }).click();
+  const mode = page.getByRole("region", { name: "加強這個卡組" });
   await mode.getByRole("button", { name: /堆疊（Stack）/ }).click();
-  await mode.getByRole("button", { name: "記得" }).click();
-  await expect(mode.getByRole("status").first()).toHaveText("3 天後再複習這張。");
+  await mode.getByRole("button", { name: "熟悉" }).click();
+  await expect(mode.getByRole("status").first()).toHaveText("已標成熟悉，離開需要加強。");
+  await expect(strip).toContainText("需要加強 1 張");
   await strip.getByRole("button", { name: "回到瀏覽" }).click();
-  await expect(page.getByRole("region", { name: "間隔複習" })).toHaveCount(0);
-  await expect(strip).toContainText("今天要複習 1 張");
+  await expect(page.getByRole("region", { name: "加強這個卡組" })).toHaveCount(0);
 });
 
-test("card set page offers new cards without claiming any are due", async ({ page }) => {
+test("browsing marks the current card and an unmarked set needs no strengthening", async ({ page }) => {
   const { view } = await mockCards(page, { saved: true });
-  await mockReviews(page, view, { due: [] });
+  const { posts } = await mockMarks(page, view);
   await page.goto("/concept-cards");
   await expect(page.locator(".card-review-due")).toHaveCount(0);
+  const libraryStrip = page.getByRole("region", { name: "需要加強" });
+  await expect(libraryStrip).toContainText("目前沒有，瀏覽卡組時把不熟的卡片標起來");
+  await expect(libraryStrip.getByRole("button")).toHaveCount(0);
   await page.getByRole("button", { name: "開始複習" }).click();
-  await expect(page.getByRole("region", { name: "今天要複習" })).toContainText("2 張新卡可以開始複習");
+  const strip = page.getByRole("region", { name: "需要加強" });
+  await expect(strip).toContainText("沒有需要加強的卡片");
+  await expect(strip.getByRole("button")).toHaveCount(0);
+  const marks = page.getByRole("group", { name: "標記「堆疊（Stack）」熟不熟" });
+  await expect(marks.getByRole("button", { name: "不熟" })).toHaveAttribute("aria-pressed", "false");
+  await marks.getByRole("button", { name: "不熟" }).click();
+  await expect(marks.getByRole("button", { name: "不熟" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".cards-study-mark")).toContainText("目前：不熟");
+  await expect(strip).toContainText("需要加強 1 張");
+  // 已標記的卡再改標：送出的次數接續目前的標記次數。
+  await marks.getByRole("button", { name: "熟悉" }).click();
+  await expect(page.locator(".cards-study-mark")).toContainText("目前：熟悉");
+  expect(posts.map(p => [p.body.rating, p.body.expected_review_count])).toEqual([["forgot", 0], ["remembered", 1]]);
+});
+
+test("a card set left out of the marks summary (moved to a new version) offers no marking", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true });
+  const { posts } = await mockMarks(page, view, { marked: { 0: "forgot" }, listed: false });
+  await page.goto(`/concept-cards/${cardSetId}`);
+  await expect(page.locator(".visual-concept-card, .concept-card").first()).toBeVisible();
+  await expect(page.locator(".cards-study-mark")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "需要加強" })).toHaveCount(0);
+  expect(posts).toEqual([]);
 });

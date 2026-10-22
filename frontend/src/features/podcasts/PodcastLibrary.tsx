@@ -17,11 +17,10 @@ export const podcastStatus = { pending: "等待生成", running: "正在生成",
 
 export function PodcastLibrary({ apiClient, learnerId, material, contentNavigation }: { apiClient: StudydyApiClient; learnerId: string; material?: MaterialLibraryItem; contentNavigation?: ReactNode }) {
   const [items, setItems] = useState<PodcastSummary[] | null>(null);
-  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [deletingId, setDeletingId] = useState<string|null>(null);
-  const heading = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLHeadingElement & HTMLDivElement>(null);
   const mutationVersion = useRef(0);
   useEffect(() => {
     let cancelled = false;
@@ -54,17 +53,15 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
   };
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision);
   const create = () => { if (material && structure) writeRoute({ name: "podcast-create", materialId: material.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision }); else if (!material) writeRoute({ name: "podcast-new" }); };
-  const filtered = items?.filter((item) => `${item.name} ${item.material_name}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <section className="material-library is-collection podcast-library" aria-label={material ? "教材 Podcast" : "我的 Podcast"}>
     {contentNavigation}
     {material ? <header className="library-header library-header-compact collection-toolbar material-search-row">
-      <form className="library-search" role="search" onSubmit={e => e.preventDefault()}><input type="search" aria-label="搜尋 Podcast" placeholder="搜尋 Podcast…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Escape") e.preventDefault(); }} /></form>
       <div className="collection-summary" ref={heading} tabIndex={-1}><p>{items === null ? "—" : `已保存 ${items.length} 份 Podcast`}</p></div>
       <button className="primary-button" type="button" disabled={!structure} onClick={create}><Icon name="headphones" size={18} /> 建立 Podcast</button>
-    </header> : <CollectionHeader title="我的 Podcast" subtitle="把教材重點變成可以隨時收聽的節目，收聽進度會自動保存。"
+    </header> : <CollectionHeader title="我的 Podcast"
+      subtitle={<>{items !== null && <><b>已保存 {items.length} 份 Podcast</b> · </>}把教材重點變成可以隨時收聽的節目，收聽進度會自動保存。</>}
       actions={<button className="primary-button" type="button" onClick={create}><Icon name="headphones" size={18} /> 建立 Podcast</button>}
-      search={{ label: "搜尋 Podcast 或教材", placeholder: "搜尋 Podcast 或教材…", value: query, onChange: setQuery }}
-      count={items === null ? "—" : `已保存 ${items.length} 份 Podcast`} countRef={heading} />}
+      headingRef={heading} />}
       <div role={material ? "tabpanel" : undefined} id={material ? "material-panel-podcasts" : undefined} aria-labelledby={material ? "material-tab-podcasts" : undefined}>
     {error && items !== null && <p className="form-error" role="alert">無法更新 Podcast 列表。{error}<button className="text-button" onClick={()=>setReload(value=>value+1)}>重新讀取</button></p>}
     {error && items === null ? <StateView title="無法讀取 Podcast" description={error} tone="failure" action={<button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button>} />
@@ -72,7 +69,7 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
       : items.length === 0 ? <EmptyState title="讓教材說給你聽" description="挑選概念，選擇快速或完整模式。生成後保存在你的帳號，隨時可以再聽。"
         action={<button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}><Icon name="headphones" size={18} /> {material ? "建立 Podcast" : "選擇教材"}</button>} />
       : <>
-        <div className="library-grid">{filtered?.map((item) => <article className="surface library-item podcast-tile" key={item.podcast_id}>
+        <div className="library-grid">{items?.map((item) => <article className="surface library-item podcast-tile" key={item.podcast_id}>
           <PodcastCover item={item} />
           <p className="library-metadata">{item.delivery === "dialogue" ? "雙人對談" : "單人解說"} · {item.episode_count} 集</p>
           <PodcastManagement item={item} apiClient={apiClient} onChanged={() => {mutationVersion.current++;setReload(v => v + 1);}} onDeleted={() => {
@@ -87,7 +84,7 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
           {(item.generation?.active || ['pending','running'].includes(item.status)) && <PodcastCancelControl busy={deletingId!==null} onConfirm={()=>void cancelAndDelete(item.podcast_id)}/>}
           {!item.is_current_revision && <p className="library-state is-version">教材已有新版 · 保留建立時版本</p>}
           <button type="button" className="primary-button" onClick={() => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id })}>{podcastPreviewReady(item) ? "開啟播放" : "查看進度"}</button>
-        </article>)}</div>{filtered?.length === 0 && <p role="status">找不到符合的 Podcast。</p>}</>}
+        </article>)}</div></>}
     </div>
   </section>;
 }

@@ -11,7 +11,7 @@ import type {
   CardGeneration,
   CardSetListView,
   CardSetDeletedView,
-  CardReviewQueueView,
+  CardReviewsView,
   CardReviewRating,
   CardReviewView,
   AssessmentPlanView,
@@ -54,7 +54,7 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   PODCAST_SOURCE_INSUFFICIENT: "所選概念缺少可回查的重點來源，請重新選擇。",
   PODCAST_SOURCE_TOO_LARGE: "單一來源重點超出本集容量，請先選擇其他概念。",
   CARD_SET_CONFLICT: "卡組已在其他頁面更新，請重新讀取後再編輯。",
-  CARD_REVIEW_CONFLICT: "這張卡已在其他頁面評分，已重新整理複習清單。",
+  CARD_REVIEW_CONFLICT: "這張卡已在其他頁面標記過，已重新讀取最新標記。",
   VERSION_MOVE_STALE: "卡組或學習進度剛有變動，已重新整理可移到新版的項目，請再確認一次。",
   INVALID_EMAIL: "請輸入有效的 Email 格式。",
   INVALID_CREDENTIALS: "Email 或密碼不正確。",
@@ -169,7 +169,7 @@ export class StudydyApiClient {
   // 名稱同時顯示在頁首與首頁；同一登入共用一次讀取，儲存後通知訂閱者。
   private profile: Promise<LearnerProfile> | null = null;
   private readonly profileListeners = new Set<(profile: LearnerProfile) => void>();
-  // 學習活動同時供頁首與首頁使用；短時間內共用一次讀取，作答、複習或收聽後標記過期。
+  // 學習活動同時供頁首與首頁使用；短時間內共用一次讀取，作答、標記概念卡或收聽後標記過期。
   private activity: { task: Promise<LearningActivityView>; at: number } | null = null;
   private readonly activityListeners = new Set<(activity: LearningActivityView) => void>();
   private readonly pending = new Set<AbortController>();
@@ -474,14 +474,14 @@ export class StudydyApiClient {
     }, (value): value is CardSetSummary => validate.cardSetSummary(value) && value.card_set_id === id);
   }
 
-  getCardReviewQueue(cardSetId?: string): Promise<CardReviewQueueView> {
+  getCardReviews(cardSetId?: string): Promise<CardReviewsView> {
     const query = cardSetId ? `?${new URLSearchParams({ card_set_id: cardSetId })}` : "";
-    return this.json(`/v1/card-reviews/queue${query}`, { method: "GET" },
-      (value): value is CardReviewQueueView => validate.cardReviewQueue(value)
-        && (!cardSetId || value.cards.every((item) => item.card_set_id === cardSetId)));
+    return this.json(`/v1/card-reviews${query}`, { method: "GET" },
+      (value): value is CardReviewsView => validate.cardReviews(value)
+        && (cardSetId ? [...value.cards, ...value.marks].every((item) => item.card_set_id === cardSetId) : !value.marks.length));
   }
 
-  // key 由呼叫端在第一次評分時產生，網路失敗重送沿用同一個鍵，不會重複計次。
+  // key 由呼叫端在第一次標記時產生，網路失敗重送沿用同一個鍵，不會重複計次。
   async submitCardReview(cardSetId: string, conceptId: string, rating: CardReviewRating, expectedReviewCount: number, key: string): Promise<CardReviewView> {
     const value = await this.json(`/v1/card-sets/${encodeURIComponent(cardSetId)}/reviews`, {
       method: "POST", headers: { "Content-Type": "application/json", Origin: origin(), "Idempotency-Key": key },
@@ -785,7 +785,7 @@ export class StudydyApiClient {
     return () => { this.activityListeners.delete(listener); };
   }
 
-  // 下次讀取時重新計算；不立即重算，避免每次評分都觸發彙總。
+  // 下次讀取時重新計算；不立即重算，避免每次作答或標記都觸發彙總。
   private markActivityStale(): void {
     if (this.activity) this.activity.at = 0;
   }

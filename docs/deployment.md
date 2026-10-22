@@ -239,9 +239,11 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 0008 只在 `learners` 新增 nullable `display_name` 與 CHECK，不回填、不改寫既有資料；baseline 仍只鎖定 0001–0007，接軌後由啟動流程套用 0008。上線前在正式 DB dump 的一次性副本上執行，30 張業務表資料不變。套用後不能直接重啟只識別 0001–0007 的舊後端，採前向修正；前端可單獨退回。
 
-## 0009 概念卡複習（2026-10-22）
+## 0009 概念卡學習標記（2026-10-22 建立，2026-10-23 改寫）
 
-0009 新增 `card_review_events`、`card_review_states` 兩張表，對卡組外鍵為 ON DELETE CASCADE，不修改既有資料。上線前在正式 DB dump 的一次性副本（等 PostgreSQL 初始化完成兩次啟動後才還原，並以 `--exit-on-error` 確認還原成功）套用，原 30 張業務表資料不變。套用後需使用識別 0009 的後端，採前向修正；前端可單獨退回。
+0009 建立 `card_review_events`、`card_review_states` 兩張表，對卡組外鍵為 ON DELETE CASCADE。2026-10-23 概念卡從間隔複習改成學習標記時，經使用者明確同意以單次例外直接改寫已套用的 0009（移除 `streak`、`interval_days`、`due_at`、`rule_version` 欄位與到期索引，改為 `(learner_id, last_rating)` 索引），沒有另加 migration。同日使用者再次明確同意改寫 0009，把標記從三種縮成兩種：兩張表的 CHECK 只接受 `forgot`／`remembered`，原有的 `fuzzy`（不太熟）資料改成 `forgot`（不熟）。這兩次都是使用者逐次授權的例外，不適用於其他 migration。
+
+已套用舊版 0009 的資料庫需在新後端啟動前手動轉換，否則啟動時的 checksum 核對會失敗：先備份這兩張表，停止 backend，在同一交易內刪除上述欄位與 `card_review_states_due` 索引、建立 `card_review_states_learner` 索引，把兩張表的 `fuzzy` 改成 `forgot` 並換成只接受兩種值的 CHECK，並把 `schema_migrations` 版本 9 的 `sql_sha256` 改成新檔的 SHA-256，再啟動新後端。標記與事件保留，舊的 forgot／fuzzy 成為不熟、remembered 成為熟悉。正式 DB 已於 2026-10-23 轉換；轉換前先在正式 DB dump 的一次性副本演練，確認轉換後兩張表的結構與新 0009 從頭建立的結果相同、migration 執行器核對通過且沒有待套用版本。新後端不能與舊結構並存，退回需同時還原兩張表與舊後端映像。
 
 ## 0010 Podcast 收聽進度（2026-10-22）
 

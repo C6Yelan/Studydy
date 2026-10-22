@@ -85,7 +85,7 @@ def finish_cards(dsn, calls):
 
 
 def learned(closed_loop):
-    """舊版：Signals 已完成、兩張卡都已生成，Signals 複習過一次。"""
+    """舊版：Signals 已完成、兩張卡都已生成，Signals 標記過一次。"""
     fixture = concept_fixture(closed_loop, 2)
     owner, dsn = fixture["learner"].learner_id, fixture["dsn"]
     root = create(fixture)
@@ -136,7 +136,7 @@ def test_preview_then_move_cards_and_progress_without_touching_the_old_version(c
     assert item["card_set_id"] == old_set and item["movable"] and item["unmapped"] == []
     assert {(m["from_label"], m["to_label"], m["basis"]) for m in item["mapped"]} == {
         ("Signals", "Signal codes", "evidence"), ("Other topic", "Other topic", "evidence")}
-    # 只有 Signals 有排程；Other topic 的來源輸入沒變，卡面直接沿用。
+    # 只有 Signals 有標記；Other topic 的來源輸入沒變，卡面直接沿用。
     assert (item["carried_reviews"], item["reused_designs"], item["target_count"]) == (1, 1, 2)
     study = preview["study"]
     assert study["target_study_session_id"] is None and study["completed_count"] == 1
@@ -166,7 +166,7 @@ def test_preview_then_move_cards_and_progress_without_touching_the_old_version(c
     after = version_moves.preview_version_move(learner, material, dsn=dsn)
     assert (after["card_sets"], after["study"], after["preview_digest"]) == ([], None, None)
 
-    # 舊版卡組、排程、事件與學習都沒有被改寫。
+    # 舊版卡組、標記、事件與學習都沒有被改寫。
     assert snapshot(fixture, old_set) == before
     assert derive_learner_progress(learner, fixture["study"].study_session_id, dsn=dsn) == old_progress
     new_set = moved["card_set_id"]
@@ -179,35 +179,35 @@ def test_preview_then_move_cards_and_progress_without_touching_the_old_version(c
     assert view["generation"]["completed"] == 1 and view["generation"]["cached"] == 1
     signal_codes = view["cards"][0]["concept_id"]
     with psycopg.connect(dsn) as db:
-        state = db.execute("SELECT review_count, due_at, last_rating FROM card_review_states "
+        state = db.execute("SELECT review_count, last_reviewed_at, last_rating FROM card_review_states "
                            "WHERE card_set_id=%s", (new_set,)).fetchall()
-        old_state = db.execute("SELECT review_count, due_at, last_rating FROM card_review_states "
+        old_state = db.execute("SELECT review_count, last_reviewed_at, last_rating FROM card_review_states "
                                "WHERE card_set_id=%s", (old_set,)).fetchall()
     assert state == old_state and len(state) == 1
 
-    # 舊卡組不再出現在複習佇列；新版卡組只為改寫過的 Signals 重新製作卡面。
-    assert all(s["card_set_id"] != old_set for s in card_reviews.review_queue(owner, dsn=dsn)["sets"])
+    # 舊卡組不再出現在標記統計；新版卡組只為改寫過的 Signals 重新製作卡面。
+    assert all(s["card_set_id"] != old_set for s in card_reviews.review_summary(owner, dsn=dsn)["sets"])
     calls = []
     finish_cards(dsn, calls)
     assert len(calls) == 2 and all("code" in text for text in calls)
-    queue = card_reviews.review_queue(owner, dsn=dsn)
-    assert [{**s, "card_set_id": str(s["card_set_id"])} for s in queue["sets"]] == [
-        {"card_set_id": new_set, "due_count": 0, "new_count": 1, "reviewed_count": 1}]
+    summary = card_reviews.review_summary(owner, dsn=dsn)
+    assert [{**s, "card_set_id": str(s["card_set_id"])} for s in summary["sets"]] == [
+        {"card_set_id": new_set, "card_count": 2, "forgot_count": 0, "remembered_count": 1}]
 
     progress = derive_learner_progress(learner, result["study_session_id"], dsn=dsn)
     states = {s.label: s.status for s in progress.concept_states}
     assert states["Signal codes"] == "completed" and states["Other topic"] == "not_started"
     assert progress.current_concept_id == signal_codes
 
-    # 承接不產生作答或複習事件，XP、徽章與連續天數都不變。
+    # 承接不產生作答或標記事件，XP、徽章與連續天數都不變。
     moved_xp = activity(fixture)
     for key in ("xp", "badges", "streak_days", "total_answers", "week"):
         assert moved_xp[key] == before_xp[key], key
-    # 同一天在新版卡組再評同一張卡：複習次數加一，XP 不重複計算。
+    # 同一天在新版卡組再標同一張卡：仍是同一張卡，標記張數與 XP 都不重複計算。
     card_reviews.submit_review(owner, new_set, signal_codes, "remembered", 1, "new-review", dsn=dsn)
     reviewed = activity(fixture)
     assert reviewed["xp"]["sources"]["cards"] == before_xp["xp"]["sources"]["cards"]
-    assert sum(day["card_reviews"] for day in reviewed["week"]) == sum(day["card_reviews"] for day in before_xp["week"]) + 1
+    assert reviewed["week"] == before_xp["week"]
 
     # 刪除新版卡組後，舊卡組可以再次移到新版。
     card_sets.delete_card_set(owner, new_set, dsn=dsn)
@@ -216,7 +216,7 @@ def test_preview_then_move_cards_and_progress_without_touching_the_old_version(c
 
 
 def test_preview_reuses_verified_structures_but_still_reads_current_records(closed_loop, monkeypatch):
-    """預覽沿用已驗證結構推導的對應；卡組與排程仍即時讀取，確認承接時重新驗證結構。"""
+    """預覽沿用已驗證結構推導的對應；卡組與標記仍即時讀取，確認承接時重新驗證結構。"""
     fixture, old_set = learned(closed_loop)
     learner, dsn = fixture["learner"], fixture["dsn"]
     owner, material = learner.learner_id, fixture["source"].material_id
@@ -227,7 +227,7 @@ def test_preview_reuses_verified_structures_but_still_reads_current_records(clos
     monkeypatch.setattr(version_moves, "_read_verified_document",
                         lambda *args, **kwargs: reads.append(kwargs.get("lock")) or original(*args, **kwargs))
     assert version_moves.preview_version_move(learner, material, dsn=dsn) == first and reads == []
-    # 之後複習另一張卡：預覽即時反映新的排程，不沿用先前結果。
+    # 之後標記另一張卡：預覽即時反映新的標記，不沿用先前結果。
     other = next(c["concept_id"] for c in fixture["document"]["concepts"]
                  if c["concept_id"] != fixture["concept"]["concept_id"])
     card_reviews.submit_review(owner, old_set, other, "remembered", 0, "later-review", dsn=dsn)
@@ -302,8 +302,8 @@ def test_api_boundaries_and_owner_isolation(closed_loop, tmp_path, monkeypatch):
     assert saved.status_code == 200, saved.json()
     assert client.post(url, headers=keyed, json=body).json() == saved.json()
     assert client.get(url).json()["card_sets"] == []
-    # 他人的佇列與卡組清單看不到承接結果。
-    assert foreign.get("/v1/card-reviews/queue").json()["cards"] == []
+    # 他人的標記統計與卡組清單看不到承接結果。
+    assert foreign.get("/v1/card-reviews").json()["sets"] == []
 
 
 def test_concurrent_confirmations_move_once(closed_loop):

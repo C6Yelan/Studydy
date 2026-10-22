@@ -1,4 +1,4 @@
-"""學習活動 v2 的真 DB：XP 來源、概念首次完成、卡片與收聽、連續天數及今日任務。"""
+"""學習活動 v2 的真 DB：XP 來源、概念首次完成、卡片標記與收聽、連續天數及今日任務。"""
 from copy import deepcopy
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -59,7 +59,7 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
     empty = activity(fixture)
     assert empty["xp"] == {"total": 0, "today": 0, "level": 1, "level_xp": 0, "level_target": 100,
                            "sources": {"answers": 0, "concepts": 0, "cards": 0, "podcast": 0}}
-    assert empty["rule_version"] == "xp-rules/v1" and empty["streak_days"] == 0
+    assert empty["rule_version"] == "xp-rules/v2" and empty["streak_days"] == 0
     # 已開始學習但今天尚未完成題組：顯示「繼續學習」且未完成。
     assert [(q["kind"], q["done"]) for q in empty["quests"]] == [("continue_study", False)]
 
@@ -74,28 +74,30 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
     assert completed >= 1
 
     set_id_cards, ids = ready_cards(fixture)
-    card_reviews.submit_review(owner, set_id_cards, ids[0], "forgot", 0, "c1", dsn=dsn)
-    # 同一張卡同一天再評一次：複習數加一，XP 不再加。
-    card_reviews.submit_review(owner, set_id_cards, ids[0], "remembered", 1, "c2", dsn=dsn)
-    card_reviews.submit_review(owner, set_id_cards, ids[1], "remembered", 0, "c3", dsn=dsn)
+    start = datetime.now(TAIPEI)
+    marked = start - timedelta(minutes=1)
+    card_reviews.submit_review(owner, set_id_cards, ids[0], "forgot", 0, "c1", dsn=dsn, now=marked)
+    # 同一張卡同一天再標一次：仍是同一張，XP 不再加。
+    card_reviews.submit_review(owner, set_id_cards, ids[0], "remembered", 1, "c2", dsn=dsn, now=marked + timedelta(seconds=10))
+    # 距上一次標記不到 3 秒（狂點下一張）：算標記與任務，不算 XP。
+    card_reviews.submit_review(owner, set_id_cards, ids[1], "remembered", 0, "c3", dsn=dsn, now=marked + timedelta(seconds=11))
 
     podcast = ready_podcast(fixture)
-    start = datetime.now(TAIPEI)
     for step in range(6):
         podcast_progress.save_progress(owner, podcast, 0, 60.0 * (step + 1), 60, dsn=dsn,
                                        now=start + timedelta(seconds=60 * step))
 
     view = activity(fixture, now=start + timedelta(minutes=6))
-    assert view["xp"]["sources"] == {"answers": answer_xp, "concepts": 30 * completed, "cards": 4, "podcast": 5}
-    total = answer_xp + 30 * completed + 4 + 5
+    assert view["xp"]["sources"] == {"answers": answer_xp, "concepts": 30 * completed, "cards": 2, "podcast": 5}
+    total = answer_xp + 30 * completed + 2 + 5
     assert view["xp"]["total"] == view["xp"]["today"] == total
     assert (view["xp"]["level"], view["xp"]["level_xp"]) == ((2, total - 100) if total >= 100 else (1, total))
     today = next(day for day in view["week"] if day["date"] == view["today"])
-    assert (today["answers"], today["card_reviews"], today["listened_seconds"], today["active"]) == (len(rows), 3, 360, True)
+    assert (today["answers"], today["card_reviews"], today["listened_seconds"], today["active"]) == (len(rows), 2, 360, True)
     assert (view["streak_days"], view["active_today"]) == (1, True)
     quests = {q["kind"]: q for q in view["quests"]}
-    # 卡組兩張卡今天第一次複習，沒有更早學過的到期卡 → 新卡任務已完成。
-    assert (quests["review_new_cards"]["progress"], quests["review_new_cards"]["target"], quests["review_new_cards"]["done"]) == (2, 2, True)
+    # 卡組只有兩張卡 → 目標兩張；狂點標的第二張與 XP 一樣不算，任務只完成一張。
+    assert (quests["mark_cards"]["progress"], quests["mark_cards"]["target"], quests["mark_cards"]["done"]) == (1, 2, False)
     assert quests["continue_study"]["done"] is True
     assert str(quests["continue_study"]["study_session_id"]) == str(fixture["study"].study_session_id)
     assert quests["finish_podcast_episode"]["done"] is False
@@ -125,7 +127,7 @@ def test_streak_counts_any_activity_and_listening_needs_a_minute(closed_loop):
     podcast_progress.save_progress(owner, podcast, 0, 60, 59, dsn=dsn)
     now = datetime(2026, 10, 22, 12, 0, tzinfo=TAIPEI)
     with database_session(dsn) as db:
-        # 卡片複習在 10/21（台灣），收聽 59 秒在 10/20（不滿 1 分鐘不算活躍）。
+        # 卡片標記在 10/21（台灣），收聽 59 秒在 10/20（不滿 1 分鐘不算活躍）。
         db.execute(text("UPDATE card_review_events SET created_at = '2026-10-21T01:00:00+08:00'"))
         db.execute(text("UPDATE podcast_listening_days SET listened_on = '2026-10-20'"))
     view = activity(fixture, now=now)
@@ -138,12 +140,9 @@ def test_streak_counts_any_activity_and_listening_needs_a_minute(closed_loop):
     week = {day["date"].isoformat(): day for day in view["week"]}
     assert week["2026-10-20"]["listened_seconds"] == 60 and week["2026-10-20"]["active"]
     assert week["2026-10-21"]["card_reviews"] == 1 and week["2026-10-21"]["active"]
-    # 昨天以前學過、今天到期的卡 → 到期卡任務。
-    with database_session(dsn) as db:
-        db.execute(text("UPDATE card_review_states SET due_at = '2026-10-22T00:00:00+08:00'"))
+    # 昨天的標記不算今天的任務。
     quests = {q["kind"]: q for q in activity(fixture, now=now)["quests"]}
-    assert "review_new_cards" not in quests
-    assert (quests["review_due_cards"]["progress"], quests["review_due_cards"]["target"], quests["review_due_cards"]["done"]) == (0, 1, False)
+    assert (quests["mark_cards"]["progress"], quests["mark_cards"]["target"], quests["mark_cards"]["done"]) == (0, 2, False)
 
 
 def test_podcast_quest_reads_episode_lists_saved_with_nul_text(closed_loop):
@@ -187,7 +186,7 @@ def test_badges_follow_real_records_and_their_dates(closed_loop):
     owner, dsn = fixture["learner"].learner_id, fixture["dsn"]
     now = datetime(2026, 10, 22, 12, 0, tzinfo=TAIPEI)
     empty = {b["badge_id"]: b for b in activity(fixture, now=now)["badges"]["items"]}
-    assert activity(fixture, now=now)["badges"]["rule_version"] == "badge-rules/v4"
+    assert activity(fixture, now=now)["badges"]["rule_version"] == "badge-rules/v5"
     assert not any(b["earned"] for b in empty.values())
 
     set_id = create(fixture)
@@ -198,7 +197,7 @@ def test_badges_follow_real_records_and_their_dates(closed_loop):
     card_reviews.submit_review(owner, set_id_cards, ids[1], "remembered", 0, "c2", dsn=dsn)
     with database_session(dsn) as db:
         answers = db.execute(text("SELECT count(*) FROM answer_events")).scalar_one()
-        # 作答在 10/16，兩次卡片複習分別在 10/17、10/18（台灣），學習於 10/19 凌晨（台灣）完成。
+        # 作答在 10/16，兩次卡片標記分別在 10/17、10/18（台灣），學習於 10/19 凌晨（台灣）完成。
         db.execute(text("UPDATE answer_events SET created_at = '2026-10-16T09:00:00+08:00'"))
         db.execute(text(
             """
@@ -219,7 +218,7 @@ def test_badges_follow_real_records_and_their_dates(closed_loop):
     assert (badges["first_concept"]["earned"], badges["first_concept"]["earned_on"]) == (True, day("2026-10-16"))
     assert (badges["first_material"]["earned"], badges["first_material"]["earned_on"]) == (True, day("2026-10-19"))
     assert (badges["cards_100"]["earned"], badges["cards_100"]["progress"]) == (False, 2)
-    # 10/16 作答、10/17 與 10/18 複習卡片：連續 3 天於 10/18 達成；之後中斷，streak_7 進度為目前連續天數 0。
+    # 10/16 作答、10/17 與 10/18 標記卡片：連續 3 天於 10/18 達成；之後中斷，streak_7 進度為目前連續天數 0。
     assert (badges["streak_3"]["earned"], badges["streak_3"]["earned_on"]) == (True, day("2026-10-18"))
     assert (badges["streak_7"]["earned"], badges["streak_7"]["progress"]) == (False, view["streak_days"]) == (False, 0)
     assert (badges["listen_30_minutes"]["progress"], badges["level_5"]["progress"]) == (0, view["xp"]["level"])

@@ -18,7 +18,7 @@ from .models import (
     CardSetListView,
     CardSetDeletedView,
     CardGenerationView,
-    CardReviewQueueView,
+    CardReviewsView,
     CardReviewSubmit,
     CardReviewView,
 )
@@ -46,15 +46,15 @@ def install(app, settings):
         )
 
     @app.get(
-        "/v1/card-reviews/queue",
-        response_model=CardReviewQueueView,
-        operation_id="readCardReviewQueue",
+        "/v1/card-reviews",
+        response_model=CardReviewsView,
+        operation_id="readCardReviews",
         tags=["cards"],
     )
-    def card_review_queue_route(request: Request, card_set_id: UUID | None = None):
+    def card_reviews_route(request: Request, card_set_id: UUID | None = None):
         request_context.require_query(request, {"card_set_id"})
         owner = request_context.trusted_learner(request, settings).learner_id
-        return card_reviews.review_queue(owner, card_set_id=card_set_id, dsn=settings.dsn)
+        return card_reviews.review_summary(owner, card_set_id=card_set_id, dsn=settings.dsn)
 
     @app.post(
         "/v1/card-sets/{card_set_id}/reviews",

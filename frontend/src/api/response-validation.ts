@@ -7,7 +7,7 @@ import type {
   CardGeneration,
   CardSetListView,
   CardSetDeletedView,
-  CardReviewQueueView,
+  CardReviewsView,
   CardReviewView,
   ConceptCard,
   ApiErrorView,
@@ -425,28 +425,31 @@ export function cardSetList(value: unknown): value is CardSetListView {
     && Array.isArray(item.card_sets) && item.card_sets.every(cardSetSummary);
 }
 
-const ratings = ["forgot", "fuzzy", "remembered"];
+const ratings = ["forgot", "remembered"];
 
-export function cardReviewQueue(value: unknown): value is CardReviewQueueView {
+export function cardReviews(value: unknown): value is CardReviewsView {
   const item = object(value);
-  if (!item || item.schema !== "card-review-queue/v1" || item.rule_version !== "card-review/v1"
-    || !Number.isInteger(item.due_count) || !Number.isInteger(item.new_count)
-    || !(item.next_due_at === null || timestamp(item.next_due_at))
-    || !Array.isArray(item.sets) || !Array.isArray(item.cards)) return false;
+  const count = (n: unknown) => Number.isInteger(n) && (n as number) >= 0;
+  if (!item || item.schema !== "card-reviews/v2" || !count(item.forgot_count)
+    || !Array.isArray(item.sets) || !Array.isArray(item.marks) || !Array.isArray(item.cards)) return false;
   const sets = item.sets.map(object);
   if (!sets.every(s => !!s && isUuid(s.card_set_id)
-    && [s.due_count, s.new_count, s.reviewed_count].every(n => Number.isInteger(n) && (n as number) >= 0))) return false;
+    && [s.card_count, s.forgot_count, s.remembered_count].every(count)
+    && (s.forgot_count as number) + (s.remembered_count as number) <= (s.card_count as number))) return false;
+  if (!item.marks.every(value => {
+    const m = object(value);
+    return !!m && isUuid(m.card_set_id) && revision(m.concept_id, "concept") && ratings.includes(String(m.rating))
+      && Number.isInteger(m.review_count) && (m.review_count as number) >= 1;
+  })) return false;
   const seen = new Set<string>();
   return item.cards.every(value => {
     const c = object(value);
     if (!c || !isUuid(c.card_set_id) || !isUuid(c.material_id) || typeof c.card_set_name !== "string"
       || typeof c.material_name !== "string" || !revision(c.knowledge_structure_revision, "knowledge-structure")
       || c.source_resolver !== `/v1/materials/${c.material_id}/knowledge-structures/${c.knowledge_structure_revision}/evidence`
-      || !["due", "new"].includes(String(c.state)) || !Number.isInteger(c.review_count)
-      || (c.state === "new") !== (c.review_count === 0 && c.due_at === null && c.last_rating === null)
-      || !(c.due_at === null || timestamp(c.due_at)) || !(c.last_rating === null || ratings.includes(String(c.last_rating)))
+      || !Number.isInteger(c.review_count) || (c.review_count as number) < 1
       || !conceptCard(c.card) || !c.card.claims.length) return false;
-    // 同一張卡不會在佇列重複出現。
+    // 同一張卡不會在清單重複出現。
     const key = `${c.card_set_id}:${c.card.concept_id}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -456,9 +459,9 @@ export function cardReviewQueue(value: unknown): value is CardReviewQueueView {
 
 export function cardReview(value: unknown): value is CardReviewView {
   const item = object(value);
-  return !!item && item.schema === "card-review/v1" && isUuid(item.card_set_id) && revision(item.concept_id, "concept")
+  return !!item && item.schema === "card-review/v2" && isUuid(item.card_set_id) && revision(item.concept_id, "concept")
     && ratings.includes(String(item.rating)) && Number.isInteger(item.review_count) && (item.review_count as number) >= 1
-    && Number.isInteger(item.interval_days) && timestamp(item.due_at) && timestamp(item.reviewed_at);
+    && timestamp(item.reviewed_at);
 }
 
 export function cardSet(value: unknown): value is CardSetView {
@@ -770,7 +773,7 @@ export function knowledgeRegions(value: unknown): value is KnowledgeRegionsView 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 const count = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
 
-const questKinds = ["review_due_cards", "review_new_cards", "continue_study", "finish_podcast_episode"];
+const questKinds = ["mark_cards", "continue_study", "finish_podcast_episode"];
 const nullableUuid = (value: unknown) => value === null || isUuid(value);
 
 function learningQuest(value: unknown): boolean {
@@ -796,7 +799,7 @@ export function learningActivity(value: unknown): value is LearningActivityView 
   const sources = object(xp?.sources);
   const badges = object(item?.badges);
   return !!item && item.schema === "learning-activity/v2" && item.timezone === "Asia/Taipei"
-    && item.rule_version === "xp-rules/v1"
+    && item.rule_version === "xp-rules/v2"
     && typeof item.today === "string" && isoDate.test(item.today)
     && count(item.streak_days) && typeof item.active_today === "boolean"
     && count(item.total_answers) && count(item.total_correct) && item.total_correct <= item.total_answers
@@ -811,7 +814,7 @@ export function learningActivity(value: unknown): value is LearningActivityView 
     && Number(xp.today) <= Number(xp.total)
     && ["answers", "concepts", "cards", "podcast"].every(key => count(sources[key]))
     && Array.isArray(item.quests) && item.quests.every(learningQuest)
-    && !!badges && badges.rule_version === "badge-rules/v4" && Array.isArray(badges.items) && badges.items.every(learningBadge);
+    && !!badges && badges.rule_version === "badge-rules/v5" && Array.isArray(badges.items) && badges.items.every(learningBadge);
 }
 
 export function podcastProgress(value: unknown): value is PodcastProgressView {

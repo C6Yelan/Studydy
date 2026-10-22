@@ -3,7 +3,7 @@ import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../..
 import { Icon, type IconName } from "../../ui/Icon";
 import "./styles.css";
 
-// 徽章（規則 badge-rules/v4）：取得與進度全部來自學習活動 API，這裡只負責名稱、說明、圖示與稀有度。
+// 徽章（規則 badge-rules/v5）：取得與進度全部來自學習活動 API，這裡只負責名稱、說明、圖示與稀有度。
 // 同一計量的徽章是一個系列的不同層級（I→V），獎章依層級上色：銅、銀、金、鑽石、星耀。
 // 稀有度（普通／稀有／史詩／傳說）只是呈現難度，不影響經驗值。
 type Series = "answers" | "concepts" | "materials" | "cards" | "listen" | "streak" | "level" | "perfect" | "firstTry";
@@ -13,7 +13,7 @@ const series: Record<Series, { title: string; unit: string; icon: IconName; cond
   answers: { title: "作答", unit: "題", icon: "quiz", condition: (target) => target === 1 ? "完成第一題作答" : `累計作答 ${target} 題` },
   concepts: { title: "概念完成", unit: "個", icon: "learning", condition: (target) => target === 1 ? "第一次完成一個概念" : `累計完成 ${target} 個概念` },
   materials: { title: "教材完成", unit: "份", icon: "map", condition: (target) => target === 1 ? "完成一份教材的全部學習" : `完成 ${target} 份教材的全部學習` },
-  cards: { title: "概念卡複習", unit: "次", icon: "cards", condition: (target) => `累計複習概念卡 ${target} 次` },
+  cards: { title: "概念卡標記", unit: "張", icon: "cards", condition: (target) => `累計標記概念卡 ${target} 張（同一張卡每天算一次）` },
   listen: { title: "Podcast 收聽", unit: "分鐘", icon: "headphones", condition: (target) => `Podcast 實際收聽累計 ${target} 分鐘` },
   streak: { title: "連續學習", unit: "天", icon: "flame", condition: (target) => `連續 ${target} 天有學習活動` },
   level: { title: "等級", unit: "級", icon: "sparkle", condition: (target) => `達到第 ${target} 級` },
@@ -52,9 +52,9 @@ const specials: Record<SpecialId, { name: string; condition: string; hint: strin
   creator: { name: "自己動手做", condition: "建立一組概念卡和一集 Podcast", hint: "把學到的，變成自己的。", icon: "edit", rarity: 0 },
   corrected_5: { name: "知錯能改", condition: "答錯過的概念之後又答對，累計 5 個", hint: "錯過的，不會再錯。", icon: "learning", rarity: 1 },
   perfect_day: { name: "完美的一天", condition: "同一天作答 20 題以上且全部答對", hint: "一整天，一題都沒錯。", icon: "sparkle", rarity: 2 },
-  all_round_day: { name: "全能學習日", condition: "同一天作答、複習概念卡、收聽 Podcast 滿 1 分鐘並在教材問答提問", hint: "答題、卡片、耳朵、提問，一天之內……", icon: "compass", rarity: 2 },
+  all_round_day: { name: "全能學習日", condition: "同一天作答、標記概念卡、收聽 Podcast 滿 1 分鐘並在教材問答提問", hint: "答題、卡片、耳朵、提問，一天之內……", icon: "compass", rarity: 2 },
   thousand_pages: { name: "千頁征服者", condition: "完成一份 500 頁以上教材的全部學習", hint: "很厚、很厚的一本。", icon: "book", rarity: 3 },
-  revisit: { name: "溫故知新", condition: "教材完成 7 天以上後，又複習它的概念卡", hint: "學完了，過一陣子再回來看看。", icon: "cards", rarity: 1 },
+  revisit: { name: "溫故知新", condition: "教材完成 7 天以上後，又標記它的概念卡", hint: "學完了，過一陣子再回來看看。", icon: "cards", rarity: 1 },
 };
 const isSpecial = (id: LearningBadgeId): id is SpecialId => id in specials;
 const nameOf = (badge: KnownBadge) => isSpecial(badge.badge_id) ? specials[badge.badge_id].name : badgeText[badge.badge_id]!.name;
@@ -211,7 +211,7 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
         })}
       </ul>
     </section>}
-    <p className="badge-note">依作答、題組、概念與教材完成、概念卡複習、Podcast 收聽、教材問答、連續學習與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
+    <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、教材問答、連續學習與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
   </section>;
 }
 

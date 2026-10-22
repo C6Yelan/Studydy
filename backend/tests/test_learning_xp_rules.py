@@ -1,10 +1,10 @@
-"""學習活動規則 xp-rules/v1：等級門檻、收聽 XP、連續天數、概念首次完成與收聽採計上限。"""
+"""學習活動規則 xp-rules/v2：等級門檻、收聽與概念卡 XP、連續天數、概念首次完成與收聽採計上限。"""
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from runtime.podcast_progress import credit_limit
-from runtime.storage.learning_activity import first_completions, level_for, listening_xp, streak_days
+from runtime.storage.learning_activity import card_xp, credited_marks, first_completions, level_for, listening_xp, streak_days
 
 TAIPEI = ZoneInfo("Asia/Taipei")
 
@@ -25,6 +25,21 @@ def test_listening_xp_counts_full_five_minutes_up_to_60_a_day():
     assert listening_xp(899) == 10
     assert listening_xp(12 * 300) == 60
     assert listening_xp(86400) == 60
+
+
+def test_card_marks_count_each_card_once_a_day_skip_rapid_clicks_and_cap_at_40():
+    start = datetime(2026, 10, 21, 23, 59, 50, tzinfo=TAIPEI)
+    events = [
+        (start, "s", "a"),
+        (start + timedelta(seconds=1), "s", "b"),     # 不到 3 秒：算標記，不計分
+        (start + timedelta(seconds=4), "s", "b"),     # 隔 3 秒：計分
+        (start + timedelta(seconds=8), "s", "a"),     # 同一張卡同一天只算一張
+        (start + timedelta(seconds=12), "t", "a2"),   # 移到新版的卡沿用原卡身分；已過午夜，算在隔天
+    ]
+    origins = {("t", "a2"): ("s", "a")}
+    assert credited_marks(events, origins, TAIPEI) == {date(2026, 10, 21): (2, 2), date(2026, 10, 22): (1, 1)}
+    assert credited_marks(events[:2], {}, TAIPEI) == {date(2026, 10, 21): (2, 1)}
+    assert (card_xp(0), card_xp(3), card_xp(20), card_xp(500)) == (0, 6, 40, 40)
 
 
 def test_streak_keeps_until_today_ends_and_breaks_on_a_gap():

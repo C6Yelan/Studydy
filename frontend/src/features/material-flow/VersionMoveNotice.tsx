@@ -118,10 +118,10 @@ export function VersionMoveNotice({ apiClient, materialId }: { apiClient: Studyd
                 return next;
               })}/>
               <span><strong>卡組「{item.name}」</strong>
-                {item.movable ? <small>{item.target_count} 張卡移到新版{item.carried_reviews ? `，沿用 ${item.carried_reviews} 張的複習排程` : ""}</small> : <small>沒有可對應的概念，無法移到新版</small>}
+                {item.movable ? <small>{item.target_count} 張卡移到新版{item.carried_reviews ? `，沿用 ${item.carried_reviews} 張的學習標記` : ""}</small> : <small>沒有可對應的概念，無法移到新版</small>}
               </span>
             </label>
-            {item.movable && regenerate > 0 && <p className="version-move-note">{regenerate} 張卡的內容在新版有更動，會依新版重新製作卡面，完成前暫停複習。</p>}
+            {item.movable && regenerate > 0 && <p className="version-move-note">{regenerate} 張卡的內容在新版有更動，會依新版重新製作卡面，完成前不列入需要加強。</p>}
             <UnmappedList title={`這 ${item.unmapped.length} 張卡在新版找不到對應概念，不會移動：`} items={item.unmapped}/>
             {item.mapped.length > 0 && <details className="version-move-details">
               <summary>查看概念對應</summary>

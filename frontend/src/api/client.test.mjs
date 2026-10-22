@@ -1353,16 +1353,17 @@ test("library search rejects mismatched queries and malformed hits", async () =>
   ]) await assert.rejects(search(body(change)), ApiClientError);
 });
 
-function reviewQueue(change = () => undefined) {
+function cardReviews(change = () => undefined) {
   const { concept_id, label, claims } = structureView().concepts[0];
   const value = {
-    schema: "card-review-queue/v1", rule_version: "card-review/v1", due_count: 1, new_count: 0, next_due_at: null,
-    sets: [{ card_set_id: setId, due_count: 1, new_count: 0, reviewed_count: 1 }],
+    schema: "card-reviews/v2", forgot_count: 1,
+    sets: [{ card_set_id: setId, card_count: 2, forgot_count: 1, remembered_count: 1 }],
+    marks: [],
     cards: [{
       card_set_id: setId, card_set_name: "複習", material_id: materialId, material_name: "Synthetic.pdf",
       knowledge_structure_revision: structureRevision,
       source_resolver: `/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`,
-      state: "due", review_count: 2, last_rating: "fuzzy", due_at: "2026-10-21T16:00:00Z",
+      review_count: 2,
       card: { concept_id, label, claims },
     }],
   };
@@ -1370,20 +1371,23 @@ function reviewQueue(change = () => undefined) {
   return value;
 }
 
-test("review queue keeps cards bound to their card set, source and state", async () => {
-  const read = (value, id) => new StudydyApiClient(async () => Response.json(value)).getCardReviewQueue(id);
-  assert.equal((await read(reviewQueue())).cards[0].card.label, "Stack");
-  assert.equal((await read(reviewQueue(), setId)).cards.length, 1);
-  await assert.rejects(read(reviewQueue(), materialId), ApiClientError);
+test("card reviews keep weak cards and marks bound to their card set and source", async () => {
+  const read = (value, id) => new StudydyApiClient(async () => Response.json(value)).getCardReviews(id);
+  assert.equal((await read(cardReviews())).cards[0].card.label, "Stack");
+  const marked = (value) => { value.marks = [{ card_set_id: setId, concept_id: conceptId, rating: "remembered", review_count: 1 }]; };
+  assert.equal((await read(cardReviews(marked), setId)).marks.length, 1);
+  // 只有指定卡組時才會有標記清單；指定卡組時不接受別的卡組。
+  await assert.rejects(read(cardReviews(marked)), ApiClientError);
+  await assert.rejects(read(cardReviews(), materialId), ApiClientError);
   for (const change of [
     (value) => { value.cards[0].source_resolver = "/v1/materials/x/evidence"; },
-    (value) => { value.cards[0].state = "new"; },
-    (value) => { value.cards[0].last_rating = "easy"; },
+    (value) => { value.cards[0].review_count = 0; },
     (value) => { value.cards.push(structuredClone(value.cards[0])); },
     (value) => { value.cards[0].card.claims = []; },
-    (value) => { value.sets[0].due_count = -1; },
-    (value) => { value.rule_version = "card-review/v2"; },
-  ]) await assert.rejects(read(reviewQueue(change)), ApiClientError);
+    (value) => { value.sets[0].forgot_count = -1; },
+    (value) => { value.sets[0].remembered_count = 2; },
+    (value) => { value.schema = "card-reviews/v1"; },
+  ]) await assert.rejects(read(cardReviews(change), setId), ApiClientError);
 });
 
 test("card review sends the intent key and requires the next review count", async () => {
@@ -1392,15 +1396,18 @@ test("card review sends the intent key and requires the next review count", asyn
     sent.push([path, init.headers["Idempotency-Key"], JSON.parse(init.body)]);
     return Response.json(body);
   };
-  const review = { schema: "card-review/v1", card_set_id: setId, concept_id: conceptId, rating: "remembered", review_count: 3,
-    interval_days: 7, due_at: "2026-10-28T16:00:00Z", reviewed_at: "2026-10-21T12:00:00Z" };
+  const review = { schema: "card-review/v2", card_set_id: setId, concept_id: conceptId, rating: "remembered", review_count: 3,
+    reviewed_at: "2026-10-21T12:00:00Z" };
   const saved = await new StudydyApiClient(reply(review)).submitCardReview(setId, conceptId, "remembered", 2, "intent-1");
-  assert.equal(saved.interval_days, 7);
+  assert.equal(saved.review_count, 3);
   assert.deepEqual(sent[0], [`/v1/card-sets/${setId}/reviews`, "intent-1",
     { schema: "card-review-submit/v1", concept_id: conceptId, rating: "remembered", expected_review_count: 2 }]);
   // 回應的次數或評分與請求不符時不採用。
   await assert.rejects(new StudydyApiClient(reply({ ...review, review_count: 2 })).submitCardReview(setId, conceptId, "remembered", 2, "k"), ApiClientError);
   await assert.rejects(new StudydyApiClient(reply({ ...review, rating: "forgot" })).submitCardReview(setId, conceptId, "remembered", 2, "k"), ApiClientError);
+  await assert.rejects(new StudydyApiClient(reply({ ...review, schema: "card-review/v1" })).submitCardReview(setId, conceptId, "remembered", 2, "k"), ApiClientError);
+  // 只剩不熟／熟悉兩種標記。
+  await assert.rejects(new StudydyApiClient(reply({ ...review, rating: "fuzzy" })).submitCardReview(setId, conceptId, "remembered", 2, "k"), ApiClientError);
 });
 
 function activityView(change = () => undefined) {
@@ -1409,11 +1416,11 @@ function activityView(change = () => undefined) {
   }));
   week[2] = { ...week[2], answers: 4, correct: 3, card_reviews: 2, listened_seconds: 360, active: true };
   const value = {
-    schema: "learning-activity/v2", timezone: "Asia/Taipei", rule_version: "xp-rules/v1", today: "2026-10-21",
+    schema: "learning-activity/v2", timezone: "Asia/Taipei", rule_version: "xp-rules/v2", today: "2026-10-21",
     streak_days: 1, active_today: true, week, total_answers: 4, total_correct: 3,
     xp: { total: 120, today: 40, level: 2, level_xp: 20, level_target: 200, sources: { answers: 33, concepts: 30, cards: 4, podcast: 5 } },
     quests: [{ kind: "continue_study", progress: 1, target: 1, done: true, material_id: materialId, study_session_id: sessionId, podcast_id: null, episode_index: null }],
-    badges: { rule_version: "badge-rules/v4", items: [
+    badges: { rule_version: "badge-rules/v5", items: [
       { badge_id: "first_answer", earned: true, earned_on: "2026-10-16", progress: 1, target: 1 },
       { badge_id: "answers_100", earned: false, earned_on: null, progress: 4, target: 100 },
     ] },
@@ -1427,7 +1434,7 @@ test("learning activity requires XP, level, quests and badges from the v2 rules"
   assert.equal((await read(activityView())).xp.level, 2);
   for (const change of [
     (value) => { value.schema = "learning-activity/v1"; },
-    (value) => { value.rule_version = "xp-rules/v2"; },
+    (value) => { value.rule_version = "xp-rules/v1"; },
     (value) => { value.xp.level_xp = 200; },
     (value) => { value.xp.today = 121; },
     (value) => { value.xp.sources.cards = -2; },
@@ -1436,7 +1443,7 @@ test("learning activity requires XP, level, quests and badges from the v2 rules"
     (value) => { value.quests[0].progress = 2; },
     (value) => { value.quests[0].study_session_id = "x"; },
     (value) => { delete value.badges; },
-    (value) => { value.badges.rule_version = "badge-rules/v3"; },
+    (value) => { value.badges.rule_version = "badge-rules/v4"; },
     (value) => { value.badges.items[1].progress = 101; },
     // 取得與進度不一致、未取得卻有日期、日期格式錯誤都不採用。
     (value) => { value.badges.items[1].earned = true; },
@@ -1445,10 +1452,10 @@ test("learning activity requires XP, level, quests and badges from the v2 rules"
   ]) await assert.rejects(read(activityView(change)), ApiClientError);
 });
 
-test("learning activity is shared briefly and re-read after a review", async () => {
+test("learning activity is shared briefly and re-read after a card mark", async () => {
   let reads = 0;
-  const review = { schema: "card-review/v1", card_set_id: setId, concept_id: conceptId, rating: "remembered", review_count: 1,
-    interval_days: 1, due_at: "2026-10-22T16:00:00Z", reviewed_at: "2026-10-21T12:00:00Z" };
+  const review = { schema: "card-review/v2", card_set_id: setId, concept_id: conceptId, rating: "remembered", review_count: 1,
+    reviewed_at: "2026-10-21T12:00:00Z" };
   const client = new StudydyApiClient(async (path) => {
     if (path === "/v1/learning-activity") { reads++; return Response.json(activityView()); }
     return Response.json(review);

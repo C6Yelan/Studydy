@@ -262,7 +262,7 @@ export type KnowledgeRegionsView = {
 export type LearningActivityDay = {
   date: string; answers: number; correct: number; card_reviews: number; listened_seconds: number; active: boolean;
 };
-export type LearningQuestKind = "review_due_cards" | "review_new_cards" | "continue_study" | "finish_podcast_episode";
+export type LearningQuestKind = "mark_cards" | "continue_study" | "finish_podcast_episode";
 export type LearningQuest = {
   kind: LearningQuestKind; progress: number; target: number; done: boolean;
   material_id: string | null; study_session_id: string | null; podcast_id: string | null; episode_index: number | null;
@@ -271,7 +271,7 @@ export type LearningXp = {
   total: number; today: number; level: number; level_xp: number; level_target: number;
   sources: { answers: number; concepts: number; cards: number; podcast: number };
 };
-// 徽章（規則 badge-rules/v4）只由真實紀錄推導；同一計量的多個門檻是同一系列的層級，另有隱藏條件的特殊成就。未知代號由畫面忽略。
+// 徽章（規則 badge-rules/v5）只由真實紀錄推導；同一計量的多個門檻是同一系列的層級，另有隱藏條件的特殊成就。未知代號由畫面忽略。
 export type LearningBadgeId =
   | "first_answer" | "answers_100" | "answers_300" | "answers_1000" | "answers_5000"
   | "first_concept" | "concepts_25" | "concepts_100" | "concepts_300"
@@ -286,13 +286,13 @@ export type LearningBadgeId =
   | "first_try_material" | "perfect_day" | "all_round_day" | "thousand_pages" | "revisit";
 export type LearningBadge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
 export type LearningActivityView = {
-  schema: "learning-activity/v2"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v1"; today: string;
+  schema: "learning-activity/v2"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v2"; today: string;
   streak_days: number; active_today: boolean;
   week: LearningActivityDay[];
   total_answers: number; total_correct: number;
   xp: LearningXp;
   quests: LearningQuest[];
-  badges: { rule_version: "badge-rules/v4"; items: LearningBadge[] };
+  badges: { rule_version: "badge-rules/v5"; items: LearningBadge[] };
 };
 
 export type PodcastProgressView = {
@@ -365,26 +365,31 @@ export type CardDesign = {
 };
 export type ConceptCard = Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "claims"> & { display_edits?: CardTextEdit[]; design?: CardDesign | null };
 
-export type CardReviewRating = "forgot" | "fuzzy" | "remembered";
+export type CardReviewRating = "forgot" | "remembered";
 
-// 間隔重複：到期卡在前、新卡在後；張數依卡組彙總。
+// 學習標記：forgot／remembered 即畫面上的不熟／熟悉；不排程。
+// 需要加強的卡片（標成不熟，較久沒標記的在前）；張數依卡組彙總。
 export type CardReviewItem = {
   card_set_id: string; card_set_name: string; material_id: string; material_name: string;
   knowledge_structure_revision: string; source_resolver: string;
-  state: "due" | "new"; review_count: number; last_rating: CardReviewRating | null; due_at: string | null;
+  review_count: number;
   card: ConceptCard;
 };
 
-export type CardReviewQueueView = {
-  schema: "card-review-queue/v1"; rule_version: "card-review/v1";
-  due_count: number; new_count: number; next_due_at: string | null;
-  sets: { card_set_id: string; due_count: number; new_count: number; reviewed_count: number }[];
+export type CardReviewMark = { card_set_id: string; concept_id: string; rating: CardReviewRating; review_count: number };
+
+export type CardReviewsView = {
+  schema: "card-reviews/v2";
+  forgot_count: number;
+  sets: { card_set_id: string; card_count: number; forgot_count: number; remembered_count: number }[];
+  /** 只有指定卡組時才列出該卡組已標記的卡片。 */
+  marks: CardReviewMark[];
   cards: CardReviewItem[];
 };
 
 export type CardReviewView = {
-  schema: "card-review/v1"; card_set_id: string; concept_id: string; rating: CardReviewRating;
-  review_count: number; interval_days: number; due_at: string; reviewed_at: string;
+  schema: "card-review/v2"; card_set_id: string; concept_id: string; rating: CardReviewRating;
+  review_count: number; reviewed_at: string;
 };
 
 export type ConceptCardContext = Pick<KnowledgeStructureView, "source_resolver" | "status" | "concepts" | "relations"> & {

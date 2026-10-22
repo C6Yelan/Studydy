@@ -27,7 +27,7 @@ const responses: Record<string, unknown> = {
         answers, correct: Math.floor(answers * 0.8), card_reviews, listened_seconds, active: answers + card_reviews > 0,
       })),
     quests: [
-      { kind: "review_due_cards", progress: 3, target: 12, done: false },
+      { kind: "mark_cards", progress: 3, target: 5, done: false },
       { kind: "continue_study", progress: 1, target: 1, done: true },
       { kind: "finish_podcast_episode", progress: 0, target: 1, done: false },
     ],

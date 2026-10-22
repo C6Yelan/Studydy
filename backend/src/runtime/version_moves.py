@@ -2,7 +2,7 @@
 
 不自動搬動：教材重新分析或檢核產生新版後，舊版卡組與學習照常保留在建立時的版本。
 預覽列出可承接與無法對應的概念；學生確認後，以同一次交易建立新版卡組（複製卡片
-排程）與新版學習（記錄依概念對應承接的已完成概念），並保留舊版資料與作答／複習事件。
+標記）與新版學習（記錄依概念對應承接的已完成概念），並保留舊版資料與作答／標記事件。
 概念對應規則見 knowledge_map.source_identity.map_concepts 與 docs/learning.md。
 Podcast 維持建立時的版本，不承接。
 """
@@ -85,7 +85,7 @@ def moved_to(session, owner, card_set_ids):
 def card_origins(session, owner):
     """{(新卡組, 新概念): (最初的卡組, 最初的概念)}；承接後的卡片沿用同一張卡的身分。
 
-    XP「同一張卡每天只算一次」與今日任務的「學過的卡」以此辨識，移到新版不算新卡。
+    XP 與今日任務的「同一張卡每天只算一次」以此辨識，在新舊卡組各標一次仍只算一張。
     """
     parents = {}
     for target, source, concept_map in session.execute(
@@ -210,7 +210,7 @@ def _completed(learner, study, dsn):
 
 # 知識結構版本以內容雜湊命名、發布後不再改變；預覽每次重讀並驗證新舊兩份完整結構，
 # 千頁教材需數秒並占住 API。第一次完整驗證後，在本程序保留只由結構推導的名稱、順序與
-# 概念對應（不含任何學習紀錄），鍵含使用者、教材與版本；卡組、排程與進度仍每次即時讀取。
+# 概念對應（不含任何學習紀錄），鍵含使用者、教材與版本；卡組、標記與進度仍每次即時讀取。
 _DERIVED_LIMIT = 16
 _derived = OrderedDict()
 _derived_lock = Lock()
@@ -365,11 +365,11 @@ def _plan(session, learner, material, *, dsn, lock=False):
         concept_map = {}
         for target in targets:
             olds = sources_for[target]
-            # 新版合併多張舊卡時，沿用最早到期的排程（較保守，不讓卡片延後出現）。
-            scheduled = [old for old in olds if old in states]
+            # 新版合併多張舊卡時，沿用最近一次的標記（學生最新的自我評估）。
+            marked = [old for old in olds if old in states]
             concept_map[target] = (
-                min(scheduled, key=lambda old: (states[old].due_at, olds.index(old)))
-                if scheduled else olds[0]
+                max(marked, key=lambda old: (states[old].last_reviewed_at, -olds.index(old)))
+                if marked else olds[0]
             )
         try:
             reused = _reusable_designs(session, row, head, concept_map) if targets else {}
@@ -573,9 +573,8 @@ def execute_version_move(
                 if state is not None:
                     session.add(CardReviewState(
                         card_set_id=row.card_set_id, concept_id=target, learner_id=owner,
-                        streak=state.streak, review_count=state.review_count,
-                        interval_days=state.interval_days, last_rating=state.last_rating,
-                        last_reviewed_at=state.last_reviewed_at, due_at=state.due_at,
+                        review_count=state.review_count, last_rating=state.last_rating,
+                        last_reviewed_at=state.last_reviewed_at,
                     ))
             session.add(CardSetMove(
                 target_card_set_id=row.card_set_id, source_card_set_id=source.card_set_id,

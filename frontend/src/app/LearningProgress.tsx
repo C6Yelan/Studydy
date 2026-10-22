@@ -55,7 +55,7 @@ function LevelUp({ level, onClose }: { level: number; onClose: () => void }) {
       <img src="/assets/studydy/success-jump.png" alt="" />
       <p className="level-up-eyebrow">升級了！</p>
       <strong>第 {level} 級</strong>
-      <p>持續作答、複習與收聽，累積經驗值。</p>
+      <p>持續作答、標記概念卡與收聽，累積經驗值。</p>
       <button className="primary-button" type="button" onClick={onClose}>太好了</button>
     </div>
   </div>;

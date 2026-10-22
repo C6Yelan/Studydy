@@ -132,8 +132,8 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab')).toHaveText(['知識地圖', '學習與測驗', '概念卡', 'Podcast', '補充學習', '教材來源']);
   await expect(page.locator('.app-shell')).toHaveClass(/is-workspace/);
   const navBox = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
-  const searchBox = (await page.getByRole('searchbox', { name: '搜尋 Podcast', exact: true }).boundingBox())!;
-  expect(searchBox.y).toBeGreaterThanOrEqual(navBox.y + navBox.height);
+  const createBox = (await page.getByRole('button', { name: '建立 Podcast', exact: true }).boundingBox())!;
+  expect(createBox.y).toBeGreaterThanOrEqual(navBox.y + navBox.height);
   await expect(page.getByRole('heading', { name: '別的教材 Podcast' })).toHaveCount(0);
   await page.getByRole('button', { name: '查看進度', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
@@ -144,11 +144,8 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.locator('.library-item')).toHaveCount(1);
   await expect(page.getByRole('heading', { name: '此教材卡組' })).toBeVisible();
   const cardsNav = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
-  const cardsSearch = (await page.getByRole('searchbox', { name: '搜尋卡組', exact: true }).boundingBox())!;
-  expect(cardsSearch.y).toBeGreaterThanOrEqual(cardsNav.y + cardsNav.height);
-  await page.getByRole('searchbox', { name: '搜尋卡組', exact: true }).fill('不存在的卡組');
-  await expect(page.locator('.library-item')).toHaveCount(0);
-  await page.getByRole('searchbox', { name: '搜尋卡組', exact: true }).fill('');
+  const cardsCreate = (await page.getByRole('button', { name: '建立卡組', exact: true }).boundingBox())!;
+  expect(cardsCreate.y).toBeGreaterThanOrEqual(cardsNav.y + cardsNav.height);
   await page.getByRole('button', { name: '建立卡組', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/create-cards$`));
   await expect(page.getByLabel('選擇教材')).toHaveCount(0);

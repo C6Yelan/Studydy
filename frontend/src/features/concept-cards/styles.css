@@ -120,6 +120,8 @@
 }
 @media (prefers-reduced-motion: reduce) { .flashcard { animation: none; } }
 .cards-library-material { overflow-wrap: anywhere; line-height: 1.6; }
+/* 卡組卡片：標題不預留第二行，單行標題與日期之間不留空白（只影響概念卡頁）。 */
+.cards-library .library-item h2 { min-height: 0; margin: 8px 0 4px; }
 @media (max-width: 700px) {
   .cards-study .flashcard-point p { font-size: 15px; }
 }
@@ -210,7 +212,7 @@
 
 .cards-preview .visual-card + .visual-card { margin-top: 20px; }
 
-/* 卡組頁「今天要複習」與複習模式 */
+/* 卡組頁「需要加強」與加強模式 */
 .cards-review-strip {
   display: flex;
   align-items: center;
@@ -234,6 +236,25 @@
   max-width: 640px;
   margin: 0 auto;
 }
+/* 瀏覽時標記目前這張卡熟不熟。 */
+.cards-study-mark {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  margin-top: 14px;
+}
+.cards-study-mark > span {
+  display: flex;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 800;
+}
+.cards-study-mark > span b { color: var(--studydy-blue); }
+.cards-study-mark .review-grades { width: min(100%, 260px); }
+.cards-study-mark .form-error { flex-basis: 100%; margin: 0; text-align: center; }
 .card-review-due {
   display: inline-flex;
   align-items: center;
@@ -274,36 +295,46 @@
 .creation-picker-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
 .cards-browse-layout .visual-card { margin-inline: 0; }
 
-/* 概念卡頁上方的跨卡組今日複習：說明在左、卡片在右；窄螢幕上下排列。 */
-.cards-daily-review {
+/* 概念卡頁上方的跨卡組「需要加強」：平常一列；展開後卡片置中。 */
+.cards-strengthen {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 400px);
-  gap: 24px;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 12px 18px;
+}
+.cards-strengthen-bar {
+  display: flex;
   align-items: center;
-  margin-bottom: 24px;
-  padding: 22px 24px;
+  gap: 14px;
 }
-.cards-daily-review-text {
-  display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
-  column-gap: 20px;
-  align-content: center;
+.cards-strengthen-bar img {
+  flex: none;
+  width: 48px;
+  height: auto;
 }
-.cards-daily-review-text img {
-  grid-row: 1 / 4;
-  width: 140px;
-  align-self: center;
-}
-.cards-daily-review-text h2 {
-  margin: 4px 0 8px;
-  font-size: 20px;
-}
-.cards-daily-review-text p:last-child {
+.cards-strengthen-bar p {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
   margin: 0;
   color: var(--text-secondary);
+  font-weight: 700;
+}
+.cards-strengthen-bar b {
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 900;
+}
+.cards-strengthen-bar button { flex: none; }
+.cards-strengthen .review-deck {
+  width: min(100%, 520px);
+  justify-self: center;
+  padding-bottom: 8px;
 }
 @media (max-width: 720px) {
-  .cards-daily-review { grid-template-columns: minmax(0, 1fr); padding: 18px; }
-  .cards-daily-review-text { grid-template-columns: 72px minmax(0, 1fr); column-gap: 12px; }
-  .cards-daily-review-text img { width: 72px; }
+  .cards-strengthen-bar { flex-wrap: wrap; }
+  .cards-strengthen-bar p { flex-basis: calc(100% - 62px); }
+  .cards-strengthen-bar button { width: 100%; }
 }

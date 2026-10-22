@@ -1,11 +1,10 @@
 import type { LearningActivityView, LearningQuest } from "../../api/contracts";
 import { Icon, type IconName } from "../../ui/Icon";
 
-// 首頁的今日任務與個人檔案的本週節奏；數字全部來自學習活動 API（規則 xp-rules/v1）。
+// 首頁的今日任務與個人檔案的本週節奏；數字全部來自學習活動 API（規則 xp-rules/v2）。
 
 const questText: Record<LearningQuest["kind"], { icon: IconName; title: (quest: LearningQuest) => string; action: string }> = {
-  review_due_cards: { icon: "cards", title: (q) => `複習 ${q.target} 張到期的概念卡`, action: "開始複習" },
-  review_new_cards: { icon: "cards", title: (q) => `複習 ${q.target} 張新的概念卡`, action: "開始複習" },
+  mark_cards: { icon: "cards", title: (q) => `標記 ${q.target} 張概念卡`, action: "去標記" },
   continue_study: { icon: "quiz", title: () => "完成 1 次題組作答", action: "繼續學習" },
   finish_podcast_episode: { icon: "headphones", title: () => "聽完 1 集還沒聽完的 Podcast", action: "去收聽" },
 };
@@ -42,7 +41,7 @@ export function DailyQuests({ quests, onOpen }: { quests: LearningQuest[]; onOpe
 const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
 const minutes = (seconds: number) => Math.floor(seconds / 60);
 
-// 本週節奏分項顯示每天作答題數、概念卡複習張數與實際收聽分鐘數。
+// 本週節奏分項顯示每天作答題數、標記的概念卡張數與實際收聽分鐘數。
 export function WeekRhythm({ activity }: { activity: LearningActivityView }) {
   const totals = activity.week.reduce((sum, day) => ({
     answers: sum.answers + day.answers, correct: sum.correct + day.correct,
@@ -56,7 +55,7 @@ export function WeekRhythm({ activity }: { activity: LearningActivityView }) {
   const height = (value: number, max: number) => `${value ? Math.max(12, (value / max) * 100) : 0}%`;
   const parts = [
     totals.answers && `作答 ${totals.answers} 題（答對率 ${Math.round((totals.correct / totals.answers) * 100)}%）`,
-    totals.cards && `複習 ${totals.cards} 張卡`,
+    totals.cards && `標記 ${totals.cards} 張卡`,
     minutes(totals.listened) && `收聽 ${minutes(totals.listened)} 分鐘`,
   ].filter(Boolean);
   return <section className="dashboard-week surface" aria-labelledby="dashboard-week-title">
@@ -72,7 +71,7 @@ export function WeekRhythm({ activity }: { activity: LearningActivityView }) {
         const future = day.date > activity.today;
         const detail = [
           day.answers && `作答 ${day.answers} 題，答對 ${day.correct} 題`,
-          day.card_reviews && `複習 ${day.card_reviews} 張卡`,
+          day.card_reviews && `標記 ${day.card_reviews} 張卡`,
           minutes(day.listened_seconds) && `收聽 ${minutes(day.listened_seconds)} 分鐘`,
         ].filter(Boolean).join("，");
         return <li key={day.date} className={[today && "is-today", day.active && "is-active", future && "is-future"].filter(Boolean).join(" ")}
@@ -92,8 +91,8 @@ export function WeekRhythm({ activity }: { activity: LearningActivityView }) {
     </ul>
     <p className="week-summary">
       {parts.length ? <>本週{parts.join(" · ")}</>
-        : activity.streak_days ? "今天作答、複習卡片或收聽 Podcast，就能延續連續紀錄。" : "本週還沒有學習紀錄，作答、複習或收聽都會出現在這裡。"}
+        : activity.streak_days ? "今天作答、標記卡片或收聽 Podcast，就能延續連續紀錄。" : "本週還沒有學習紀錄，作答、標記卡片或收聽都會出現在這裡。"}
     </p>
-    <small className="week-note">依作答、概念卡複習與實際收聽紀錄計算，以台灣時間為準；收聽滿 1 分鐘才算當天有學習。</small>
+    <small className="week-note">依作答、概念卡標記與實際收聽紀錄計算，以台灣時間為準；收聽滿 1 分鐘才算當天有學習。</small>
   </section>;
 }

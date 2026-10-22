@@ -392,7 +392,7 @@ class LearningXpView(_Closed):
 
 
 class LearningQuestView(_Closed):
-    kind: Literal["review_due_cards", "review_new_cards", "continue_study", "finish_podcast_episode"]
+    kind: Literal["mark_cards", "continue_study", "finish_podcast_episode"]
     progress: int
     target: int
     done: bool
@@ -424,14 +424,14 @@ class LearningBadgeView(_Closed):
 
 
 class LearningBadgesView(_Closed):
-    rule_version: Literal["badge-rules/v4"]
+    rule_version: Literal["badge-rules/v5"]
     items: list[LearningBadgeView]
 
 
 class LearningActivityView(_Closed):
     schema_: Literal["learning-activity/v2"] = Field(alias="schema")
     timezone: Literal["Asia/Taipei"]
-    rule_version: Literal["xp-rules/v1"]
+    rule_version: Literal["xp-rules/v2"]
     today: date_type
     streak_days: int
     active_today: bool
@@ -562,27 +562,33 @@ class PodcastProgressView(_Closed):
 class CardReviewSubmit(_Closed):
     schema_: Literal["card-review-submit/v1"] = Field(alias="schema")
     concept_id: str = Field(pattern=r"^concept:sha256:[0-9a-f]{64}$")
-    rating: Literal["forgot", "fuzzy", "remembered"]
-    # 送出前看到的複習次數；不一致代表另一個分頁已評過。
+    # forgot／remembered 即畫面上的不熟／熟悉。
+    rating: Literal["forgot", "remembered"]
+    # 送出前看到的標記次數；不一致代表另一個分頁已標記過。
     expected_review_count: int = Field(ge=0, le=1_000_000, strict=True)
 
 
 class CardReviewView(_Closed):
-    schema_: Literal["card-review/v1"] = Field(alias="schema")
+    schema_: Literal["card-review/v2"] = Field(alias="schema")
     card_set_id: UUID
     concept_id: str
-    rating: Literal["forgot", "fuzzy", "remembered"]
+    rating: Literal["forgot", "remembered"]
     review_count: int
-    interval_days: int
-    due_at: datetime
     reviewed_at: datetime
 
 
 class CardReviewSetCount(_Closed):
     card_set_id: UUID
-    due_count: int
-    new_count: int
-    reviewed_count: int
+    card_count: int
+    forgot_count: int
+    remembered_count: int
+
+
+class CardReviewMark(_Closed):
+    card_set_id: UUID
+    concept_id: str
+    rating: Literal["forgot", "remembered"]
+    review_count: int
 
 
 class CardReviewItem(_Closed):
@@ -592,20 +598,16 @@ class CardReviewItem(_Closed):
     material_name: str
     knowledge_structure_revision: str
     source_resolver: str
-    state: Literal["due", "new"]
     review_count: int
-    last_rating: Literal["forgot", "fuzzy", "remembered"] | None
-    due_at: datetime | None
     card: ConceptCardView
 
 
-class CardReviewQueueView(_Closed):
-    schema_: Literal["card-review-queue/v1"] = Field(alias="schema")
-    rule_version: Literal["card-review/v1"]
-    due_count: int
-    new_count: int
-    next_due_at: datetime | None
+class CardReviewsView(_Closed):
+    schema_: Literal["card-reviews/v2"] = Field(alias="schema")
+    forgot_count: int
     sets: list[CardReviewSetCount]
+    # 只有指定卡組時才列出該卡組已標記的卡片。
+    marks: list[CardReviewMark]
     cards: list[CardReviewItem]
 
 

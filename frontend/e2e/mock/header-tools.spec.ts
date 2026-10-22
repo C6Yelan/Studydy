@@ -40,7 +40,7 @@ test("slash opens site search and a concept on the current map opens its detail"
   await page.locator("body").press("/");
   const dialog = page.getByRole("dialog", { name: "全站搜尋" });
   await expect(dialog).toBeVisible();
-  const input = dialog.getByRole("searchbox", { name: "搜尋概念或教材" });
+  const input = dialog.getByRole("searchbox", { name: "搜尋概念、教材、卡組或 Podcast" });
   await expect(input).toBeFocused();
   await input.fill("arr");
   await expect(dialog.getByRole("region", { name: "概念" }).getByRole("button")).toHaveText(["Array1 個重點 · Data structures.pdf"]);
@@ -56,7 +56,7 @@ test("site search from home opens the map at the chosen concept and Enter picks 
   await mockKnowledgeMapApi(page);
   await mockSearch(page, (query) => searchResult(query, [{ id: firstConcept, label: "Stack" }, { id: secondConcept, label: "Array" }]));
   await page.goto("/");
-  await page.getByRole("button", { name: "搜尋概念或教材" }).click();
+  await page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" }).click();
   const dialog = page.getByRole("dialog", { name: "全站搜尋" });
   await dialog.getByRole("searchbox").fill("a");
   await expect(dialog.getByText("只顯示前 2 個概念，輸入更多關鍵字可縮小範圍。")).toBeVisible();
@@ -78,7 +78,7 @@ test("site search shows empty and failed results, retries, and opens unbuilt mat
     return route.fulfill({ json: searchResult(query) });
   });
   await page.goto(mapPath);
-  await page.getByRole("button", { name: "搜尋概念或教材" }).click();
+  await page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" }).click();
   const dialog = page.getByRole("dialog", { name: "全站搜尋" });
   await dialog.getByRole("searchbox").fill("zzz");
   await expect(dialog.getByRole("status")).toHaveText("找不到「zzz」，試試其他關鍵字。");
@@ -88,11 +88,39 @@ test("site search shows empty and failed results, retries, and opens unbuilt mat
   await dialog.getByRole("region", { name: "教材" }).getByRole("button", { name: /Array 講義草稿/ }).click();
   await expect.poll(() => new URL(page.url()).pathname).toBe("/materials");
   // 欄位有文字時 Escape 也直接關閉，並把焦點還給觸發按鈕。
-  await page.getByRole("button", { name: "搜尋概念或教材" }).click();
+  await page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" }).click();
   await dialog.getByRole("searchbox").fill("array");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-  await expect(page.getByRole("button", { name: "搜尋概念或教材" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeFocused();
+});
+
+test("site search also lists matching card sets and podcasts and opens them", async ({ page }) => {
+  await mockKnowledgeMapApi(page);
+  await mockSearch(page, (query) => ({ ...searchResult(query, []), materials: [] }));
+  const cardSetId = "77777777-7777-4777-8777-777777777777";
+  const podcastId = "88888888-8888-4888-8888-888888888888";
+  const concept = `concept:sha256:${"c".repeat(64)}`;
+  const common = { material_id: materialId, material_name: "Data structures.pdf", knowledge_structure_revision: structureRevision, version: 1, created_at: "2026-10-20T00:00:00Z", is_current_revision: true };
+  await page.route("**/v1/card-sets", (route) => route.fulfill({ json: { schema: "card-set-list/v1", card_sets: [
+    { ...common, card_set_id: cardSetId, name: "陣列複習", card_count: 3, concept_ids: [concept],
+      generation: { status: "ready", stage: "complete", completed: 1, total: 1, retained_original: 0, cached: 0, error_code: null } },
+  ] } }));
+  await page.route("**/v1/podcasts", (route) => route.fulfill({ json: { schema: "podcast-list/v1", podcasts: [
+    { ...common, podcast_id: podcastId, name: "陣列 Podcast", delivery: "solo", concept_ids: [concept], status: "ready", error_code: null, episode_count: 2, completed_episodes: 2 },
+  ] } }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" }).click();
+  const dialog = page.getByRole("dialog", { name: "全站搜尋" });
+  await dialog.getByRole("searchbox").fill("陣列");
+  await expect(dialog.getByRole("region", { name: "卡組" }).getByRole("button")).toHaveText(["陣列複習3 張卡片 · Data structures.pdf"]);
+  await expect(dialog.getByRole("region", { name: "Podcast" }).getByRole("button")).toHaveText(["陣列 Podcast2 集 · Data structures.pdf"]);
+  // 所屬教材名稱也能找到。
+  await dialog.getByRole("searchbox").fill("data struct");
+  await expect(dialog.getByRole("region", { name: "卡組" }).getByRole("button")).toHaveCount(1);
+  await dialog.getByRole("region", { name: "卡組" }).getByRole("button").click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/materials/${materialId}/concept-cards/${cardSetId}`);
 });
 
 test("display name is saved with Origin, validated, and greets on the home page", async ({ page }) => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../api/client";
-import type { LearnerProfile, LibrarySearchView } from "../api/contracts";
+import type { CardSetSummary, LearnerProfile, LibrarySearchView, PodcastSummary } from "../api/contracts";
 import { Icon } from "../ui/Icon";
 import { writeRoute } from "./routes";
 
@@ -59,8 +59,19 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
   const [text, setText] = useState("");
   const [state, setState] = useState<SearchState>({ query: "", result: null, error: null });
   const [retry, setRetry] = useState(0);
+  // 卡組與 Podcast 數量少，開啟搜尋時讀一次清單，在前端比對名稱與所屬教材；讀不到時只少這兩類結果。
+  const [lists, setLists] = useState<{ cardSets: CardSetSummary[] | null; podcasts: PodcastSummary[] | null } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const query = text.trim();
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void Promise.all([
+      apiClient.listCardSets().then((value) => value.card_sets, () => null),
+      apiClient.listPodcasts().then((value) => value.podcasts, () => null),
+    ]).then(([cardSets, podcasts]) => { if (!cancelled) setLists({ cardSets, podcasts }); });
+    return () => { cancelled = true; };
+  }, [apiClient, open]);
   useEffect(() => {
     // 「/」開啟搜尋；正在輸入其他欄位時不攔截。
     const onKey = (event: KeyboardEvent) => {
@@ -88,20 +99,25 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
     setOpen(false);
     setText("");
     setState({ query: "", result: null, error: null });
+    setLists(null);
     trigger.current?.focus({ preventScroll: true });
   };
   const current = state.query === query ? state : null;
   const result = current?.result;
-  const empty = result && !result.materials.length && !result.concepts.length;
+  const needle = query.toLocaleLowerCase();
+  const matches = (item: { name: string; material_name: string }) => `${item.name} ${item.material_name}`.toLocaleLowerCase().includes(needle);
+  const cardSets = lists?.cardSets?.filter(matches) ?? [];
+  const podcasts = lists?.podcasts?.filter(matches) ?? [];
+  const empty = result && !result.materials.length && !result.concepts.length && !cardSets.length && !podcasts.length;
   return (
     <>
-      <button ref={trigger} className="header-search-trigger" type="button" aria-haspopup="dialog" aria-label="搜尋概念或教材" onClick={() => setOpen(true)}>
+      <button ref={trigger} className="header-search-trigger" type="button" aria-haspopup="dialog" aria-label="搜尋概念、教材、卡組或 Podcast" onClick={() => setOpen(true)}>
         <Icon name="search" size={18} />
-        <span>搜尋概念或教材…</span>
+        <span>搜尋全部內容…</span>
         <kbd aria-hidden="true">/</kbd>
       </button>
       <Modal label="全站搜尋" open={open} onClose={close} className="search-dialog">
-        <form role="search" aria-label="搜尋全部教材" onSubmit={(event) => {
+        <form role="search" aria-label="搜尋全部內容" onSubmit={(event) => {
           event.preventDefault();
           if (result?.concepts[0]) { close(); openConcept(result.concepts[0]); }
         }}>
@@ -109,8 +125,8 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
           <input
             autoFocus
             type="search"
-            aria-label="搜尋概念或教材"
-            placeholder="輸入概念或教材名稱…"
+            aria-label="搜尋概念、教材、卡組或 Podcast"
+            placeholder="輸入概念、教材、卡組或 Podcast 名稱…"
             maxLength={200}
             value={text}
             onChange={(event) => setText(event.currentTarget.value)}
@@ -120,12 +136,12 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
           <button className="header-dialog-close" type="button" aria-label="關閉搜尋" onClick={close}>×</button>
         </form>
         <div className="search-results">
-          {!query ? <p className="search-hint">搜尋所有教材的概念名稱、別名與教材名稱。</p>
+          {!query ? <p className="search-hint">搜尋所有教材的概念名稱與別名，以及教材、卡組與 Podcast 名稱。</p>
             : !current ? <p role="status">正在搜尋…</p>
             : current.error ? <p role="alert">{current.error}<button className="text-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新搜尋</button></p>
             : empty ? <p role="status">找不到「{query}」，試試其他關鍵字。</p>
             : result && <>
-              <p className="header-sr-only" role="status">找到 {result.materials.length} 份教材、{result.concepts.length} 個概念</p>
+              <p className="header-sr-only" role="status">找到 {result.materials.length} 份教材、{result.concepts.length} 個概念、{cardSets.length} 個卡組、{podcasts.length} 份 Podcast</p>
               {result.materials.length > 0 && <section aria-label="教材">
                 <h3>教材</h3>
                 <ul>{result.materials.map((material) => <li key={material.material_id}>
@@ -150,6 +166,25 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
                 </li>)}</ul>
                 {result.concepts_truncated && <p className="search-hint">只顯示前 {result.concepts.length} 個概念，輸入更多關鍵字可縮小範圍。</p>}
               </section>}
+              {cardSets.length > 0 && <section aria-label="卡組">
+                <h3>卡組</h3>
+                <ul>{cardSets.map((item) => <li key={item.card_set_id}>
+                  <button type="button" onClick={() => { close(); writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }); }}>
+                    <Icon name="cards" size={18} />
+                    <span><b>{item.name}</b><small>{item.card_count !== null ? `${item.card_count} 張卡片 · ` : ""}{item.material_name}</small></span>
+                  </button>
+                </li>)}</ul>
+              </section>}
+              {podcasts.length > 0 && <section aria-label="Podcast">
+                <h3>Podcast</h3>
+                <ul>{podcasts.map((item) => <li key={item.podcast_id}>
+                  <button type="button" onClick={() => { close(); writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id }); }}>
+                    <Icon name="headphones" size={18} />
+                    <span><b>{item.name}</b><small>{item.episode_count} 集 · {item.material_name}</small></span>
+                  </button>
+                </li>)}</ul>
+              </section>}
+              {lists && (!lists.cardSets || !lists.podcasts) && <p className="search-hint">無法讀取卡組或 Podcast 清單，這兩類結果暫時不顯示。</p>}
             </>}
         </div>
       </Modal>

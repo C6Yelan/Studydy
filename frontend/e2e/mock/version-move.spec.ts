@@ -84,7 +84,7 @@ for (const width of [1440, 390]) {
     await notice.getByRole("button", { name: "移到新版" }).click();
     const dialog = page.getByRole("dialog", { name: "移到新版" });
     await expect(dialog).toContainText("卡組「資料結構重點」");
-    await expect(dialog).toContainText("2 張卡移到新版，沿用 1 張的複習排程");
+    await expect(dialog).toContainText("2 張卡移到新版，沿用 1 張的學習標記");
     await expect(dialog).toContainText("1 張卡的內容在新版有更動");
     await expect(dialog).toContainText("這 1 張卡在新版找不到對應概念，不會移動：");
     await expect(dialog).toContainText("雜湊表內容在新版分散到多個概念");

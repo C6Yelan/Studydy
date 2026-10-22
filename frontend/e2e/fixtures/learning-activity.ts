@@ -1,13 +1,13 @@
 // 學習活動 v2 的 mock 回應；預設為沒有任何紀錄的帳號（頁首顯示 0 天、第 1 級）。
 type Day = { date: string; answers: number; correct: number; card_reviews: number; listened_seconds: number; active: boolean };
 type Quest = {
-  kind: "review_due_cards" | "review_new_cards" | "continue_study" | "finish_podcast_episode";
+  kind: "mark_cards" | "continue_study" | "finish_podcast_episode";
   progress: number; target: number; done: boolean;
   material_id?: string | null; study_session_id?: string | null; podcast_id?: string | null; episode_index?: number | null;
 };
 
 type Badge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
-// badge-rules/v4 的代號與門檻（各系列由低到高，最後是特殊成就）；預設全部未取得，等級徽章進度為目前等級。
+// badge-rules/v5 的代號與門檻（各系列由低到高，最後是特殊成就）；預設全部未取得，等級徽章進度為目前等級。
 const badgeTargets: [string, number][] = [
   ["first_answer", 1], ["answers_100", 100], ["answers_300", 300], ["answers_1000", 1000], ["answers_5000", 5000],
   ["first_concept", 1], ["concepts_25", 25], ["concepts_100", 100], ["concepts_300", 300],
@@ -41,7 +41,7 @@ export function learningActivity(options: {
   });
   const [level, levelXp, levelTarget] = options.level ?? [1, options.total ?? 0, 100];
   return {
-    schema: "learning-activity/v2", timezone: "Asia/Taipei", rule_version: "xp-rules/v1", today,
+    schema: "learning-activity/v2", timezone: "Asia/Taipei", rule_version: "xp-rules/v2", today,
     streak_days: options.streak ?? 0, active_today: week.some((day) => day.date === today && day.active),
     week,
     total_answers: week.reduce((sum, day) => sum + day.answers, 0),
@@ -51,7 +51,7 @@ export function learningActivity(options: {
       sources: options.sources ?? { answers: options.total ?? 0, concepts: 0, cards: 0, podcast: 0 },
     },
     badges: {
-      rule_version: "badge-rules/v4",
+      rule_version: "badge-rules/v5",
       // 指定了不在規則表的代號時照樣回傳（門檻 1），用來驗證畫面忽略不認得的徽章。
       items: [...badgeTargets, ...Object.keys(options.badges ?? {}).filter((id) => !badgeTargets.some(([known]) => known === id)).map((id): [string, number] => [id, 1])]
         .map(([badge_id, target]): Badge => {

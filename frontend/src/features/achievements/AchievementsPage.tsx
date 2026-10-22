@@ -7,12 +7,12 @@ import { BadgeCollection } from "../badges/Badges";
 import "../dashboard/styles.css";
 import "./styles.css";
 
-// 經驗值規則 xp-rules/v1 的圖解；數值須與後端 runtime/storage/learning_activity.py 一致（見 docs/learning.md）。
+// 經驗值規則 xp-rules/v2 的圖解；數值須與後端 runtime/storage/learning_activity.py 一致（見 docs/learning.md）。
 type Source = keyof LearningActivityView["xp"]["sources"];
 const xpRules: { icon: IconName; source: Source; tone: string; title: string; gains: [string, string][]; note: string }[] = [
   { icon: "quiz", source: "answers", tone: "is-answers", title: "作答", gains: [["+10", "答對"], ["+3", "答錯"]], note: "同一題只算第一次作答" },
   { icon: "learning", source: "concepts", tone: "is-concepts", title: "完成概念", gains: [["+30", "每個概念"]], note: "重點全部完成時計入，同一概念只算一次" },
-  { icon: "cards", source: "cards", tone: "is-cards", title: "複習概念卡", gains: [["+2", "每張"]], note: "同一張卡每天只算一次" },
+  { icon: "cards", source: "cards", tone: "is-cards", title: "標記概念卡", gains: [["+2", "每張"]], note: "同一張卡每天只算一次，連續狂點不計，每天最多 +40" },
   { icon: "headphones", source: "podcast", tone: "is-podcast", title: "收聽 Podcast", gains: [["+5", "每 5 分鐘"]], note: "實際收聽時間，每天最多 +60" },
 ];
 
@@ -91,7 +91,7 @@ export function AchievementsPage({ apiClient }: { apiClient: StudydyApiClient })
     <header className="library-header collection-head">
       <div className="collection-head-text">
         <h1 id="achievements-title">成就</h1>
-        <p className="library-subtitle">作答、完成概念、複習卡片與收聽 Podcast 都會累積經驗值，達到門檻就能取得各系列的下一層徽章。</p>
+        <p className="library-subtitle">作答、完成概念、標記概念卡與收聽 Podcast 都會累積經驗值，達到門檻就能取得各系列的下一層徽章。</p>
       </div>
     </header>
     {activity === undefined ? <StateView title="正在讀取學習成就" description="正在整理等級與徽章。" tone="loading" live />

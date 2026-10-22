@@ -1,4 +1,4 @@
-"""徽章規則 badge-rules/v4：系列徽章的每一層與特殊成就的未達、剛好達標與取得日期。"""
+"""徽章規則 badge-rules/v5：系列徽章的每一層與特殊成就的未達、剛好達標與取得日期。"""
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -12,11 +12,11 @@ D1, D2, D3 = date(2026, 10, 16), date(2026, 10, 17), date(2026, 10, 20)
 
 def badges(**records):
     values = {
-        "answers": {}, "concepts": {}, "materials": {}, "card_reviews": {}, "listening": {},
+        "answers": {}, "concepts": {}, "materials": {}, "card_marks": {}, "listening": {},
         "xp": {}, "active": set(), "streak": 0, "level": 1, **records,
     }
     view = derive_badges(**values)
-    assert view["rule_version"] == "badge-rules/v4"
+    assert view["rule_version"] == "badge-rules/v5"
     assert [item["badge_id"] for item in view["items"]] == [badge_id for badge_id, _, _ in BADGES]
     return {item["badge_id"]: item for item in view["items"]}
 
@@ -44,9 +44,9 @@ def test_no_records_earns_nothing_and_shows_zero_progress():
     ("first_material", "materials", 1),
     ("materials_3", "materials", 3),
     ("materials_10", "materials", 10),
-    ("cards_100", "card_reviews", 100),
-    ("cards_500", "card_reviews", 500),
-    ("cards_2000", "card_reviews", 2000),
+    ("cards_100", "card_marks", 100),
+    ("cards_500", "card_marks", 500),
+    ("cards_2000", "card_marks", 2000),
 ])
 def test_cumulative_badges_are_dated_on_the_day_the_total_reaches_the_target(badge_id, field, target):
     if target > 1:
@@ -239,11 +239,11 @@ def test_thousand_pages_counts_a_completed_material_with_at_least_500_pages():
     assert special(pages={"m": 1036})["thousand_pages"]["earned"] is False
 
 
-def test_revisit_needs_card_reviews_seven_days_after_completing_the_material():
+def test_revisit_needs_card_marks_seven_days_after_completing_the_material():
     finished = date(2026, 10, 1)
     early = special(completed={"m": finished}, reviews={"m": [finished + timedelta(days=6)]})
     assert early["revisit"]["earned"] is False
     later = special(completed={"m": finished}, reviews={"m": [finished + timedelta(days=6), finished + timedelta(days=9)]})
     assert state(later["revisit"]) == (True, finished + timedelta(days=9), 1, 1)
-    # 複習的是別份教材的卡片不算。
+    # 標記的是別份教材的卡片不算。
     assert special(completed={"m": finished}, reviews={"n": [finished + timedelta(days=9)]})["revisit"]["earned"] is False

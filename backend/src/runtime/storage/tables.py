@@ -833,10 +833,7 @@ class CardReviewEvent(Base):
     )
     concept_id: Mapped[str] = mapped_column(Text)
     rating: Mapped[str] = mapped_column(Text)
-    rule_version: Mapped[str] = mapped_column(Text)
     review_count: Mapped[int] = mapped_column(Integer)
-    interval_days: Mapped[int] = mapped_column(Integer)
-    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     idempotency_key_sha256: Mapped[bytes] = mapped_column(LargeBinary)
     request_fingerprint: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -849,12 +846,9 @@ class CardReviewState(Base):
     )
     concept_id: Mapped[str] = mapped_column(Text, primary_key=True)
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    streak: Mapped[int] = mapped_column(Integer)
     review_count: Mapped[int] = mapped_column(Integer)
-    interval_days: Mapped[int] = mapped_column(Integer)
     last_rating: Mapped[str] = mapped_column(Text)
     last_reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class PodcastEpisodeProgress(Base):

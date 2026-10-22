@@ -1,4 +1,4 @@
-/* 概念卡間隔複習：首頁與卡組頁共用；翻卡後才能評分。 */
+/* 概念卡加強模式：概念卡頁與卡組頁共用；翻卡後才能標記。 */
 .review-deck {
   display: grid;
   gap: 12px;
@@ -125,7 +125,7 @@
 }
 .review-grades {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 .review-grades button {
@@ -149,11 +149,12 @@
   transform: translateY(-2px);
 }
 .review-grades .is-forgot svg { color: var(--coral); }
-.review-grades .is-fuzzy svg { color: var(--amber-deep); }
 .review-grades .is-remembered svg { color: var(--success); }
 .review-grades .is-forgot:not(:disabled):hover { background: #ffe9e6; }
-.review-grades .is-fuzzy:not(:disabled):hover { background: var(--warning-soft); }
 .review-grades .is-remembered:not(:disabled):hover { background: var(--success-soft); }
+/* 目前的標記：以對應顏色的底色與外框標出。 */
+.review-grades .is-forgot.is-selected { background: #ffe9e6; box-shadow: inset 0 0 0 2px var(--coral); }
+.review-grades .is-remembered.is-selected { background: var(--success-soft); box-shadow: inset 0 0 0 2px var(--success); }
 .review-status {
   min-height: 20px;
   margin: 0;

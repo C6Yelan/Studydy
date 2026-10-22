@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { CardSetSummary, MaterialLibraryItem } from "../../api/contracts";
+import type { CardReviewsView, CardSetSummary, MaterialLibraryItem } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { islandColors, islandPalette } from "../../ui/art/Island";
@@ -15,16 +15,17 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   const [sets, setSets] = useState<CardSetSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
-  // 各卡組今天要複習的張數；讀取失敗只少顯示徽章，不影響卡組列表。
-  const [reviewCounts, setReviewCounts] = useState<Map<string, { due: number; fresh: number }>>(new Map());
+  // 各卡組需要加強（標成不熟）的張數；讀取失敗只少顯示張數，不影響卡組列表。
+  const [weak, setWeak] = useState<Map<string, number> | null>(null);
+  const applySummary = useCallback((summary: CardReviewsView) => {
+    setWeak(new Map(summary.sets.map(set => [set.card_set_id, set.forgot_count])));
+  }, []);
   useEffect(() => {
     let cancelled = false;
-    void apiClient.getCardReviewQueue().then(queue => {
-      if (!cancelled) setReviewCounts(new Map(queue.sets.map(set => [set.card_set_id, { due: set.due_count, fresh: set.new_count }])));
-    }, () => undefined);
+    void apiClient.getCardReviews().then(summary => { if (!cancelled) applySummary(summary); }, () => undefined);
     return () => { cancelled = true; };
-  }, [apiClient, reload]);
-  const [query, setQuery] = useState("");
+  }, [apiClient, reload, applySummary]);
+  const [strengthening, setStrengthening] = useState(false);
   const [removing, setRemoving] = useState<CardSetSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -32,7 +33,7 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   const opener = useRef<HTMLElement | null>(null);
   const restoreFocus = useRef(false);
   const deleting = useRef(false);
-  const heading = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLHeadingElement & HTMLDivElement>(null);
   const active = useRef(false);
   const mutationVersion = useRef(0);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
@@ -81,20 +82,16 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   };
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision);
   const create = () => { if (material && structure) writeRoute({ name: "card-set-create", materialId: material.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision }); else if (!material) writeRoute({ name: "card-set-new" }); };
-  const dailyDue = [...reviewCounts.values()].reduce((sum, item) => sum + item.due, 0);
-  const dailyNew = [...reviewCounts.values()].reduce((sum, item) => sum + item.fresh, 0);
-  const filtered = sets?.filter((item) => `${item.name} ${item.material_name}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const weakTotal = weak ? [...weak.values()].reduce((sum, count) => sum + count, 0) : 0;
   return (
     <section className="material-library is-collection cards-library" aria-label={material ? "教材概念卡" : "我的概念卡"}>
       {contentNavigation}
       {material ? <header className="library-header library-header-compact collection-toolbar material-search-row">
-        <form className="library-search" role="search" onSubmit={e => e.preventDefault()}><input type="search" aria-label="搜尋卡組" placeholder="搜尋卡組…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Escape") e.preventDefault(); }} /></form>
         <div className="collection-summary" ref={heading} tabIndex={-1}><p>{sets === null ? "—" : `已保存 ${sets.length} 個卡組`}</p></div>
         <button className="primary-button" type="button" disabled={!structure} onClick={create}><Icon name="cards" /> 建立卡組</button>
-      </header> : <CollectionHeader title="我的概念卡" subtitle="收藏一組值得反覆看的重點，依記得的程度安排下一次複習。"
-        actions={<button className="primary-button" type="button" onClick={create}><Icon name="cards" /> 建立卡組</button>}
-        search={{ label: "搜尋卡組或教材", placeholder: "搜尋卡組或教材…", value: query, onChange: setQuery }}
-        count={sets === null ? "—" : `已保存 ${sets.length} 個卡組`} countRef={heading} />}
+      </header> : <CollectionHeader title="我的概念卡" headingRef={heading}
+        subtitle={<>{sets !== null && <><b>已保存 {sets.length} 個卡組</b> · </>}收藏一組值得反覆看的重點，把不熟的卡片標起來加強。</>}
+        actions={<button className="primary-button" type="button" onClick={create}><Icon name="cards" /> 建立卡組</button>} />}
       <div role={material ? "tabpanel" : undefined} id={material ? "material-panel-concept-cards" : undefined} aria-labelledby={material ? "material-tab-concept-cards" : undefined}>
       {error && sets !== null && <p className="form-error" role="alert">無法更新卡組列表。{error}<button className="text-button" onClick={()=>setReload(value=>value+1)}>重新讀取</button></p>}
       {error && sets === null ? <StateView title="無法讀取卡組" description={error} tone="failure" action={<button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button>} />
@@ -103,23 +100,25 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
           <EmptyState label="空卡組引導" title={material ? "這份教材還沒有卡組" : "建立你的第一組概念卡"} description="選擇教材中的概念，建立你的第一組概念卡。"
             action={<button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}>{material ? "建立卡組" : "選擇教材"}</button>} />
         ) : <>
-          {/* 跨卡組的今日複習（原本在首頁）；首頁「今日任務」的複習任務也導向這裡。 */}
-          {!material && <section className="cards-daily-review surface" aria-labelledby="cards-daily-review-title">
-            <div className="cards-daily-review-text">
+          {/* 跨卡組的需要加強：平常只佔一列，按「開始加強」才展開翻卡。 */}
+          {!material && <section className={`cards-strengthen surface${strengthening ? " is-open" : ""}`} aria-labelledby="cards-strengthen-title">
+            <div className="cards-strengthen-bar">
               <img src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
-              <p className="eyebrow">今天的複習</p>
-              <h2 id="cards-daily-review-title">從所有卡組挑出該複習的卡片</h2>
-              <p>{dailyDue + dailyNew > 0 ? [dailyDue > 0 && `${dailyDue} 張到期`, dailyNew > 0 && `${dailyNew} 張新卡`].filter(Boolean).join(" · ") : "先回想，再翻卡核對；依記得的程度安排下一次複習。"}</p>
+              <p><b id="cards-strengthen-title">需要加強</b>
+                {weak === null ? <span>—</span> : weakTotal ? <span>{weakTotal} 張卡片標成不熟</span> : <span>目前沒有，瀏覽卡組時把不熟的卡片標起來</span>}</p>
+              {(strengthening || weakTotal > 0) && <button className={strengthening ? "secondary-button" : "primary-button"} type="button" onClick={() => setStrengthening(value => !value)}>
+                {strengthening ? "收起" : "開始加強"}{!strengthening && <Icon name="chevron-right" size={18} />}
+              </button>}
             </div>
-            <ReviewDeck apiClient={apiClient} variant="home" onQueue={(queue) => {
-              setReviewCounts(new Map(queue.sets.map(set => [set.card_set_id, { due: set.due_count, fresh: set.new_count }])));
-              // 評分後重新讀取學習活動，讓頁首經驗值與今日任務跟上（失敗時保留原畫面）。
+            {strengthening && <ReviewDeck apiClient={apiClient} variant="home" onChange={(summary) => {
+              applySummary(summary);
+              // 標記後重新讀取學習活動，讓頁首經驗值與今日任務跟上（失敗時保留原畫面）。
               void apiClient.getLearningActivity().catch(() => undefined);
-            }} />
+            }} />}
           </section>}
 
           <div className="library-grid">
-            {filtered?.map((item) => (
+            {sets.map((item) => (
               <article className="surface library-item" key={item.card_set_id} aria-label={item.name}>
                 <CardSetArt item={item} />
                 <CardSetManagement item={item} materialId={item.material_id} apiClient={apiClient} onChanged={() => setReload(n => n + 1)}
@@ -145,12 +144,11 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
                   ? <p className="library-state is-version">已移到新版（保留舊版卡面）</p>
                   // 到教材頁才有「移到新版」；標籤直接帶過去。
                   : <button type="button" className="library-state is-version" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id })}>教材已有新版 · 查看移到新版</button>)}
-                {(reviewCounts.get(item.card_set_id)?.due ?? 0) > 0 && <p className="card-review-due"><Icon name="refresh" size={14} />今天要複習 {reviewCounts.get(item.card_set_id)!.due} 張</p>}
+                {(weak?.get(item.card_set_id) ?? 0) > 0 && <p className="card-review-due"><Icon name="refresh" size={14} />需要加強 {weak!.get(item.card_set_id)} 張</p>}
                 <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id })}>開始複習</button></div>
               </article>
             ))}
           </div>
-          {filtered?.length === 0 && <p className="cards-no-results" role="status">找不到符合的卡組，試試其他關鍵字。</p>}
         </>}
       </div>
     </section>

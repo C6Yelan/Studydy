@@ -1,7 +1,7 @@
-"""學習活動：由作答、概念卡複習與 Podcast 收聽紀錄即時彙總，以台灣日期為界。
+"""學習活動：由作答、概念卡標記與 Podcast 收聽紀錄即時彙總，以台灣日期為界。
 
 XP、等級、連續天數、今日任務與徽章都從既有紀錄推導，不另存累計點數、任務或
-徽章狀態（規則 xp-rules/v1 與 badge-rules/v4，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
+徽章狀態（規則 xp-rules/v2 與 badge-rules/v5，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
 推導結果隨之改變；沒有紀錄的過去活動不補算。
 """
 
@@ -13,17 +13,19 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select, text
 
 TIMEZONE = "Asia/Taipei"
-RULE_VERSION = "xp-rules/v1"
+RULE_VERSION = "xp-rules/v2"
 XP_CORRECT, XP_WRONG = 10, 3
 XP_CONCEPT = 30
-XP_CARD = 2
+# 概念卡標記：同一張卡每天第一次標記 +2，單日上限 40；距上一次標記不到 3 秒的不計（連續狂點不加分）。
+XP_CARD, XP_CARD_DAILY_CAP = 2, 40
+MARK_MIN_GAP = timedelta(seconds=3)
 # 每天實際收聽每滿 5 分鐘 +5，單日上限 60。
 XP_LISTEN_STEP, XP_LISTEN_SECONDS, XP_LISTEN_DAILY_CAP = 5, 300, 60
 # 當天實際收聽滿 1 分鐘才算當天有學習活動。
 ACTIVE_LISTEN_SECONDS = 60
-NEW_CARD_QUEST = 5
+MARK_QUEST = 5
 
-BADGE_RULE_VERSION = "badge-rules/v4"
+BADGE_RULE_VERSION = "badge-rules/v5"
 # 徽章依顯示順序列出：(代號, 計量, 門檻)。同一計量的多個門檻是同一系列的不同層級（由低到高），
 # 計量見 derive_badges；修改時一併更新版本字串、API 模型、前端名稱與文件。
 BADGES = (
@@ -39,9 +41,9 @@ BADGES = (
     ("first_material", "materials", 1),
     ("materials_3", "materials", 3),
     ("materials_10", "materials", 10),
-    ("cards_100", "card_reviews", 100),
-    ("cards_500", "card_reviews", 500),
-    ("cards_2000", "card_reviews", 2000),
+    ("cards_100", "card_marks", 100),
+    ("cards_500", "card_marks", 500),
+    ("cards_2000", "card_marks", 2000),
     ("listen_30_minutes", "listened_minutes", 30),
     ("listen_180_minutes", "listened_minutes", 180),
     ("listen_600_minutes", "listened_minutes", 600),
@@ -75,9 +77,9 @@ SPECIAL_BADGES = (
     ("corrected_5", 5),      # 答錯過的概念之後又答對，累計 5 個
     ("first_try_material", 1),  # 完成一份教材，且每個作答過的概念第一次作答都答對
     ("perfect_day", 1),      # 同一天作答 20 題以上且全部答對
-    ("all_round_day", 1),    # 同一天作答、複習概念卡、收聽 Podcast 滿 1 分鐘、在教材問答提問
+    ("all_round_day", 1),    # 同一天作答、標記概念卡、收聽 Podcast 滿 1 分鐘、在教材問答提問
     ("thousand_pages", 1),   # 完成一份 500 頁以上的教材
-    ("revisit", 1),          # 教材完成 7 天以上後，又複習它的概念卡
+    ("revisit", 1),          # 教材完成 7 天以上後，又標記它的概念卡
 )
 
 
@@ -92,6 +94,27 @@ def level_for(total):
 
 def listening_xp(seconds):
     return min(XP_LISTEN_DAILY_CAP, seconds // XP_LISTEN_SECONDS * XP_LISTEN_STEP)
+
+
+def card_xp(credited):
+    return min(XP_CARD_DAILY_CAP, credited * XP_CARD)
+
+
+def credited_marks(events, origins, zone):
+    """依時間排序的標記事件 (時間, 卡組, 概念) → {台灣日期: (標記張數, 計分張數)}。
+
+    同一張卡同一天只算一張；距上一次標記（任何卡）不到 MARK_MIN_GAP 的不計分。
+    移到新版的卡片沿用最初那張卡的身分（origins），在新舊卡組各標一次仍只算一張。
+    """
+    marked, credited, previous = {}, {}, None
+    for at, card_set, concept in events:
+        day = at.astimezone(zone).date()
+        card = origins.get((card_set, concept), (card_set, concept))
+        marked.setdefault(day, set()).add(card)
+        if previous is None or at - previous >= MARK_MIN_GAP:
+            credited.setdefault(day, set()).add(card)
+        previous = at
+    return {day: (len(cards), len(credited.get(day, ()))) for day, cards in marked.items()}
 
 
 def streak_days(active, today):
@@ -130,10 +153,10 @@ def xp_threshold(level):
     return sum(100 * n for n in range(1, level))
 
 
-def derive_badges(*, answers, concepts, materials, card_reviews, listening, xp, active, streak, level, perfect_sets=None):
-    """由每日紀錄推導系列徽章（規則 badge-rules/v4）。
+def derive_badges(*, answers, concepts, materials, card_marks, listening, xp, active, streak, level, perfect_sets=None):
+    """由每日紀錄推導系列徽章（規則 badge-rules/v5）。
 
-    answers／concepts／materials／card_reviews／listening（秒）／xp 皆為 {台灣日期: 當天數量}；
+    answers／concepts／materials／card_marks（計分的標記張數）／listening（秒）／xp 皆為 {台灣日期: 當天數量}；
     active 為有學習活動的日期集合。進度一律來自這些紀錄：累計型徽章的取得日期是累計
     第一次達標的那天，連續天數是第一次連續達標的那天，等級是累計 XP 第一次達到門檻的
     那天；未取得的連續天數徽章以目前連續天數作為進度。
@@ -143,7 +166,7 @@ def derive_badges(*, answers, concepts, materials, card_reviews, listening, xp, 
         "answers": (sum(answers.values()), lambda target: reached_on(answers, target)),
         "concepts": (sum(concepts.values()), lambda target: reached_on(concepts, target)),
         "materials": (sum(materials.values()), lambda target: reached_on(materials, target)),
-        "card_reviews": (sum(card_reviews.values()), lambda target: reached_on(card_reviews, target)),
+        "card_marks": (sum(card_marks.values()), lambda target: reached_on(card_marks, target)),
         "listened_minutes": (listened // 60, lambda target: reached_on(listening, target * 60)),
         "level": (level, lambda target: reached_on(xp, xp_threshold(target))),
         "perfect_sets": (sum((perfect_sets or {}).values()), lambda target: reached_on(perfect_sets or {}, target)),
@@ -172,12 +195,12 @@ def _reached(dates, target):
 
 def derive_special_badges(*, events, answers, active, questions, research, card_sets, podcasts,
                           correct=None, card_days=(), listening=None, completed=None, pages=None, reviews=None):
-    """特殊與挑戰成就（規則 badge-rules/v4）。
+    """特殊與挑戰成就（規則 badge-rules/v5）。
 
     events 為依時間排序的作答 (台灣時間 datetime, 是否答對, 教材, 目標概念)；answers 為 {日期: 作答數}；
     active 為有學習活動的日期；questions、research 為 {日期: 次數}；card_sets、podcasts 為完成日期清單。
-    挑戰成就另用：correct {日期: 答對數}、card_days 有複習卡片的日期、listening {日期: 收聽秒數}、
-    completed {教材: 完成日期}、pages {教材: 頁數}、reviews {教材: 複習該教材卡片的日期清單}。
+    挑戰成就另用：correct {日期: 答對數}、card_days 有標記卡片的日期、listening {日期: 收聽秒數}、
+    completed {教材: 完成日期}、pages {教材: 頁數}、reviews {教材: 標記該教材卡片的日期清單}。
     取得日期是第一次達到門檻的那天；進度不超過門檻。
     """
     correct, listening = correct or {}, listening or {}
@@ -402,47 +425,19 @@ def _material_completions(session, owner, zone):
     }
 
 
-def _card_quest(session, owner, start, now, origins):
-    """到期卡優先；沒有到期卡時改為今天複習 5 張新卡。都沒有就不顯示。
+def _card_quest(session, owner, credited):
+    """今天標記 5 張概念卡（卡片不足 5 張時以全部張數為目標）；沒有卡片就不顯示。
 
-    移到新版的卡片沿用舊卡的複習紀錄（origins），不會被當成沒學過的新卡。
+    credited 是今天計分的標記張數，與 XP 相同規則（credited_marks）：同一張卡算一張、連續狂點不算。
     """
-    from types import SimpleNamespace
     from ..card_reviews import _CARDS
 
-    times = {}
-    for card_set, concept, first_at, last_at in session.execute(text(
-        """
-        SELECT card_set_id, concept_id, min(created_at), max(created_at)
-        FROM card_review_events WHERE learner_id = :owner
-        GROUP BY card_set_id, concept_id
-        """
-    ), {"owner": owner}).all():
-        key = origins.get((card_set, concept), (card_set, concept))
-        earliest, latest = times.get(key, (first_at, last_at))
-        times[key] = (min(earliest, first_at), max(latest, last_at))
-    rows = []
-    for card_set, concept, due_at in session.execute(text(_CARDS + """
-        SELECT cards.card_set_id, cards.concept_id, r.due_at
-        FROM cards
-        LEFT JOIN card_review_states r ON r.card_set_id = cards.card_set_id AND r.concept_id = cards.concept_id
-    """), {"owner": owner, "card_set": None}).all():
-        first_at, last_at = times.get(origins.get((card_set, concept), (card_set, concept)), (None, None))
-        rows.append(SimpleNamespace(due_at=due_at, first_at=first_at, last_at=last_at))
-    # 今天以前就學過的卡：今天到期或今天已複習的都算進「到期卡」任務。
-    learned = [row for row in rows if row.first_at is not None and row.first_at < start]
-    due = sum(row.due_at is not None and row.due_at <= now for row in learned)
-    target = sum(row.last_at >= start or (row.due_at is not None and row.due_at <= now) for row in learned)
-    if target:
-        # 「忘了」的卡 10 分鐘後再到期，評到不再到期才算完成。
-        return {"kind": "review_due_cards", "progress": target - due, "target": target, "done": not due}
-    new_today = sum(row.first_at is not None and row.first_at >= start for row in rows)
-    remaining = sum(row.first_at is None for row in rows)
-    target = min(NEW_CARD_QUEST, new_today + remaining)
+    total = session.execute(text(_CARDS + "SELECT count(*) FROM cards"), {"owner": owner, "card_set": None}).scalar()
+    target = min(MARK_QUEST, total)
     if not target:
         return None
-    progress = min(new_today, target)
-    return {"kind": "review_new_cards", "progress": progress, "target": target, "done": progress >= target}
+    progress = min(credited, target)
+    return {"kind": "mark_cards", "progress": progress, "target": target, "done": progress >= target}
 
 
 def _study_quest(session, owner, start, end):
@@ -556,24 +551,19 @@ def learning_activity(session, owner, *, now=None):
     ), values).all():
         if day <= today:
             answer_xp[day] = answer_xp.get(day, 0) + (XP_CORRECT if correct else XP_WRONG)
-    # 卡片以「卡組＋概念」識別，同一張卡同一天只計一次 XP；複習數仍逐次計算。
-    # 移到新版的卡片沿用最初那張卡的身分，同一天在新舊卡組各評一次仍只算一次。
+    # 概念卡標記：{日期: (標記張數, 計分張數)}，規則見 credited_marks。
     from ..version_moves import card_origins
 
     origins = card_origins(session, owner)
-    reviewed = {}
-    for day, card_set, concept, reviews in session.execute(text(
-        """
-        SELECT (created_at AT TIME ZONE :zone)::date AS day, card_set_id, concept_id, count(*)
-        FROM card_review_events WHERE learner_id = :owner
-        GROUP BY day, card_set_id, concept_id
-        """
-    ), values).all():
-        if day <= today:
-            count, distinct = reviewed.setdefault(day, [0, set()])
-            reviewed[day][0] = count + reviews
-            distinct.add(origins.get((card_set, concept), (card_set, concept)))
-    cards = {day: (count, len(distinct)) for day, (count, distinct) in reviewed.items()}
+    cards = {
+        day: value for day, value in credited_marks(session.execute(text(
+            """
+            SELECT created_at, card_set_id, concept_id FROM card_review_events
+            WHERE learner_id = :owner ORDER BY created_at, review_event_id
+            """
+        ), values).all(), origins, zone).items()
+        if day <= today
+    }
     listening = {
         day: int(seconds) for day, seconds in session.execute(text(
             """
@@ -592,20 +582,20 @@ def learning_activity(session, owner, *, now=None):
     sources = {
         "answers": sum(answer_xp.values()),
         "concepts": sum(concepts.values()) * XP_CONCEPT,
-        "cards": sum(distinct for _, distinct in cards.values()) * XP_CARD,
+        "cards": sum(card_xp(credited) for _, credited in cards.values()),
         "podcast": sum(listening_xp(seconds) for seconds in listening.values()),
     }
     total = sum(sources.values())
     today_xp = (
         answer_xp.get(today, 0) + concepts.get(today, 0) * XP_CONCEPT
-        + cards.get(today, (0, 0))[1] * XP_CARD + listening_xp(listening.get(today, 0))
+        + card_xp(cards.get(today, (0, 0))[1]) + listening_xp(listening.get(today, 0))
     )
     level, level_xp, level_target = level_for(total)
     daily_xp = {}
     for day, value in (
         list(answer_xp.items())
         + [(day, count * XP_CONCEPT) for day, count in concepts.items()]
-        + [(day, distinct * XP_CARD) for day, (_, distinct) in cards.items()]
+        + [(day, card_xp(credited)) for day, (_, credited) in cards.items()]
         + [(day, listening_xp(seconds)) for day, seconds in listening.items()]
     ):
         daily_xp[day] = daily_xp.get(day, 0) + value
@@ -694,7 +684,7 @@ def learning_activity(session, owner, *, now=None):
         answers={day: count for day, (count, _) in answers.items()},
         concepts=concepts,
         materials=materials, perfect_sets=perfect_sets,
-        card_reviews={day: reviews for day, (reviews, _) in cards.items()},
+        card_marks={day: credited for day, (_, credited) in cards.items()},
         listening=listening, xp=daily_xp, active=active,
         streak=streak, level=level,
     )
@@ -719,7 +709,7 @@ def learning_activity(session, owner, *, now=None):
         })
     quests = [
         quest for quest in (
-            _card_quest(session, owner, start, now, origins),
+            _card_quest(session, owner, cards.get(today, (0, 0))[1]),
             _study_quest(session, owner, start, end),
             _podcast_quest(session, owner, start, end),
         )
