@@ -131,7 +131,7 @@ Podcast 在 `synthesize.py` 接收模型的已知句子邊界，交給 `dialogue
 
 最終 WAV 仍由 `audio_mastering.py` two-pass FFmpeg loudnorm 處理，目標 −19 LUFS／−2 dBTP，成品容許 ±1 LU、true peak ≤ −1.9 dBTP。mastering schema／policy 不變；音訊 provider 身分包含 `rl-reference-vw;spoken-input/v13;dialogue-audio/v1`。失敗不發布部分檔案，所有字幕與畫面對齊仍以最終 WAV 為準。原音訊不批次改寫；需新建 Podcast 才會採用新版。
 
-Podcast 的額外 AI 講稿／分鏡審查與自動重寫已移除，現行驗證範圍見 [測試文件](testing.md#podcast-現行驗證範圍2026-10-09-精簡)。音量正規化保留，量測偏差不再阻擋成品。
+Podcast 的額外 AI 講稿／分鏡審查與自動重寫已移除，現行驗證範圍見 [測試文件](testing.md#podcast-現行驗證範圍)。音量正規化保留，量測偏差不再阻擋成品。
 
 FFmpeg 優先使用本機 executable 或 imageio-ffmpeg，否則由既有 `STUDYDY_VIDEO_PYTHON` 找到 renderer 的 FFmpeg；不需更換 TTS 模型或修改共用 venv。
 
@@ -188,7 +188,7 @@ F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音�
 
 `ops/podcast/video_service.py` 先以 beat／turn／part 與標點決定 teaching cues，再由本機 Whisper 對齊原 WAV，切 cue 不呼叫文字模型。文字 provider 在同一次分鏡呼叫中描述語意分鏡。每段講稿（beat）輸出 1～3 頁，各頁獨立選版型；全集上限 24 頁，每段上限為 min(3, 24 ÷ 段數)，由 schema 保證。講稿的每個主題都要有對應的頁或卡，同一段先後講兩個版型不同的主題時拆頁，不丟主題也不把性質塞成步驟。第 2 頁起以逐字取自本段講稿的頁 `anchor` 決定換頁位置，換成段內實測起點（cue 或字幕開頭），子頁可從某句字幕開始並與前一頁共用該 cue；頁 anchor 對不到、倒退、不在本段或擠掉後頁所需的起點時，改放在前後換頁點之間居中的實測起點；段內實測起點少於頁數時，放不下獨立起點的頁把節點併入前一頁（沿用前一頁標題；同為 concept 或 flow 時保留版型，否則改為 concept 聚焦卡，exchange 訊息寫成「傳送方 → 接收方」），不丟內容；併入後放不下才回報 `VIDEO_LAYOUT_INVALID`。exchange 至少兩則訊息，只有一則或還有條件要說明時改用 concept；同一組各只有一句的短項目合成一張卡。頁碼、章節列表、換頁 crossfade 都依實測頁起訖計算。版型：concept 主重點與支持說明、comparison 比較群組、flow 有來源的相鄰步驟、exchange 兩個參與者間的往返訊息；輸出短文字與節點／關係索引，每個節點（exchange 為每則訊息）另輸出 `anchor`（逐字取自本段講稿、落在該頁範圍內、標示開始講這個節點的片段）與 0～2 個 `key_terms`（逐字取自節點文字的重點詞，優先技術名稱），不輸出 x/y/w/h、秒數或索引。`podcast_video_layout.py` 只採用逐字出現在本段講稿、且落在該頁範圍內的節點 anchor，換算成頁內實測起點（teaching cue 或其中字幕的開頭），不生成新秒數；對不到時不讓整份失敗：第一張卡固定從頁首開始，其後對不到或倒退的 anchor 改用前一張之後的下一個實測起點，comparison 退回頁首，exchange 與前一則訊息同時出現。頁內實測起點少於節點時（例如字幕只有段落粒度），相鄰節點依序共用一張卡。重點詞必須逐字出現在節點說明（說明裡找不到時才改找標籤的一部分），以中文字寬計不超過 16 字（英數字算半個）、不可等於整段文字，單一字母／符號與單獨數值（例如 `L`、`0.09`）不標，重疊或不符的詞直接丟掉，只標該詞第一次出現的位置；英數開頭或結尾的詞要有詞邊界，前後緊接英數字或 `-_.:/=` 時不算（例如不把 `CDN-Cache-Control` 開頭的 `CDN` 標出），改找下一個合格位置，都沒有就丟掉。中文詞不受此限。新工作以真實字型量測編譯成 `podcast-storyboard/v4`：concept／flow 為聚焦版面（左側章節列列出本頁所有節點並以待講／正在講／已講完三態顯示，flow 以連線表示步驟順序；右側同一區域依講述時間只顯示正在講的那張卡，句子完整保留）；comparison 維持並排，依各欄 anchor 點亮正在講的那欄；exchange 維持參與者與箭頭圖，訊息依 anchor 出現。所有 v4 內容停在 y=850 以上，不蓋到播放器底部字幕；放不下回報 `VIDEO_LAYOUT_INVALID`，不縮到不可讀或截字。拉丁縮寫與單位能放進一行時不在詞內斷行，重複量測使用有界快取。
 
-分鏡只生成一次，不另做 AI 內容審查或自動重寫（見[測試文件](testing.md#podcast-現行驗證範圍2026-10-09-精簡)）；版型不當成新的知識依據。沒有模型幾何不代表任何內容皆可容納，過長文字或無效語意索引仍會拒絕。
+分鏡只生成一次，不另做 AI 內容審查或自動重寫（見[測試文件](testing.md#podcast-現行驗證範圍)）；版型不當成新的知識依據。沒有模型幾何不代表任何內容皆可容納，過長文字或無效語意索引仍會拒絕。
 
 `backend/src/runtime/podcast_video_render.py` 沿用有限圖形與 1920×1080／60fps MP4（CPU 繪圖，H.264 可選 CPU／NVENC 編碼），不執行模型程式碼。reveals 由語意目標的 cue 編譯、同 cue 合併，顯示後保留至頁尾；相關節點不晚於連線出現，單位與必要條件仍由內容審查核對。v4 聚焦頁的卡片在下一張開始時短暫交叉淡化，章節列同步改變狀態；重點詞以同字級、同斷行的卡片主色字加淡色底呈現，於所屬卡片被講到時淡入。v4 文字行距為 1.5 倍字級，v2／v3 維持原行距。comparison／exchange 與 v3 相同，由 `podcast_video_motion.py` 以 manifest、實測 timeline 與目前媒體秒數直接計算狀態：節點及文字淡入、線條／箭頭 draw-on、焦點明暗與淡底平滑轉移，已出現的次要內容仍保留。flow／exchange 指示沿既有箭頭一次性推進並移交節點焦點；不循環、不表示實際封包速度。同一 anchor 的目標同時聚焦，不編造更細的先後。v3 relation 不再疊加第二個 trace 指示。換頁後使用短 crossfade，舊頁以邊界前的確定畫格計算，底部提示與進度仍取目前時間。固定的視覺時長上限皆受實測窗口限制；seek／倍速沒有前一影格的殘留狀態。舊 underline／outline／trace 圖形契約保留可讀，標記不設必填配額。
 
