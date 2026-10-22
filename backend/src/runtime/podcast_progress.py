@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, func, select, text
 
 from .errors import PodcastError
-from .podcasts import _locked
+from .podcast_access import _locked
 from .storage.database import database_session
 from .storage.tables import PodcastEpisodeProgress, PodcastListeningDay
 

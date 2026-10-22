@@ -12,7 +12,7 @@ from urllib.error import HTTPError
 
 from sqlalchemy import delete, select, text
 from content_identity import canonical_sha256
-from . import podcasts
+from .podcast_access import _locked
 from .podcast_video_plan import (
     POLICY,
     SCHEMAS,
@@ -134,7 +134,7 @@ def _view(podcast, index, row):
 
 def read(owner, podcast_id, index, *, dsn=None):
     with database_session(dsn) as db:
-        podcast, _ = podcasts._locked(db, owner, podcast_id, read=True)
+        podcast, _ = _locked(db, owner, podcast_id, read=True)
         return _view(
             podcast,
             index,
@@ -148,13 +148,13 @@ def read(owner, podcast_id, index, *, dsn=None):
 
 def prepare(owner, podcast_id, index, *, dsn=None):
     with database_session(dsn) as db:
-        podcast, _ = podcasts._locked(db, owner, podcast_id)
+        podcast, _ = _locked(db, owner, podcast_id)
         return _view(podcast, index, enqueue(db, podcast, index))
 
 
 def action(owner, podcast_id, index, action, version, *, dsn=None):
     with database_session(dsn) as db:
-        podcast, _ = podcasts._locked(db, owner, podcast_id)
+        podcast, _ = _locked(db, owner, podcast_id)
         episode = _episode(podcast, index)
         row = _row(db, podcast_id, index)
         if not row or row.version != version:
@@ -178,7 +178,7 @@ def action(owner, podcast_id, index, action, version, *, dsn=None):
 
 def ready_manifest(owner, podcast_id, index, *, dsn=None):
     with database_session(dsn) as db:
-        podcast, _ = podcasts._locked(db, owner, podcast_id, read=True)
+        podcast, _ = _locked(db, owner, podcast_id, read=True)
         row = db.scalar(
             select(Video).where(
                 Video.podcast_id == podcast_id, Video.episode_index == index
@@ -232,7 +232,7 @@ def claim(*, dsn=None):
         if not candidate:
             return None
         try:
-            podcast, _ = podcasts._locked(
+            podcast, _ = _locked(
                 db, candidate.learner_id, candidate.podcast_id
             )
         except RuntimeError:
@@ -341,7 +341,7 @@ def validate_bundle(state, bundle):
 def finish(state, *, bundle=None, error=None, dsn=None):
     with database_session(dsn) as db:
         try:
-            podcast, _ = podcasts._locked(db, state["owner"], state["podcast_id"])
+            podcast, _ = _locked(db, state["owner"], state["podcast_id"])
         except RuntimeError:
             return False
         row = db.get(Video, state["video_id"], populate_existing=True)

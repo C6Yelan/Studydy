@@ -8,7 +8,7 @@ import re
 from uuid import UUID, uuid4
 from sqlalchemy import or_, select
 from content_identity import canonical_sha256
-from . import podcasts
+from .podcast_access import _locked
 from .errors import SourceError
 from .storage.tables import PodcastScenes as Scenes, Podcast, Material
 from .storage.database import database_session
@@ -320,7 +320,7 @@ def build_manifest(podcast, episode, document, alignment, checks=None):
 
 def read(owner, podcast_id, *, dsn=None):
     with database_session(dsn) as db:
-        podcast, _ = podcasts._locked(db, owner, podcast_id)
+        podcast, _ = _locked(db, owner, podcast_id)
         rows = {
             r.episode_index: r
             for r in db.scalars(select(Scenes).where(Scenes.podcast_id == podcast_id))
@@ -380,7 +380,7 @@ def enqueue(db, podcast, index):
 
 def prepare(owner, podcast_id, *, dsn=None):
     with database_session(dsn) as db:
-        podcast, _ = podcasts._locked(db, owner, podcast_id)
+        podcast, _ = _locked(db, owner, podcast_id)
         if podcast.status != "ready":
             raise SourceError("SOURCE_NOT_READY")
         for index, episode in enumerate(podcast.episodes):
@@ -416,7 +416,7 @@ def prepare(owner, podcast_id, *, dsn=None):
 
 def action(owner, podcast_id, index, action, version, *, dsn=None):
     with database_session(dsn) as db:
-        podcast, _ = podcasts._locked(db, owner, podcast_id)
+        podcast, _ = _locked(db, owner, podcast_id)
         row = db.scalar(
             select(Scenes)
             .where(Scenes.podcast_id == podcast_id, Scenes.episode_index == index)
@@ -497,7 +497,7 @@ def claim(*, dsn=None):
 
 def save_alignment(state, alignment, *, dsn=None):
     with database_session(dsn) as db:
-        podcast, _ = podcasts._locked(db, state["owner"], state["podcast_id"])
+        podcast, _ = _locked(db, state["owner"], state["podcast_id"])
         row = db.get(Scenes, state["scene_id"])
         if (
             not row
@@ -516,7 +516,7 @@ def save_alignment(state, alignment, *, dsn=None):
 
 def finish(state, alignment=None, error=None, checks=None, *, dsn=None):
     with database_session(dsn) as db:
-        podcast, _ = podcasts._locked(db, state["owner"], state["podcast_id"])
+        podcast, _ = _locked(db, state["owner"], state["podcast_id"])
         row = db.get(Scenes, state["scene_id"])
         if (
             not row
@@ -547,7 +547,7 @@ def finish(state, alignment=None, error=None, checks=None, *, dsn=None):
 
 def save_checks(state, checks, *, dsn=None):
     with database_session(dsn) as db:
-        podcast, _ = podcasts._locked(db, state["owner"], state["podcast_id"])
+        podcast, _ = _locked(db, state["owner"], state["podcast_id"])
         row = db.get(Scenes, state["scene_id"])
         if (
             not row
