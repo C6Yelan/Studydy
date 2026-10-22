@@ -10,6 +10,19 @@ async function login(page: Page) {
   await expect(page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", exact: true })).toBeVisible();
 }
 
+// localStorage 只可有登入身分提示與等級／徽章的「已看過」紀錄（只決定是否播放提示），不得有卡組或教材內容。
+async function expectOnlyUiHints(page: Page) {
+  const learnerId = await page.evaluate(() => JSON.parse(localStorage.getItem("studydy.session-hint")!).learner_id as string);
+  await expect.poll(() => page.evaluate(() => Object.keys(localStorage).sort())).toEqual([
+    `studydy.badges-seen:${learnerId}`, `studydy.level-seen:${learnerId}`, "studydy.session-hint",
+  ]);
+  const [badges, level] = await page.evaluate((id) => [
+    JSON.parse(localStorage.getItem(`studydy.badges-seen:${id}`)!), localStorage.getItem(`studydy.level-seen:${id}`),
+  ], learnerId);
+  expect(Array.isArray(badges) && badges.every((item: unknown) => typeof item === "string" && /^[a-z0-9_]+$/.test(item))).toBe(true);
+  expect(level).toMatch(/^[1-9]\d*$/);
+}
+
 test("real API persists selected cards across fresh login and resolves original evidence", async ({ browser }) => {
   const first = await browser.newContext();
   const page = await first.newPage();
@@ -17,7 +30,9 @@ test("real API persists selected cards across fresh login and resolves original 
   await page.getByRole("button", { name: "概念卡", exact: true }).click();
   await page.getByRole("button", { name: "建立卡組", exact: true }).click();
   await expect(page).toHaveURL(/\/concept-cards\/new$/);
-  await page.getByLabel("選擇教材", { exact: true }).selectOption({ label: "Synthetic.pdf" });
+  // 選擇教材是島嶼卡片清單，點選後進入該教材的建立卡組頁。
+  await page.getByRole("group", { name: "選擇教材", exact: true }).getByRole("button", { name: /^Synthetic\.pdf/ }).click();
+  await expect(page).toHaveURL(/\/create-cards$/);
   await page.getByLabel("卡組名稱", { exact: true }).fill("隔離測試卡組");
   await page.getByRole("button", { name: "保存並開始複習" }).click();
   await expect(page).toHaveURL(/\/concept-cards\/[0-9a-f-]+$/);
@@ -58,8 +73,9 @@ test("real API persists selected cards across fresh login and resolves original 
   await expect(reopened.getByRole("dialog")).toHaveCount(0);
   await expect(reopened.getByRole("form", { name: "刪除卡組確認" })).toBeVisible();
   await reopened.getByRole("button", { name: "確認刪除卡組" }).click();
-  await expect(reopened.getByRole("heading", { name: "收藏一組值得反覆看的重點" })).toBeVisible();
-  expect(await reopened.evaluate(() => Object.keys(localStorage))).toEqual(["studydy.session-hint"]);
+  // 刪除最後一個卡組後回到空卡組引導。
+  await expect(reopened.getByRole("region", { name: "空卡組引導" })).toBeVisible();
+  await expectOnlyUiHints(reopened);
   const library = await (await second.request.get("/v1/materials")).json();
   expect(library.materials).toHaveLength(1);
   expect(library.materials[0].study_sessions).toEqual([]);
