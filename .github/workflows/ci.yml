@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 18 * * *' # 每日台北時間 02:17；GitHub 在預設分支執行。
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  quick:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frontend dependencies, tests, types and build
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend test 2>&1 | tee "$RUNNER_TEMP/studydy-frontend.log"
+          npm --prefix frontend run typecheck
+          npm --prefix frontend run build
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build locked Python and Office test image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ops/docker/backend.Dockerfile
+          target: test
+          tags: studydy-unit:latest
+          load: true
+          cache-from: type=gha,scope=backend-test
+          cache-to: type=gha,mode=max,scope=backend-test
+      - name: Offline Python unit, local AI protocol and research tests
+        # backend/tests/runtime（含其 4 個 Office 案例）在 full 的固定版本主機執行。
+        # 頂層 Office 8 項在此使用固定 LibreOffice 26.2.5.2。
+        run: |
+          office_version=$(docker run --rm --network none --entrypoint /usr/lib/libreoffice/program/soffice studydy-unit:latest --version)
+          printf '::notice title=LibreOffice version::%s\n' "$office_version"
+          mkdir -m 777 "$RUNNER_TEMP/studydy-results"
+          docker compose -p studydy -f compose.test.yaml run --rm --no-deps --no-build \
+            -v "$RUNNER_TEMP/studydy-results:/results" unit \
+            -q -o cache_dir=/tmp/pytest-cache --junitxml=/results/unit.xml \
+            backend/tests --ignore=backend/tests/runtime local_ai/tests \
+            ops/research/test_egress.py ops/research/test_benchmark.py \
+            2>&1 | tee "$RUNNER_TEMP/studydy-unit.log"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from xml.etree import ElementTree
+          report = Path(os.environ['RUNNER_TEMP']) / 'studydy-results/unit.xml'
+          skipped = list(ElementTree.parse(report).iter('skipped'))
+          if skipped:
+              raise SystemExit(f'CI requires every collected test to run: {len(skipped)} skipped')
+          PY
+      - name: Build Nginx boundary test image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ops/docker/frontend.Dockerfile
+          tags: studydy-frontend:ci
+          load: true
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+      - name: Compose and Nginx boundaries with synthetic configuration
+        env:
+          STUDYDY_TEST_FRONTEND_IMAGE: studydy-frontend:ci
+          STUDYDY_TEST_BACKEND_IMAGE: studydy-unit:latest
+        run: |
+          export STUDYDY_TEST_ENV_FILE="$RUNNER_TEMP/studydy-synthetic.env"
+          cat > "$STUDYDY_TEST_ENV_FILE" <<EOF
+          POSTGRES_PASSWORD=synthetic-ci-only
+          STUDYDY_TUNNEL_TOKEN_FILE=$RUNNER_TEMP/unused-synthetic-token
+          STUDYDY_UPLOAD_MAX_BYTES=94371840
+          STUDYDY_PORT=4173
+          EOF
+          python3 ops/tests/compose_boundary.py 2>&1 | tee "$RUNNER_TEMP/studydy-compose.log"
+          python3 ops/tests/nginx_boundary.py 2>&1 | tee "$RUNNER_TEMP/studydy-nginx.log"
+      - name: Publish failure details as public annotations
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          for log in Path(os.environ['RUNNER_TEMP']).glob('studydy-*.log'):
+              details = log.read_text(errors='replace')[-60000:]
+              details = details.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title={log.name}::{details}')
+          PY
+
+  full:
+    # 暫時讓此分支 push 驗證 full；驗證完成後移除最後一個條件。
+    if: >-
+      github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+      (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/be/decouple-imports')
+    needs: quick
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: backend/src:backend/tests:backend/tests/runtime/materials:local_ai/src
+      PYTHONDONTWRITEBYTECODE: '1'
+      STUDYDY_E2E_FRONTEND_DIST: ${{ github.workspace }}/.studydy-runtime/test-frontend
+      STUDYDY_E2E_FRONTEND_PORT: '4390'
+      STUDYDY_E2E_API_PORT: '8209'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install locked Python test environment and system dependencies
+        run: |
+          {
+            uv python install 3.12.14
+            uv sync --project backend --locked --no-dev --extra test --python 3.12.14
+            sudo apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- update --snapshot 20261005T060000Z
+            sudo env DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- install -y --allow-downgrades --no-install-recommends --snapshot 20261005T060000Z \
+              bubblewrap fontconfig fonts-noto-cjk \
+              libreoffice-writer-nogui=4:26.2.5.2-0ubuntu0.26.04.1 \
+              libreoffice-impress-nogui=4:26.2.5.2-0ubuntu0.26.04.1
+            /usr/lib/libreoffice/program/soffice --version
+            docker pull postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
+          } 2>&1 | tee "$RUNNER_TEMP/studydy-setup.log"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend and install Chromium
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run build -- --outDir "$STUDYDY_E2E_FRONTEND_DIST" --emptyOutDir
+          cd frontend
+          npx playwright install --with-deps chromium
+      - name: Runtime and real API browser tests
+        # runtime 全部案例（包含 4 個 Office）在同 snapshot 的 LibreOffice 26.2.5.2 執行。
+        # e2e/api 全部 10 個 spec 由 runtime browser fixtures 啟動，不可直接執行而略過 fixture。
+        run: |
+          office_version=$(/usr/lib/libreoffice/program/soffice --version)
+          printf '::notice title=LibreOffice version::%s\n' "$office_version"
+          env -u STUDYDY_TEST_POSTGRES_DSN -u STUDYDY_DATABASE_DSN \
+            -u PGHOST -u PGHOSTADDR -u PGPORT -u PGSERVICE -u PGSERVICEFILE \
+            -u PGSYSCONFDIR -u PGDATABASE -u PGUSER -u PGPASSWORD -u PGPASSFILE \
+            backend/.venv/bin/python -m pytest -q -p no:cacheprovider backend/tests/runtime --durations=20 \
+            --junitxml="$RUNNER_TEMP/runtime.xml" \
+            2>&1 | tee "$RUNNER_TEMP/studydy-runtime.log"
+          backend/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from xml.etree import ElementTree
+          report = Path(os.environ['RUNNER_TEMP']) / 'runtime.xml'
+          skipped = list(ElementTree.parse(report).iter('skipped'))
+          if skipped:
+              raise SystemExit(f'CI requires every collected test to run: {len(skipped)} skipped')
+          PY
+      - name: All mock browser specs
+        run: |
+          PYTHONPATH=backend/tests/runtime backend/.venv/bin/python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/studydy-mock-browser.log"
+          from browser_e2e_runner import main
+          raise SystemExit(main('e2e/mock/', timeout_seconds=600))
+          PY
+      - name: Publish failure details as public annotations
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          for log in Path(os.environ['RUNNER_TEMP']).glob('studydy-*.log'):
+              details = log.read_text(errors='replace')[-60000:]
+              details = details.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title={log.name}::{details}')
+          PY

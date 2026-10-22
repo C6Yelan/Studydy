@@ -103,13 +103,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv pip install --python /app/backend/.venv/bin/python --no-deps /opt/studydy/lxml/lxml-*.whl
 COPY backend/tests /app/backend/tests
 COPY ops/podcast /app/ops/podcast
+COPY ops/research /app/ops/research
 COPY local_ai/src /app/local_ai/src
 COPY local_ai/tests /app/local_ai/tests
 RUN chmod -R a+rX /app
 ENV PYTHONPATH=/app/backend/src:/app/backend/tests:/app/local_ai/src
 USER 20001:1000
 ENTRYPOINT ["/app/backend/.venv/bin/pytest"]
-CMD ["-q", "-o", "cache_dir=/tmp/pytest-cache", "backend/tests", "--ignore=backend/tests/runtime", "local_ai/tests"]
+CMD ["-q", "-o", "cache_dir=/tmp/pytest-cache", "backend/tests", "--ignore=backend/tests/runtime", "local_ai/tests", "ops/research/test_egress.py", "ops/research/test_benchmark.py"]
 
 FROM dependencies AS ssh-bridge
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-client \

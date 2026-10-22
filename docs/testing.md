@@ -45,6 +45,17 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 測試通過後，只有新變更、失敗或未解疑慮才擴大或重跑。
 
+## GitHub Actions CI
+
+CI 使用 Python 3.12.14、Node 24 與 lock file；uv、npm、Docker build cache 只加速依賴取得，不略過測試。工作權限限於讀取 repository，不使用私人設定、secret、產品資料或外部生成模型；Compose／Nginx 邊界使用合成設定與隔離 echo upstream。
+
+| Job | 觸發 | 實際範圍 |
+| --- | --- | --- |
+| quick | 每次 push、pull_request，以及手動與排程執行 | 無網路 test 容器執行 backend 頂層、local_ai 與 ops/research 測試，包含固定 LibreOffice 的八項 Office 案例；另跑 npm ci／test／typecheck／build，以及 Compose、Nginx 邊界腳本 |
+| full | 對 dev／main 的 pull_request、workflow_dispatch、每日台北時間 02:17（排程由預設分支執行）；驗證期間另接受 be/decouple-imports 的 push | runtime 全部與其真 API browser fixtures、全部 mock browser specs；包含四個 runtime Office 案例，主機使用 Ubuntu 26.04 與 Dockerfile 相同 snapshot／固定 LibreOffice 26.2.5.2 |
+
+本機 quick 使用 `docker compose -f compose.test.yaml build unit` 與 `docker compose -f compose.test.yaml run --rm unit`，前端執行下節列出的 Node／型別命令及 `npm --prefix frontend run build`。Compose 邊界須以 `STUDYDY_TEST_ENV_FILE` 指定合成設定，Nginx 邊界須提供 `STUDYDY_TEST_FRONTEND_IMAGE`／`STUDYDY_TEST_BACKEND_IMAGE`；不能沿用產品設定。Full 先依下節準備獨立前端 build、安裝 Chromium，再使用 workflow 的 runtime 命令；API specs 必須經 Python fixture 執行。Full 的 Ubuntu 26.04 主機依 workflow 安裝 `20261005T060000Z` snapshot 的 `4:26.2.5.2-0ubuntu0.26.04.1` LibreOffice 套件，不能使用 apt 的預設版本；主機不符時沿用下節 Office 容器入口驗證，不能將環境不符記為通過。
+
 `test_office_external_resources.py` 以隔離 HTTP server 與固定的合成公網 DNS 驗證圖片取得、逐次 redirect／目的 IP 核對、TLS hostname、大小／時間上限及原檔保留，測試不連到真實內部服務。真實 Office 案例另核對內網圖片不送出請求、下載後的圖片仍可離線轉檔，以及只有圖片準備階段能連網。`test_normalization_cancellation.py` 驗證多執行緒取消、啟動失敗與限額；由既有 `prlimit` 在 exec 後設定 AS／FSIZE／NOFILE／NPROC，沒有 Python `preexec_fn`。
 
 ## 環境與執行入口
