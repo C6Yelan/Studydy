@@ -53,6 +53,32 @@ jobs:
           load: true
           cache-from: type=gha,scope=backend-test
           cache-to: type=gha,mode=max,scope=backend-test
+      - name: Match CI container AppArmor to the production host
+        # Production WSL/Docker has no AppArmor profile; docker-default on the runner
+        # denied Bubblewrap mounts even with the userns sysctl disabled (run 39865178035).
+        # This CI-only override aligns hosts; it does not relax the product sandbox.
+        run: &test-container-override |
+          cat > "$RUNNER_TEMP/studydy-compose-ci.yaml" <<'YAML'
+          services:
+            unit:
+              security_opt:
+                - apparmor=unconfined
+          YAML
+          python3 - <<'PYCONFIG'
+          import json
+          import os
+          import subprocess
+          command = ['docker', 'compose', '-p', 'studydy', '-f', 'compose.test.yaml']
+          base = json.loads(subprocess.check_output(command + ['config', '--format', 'json']))['services']['unit']
+          command += ['-f', os.path.join(os.environ['RUNNER_TEMP'], 'studydy-compose-ci.yaml')]
+          merged = json.loads(subprocess.check_output(command + ['config', '--format', 'json']))['services']['unit']
+          assert set(merged['security_opt']) == set(base['security_opt']) | {'apparmor=unconfined'}
+          assert 'no-new-privileges:true' in merged['security_opt']
+          assert any(option.startswith('seccomp=') for option in merged['security_opt'])
+          for field in ['network_mode', 'read_only', 'cap_drop', 'tmpfs']:
+              assert merged[field] == base[field], field
+          print('::notice title=CI container isolation::security_opt=' + ', '.join(merged['security_opt']) + '; network/read_only/cap_drop/tmpfs preserved')
+          PYCONFIG
       - name: Offline Python unit, local AI protocol and research tests
         # backend/tests/runtime（含其 4 個 Office 案例）在 full 的固定版本主機執行。
         # 頂層 Office 8 項在此使用固定 LibreOffice 26.2.5.2。
@@ -60,7 +86,7 @@ jobs:
           office_version=$(docker run --rm --network none --entrypoint /usr/lib/libreoffice/program/soffice studydy-unit:latest --version)
           printf '::notice title=LibreOffice version::%s\n' "$office_version"
           mkdir -m 777 "$RUNNER_TEMP/studydy-results"
-          docker compose -p studydy -f compose.test.yaml run --rm --no-deps \
+          docker compose -p studydy -f compose.test.yaml -f "$RUNNER_TEMP/studydy-compose-ci.yaml" run --rm --no-deps \
             -v "$RUNNER_TEMP/studydy-results:/results" unit \
             -q -o cache_dir=/tmp/pytest-cache --junitxml=/results/unit.xml \
             backend/tests --ignore=backend/tests/runtime local_ai/tests \
@@ -141,6 +167,7 @@ jobs:
         run: &failure-probes |
           python3 - <<'PY'
           import json
+          import os
           import re
           import subprocess
           def annotate(title, text):
@@ -184,7 +211,7 @@ jobs:
               lines = [line.replace('backend/tests/test_office_external_resources.py::', '') for line in (short or verbose) + summaries]
               print(json.dumps({'kind': f'office-round-{attempt}', 'exit_code': result.returncode, 'results': lines or ['No case result lines were produced']}), flush=True)
           """
-              result = subprocess.run(['docker', 'compose', '-p', 'studydy', '-f', 'compose.test.yaml', 'run', '--rm', '--no-deps', '--entrypoint', '/app/backend/.venv/bin/python', 'unit', '-c', script], capture_output=True, text=True, check=False)
+              result = subprocess.run(['docker', 'compose', '-p', 'studydy', '-f', 'compose.test.yaml', '-f', os.path.join(os.environ['RUNNER_TEMP'], 'studydy-compose-ci.yaml'), 'run', '--rm', '--no-deps', '--entrypoint', '/app/backend/.venv/bin/python', 'unit', '-c', script], capture_output=True, text=True, check=False)
               for line in result.stdout.splitlines():
                   record = json.loads(line)
                   detail = record.get('stderr', '\n'.join(record.get('results', [])))
@@ -287,6 +314,9 @@ jobs:
           tags: studydy-unit:latest
           load: true
           cache-from: type=gha,scope=backend-test
+      - name: Match diagnostic container AppArmor to the production host
+        if: failure()
+        run: *test-container-override
       - name: Diagnose runner and isolated Office failures
         if: failure()
         run: *failure-probes
