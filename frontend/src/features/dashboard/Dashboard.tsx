@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardReviewQueueView, CardSetSummary, LearningQuest, MaterialLibraryItem, PodcastSummary, StudySessionLink } from "../../api/contracts";
 import { useLearningActivity } from "../../app/LearningProgress";
@@ -14,9 +14,11 @@ import { Bone } from "../../ui/Skeleton";
 import "./styles.css";
 
 // 群島上的島位（百分比）；教材多於島位時其餘改從列表檢視進入。
+// 標籤在島的上緣；各島位的標籤分在不同高度帶或左右錯開，flag 是標籤最大寬度（占地圖寬度 %），
+// 讓 6 座島同時顯示時標籤也不互相遮住。前三座維持原位，後三座放在上左、右側中段與下方中央的空海域。
 const slots = [
-  { x: 25, y: 56, w: 28 }, { x: 62, y: 38, w: 30 }, { x: 82, y: 76, w: 26 },
-  { x: 88, y: 30, w: 19 }, { x: 13, y: 24, w: 18 }, { x: 37, y: 17, w: 17 },
+  { x: 25, y: 56, w: 28, flag: 32 }, { x: 62, y: 38, w: 30, flag: 30 }, { x: 82, y: 76, w: 26, flag: 32 },
+  { x: 16, y: 22, w: 18, flag: 32 }, { x: 87, y: 46, w: 18, flag: 19 }, { x: 38, y: 85, w: 16, flag: 21 },
 ];
 
 type IslandState = "building" | "failed" | "ready" | "learning" | "completed";
@@ -210,7 +212,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
                       // 靠地圖左右緣的島，標籤改向內對齊，不被地圖邊緣裁掉。
                       const edge = slot.x <= 25 ? " is-edge-left" : slot.x >= 75 ? " is-edge-right" : "";
                       return <li key={material.material_id} className={`archipelago-island is-${state}${material === focus ? " is-focus" : ""}${edge}`}
-                        style={{ left: `${slot.x}%`, top: `${slot.y}%`, width: `${slot.w}%` }}>
+                        style={{ left: `${slot.x}%`, top: `${slot.y}%`, width: `${slot.w}%`, "--flag-max": `${slot.flag}cqw` } as CSSProperties}>
                         <button type="button" onClick={() => openMaterial(material)} aria-label={`${material.display_name}，${status}`}>
                           <IslandArt palette={islandPalette(material.material_id)} viewBox="100 60 840 470" landmarks={state !== "building"} />
                           <span className="island-flag">
@@ -229,7 +231,10 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
                   </button>
                   {ordered.length > shown.length && <button className="archipelago-more" type="button" aria-expanded={showAll} aria-controls="archipelago-list" onClick={() => setShowAll((value) => !value)}>{showAll ? "收起島嶼清單" : `還有 ${ordered.length - shown.length} 座島嶼`}</button>}
                 </div>
-                {shown.length > 1 && <p className="archipelago-swipe-hint" aria-hidden="true"><Icon name="chevron-left" size={14} />左右滑動看全部 {shown.length} 座島<Icon name="chevron-right" size={14} /></p>}
+                {/* 手機提示與地圖實際島數一致；地圖放不下的教材說明在下方清單（清單列出全部教材）。 */}
+                {shown.length > 1 && <p className="archipelago-swipe-hint" aria-hidden="true"><Icon name="chevron-left" size={14} />
+                  {ordered.length > shown.length ? `滑動看地圖上 ${shown.length} 座島 · 全部 ${ordered.length} 份在下方清單` : `左右滑動看全部 ${shown.length} 座島`}
+                  <Icon name="chevron-right" size={14} /></p>}
               </div>
             )}
             {/* 島嶼清單：手機一律顯示（地圖要橫向滑動），桌機在「還有 N 座島嶼」展開時顯示地圖放不下的島。 */}

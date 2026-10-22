@@ -74,6 +74,8 @@
   position: relative;
   width: 100%;
   aspect-ratio: 1000 / 560;
+  /* 島嶼標籤寬度以地圖寬度（cqw）計算，地圖縮放時島位與標籤一起縮放。 */
+  container-type: inline-size;
 }
 .archipelago-sea {
   position: absolute;
@@ -855,9 +857,10 @@
 .archipelago-island.is-edge-left .island-flag::after { left: 28px; }
 .archipelago-island.is-edge-right .island-flag { left: auto; right: 4%; transform: translate(0, -100%); }
 .archipelago-island.is-edge-right .island-flag::after { left: auto; right: 28px; margin-left: 0; margin-right: -7px; }
-.island-flag { max-width: min(280px, 38vw); }
+/* 標籤最大寬度依島位而定（--flag-max），文字扣掉進度圈與留白約 60px。 */
+.island-flag { --flag-width: min(280px, var(--flag-max, 29cqw)); max-width: var(--flag-width); }
 .island-flag-text b,
-.island-flag-text small { max-width: min(220px, 30vw); }
+.island-flag-text small { max-width: calc(var(--flag-width) - 60px); }
 /* 全部島嶼清單：桌機展開時只列地圖放不下的島；手機一律列出全部。 */
 .archipelago-list {
   display: none;
@@ -907,15 +910,15 @@
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 800;
+    max-width: calc(100% - 24px);
+    text-align: center;
     transform: translateX(-50%);
   }
   .archipelago-list,
   .archipelago-list.is-open { display: grid; margin: 12px var(--shell-gutter) 0; }
   .archipelago-list.is-open > li.is-on-map { display: block; }
   .archipelago-more { display: none; }
-  .island-flag { max-width: 260px; }
-  .island-flag-text b,
-  .island-flag-text small { max-width: 200px; }
+  .island-flag { --flag-width: min(260px, var(--flag-max, 29cqw)); }
 }
 /* 手機：今日任務與複習緊接在群島之後，統計類卡片放到最後。 */
 @media (max-width: 720px) {

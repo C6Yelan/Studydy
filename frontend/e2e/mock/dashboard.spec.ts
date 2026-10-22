@@ -429,3 +429,67 @@ test("dashboard hides the week rhythm when learning activity is unavailable", as
   await expect(page.getByRole("region", { name: "今日任務" })).toHaveCount(0);
   await expect(page.locator(".dashboard-level, .dashboard-badges, .header-progress")).toHaveCount(0);
 });
+
+// 多份教材：每份都用長檔名，讓標籤撐到最大寬度；第一份學習中，帶「你在這裡」。
+function manyMaterials(count: number): MaterialLibraryItem[] {
+  return Array.from({ length: count }, (_, index) => ({
+    ...(index === 0 ? withStudy() : material),
+    material_id: uuid(100 + index),
+    display_name: `第 ${index + 1} 份｜${longName}`,
+    created_at: `2026-09-${String(20 - index).padStart(2, "0")}T00:00:00Z`,
+  }));
+}
+
+for (const count of [3, 6, 9])
+  for (const [width, height] of [[1440, 900], [1024, 768], [390, 844]]) {
+    test(`dashboard island labels never overlap with ${count} materials at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await mockLibrary(page, () => manyMaterials(count));
+      await page.goto("/");
+      await expect(page.locator(".archipelago-island")).toHaveCount(Math.min(count, 6));
+      await expect(page.locator(".island-pin")).toHaveCount(1);
+      const boxes = await page.locator(".island-flag, .island-pin").evaluateAll((elements) =>
+        elements.map((element) => {
+          const { left, top, right, bottom } = element.getBoundingClientRect();
+          return { left, top, right, bottom, name: element.textContent ?? "" };
+        }),
+      );
+      const stage = (await page.locator(".archipelago-stage").boundingBox())!;
+      for (const [index, box] of boxes.entries()) {
+        // 標籤不可超出地圖範圍（會被裁掉）。
+        expect(box.left).toBeGreaterThanOrEqual(stage.x - 1);
+        expect(box.top).toBeGreaterThanOrEqual(stage.y - 1);
+        expect(box.right).toBeLessThanOrEqual(stage.x + stage.width + 1);
+        for (const other of boxes.slice(index + 1)) {
+          const overlaps = box.left < other.right && other.left < box.right && box.top < other.bottom && other.top < box.bottom;
+          expect(overlaps, `${box.name} / ${other.name}`).toBe(false);
+        }
+      }
+    });
+  }
+
+test("phone swipe hint counts the islands on the map and points to the full list", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let count = 9;
+  await mockLibrary(page, () => manyMaterials(count));
+  await page.goto("/");
+  await expect(page.locator(".archipelago-head span")).toHaveText("9 份教材");
+  await expect(page.locator(".archipelago-island")).toHaveCount(6);
+  const hint = page.locator(".archipelago-swipe-hint");
+  await expect(hint).toHaveText("滑動看地圖上 6 座島 · 全部 9 份在下方清單");
+  await expect(page.getByRole("list", { name: "全部教材島嶼" }).getByRole("listitem")).toHaveCount(9);
+  await expect(page.getByRole("list", { name: "全部教材島嶼" }).getByRole("listitem").last()).toBeAttached();
+  const box = (await hint.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  expect(box.height).toBeLessThan(30);
+  // 桌機地圖放不下時改用「還有 N 座島嶼」，數字同樣以地圖上的島為準。
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(hint).toBeHidden();
+  await expect(page.getByRole("button", { name: "還有 3 座島嶼" })).toBeVisible();
+  count = 4;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(hint).toHaveText("左右滑動看全部 4 座島");
+  await expect(page.getByRole("button", { name: /還有 \d+ 座島嶼/ })).toHaveCount(0);
+});
