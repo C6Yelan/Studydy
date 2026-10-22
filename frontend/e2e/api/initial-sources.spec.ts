@@ -21,6 +21,7 @@ test("mixed sources build one map and resolve every evidence source", async ({ p
     page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true }),
   ).toBeVisible();
   await page.goto("/upload");
+  await expect(page.getByLabel("選擇教材檔案", { exact: true })).toBeEnabled();
   await page.getByLabel("選擇教材檔案", { exact: true }).setInputFiles([
     {
       name: "Initial.pdf",
