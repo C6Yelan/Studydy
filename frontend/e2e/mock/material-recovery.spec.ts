@@ -70,6 +70,12 @@ test.beforeEach(async ({ page }) => {
     "/v1/topics": { topics: [] },
     [`/v1/material-processing-runs/${oldId}`]: oldRun,
     [`/v1/material-processing-runs/${newId}`]: newRun,
+    // 處理頁依教材來源決定步驟列；這份是上傳的教材。
+    [`/v1/materials/${materialId}/sources`]: { schema: "material-sources/v1", material_id: materialId, sources: [{
+      origin: "upload", source_id: "55555555-5555-4555-8555-555555555555", normalization_id: "55555555-5555-4555-8555-555555555555", original_artifact_id: sourceId,
+      original_name: "資料結構講義.pdf", media_type: "application/pdf", status: "ready",
+      normalized_artifact_id: sourceId, page_count: 8, error_code: null,
+    }] },
   };
   await page.route(/\/v[12]\//, (route) => {
     const path = new URL(route.request().url()).pathname;

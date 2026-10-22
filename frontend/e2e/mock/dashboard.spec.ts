@@ -404,6 +404,31 @@ test("profile rhythm switches periods and pages back through earlier records", a
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
+test("profile rhythm does not page from a stale range after a failed read", async ({ page }) => {
+  let fail = false;
+  await page.route("**/v1/learning-activity/rhythm?*", (route) => {
+    const url = new URL(route.request().url());
+    if (fail) return route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: "rhythm", reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Retry" } });
+    return route.fulfill({ json: learningRhythm({ period: "week", offset: Number(url.searchParams.get("offset")), firstDay: "2026-09-02", days: {} }) });
+  });
+  await page.goto("/profile");
+  const rhythm = page.getByRole("region", { name: "學習節奏" });
+  await expect(rhythm.locator(".rhythm-pager b")).toHaveText("2026/10/19 – 10/25");
+  fail = true;
+  await rhythm.getByRole("button", { name: "上一個週" }).click();
+  await expect(rhythm.getByRole("alert")).toContainText("無法讀取學習節奏");
+  // 失敗的是上一週，頁碼列不能還停在本週，也不能依本週的資料繼續翻。
+  await expect(rhythm.locator(".rhythm-pager b")).toHaveText("—");
+  await expect(rhythm.getByRole("button", { name: "上一個週" })).toBeDisabled();
+  await expect(rhythm.getByRole("button", { name: "下一個週" })).toBeDisabled();
+  await expect(rhythm.getByRole("button", { name: "回到本週" })).toBeDisabled();
+  fail = false;
+  await rhythm.getByRole("button", { name: "重新讀取" }).click();
+  await expect(rhythm.locator(".rhythm-pager b")).toHaveText("2026/10/12 – 10/18");
+  await expect(rhythm.getByRole("button", { name: "上一個週" })).toBeEnabled();
+  await expect(rhythm.getByRole("button", { name: "下一個週" })).toBeEnabled();
+});
+
 test("profile keeps devices in their own card and fits a wide window without scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await mockLibrary(page, () => [withStudy()]);

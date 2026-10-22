@@ -45,6 +45,19 @@ function completed(status: "succeeded" | "partial"): MaterialProcessingRunView {
   };
 }
 
+const uploadedSource = {
+  origin: "upload",
+  source_id: "66666666-6666-4666-8666-666666666666",
+  normalization_id: "77777777-7777-4777-8777-777777777777",
+  original_artifact_id: artifactId,
+  original_name: "網路概論.pdf",
+  media_type: "application/pdf",
+  status: "ready",
+  normalized_artifact_id: artifactId,
+  page_count: 45,
+  error_code: null,
+};
+
 const unavailable = {
   schema: "api-error/v1",
   request_id: runId,
@@ -119,7 +132,14 @@ test.beforeEach(async ({ page }) => {
         throw new Error(`Unexpected processing request: ${request.method()} ${path}`);
     }
   });
+  await mockSources(page);
 });
+
+// 處理頁依教材來源決定步驟列；預設是上傳的教材。
+async function mockSources(page: Page, sources = [uploadedSource]) {
+  await page.route(`**/v1/materials/${materialId}/sources`, (route) =>
+    route.fulfill({ json: { schema: "material-sources/v1", material_id: materialId, sources } }));
+}
 
 async function mockRun(page: Page, respond: (route: Route) => Promise<void>) {
   let reads = 0;
@@ -192,6 +212,7 @@ for (const status of ["succeeded", "partial"] as const)
     view.status.processing = status;
     view.status.quality = status === "partial" ? "needs_review" : "accepted";
     await mockKnowledgeMapApi(page, view);
+    await mockSources(page);
     await mockRun(page, (route) => route.fulfill({ json: run }));
     await page.goto(runPath);
     const processing = page.locator(".processing-page");
@@ -301,13 +322,19 @@ for (const width of [2560, 920, 390])
           documentWidth: document.documentElement.scrollWidth,
         };
       });
-      // 不鎖定欄寬數值：頁面填滿可用寬度，步驟列在內容卡上方。
-      expect(layout.width).toBeLessThanOrEqual(layout.usable + 1);
-      expect(layout.width).toBeGreaterThanOrEqual(Math.min(layout.usable, 1200) - 1);
+      // 處理頁是一般頁面：填滿可用寬度，最寬到全站外框上限 --application-frame-max（1600px）。
+      expect(layout.width).toBeCloseTo(Math.min(layout.usable, 1600), 0);
+      const stepsBottom = layout.steps.y + layout.steps.height;
       for (const card of layout.cards) {
         expect(card.width).toBeGreaterThan(0);
         expect(card.height).toBeGreaterThan(0);
-        expect(card.y).toBeGreaterThanOrEqual(layout.steps.y + layout.steps.height);
+        expect(card.y).toBeGreaterThanOrEqual(stepsBottom);
+      }
+      // 主要內容在第一屏：處理卡（或完成卡）緊接在步驟列下方，不被其他區塊推到下面。
+      expect(layout.cards[0].y - stepsBottom).toBeLessThanOrEqual(48);
+      if (!active) {
+        const openMap = await processing.getByRole("button", { name: "開啟知識地圖", exact: true }).boundingBox();
+        expect(openMap!.y + openMap!.height).toBeLessThanOrEqual(844);
       }
       if (active) {
         const [content, timeline] = layout.cards;
@@ -318,10 +345,29 @@ for (const width of [2560, 920, 390])
         const progress = await processing.locator(".processing-status").boundingBox();
         const sources = await processing.locator(".processing-sources").boundingBox();
         expect(progress!.y + progress!.height).toBeLessThanOrEqual(sources!.y);
+        expect(progress!.y).toBeGreaterThanOrEqual(layout.cards[0].y);
+        expect(progress!.y + progress!.height).toBeLessThanOrEqual(844);
       }
       expect(layout.documentWidth).toBe(width);
       expect(layout.clipped).toEqual([]);
     });
+
+for (const origin of ["research", "mixed", "unreadable"] as const)
+  test(`processing steps follow the material origin (${origin})`, async ({ page }) => {
+    const research = { ...uploadedSource, origin: "research" };
+    if (origin === "unreadable")
+      await page.route(`**/v1/materials/${materialId}/sources`, (route) => route.fulfill({ status: 503, json: unavailable }));
+    else await mockSources(page, origin === "mixed" ? [research, uploadedSource] : [research]);
+    await mockRun(page, (route) => route.fulfill({ json: completed("succeeded") }));
+    await page.goto(runPath);
+    const processing = page.locator(".processing-page");
+    await expect(processing.getByRole("button", { name: "開啟知識地圖", exact: true })).toBeVisible();
+    if (origin === "research") {
+      // 從主題建立的教材重試後也回到這頁，步驟列沿用主題流程。
+      await expect(processing.locator(".learning-steps > li")).toHaveText(["學習需求", "確認觀念與細節", "選取來源", "建立教材"].map((label) => new RegExp(label)));
+      await expect(processing.locator(".learning-steps > li.is-complete")).toHaveCount(4);
+    } else await expect(processing.locator(".learning-steps")).toHaveCount(0);
+  });
 
 test("loading announces its state and resumes when the backend responds", async ({ page }) => {
   let release!: () => void;

@@ -6,7 +6,8 @@ import type {MaterialProcessingRunView} from '../../api/contracts';
 import {ProcessingProgress} from '../material-flow/ProcessingProgress';
 import {ProcessingTimeline} from '../material-flow/ProcessingTimeline';
 import {MaterialRunStartControl} from '../material-flow/MaterialRunStartControl';
-import {FlowFooter,FlowHeader,FlowStage,LearningSteps} from '../material-flow/Flow';
+import {MaterialRemoveControl} from '../material-flow/MaterialRemoveControl';
+import {FlowFooter,FlowHeader,FlowStage,LearningSteps,topicSteps} from '../material-flow/Flow';
 import {automaticPollIntervalMs,materialElapsedLabel,materialFailureMessage,materialProgressStageLabel,materialProgressStages} from '../material-flow/material-flow';
 import {writeRoute} from '../../app/routes';
 import { Icon } from '../../ui/Icon';
@@ -82,6 +83,8 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const back=()=>writeRoute(view?.material_id?{name:'material-content',materialId:view.material_id,kind:'research'}:{name:'materials'});
 
  const [loadedRun,setLoadedRun]=useState<MaterialProcessingRunView|null>(null),[runError,setRunError]=useState(''),[runReload,setRunReload]=useState(0),[now,setNow]=useState(Date.now);
+ // 已取消的教材可刪除；刪除受理但尚未清除完時持續讀取，讀不到教材後回到教材庫（同處理頁取消後的行為）。
+ const [removing,setRemoving]=useState(false);
  const materialRun=loadedRun?.run_id===work?.run_id&&loadedRun?.material_id===work?.material_id?loadedRun:null;
  useEffect(()=>{
   if(!work?.material_id||!work.run_id)return;
@@ -91,10 +94,10 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
    const next=await api.getMaterialRun(work.run_id!);if(stop)return;
    if(next.material_id!==work.material_id||next.run_id!==work.run_id)throw new Error('教材處理紀錄與目前主題不一致。');
    setLoadedRun(next);setRunError('');
-   if(['pending','running'].includes(next.status))timer=setTimeout(read,automaticPollIntervalMs);
-  }catch(e){if(!stop)setRunError(errorMessage(e));}};
+   if(removing||['pending','running'].includes(next.status))timer=setTimeout(read,automaticPollIntervalMs);
+  }catch(e){if(stop)return;if(removing&&isNotFound(e)){writeRoute({name:'materials'});return;}setRunError(errorMessage(e));}};
   void read();return()=>{stop=true;clearTimeout(timer);};
- },[api,work?.material_id,work?.run_id,runReload]);
+ },[api,work?.material_id,work?.run_id,runReload,removing]);
  const analyzing=!!materialRun&&['pending','running'].includes(materialRun.status);
  useEffect(()=>{if(!analyzing)return;setNow(Date.now());const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[analyzing,materialRun?.run_id]);
  const completed=!!materialRun&&['partial','succeeded'].includes(materialRun.status);
@@ -110,11 +113,11 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  if(notFound)return <NotFoundView title="找不到這個學習主題" description="這個主題可能已被刪除，或不屬於目前登入的帳號。" back={{label:'從主題建立教材',route:{name:'topics'}}}/>;
  const scopeReady=!!draft&&!!draft.title.trim()&&draft.topics.some(x=>x.trim())&&draft.goals.some(x=>x.trim());
  const approve=()=>{if(!draft||!view)return;const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const body=JSON.stringify(clean);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,{expected_version:view.version,proposal:clean},approveIntent.current.key);approveIntent.current=null;if(alive.current)writeRoute(view.material_id&&approved.research_id?{name:'research',materialId:view.material_id,researchId:approved.research_id}:{name:'materials'});});};
- const buildTitle=work?.run_id?(completed?'教材與知識地圖已建立':cancelled?'已取消教材處理':failed?'教材處理失敗':cancelling?'正在取消教材處理':materialRun?.status==='pending'?'等待開始處理':materialRun?'正在分析教材':'正在讀取處理狀態'):work?.deleted?'查詢已刪除':'正在建立教材';
- const buildDescription=completed?(materialRun?.status==='partial'?'知識地圖已建立，可先查看已整理的內容；部分內容未完整整理。':`使用你選擇的 ${work?.selection.length??0} 份來源，已完成這份教材。`):cancelling?'已收到取消要求，會在目前進行中的步驟完成後安全停止。':cancelled?'這次分析已停止。':failed?materialFailureMessage(materialRun.error_code??'MATERIAL_ANALYSIS_FAILED'):'取得的來源會保留，可離開頁面，稍後回來查看進度。';
+ const buildTitle=work?.run_id?(removing?'正在刪除教材…':completed?'教材與知識地圖已建立':cancelled?'已取消教材處理':failed?'教材處理失敗':cancelling?'正在取消教材處理':materialRun?.status==='pending'?'等待開始處理':materialRun?'正在分析教材':'正在讀取處理狀態'):work?.deleted?'查詢已刪除':'正在建立教材';
+ const buildDescription=completed?(materialRun?.status==='partial'?'知識地圖已建立，可先查看已整理的內容；部分內容未完整整理。':`使用你選擇的 ${work?.selection.length??0} 份來源，已完成這份教材。`):removing?'分析已停止，正在刪除 PDF 與處理紀錄。':cancelling?'已收到取消要求，會在目前進行中的步驟完成後安全停止。':cancelled?'這次分析已停止。若不再需要這份教材，可以刪除 PDF 與處理紀錄。':failed?materialFailureMessage(materialRun.error_code??'MATERIAL_ANALYSIS_FAILED'):'取得的來源會保留，可離開頁面，稍後回來查看進度。';
  return <section className="flow-page topic-page">
  <FlowHeader back={<BackLink label={view?.material_id?'返回補充學習':'返回我的教材'} onClick={back}/>} title={view?.material_id?'確認補充學習需求':'從主題建立教材'} description="先確認想查找的觀念與細節，再搜尋並核對來源。"/>
- <LearningSteps labels={['學習需求','確認觀念與細節','選取來源',view?.material_id?'補充教材':'建立教材']} current={step}/>
+ <LearningSteps labels={view?.material_id?[...topicSteps.slice(0,-1),'補充教材']:topicSteps} current={step}/>
  {(inputStage||view?.status!=='ready')&&errorNotice}
  {inputStage&&<FlowStage className="topic-request" icon="sparkle" title="你想學什麼？" description="可以是一個主題、一個問題，或想完成的學習目標。"
   footer={<FlowFooter
@@ -158,6 +161,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
    primary={<>
     {!work.deleted&&work.status==='selecting'&&!hasMaterial&&<button className="primary-button" disabled={busy||!selected.length} onClick={()=>void perform(()=>api.studyTools(`/v1/topics/${view.topic_id}/material`,{selected}))}>建立教材與知識地圖<Icon name="chevron-right" size={16}/></button>}
     {!work.deleted&&work.status==='failed'&&hasMaterial&&!work.run_id&&<button className="primary-button" disabled={busy||!selected.length} onClick={()=>void actResearch('acquire',selected)}>使用選取來源繼續建立</button>}
+    {cancelled&&materialRun&&!removing&&<MaterialRemoveControl apiClient={api} materialId={materialRun.material_id} onAccepted={state=>{if(state==='removed')writeRoute({name:'materials'});else setRemoving(true);}}/>}
     {failed&&materialRun&&<div className="topic-retry"><MaterialRunStartControl apiClient={api} materialId={materialRun.material_id} retryRun={{runId:materialRun.run_id,saved:!!materialRun.analysis_saved}}/></div>}
     {binding&&materialRun&&<button className="primary-button" onClick={()=>writeRoute({name:'knowledge-map',materialId:materialRun.material_id,runId:materialRun.run_id,structureRevision:binding.knowledge_structure_revision})}>開啟知識地圖<Icon name="chevron-right" size={16}/></button>}
    </>}

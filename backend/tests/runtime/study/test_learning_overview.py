@@ -82,7 +82,11 @@ def test_learning_activity_counts_answers_by_taipei_day_for_the_owner_only(close
     response = client.get("/v1/learning-activity/rhythm", params={"period": "month", "offset": 0})
     assert response.status_code == 200, response.json()
     assert response.json()["schema"] == "learning-rhythm/v1" and response.json()["period"] == "month"
-    for params in ({"period": "decade"}, {"period": "week", "offset": -1}, {"period": "week", "offset": 521},
+    # 各區間都約十年可翻：週 520、月 120、季 40、年 10 頁。
+    for period, limit in (("week", 520), ("month", 120), ("quarter", 40), ("year", 10)):
+        assert client.get("/v1/learning-activity/rhythm", params={"period": period, "offset": limit}).status_code == 200
+        assert client.get("/v1/learning-activity/rhythm", params={"period": period, "offset": limit + 1}).status_code in (400, 422)
+    for params in ({"period": "decade"}, {"period": "week", "offset": -1},
                    {"period": "week", "learner_id": str(uuid4())}, {}):
         assert client.get("/v1/learning-activity/rhythm", params=params).status_code in (400, 422), params
 

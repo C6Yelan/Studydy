@@ -9,6 +9,8 @@ import "./flow.css";
 
 /** 上傳教材流程的三個步驟（處理中與完成頁沿用）。 */
 export const uploadSteps = ["上傳教材", "確認教材", "建立知識地圖"];
+/** 從主題建立教材的四個步驟；教材重試後回到處理頁時沿用。 */
+export const topicSteps = ["學習需求", "確認觀念與細節", "選取來源", "建立教材"];
 
 export function FlowHeader({ title, description, back, image, headingId }: {
   title: ReactNode; description?: ReactNode; back?: ReactNode; image?: string; headingId?: string;

@@ -7,6 +7,8 @@ import { Icon } from "../../ui/Icon";
 // 每個區間都能往前翻到最早有紀錄的時期。數字全部來自 /v1/learning-activity/rhythm 的每日彙總。
 
 const periods: [LearningRhythmPeriod, string][] = [["week", "週"], ["month", "月"], ["quarter", "近 3 個月"], ["year", "近一年"]];
+// 各區間最多往前翻的頁數（都約十年），與後端 RHYTHM_MAX_OFFSET 相同；超過會被後端拒絕。
+const maxOffset: Record<LearningRhythmPeriod, number> = { week: 520, month: 120, quarter: 40, year: 10 };
 const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
 const minutes = (seconds: number) => Math.floor(seconds / 60);
 // ISO 日期以 UTC 解析，只做日期運算，不受瀏覽器時區影響。
@@ -97,7 +99,9 @@ export function LearningRhythm({ apiClient }: { apiClient: StudydyApiClient }) {
   const [view, setView] = useState<LearningRhythmView | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
-  const loading = !failed && (view?.period !== period || view.offset !== offset);
+  // 只有讀到目前這一頁才算數；讀取中或失敗時不沿用上一頁的區間與翻頁判斷。
+  const current = !failed && view?.period === period && view.offset === offset ? view : null;
+  const loading = !failed && !current;
   useEffect(() => {
     let cancelled = false;
     setFailed(false);
@@ -107,8 +111,8 @@ export function LearningRhythm({ apiClient }: { apiClient: StudydyApiClient }) {
     );
     return () => { cancelled = true; };
   }, [apiClient, period, offset, retry]);
-  // 最早紀錄所在的這一頁之前不能再翻；沒有任何紀錄時也不能往前。
-  const earlier = !!view && !loading && !!view.first_day && view.first_day < view.start;
+  // 最早紀錄所在的這一頁之前不能再翻；沒有任何紀錄或已到上限時也不能往前。
+  const earlier = !!current && !!current.first_day && current.first_day < current.start && offset < maxOffset[period];
   const items = !view ? [] : view.period === "week"
     ? view.days.map((day) => bucket([day], view.today, weekday(day.date), `星期${weekday(day.date)} ${monthDay(day.date)}`))
     : view.period === "month"
@@ -141,10 +145,10 @@ export function LearningRhythm({ apiClient }: { apiClient: StudydyApiClient }) {
     <div className="rhythm-pager">
       <button className="rhythm-step" type="button" aria-label={`上一個${periodName}`} disabled={!earlier}
         onClick={() => setOffset((value) => value + 1)}><Icon name="chevron-left" size={18} /></button>
-      <b aria-live="polite">{view && !loading ? rangeLabel(view) : "讀取中…"}</b>
-      <button className="rhythm-step" type="button" aria-label={`下一個${periodName}`} disabled={offset === 0 || loading}
+      <b aria-live="polite">{current ? rangeLabel(current) : failed ? "—" : "讀取中…"}</b>
+      <button className="rhythm-step" type="button" aria-label={`下一個${periodName}`} disabled={offset === 0 || !current}
         onClick={() => setOffset((value) => Math.max(0, value - 1))}><Icon name="chevron-right" size={18} /></button>
-      {offset > 0 && <button className="text-button" type="button" onClick={() => setOffset(0)}>回到{period === "week" ? "本週" : period === "month" ? "本月" : "最近"}</button>}
+      {offset > 0 && <button className="text-button" type="button" disabled={!current} onClick={() => setOffset(0)}>回到{period === "week" ? "本週" : period === "month" ? "本月" : "最近"}</button>}
     </div>
     {failed ? <div className="rhythm-failure" role="alert">
       <p>無法讀取學習節奏，請稍後再試。</p>

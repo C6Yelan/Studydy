@@ -64,6 +64,13 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
       case "/v1/materials":
         return route.fulfill({ json: { schema: "material-library/v1", materials: [] } });
+      // 處理頁依教材來源決定步驟列；這份是上傳的教材。
+      case `/v1/materials/${materialId}/sources`:
+        return route.fulfill({ json: { schema: "material-sources/v1", material_id: materialId, sources: [{
+        origin: "upload", source_id: "55555555-5555-4555-8555-555555555555", normalization_id: "55555555-5555-4555-8555-555555555555", original_artifact_id: artifactId,
+        original_name: "講義.pdf", media_type: "application/pdf", status: "ready",
+        normalized_artifact_id: artifactId, page_count: 8, error_code: null,
+      }] } });
       // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
       case "/v1/profile":
         return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });

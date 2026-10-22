@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
-import type { MaterialProcessingRunView, MaterialLibraryItem } from "../../api/contracts";
+import type { MaterialProcessingRunView, MaterialLibraryItem, SourceView } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { ProcessingProgress } from "./ProcessingProgress";
@@ -10,7 +10,7 @@ import { ProcessingTimeline } from "./ProcessingTimeline";
 import { StateView } from "../../ui/StateView";
 import { MaterialRunStartControl } from "./MaterialRunStartControl";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
-import { FlowHeader, LearningSteps, uploadSteps } from "./Flow";
+import { FlowHeader, LearningSteps, topicSteps, uploadSteps } from "./Flow";
 import {
   automaticPollIntervalMs,
   materialFailureMessage,
@@ -21,6 +21,13 @@ import {
 
 function activeRun(run: MaterialProcessingRunView | null): boolean {
   return run?.status === "pending" || run?.status === "running";
+}
+
+// 步驟列依教材來源決定：上傳的教材與從主題建立的教材流程不同；來源混合或讀不到時不顯示步驟列。
+function flowSteps(sources: SourceView[]): string[] | null {
+  const origins = new Set(sources.map((source) => source.origin ?? "upload"));
+  if (origins.size !== 1) return null;
+  return origins.has("research") ? topicSteps : uploadSteps;
 }
 
 function canRequestDiscard(run: MaterialProcessingRunView | null): boolean {
@@ -57,6 +64,9 @@ export function RunView({
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
+  const [steps, setSteps] = useState<string[] | null>(null);
+  // 新版更新（base_revision）沒有建立流程的步驟列，不需要讀來源。
+  const firstBuild = run ? !run.base_revision : null;
 
   const applyRun = useCallback((next: MaterialProcessingRunView) => {
     const previous = currentRun.current;
@@ -133,6 +143,17 @@ export function RunView({
       if (timer !== null) window.clearTimeout(timer);
     };
   }, [apiClient, reload, route.materialId, route.runId, applyRun]);
+
+  useEffect(() => {
+    if (!firstBuild) return;
+    let cancelled = false;
+    setSteps(null);
+    void apiClient.getSources(route.materialId).then(
+      (list) => { if (!cancelled) setSteps(flowSteps(list.sources)); },
+      () => undefined,
+    );
+    return () => { cancelled = true; };
+  }, [apiClient, route.materialId, firstBuild]);
 
   const sendDiscard = async () => {
     if (cancelInFlight.current || discardAccepted.current || !canRequestDiscard(currentRun.current))
@@ -232,7 +253,7 @@ export function RunView({
             ? "已收到刪除要求，會在目前進行中的步驟完成後安全停止並刪除教材。"
             : "Studydy 會依序整理教材內容、建立概念關係，並在完成後發布知識地圖。"}
         />
-        <LearningSteps labels={uploadSteps} current={2} />
+        {steps && <LearningSteps labels={steps} current={steps.length - 1} />}
         <div className="processing-grid">
           <section className="surface processing-card">
             <ProcessingProgress run={run} now={now} />
@@ -310,7 +331,7 @@ export function RunView({
   if (run.status === "cancelled" || (removing && !activeRun(run)))
     return (
       <section className="flow-page processing-page task-page is-cancelled">
-        <LearningSteps labels={uploadSteps} current={2} />
+        {steps && <LearningSteps labels={steps} current={steps.length - 1} />}
         <StateView
           title={removing ? "正在刪除教材…" : "已取消教材處理"}
           description={
@@ -348,7 +369,7 @@ export function RunView({
   if (run.status === "failed")
     return (
       <section className="flow-page processing-page task-page terminal-failure">
-        <LearningSteps labels={uploadSteps} current={2} />
+        {steps && <LearningSteps labels={steps} current={steps.length - 1} />}
         <StateView
           action={
             <>
@@ -407,7 +428,7 @@ export function RunView({
           ? "知識地圖已建立，可先查看已整理的內容；部分內容未完整整理。"
           : "知識地圖已準備完成，可以查看概念、關係、來源與建議學習順序。"}
       />
-      <LearningSteps labels={uploadSteps} current={uploadSteps.length} />
+      {steps && <LearningSteps labels={steps} current={steps.length} />}
       <section className="surface flow-result processing-summary" aria-labelledby="processing-result-title">
         <img src="/assets/studydy/success-jump.png" alt="" />
         <div className="flow-result-body">

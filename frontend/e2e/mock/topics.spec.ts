@@ -188,6 +188,20 @@ for(const status of ['failed','cancelled','partial'] as const) test(`topic mater
  await expect(page.getByRole('button',{name:'查看教材建立結果',exact:true})).toHaveCount(0);
 });
 
+test('cancelled topic material can be deleted and leaves once the material is gone',async({page})=>{
+ await mockTopicApi(page);
+ const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],cursor:null,error_code:null,run_id:runId,run:{status:'cancelled',error_code:null}}};
+ let gone=false,discards=0;
+ await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
+ await page.route(`**/v1/material-processing-runs/${runId}`,r=>gone?r.fulfill({status:404,json:{schema:'api-error/v1',request_id:id,reason_code:'RESOURCE_NOT_FOUND',retryable:false,message:'Request could not be completed.'}}):json(r,{...runFixture,status:'cancelled',cancel_requested_at:runFixture.updated_at,progress_stage:'semantics',completed_pages:1,output_binding:null}));
+ await page.route(`**/v1/materials/${materialId}`,r=>{expect(r.request().method()).toBe('DELETE');discards++;return json(r,{schema:'material-discard/v1',material_id:materialId,state:'removing'},202);});
+ await page.goto(`/topics/${id}`);await expect(page.getByRole('heading',{name:'已取消教材處理',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'刪除教材',exact:true}).click();await page.getByRole('button',{name:'確認刪除',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'正在刪除教材…',exact:true})).toBeVisible();expect(discards).toBe(1);
+ await expect(page.getByRole('button',{name:'刪除教材',exact:true})).toHaveCount(0);
+ gone=true;await expect(page).toHaveURL(/\/materials$/);
+});
+
 test('topic run loading failures retry and unknown progress remains indeterminate',async({page})=>{
  await mockTopicApi(page);
  const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],cursor:null,error_code:null,run_id:runId,run:{status:'running',error_code:null}}};

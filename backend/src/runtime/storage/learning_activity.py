@@ -838,6 +838,8 @@ def learning_activity(session, owner, *, now=None):
 
 
 RHYTHM_PERIODS = ("week", "month", "quarter", "year")
+# 各區間最多往前翻的頁數，都約十年；前端翻頁鈕（features/profile/LearningRhythm.tsx）用同一組上限。
+RHYTHM_MAX_OFFSET = {"week": 520, "month": 120, "quarter": 40, "year": 10}
 
 
 def rhythm_window(period, offset, today):

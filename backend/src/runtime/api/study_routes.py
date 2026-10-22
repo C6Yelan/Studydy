@@ -20,7 +20,7 @@ from learning_adaptation.study_sessions import (
 from ..learner_session import TrustedLearner
 from ..storage.knowledge_structures import read_knowledge_structure
 from ..storage import knowledge_reads
-from ..storage.learning_activity import learning_activity, learning_rhythm
+from ..storage.learning_activity import RHYTHM_MAX_OFFSET, learning_activity, learning_rhythm
 from ..storage.database import database_session
 from ..study_workspace import read_workspace, read_resume
 from . import request_context
@@ -115,10 +115,12 @@ def install(app, settings):
     def read_learning_rhythm(
         request: Request,
         period: Literal["week", "month", "quarter", "year"] = Query(),
-        # 往前翻的頁數；上限約十年（週）以內，避免任意大的區間。
-        offset: int = Query(0, ge=0, le=520),
+        # 往前翻的頁數；各區間的上限見 RHYTHM_MAX_OFFSET（都約十年），避免任意大的區間。
+        offset: int = Query(0, ge=0),
     ):
         request_context.require_query(request, {"period", "offset"})
+        if offset > RHYTHM_MAX_OFFSET[period]:
+            raise request_context.ApiFailure("REQUEST_INVALID")
         learner = request_context.trusted_learner(request, settings)
         with database_session(settings.dsn) as db:
             return learning_rhythm(db, learner.learner_id, period=period, offset=offset)
