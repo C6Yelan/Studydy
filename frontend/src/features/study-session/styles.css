@@ -309,3 +309,10 @@
     width: 96px;
   }
 }
+/* 作答中：交卷列黏在畫面底部，隨時看得到已選題數。 */
+.study-session-page .assessment-paper > .assessment-set-submit {
+  position: sticky;
+  bottom: 12px;
+  z-index: 4;
+  box-shadow: 0 18px 40px -18px rgba(29, 52, 110, 0.45);
+}

@@ -1191,6 +1191,13 @@
   gap: 8px;
   max-width: 100%;
 }
+/* 工具列空白處不攔截地圖拖曳。 */
+.map-navigation > .map-toolbar {
+  pointer-events: none;
+}
+.map-navigation > .map-toolbar > * {
+  pointer-events: auto;
+}
 .map-navigation .map-search {
   flex: 0 1 320px;
   min-width: 200px;

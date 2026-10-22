@@ -37,6 +37,7 @@ test("slash opens site search and a concept opens its detail on the map", async 
   const queries = await mockSearch(page);
   // 全站搜尋屬於教材外的頁首；教材內由地圖搜尋負責。
   await page.goto("/materials");
+  await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
   await page.locator("body").press("/");
   const dialog = page.getByRole("dialog", { name: "全站搜尋" });
   await expect(dialog).toBeVisible();

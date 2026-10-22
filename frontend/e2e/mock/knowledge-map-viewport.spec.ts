@@ -193,10 +193,13 @@ for (const [width, count] of [
     const frame = (await page.locator(".map-view").boundingBox())!;
     const legend = (await page.getByLabel("概念關係圖例").boundingBox())!;
     const navigatorButton = (await graph.getByRole("button", { name: "學習導覽", exact: true }).boundingBox())!;
-    expect(legend.y - canvas.y).toBeGreaterThanOrEqual(0);
-    expect(legend.y - canvas.y).toBeLessThanOrEqual(20);
+    // 圖例在地圖右下；搜尋與學習導覽浮在左上，兩者不重疊。
+    const zoomOut = (await graph.getByRole("button", { name: "縮小地圖", exact: true }).boundingBox())!;
+    expect(canvas.y + canvas.height - legend.y - legend.height).toBeGreaterThanOrEqual(0);
+    expect(canvas.y + canvas.height - legend.y - legend.height).toBeLessThanOrEqual(20);
     expect(canvas.x + canvas.width - legend.x - legend.width).toBeLessThanOrEqual(20);
-    expect(legend.x).toBeGreaterThanOrEqual(navigatorButton.x + navigatorButton.width + 8);
+    expect(legend.x).toBeGreaterThanOrEqual(zoomOut.x + zoomOut.width + 8);
+    expect(legend.y).toBeGreaterThanOrEqual(navigatorButton.y + navigatorButton.height + 8);
     expect(Math.abs(canvas.y - frame.y)).toBeLessThan(2);
     expect(Math.abs(canvas.height - frame.height)).toBeLessThan(2);
     for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽"]) {
