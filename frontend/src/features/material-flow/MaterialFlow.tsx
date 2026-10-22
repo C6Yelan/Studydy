@@ -27,6 +27,7 @@ const routeModules = {
   studySession: () => import("../study-session/StudySessionPage"),
   topic: () => import("../topics/TopicPage"),
   cardSet: () => import("../concept-cards/CardSetPage"),
+  cardReview: () => import("../concept-cards/CardReviewPage"),
   createCardSet: () => import("../concept-cards/CreateCardSet"),
   podcast: () => import("../podcasts/PodcastPage"),
   createContent: () => import("./CreateStudyContent"),
@@ -35,6 +36,7 @@ const KnowledgeMap = lazy(routeModules.knowledgeMap);
 const StudySessionPage = lazy(() => routeModules.studySession().then((m) => ({ default: m.StudySessionPage })));
 const TopicPage = lazy(() => routeModules.topic().then((m) => ({ default: m.TopicPage })));
 const CardSetPage = lazy(() => routeModules.cardSet().then((m) => ({ default: m.CardSetPage })));
+const CardReviewPage = lazy(() => routeModules.cardReview().then((m) => ({ default: m.CardReviewPage })));
 const CreateCardSet = lazy(() => routeModules.createCardSet().then((m) => ({ default: m.CreateCardSet })));
 const PodcastPage = lazy(() => routeModules.podcast().then((m) => ({ default: m.PodcastPage })));
 const CreateStudyContent = lazy(() => routeModules.createContent().then((m) => ({ default: m.CreateStudyContent })));
@@ -45,7 +47,7 @@ function prefetchRoutes() {
 
 function routeSkeleton(route: AppRoute): SkeletonVariant {
   if (route.name === "knowledge-map") return "map";
-  if (route.name === "card-set") return "deck";
+  if (route.name === "card-set" || route.name === "card-review") return "deck";
   if (route.name === "podcast") return "media";
   return "page";
 }
@@ -66,10 +68,11 @@ function MaterialFlowBody({
   if (route.name === "not-found") return <NotFoundView />;
   if (route.name === "material") return <MaterialEntry key={route.materialId} apiClient={apiClient} materialId={route.materialId} />;
   if (route.name === "topics" || route.name === "topic") return <TopicPage key={route.name === "topic" ? route.topicId : "new"} api={apiClient} topicId={route.name === "topic" ? route.topicId : undefined}/>;
-  if ("materialId" in route && route.materialId && ["podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name)) {
+  if ("materialId" in route && route.materialId && ["podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create", "card-review"].includes(route.name)) {
     const kind = route.name.startsWith("podcast") ? "podcasts" : "concept-cards";
     const content = route.name === "podcast" ? <PodcastPage key={route.podcastId} apiClient={apiClient} podcastId={route.podcastId} materialId={route.materialId} learnerId={learnerId} />
       : route.name === "card-set" ? <CardSetPage key={route.cardSetId} apiClient={apiClient} cardSetId={route.cardSetId} materialId={route.materialId} />
+      : route.name === "card-review" ? <CardReviewPage key={route.cardSetId ?? "all"} apiClient={apiClient} cardSetId={route.cardSetId} materialId={route.materialId} />
       : route.name === "card-set-edit" ? <CreateCardSet key={`edit/${route.cardSetId}`} apiClient={apiClient} route={route} />
       : route.name === "podcast-create" || route.name === "card-set-create" ? <CreateStudyContent apiClient={apiClient} route={route} /> : null;
     return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind={kind}>{content}</MaterialContent>;
@@ -83,6 +86,7 @@ function MaterialFlowBody({
   if (route.name === "profile") return <ProfilePage apiClient={apiClient} />;
   if (route.name === "achievements") return <AchievementsPage apiClient={apiClient} />;
   if (route.name === "concept-cards") return <CardSetLibrary apiClient={apiClient} />;
+  if (route.name === "card-review") return <CardReviewPage key={route.cardSetId ?? "all"} apiClient={apiClient} cardSetId={route.cardSetId} />;
 
   if (route.name === "card-set-edit") return <CreateCardSet key={`edit/${route.cardSetId}`} apiClient={apiClient} route={route} />;
   if (route.name === "card-set") return <CardSetPage key={route.cardSetId} apiClient={apiClient} cardSetId={route.cardSetId} materialId={route.materialId} />;

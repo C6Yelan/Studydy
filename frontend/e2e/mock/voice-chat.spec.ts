@@ -77,8 +77,9 @@ test('compact widget has one entry, chat bubbles, secondary sources and a growin
  await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveAttribute('aria-expanded','true');await expect(panel.getByRole('heading',{name:'教材問答',exact:true})).toBeVisible();await expect(input).toBeFocused();
  await expect(page.getByLabel('已保存的對話')).not.toBeVisible();
  const box=(await panel.boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!,composer=(await page.locator('.voice-composer').boundingBox())!;
- // 桌機改為頁首下方的右側抽屜。
- expect(box.width).toBeLessThanOrEqual(420);expect(box.y).toBeGreaterThanOrEqual((await page.locator('.app-header').boundingBox())!.height);expect(box.y+box.height).toBeLessThanOrEqual(900);expect(header.height).toBeLessThanOrEqual(56);expect(composer.height).toBeLessThan(110);
+ // 桌機改為教材頁首下方的右側抽屜。
+ const materialHeader=(await page.locator('.material-learning-toolbar').boundingBox())!;
+ expect(box.width).toBeLessThanOrEqual(420);expect(box.y).toBeGreaterThanOrEqual(materialHeader.y+materialHeader.height);expect(box.y+box.height).toBeLessThanOrEqual(900);expect(header.height).toBeLessThanOrEqual(56);expect(composer.height).toBeLessThan(110);
  expect((await page.locator('.voice-turns').boundingBox())!.height).toBeGreaterThan(box.height*.6);
  await page.getByRole('button',{name:'主要觀念是什麼？',exact:true}).click();await expect(input).toHaveValue('主要觀念是什麼？');await expect(input).toBeFocused();
  await input.fill('較長的輸入\n'.repeat(30));expect((await input.boundingBox())!.height).toBeLessThanOrEqual(112);expect(await input.evaluate(el=>el.scrollHeight>el.clientHeight)).toBe(true);
@@ -149,8 +150,9 @@ test('long conversations scroll independently without stealing reading position 
 test('390px chat uses the same compact header, fixed composer and keyboard focus',async({page})=>{
  await page.setViewportSize({width:390,height:844});const mock=await mockVoice(page),conversation=mock.add();for(let i=0;i<10;i++)mock.turn(conversation,`問題 ${i}`);
  await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
- const panel=page.getByRole('dialog',{name:'教材問答'}),box=(await panel.boundingBox())!,appHeader=(await page.locator('.app-header').boundingBox())!;
- expect(box.width).toBe(390);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(appHeader.height);expect(box.y+box.height).toBeLessThanOrEqual(844);
+ const panel=page.getByRole('dialog',{name:'教材問答'}),box=(await panel.boundingBox())!;
+ // 手機是上緣留 8px 的全高面板（教材內沒有全站頁首）。
+ expect(box.width).toBe(390);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(8);expect(box.y+box.height).toBeLessThanOrEqual(844);
  await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveAttribute('aria-expanded','true');await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
  await page.getByLabel('問題／辨識文字').fill('多行草稿\n'.repeat(25));const composer=(await page.locator('.voice-composer').boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!;
  await page.locator('.voice-turns').evaluate(el=>{el.scrollTop=0;});expect((await page.locator('.voice-composer').boundingBox())!.y).toBeCloseTo(composer.y,0);expect((await page.locator('.voice-header').boundingBox())!.y).toBeCloseTo(header.y,0);expect(composer.y+composer.height).toBeLessThanOrEqual(box.y+box.height);
@@ -288,7 +290,7 @@ test('switching account releases private voice audio and never carries it into t
  await page.getByRole('switch',{name:'語音模式',exact:true}).click();await speak(page);await expect.poll(()=>mock.recorded.length).toBe(1);
  const turn=mock.recorded[0];turn.question='第一個帳號的問題';mock.reply(mock.conversations[0],turn);
  const audio=page.locator('.answer-audio audio');await expect.poll(()=>audio.evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
- await audio.evaluate(a=>{(window as any).previousVoiceAudio=a;});await page.getByRole('button',{name:'登出',exact:true}).click();
+ await audio.evaluate(a=>{(window as any).previousVoiceAudio=a;});await page.getByRole('button',{name:/^帳號選單/}).click();await page.getByRole('button',{name:'登出',exact:true}).click();
  await expect(page.getByRole('heading',{name:'登入您的帳戶'})).toBeVisible();
  expect(await page.evaluate(()=>({paused:(window as any).previousVoiceAudio.paused,src:(window as any).previousVoiceAudio.getAttribute('src')}))).toEqual({paused:true,src:null});
  const stranger={schema:'learner-identity/v1',learner_id:'88888888-8888-4888-8888-888888888888'};

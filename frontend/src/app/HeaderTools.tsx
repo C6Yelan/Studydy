@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../api/client";
 import type { CardSetSummary, LearnerProfile, LibrarySearchView, PodcastSummary } from "../api/contracts";
 import { Icon } from "../ui/Icon";
 import { writeRoute } from "./routes";
+import { useDismissibleMenu } from "../features/material-flow/useDismissibleMenu";
 
 // 名稱與頁首、首頁共用；讀取失敗時視為未設定，不阻擋其他功能。
 export function useProfile(apiClient: StudydyApiClient): LearnerProfile | null {
@@ -42,15 +43,12 @@ export function Modal({ label, open, onClose, className, children }: {
 
 type SearchState = { query: string; result: LibrarySearchView | null; error: string | null };
 
-// 依 history state 開啟指定概念；同一張地圖已開啟時由地圖監聽 popstate 處理。
+// 依 history state 開啟指定概念（全站搜尋只在教材外出現，開啟的地圖一定是重新載入）。
 function openConcept(concept: LibrarySearchView["concepts"][number]) {
   writeRoute(
     { name: "knowledge-map", materialId: concept.material_id, runId: concept.run_id, structureRevision: concept.knowledge_structure_revision },
     false,
-    {
-      knowledgeMap: { revision: concept.knowledge_structure_revision, mode: "focus", search: "", concept: concept.concept_id, detail: concept.concept_id, review: null, relation: null },
-      searchFocus: { revision: concept.knowledge_structure_revision, concept: concept.concept_id, at: Date.now() },
-    },
+    { knowledgeMap: { revision: concept.knowledge_structure_revision, mode: "focus", search: "", concept: concept.concept_id, detail: concept.concept_id, review: null, relation: null } },
   );
 }
 
@@ -73,10 +71,11 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
     return () => { cancelled = true; };
   }, [apiClient, open]);
   useEffect(() => {
-    // 「/」開啟搜尋；正在輸入其他欄位時不攔截。
+    // 「/」開啟搜尋；正在輸入其他欄位時不攔截。教材內隱藏全站頁首，也不開全站搜尋（教材有自己的地圖搜尋）。
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (!trigger.current?.checkVisibility()) return;
       if (target?.closest("input, textarea, select, [contenteditable='true'], dialog")) return;
       event.preventDefault();
       setOpen(true);
@@ -190,6 +189,30 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
       </Modal>
     </>
   );
+}
+
+/** 登出動作；教材頁首沒有全站的登出按鈕，由頭像選單取用。 */
+export const LogoutContext = createContext<(() => void) | null>(null);
+
+// 教材頁首的頭像選單：個人檔案、成就與登出（進入教材後不顯示全站頁首）。
+export function AccountMenu({ apiClient }: { apiClient: StudydyApiClient }) {
+  const name = useProfile(apiClient)?.display_name ?? null;
+  const logout = useContext(LogoutContext);
+  const menu = useRef<HTMLDetailsElement>(null);
+  const opener = useRef<HTMLElement>(null);
+  useDismissibleMenu(menu, opener);
+  const go = (route: Parameters<typeof writeRoute>[0]) => { if (menu.current) menu.current.open = false; writeRoute(route); };
+  return <details ref={menu} className="account-menu">
+    <summary ref={opener} className="account-profile" role="button" aria-label={`帳號選單：${name ?? "尚未設定名稱"}`}>
+      <span className="account-avatar" aria-hidden="true">{name ? [...name][0] : <Icon name="user" size={18} />}</span>
+    </summary>
+    <div className="account-menu-list">
+      {name && <p className="account-menu-name">{name}</p>}
+      <button type="button" onClick={() => go({ name: "profile" })}><Icon name="user" size={18} />個人檔案</button>
+      <button type="button" onClick={() => go({ name: "achievements" })}><Icon name="sparkle" size={18} />成就</button>
+      {logout && <button type="button" onClick={() => { if (menu.current) menu.current.open = false; logout(); }}><Icon name="logout" size={18} />登出</button>}
+    </div>
+  </details>;
 }
 
 // 頁首頭像：前往個人檔案（成就與帳號設定）。

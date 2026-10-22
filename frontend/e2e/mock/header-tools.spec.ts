@@ -32,11 +32,11 @@ async function mockSearch(page: Page, respond = (query: string) => searchResult(
   return queries;
 }
 
-test("slash opens site search and a concept on the current map opens its detail", async ({ page }) => {
+test("slash opens site search and a concept opens its detail on the map", async ({ page }) => {
   await mockKnowledgeMapApi(page);
   const queries = await mockSearch(page);
-  await page.goto(mapPath);
-  await expect(page.getByRole("dialog", { name: "概念詳情" })).toHaveCount(0);
+  // 全站搜尋屬於教材外的頁首；教材內由地圖搜尋負責。
+  await page.goto("/materials");
   await page.locator("body").press("/");
   const dialog = page.getByRole("dialog", { name: "全站搜尋" });
   await expect(dialog).toBeVisible();
@@ -77,7 +77,7 @@ test("site search shows empty and failed results, retries, and opens unbuilt mat
     }
     return route.fulfill({ json: searchResult(query) });
   });
-  await page.goto(mapPath);
+  await page.goto("/");
   await page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" }).click();
   const dialog = page.getByRole("dialog", { name: "全站搜尋" });
   await dialog.getByRole("searchbox").fill("zzz");

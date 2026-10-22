@@ -24,7 +24,7 @@ function currentSection(route: AppRoute): Section | null {
   if (route.name === "profile" || route.name === "achievements") return route.name;
   if (route.name === "home") return "home";
   if ("materialId" in route && route.materialId) return "materials";
-  if (["concept-cards", "card-set", "card-set-edit", "card-set-new"].includes(route.name)) return "cards";
+  if (["concept-cards", "card-set", "card-set-edit", "card-set-new", "card-review"].includes(route.name)) return "cards";
   if (["podcasts", "podcast", "podcast-new"].includes(route.name)) return "podcasts";
   return "materials";
 }
@@ -41,10 +41,16 @@ export function AppShell({
   // 品牌旁的學習進度（連續天數／等級）；未登入時不顯示。
   status?: React.ReactNode;
 }) {
-  const isLearningWorkspace = ["knowledge-map", "study-session", "material-sources", "material-content", "research", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name);
+  const isLearningWorkspace = ["knowledge-map", "study-session", "material-sources", "material-content", "research", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create", "card-review"].includes(route.name);
+  // 進入單一教材後由教材頁首（返回、教材名稱、分頁、問答、頭像）取代全站頁首與手機底部導覽，內外分層。
+  // 全站頁首只在教材頁首出現後才隱藏（CSS），讀取中或沒有教材頁首的畫面仍有導覽可離開。
+  // 從全站「概念卡」「Podcast」直接開啟（沒有 materialId）的頁面仍屬全站。
+  const isMaterialWorkspace = isLearningWorkspace && "materialId" in route && !!route.materialId && accountAction !== undefined;
   const section = currentSection(route);
   return (
-    <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}${wideRoutes.includes(route.name) ? " is-wide" : ""}${route.name === "home" ? " is-home" : ""}${route.name === "achievements" ? " is-achievements" : ""}`}>
+    <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}${isMaterialWorkspace ? " is-material" : ""}${wideRoutes.includes(route.name) ? " is-wide" : ""}${route.name === "home" ? " is-home" : ""}${route.name === "achievements" ? " is-achievements" : ""}`}>
+      {/* 教材內不顯示頁首進度，但升級與徽章動畫仍要能出現。 */}
+      {isMaterialWorkspace && <div className="material-shell-status">{status}</div>}
       <header className="app-header">
         <div className="header-start">
           <button
@@ -56,7 +62,7 @@ export function AppShell({
             <img src="/assets/studydy/brand-idle.png" alt="" />
             <span>Studydy</span>
           </button>
-          {status}
+          {!isMaterialWorkspace && status}
         </div>
         <nav className="main-nav" aria-label="主要導覽">
           {sections.map((item) => (

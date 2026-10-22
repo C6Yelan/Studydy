@@ -20,6 +20,8 @@ export type AppRoute =
   | { name: "card-set"; cardSetId: string; materialId?: string }
   | { name: "card-set-edit"; cardSetId: string; materialId?: string }
   | { name: "card-set-create"; materialId: string; runId: string; structureRevision: string }
+  /** 需要加強：逐張看標成不熟的概念卡；帶 cardSetId 時只看該卡組。 */
+  | { name: "card-review"; cardSetId?: string; materialId?: string }
   | { name: "upload" }
   | { name: "material-sources"; materialId: string }
   | { name: "material-run"; materialId: string; runId: string }
@@ -66,6 +68,7 @@ export function readRoute(pathname: string): RouteRead {
   if (pathname === "/concept-cards/new") return { route: { name: "card-set-new" }, isCanonical: true };
   if (pathname === "/podcasts") return { route: { name: "podcasts" }, isCanonical: true };
   if (pathname === "/concept-cards") return { route: { name: "concept-cards" }, isCanonical: true };
+  if (pathname === "/concept-cards/review") return { route: { name: "card-review" }, isCanonical: true };
   if (pathname === "/upload") return { route: { name: "upload" }, isCanonical: true };
   const segments = pathname
     .split("/")
@@ -99,8 +102,9 @@ export function readRoute(pathname: string): RouteRead {
     return { route, isCanonical: routePath(route) === pathname };
   }
   if (materialSegment === "concept-cards" && uuidPattern.test(materialId)
-    && (segments.length === 2 || (segments.length === 3 && resourceSegment === "edit"))) {
-    const route: AppRoute = { name: segments.length === 3 ? "card-set-edit" : "card-set", cardSetId: materialId };
+    && (segments.length === 2 || (segments.length === 3 && (resourceSegment === "edit" || resourceSegment === "review")))) {
+    const route: AppRoute = resourceSegment === "review" ? { name: "card-review", cardSetId: materialId }
+      : { name: segments.length === 3 ? "card-set-edit" : "card-set", cardSetId: materialId };
     return { route, isCanonical: routePath(route) === pathname };
   }
   if (materialSegment !== "materials" || !uuidPattern.test(materialId)) return fallback;
@@ -114,8 +118,9 @@ export function readRoute(pathname: string): RouteRead {
 
   let route: AppRoute;
   if ((resourceSegment === "concept-cards" || resourceSegment === "podcasts") && uuidPattern.test(runId)
-    && (segments.length === 4 || (resourceSegment === "concept-cards" && segments.length === 5 && structureSegment === "edit"))) {
+    && (segments.length === 4 || (resourceSegment === "concept-cards" && segments.length === 5 && (structureSegment === "edit" || structureSegment === "review")))) {
     route = resourceSegment === "podcasts" ? { name: "podcast", podcastId: runId, materialId }
+      : structureSegment === "review" ? { name: "card-review", cardSetId: runId, materialId }
       : { name: segments.length === 5 ? "card-set-edit" : "card-set", cardSetId: runId, materialId };
   } else if (resourceSegment === "research" && segments.length === 4 && uuidPattern.test(runId)) {
     route = { name: "research", materialId, researchId: runId };
@@ -185,6 +190,11 @@ export function routePath(route: AppRoute): string {
     return `${route.materialId ? `/materials/${route.materialId}` : ""}/podcasts/${route.podcastId}`;
   }
   if (route.name === "concept-cards") return "/concept-cards";
+  if (route.name === "card-review") {
+    if (!route.cardSetId) return "/concept-cards/review";
+    if (!uuidPattern.test(route.cardSetId) || (route.materialId && !uuidPattern.test(route.materialId))) throw new Error("ROUTE_INVALID");
+    return `${route.materialId ? `/materials/${route.materialId}` : ""}/concept-cards/${route.cardSetId}/review`;
+  }
   if (route.name === "card-set" || route.name === "card-set-edit") {
     if (!uuidPattern.test(route.cardSetId)) throw new Error("ROUTE_INVALID");
     if (route.materialId && !uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");

@@ -53,19 +53,20 @@ test("phone material tabs stay scrollable and the labelled Q&A entry never cover
   const ask = page.getByRole("button", { name: "教材問答", exact: true });
   await expect(ask).toBeVisible();
   await expect(ask).toContainText("問答");
+  // 手機教材頁首：問答與頭像在第一列，分頁獨佔第二列，互不覆蓋。
   const list = (await tabs.boundingBox())!, button = (await ask.boundingBox())!;
-  expect(list.x + list.width).toBeLessThanOrEqual(button.x + 0.5);
+  expect(list.y).toBeGreaterThanOrEqual(button.y + button.height - 0.5);
   // 還有分頁在右側時，分頁列右緣淡出提示可以滑動。
   await expect(tabs).toHaveClass(/can-scroll-right/);
   await page.getByRole("tab", { name: "教材來源", exact: true }).focus();
   await page.keyboard.press("End");
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/sources$`));
-  // 地圖縮放按鈕留在底部導覽之上。
+  // 教材內沒有底部導覽；地圖縮放按鈕完整留在畫面內。
   await page.goto(mapPath);
   await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.getByRole("navigation", { name: "手機導覽" })).toBeHidden();
   const zoomOut = (await page.getByRole("button", { name: "縮小地圖" }).boundingBox())!;
-  const nav = (await page.getByRole("navigation", { name: "手機導覽" }).boundingBox())!;
-  expect(zoomOut.y + zoomOut.height).toBeLessThanOrEqual(nav.y);
+  expect(zoomOut.y + zoomOut.height).toBeLessThanOrEqual(844);
 });
 
 test("material cards keep the main action on its own row and secondary entries aligned", async ({ page }) => {

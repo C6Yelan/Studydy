@@ -18,6 +18,8 @@ test("routes use expected paths and round trip", () => {
     [{ name: "concept-cards" }, "/concept-cards"],
     [{ name: "card-set", cardSetId: materialId }, `/concept-cards/${materialId}`],
     [{ name: "card-set-edit", cardSetId: materialId }, `/concept-cards/${materialId}/edit`],
+    [{ name: "card-review" }, "/concept-cards/review"],
+    [{ name: "card-review", cardSetId: materialId }, `/concept-cards/${materialId}/review`],
     [{ name: "card-set-create", materialId, runId, structureRevision }, `${mapPath}/create-cards`],
     [{ name: "upload" }, "/upload"],
     [{ name: "profile" }, "/profile"],
@@ -73,6 +75,7 @@ test("material collections and saved content preserve their scoped URLs", () => 
     { name: "podcast", materialId, podcastId: studySessionId },
     { name: "card-set", materialId, cardSetId: studySessionId },
     { name: "card-set-edit", materialId, cardSetId: studySessionId },
+    { name: "card-review", materialId, cardSetId: studySessionId },
   ]) {
     assert.deepEqual(readRoute(routePath(route)), { route, isCanonical: true });
   }

@@ -2,6 +2,7 @@ import { useRef } from "react";
 import type { StudydyApiClient } from "../../api/client";
 import type { CardReviewRating, CardReviewView } from "../../api/contracts";
 import { Icon, type IconName } from "../../ui/Icon";
+import "./card-review.css";
 
 // 學習標記：學生自己判斷熟不熟，不排程；標成不熟的卡會列入「需要加強」。
 export const cardMarks: { rating: CardReviewRating; label: string; icon: IconName }[] = [

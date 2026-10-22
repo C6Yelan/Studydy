@@ -4,7 +4,7 @@ import { ApiClientError, errorMessage, StudydyApiClient } from "./api/client";
 import type { LearnerIdentity } from "./api/contracts";
 import { readSessionHint, saveSessionHint } from "./api/session-hint";
 import { AppShell } from "./app/AppShell";
-import { HeaderTools } from "./app/HeaderTools";
+import { HeaderTools, LogoutContext } from "./app/HeaderTools";
 import { LearningProgressPill } from "./app/LearningProgress";
 import { readRoute, writeRoute, type AppRoute } from "./app/routes";
 import { MaterialFlow } from "./features/material-flow/MaterialFlow";
@@ -197,6 +197,7 @@ export default function App() {
     );
   }
   return (
+    <LogoutContext.Provider value={() => void logout()}>
     <AppShell
       route={route}
       status={<LearningProgressPill apiClient={session.api} learnerId={session.identity.learner_id} />}
@@ -217,5 +218,6 @@ export default function App() {
         route={route}
       />
     </AppShell>
+    </LogoutContext.Provider>
   );
 }

@@ -5,7 +5,6 @@ import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { islandColors, islandPalette } from "../../ui/art/Island";
 import { CardSetManagement } from "./CardSetManagement";
-import { ReviewDeck } from "./ReviewDeck";
 import { useConceptArtwork } from "./VisualConceptCard";
 import { StateView } from "../../ui/StateView";
 import { CollectionHeader } from "../../ui/CollectionHeader";
@@ -25,7 +24,6 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
     void apiClient.getCardReviews().then(summary => { if (!cancelled) applySummary(summary); }, () => undefined);
     return () => { cancelled = true; };
   }, [apiClient, reload, applySummary]);
-  const [strengthening, setStrengthening] = useState(false);
   const [removing, setRemoving] = useState<CardSetSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -100,21 +98,16 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
           <EmptyState label="空卡組引導" title={material ? "這份教材還沒有卡組" : "建立你的第一組概念卡"} description="選擇教材中的概念，建立你的第一組概念卡。"
             action={<button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}>{material ? "建立卡組" : "選擇教材"}</button>} />
         ) : <>
-          {/* 跨卡組的需要加強：平常只佔一列，按「開始加強」才展開翻卡。 */}
-          {!material && <section className={`cards-strengthen surface${strengthening ? " is-open" : ""}`} aria-labelledby="cards-strengthen-title">
+          {/* 跨卡組的需要加強：一列入口，加強在獨立頁進行。 */}
+          {!material && <section className="cards-strengthen surface" aria-labelledby="cards-strengthen-title">
             <div className="cards-strengthen-bar">
               <img src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
               <p><b id="cards-strengthen-title">需要加強</b>
                 {weak === null ? <span>—</span> : weakTotal ? <span>{weakTotal} 張卡片標成不熟</span> : <span>目前沒有，瀏覽卡組時把不熟的卡片標起來</span>}</p>
-              {(strengthening || weakTotal > 0) && <button className={strengthening ? "secondary-button" : "primary-button"} type="button" onClick={() => setStrengthening(value => !value)}>
-                {strengthening ? "收起" : "開始加強"}{!strengthening && <Icon name="chevron-right" size={18} />}
+              {weakTotal > 0 && <button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-review" })}>
+                開始加強<Icon name="chevron-right" size={18} />
               </button>}
             </div>
-            {strengthening && <ReviewDeck apiClient={apiClient} variant="home" onChange={(summary) => {
-              applySummary(summary);
-              // 標記後重新讀取學習活動，讓頁首經驗值與今日任務跟上（失敗時保留原畫面）。
-              void apiClient.getLearningActivity().catch(() => undefined);
-            }} />}
           </section>}
 
           <div className="library-grid">

@@ -212,30 +212,6 @@
 
 .cards-preview .visual-card + .visual-card { margin-top: 20px; }
 
-/* 卡組頁「需要加強」與加強模式 */
-.cards-review-strip {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 12px 0 16px;
-  padding: 12px 16px;
-  color: var(--studydy-blue);
-}
-.cards-review-strip p {
-  flex: 1;
-  margin: 0;
-  color: var(--text-secondary);
-  font-weight: 700;
-}
-.cards-review-strip b {
-  color: var(--coral);
-}
-.cards-review-mode {
-  display: grid;
-  gap: 16px;
-  max-width: 640px;
-  margin: 0 auto;
-}
 /* 瀏覽時標記目前這張卡熟不熟。 */
 .cards-study-mark {
   display: flex;
@@ -269,14 +245,6 @@
   font-size: 12px;
   font-weight: 800;
 }
-@media (max-width: 720px) {
-  .cards-review-strip {
-    flex-wrap: wrap;
-  }
-  .cards-review-strip p {
-    flex-basis: calc(100% - 40px);
-  }
-}
 
 /* 建立卡組／Podcast：返回膠囊在標題上方；選教材用島嶼縮圖清單。 */
 .creation-page > .back-link { flex-shrink: 0; margin-bottom: 10px; }
@@ -296,7 +264,7 @@
 .creation-picker-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
 .cards-browse-layout .visual-card { margin-inline: 0; }
 
-/* 概念卡頁上方的跨卡組「需要加強」：平常一列；展開後卡片置中。 */
+/* 概念卡頁上方的跨卡組「需要加強」：一列入口，加強在獨立頁進行。 */
 .cards-strengthen {
   display: grid;
   gap: 16px;
@@ -329,13 +297,86 @@
   font-weight: 900;
 }
 .cards-strengthen-bar button { flex: none; }
-.cards-strengthen .review-deck {
-  width: min(100%, 520px);
-  justify-self: center;
-  padding-bottom: 8px;
-}
 @media (max-width: 720px) {
   .cards-strengthen-bar { flex-wrap: wrap; }
   .cards-strengthen-bar p { flex-basis: calc(100% - 62px); }
   .cards-strengthen-bar button { width: 100%; }
+}
+
+/* 卡組翻卡頁：標題列右側是「需要加強」入口；卡面、標記與翻頁收在同一張白卡。 */
+.cards-study-page .cards-study-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+}
+.cards-study-heading h1 {
+  margin: 0;
+}
+.cards-study-heading .cards-study-meta {
+  gap: 12px;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.cards-study-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cards-weak-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 8px 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff0ec;
+  color: var(--coral);
+  font-weight: 800;
+  box-shadow: inset 0 0 0 1.5px #ffd6cc;
+}
+.cards-weak-link span {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.cards-weak-link b {
+  color: var(--coral);
+  font-size: 16px;
+}
+.cards-weak-link strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding: 0 10px 0 14px;
+  border-radius: 999px;
+  background: var(--coral);
+  color: #fff;
+  font-size: 14px;
+}
+.cards-weak-link:hover strong {
+  filter: brightness(1.05);
+}
+.cards-browse-layout .cards-study-stage.surface {
+  max-width: 860px;
+  margin: 0;
+  padding: 18px 20px 14px;
+  border-radius: var(--radius-panel);
+}
+.cards-study-stage.surface .cards-study-mark {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
+}
+@media (max-width: 720px) {
+  .cards-weak-link {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .cards-browse-layout .cards-study-stage.surface {
+    padding: 12px;
+  }
 }

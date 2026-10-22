@@ -484,9 +484,12 @@ function MapGraph({
   selectedRelationId,
   detail,
   regions,
+  toolbar,
 }: {
   apiClient: StudydyApiClient;
   detail: ReactNode;
+  /** 浮在地圖左上的搜尋與地圖摘要，和「學習導覽」排成同一列。 */
+  toolbar: ReactNode;
   regions: MapRegions | null;
   selectedRelationId: string | null;
   progress: MapProgressView | null;
@@ -791,20 +794,23 @@ function MapGraph({
             }
           }}
         >
-          <button
-            ref={navigatorToggle}
-            className="secondary-button"
-            type="button"
-            aria-expanded={navigatorOpen}
-            aria-controls="map-navigator"
-            onClick={() => {
-              navigatorToggle.current?.focus();
-              setNavigatorOpen((value) => !value);
-            }}
-          >
-            <Icon name="route" size={18} />
-            學習導覽
-          </button>
+          <div className="map-toolbar">
+            {toolbar}
+            <button
+              ref={navigatorToggle}
+              className="secondary-button map-navigator-toggle"
+              type="button"
+              aria-expanded={navigatorOpen}
+              aria-controls="map-navigator"
+              onClick={() => {
+                navigatorToggle.current?.focus();
+                setNavigatorOpen((value) => !value);
+              }}
+            >
+              <Icon name="route" size={18} />
+              學習導覽
+            </button>
+          </div>
           <div id="map-navigator" hidden={!navigatorOpen}>
             <LearningNavigator
               regions={regions}
@@ -1079,20 +1085,6 @@ export function KnowledgeMapWorkspace({
     return () => { cancelled = true; };
   }, [apiClient, view.material_id, view.knowledge_structure_revision]);
   const regions = useMemo(() => mapRegions(view, regionsView), [view, regionsView]);
-  // 全站搜尋選到同一張地圖的概念時，地圖不會重新掛載；改由 popstate 開啟該概念。
-  const openFromSearch = useRef<(id: string) => void>(() => undefined);
-  const handledSearchFocus = useRef<unknown>(window.history.state?.searchFocus?.at);
-  useEffect(() => {
-    const onNavigate = () => {
-      const focus = window.history.state?.searchFocus;
-      if (!focus || focus.revision !== view.knowledge_structure_revision || focus.at === handledSearchFocus.current) return;
-      if (!view.concepts.some((concept) => concept.concept_id === focus.concept)) return;
-      handledSearchFocus.current = focus.at;
-      openFromSearch.current(focus.concept);
-    };
-    window.addEventListener("popstate", onNavigate);
-    return () => window.removeEventListener("popstate", onNavigate);
-  }, [view.knowledge_structure_revision, view.concepts]);
   const regionLabel = (id: string) =>
     regions && regions.regions.length > 1 ? regions.regions[regions.byConcept.get(id)!].label : null;
 
@@ -1133,10 +1125,6 @@ export function KnowledgeMapWorkspace({
     setSelectedConceptId(id);
     setDetailConceptId(id);
     setRelationId(null);
-  };
-  openFromSearch.current = (id) => {
-    setMode("focus");
-    openConceptDetail(id);
   };
   const chooseSearchResult = (id: string) => {
     setMode("focus");
@@ -1219,16 +1207,14 @@ export function KnowledgeMapWorkspace({
         )}
       </>
     ) : null;
-  return (
-    <section
-      className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}
-    >
-      <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} materialName={materialName} current={mode === "review" ? "review" : "knowledge-map"} assessmentDisabled={isStartingStudy || isLoadingProgress} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
-      <header className="map-header material-search-row">
+  const mapToolbar = (
+    <>
         <form
           className="map-search"
           onKeyDown={(event) => {
             if (event.key === "Escape") {
+              // 只清空搜尋；不讓外層的學習導覽把焦點移走。
+              event.stopPropagation();
               setSearchQuery("");
               searchInput.current?.focus();
             }
@@ -1279,7 +1265,6 @@ export function KnowledgeMapWorkspace({
             </div>
           )}
         </form>
-        <div className="map-header-actions">
           <div className="map-facts" aria-label="地圖摘要">
             <span>
               <strong>{view.concepts.length}</strong>概念
@@ -1293,8 +1278,13 @@ export function KnowledgeMapWorkspace({
               </span>
             )}
           </div>
-        </div>
-      </header>
+    </>
+  );
+  return (
+    <section
+      className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}
+    >
+      <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} materialName={materialName} current={mode === "review" ? "review" : "knowledge-map"} assessmentDisabled={isStartingStudy || isLoadingProgress} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
       {progressMessage && (
         <div className="partial-banner" role="status">
           <span>{progressMessage}</span>
@@ -1334,6 +1324,7 @@ export function KnowledgeMapWorkspace({
                 detail={detail}
                 view={view}
                 regions={regions}
+                toolbar={mapToolbar}
               />
             </ReactFlowProvider>
           )}

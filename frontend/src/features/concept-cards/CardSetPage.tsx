@@ -9,7 +9,6 @@ import { StateView } from "../../ui/StateView";
 import { ProcessingTimeline } from "../material-flow/ProcessingTimeline";
 import { Flashcard } from "./Flashcard";
 import { CardMarkButtons, markLabel, useMarkSubmit } from "./CardMarks";
-import { ReviewDeck } from "./ReviewDeck";
 import { useConceptArtwork } from "./VisualConceptCard";
 
 export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: StudydyApiClient; cardSetId: string; materialId?: string }) {
@@ -17,7 +16,6 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [reload, setReload] = useState(0);
-  const [reviewing, setReviewing] = useState(false);
   // 這個卡組的標記與需要加強張數；讀取失敗時只是不顯示標記，不影響瀏覽。
   const [summary, setSummary] = useState<CardReviewsView | null>(null);
   const refreshSummary = useCallback(() => {
@@ -63,30 +61,12 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
       void apiClient.retryCardGeneration(cardSetId).then(() => setReload(n => n + 1)).catch(failure => setError(errorMessage(failure)));
     }} /> : error || !view?.batch ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入第一批卡片。"} tone={error ? "failure" : "loading"} live={!error} skeleton="deck" action={error ? <button className="primary-button" onClick={() => setReload(n => n + 1)}>重新讀取</button> : undefined} />
       : <>
-        {/* 已移到新版或尚未列入的卡組不提供標記（標記由新版卡組沿用）。 */}
-        {markable && <CardReviewStrip summary={summary} reviewing={reviewing} onToggle={() => setReviewing(value => !value)} />}
-        {reviewing ? <section className="cards-review-mode" aria-label="加強這個卡組">
-          <header className="cards-study-heading"><div><h1>{view.name}</h1><p>加強 · 只翻標成不熟的卡片，先回想再翻卡，再標記熟不熟。</p></div></header>
-          <ReviewDeck apiClient={apiClient} cardSetId={cardSetId} onChange={setSummary} />
-        </section>
-          : <CardStudy key={`${cardSetId}:${view.version}`} view={view} apiClient={apiClient} materialId={materialId} onReload={() => setReload(n => n + 1)}
-            marks={markable ? summary?.marks : undefined} onMarked={refreshSummary} />}
+        {/* 已移到新版或尚未列入的卡組不提供標記與需要加強（標記由新版卡組沿用）。 */}
+        <CardStudy key={`${cardSetId}:${view.version}`} view={view} apiClient={apiClient} materialId={materialId} onReload={() => setReload(n => n + 1)}
+          marks={markable ? summary?.marks : undefined} onMarked={refreshSummary}
+          weak={markable && summary ? summary.forgot_count : null} />
       </>}
   </section>;
-}
-
-// 卡組頁的「需要加強」：這個卡組標成不熟的張數；加強模式與瀏覽模式切換，不改變卡組內容。
-function CardReviewStrip({ summary, reviewing, onToggle }: { summary: CardReviewsView | null; reviewing: boolean; onToggle: () => void }) {
-  if (!summary && !reviewing) return null;
-  const weak = summary ? summary.forgot_count : 0;
-  return <div className="cards-review-strip surface" role="region" aria-label="需要加強">
-    <Icon name="refresh" size={20} />
-    <p>{!summary ? "需要加強" : weak ? <>需要加強 <b>{weak}</b> 張</>
-      : "沒有需要加強的卡片；瀏覽時可在每張卡下方標記熟不熟。"}</p>
-    {(reviewing || weak > 0) && <button className={reviewing ? "secondary-button" : "primary-button"} type="button" onClick={onToggle}>
-      {reviewing ? "回到瀏覽" : "開始加強"}
-    </button>}
-  </div>;
 }
 
 function CardGenerationProgress({ view, onRetry }: { view: CardStudyView; onRetry: () => void }) {
@@ -124,9 +104,11 @@ function CardGenerationProgress({ view, onRetry }: { view: CardStudyView; onRetr
   </section>;
 }
 
-function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked }: {
+function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, weak }: {
   view: CardStudyView; apiClient: StudydyApiClient; materialId?: string; onReload: () => void;
   marks?: CardReviewsView["marks"]; onMarked: () => void;
+  /** 這個卡組標成不熟的張數；null 表示不提供標記。 */
+  weak: number | null;
 }) {
   const { artworkModule, loadFailed } = useConceptArtwork();
   const [order, setOrder] = useState(() => view.navigation.map((_, i) => i));
@@ -276,17 +258,23 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked }: {
   };
   return <section className="cards-page cards-study" onKeyDown={keys}>
     {countError && <p className="form-error" role="alert">張數尚未保存。<button className="text-button" onClick={() => setCountRetry(n => n + 1)}>重試保存張數</button></p>}
-    <header className="cards-study-heading"><div><h1>{view.name}</h1>{!materialId && <p><Icon name="book" size={15} /> {view.material_name}</p>}
+    <header className="cards-study-heading"><div><h1>{view.name}</h1>
+      <p className="cards-study-meta">{total !== null && <span>{total} 張卡片</span>}{!materialId && <span><Icon name="book" size={15} /> {view.material_name}</span>}</p>
       {/* 教材頁上方已有「有新版本」提示；這裡只用小標籤說明此卡組的內容版本。 */}
       {!view.is_current_revision && !view.moved_to_card_set_id && <p className="cards-version-tag"><Icon name="sparkle" size={14} />教材已有新版。此卡組保留建立時的教材內容與來源。</p>}
-    </div></header>
+    </div>
+      {/* 需要加強在獨立頁進行，只看這個卡組標成不熟的卡片。 */}
+      {weak !== null && weak > 0 && <button className="cards-weak-link" type="button" onClick={() => writeRoute({ name: "card-review", cardSetId: view.card_set_id, materialId })}>
+        <Icon name="refresh" size={18} /><span>需要加強 <b>{weak}</b> 張</span><strong>開始加強<Icon name="chevron-right" size={16} /></strong>
+      </button>}
+    </header>
     {!view.is_current_revision && view.moved_to_card_set_id && <p className="cards-notice">這個卡組已移到新版，這裡保留舊版的卡面與來源；學習標記由新版卡組沿用。<button className="text-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: view.moved_to_card_set_id!, materialId: view.material_id })}>前往新版卡組</button></p>}
     <div className="cards-browse-layout"><nav className="cards-browse-list" aria-label="選擇概念卡">
       {view.navigation.length > 12 && <input className="cards-browse-search" type="search" aria-label="搜尋概念卡" placeholder={`搜尋 ${view.navigation.length} 張概念…`} value={listQuery} onChange={event => setListQuery(event.target.value)} onKeyDown={event => event.stopPropagation()} />}
       {order.map((i, orderIndex) => matchesList(view.navigation[i].label) && <button type="button" key={view.navigation[i].concept_id} aria-current={index === i ? 'true' : undefined} onClick={() => { setFinished(false); setPosition(orderIndex); setPageIndex(0); }}>{view.navigation[i].label}</button>)}
       {listQuery.trim() && !order.some(i => matchesList(view.navigation[i].label)) && <p className="cards-browse-empty">找不到符合的概念。</p>}
     </nav>
-      <section ref={stage} tabIndex={-1} className="cards-study-stage" aria-label={finished ? "本輪瀏覽完成" : `第 ${absolute ?? localPage + 1} 張概念卡`}>
+      <section ref={stage} tabIndex={-1} className="cards-study-stage surface" aria-label={finished ? "本輪瀏覽完成" : `第 ${absolute ?? localPage + 1} 張概念卡`}>
         {finished ? <div className="cards-complete"><h2>已瀏覽全部卡片</h2><p>{total !== null ? `這一輪看過了 ${total} 張概念卡。想再回顧一次嗎？` : "已瀏覽全部觀念與卡片，想再回顧一次嗎？"}</p><div className="state-actions"><button className="primary-button" onClick={() => restart(false)}>再看一次</button><button className="secondary-button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}>返回卡組</button></div></div>
           : <>{card && batch ? <Flashcard key={`${card.concept_id}:${localPage}`} card={card} pageIndex={localPage} structure={batch.context} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
             : <StateView title={error ? "無法讀取這批卡片" : "正在讀取卡片"} description={error ?? "正在取得這個觀念及來源。"} tone={error ? "failure" : "loading"} action={error ? <button className="primary-button" onClick={onReload}>重新讀取卡組</button> : undefined} />}

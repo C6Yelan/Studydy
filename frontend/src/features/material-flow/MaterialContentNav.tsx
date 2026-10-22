@@ -4,8 +4,10 @@ import type { StudydyApiClient } from "../../api/client";
 import { Icon, type IconName } from "../../ui/Icon";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { MaterialTools } from "../material-tools/MaterialTools";
+import { AccountMenu } from "../../app/HeaderTools";
 import { rememberMaterial, rememberedMaterial } from "./material-memory";
 import { VersionMoveNotice } from "./VersionMoveNotice";
+import "./material-header.css";
 
 type Mode = "focus" | "review";
 type Content = "knowledge-map" | "review" | "concept-cards" | "podcasts" | "research" | "sources";
@@ -84,19 +86,17 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
   const name = material?.display_name ?? materialName;
   // 這是最近一次分析處理的頁數（可能只含新增來源），全部來源頁數在「教材來源」分頁。
   const pages = material?.latest_attempt?.total_pages;
-  return <><header className="material-bar" aria-label="目前教材">
-    <button className="material-bar-back" type="button" aria-label="回到我的教材" onClick={() => writeRoute({ name: "materials" })}><Icon name="arrow-left" size={20}/></button>
-    <span className="material-bar-thumb" aria-hidden="true"><IslandArt palette={islandPalette(materialId)} landmarks={false}/></span>
-    <div className="material-bar-info">
-      {name && <p className="material-context"><span>{name}</span></p>}
-      {material && <p className="material-bar-meta">{[material.source_count ? `${material.source_count} 個來源` : null, pages ? `最近一次分析 ${pages} 頁` : null, `建立於 ${dateFormat.format(new Date(material.created_at))}`].filter(Boolean).join(" · ")}</p>}
+  // 來源數、頁數與建立日期不常用，收進教材名稱的提示，完整資訊在「教材來源」分頁。
+  const meta = material ? [material.source_count ? `${material.source_count} 個來源` : null, pages ? `最近一次分析 ${pages} 頁` : null, `建立於 ${dateFormat.format(new Date(material.created_at))}`].filter(Boolean).join(" · ") : undefined;
+  // 教材內唯一的頁首：返回、教材、分頁、問答與頭像排成一列（取代全站頁首）。
+  return <><header className="material-learning-toolbar material-header" aria-label="目前教材">
+    <div className="material-header-identity">
+      <button className="material-header-back" type="button" aria-label="回到我的教材" onClick={() => writeRoute({ name: "materials" })}><Icon name="arrow-left" size={20}/></button>
+      <span className="material-header-thumb" aria-hidden="true"><IslandArt palette={islandPalette(materialId)} landmarks={false}/></span>
+      {name && <p className="material-context" title={meta ? `${name}\n${meta}` : name}><span>{name}</span></p>}
     </div>
-  </header>
-  <VersionMoveNotice apiClient={apiClient} materialId={materialId}/>
-  <div className="material-learning-toolbar">
-    {name && <span className="material-toolbar-name" title={name}>{name}</span>}
     <div ref={navigation} className="material-content-nav map-tabs" role="tablist" aria-label="教材學習內容">
-      {items.map((item, index) => <button key={item.id} type="button" id={tabId(item.id)} role="tab" aria-selected={current === item.id} aria-controls={panelId(item.id)}
+      {items.map((item, index) => <button key={item.id} type="button" id={tabId(item.id)} role="tab" aria-label={item.label} aria-selected={current === item.id} aria-controls={panelId(item.id)}
         className={current === item.id ? "is-active" : undefined} tabIndex={current === item.id ? 0 : -1} disabled={(!mapRoute && item.id !== "sources") || (item.id === "review" && assessmentDisabled)}
         ref={element => { if (item.id === "knowledge-map" || item.id === "review") onMapTabRef?.(item.id === "review" ? "review" : "focus", element); }}
         onClick={() => activate(item.id)} onKeyDown={event => {
@@ -107,8 +107,12 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
           else if (event.key === "End") next = items.length - 1;
           else return;
           event.preventDefault(); activate(items[next].id, true);
-        }}><Icon name={item.icon} size={18}/>{item.label}</button>)}
+        }}><Icon name={item.icon} size={18}/><span>{item.label}</span></button>)}
     </div>
-    {mapRoute && <MaterialTools key={`${materialId}:${mapRoute.structureRevision}`} api={apiClient} materialId={materialId} revision={mapRoute.structureRevision} />}
-  </div></>;
+    <div className="material-header-tools">
+      {mapRoute && <MaterialTools key={`${materialId}:${mapRoute.structureRevision}`} api={apiClient} materialId={materialId} revision={mapRoute.structureRevision} />}
+      <AccountMenu apiClient={apiClient} />
+    </div>
+  </header>
+  <VersionMoveNotice apiClient={apiClient} materialId={materialId}/></>;
 }

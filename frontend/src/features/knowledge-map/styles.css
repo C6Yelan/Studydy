@@ -5,19 +5,6 @@
   margin: 0 auto;
   color: var(--text-primary);
 }
-.map-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-6);
-}
-.map-header .map-search input { height: 40px; padding: 8px 12px; }
-.map-header-actions {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: var(--space-5);
-}
 .map-facts {
   display: flex;
   gap: 16px;
@@ -500,7 +487,6 @@
 .relation-swatch.is-application { height: 3px; background: repeating-linear-gradient(90deg, #f08a00 0 7px, transparent 7px 11px); }
 .relation-swatch.is-example { background: radial-gradient(circle at 4px 4px, #1aa3b8 3px, transparent 3.5px) 0 0 / 10px 8px repeat-x; }
 .relation-swatch.is-contrast { height: 3px; background: repeating-linear-gradient(90deg, #e0569a 0 3px, transparent 3px 7px); }
-.map-header,
 .map-tabs {
   flex-shrink: 0;
 }
@@ -905,17 +891,6 @@
     width: min(380px, calc(100% - 24px));
     max-height: calc(100dvh - 24px);
   }
-  .map-header {
-    flex-wrap: wrap;
-  }
-  .map-search {
-    order: 3;
-    flex-basis: 100%;
-    max-width: none;
-  }
-  .map-header-actions {
-    margin-left: auto;
-  }
   .map-workspace.is-focus-mode {
     min-height: 680px;
   }
@@ -936,10 +911,6 @@
   }
 }
 @media (max-width: 620px) {
-  .map-header {
-    align-items: start;
-    gap: 12px;
-  }
   .map-tabs {
     gap: 0;
     justify-content: space-between;
@@ -967,9 +938,6 @@
 }
 
 
-@media (max-width: 360px) {
-  .map-header .material-content-nav button { font-size: 13px; padding: 8px; }
-}
 
 .assessment-concept-list { list-style: none; padding: 0; display: grid; gap: 12px; }
 .assessment-concept-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border: 0; border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
@@ -1009,13 +977,6 @@
 .focus-context.surface {
   border-radius: var(--radius-panel);
 }
-.map-header .map-search input {
-  height: 44px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: 999px;
-  box-shadow: var(--shadow);
-}
 .detail-panel > .concept-study-action {
   margin-bottom: calc(-1 * var(--space-4));
   padding-bottom: var(--space-4);
@@ -1043,9 +1004,6 @@
   .is-focus-mode .map-content {
     flex: none;
     height: min(72dvh, 600px);
-  }
-  .map-workspace .material-search-row .map-header-actions {
-    display: none;
   }
   .map-annotations {
     right: 10px;
@@ -1227,4 +1185,77 @@
 .navigator-list {
   -webkit-mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
   mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+}
+
+/* 地圖工具列：搜尋、地圖摘要與學習導覽浮在地圖左上，地圖本身滿版；圖例移到右下。 */
+.map-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+.map-navigation .map-search {
+  flex: 0 1 320px;
+  min-width: 200px;
+  max-width: 360px;
+  margin: 0;
+}
+.map-navigation .map-search input {
+  height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
+}
+.map-toolbar .map-navigator-toggle {
+  order: 2;
+  flex: none;
+  white-space: nowrap;
+}
+.map-toolbar .map-facts {
+  order: 3;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
+}
+.map-toolbar .map-facts strong {
+  font-size: 16px;
+}
+.map-annotations {
+  top: auto;
+  bottom: 12px;
+  max-width: min(640px, calc(100% - 90px));
+}
+@media (max-width: 720px) {
+  .map-navigation {
+    right: 10px;
+    left: 10px;
+    max-width: none;
+    pointer-events: none;
+  }
+  .map-navigation > * {
+    pointer-events: auto;
+  }
+  .map-toolbar {
+    flex-wrap: wrap;
+  }
+  .map-navigation .map-search {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .map-annotations {
+    right: 10px;
+    bottom: 10px;
+    max-width: calc(100% - 76px);
+  }
+  /* 教材頁首兩列加上內容區留白；地圖填滿其餘高度（教材內沒有底部導覽）。 */
+  .app-shell.is-material .is-focus-mode .map-content {
+    height: max(360px, calc(100dvh - 150px - env(safe-area-inset-bottom)));
+  }
 }

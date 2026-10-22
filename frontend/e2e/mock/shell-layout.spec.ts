@@ -24,14 +24,12 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("every page shares the top navigation and phones use the bottom tab bar", async ({ page }) => {
+test("site pages share the top navigation and phones use the bottom tab bar", async ({ page }) => {
   for (const width of [1536, 390]) {
     await page.setViewportSize({ width, height: 844 });
     for (const [path, selector, current] of [
       ["/", ".dashboard-content", "首頁"],
       ["/materials", ".library-empty", "我的教材"],
-      [mapPath, ".map-workspace", "我的教材"],
-      [studyPath, ".study-session-page", "我的教材"],
     ] as const) {
       await page.goto(path);
       await expect(page.locator(selector)).toBeVisible();
@@ -49,8 +47,31 @@ test("every page shares the top navigation and phones use the bottom tab bar", a
         await expect(phoneNav.getByRole("link", { name: current === "我的教材" ? "教材" : current, exact: true })).toHaveAttribute("aria-current", "page");
         await expect(phoneNav.getByRole("button", { name: "上傳教材", exact: true })).toBeVisible();
       }
-      if (selector === ".map-workspace" || selector === ".study-session-page")
-        await expect(page.getByRole("button", { name: "回到我的教材", exact: true })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    }
+  }
+});
+
+test("inside a material one material header replaces the site header and phone tab bar", async ({ page }) => {
+  for (const width of [1536, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const { path, selector } of workspaces) {
+      await page.goto(path);
+      await expect(page.locator(selector)).toBeVisible();
+      const header = page.locator(".material-header");
+      await expect(header).toBeVisible();
+      // 教材內只有一列：返回、教材、分頁、問答與頭像；沒有全站導覽、搜尋與手機底部導覽。
+      await expect(page.locator(".app-header")).toBeHidden();
+      await expect(page.getByRole("navigation", { name: "主要導覽", exact: true })).toBeHidden();
+      await expect(page.getByRole("navigation", { name: "手機導覽", exact: true })).toBeHidden();
+      await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeHidden();
+      await expect(header.getByRole("button", { name: "回到我的教材", exact: true })).toBeVisible();
+      await expect(header.getByRole("tablist", { name: "教材學習內容" })).toBeVisible();
+      await expect(header.getByRole("button", { name: "教材問答", exact: true })).toBeVisible();
+      await expect(header.getByRole("button", { name: /^帳號選單/ })).toBeVisible();
+      const box = (await header.boundingBox())!;
+      expect(box.y).toBeLessThanOrEqual(12);
+      if (width > 720) expect(box.height).toBeLessThanOrEqual(60);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     }
   }

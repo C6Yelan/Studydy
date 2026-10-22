@@ -1323,22 +1323,17 @@
 .material-content.source-page > div > .cards-page-header .cards-material-name { margin-bottom:8px; font-size:13px; }
 
 /* 頁籤下方共用搜尋與建立操作的位置。 */
-.material-content .material-search-row,
-.map-workspace .material-search-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:16px; min-height:40px; padding:0; margin:0 0 18px; }
-.material-content .material-search-row .material-search,
-.map-workspace .material-search-row .map-search { position:relative; flex:1; min-width:0; width:auto; max-width:520px; margin:0 auto 0 0; }
-.material-content .material-search-row input[type=search],
-.map-workspace .material-search-row input[type=search] { display:block; width:100%; height:40px; min-height:40px; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-input); color:var(--text-primary); background:var(--surface); font:inherit; font-size:14px; }
+.material-content .material-search-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:16px; min-height:40px; padding:0; margin:0 0 18px; }
+.material-content .material-search-row .material-search { position:relative; flex:1; min-width:0; width:auto; max-width:520px; margin:0 auto 0 0; }
+.material-content .material-search-row input[type=search] { display:block; width:100%; height:40px; min-height:40px; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-input); color:var(--text-primary); background:var(--surface); font:inherit; font-size:14px; }
 .material-content .material-search-row > button { min-height:40px; font-size:14px; }
 .source-picker-filters.is-external-search { display:flex; justify-content:flex-end; }
 .source-picker-filters.is-external-search select { width:150px; max-width:100%; }
 @media(max-width:900px) {
- .material-content .material-search-row, .map-workspace .material-search-row { flex-wrap:wrap; gap:12px; }
- .material-content .material-search-row .material-search, .map-workspace .material-search-row .map-search { order:0; flex:1 0 100%; max-width:none; }
+ .material-content .material-search-row { flex-wrap:wrap; gap:12px; }
+ .material-content .material-search-row .material-search { order:0; flex:1 0 100%; max-width:none; }
  .material-content .material-search-row .collection-summary { order:1; }
  .material-content .material-search-row > button { order:2; margin-left:auto; }
- .map-workspace .material-search-row .map-header-actions { order:1; min-height:40px; margin-left:auto; }
- .map-workspace .material-search-row .map-facts { display:flex; }
 }
 
 .upload-layout.is-browsing-sources { grid-template-columns:minmax(0,1fr); }

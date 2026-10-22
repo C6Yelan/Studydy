@@ -117,31 +117,36 @@ test('one underline tab row opens review and preserves keyboard focus across mat
 });
 
 
-test('material tab search fields stay at one anchor and card and podcast tabs rely on the site search',async({page})=>{
+test('one material header row; map search floats on the map and only content tabs with their own lists keep a search field',async({page})=>{
  await mockKnowledgeMapApi(page,structureView());
  await page.route('**/v1/card-sets',r=>json(r,{schema:'card-set-list/v1',card_sets:[]}));
  await page.route('**/v1/podcasts',r=>json(r,{schema:'podcast-list/v1',podcasts:[]}));
  await page.route('**/v1/materials/*/research',r=>json(r,{researches:[]}));
  await page.route(`**/v1/materials/${materialId}/sources`,r=>json(r,{schema:'material-sources/v1',material_id:materialId,sources:[],discard_requested:false}));
  for(const width of [1440,390]){
-  await page.setViewportSize({width,height:844});await page.goto(mapPath);const anchor=await page.getByLabel('搜尋概念或關鍵字',{exact:true}).boundingBox();expect(anchor).not.toBeNull();const nav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(nav).not.toBeNull();expect(anchor!.y).toBeGreaterThanOrEqual(nav!.y+nav!.height);
-  // 頁首與分頁之間只放教材資訊列。
-  const header=await page.locator('.app-header').boundingBox();const bar=await page.locator('.material-bar').boundingBox();expect(bar!.y).toBeGreaterThanOrEqual(header!.y+header!.height);expect(nav!.y-bar!.y-bar!.height).toBeGreaterThanOrEqual(0);expect(nav!.y-bar!.y-bar!.height).toBeLessThanOrEqual(24);
-  // 概念卡與 Podcast 分頁沒有自己的搜尋框（統一用頁首搜尋），工具列只有數量與建立按鈕。
-  for(const [tab,label] of [['學習與測驗','搜尋概念或關鍵字'],['概念卡',null],['Podcast',null],['補充學習','想多了解什麼？'],['教材來源','搜尋教材來源']] as const){
+  await page.setViewportSize({width,height:844});await page.goto(mapPath);
+  const nav=(await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox())!;
+  // 教材內只有一列教材頁首；全站頁首隱藏。
+  await expect(page.locator('.app-header')).toBeHidden();
+  // 地圖搜尋與摘要浮在地圖上（地圖滿版），不另佔一列。
+  const anchor=(await page.getByLabel('搜尋概念或關鍵字',{exact:true}).boundingBox())!;const graph=(await page.locator('.focus-graph').boundingBox())!;
+  expect(anchor.y).toBeGreaterThanOrEqual(graph.y);expect(anchor.x).toBeGreaterThanOrEqual(graph.x);expect(anchor.y+anchor.height).toBeLessThanOrEqual(graph.y+graph.height);
+  expect(graph.y-nav.y-nav.height).toBeLessThanOrEqual(20);
+  for(const [tab,label] of [['學習與測驗',null],['概念卡',null],['Podcast',null],['補充學習','想多了解什麼？'],['教材來源','搜尋教材來源']] as const){
    await page.getByRole('tab',{name:tab,exact:true}).click();
-   const currentNav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox();expect(Math.abs(currentNav!.y-nav!.y)).toBeLessThanOrEqual(1);
+   await expect(page.getByRole('tab',{name:tab,exact:true})).toHaveAttribute('aria-selected','true');
+   const currentNav=(await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox())!;expect(Math.abs(currentNav.y-nav.y)).toBeLessThanOrEqual(1);
    if(label){
-    await page.getByLabel(label,{exact:true}).waitFor();const box=await page.getByLabel(label,{exact:true}).boundingBox();expect(box).not.toBeNull();
-    if(tab !== '補充學習') for(const field of ['x','y','width','height'] as const)expect(Math.abs(box![field]-anchor![field])).toBeLessThanOrEqual(1);
-    expect(box!.y).toBeGreaterThanOrEqual(currentNav!.y+currentNav!.height);
-   } else await expect(page.locator('.material-search-row').getByRole('searchbox')).toHaveCount(0);
-   // 教材問答固定在分頁列右端，不浮在內容上。
-   const voice=await page.getByRole('button',{name:'教材問答',exact:true}).boundingBox();const toolbar=await page.locator('.material-learning-toolbar').boundingBox();expect(voice!.y).toBeGreaterThanOrEqual(toolbar!.y);expect(voice!.y+voice!.height).toBeLessThanOrEqual(toolbar!.y+toolbar!.height);expect(toolbar!.x+toolbar!.width-voice!.x-voice!.width).toBeLessThanOrEqual(12);
+    await page.getByLabel(label,{exact:true}).waitFor();const box=(await page.getByLabel(label,{exact:true}).boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(currentNav.y+currentNav.height);
+   } else await expect(page.getByLabel('搜尋概念或關鍵字',{exact:true})).toHaveCount(0);
+   // 教材問答在教材頁首右端，緊鄰頭像選單。
+   const voice=(await page.getByRole('button',{name:'教材問答',exact:true}).boundingBox())!;const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;const account=(await page.locator('.material-learning-toolbar .account-menu').boundingBox())!;
+   expect(voice.y).toBeGreaterThanOrEqual(toolbar.y);expect(voice.y+voice.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);expect(account.x-voice.x-voice.width).toBeLessThanOrEqual(12);expect(toolbar.x+toolbar.width-account.x-account.width).toBeLessThanOrEqual(12);
    if(tab==='概念卡'||tab==='Podcast'){
-    const create=await page.locator('.material-search-row').getByRole('button',{name:tab==='概念卡'?'建立卡組':'建立 Podcast',exact:true}).boundingBox();expect(create!.y).toBeGreaterThanOrEqual(currentNav!.y+currentNav!.height);
+    await expect(page.locator('.material-search-row').getByRole('searchbox')).toHaveCount(0);
+    const create=(await page.locator('.material-search-row').getByRole('button',{name:tab==='概念卡'?'建立卡組':'建立 Podcast',exact:true}).boundingBox())!;expect(create.y).toBeGreaterThanOrEqual(currentNav.y+currentNav.height);
    }
-   const headerOwnsPoint=await page.locator('.app-header').evaluate(e=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));});expect(headerOwnsPoint).toBe(true);
   }
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }
@@ -151,7 +156,7 @@ test('published sources filter files without idle update steps and keep upload e
  await mockKnowledgeMapApi(page,structureView());
  const names=['甲教材.pdf','乙教材.pdf'];
  await page.route(`**/v1/materials/${materialId}/sources`,r=>json(r,{schema:'material-sources/v1',material_id:materialId,discard_requested:false,sources:names.map((name,i)=>({source_id:`${i+1}1111111-1111-4111-8111-111111111111`,normalization_id:`${i+1}2222222-2222-4222-8222-222222222222`,original_artifact_id:artifactId,original_name:name,origin:i?'research':'upload',media_type:'application/pdf',status:'ready',attempt:1,page_count:2,included:true,error_code:null,normalized_artifact_id:artifactId}))}));
- await page.goto(`/materials/${materialId}/sources`);await expect(page.locator('.material-context:visible, .material-toolbar-name:visible')).toHaveCount(1);await expect(page.locator('.source-guide')).toHaveCount(0);await expect(page.locator('.source-list-footer')).toHaveCount(0);
+ await page.goto(`/materials/${materialId}/sources`);await expect(page.locator('.material-context:visible')).toHaveCount(1);await expect(page.locator('.source-guide')).toHaveCount(0);await expect(page.locator('.source-list-footer')).toHaveCount(0);
  await expect(page.getByRole('region',{name:'使用者上傳',exact:true})).toContainText('甲教材.pdf');
  await expect(page.getByRole('region',{name:'網路補充學習資源',exact:true})).toContainText('乙教材.pdf');
  await expect(page.getByRole('button',{name:'開啟目前地圖',exact:true})).toHaveCount(0);
@@ -185,8 +190,9 @@ test('Voice bubble keeps the page reachable and restores focus when dismissed',a
  for(const width of [1440,390]) {
   await page.setViewportSize({width,height:844});const opener=page.getByRole('button',{name:'教材問答',exact:true});await opener.click();
   const bubble=page.getByRole('dialog',{name:'教材問答'});await expect(bubble).toHaveAttribute('aria-modal','false');
-  const box=(await bubble.boundingBox())!,header=(await page.locator('.app-header').boundingBox())!;
-  expect(box.width).toBeLessThanOrEqual(420);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y).toBeGreaterThanOrEqual(header.height);
+  // 桌機從教材頁首下緣展開；手機是上緣留 8px 的全高面板。
+  const box=(await bubble.boundingBox())!,header=(await page.locator('.material-learning-toolbar').boundingBox())!;
+  expect(box.width).toBeLessThanOrEqual(420);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y).toBeGreaterThanOrEqual(width===390?8:header.y+header.height);
   await bubble.getByRole('textbox',{name:'問題／辨識文字'}).fill('尚未送出的測試');await page.keyboard.press('Escape');await expect(bubble).toHaveCount(0);await expect(opener).toBeFocused();
  }
 });

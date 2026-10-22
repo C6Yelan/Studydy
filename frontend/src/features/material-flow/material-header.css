@@ -1,0 +1,276 @@
+/* 教材內頁首：取代全站頁首的單列（返回＋教材＋分頁＋問答＋頭像），進入教材後內外分層。 */
+:root:has(.app-shell.is-material .material-header) {
+  /* 教材問答抽屜（掛在 body）：桌機從教材頁首下緣展開（位置由元件量測）；手機是幾乎全螢幕的面板。 */
+  --shell-header-bottom: 8px;
+}
+.app-shell.is-material:has(.material-header) {
+  /* 教材頁首在內容區內；填滿視窗的學習頁只需扣掉內容區上下留白。 */
+  --shell-offset: 28px;
+  --shell-header-height: 28px;
+}
+.app-shell.is-material:has(.material-header) .app-main {
+  padding-top: 12px;
+  padding-bottom: 16px;
+}
+/* 教材頁首出現後隱藏全站頁首與手機底部導覽（讀取中仍保留，方便離開）。 */
+.app-shell.is-material:has(.material-header) > .app-header,
+.app-shell.is-material:has(.material-header) > .tab-bar {
+  display: none;
+}
+/* 頁首進度不顯示，升級與徽章動畫（固定定位的彈窗）照常出現。 */
+.material-shell-status > :not(.level-up) {
+  display: none;
+}
+
+.material-header.material-learning-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 12px;
+  padding: 6px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.material-header-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.material-header-back {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--page-cool);
+  color: var(--text-secondary);
+}
+.material-header-back:hover {
+  background: var(--studydy-blue-soft);
+  color: var(--studydy-blue);
+}
+.material-header-thumb {
+  display: block;
+  flex: none;
+  width: 56px;
+  height: 38px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #8fe0fb, #3aa6e2);
+}
+.material-header .material-context {
+  min-width: 0;
+  max-width: clamp(140px, 17vw, 320px);
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.material-header .material-content-nav {
+  position: static;
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  border: 0;
+  background: transparent;
+  scrollbar-width: none;
+}
+.material-header .material-content-nav::-webkit-scrollbar {
+  display: none;
+}
+.material-header .material-content-nav.map-tabs > button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+}
+.material-header .material-content-nav.map-tabs > button:hover:not(:disabled):not(.is-active) {
+  background: var(--page-cool);
+  color: var(--text-primary);
+}
+.material-header .material-content-nav.map-tabs > button.is-active {
+  background: var(--text-primary);
+  color: #fff;
+}
+.material-header .material-content-nav.map-tabs > button:disabled {
+  opacity: 0.45;
+}
+.material-header-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.material-header .account-profile {
+  min-height: 42px;
+  box-shadow: none;
+  background: var(--page-cool);
+}
+.material-header .account-name {
+  display: none;
+}
+.material-header .account-profile:has(.account-name) {
+  padding-right: 4px;
+}
+.material-header .account-avatar {
+  width: 34px;
+  height: 34px;
+}
+
+/* 分頁放不下時：非目前分頁只留圖示（名稱由 aria-label 提供）。 */
+@media (max-width: 1360px) and (min-width: 721px) {
+  .material-header .material-content-nav.map-tabs > button:not(.is-active) > span {
+    display: none;
+  }
+  .material-header .material-content-nav.map-tabs > button:not(.is-active) {
+    padding: 0 12px;
+  }
+}
+@media (max-width: 1100px) and (min-width: 721px) {
+  .material-header-thumb {
+    display: none;
+  }
+  .material-header .material-qa-trigger {
+    width: 42px;
+    padding: 0;
+    justify-content: center;
+  }
+  .material-header .material-qa-trigger > span {
+    display: none;
+  }
+}
+
+/* 手機：第一列返回＋教材名稱＋問答＋頭像，第二列分頁可橫向滑動；教材內不顯示底部導覽。 */
+@media (max-width: 720px) {
+  .app-shell.is-material:has(.material-header) .app-main {
+    padding-top: 10px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  .material-header.material-learning-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "identity tools" "tabs tabs";
+    gap: 6px 8px;
+    margin-bottom: 10px;
+    padding: 6px;
+  }
+  .material-header-identity {
+    grid-area: identity;
+    gap: 8px;
+  }
+  .material-header-tools {
+    grid-area: tools;
+    gap: 6px;
+  }
+  .material-header .material-content-nav {
+    grid-area: tabs;
+  }
+  .material-header-thumb {
+    display: none;
+  }
+  .material-header-back {
+    width: 38px;
+    height: 38px;
+  }
+  .material-header .material-context {
+    max-width: none;
+    font-size: 15px;
+  }
+  .material-header .material-content-nav.map-tabs > button {
+    min-height: 38px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+  .material-header .material-qa-trigger,
+  .material-header .account-profile {
+    min-height: 38px;
+  }
+  .material-header .material-qa-trigger {
+    width: 38px;
+    padding: 0;
+    justify-content: center;
+  }
+  .material-header .material-qa-trigger > span {
+    display: none;
+  }
+  .material-header .account-avatar {
+    width: 30px;
+    height: 30px;
+  }
+}
+
+/* 頭像選單：個人檔案、成就與登出。 */
+.account-menu {
+  position: relative;
+}
+.account-menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.account-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.account-menu[open] > summary {
+  box-shadow: 0 0 0 2px var(--studydy-blue);
+}
+.account-menu-list {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 25;
+  display: grid;
+  gap: 2px;
+  min-width: 180px;
+  padding: 8px;
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 18px 40px -16px rgba(29, 52, 110, 0.45);
+}
+.account-menu-name {
+  margin: 4px 10px 6px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-menu-list button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-primary);
+  font-weight: 800;
+  text-align: left;
+}
+.account-menu-list button:hover,
+.account-menu-list button:focus-visible {
+  background: var(--page-cool);
+}
