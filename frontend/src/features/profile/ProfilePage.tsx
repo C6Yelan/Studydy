@@ -29,7 +29,6 @@ export function ProfilePage({ apiClient }: { apiClient: StudydyApiClient }) {
     <header className="profile-head">
       <span className="profile-avatar" aria-hidden="true">{name ? [...name][0] : <Icon name="user" size={32} />}</span>
       <div>
-        <p className="eyebrow">個人檔案</p>
         <h1 id="profile-title">{name ?? "尚未設定名稱"}</h1>
         {activity && <p className="profile-summary">
           第 {activity.xp.level} 級 · 累計 {activity.xp.total} XP · {activity.streak_days ? `連續學習 ${activity.streak_days} 天` : "今天還沒開始連續紀錄"}

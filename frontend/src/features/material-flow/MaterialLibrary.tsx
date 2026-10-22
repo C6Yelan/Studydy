@@ -74,8 +74,6 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
       setStartingMaterialId(null);
     }
   };
-  const [searchQuery, setSearchQuery] = useState("");
-  const searchInput = useRef<HTMLInputElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const pendingRemovals = useRef(new Set<string>());
   const mutationVersion = useRef(0);
@@ -163,14 +161,9 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
     );
     return <section className={libraryClass}>{state}</section>;
   }
-  const normalize = (text: string) => text.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
-  const query = normalize(searchQuery);
   const preparingTopics = topics.filter(topic => topic.research && !topic.research.material_id);
   const total = items.length + preparingTopics.length;
-  const filteredTopics = preparingTopics.filter(topic => normalize(topic.proposal?.title ?? topic.request).includes(query));
-  const filteredItems = items.filter((item) => normalize(item.display_name).includes(query));
-  const restoreLibraryFocus = () =>
-    (searchInput.current ?? heading.current)?.focus({ preventScroll: true });
+  const restoreLibraryFocus = () => heading.current?.focus({ preventScroll: true });
   const handleRenamed = (updated: MaterialLibraryItem) => {
     mutationVersion.current++;
     setItems(
@@ -178,14 +171,15 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
         previous?.map((saved) => (saved.material_id === updated.material_id ? updated : saved)) ??
         null,
     );
-    if (!normalize(updated.display_name).includes(query)) restoreLibraryFocus();
   };
   return (
     <section className={libraryClass}>
       <CollectionHeader
-        eyebrow="知識群島"
         title="我的教材"
-        subtitle={total === 0 ? "上傳教材後，可在這裡查看處理結果並接續學習。" : "每份教材都是一座島，從知識地圖開始探索與複習。"}
+        subtitle={total === 0 ? "上傳教材後，可在這裡查看處理結果並接續學習。" : <>
+          {/* 沒有頁內搜尋列，教材數量併入說明行。 */}
+          <b>已保存 {items.length} 份教材{preparingTopics.length ? `，${preparingTopics.length} 份準備中` : ""}</b> · 每份教材都是一座島，從知識地圖開始探索與複習。
+        </>}
         headingRef={heading}
         actions={total > 0 && <>
           <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}>
@@ -197,15 +191,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
             上傳教材
           </button>
         </>}
-        search={total > 0 ? { label: "搜尋教材名稱", placeholder: "搜尋教材名稱…", value: searchQuery, onChange: setSearchQuery, inputRef: searchInput } : undefined}
-        count={total > 0 ? `已保存 ${items.length} 份教材${preparingTopics.length ? `，${preparingTopics.length} 份準備中` : ""}` : undefined}
       />
-      {total > 0 && query && filteredItems.length === 0 && filteredTopics.length === 0 && (
-        <div className="library-search-empty" role="status">
-          <h2>找不到符合「{query}」的教材</h2>
-          <p>試試其他教材名稱。</p>
-        </div>
-      )}
       {total === 0 && (
         <EmptyState
           label="空教材引導"
@@ -218,7 +204,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
         />
       )}
       <div className="library-grid">
-        {filteredTopics.map(topic => <article className="surface library-item" key={topic.topic_id} aria-label={topic.proposal?.title ?? topic.request}>
+        {preparingTopics.map(topic => <article className="surface library-item" key={topic.topic_id} aria-label={topic.proposal?.title ?? topic.request}>
           <span className="library-island is-building" aria-hidden="true"><IslandArt palette={islandPalette(topic.topic_id)} landmarks={false}/></span>
           <h2>{topic.proposal?.title ?? topic.request}</h2>
           <p className="library-metadata">從主題建立 · 準備中的教材</p>
@@ -233,7 +219,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
             finally { setCancellingTopicId(null); }
           }}>取消建立</button></div>
         </article>)}
-        {filteredItems.map((item) => {
+        {items.map((item) => {
           const latest = item.latest_attempt;
           const topic = topics.find(topic => topic.research?.material_id === item.material_id);
           const available = item.available_structures;

@@ -765,19 +765,6 @@
   outline: 2px solid var(--studydy-blue);
   outline-offset: 2px;
 }
-.library-search-empty {
-  padding: 20px 0;
-  overflow-wrap: anywhere;
-}
-.library-search-empty h2 {
-  margin: 0 0 8px;
-  font-size: 18px;
-}
-.library-search-empty p {
-  margin: 0 0 12px;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
 
 .material-management-menu {
   position: absolute;
@@ -1569,10 +1556,10 @@
 /* 三個清單頁（我的教材、概念卡、Podcast）共用頁首與工具列。 */
 .collection-head { align-items: flex-end; margin-bottom: 18px; }
 .collection-head-text { min-width: 0; }
-.collection-head .eyebrow { margin-bottom: 6px; }
 .collection-head h1 { margin: 0 0 6px; font-size: clamp(1.6rem, 2.6vw, 2rem); }
 .collection-head h1:focus { outline: none; }
 .collection-head .library-subtitle { font-size: 15px; }
+.collection-head .library-subtitle b { color: var(--text-primary); }
 .collection-head-actions { flex-wrap: wrap; }
 .collection-head-actions > button { min-height: 44px; }
 .is-collection .collection-toolbar-row { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
@@ -1605,6 +1592,12 @@
 .material-bookshelf .library-item > .library-actions > .primary-button:first-child { flex: 1 0 100%; min-height: 44px; font-size: 14px; }
 .material-bookshelf .library-item > .library-actions > .text-button { flex: 1 0 100%; min-height: 32px; }
 .material-bookshelf .library-item > .library-actions > .library-link { gap: 6px; }
+/* 教材卡片緊湊版：插圖較扁、標題不預留第二行，文字與按鈕間距縮小（只影響我的教材）。 */
+.material-bookshelf .library-item { padding: 8px 14px 14px; }
+.material-bookshelf .library-island { aspect-ratio: 2 / 1; margin-bottom: 2px; }
+.material-bookshelf .library-item h2 { min-height: 0; margin: 6px 0 2px; }
+.material-bookshelf .library-item > .library-metadata { margin-bottom: 0; }
+.material-bookshelf .library-item > .state-actions { padding-top: 10px; }
 .library-island.is-clickable,
 .library-item h2.is-clickable { cursor: pointer; }
 .library-island.is-clickable { transition: transform 0.2s, box-shadow 0.2s; }

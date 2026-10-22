@@ -1,15 +1,14 @@
 import type { ReactNode, Ref } from "react";
 
 /**
- * 我的教材、概念卡、Podcast 三個清單頁共用的頁首：小標＋標題＋說明，右側主要操作；
- * 下一列是同寬的搜尋欄與「已保存 N …」計數。
+ * 我的教材、概念卡、Podcast 三個清單頁共用的頁首：標題＋說明，右側主要操作；
+ * 下一列是搜尋欄（我的教材沒有，改用頁首全站搜尋）與「已保存 N …」計數。
  */
 export function CollectionHeader({
-  eyebrow, title, subtitle, actions, headingRef, search, count, countRef,
+  title, subtitle, actions, headingRef, search, count, countRef,
 }: {
-  eyebrow: string;
   title: string;
-  subtitle: string;
+  subtitle: ReactNode;
   actions?: ReactNode;
   headingRef?: Ref<HTMLHeadingElement>;
   search?: { label: string; placeholder: string; value: string; onChange: (value: string) => void; inputRef?: Ref<HTMLInputElement> };
@@ -19,7 +18,6 @@ export function CollectionHeader({
   return <>
     <header className="library-header collection-head">
       <div className="collection-head-text">
-        <p className="eyebrow">{eyebrow}</p>
         <h1 ref={headingRef} tabIndex={-1}>{title}</h1>
         <p className="library-subtitle">{subtitle}</p>
       </div>

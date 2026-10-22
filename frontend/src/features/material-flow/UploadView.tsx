@@ -143,7 +143,6 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       <header className="upload-hero">
         <img src="/assets/studydy/upload-guide.png" alt="" />
         <div>
-          <p className="eyebrow">學習教材</p>
           <h1 id="upload-title">上傳教材</h1>
           <p>選擇一份或多份教材，確認來源後再開始分析。</p>
         </div>

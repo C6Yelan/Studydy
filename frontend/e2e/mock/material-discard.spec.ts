@@ -175,7 +175,7 @@ for (const viewport of [
     expect(mutations).toEqual([]);
   });
 
-  test(`rename updates the current search locally and restores focus at ${viewport.width}px`, async ({
+  test(`rename retries a failure and keeps the card in place at ${viewport.width}px`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -207,9 +207,7 @@ for (const viewport of [
       return route.fulfill({ json: items[0] });
     });
     await page.goto("/materials");
-    const search = page.getByRole("searchbox", { name: "搜尋教材名稱" });
-    await search.fill("中文");
-    const card = page.getByRole("article");
+    const card = page.getByRole("article").first();
     const opener = card.getByRole("button", { name: /^管理「/ });
     await opener.click();
     await card.getByRole("button", { name: "重新命名", exact: true }).click();
@@ -229,13 +227,10 @@ for (const viewport of [
     await expect(input).toBeFocused();
     fail = false;
     await input.press("Enter");
-    await expect(page.locator(".library-search-empty")).toContainText("找不到符合「中文」");
-    await expect(search).toHaveValue("中文");
-    await expect(search).toBeFocused();
+    await expect(card.getByRole("heading")).toHaveText("作業系統 第五章");
+    await expect(opener).toBeFocused();
     expect(reads()).toBe(1);
     expect(writes).toBe(2);
-    await search.fill("第五章");
-    await expect(page.getByRole("article").getByRole("heading")).toHaveText("作業系統 第五章");
   });
 
   test(`published material deletion retries a failure and prevents duplicate submission at ${viewport.width}px`, async ({
@@ -319,8 +314,7 @@ test("removing publishing material disables all actions and polls until absent",
     });
   });
   await page.goto("/materials");
-  await page.getByRole("searchbox").fill(target.display_name);
-  const card = page.getByRole("article");
+  const card = page.getByRole("article", { name: target.display_name, exact: true });
   await card.getByRole("button", { name: /^管理「/ }).click();
   await card.getByRole("button", { name: "刪除教材", exact: true }).click();
   await expect(card.getByRole("form").getByRole("heading", { name: "確定刪除教材與相關資料？", exact: true })).toBeVisible();
@@ -335,15 +329,15 @@ test("removing publishing material disables all actions and polls until absent",
   items = items.slice(1);
   await page.clock.runFor(3000);
   await expect.poll(reads).toBeGreaterThan(previous);
-  await expect(page.locator(".library-search-empty")).toBeVisible();
-  await expect(page.getByRole("searchbox")).toHaveValue(target.display_name);
+  await expect(card).toHaveCount(0);
+  await expect(page.getByRole("article")).toHaveCount(1);
   expect(deletes).toBe(1);
   const stopped = reads();
   await page.clock.runFor(6000);
   expect(reads()).toBe(stopped);
 });
 
-test("a pre-rename poll cannot restore the old title into search results", async ({ page }) => {
+test("a pre-rename poll cannot restore the old title", async ({ page }) => {
   let target = item(1, "running");
   target.display_name = "old title";
   let reads = 0;
@@ -368,21 +362,21 @@ test("a pre-rename poll cannot restore the old title into search results", async
     return route.fulfill({ json: target });
   });
   await page.goto("/materials");
-  await page.getByRole("searchbox").fill("old");
+  await expect(page.getByRole("article").getByRole("heading")).toHaveText("old title");
   await page.clock.runFor(3000);
   await expect.poll(() => reads).toBe(2);
   await page.getByRole("button", { name: /^管理「/ }).click();
   await page.getByRole("button", { name: "重新命名", exact: true }).click();
   await page.getByRole("textbox", { name: "教材名稱", exact: true }).fill("new title");
   await page.getByRole("button", { name: "儲存", exact: true }).click();
-  await expect(page.locator(".library-search-empty")).toBeVisible();
+  const heading = page.getByRole("article").getByRole("heading");
+  await expect(heading).toHaveText("new title");
   const response = page.waitForResponse("**/v1/materials");
   release();
   await (await response).finished();
   // 留在下一次 polling 前，讓舊回應有機會完成解析與 React 更新。
   await page.clock.runFor(50);
-  await expect(page.getByRole("article")).toHaveCount(0);
-  await expect(page.getByRole("searchbox")).toHaveValue("old");
+  await expect(heading).toHaveText("new title");
 });
 
 for (const touch of [false, true])
@@ -448,7 +442,7 @@ for (const touch of [false, true])
         { locator: page.locator(".app-main"), position: { x: 5, y: 5 } },
         { locator: first.getByRole("heading"), position: { x: 5, y: 5 } },
         { locator: second.getByRole("heading") },
-        { locator: page.getByRole("searchbox") },
+        { locator: page.getByRole("heading", { level: 1 }) },
         { locator: page.locator(".app-header"), position: headerGap },
       ]) {
         await activate(trigger);
@@ -473,9 +467,9 @@ for (const touch of [false, true])
       await expect(trigger).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(menu).toHaveJSProperty("open", true);
-      await page.getByRole("searchbox").focus();
+      await page.getByRole("heading", { level: 1 }).focus();
       await closed();
-      await expect(page.getByRole("searchbox")).toBeFocused();
+      await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
       await trigger.scrollIntoViewIfNeeded();
       const after = await first.boundingBox();
       expect(after!.width).toBe(before!.width);

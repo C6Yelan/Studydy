@@ -440,13 +440,9 @@ test("library stays aligned and card review keeps compact content and controls",
   await page.setViewportSize({ width: 1536, height: 960 });
   await mockCards(page, { saved: true });
   await page.goto("/materials");
-  const materialSearch = await page.getByRole("searchbox").boundingBox();
   const materialCard = (await page.locator('.library-item').first().boundingBox())!;
   await page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: '概念卡', exact: true }).click();
-  const cardSearch = await page.getByRole("searchbox").boundingBox();
   const cardTile = (await page.locator('.library-item').first().boundingBox())!;
-  expect(cardSearch!.x).toBe(materialSearch!.x);
-  expect(cardSearch!.width).toBeGreaterThanOrEqual(materialSearch!.width);
   // 三個清單頁共用同一套欄數：卡組卡片與教材卡片左緣與寬度一致。
   expect(cardTile.x).toBeCloseTo(materialCard.x, 0);
   expect(Math.abs(cardTile.width - materialCard.width)).toBeLessThanOrEqual(1);

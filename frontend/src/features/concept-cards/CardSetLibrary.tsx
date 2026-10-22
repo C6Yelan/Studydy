@@ -91,7 +91,7 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
         <form className="library-search" role="search" onSubmit={e => e.preventDefault()}><input type="search" aria-label="搜尋卡組" placeholder="搜尋卡組…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Escape") e.preventDefault(); }} /></form>
         <div className="collection-summary" ref={heading} tabIndex={-1}><p>{sets === null ? "—" : `已保存 ${sets.length} 個卡組`}</p></div>
         <button className="primary-button" type="button" disabled={!structure} onClick={create}><Icon name="cards" /> 建立卡組</button>
-      </header> : <CollectionHeader eyebrow="間隔複習" title="我的概念卡" subtitle="收藏一組值得反覆看的重點，依記得的程度安排下一次複習。"
+      </header> : <CollectionHeader title="我的概念卡" subtitle="收藏一組值得反覆看的重點，依記得的程度安排下一次複習。"
         actions={<button className="primary-button" type="button" onClick={create}><Icon name="cards" /> 建立卡組</button>}
         search={{ label: "搜尋卡組或教材", placeholder: "搜尋卡組或教材…", value: query, onChange: setQuery }}
         count={sets === null ? "—" : `已保存 ${sets.length} 個卡組`} countRef={heading} />}

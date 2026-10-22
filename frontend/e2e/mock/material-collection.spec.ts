@@ -203,7 +203,6 @@ for (const state of states) {
     await page.goto("/materials");
     if (state === "loading" || state === "failure") {
       await expect(state === "loading" ? page.getByRole("status").filter({hasText:"正在讀取教材庫"}) : page.getByRole("heading", {name:"無法讀取教材",exact:true})).toBeVisible();
-      await expect(page.getByRole("searchbox")).toHaveCount(0);
       if (state === "loading") releaseRead();
       else {
         await expect(
@@ -215,9 +214,6 @@ for (const state of states) {
     const cards = page.locator(".library-item");
     await expect(cards).toHaveCount(items.length);
     if (!items.length) await expect(page.locator(".library-empty")).toBeVisible();
-    await expect(page.getByRole("searchbox", { name: "搜尋教材名稱", exact: true })).toHaveCount(
-      items.length ? 1 : 0,
-    );
     for (const [index, item] of items.entries()) {
       const card = cards.nth(index);
       const actions = [...expectedActions[state][index], ...(item.available_structures.length ? ["概念卡", "Podcast"] : [])];
@@ -299,139 +295,6 @@ test("direct hub polls an active run until a usable map is published", async ({ 
   expect(reads()).toBe(stopped);
 });
 
-const searchNames = [
-  "Python 標準函數介紹_2026.pdf",
-  "03_財政學_公共財政導論.pdf",
-  "07_作業系統_ch05.pdf",
-  "02_程式設計_陣列與字串_2025.pdf",
-  "程式  設計_補充.pdf",
-];
-const searchItems = () =>
-  searchNames.map((display_name, index) => ({
-    ...structuredClone(base),
-    display_name,
-    material_id: `${String(index + 1).padStart(8, "0")}-1111-4111-8111-111111111111`,
-  }));
-
-for (const viewport of [
-  { width: 1536, height: 1024 },
-  { width: 390, height: 844 },
-]) {
-  test(`material name search stays local and clears only through the native cancel control at ${viewport.width}px`, async ({
-    page,
-  }) => {
-    await page.setViewportSize(viewport);
-    const items = searchItems();
-    const reads = await mockLibrary(page, () => items);
-    await page.goto("/materials");
-    const input = page.getByRole("searchbox", { name: "搜尋教材名稱", exact: true });
-    await expect(input).toBeVisible();
-    await expect(input).toHaveAttribute("placeholder", "搜尋教材名稱…");
-    await expect(page.locator(".library-header input")).toHaveCount(0);
-    for (const [query, expected] of [
-      ["程式設計", [searchNames[3]]],
-      ["python", [searchNames[0]]],
-      ["  程式   設計 ", [searchNames[4]]],
-      ["2025", [searchNames[3]]],
-      ["_ch05", [searchNames[2]]],
-      ["PDF", searchNames],
-    ] as const) {
-      await input.fill(query);
-      await expect(page.locator(".library-item h2")).toHaveText([...expected]);
-      await expect(page.locator(".collection-summary")).toContainText("已保存 5 份教材");
-    }
-    await input.fill("資料庫");
-    await expect(page.locator(".library-item")).toHaveCount(0);
-    await expect(page.getByRole("status")).toContainText("找不到符合「資料庫」的教材");
-    await expect(page.locator(".library-empty")).toHaveCount(0);
-    await expect(input).toHaveAttribute("type", "search");
-    await expect(page.locator(".library-search-empty > *")).toHaveText([
-      "找不到符合「資料庫」的教材",
-      "試試其他教材名稱。",
-    ]);
-    await input.press("Escape");
-    await expect(input).toHaveValue("資料庫");
-    await expect(input).toBeFocused();
-    await expect(page.locator(".library-item")).toHaveCount(0);
-    // 原生 × 在 UA shadow tree 內，以搜尋框實際幾何點擊，不能用 fill("") 代替。
-    const clickNativeCancel = async () => {
-      const bounds = (await input.boundingBox())!;
-      await input.click({ position: { x: bounds.width - 21, y: bounds.height / 2 } });
-      await expect(input).toHaveValue("");
-      await expect(page.locator(".library-item h2")).toHaveText(searchNames);
-      await expect(page.locator(".library-search-empty")).toHaveCount(0);
-    };
-    await clickNativeCancel();
-    await input.fill(items[0].material_id);
-    await expect(page.locator(".library-item")).toHaveCount(0);
-    await clickNativeCancel();
-    await expect(input).toHaveValue("");
-    await expect(input).toBeFocused();
-    await input.fill("Python");
-    await expect(page.locator(".library-item")).toHaveCount(1);
-    await input.press("Escape");
-    await expect(input).toHaveValue("Python");
-    await expect(page.locator(".library-item")).toHaveCount(1);
-    await input.press("Enter");
-    await expect(input).toHaveValue("Python");
-    expect(reads()).toBe(1);
-    const box = (await input.boundingBox())!;
-    expect(box.height).toBeGreaterThanOrEqual(42);
-    expect(box.height).toBeLessThanOrEqual(46);
-    const width = box.width;
-    expect(width).toBeLessThanOrEqual(580);
-    if (viewport.width === 390) expect(width).toBeGreaterThan(300);
-    expect(await input.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("solid");
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    );
-  });
-}
-
-test("polling reapplies the same material-name query to refreshed data", async ({ page }) => {
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
-  let items = [{ ...searchItems()[0], latest_attempt: run }, searchItems()[1]];
-  const reads = await mockLibrary(page, () => items);
-  await page.goto("/materials");
-  const input = page.getByRole("searchbox", { name: "搜尋教材名稱" });
-  await input.fill("python");
-  await expect(page.locator(".library-item")).toHaveCount(1);
-  items = [...items, { ...searchItems()[2], display_name: "Python 更新.pdf" }];
-  await page.clock.runFor(3000);
-  await expect.poll(reads).toBe(2);
-  await expect(input).toHaveValue("python");
-  await expect(page.locator(".library-item h2")).toHaveText([searchNames[0], "Python 更新.pdf"]);
-  await expect(page.locator(".collection-summary")).toContainText("已保存 3 份教材");
-});
-
-test("removing a search match preserves query and shows search no-result", async ({ page }) => {
-  let items = searchItems();
-  let deletes = 0;
-  await mockLibrary(page, () => items);
-  await page.route(`**/v1/materials/${items[0].material_id}`, (route) => {
-    expect(route.request().method()).toBe("DELETE");
-    deletes++;
-    const removed = items[0];
-    items = items.slice(1);
-    return route.fulfill({
-      status: 202,
-      json: { schema: "material-discard/v1", material_id: removed.material_id, state: "removed" },
-    });
-  });
-  await page.goto("/materials");
-  const input = page.getByRole("searchbox", { name: "搜尋教材名稱" });
-  await input.fill("python");
-  await page.getByRole("button", { name: /^管理「/ }).click();
-  await page.getByRole("button", { name: "刪除教材", exact: true }).click();
-  await page.getByRole("button", { name: "確認刪除", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("找不到符合「python」的教材");
-  await expect(input).toHaveValue("python");
-  await expect(page.locator(".library-empty")).toHaveCount(0);
-  await expect(page.locator(".collection-summary")).toContainText("已保存 4 份教材");
-  expect(deletes).toBe(1);
-});
-
 for (const viewport of [
   { width: 1920, height: 1080, phone: false },
   { width: 1536, height: 1024, phone: false },
@@ -475,21 +338,13 @@ for (const viewport of [
           width: box.width,
           height: box.height,
           actionY: rect("fieldset").y,
-          actionOffset: rect("fieldset").y - box.y,
           titleOffset: rect("h2").y - box.y,
-          metadataOffset: rect(".library-metadata").y - box.y,
           buttonBottom: box.bottom - rect("fieldset").bottom,
         };
       }),
     );
-    for (const key of [
-      "width",
-      "height",
-      "actionOffset",
-      "titleOffset",
-      "metadataOffset",
-      "buttonBottom",
-    ] as const) {
+    // 標題不預留第二行，單行與兩行標題的卡片高度不同；同一列仍等高、按鈕對齊。
+    for (const key of ["width", "titleOffset", "buttonBottom"] as const) {
       const values = geometry.map((box) => box[key]);
       expect(Math.max(...values) - Math.min(...values), key).toBeLessThanOrEqual(1);
     }
@@ -502,10 +357,9 @@ for (const viewport of [
       expect(geometry[0].width).toBeLessThanOrEqual(520);
     }
     for (const box of geometry) {
-      expect(box.buttonBottom).toBeGreaterThanOrEqual(20);
-      expect(box.buttonBottom).toBeLessThanOrEqual(26);
       for (const other of geometry.filter((other) => Math.abs(other.y - box.y) < 1)) {
         expect(Math.abs(box.actionY - other.actionY)).toBeLessThanOrEqual(1);
+        expect(Math.abs(box.height - other.height)).toBeLessThanOrEqual(1);
       }
     }
     const frame = (await page.locator(".material-library").boundingBox())!;

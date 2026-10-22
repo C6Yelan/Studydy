@@ -61,7 +61,7 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
       <form className="library-search" role="search" onSubmit={e => e.preventDefault()}><input type="search" aria-label="搜尋 Podcast" placeholder="搜尋 Podcast…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Escape") e.preventDefault(); }} /></form>
       <div className="collection-summary" ref={heading} tabIndex={-1}><p>{items === null ? "—" : `已保存 ${items.length} 份 Podcast`}</p></div>
       <button className="primary-button" type="button" disabled={!structure} onClick={create}><Icon name="headphones" size={18} /> 建立 Podcast</button>
-    </header> : <CollectionHeader eyebrow="用聽的學習" title="我的 Podcast" subtitle="把教材重點變成可以隨時收聽的節目，收聽進度會自動保存。"
+    </header> : <CollectionHeader title="我的 Podcast" subtitle="把教材重點變成可以隨時收聽的節目，收聽進度會自動保存。"
       actions={<button className="primary-button" type="button" onClick={create}><Icon name="headphones" size={18} /> 建立 Podcast</button>}
       search={{ label: "搜尋 Podcast 或教材", placeholder: "搜尋 Podcast 或教材…", value: query, onChange: setQuery }}
       count={items === null ? "—" : `已保存 ${items.length} 份 Podcast`} countRef={heading} />}

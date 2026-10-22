@@ -85,7 +85,7 @@ test("material cards keep the main action on its own row and secondary entries a
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/materials");
     await expect(page.getByRole("heading", { name: "我的教材", level: 1 })).toBeVisible();
-    await expect(page.locator(".collection-summary")).toHaveText("已保存 2 份教材");
+    await expect(page.locator(".library-subtitle b")).toHaveText("已保存 2 份教材");
     for (const name of ["作業系統", "資料結構"]) {
       const card = page.getByRole("article", { name });
       const actions = card.locator(".library-actions");

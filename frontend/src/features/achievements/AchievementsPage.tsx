@@ -90,7 +90,6 @@ export function AchievementsPage({ apiClient }: { apiClient: StudydyApiClient })
   return <section className="achievements" aria-labelledby="achievements-title">
     <header className="library-header collection-head">
       <div className="collection-head-text">
-        <p className="eyebrow">學習成就</p>
         <h1 id="achievements-title">成就</h1>
         <p className="library-subtitle">作答、完成概念、複習卡片與收聽 Podcast 都會累積經驗值，達到門檻就能取得各系列的下一層徽章。</p>
       </div>
