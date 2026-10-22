@@ -27,7 +27,7 @@ test("real API persists selected cards across fresh login and resolves original 
   const first = await browser.newContext();
   const page = await first.newPage();
   await login(page);
-  await page.getByRole("button", { name: "概念卡", exact: true }).click();
+  await page.getByRole("link", { name: "概念卡", exact: true }).click();
   await page.getByRole("button", { name: "建立卡組", exact: true }).click();
   await expect(page).toHaveURL(/\/concept-cards\/new$/);
   // 選擇教材是島嶼卡片清單，點選後進入該教材的建立卡組頁。
@@ -56,7 +56,7 @@ test("real API persists selected cards across fresh login and resolves original 
   const second = await browser.newContext();
   const reopened = await second.newPage();
   await login(reopened);
-  await reopened.getByRole("button", { name: "概念卡", exact: true }).click();
+  await reopened.getByRole("link", { name: "概念卡", exact: true }).click();
   await reopened.getByRole("button", { name: "開始複習", exact: true }).click();
   await expect(reopened).toHaveURL(new RegExp(`${savedPath}$`));
   await expect(reopened.locator(".visual-concept-card")).toHaveAttribute("title", "Stack｜概念卡");

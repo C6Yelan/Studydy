@@ -13,7 +13,7 @@ async function login(page: Page, email: string) {
   await expect(
     page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
+  await page.getByRole("link", { name: /^(教材庫|我的教材)$/, exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
 }
 
@@ -26,7 +26,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
   const first = page.getByRole("article", { name: "堆疊講義.pdf", exact: true });
   await expect(first).toContainText("知識地圖建立失敗");
   await expect(page.getByText("B 的私人教材.pdf", { exact: true })).toHaveCount(0);
-  await first.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
+  await first.getByRole("link", { name: "開啟知識地圖", exact: true }).click();
   await expect(page.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
   const newerPath = new URL(page.url()).pathname;
   await page.reload();
@@ -55,7 +55,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
   ], hint.learner_id as string);
   expect(Array.isArray(badges) && badges.every((item: unknown) => typeof item === "string" && /^[a-z0-9_]+$/.test(item))).toBe(true);
   expect(level).toMatch(/^[1-9]\d*$/);
-  await freshPage.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
+  await freshPage.getByRole("link", { name: "開啟知識地圖", exact: true }).click();
   await expect(freshPage).toHaveURL(`${browserOrigin}${newerPath}`);
   await expect(
     freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }),
@@ -92,7 +92,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
     ).toBeVisible();
     await expect(freshPage).toHaveURL(`${browserOrigin}${headPath}`);
   }
-  await freshPage.getByRole("button", { name: /^(教材庫|我的教材)$/, exact: true }).click();
+  await freshPage.getByRole("link", { name: /^(教材庫|我的教材)$/, exact: true }).click();
   const pdfUrl = `/v1/artifacts/${material.source_artifact_id}`;
   const pdf = await fresh.request.get(`${browserOrigin}${pdfUrl}`);
   expect(pdf.status()).toBe(200);
@@ -100,7 +100,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
   expect((await pdf.body()).subarray(0, 4).toString()).toBe("%PDF");
   await freshPage
     .getByRole("article", { name: "堆疊講義.pdf", exact: true })
-    .getByRole("button", { name: "開啟知識地圖", exact: true })
+    .getByRole("link", { name: "開啟知識地圖", exact: true })
     .click();
   await expect(freshPage).toHaveURL(`${browserOrigin}${newerPath}`);
   await expect(
