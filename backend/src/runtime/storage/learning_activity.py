@@ -860,7 +860,7 @@ def rhythm_window(period, offset, today):
 
 
 def learning_rhythm(session, owner, *, period, offset=0, now=None):
-    """指定區間每天的作答、答對、標記卡片張數、收聽秒數與是否有學習；每次最多 371 天。
+    """指定區間每天的作答、答對、標記卡片張數、收聽秒數與是否有學習；每次最多 364 天。
 
     與學習活動同一份每日彙總（原始紀錄沒有定期清除，刪除教材時相關紀錄移除）；
     first_day 是最早有紀錄的日期，畫面據此決定能否再往前翻。

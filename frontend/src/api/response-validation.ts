@@ -820,7 +820,7 @@ export function learningRhythm(value: unknown): value is LearningRhythmView {
     || !rhythmPeriods.includes(String(item.period)) || !count(item.offset) || !count(item.streak_days)
     || ![item.today, item.start, item.end].every(day => typeof day === "string" && isoDate.test(day))
     || !(item.first_day === null || (typeof item.first_day === "string" && isoDate.test(item.first_day)))
-    || !Array.isArray(item.days) || item.days.length === 0 || item.days.length > 371) return false;
+    || !Array.isArray(item.days) || item.days.length === 0 || item.days.length > 364) return false;
   const days = item.days.map(object);
   return days.every(day => !!day && typeof day.date === "string" && isoDate.test(day.date)
       && count(day.answers) && count(day.correct) && day.correct <= day.answers
