@@ -3,6 +3,7 @@ import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { FormatCapability } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
+import { FlowFooter, FlowHeader, FlowStage, LearningSteps, uploadSteps } from "./Flow";
 import { formatFileSize, validateSourceFile } from "./material-flow";
 
 type QueuedFile = {
@@ -138,86 +139,118 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       (format) => format.extension !== ".pdf" && file.name.toLowerCase().endsWith(format.extension),
     ),
   );
+  const uploadLabel = busy
+    ? "正在上傳…"
+    : queue.every((item) => item.status === "uploaded") && queue.length
+      ? "繼續確認來源"
+      : queue.some((item) => item.status === "failed")
+        ? "重試未完成的上傳"
+        : "上傳並確認來源";
   return (
-    <section className="upload-page task-page" aria-labelledby="upload-title">
-      <header className="upload-hero">
-        <img src="/assets/studydy/upload-guide.png" alt="" />
-        <div>
-          <h1 id="upload-title">上傳教材</h1>
-          <p>選擇一份或多份教材，確認來源後再開始分析。</p>
-        </div>
-      </header>
-      <div className="upload-layout">
-        <section className="surface upload-card" aria-label="上傳教材檔案">
-          <label
-            className={`file-drop${queue.length ? " has-file" : ""}${busy || !formatsReady ? " is-disabled" : ""}${isDragging ? " is-dragging" : ""}`}
-            onDragEnter={(event) => {
-              event.preventDefault();
-              if (!submitting.current && event.dataTransfer.types.includes("Files")) {
-                dragDepth.current++;
-                setIsDragging(true);
-              }
-            }}
-            onDragOver={(event) => {
-              event.preventDefault();
-              event.dataTransfer.dropEffect =
-                !submitting.current && event.dataTransfer.types.includes("Files") ? "copy" : "none";
-            }}
-            onDragLeave={() => {
-              dragDepth.current = Math.max(0, dragDepth.current - 1);
-              if (!dragDepth.current) setIsDragging(false);
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              clearDrag();
-              if (submitting.current) return;
-              const folder = Array.from(event.dataTransfer.items).some(
-                (item) => item.webkitGetAsEntry?.()?.isDirectory,
-              );
-              if (folder || !event.dataTransfer.types.includes("Files"))
-                setSelectionError(
-                  folder ? "不接受資料夾，請選擇教材檔案。" : "請拖曳教材檔案，不接受文字或網址。",
-                );
-              else chooseFiles(event.dataTransfer.files);
-            }}
-          >
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              accept={formats.map((format) => format.extension).join(",")}
-              aria-label="選擇教材檔案"
-              aria-describedby={selectionError ? "upload-selection-error" : undefined}
-              disabled={busy || !formatsReady}
-              onClick={(event) => {
-                event.currentTarget.value = "";
-              }}
-              onChange={(event) => chooseFiles(event.currentTarget.files)}
-            />
-            <span className="file-drop__icon">
-              <Icon name="upload" size={28} />
-            </span>
-            <strong>
-              {queue.length ? "拖放或點擊以加入更多教材" : "將教材拖放到此處，或點擊選取"}
-            </strong>
-            <span>
-              {formats.map((format) => format.extension.slice(1).toUpperCase()).join("、")} ·
-              可選多份 · {formatsReady ? `每份最大 ${formatFileSize(Math.min(...formats.map((format) => format.max_bytes)))}` : "正在載入上傳限制"}
-            </span>
-          </label>
-          {selectionError && (
-            <p id="upload-selection-error" className="form-error" role="alert">
-              {selectionError}
-            </p>
-          )}
-          {queue.map((item) => {
-            return (
-              <div className="chosen-file" aria-label={`已選擇 ${item.file.name}`} key={item.key}>
-                <span className="file-kind">
-                  <Icon name="file" />
+    <section className="flow-page upload-page task-page" aria-labelledby="upload-title">
+      <FlowHeader
+        headingId="upload-title"
+        title="上傳教材"
+        description="選擇一份或多份教材，確認來源後再開始分析。"
+        image="/assets/studydy/upload-guide.png"
+      />
+      <LearningSteps labels={uploadSteps} current={0} />
+      <FlowStage
+        icon="upload"
+        title="選擇教材檔案"
+        description="各份檔案分開保留；非 PDF 教材會先轉換成 PDF，下一步可以預覽與調整順序。"
+        label="上傳教材檔案"
+        footer={
+          <FlowFooter
+            secondary={
+              queue.length > 0 ? (
+                <span>
+                  共 {queue.length} 份 · {formatFileSize(queue.reduce((total, item) => total + item.file.size, 0))}
                 </span>
-                <div>
-                  <strong>{item.file.name}</strong>
+              ) : (
+                <span className="upload-disabled-hint">先選擇或拖入教材檔案，按鈕就能使用。</span>
+              )
+            }
+            primary={
+              <button className="primary-button" disabled={!queue.length || busy} onClick={() => void submit()}>
+                <Icon name="upload" size={18} />
+                {uploadLabel}
+              </button>
+            }
+          />
+        }
+      >
+        <div className="upload-stage-body">
+        <label
+          className={`file-drop${queue.length ? " has-file" : ""}${busy || !formatsReady ? " is-disabled" : ""}${isDragging ? " is-dragging" : ""}`}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            if (!submitting.current && event.dataTransfer.types.includes("Files")) {
+              dragDepth.current++;
+              setIsDragging(true);
+            }
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect =
+              !submitting.current && event.dataTransfer.types.includes("Files") ? "copy" : "none";
+          }}
+          onDragLeave={() => {
+            dragDepth.current = Math.max(0, dragDepth.current - 1);
+            if (!dragDepth.current) setIsDragging(false);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            clearDrag();
+            if (submitting.current) return;
+            const folder = Array.from(event.dataTransfer.items).some(
+              (item) => item.webkitGetAsEntry?.()?.isDirectory,
+            );
+            if (folder || !event.dataTransfer.types.includes("Files"))
+              setSelectionError(
+                folder ? "不接受資料夾，請選擇教材檔案。" : "請拖曳教材檔案，不接受文字或網址。",
+              );
+            else chooseFiles(event.dataTransfer.files);
+          }}
+        >
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            accept={formats.map((format) => format.extension).join(",")}
+            aria-label="選擇教材檔案"
+            aria-describedby={selectionError ? "upload-selection-error" : undefined}
+            disabled={busy || !formatsReady}
+            onClick={(event) => {
+              event.currentTarget.value = "";
+            }}
+            onChange={(event) => chooseFiles(event.currentTarget.files)}
+          />
+          <span className="file-drop-icon">
+            <Icon name="upload" size={26} />
+          </span>
+          <strong>
+            {queue.length ? "拖放或點擊以加入更多教材" : "將教材拖放到此處，或點擊選取"}
+          </strong>
+          <span>
+            {formats.map((format) => format.extension.slice(1).toUpperCase()).join("、")} ·
+            可選多份 · {formatsReady ? `每份最大 ${formatFileSize(Math.min(...formats.map((format) => format.max_bytes)))}` : "正在載入上傳限制"}
+          </span>
+        </label>
+        {selectionError && (
+          <p id="upload-selection-error" className="form-error" role="alert">
+            {selectionError}
+          </p>
+        )}
+        {queue.length > 0 && (
+          <ul className="chosen-files" aria-label="待上傳教材">
+            {queue.map((item) => (
+              <li className={`chosen-file is-${item.status}`} aria-label={`已選擇 ${item.file.name}`} key={item.key}>
+                <span className="chosen-file-icon">
+                  <Icon name={item.status === "uploaded" ? "check" : item.status === "failed" ? "warning" : "file"} />
+                </span>
+                <div className="chosen-file-body">
+                  <strong title={item.file.name}>{item.file.name}</strong>
                   <small role="status">
                     {formatFileSize(item.file.size)} ·{" "}
                     {
@@ -236,90 +269,60 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
                   )}
                 </div>
                 <button
-                  className="text-button"
+                  className="flow-icon-button"
+                  type="button"
                   disabled={busy || item.status === "uploaded"}
                   aria-label={`移除 ${item.file.name}`}
+                  title="移除"
                   onClick={() => {
                     setQueue((previous) => previous.filter((value) => value.key !== item.key));
                     setError(null);
                   }}
                 >
-                  移除
+                  <Icon name="close" size={18} />
                 </button>
-              </div>
-            );
-          })}
-          {queue.length > 0 && (
-            <p className="conversion-note">
-              共 {queue.length} 份 ·{" "}
-              {formatFileSize(queue.reduce((total, item) => total + item.file.size, 0))}
-            </p>
-          )}
-          {capabilityError && (
-            <p className="conversion-note" role="status">
-              {capabilityError}
-            </p>
-          )}
-          {hasNonPdf && (
-            <p className="conversion-note">非 PDF 教材會先轉換為 PDF，請在下一步確認轉換內容。</p>
-          )}
-          {error && (
-            <p className="form-error" role="alert">
-              {error}
-            </p>
-          )}
-          <button
-            className="primary-button full-button"
-            disabled={!queue.length || busy}
-            onClick={() => void submit()}
-          >
-            <Icon name="upload" size={18} />
-            {busy
-              ? "正在上傳…"
-              : queue.every((item) => item.status === "uploaded") && queue.length
-                ? "繼續確認來源"
-                : queue.some((item) => item.status === "failed")
-                  ? "重試未完成的上傳"
-                  : "上傳並確認來源"}
-          </button>
-          {!queue.length && <p className="upload-disabled-hint">先選擇或拖入教材檔案，按鈕就能使用。</p>}
-        </section>
-        <aside className="upload-aside" aria-label="教材處理說明">
-          <section className="surface guide-card">
-            <h2>Studydy 如何處理教材</h2>
-            <ol>
-              <li>
-                <span>1</span>
-                <div>
-                  <strong>準備教材</strong>
-                  <p>各份來源分開保留；非 PDF 教材會先轉換為可分析的 PDF。</p>
-                </div>
               </li>
-              <li>
-                <span>2</span>
-                <div>
-                  <strong>整理內容與來源</strong>
-                  <p>讀取教材內容，需要時辨識圖片中的文字，並保留可回查的原始來源。</p>
-                </div>
-              </li>
-              <li>
-                <span>3</span>
-                <div>
-                  <strong>建立知識結構</strong>
-                  <p>從教材整理重要概念、概念關係與建議學習順序。</p>
-                </div>
-              </li>
-              <li>
-                <span>4</span>
-                <div>
-                  <strong>建立知識地圖</strong>
-                  <p>將整理結果呈現在知識地圖中，之後可探索概念並回查教材來源。</p>
-                </div>
-              </li>
-            </ol>
-          </section>
-        </aside>
-      </div>
+            ))}
+          </ul>
+        )}
+        {capabilityError && (
+          <p className="flow-hint" role="status">
+            {capabilityError}
+          </p>
+        )}
+        {hasNonPdf && (
+          <p className="flow-notice">非 PDF 教材會先轉換為 PDF，請在下一步確認轉換內容。</p>
+        )}
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        </div>
+        <ol className="flow-steps-preview" aria-label="上傳後的處理">
+          <li>
+            <span><Icon name="file" size={18} /></span>
+            <div>
+              <strong>確認教材</strong>
+              <p>預覽轉換後的 PDF，調整多份教材的順序。</p>
+            </div>
+          </li>
+          <li>
+            <span><Icon name="process" size={18} /></span>
+            <div>
+              <strong>整理內容與來源</strong>
+              <p>需要時辨識圖片中的文字，保留可回查的頁碼。</p>
+            </div>
+          </li>
+          <li>
+            <span><Icon name="map" size={18} /></span>
+            <div>
+              <strong>建立知識地圖</strong>
+              <p>整理重要概念、概念關係與建議學習順序。</p>
+            </div>
+          </li>
+        </ol>
+      </FlowStage>
     </section>
   );
 }

@@ -10,6 +10,7 @@ import { ProcessingTimeline } from "./ProcessingTimeline";
 import { StateView } from "../../ui/StateView";
 import { MaterialRunStartControl } from "./MaterialRunStartControl";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
+import { FlowHeader, LearningSteps, uploadSteps } from "./Flow";
 import {
   automaticPollIntervalMs,
   materialFailureMessage,
@@ -172,7 +173,7 @@ export function RunView({
   if (notFound) return <NotFoundView title="找不到這次處理" description="這筆處理紀錄可能已被刪除，或不屬於目前登入的帳號。" back={materialNotFound.back} />;
   if (message)
     return (
-      <section className="processing-page task-page">
+      <section className="flow-page processing-page task-page">
         <StateView
           action={
             <>
@@ -203,14 +204,8 @@ export function RunView({
 
   if (!run)
     return (
-      <section className="processing-page task-page" aria-live="polite">
-        <header className="processing-hero">
-          <img src="/assets/studydy/processing-laptop.png" alt="" />
-          <div>
-            <p className="eyebrow">教材處理</p>
-            <h1>正在讀取處理狀態</h1>
-          </div>
-        </header>
+      <section className="flow-page processing-page task-page" aria-live="polite">
+        <FlowHeader title="正在讀取處理狀態" image="/assets/studydy/processing-laptop.png" />
       </section>
     );
 
@@ -230,24 +225,14 @@ export function RunView({
   if (activeRun(run)) {
     const cancellationRequested = removing || run.cancel_requested_at !== null;
     return (
-      <section className="processing-page task-page is-processing">
-        <header className="processing-hero">
-          <div>
-            <p className="eyebrow">教材處理</p>
-            <h1>
-              {cancellationRequested
-                ? "正在取消並刪除教材"
-                : run.status === "pending"
-                  ? "等待開始處理"
-                  : "正在分析教材"}
-            </h1>
-            <p>
-              {cancellationRequested
-                ? "已收到刪除要求，會在目前進行中的步驟完成後安全停止並刪除教材。"
-                : "Studydy 會依序整理教材內容、建立概念關係，並在完成後發布知識地圖。"}
-            </p>
-          </div>
-        </header>
+      <section className="flow-page processing-page task-page is-processing">
+        <FlowHeader
+          title={cancellationRequested ? "正在取消並刪除教材" : run.status === "pending" ? "等待開始處理" : "正在分析教材"}
+          description={cancellationRequested
+            ? "已收到刪除要求，會在目前進行中的步驟完成後安全停止並刪除教材。"
+            : "Studydy 會依序整理教材內容、建立概念關係，並在完成後發布知識地圖。"}
+        />
+        <LearningSteps labels={uploadSteps} current={2} />
         <div className="processing-grid">
           <section className="surface processing-card">
             <ProcessingProgress run={run} now={now} />
@@ -295,7 +280,7 @@ export function RunView({
                 ) : (
                   <button
                     ref={cancelButton}
-                    className="secondary-button processing-destructive"
+                    className="secondary-button danger-button processing-destructive"
                     type="button"
                     onClick={() => {
                       setCancelError(null);
@@ -324,7 +309,8 @@ export function RunView({
   // 已受理刪除後，即使發布流程結束，仍須維持刪除狀態。
   if (run.status === "cancelled" || (removing && !activeRun(run)))
     return (
-      <section className="processing-page task-page is-cancelled">
+      <section className="flow-page processing-page task-page is-cancelled">
+        <LearningSteps labels={uploadSteps} current={2} />
         <StateView
           title={removing ? "正在刪除教材…" : "已取消教材處理"}
           description={
@@ -361,7 +347,8 @@ export function RunView({
 
   if (run.status === "failed")
     return (
-      <section className="processing-page task-page terminal-failure">
+      <section className="flow-page processing-page task-page terminal-failure">
+        <LearningSteps labels={uploadSteps} current={2} />
         <StateView
           action={
             <>
@@ -413,100 +400,50 @@ export function RunView({
   const binding = run.output_binding!;
   const partial = run.status === "partial";
   return (
-    <section className="processing-page task-page is-complete">
-      <header className="processing-hero">
+    <section className="flow-page processing-page task-page is-complete">
+      <FlowHeader
+        title="教材整理完成"
+        description={partial
+          ? "知識地圖已建立，可先查看已整理的內容；部分內容未完整整理。"
+          : "知識地圖已準備完成，可以查看概念、關係、來源與建議學習順序。"}
+      />
+      <LearningSteps labels={uploadSteps} current={uploadSteps.length} />
+      <section className="surface flow-result processing-summary" aria-labelledby="processing-result-title">
         <img src="/assets/studydy/success-jump.png" alt="" />
-        <div>
-          <p className="eyebrow">教材處理</p>
-          <h1>教材整理完成</h1>
-          <p>
-            {partial
-              ? "知識地圖已建立，可先查看已整理的內容；部分內容未完整整理。"
-              : "知識地圖已準備完成，可以查看概念、關係、來源與建議學習順序。"}
-          </p>
-        </div>
-      </header>
-      <div className="processing-grid">
-        <section className="surface processing-card processing-summary">
-          <h2>處理摘要</h2>
-          <div className="processing-summary-material">
-            <span className="file-kind">
-              <Icon name="file" />
-            </span>
-            <div>
-              <h3>教材</h3>
-              <p>共處理 {binding.page_count} 頁</p>
-            </div>
-          </div>
+        <div className="flow-result-body">
           <p className={`status-badge ${partial ? "is-partial" : "is-success"}`}>
             {!partial && <Icon name="check" />}
             {partial ? "部分結果可用" : "處理完成"}
           </p>
-          <h3>可查看內容</h3>
-          <ul>
-            <li>
-              <Icon name="check" />
-              可回查的概念與學習重點
-            </li>
-            <li>
-              <Icon name="check" />
-              教材中的概念關係
-            </li>
-            <li>
-              <Icon name="check" />
-              教材建議學習順序
-            </li>
+          <h2 id="processing-result-title">{partial ? "知識地圖已建立" : "知識地圖已準備完成"}</h2>
+          <p>共處理 {binding.page_count} 頁，{partial ? "可以查看已整理的概念、關係與來源。" : "可以查看概念、關係、來源與建議學習順序。"}</p>
+          <ul className="flow-result-stats">
+            <li><Icon name="check" size={16} />可回查的概念與學習重點</li>
+            <li><Icon name="check" size={16} />教材中的概念關係</li>
+            <li><Icon name="check" size={16} />教材建議學習順序</li>
           </ul>
-        </section>
-        <section className="surface processing-card">
-          <h2>處理流程</h2>
-          <ol className="status-timeline">
-            {materialProgressStages.slice(0, -1).map((stage) => (
-              <li className="is-complete" key={stage}>
-                <span>
-                  <Icon name="check" />
-                </span>
-                <div>
-                  <strong>{materialProgressStageLabel(stage)}</strong>
-                  <p>此階段已完成。</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </section>
-      </div>
-      <div className="surface completion-bar">
-        <span className={`completion-icon${partial ? " is-partial" : ""}`}>
-          <Icon name={partial ? "map" : "check"} />
-        </span>
-        <div>
-          <strong>{partial ? "知識地圖已建立" : "知識地圖已準備完成"}</strong>
-          <p>
-            {partial
-              ? "可以查看已整理的概念、關係與來源。"
-              : "可以查看概念、關係、來源與建議學習順序。"}
-          </p>
+          <div className="flow-result-actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() =>
+                writeRoute({
+                  name: "knowledge-map",
+                  materialId: run.material_id,
+                  runId: run.run_id,
+                  structureRevision: binding.knowledge_structure_revision,
+                })
+              }
+            >
+              開啟知識地圖
+              <Icon name="chevron-right" />
+            </button>
+          </div>
         </div>
-        <button
-          className="primary-button"
-          type="button"
-          onClick={() =>
-            writeRoute({
-              name: "knowledge-map",
-              materialId: run.material_id,
-              runId: run.run_id,
-              structureRevision: binding.knowledge_structure_revision,
-            })
-          }
-        >
-          開啟知識地圖
-          <Icon name="chevron-right" />
-        </button>
-      </div>
+      </section>
     </section>
   );
 }
-
 
 function RevisionRun({
   apiClient,
@@ -620,14 +557,11 @@ function RevisionRun({
 
   if (activeRun(run))
     return (
-      <section className="processing-page task-page is-processing">
-        <header className="processing-hero">
-          <div>
-            <p className="eyebrow">教材更新</p>
-            <h1>{title}</h1>
-            <p>Studydy 正在整理新增內容並更新知識地圖，期間仍可使用目前地圖與學習紀錄。</p>
-          </div>
-        </header>
+      <section className="flow-page processing-page task-page is-processing">
+        <FlowHeader
+          title={title}
+          description="Studydy 正在整理新增內容並更新知識地圖，期間仍可使用目前地圖與學習紀錄。"
+        />
         <div className="processing-grid">
           <section className="surface processing-card">
             <ProcessingProgress run={run} now={now} />
@@ -655,23 +589,15 @@ function RevisionRun({
       </section>
     );
   return (
-    <section className="processing-page task-page">
-      <header className="processing-hero">
-        <img
-          src={`/assets/studydy/${run.status === "failed" ? "failure-confused" : completed ? "success-jump" : "processing-laptop"}.png`}
-          alt=""
-        />
-        <div>
-          <p className="eyebrow">教材更新</p>
-          <h1>{title}</h1>
-          <p>
-            {completed
-              ? "新版地圖已可使用；未變知識點會依原有作答證據承接進度。"
-              : "目前地圖與學習紀錄仍保留，更新完成後即可使用新版地圖。"}
-          </p>
-        </div>
-      </header>
-      <section className="surface processing-card">
+    <section className="flow-page processing-page task-page">
+      <FlowHeader
+        title={title}
+        description={completed
+          ? "新版地圖已可使用；未變知識點會依原有作答證據承接進度。"
+          : "目前地圖與學習紀錄仍保留，更新完成後即可使用新版地圖。"}
+        image={`/assets/studydy/${run.status === "failed" ? "failure-confused" : completed ? "success-jump" : "processing-laptop"}.png`}
+      />
+      <section className="surface processing-card processing-outcome">
         {run.status === "partial" && (
           <p role="status">部分內容建議對照來源確認，不影響使用更新後的地圖。</p>
         )}

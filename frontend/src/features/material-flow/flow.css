@@ -1,0 +1,211 @@
+/* 建立教材共用版型（上傳教材、確認教材、處理中／完成、從主題建立教材）。 */
+.flow-page { display:flex; flex-direction:column; gap:20px; min-width:0; }
+.flow-page > * { min-width:0; }
+
+/* 頁首：返回、標題與一句說明，右側吉祥物。 */
+.flow-head { display:grid; gap:10px; }
+.flow-head > .back-link { justify-self:start; margin:0; }
+.flow-head-row { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; }
+.flow-head-text { min-width:0; }
+.flow-head h1 { margin:0 0 6px; font-size:clamp(1.6rem,2.6vw,2rem); line-height:1.25; overflow-wrap:anywhere; }
+.flow-head h1:focus { outline:none; }
+.flow-head p { margin:0; color:var(--text-secondary); font-size:15px; line-height:1.6; }
+.flow-head-art { flex:none; width:84px; height:84px; object-fit:contain; margin-bottom:-6px; }
+@media (max-width:640px) { .flow-head-art { width:60px; height:60px; } .flow-head p { font-size:14px; } }
+
+/* 步驟列：圓點＋連接線，已完成綠色、目前藍色、未開始灰色。 */
+.learning-steps { display:grid; grid-auto-columns:minmax(0,1fr); grid-auto-flow:column; margin:0; padding:14px 18px; list-style:none; border-radius:var(--radius-card); background:var(--surface); box-shadow:var(--shadow); }
+.learning-steps li { position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; min-width:0; color:var(--text-secondary); font-size:13px; font-weight:700; text-align:center; }
+.learning-steps li + li::before { content:""; position:absolute; top:15px; right:calc(50% + 22px); left:calc(-50% + 22px); height:3px; border-radius:3px; background:var(--border); }
+.learning-steps li.is-complete + li::before { background:var(--success); }
+.learning-step-mark { position:relative; display:grid; place-items:center; width:32px; height:32px; border-radius:50%; background:var(--page-cool); color:var(--text-muted); font-size:14px; font-weight:900; }
+.learning-steps .is-complete { color:var(--success); }
+.learning-steps .is-complete .learning-step-mark { background:var(--success); color:#fff; }
+.learning-steps .is-current { color:var(--studydy-blue); font-weight:900; }
+.learning-steps .is-current .learning-step-mark { background:var(--studydy-blue); color:#fff; box-shadow:0 0 0 5px var(--studydy-blue-soft); }
+.learning-step-label { max-width:100%; overflow-wrap:anywhere; line-height:1.35; }
+@media (max-width:640px) {
+  .learning-steps { padding:12px 8px; }
+  .learning-steps li { font-size:12px; }
+  .learning-step-mark { width:28px; height:28px; font-size:13px; }
+  .learning-steps li + li::before { top:13px; right:calc(50% + 19px); left:calc(-50% + 19px); }
+}
+
+/* 階段卡片 */
+.flow-stage { display:flex; flex-direction:column; gap:18px; min-width:0; padding:24px 28px 0; border-radius:var(--radius-card); box-shadow:var(--shadow); }
+.flow-stage-head { display:flex; align-items:flex-start; gap:14px; min-width:0; }
+.flow-stage-icon { display:grid; place-items:center; flex:none; width:46px; height:46px; border-radius:16px; background:var(--studydy-blue-soft); color:var(--studydy-blue); }
+.flow-stage.is-success .flow-stage-icon { background:var(--success-soft); color:var(--success); }
+.flow-stage.is-attention .flow-stage-icon { background:var(--warning-soft); color:var(--amber-deep); }
+.flow-stage.is-failure .flow-stage-icon { background:var(--error-soft); color:var(--error); }
+.flow-stage-title { flex:1; min-width:0; }
+.flow-stage-title h2 { margin:0 0 4px; font-size:20px; line-height:1.4; overflow-wrap:anywhere; }
+.flow-stage-title p { margin:0; color:var(--text-secondary); font-size:14px; line-height:1.65; }
+.flow-stage-aside { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:8px; flex:none; max-width:50%; }
+.flow-stage > :not(header):not(footer) { margin:0; }
+.flow-stage > .tool-stage-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 16px; margin:0 -28px; padding:16px 28px; border-top:1px solid var(--border-light); border-radius:0 0 var(--radius-card) var(--radius-card); background:var(--studydy-blue-soft-2); }
+.flow-stage > .tool-stage-footer:last-child { margin-top:auto; }
+.flow-stage > .tool-stage-footer .tool-footer-secondary { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; min-width:0; flex:1; color:var(--text-secondary); font-size:13px; }
+.flow-stage > .tool-stage-footer .tool-footer-secondary > span { color:var(--text-secondary); font-size:13px; font-weight:700; }
+.flow-stage > .tool-stage-footer .primary-button { flex:none; margin-left:auto; }
+.flow-stage > .tool-stage-footer :is(.primary-button,.secondary-button) { min-height:44px; }
+.flow-stage > .tool-stage-footer .text-button { min-height:36px; }
+.flow-stage .form-error { margin:0; }
+.flow-chip { display:inline-flex; align-items:center; gap:6px; min-height:28px; padding:0 12px; border-radius:999px; background:var(--studydy-blue-soft); color:var(--studydy-blue); font-size:12px; font-weight:800; white-space:nowrap; }
+.flow-chip.is-success { background:var(--success-soft); color:#087a45; }
+.flow-chip.is-attention { background:var(--warning-soft); color:#8a5a00; }
+.flow-chip.is-failure { background:var(--error-soft); color:var(--error); }
+.flow-chip.is-muted { background:var(--page-cool); color:var(--text-secondary); }
+.flow-notice { margin:0; padding:12px 16px; border-radius:16px; background:var(--warning-soft); color:#7a5300; font-size:14px; line-height:1.65; }
+.flow-wait { display:flex; align-items:center; gap:14px; padding:18px 20px; border-radius:18px; background:var(--studydy-blue-soft-2); color:var(--text-secondary); font-size:14px; font-weight:700; }
+.flow-wait .loading-ring { flex:none; width:26px; height:26px; margin:0; }
+.flow-wait p { margin:0; }
+@media (max-width:640px) {
+  .flow-page { gap:14px; }
+  .flow-stage { gap:14px; padding:18px 16px 0; }
+  .flow-stage-icon { width:40px; height:40px; border-radius:14px; }
+  .flow-stage-title h2 { font-size:18px; }
+  .flow-stage-head { flex-wrap:wrap; }
+  .flow-stage-aside { max-width:none; width:100%; justify-content:flex-start; }
+  .flow-stage > .tool-stage-footer { margin:0 -16px; padding:14px 16px; }
+  .flow-stage > .tool-stage-footer .primary-button { width:100%; }
+}
+
+/* 上傳：拖放區＋待上傳清單，維持閱讀寬度置中。 */
+.upload-stage-body { display:grid; gap:12px; width:100%; max-width:880px; margin-inline:auto; }
+.file-drop { position:relative; display:grid; justify-items:center; gap:8px; padding:36px 24px; border:2px dashed #c8d7f5; border-radius:22px; background:var(--studydy-blue-soft-2); color:var(--text-secondary); text-align:center; cursor:pointer; transition:background .2s, border-color .2s; }
+.file-drop:hover, .file-drop.is-dragging { border-color:var(--studydy-blue); background:var(--studydy-blue-soft); }
+.file-drop:focus-within { outline:3px solid #0757ff40; outline-offset:3px; }
+.file-drop.is-disabled { cursor:not-allowed; opacity:.7; }
+.file-drop input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:inherit; }
+.file-drop-icon { display:grid; place-items:center; width:60px; height:60px; border-radius:20px; background:var(--surface); color:var(--studydy-blue); box-shadow:var(--shadow); }
+.file-drop strong { color:var(--text-primary); font-size:16px; }
+.file-drop > span:last-child { font-size:13px; font-weight:600; }
+.file-drop.has-file { padding:20px 24px; }
+.file-drop.has-file .file-drop-icon { width:44px; height:44px; border-radius:16px; }
+
+.chosen-files { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.chosen-file { display:flex; align-items:center; gap:12px; min-width:0; padding:10px 12px 10px 10px; border:1px solid var(--border-light); border-radius:18px; background:var(--surface); }
+.chosen-file-icon { display:grid; place-items:center; flex:none; width:40px; height:40px; border-radius:14px; background:var(--studydy-blue-soft); color:var(--studydy-blue); }
+.chosen-file.is-failed .chosen-file-icon { background:var(--error-soft); color:var(--error); }
+.chosen-file.is-uploaded .chosen-file-icon { background:var(--success-soft); color:var(--success); }
+.chosen-file-body { flex:1; min-width:0; }
+.chosen-file-body strong { display:block; overflow:hidden; color:var(--text-primary); font-size:14px; text-overflow:ellipsis; white-space:nowrap; }
+.chosen-file-body small { color:var(--text-secondary); font-size:12px; font-weight:700; }
+.chosen-file-body .form-error { margin:4px 0 0; font-size:12px; }
+.flow-icon-button { display:grid; place-items:center; flex:none; width:36px; height:36px; padding:0; border:0; border-radius:50%; background:transparent; color:var(--text-muted); cursor:pointer; }
+.flow-icon-button:hover:not(:disabled) { background:var(--error-soft); color:var(--error); }
+.flow-icon-button:disabled { opacity:.35; cursor:default; }
+.flow-hint { margin:0; color:var(--text-secondary); font-size:13px; line-height:1.6; }
+.flow-steps-preview { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:0; padding:0; list-style:none; }
+.flow-steps-preview li { display:flex; gap:10px; align-items:flex-start; min-width:0; padding:12px 14px; border-radius:18px; background:var(--page-cool); }
+.flow-steps-preview li > span { display:grid; place-items:center; flex:none; width:32px; height:32px; border-radius:12px; background:var(--surface); color:var(--studydy-blue); }
+.flow-steps-preview strong { display:block; font-size:13px; }
+.flow-steps-preview p { margin:2px 0 0; color:var(--text-secondary); font-size:12px; line-height:1.55; }
+@media (max-width:760px) { .flow-steps-preview { grid-template-columns:1fr; } }
+
+
+/* 完成：一張成果卡＋可查看內容。 */
+.flow-result { display:grid; grid-template-columns:auto minmax(0,1fr); gap:20px 28px; align-items:center; padding:28px; border-radius:var(--radius-card); box-shadow:var(--shadow); }
+.flow-result > img { width:150px; height:150px; object-fit:contain; }
+.flow-result-body { display:grid; gap:12px; min-width:0; }
+.flow-result-body h2 { margin:0; font-size:22px; }
+.flow-result-body > p { margin:0; color:var(--text-secondary); font-size:15px; line-height:1.65; }
+.flow-result-stats { display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
+.flow-result-stats li { display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:0 14px; border-radius:999px; background:var(--page-cool); color:var(--text-primary); font-size:13px; font-weight:800; }
+.flow-result-stats svg { color:var(--success); }
+.flow-result-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:4px; }
+@media (max-width:640px) {
+  .flow-result { grid-template-columns:1fr; justify-items:center; padding:22px 18px; text-align:center; }
+  .flow-result > img { width:110px; height:110px; }
+  .flow-result-stats, .flow-result-actions { justify-content:center; }
+  .flow-result-actions > * { flex:1 1 100%; }
+}
+
+/* 頁面最下方：返回與刪除教材同一列。刪除是完整的按鈕（含內距），不再壓縮成純文字。 */
+.flow-bottom { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+.flow-bottom > .back-link { align-self:center; margin:0; }
+.flow-bottom .cancel-confirmation, .flow-bottom .material-remove-message { flex-basis:100%; }
+.danger-button.secondary-button { color:var(--error); }
+.danger-button.secondary-button:hover:not(:disabled) { color:var(--error); background:var(--error-soft); }
+.status-badge { display:inline-flex; align-items:center; justify-self:start; gap:6px; margin:0; padding:4px 12px; border-radius:999px; font-size:13px; font-weight:800; }
+.status-badge.is-success { background:var(--success-soft); color:#087a45; }
+.status-badge.is-partial { background:var(--warning-soft); color:#8a5a00; }
+
+/* 教材來源清單：確認教材與「教材來源」分頁共用同一種列。 */
+.source-list-card { min-width:0; }
+.source-group + .source-group { margin-top:18px; }
+.source-group-title { display:flex; align-items:baseline; gap:8px; margin:0 0 8px; font-size:15px; }
+.source-group-title small { color:var(--text-muted); font-size:12px; font-weight:700; }
+.source-group-empty { margin:4px 0 0; color:var(--text-muted); font-size:14px; }
+.source-list { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.source-row { display:flex; align-items:center; gap:14px; min-width:0; padding:12px 14px; border-radius:18px; background:var(--page-cool); }
+.source-row.is-failed, .source-upload-row.is-failed { background:#fff5f4; }
+.source-number { display:grid; place-items:center; flex:none; width:32px; height:32px; border-radius:12px; background:var(--surface); color:var(--studydy-blue); font-size:14px; font-weight:900; }
+.source-content { flex:1; min-width:0; }
+.source-name { display:block; overflow:hidden; color:var(--text-primary); font-size:15px; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
+.source-metadata { display:flex; flex-wrap:wrap; gap:2px 12px; margin-top:2px; color:var(--text-secondary); font-size:12px; font-weight:700; }
+.source-metadata > span + span::before { content:"·"; margin-right:12px; color:var(--text-muted); }
+.source-metadata .is-included { color:#087a45; }
+.source-progress { margin:4px 0 0; color:var(--studydy-blue); font-size:12px; font-weight:800; }
+.source-content .form-error { margin:4px 0 0; font-size:12px; }
+.source-technical { margin-top:4px; color:var(--text-secondary); font-size:12px; }
+.source-row-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:6px; flex:none; max-width:55%; }
+.source-row-actions :is(a.text-button, .source-remove) { display:inline-flex; align-items:center; min-height:32px; padding:0 12px; border-radius:999px; background:var(--surface); color:var(--studydy-blue); font-size:13px; text-decoration:none; }
+.source-row-actions a.text-button:hover { background:var(--studydy-blue); color:#fff; }
+.source-row-actions .source-download { color:var(--text-secondary); }
+.source-row-actions .source-remove { color:var(--error); }
+.source-row-actions .source-remove:hover:not(:disabled) { background:var(--error-soft); }
+.source-row-actions .secondary-button { min-height:32px; padding:0 14px; font-size:13px; }
+.source-include { display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:0 12px; border-radius:999px; background:var(--surface); color:var(--text-primary); font-size:13px; font-weight:700; cursor:pointer; }
+.source-include input { width:16px; height:16px; margin:0; accent-color:var(--studydy-blue); }
+.source-reorder { display:inline-flex; gap:4px; }
+.source-reorder button { display:grid; place-items:center; width:32px; height:32px; padding:0; border:0; border-radius:50%; background:var(--surface); color:var(--text-secondary); font-weight:900; cursor:pointer; }
+.source-reorder button:hover:not(:disabled) { background:var(--studydy-blue-soft); color:var(--studydy-blue); }
+.source-reorder button:disabled { opacity:.35; cursor:default; }
+.source-show-all { margin-top:10px; min-height:38px; font-size:13px; }
+.source-upload-status.is-pending, .source-upload-status.is-uploading { color:var(--studydy-blue); }
+.source-upload-status.is-failed { color:var(--error); }
+.source-upload-status.is-uploaded { color:#087a45; }
+.source-add-area { display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; }
+.source-add-area .form-error { flex-basis:100%; }
+.source-add-control { position:relative; display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:0 16px; border-radius:999px; font-size:14px; font-weight:800; cursor:pointer; }
+.source-add-control:not(.secondary-button) { border:2px dashed #c8d7f5; background:var(--studydy-blue-soft-2); color:var(--studydy-blue); }
+.source-add-control:not(.secondary-button):hover { border-color:var(--studydy-blue); }
+.source-add-control input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.source-add-control:focus-within { outline:3px solid #0757ff40; outline-offset:2px; }
+.source-add-control:has(input:disabled) { opacity:.5; cursor:not-allowed; }
+.source-list-footer p { margin:0; }
+.source-list-footer .source-summary { color:var(--text-primary); font-size:14px; font-weight:800; }
+.source-request-error { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:16px 20px; border-radius:var(--radius-card); }
+.source-request-error p { margin:0; }
+
+/* 「教材來源」分頁：標題與搜尋同列，下方來源清單與重新檢核卡。 */
+.source-panel { display:grid; gap:16px; min-width:0; }
+.source-panel-head { display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px 20px; }
+.source-panel-title { min-width:0; }
+.source-panel-title h1 { margin:0 0 4px; font-size:24px; }
+.source-panel-title h1:focus { outline:none; }
+.source-panel-title p { display:flex; flex-wrap:wrap; gap:0 12px; margin:0; color:var(--text-secondary); font-size:14px; font-weight:700; }
+.source-panel-head .material-search-row { flex:1 1 420px; max-width:640px; margin:0; }
+.source-panel-head .material-search { flex:1; min-width:0; }
+.source-panel-head .material-search input { width:100%; }
+.source-panel-head .source-add-control { flex:none; }
+.source-panel > .source-list-card { display:flex; flex-direction:column; gap:0; padding:20px 22px; border-radius:var(--radius-card); box-shadow:var(--shadow); }
+.source-panel > .source-list-card > .tool-stage-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin:16px -22px -20px; padding:14px 22px; border-top:1px solid var(--border-light); border-radius:0 0 var(--radius-card) var(--radius-card); background:var(--studydy-blue-soft-2); }
+.source-panel > .source-list-card .tool-footer-secondary { display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px; min-width:0; }
+.source-recheck { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:16px 18px; padding:20px 24px; border-radius:var(--radius-card); box-shadow:var(--shadow); }
+.source-recheck h2 { margin:0 0 4px; font-size:17px; }
+.source-recheck p { margin:0; color:var(--text-secondary); font-size:13px; line-height:1.65; }
+.source-recheck p + p { margin-top:4px; }
+
+@media (max-width:760px) {
+  .source-row { flex-wrap:wrap; gap:10px 12px; }
+  .source-row-actions { justify-content:flex-start; max-width:none; width:100%; padding-left:44px; }
+  .source-recheck { grid-template-columns:minmax(0,1fr); padding:18px; }
+  .source-recheck > .flow-stage-icon { display:none; }
+  .source-recheck > button { justify-self:start; }
+  .source-panel > .source-list-card { padding:16px; }
+  .source-panel > .source-list-card > .tool-stage-footer { margin:14px -16px -16px; padding:14px 16px; }
+  .source-panel-head .material-search-row { flex-basis:100%; max-width:none; }
+}

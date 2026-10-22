@@ -178,7 +178,7 @@ for (const width of [1536, 390])
       await page.goto(sourcesPath);
       await expect(page.getByRole("heading", { name: "確認教材", exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "教材問答", exact: true })).toHaveCount(0);
-      const hero = (await page.locator('.upload-hero').boundingBox())!, header = (await page.locator('.app-header').boundingBox())!;
+      const hero = (await page.locator('.flow-head').boundingBox())!, header = (await page.locator('.app-header').boundingBox())!;
       expect(hero.x).toBeGreaterThanOrEqual(16); expect(hero.y).toBeGreaterThanOrEqual(header.y+header.height+16);
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
       const rows = await readyRows(page);

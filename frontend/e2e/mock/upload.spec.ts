@@ -236,7 +236,7 @@ for (const width of [1536, 390]) {
     const state = await setup(page);
     await page.goto("/upload");
     await expect(page.getByRole("heading", { name: "上傳教材", exact: true })).toBeVisible();
-    await expect(page.locator(".upload-hero p:last-child")).toHaveText(
+    await expect(page.locator(".flow-head p")).toHaveText(
       "選擇一份或多份教材，確認來源後再開始分析。",
     );
     await expect(page.locator(".file-drop strong")).toHaveText("將教材拖放到此處，或點擊選取");

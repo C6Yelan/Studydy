@@ -196,7 +196,9 @@ for (const status of ["succeeded", "partial"] as const)
     await page.goto(runPath);
     const processing = page.locator(".processing-page");
     await expect(processing.getByRole("heading", { level: 1 })).toHaveText("教材整理完成");
-    await expect(processing.locator(".processing-grid h2")).toHaveText(["處理摘要", "處理流程"]);
+    await expect(processing.locator(".flow-result h2")).toHaveText(
+      status === "partial" ? "知識地圖已建立" : "知識地圖已準備完成",
+    );
     await expect(processing.locator(".processing-summary")).toContainText("共處理 45 頁");
     await expect(processing.locator(".processing-summary ul > li")).toHaveText([
       "可回查的概念與學習重點",
@@ -211,20 +213,14 @@ for (const status of ["succeeded", "partial"] as const)
     );
     if (status === "partial") {
       await expect(processing.locator(".status-badge svg")).toHaveCount(0);
-      await expect(processing.locator(".processing-hero")).toContainText("部分內容未完整整理");
+      await expect(processing.locator(".flow-head")).toContainText("部分內容未完整整理");
     } else await expect(processing).not.toContainText(/部分結果可用|未完整整理/);
-    await expect(processing.locator(".completion-bar strong")).toHaveText(
-      status === "partial" ? "知識地圖已建立" : "知識地圖已準備完成",
-    );
     await expect(processing).not.toContainText(/待確認|待複核|需要你確認|請確認內容/);
     await expect(processing.getByRole("progressbar")).toHaveCount(0);
     await expect(
       processing.getByRole("button", { name: "取消並刪除教材", exact: true }),
     ).toHaveCount(0);
-    await expect(processing.locator(".status-timeline > li.is-complete")).toHaveCount(6);
-    await expect(processing.locator(".status-timeline p")).toHaveText(
-      Array(6).fill("此階段已完成。"),
-    );
+    await expect(processing.locator(".learning-steps > li.is-complete")).toHaveCount(3);
     const openMap = processing.getByRole("button", { name: "開啟知識地圖", exact: true });
     await expect(openMap).toHaveClass("primary-button");
     // 進度斷言完成後恢復計時，讓地圖的 lazy/Suspense 轉場正常完成。
@@ -283,7 +279,9 @@ for (const width of [2560, 920, 390])
       await expect(processing.getByRole("heading", { level: 1 })).toHaveText(
         name === "active" ? "正在分析教材" : "教材整理完成",
       );
-      await expect(processing.locator(".processing-grid > section")).toHaveCount(2);
+      const active = name === "active";
+      if (active) await expect(processing.locator(".processing-grid > section")).toHaveCount(2);
+      else await expect(processing.locator(".flow-result")).toHaveCount(1);
       const layout = await processing.evaluate((element) => {
         const main = element.parentElement!;
         const css = getComputedStyle(main);
@@ -293,40 +291,33 @@ for (const width of [2560, 920, 390])
             main.getBoundingClientRect().width -
             parseFloat(css.paddingLeft) -
             parseFloat(css.paddingRight),
-          cards: Array.from(element.querySelectorAll(".processing-grid > section"), (card) =>
+          cards: Array.from(element.querySelectorAll(".processing-grid > section, .flow-result"), (card) =>
             card.getBoundingClientRect().toJSON(),
           ),
-          hero: element.querySelector(".processing-hero")!.getBoundingClientRect().toJSON(),
-          heading: element.querySelector("h1")!.getBoundingClientRect().toJSON(),
+          steps: element.querySelector(".learning-steps")!.getBoundingClientRect().toJSON(),
           clipped: Array.from(element.querySelectorAll("h1, h2, h3, p, button, strong"))
             .filter((e) => e.scrollWidth > e.clientWidth + 1)
             .map((e) => e.textContent),
           documentWidth: document.documentElement.scrollWidth,
         };
       });
-      expect(layout.width).toBeGreaterThan(0);
-      expect(layout.width).toBeCloseTo(Math.min(layout.usable, 1600), 0);
-      expect(layout.cards).toHaveLength(2);
+      // 不鎖定欄寬數值：頁面填滿可用寬度，步驟列在內容卡上方。
+      expect(layout.width).toBeLessThanOrEqual(layout.usable + 1);
+      expect(layout.width).toBeGreaterThanOrEqual(Math.min(layout.usable, 1200) - 1);
       for (const card of layout.cards) {
         expect(card.width).toBeGreaterThan(0);
         expect(card.height).toBeGreaterThan(0);
+        expect(card.y).toBeGreaterThanOrEqual(layout.steps.y + layout.steps.height);
       }
-      const [content, timeline] = layout.cards;
-      if (width > 920) {
-        expect(content.y).toBeCloseTo(timeline.y, 0);
-        expect(content.y).toBeLessThan(350);
-        expect(timeline.x).toBeGreaterThan(content.x + content.width);
-        if (name === "active") {
-          expect(timeline.width).toBeCloseTo(320, 0);
-          expect(timeline.height).toBeGreaterThan(0);
-        }
-      } else expect(timeline.y).toBeGreaterThanOrEqual(content.y + content.height);
-      if (width > 620) expect(layout.heading.y).toBeCloseTo(layout.hero.y, 0);
-      if (name === "active") {
+      if (active) {
+        const [content, timeline] = layout.cards;
+        if (width > 920) {
+          expect(content.y).toBeCloseTo(timeline.y, 0);
+          expect(timeline.x).toBeGreaterThan(content.x + content.width);
+        } else expect(timeline.y).toBeGreaterThanOrEqual(content.y + content.height);
         const progress = await processing.locator(".processing-status").boundingBox();
         const sources = await processing.locator(".processing-sources").boundingBox();
         expect(progress!.y + progress!.height).toBeLessThanOrEqual(sources!.y);
-        expect(progress!.y).toBeLessThan(350);
       }
       expect(layout.documentWidth).toBe(width);
       expect(layout.clipped).toEqual([]);

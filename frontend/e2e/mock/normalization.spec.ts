@@ -397,10 +397,7 @@ for (const viewport of [
     await expect(page.locator(".file-drop")).toContainText("PDF、TXT");
     await expectApplicationFrame();
     expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
-    const uploadColumns = await page.locator(".upload-layout").evaluate((element) =>
-      getComputedStyle(element).gridTemplateColumns.split(" ").map(Number.parseFloat));
-    const uploadWidth = (await page.locator(".upload-layout").boundingBox())!.width;
-    const uploadMascot = await page.locator(".upload-hero > img").boundingBox();
+    await expect(page.locator(".learning-steps [aria-current=step]")).toContainText("上傳教材");
     await page.goto(`/materials/${materialId}/sources`);
     await expect(page.getByRole("link", { name: "預覽 PDF", exact: true })).toBeVisible();
     await expect(page.locator(".source-row").getByRole("status")).toHaveCount(0);
@@ -409,54 +406,35 @@ for (const viewport of [
       44,
     );
     await expect(page.locator(".source-page .primary-button")).toHaveCount(1);
-    const sourceColumns = await page.locator(".upload-layout").evaluate((element) =>
-      getComputedStyle(element).gridTemplateColumns.split(" ").map(Number.parseFloat));
-    const sourceWidth = (await page.locator(".upload-layout").boundingBox())!.width;
-    // 教材來源使用沒有側欄的工作區；保留同樣欄數與固定導覽欄，主欄填滿可用寬度。
-    expect(sourceColumns.length).toBe(uploadColumns.length);
-    expect(sourceColumns.slice(1)).toEqual(uploadColumns.slice(1));
-    expect(sourceColumns[0] - uploadColumns[0]).toBeCloseTo(sourceWidth - uploadWidth, 1);
-    const mascot = (await page.locator(".upload-hero > img").boundingBox())!;
-    expect(mascot.width).toBe(uploadMascot!.width);
-    expect(mascot.height).toBe(uploadMascot!.height);
-    const copy = (await page.locator(".upload-hero > div").boundingBox())!;
-    expect(copy.x + copy.width).toBeLessThan(mascot.x);
-    const card = (await page.locator(".source-list-card").boundingBox())!;
-    const rail = (await page.locator(".source-guide").boundingBox())!;
+    // 上傳、確認教材與處理中共用同一個步驟列：確認階段在第二步。
+    const steps = page.locator(".learning-steps > li");
+    await expect(steps).toHaveCount(3);
+    await expect(steps.nth(1)).toHaveAttribute("aria-current", "step");
     const confirmation = (await page.locator(".source-list-footer").boundingBox())!;
     const cta = (await page.getByRole("button", { name: "開始分析教材" }).boundingBox())!;
     expect(cta.y).toBeGreaterThan(confirmation.y);
-    expect(confirmation.y + confirmation.height - cta.y - cta.height).toBeLessThanOrEqual(33);
-    if (viewport.width > 1200) {
-      expect(rail.width).toBe(320);
-      expect(rail.x - card.x - card.width).toBeCloseTo(24, 0);
-    } else {
-      expect(rail.y).toBeGreaterThan(confirmation.y + confirmation.height);
-    }
+    expect(cta.y + cta.height).toBeLessThanOrEqual(confirmation.y + confirmation.height);
     const back = (await page.getByRole("button", { name: "返回教材庫" }).boundingBox())!;
-    await expect(page.getByRole("button", { name: "刪除教材", exact: true })).toBeVisible();
-    expect(
-      (await page.getByRole("button", { name: "刪除教材", exact: true }).boundingBox())!.y,
-    ).toBeCloseTo(back.y, 0);
-    const steps = page.locator(".source-guide li");
-    await expect(steps.nth(1)).toHaveAttribute("aria-current", "step");
+    const remove = page.getByRole("button", { name: "刪除教材", exact: true });
+    await expect(remove).toBeVisible();
+    const removeBox = (await remove.boundingBox())!;
+    expect(Math.abs(removeBox.y + removeBox.height / 2 - (back.y + back.height / 2))).toBeLessThanOrEqual(2);
+    // 刪除教材是完整的按鈕：文字不超出按鈕。
+    expect(await remove.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     for (const [index, token] of [
       [0, "--success"],
       [1, "--studydy-blue"],
       [2, "--text-secondary"],
     ] as const) {
       expect(
-        await steps
-          .nth(index)
-          .locator(":scope > span")
-          .evaluate((element, token) => {
-            const expected = document.createElement("span");
-            expected.style.color = `var(${token})`;
-            element.append(expected);
-            const matches = getComputedStyle(element).color === getComputedStyle(expected).color;
-            expected.remove();
-            return matches;
-          }, token),
+        await steps.nth(index).evaluate((element, token) => {
+          const expected = document.createElement("span");
+          expected.style.color = `var(${token})`;
+          element.append(expected);
+          const matches = getComputedStyle(element).color === getComputedStyle(expected).color;
+          expected.remove();
+          return matches;
+        }, token),
       ).toBe(true);
     }
     filename = `${"VeryLongFilenameWithoutSpaces".repeat(8)}.docx`;

@@ -1,190 +1,9 @@
 .processing-page {
   width: 100%;
 }
-
-/* 上傳與處理頁的共用標題區。 */
-.upload-hero,
-.processing-hero {
-  display: flex;
-  min-height: 128px;
-  align-items: flex-start;
-}
-
-.upload-hero {
-  gap: var(--space-5);
-  padding: 0 0 var(--space-6);
-}
-
-.processing-hero {
-  gap: var(--space-6);
-}
-
-.upload-hero > img,
-.processing-hero > img {
-  width: 104px;
-  height: 104px;
-  flex-shrink: 0;
-  order: 2;
-  object-fit: contain;
-}
-
-.upload-hero h1,
-.processing-hero h1 {
-  margin: 0 0 var(--space-2);
-  font-size: 32px;
-}
-
-.upload-hero p:last-child,
-.processing-hero p:last-child {
-  max-width: 720px;
-  margin: 0;
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-
-.upload-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: var(--space-6);
-  align-items: start;
-}
-
-.upload-card {
-  padding: var(--space-7);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-/* 卡片可隨應用程式框架展寬，檔案選擇與表單內容維持閱讀寬度。 */
-.upload-layout > :first-child {
-  min-width: 0;
-}
-.upload-card > * {
-  width: 100%;
-  max-width: var(--readable-content-max);
-}
 .processing-card > p,
-.processing-card .form-error,
-.source-request-error p {
+.processing-card .form-error {
   max-width: var(--readable-content-max);
-}
-
-.upload-page .file-drop {
-  margin-top: 0;
-}
-.upload-card > .form-error {
-  overflow-wrap: anywhere;
-}
-.upload-page .guide-card ol {
-  gap: var(--space-5);
-  margin-bottom: 0;
-}
-
-.file-drop {
-  display: flex;
-  min-height: 210px;
-  align-items: center;
-  justify-content: center;
-  margin-top: var(--space-6);
-  padding: var(--space-6);
-  border: 1.5px dashed #9bb8ef;
-  border-radius: var(--radius-card);
-  color: var(--text-primary);
-  background: var(--page-cool);
-  cursor: pointer;
-  flex-direction: column;
-  text-align: center;
-}
-
-.file-drop:hover,
-.file-drop.has-file {
-  border-color: var(--studydy-blue);
-  background: var(--studydy-blue-soft-2);
-}
-
-.file-drop.is-dragging {
-  border-color: var(--studydy-blue);
-  background: var(--studydy-blue-soft);
-  box-shadow: inset 0 0 0 2px rgba(7, 87, 255, 0.15);
-}
-
-.file-drop.is-disabled {
-  cursor: wait;
-  opacity: 0.7;
-}
-
-.file-drop input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
-.file-drop__icon,
-.file-kind,
-.completion-icon {
-  display: grid;
-  place-items: center;
-  color: var(--studydy-blue);
-  background: var(--studydy-blue-soft);
-}
-
-.file-drop__icon {
-  width: 58px;
-  height: 58px;
-  margin-bottom: var(--space-4);
-  border-radius: var(--radius-card);
-}
-
-.file-drop.has-file {
-  min-height: 120px;
-  padding: var(--space-4);
-}
-.file-drop.has-file .file-drop__icon {
-  width: 42px;
-  height: 42px;
-  margin-bottom: var(--space-2);
-}
-.file-drop.has-file + .chosen-file {
-  margin-top: var(--space-3);
-}
-
-.file-drop strong {
-  font-size: 1.02rem;
-}
-
-.file-drop > span:last-child {
-  margin-top: var(--space-2);
-  color: var(--text-secondary);
-  font-size: 0.84rem;
-}
-
-.chosen-file {
-  display: grid;
-  min-height: 72px;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: var(--space-4);
-  padding: var(--space-3);
-  border: 1px solid transparent;
-  border-radius: var(--radius-input);
-  background: var(--page-cool); border-radius: 16px;
-}
-
-.file-kind {
-  width: 42px;
-  height: 42px;
-  border-radius: var(--radius-input);
-  color: var(--error);
-  background: var(--error-soft);
-}
-
-.chosen-file strong,
-.chosen-file small {
-  display: block;
-  overflow-wrap: anywhere;
 }
 
 .state-actions {
@@ -194,77 +13,9 @@
   gap: var(--space-3);
 }
 
-.chosen-file small {
-  margin-top: var(--space-1);
-  color: var(--success);
-}
-
-.upload-aside {
-  min-width: 0;
-}
-
-.guide-card {
-  padding: var(--space-6);
-}
-
-.guide-card h2,
 .processing-card h2 {
   margin: 0;
   font-size: 1.05rem;
-}
-
-.guide-card ol {
-  display: grid;
-  gap: var(--space-4);
-  margin: var(--space-5) 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.guide-card li {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: var(--space-3);
-}
-
-.guide-card li > span {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border-radius: 50%;
-  color: #fff;
-  background: var(--studydy-blue);
-  font-size: 0.8rem;
-  font-weight: 700;
-}
-
-/* 步驟編號全站同一種：淺藍底藍字圓點；確認頁再依進度標示完成（綠勾色）與目前（實心藍）。 */
-.guide-card li > span {
-  color: var(--studydy-blue);
-  background: var(--studydy-blue-soft);
-  font-weight: 900;
-}
-
-.guide-card li p {
-  margin: var(--space-1) 0 0;
-  color: var(--text-secondary);
-  font-size: 0.84rem;
-  line-height: 1.5;
-}
-
-.guide-card li strong {
-  font-size: 14px;
-}
-
-.upload-hero > div,
-.processing-hero > div {
-  min-width: 0;
-  flex: 1;
-}
-.upload-hero .eyebrow,
-.processing-hero .eyebrow {
-  display: none;
 }
 
 /* 處理進度、摘要與流程時間軸。 */
@@ -405,85 +156,6 @@
   line-height: 1.5;
 }
 
-.processing-summary-material {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin: var(--space-5) 0 var(--space-3);
-}
-.processing-summary h3 {
-  font-size: 16px;
-  margin: var(--space-5) 0 var(--space-3);
-}
-.processing-summary-material h3,
-.processing-summary-material p {
-  margin: 0;
-}
-.processing-summary-material p {
-  margin-top: var(--space-1);
-  color: var(--text-secondary);
-}
-
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  font-weight: 700;
-}
-
-.status-badge.is-success {
-  color: var(--success);
-}
-
-.processing-summary ul {
-  display: grid;
-  gap: var(--space-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.processing-summary li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--text-secondary);
-}
-
-.processing-summary li svg {
-  color: var(--success);
-}
-
-.completion-bar {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-4);
-  margin-top: var(--space-5);
-  padding: var(--space-4) var(--space-5);
-}
-
-.completion-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  color: var(--success);
-  background: var(--success-soft);
-}
-
-.completion-icon.is-partial {
-  color: #795400;
-  background: var(--warning-soft);
-}
-
-.completion-bar p {
-  margin: var(--space-1) 0 0;
-  color: var(--text-secondary);
-  font-size: 0.86rem;
-}
-
 .progress-heading {
   display: flex;
   align-items: baseline;
@@ -507,9 +179,6 @@
 .processing-status .progress-estimate-note {
   margin: 0;
   font-size: 13px;
-}
-.status-badge.is-partial {
-  color: #795400;
 }
 .processing-page > .state-view {
   padding-block: 0 var(--space-6);
@@ -744,7 +413,6 @@
   white-space: nowrap;
 }
 
-
 .material-management-menu {
   position: absolute;
   top: 16px;
@@ -846,268 +514,9 @@
 .material-deleting {
   color: var(--text-secondary);
 }
-
 /* 來源確認：同一卡片內的緊湊列，只有異常或新增上傳項目才增加高度。 */
-.source-list-card {
-  padding: 20px;
-  box-shadow: none;
-  min-width: 0;
-}
-.source-list-header,
-.source-primary-actions,
-.source-footer {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.source-list-header,
-.source-footer {
-  justify-content: space-between;
-}
-.source-list-header h2 {
-  margin: 0;
-  font-size: 20px;
-}
-.source-list-header p {
-  margin: 4px 0 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-.source-list-header button {
-  min-height: 36px;
-  font-size: 13px;
-}
-.source-list {
-  list-style: none;
-  padding: 0;
-  margin: 16px 0 0;
-}
-.source-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-  padding: 14px 0;
-  border-top: 1px solid var(--border-light);
-}
-.source-order {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.source-number {
-  display: grid;
-  place-items: center;
-  min-width: 24px;
-  min-height: 36px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-.source-row:has(> .source-reorder) {
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-}
-.source-reorder {
-  display: flex;
-  gap: 2px;
-  align-self: center;
-}
-.source-reorder button {
-  width: 32px;
-  min-height: 36px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-input);
-  color: var(--text-secondary);
-  background: var(--surface);
-}
-.source-content {
-  min-width: 0;
-}
-.source-name {
-  display: block;
-  font-size: 14px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-.source-metadata {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.source-progress {
-  margin: 6px 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-.source-row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  align-items: center;
-  margin-top: 4px;
-}
-.source-row-actions a {
-  text-decoration: none;
-  font-size: 13px;
-}
-.source-row-actions a:hover {
-  text-decoration: underline;
-}
-.source-row-actions .source-download {
-  color: var(--text-secondary);
-}
-.source-row-actions .source-remove {
-  color: var(--error);
-}
-.source-row-actions label {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 13px;
-}
-.source-row-actions button {
-  min-height: 36px;
-  font-size: 13px;
-}
-.source-technical {
-  margin: 6px 0 0;
-  text-align: left;
-  font-size: 13px;
-}
-.source-add-area {
-  border-top: 1px solid var(--border-light);
-  padding: 12px 0;
-}
-.source-add-control {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 40px;
-  padding: 0 8px;
-  border-radius: var(--radius-input);
-  color: var(--studydy-blue);
-  cursor: pointer;
-  font-size: 14px;
-}
-.source-add-control input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-.source-add-control:focus-within {
-  outline: 2px solid var(--studydy-blue);
-  outline-offset: 2px;
-}
-.source-add-control:has(input:disabled) {
-  opacity: 0.5;
-  cursor: wait;
-}
-.source-add-area .form-error {
-  overflow-wrap: anywhere;
-}
-.source-upload-status.is-pending {
-  color: var(--text-secondary);
-}
-.source-upload-status.is-uploading {
-  color: var(--studydy-blue);
-}
-.source-upload-status.is-failed {
-  color: var(--error);
-}
-.source-upload-status.is-uploaded {
-  color: var(--success);
-}
-.source-list-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 20px;
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
-}
-.source-list-footer p {
-  margin: 4px 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-.source-list-footer .form-error {
-  color: var(--error);
-}
-.source-list-footer .source-summary {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-.source-footer {
-  margin-top: 16px;
-}
-.source-footer > button {
-  font-size: 14px;
-}
-.source-footer > .secondary-button {
-  min-height: 36px;
-  padding: 0;
-  border-color: transparent;
-  background: transparent;
-  color: var(--error);
-}
-.source-footer > .secondary-button:hover:not(:disabled) {
-  border-color: transparent;
-  background: transparent;
-  text-decoration: underline;
-}
-.source-footer .cancel-confirmation,
-.source-footer .material-remove-message {
-  flex-basis: 100%;
-}
-.source-request-error {
-  padding: var(--space-5);
-  margin-bottom: var(--space-6);
-}
-.source-request-error p {
-  margin-top: 0;
-}
 /* 來源導覽沿用上傳頁的間距，依目前狀態調整序號顏色。 */
-.guide-card.source-guide li > span {
-  border: 0;
-  color: var(--text-secondary);
-  background: var(--page-cool);
-}
-.source-guide li strong {
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-.source-guide li.is-complete > span {
-  color: var(--success);
-  background: var(--success-soft);
-}
-.source-guide li.is-active > span {
-  color: var(--studydy-blue);
-  background: var(--studydy-blue-soft);
-  box-shadow: inset 0 0 0 2px var(--studydy-blue);
-}
-.source-guide li.is-active strong {
-  color: var(--text-primary);
-  font-weight: 700;
-}
-.conversion-note {
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  overflow-wrap: anywhere;
-}
-
 /* 進行中的分析以進度為主，流程導覽依內容自然高度。 */
-.is-processing .processing-hero {
-  min-height: 0;
-}
-.is-processing .processing-hero p:last-child {
-  max-width: 72ch;
-}
 .is-processing .processing-grid {
   grid-template-columns: minmax(0, 1fr) 320px;
   align-items: start;
@@ -1209,12 +618,6 @@
   }
 }
 
-@media (max-width: 1200px) {
-  .upload-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 @media (max-width: 920px) {
   .processing-grid {
     grid-template-columns: 1fr;
@@ -1225,59 +628,13 @@
 }
 
 @media (max-width: 620px) {
-  .processing-hero,
-  .upload-hero {
-    gap: var(--space-3);
-    min-height: 0;
-  }
-  .processing-hero h1,
-  .upload-hero h1 {
-    font-size: 28px;
-  }
-  .upload-hero > img,
-  .processing-hero > img {
-    width: 56px;
-    height: 64px;
-  }
 
-  .upload-card,
-  .guide-card,
   .processing-card {
     padding: var(--space-5);
   }
 
   .processing-times {
     grid-template-columns: 1fr;
-  }
-
-  .completion-bar {
-    grid-template-columns: 44px 1fr;
-  }
-
-  .completion-bar .primary-button {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-  }
-  .source-list-card {
-    padding: 16px;
-  }
-  .source-row {
-    gap: 8px;
-  }
-  .source-order,
-  .source-reorder {
-    flex-direction: column;
-  }
-  .source-list-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .source-primary-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .source-primary-actions > .primary-button {
-    width: 100%;
   }
   .is-processing .processing-times {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1317,10 +674,6 @@
   .collection-toolbar > button { margin-left: auto; }
 }
 
-.material-content.source-page > div > .cards-page-header { align-items:flex-start; margin-bottom:24px; }
-.material-content.source-page > div > .cards-page-header h1 { margin:0 0 10px; font-size:24px; }
-.material-content.source-page > div > .cards-page-header p { color:var(--text-secondary); font-size:14px; }
-.material-content.source-page > div > .cards-page-header .cards-material-name { margin-bottom:8px; font-size:13px; }
 
 /* 頁籤下方共用搜尋與建立操作的位置。 */
 .material-content .material-search-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:16px; min-height:40px; padding:0; margin:0 0 18px; }
@@ -1335,12 +688,6 @@
  .material-content .material-search-row .collection-summary { order:1; }
  .material-content .material-search-row > button { order:2; margin-left:auto; }
 }
-
-.upload-layout.is-browsing-sources { grid-template-columns:minmax(0,1fr); }
-.material-content.source-page .material-search-row .source-add-control { min-height:40px; font-size:14px; }
-@media(max-width:900px) { .material-content.source-page .material-search-row .source-add-control { margin-left:auto; } }
-.source-group-title { margin:24px 0 8px; font-size:16px; }
-.source-group-empty { color:var(--text-muted); font-size:14px; }
 
 .processing-sources summary { cursor: pointer; font-weight: 600; }
 .processing-sources[open] ol { max-height: 10rem; overflow-y: auto; overflow-wrap: anywhere; }
@@ -1484,39 +831,7 @@
   right: 22px;
 }
 .is-collection .library-item > .state-actions > .primary-button:first-child { flex: 1; }
-
 /* 教材來源頁的重新檢核入口：沿用既有檢核流程，完成後產生新版本。 */
-.source-recheck {
-  display: flex;
-  align-items: center;
-  gap: var(--space-5);
-  margin-top: var(--space-4);
-  padding: var(--space-5);
-  box-shadow: none;
-}
-.source-recheck h2 {
-  margin: 0 0 var(--space-1);
-  font-size: 17px;
-}
-.source-recheck p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.7;
-}
-.source-recheck > div {
-  flex: 1;
-  min-width: 0;
-}
-.source-recheck > button {
-  flex: none;
-}
-@media (max-width: 640px) {
-  .source-recheck {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
 
 /* 三個清單頁（我的教材、概念卡、Podcast）共用頁首與工具列。 */
 .collection-head { align-items: flex-end; margin-bottom: 18px; }
@@ -1596,45 +911,10 @@ button.library-state:hover { background: var(--violet); color: #fff; }
   .material-bookshelf .library-item > form { grid-column: 1 / -1; }
   .material-bookshelf .library-item .material-management-menu { top: 10px; right: 10px; }
 }
-
 /* 教材來源與確認教材：每份來源是一張緊湊的圓角小卡，編號用藍色圓點，操作用膠囊按鈕。 */
-.source-list-card { padding: 22px; border-radius: var(--radius-card); box-shadow: var(--shadow); }
-.source-list-header h1,
-.source-list-header h2 { margin: 0; font-size: 22px; }
-.source-list-header h1:focus,
-.source-list-header h2:focus { outline: none; }
-.source-list-header .source-list-intro { color: var(--text-secondary); font-size: 14px; }
-.source-list { display: grid; gap: 8px; margin-top: 12px; }
-.source-row { padding: 12px 14px; border: 0; border-radius: 18px; background: var(--page-cool); }
-.source-number { min-width: 28px; min-height: 28px; border-radius: 50%; background: var(--studydy-blue-soft); color: var(--studydy-blue); font-weight: 900; }
-.source-name { font-weight: 800; }
-.source-metadata > span + span::before { content: "·"; margin-right: 12px; color: var(--border); }
-.source-metadata { gap: 4px 12px; }
-.source-row-actions { gap: 6px 8px; margin-top: 8px; }
-.source-row-actions a,
-.source-row-actions .source-remove { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border-radius: 999px; background: var(--surface); color: var(--studydy-blue); font-size: 12px; font-weight: 800; text-decoration: none; }
-.source-row-actions a:hover { background: var(--studydy-blue); color: #fff; text-decoration: none; }
-.source-row-actions .source-download { color: var(--text-secondary); }
-.source-row-actions .source-remove { min-height: 30px; color: var(--error); }
-.source-group-title { display: flex; align-items: baseline; gap: 8px; margin: 22px 0 4px; font-size: 15px; }
-.source-group-title small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
-.source-show-all { margin-top: 10px; min-height: 38px; font-size: 13px; }
-.source-group-empty { margin: 8px 0 0; }
-.source-add-control:not(.secondary-button) { padding: 0 14px; border-radius: 999px; background: var(--studydy-blue-soft); font-weight: 800; }
-@media (max-width: 600px) {
-  .source-list-card { padding: 16px; }
-  .source-row { padding: 10px 12px; }
-}
 
-.guide-card { border-radius: var(--radius-card); box-shadow: var(--shadow); }
-.upload-disabled-hint { margin: var(--space-2) 0 0; color: var(--text-muted); font-size: 13px; font-weight: 700; text-align: center; }
-.source-footer .back-link { min-height: 36px; margin: 0; }
 /* 寬螢幕：來源操作放在列的右側，每份來源只佔兩行高。 */
-@media (min-width: 900px) {
-  .source-page .source-content { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: center; }
-  .source-page .source-content > * { grid-column: 1; }
-  .source-page .source-content > .source-row-actions { grid-column: 2; grid-row: 1 / span 2; margin: 0; justify-content: flex-end; }
-}
+
 /* 同列卡片的操作區保留兩列高度，按鈕起點對齊（只有一個主要操作的卡片也一樣）。 */
 .material-bookshelf .library-item > .library-actions { min-height: 104px; } /* 含上方 12px 內距 */
 @media (max-width: 650px) {

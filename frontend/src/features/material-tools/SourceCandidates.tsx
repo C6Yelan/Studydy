@@ -1,3 +1,4 @@
+import './research.css';
 import { useEffect, useRef, useState } from 'react';
 
 export type Candidate = {
@@ -35,6 +36,14 @@ export const sourceReasons: Record<string, string> = {
   RESEARCH_SOURCE_CHANGED: '來源正文已變更，請重新研究核對後再匯入。',
 };
 const states: Record<string, string> = { normalizing: '轉換中', ready: '已取得', failed: '取得失敗' };
+
+export function sourceKindLabel(kind: string) {
+  return kind === 'wikipedia' ? 'Wikipedia' : kind === 'official' ? '官方教學' : kind === 'web' ? '網頁文章' : '學術論文';
+}
+
+export function sourceHost(url: string) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
+}
 
 const PAGE_SIZE = 10;
 
@@ -92,33 +101,46 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
       {!readOnly && !compact && <div className="research-selection">
         <div><button className="text-button" disabled={disabled || !eligible.length} onClick={() => onChange(eligible.map(c => c.id))}>全選可用來源</button><span>／</span><button className="text-button" disabled={disabled} onClick={() => onChange([])}>取消全選</button></div>
         <label><input type="checkbox" checked={onlySelected} onChange={e => setOnlySelected(e.target.checked)} />只看已選</label>
-        <span>已選 {selected.length} 份</span>
       </div>}
     </>}
     <div ref={list} className="research-candidates" tabIndex={0} aria-label={readOnly ? '已選來源' : '來源搜尋結果'}>
       {pageItems.map(c => {
-        const metadata = [c.kind === 'wikipedia' ? 'Wikipedia' : c.kind === 'official' ? '官方教學' : c.kind === 'web' ? '網頁文章' : '學術論文', c.authors, c.year].filter(Boolean).join(' · ');
-        return <article key={c.id} className={selected.includes(c.id) ? 'is-selected' : undefined}>
+        const metadata = [sourceKindLabel(c.kind), c.authors, c.year].filter(Boolean).join(' · ');
+        const host = sourceHost(c.url);
+        const link = /^https?:\/\//.test(c.url) ? c.url : undefined;
+        const relevance = c.review ? c.review.relevance === 'direct' ? '直接相關' : c.review.relevance === 'related' ? '背景參考' : '不相關' : null;
+        const checked = c.review ? `${c.review.scope === 'sections' ? '已核對相關區段。' : c.review.phase === 'body' ? '已核對全文。' : '摘要初篩。'}${c.review.reason}` : null;
+        const attempts = !!c.access?.attempts.length && <ul className="source-attempts">{c.access!.attempts.map((attempt, i) => <li key={i}><a href={/^https?:\/\//.test(attempt.url) ? attempt.url : undefined} target="_blank" rel="noreferrer">{attempt.url}</a><span>{attempt.outcome === 'read' ? `已取得（${attempt.method ?? c.access?.method ?? '正文'}）` : `${attempt.http_status ?? ''} ${sourceReasons[attempt.error_code ?? ''] ?? '取得未完成'}`}</span></li>)}</ul>;
+        const license = <div className="source-license">
+          {c.discovered_by?.length ? <p>搜尋來源：{c.discovered_by.join('、')}（同篇文件合併顯示）</p> : null}
+          <p>{c.license || '尚未確認授權'} · {c.reason}</p>
+          {c.license_url && <a href={c.license_url} target="_blank" rel="noreferrer">查看授權說明 ↗</a>}
+          <p>版本：{c.version}</p>
+          {c.acquisition && <p>取得時間：{new Date(c.acquisition.acquired_at).toLocaleString('zh-TW')}</p>}
+          {c.acquisition?.license_text && <pre>{c.acquisition.license_text}</pre>}
+        </div>;
+        const state = (readOnly && !compact || !c.eligible || c.error_code || c.state === 'failed' || readOnly && c.state === 'normalizing') && <span className={`source-state${c.error_code || c.state === 'failed' ? ' is-failed' : !c.eligible ? ' is-muted' : c.state === 'ready' ? ' is-ready' : ''}`}>{!c.eligible ? unavailableStatus(c) : c.error_code ? '取得失敗' : states[c.state] ?? '可加入'}</span>;
+        return <article key={c.id} className={selected.includes(c.id) && !readOnly ? 'is-selected' : undefined}>
         <div className="source-candidate-heading">
           <label>{!readOnly && <input type="checkbox" aria-label={`選取 ${c.title}`} disabled={!c.eligible || disabled} checked={selected.includes(c.id)} onChange={e => onChange(e.target.checked ? [...selected, c.id] : selected.filter(x => x !== c.id))} />}<strong>{c.title}</strong></label>
-          {(!compact || !c.eligible || c.error_code || c.state === 'failed' || readOnly && c.state === 'normalizing') && <span className={`source-state${c.error_code ? ' is-failed' : ''}`}>{!c.eligible ? unavailableStatus(c) : c.error_code ? '取得失敗' : states[c.state] ?? '可加入'}</span>}
+          {state}
         </div>
         <p className="source-byline" title={metadata}>{metadata}</p>
-        {c.review?.phase === 'body' && <p className="source-purpose">{c.review.reason.split(/(?<=[。！？])/).slice(0, 2).join('')}</p>}
-        {c.review && <details className="source-review"><summary>{c.review.relevance === 'direct' ? '直接相關' : c.review.relevance === 'related' ? '背景參考' : '不相關'} · 查看閱讀判斷</summary><p>{c.review.scope === 'sections' ? '已核對相關區段。' : c.review.phase === 'body' ? '已核對全文。' : '摘要初篩。'}{c.review.reason}</p></details>}
-        {!c.eligible && c.review && <p className="source-reference-note">{c.reason}</p>}
+        {!readOnly && c.review?.phase === 'body' && <p className="source-purpose">{c.review.reason.split(/(?<=[。！？])/).slice(0, 2).join('')}</p>}
+        {!readOnly && !c.eligible && c.review && <p className="source-reference-note">{c.reason}</p>}
         {c.error_code && <p className="source-error">{sourceReasons[c.error_code] ?? '取得失敗，可重試。'}</p>}
         <div className="source-candidate-links">
-          <a href={/^https?:\/\//.test(c.url) ? c.url : undefined} target="_blank" rel="noreferrer">{compact ? '原始來源 ↗' : '查看原始來源 ↗'}</a>
-          {!!c.access?.attempts.length && <details><summary>查看存取紀錄</summary><ul>{c.access.attempts.map((attempt, i) => <li key={i}><a href={/^https?:\/\//.test(attempt.url) ? attempt.url : undefined} target="_blank" rel="noreferrer">{attempt.url}</a><span>{attempt.outcome === 'read' ? `已取得（${attempt.method ?? c.access?.method ?? '正文'}）` : `${attempt.http_status ?? ''} ${sourceReasons[attempt.error_code ?? ''] ?? '取得未完成'}`}</span></li>)}</ul></details>}
-          {showAcquisitionDetails && <details><summary>授權與取得資訊</summary><div>
-            {c.discovered_by?.length ? <p>搜尋來源：{c.discovered_by.join('、')}（同篇文件合併顯示）</p> : null}
-            <p>{c.license || '尚未確認授權'} · {c.reason}</p>
-            {c.license_url && <a href={c.license_url} target="_blank" rel="noreferrer">查看授權說明 ↗</a>}
-            <p>版本：{c.version}</p>
-            {c.acquisition && <p>取得時間：{new Date(c.acquisition.acquired_at).toLocaleString('zh-TW')}</p>}
-            {c.acquisition?.license_text && <pre>{c.acquisition.license_text}</pre>}
-          </div></details>}
+          {link ? <a className="source-host-link" href={link} target="_blank" rel="noreferrer" title={c.url}>{host || '原始來源'} ↗</a> : <span className="source-host-link">{host || '原始來源'}</span>}
+          {relevance && <span className={`source-relevance is-${c.review!.relevance}`}>{relevance}</span>}
+          {readOnly ? (checked || attempts || showAcquisitionDetails) && <details className="source-more"><summary>詳細資訊</summary><div>
+            {checked && <p><strong>閱讀判斷</strong>{checked}</p>}
+            {attempts && <><strong>存取紀錄</strong>{attempts}</>}
+            {showAcquisitionDetails && <><strong>授權與取得資訊</strong>{license}</>}
+          </div></details> : <>
+            {checked && <details className="source-review"><summary>閱讀判斷</summary><p>{checked}</p></details>}
+            {attempts && <details><summary>查看存取紀錄</summary>{attempts}</details>}
+            {showAcquisitionDetails && <details><summary>授權與取得資訊</summary>{license}</details>}
+          </>}
         </div>
       </article>; })}
       {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前尚無已核對可加入的來源，可查看其他搜尋結果的原因或接續研究。</p>}
@@ -140,7 +162,7 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
       <p>這些項目尚未完成核對，或目前無法加入教材；不代表都與需求無關。上方只列本輪已核對可選的來源。</p>
       <ul>{otherResults.map(c => <li key={c.id}>
         <strong>{c.title}</strong><p>{unavailableStatus(c)} · {c.screening?.basis === 'importability' || c.access?.fulltext_unavailable || c.source_type_review ? c.reason : c.screening?.reason ?? '本輪尚未閱讀這份來源，未判定其內容是否可用。'}</p>
-        <a href={/^https?:\/\//.test(c.url) ? c.url : undefined} target="_blank" rel="noreferrer">原始來源 ↗</a>
+        <a href={/^https?:\/\//.test(c.url) ? c.url : undefined} target="_blank" rel="noreferrer">{sourceHost(c.url) || '原始來源'} ↗</a>
       </li>)}</ul>
     </details>}
   </div>;

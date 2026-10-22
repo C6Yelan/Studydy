@@ -69,7 +69,7 @@ export function MaterialRemoveControl({
       {(inActionRow || !confirming) && (
         <button
           ref={action}
-          className="secondary-button"
+          className="secondary-button danger-button"
           type="button"
           disabled={confirming || busy}
           onClick={() => {

@@ -1,3 +1,4 @@
+import './research.css';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { errorMessage, type StudydyApiClient } from '../../api/client';
 import { routePath, writeRoute } from '../../app/routes';
@@ -57,7 +58,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
     finally { creating.current = false; if (alive.current) setBusy(false); }
   };
   const removeScope = async (scope: Topic) => {
-    if (!window.confirm('刪除這份搜尋範圍？這不會刪除教材或其他查詢。')) return;
+    if (!window.confirm('取消這個補充規劃？不會刪除教材或其他查詢。')) return;
     setRemovingScope(scope.topic_id); setListError('');
     try {
       await api.studyTools(`/v1/topics/${scope.topic_id}/actions`, {action:'cancel',expected_version:scope.version});
@@ -102,7 +103,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
         {searchError && <p className="form-error" role="alert">{searchError}</p>}
       </section>
       {listError && <p className="form-error" role="alert">{listError}<button className="text-button" type="button" onClick={() => void refresh().catch(error => setListError(errorMessage(error)))}>重新讀取查詢</button></p>}
-      {scopes.map(scope=><article className="surface research-record research-scope" key={scope.topic_id}><h2 title={scope.request}>{scope.request}</h2><p>{scope.status==='pending'?'正在整理觀念與細節，尚未搜尋。':scope.status==='failed'?'需求規劃未完成，可重試。':'待確認搜尋範圍，尚未搜尋。'}</p><div className="tool-footer-secondary"><button className="primary-button" disabled={removingScope!==null} onClick={()=>writeRoute({name:'topic',topicId:scope.topic_id})}>查看搜尋範圍</button><button className="text-button" disabled={removingScope!==null} onClick={()=>void removeScope(scope)}>{removingScope===scope.topic_id?'正在刪除…':'刪除搜尋範圍'}</button></div></article>)}
+      {scopes.map(scope=><article className="surface research-record research-scope" key={scope.topic_id}><h2 title={scope.request}>{scope.request}</h2><p>{scope.status==='pending'?'正在整理觀念與細節，尚未搜尋。':scope.status==='failed'?'需求規劃未完成，可重試。':'待確認搜尋範圍，尚未搜尋。'}</p><div className="tool-footer-secondary"><button className="primary-button" disabled={removingScope!==null} onClick={()=>writeRoute({name:'topic',topicId:scope.topic_id})}>查看搜尋範圍</button><button className="text-button" disabled={removingScope!==null} onClick={()=>void removeScope(scope)}>{removingScope===scope.topic_id?'正在取消…':'取消這個規劃'}</button></div></article>)}
       {list?.length === 0 && scopes.length===0 && <EmptyState title="還沒有補充查詢" description="在上方輸入想多了解的內容；建立查詢後，可從卡片開啟來源與處理進度。" />}
       <div className="library-grid research-records" role="region" tabIndex={0} aria-label="補充搜尋紀錄">{list?.filter(item => item.status !== 'cancelled').map(renderRecord)}</div>
       {!!stopped.length && <details className="research-stopped">

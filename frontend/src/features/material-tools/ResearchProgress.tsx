@@ -1,3 +1,4 @@
+import './research.css';
 import type { ResearchProgress as Progress } from './research';
 
 const stages = ['需求拆解', '收集來源與摘要', '摘要初篩', '重點閱讀與核對', '整理與缺口檢查'];

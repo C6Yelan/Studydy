@@ -1,3 +1,4 @@
+import './research.css';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { BackLink } from '../../ui/BackLink';
 import { errorMessage, isNotFound, type StudydyApiClient } from '../../api/client';
