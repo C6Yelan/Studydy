@@ -1,0 +1,133 @@
+/*
+ * 建立卡組／Podcast 與管理卡組：沿用建立教材流程（flow.css）的頁首、步驟列與階段卡片。
+ * 頁首右側放縮小的步驟列；名稱欄在階段卡片標題列右側；頁尾左邊摘要、右邊主要操作。
+ */
+.creation-page { width:100%; max-width:none; }
+.creation-head .flow-head-row { align-items:center; }
+.creation-head-aside { flex:0 1 480px; min-width:0; }
+.creation-head-aside .learning-steps { padding:10px 12px; }
+.creation-head-aside .learning-steps li { font-size:12px; }
+.creation-head-aside .learning-step-mark { width:28px; height:28px; font-size:13px; }
+.creation-head-aside .learning-steps li + li::before { top:13px; right:calc(50% + 19px); left:calc(-50% + 19px); }
+.creation-head .cards-material-name { display:inline-flex; color:var(--text-secondary); font-weight:700; }
+@media (max-width:760px) {
+  .creation-head .flow-head-row { flex-direction:column; align-items:stretch; gap:12px; }
+  .creation-head-aside { flex:none; }
+}
+
+/* 名稱欄：桌面在階段卡片標題列右側，與標題同一列。 */
+.flow-stage-aside:has(> .creation-name) { flex:0 1 460px; max-width:none; }
+.creation-name { display:flex; align-items:center; gap:10px; width:100%; margin:0; color:var(--text-primary); font-size:13px; font-weight:800; white-space:nowrap; }
+.creation-name input { flex:1; min-width:0; min-height:42px; padding:8px 14px; border:1.5px solid var(--border); border-radius:var(--radius-input); background:var(--surface); color:var(--text-primary); font:inherit; font-size:14px; font-weight:600; }
+.creation-name input:focus { border-color:var(--studydy-blue); outline:none; box-shadow:0 0 0 3px var(--studydy-blue-soft); }
+@media (max-width:640px) { .creation-name { display:grid; gap:6px; white-space:normal; } }
+
+/* 選教材：島嶼縮圖清單（與我的教材同一套外觀）。 */
+.creation-picker-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; margin:0 0 24px; padding:0; list-style:none; }
+.creation-picker-grid button { display:flex; align-items:center; gap:14px; width:100%; min-height:76px; padding:10px 14px 10px 10px; border:0; border-radius:20px; background:var(--page-cool); color:var(--text-primary); font:inherit; text-align:left; cursor:pointer; transition:background .2s, box-shadow .2s; }
+.creation-picker-grid button:hover, .creation-picker-grid button:focus-visible { background:var(--studydy-blue-soft); box-shadow:inset 0 0 0 1.5px var(--studydy-blue); outline:none; }
+.creation-picker-grid button > svg { flex:none; color:var(--studydy-blue); }
+.creation-picker-thumb { flex:none; width:84px; height:56px; overflow:hidden; border-radius:14px; background:linear-gradient(180deg,#8fe0fb,#3aa6e2); }
+.creation-picker-text { display:grid; flex:1; min-width:0; gap:2px; }
+.creation-picker-text strong { overflow-wrap:anywhere; font-size:15px; font-weight:900; }
+.creation-picker-text small { color:var(--text-muted); font-size:12px; font-weight:700; }
+.creation-picker .flow-wait { margin-bottom:24px; }
+
+/* 階段卡片內容：左側概念清單、右側預覽或講解設定。 */
+.cards-create-grid, .podcast-compose-grid { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr); gap:20px; align-items:start; min-width:0; }
+.podcast-compose-grid { grid-template-columns:minmax(0,1fr) clamp(260px,24vw,340px); }
+.cards-selection, .podcast-selection { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.cards-selection-heading { display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; }
+.cards-page .cards-selection-heading .cards-concept-search { flex:1 1 220px; min-width:0; width:auto; min-height:40px; padding:8px 14px; border-radius:999px; font-size:14px; }
+.cards-selection-actions { display:flex; align-items:center; gap:6px; color:var(--text-muted); font-size:13px; }
+.cards-selection-actions button, .podcast-selection-tools .text-button { min-height:32px; padding:0; white-space:nowrap; }
+
+.cards-concept-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-auto-rows:max-content; gap:8px; align-content:start; }
+.cards-concept-row, .podcast-concept-option { display:flex; align-items:center; gap:8px; min-width:0; min-height:60px; padding:8px 12px; border:1.5px solid transparent; border-radius:18px; background:var(--page-cool); transition:background .15s, border-color .15s; }
+.cards-concept-row.is-selected, .podcast-concept-option.is-selected { border-color:#c8d7f5; background:var(--studydy-blue-soft); }
+.cards-concept-row label, .podcast-concept-option label { display:flex; flex:1; align-items:center; gap:10px; min-width:0; cursor:pointer; }
+.cards-concept-row label > span, .podcast-concept-option label > span { min-width:0; }
+.cards-concept-row input, .podcast-concept-option input { flex:none; width:17px; height:17px; margin:0; accent-color:var(--studydy-blue); }
+.cards-concept-row strong, .podcast-concept-option strong { display:block; color:var(--text-primary); font-size:14px; font-weight:800; line-height:1.4; overflow-wrap:anywhere; }
+.cards-concept-row small, .podcast-concept-option small { display:block; margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:700; }
+.cards-concept-row > button, .podcast-concept-option > button { flex:none; min-height:32px; padding:0 4px; font-size:12px; }
+.cards-concept-pagination { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.cards-concept-pagination button { min-height:36px; padding:6px 14px; font-size:13px; }
+.cards-concept-pagination span { color:var(--text-secondary); font-size:12px; font-weight:700; }
+
+/* 預覽與講解設定：淺色底的副區塊。 */
+.cards-preview, .podcast-settings { display:flex; flex-direction:column; gap:12px; min-width:0; padding:16px 18px 18px; border-radius:20px; background:var(--page-cool); }
+.cards-preview-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; min-width:0; }
+.cards-preview-heading h3, .podcast-settings h3 { margin:0; font-size:15px; }
+.cards-preview-heading span { overflow:hidden; color:var(--text-secondary); font-size:12px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.cards-preview-status { margin:0; color:var(--text-secondary); font-size:13px; }
+.cards-create .flashcard, .cards-create .flashcard-details { min-height:240px; }
+.cards-create .flashcard-details { padding:20px; }
+.cards-preview .visual-card + .visual-card { margin-top:20px; }
+
+/* 頁尾摘要：數量＋一句提示。 */
+.cards-create-summary { display:grid; gap:2px; min-width:0; }
+.cards-create-summary strong { color:var(--text-primary); font-size:15px; }
+.cards-create-summary span { color:var(--text-secondary); font-size:12px; font-weight:700; }
+
+/* Podcast：概念清單、預覽與講解形式。 */
+.podcast-selection-tools { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; color:var(--text-secondary); font-size:13px; }
+.podcast-selection-tools > div { display:flex; align-items:center; gap:6px; color:var(--text-muted); }
+.podcast-selection-tools label { display:inline-flex; align-items:center; gap:6px; font-weight:700; cursor:pointer; }
+.podcast-selection-tools input { margin:0; accent-color:var(--studydy-blue); }
+.podcast-concept-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:8px; max-height:min(44vh,420px); overflow-y:auto; overscroll-behavior:contain; align-content:start; }
+.podcast-concept-option { min-height:52px; }
+.podcast-concept-option strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.podcast-concept-preview { padding:12px 14px; border-radius:18px; background:var(--studydy-blue-soft-2); font-size:13px; }
+.podcast-concept-preview header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.podcast-concept-preview header .text-button { min-height:32px; }
+.podcast-concept-preview > div { max-height:130px; overflow-y:auto; }
+.podcast-concept-preview p { margin:8px 0; }
+.podcast-delivery { display:grid; gap:10px; margin:0; padding:0; border:0; }
+.podcast-delivery legend { margin-bottom:8px; padding:0; color:var(--text-secondary); font-size:13px; font-weight:800; }
+.podcast-delivery label { display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border:1.5px solid transparent; border-radius:16px; background:var(--surface); cursor:pointer; }
+.podcast-delivery label.is-selected { border-color:var(--studydy-blue); background:var(--studydy-blue-soft-2); }
+.podcast-delivery input { margin:3px 0 0; accent-color:var(--studydy-blue); }
+.podcast-delivery strong { display:block; font-size:14px; }
+.podcast-delivery small { display:block; margin-top:2px; color:var(--text-secondary); font-size:12px; }
+.podcast-config-nav { display:none; }
+
+/* 桌面：填滿教材外框，長清單與預覽在各自區域內捲動，主要按鈕固定在卡片頁尾。 */
+@media (min-width:1000px) {
+  .material-content:has(.creation-page) { display:flex; flex-direction:column; height:calc(100dvh - var(--shell-header-height,56px)); min-height:0; }
+  .material-content:has(.creation-page) > :not(.material-content-body) { flex-shrink:0; }
+  .material-content-body:has(.creation-page),
+  .material-content-body > [role=tabpanel]:has(.creation-page) { display:flex; flex:1; min-width:0; min-height:0; }
+  .material-content .creation-page { flex:1; min-height:0; gap:16px; }
+  .material-content .creation-page > .flow-head { flex-shrink:0; }
+  .material-content .creation-page > .flow-stage { flex:1; min-height:0; gap:14px; padding-top:18px; }
+  .material-content .creation-page > .flow-stage > :not(.cards-create-grid):not(.podcast-compose-grid) { flex-shrink:0; }
+  .material-content .creation-page :is(.cards-create-grid, .podcast-compose-grid) { flex:1; min-height:0; align-items:stretch; }
+  .material-content .creation-page :is(.cards-selection, .podcast-selection, .cards-preview) { min-height:0; }
+  .material-content .creation-page :is(.cards-selection, .podcast-selection) > :not(.cards-concept-list):not(.podcast-concept-list) { flex-shrink:0; }
+  .material-content .creation-page :is(.cards-concept-list, .podcast-concept-list) { flex:1; min-height:0; max-height:none; overflow-y:auto; }
+  .material-content .creation-page .cards-preview { overflow-y:auto; }
+  .material-content .creation-page .cards-preview-heading { flex-shrink:0; }
+  .material-content .creation-page .cards-preview .flashcard { flex:1; min-height:0; }
+  .material-content .creation-page .cards-preview .flashcard-details { display:flex; flex-direction:column; height:100%; min-height:0; }
+  .material-content .creation-page .cards-preview .flashcard-content { flex:1; min-height:0; max-height:none; }
+  .material-content .creation-page .cards-preview .visual-card { display:flex; flex-direction:column; min-height:0; }
+  .material-content .creation-page .cards-preview .visual-concept-card { flex:1; min-height:0; }
+  .material-content .creation-page .podcast-settings { align-self:start; }
+}
+@media (max-width:999px) {
+  .cards-create-grid { grid-template-columns:minmax(0,1fr) minmax(260px,.8fr); }
+  .cards-concept-list { grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:900px) {
+  .podcast-config-nav { display:flex; gap:6px; }
+  .podcast-config-nav button { flex:1; min-width:0; min-height:40px; padding:8px 4px; font-size:13px; }
+  .podcast-compose-grid { grid-template-columns:minmax(0,1fr); }
+  .podcast-config-section:not(.is-active) { display:none; }
+  .podcast-settings h3 { display:none; }
+  .podcast-concept-list { grid-template-columns:minmax(0,1fr); max-height:46vh; }
+}
+@media (max-width:700px) {
+  .cards-create-grid { grid-template-columns:minmax(0,1fr); }
+  .cards-preview { padding:14px; }
+}

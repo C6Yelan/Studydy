@@ -3,7 +3,7 @@
 .cards-page-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 30px; }
 .cards-page h1 { margin: 7px 0 10px; font-size: clamp(25px, 2.5vw, 34px); letter-spacing: -.035em; overflow-wrap: anywhere; }
 .cards-page-header p { margin: 0; color: var(--text-secondary); line-height: 1.7; }
-.cards-page input[type="search"], .cards-field input { width: 100%; min-height: 44px; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-input); background: #fff; color: var(--text-primary); font: inherit; }
+.cards-page input[type="search"] { width: 100%; min-height: 44px; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-input); background: #fff; color: var(--text-primary); font: inherit; }
 .cards-empty, .cards-complete { text-align: center; padding: 65px 24px; border: 1px solid var(--border-light); border-radius: 18px; background: #fff; }
 .cards-empty-icon { display: grid; place-items: center; width: 80px; height: 80px; background: var(--studydy-blue-soft); color: var(--studydy-blue); border-radius: 24px; margin: 0 auto 24px; }
 .cards-empty h2, .cards-complete h2 { margin: 0 0 12px; font-size: 23px; }
@@ -20,37 +20,6 @@
 .cards-version-tag { display: inline-flex !important; align-items: center; gap: 6px; width: fit-content; margin-top: 8px !important; padding: 4px 12px; border-radius: 999px; background: var(--violet-soft); color: #5b3ab8 !important; font-size: 12px !important; font-weight: 800; }
 .cards-version-tag svg { margin-top: 0 !important; }
 .cards-material-name { display: flex; align-items: center; gap: 7px; overflow-wrap: anywhere; }
-.cards-create-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 16px; align-items: start; }
-.cards-selection, .cards-preview { background: #fff; padding: 20px; border: 1px solid var(--border-light); border-radius: 14px; min-width: 0; }
-.cards-field { display: grid; gap: 9px; font-size: 14px; font-weight: 600; margin-bottom: 28px; }
-.cards-field input { font-weight: 400; }
-.cards-selection-heading, .cards-preview-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; }
-.cards-selection-heading h2, .cards-preview-heading h2 { margin: 0; font-size: 17px; }
-.cards-selection-heading span, .cards-preview-heading span { color: var(--text-secondary); font-size: 12px; }
-.cards-selection-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
-.cards-selection-toolbar .cards-concept-search { flex: 1; min-width: 150px; }
-.cards-selection-actions { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text-muted); }
-.cards-selection-actions button { white-space: nowrap; }
-.cards-concept-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: max-content; gap: 8px; align-content: start; }
-.cards-concept-row { display: flex; align-items: center; gap: 8px; min-height: 60px; border: 1px solid transparent; border-radius: 16px; padding: 8px 10px; background: var(--page-cool); }
-.cards-concept-row.is-selected { background: var(--studydy-blue-soft); border-color: #cbdcf4; }
-.cards-concept-row label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
-.cards-concept-row label > span { min-width: 0; }
-.cards-concept-row input { width: 17px; height: 17px; flex-shrink: 0; accent-color: var(--studydy-blue); }
-.cards-concept-row strong { display: block; font-size: 14px; font-weight: 800; overflow-wrap: anywhere; }
-.cards-concept-row small { display: block; color: var(--text-muted); font-size: 12px; margin-top: 3px; }
-.cards-concept-row > button { flex-shrink: 0; font-size: 12px; }
-.cards-concept-pagination { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 14px; }
-.cards-concept-pagination button { min-height: 36px; padding: 7px 12px; font-size: 13px; }
-.cards-concept-pagination span { font-size: 12px; color: var(--text-secondary); }
-.cards-create-toolbar { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; margin-bottom: 16px; padding: 16px 20px; border: 1px solid var(--border-light); background: #fff; border-radius: 14px; }
-.cards-create-toolbar .cards-field { display: flex; align-items: center; flex: 1; min-width: 220px; gap: 12px; margin: 0; white-space: nowrap; }
-.cards-create-toolbar .cards-field input { flex: 1; min-width: 0; }
-.cards-create-summary { display: grid; gap: 5px; }
-.cards-create-summary strong { font-size: 15px; }
-.cards-create-summary span { color: var(--text-muted); font-size: 12px; }
-.cards-create-toolbar .form-error { flex-basis: 100%; margin: 0; }
-.cards-create .flashcard, .cards-create .flashcard-details { min-height: 240px; } .cards-create .flashcard-details { padding: 20px; }
 
 .flashcard { min-width: 0; width: 100%; min-height: 340px; border: 1px solid #d5e1f1; border-radius: 20px; background: #fff; box-shadow: 0 8px 28px #2b45610b, 0 2px 3px #2b456106; overflow: hidden; animation: card-reveal .18s ease-out; }
 
@@ -90,21 +59,9 @@
 .cards-keyboard-hint { margin:8px 0 0; text-align:center; color:var(--text-muted); font-size:12px; }
 .cards-study-notice { text-align: center; font-size: 13px; color: var(--text-secondary); }
 @keyframes card-reveal { from { opacity: .6; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-@media (max-width: 999px) {
-  .cards-create-grid { grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); }
-  .cards-selection, .cards-preview { padding: 18px; }
-  .cards-concept-list { grid-template-columns: 1fr; }
-}
 @media (max-width: 700px) {
   .cards-page-header { align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; }
   .cards-page-header > .primary-button { min-height: 42px; font-size: 14px; }
-  .cards-create-grid { grid-template-columns: 1fr; }
-  .cards-preview-heading { margin-top: 10px; }
-  .cards-create-toolbar { gap: 12px; padding: 14px; }
-  .cards-create-toolbar .cards-field { display: grid; flex-basis: 100%; gap: 8px; }
-  .cards-create-summary { flex: 1; }
-  .cards-create-summary span { display: none; }
-  .cards-create-toolbar .primary-button { font-size: 13px; }
   .cards-study-heading h1 { font-size: 23px; }
 
   .flashcard-details { min-height:320px; padding:20px; }
@@ -125,39 +82,7 @@
 @media (max-width: 700px) {
   .cards-study .flashcard-point p { font-size: 15px; }
 }
-.cards-creation-page { width: 100%; max-width: none; }
-.creation-page > .cards-page { padding: 0; max-width: none; margin: 0; }
-.creation-page > .cards-page-header { justify-content: flex-start; flex-wrap: nowrap; }
-.creation-page > .cards-page-header p { color: var(--text-secondary); }
 
-/* 桌面建立頁依視窗分配剩餘高度，清單與長卡片內容在各自區域內閱讀。 */
-@media (min-width: 1000px) {
-  .material-content:has(.cards-creation-page) { display: flex; flex-direction: column; height: calc(100dvh - var(--shell-header-height, 56px)); min-height: 0; }
-  .material-content:has(.cards-creation-page) > .material-learning-toolbar,
-  .material-content:has(.cards-creation-page) > .material-context { flex-shrink: 0; }
-  .material-content-body:has(.cards-creation-page) { display: flex; flex: 1; min-height: 0; }
-  .material-content-body > [role="tabpanel"]:has(.cards-creation-page) { display: flex; flex: 1; min-width: 0; min-height: 0; }
-  .material-content .cards-creation-page { display: flex; flex-direction: column; min-height: 0; }
-  .cards-creation-page > .cards-page-header { flex-shrink: 0; margin-bottom: 16px; }
-  .cards-creation-page > .cards-page-header h1 { margin-top: 0; margin-bottom: 6px; }
-  .cards-creation-page > .cards-create { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  .cards-creation-page .cards-create-toolbar { flex-shrink: 0; }
-  .cards-creation-page .cards-create-grid { flex: 1; min-height: 0; align-items: stretch; }
-  .cards-creation-page .cards-selection,
-  .cards-creation-page .cards-preview { display: flex; flex-direction: column; min-height: 0; }
-  .cards-creation-page .cards-selection-heading,
-  .cards-creation-page .cards-selection-toolbar,
-  .cards-creation-page .cards-concept-pagination,
-  .cards-creation-page .cards-preview-heading,
-  .cards-creation-page .cards-preview-hint { flex-shrink: 0; }
-  .cards-creation-page .cards-concept-list { flex: 1; min-height: 0; overflow-y: auto; }
-  .cards-creation-page .flashcard { flex: 1; min-height: 0; }
-
-  .cards-creation-page .flashcard-details { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-  .cards-creation-page .flashcard-details > h2,
-  .cards-creation-page .flashcard-details > .flashcard-kicker { flex-shrink: 0; }
-  .cards-creation-page .flashcard-content { flex: 1; min-height: 0; max-height: none; }
-}
 
 .flashcard-review { display:block; width:fit-content; padding:4px 9px; border-radius:12px; background:#fff3d9; color:#78541b; font-size:12px; line-height:1.5; }
 .flashcard-relation { padding:14px; margin-block:12px; border:1px solid #cbdfe7; border-radius:14px; background:#f3f8fb; }
@@ -196,8 +121,6 @@
 .visual-concept-card { display: block; width: 100%; height: auto; object-fit: contain; }
 .concept-card-placeholder { aspect-ratio: 1200 / 760; display: grid; place-content: center; text-align: center; }
 .visual-card-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 12px; }
-.cards-creation-page .visual-card { min-height: 0; display: flex; flex-direction: column; }
-.cards-creation-page .visual-concept-card { min-height: 0; flex: 1; }
 
 @media (max-width: 700px) {
   .visual-card-actions { justify-content: flex-start; gap: 8px; }
@@ -208,9 +131,7 @@
 .concept-card-details { margin-top: 12px; }
 .concept-card-details > summary { width: fit-content; cursor: pointer; color: var(--studydy-blue); padding: 8px 0; font-size: 14px; }
 .concept-card-details[open] > summary { margin-bottom: 8px; }
-.cards-creation-page .cards-preview { overflow-y: auto; }
 
-.cards-preview .visual-card + .visual-card { margin-top: 20px; }
 
 /* 瀏覽時標記目前這張卡熟不熟。 */
 .cards-study-mark {
@@ -246,22 +167,6 @@
   font-weight: 800;
 }
 
-/* 建立卡組／Podcast：返回膠囊在標題上方；選教材用島嶼縮圖清單。 */
-.creation-page > .back-link { flex-shrink: 0; margin-bottom: 10px; }
-.creation-page > .cards-page-header { margin-bottom: 18px; }
-.creation-page > .cards-page-header h1 { margin: 0 0 4px; }
-.creation-page > .cards-page-header p { margin: 0; }
-.creation-picker { padding: 20px; border-radius: var(--radius-card); box-shadow: var(--shadow); }
-.creation-picker h2 { margin: 0 0 12px; font-size: 17px; }
-.creation-picker-status { margin: 0; color: var(--text-secondary); }
-.creation-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
-.creation-picker-grid button { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 76px; padding: 10px 14px 10px 10px; border: 0; border-radius: 20px; background: var(--page-cool); color: var(--text-primary); text-align: left; transition: background .2s, box-shadow .2s; }
-.creation-picker-grid button:hover { background: var(--studydy-blue-soft); box-shadow: inset 0 0 0 1.5px var(--studydy-blue); }
-.creation-picker-grid button > svg { flex: none; color: var(--studydy-blue); }
-.creation-picker-thumb { flex: none; width: 84px; height: 56px; overflow: hidden; border-radius: 14px; background: linear-gradient(180deg, #8fe0fb, #3aa6e2); }
-.creation-picker-text { display: grid; flex: 1; min-width: 0; gap: 2px; }
-.creation-picker-text strong { overflow-wrap: anywhere; font-size: 15px; font-weight: 900; }
-.creation-picker-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
 .cards-browse-layout .visual-card { margin-inline: 0; }
 
 /* 概念卡頁上方的跨卡組「需要加強」：一列入口，加強在獨立頁進行。 */

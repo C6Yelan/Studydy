@@ -6,13 +6,13 @@ import { StateView } from "../../ui/StateView";
 import { Icon } from "../../ui/Icon";
 import { useConceptContext } from "../material-flow/useConceptContext";
 import { claimText } from "../../ui/claim-text";
+import { FlowFooter, FlowStage } from "../material-flow/Flow";
+import "../material-flow/creation.css";
 
-export function CreatePodcast({ apiClient, route, embedded = false }: {
-  embedded?: boolean;
+export function CreatePodcast({ apiClient, route }: {
   apiClient: StudydyApiClient; route: Extract<AppRoute, { name: "podcast-create" }>;
 }) {
   const [view, setView] = useState<KnowledgeOutlineView | null>(null);
-  const [materialName, setMaterialName] = useState("");
   const [name, setName] = useState("");
   const [delivery, setDelivery] = useState<"solo" | "dialogue">("dialogue");
   const [selected, setSelected] = useState(new Set<string>());
@@ -38,7 +38,7 @@ export function CreatePodcast({ apiClient, route, embedded = false }: {
       if (!material.available_structures.some((s) => s.run_id === route.runId && s.knowledge_structure_revision === route.structureRevision)) {
         setError("這個教材版本已不可用，請重新選擇教材。"); return;
       }
-      setView(structure); setMaterialName(material.display_name);
+      setView(structure);
       setName(`${material.display_name.replace(/\.[^.]+$/, "").slice(0, 180)}・聽重點`);
       setSelected(new Set(structure.concepts.map((c) => c.concept_id)));
       setPreviewId(null);
@@ -72,33 +72,40 @@ export function CreatePodcast({ apiClient, route, embedded = false }: {
     for (const concept of matches) { if (choose) next.add(concept.concept_id); else next.delete(concept.concept_id); }
     return next;
   });
-  return <section className="cards-page podcast-create">
-    {!embedded && <button type="button" className="text-button" onClick={() => writeRoute({ name: "material-content", materialId: route.materialId, kind: "podcasts" })}><Icon name="arrow-left" size={17} /> 此教材的 Podcast</button>}
-    {!embedded && <header className="cards-page-header"><div><h1>建立 Podcast</h1><p className="cards-material-name"><Icon name="book" size={16} /> {materialName}</p></div></header>}
-    <div className="podcast-identity-fields"><label className="cards-field">Podcast 名稱<input value={name} maxLength={200} disabled={busy} onChange={e => setName(e.target.value)} /></label></div>
+  const toggle = (id: string) => setSelected(previous => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  return <FlowStage icon="headphones" className="podcast-create" title="選擇概念與講解形式"
+    description="依所選重點生成，內容較多時自動拆成多集。"
+    aside={<label className="cards-field creation-name">Podcast 名稱<input value={name} maxLength={200} disabled={busy} onChange={e => setName(e.target.value)} /></label>}
+    footer={<FlowFooter className="podcast-create-footer"
+      secondary={<div className="cards-create-summary"><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · 生成需要幾分鐘，可先離開頁面。</span></div>}
+      primary={<button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始生成 Podcast"}<Icon name="chevron-right" size={18} /></button>} />}>
+    {saveError && <p className="form-error" role="alert">{saveError}</p>}
     <nav className="podcast-config-nav" aria-label="Podcast 設定區域">{([
       ["selection", "選擇概念"], ["settings", "講解設定"],
     ] as const).map(([id, label]) => <button type="button" className={activePanel === id ? "primary-button" : "secondary-button"} aria-pressed={activePanel === id} aria-controls={`podcast-config-${id}`} key={id} onClick={() => setActivePanel(id)}>{label}</button>)}</nav>
     <div className="podcast-compose-grid">
-      <section id="podcast-config-selection" className={`surface podcast-config-section podcast-selection${activePanel === "selection" ? " is-active" : ""}`} aria-label="選擇 Podcast 概念">
-        <div className="cards-selection-heading"><h2>選擇概念</h2><span aria-live="polite">已選 {selected.size} / {view.concepts.length}</span></div>
-        <input className="cards-concept-search" type="search" aria-label="搜尋 Podcast 概念" placeholder="搜尋概念…" value={query} onChange={e => setQuery(e.target.value)} />
+      <section id="podcast-config-selection" className={`podcast-config-section podcast-selection${activePanel === "selection" ? " is-active" : ""}`} aria-label="選擇 Podcast 概念">
+        <div className="cards-selection-heading">
+          <input className="cards-concept-search" type="search" aria-label="搜尋 Podcast 概念" placeholder="搜尋概念…" value={query} onChange={e => setQuery(e.target.value)} />
+          <span className="flow-chip" aria-live="polite">已選 {selected.size} / {view.concepts.length}</span>
+        </div>
         <div className="podcast-selection-tools"><div><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(true)}>{query.trim() ? "選取搜尋結果" : "全選"}</button><span>／</span><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(false)}>{query.trim() ? "取消搜尋結果" : "取消全選"}</button></div>
           <label><input type="checkbox" checked={onlySelected} onChange={e => setOnlySelected(e.target.checked)} />只看已選</label></div>
         <div className="podcast-concept-list">{visible.map(concept => <div className={`podcast-concept-option${selected.has(concept.concept_id) ? " is-selected" : ""}`} key={concept.concept_id}>
-          <label><input type="checkbox" disabled={busy} checked={selected.has(concept.concept_id)} onChange={() => setSelected(previous => { const next = new Set(previous); if (next.has(concept.concept_id)) next.delete(concept.concept_id); else next.add(concept.concept_id); return next; })} />
-            <strong title={concept.label}>{concept.label}</strong><small>{concept.claim_count} 點</small></label>
+          <label><input type="checkbox" disabled={busy} checked={selected.has(concept.concept_id)} onChange={() => toggle(concept.concept_id)} />
+            <span><strong title={concept.label}>{concept.label}</strong><small>{concept.claim_count} 個重點</small></span></label>
           <button type="button" className="text-button" aria-label={`查看「${concept.label}」重點`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(previewId === concept.concept_id ? null : concept.concept_id)}>預覽</button>
-        </div>)}{visible.length === 0 && <p>{onlySelected ? "目前篩選範圍沒有已選概念。" : "找不到符合的概念。"}</p>}</div>
-        {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : previewId && !preview ? <p role="status">正在讀取概念重點…</p> : null}
+        </div>)}{visible.length === 0 && <p className="cards-no-results">{onlySelected ? "目前篩選範圍沒有已選概念。" : "找不到符合的概念。"}</p>}</div>
+        {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : previewId && !preview ? <p className="cards-preview-status" role="status">正在讀取概念重點…</p> : null}
         {preview && <section className="podcast-concept-preview" aria-label={`${preview.label}重點預覽`}><header><strong>{preview.label}</strong><button type="button" className="text-button" onClick={() => setPreviewId(null)}>關閉預覽</button></header><div>{preview.claims.map(claim => <p className="podcast-claim-text" key={claim.claim_id}>{claimText(claim)}</p>)}</div></section>}
       </section>
-      <section id="podcast-config-settings" className={`surface podcast-config-section podcast-settings${activePanel === "settings" ? " is-active" : ""}`} aria-label="講解設定">
-        <h2>講解設定</h2>
-        <fieldset className="podcast-delivery"><legend>講解形式</legend><label><input type="radio" name="delivery" checked={delivery === "dialogue"} disabled={busy} onChange={() => setDelivery("dialogue")} /><span><strong>雙人對談</strong><small>以對話串起教材重點。</small></span></label><label><input type="radio" name="delivery" checked={delivery === "solo"} disabled={busy} onChange={() => setDelivery("solo")} /><span><strong>單人解說</strong><small>以自然口語說明重點。</small></span></label></fieldset>
-    <footer className="podcast-create-footer"><div><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>依所選重點生成，內容較多時自動拆集。</span></div><button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始生成 Podcast"}<Icon name="chevron-right" size={18} /></button>{saveError && <p className="form-error" role="alert">{saveError}</p>}</footer>
+      <section id="podcast-config-settings" className={`podcast-config-section podcast-settings${activePanel === "settings" ? " is-active" : ""}`} aria-label="講解設定">
+        <h3>講解設定</h3>
+        <fieldset className="podcast-delivery"><legend>講解形式</legend>
+          <label className={delivery === "dialogue" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "dialogue"} disabled={busy} onChange={() => setDelivery("dialogue")} /><span><strong>雙人對談</strong><small>以對話串起教材重點。</small></span></label>
+          <label className={delivery === "solo" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "solo"} disabled={busy} onChange={() => setDelivery("solo")} /><span><strong>單人解說</strong><small>以自然口語說明重點。</small></span></label>
+        </fieldset>
       </section>
     </div>
-
-  </section>;
+  </FlowStage>;
 }

@@ -7,6 +7,8 @@ import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { useConceptContext } from "../material-flow/useConceptContext";
+import { FlowFooter, FlowHeader, FlowStage } from "../material-flow/Flow";
+import "../material-flow/creation.css";
 import { Flashcard } from "./Flashcard";
 
 export function CreateCardSet({ apiClient, route, embedded = false }: {
@@ -85,7 +87,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     let previousSize: number | null = null;
     const resize = () => {
       // 桌面每列三個概念，依 60px 列高與 8px 間距使用清單的實際剩餘空間。
-      const size = embedded && desktop.matches ? Math.max(3, Math.floor((list.clientHeight + 8) / 68)) * 3 : 8;
+      const size = desktop.matches ? Math.max(3, Math.floor((list.clientHeight + 8) / 68)) * 3 : 8;
       if (size === previousSize) return;
       previousSize = size;
       setPageSize(size);
@@ -96,7 +98,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     desktop.addEventListener("change", resize);
     resize();
     return () => { observer.disconnect(); desktop.removeEventListener("change", resize); };
-  }, [view, embedded]);
+  }, [view]);
   const previewRead = useConceptContext(apiClient, materialId, view?.knowledge_structure_revision ?? "", view && previewId ? [previewId] : [], true);
   const back = () => writeRoute(route.name === "card-set-edit"
     ? { name: "card-set", cardSetId: route.cardSetId, ...(route.materialId ? { materialId: route.materialId } : {}) }
@@ -137,14 +139,16 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const backLabel = editing ? "返回卡組" : "返回知識地圖";
   if (notFound) return <NotFoundView title={editing ? "找不到這個卡組" : "找不到這份教材"} description={editing ? "這個卡組可能已被刪除，或不屬於目前登入的帳號。" : "這份教材或地圖版本可能已被刪除，或不屬於目前登入的帳號。"}
     back={editing ? { label: "回到概念卡", route: { name: "concept-cards" } } : { label: "回到我的教材", route: { name: "materials" } }} />;
-  if (error || !view) return (
-    <section className="cards-page">
-      {!embedded && <BackLink label={backLabel} onClick={back} />}
-      <StateView title={error ? "無法讀取概念" : "正在準備概念卡"}
-        description={error ?? "正在載入教材的概念與重點。"} tone={error ? "failure" : "loading"} live={!error} skeleton="page"
-        action={error ? <button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button> : undefined} />
-    </section>
-  );
+  // 管理卡組自己一頁（不經 CreateStudyContent），頁首與建立頁同一套 flow-head。
+  const header = !embedded && <FlowHeader back={<BackLink label={backLabel} onClick={back} />} title="管理卡組"
+    description={materialName ? <span className="cards-material-name"><Icon name="book" size={16} /> {materialName}</span> : undefined} />;
+  if (error || !view) {
+    const state = <StateView title={error ? "無法讀取概念" : "正在準備概念卡"}
+      description={error ?? "正在載入教材的概念與重點。"} tone={error ? "failure" : "loading"} live={!error} skeleton="page"
+      action={error ? <button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button> : undefined} />;
+    return embedded ? <section className="cards-page">{state}</section>
+      : <section className="cards-page creation-page flow-page cards-creation-page">{header}{state}</section>;
+  }
   const visible = view.concepts.filter((item) => `${item.label} ${item.aliases.join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
   const pageConcepts = visible.slice((conceptPage - 1) * pageSize, conceptPage * pageSize);
@@ -153,26 +157,25 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     setSelected((previous) => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
     setPreviewId(id);
   };
-  return <section className="cards-page cards-create">
-    {!embedded && <BackLink label={backLabel} onClick={back} />}
-    {!embedded && <header className="cards-page-header"><div><h1>{editing ? "管理卡組" : "建立概念卡組"}</h1><p className="cards-material-name"><Icon name="book" size={16} /> {materialName}</p></div></header>}
-    <header className="cards-create-toolbar">
-      <label className="cards-field">卡組名稱<input value={name} maxLength={200} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>
-      <div className="cards-create-summary"><strong>{selected.size} 個觀念</strong><span>{editing ? "調整名稱或勾選要保留的概念" : "保存後精簡卡面，再開始複習"}</span><span>卡片張數會在生成完成後計算。</span></div>
-      <div className="state-actions">
+  const stage = <FlowStage icon="cards" className="cards-create"
+    title={editing ? "調整卡組內容" : "選擇概念"}
+    description={editing ? "修改名稱或勾選要保留的概念，保存後卡組會依新內容更新。" : "勾選想做成卡片的概念，按「預覽」查看卡面。"}
+    aside={<label className="cards-field creation-name">卡組名稱<input value={name} maxLength={200} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>}
+    footer={<FlowFooter
+      secondary={<>
+        <div className="cards-create-summary"><strong>{selected.size} 個觀念</strong><span>{editing ? "卡片張數會在保存後重新計算。" : "保存後精簡卡面，卡片張數會在生成完成後計算。"}</span></div>
         {editing && <button className="secondary-button" type="button" disabled={busy} onClick={back}>取消變更</button>}
-        <button className="primary-button" type="button" disabled={busy || !validName || selected.size === 0 || conflict} onClick={() => void save()}>
-          {busy ? "正在保存…" : editing ? "保存變更" : "保存並開始複習"}<Icon name="chevron-right" size={18} />
-        </button>
-      </div>
-      {saveError && <p className="form-error" role="alert">{saveError}{conflict && <button className="text-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取卡組</button>}</p>}
-    </header>
+      </>}
+      primary={<button className="primary-button" type="button" disabled={busy || !validName || selected.size === 0 || conflict} onClick={() => void save()}>
+        {busy ? "正在保存…" : editing ? "保存變更" : "保存並開始複習"}<Icon name="chevron-right" size={18} />
+      </button>} />}>
+    {saveError && <p className="form-error" role="alert">{saveError}{conflict && <button className="text-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取卡組</button>}</p>}
     <div className="cards-create-grid">
       <section className="cards-selection" aria-label="選擇概念">
-        <div className="cards-selection-heading"><h2>選擇概念</h2><span aria-live="polite">{`已選 ${selected.size} / ${view.concepts.length} 個觀念`}</span></div>
-        <div className="cards-selection-toolbar">
+        <div className="cards-selection-heading">
           <input className="cards-concept-search" type="search" aria-label="搜尋概念" placeholder="搜尋概念…" value={query} onChange={(event) => { setQuery(event.target.value); setConceptPage(1); }} />
           <div className="cards-selection-actions"><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set(view.concepts.map((item) => item.concept_id)))}>全選</button><span>／</span><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set())}>取消全選</button></div>
+          <span className="flow-chip" aria-live="polite">{`已選 ${selected.size} / ${view.concepts.length} 個觀念`}</span>
         </div>
         <div className="cards-concept-list" ref={conceptList}>
           {pageConcepts.map((concept) => <div className={`cards-concept-row ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>
@@ -187,7 +190,8 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
           <button className="secondary-button" type="button" disabled={conceptPage === pageCount} onClick={() => setConceptPage((page) => page + 1)}>下一頁</button>
         </nav>}
       </section>
-      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h2>卡片預覽</h2><span>依內容呈現完整卡片</span></div>{previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p role="status">正在讀取概念與來源…</p> : null}{preview && <Flashcard key={preview.concept_id} card={preview} structure={previewRead.context!} materialName={materialName} apiClient={apiClient} sourceResolver={view.source_resolver} />}</section>
+      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h3>卡片預覽</h3><span>{preview ? preview.label : "點概念旁的「預覽」查看卡面"}</span></div>{previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p className="cards-preview-status" role="status">正在讀取概念與來源…</p> : null}{preview && <Flashcard key={preview.concept_id} card={preview} structure={previewRead.context!} materialName={materialName} apiClient={apiClient} sourceResolver={view.source_resolver} />}</section>
     </div>
-  </section>;
+  </FlowStage>;
+  return embedded ? stage : <section className="cards-page creation-page flow-page cards-creation-page cards-edit-page">{header}{stage}</section>;
 }

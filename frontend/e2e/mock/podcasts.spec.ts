@@ -219,7 +219,10 @@ test('desktop podcast creation fills the workspace while long lists and previews
     const settings = page.getByRole('region', {name:'講解設定',exact:true});
     await expect(selection.locator('.podcast-concept-option')).toHaveCount(80);
     const left = (await selection.boundingBox())!, right = (await settings.boundingBox())!;
-    expect(left.x).toBeLessThanOrEqual(32); expect(width-right.x-right.width).toBeLessThanOrEqual(32);
+    // 選概念與講解設定並排在同一張階段卡片內，卡片填滿內容寬度。
+    const stage = (await page.locator('.podcast-create').boundingBox())!;
+    expect(stage.x).toBeLessThanOrEqual(32); expect(width-stage.x-stage.width).toBeLessThanOrEqual(32);
+    expect(left.x).toBeGreaterThan(stage.x); expect(right.x+right.width).toBeLessThan(stage.x+stage.width); expect(left.x+left.width).toBeLessThan(right.x);
     expect(Math.abs(left.y-right.y)).toBeLessThanOrEqual(1); expect(right.height).toBeLessThan(left.height);
     const list = selection.locator('.podcast-concept-list');
     expect(await list.evaluate(element=>element.scrollHeight>element.clientHeight)).toBe(true);
