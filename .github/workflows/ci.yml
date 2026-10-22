@@ -55,7 +55,7 @@ jobs:
           office_version=$(docker run --rm --network none --entrypoint /usr/lib/libreoffice/program/soffice studydy-unit:latest --version)
           printf '::notice title=LibreOffice version::%s\n' "$office_version"
           mkdir -m 777 "$RUNNER_TEMP/studydy-results"
-          docker compose -p studydy -f compose.test.yaml run --rm --no-deps --no-build \
+          docker compose -p studydy -f compose.test.yaml run --rm --no-deps \
             -v "$RUNNER_TEMP/studydy-results:/results" unit \
             -q -o cache_dir=/tmp/pytest-cache --junitxml=/results/unit.xml \
             backend/tests --ignore=backend/tests/runtime local_ai/tests \
