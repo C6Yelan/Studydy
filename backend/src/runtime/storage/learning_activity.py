@@ -604,7 +604,7 @@ def _daily_records(session, owner, zone, today):
 
     學習活動與學習節奏共用；晚於 today 的日期不列入。
     """
-    from ..version_moves import card_origins
+    from .card_moves import card_origins
 
     values = {"owner": owner, "zone": zone.key}
     answers = {

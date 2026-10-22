@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from content_identity import canonical_sha256
 from .storage.artifacts import _key_digest
+from .storage.card_moves import moved_to
 from .storage.knowledge_structures import (
     _prune_unreferenced_structures,
     _read_verified_document,
@@ -119,8 +120,6 @@ def list_card_sets(owner, *, dsn=None):
             )
             .order_by(CardSet.created_at.desc(), CardSet.card_set_id)
         ).all()
-        from .version_moves import moved_to
-
         targets = moved_to(session, owner, [row[0].card_set_id for row in rows])
         return {
             "schema": "card-set-list/v1",
@@ -159,8 +158,6 @@ def read_card_set(owner, card_set_id, *, dsn=None):
         )
         view = _view(document, material_id)
         concepts = {concept["concept_id"]: concept for concept in view["concepts"]}
-        from .version_moves import moved_to
-
         target = moved_to(session, owner, [row.card_set_id]).get(row.card_set_id)
         return {
             "schema": "card-set/v1",
@@ -310,8 +307,6 @@ def read_card_study(owner, card_set_id, *, offset=0, expected_version=None, dsn=
         )
         if expected_version is not None:
             return card_sources.batch(session, row, meta, offset, 8)
-        from .version_moves import moved_to
-
         target = moved_to(session, owner, [row.card_set_id]).get(row.card_set_id)
         return {
             "schema": "card-study/v1",
