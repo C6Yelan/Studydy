@@ -125,7 +125,7 @@ PYTEST
 
 記錄實際命令、範圍、結果與限制。合成測試提供程式回歸證據；模型品質須另以指定素材及標準，透過產品流程生成並人工核對。
 
-`runtime/infrastructure/test_migration_baseline.py` 驗證獨立舊終態與新初始化等價、Check 零寫入、接軌與回退資料不變、並行接軌、普通寫入者鎖定、初始化中斷續跑，以及帳本／約束／索引／trigger／提案／檔案損壞的拒絕。固定舊 Schema 與仍有回歸用途的少量歷史 DML 只放在測試 fixtures；產品不保留舊 migration 鏈。既存 DB／Artifact 副本的實際驗證仍須另外執行，不能以合成案例替代。
+`runtime/infrastructure/test_migration_baseline.py` 驗證新初始化標記、拒絕初始化非空資料庫，以及初始化中斷後續跑。`test_migrations.py` 驗證現行 schema、帳本 checksum／序列、並行安裝及失敗回滾；全部使用隔離 PostgreSQL。
 
 `runtime/infrastructure/test_api_lifespan.py` 在各 worker 啟動位置注入失敗，核對已啟動工作的清理；單一 stop 失敗時仍處理其他 worker。正常啟停順序維持原契約，測試不啟動模型或連線產品 DB。
 

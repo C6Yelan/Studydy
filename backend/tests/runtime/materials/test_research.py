@@ -1,5 +1,4 @@
 from research_fixtures import create_confirmed_research
-from migration_fixtures import legacy_sql
 from copy import deepcopy
 from uuid import uuid4,UUID
 from concurrent.futures import ThreadPoolExecutor
@@ -345,28 +344,6 @@ def test_plan_uses_current_material_concepts_without_sending_evidence_or_answers
     stored=read_knowledge_structure(owner,source.material_id,revision=revision,dsn=dsn).document
     assert all(c['label'] in payloads[0]['existing_concepts'] for c in stored['concepts'])
     assert 'evidence' not in payloads[0] and 'answers' not in payloads[0]
-
-
-def test_summary_migration_preserves_cancelled_work_and_lossless_source_text(closed_loop,monkeypatch):
-    from pathlib import Path
-    from sqlalchemy import text
-    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
-    mock_search(monkeypatch)
-    identity=create_confirmed_research(owner,source.material_id,'queue','summary-migration',dsn=dsn)['research_id']
-    finished={**candidate('finished'),'review':{'phase':'body','relevance':'direct','reason':'saved body','topics':[0],'quotes':[{'topic':0,'quote':'FIFO'}]}}
-    partial={**candidate('partial'),'_reading_text':'literal\x00source','_read_offset':3,'_review_chunks':[{'reason':'saved partial','quotes':[]}]}
-    with database_session(dsn) as db:
-        row=db.get(MaterialResearch,identity);row.status='cancelled'
-        row.search_state={'stage':'assessing','round':1,'topics':['queue'],'searches':[]}
-        row.candidates=[finished,partial,candidate('pending')]
-    migration=legacy_sql('0021_research_summary_screening.sql')
-    with database_session(dsn) as db:db.execute(text(migration))
-    with database_session(dsn) as db:
-        row=db.get(MaterialResearch,identity)
-        assert row.status=='cancelled' and row.search_state['stage']=='collecting'
-        assert row.candidates[0]['review']==finished['review']
-        assert row.candidates[1]['_reading_text']=='literal\x00source' and row.candidates[1]['_read_offset']==3
-        assert [c.get('screening',{}).get('decision') for c in row.candidates]==['read','read',None]
 
 
 def test_research_snapshot_survives_restart_and_upstream_changes(closed_loop,monkeypatch):

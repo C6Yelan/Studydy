@@ -2,8 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import shutil
-from migration_fixtures import create_legacy_database, apply_legacy_data_case
-from runtime.storage.baseline import BASELINE_VERSIONS, check_or_adopt, read_marker
+from migration_fixtures import apply_legacy_data_case
 from uuid import uuid4
 
 import psycopg
@@ -15,49 +14,6 @@ from runtime.storage.migrations import (
     load_migrations,
     run_migrations,
 )
-
-
-def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_dsn, migrations_dir, tmp_path):
-    create_legacy_database(clean_database_dsn)
-    artifacts = tmp_path / 'artifacts'
-    (artifacts / 'objects').mkdir(parents=True)
-    learner_id, session_id = uuid4(), uuid4()
-    with psycopg.connect(clean_database_dsn) as connection:
-        connection.execute(
-            "INSERT INTO learners (learner_id, created_at, email, password_hash) "
-            "VALUES (%s, now(), 'baseline@example.com', 'synthetic-hash')",
-            (learner_id,),
-        )
-        connection.execute(
-            """INSERT INTO learner_sessions (
-                   session_id, learner_id, token_sha256, created_at,
-                   idle_expires_at, absolute_expires_at, revoked_at, updated_at
-               ) VALUES (
-                   %s, %s, %s, now(), now() + interval '1 day',
-                   now() + interval '7 days', NULL, now()
-               )""",
-            (session_id, learner_id, bytes(32)),
-        )
-        before = connection.execute(
-            "SELECT to_jsonb(l), to_jsonb(s) "
-            "FROM learners l JOIN learner_sessions s USING (learner_id)"
-        ).fetchall()
-        ledger = connection.execute(
-            "SELECT * FROM schema_migrations ORDER BY version"
-        ).fetchall()
-    assert check_or_adopt(clean_database_dsn, load_migrations(), artifacts, apply=True)['applied']
-    # 接軌後只套用 baseline 之後追加的版本，再次執行無待套用。
-    assert run_migrations(clean_database_dsn) == tuple(m.version for m in load_migrations()[BASELINE_VERSIONS:])
-    assert run_migrations(clean_database_dsn) == ()
-    with psycopg.connect(clean_database_dsn) as connection:
-        # 後續 migration 新增的欄位為 NULL，原有欄位不變。
-        assert connection.execute(
-            "SELECT to_jsonb(l) - 'display_name', "
-            "to_jsonb(s) - ARRAY['device_label', 'last_used_at'], "
-            "s.device_label IS NULL AND s.last_used_at IS NULL "
-            "FROM learners l JOIN learner_sessions s USING (learner_id)"
-        ).fetchall() == [(*row, True) for row in before]
-        assert read_marker(connection)[3] == [[v, h, t.isoformat()] for v, h, t in ledger]
 
 
 def test_draft_uses_source_collection_and_rejects_retired_artifact_kind(clean_database_dsn):

@@ -60,16 +60,7 @@ init 建立資料目錄及權限；後端依序核對 migration checksum、套�
 
 初始化 SQL 現為七個領域步驟：身份／教材、來源／分析、學習／評量、研究、卡片／媒體、讀取索引與跨領域外鍵。它們直接建立舊 0001–0032 的最終結構，不重播 Podcast、研究及主題提案的歷史資料轉換。下方保留的 0008–0032 說明描述歷史資料契約，不再是新安裝應執行的檔案。
 
-既有 0032 資料庫需明確接軌。先在獨立 DB／Artifact 副本完成驗證；正式切換時等待有效工作結束，停止前後端及其他寫入者，保存配對備份與舊映像，再用已測試的新映像執行：
-
-~~~bash
-docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml run --rm --no-deps --entrypoint /app/backend/.venv/bin/python backend -m runtime.storage.baseline check
-docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml run --rm --no-deps --entrypoint /app/backend/.venv/bin/python backend -m runtime.storage.baseline apply
-~~~
-
-`runtime.storage.baseline check` 不寫入資料；`runtime.storage.baseline apply` 在同一交易取得 migration lock 與業務表鎖，重新核對完整舊帳本、實體 Schema、逐列資料、內容身分及全部來源／媒體／封存檔案。只有已核對的歷史 CHECK 名稱及三個函式排版差異會原地對齊；未知差異拒絕接軌。原帳本與驗證摘要保存在單筆 `schema_baseline` 收據，業務資料、Revision、hash 和原檔不重寫。確認成功後才啟動新版；一般啟動不會自動認領舊帳本。
-
-尚未套用新鏈後續 DDL 時，可在停寫並備份後使用 `runtime.storage.baseline restore-ledger` 原子還原收據中的舊帳本，再使用舊程式；已核對等價的 CHECK 名稱／函式排版保留。已追加新 migration、未知帳本或 Schema 不相符時拒絕此操作。不得用還原舊 dump 覆蓋新增業務資料。新初始化 prefix 一經發布便固定，後續 Schema 變更繼續追加 SQL。
+新初始化 prefix 一經發布便固定，後續 Schema 變更繼續追加 SQL。
 
 ~~~bash
 docker compose logs --tail 100 backend

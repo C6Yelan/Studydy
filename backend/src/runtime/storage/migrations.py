@@ -12,7 +12,6 @@ from psycopg import Connection
 from .database import connect_database
 from .baseline import (
     BaselineError,
-    legacy_manifest,
     read_marker,
     record_fresh,
     verify_marker,
@@ -135,10 +134,6 @@ def run_migrations(
         if marker is not None:
             verify_marker(marker, migrations)
         elif applied:
-            if {
-                str(version): checksum for version, checksum in applied.items()
-            } == legacy_manifest()["migrations"]:
-                raise BaselineError("MIGRATION_BASELINE_REQUIRED")
             _verify_applied_migrations(migrations, applied)
             raise BaselineError("BASELINE_MARKER_MISSING")
         elif connection.execute(

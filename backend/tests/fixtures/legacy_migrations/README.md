@@ -1,1 +1,1 @@
-固定來源：`6e317ee2d7486e175a5fd55ca3df514224a446da`。這五份 SQL 僅保留仍有回歸案例的歷史資料轉換／增欄輸入；產品初始化與接軌不會執行它們。完整舊終態由同 SHA 實際重播所得的 `../legacy_0032.sql` 提供。
+正式 DB 可能仍存著歷史格式的資料，這三個既有測試保護現行程式讀得懂這些資料。僅保留它們實際使用的 `0016_voice_podcast_context.sql`、`0031_remove_topic_level.sql` 與 `0032_remove_topic_exclusions.sql` 作為測試輸入；這些 SQL 不屬於產品的 migration 鏈，產品初始化與啟動不會執行。

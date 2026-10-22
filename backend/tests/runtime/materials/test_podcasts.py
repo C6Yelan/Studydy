@@ -1,6 +1,5 @@
 """Podcast 真 DB／API 回歸；來源與音訊均為合成 fixture，不宣稱模型品質。"""
 from runtime.errors import PodcastError
-from migration_fixtures import legacy_sql
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -289,8 +288,6 @@ def test_source_context_keeps_same_page_headers_without_changing_claims(closed_l
     assert podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)["episodes"] == view["episodes"]
 
 
-
-
 def test_dialogue_persists_turns_and_rejects_wrong_speaker_or_source(closed_loop):
     owner, source, _, document, dsn, _ = closed_loop
     saved = podcasts.create_podcast(owner.learner_id, source.material_id, document["revision"], "雙人解說",
@@ -310,27 +307,6 @@ def test_dialogue_persists_turns_and_rejects_wrong_speaker_or_source(closed_loop
     view = podcasts.read_podcast(owner.learner_id, saved["podcast_id"], dsn=dsn)
     assert view["delivery"] == "dialogue" and view["episodes"][0]["script"] == dialogue
     assert view["episodes"][0]["audio"]["provider"] == "synthetic-test"
-
-
-def test_turn_migration_preserves_saved_text_references_and_audio(closed_loop, migrations_dir):
-    from sqlalchemy import text as sql_text
-    owner, _, _, _, dsn, _ = closed_loop
-    identity = create(closed_loop)["podcast_id"]
-    complete(dsn)
-    before = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
-    # 重現升級前的已保存資料，驗證 migration 本身，不增加正式版相容分支。
-    with database_session(dsn) as db:
-        row = db.get(Podcast, identity)
-        episodes = deepcopy(row.episodes)
-        for e in episodes:
-            e.pop("delivery")
-            for segment in e["script"]["segments"]:
-                segment["text"] = segment.pop("turns")[0]["text"]
-        row.episodes = episodes
-        db.flush()
-        db.execute(sql_text(legacy_sql("0009_podcast_turns.sql")))
-    after = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
-    assert after == before
 
 
 def test_extended_dialogue_and_actual_audio_provider_are_preserved(closed_loop):
