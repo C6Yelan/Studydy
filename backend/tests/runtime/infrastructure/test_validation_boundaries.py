@@ -11,7 +11,8 @@ from learning_adaptation.learner_progress import derive_learner_progress
 from content_identity import canonical_sha256
 from runtime import material_processing
 from runtime.storage import artifacts
-from runtime.storage.knowledge_structures import read_knowledge_structure, KnowledgeStructureStoreError, resolve_evidence_source
+from runtime.storage.knowledge_structures import read_knowledge_structure, KnowledgeStructureStoreError
+from runtime.storage.knowledge_reads import resolve_evidence_source
 from runtime.storage.tables import Assessment, AssessmentSet, MaterialProcessingRun
 from runtime.storage.database import database_session
 from product_fixtures import closed_loop

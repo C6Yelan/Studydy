@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import json
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -15,8 +14,6 @@ from knowledge_map.structure import (
 
 from .tables import KnowledgeStructure, Material, MaterialProcessingRun
 from .database import database_session
-from .artifacts import open_verified_artifact
-from ..errors import SourceError
 from ..source_resolver import verify_structure_input
 
 
@@ -238,68 +235,3 @@ def read_knowledge_structure(
         raise
     except Exception:
         raise KnowledgeStructureStoreError("KNOWLEDGE_STRUCTURE_UNAVAILABLE") from None
-
-
-def resolve_evidence_source(owner, material_id, revision, evidence_id, *, dsn=None):
-    from .knowledge_reads import evidence_source
-
-    with database_session(dsn) as session:
-        source, evidence = evidence_source(
-            session, owner, material_id, revision, evidence_id
-        )
-    normalized_page = evidence["normalized_page"]
-    with open_verified_artifact(
-        owner, UUID(source["mapping_artifact_id"]), dsn=dsn
-    ) as opened:
-        mapping = json.loads(opened.file.read())
-    if (
-        mapping["original_sha256"] != source["original_sha256"]
-        or mapping["normalized_sha256"] != source["normalized_sha256"]
-    ):
-        raise SourceError("SOURCE_BINDING_INVALID")
-
-    region = evidence["source_locator"]["region"]
-
-    def overlaps(candidate):
-        box = candidate.get("region")
-        return box is None or (
-            min(box[2], region[2]) > max(box[0], region[0])
-            and min(box[3], region[3]) > max(box[1], region[1])
-        )
-
-    records = [
-        record
-        for record in mapping["records"]
-        if (record.get("normalized_page") == normalized_page and overlaps(record))
-        or any(
-            candidate["normalized_page"] == normalized_page and overlaps(candidate)
-            for candidate in record.get("candidates", [])
-        )
-    ]
-    if not records:
-        accuracy = "unavailable"
-    elif all(record["accuracy"] == "exact" for record in records):
-        accuracy = "exact"
-    else:
-        accuracy = "ambiguous"
-    locators = [record["origin_locator"] for record in records]
-    label = f"轉換後第 {normalized_page} 頁"
-    if mapping["format"] == "pdf":
-        label = f"原始教材第 {normalized_page} 頁"
-    elif mapping["format"] == "pptx" and locators:
-        label = f"原教材第 {locators[0]['original_slide_number']} 張投影片（轉換後第 {normalized_page} 頁）"
-    elif mapping["format"] in ("txt", "md") and locators:
-        first_line = min(locator["line_start"] for locator in locators)
-        last_line = max(locator["line_end"] for locator in locators)
-        label = f"原文第 {first_line}–{last_line} 行（轉換後第 {normalized_page} 頁）"
-    return {
-        "schema": "evidence-source/v1",
-        "format": mapping["format"],
-        "original_name": source["original_name"],
-        "original_url": f"/v1/artifacts/{source['original_artifact_id']}/download",
-        "preview_url": f"/v1/artifacts/{source['normalized_artifact_id']}#page={normalized_page}",
-        "normalized_page": normalized_page,
-        "accuracy": accuracy,
-        "origin_locators": locators,
-        "label": label,
-    }

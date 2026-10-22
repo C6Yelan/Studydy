@@ -14,7 +14,8 @@ from research_fixtures import review_provider, search_to_selection
 from runtime import research
 from runtime.errors import SourceError
 from runtime.source_normalization import normalize_next, read_sources, upload_source
-from runtime.storage.knowledge_structures import read_knowledge_structure, resolve_evidence_source
+from runtime.storage.knowledge_structures import read_knowledge_structure
+from runtime.storage.knowledge_reads import resolve_evidence_source
 from runtime.storage.tables import Artifact, Material, MaterialResearch, MaterialRetrievalIndex, MaterialSource, MaterialSourceSet, SourceNormalization
 from runtime.storage.database import database_session
 

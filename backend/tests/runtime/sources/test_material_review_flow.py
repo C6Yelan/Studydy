@@ -22,7 +22,7 @@ def enable_review(settings, *, consolidation=False):
 
 
 def test_consolidation_review_only_preserves_source_locations_and_old_revision(revisions, monkeypatch):
-    from runtime.storage.knowledge_structures import resolve_evidence_source
+    from runtime.storage.knowledge_reads import resolve_evidence_source
     from test_material_consolidation import approved
     owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
     second = add('Same-definition.pdf', original['concepts'][0]['claims'][0]['text'])

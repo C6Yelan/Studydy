@@ -68,7 +68,7 @@ from ..source_revisions import create_revision
 from ..storage.artifacts import (
     open_verified_artifact,
 )
-from ..storage.knowledge_structures import resolve_evidence_source
+from ..storage.knowledge_reads import resolve_evidence_source
 from ..storage.materials import (
     MaterialLibraryError,
     read_material_library,

@@ -14,7 +14,7 @@ from runtime.source_normalization import create_draft, upload_source, read_sourc
 from runtime.errors import SourceError
 from runtime.source_revisions import create_revision
 from runtime.source_resolver import bind_structure_input
-from runtime.storage.knowledge_structures import resolve_evidence_source
+from runtime.storage.knowledge_reads import resolve_evidence_source
 from runtime.storage.knowledge_structures import read_knowledge_structure
 from runtime.storage.artifacts import open_verified_artifact
 from runtime.storage.tables import MaterialSourceSet, SourceNormalization, Artifact
