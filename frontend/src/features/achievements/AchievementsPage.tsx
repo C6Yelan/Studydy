@@ -8,28 +8,61 @@ import { LevelCard } from "../dashboard/LearningCards";
 import "../dashboard/styles.css";
 import "./styles.css";
 
-// 經驗值規則 xp-rules/v1 的說明；數值須與後端 runtime/storage/learning_activity.py 一致（見 docs/learning.md）。
-const xpRules: { icon: IconName; source: keyof LearningActivityView["xp"]["sources"]; title: string; rule: string; note: string }[] = [
-  { icon: "quiz", source: "answers", title: "作答", rule: "答對 +10、答錯 +3", note: "同一題只算第一次作答，重做不重複計分。" },
-  { icon: "learning", source: "concepts", title: "完成概念", rule: "每個概念 +30", note: "概念的重點全部完成時計入；同一概念只算一次。" },
-  { icon: "cards", source: "cards", title: "複習概念卡", rule: "每張 +2", note: "同一張卡每天只算一次。" },
-  { icon: "headphones", source: "podcast", title: "收聽 Podcast", rule: "每 5 分鐘 +5", note: "以實際收聽時間計算，每天最多 +60。" },
+// 經驗值規則 xp-rules/v1 的圖解；數值須與後端 runtime/storage/learning_activity.py 一致（見 docs/learning.md）。
+type Source = keyof LearningActivityView["xp"]["sources"];
+const xpRules: { icon: IconName; source: Source; tone: string; title: string; gains: [string, string][]; note: string }[] = [
+  { icon: "quiz", source: "answers", tone: "is-answers", title: "作答", gains: [["+10", "答對"], ["+3", "答錯"]], note: "同一題只算第一次作答" },
+  { icon: "learning", source: "concepts", tone: "is-concepts", title: "完成概念", gains: [["+30", "每個概念"]], note: "重點全部完成時計入，同一概念只算一次" },
+  { icon: "cards", source: "cards", tone: "is-cards", title: "複習概念卡", gains: [["+2", "每張"]], note: "同一張卡每天只算一次" },
+  { icon: "headphones", source: "podcast", tone: "is-podcast", title: "收聽 Podcast", gains: [["+5", "每 5 分鐘"]], note: "實際收聽時間，每天最多 +60" },
 ];
+
+// 升級階梯：第 n 級升到 n+1 需要 100×n XP，台階越來越高；標出目前位置與還差多少。
+function LevelLadder({ level, levelXp, levelTarget }: { level: number; levelXp: number; levelTarget: number }) {
+  const first = Math.max(1, level - 1);
+  const steps = Array.from({ length: 5 }, (_, index) => first + index);
+  const tallest = 100 * steps[steps.length - 1];
+  return <ol className="xp-ladder" aria-label={`升級階梯：第 ${level} 級升到第 ${level + 1} 級需要 ${levelTarget} XP，目前已得 ${levelXp} XP`}>
+    {steps.map((step) => {
+      const need = 100 * step;
+      const state = step < level ? "is-done" : step === level ? "is-current" : "is-next";
+      const fill = step < level ? 1 : step === level ? levelXp / levelTarget : 0;
+      return <li key={step} className={state} aria-hidden="true">
+        {step === level && <span className="xp-ladder-you">你在這裡</span>}
+        <span className="xp-ladder-step" style={{ height: `${Math.max(18, (need / tallest) * 100)}%` }}>
+          <i style={{ height: `${fill * 100}%` }} />
+        </span>
+        <b>Lv {step}→{step + 1}</b>
+        <small>{need} XP</small>
+      </li>;
+    })}
+  </ol>;
+}
 
 function XpRules({ activity }: { activity: LearningActivityView }) {
   const { xp } = activity;
+  const total = Math.max(1, xp.total);
   return <section className="xp-rules surface" aria-labelledby="xp-rules-title">
     <h2 id="xp-rules-title">經驗值怎麼算</h2>
-    <ul>
-      {xpRules.map((item) => <li key={item.source}>
-        <span className="stat-icon is-blue"><Icon name={item.icon} size={18} /></span>
-        <span className="xp-rule-text"><b>{item.title}<em>{item.rule}</em></b><small>{item.note}</small></span>
-        <span className="xp-rule-earned"><b>{xp.sources[item.source]}</b><small>已獲得 XP</small></span>
+    <div className="xp-mix">
+      <p><b>{xp.total} XP</b> 從哪裡來</p>
+      <div className="xp-mix-bar" role="img" aria-label={xpRules.map((rule) => `${rule.title} ${xp.sources[rule.source]} XP`).join("、")}>
+        {xpRules.map((rule) => xp.sources[rule.source] > 0 && <i key={rule.source} className={rule.tone} style={{ width: `${(xp.sources[rule.source] / total) * 100}%` }} />)}
+      </div>
+    </div>
+    <ul className="xp-sources">
+      {xpRules.map((rule) => <li key={rule.source} className={rule.tone}>
+        <span className="xp-source-icon"><Icon name={rule.icon} size={22} /></span>
+        <b className="xp-source-title">{rule.title}</b>
+        <span className="xp-gains">{rule.gains.map(([value, label]) => <span key={label}><strong>{value}</strong><small>{label}</small></span>)}</span>
+        <small className="xp-source-note">{rule.note}</small>
+        <span className="xp-source-earned">已獲得 <b>{xp.sources[rule.source]}</b> XP</span>
       </li>)}
     </ul>
-    <p className="xp-level-rule">
-      <b>升級</b>第 n 級升到下一級需要 100×n XP（1→2 需 100、2→3 需 200…）。目前第 {xp.level} 級，再 {xp.level_target - xp.level_xp} XP 升到第 {xp.level + 1} 級。
-    </p>
+    <div className="xp-level">
+      <p><b>升級</b>每一級都比上一級多需要 100 XP（第 n 級升到下一級需 100×n）。再 <strong>{xp.level_target - xp.level_xp} XP</strong> 升到第 {xp.level + 1} 級。</p>
+      <LevelLadder level={xp.level} levelXp={xp.level_xp} levelTarget={xp.level_target} />
+    </div>
   </section>;
 }
 

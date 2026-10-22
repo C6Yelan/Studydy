@@ -3,20 +3,25 @@ import { RouteLink } from "../ui/RouteLink";
 import { Icon, type IconName } from "../ui/Icon";
 import "./shell.css";
 
-type Section = "home" | "materials" | "cards" | "podcasts";
-const sections: { id: Section; label: string; short: string; icon: IconName; route: AppRoute }[] = [
+type Section = "home" | "materials" | "cards" | "podcasts" | "achievements" | "profile";
+// 成就與個人檔案只放在桌機頁首；手機底部列維持四個入口加上傳（手機頁首的等級按鈕與頭像可進入這兩頁）。
+const sections: { id: Section; label: string; short: string; icon: IconName; route: AppRoute; headerOnly?: boolean }[] = [
   { id: "home", label: "首頁", short: "首頁", icon: "home", route: { name: "home" } },
   { id: "materials", label: "我的教材", short: "教材", icon: "book", route: { name: "materials" } },
   { id: "cards", label: "概念卡", short: "概念卡", icon: "cards", route: { name: "concept-cards" } },
   { id: "podcasts", label: "Podcast", short: "Podcast", icon: "headphones", route: { name: "podcasts" } },
+  { id: "achievements", label: "成就", short: "成就", icon: "sparkle", route: { name: "achievements" }, headerOnly: true },
+  { id: "profile", label: "個人檔案", short: "個人", icon: "user", route: { name: "profile" }, headerOnly: true },
 ];
+const tabSections = sections.filter((item) => !item.headerOnly);
 
 // 首頁與清單類頁面在寬螢幕放寬版面（表單與閱讀頁維持標準寬度）。
 const wideRoutes: AppRoute["name"][] = ["home", "materials", "concept-cards", "podcasts", "profile", "achievements"];
 
 // 教材內的概念卡／Podcast 屬於「我的教材」；全域清單才屬於各自分區。
 function currentSection(route: AppRoute): Section | null {
-  if (route.name === "not-found" || route.name === "profile" || route.name === "achievements") return null;
+  if (route.name === "not-found") return null;
+  if (route.name === "profile" || route.name === "achievements") return route.name;
   if (route.name === "home") return "home";
   if ("materialId" in route && route.materialId) return "materials";
   if (["concept-cards", "card-set", "card-set-edit", "card-set-new"].includes(route.name)) return "cards";
@@ -58,6 +63,8 @@ export function AppShell({
             <RouteLink
               key={item.id}
               route={item.route}
+              // 窄一點的桌機只顯示圖示，名稱另由 aria-label 提供。
+              aria-label={item.label}
               aria-current={section === item.id ? "page" : undefined}
             >
               <Icon name={item.icon} size={18} />
@@ -71,7 +78,7 @@ export function AppShell({
         {children}
       </main>
       <nav className="tab-bar" aria-label="手機導覽">
-        {sections.slice(0, 2).map((item) => (
+        {tabSections.slice(0, 2).map((item) => (
           <RouteLink key={item.id} route={item.route} aria-current={section === item.id ? "page" : undefined}>
             <Icon name={item.icon} size={22} />
             <span>{item.short}</span>
@@ -80,7 +87,7 @@ export function AppShell({
         <button className="tab-bar-upload" type="button" aria-label="上傳教材" onClick={() => writeRoute({ name: "upload" })}>
           <Icon name="plus" size={26} />
         </button>
-        {sections.slice(2).map((item) => (
+        {tabSections.slice(2).map((item) => (
           <RouteLink key={item.id} route={item.route} aria-current={section === item.id ? "page" : undefined}>
             <Icon name={item.icon} size={22} />
             <span>{item.short}</span>

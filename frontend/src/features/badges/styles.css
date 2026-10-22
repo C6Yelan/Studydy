@@ -229,6 +229,39 @@
 .badge-tier-state { font-size: 12px; font-weight: 800; white-space: nowrap; }
 .badge-series-tiers li.is-earned .badge-tier-state { color: var(--amber-deep); }
 
+/* 特殊成就：紫色獎章；未取得為深色神祕卡，只顯示問號與提示 */
+.badge-medal.is-special { --badge-main: var(--violet); --badge-soft: var(--violet-soft); }
+.badge-medal.is-special.is-locked { --badge-main: #3b3f5c; --badge-soft: #262a40; }
+.badge-medal.is-special.is-locked .badge-glyph { color: #c9c6ff; font-size: 22px; font-weight: 900; }
+.badge-medal.is-special .badge-star { fill: #c9b6ff; }
+.badge-specials { display: grid; gap: 12px; margin-top: 4px; }
+.badge-specials .badge-collection-head { flex-wrap: wrap; }
+.badge-specials h3 { margin: 0; font-size: 16px; }
+.badge-specials .badge-collection-head small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.badge-count.is-special { background: var(--violet-soft); color: var(--violet); }
+.badge-special-wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.badge-special-wall li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 18px;
+}
+.badge-special-wall li.is-locked {
+  background: linear-gradient(135deg, #2b2f4a, #3d3566);
+  color: #e9e6ff;
+}
+.badge-special-wall li.is-locked b { letter-spacing: 0.2em; }
+.badge-special-wall li.is-locked small { color: #c9c6ff; }
+.badge-special-wall li.is-earned { background: var(--violet-soft); }
+
 /* 取得徽章的一次性提示（沿用升級動畫外框） */
 .badge-earned-list {
   display: flex;

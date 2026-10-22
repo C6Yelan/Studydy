@@ -12,40 +12,106 @@
 .achievements-layout > .surface { padding: 20px 22px; }
 .achievements-layout h2 { margin: 0; font-size: 17px; }
 .achievements-layout .badge-collection { grid-column: 1 / -1; }
-.xp-rules ul {
+/* 經驗值圖解：來源比例長條、四張來源卡、升級階梯 */
+.xp-rules { display: grid; gap: 16px; }
+.xp-rules .is-answers { --xp: var(--warning); --xp-soft: var(--warning-soft); }
+.xp-rules .is-concepts { --xp: var(--success); --xp-soft: var(--success-soft); }
+.xp-rules .is-cards { --xp: var(--violet); --xp-soft: var(--violet-soft); }
+.xp-rules .is-podcast { --xp: #1f9fd6; --xp-soft: #e2f5fd; }
+.xp-mix p { margin: 0 0 6px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
+.xp-mix p b { color: var(--text-primary); font-size: 15px; }
+.xp-mix-bar {
+  display: flex;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+.xp-mix-bar i { background: var(--xp); }
+.xp-mix-bar i + i { border-left: 2px solid #fff; }
+.xp-sources {
   display: grid;
-  gap: 8px;
-  margin: 14px 0 0;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
-.xp-rules li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+.xp-sources li {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 14px;
+  border-top: 4px solid var(--xp);
   border-radius: 16px;
+  background: var(--xp-soft);
+}
+.xp-source-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--xp);
+}
+.xp-source-title { font-size: 15px; }
+.xp-gains { display: flex; flex-wrap: wrap; gap: 10px; }
+.xp-gains > span { display: grid; }
+.xp-gains strong { color: var(--xp); font-size: 26px; font-weight: 900; line-height: 1.1; }
+.xp-gains small,
+.xp-source-note { color: var(--text-secondary); font-size: 12px; font-weight: 700; }
+.xp-source-earned { margin-top: 2px; color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.xp-source-earned b { color: var(--text-primary); font-size: 14px; }
+.xp-level p { margin: 0 0 10px; color: var(--text-secondary); font-size: 14px; }
+.xp-level p b { margin-right: 8px; color: var(--text-primary); }
+.xp-level p strong { color: var(--amber-deep); }
+.xp-ladder {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: end;
+  gap: 8px;
+  height: 150px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.xp-ladder li {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  align-items: end;
+  height: 100%;
+  text-align: center;
+}
+.xp-ladder-step {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  border-radius: 10px 10px 4px 4px;
   background: var(--page-cool);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
-.xp-rules .stat-icon { flex: none; margin: 0; }
-.xp-rule-text { display: grid; flex: 1; min-width: 0; gap: 2px; }
-.xp-rule-text b { font-size: 15px; }
-.xp-rule-text em {
-  margin-left: 8px;
-  color: var(--amber-deep);
-  font-style: normal;
+.xp-ladder-step i { width: 100%; background: linear-gradient(180deg, var(--warning), var(--amber-deep)); }
+.xp-ladder li.is-done .xp-ladder-step i { background: var(--success); }
+.xp-ladder li.is-current .xp-ladder-step { box-shadow: inset 0 0 0 2px var(--warning); }
+.xp-ladder b { margin-top: 4px; font-size: 12px; }
+.xp-ladder small { color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.xp-ladder-you {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--text-primary);
+  color: #fff;
+  font-size: 11px;
   font-weight: 900;
+  white-space: nowrap;
+  transform: translateX(-50%);
 }
-.xp-rule-text small,
-.xp-rule-earned small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
-.xp-rule-earned { display: grid; flex: none; justify-items: end; }
-.xp-rule-earned b { font-size: 17px; }
-.xp-level-rule {
-  margin: 12px 0 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-.xp-level-rule b { margin-right: 8px; color: var(--text-primary); }
 @media (max-width: 900px) {
   .achievements-layout { grid-template-columns: minmax(0, 1fr); }
 }

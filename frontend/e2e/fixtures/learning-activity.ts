@@ -7,7 +7,7 @@ type Quest = {
 };
 
 type Badge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
-// badge-rules/v2 的代號與門檻（各系列由低到高）；預設全部未取得，等級徽章進度為目前等級。
+// badge-rules/v3 的代號與門檻（各系列由低到高，最後是特殊成就）；預設全部未取得，等級徽章進度為目前等級。
 const badgeTargets: [string, number][] = [
   ["first_answer", 1], ["answers_100", 100], ["answers_300", 300], ["answers_1000", 1000],
   ["first_concept", 1], ["concepts_25", 25], ["concepts_100", 100], ["concepts_300", 300],
@@ -16,6 +16,8 @@ const badgeTargets: [string, number][] = [
   ["listen_30_minutes", 30], ["listen_180_minutes", 180], ["listen_600_minutes", 600],
   ["streak_3", 3], ["streak_7", 7], ["streak_30", 30], ["streak_100", 100],
   ["level_5", 5], ["level_10", 10], ["level_20", 20],
+  ["combo_10", 10], ["comeback_20", 20], ["daily_50", 50], ["explorer_5", 5], ["night_owl", 10], ["early_bird", 10],
+  ["weekend", 1], ["return", 1], ["curious_10", 10], ["researcher", 1], ["creator", 2], ["corrected_5", 5],
 ];
 
 export function learningActivity(options: {
@@ -47,7 +49,7 @@ export function learningActivity(options: {
       sources: options.sources ?? { answers: options.total ?? 0, concepts: 0, cards: 0, podcast: 0 },
     },
     badges: {
-      rule_version: "badge-rules/v2",
+      rule_version: "badge-rules/v3",
       // 指定了不在規則表的代號時照樣回傳（門檻 1），用來驗證畫面忽略不認得的徽章。
       items: [...badgeTargets, ...Object.keys(options.badges ?? {}).filter((id) => !badgeTargets.some(([known]) => known === id)).map((id): [string, number] => [id, 1])]
         .map(([badge_id, target]): Badge => {

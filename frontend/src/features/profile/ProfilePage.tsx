@@ -23,7 +23,7 @@ export function ProfilePage({ apiClient }: { apiClient: StudydyApiClient }) {
     ["learning", "is-amber", fromMaterials((items) => items.filter((item) => islandState(item) === "learning").length), "學習中的教材"],
     ["check", "is-green", fromMaterials(() => completedConcepts), "已完成概念"],
     ["quiz", "is-blue", activity.total_answers, "累計作答"],
-    ["check", "is-green", activity.total_answers ? `${Math.round((activity.total_correct / activity.total_answers) * 100)}%` : "—", "答對率"],
+    ["check", "is-green", activity.total_answers ? `${Math.round((activity.total_correct / activity.total_answers) * 100)}%` : "—", "累計答對率"],
   ] : [];
   return <section className="profile" aria-labelledby="profile-title">
     <header className="profile-head">

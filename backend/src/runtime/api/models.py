@@ -411,6 +411,8 @@ class LearningBadgeView(_Closed):
         "listen_30_minutes", "listen_180_minutes", "listen_600_minutes",
         "streak_3", "streak_7", "streak_30", "streak_100",
         "level_5", "level_10", "level_20",
+        "combo_10", "comeback_20", "daily_50", "explorer_5", "night_owl", "early_bird",
+        "weekend", "return", "curious_10", "researcher", "creator", "corrected_5",
     ]
     earned: bool
     # 取得日期（台灣日期）；推導不出日期時為 null。
@@ -420,7 +422,7 @@ class LearningBadgeView(_Closed):
 
 
 class LearningBadgesView(_Closed):
-    rule_version: Literal["badge-rules/v2"]
+    rule_version: Literal["badge-rules/v3"]
     items: list[LearningBadgeView]
 
 

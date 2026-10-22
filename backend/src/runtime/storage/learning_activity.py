@@ -1,7 +1,7 @@
 """學習活動：由作答、概念卡複習與 Podcast 收聽紀錄即時彙總，以台灣日期為界。
 
 XP、等級、連續天數、今日任務與徽章都從既有紀錄推導，不另存累計點數、任務或
-徽章狀態（規則 xp-rules/v1 與 badge-rules/v2，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
+徽章狀態（規則 xp-rules/v1 與 badge-rules/v3，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
 推導結果隨之改變；沒有紀錄的過去活動不補算。
 """
 
@@ -23,7 +23,7 @@ XP_LISTEN_STEP, XP_LISTEN_SECONDS, XP_LISTEN_DAILY_CAP = 5, 300, 60
 ACTIVE_LISTEN_SECONDS = 60
 NEW_CARD_QUEST = 5
 
-BADGE_RULE_VERSION = "badge-rules/v2"
+BADGE_RULE_VERSION = "badge-rules/v3"
 # 徽章依顯示順序列出：(代號, 計量, 門檻)。同一計量的多個門檻是同一系列的不同層級（由低到高），
 # 計量見 derive_badges；修改時一併更新版本字串、API 模型、前端名稱與文件。
 BADGES = (
@@ -51,6 +51,21 @@ BADGES = (
     ("level_5", "level", 5),
     ("level_10", "level", 10),
     ("level_20", "level", 20),
+)
+# 特殊成就（畫面上未取得前隱藏條件）：(代號, 門檻)。判定方式見 derive_special_badges。
+SPECIAL_BADGES = (
+    ("combo_10", 10),        # 連續答對 10 題
+    ("comeback_20", 20),     # 答錯後下一題就答對，累計 20 次
+    ("daily_50", 50),        # 同一天作答 50 題
+    ("explorer_5", 5),       # 在 5 份不同教材作答
+    ("night_owl", 10),       # 台灣時間 0:00–4:59 作答累計 10 題
+    ("early_bird", 10),      # 台灣時間 5:00–7:59 作答累計 10 題
+    ("weekend", 1),          # 同一個週末的週六與週日都有學習活動
+    ("return", 1),           # 中斷 7 天以上後重新有學習活動
+    ("curious_10", 10),      # 在教材問答提出 10 個問題
+    ("researcher", 1),       # 補充研究並把新來源加入教材
+    ("creator", 2),          # 建立一組概念卡與一集 Podcast（各一）
+    ("corrected_5", 5),      # 答錯過的概念之後又答對，累計 5 個
 )
 
 
@@ -104,7 +119,7 @@ def xp_threshold(level):
 
 
 def derive_badges(*, answers, concepts, materials, card_reviews, listening, xp, active, streak, level):
-    """由每日紀錄推導徽章（規則 badge-rules/v2）。
+    """由每日紀錄推導系列徽章（規則 badge-rules/v3）。
 
     answers／concepts／materials／card_reviews／listening（秒）／xp 皆為 {台灣日期: 當天數量}；
     active 為有學習活動的日期集合。進度一律來自這些紀錄：累計型徽章的取得日期是累計
@@ -135,6 +150,78 @@ def derive_badges(*, answers, concepts, materials, card_reviews, listening, xp, 
             "progress": min(value, target), "target": target,
         })
     return {"rule_version": BADGE_RULE_VERSION, "items": items}
+
+
+def _reached(dates, target):
+    """dates 為依時間排序、每次達成一次的日期；回傳 (進度, 第 target 次的日期)。"""
+    return min(len(dates), target), (dates[target - 1] if len(dates) >= target else None)
+
+
+def derive_special_badges(*, events, answers, active, questions, research, card_sets, podcasts):
+    """特殊成就（規則 badge-rules/v3）。
+
+    events 為依時間排序的作答 (台灣時間 datetime, 是否答對, 教材, 目標概念)；answers 為 {日期: 作答數}；
+    active 為有學習活動的日期；questions、research 為 {日期: 次數}；card_sets、podcasts 為完成日期清單。
+    取得日期是第一次達到門檻的那天；進度不超過門檻。
+    """
+    combo, run, best_run = [], 0, 0
+    comeback, previous = [], None
+    explored, seen = [], set()
+    night, early = [], []
+    corrected, wrong, fixed = [], set(), set()
+    for at, correct, material, concept in events:
+        day = at.date()
+        run = run + 1 if correct else 0
+        best_run = max(best_run, run)
+        if run == 10 and not combo:
+            combo.append(day)
+        if previous is False and correct:
+            comeback.append(day)
+        previous = correct
+        if material not in seen:
+            seen.add(material)
+            explored.append(day)
+        if at.hour < 5:
+            night.append(day)
+        elif at.hour < 8:
+            early.append(day)
+        key = (material, concept)
+        if concept is not None and key not in fixed:
+            if not correct:
+                wrong.add(key)
+            elif key in wrong:
+                fixed.add(key)
+                corrected.append(day)
+    busy = sorted(day for day, count in answers.items() if count >= 50)
+    days = sorted(active)
+    weekends = [day for day in days if day.weekday() == 6 and day - timedelta(days=1) in active]
+    returns = [later for earlier, later in zip(days, days[1:]) if (later - earlier).days > 7]
+    asked = [day for day in sorted(questions) for _ in range(questions[day])]
+    added = [day for day in sorted(research) for _ in range(research[day])]
+    # 卡組與 Podcast 各自第一次完成的日期；兩者都有時取較晚的一天。
+    made = [min(dates) for dates in (card_sets, podcasts) if dates]
+    values = {
+        "combo_10": (min(best_run, 10), combo[0] if combo else None),
+        "comeback_20": _reached(comeback, 20),
+        "daily_50": (min(max(answers.values(), default=0), 50), busy[0] if busy else None),
+        "explorer_5": _reached(explored, 5),
+        "night_owl": _reached(night, 10),
+        "early_bird": _reached(early, 10),
+        "weekend": _reached(weekends, 1),
+        "return": _reached(returns, 1),
+        "curious_10": _reached(asked, 10),
+        "researcher": _reached(added, 1),
+        "creator": (len(made), max(made) if len(made) == 2 else None),
+        "corrected_5": _reached(corrected, 5),
+    }
+    items = []
+    for badge_id, target in SPECIAL_BADGES:
+        progress, earned_on = values[badge_id]
+        items.append({
+            "badge_id": badge_id, "earned": earned_on is not None, "earned_on": earned_on,
+            "progress": target if earned_on is not None else min(progress, target), "target": target,
+        })
+    return items
 
 
 def first_completions(plan, events, unavailable):
@@ -484,6 +571,45 @@ def learning_activity(session, owner, *, now=None):
         daily_xp[day] = daily_xp.get(day, 0) + value
     materials = _material_completions(session, owner, zone)
     streak = streak_days(active, today)
+    events = [
+        (at, correct, material, concept) for at, correct, material, concept in session.execute(text(
+            """
+            SELECT e.created_at AT TIME ZONE :zone, e.is_correct, e.material_id, e.target_concept_id
+            FROM answer_events e
+            JOIN study_sessions s ON s.study_session_id = e.study_session_id
+            WHERE s.learner_id = :owner
+            ORDER BY e.created_at, e.event_number
+            """
+        ), values).all()
+        if at.date() <= today
+    ]
+    questions = dict(session.execute(text(
+        """
+        SELECT (t.created_at AT TIME ZONE :zone)::date AS day, count(*)
+        FROM voice_turns t JOIN voice_conversations c ON c.conversation_id = t.conversation_id
+        WHERE c.learner_id = :owner AND c.deleted_at IS NULL AND t.status = 'ready'
+        GROUP BY day
+        """
+    ), values).all())
+    research = dict(session.execute(text(
+        """
+        SELECT (created_at AT TIME ZONE :zone)::date AS day, count(*) FROM material_research
+        WHERE learner_id = :owner AND deleted_at IS NULL AND status = 'submitted'
+        GROUP BY day
+        """
+    ), values).all())
+    card_sets = [day for (day,) in session.execute(text(
+        """
+        SELECT (created_at AT TIME ZONE :zone)::date FROM card_sets
+        WHERE learner_id = :owner AND deleted_at IS NULL AND status = 'ready'
+        """
+    ), values).all()]
+    podcasts = [day for (day,) in session.execute(text(
+        """
+        SELECT (created_at AT TIME ZONE :zone)::date FROM podcasts
+        WHERE learner_id = :owner AND status = 'ready'
+        """
+    ), values).all()]
     badges = derive_badges(
         answers={day: count for day, (count, _) in answers.items()},
         concepts=concepts,
@@ -491,6 +617,12 @@ def learning_activity(session, owner, *, now=None):
         card_reviews={day: reviews for day, (reviews, _) in cards.items()},
         listening=listening, xp=daily_xp, active=active,
         streak=streak, level=level,
+    )
+    badges["items"] += derive_special_badges(
+        events=events, answers={day: count for day, (count, _) in answers.items()}, active=active,
+        questions={day: count for day, count in questions.items() if day <= today},
+        research={day: count for day, count in research.items() if day <= today},
+        card_sets=[day for day in card_sets if day <= today], podcasts=[day for day in podcasts if day <= today],
     )
     monday = today - timedelta(days=today.weekday())
     week = []
