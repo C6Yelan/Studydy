@@ -1415,16 +1415,12 @@ test("card review sends the intent key and requires the next review count", asyn
 });
 
 function activityView(change = () => undefined) {
-  const week = [19, 20, 21, 22, 23, 24, 25].map((day) => ({
-    date: `2026-10-${day}`, answers: 0, correct: 0, card_reviews: 0, listened_seconds: 0, active: false,
-  }));
-  week[2] = { ...week[2], answers: 4, correct: 3, card_reviews: 2, listened_seconds: 360, active: true };
   const value = {
-    schema: "learning-activity/v2", timezone: "Asia/Taipei", rule_version: "xp-rules/v2", today: "2026-10-21",
-    streak_days: 1, active_today: true, week, total_answers: 4, total_correct: 3,
-    xp: { total: 120, today: 40, level: 2, level_xp: 20, level_target: 200, sources: { answers: 33, concepts: 30, cards: 4, podcast: 5 } },
+    schema: "learning-activity/v3", timezone: "Asia/Taipei", rule_version: "xp-rules/v3", today: "2026-10-21",
+    streak_days: 1, active_today: true, total_answers: 4, total_correct: 3,
+    xp: { total: 120, today: 40, level: 2, level_xp: 20, level_target: 150, sources: { answers: 33, concepts: 30, cards: 4, podcast: 5 } },
     quests: [{ kind: "continue_study", progress: 1, target: 1, done: true, material_id: materialId, study_session_id: sessionId, podcast_id: null, episode_index: null }],
-    badges: { rule_version: "badge-rules/v5", items: [
+    badges: { rule_version: "badge-rules/v6", items: [
       { badge_id: "first_answer", earned: true, earned_on: "2026-10-16", progress: 1, target: 1 },
       { badge_id: "answers_100", earned: false, earned_on: null, progress: 4, target: 100 },
     ] },
@@ -1433,27 +1429,57 @@ function activityView(change = () => undefined) {
   return value;
 }
 
-test("learning activity requires XP, level, quests and badges from the v2 rules", async () => {
+test("learning activity requires XP, level, quests and badges from the v3 rules", async () => {
   const read = (value) => new StudydyApiClient(async () => Response.json(value)).getLearningActivity();
   assert.equal((await read(activityView())).xp.level, 2);
   for (const change of [
-    (value) => { value.schema = "learning-activity/v1"; },
-    (value) => { value.rule_version = "xp-rules/v1"; },
-    (value) => { value.xp.level_xp = 200; },
+    (value) => { value.schema = "learning-activity/v2"; },
+    (value) => { value.rule_version = "xp-rules/v2"; },
+    (value) => { value.xp.level_xp = 150; },
     (value) => { value.xp.today = 121; },
     (value) => { value.xp.sources.cards = -2; },
-    (value) => { delete value.week[0].listened_seconds; },
     (value) => { value.quests[0].kind = "badge"; },
     (value) => { value.quests[0].progress = 2; },
     (value) => { value.quests[0].study_session_id = "x"; },
     (value) => { delete value.badges; },
-    (value) => { value.badges.rule_version = "badge-rules/v4"; },
+    (value) => { value.badges.rule_version = "badge-rules/v5"; },
     (value) => { value.badges.items[1].progress = 101; },
     // 取得與進度不一致、未取得卻有日期、日期格式錯誤都不採用。
     (value) => { value.badges.items[1].earned = true; },
     (value) => { value.badges.items[1].earned_on = "2026-10-20"; },
     (value) => { value.badges.items[0].earned_on = "10/16"; },
   ]) await assert.rejects(read(activityView(change)), ApiClientError);
+});
+
+function rhythmView(change = () => undefined) {
+  const days = [19, 20, 21, 22, 23, 24, 25].map((day) => ({
+    date: `2026-10-${day}`, answers: 0, correct: 0, card_reviews: 0, listened_seconds: 0, active: false,
+  }));
+  days[2] = { ...days[2], answers: 4, correct: 3, card_reviews: 2, listened_seconds: 360, active: true };
+  const value = {
+    schema: "learning-rhythm/v1", timezone: "Asia/Taipei", today: "2026-10-21", period: "week", offset: 0,
+    start: "2026-10-19", end: "2026-10-25", first_day: "2026-10-02", streak_days: 1, days,
+  };
+  change(value);
+  return value;
+}
+
+test("learning rhythm asks for one period page and needs consecutive days", async () => {
+  const paths = [];
+  const read = (value, period = "week", offset = 0) => new StudydyApiClient(async (path) => { paths.push(path); return Response.json(value); })
+    .getLearningRhythm(period, offset);
+  assert.equal((await read(rhythmView())).days.length, 7);
+  assert.equal(paths[0], "/v1/learning-activity/rhythm?period=week&offset=0");
+  for (const [change, period, offset] of [
+    [(value) => { value.schema = "learning-rhythm/v0"; }],
+    [() => undefined, "month"],
+    [() => undefined, "week", 1],
+    [(value) => { value.first_day = "10/02"; }],
+    [(value) => { delete value.days[0].listened_seconds; }],
+    [(value) => { value.days[1].correct = 9; }],
+    [(value) => { value.days.reverse(); }],
+    [(value) => { value.end = "2026-10-26"; }],
+  ]) await assert.rejects(read(rhythmView(change), period, offset), ApiClientError);
 });
 
 test("learning activity is shared briefly and re-read after a card mark", async () => {

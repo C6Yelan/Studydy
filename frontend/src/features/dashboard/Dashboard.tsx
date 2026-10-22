@@ -9,7 +9,7 @@ import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { Icon } from "../../ui/Icon";
 import { Bone } from "../../ui/Skeleton";
 import { IslandMap } from "./IslandMap";
-import { LevelBadge, QuickAccess, type QuickItem } from "./QuickAccess";
+import { QuickAccess, type QuickItem } from "./QuickAccess";
 import { headSession, islandState, openMaterial, statusText, useMaterialProgress } from "./islands";
 import "./styles.css";
 
@@ -66,7 +66,6 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
       <header className="dashboard-greeting">
         <div className="dashboard-hello">
           <h1>{greeting}今天想探索哪座島？</h1>
-          {activity && <LevelBadge xp={activity.xp} />}
         </div>
         <div className="dashboard-actions">
           <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}><Icon name="sparkle" size={18} />從主題建立教材</button>
@@ -89,7 +88,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
             </div>
           ) : <IslandMap materials={materials} progress={progress} focusId={focus?.material_id} />}
         </section>
-        {/* 右欄：今日任務與快速存取；等級在問候列，徽章與統計在「成就」頁。 */}
+        {/* 右欄：今日任務與快速存取；等級在全站頁首，徽章與統計在「成就」頁。 */}
         <aside className="dashboard-side">
           {activity === undefined && <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "35%" }} /><Bone className="is-row" /><Bone className="is-row" /></div>}
           {activity && activity.quests.length > 0 && <DailyQuests quests={activity.quests} onOpen={openQuest} />}

@@ -432,7 +432,7 @@
   font-size: 12px;
   font-weight: 700;
 }
-/* 個人檔案頁的帳號設定：三個分區上下排列，以分隔線區隔。 */
+/* 個人檔案頁的帳號設定：名稱與密碼上下排列，以分隔線區隔。 */
 .account-settings {
   padding: 20px 22px;
 }
@@ -520,7 +520,7 @@
   }
 }
 
-/* 頁首學習進度：放在品牌旁；桌面顯示連續天數與等級，手機顯示連續天數與 XP。 */
+/* 頁首學習進度：放在品牌旁；等級盾牌＋本級進度在連續天數左邊，手機只留盾牌與細進度條。 */
 .header-start {
   display: flex;
   align-items: center;
@@ -560,12 +560,62 @@
   background: var(--page-cool);
   color: var(--text-muted);
 }
-.header-xp {
-  display: none;
+.header-level {
+  display: inline-flex;
   align-items: center;
-  gap: 3px;
-  color: var(--amber-deep);
+  gap: 6px;
+  padding-left: 4px;
 }
+.header-level-shield {
+  position: relative;
+  display: grid;
+  flex: none;
+  width: 30px;
+  height: 33px;
+  place-items: center;
+}
+.header-level-shield svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: var(--warning);
+  stroke: var(--amber-deep);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+.header-level-shield b {
+  position: relative;
+  margin-top: -2px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  text-shadow: 0 1px 2px rgba(120, 60, 0, 0.45);
+}
+.header-level-meter {
+  display: grid;
+  gap: 2px;
+  width: 64px;
+}
+.header-level-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--warning-soft);
+}
+.header-level-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--warning), var(--amber-deep));
+}
+.header-level-meter small {
+  color: var(--amber-deep);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.header-progress:hover .header-level-bar { background: #ffe7a8; }
 /* 頁首右側隨寬度收合：登出只留圖示（保留無障礙名稱）、隱藏名稱並縮短搜尋，避免與中央導覽重疊。 */
 @media (max-width: 1600px) {
   .account-button {
@@ -615,9 +665,10 @@
   .header-streak {
     padding: 3px 8px 3px 5px;
   }
-  .header-xp {
-    display: inline-flex;
-  }
+  /* 手機：盾牌縮小（細進度條規則見 1280px）。 */
+  .header-level { gap: 4px; padding-left: 2px; }
+  .header-level-shield { width: 26px; height: 29px; }
+  .header-level-shield b { font-size: 13px; }
 }
 /* 窄螢幕頁首空間有限：有學習進度時品牌只留吉祥物（按鈕仍有無障礙名稱）。 */
 @media (max-width: 900px) {
@@ -628,10 +679,29 @@
     padding-right: 8px;
   }
 }
-@media (max-width: 380px) {
-  .header-xp {
+/* 中央導覽只剩圖示的寬度：本級進度只留細條，數字收起（無障礙名稱仍有完整數字）。 */
+@media (max-width: 1280px) {
+  .header-level-meter { width: 28px; }
+  .header-level-meter small { display: none; }
+}
+/* 中央導覽置中、兩側最窄的寬度：只留盾牌與連續天數數字。 */
+@media (min-width: 721px) and (max-width: 1100px) {
+  .header-level-meter,
+  .header-streak-unit {
     display: none;
   }
+  .header-progress { gap: 4px; padding: 0 4px; }
+  .header-level { padding-left: 0; }
+  .header-streak { padding: 3px 6px 3px 4px; }
+}
+@media (max-width: 380px) {
+  .header-level-meter,
+  .header-streak-unit {
+    display: none;
+  }
+  .header-progress { gap: 3px; padding: 0 6px 0 2px; }
+  .header-level-shield { width: 23px; height: 26px; }
+  .header-level-shield b { font-size: 12px; }
 }
 
 /* 升級動畫：只在等級比此瀏覽器上次看到的高時播放一次。 */
@@ -740,13 +810,10 @@
   font-weight: 800;
   white-space: nowrap;
 }
-/* 連續天數一律帶「天」單位；手機收緊間距，長天數與 XP 仍放得下。 */
+/* 連續天數一律帶「天」單位；手機收緊間距，長天數與等級仍放得下。 */
 .header-streak-unit { margin-left: 1px; font-size: 12px; }
 @media (max-width: 720px) {
   .header-progress { gap: 4px; }
   .header-streak { gap: 1px; padding: 3px 6px 3px 4px; }
   .header-streak-unit { font-size: 11px; }
-}
-@media (max-width: 420px) {
-  .header-xp svg { display: none; }
 }

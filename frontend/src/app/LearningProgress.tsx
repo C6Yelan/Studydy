@@ -76,12 +76,23 @@ export function LearningProgressPill({ apiClient, learnerId }: { apiClient: Stud
   }, [key, level]);
   if (!activity) return null;
   const { streak_days: streak, xp } = activity;
+  const ratio = xp.level_target ? Math.min(1, xp.level_xp / xp.level_target) : 0;
+  // 等級盾牌與本級進度在連續天數左邊；點按進入成就頁。
   return <>
     <button className={`header-progress${streak ? "" : " is-idle"}`} type="button"
-      aria-label={`連續學習 ${streak} 天，累計 ${xp.total} XP，查看成就`}
+      aria-label={`第 ${xp.level} 級，本級 ${xp.level_xp} / ${xp.level_target} XP，連續學習 ${streak} 天，查看成就`}
       onClick={() => writeRoute({ name: "achievements" })}>
-      <span className="header-streak"><Icon name="flame" size={17} /><b>{streak}</b><span className="header-streak-unit">天</span></span>
-      <span className="header-xp"><Icon name="sparkle" size={15} />{xp.total} XP</span>
+      <span className="header-level" aria-hidden="true">
+        <span className="header-level-shield">
+          <svg viewBox="0 0 40 44"><path d="M20 2 36 8v12c0 11-7 18-16 22C11 38 4 31 4 20V8Z" /></svg>
+          <b>{xp.level}</b>
+        </span>
+        <span className="header-level-meter">
+          <span className="header-level-bar"><i style={{ width: `${Math.max(ratio > 0 ? 4 : 0, ratio * 100)}%` }} /></span>
+          <small>{xp.level_xp}/{xp.level_target}</small>
+        </span>
+      </span>
+      <span className="header-streak" aria-hidden="true"><Icon name="flame" size={17} /><b>{streak}</b><span className="header-streak-unit">天</span></span>
     </button>
     {celebrate !== null && <LevelUp level={celebrate} onClose={() => setCelebrate(null)} />}
     {/* 同時升級與取得徽章時，先看升級，關閉後再顯示徽章。 */}

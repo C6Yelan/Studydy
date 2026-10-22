@@ -1,62 +1,270 @@
-/* 個人檔案：頁首頭像與名稱；左欄學習統計，右欄帳號設定（窄螢幕上下排列）。 */
+/* 個人檔案：頁首頭像與名稱；寬螢幕左欄學習總覽、學習節奏、登入裝置，右欄帳號設定，整頁盡量不捲動。
+   窄螢幕依序為總覽、節奏、帳號設定、登入裝置。 */
 .profile {
   display: grid;
-  gap: 24px;
+  gap: 18px;
 }
 .profile-head {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 16px;
 }
 .profile-avatar {
   display: grid;
   flex: none;
-  width: 72px;
-  height: 72px;
+  width: 60px;
+  height: 60px;
   place-items: center;
   border-radius: 50%;
   background: var(--studydy-blue-soft);
   color: var(--studydy-blue);
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 900;
 }
-.profile-head .eyebrow { margin-bottom: 4px; }
 .profile-head h1 {
   margin: 0;
   font-size: clamp(1.5rem, 2.4vw, 1.9rem);
   overflow-wrap: anywhere;
 }
-.profile-summary {
-  margin: 4px 0 0;
-  color: var(--text-secondary);
-  font-weight: 700;
-}
 .profile-settings-jump { margin-left: auto; flex: none; }
 .profile-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
-  gap: 24px;
+  grid-template-rows: auto auto 1fr;
+  grid-template-areas: "overview settings" "rhythm settings" "devices settings";
+  gap: 18px 24px;
   align-items: start;
 }
-.profile-main { min-width: 0; }
-/* 學習統計：總覽與本週節奏上下排列。 */
-.profile-stats {
-  display: grid;
-  gap: 24px;
+.profile-overview-slot { grid-area: overview; min-width: 0; }
+.profile-rhythm { grid-area: rhythm; min-width: 0; }
+.profile-devices { grid-area: devices; }
+.profile-layout > .account-settings { grid-area: settings; }
+.profile-layout > .surface,
+.profile-overview { padding: 18px 22px; }
+.profile-layout h2 { margin: 0; font-size: 17px; }
+
+/* 學習總覽：一列小數字 */
+.profile-overview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
 }
-.profile-stats > .surface { padding: 20px 22px; }
-.profile-stats h2 { margin: 0; font-size: 17px; }
-.profile-stats .dashboard-overview h2 { margin-bottom: 14px; }
-.profile-stats .dashboard-stats { grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); }
+.profile-stat-list {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  min-width: min(100%, 460px);
+}
+.profile-stat {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--page-cool);
+}
+.profile-stat .stat-icon { grid-row: span 2; }
+.profile-stat strong { font-size: 17px; font-weight: 900; line-height: 1.15; }
+.profile-stat small { overflow: hidden; color: var(--text-muted); font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.stat-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+}
+.stat-icon.is-blue { background: var(--studydy-blue-soft); color: var(--studydy-blue); }
+.stat-icon.is-amber { background: var(--warning-soft); color: var(--amber-deep); }
+.stat-icon.is-green { background: var(--success-soft); color: var(--success); }
+
+/* 學習節奏：區間切換、翻頁、圖表（長條或熱力圖）與摘要 */
+.profile-rhythm { display: grid; gap: 12px; }
+.rhythm-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.rhythm-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px 4px 8px;
+  border-radius: var(--radius-button);
+  background: #fff0ec;
+  color: var(--coral);
+  font-size: 13px;
+  font-weight: 900;
+}
+.rhythm-streak.is-idle { background: var(--page-cool); color: var(--text-muted); }
+.rhythm-periods {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--page-cool);
+}
+.rhythm-periods button {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.rhythm-periods button:hover { color: var(--text-primary); }
+.rhythm-periods button[aria-pressed="true"] { background: var(--surface); box-shadow: var(--shadow); color: var(--studydy-blue); }
+.rhythm-pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rhythm-pager b { min-width: 9em; font-size: 15px; text-align: center; }
+.rhythm-step {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+.rhythm-step:hover:not(:disabled) { border-color: var(--studydy-blue); color: var(--studydy-blue); }
+.rhythm-step:disabled { opacity: 0.35; cursor: default; }
+.rhythm-pager .text-button { margin-left: auto; }
+.profile-rhythm[aria-busy="true"] .rhythm-chart { opacity: 0.55; }
+.rhythm-chart {
+  padding: 14px 10px 10px;
+  border-radius: 20px;
+  background: var(--page-cool);
+  transition: opacity 0.15s;
+}
+.profile-rhythm .is-answers { --series: var(--warning); }
+.profile-rhythm .is-cards { --series: var(--violet); }
+.profile-rhythm .is-listen { --series: var(--sea); }
+.rhythm-bars {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rhythm-bars li {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+}
+.rhythm-bar-stack {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  width: min(100%, 44px);
+  height: clamp(110px, 18vh, 170px);
+  padding: 0 3px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--surface);
+}
+.rhythm-bars.is-compact { gap: 2px; }
+.rhythm-bars.is-compact .rhythm-bar-stack { gap: 1px; padding: 0 1px; border-radius: 4px; }
+.rhythm-bar-stack i { flex: 1; border-radius: 4px 4px 2px 2px; background: var(--series); }
+.rhythm-bars.is-compact .rhythm-bar-stack i { border-radius: 2px 2px 1px 1px; }
+.rhythm-bars li.is-today .rhythm-bar-stack { box-shadow: 0 0 0 2px var(--page-cool), 0 0 0 4px var(--amber-deep); }
+.rhythm-bars li.is-future .rhythm-bar-stack { opacity: 0.5; }
+.rhythm-bars small { min-height: 15px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.rhythm-bars li.is-active small { color: var(--text-primary); }
+.rhythm-bars li.is-today small { color: var(--amber-deep); }
+/* 熱力圖：一欄一週、一格一天 */
+.rhythm-heatmap { display: grid; gap: 4px; }
+.rhythm-heatmap-months,
+.rhythm-heatmap-grid { display: grid; margin: 0; padding: 0; list-style: none; }
+.rhythm-heatmap-months { gap: 3px; color: var(--text-muted); font-size: 11px; font-weight: 800; }
+.rhythm-heatmap-months li { overflow: visible; white-space: nowrap; }
+.rhythm-heatmap-grid {
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, auto);
+  gap: 3px;
+}
+.rhythm-heatmap-grid li,
+.rhythm-scale li[class] {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: var(--heat);
+}
+.rhythm-heatmap-grid li.is-today { box-shadow: 0 0 0 2px var(--amber-deep); }
+.rhythm-heatmap-grid li.is-future { opacity: 0.35; }
+.profile-rhythm .is-level-0 { --heat: #e3e8f2; }
+.profile-rhythm .is-level-1 { --heat: #c9e7f8; }
+.profile-rhythm .is-level-2 { --heat: #8fd0f2; }
+.profile-rhythm .is-level-3 { --heat: #3fa9e0; }
+.profile-rhythm .is-level-4 { --heat: #1678b8; }
+.rhythm-legend,
+.rhythm-scale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  list-style: none;
+}
+.rhythm-legend li { display: inline-flex; align-items: center; gap: 5px; }
+.rhythm-legend li::before {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--series);
+  content: "";
+}
+.rhythm-scale { gap: 3px; }
+.rhythm-scale li[class] { width: 12px; }
+.rhythm-scale li:first-child { margin-right: 3px; }
+.rhythm-scale li:last-child { margin-left: 3px; }
+.rhythm-summary { margin: 0; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
+.rhythm-note { color: var(--text-muted); font-size: 11px; }
+.rhythm-failure { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.rhythm-failure p { margin: 0; color: var(--text-secondary); }
+
+/* 登入裝置：獨立卡片 */
+.profile-devices { display: grid; gap: 10px; }
+.profile-devices footer { display: flex; justify-content: flex-end; }
+.profile-devices .form-error { margin: 0; }
+
 @media (min-width: 1201px) {
   /* 寬螢幕帳號設定就在右欄，不需要跳轉按鈕（需高於共用按鈕樣式的優先順序）。 */
   .profile-head .profile-settings-jump { display: none; }
 }
 @media (max-width: 1200px) {
-  .profile-layout { grid-template-columns: minmax(0, 1fr); }
+  .profile-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas: "overview" "rhythm" "settings" "devices";
+  }
 }
 @media (max-width: 720px) {
   .profile-head { flex-wrap: wrap; }
-  .profile-avatar { width: 56px; height: 56px; font-size: 24px; }
+  .profile-avatar { width: 52px; height: 52px; font-size: 22px; }
   .profile-settings-jump { width: 100%; margin-left: 0; }
+  .profile-stat-list { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); min-width: 100%; }
+  .rhythm-periods { margin-left: 0; width: 100%; }
+  .rhythm-periods button { flex: 1; padding: 0 6px; }
+  .rhythm-chart { padding: 12px 6px 8px; }
+  .rhythm-heatmap-grid, .rhythm-heatmap-months { gap: 1px; }
+  .rhythm-heatmap-grid li { border-radius: 1px; }
+  .rhythm-heatmap-months { font-size: 9px; }
 }

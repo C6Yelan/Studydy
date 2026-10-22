@@ -1,5 +1,5 @@
 import type {
-  KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, ProgressSummaryView, PodcastProgressView, StudyWorkspaceView,
+  KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, LearningRhythmView, MapProgressView, ProgressSummaryView, PodcastProgressView, StudyWorkspaceView,
   PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
   AnswerFeedbackView,
   CardSetSummary,
@@ -798,23 +798,35 @@ export function learningActivity(value: unknown): value is LearningActivityView 
   const xp = object(item?.xp);
   const sources = object(xp?.sources);
   const badges = object(item?.badges);
-  return !!item && item.schema === "learning-activity/v2" && item.timezone === "Asia/Taipei"
-    && item.rule_version === "xp-rules/v2"
+  return !!item && item.schema === "learning-activity/v3" && item.timezone === "Asia/Taipei"
+    && item.rule_version === "xp-rules/v3"
     && typeof item.today === "string" && isoDate.test(item.today)
     && count(item.streak_days) && typeof item.active_today === "boolean"
     && count(item.total_answers) && count(item.total_correct) && item.total_correct <= item.total_answers
-    && Array.isArray(item.week) && item.week.length === 7 && item.week.every(value => {
-      const day = object(value);
-      return !!day && typeof day.date === "string" && isoDate.test(day.date)
-        && count(day.answers) && count(day.correct) && day.correct <= day.answers
-        && count(day.card_reviews) && count(day.listened_seconds) && typeof day.active === "boolean";
-    }) && item.week.some(day => object(day)!.date === item.today)
     && !!xp && !!sources && [xp.total, xp.today, xp.level_xp, xp.level_target].every(count)
     && Number.isInteger(xp.level) && Number(xp.level) >= 1 && Number(xp.level_xp) < Number(xp.level_target)
     && Number(xp.today) <= Number(xp.total)
     && ["answers", "concepts", "cards", "podcast"].every(key => count(sources[key]))
     && Array.isArray(item.quests) && item.quests.every(learningQuest)
-    && !!badges && badges.rule_version === "badge-rules/v5" && Array.isArray(badges.items) && badges.items.every(learningBadge);
+    && !!badges && badges.rule_version === "badge-rules/v6" && Array.isArray(badges.items) && badges.items.every(learningBadge);
+}
+
+const rhythmPeriods = ["week", "month", "quarter", "year"];
+
+// 學習節奏：每天一筆、日期連續涵蓋 start～end（ISO 日期字串可直接比較先後）。
+export function learningRhythm(value: unknown): value is LearningRhythmView {
+  const item = object(value);
+  if (!item || item.schema !== "learning-rhythm/v1" || item.timezone !== "Asia/Taipei"
+    || !rhythmPeriods.includes(String(item.period)) || !count(item.offset) || !count(item.streak_days)
+    || ![item.today, item.start, item.end].every(day => typeof day === "string" && isoDate.test(day))
+    || !(item.first_day === null || (typeof item.first_day === "string" && isoDate.test(item.first_day)))
+    || !Array.isArray(item.days) || item.days.length === 0 || item.days.length > 371) return false;
+  const days = item.days.map(object);
+  return days.every(day => !!day && typeof day.date === "string" && isoDate.test(day.date)
+      && count(day.answers) && count(day.correct) && day.correct <= day.answers
+      && count(day.card_reviews) && count(day.listened_seconds) && typeof day.active === "boolean")
+    && days[0]!.date === item.start && days.at(-1)!.date === item.end
+    && days.every((day, index) => index === 0 || String(day!.date) > String(days[index - 1]!.date));
 }
 
 export function podcastProgress(value: unknown): value is PodcastProgressView {

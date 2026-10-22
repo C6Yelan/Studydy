@@ -215,7 +215,8 @@ test("password change validates input, reports a wrong current password and then
   const dialog = page.getByRole("region", { name: "帳號設定" });
   const section = dialog.getByRole("region", { name: "修改密碼" });
   await expect(dialog.getByRole("region", { name: "個人名稱" })).toBeVisible();
-  await expect(dialog.getByRole("region", { name: "登入裝置" })).toContainText("目前有 3 個有效登入（含這個裝置）。");
+  // 登入裝置是帳號設定之外的獨立卡片。
+  await expect(page.getByRole("region", { name: "登入裝置" })).toContainText("目前有 3 個有效登入（含這個裝置）。");
   const submit = section.getByRole("button", { name: "更新密碼" });
   await expect(submit).toBeDisabled();
   await section.getByLabel("目前密碼").fill("old synthetic secret");
@@ -239,8 +240,8 @@ test("password change validates input, reports a wrong current password and then
   await submit.click();
   await expect(section.getByRole("status")).toHaveText("密碼已更新，其他裝置已登出；這個裝置維持登入。");
   for (const label of ["目前密碼", "確認新密碼"]) await expect(section.getByLabel(label)).toHaveValue("");
-  await expect(dialog.getByRole("region", { name: "登入裝置" })).toContainText("目前只有這個裝置登入中。");
-  await expect(dialog.getByRole("button", { name: "登出其他裝置" })).toBeDisabled();
+  await expect(page.getByRole("region", { name: "登入裝置" })).toContainText("目前只有這個裝置登入中。");
+  await expect(page.getByRole("button", { name: "登出其他裝置" })).toBeDisabled();
   expect(writes).toHaveLength(3);
   for (const write of writes) {
     expect(write).toMatchObject({ path: "password", method: "POST", origin: new URL(page.url()).origin });
@@ -258,8 +259,7 @@ test("sign out other devices keeps this device and hides the count when it canno
   const { writes } = await mockAccount(page, 2);
   await page.goto(mapPath);
   await page.getByRole("button", { name: "個人檔案：以安" }).click();
-  const dialog = page.getByRole("region", { name: "帳號設定" });
-  const devices = dialog.getByRole("region", { name: "登入裝置" });
+  const devices = page.getByRole("region", { name: "登入裝置" });
   await expect(devices).toContainText("目前有 2 個有效登入（含這個裝置）。");
   await devices.getByRole("button", { name: "登出其他裝置" }).click();
   await expect(devices.getByRole("status")).toHaveText("已登出其他裝置，目前只有這個裝置登入中。");
@@ -276,7 +276,7 @@ test("sign out other devices keeps this device and hides the count when it canno
   await expect(devices).not.toContainText(/\d+ 個有效登入/);
   await devices.getByRole("button", { name: "登出其他裝置" }).click();
   await expect(devices.getByRole("alert")).toHaveText("資料服務暫時無法使用，請稍後再試。");
-  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("region", { name: "帳號設定" })).toBeVisible();
 });
 
 test("profile fits a 390px phone and jumps to account settings", async ({ page }) => {
@@ -286,7 +286,7 @@ test("profile fits a 390px phone and jumps to account settings", async ({ page }
   await page.goto("/");
   await page.getByRole("button", { name: "個人檔案：以安" }).click();
   const settings = page.getByRole("region", { name: "帳號設定" });
-  await expect(settings.getByRole("region", { name: "登入裝置" })).toContainText("3 個有效登入");
+  await expect(page.getByRole("region", { name: "登入裝置" })).toContainText("3 個有效登入");
   const box = (await settings.boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);
@@ -294,7 +294,7 @@ test("profile fits a 390px phone and jumps to account settings", async ({ page }
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("button", { name: "帳號設定", exact: true }).click();
   await expect(settings.getByRole("heading", { name: "帳號設定" })).toBeInViewport();
-  const devicesButton = settings.getByRole("button", { name: "登出其他裝置" });
+  const devicesButton = page.getByRole("button", { name: "登出其他裝置" });
   await devicesButton.scrollIntoViewIfNeeded();
   await expect(devicesButton).toBeInViewport();
 });

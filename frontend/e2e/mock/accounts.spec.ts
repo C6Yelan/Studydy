@@ -69,7 +69,7 @@ test.beforeEach(async ({ page }) => {
       case "/v1/profile":
         expect(request.method()).toBe("GET");
         return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
-      // 頁首學習進度與首頁「本週學習節奏」；新帳號沒有學習紀錄。
+      // 頁首學習進度（等級與連續天數）；新帳號沒有學習紀錄。
       case "/v1/learning-activity":
         expect(request.method()).toBe("GET");
         return route.fulfill({ json: emptyLearningActivity });

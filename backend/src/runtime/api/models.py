@@ -405,16 +405,21 @@ class LearningQuestView(_Closed):
 class LearningBadgeView(_Closed):
     badge_id: Literal[
         "first_answer", "answers_100", "answers_300", "answers_1000", "answers_5000",
-        "first_concept", "concepts_25", "concepts_100", "concepts_300",
-        "first_material", "materials_3", "materials_10",
-        "cards_100", "cards_500", "cards_2000",
-        "listen_30_minutes", "listen_180_minutes", "listen_600_minutes",
+        "first_concept", "concepts_25", "concepts_100", "concepts_300", "concepts_1000",
+        "first_material", "materials_3", "materials_10", "materials_25",
+        "cards_100", "cards_500", "cards_2000", "cards_5000",
+        "listen_30_minutes", "listen_180_minutes", "listen_600_minutes", "listen_1800_minutes",
         "streak_3", "streak_7", "streak_30", "streak_100", "streak_365",
-        "level_5", "level_10", "level_20", "level_30",
-        "perfect_set_1", "perfect_set_10", "perfect_set_30",
-        "combo_10", "comeback_20", "daily_50", "explorer_5", "night_owl", "early_bird",
-        "weekend", "return", "curious_10", "researcher", "creator", "corrected_5",
+        "level_5", "level_10", "level_15", "level_20", "level_30",
+        "perfect_set_1", "perfect_set_10", "perfect_set_30", "perfect_set_100",
+        "days_7", "days_30", "days_100", "days_200", "days_365",
+        "first_set", "sets_10", "sets_50", "sets_200",
+        "first_episode", "episodes_10", "episodes_50",
+        "combo_10", "combo_25", "combo_50", "comeback_20", "daily_50", "daily_100",
+        "explorer_5", "explorer_10", "night_owl", "early_bird",
+        "weekend", "return", "curious_10", "curious_50", "researcher", "creator", "corrected_5",
         "first_try_material", "perfect_day", "all_round_day", "thousand_pages", "revisit",
+        "xp_day_300", "never_give_up", "binge_3", "three_islands", "new_year",
     ]
     earned: bool
     # 取得日期（台灣日期）；推導不出日期時為 null。
@@ -424,23 +429,36 @@ class LearningBadgeView(_Closed):
 
 
 class LearningBadgesView(_Closed):
-    rule_version: Literal["badge-rules/v5"]
+    rule_version: Literal["badge-rules/v6"]
     items: list[LearningBadgeView]
 
 
 class LearningActivityView(_Closed):
-    schema_: Literal["learning-activity/v2"] = Field(alias="schema")
+    schema_: Literal["learning-activity/v3"] = Field(alias="schema")
     timezone: Literal["Asia/Taipei"]
-    rule_version: Literal["xp-rules/v2"]
+    rule_version: Literal["xp-rules/v3"]
     today: date_type
     streak_days: int
     active_today: bool
-    week: list[LearningActivityDayView]
     total_answers: int
     total_correct: int
     xp: LearningXpView
     quests: list[LearningQuestView]
     badges: LearningBadgesView
+
+
+class LearningRhythmView(_Closed):
+    schema_: Literal["learning-rhythm/v1"] = Field(alias="schema")
+    timezone: Literal["Asia/Taipei"]
+    today: date_type
+    period: Literal["week", "month", "quarter", "year"]
+    offset: int
+    start: date_type
+    end: date_type
+    # 最早有學習紀錄的日期；沒有任何紀錄時為 null。
+    first_day: date_type | None
+    streak_days: int
+    days: list[LearningActivityDayView]
 
 
 class KnowledgeConceptsView(_Closed):

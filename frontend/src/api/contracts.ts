@@ -271,28 +271,40 @@ export type LearningXp = {
   total: number; today: number; level: number; level_xp: number; level_target: number;
   sources: { answers: number; concepts: number; cards: number; podcast: number };
 };
-// 徽章（規則 badge-rules/v5）只由真實紀錄推導；同一計量的多個門檻是同一系列的層級，另有隱藏條件的特殊成就。未知代號由畫面忽略。
+// 徽章（規則 badge-rules/v6）只由真實紀錄推導；同一計量的多個門檻是同一系列的層級，另有隱藏條件的特殊成就與逐步揭曉的成就鏈。未知代號由畫面忽略。
 export type LearningBadgeId =
   | "first_answer" | "answers_100" | "answers_300" | "answers_1000" | "answers_5000"
-  | "first_concept" | "concepts_25" | "concepts_100" | "concepts_300"
-  | "first_material" | "materials_3" | "materials_10"
-  | "cards_100" | "cards_500" | "cards_2000"
-  | "listen_30_minutes" | "listen_180_minutes" | "listen_600_minutes"
+  | "first_concept" | "concepts_25" | "concepts_100" | "concepts_300" | "concepts_1000"
+  | "first_material" | "materials_3" | "materials_10" | "materials_25"
+  | "cards_100" | "cards_500" | "cards_2000" | "cards_5000"
+  | "listen_30_minutes" | "listen_180_minutes" | "listen_600_minutes" | "listen_1800_minutes"
   | "streak_3" | "streak_7" | "streak_30" | "streak_100" | "streak_365"
-  | "level_5" | "level_10" | "level_20" | "level_30"
-  | "perfect_set_1" | "perfect_set_10" | "perfect_set_30"
-  | "combo_10" | "comeback_20" | "daily_50" | "explorer_5" | "night_owl" | "early_bird"
-  | "weekend" | "return" | "curious_10" | "researcher" | "creator" | "corrected_5"
-  | "first_try_material" | "perfect_day" | "all_round_day" | "thousand_pages" | "revisit";
+  | "level_5" | "level_10" | "level_15" | "level_20" | "level_30"
+  | "perfect_set_1" | "perfect_set_10" | "perfect_set_30" | "perfect_set_100"
+  | "days_7" | "days_30" | "days_100" | "days_200" | "days_365"
+  | "first_set" | "sets_10" | "sets_50" | "sets_200"
+  | "first_episode" | "episodes_10" | "episodes_50"
+  | "combo_10" | "combo_25" | "combo_50" | "comeback_20" | "daily_50" | "daily_100"
+  | "explorer_5" | "explorer_10" | "night_owl" | "early_bird"
+  | "weekend" | "return" | "curious_10" | "curious_50" | "researcher" | "creator" | "corrected_5"
+  | "first_try_material" | "perfect_day" | "all_round_day" | "thousand_pages" | "revisit"
+  | "xp_day_300" | "never_give_up" | "binge_3" | "three_islands" | "new_year";
 export type LearningBadge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
 export type LearningActivityView = {
-  schema: "learning-activity/v2"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v2"; today: string;
+  schema: "learning-activity/v3"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v3"; today: string;
   streak_days: number; active_today: boolean;
-  week: LearningActivityDay[];
   total_answers: number; total_correct: number;
   xp: LearningXp;
   quests: LearningQuest[];
-  badges: { rule_version: "badge-rules/v5"; items: LearningBadge[] };
+  badges: { rule_version: "badge-rules/v6"; items: LearningBadge[] };
+};
+// 學習節奏：週（週一到週日）、月（自然月）、近 3 個月（13 週）、近一年（52 週）；offset 為往前翻的頁數。
+export type LearningRhythmPeriod = "week" | "month" | "quarter" | "year";
+export type LearningRhythmView = {
+  schema: "learning-rhythm/v1"; timezone: "Asia/Taipei"; today: string;
+  period: LearningRhythmPeriod; offset: number; start: string; end: string;
+  first_day: string | null; streak_days: number;
+  days: LearningActivityDay[];
 };
 
 export type PodcastProgressView = {

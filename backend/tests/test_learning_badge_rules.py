@@ -1,4 +1,4 @@
-"""徽章規則 badge-rules/v5：系列徽章的每一層與特殊成就的未達、剛好達標與取得日期。"""
+"""徽章規則 badge-rules/v6：系列徽章的每一層與特殊成就的未達、剛好達標與取得日期。"""
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -16,7 +16,7 @@ def badges(**records):
         "xp": {}, "active": set(), "streak": 0, "level": 1, **records,
     }
     view = derive_badges(**values)
-    assert view["rule_version"] == "badge-rules/v5"
+    assert view["rule_version"] == "badge-rules/v6"
     assert [item["badge_id"] for item in view["items"]] == [badge_id for badge_id, _, _ in BADGES]
     return {item["badge_id"]: item for item in view["items"]}
 
@@ -41,12 +41,22 @@ def test_no_records_earns_nothing_and_shows_zero_progress():
     ("concepts_25", "concepts", 25),
     ("concepts_100", "concepts", 100),
     ("concepts_300", "concepts", 300),
+    ("concepts_1000", "concepts", 1000),
     ("first_material", "materials", 1),
     ("materials_3", "materials", 3),
     ("materials_10", "materials", 10),
+    ("materials_25", "materials", 25),
     ("cards_100", "card_marks", 100),
     ("cards_500", "card_marks", 500),
     ("cards_2000", "card_marks", 2000),
+    ("cards_5000", "card_marks", 5000),
+    ("first_set", "sets", 1),
+    ("sets_10", "sets", 10),
+    ("sets_50", "sets", 50),
+    ("sets_200", "sets", 200),
+    ("first_episode", "episodes", 1),
+    ("episodes_10", "episodes", 10),
+    ("episodes_50", "episodes", 50),
 ])
 def test_cumulative_badges_are_dated_on_the_day_the_total_reaches_the_target(badge_id, field, target):
     if target > 1:
@@ -58,7 +68,7 @@ def test_cumulative_badges_are_dated_on_the_day_the_total_reaches_the_target(bad
 
 
 @pytest.mark.parametrize(("badge_id", "minutes"), [
-    ("listen_30_minutes", 30), ("listen_180_minutes", 180), ("listen_600_minutes", 600),
+    ("listen_30_minutes", 30), ("listen_180_minutes", 180), ("listen_600_minutes", 600), ("listen_1800_minutes", 1800),
 ])
 def test_listening_badges_need_full_minutes(badge_id, minutes):
     seconds = minutes * 60
@@ -81,15 +91,23 @@ def test_streak_badges_are_dated_on_the_first_run_that_reaches_the_length(badge_
 
 
 def test_level_badge_uses_the_day_cumulative_xp_reaches_level_5():
-    assert xp_threshold(5) == 1000 and level_for(999)[0] == 4 and level_for(1000)[0] == 5
-    below = badges(xp={D1: 600, D2: 399}, level=4)["level_5"]
+    assert xp_threshold(5) == 700 and level_for(699)[0] == 4 and level_for(700)[0] == 5
+    below = badges(xp={D1: 600, D2: 99}, level=4)["level_5"]
     assert state(below) == (False, None, 4, 5)
-    exact = badges(xp={D1: 600, D2: 400, D3: 50}, level=5)["level_5"]
+    exact = badges(xp={D1: 600, D2: 100, D3: 50}, level=5)["level_5"]
     assert state(exact) == (True, D2, 5, 5)
     assert badges(xp={D1: 5000}, level=9)["level_5"]["progress"] == 5
 
 
-@pytest.mark.parametrize(("badge_id", "level"), [("level_10", 10), ("level_20", 20), ("level_30", 30)])
+def test_active_day_badges_count_days_with_learning_even_without_a_streak():
+    start = date(2026, 1, 1)
+    every_other = {start + timedelta(days=2 * n) for n in range(7)}
+    assert state(badges(active=every_other)["days_7"]) == (True, start + timedelta(days=12), 7, 7)
+    assert state(badges(active=set(list(every_other)[:6]))["days_7"])[:3] == (False, None, 6)
+    assert badges(active=every_other)["streak_3"]["earned"] is False
+
+
+@pytest.mark.parametrize(("badge_id", "level"), [("level_10", 10), ("level_15", 15), ("level_20", 20), ("level_30", 30)])
 def test_higher_level_badges_use_the_same_cumulative_xp_threshold(badge_id, level):
     threshold = xp_threshold(level)
     assert level_for(threshold - 1)[0] == level - 1 and level_for(threshold)[0] == level
@@ -137,6 +155,11 @@ def test_combo_needs_ten_correct_in_a_row_and_keeps_the_best_run_as_progress():
     assert state(special(events=almost)["combo_10"]) == (False, None, 9, 10)
     done = almost + [answer(18, 12, True)] * 7
     assert state(special(events=done)["combo_10"]) == (True, date(2026, 10, 18), 10, 10)
+    # 成就鏈的下一步：同一段連對延續到 25 題。
+    assert state(special(events=done)["combo_25"]) == (False, None, 10, 25)
+    longer = done + [answer(19, 12, True)] * 15
+    assert state(special(events=longer)["combo_25"]) == (True, date(2026, 10, 19), 25, 25)
+    assert special(events=longer)["combo_50"]["progress"] == 25
 
 
 def test_comeback_counts_a_correct_answer_right_after_a_wrong_one():
@@ -148,11 +171,14 @@ def test_comeback_counts_a_correct_answer_right_after_a_wrong_one():
 def test_daily_fifty_uses_the_first_day_with_fifty_answers():
     assert state(special(answers={D1: 49, D2: 12})["daily_50"]) == (False, None, 49, 50)
     assert state(special(answers={D1: 49, D2: 50, D3: 80})["daily_50"]) == (True, D2, 50, 50)
+    assert state(special(answers={D1: 49, D2: 50, D3: 80})["daily_100"]) == (False, None, 80, 100)
+    assert state(special(answers={D1: 120, D2: 100})["daily_100"]) == (True, D1, 100, 100)
 
 
 def test_explorer_counts_distinct_materials_and_dates_the_fifth():
     events = [answer(16, 12, True, material=f"m{n}") for n in range(4)] + [answer(18, 12, False, material="m0"), answer(19, 12, False, material="m9")]
     assert state(special(events=events)["explorer_5"]) == (True, date(2026, 10, 19), 5, 5)
+    assert special(events=events)["explorer_10"]["progress"] == 5
 
 
 def test_night_owl_and_early_bird_use_taiwan_hours():
@@ -179,6 +205,7 @@ def test_return_needs_seven_empty_days_between_activities():
 def test_curious_researcher_and_creator_follow_their_records():
     view = special(questions={D1: 6, D2: 4}, research={D3: 1}, card_sets=[D2, D1], podcasts=[D3])
     assert state(view["curious_10"]) == (True, D2, 10, 10)
+    assert state(view["curious_50"]) == (False, None, 10, 50)
     assert state(view["researcher"]) == (True, D3, 1, 1)
     # 卡組與 Podcast 各一：取兩者第一次完成中較晚的日期。
     assert state(view["creator"]) == (True, D3, 2, 2)
@@ -247,3 +274,42 @@ def test_revisit_needs_card_marks_seven_days_after_completing_the_material():
     assert state(later["revisit"]) == (True, finished + timedelta(days=9), 1, 1)
     # 標記的是別份教材的卡片不算。
     assert special(completed={"m": finished}, reviews={"n": [finished + timedelta(days=9)]})["revisit"]["earned"] is False
+
+
+def test_perfect_day_reads_daily_correct_counts_even_with_answer_events():
+    # 迴圈變數曾覆蓋 correct（每日答對數），有作答事件時「完美的一天」會讀錯型別。
+    events = [answer(16, 12, True)] * 20
+    view = special(events=events, answers={D1: 20}, correct={D1: 20})
+    assert state(view["perfect_day"]) == (True, D1, 1, 1)
+
+
+def test_xp_day_needs_three_hundred_xp_on_one_day():
+    assert state(special(daily_xp={D1: 299, D2: 120})["xp_day_300"]) == (False, None, 299, 300)
+    assert state(special(daily_xp={D1: 299, D2: 300, D3: 500})["xp_day_300"]) == (True, D2, 300, 300)
+
+
+def test_never_give_up_needs_three_misses_before_the_first_correct_answer():
+    two = [answer(16, 9, False), answer(16, 10, False), answer(16, 11, True)]
+    assert special(events=two)["never_give_up"]["earned"] is False
+    # 已經答對過的概念之後再錯再對不算；別的概念第三次錯之後答對才算。
+    three = two + [answer(17, 9, False)] * 3 + [answer(17, 10, True)] + [
+        answer(18, 9, False, concept="c2"), answer(18, 10, False, concept="c2"),
+        answer(18, 11, False, concept="c2"), answer(19, 9, True, concept="c2")]
+    assert state(special(events=three)["never_give_up"]) == (True, date(2026, 10, 19), 1, 1)
+
+
+def test_binge_needs_three_episodes_finished_on_one_day():
+    assert state(special(episodes=[D1, D1, D2])["binge_3"]) == (False, None, 2, 3)
+    assert state(special(episodes=[D1, D2, D2, D2, D3])["binge_3"]) == (True, D2, 3, 3)
+
+
+def test_three_islands_needs_three_materials_answered_on_one_day():
+    spread = [answer(16, 9, True, material="a"), answer(16, 10, True, material="b"), answer(17, 9, True, material="c")]
+    assert state(special(events=spread)["three_islands"]) == (False, None, 2, 3)
+    same_day = spread + [answer(17, 10, False, material="a"), answer(17, 11, True, material="b")]
+    assert state(special(events=same_day)["three_islands"]) == (True, date(2026, 10, 17), 3, 3)
+
+
+def test_new_year_needs_activity_on_january_first():
+    assert special(active={date(2026, 1, 2), date(2025, 12, 31)})["new_year"]["earned"] is False
+    assert state(special(active={date(2026, 1, 1), date(2027, 1, 1)})["new_year"]) == (True, date(2026, 1, 1), 1, 1)

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { learningActivity } from "../fixtures/learning-activity";
+import { learningActivity, learningRhythm } from "../fixtures/learning-activity";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const identity = { schema: "learner-identity/v1", learner_id: id };
@@ -18,14 +18,16 @@ const responses: Record<string, unknown> = {
   "/v1/account/sessions": { schema: "account-sessions/v1", active_sessions: 2 },
   // 較長名稱，檢查頁首在各寬度不溢出。
   "/v1/profile": { schema: "learner-profile/v1", display_name: "林以安同學的學習帳號" },
-  // 有學習紀錄的頁首進度、等級、今日任務與本週節奏，讓各寬度一併檢查頁首與首頁右欄不溢出。
+  // 有學習紀錄的頁首進度、等級、今日任務與學習節奏，讓各寬度一併檢查頁首、首頁右欄與個人檔案不溢出。
+  "/v1/learning-activity/rhythm": learningRhythm({
+    streak: 128,
+    days: { "2026-10-19": { answers: 120, correct: 96, card_reviews: 300, listened_seconds: 3600, active: true },
+      "2026-10-21": { answers: 35, correct: 28, card_reviews: 20, listened_seconds: 900, active: true } },
+  }),
   "/v1/learning-activity": learningActivity({
     streak: 128, total: 12450, todayXp: 85, level: [15, 1450, 1500],
     sources: { answers: 9000, concepts: 2400, cards: 650, podcast: 400 },
-    days: [[120, 300, 3600], [0, 0, 0], [35, 20, 900], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]]
-      .map(([answers, card_reviews, listened_seconds]) => ({
-        answers, correct: Math.floor(answers * 0.8), card_reviews, listened_seconds, active: answers + card_reviews > 0,
-      })),
+    answers: [155, 124],
     quests: [
       { kind: "mark_cards", progress: 3, target: 5, done: false },
       { kind: "continue_study", progress: 1, target: 1, done: true },
@@ -65,18 +67,19 @@ for (const width of [2560, 1920, 1366, 1281, 1100, 1024, 721, 390, 320]) {
       ).toBeVisible();
       if (path === "/profile") {
         await expect(page.getByRole("region", { name: "學習總覽" })).toBeVisible();
-        await expect(page.locator(".dashboard-stats")).toHaveAttribute("aria-busy", "false");
-        await expect(page.getByRole("region", { name: "本週學習節奏" })).toBeVisible();
+        await expect(page.locator(".profile-stat-list")).toHaveAttribute("aria-busy", "false");
+        await expect(page.getByRole("region", { name: "學習節奏" })).toBeVisible();
+        await expect(page.getByRole("region", { name: "登入裝置" })).toBeVisible();
       }
       if (path === "/achievements") {
-        // 8 個指定的層級加上第 15 級已達的等級 I、II 層。
-        await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText("10 / 31");
+        // 8 個指定的層級加上第 15 級已達的等級 I～III 層；分母不含成就鏈中尚未揭曉的 5 步。
+        await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText("11 / 70");
         await expect(page.getByRole("region", { name: "經驗值怎麼算" })).toBeVisible();
       }
       if (path === "/") {
         await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
         // 頁首學習進度與品牌、帳號工具不重疊，也不超出視窗。
-        const pill = page.getByRole("button", { name: "連續學習 128 天，累計 12450 XP，查看成就" });
+        const pill = page.getByRole("button", { name: "第 15 級，本級 1450 / 1500 XP，連續學習 128 天，查看成就" });
         await expect(pill).toBeVisible();
         const header = await page.evaluate(() => {
           const brand = document.querySelector(".header-start")!.getBoundingClientRect();

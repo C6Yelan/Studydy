@@ -1,8 +1,10 @@
 /* 成就頁：左欄等級與經驗值，右欄成就總覽；桌機頁面剛好填滿視窗，只有成就總覽在自己的區域內捲動。窄螢幕上下排列、整頁捲動。 */
 .achievements {
   display: grid;
-  gap: 22px;
+  gap: 14px;
 }
+/* 標題說明與下方兩欄靠近一些；collection-head 是多頁共用，只在成就頁取消下緣。 */
+.achievements > .collection-head { margin-bottom: 0; }
 .achievements-layout {
   display: grid;
   grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
@@ -14,7 +16,7 @@
 .level-xp { display: grid; align-content: start; gap: 4px; }
 .level-xp .level-next { margin-bottom: 8px; }
 
-/* 經驗值圖解：來源比例長條、四種來源（精簡列）、升級階梯 */
+/* 經驗值圖解：來源比例長條、四種來源（精簡列） */
 .xp-rules {
   display: grid;
   gap: 14px;
@@ -72,54 +74,6 @@
 .xp-source-earned { display: grid; justify-items: end; min-width: 44px; }
 .xp-source-earned b { font-size: 15px; }
 .xp-source-earned small { color: var(--text-muted); font-size: 10px; font-weight: 800; }
-.xp-level p { margin: 0 0 10px; color: var(--text-secondary); font-size: 13px; }
-.xp-level p b { margin-right: 8px; color: var(--text-primary); }
-.xp-ladder {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  align-items: end;
-  gap: 6px;
-  height: 120px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.xp-ladder li {
-  position: relative;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto;
-  align-items: end;
-  height: 100%;
-  text-align: center;
-}
-.xp-ladder-step {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  overflow: hidden;
-  border-radius: 8px 8px 3px 3px;
-  background: var(--page-cool);
-  box-shadow: inset 0 0 0 1px var(--border);
-}
-.xp-ladder-step i { width: 100%; background: linear-gradient(180deg, var(--warning), var(--amber-deep)); }
-.xp-ladder li.is-done .xp-ladder-step i { background: var(--success); }
-.xp-ladder li.is-current .xp-ladder-step { box-shadow: inset 0 0 0 2px var(--warning); }
-.xp-ladder b { margin-top: 4px; font-size: 11px; }
-.xp-ladder small { color: var(--text-muted); font-size: 10px; font-weight: 700; }
-.xp-ladder-you {
-  position: absolute;
-  top: -6px;
-  left: 50%;
-  z-index: 1;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--text-primary);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 900;
-  white-space: nowrap;
-  transform: translateX(-50%);
-}
 /* 頁首 70px＋內容區上緣 26px＋下緣 24px；左欄放不下時（矮螢幕）自己捲動。 */
 @media (min-width: 1101px) and (min-height: 640px) {
   .app-shell.is-achievements .app-main { padding-bottom: 24px; }

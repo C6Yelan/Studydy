@@ -3,10 +3,10 @@ import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../..
 import { Icon, type IconName } from "../../ui/Icon";
 import "./styles.css";
 
-// 徽章（規則 badge-rules/v5）：取得與進度全部來自學習活動 API，這裡只負責名稱、說明、圖示與稀有度。
+// 徽章（規則 badge-rules/v6）：取得與進度全部來自學習活動 API，這裡只負責名稱、說明、圖示與稀有度。
 // 同一計量的徽章是一個系列的不同層級（I→V），獎章依層級上色：銅、銀、金、鑽石、星耀。
 // 稀有度（普通／稀有／史詩／傳說）只是呈現難度，不影響經驗值。
-type Series = "answers" | "concepts" | "materials" | "cards" | "listen" | "streak" | "level" | "perfect" | "firstTry";
+type Series = "answers" | "concepts" | "materials" | "cards" | "listen" | "streak" | "days" | "level" | "perfect" | "sets" | "episodes" | "firstTry";
 type Rarity = 0 | 1 | 2 | 3;
 const rarityNames = ["普通", "稀有", "史詩", "傳說"] as const;
 const series: Record<Series, { title: string; unit: string; icon: IconName; condition: (target: number) => string }> = {
@@ -16,38 +16,50 @@ const series: Record<Series, { title: string; unit: string; icon: IconName; cond
   cards: { title: "概念卡標記", unit: "張", icon: "cards", condition: (target) => `累計標記概念卡 ${target} 張（同一張卡每天算一次）` },
   listen: { title: "Podcast 收聽", unit: "分鐘", icon: "headphones", condition: (target) => `Podcast 實際收聽累計 ${target} 分鐘` },
   streak: { title: "連續學習", unit: "天", icon: "flame", condition: (target) => `連續 ${target} 天有學習活動` },
+  days: { title: "學習天數", unit: "天", icon: "clock", condition: (target) => `累計 ${target} 天有學習活動（不必連續）` },
   level: { title: "等級", unit: "級", icon: "sparkle", condition: (target) => `達到第 ${target} 級` },
   perfect: { title: "零失誤題組", unit: "次", icon: "check", condition: (target) => target === 1 ? "完成一個至少 3 題、每題第一次就答對的題組" : `完成 ${target} 次零失誤題組（每組至少 3 題）` },
+  sets: { title: "題組完成", unit: "組", icon: "quiz", condition: (target) => target === 1 ? "完成第一個題組" : `累計完成 ${target} 個題組` },
+  episodes: { title: "Podcast 聽完", unit: "集", icon: "headphones", condition: (target) => target === 1 ? "第一次聽完一集 Podcast" : `累計聽完 ${target} 集 Podcast` },
   firstTry: { title: "一次就懂", unit: "份", icon: "learning", condition: () => "完成一份教材，每個作答過的概念第一次作答都答對" },
 };
 // 各系列依層級由低到高列出：[代號, 名稱, 稀有度]；層級即在系列中的位置。
 const tiers: Record<Series, [LearningBadgeId, string, Rarity][]> = {
   answers: [["first_answer", "初次作答", 0], ["answers_100", "百題挑戰", 1], ["answers_300", "題海航行者", 2], ["answers_1000", "千題大師", 3], ["answers_5000", "五千題宗師", 3]],
-  concepts: [["first_concept", "點亮概念", 0], ["concepts_25", "概念收藏家", 1], ["concepts_100", "知識建築師", 2], ["concepts_300", "知識大典", 3]],
-  materials: [["first_material", "征服第一座島", 1], ["materials_3", "群島探險家", 2], ["materials_10", "群島領主", 3]],
-  cards: [["cards_100", "卡片百回", 0], ["cards_500", "記憶練習生", 1], ["cards_2000", "過目不忘", 2]],
-  listen: [["listen_30_minutes", "用耳朵學習", 0], ["listen_180_minutes", "三小時聆聽者", 1], ["listen_600_minutes", "聆聽大師", 2]],
+  concepts: [["first_concept", "點亮概念", 0], ["concepts_25", "概念收藏家", 1], ["concepts_100", "知識建築師", 2], ["concepts_300", "知識大典", 3], ["concepts_1000", "知識宇宙", 3]],
+  materials: [["first_material", "征服第一座島", 1], ["materials_3", "群島探險家", 2], ["materials_10", "群島領主", 3], ["materials_25", "群島帝國", 3]],
+  cards: [["cards_100", "卡片百回", 0], ["cards_500", "記憶練習生", 1], ["cards_2000", "過目不忘", 2], ["cards_5000", "卡片傳奇", 3]],
+  listen: [["listen_30_minutes", "用耳朵學習", 0], ["listen_180_minutes", "三小時聆聽者", 1], ["listen_600_minutes", "聆聽大師", 2], ["listen_1800_minutes", "三十小時聆聽", 3]],
   streak: [["streak_3", "三日不間斷", 0], ["streak_7", "一週全勤", 1], ["streak_30", "月度堅持", 2], ["streak_100", "百日修行", 3], ["streak_365", "全年無休", 3]],
-  level: [["level_5", "進階探險家", 1], ["level_10", "資深航海士", 2], ["level_20", "傳奇學者", 3], ["level_30", "三十級宗師", 3]],
-  perfect: [["perfect_set_1", "零失誤", 1], ["perfect_set_10", "十次零失誤", 2], ["perfect_set_30", "三十次零失誤", 3]],
+  days: [["days_7", "七日學徒", 0], ["days_30", "月積月累", 1], ["days_100", "百日學者", 2], ["days_200", "兩百日航程", 3], ["days_365", "一年之功", 3]],
+  level: [["level_5", "進階探險家", 1], ["level_10", "資深航海士", 2], ["level_15", "十五級旅者", 2], ["level_20", "傳奇學者", 3], ["level_30", "三十級宗師", 3]],
+  perfect: [["perfect_set_1", "零失誤", 1], ["perfect_set_10", "十次零失誤", 2], ["perfect_set_30", "三十次零失誤", 3], ["perfect_set_100", "百次零失誤", 3]],
+  sets: [["first_set", "第一份題組", 0], ["sets_10", "十組練習", 1], ["sets_50", "五十組磨練", 2], ["sets_200", "題組大師", 3]],
+  episodes: [["first_episode", "第一集聽完", 0], ["episodes_10", "十集聽眾", 1], ["episodes_50", "忠實聽眾", 2]],
   firstTry: [["first_try_material", "一次就懂", 3]],
 };
 const badgeText: Partial<Record<LearningBadgeId, { name: string; series: Series; tier: number; rarity: Rarity }>> = Object.fromEntries(Object.entries(tiers).flatMap(([key, list]) =>
   list.map(([id, name, rarity], index) => [id, { name, series: key as Series, tier: index + 1, rarity }])));
 // 特殊成就：未取得時只顯示「？？？」、稀有度與一句提示，取得後才揭曉名稱與條件（判定在後端 SPECIAL_BADGES）。
-type SpecialId = "combo_10" | "comeback_20" | "daily_50" | "explorer_5" | "night_owl" | "early_bird"
-  | "weekend" | "return" | "curious_10" | "researcher" | "creator" | "corrected_5"
-  | "perfect_day" | "all_round_day" | "thousand_pages" | "revisit";
+type SpecialId = "combo_10" | "combo_25" | "combo_50" | "comeback_20" | "daily_50" | "daily_100" | "explorer_5" | "explorer_10"
+  | "night_owl" | "early_bird" | "weekend" | "return" | "curious_10" | "curious_50" | "researcher" | "creator" | "corrected_5"
+  | "perfect_day" | "all_round_day" | "thousand_pages" | "revisit"
+  | "xp_day_300" | "never_give_up" | "binge_3" | "three_islands" | "new_year";
 const specials: Record<SpecialId, { name: string; condition: string; hint: string; icon: IconName; rarity: Rarity }> = {
   combo_10: { name: "連對王", condition: "連續答對 10 題", hint: "一口氣，一題都不能錯。", icon: "check", rarity: 1 },
+  combo_25: { name: "連對達人", condition: "連續答對 25 題", hint: "十題只是開始。", icon: "check", rarity: 2 },
+  combo_50: { name: "連對傳說", condition: "連續答對 50 題", hint: "再遠一點，還是一題都不能錯。", icon: "check", rarity: 3 },
   comeback_20: { name: "越挫越勇", condition: "答錯後下一題就答對，累計 20 次", hint: "跌倒之後，馬上站起來。", icon: "refresh", rarity: 1 },
   daily_50: { name: "一日五十題", condition: "同一天作答 50 題", hint: "今天，好像停不下來。", icon: "quiz", rarity: 1 },
+  daily_100: { name: "百題一日", condition: "同一天作答 100 題", hint: "比停不下來，再多一倍。", icon: "quiz", rarity: 2 },
   explorer_5: { name: "五島探險家", condition: "在 5 份不同教材作答", hint: "一座島嶼還不夠。", icon: "map", rarity: 1 },
+  explorer_10: { name: "十島巡航者", condition: "在 10 份不同教材作答", hint: "群島比想像中更大。", icon: "map", rarity: 2 },
   night_owl: { name: "夜貓子", condition: "凌晨 0:00～4:59 作答累計 10 題", hint: "月亮出來的時候……", icon: "eye", rarity: 0 },
   early_bird: { name: "早起的鳥兒", condition: "早上 5:00～7:59 作答累計 10 題", hint: "太陽還沒完全醒來。", icon: "sparkle", rarity: 0 },
   weekend: { name: "週末學者", condition: "同一個週末的週六與週日都有學習", hint: "別人放假的時候……", icon: "book", rarity: 0 },
   return: { name: "浪子回頭", condition: "中斷 7 天以上後重新開始學習", hint: "離開，然後回來。", icon: "route", rarity: 0 },
   curious_10: { name: "好奇寶寶", condition: "在教材問答提出 10 個問題", hint: "有問題，就問吧。", icon: "chat", rarity: 0 },
+  curious_50: { name: "提問大師", condition: "在教材問答提出 50 個問題", hint: "問題越問越多。", icon: "chat", rarity: 1 },
   researcher: { name: "追根究柢", condition: "補充研究並把新來源加入教材", hint: "教材之外，還有更多。", icon: "search", rarity: 0 },
   creator: { name: "自己動手做", condition: "建立一組概念卡和一集 Podcast", hint: "把學到的，變成自己的。", icon: "edit", rarity: 0 },
   corrected_5: { name: "知錯能改", condition: "答錯過的概念之後又答對，累計 5 個", hint: "錯過的，不會再錯。", icon: "learning", rarity: 1 },
@@ -55,6 +67,17 @@ const specials: Record<SpecialId, { name: string; condition: string; hint: strin
   all_round_day: { name: "全能學習日", condition: "同一天作答、標記概念卡、收聽 Podcast 滿 1 分鐘並在教材問答提問", hint: "答題、卡片、耳朵、提問，一天之內……", icon: "compass", rarity: 2 },
   thousand_pages: { name: "千頁征服者", condition: "完成一份 500 頁以上教材的全部學習", hint: "很厚、很厚的一本。", icon: "book", rarity: 3 },
   revisit: { name: "溫故知新", condition: "教材完成 7 天以上後，又標記它的概念卡", hint: "學完了，過一陣子再回來看看。", icon: "cards", rarity: 1 },
+  xp_day_300: { name: "火力全開", condition: "同一天獲得 300 XP", hint: "今天的經驗值條，好像特別長。", icon: "sparkle", rarity: 2 },
+  never_give_up: { name: "永不放棄", condition: "同一個概念答錯 3 次以上後終於答對", hint: "錯了三次，還要再試一次。", icon: "refresh", rarity: 1 },
+  binge_3: { name: "追劇模式", condition: "同一天聽完 3 集 Podcast", hint: "下一集，再下一集……", icon: "headphones", rarity: 1 },
+  three_islands: { name: "一日三島", condition: "同一天在 3 份不同教材作答", hint: "一天之內，到處走走。", icon: "map", rarity: 1 },
+  new_year: { name: "新年新希望", condition: "1 月 1 日有學習活動", hint: "一年的第一天……", icon: "sparkle", rarity: 1 },
+};
+// 成就鏈：前一步取得後才出現下一步（仍是「？？？」與提示），更後面的步驟完全不顯示。
+const chains: SpecialId[][] = [["combo_10", "combo_25", "combo_50"], ["daily_50", "daily_100"], ["explorer_5", "explorer_10"], ["curious_10", "curious_50"]];
+const chainOf = (id: SpecialId) => {
+  const chain = chains.find((list) => list.includes(id));
+  return chain ? { chain, step: chain.indexOf(id) } : null;
 };
 const isSpecial = (id: LearningBadgeId): id is SpecialId => id in specials;
 const nameOf = (badge: KnownBadge) => isSpecial(badge.badge_id) ? specials[badge.badge_id].name : badgeText[badge.badge_id]!.name;
@@ -104,114 +127,91 @@ export function BadgeMedal({ badge, size = 56 }: { badge: KnownBadge; size?: num
   </span>;
 }
 
-function BadgeProgress({ badge, text }: { badge: KnownBadge; text: string }) {
-  const name = nameOf(badge);
+function BadgeProgress({ badge }: { badge: KnownBadge }) {
   return <span className="badge-progress">
-    <span className="badge-progress-bar" role="progressbar" aria-label={`${name}進度`}
+    <span className="badge-progress-bar" role="progressbar" aria-label={`${nameOf(badge)}進度`}
       aria-valuemin={0} aria-valuemax={badge.target} aria-valuenow={badge.progress} aria-valuetext={progressText(badge)}>
       <i style={{ width: `${(badge.progress / badge.target) * 100}%` }} />
     </span>
-    <span>{text}</span>
+    <span>{progressText(badge)}</span>
   </span>;
 }
 
-// 一個系列一格：顯示目前層級與下一層的進度，展開可看各層取得日期。
-function BadgeSeriesCard({ kind, badges }: { kind: Series; badges: KnownBadge[] }) {
-  const info = series[kind];
-  const earned = badges.filter((badge) => badge.earned);
-  const current = earned.at(-1);
-  const next = badges.find((badge) => !badge.earned);
-  const shown = current ?? badges[0];
-  const tier = current ? badgeText[current.badge_id]!.tier : 0;
-  return <li className={`badge-series is-rarity-${rarityOf(next ?? shown)}${current ? ` is-earned is-tier-${tier}` : " is-locked"}`}>
-    <div className="badge-series-main">
-      <BadgeMedal badge={shown} size={48} />
-      <span className="badge-series-text">
-        <small>{info.title} · {current ? `${tierNames[tier - 1]}・${roman[tier - 1]}` : "尚未取得"} <span className="badge-series-count">{earned.length} / {badges.length}</span></small>
-        <b>{nameOf(shown)}</b>
-        {next ? <>
-          <span className="badge-series-next"><RarityTag rarity={rarityOf(next)} />{current ? "下一層" : "取得條件"}：{current && `${nameOf(next)} · `}{conditionText(next)}</span>
-          <BadgeProgress badge={next} text={progressText(next)} />
-        </> : <span className="badge-earned-on">已達最高層級{current?.earned_on && ` · ${formatDate(current.earned_on)}`}</span>}
-      </span>
-    </div>
-    {badges.length > 1 && <details className="badge-series-tiers">
-      <summary>全部 {badges.length} 層</summary>
-      <ol>
-        {badges.map((badge) => <li key={badge.badge_id} className={badge.earned ? "is-earned" : undefined}>
-          <span className="badge-tier-mark">{roman[badgeText[badge.badge_id]!.tier - 1]}</span>
-          <span><b>{nameOf(badge)} <RarityTag rarity={rarityOf(badge)} /></b><small>{conditionText(badge)}</small></span>
-          <span className="badge-tier-state">{badge.earned ? (badge.earned_on ? `${formatDate(badge.earned_on)} 取得` : "已取得") : progressText(badge)}</span>
-        </li>)}
-      </ol>
-    </details>}
+// 格內小字：系列與層級、成就鏈的第幾步，或特殊成就。
+function kindText(badge: KnownBadge) {
+  if (!isSpecial(badge.badge_id)) {
+    const text = badgeText[badge.badge_id]!;
+    return tiers[text.series].length > 1 ? `${series[text.series].title} · ${tierNames[text.tier - 1]}・${roman[text.tier - 1]}` : series[text.series].title;
+  }
+  const link = chainOf(badge.badge_id);
+  return link ? `成就鏈 · 第 ${link.step + 1} 步` : "特殊成就";
+}
+
+// 一個成就一格：已取得顯示名稱、條件與日期；未取得的系列層級顯示條件與真實進度；
+// 未取得的特殊成就只有「？？？」、稀有度與提示，不顯示名稱、條件或進度。
+function BadgeCell({ badge }: { badge: KnownBadge }) {
+  const special = isSpecial(badge.badge_id);
+  const hidden = special && !badge.earned;
+  return <li className={`badge-cell is-rarity-${rarityOf(badge)}${badge.earned ? " is-earned" : " is-locked"}${special ? " is-special" : ""}`}>
+    <BadgeMedal badge={badge} size={44} />
+    <span className="badge-cell-text">
+      <small className="badge-cell-kind">{kindText(badge)}</small>
+      <b>{hidden ? <span aria-label="尚未揭曉的成就">？？？</span> : nameOf(badge)} <RarityTag rarity={rarityOf(badge)} /></b>
+      <small>{hidden ? specials[badge.badge_id as SpecialId].hint : conditionText(badge)}</small>
+      {badge.earned ? <span className="badge-earned-on">{badge.earned_on ? `${formatDate(badge.earned_on)} 取得` : "已取得"}</span>
+        : !special && <BadgeProgress badge={badge} />}
+    </span>
   </li>;
 }
 
-// 下一個最接近的徽章：未取得中進度比例最高者，同比例依規則順序。
-function nextBadge(badges: KnownBadge[]) {
-  // 特殊成就的條件保密，不列為「最接近的下一個」。
-  return badges.filter((badge) => !badge.earned && !isSpecial(badge.badge_id))
-    .reduce<KnownBadge | null>((best, badge) => !best || badge.progress / badge.target > best.progress / best.target ? badge : best, null);
+// 成就鏈中前一步還沒取得的步驟不顯示。
+function revealed(badge: KnownBadge, earned: Set<string>) {
+  if (badge.earned || !isSpecial(badge.badge_id)) return true;
+  const link = chainOf(badge.badge_id);
+  return !link || link.step === 0 || earned.has(link.chain[link.step - 1]);
 }
 
-// 成就頁右欄：依稀有度的取得總覽、最接近的下一個徽章、各系列與特殊成就。
+// 成就頁右欄：依稀有度的取得數，上方已取得、下方未取得，每個成就獨立一格。
 export function BadgeCollection({ activity }: { activity: LearningActivityView }) {
-  const badges = knownBadges(activity);
-  if (!badges.length) return null;
-  const tiered = badges.filter((badge) => !isSpecial(badge.badge_id));
-  const special = badges.filter((badge) => isSpecial(badge.badge_id));
-  const earned = tiered.filter((badge) => badge.earned).length;
-  const next = nextBadge(badges);
-  const grouped = (Object.keys(tiers) as Series[])
-    .map((kind) => [kind, tiers[kind].map(([id]) => badges.find((badge) => badge.badge_id === id)).filter((badge): badge is KnownBadge => !!badge)] as const)
-    .filter(([, list]) => list.length > 0);
+  const all = knownBadges(activity);
+  if (!all.length) return null;
+  const earnedIds = new Set(all.filter((badge) => badge.earned).map((badge) => badge.badge_id));
+  const shown = all.filter((badge) => revealed(badge, earnedIds));
+  const hiddenSteps = all.length - shown.length;
+  // 系列依規則表順序（同系列由低到高），特殊成就排在後面。
+  const order = [...Object.values(tiers).flat().map(([id]) => id), ...Object.keys(specials)];
+  const sorted = [...shown].sort((a, b) => order.indexOf(a.badge_id) - order.indexOf(b.badge_id));
+  const earned = sorted.filter((badge) => badge.earned);
+  const locked = sorted.filter((badge) => !badge.earned);
   return <section className="badge-collection surface" aria-labelledby="badge-collection-title">
     <header className="badge-collection-head">
       <h2 id="badge-collection-title">成就總覽</h2>
-      <span className="badge-count">{earned} / {tiered.length}</span>
+      <span className="badge-count">{earned.length} / {shown.length}</span>
     </header>
     <ul className="badge-rarity-summary" aria-label="依稀有度的取得數">
       {([0, 1, 2, 3] as Rarity[]).map((rarity) => {
-        const all = badges.filter((badge) => rarityOf(badge) === rarity);
-        return <li key={rarity} className={`is-rarity-${rarity}`}><b>{all.filter((badge) => badge.earned).length}<small> / {all.length}</small></b><span>{rarityNames[rarity]}</span></li>;
+        const list = shown.filter((badge) => rarityOf(badge) === rarity);
+        return <li key={rarity} className={`is-rarity-${rarity}`}><b>{list.filter((badge) => badge.earned).length}<small> / {list.length}</small></b><span>{rarityNames[rarity]}</span></li>;
       })}
     </ul>
-    {next && <div className="badge-next">
-      <BadgeMedal badge={next} size={40} />
-      <span className="badge-next-text">
-        <small>最接近的下一個徽章 <RarityTag rarity={rarityOf(next)} /></small>
-        <b>{nameOf(next)}</b>
-        <BadgeProgress badge={next} text={`${conditionText(next)} · ${progressText(next)}`} />
-      </span>
-    </div>}
-    <ul className="badge-wall">
-      {grouped.map(([kind, list]) => <BadgeSeriesCard key={kind} kind={kind} badges={list} />)}
-    </ul>
-    {special.length > 0 && <section className="badge-specials" aria-labelledby="badge-specials-title">
+    <section className="badge-group" aria-labelledby="badge-earned-title">
       <header className="badge-collection-head">
-        <h3 id="badge-specials-title">特殊成就</h3>
-        <span className="badge-count is-special">{special.filter((badge) => badge.earned).length} / {special.length}</span>
-        <small>條件保密，只有提示；達成後才揭曉。</small>
+        <h3 id="badge-earned-title">已取得</h3>
+        <span className="badge-count">{earned.length}</span>
       </header>
-      <ul className="badge-special-wall">
-        {special.map((badge) => {
-          const text = specials[badge.badge_id as SpecialId];
-          return <li key={badge.badge_id} className={`${badge.earned ? "is-earned" : "is-locked"} is-rarity-${text.rarity}`}>
-            <BadgeMedal badge={badge} size={44} />
-            {badge.earned ? <span className="badge-wall-text">
-              <b>{text.name} <RarityTag rarity={text.rarity} /></b>
-              <small>{text.condition}</small>
-              <span className="badge-earned-on">{badge.earned_on ? `${formatDate(badge.earned_on)} 取得` : "已取得"}</span>
-            </span> : <span className="badge-wall-text">
-              <b><span aria-label="尚未揭曉的成就">？？？</span> <RarityTag rarity={text.rarity} /></b>
-              <small>{text.hint}</small>
-            </span>}
-          </li>;
-        })}
-      </ul>
-    </section>}
-    <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、教材問答、連續學習與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
+      {earned.length ? <ul className="badge-grid">{earned.map((badge) => <BadgeCell key={badge.badge_id} badge={badge} />)}</ul>
+        : <p className="badge-empty">還沒有取得任何成就；作答、標記概念卡或收聽 Podcast 就能拿到第一個。</p>}
+    </section>
+    <section className="badge-group" aria-labelledby="badge-locked-title">
+      <header className="badge-collection-head">
+        <h3 id="badge-locked-title">未取得</h3>
+        <span className="badge-count is-locked">{locked.length}</span>
+        <small>「？？？」是隱藏成就，只有提示，達成後才揭曉。</small>
+      </header>
+      {locked.length > 0 && <ul className="badge-grid">{locked.map((badge) => <BadgeCell key={badge.badge_id} badge={badge} />)}</ul>}
+      {hiddenSteps > 0 && <p className="badge-chain-note"><Icon name="lock" size={14} />另有 {hiddenSteps} 個成就藏在成就鏈後面，完成前一步才會出現。</p>}
+    </section>
+    <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、教材問答、學習天數與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
   </section>;
 }
 

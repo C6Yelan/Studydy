@@ -16,7 +16,7 @@ from runtime.material_processing import _record_progress, claim_next_material_pr
 from runtime.source_normalization import normalize_next, read_sources, upload_source
 from runtime.source_revisions import create_revision
 from runtime.storage.database import database_session
-from runtime.storage.learning_activity import learning_activity
+from runtime.storage.learning_activity import learning_activity, learning_rhythm
 from runtime.storage.materials import MaterialLibraryError
 
 
@@ -102,7 +102,9 @@ def learned(closed_loop):
 
 def activity(fixture):
     with database_session(fixture["dsn"]) as db:
-        return learning_activity(db, fixture["learner"].learner_id)
+        owner = fixture["learner"].learner_id
+        # 本週學習節奏與學習活動一起比對。
+        return {**learning_activity(db, owner), "week": learning_rhythm(db, owner, period="week")["days"]}
 
 
 def snapshot(fixture, old_set):

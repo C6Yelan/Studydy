@@ -5,22 +5,28 @@ import { useProfile } from "../../app/HeaderTools";
 
 const NAME_LIMIT = 20;
 
-// 個人檔案頁的帳號設定：名稱、密碼與登入裝置。
-export function AccountSettings({ apiClient }: { apiClient: StudydyApiClient }) {
-  const profile = useProfile(apiClient);
+// 登入中的裝置數：帳號設定（改密碼後其他裝置登出）與登入裝置卡片共用同一份。
+export function useAccountSessions(apiClient: StudydyApiClient): [AccountSessions | null, (sessions: AccountSessions) => void] {
   const [sessions, setSessions] = useState<AccountSessions | null>(null);
   useEffect(() => {
     let cancelled = false;
     void apiClient.getAccountSessions().then((value) => { if (!cancelled) setSessions(value); }, () => undefined);
     return () => { cancelled = true; };
   }, [apiClient]);
+  return [sessions, setSessions];
+}
+
+// 個人檔案頁的帳號設定：名稱與密碼；登入裝置是獨立的卡片（DevicesCard）。
+export function AccountSettings({ apiClient, onSessionsChanged }: {
+  apiClient: StudydyApiClient; onSessionsChanged: (sessions: AccountSessions) => void;
+}) {
+  const profile = useProfile(apiClient);
   return (
     <section className="account-settings surface" aria-labelledby="account-settings-title">
       <h2 id="account-settings-title">帳號設定</h2>
       {/* 名稱讀到後才重新掛載表單，草稿從目前名稱開始。 */}
       <NameSection key={profile ? "ready" : "loading"} apiClient={apiClient} initial={profile?.display_name ?? ""} />
-      <PasswordSection apiClient={apiClient} onChanged={setSessions} />
-      <DevicesSection apiClient={apiClient} sessions={sessions} onChanged={setSessions} />
+      <PasswordSection apiClient={apiClient} onChanged={onSessionsChanged} />
     </section>
   );
 }
@@ -146,7 +152,7 @@ function PasswordSection({ apiClient, onChanged }: {
   );
 }
 
-function DevicesSection({ apiClient, sessions, onChanged }: {
+export function DevicesCard({ apiClient, sessions, onChanged }: {
   apiClient: StudydyApiClient; sessions: AccountSessions | null; onChanged: (sessions: AccountSessions) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -154,8 +160,8 @@ function DevicesSection({ apiClient, sessions, onChanged }: {
   const [done, setDone] = useState(false);
   const count = sessions?.active_sessions ?? null;
   return (
-    <section aria-labelledby="account-devices-heading">
-      <h3 id="account-devices-heading">登入裝置</h3>
+    <section className="profile-devices surface" aria-labelledby="account-devices-heading">
+      <h2 id="account-devices-heading">登入裝置</h2>
       {/* 讀不到數量時不顯示數字，仍可操作。 */}
       <p className="profile-help">
         {count === null ? "可讓其他裝置上的登入全部失效，這個裝置會維持登入。"

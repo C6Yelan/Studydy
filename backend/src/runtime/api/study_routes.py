@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Literal
 from uuid import UUID
 from fastapi import Request, Query
 from learning_adaptation import assessment_sets, assessment_state
@@ -19,7 +20,7 @@ from learning_adaptation.study_sessions import (
 from ..learner_session import TrustedLearner
 from ..storage.knowledge_structures import read_knowledge_structure
 from ..storage import knowledge_reads
-from ..storage.learning_activity import learning_activity
+from ..storage.learning_activity import learning_activity, learning_rhythm
 from ..storage.database import database_session
 from ..study_workspace import read_workspace, read_resume
 from . import request_context
@@ -29,6 +30,7 @@ from .models import (
     KnowledgeRegionsView,
     KnowledgeSearchView,
     LearningActivityView,
+    LearningRhythmView,
     LibrarySearchView,
     MapProgressView,
     ProgressSummaryView,
@@ -104,6 +106,22 @@ def install(app, settings):
         learner = request_context.trusted_learner(request, settings)
         with database_session(settings.dsn) as db:
             return learning_activity(db, learner.learner_id)
+
+    @app.get(
+        "/v1/learning-activity/rhythm",
+        response_model=LearningRhythmView,
+        tags=["learning"],
+    )
+    def read_learning_rhythm(
+        request: Request,
+        period: Literal["week", "month", "quarter", "year"] = Query(),
+        # 往前翻的頁數；上限約十年（週）以內，避免任意大的區間。
+        offset: int = Query(0, ge=0, le=520),
+    ):
+        request_context.require_query(request, {"period", "offset"})
+        learner = request_context.trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            return learning_rhythm(db, learner.learner_id, period=period, offset=offset)
 
     @app.get(
         "/v1/materials/{material_id}/knowledge-structures/{structure_revision}/concepts",

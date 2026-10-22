@@ -1,6 +1,6 @@
 import * as validate from "./response-validation.ts";
 import type {
-  KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, ProgressSummaryView, PodcastProgressView, PodcastProgressUpdate, StudyWorkspaceView,
+  KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, LearningRhythmPeriod, LearningRhythmView, MapProgressView, ProgressSummaryView, PodcastProgressView, PodcastProgressUpdate, StudyWorkspaceView,
   PodcastContext, PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
   ApiReasonCode,
   CardSetCreate,
@@ -778,6 +778,13 @@ export class StudydyApiClient {
       );
     }
     return this.activity.task;
+  }
+
+  // 學習節奏不快取：切換區間或翻頁時才讀，每次最多一年的每日彙總。
+  getLearningRhythm(period: LearningRhythmPeriod, offset: number): Promise<LearningRhythmView> {
+    const query = new URLSearchParams({ period, offset: String(offset) });
+    return this.json(`/v1/learning-activity/rhythm?${query}`, { method: "GET" },
+      (value): value is LearningRhythmView => validate.learningRhythm(value) && value.period === period && value.offset === offset);
   }
 
   onLearningActivityChange(listener: (activity: LearningActivityView) => void): () => void {

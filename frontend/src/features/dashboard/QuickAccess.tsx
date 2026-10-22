@@ -1,26 +1,9 @@
 import { useEffect, useState } from "react";
 import type { StudydyApiClient } from "../../api/client";
-import type { LearningXp, PodcastSummary } from "../../api/contracts";
+import type { PodcastSummary } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon, type IconName } from "../../ui/Icon";
 import { formatTime } from "../podcasts/PodcastPlayer";
-
-// 問候列旁的等級徽章：盾牌標出等級，進度條是本級經驗值；點了進成就頁。
-export function LevelBadge({ xp }: { xp: LearningXp }) {
-  const ratio = xp.level_target ? Math.min(1, xp.level_xp / xp.level_target) : 0;
-  return <button className="greeting-level" type="button" onClick={() => writeRoute({ name: "achievements" })}
-    aria-label={`第 ${xp.level} 級，本級 ${xp.level_xp} / ${xp.level_target} XP，查看成就`}>
-    <span className="greeting-level-shield" aria-hidden="true">
-      <svg viewBox="0 0 40 44"><path d="M20 2 36 8v12c0 11-7 18-16 22C11 38 4 31 4 20V8Z" /></svg>
-      <b>{xp.level}</b>
-    </span>
-    <span className="greeting-level-text" aria-hidden="true">
-      <small>第 {xp.level} 級{xp.today > 0 && <> · 今天 +{xp.today}</>}</small>
-      <span className="greeting-level-bar"><i style={{ width: `${Math.max(ratio > 0 ? 4 : 0, ratio * 100)}%` }} /></span>
-      <small>{xp.level_xp} / {xp.level_target} XP</small>
-    </span>
-  </button>;
-}
 
 type LastPodcast = { podcast: PodcastSummary; episode: number; position: number; completed: boolean };
 

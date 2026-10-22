@@ -1,4 +1,4 @@
-"""學習活動 v2 的真 DB：XP 來源、概念首次完成、卡片標記與收聽、連續天數及今日任務。"""
+"""學習活動 v3 的真 DB：XP 來源、概念首次完成、卡片標記與收聽、連續天數及今日任務。"""
 from copy import deepcopy
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -13,7 +13,7 @@ from learning_adaptation.learner_progress import derive_learner_progress
 from runtime import card_reviews, card_sets, podcast_progress, podcasts
 from runtime.learner_session import register_account
 from runtime.storage.database import database_session
-from runtime.storage.learning_activity import learning_activity
+from runtime.storage.learning_activity import learning_activity, learning_rhythm, level_for
 from runtime.storage.tables import CardSet, Podcast
 
 TAIPEI = ZoneInfo("Asia/Taipei")
@@ -22,6 +22,11 @@ TAIPEI = ZoneInfo("Asia/Taipei")
 def activity(fixture, now=None):
     with database_session(fixture["dsn"]) as db:
         return learning_activity(db, fixture["learner"].learner_id, now=now)
+
+
+def rhythm(fixture, period="week", now=None):
+    with database_session(fixture["dsn"]) as db:
+        return learning_rhythm(db, fixture["learner"].learner_id, period=period, now=now)
 
 
 def ready_cards(fixture):
@@ -59,7 +64,7 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
     empty = activity(fixture)
     assert empty["xp"] == {"total": 0, "today": 0, "level": 1, "level_xp": 0, "level_target": 100,
                            "sources": {"answers": 0, "concepts": 0, "cards": 0, "podcast": 0}}
-    assert empty["rule_version"] == "xp-rules/v2" and empty["streak_days"] == 0
+    assert empty["rule_version"] == "xp-rules/v3" and empty["streak_days"] == 0
     # 已開始學習但今天尚未完成題組：顯示「繼續學習」且未完成。
     assert [(q["kind"], q["done"]) for q in empty["quests"]] == [("continue_study", False)]
 
@@ -91,8 +96,9 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
     assert view["xp"]["sources"] == {"answers": answer_xp, "concepts": 30 * completed, "cards": 2, "podcast": 5}
     total = answer_xp + 30 * completed + 2 + 5
     assert view["xp"]["total"] == view["xp"]["today"] == total
-    assert (view["xp"]["level"], view["xp"]["level_xp"]) == ((2, total - 100) if total >= 100 else (1, total))
-    today = next(day for day in view["week"] if day["date"] == view["today"])
+    assert (view["xp"]["level"], view["xp"]["level_xp"], view["xp"]["level_target"]) == level_for(total)
+    week = rhythm(fixture, now=start + timedelta(minutes=6))
+    today = next(day for day in week["days"] if day["date"] == view["today"])
     assert (today["answers"], today["card_reviews"], today["listened_seconds"], today["active"]) == (len(rows), 2, 360, True)
     assert (view["streak_days"], view["active_today"]) == (1, True)
     quests = {q["kind"]: q for q in view["quests"]}
@@ -106,12 +112,15 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
     podcast_progress.save_progress(owner, podcast, 0, 900, 0, ended=True, dsn=dsn, now=start + timedelta(minutes=7))
     finished = activity(fixture, now=start + timedelta(minutes=8))
     assert {q["kind"]: q["done"] for q in finished["quests"]}["finish_podcast_episode"] is True
+    # 完成的題組與聽完的集數各自形成徽章系列。
+    earned = {b["badge_id"]: b for b in finished["badges"]["items"]}
+    assert (earned["first_set"]["earned"], earned["first_episode"]["earned"], earned["days_7"]["progress"]) == (True, True, 1)
 
     client = TestClient(_app(dsn, tmp_path, monkeypatch), base_url=ORIGIN)
     client.cookies.set("studydy_session", fixture["token"])
     response = client.get("/v1/learning-activity")
     assert response.status_code == 200, response.json()
-    assert response.json()["schema"] == "learning-activity/v2" and response.json()["xp"]["total"] == total
+    assert response.json()["schema"] == "learning-activity/v3" and response.json()["xp"]["total"] == total
     other = register_account(f"other_{uuid4().hex[:8]}@example.com", "Synthetic test password 42", dsn=dsn)
     client.cookies.set("studydy_session", other.raw_token)
     foreign = client.get("/v1/learning-activity").json()
@@ -137,7 +146,7 @@ def test_streak_counts_any_activity_and_listening_needs_a_minute(closed_loop):
         db.execute(text("UPDATE podcast_listening_days SET listened_seconds = 60"))
     view = activity(fixture, now=now)
     assert view["streak_days"] == 2
-    week = {day["date"].isoformat(): day for day in view["week"]}
+    week = {day["date"].isoformat(): day for day in rhythm(fixture, now=now)["days"]}
     assert week["2026-10-20"]["listened_seconds"] == 60 and week["2026-10-20"]["active"]
     assert week["2026-10-21"]["card_reviews"] == 1 and week["2026-10-21"]["active"]
     # 昨天的標記不算今天的任務。
@@ -186,7 +195,7 @@ def test_badges_follow_real_records_and_their_dates(closed_loop):
     owner, dsn = fixture["learner"].learner_id, fixture["dsn"]
     now = datetime(2026, 10, 22, 12, 0, tzinfo=TAIPEI)
     empty = {b["badge_id"]: b for b in activity(fixture, now=now)["badges"]["items"]}
-    assert activity(fixture, now=now)["badges"]["rule_version"] == "badge-rules/v5"
+    assert activity(fixture, now=now)["badges"]["rule_version"] == "badge-rules/v6"
     assert not any(b["earned"] for b in empty.values())
 
     set_id = create(fixture)

@@ -1,21 +1,44 @@
-"""學習活動規則 xp-rules/v2：等級門檻、收聽與概念卡 XP、連續天數、概念首次完成與收聽採計上限。"""
+"""學習活動規則 xp-rules/v3：分段等級曲線、收聽與概念卡 XP、連續天數、概念首次完成與收聽採計上限。"""
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from runtime.podcast_progress import credit_limit
-from runtime.storage.learning_activity import card_xp, credited_marks, first_completions, level_for, listening_xp, streak_days
+from runtime.storage.learning_activity import (
+    card_xp, credited_marks, first_completions, level_for, level_requirement, listening_xp, rhythm_window, streak_days, xp_threshold,
+)
 
 TAIPEI = ZoneInfo("Asia/Taipei")
 
 
-def test_level_n_needs_100_times_n_xp():
+def test_levels_follow_a_segmented_curve_that_jumps_every_few_levels():
+    # 1→2 需 100，段內每級 +50；第 5、10、15、20、30 級進入新的一段，需求明顯跳一階。
+    assert [level_requirement(n) for n in range(1, 7)] == [100, 150, 200, 250, 500, 600]
+    assert [level_requirement(n) for n in (9, 10, 14, 15, 19, 20, 29, 30)] == [900, 1400, 2000, 2600, 3400, 4500, 7200, 9000]
+    needs = [level_requirement(n) for n in range(1, 60)]
+    assert all(later > earlier for earlier, later in zip(needs, needs[1:]))
     assert level_for(0) == (1, 0, 100)
     assert level_for(99) == (1, 99, 100)
-    assert level_for(100) == (2, 0, 200)
-    assert level_for(299) == (2, 199, 200)
-    assert level_for(300) == (3, 0, 300)
-    assert level_for(600) == (4, 0, 400)
+    assert level_for(100) == (2, 0, 150)
+    assert level_for(249) == (2, 149, 150)
+    assert level_for(250) == (3, 0, 200)
+    assert (xp_threshold(5), xp_threshold(10), xp_threshold(20)) == (700, 4200, 27700)
+    assert level_for(4199) == (9, 899, 900) and level_for(4200) == (10, 0, 1400)
+
+
+def test_rhythm_windows_page_back_by_whole_periods():
+    today = date(2026, 10, 23)  # 星期五
+    assert rhythm_window("week", 0, today) == (date(2026, 10, 19), date(2026, 10, 25))
+    assert rhythm_window("week", 2, today) == (date(2026, 10, 5), date(2026, 10, 11))
+    assert rhythm_window("month", 0, today) == (date(2026, 10, 1), date(2026, 10, 31))
+    assert rhythm_window("month", 10, today) == (date(2025, 12, 1), date(2025, 12, 31))
+    assert rhythm_window("month", 8, today) == (date(2026, 2, 1), date(2026, 2, 28))
+    start, end = rhythm_window("quarter", 0, today)
+    assert (end, (end - start).days + 1, start.weekday()) == (date(2026, 10, 25), 91, 0)
+    assert rhythm_window("quarter", 1, today)[1] == start - timedelta(days=1)
+    start, end = rhythm_window("year", 0, today)
+    assert (end, (end - start).days + 1, start.weekday()) == (date(2026, 10, 25), 364, 0)
+    assert rhythm_window("year", 1, today)[1] == start - timedelta(days=1)
 
 
 def test_listening_xp_counts_full_five_minutes_up_to_60_a_day():

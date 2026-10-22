@@ -7,7 +7,7 @@ import { BadgeCollection } from "../badges/Badges";
 import "../dashboard/styles.css";
 import "./styles.css";
 
-// 經驗值規則 xp-rules/v2 的圖解；數值須與後端 runtime/storage/learning_activity.py 一致（見 docs/learning.md）。
+// 經驗值規則 xp-rules/v3 的圖解；數值須與後端 runtime/storage/learning_activity.py 一致（見 docs/learning.md）。
 type Source = keyof LearningActivityView["xp"]["sources"];
 const xpRules: { icon: IconName; source: Source; tone: string; title: string; gains: [string, string][]; note: string }[] = [
   { icon: "quiz", source: "answers", tone: "is-answers", title: "作答", gains: [["+10", "答對"], ["+3", "答錯"]], note: "同一題只算第一次作答" },
@@ -16,29 +16,7 @@ const xpRules: { icon: IconName; source: Source; tone: string; title: string; ga
   { icon: "headphones", source: "podcast", tone: "is-podcast", title: "收聽 Podcast", gains: [["+5", "每 5 分鐘"]], note: "實際收聽時間，每天最多 +60" },
 ];
 
-// 升級階梯：第 n 級升到 n+1 需要 100×n XP，台階越來越高；標出目前位置與還差多少。
-function LevelLadder({ level, levelXp, levelTarget }: { level: number; levelXp: number; levelTarget: number }) {
-  const first = Math.max(1, level - 1);
-  const steps = Array.from({ length: 5 }, (_, index) => first + index);
-  const tallest = 100 * steps[steps.length - 1];
-  return <ol className="xp-ladder" aria-label={`升級階梯：第 ${level} 級升到第 ${level + 1} 級需要 ${levelTarget} XP，目前已得 ${levelXp} XP`}>
-    {steps.map((step) => {
-      const need = 100 * step;
-      const state = step < level ? "is-done" : step === level ? "is-current" : "is-next";
-      const fill = step < level ? 1 : step === level ? levelXp / levelTarget : 0;
-      return <li key={step} className={state} aria-hidden="true">
-        {step === level && <span className="xp-ladder-you">你在這裡</span>}
-        <span className="xp-ladder-step" style={{ height: `${Math.max(18, (need / tallest) * 100)}%` }}>
-          <i style={{ height: `${fill * 100}%` }} />
-        </span>
-        <b>Lv {step}→{step + 1}</b>
-        <small>{need} XP</small>
-      </li>;
-    })}
-  </ol>;
-}
-
-// 等級與經驗值：目前等級與本級進度，下方圖解經驗值來源、各來源規則與升級階梯。
+// 等級與經驗值：目前等級與本級進度（升級所需 XP 由後端分段曲線決定），下方圖解經驗值來源與各來源規則。
 function LevelAndXp({ activity }: { activity: LearningActivityView }) {
   const { xp } = activity;
   const total = Math.max(1, xp.total);
@@ -76,10 +54,6 @@ function LevelAndXp({ activity }: { activity: LearningActivityView }) {
           <span className="xp-source-earned"><b>{xp.sources[rule.source]}</b><small>已獲得</small></span>
         </li>)}
       </ul>
-      <div className="xp-level">
-        <p><b>升級</b>每一級比上一級多需要 100 XP（第 n 級升到下一級需 100×n）。</p>
-        <LevelLadder level={xp.level} levelXp={xp.level_xp} levelTarget={xp.level_target} />
-      </div>
     </section>
   </section>;
 }
