@@ -17,7 +17,6 @@ import hashlib
 import json
 import logging
 import math
-import os
 import re
 from threading import Lock
 import time
@@ -26,6 +25,7 @@ from uuid import uuid4
 from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from .local_ai_config import configured_lock
 from .generation_jobs import WORKER_LEASE_TTL, JobCancelled, lease_is_current
 from .semantic_service import SemanticServiceError, request_semantics, semantic_client
 from .storage import knowledge_reads
@@ -432,12 +432,6 @@ def _rows(claim, dsn):
         for c in path
     ]
     return rows, sources, fallback_label
-
-
-def configured_lock():
-    from .local_app import read_local_ai_config_from_environment
-
-    return read_local_ai_config_from_environment(os.environ)["runtime_lock"]
 
 
 def _semantic_call(claim, dsn, stop):

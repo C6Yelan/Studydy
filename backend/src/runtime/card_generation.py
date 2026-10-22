@@ -4,7 +4,6 @@ from copy import deepcopy
 from datetime import UTC, datetime
 import json
 import logging
-import os
 import time
 from uuid import uuid4
 
@@ -12,18 +11,13 @@ from sqlalchemy import or_, select
 
 from content_identity import canonical_sha256
 from . import card_design as design
+from .local_ai_config import configured_lock
 from .generation_jobs import WORKER_LEASE_TTL, check_job, lease_is_current
 from .semantic_service import request_semantics, semantic_client, SemanticServiceError
 from .text_budget import estimate_o200k_tokens
 from .storage import card_sources, knowledge_reads
 from .storage.tables import CardSet, Material
 from .storage.database import database_session
-
-
-def configured_lock():
-    from .local_app import read_local_ai_config_from_environment
-
-    return read_local_ai_config_from_environment(os.environ)["runtime_lock"]
 
 
 def provider_identity(lock):

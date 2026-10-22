@@ -13,7 +13,7 @@ from knowledge_map.independent_blocks import block_request, block_schema, projec
 from pdf_evidence.semantic_blocks import analyze_blocks
 from content_identity import canonical_sha256
 from runtime.material_runtime import validate_runtime_lock
-from runtime.local_app import _runtime_lock
+from runtime.local_ai_config import _runtime_lock
 from runtime.luna_test import test_lock as luna_lock
 from runtime.material_runtime import runtime_binding, same_material_runtime
 from runtime.semantic_service import SemanticServiceError

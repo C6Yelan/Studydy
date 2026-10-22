@@ -9,7 +9,7 @@ from typing import Any, Mapping
 from pdf_evidence.local_ai_process import LocalAIError, start_ocr_process
 from pdf_evidence.material_pipeline import material_analysis_lock
 
-from .local_app import read_local_ai_config_from_environment
+from .local_ai_config import read_local_ai_config_from_environment
 from .material_runtime import MaterialRuntimeError, runtime_preflight
 
 

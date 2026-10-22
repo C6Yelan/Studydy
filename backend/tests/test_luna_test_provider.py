@@ -1,7 +1,7 @@
 from copy import deepcopy
 import pytest
 from runtime.luna_test import test_lock as luna_lock
-from runtime.local_app import _runtime_lock as _current_runtime_lock,read_local_ai_config_from_environment
+from runtime.local_ai_config import _runtime_lock as _current_runtime_lock,read_local_ai_config_from_environment
 from runtime.material_runtime import runtime_binding,runtime_binding_is_valid,lock_matches_binding
 from runtime.semantic_service import request_semantics,preflight_semantic_service,material_request_fits
 from runtime.material_runtime import validate_runtime_lock

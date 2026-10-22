@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pdf_evidence import material_pipeline
 from runtime import material_processing as processing
-from runtime.local_app import _runtime_lock
+from runtime.local_ai_config import _runtime_lock
 from runtime.semantic_service import SemanticServiceError
 from runtime.storage.analysis_archive import AnalysisArchive,_material_directory
 from runtime.storage.tables import MaterialProcessingRun
