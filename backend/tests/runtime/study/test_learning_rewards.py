@@ -13,7 +13,7 @@ from learning_adaptation.learner_progress import derive_learner_progress
 from runtime import card_reviews, card_sets, podcast_progress, podcasts
 from runtime.learner_session import register_account
 from runtime.storage.database import database_session
-from runtime.storage.learning_activity import learning_activity, learning_rhythm, level_for
+from runtime.learning_activity import learning_activity, learning_rhythm, level_for
 from runtime.storage.tables import CardSet, Podcast
 
 TAIPEI = ZoneInfo("Asia/Taipei")

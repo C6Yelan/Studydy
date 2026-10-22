@@ -414,8 +414,8 @@ _plans_lock = Lock()
 
 
 def _completion_plan(session, owner, material_id, revision):
-    from .knowledge_reads import learning
-    from .tables import KnowledgeReadIndex
+    from .storage.knowledge_reads import learning
+    from .storage.tables import KnowledgeReadIndex
 
     digest = session.scalar(select(KnowledgeReadIndex.learning_sha256).where(
         KnowledgeReadIndex.learner_id == owner,
@@ -450,7 +450,7 @@ def _completion_plan(session, owner, material_id, revision):
 def _concept_completions(session, owner, zone):
     """每份未刪除教材的每個概念只算一次，取各學習版本中最早的完成時間。"""
     from learning_adaptation.assessment_state import unavailable_claims
-    from .tables import StudySession
+    from .storage.tables import StudySession
 
     sessions = session.execute(text(
         """
@@ -512,7 +512,7 @@ def _card_quest(session, owner, credited):
 
     credited 是今天計分的標記張數，與 XP 相同規則（credited_marks）：同一張卡算一張、連續狂點不算。
     """
-    from ..card_reviews import _CARDS
+    from .card_reviews import _CARDS
 
     total = session.execute(text(_CARDS + "SELECT count(*) FROM cards"), {"owner": owner, "card_set": None, "material": None}).scalar()
     target = min(MARK_QUEST, total)
@@ -604,7 +604,7 @@ def _daily_records(session, owner, zone, today):
 
     學習活動與學習節奏共用；晚於 today 的日期不列入。
     """
-    from .card_moves import card_origins
+    from .storage.card_moves import card_origins
 
     values = {"owner": owner, "zone": zone.key}
     answers = {

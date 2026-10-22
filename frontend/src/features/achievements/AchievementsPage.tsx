@@ -7,7 +7,7 @@ import { BadgeCollection } from "../badges/Badges";
 import "../dashboard/styles.css";
 import "./styles.css";
 
-// 經驗值規則 xp-rules/v3 的圖解；數值須與後端 runtime/storage/learning_activity.py 一致（見 docs/learning.md）。
+// 經驗值規則 xp-rules/v3 的圖解；數值須與後端 runtime/learning_activity.py 一致（見 docs/learning.md）。
 type Source = keyof LearningActivityView["xp"]["sources"];
 const xpRules: { icon: IconName; source: Source; tone: string; title: string; gains: [string, string][]; note: string }[] = [
   { icon: "quiz", source: "answers", tone: "is-answers", title: "作答", gains: [["+10", "答對"], ["+3", "答錯"]], note: "同一題只算第一次作答" },

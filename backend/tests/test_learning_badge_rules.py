@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from runtime.storage.learning_activity import (
+from runtime.learning_activity import (
     BADGES, SPECIAL_BADGES, derive_badges, derive_special_badges, level_for, reached_on, run_reached_on, xp_threshold,
 )
 

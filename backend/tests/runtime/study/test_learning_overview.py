@@ -9,7 +9,7 @@ from assessment_fixtures import answer, concept_fixture, create, finish
 from product_fixtures import ORIGIN, _app, closed_loop
 from runtime.learner_session import register_account
 from runtime.storage.database import database_session
-from runtime.storage.learning_activity import learning_activity, learning_rhythm
+from runtime.learning_activity import learning_activity, learning_rhythm
 
 
 def _client(fixture, tmp_path, monkeypatch, token=None):

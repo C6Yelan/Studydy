@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from runtime.podcast_progress import credit_limit
-from runtime.storage.learning_activity import (
+from runtime.learning_activity import (
     card_xp, credited_marks, first_completions, level_for, level_requirement, listening_xp, rhythm_window, streak_days, xp_threshold,
 )
 

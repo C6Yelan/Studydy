@@ -16,7 +16,7 @@ from runtime.material_processing import _record_progress, claim_next_material_pr
 from runtime.source_normalization import normalize_next, read_sources, upload_source
 from runtime.source_revisions import create_revision
 from runtime.storage.database import database_session
-from runtime.storage.learning_activity import learning_activity, learning_rhythm
+from runtime.learning_activity import learning_activity, learning_rhythm
 from runtime.storage.materials import MaterialLibraryError
 
 

@@ -40,7 +40,7 @@ NO_SAFE_ASSESSMENT 或部分發布時省略的重點是系統能力限制，不�
 
 ### 經驗值、等級與連續天數（規則 `xp-rules/v3`，可依需要修改）
 
-規則常數集中在 [learning_activity.py](../backend/src/runtime/storage/learning_activity.py)；修改時一併更新版本字串與本節。
+規則常數集中在 [learning_activity.py](../backend/src/runtime/learning_activity.py)；修改時一併更新版本字串與本節。
 
 | 來源 | XP | 判定 |
 | --- | --- | --- |
@@ -78,7 +78,7 @@ NO_SAFE_ASSESSMENT 或部分發布時省略的重點是系統能力限制，不�
 
 ### 徽章（規則 `badge-rules/v6`，可依需要修改）
 
-徽章併入 `GET /v1/learning-activity` 的 `badges` 欄位（`rule_version` 與 `items`），與 XP 共用同一次計算（含概念完成的作答重播），不多一個請求。只由下表的真實紀錄即時推導，不存取得狀態、不補算沒有紀錄的過去活動；計入上線前既有紀錄（作答自 10/16 起）。規則常數 `BADGES` 在 [learning_activity.py](../backend/src/runtime/storage/learning_activity.py)，名稱與層級在 [Badges.tsx](../frontend/src/features/badges/Badges.tsx)；修改門檻或新增徽章時一併更新版本字串、API 模型、兩邊程式與本表。
+徽章併入 `GET /v1/learning-activity` 的 `badges` 欄位（`rule_version` 與 `items`），與 XP 共用同一次計算（含概念完成的作答重播），不多一個請求。只由下表的真實紀錄即時推導，不存取得狀態、不補算沒有紀錄的過去活動；計入上線前既有紀錄（作答自 10/16 起）。規則常數 `BADGES` 在 [learning_activity.py](../backend/src/runtime/learning_activity.py)，名稱與層級在 [Badges.tsx](../frontend/src/features/badges/Badges.tsx)；修改門檻或新增徽章時一併更新版本字串、API 模型、兩邊程式與本表。
 
 v6 參考 Duolingo（連續天數與累計 XP 分層、無失誤課程、夜貓／早起等驚喜成就、個人紀錄）、Khan Academy（由易到難的徽章等級與挑戰）、Quizlet（連續答對）與 Anki（累計學習天數熱力圖）的設計，只挑 Studydy 既有紀錄能判定的項目：新增學習天數、題組完成、Podcast 聽完三個系列與多個高層級，以及隱藏成就與逐步揭曉的成就鏈；排行榜、好友、每日目標等沒有對應資料的項目不做。
 

@@ -20,7 +20,7 @@ from learning_adaptation.study_sessions import (
 from ..learner_session import TrustedLearner
 from ..storage.knowledge_structures import read_knowledge_structure
 from ..storage import knowledge_reads
-from ..storage.learning_activity import RHYTHM_MAX_OFFSET, learning_activity, learning_rhythm
+from ..learning_activity import RHYTHM_MAX_OFFSET, learning_activity, learning_rhythm
 from ..storage.database import database_session
 from ..study_workspace import read_workspace, read_resume
 from . import request_context
