@@ -6,25 +6,26 @@ import "./styles.css";
 
 type Mode = "login" | "register";
 
+/** 頁面沿用全站的天空底色與品牌膠囊；左側是首頁群島地圖的海面、島嶼與吉祥物。 */
 function AccountFrame({ mode, children }: { mode: Mode; children: React.ReactNode }) {
   const isRegister = mode === "register";
   return (
     <main className="auth-page">
+      <div className="auth-brand">
+        <img src="/assets/studydy/brand-idle.png" alt="" />
+        <span>Studydy</span>
+      </div>
       <section
         className={`auth-card is-${mode}`}
         aria-label={isRegister ? "註冊 Studydy" : "登入 Studydy"}
       >
         <aside className="auth-illustration" aria-label="Studydy 學習夥伴">
-          <div className="auth-brand">
-            <img src="/assets/studydy/brand-idle.png" alt="" />
-            <span>Studydy</span>
-          </div>
           <h2>{isRegister ? "開始你的學習之旅" : "歡迎回來！"}</h2>
-          <p>{isRegister ? "建立帳戶以使用 Studydy 的所有功能" : "登入以繼續您的學習旅程"}</p>
+          <p>{isRegister ? "每份教材都會長成一座知識島" : "你的學習群島還在等你"}</p>
           <ul className="auth-features">
-            <li><Icon name="map" size={18} />上傳教材，自動整理成知識地圖</li>
-            <li><Icon name="quiz" size={18} />逐一學習概念，交卷後立即回饋</li>
-            <li><Icon name="headphones" size={18} />概念卡與 Podcast，隨時複習</li>
+            <li><span><Icon name="map" size={16} /></span>上傳教材，自動整理成知識地圖</li>
+            <li><span><Icon name="quiz" size={16} /></span>逐一學習概念，交卷後立即回饋</li>
+            <li><span><Icon name="headphones" size={16} /></span>概念卡與 Podcast，隨時複習</li>
           </ul>
           <span className="auth-island" aria-hidden="true"><IslandArt palette="meadow" landmarks /></span>
           <img
@@ -190,6 +191,7 @@ export function AccountPage({
   return (
     <AccountFrame mode={mode}>
       <h1>{isRegister ? "建立新帳戶" : "登入您的帳戶"}</h1>
+      <p className="auth-lead">{isRegister ? "建立帳戶後，就能上傳第一份教材。" : "用註冊時的 Email 與密碼登入。"}</p>
       {sessionNotice}
       <form
         className="auth-form"
@@ -251,12 +253,14 @@ export function AccountPage({
           {busy ? "處理中…" : isRegister ? "註冊" : "登入"}
         </button>
       </form>
-      <p className="auth-switch">
-        {isRegister ? "已經有帳戶？" : "還沒有帳戶？"}{" "}
-        <a href={isRegister ? "/login" : "/register"}>{isRegister ? "立即登入" : "立即註冊"}</a>
-      </p>
-      {/* 目前沒有寄信服務，無法自助重設密碼。 */}
-      {!isRegister && <p className="auth-forgot">忘記密碼？目前無法自行重設，請聯絡管理者協助。</p>}
+      <div className="auth-footer">
+        <p className="auth-switch">
+          {isRegister ? "已經有帳戶？" : "還沒有帳戶？"}{" "}
+          <a href={isRegister ? "/login" : "/register"}>{isRegister ? "立即登入" : "立即註冊"}</a>
+        </p>
+        {/* 目前沒有寄信服務，無法自助重設密碼。 */}
+        {!isRegister && <p className="auth-forgot">忘記密碼？目前無法自行重設，請聯絡管理者協助。</p>}
+      </div>
     </AccountFrame>
   );
 }
