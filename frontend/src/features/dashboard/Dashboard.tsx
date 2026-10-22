@@ -9,6 +9,7 @@ import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { Icon } from "../../ui/Icon";
 import { Bone } from "../../ui/Skeleton";
 import { IslandMap } from "./IslandMap";
+import { LevelBadge, QuickAccess, type QuickItem } from "./QuickAccess";
 import { headSession, islandState, openMaterial, statusText, useMaterialProgress } from "./islands";
 import "./styles.css";
 
@@ -33,6 +34,14 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   const continueRoute: AppRoute | null = focus && focusSession
     ? { name: "study-session", materialId: focus.material_id, runId: focusSession.run_id, structureRevision: focusSession.knowledge_structure_revision, studySessionId: focusSession.study_session_id }
     : null;
+  // 快速存取第一項：接續學習中的教材，其次查看已完成成果、開啟尚未開始的地圖。
+  const next: QuickItem = focus && continueRoute && focusSession?.status === "completed"
+    ? { icon: "check", kicker: "查看學習成果", title: focus.display_name, meta: "這份教材已完成學習", onOpen: () => writeRoute(continueRoute) }
+    : focus && continueRoute ? { icon: "learning", kicker: "繼續學習", title: focusProgress?.currentLabel ?? focus.display_name,
+      meta: focusProgress?.currentLabel ? `上次停在 · ${focus.display_name}` : "回來接續上次的學習", onOpen: () => writeRoute(continueRoute) }
+    : focus ? { icon: "map", kicker: "開啟知識地圖", title: focus.display_name, meta: "從第一個概念開始", onOpen: () => openMaterial(focus) }
+    : materials?.length ? { icon: "process", kicker: "教材整理中", title: "完成後就能開始探索", meta: "整理進度可在我的教材查看" }
+    : { icon: "upload", kicker: "上傳教材", title: "建立你的第一座島嶼", meta: "上傳 PDF 或從主題建立教材", onOpen: () => writeRoute({ name: "upload" }) };
   const openQuest = (quest: LearningQuest) => {
     if (quest.kind === "review_due_cards" || quest.kind === "review_new_cards") {
       writeRoute({ name: "concept-cards" });
@@ -55,7 +64,10 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   return (
     <section className="dashboard">
       <header className="dashboard-greeting">
-        <h1>{greeting}今天想探索哪座島？</h1>
+        <div className="dashboard-hello">
+          <h1>{greeting}今天想探索哪座島？</h1>
+          {activity && <LevelBadge xp={activity.xp} />}
+        </div>
         <div className="dashboard-actions">
           <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}><Icon name="sparkle" size={18} />從主題建立教材</button>
           <button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}><Icon name="upload" size={18} />上傳教材</button>
@@ -76,47 +88,26 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
               <button className="secondary-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新讀取</button>
             </div>
           ) : <IslandMap materials={materials} progress={progress} focusId={focus?.material_id} />}
-          {materials && <footer className="archipelago-foot">
-            <img src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
-            <p className="guide-bubble">
-              {focus && focusSession?.status === "completed" ? <>
-                <small>已完成 · {focus.display_name}</small>這份教材已完成學習，可以回顧成果或挑選概念複習。
-              </> : focus && focusSession ? <>
-                <small>上次停在 · {focus.display_name}</small>
-                {focusProgress?.currentLabel ? <>回到「<b>{focusProgress.currentLabel}</b>」，把這個概念練熟吧。</> : "回來接續上次的學習吧。"}
-              </> : focus ? <>
-                <small>下一步</small>打開「<b>{focus.display_name}</b>」的知識地圖，從第一個概念開始。
-              </> : materials.length ? "教材正在整理中，完成後就能開始探索。" : "上傳第一份教材，建立你的第一座島嶼。"}
-            </p>
-            {continueRoute ? <button className="primary-button" type="button" onClick={() => writeRoute(continueRoute)}>
-              {focusSession?.status === "completed" ? "查看學習成果" : "繼續學習"}<Icon name="chevron-right" size={18} />
-            </button> : focus ? <button className="primary-button" type="button" onClick={() => openMaterial(focus)}>開啟知識地圖<Icon name="chevron-right" size={18} /></button>
-              : !materials.length && <button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}>上傳教材<Icon name="chevron-right" size={18} /></button>}
-          </footer>}
-          {/* 手機上地圖較小，另列全部教材方便直接點選。 */}
-          {materials && ordered.length > 1 && <ul className="archipelago-list" aria-label="全部教材島嶼">
-            {ordered.map((material) => {
-              const status = statusText(islandState(material), progress.get(material.material_id));
-              return <li key={material.material_id}>
-                <button type="button" onClick={() => openMaterial(material)}>
-                  <span className="archipelago-list-thumb" aria-hidden="true"><IslandArt palette={islandPalette(material.material_id)} landmarks={false} /></span>
-                  <span className="archipelago-list-text"><b>{material.display_name}</b><small>{status}</small></span>
-                  <Icon name="chevron-right" size={16} />
-                </button>
-              </li>;
-            })}
-          </ul>}
         </section>
-        {/* 右欄只留今日任務；等級、徽章與統計在「成就」頁，概念卡複習在概念卡頁。 */}
+        {/* 右欄：今日任務與快速存取；等級在問候列，徽章與統計在「成就」頁。 */}
         <aside className="dashboard-side">
           {activity === undefined && <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "35%" }} /><Bone className="is-row" /><Bone className="is-row" /></div>}
           {activity && activity.quests.length > 0 && <DailyQuests quests={activity.quests} onOpen={openQuest} />}
-          {activity && <button className="dashboard-achievements surface" type="button" onClick={() => writeRoute({ name: "achievements" })}>
-            <span className="stat-icon is-amber"><Icon name="sparkle" size={18} /></span>
-            <span><b>第 {activity.xp.level} 級 · {activity.xp.total} XP</b><small>查看等級、經驗值計算與徽章</small></span>
-            <Icon name="chevron-right" size={16} />
-          </button>}
+          {materials && <QuickAccess apiClient={apiClient} next={next} />}
         </aside>
+        {/* 手機上地圖較小，在右欄之後另列全部教材方便直接點選。 */}
+        {materials && ordered.length > 1 && <ul className="archipelago-list" aria-label="全部教材島嶼">
+          {ordered.map((material) => {
+            const status = statusText(islandState(material), progress.get(material.material_id));
+            return <li key={material.material_id}>
+              <button type="button" onClick={() => openMaterial(material)}>
+                <span className="archipelago-list-thumb" aria-hidden="true"><IslandArt palette={islandPalette(material.material_id)} landmarks={false} /></span>
+                <span className="archipelago-list-text"><b>{material.display_name}</b><small>{status}</small></span>
+                <Icon name="chevron-right" size={16} />
+              </button>
+            </li>;
+          })}
+        </ul>}
       </div>
     </section>
   );

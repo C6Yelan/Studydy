@@ -76,7 +76,7 @@ for (const width of [2560, 1920, 1366, 1281, 1100, 1024, 721, 390, 320]) {
       if (path === "/") {
         await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
         // 頁首學習進度與品牌、帳號工具不重疊，也不超出視窗。
-        const pill = page.getByRole("button", { name: "連續學習 128 天，第 15 級，累計 12450 XP，查看成就" });
+        const pill = page.getByRole("button", { name: "連續學習 128 天，累計 12450 XP，查看成就" });
         await expect(pill).toBeVisible();
         const header = await page.evaluate(() => {
           const brand = document.querySelector(".header-start")!.getBoundingClientRect();

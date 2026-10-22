@@ -13,6 +13,77 @@
   margin: 0;
   font-size: clamp(1.5rem, 2.4vw, 1.9rem);
 }
+.dashboard-hello {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  min-width: 0;
+}
+
+/* 問候列旁的等級徽章：琥珀色盾牌＋本級經驗值進度條。 */
+.greeting-level {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px 6px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text-primary);
+  text-align: left;
+}
+.greeting-level:hover { background: var(--warning-soft); }
+.greeting-level-shield {
+  position: relative;
+  display: grid;
+  flex: none;
+  width: 36px;
+  height: 40px;
+  place-items: center;
+}
+.greeting-level-shield svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: var(--warning);
+  stroke: var(--amber-deep);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+.greeting-level-shield b {
+  position: relative;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 900;
+  text-shadow: 0 1px 2px rgba(120, 60, 0, 0.45);
+}
+.greeting-level-text {
+  display: grid;
+  gap: 3px;
+  width: 132px;
+}
+.greeting-level-text small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.greeting-level-text small:first-child { color: var(--amber-deep); font-weight: 900; }
+.greeting-level-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--warning-soft);
+}
+.greeting-level-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--warning), var(--amber-deep));
+}
 .dashboard-actions {
   display: flex;
   flex: none;
@@ -106,27 +177,6 @@
   font-size: 11px;
   font-weight: 700;
 }
-/* 「你在這裡」貼在旗標左上角，只略高出旗標，不壓到上方島嶼的圖。 */
-.island-pin {
-  position: absolute;
-  bottom: calc(100% - 10px);
-  left: 14px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--text-primary);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 900;
-  line-height: 1.4;
-  box-shadow: 0 2px 6px rgb(0 0 0 / .18);
-  animation: island-pin 1.6s ease-in-out infinite;
-}
-@keyframes island-pin {
-  50% { transform: translateY(-3px); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .island-pin { animation: none; }
-}
 .archipelago-new {
   position: absolute;
   top: 86.5%;
@@ -161,61 +211,6 @@
 }
 .archipelago-new b { font-size: 14px; font-weight: 900; }
 .archipelago-new small { font-size: 11px; font-weight: 800; }
-.archipelago-foot {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-height: 76px;
-  padding: 14px 6px 2px 112px;
-}
-.archipelago-foot img {
-  position: absolute;
-  bottom: -6px;
-  left: -4px;
-  width: 116px;
-  height: auto;
-  filter: drop-shadow(0 8px 6px rgba(0, 40, 60, 0.18));
-  animation: guide-float 3s ease-in-out infinite;
-}
-@keyframes guide-float {
-  50% { transform: translateY(-5px); }
-}
-.guide-bubble {
-  position: relative;
-  flex: 1;
-  margin: 0;
-  padding: 10px 16px;
-  border-radius: 18px;
-  background: var(--page-cool);
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.55;
-}
-.guide-bubble::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: -8px;
-  margin-top: -8px;
-  border: 8px solid transparent;
-  border-right-color: var(--page-cool);
-  border-left: 0;
-}
-.guide-bubble small {
-  display: block;
-  color: var(--success);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-}
-.guide-bubble b {
-  color: var(--text-primary);
-}
-.archipelago-foot .primary-button {
-  flex: none;
-}
 .dashboard-error {
   display: flex;
   align-items: center;
@@ -239,6 +234,35 @@
   margin: 0;
   font-size: 17px;
 }
+
+/* 快速存取：與今日任務同樣的列表樣式，整列可點。 */
+.dashboard-quick ul {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.quick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--page-cool);
+  color: var(--text-primary);
+  text-align: left;
+}
+button.quick-item:hover { background: var(--studydy-blue-soft); }
+.quick-item > svg { flex: none; color: var(--studydy-blue); }
+.quick-item-text { display: grid; flex: 1; gap: 1px; min-width: 0; }
+.quick-item-text b,
+.quick-item-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-item-text b { font-size: 14px; font-weight: 900; }
+.quick-item-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.quick-item-text small:first-child { color: var(--studydy-blue); font-size: 11px; font-weight: 900; }
 .dashboard-overview h2 {
   margin-bottom: 14px;
 }
@@ -308,21 +332,6 @@
   }
   .archipelago-head {
     padding: 0 var(--shell-gutter) 12px;
-  }
-  .archipelago-foot {
-    margin: 0 var(--shell-gutter);
-    padding: 12px 12px 12px 92px;
-    border-radius: 22px;
-    background: var(--surface);
-    box-shadow: var(--shadow);
-    flex-wrap: wrap;
-  }
-  .archipelago-foot img {
-    width: 92px;
-    left: -6px;
-  }
-  .archipelago-foot .primary-button {
-    width: 100%;
   }
 }
 
@@ -667,14 +676,12 @@
   left: 50%;
   transform: translate(-50%, -100%);
 }
-.map-island.is-focus .island-flag { box-shadow: 0 0 0 3px var(--warning), 0 12px 24px -10px rgba(160, 90, 0, 0.5); }
 .map-island.is-completed .island-flag { background: linear-gradient(180deg, #fff, #fff6dd); }
 /* 同一列相鄰的島至少相距約 400 地圖像素；標籤（文字＋進度圈約 74px）寬度隨縮放收窄，拉遠時也不互相重疊。 */
 .map-island .island-flag-text b,
 .map-island .island-flag-text small { max-width: max(32px, min(220px, calc(var(--k) * 400px - 74px))); }
 /* 拉遠時只留名稱，避免相鄰標籤互相遮住。 */
-.island-map-viewport[data-zoom="far"] .island-flag-text small,
-.island-map-viewport[data-zoom="far"] .island-pin { display: none; }
+.island-map-viewport[data-zoom="far"] .island-flag-text small { display: none; }
 .island-map-viewport[data-zoom="far"] .island-flag-text b { font-size: 13px; }
 .map-island.is-new .archipelago-new { position: absolute; top: 0; left: 0; white-space: nowrap; }
 .island-map-skeleton { position: absolute; inset: 0; pointer-events: none; }
@@ -748,25 +755,7 @@
   touch-action: none;
 }
 .island-map-minimap .minimap-sea { fill: rgba(143, 224, 251, 0.35); }
-.island-map-minimap ellipse.is-focus { stroke: var(--warning); stroke-width: 40; }
 .island-map-minimap .minimap-view { fill: rgba(255, 255, 255, 0.2); stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; }
-
-/* 右欄：今日任務下方的成就入口。 */
-.dashboard-achievements {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  border: 0;
-  color: var(--text-primary);
-  text-align: left;
-}
-.dashboard-achievements .stat-icon { margin: 0; }
-.dashboard-achievements > span:nth-child(2) { display: grid; flex: 1; min-width: 0; }
-.dashboard-achievements b { font-size: 15px; }
-.dashboard-achievements small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
-.dashboard-achievements > svg { color: var(--studydy-blue); }
-.dashboard-achievements:hover { background: var(--studydy-blue-soft); }
 
 /* 全部教材清單：只在手機顯示（桌機直接在地圖上操作）。 */
 .archipelago-list {
@@ -824,7 +813,7 @@
   .island-map-minimap { display: none; }
   .island-map-controls { right: 12px; bottom: 12px; }
   .island-map-hint { bottom: 12px; left: 12px; transform: none; }
-  .archipelago-list { display: grid; margin: 12px var(--shell-gutter) 0; }
+  .archipelago-list { display: grid; margin: 0; }
   .dashboard-content { grid-template-columns: minmax(0, 1fr); }
   .dashboard-content > * { min-width: 0; }
 }

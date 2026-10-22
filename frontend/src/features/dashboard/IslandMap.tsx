@@ -23,6 +23,7 @@ const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce
 export function IslandMap({ materials, progress, focusId }: {
   materials: MaterialLibraryItem[] | null;
   progress: Map<string, IslandProgress>;
+  /** 只用於島太多時初始置中的位置，地圖上不另外標記。 */
   focusId: string | undefined;
 }) {
   const { islands, newSpot, bounds } = useMemo(() => layoutIslands(materials ?? []), [materials]);
@@ -254,13 +255,11 @@ export function IslandMap({ materials, progress, focusId }: {
           const value = progress.get(material.material_id);
           const status = statusText(state, value);
           const started = value?.completed ?? 0;
-          const focus = material.material_id === focusId;
-          return <li key={material.material_id} className={`map-island is-${state}${focus ? " is-focus" : ""}`}
+          return <li key={material.material_id} className={`map-island is-${state}`}
             style={{ "--x": `${x}px`, "--y": `${y}px`, "--w": `${w}px`, "--h": `${h}px` } as CSSProperties}>
             <button type="button" onClick={() => openMaterial(material)} onFocus={() => reveal(x, y)} aria-label={`${material.display_name}，${status}`}>
               <span className="map-island-art"><IslandArt palette={islandPalette(material.material_id)} viewBox="100 60 840 470" landmarks={state !== "building"} /></span>
               <span className="island-flag">
-                {focus && state === "learning" && <span className="island-pin">你在這裡</span>}
                 <ProgressRing ratio={value && value.total ? started / value.total : 0} color={state === "completed" ? "var(--success)" : "var(--warning)"}>
                   {state === "building" ? <Icon name="process" size={16} /> : state === "failed" ? <Icon name="warning" size={16} /> : started}
                 </ProgressRing>
@@ -292,7 +291,7 @@ export function IslandMap({ materials, progress, focusId }: {
       onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) minimapMove(event, false); }}>
       <rect x={bounds.minX} y={bounds.minY} width={width} height={height} className="minimap-sea" />
       {islands.map(({ material, x, y, w, h }) => <ellipse key={material.material_id} cx={x} cy={y} rx={w * 0.42} ry={h * 0.36}
-        fill={islandColors(islandPalette(material.material_id)).g2} className={material.material_id === focusId ? "is-focus" : undefined} />)}
+        fill={islandColors(islandPalette(material.material_id)).g2} />)}
       <rect ref={minimapView} className="minimap-view" />
     </svg>}
   </div>;

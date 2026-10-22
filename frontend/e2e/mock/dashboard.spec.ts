@@ -79,7 +79,7 @@ test.beforeEach(async ({ page }) => {
   await mockLibrary(page, () => []);
 });
 
-// 多份教材：每份都用長檔名，讓標籤撐到最大寬度；第一份學習中，帶「你在這裡」。
+// 多份教材：每份都用長檔名，讓標籤撐到最大寬度；第一份學習中。
 function manyMaterials(count: number): MaterialLibraryItem[] {
   return Array.from({ length: count }, (_, index) => ({
     ...(index === 0 ? withStudy() : material),
@@ -89,6 +89,9 @@ function manyMaterials(count: number): MaterialLibraryItem[] {
   }));
 }
 
+// 快速存取的列以「動作：標題」為名，例如「繼續學習：有界重試策略」。
+const quick = (page: Page) => page.getByRole("region", { name: "快速存取" });
+const quickButton = (page: Page, action: string) => quick(page).getByRole("button", { name: new RegExp(`^${action}：`) });
 const islands = (page: Page) => page.locator(".map-island:not(.is-new)");
 const mapView = (page: Page) => page.locator(".island-map-viewport").evaluate((element: HTMLElement) => ({
   x: parseFloat(element.style.getPropertyValue("--tx")),
@@ -111,25 +114,23 @@ for (const [state, items, action] of [
     await expect(islands(page)).toHaveCount(items.length);
     // 地圖上永遠有「發現新島嶼」入口。
     await expect(page.locator(".map-island.is-new").getByRole("button", { name: /發現新島嶼/ })).toBeVisible();
-    const foot = page.locator(".archipelago-foot");
+    const foot = quick(page);
     if (!action) {
       await expect(foot.getByRole("button")).toHaveCount(0);
       await expect(page.getByRole("button", { name: new RegExp(`^${longName.slice(0, 10)}.*建立未完成`) })).toBeVisible();
       return;
     }
-    await foot.getByRole("button", { name: action, exact: true }).focus();
+    await quickButton(page, action).focus();
     await page.keyboard.press("Enter");
     const expected = state === "empty" ? "/upload" : state === "map" ? mapPath : studyPath;
     await expect.poll(() => new URL(page.url()).pathname).toBe(expected);
   });
 }
 
-test("dashboard island opens the head knowledge map and marks the current material", async ({ page }) => {
+test("dashboard island opens the head knowledge map", async ({ page }) => {
   await mockLibrary(page, () => [withStudy("active")]);
   await page.goto("/");
   const island = islands(page);
-  await expect(island).toHaveClass(/is-focus/);
-  await expect(island.locator(".island-pin")).toHaveText("你在這裡");
   await island.getByRole("button", { name: `${longName}，學習中` }).click();
   await expect.poll(() => new URL(page.url()).pathname).toBe(mapPath);
 });
@@ -140,7 +141,7 @@ for (const [width, height] of [[2560, 1440], [1536, 1024], [1366, 768], [1024, 7
     await mockLibrary(page, () => [withStudy()]);
     await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({}) }));
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
+    await expect(quickButton(page, "繼續學習")).toBeVisible();
     const flag = page.locator(".map-island .island-flag-text b");
     await expect(flag).toHaveText(longName);
     expect(await flag.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(221);
@@ -155,9 +156,6 @@ for (const [width, height] of [[2560, 1440], [1536, 1024], [1366, 768], [1024, 7
         expect(map.width).toBeGreaterThan(side.width * 3);
       }
     } else expect(side.y).toBeGreaterThanOrEqual(map.y + map.height);
-    await expect
-      .poll(() => page.locator(".archipelago-foot img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
-      .toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 }
@@ -231,20 +229,18 @@ test("dashboard prefers active study over newer completion and ignores mismatche
   ];
   await mockLibrary(page, () => items);
   await page.goto("/");
-  await expect(page.locator(".guide-bubble small")).toHaveText("上次停在 · Linear Algebra.pdf");
-  await page.getByRole("button", { name: "繼續學習", exact: true }).click();
+  await quick(page).getByRole("button", { name: "繼續學習：Linear Algebra.pdf", exact: true }).click();
   await expect
     .poll(() => new URL(page.url()).pathname)
     .toBe(studyPath.replace(materialId, secondId));
   items = items.filter((item) => item.material_id !== secondId);
   await page.goto("/");
-  await expect(page.locator(".guide-bubble small")).toHaveText("已完成 · Calculus.pdf");
-  await expect(page.getByRole("button", { name: "查看學習成果", exact: true })).toBeVisible();
+  await expect(quick(page).getByRole("button", { name: "查看學習成果：Calculus.pdf", exact: true })).toBeVisible();
   items = items.filter((item) => item.display_name !== "Calculus.pdf");
   await page.reload();
   await expect(islands(page)).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "開啟知識地圖", exact: true })).toBeVisible();
+  await expect(quickButton(page, "繼續學習")).toHaveCount(0);
+  await expect(quickButton(page, "開啟知識地圖")).toBeVisible();
 });
 
 test("dashboard uses each material's head study", async ({ page }) => {
@@ -282,7 +278,7 @@ test("dashboard uses each material's head study", async ({ page }) => {
     "個人檔案",
   ]);
   await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "繼續學習", exact: true }).click();
+  await quickButton(page, "繼續學習").click();
   await expect
     .poll(() => new URL(page.url()).pathname)
     .toBe(
@@ -290,7 +286,7 @@ test("dashboard uses each material's head study", async ({ page }) => {
     );
 });
 
-test("home keeps only quests beside the map; achievements and reviews have their own pages", async ({ page }) => {
+test("home shows the level beside the greeting; achievements and reviews have their own pages", async ({ page }) => {
   await mockLibrary(page, () => [withStudy()]);
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
     total: 245, level: [2, 145, 200],
@@ -298,15 +294,44 @@ test("home keeps only quests beside the map; achievements and reviews have their
   }) }));
   await page.goto("/");
   await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
-  // 等級、徽章、本週節奏、學習總覽、Podcast 與概念卡複習都不在首頁。
+  // 等級只以徽章出現在問候列；徽章、本週節奏、學習總覽、Podcast 與概念卡複習都不在首頁。
   for (const name of ["第 2 級", "成就總覽", "本週學習節奏", "學習總覽", "Podcast", "概念卡複習"])
     await expect(page.getByRole("region", { name, exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: /第 2 級 · 245 XP/ }).click();
+  await page.locator(".dashboard-greeting").getByRole("button", { name: "第 2 級，本級 145 / 200 XP，查看成就" }).click();
   await expect(page).toHaveURL(/\/achievements$/);
   await expect(page.getByRole("region", { name: "第 2 級" })).toBeVisible();
   await page.goto("/");
   await page.getByRole("button", { name: "開始複習：複習 5 張新的概念卡" }).click();
   await expect(page).toHaveURL(/\/concept-cards$/);
+});
+
+test("quick access resumes the most recently listened podcast that is not finished", async ({ page }) => {
+  await mockLibrary(page, () => [withStudy()]);
+  const podcast = (seed: number, name: string) => ({
+    podcast_id: uuid(seed), material_id: materialId, material_name: longName, knowledge_structure_revision: revision,
+    name, delivery: "solo", concept_ids: [`concept:sha256:${"b".repeat(64)}`], status: "ready", error_code: null,
+    version: 1, created_at: "2026-09-12T00:00:00Z", episode_count: 2, completed_episodes: 2, is_current_revision: true,
+  });
+  // 30 號最新但兩集都聽完；31 號是聽到一半中最新的；32 號較舊。
+  const progress: Record<string, unknown> = {
+    [uuid(30)]: { current: { episode_index: 1, position_seconds: 90, updated_at: "2026-10-23T09:00:00Z" },
+      episodes: [{ episode_index: 0, position_seconds: 300, completed: true }, { episode_index: 1, position_seconds: 400, completed: true }] },
+    [uuid(31)]: { current: { episode_index: 1, position_seconds: 125, updated_at: "2026-10-22T09:00:00Z" },
+      episodes: [{ episode_index: 0, position_seconds: 300, completed: true }, { episode_index: 1, position_seconds: 125, completed: false }] },
+    [uuid(32)]: { current: { episode_index: 0, position_seconds: 10, updated_at: "2026-10-21T09:00:00Z" }, episodes: [] },
+  };
+  await page.route("**/v1/podcasts", (route) => route.fulfill({ json: { schema: "podcast-list/v1",
+    podcasts: [podcast(30, "聽完的"), podcast(31, "聽到一半"), podcast(32, "較舊的")] } }));
+  await page.route("**/v1/podcasts/*/progress", (route) => {
+    const id = new URL(route.request().url()).pathname.split("/").at(-2)!;
+    return route.fulfill({ json: { schema: "podcast-progress/v1", podcast_id: id, credited_seconds: 0, ...progress[id] as object } });
+  });
+  await page.goto("/");
+  const resume = page.getByRole("region", { name: "快速存取" }).getByRole("button", { name: /繼續收聽/ });
+  await expect(resume).toContainText("聽到一半");
+  await expect(resume).toContainText("第 2 集 · 停在 2:05");
+  await resume.click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/materials/${materialId}/podcasts/${uuid(31)}`);
 });
 
 test("home shows the material count without page totals or a date line", async ({ page }) => {
@@ -342,8 +367,8 @@ test("achievements level card, XP rules and profile overview show real numbers w
     sources: { answers: 180, concepts: 30, cards: 20, podcast: 15 },
   }) }));
   await page.goto("/");
-  const pill = page.getByRole("button", { name: "連續學習 4 天，第 2 級，累計 245 XP，查看成就" });
-  await expect(pill).toContainText("Lv 2");
+  // 等級只在首頁問候列顯示，頁首只留連續天數（手機另顯示累計 XP）。
+  const pill = page.getByRole("button", { name: "連續學習 4 天，累計 245 XP，查看成就" });
   await pill.click();
   await expect(page).toHaveURL(/\/achievements$/);
   const level = page.getByRole("region", { name: "第 2 級" });
@@ -377,7 +402,6 @@ test("achievements level card, XP rules and profile overview show real numbers w
   await expect(stats.locator("button, a, [role=button], [tabindex]")).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(pill.locator(".header-xp")).toHaveText("245 XP");
-  await expect(pill.locator(".header-level")).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
@@ -534,9 +558,9 @@ test("new badge notice shows once per badge after the first visit in this browse
 test("dashboard hides learning numbers when learning activity is unavailable", async ({ page }) => {
   await mockLibrary(page, () => [withStudy()]);
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
+  await expect(quickButton(page, "繼續學習")).toBeVisible();
   await expect(page.getByRole("region", { name: "今日任務" })).toHaveCount(0);
-  await expect(page.locator(".dashboard-achievements, .header-progress")).toHaveCount(0);
+  await expect(page.locator(".greeting-level, .header-progress")).toHaveCount(0);
   await page.goto("/achievements");
   await expect(page.getByText("無法讀取學習成就")).toBeVisible();
   await expect(page.locator(".dashboard-level, .badge-collection")).toHaveCount(0);
@@ -553,7 +577,6 @@ for (const count of [3, 6, 9])
       await mockLibrary(page, () => manyMaterials(count));
       await page.goto("/");
       await expect(islands(page)).toHaveCount(count);
-      await expect(page.locator(".island-pin")).toHaveCount(1);
       const boxes = await page.locator(".map-island .island-flag").evaluateAll((elements) =>
         elements.map((element) => {
           const { left, top, right, bottom } = element.getBoundingClientRect();
@@ -567,7 +590,7 @@ for (const count of [3, 6, 9])
         }
       // 初始全覽：學習中的島一定在畫面內。
       const viewport = (await page.locator(".island-map-viewport").boundingBox())!;
-      const focus = (await page.locator(".map-island.is-focus .island-flag").boundingBox())!;
+      const focus = (await islands(page).filter({ hasText: "第 1 份｜" }).locator(".island-flag").boundingBox())!;
       expect(focus.x).toBeGreaterThanOrEqual(viewport.x);
       expect(focus.x + focus.width).toBeLessThanOrEqual(viewport.x + viewport.width);
     });
@@ -590,7 +613,7 @@ test("dashboard map pans, zooms and keeps a drag from opening an island", async 
   expect(dragged.y - start.y).toBeCloseTo(50, 0);
   await expect(page.locator(".island-map-hint")).toHaveCSS("opacity", "0");
   // 從島上開始拖曳不算點擊。
-  const art = (await page.locator(".map-island.is-focus .map-island-art").boundingBox())!;
+  const art = (await islands(page).filter({ hasText: "第 1 份｜" }).locator(".map-island-art").boundingBox())!;
   await page.mouse.move(art.x + art.width / 2, art.y + art.height / 2);
   await page.mouse.down();
   await page.mouse.move(art.x + art.width / 2 + 80, art.y + art.height / 2, { steps: 6 });
@@ -643,7 +666,7 @@ test("phone map keeps the full island list and hides the minimap", async ({ page
   await expect(page.locator(".island-map-minimap")).toBeHidden();
   await expect(page.getByRole("list", { name: "全部教材島嶼" }).getByRole("listitem")).toHaveCount(9);
   // 繼續學習在清單之前，不被長清單推到下面。
-  const foot = (await page.locator(".archipelago-foot").boundingBox())!;
+  const foot = (await quick(page).boundingBox())!;
   const list = (await page.getByRole("list", { name: "全部教材島嶼" }).boundingBox())!;
   expect(foot.y).toBeLessThan(list.y);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
@@ -670,7 +693,7 @@ test("dashboard islands read the progress summary instead of the full outline", 
   await page.goto("/");
   await expect(page.getByRole("button", { name: `${longName}，學習中：堆疊與佇列` })).toBeVisible();
   await expect(page.getByRole("button", { name: "Second.pdf，尚未開始 · 40 個概念" })).toBeVisible();
-  await expect(page.locator(".map-island.is-focus .progress-ring")).toContainText("5");
+  await expect(islands(page).filter({ hasText: longName }).locator(".progress-ring")).toContainText("5");
   expect(requested.some((path) => path.includes(`/progress-summary?study_session_id=${sessionId}`))).toBe(true);
   expect(requested.filter((path) => /\/outline|\/map-progress/.test(path))).toEqual([]);
 });
@@ -689,7 +712,7 @@ for (const [width, height, fits] of [[1920, 950, true], [2560, 1300, true], [144
     const map = (await page.locator(".island-map-viewport").boundingBox())!;
     if (fits) {
       expect(overflow).toBeLessThanOrEqual(0);
-      await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeInViewport({ ratio: 1 });
+      await expect(quickButton(page, "繼續學習")).toBeInViewport({ ratio: 1 });
     } else {
       // 較小的螢幕：地圖維持最小高度，頁面照常捲動。
       expect(overflow).toBeGreaterThan(0);

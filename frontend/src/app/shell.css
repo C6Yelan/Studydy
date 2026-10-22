@@ -534,7 +534,7 @@
   align-items: center;
   gap: 8px;
   min-height: 46px;
-  padding: 0 14px 0 8px;
+  padding: 0 6px;
   border: 0;
   border-radius: 999px;
   background: var(--surface);
@@ -560,17 +560,11 @@
   background: var(--page-cool);
   color: var(--text-muted);
 }
-.header-level {
-  color: var(--studydy-blue);
-}
 .header-xp {
   display: none;
   align-items: center;
   gap: 3px;
   color: var(--amber-deep);
-}
-.header-progress:hover .header-level {
-  color: var(--studydy-blue-deep);
 }
 /* 頁首右側隨寬度收合：登出只留圖示（保留無障礙名稱）、隱藏名稱並縮短搜尋，避免與中央導覽重疊。 */
 @media (max-width: 1600px) {
@@ -597,14 +591,6 @@
 @media (min-width: 1281px) and (max-width: 1600px) {
   .header-search-trigger {
     min-width: 180px;
-  }
-}
-@media (max-width: 1280px) {
-  .header-progress {
-    padding-right: 6px;
-  }
-  .header-level {
-    display: none;
   }
 }
 @media (max-width: 720px) {
