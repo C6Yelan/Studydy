@@ -9,6 +9,7 @@ from sqlalchemy import delete, select, text
 from product_fixtures import ORIGIN, _app, closed_loop
 from assessment_fixtures import answer, concept_fixture, create, finish
 from runtime.storage import knowledge_reads
+from runtime.knowledge_publication import backfill
 from runtime.storage.tables import CardSet, CardSourceConcept, CardSourceIndex, KnowledgeReadIndex, KnowledgeStructure
 from runtime.storage.database import database_session
 from runtime.api.models import project_knowledge_structure
@@ -94,8 +95,8 @@ def test_backfill_recreates_only_missing_projection_without_changing_canonical_d
     with database_session(dsn) as db:
         before = knowledge_reads.outline(db, owner.learner_id, source.material_id, document['revision'])
         db.execute(delete(KnowledgeReadIndex))
-    assert knowledge_reads.backfill(dsn=dsn) == 1
-    assert knowledge_reads.backfill(dsn=dsn) == 0
+    assert backfill(dsn=dsn) == 1
+    assert backfill(dsn=dsn) == 0
     with database_session(dsn) as db:
         assert knowledge_reads.outline(db, owner.learner_id, source.material_id, document['revision']) == before
 
@@ -119,8 +120,8 @@ def test_readonly_index_lookup_never_repairs_missing_indexes(closed_loop, missin
     with database_session(dsn) as db:
         assert (db.get(CardSourceIndex, key) is None) == ('concept' in missing)
         assert (db.get(KnowledgeReadIndex, key) is None) == ('learning' in missing)
-    assert knowledge_reads.backfill(dsn=dsn) == int(bool(missing))
-    assert knowledge_reads.backfill(dsn=dsn) == 0
+    assert backfill(dsn=dsn) == int(bool(missing))
+    assert backfill(dsn=dsn) == 0
     with database_session(dsn) as db:
         assert knowledge_reads.outline(db, *key) == before
         assert db.get(KnowledgeStructure, key).document == document
@@ -195,8 +196,8 @@ def test_relation_only_evidence_survives_read_projection_and_existing_index_repa
         for row in rows:
             row.payload = {**row.payload, 'relation_evidence': []}
             row.content_sha256 = canonical_sha256(row.payload)
-    assert knowledge_reads.backfill(dsn=dsn) == 1
-    assert knowledge_reads.backfill(dsn=dsn) == 0
+    assert backfill(dsn=dsn) == 1
+    assert backfill(dsn=dsn) == 0
     with database_session(dsn) as db:
         assert db.get(KnowledgeStructure, key).document == document
         assert knowledge_reads.concept_context(db, *key, ids) == detail

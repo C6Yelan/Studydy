@@ -88,7 +88,7 @@ def main() -> None:
         if command == "migrate":
             return
         if command == "prepare-read-indexes":
-            from .storage.knowledge_reads import backfill
+            from .knowledge_publication import backfill
 
             stage = "read_indexes"
             print(f"Prepared read indexes: {backfill()}", flush=True)
