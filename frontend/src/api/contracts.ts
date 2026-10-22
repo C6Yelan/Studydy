@@ -271,17 +271,19 @@ export type LearningXp = {
   total: number; today: number; level: number; level_xp: number; level_target: number;
   sources: { answers: number; concepts: number; cards: number; podcast: number };
 };
-// 徽章（規則 badge-rules/v3）只由真實紀錄推導；同一計量的多個門檻是同一系列的層級，另有隱藏條件的特殊成就。未知代號由畫面忽略。
+// 徽章（規則 badge-rules/v4）只由真實紀錄推導；同一計量的多個門檻是同一系列的層級，另有隱藏條件的特殊成就。未知代號由畫面忽略。
 export type LearningBadgeId =
-  | "first_answer" | "answers_100" | "answers_300" | "answers_1000"
+  | "first_answer" | "answers_100" | "answers_300" | "answers_1000" | "answers_5000"
   | "first_concept" | "concepts_25" | "concepts_100" | "concepts_300"
   | "first_material" | "materials_3" | "materials_10"
   | "cards_100" | "cards_500" | "cards_2000"
   | "listen_30_minutes" | "listen_180_minutes" | "listen_600_minutes"
-  | "streak_3" | "streak_7" | "streak_30" | "streak_100"
-  | "level_5" | "level_10" | "level_20"
+  | "streak_3" | "streak_7" | "streak_30" | "streak_100" | "streak_365"
+  | "level_5" | "level_10" | "level_20" | "level_30"
+  | "perfect_set_1" | "perfect_set_10" | "perfect_set_30"
   | "combo_10" | "comeback_20" | "daily_50" | "explorer_5" | "night_owl" | "early_bird"
-  | "weekend" | "return" | "curious_10" | "researcher" | "creator" | "corrected_5";
+  | "weekend" | "return" | "curious_10" | "researcher" | "creator" | "corrected_5"
+  | "first_try_material" | "perfect_day" | "all_round_day" | "thousand_pages" | "revisit";
 export type LearningBadge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
 export type LearningActivityView = {
   schema: "learning-activity/v2"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v1"; today: string;
@@ -290,7 +292,7 @@ export type LearningActivityView = {
   total_answers: number; total_correct: number;
   xp: LearningXp;
   quests: LearningQuest[];
-  badges: { rule_version: "badge-rules/v3"; items: LearningBadge[] };
+  badges: { rule_version: "badge-rules/v4"; items: LearningBadge[] };
 };
 
 export type PodcastProgressView = {

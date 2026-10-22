@@ -1,33 +1,7 @@
 import type { LearningActivityView, LearningQuest } from "../../api/contracts";
 import { Icon, type IconName } from "../../ui/Icon";
 
-// 首頁的等級、今日任務與本週節奏；數字全部來自學習活動 API（規則 xp-rules/v1）。
-
-export function LevelCard({ activity }: { activity: LearningActivityView }) {
-  const { xp } = activity;
-  const ratio = xp.level_target ? xp.level_xp / xp.level_target : 0;
-  const sources: [string, number][] = [
-    ["作答", xp.sources.answers], ["概念完成", xp.sources.concepts], ["概念卡", xp.sources.cards], ["Podcast", xp.sources.podcast],
-  ];
-  return <section className="dashboard-level surface" aria-labelledby="dashboard-level-title">
-    <header>
-      <img src="/assets/studydy/brand-idle.png" alt="" />
-      <div>
-        <h2 id="dashboard-level-title">第 {xp.level} 級</h2>
-        <small>累計 {xp.total} XP{xp.today > 0 && <> · 今天 <b>+{xp.today}</b></>}</small>
-      </div>
-    </header>
-    <div className="level-bar" role="progressbar" aria-label={`第 ${xp.level} 級經驗值`}
-      aria-valuemin={0} aria-valuemax={xp.level_target} aria-valuenow={xp.level_xp}
-      aria-valuetext={`${xp.level_xp} / ${xp.level_target} XP`}>
-      <i style={{ width: `${Math.max(ratio > 0 ? 3 : 0, Math.min(100, ratio * 100))}%` }} />
-    </div>
-    <p className="level-next"><span>{xp.level_xp} / {xp.level_target} XP</span><span>再 {xp.level_target - xp.level_xp} XP 升到第 {xp.level + 1} 級</span></p>
-    {xp.total > 0 && <ul className="level-sources" aria-label="經驗值來源">
-      {sources.filter(([, value]) => value > 0).map(([label, value]) => <li key={label}>{label} <b>{value}</b></li>)}
-    </ul>}
-  </section>;
-}
+// 首頁的今日任務與個人檔案的本週節奏；數字全部來自學習活動 API（規則 xp-rules/v1）。
 
 const questText: Record<LearningQuest["kind"], { icon: IconName; title: (quest: LearningQuest) => string; action: string }> = {
   review_due_cards: { icon: "cards", title: (q) => `複習 ${q.target} 張到期的概念卡`, action: "開始複習" },

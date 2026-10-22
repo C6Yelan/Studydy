@@ -811,7 +811,7 @@ export function learningActivity(value: unknown): value is LearningActivityView 
     && Number(xp.today) <= Number(xp.total)
     && ["answers", "concepts", "cards", "podcast"].every(key => count(sources[key]))
     && Array.isArray(item.quests) && item.quests.every(learningQuest)
-    && !!badges && badges.rule_version === "badge-rules/v3" && Array.isArray(badges.items) && badges.items.every(learningBadge);
+    && !!badges && badges.rule_version === "badge-rules/v4" && Array.isArray(badges.items) && badges.items.every(learningBadge);
 }
 
 export function podcastProgress(value: unknown): value is PodcastProgressView {

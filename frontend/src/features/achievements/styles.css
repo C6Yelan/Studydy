@@ -1,19 +1,27 @@
-/* 成就頁：等級卡與經驗值說明並排，徽章牆在下方全寬（窄螢幕上下排列）。 */
+/* 成就頁：左欄等級與經驗值（捲動時固定在畫面內），右欄成就總覽；窄螢幕上下排列。 */
 .achievements {
   display: grid;
   gap: 22px;
 }
 .achievements-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
 .achievements-layout > .surface { padding: 20px 22px; }
 .achievements-layout h2 { margin: 0; font-size: 17px; }
-.achievements-layout .badge-collection { grid-column: 1 / -1; }
-/* 經驗值圖解：來源比例長條、四張來源卡、升級階梯 */
-.xp-rules { display: grid; gap: 16px; }
+.level-xp { position: sticky; top: 16px; display: grid; gap: 4px; }
+.level-xp .level-next { margin-bottom: 8px; }
+
+/* 經驗值圖解：來源比例長條、四種來源（精簡列）、升級階梯 */
+.xp-rules {
+  display: grid;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.xp-rules h3 { margin: 0; font-size: 15px; }
 .xp-rules .is-answers { --xp: var(--warning); --xp-soft: var(--warning-soft); }
 .xp-rules .is-concepts { --xp: var(--success); --xp-soft: var(--success-soft); }
 .xp-rules .is-cards { --xp: var(--violet); --xp-soft: var(--violet-soft); }
@@ -22,7 +30,7 @@
 .xp-mix p b { color: var(--text-primary); font-size: 15px; }
 .xp-mix-bar {
   display: flex;
-  height: 14px;
+  height: 12px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--border);
@@ -31,47 +39,47 @@
 .xp-mix-bar i + i { border-left: 2px solid #fff; }
 .xp-sources {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .xp-sources li {
   display: grid;
-  align-content: start;
-  gap: 6px;
-  padding: 14px;
-  border-top: 4px solid var(--xp);
-  border-radius: 16px;
-  background: var(--xp-soft);
+  grid-template-columns: 36px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--page-cool);
 }
 .xp-source-icon {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   place-items: center;
-  border-radius: 12px;
-  background: #fff;
+  border-radius: 11px;
+  background: var(--xp-soft);
   color: var(--xp);
 }
-.xp-source-title { font-size: 15px; }
-.xp-gains { display: flex; flex-wrap: wrap; gap: 10px; }
-.xp-gains > span { display: grid; }
-.xp-gains strong { color: var(--xp); font-size: 26px; font-weight: 900; line-height: 1.1; }
-.xp-gains small,
-.xp-source-note { color: var(--text-secondary); font-size: 12px; font-weight: 700; }
-.xp-source-earned { margin-top: 2px; color: var(--text-muted); font-size: 12px; font-weight: 700; }
-.xp-source-earned b { color: var(--text-primary); font-size: 14px; }
-.xp-level p { margin: 0 0 10px; color: var(--text-secondary); font-size: 14px; }
+.xp-source-text { display: grid; min-width: 0; }
+.xp-source-title { font-size: 14px; }
+.xp-source-note { color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.xp-gains { display: flex; gap: 8px; }
+.xp-gains > span { display: grid; justify-items: center; }
+.xp-gains strong { color: var(--xp); font-size: 19px; font-weight: 900; line-height: 1.1; }
+.xp-gains small { color: var(--text-muted); font-size: 10px; font-weight: 800; white-space: nowrap; }
+.xp-source-earned { display: grid; justify-items: end; min-width: 44px; }
+.xp-source-earned b { font-size: 15px; }
+.xp-source-earned small { color: var(--text-muted); font-size: 10px; font-weight: 800; }
+.xp-level p { margin: 0 0 10px; color: var(--text-secondary); font-size: 13px; }
 .xp-level p b { margin-right: 8px; color: var(--text-primary); }
-.xp-level p strong { color: var(--amber-deep); }
 .xp-ladder {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: end;
-  gap: 8px;
-  height: 150px;
+  gap: 6px;
+  height: 120px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -89,29 +97,34 @@
   display: flex;
   align-items: flex-end;
   overflow: hidden;
-  border-radius: 10px 10px 4px 4px;
+  border-radius: 8px 8px 3px 3px;
   background: var(--page-cool);
   box-shadow: inset 0 0 0 1px var(--border);
 }
 .xp-ladder-step i { width: 100%; background: linear-gradient(180deg, var(--warning), var(--amber-deep)); }
 .xp-ladder li.is-done .xp-ladder-step i { background: var(--success); }
 .xp-ladder li.is-current .xp-ladder-step { box-shadow: inset 0 0 0 2px var(--warning); }
-.xp-ladder b { margin-top: 4px; font-size: 12px; }
-.xp-ladder small { color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.xp-ladder b { margin-top: 4px; font-size: 11px; }
+.xp-ladder small { color: var(--text-muted); font-size: 10px; font-weight: 700; }
 .xp-ladder-you {
   position: absolute;
-  top: -4px;
+  top: -6px;
   left: 50%;
   z-index: 1;
-  padding: 2px 8px;
+  padding: 1px 7px;
   border-radius: 999px;
   background: var(--text-primary);
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 900;
   white-space: nowrap;
   transform: translateX(-50%);
 }
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .achievements-layout { grid-template-columns: minmax(0, 1fr); }
+  .level-xp { position: static; }
+}
+@media (max-width: 420px) {
+  .xp-sources li { grid-template-columns: 36px minmax(0, 1fr) auto; }
+  .xp-source-earned { display: none; }
 }

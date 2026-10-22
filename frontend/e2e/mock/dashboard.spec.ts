@@ -299,7 +299,7 @@ test("home keeps only quests beside the map; achievements and reviews have their
   await page.goto("/");
   await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
   // 等級、徽章、本週節奏、學習總覽、Podcast 與概念卡複習都不在首頁。
-  for (const name of ["第 2 級", "我的徽章", "本週學習節奏", "學習總覽", "Podcast", "概念卡複習"])
+  for (const name of ["第 2 級", "成就總覽", "本週學習節奏", "學習總覽", "Podcast", "概念卡複習"])
     await expect(page.getByRole("region", { name, exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: /第 2 級 · 245 XP/ }).click();
   await expect(page).toHaveURL(/\/achievements$/);
@@ -350,18 +350,17 @@ test("achievements level card, XP rules and profile overview show real numbers w
   await expect(level.getByText("累計 245 XP · 今天 +32")).toBeVisible();
   await expect(level.getByRole("progressbar", { name: "第 2 級經驗值" })).toHaveAttribute("aria-valuetext", "145 / 200 XP");
   await expect(level.getByText("再 55 XP 升到第 3 級")).toBeVisible();
-  await expect(level.getByRole("list", { name: "經驗值來源" }).getByRole("listitem")).toHaveText(["作答 180", "概念完成 30", "概念卡 20", "Podcast 15"]);
   // 經驗值說明列出每種來源的規則與已獲得的 XP，以及升級公式與目前差距。
   const rules = page.getByRole("region", { name: "經驗值怎麼算" });
   const sources = rules.locator(".xp-sources > li");
   await expect(sources).toHaveCount(4);
-  await expect(sources.filter({ hasText: "作答" })).toContainText(/\+10答對\+3答錯.*已獲得 180 XP/);
+  await expect(sources.filter({ hasText: "作答" })).toContainText(/\+10答對\+3答錯180已獲得/);
   await expect(sources.filter({ hasText: "收聽 Podcast" })).toContainText("每天最多 +60");
   // 來源比例長條依實際 XP 分段，沒有 XP 的來源不畫。
   await expect(rules.getByRole("img")).toHaveAttribute("aria-label", "作答 180 XP、完成概念 30 XP、複習概念卡 20 XP、收聽 Podcast 15 XP");
   await expect(rules.locator(".xp-mix-bar > i")).toHaveCount(4);
   await expect(rules).toContainText("第 n 級升到下一級需 100×n");
-  await expect(rules).toContainText("再 55 XP 升到第 3 級");
+  await expect(level).toContainText("再 55 XP 升到第 3 級");
   // 升級階梯：目前等級標出位置，台階所需 XP 逐級增加。
   const ladder = rules.getByRole("list", { name: /^升級階梯/ });
   await expect(ladder).toHaveAttribute("aria-label", "升級階梯：第 2 級升到第 3 級需要 200 XP，目前已得 145 XP");
@@ -443,28 +442,30 @@ test("achievements group badge tiers into series with earned dates and next-tier
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
     level: [6, 0, 600],
     badges: {
-      first_answer: { earned_on: "2026-10-16" }, answers_100: { earned_on: "2026-10-18" }, answers_300: { progress: 124 }, answers_1000: { progress: 124 },
+      first_answer: { earned_on: "2026-10-16" }, answers_100: { earned_on: "2026-10-18" }, answers_300: { progress: 124 }, answers_1000: { progress: 124 }, answers_5000: { progress: 124 },
       streak_3: { earned: true }, concepts_25: { progress: 3 },
       // 前端不認得的代號不顯示，也不算進數量。
       future_badge: { earned_on: "2026-10-20" },
     },
   }) }));
   await page.goto("/achievements");
-  const wall = page.getByRole("region", { name: "我的徽章" });
-  // 第 6 級：等級系列已取得 level_5；加上作答 2 層與連續 1 層，共 4 / 24。
-  await expect(wall.locator(":scope > header .badge-count")).toHaveText("4 / 24");
+  const wall = page.getByRole("region", { name: "成就總覽" });
+  // 第 6 級：等級系列已取得 level_5；加上作答 2 層與連續 1 層，共 4 / 31。
+  await expect(wall.locator(":scope > header .badge-count")).toHaveText("4 / 31");
   await expect(wall).not.toContainText("future_badge");
   const series = wall.locator(".badge-wall > li");
-  await expect(series).toHaveCount(7);
+  await expect(series).toHaveCount(9);
   // 作答系列：目前為第 II 層（銀），下一層是題海航行者，進度 124 / 300。
   const answers = series.filter({ hasText: "作答 ·" });
   await expect(answers).toHaveClass(/is-tier-2/);
   await expect(answers.locator(".badge-series-text > b")).toHaveText("百題挑戰");
-  await expect(answers.locator(".badge-series-count")).toHaveText("2 / 4");
+  await expect(answers.locator(".badge-series-count")).toHaveText("2 / 5");
   await expect(answers).toContainText("下一層：題海航行者 · 累計作答 300 題");
   await expect(answers.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "124 / 300 題");
   await answers.locator("summary").click();
-  await expect(answers.locator(".badge-series-tiers li")).toHaveText([/初次作答.*2026\/10\/16 取得/, /百題挑戰.*2026\/10\/18 取得/, /題海航行者.*124 \/ 300 題/, /千題大師.*124 \/ 1000 題/]);
+  await expect(answers.locator(".badge-series-tiers li")).toHaveText([/初次作答.*2026\/10\/16 取得/, /百題挑戰.*2026\/10\/18 取得/, /題海航行者.*124 \/ 300 題/, /千題大師.*124 \/ 1000 題/, /五千題宗師.*124 \/ 5000 題/]);
+  // 每一層都標示稀有度。
+  await expect(answers.locator(".badge-series-tiers .badge-rarity")).toHaveText(["普通", "稀有", "史詩", "傳說", "傳說"]);
   // 尚未取得任何層級的系列顯示第一層的條件與進度。
   const cards = series.filter({ hasText: "概念卡複習 ·" });
   await expect(cards).toHaveClass(/is-locked/);
@@ -487,9 +488,9 @@ test("special achievements stay hidden until earned and then reveal their name a
   }) }));
   await page.goto("/achievements");
   const specials = page.getByRole("region", { name: "特殊成就" });
-  await expect(specials.locator(".badge-count")).toHaveText("1 / 12");
+  await expect(specials.locator(".badge-count")).toHaveText("1 / 16");
   const cards = specials.getByRole("listitem");
-  await expect(cards).toHaveCount(12);
+  await expect(cards).toHaveCount(16);
   // 已取得：揭曉名稱、條件與日期。
   await expect(cards.filter({ hasText: "夜貓子" })).toContainText(/凌晨 0:00～4:59 作答累計 10 題.*2026\/10\/19 取得/);
   // 未取得：只有問號與提示，不洩漏名稱、條件或進度。
@@ -499,7 +500,11 @@ test("special achievements stay hidden until earned and then reveal their name a
   await expect(locked).not.toContainText("連續答對");
   await expect(locked.getByRole("progressbar")).toHaveCount(0);
   // 特殊成就不算在系列數量裡，也不會被列為「最接近的下一個徽章」（連對 7/10 比例最高也不會）。
-  await expect(page.getByRole("region", { name: "我的徽章" }).locator(":scope > header .badge-count")).toHaveText("0 / 24");
+  await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText("0 / 31");
+  // 未取得的隱藏成就仍顯示稀有度，讓人知道難度。
+  await expect(cards.filter({ hasText: "很厚、很厚的一本。" }).locator(".badge-rarity")).toHaveText("傳說");
+  // 依稀有度的取得數：夜貓子是普通。
+  await expect(page.getByRole("list", { name: "依稀有度的取得數" }).getByRole("listitem").first()).toContainText(/^1/);
   await expect(page.locator(".badge-next")).not.toContainText("連對王");
 });
 

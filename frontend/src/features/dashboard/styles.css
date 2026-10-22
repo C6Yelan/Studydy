@@ -509,25 +509,6 @@
   color: var(--text-primary);
   font-weight: 900;
 }
-.level-sources {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.level-sources li {
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--page-cool);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 700;
-}
-.level-sources b {
-  color: var(--text-primary);
-}
 
 /* 今日任務：由真實資料推導，完成後打勾 */
 .dashboard-quests header {

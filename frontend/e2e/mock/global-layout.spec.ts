@@ -70,7 +70,7 @@ for (const width of [2560, 1920, 1366, 1281, 1100, 1024, 721, 390, 320]) {
       }
       if (path === "/achievements") {
         // 8 個指定的層級加上第 15 級已達的等級 I、II 層。
-        await expect(page.getByRole("region", { name: "我的徽章" }).locator(":scope > header .badge-count")).toHaveText("10 / 24");
+        await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText("10 / 31");
         await expect(page.getByRole("region", { name: "經驗值怎麼算" })).toBeVisible();
       }
       if (path === "/") {

@@ -404,15 +404,17 @@ class LearningQuestView(_Closed):
 
 class LearningBadgeView(_Closed):
     badge_id: Literal[
-        "first_answer", "answers_100", "answers_300", "answers_1000",
+        "first_answer", "answers_100", "answers_300", "answers_1000", "answers_5000",
         "first_concept", "concepts_25", "concepts_100", "concepts_300",
         "first_material", "materials_3", "materials_10",
         "cards_100", "cards_500", "cards_2000",
         "listen_30_minutes", "listen_180_minutes", "listen_600_minutes",
-        "streak_3", "streak_7", "streak_30", "streak_100",
-        "level_5", "level_10", "level_20",
+        "streak_3", "streak_7", "streak_30", "streak_100", "streak_365",
+        "level_5", "level_10", "level_20", "level_30",
+        "perfect_set_1", "perfect_set_10", "perfect_set_30",
         "combo_10", "comeback_20", "daily_50", "explorer_5", "night_owl", "early_bird",
         "weekend", "return", "curious_10", "researcher", "creator", "corrected_5",
+        "first_try_material", "perfect_day", "all_round_day", "thousand_pages", "revisit",
     ]
     earned: bool
     # 取得日期（台灣日期）；推導不出日期時為 null。
@@ -422,7 +424,7 @@ class LearningBadgeView(_Closed):
 
 
 class LearningBadgesView(_Closed):
-    rule_version: Literal["badge-rules/v3"]
+    rule_version: Literal["badge-rules/v4"]
     items: list[LearningBadgeView]
 
 

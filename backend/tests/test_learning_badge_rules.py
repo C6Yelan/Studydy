@@ -1,4 +1,4 @@
-"""徽章規則 badge-rules/v3：系列徽章的每一層與特殊成就的未達、剛好達標與取得日期。"""
+"""徽章規則 badge-rules/v4：系列徽章的每一層與特殊成就的未達、剛好達標與取得日期。"""
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -16,7 +16,7 @@ def badges(**records):
         "xp": {}, "active": set(), "streak": 0, "level": 1, **records,
     }
     view = derive_badges(**values)
-    assert view["rule_version"] == "badge-rules/v3"
+    assert view["rule_version"] == "badge-rules/v4"
     assert [item["badge_id"] for item in view["items"]] == [badge_id for badge_id, _, _ in BADGES]
     return {item["badge_id"]: item for item in view["items"]}
 
@@ -36,6 +36,7 @@ def test_no_records_earns_nothing_and_shows_zero_progress():
     ("answers_100", "answers", 100),
     ("answers_300", "answers", 300),
     ("answers_1000", "answers", 1000),
+    ("answers_5000", "answers", 5000),
     ("first_concept", "concepts", 1),
     ("concepts_25", "concepts", 25),
     ("concepts_100", "concepts", 100),
@@ -67,7 +68,7 @@ def test_listening_badges_need_full_minutes(badge_id, minutes):
     assert state(exact) == (True, D2, minutes, minutes)
 
 
-@pytest.mark.parametrize(("badge_id", "length"), [("streak_3", 3), ("streak_7", 7), ("streak_30", 30), ("streak_100", 100)])
+@pytest.mark.parametrize(("badge_id", "length"), [("streak_3", 3), ("streak_7", 7), ("streak_30", 30), ("streak_100", 100), ("streak_365", 365)])
 def test_streak_badges_are_dated_on_the_first_run_that_reaches_the_length(badge_id, length):
     start = date(2026, 10, 1)
     # 中間斷一天：前一段只有 length-1 天，不算達標；未達時進度為目前連續天數。
@@ -88,7 +89,7 @@ def test_level_badge_uses_the_day_cumulative_xp_reaches_level_5():
     assert badges(xp={D1: 5000}, level=9)["level_5"]["progress"] == 5
 
 
-@pytest.mark.parametrize(("badge_id", "level"), [("level_10", 10), ("level_20", 20)])
+@pytest.mark.parametrize(("badge_id", "level"), [("level_10", 10), ("level_20", 20), ("level_30", 30)])
 def test_higher_level_badges_use_the_same_cumulative_xp_threshold(badge_id, level):
     threshold = xp_threshold(level)
     assert level_for(threshold - 1)[0] == level - 1 and level_for(threshold)[0] == level
@@ -195,3 +196,54 @@ def test_corrected_counts_concepts_answered_wrong_then_right():
     # c0 已在 15 日改正，第 5 個是 20 日的 c4。
     assert state(view["corrected_5"]) == (True, date(2026, 10, 20), 5, 5)
     assert special(events=events[:-2])["corrected_5"]["progress"] == 4
+
+
+@pytest.mark.parametrize(("badge_id", "target"), [("perfect_set_1", 1), ("perfect_set_10", 10), ("perfect_set_30", 30)])
+def test_perfect_set_tiers_count_flawless_sets_by_completion_day(badge_id, target):
+    below = badges(perfect_sets={D1: target - 1} if target > 1 else {})[badge_id]
+    assert state(below) == (False, None, target - 1, target)
+    exact = badges(perfect_sets={D1: target - 1, D2: 1, D3: 4} if target > 1 else {D2: 1, D3: 4})[badge_id]
+    assert state(exact) == (True, D2, target, target)
+
+
+def test_first_try_material_needs_every_concept_right_the_first_time_before_completion():
+    finished = date(2026, 10, 17)
+    clean = [answer(16, 9, True, material="m", concept="a"), answer(16, 10, True, material="m", concept="b"),
+             answer(17, 9, False, material="m", concept="a")]
+    assert state(special(events=clean, completed={"m": finished})["first_try_material"]) == (True, finished, 1, 1)
+    # 任何一個概念第一次答錯就不算；完成之後的作答不影響判定。
+    slip = [answer(16, 9, False, material="m", concept="a"), answer(16, 10, True, material="m", concept="a")]
+    assert special(events=slip, completed={"m": finished})["first_try_material"]["earned"] is False
+    after = [answer(16, 9, True, material="m", concept="a"), answer(18, 9, False, material="m", concept="b")]
+    assert special(events=after, completed={"m": finished})["first_try_material"]["earned"] is True
+    # 沒有完成的教材不算。
+    assert special(events=clean)["first_try_material"]["earned"] is False
+
+
+def test_perfect_day_needs_twenty_answers_all_correct():
+    assert special(answers={D1: 19}, correct={D1: 19})["perfect_day"]["earned"] is False
+    assert special(answers={D1: 25}, correct={D1: 24})["perfect_day"]["earned"] is False
+    assert state(special(answers={D1: 25, D2: 20}, correct={D1: 24, D2: 20})["perfect_day"]) == (True, D2, 1, 1)
+
+
+def test_all_round_day_needs_answers_cards_a_minute_of_listening_and_a_question_on_one_day():
+    base = {"answers": {D1: 3, D2: 2}, "card_days": {D1, D2}, "listening": {D1: 60, D2: 59}, "questions": {D1: 1, D2: 1}}
+    assert state(special(**base)["all_round_day"]) == (True, D1, 1, 1)
+    assert special(**{**base, "questions": {D2: 1}})["all_round_day"]["earned"] is False
+
+
+def test_thousand_pages_counts_a_completed_material_with_at_least_500_pages():
+    assert special(completed={"m": D2}, pages={"m": 499})["thousand_pages"]["earned"] is False
+    assert state(special(completed={"m": D2, "n": D1}, pages={"m": 1036, "n": 12})["thousand_pages"]) == (True, D2, 1, 1)
+    # 頁數夠但還沒完成也不算。
+    assert special(pages={"m": 1036})["thousand_pages"]["earned"] is False
+
+
+def test_revisit_needs_card_reviews_seven_days_after_completing_the_material():
+    finished = date(2026, 10, 1)
+    early = special(completed={"m": finished}, reviews={"m": [finished + timedelta(days=6)]})
+    assert early["revisit"]["earned"] is False
+    later = special(completed={"m": finished}, reviews={"m": [finished + timedelta(days=6), finished + timedelta(days=9)]})
+    assert state(later["revisit"]) == (True, finished + timedelta(days=9), 1, 1)
+    # 複習的是別份教材的卡片不算。
+    assert special(completed={"m": finished}, reviews={"n": [finished + timedelta(days=9)]})["revisit"]["earned"] is False

@@ -19,6 +19,7 @@
 .badge-medal.is-tier-2 { --badge-main: #8796ad; --badge-soft: #eef2f7; }
 .badge-medal.is-tier-3 { --badge-main: #e0a106; --badge-soft: var(--warning-soft); }
 .badge-medal.is-tier-4 { --badge-main: #2fb3e3; --badge-soft: #dff5fd; }
+.badge-medal.is-tier-5 { --badge-main: #e0457b; --badge-soft: #fde6ef; }
 .badge-medal.is-locked {
   --badge-main: #c3cbdb;
   --badge-soft: var(--page-cool);
@@ -162,10 +163,29 @@
   align-items: stretch;
   gap: 8px;
 }
-.badge-wall .badge-series.is-tier-1 { background: #fdf3ea; }
-.badge-wall .badge-series.is-tier-2 { background: #f3f6fa; }
-.badge-wall .badge-series.is-tier-3 { background: var(--warning-soft); }
-.badge-wall .badge-series.is-tier-4 { background: #e9f8fe; }
+/* 稀有度：普通（灰）、稀有（藍）、史詩（紫）、傳說（金） */
+.is-rarity-0 { --rarity: #8a94a6; --rarity-soft: #eef1f5; }
+.is-rarity-1 { --rarity: var(--studydy-blue); --rarity-soft: var(--studydy-blue-soft); }
+.is-rarity-2 { --rarity: var(--violet); --rarity-soft: var(--violet-soft); }
+.is-rarity-3 { --rarity: #d48806; --rarity-soft: #fff4d6; }
+.badge-rarity {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--rarity-soft);
+  color: var(--rarity);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.6;
+  vertical-align: 1px;
+}
+.badge-wall li.badge-series {
+  border-color: var(--border);
+  border-left: 4px solid var(--rarity);
+  background: var(--surface);
+}
+.badge-wall li.badge-series.is-earned { background: var(--surface); }
 .badge-series-main {
   display: flex;
   align-items: center;
@@ -229,10 +249,31 @@
 .badge-tier-state { font-size: 12px; font-weight: 800; white-space: nowrap; }
 .badge-series-tiers li.is-earned .badge-tier-state { color: var(--amber-deep); }
 
-/* 特殊成就：紫色獎章；未取得為深色神祕卡，只顯示問號與提示 */
+/* 依稀有度的取得數 */
+.badge-rarity-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.badge-rarity-summary li {
+  display: grid;
+  justify-items: center;
+  padding: 10px 6px;
+  border-radius: 14px;
+  background: var(--rarity-soft);
+  color: var(--rarity);
+}
+.badge-rarity-summary b { font-size: 20px; font-weight: 900; }
+.badge-rarity-summary b small { font-size: 12px; opacity: 0.7; }
+.badge-rarity-summary span { font-size: 12px; font-weight: 800; }
+
+/* 特殊成就：紫色獎章；未取得為淡色神祕卡，只顯示問號、稀有度與提示 */
 .badge-medal.is-special { --badge-main: var(--violet); --badge-soft: var(--violet-soft); }
-.badge-medal.is-special.is-locked { --badge-main: #3b3f5c; --badge-soft: #262a40; }
-.badge-medal.is-special.is-locked .badge-glyph { color: #c9c6ff; font-size: 22px; font-weight: 900; }
+.badge-medal.is-special.is-locked { --badge-main: #b9b2de; --badge-soft: #ece9fa; }
+.badge-medal.is-special.is-locked .badge-glyph { color: #7a6fc0; font-size: 20px; font-weight: 900; }
 .badge-medal.is-special .badge-star { fill: #c9b6ff; }
 .badge-specials { display: grid; gap: 12px; margin-top: 4px; }
 .badge-specials .badge-collection-head { flex-wrap: wrap; }
@@ -255,11 +296,12 @@
   border-radius: 18px;
 }
 .badge-special-wall li.is-locked {
-  background: linear-gradient(135deg, #2b2f4a, #3d3566);
-  color: #e9e6ff;
+  border: 1px dashed #c9c3e8;
+  background: #f7f5fd;
+  color: var(--text-primary);
 }
-.badge-special-wall li.is-locked b { letter-spacing: 0.2em; }
-.badge-special-wall li.is-locked small { color: #c9c6ff; }
+.badge-special-wall li.is-locked b > span:first-child { letter-spacing: 0.2em; }
+.badge-special-wall li.is-locked small { color: var(--text-secondary); }
 .badge-special-wall li.is-earned { background: var(--violet-soft); }
 
 /* 取得徽章的一次性提示（沿用升級動畫外框） */
