@@ -37,7 +37,7 @@ Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；wor
 | [pdf_evidence](../backend/src/pdf_evidence/) | 擷取、Evidence 與分析流程 |
 | [knowledge_map](../backend/src/knowledge_map/) | 概念、Claim、Relation、檢核與確定性建構 |
 | [learning_adaptation](../backend/src/learning_adaptation/) | 題組、私密答案、評分、進度與導覽 |
-| [knowledge_publication.py](../backend/src/runtime/knowledge_publication.py) | 協調知識結構發布、版本與工作驗證、索引建立及章節排程 |
+| [knowledge_publication.py](../backend/src/runtime/knowledge_publication.py) | 協調知識結構發布、版本與工作驗證、索引建立／補建及章節排程 |
 | [learning_activity.py](../backend/src/runtime/learning_activity.py) | 學習活動彙總、XP、等級、連續天數、徽章與今日任務 |
 | [local_ai_config.py](../backend/src/runtime/local_ai_config.py) | 讀取環境設定與 runtime lock，提供共用 AI 設定入口 |
 | [runtime/storage](../backend/src/runtime/storage/) | 資料存取、migration、完整性檢查與檔案恢復 |
@@ -49,7 +49,7 @@ HTTP 層處理請求邊界，runtime 用例協調流程，learning_adaptation／
 
 功能路由直接共用 [request_context.py](../backend/src/runtime/api/request_context.py) 的 session、query 與冪等鍵檢查；[study_workspace.py](../backend/src/runtime/study_workspace.py) 組合學習查詢，HTTP 層只投影公開資料。題組的查詢與完成判定位於 [assessment_state.py](../backend/src/learning_adaptation/assessment_state.py)，建立、交卷及生成工作由 `assessment_sets.py` 負責。
 
-[database.py](../backend/src/runtime/storage/database.py) 管理連線池與每次交易，`tables.py` 只做 ORM 映射。[artifacts.py](../backend/src/runtime/storage/artifacts.py) 統一原檔、轉檔及媒體的保存、完整性檢查與清理；PDF 預覽仍保留自己的型別限制。發布流程由 `knowledge_publication.py` 協調，`knowledge_structures.py` 保留讀取與清理。`knowledge_reads.py` 保留讀取索引的建立、補建與投影，`card_sources.py` 處理卡組導覽與分批顯示。
+[database.py](../backend/src/runtime/storage/database.py) 管理連線池與每次交易，`tables.py` 只做 ORM 映射。[artifacts.py](../backend/src/runtime/storage/artifacts.py) 統一原檔、轉檔及媒體的保存、完整性檢查與清理；PDF 預覽仍保留自己的型別限制。發布流程由 `knowledge_publication.py` 協調，`knowledge_structures.py` 保留讀取與清理。讀取索引的建立與補建由 `knowledge_publication.py` 負責；`knowledge_reads.py` 保留概念索引建立與讀取投影，`card_sources.py` 處理卡組導覽與分批顯示。
 
 [provider_http.py](../backend/src/runtime/provider_http.py) 管理既有 provider 傳輸，工作續租與取消仍屬各執行流程。內容序列化使用 `content_identity.py`；講稿沿用 `podcast_script.py` 的獨立雜湊規則，避免改變已保存的身分。
 
@@ -86,7 +86,7 @@ Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文�
 
 新研究使用 `material-research/v3`；舊查詢與已核對來源保留供查看及選用，但舊搜尋狀態不能接回新 worker 執行，須重新確認需求後建立新研究。沒有自動轉接、舊搜尋開關或另一套建立入口。
 
-研究逐項沿用確認過的 topics，不再由搜尋模型另拆一份範圍。初始查詢一律優先論文，以自然語言問題呼叫 OpenAlex `search.semantic`，先篩開放取得且有摘要的作品；實際全文授權與版本仍依 locations 核對。優先初篩已知有授權取得位置的候選，同組保留索引的語意排序；Luna 再依摘要評估用途，取得正文後才判斷支持程度。正文區段由模型逐批定位，不以標題或字面排名排除同義內容。各子題查過論文後，才能依缺口補查一般網頁；已涵蓋的內容不因管道尚未用完而繼續搜尋。缺口檢查若選定尚未讀過的參考來源，自動停止預算不能丟棄該閱讀計畫；重新讀相同證據或只換查詢文字仍受停止預算約束。
+研究逐項沿用確認過的 topics，不再由搜尋模型另拆一份範圍。初始查詢一律優先論文，以自然語言問題呼叫 OpenAlex `search.semantic`，先篩開放取得且有摘要的作品；實際全文授權與版本仍依 locations 核對。優先初篩已知有授權取得位置的候選，同組保留索引的語意排序；Luna 再依摘要評估用途，取得正文後才判斷支持程度。正文區段由模型逐批定位，不以標題或字面排名排除同義內容。搜尋範圍限定論文與英文 Wikipedia，不納入一般網站、部落格或官方技術文件。涵蓋判定不能跳過已排定搜尋、初篩、應讀正文或限流重試；背景與排除來源不必全部深讀。缺口檢查選定的覆核優先執行；沒有可行新方向或持續無新增證據時，整理部分成果並如實保留缺口。
 
 已移除 Crossref 的泛關鍵字搜尋、標題詞數加權與混合管道；Crossref DOI 摘要查詢仍供缺摘要的論文使用。論文先試正式 metadata／原頁公布的同版本全文入口；第一次閱讀前若仍取不到，可採索引已列明且有適當授權的其他版本，記錄實際版本與原先版本，不把作者稿冒充出版版。已讀原檔及明確綁定的 arXiv 版本不能因此換檔，也不請模型猜下載網址。OpenAlex 語意搜尋最多 50 筆，`locations.license` 不被該端點接受；目前使用 `is_oa:true,has_abstract:true`，不能將 HTTP 200 或開放取得標記當作已核對全文授權。API key 可提高免費額度，設定仍透過既有環境變數，不進入來源紀錄。
 
@@ -95,6 +95,8 @@ Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文�
 研究來源先依學習需求選讀，核對後的原文範圍傳到來源正規化。第一次成功取得並核對的 PDF 或 HTML 擷取正文與研究進度同交易存入本機 `material_research_documents`；後續選讀、重啟與加入教材沿用相同 bytes，仍核對研究歸屬、大小及 SHA-256。HTML 保留原頁 hash、來源／授權與文字快照，不以網站重下載取代已讀內容。候選 JSON 不帶原檔，API 不公開快照收據。成功建立教材版本、取消未建立教材的主題規劃，或刪除研究後清除準備快照，已匯入的 Artifact 保留。完整原檔與正規化 PDF 保留；分析只擷取選定頁面的必要區塊，來源集合中的連續頁碼仍對應原文件頁碼。找不到引用原文時回報範圍定位失敗，不改成全文分析。
 
 研究品質以能支持的教學內容與限制判斷，不以耗時、篇數或來源類型設通用淘汰門檻。定位／閱讀會一起選取重要結論所需的方法、研究對象、結果與限制；反例、相反結果、單篇研究、預印本、小樣本、理論與個案都可採用。涵蓋核對區分模型預測、觀察關聯、因果證據及引用他人的結果，不把重複引用算成獨立佐證。已有答案的子題若仍有會改變解釋的具體疑點，可以繼續讀方法或補查相反結果；保留已支持內容，不為追加查證而先撤掉來源。研究限制不自動升級成需求缺口；使用者未要求精確數值、普遍外推或完整實作時，不額外要求。原文明確呈現的分歧與尚無定論也可成為已涵蓋內容，不能為得到一致結論而排除來源或無限搜尋。
+
+閱讀沿用已核對的來源類型，再依正文判斷證據強度，不因單一片段重新否定文件類型。子題原文可完整放入上下文時一起核對，避免跨批缺少上下文被誤判為沒有證據。
 
 涵蓋快取綁定判讀政策；續接舊研究時若政策不同，只清除涵蓋與停滯判斷的快取，保留原檔、已讀引用與來源，再按目前規則重核。既有完成紀錄不自動背景重寫。
 

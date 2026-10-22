@@ -210,7 +210,7 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 
 研究重用 staged 原檔時，bytes 與分析範圍必須同時相同。`test_research_selected_scope.py` 以兩個有效研究租約驗證同範圍重播可重用；引文、區域或全文／局部模式不同時回報既有 `DUPLICATE_SOURCE`，不修改來源範圍或新增 Artifact／正規化工作。
 
-語音與文字由 `runtime/materials/test_voice.py` 驗證，回答使用受控 `/semantics` 與 `material-answer/v2`。研究／主題回歸核對早停、選段匯入、相同原文重用與補讀不重複範圍。瀏覽器回歸使用 `voice-chat.spec.ts`、`processing.spec.ts`、`topics.spec.ts`、`research-background.spec.ts`、`source-pagination.spec.ts`；包含索引的準備流程共六個階段。
+語音與文字由 `runtime/materials/test_voice.py` 驗證，回答使用受控 `/semantics` 與 `material-answer/v2`。研究／主題回歸核對排定工作完整執行、選段匯入、相同原文重用與補讀不重複範圍。瀏覽器回歸使用 `voice-chat.spec.ts`、`processing.spec.ts`、`topics.spec.ts`、`research-background.spec.ts`、`source-pagination.spec.ts`；包含索引的準備流程共六個階段。
 
 長對話回歸驗證按 token 超額壓縮、超過三輪的短對話完整保留、摘要沿用、不重壓舊輪次與無效摘要不得靜默丟棄歷史。Runtime 另驗證摘要與回答一起保存、取消隔離、重試舊問題不讀未來摘要、原始輪次保留及刪除時清除摘要。這些合成測試不等於真實摘要內容品質已通過。
 
@@ -242,7 +242,7 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 
 問答在沒有對話／Podcast 指涉時先檢索原問題；空結果再規劃查詢，仍保留回答、逐段引用核對與補查。`test_material_qa.py` 驗證直接路徑、空結果補救、對話指涉、否定與技術字面值、無依據拒答及上下文容量。
 
-補充研究先從使用者要求閱讀的網址取得原頁，沿用來源身分、授權與安全連線檢查；不把網址改成搜尋詞重找同一篇。來源數量／授權等管理要求不當作每篇正文必須回答的知識子題。「使用目前已核對的來源」會整理現有結果並保留缺口，不宣稱研究全部完成。workflow／來源單元測試、隔離研究 runtime 及 research-background 瀏覽器案例覆蓋網址排除、無授權不得匯入、停止後選用及晚到 worker 拒絕。
+補充研究先從使用者要求閱讀的網址取得原頁，沿用來源身分、授權與安全連線檢查；不把網址改成搜尋詞重找同一篇。來源數量／授權等管理要求不當作每篇正文必須回答的知識子題。不提供手動提早交付；無可行新方向或持續無新增證據時，系統整理現有結果並保留缺口。workflow／來源單元測試、隔離研究 runtime 及 research-background 瀏覽器案例覆蓋網址排除、無授權不得匯入、舊提早交付操作拒絕及晚到 worker 拒絕。
 
 問答核對必須回到原文，不能以 Claim 改述充當原文依據；無法支持的斷言不得發布。
 

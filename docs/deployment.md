@@ -12,10 +12,6 @@ bundle 只包含需要的 `backend/src`、`ops` 與 `local_ai/runtime-lock.json`
 切換前確認沒有進行中的工作，再更新 service 的 `WorkingDirectory`／`ExecStart` 並重啟。
 同時記錄 bundle SHA、檔案 hash 與實際啟動路徑，避免容器與主機 provider 運行不同版本。
 
-首次部署曾以 committed SHA 的 `git archive` 匯出到 `/tmp/studydy-main-release-*/source`
-做建置與驗證。這些是一次性歷史證據，不是目前 production working directory、資料來源，
-也不是下次 rebuild 的輸入。容器內 `/tmp` 的 Nginx 設定與 cache 是 tmpfs，不是另一份 source。
-
 ## PostgreSQL 18.6 升級結論
 
 [官方 18.6 發行說明](https://www.postgresql.org/docs/release/18.6/)指出 18.5 未正式發行，18.X 升級不需 dump／restore。依目前 `backend/migrations`：
@@ -44,15 +40,15 @@ bundle 只包含需要的 `backend/src`、`ops` 與 `local_ai/runtime-lock.json`
 - 已核准公開 Internet 部署；Access 為 optional。沿用目前 Cloudflare 設定，不需為 rebuild
   重新建立 Tunnel、DNS 或憑證。私有 API 保留 `private, no-store`，不強制公共快取。
 
-## Podcast 試聽結束後的正式套用
+## Podcast 與教材問答的語音流程
 
-已移除公開比較頁與試聽 WAV、Compose 靜態掛載。`/podcast-voice-comparison` 及其子路徑回 404，避免舊網址回到 SPA。正式 provider 已改採 V／W 指令與 v13 整句混讀；舊 Podcast 音訊保留，新建內容套用新版。回復資訊保存在 `data/deployments/podcast-b-v11-*/`，私有 provider 設定備份不輸出或提交。
+正式 Podcast 使用原參考聲線、V／W 台灣華語指令、整句中英混讀及通用接點／停頓／語速規則。處理直接作用於模型片段及 speaker 邊界，不使用人工指定秒數或 WAV 句界推測；既有音訊保留。
 
 教材問答也共用 Podcast 的整句混讀、台灣口音指令、原 host 聲線、停頓修正與音量處理。舊的中英文分段合成分支已刪除，沒有 legacy 開關；既有音訊保留，新合成與重試使用共用流程。provider 每次音訊請求啟動同一個已部署 runtime bundle 的 `ops/podcast/synthesize.py`；腳本更新需建立新 bundle 並切換 provider，不能改動正在使用的版本。
 
 新語音統一使用 `dynamic-pauses/v1`：短句續講 250ms、一般句尾 550ms、20 字以上長句 850ms、問句與一般換人 650ms、簡短接話前 350ms、換主題 1100ms。依原講稿的文字與數字計數，短句為 6 字以內；縮寫與數值的朗讀展開不改變分類。換段優先，符合一個條件就選定停頓，不疊加；現有片段兩端靜音計入目標。固定停頓機制與臨時試聽設定已移除，`/pause-preview` 及其資產回 404。既有影音不改時間軸，新建節目以新音訊重新對齊字幕及影片。
 
-跨語言教材更新需一起部署後端與 runtime lock。新分析寫入 `localized_meaning_v2`，以完整數量 token 保護短數值；既有 `localized_meaning`／`semantic_meaning` 仍依各自已保存的規則讀取。寫入 v2 後，回復版本必須能讀取 v2；第一輪 `816150aa` 映像單獨使用並不相容，需經驗證的相容映像或前向修復。原有知識結構與來源不搬移、不改 hash；舊分析提示的 checkpoint 不與新的翻譯政策混用。
+跨語言教材更新需一起部署後端與 runtime lock。新分析寫入 `localized_meaning_v2`，以完整數量 token 保護短數值；既有 `localized_meaning`／`semantic_meaning` 仍依各自已保存的規則讀取。寫入 v2 後，回復版本必須能讀取 v2；需經驗證的相容映像或前向修復。原有知識結構與來源不搬移、不改 hash；舊分析提示的 checkpoint 不與新的翻譯政策混用。
 
 ## 核准 source 與直接建置
 
@@ -60,10 +56,9 @@ bundle 只包含需要的 `backend/src`、`ops` 與 `local_ai/runtime-lock.json`
 可從使用者當次核准的 branch／完整 SHA 直接部署到同一個 studydy.net；不另建 dev domain。
 部署 SHA 以本次實際建置的 commit 為準，不假設一定等於最新 main，也不以 branch 名取代 SHA。
 
-以下命令在未來獲准 rebuild 時執行，本次文件整理不執行 build／up：
+進入已核准的正式 checkout 根目錄，取得 rebuild 授權後執行：
 
 ```bash
-cd /home/jerry/project/Studydy/main
 test -z "$(git status --porcelain=v1)"
 export STUDYDY_RELEASE_SHA="$(git rev-parse HEAD)"
 git branch --show-current
@@ -82,7 +77,7 @@ container image IDs／私有設定與 rollback image tags。需要資料備份�
 docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml build frontend backend
 ```
 
-Compose build 本身不自動加入 Git revision label。若要像首次部署一樣在 image 中保留
+Compose build 本身不自動加入 Git revision label。若要在 image 中保留
 `org.opencontainers.image.revision`，用下面兩條等價命令**取代**上面的 build；Dockerfile、
 context、target 與 Compose 使用的 tags 相同，仍直接使用目前 checkout：
 
@@ -156,39 +151,9 @@ docker inspect --format '{{.Name}} {{.Image}}' studydy-frontend-1 studydy-backen
 Backend runtime tests 使用 disposable DB；不以產品資料跑測試，不因部署檢查呼叫 Pod／Gemma。
 純文件整理只檢查命令／路徑與 Compose metadata，不需重建線上 images。
 
-## Podcast migration 0008 的回復界線
+## 已撤除的試聽與實驗入口
 
-本次正式切換已保存資料庫 dump、artifact 備份與原映像身分；紀錄位於 `data/deployments/podcast-*/source-manifest.json`，皆留本機私人目錄。來源為已批准的未提交工作目錄，映像以 `working-tree:<snapshot hash>` 明示，不冒充乾淨 Git SHA。
-
-0008 已套用後，只有 0001–0007 的舊 backend 會拒絕 migration 帳本，因此不能只換回舊 backend tag。需保持可識別 0008 的後端並作前向修復，或準備經隔離驗證的相容回復版本。還原到部署前 DB 會失去部署後新增資料，不能自動覆蓋現有 DB；必須先另行核定資料保留與切換方案。舊 frontend 可與目前後端的既有 API 配合回復介面。
-
-0009 將已保存的 Podcast 講稿統一為發言輪次，不保留舊格式相容路徑。套用後必須使用識別 0009 的後端；不能直接退回只包含 0008 的映像。升級前備份，升級後核對原文字／來源與音訊 hash，失敗時保留匹配 schema 的映像作前向修復，不自動覆蓋產品 DB。
-
-0017 新增補充查詢的 nullable `deleted_at`。刪除查詢會隱藏歷史紀錄並撤銷尚未送出工作的 lease，保留候選中的來源關係、教材、原始檔案及已送出的分析。升級前保存本機 DB dump；沒有原檔搬移或刪除。套用後保留識別 0017 的後端作前向修復，不直接退回舊後端或覆蓋產品 DB；前端可單獨回復先前映像。
-
-## V／W 正式整合與試聽清理（2026-10-08）
-
-使用者選定 VW-2 並授權正式套用。Podcast 使用原參考錄音、V／W 台灣華語指令、整句中英混讀，以及通用接點／停頓／語速規則。直接在模型片段邊界處理，不將人工指定秒數的診斷腳本或 WAV 句界推測接入產品。經驗與保護條件見 [測試文件](testing.md)。
-
-臨時 `/voice-compare-*` 頁面及 WAV、Compose 掛載、BreezyVoice PoC source／模型／快取、本輪舊試聽產物和專用產生工具已移除；舊網址與其資產回 404，不回 SPA。只保留小型聽評摘要、正式程式及部署回復資料，沒有把整包實驗環境搬進 archive。
-
-部署資料位於 `data/deployments/podcast-vw-20261008/`：包含前後 source hash、實際映像身分、必要 source 回復快照、資格測試摘要及清理清單。資格測試的新正式合成路徑與已接受的 VW-2 WAV 逐位元一致。工作樹仍有先前已授權變更，使用 source snapshot 身分，不冒充乾淨 HEAD；本次沒有 commit／push 或 DB migration。
-
-回復服務時保留試聽入口的 404 與已移除的掛載，不恢復已刪除測試音訊。分集器與 provider 的容量必須同步；已建立的較長分集不能回到只接受六個 claim 的寫稿入口。產品 DB、教材原檔、既有 Podcast、正式參考音及共用環境均保留。
-
-本次指定教材的新作品 ID 保存於本機部署紀錄，兩集音訊約 1:47／2:25，皆由新正式 provider 產生。腳本 v9 增加有界的引用契約修稿與語意強度提示；審查仍 blocking。未生成成功的候選不發布，未將診斷稿直接寫入產品。
-
-本次兩集音訊與教學影片最終均已完成；第二集影片首次來源／教學審查未過，沿原標準重試後通過，未改寫音訊。正式播放器以 1× 實播兩集、第二集音訊與影片跳轉至 120 秒均正常；原教材的需複核標記保留。
-
-## 動畫實驗撤回（2026-10-09）
-
-已撤回 Motion Canvas／通用動畫 PoC 與本輪 interaction 擴充，移除 animation-review 服務及臨時 Compose 掛載。`/animation-poc-review` 與子路徑回 404；部署回到 compose.yaml＋compose.tunnel.yaml。既有講稿、TTS、字幕播放、歷史 MP4 與產品資料保留。撤回的 source 差異、映像身分與本機 DB 備份位於 `data/deployments/podcast-animation-withdrawal-20261009/`；不重寫 Git 歷史或產品資料。
-
-## 開源視覺生成實驗已撤回（2026-10-09）
-
-依使用者要求刪除本輪視覺 PoC：移除 `podcast-visual-test` 的臨時 Compose 掛載、本機／E 槽成果、專用執行環境與 Z-Image／Wan／VACE 測試權重。部署恢復 `compose.yaml`＋`compose.tunnel.yaml`；只更新 Nginx 撤站路由，前端產品 bundle 沿用原部署，後端、DB、TTS、既有 Podcast 與教材未回退或刪除。
-
-`/podcast-visual-test` 及其子路徑在 origin 回 404。撤回與實際新建 Podcast 回測的必要紀錄位於 `data/deployments/podcast-visual-removal-*/`。Cloudflare 的舊快取及先前誤建的 ChatGPT Sites 歷史副本，需依該紀錄的清理狀態判斷，不因 origin 檔案刪除就宣稱外部副本已清空。
+`/podcast-voice-comparison`、`/voice-compare-*`、`/pause-preview`、`/animation-poc-review`、`/podcast-visual-test` 及其資產應維持 404，不回到 SPA，也不恢復臨時 Compose 掛載。既有 Podcast、教材、正式參考音與共用環境保留；origin 檔案刪除不代表 CDN 快取或外部歷史副本已清空，外部副本須另行核對。
 
 ## 免費通用搜尋
 
@@ -196,67 +161,66 @@ Backend runtime tests 使用 disposable DB；不以產品資料跑測試，不�
 
 搜尋關鍵詞提示位於主機的 `ops/podcast/provider.py`；更新時要保留已執行中的 Podcast／影片／問答工作，確認工作完成的安全空檔後才重啟 provider 與 backend。不能把取消整份 Podcast 當作部署前的例行清理。搜尋服務失敗會保留其他搜尋結果及部分失敗狀態。
 
-## 按需教材讀取索引（0027）
+## 0006 按需教材讀取索引
 
-`0027_knowledge_read_indexes.sql` 新增導覽／學習規則及單筆 Evidence 定位投影，沿用 `card_source_concepts` 的完整概念內容。原始 PDF、canonical document、revision 與作答事件不變。新發布教材會在同一交易內建立索引；舊教材必須補建後才切換新版前端。
+`0006_read_indexes.sql` 建立導覽／學習規則及單筆 Evidence 定位投影，並包含 `card_source_concepts` 的完整概念內容。原始 PDF、canonical document、revision 與作答事件不變；新發布教材在同一交易內建立索引，缺少索引的既有教材須先補建。
 
-保存 DB dump、來源 diff／新增檔案及實際映像身分後，使用新建的 backend image 執行：
+保存必要備份與實際映像身分後，使用新建的 backend image 執行：
 
 ```bash
 docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml \
   -f compose.app-update.yaml run --rm --no-deps backend prepare-read-indexes
 ```
 
-此命令先套用 migration，再逐版本驗證並補建缺少的索引；可重跑、不呼叫模型。確認沒有進行中的發布工作，更新 backend，再重跑補建以涵蓋切換期間完成的舊版工作，最後更新 frontend。不要在一般 GET 交易內補建大型索引。
+此命令先套用 migration，再逐版本驗證並補建缺少的索引；可重跑、不呼叫模型。確認沒有進行中的發布工作，更新 backend，再重跑補建以涵蓋切換期間完成的舊版工作，最後更新 frontend；不要在一般 GET 交易內補建大型索引。
 
-此命令也會修復舊概念索引遺漏的關係專屬 Evidence：保留既有 Claim 節錄，只從 canonical Evidence 補回關係缺少的原文、頁碼與來源位置，原地更新衍生 payload／hash。教材、Revision、原檔及學習紀錄不重寫；完成後重跑回報 0。缺少概念或學習索引的正常讀取回報 `KNOWLEDGE_STRUCTURE_UNAVAILABLE`，不隱式寫入。
+此命令也會修復舊概念索引遺漏的關係專屬 Evidence：保留既有 Claim 節錄，只從 canonical Evidence 補回關係缺少的原文、頁碼與來源位置，原地更新衍生 payload／hash。教材、revision、原檔及學習紀錄不重寫；完成後重跑回報 0。缺少概念或學習索引的正常讀取回報 `KNOWLEDGE_STRUCTURE_UNAVAILABLE`，不隱式寫入。
 
-舊完整教材／resume API 暫時保留給部署前已開啟的頁面；新版使用 outline、concepts、map-progress 與 workspace 讀取。API 仍為 `private, no-store`，每次核對 owner、發布版本、runtime／來源綁定與投影雜湊。瀏覽器記憶體快取隨帳號 client 清除，不存入 localStorage。
+完整教材／resume API 仍保留，新版使用 outline、concepts、map-progress 與 workspace 讀取。API 為 `private, no-store`，每次核對 owner、發布版本、runtime／來源綁定與投影雜湊；瀏覽器記憶體快取隨帳號 client 清除，不存入 localStorage。
 
-0027 套用後不可直接重啟不認識該 migration 的舊 backend；採相容新 schema 的前向修正，不自動還原 DB。前端可單獨退回先前映像，其完整 API 仍可使用。
+## 0004 需求確認與研究原檔
 
-## 需求確認與研究原檔（0028／0029）
+`0004_research.sql` 包含綁定教材與 revision 的補充規劃、研究刪除標記及本機研究原檔快照。新研究一律先確認範圍，沒有直接建立研究的舊入口；刪除研究會隱藏紀錄並撤銷尚未送出工作的 lease，保留教材、原始檔案及已送出的分析。
 
-2026-10-16 於既有正式環境套用：0028 將補充規劃綁定教材與 revision；0029 增加本機研究 PDF 快照，保留第一次閱讀的原檔供後續選取。兩者不改寫既有教材、原檔或歷史研究。新版須同時更新前後端；舊直接建立研究入口已移除，新研究一律先確認範圍。
+第一次閱讀的原檔保存供後續選取；快照清理只作用於研究準備表，已匯入教材的 Artifact 仍依既有生命週期管理。前後端須使用相容的需求確認契約，驗收限制見 [測試文件](testing.md#需求確認與論文語意搜尋)。
 
-本次以線上映像為基底，只覆寫本任務的 14 個後端 source／migration 檔案及前端靜態 bundle，既有 Podcast renderer 與 Nginx 設定逐位元保留。部署身分是已授權工作樹快照，不冒充乾淨 Git commit。必要測試及模型驗收限制見 [測試文件](testing.md#需求確認與論文語意搜尋2026-10-16)。DB dump、逐檔 hash、實際映像與公開確認流程驗收保存在本機 `data/deployments/research-scope-20261016T140548Z/`。
+## 論文取得與證據判讀
 
-升級後使用識別 0028／0029 的後端前向修復，不能直接啟動舊 migration 帳本或自動以部署前 DB 覆蓋新資料。快照清理只作用於研究準備表；已匯入教材的 Artifact 仍依既有生命週期管理。
+研究流程支援首次閱讀的公開替代版本、PDF 優先及 HTML 正文補救、文字快照，以及保留有限證據的閱讀／涵蓋規則。舊工作續接時重核不同政策的涵蓋快取，保留原檔與已讀引用；不得為套用新政策重抓或丟棄已讀來源。
 
-## 論文取得與證據判讀（2026-10-17）
+文字快照須由支援該格式的後端讀取，不能直接切回只識別 PDF 快照的舊程式或覆蓋產品 DB。驗證結果須區分來源取得、引用定位與內容品質，不能以其中一項通過取代其他驗證。
 
-在既有正式環境更新五個研究 runtime 檔案：首次閱讀的公開替代版本、PDF 優先及 HTML 正文補救、文字快照，以及保留有限證據的閱讀／涵蓋規則。沿用 0029 的研究準備表，沒有新增 SQL migration；前端、Podcast renderer 與共用依賴沿用原部署。舊工作續接時重核不同政策的涵蓋快取，原檔與已讀引用保留。
+## 0008 個人顯示名稱
 
-本機 `data/deployments/research-quality-20261016T162315Z/` 保存部署前 DB dump、五個 source 的快照／hash、實際映像、必要模型與原文定位證據，以及公開入口驗收。升級後的文字快照需由支援該格式的後端讀取，故採前向修正，不直接切回只識別 PDF 快照的舊程式或覆蓋產品 DB。驗證結果與尚存缺口見 [測試文件](testing.md)。
+`0008_learner_display_name.sql` 在 `learners` 新增 nullable `display_name` 與 CHECK，不回填、不改寫既有資料。baseline 仍只鎖定 0001–0007，後續版本由啟動流程套用；回復後端時須保留對已套用 schema 的支援。
 
-## 0008 個人顯示名稱（2026-10-21）
+## 0009 概念卡學習標記
 
-0008 只在 `learners` 新增 nullable `display_name` 與 CHECK，不回填、不改寫既有資料；baseline 仍只鎖定 0001–0007，由啟動流程套用 0008。上線前在正式 DB dump 的一次性副本上執行，30 張業務表資料不變。套用後不能直接重啟只識別 0001–0007 的舊後端，採前向修正；前端可單獨退回。
+`0009_card_reviews.sql` 建立 `card_review_events`、`card_review_states`，對卡組外鍵為 ON DELETE CASCADE。套用前在獨立 DB 副本驗證並核對原業務資料不變；還原驗證副本時等待 PostgreSQL 初始化完成，使用 `--exit-on-error` 確認還原成功。
 
-## 0009 概念卡學習標記（2026-10-22 建立，2026-10-23 改寫）
+概念卡從間隔複習改成學習標記時，經使用者明確同意以單次例外直接改寫已套用的 0009（移除 `streak`、`interval_days`、`due_at`、`rule_version` 欄位與到期索引，改為 `(learner_id, last_rating)` 索引），沒有另加 migration。之後使用者再次明確同意改寫 0009，把標記從三種縮成兩種：兩張表的 CHECK 只接受 `forgot`／`remembered`，原有的 `fuzzy`（不太熟）資料改成 `forgot`（不熟）。這兩次都是使用者逐次授權的例外，不適用於其他 migration。
 
-0009 建立 `card_review_events`、`card_review_states` 兩張表，對卡組外鍵為 ON DELETE CASCADE。2026-10-23 概念卡從間隔複習改成學習標記時，經使用者明確同意以單次例外直接改寫已套用的 0009（移除 `streak`、`interval_days`、`due_at`、`rule_version` 欄位與到期索引，改為 `(learner_id, last_rating)` 索引），沒有另加 migration。同日使用者再次明確同意改寫 0009，把標記從三種縮成兩種：兩張表的 CHECK 只接受 `forgot`／`remembered`，原有的 `fuzzy`（不太熟）資料改成 `forgot`（不熟）。這兩次都是使用者逐次授權的例外，不適用於其他 migration。
+已套用舊版 0009 的資料庫需在新後端啟動前手動轉換，否則啟動時的 checksum 核對會失敗：先備份這兩張表，停止 backend，在同一交易內刪除上述欄位與 `card_review_states_due` 索引、建立 `card_review_states_learner` 索引，把兩張表的 `fuzzy` 改成 `forgot` 並換成只接受兩種值的 CHECK，並把 `schema_migrations` 版本 9 的 `sql_sha256` 改成新檔的 SHA-256，再啟動新後端。標記與事件保留，舊的 forgot／fuzzy 成為不熟、remembered 成為熟悉。正式 DB 已完成轉換；轉換前先在正式 DB dump 的一次性副本演練，確認轉換後兩張表的結構與新 0009 從頭建立的結果相同、migration 執行器核對通過且沒有待套用版本。新後端不能與舊結構並存，退回需同時還原兩張表與舊後端映像。
 
-已套用舊版 0009 的資料庫需在新後端啟動前手動轉換，否則啟動時的 checksum 核對會失敗：先備份這兩張表，停止 backend，在同一交易內刪除上述欄位與 `card_review_states_due` 索引、建立 `card_review_states_learner` 索引，把兩張表的 `fuzzy` 改成 `forgot` 並換成只接受兩種值的 CHECK，並把 `schema_migrations` 版本 9 的 `sql_sha256` 改成新檔的 SHA-256，再啟動新後端。標記與事件保留，舊的 forgot／fuzzy 成為不熟、remembered 成為熟悉。正式 DB 已於 2026-10-23 轉換；轉換前先在正式 DB dump 的一次性副本演練，確認轉換後兩張表的結構與新 0009 從頭建立的結果相同、migration 執行器核對通過且沒有待套用版本。新後端不能與舊結構並存，退回需同時還原兩張表與舊後端映像。
+## 0010 Podcast 收聽進度
 
-## 0010 Podcast 收聽進度（2026-10-22）
+`0010_podcast_listening.sql` 新增 `podcast_episode_progress`、`podcast_listening_days`，對 Podcast 外鍵為 ON DELETE CASCADE，不修改既有資料。前後端需共同支援 `learning-activity/v2`；舊前端讀到 v2 時不顯示本週節奏。
 
-0010 新增 `podcast_episode_progress`、`podcast_listening_days` 兩張表，對 Podcast 外鍵為 ON DELETE CASCADE，不修改既有資料。上線前須同 0009 先在正式 DB dump 的一次性副本套用，並核對原業務表資料不變。後端同時改為 `learning-activity/v2`，前端需一起更新（舊前端讀到 v2 時只會隱藏本週節奏）；套用後需使用識別 0010 的後端，採前向修正。
+## 0011 教材新版承接
 
-## 0011 教材新版承接（2026-10-22）
+`0011_version_moves.sql` 新增 `material_version_moves`、`card_set_moves`、`study_session_moves`，保存學生確認、重送結果、卡組與概念對應及學習完成承接。對教材、卡組與學習的外鍵為 ON DELETE CASCADE，不改寫既有資料；舊前端不顯示新版提示，但已承接資料仍可讀。
 
-0011 新增 `material_version_moves`（學生確認「移到新版」的請求與重送結果）、`card_set_moves`（舊卡組→新版卡組及概念對應）、`study_session_moves`（舊版學習→新版學習及承接的已完成概念）三張表。舊卡組與學習需要能查詢的「已移轉」連結、合併時的卡片身分，以及整次確認的冪等紀錄，既有欄位沒有可用位置，因此追加 migration。對教材、卡組與學習的外鍵皆為 ON DELETE CASCADE（教材清除時一併刪除），不修改既有資料。上線前同 0009／0010 先在正式 DB dump 的一次性副本套用並核對原業務表資料不變；套用後需使用識別 0011 的後端，採前向修正。前端可單獨退回（舊前端不顯示「有新版本」，已承接的資料照常可讀）。
+## 學習活動 v3 與成就規則
 
-## 學習活動 v3 與成就規則（2026-10-23）
+後端使用 `learning-activity/v3`（經驗值 `xp-rules/v3`、徽章 `badge-rules/v6`）並提供 `/v1/learning-activity/rhythm`；前端只接受這組版本，前後端必須一起上線，不可只更新其中一邊（任一邊是舊版時，頁首等級、成就與個人檔案的學習進度都會因版本不符而讀不到）。不需 migration，退回時前後端一起退回。
 
-後端改為 `learning-activity/v3`（經驗值 `xp-rules/v3`、徽章 `badge-rules/v6`）並新增 `/v1/learning-activity/rhythm`；前端只接受這組版本，前後端必須一起上線，不可只更新其中一邊（任一邊是舊版時，頁首等級、成就與個人檔案的學習進度都會因版本不符而讀不到）。不需 migration，退回時前後端一起退回。
+## 0013 登入裝置清單
 
-## 0013 登入裝置清單（2026-10-23）
-
-0013 只在 `learner_sessions` 新增 nullable `device_label`（1–64 字元 CHECK）與 `last_used_at`，不回填、不改寫既有資料；新後端啟動（`serve`／`migrate`）時由 `run_migrations` 自動套用。上線前同 0009–0011 先在正式 DB dump 的一次性副本套用並核對原業務表資料不變。後端改為 `account-sessions/v2`（裝置清單，取代登入數），並新增 `DELETE /v1/account/sessions/{session_id}`；前端只接受 v2，前後端必須一起上線（只更新任一邊時，個人檔案讀不到登入裝置，修改密碼成功後也會顯示錯誤）。套用後需使用識別 0013 的後端，採前向修正；退回時前後端一起退回。既有登入沒有裝置標籤，顯示「未知裝置」，最後使用時間在下一次請求後開始記錄。
+`0013_session_devices.sql` 只在 `learner_sessions` 新增 nullable `device_label`（1–64 字元 CHECK）與 `last_used_at`，不回填、不改寫既有資料；新後端啟動（`serve`／`migrate`）時由 `run_migrations` 自動套用。套用前同 0009–0011 在獨立 DB 副本驗證並核對原業務資料不變。後端使用 `account-sessions/v2`（裝置清單，取代登入數），並提供 `DELETE /v1/account/sessions/{session_id}`；前端只接受 v2，前後端必須一起上線（只更新任一邊時，個人檔案讀不到登入裝置，修改密碼成功後也會顯示錯誤）。套用後需使用識別 0013 的後端，採前向修正；退回時前後端一起退回。既有登入沒有裝置標籤，顯示「未知裝置」，最後使用時間在下一次請求後開始記錄。
 
 ## 後端身分與既有資料
 
 `STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。
 
 既有artifacts需由核准部署程序先遷移owner，保留0700目錄及原0600／0400檔案契約。不得遞迴chown整個data；data根、data/podcast、PostgreSQL、模型內容及jerry分析資料保持原狀。模型僅授新後端UID只讀ACL。部署／回滾前應在停止該版backend寫入後重新盤點範圍，具體路徑、數量、操作順序與回滾命令由本次部署狀態檔提供，不在產品初始化時自動遷移。
+
