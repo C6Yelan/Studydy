@@ -47,6 +47,12 @@ Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；wor
 
 HTTP 層處理請求邊界，runtime 用例協調流程，learning_adaptation／knowledge_map 處理學習與內容規則，storage 負責資料存取；現有查詢與索引建構仍保留跨層依賴。
 
+目前保留三組功能內部循環：
+
+- `learning_adaptation` 的 `answer_events`、`assessment_sets`、`assessment_state`、`inherited_progress`、`study_sessions` 共五個模組包含實際互遞迴的歷次作答與題組投影，拆分須先確認責任合併及交易／回寫順序，暫時保留。
+- `podcast_cues`、`podcast_video_motion`、`podcast_video_plan` 保留字幕、時間窗與分鏡驗證的功能內部共用關係，拆分時須一併維持這些契約。
+- `research_reading`、`research_sources`、`research_web` 共用 HTTP 節流、快取與正文取得狀態，拆分會改變測試替身的攔截位置，須連同狀態所有權與呼叫路徑一併處理，暫時保留。
+
 功能路由直接共用 [request_context.py](../backend/src/runtime/api/request_context.py) 的 session、query 與冪等鍵檢查；[study_workspace.py](../backend/src/runtime/study_workspace.py) 組合學習查詢，HTTP 層只投影公開資料。題組的查詢與完成判定位於 [assessment_state.py](../backend/src/learning_adaptation/assessment_state.py)，建立、交卷及生成工作由 `assessment_sets.py` 負責。
 
 [database.py](../backend/src/runtime/storage/database.py) 管理連線池與每次交易，`tables.py` 只做 ORM 映射。[artifacts.py](../backend/src/runtime/storage/artifacts.py) 統一原檔、轉檔及媒體的保存、完整性檢查與清理；PDF 預覽仍保留自己的型別限制。發布流程由 `knowledge_publication.py` 協調，`knowledge_structures.py` 保留讀取與清理。讀取索引的建立與補建由 `knowledge_publication.py` 負責；`knowledge_reads.py` 保留概念索引建立與讀取投影，`card_sources.py` 處理卡組導覽與分批顯示。

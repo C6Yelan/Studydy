@@ -1,6 +1,6 @@
 # studydy.net 的 canonical 部署流程
 
-唯一 deployment working directory 是 `/home/jerry/project/Studydy/main`。
+唯一 deployment working directory 是工作區內正式版的 `main` checkout；以下命令均以該目錄為根目錄。
 日常 rebuild、Compose 管理、設定與 source-of-truth 都在這個 checkout；build context
 是本目錄 `.`，不需要先複製 source 到其他目錄。
 
@@ -31,8 +31,7 @@ bundle 只包含需要的 `backend/src`、`ops` 與 `local_ai/runtime-lock.json`
 - 維護入口維持 `127.0.0.1:4173`，backend／DB／model／metrics 不發布 host ports。
 - backend healthcheck 使用容器內 `/internal/ready`，要求啟動復原完成、所有 worker 執行緒存活及 DB `SELECT 1` 成功；不呼叫模型。此路徑不由 Nginx 代理，也不列入產品 OpenAPI。`/v1/openapi.json` 仍可作 HTTP 存活檢查；readiness 不代表每個生成工作仍有進展或模型可用。
 - 持久資料固定在本 checkout 的 `data/`；既有 DB／artifacts／模型掛載不可因建置位置改變。
-- 私有 `.env` 留在本 checkout；token 檔留在 repo 外
-  `/home/jerry/.config/studydy/cloudflared-main-token`，只由 cloudflared 唯讀掛載。
+- 私有 `.env` 留在正式 checkout；`STUDYDY_TUNNEL_TOKEN_FILE` 指定 repo 外的 token 檔絕對路徑，只由 cloudflared 唯讀掛載。
   不讀出、複製或雜湊 token；只檢查 metadata，不把值放進 environment、image 或紀錄。
 - HTTPS origin 是 `https://studydy.net`，Secure cookie=true。維護入口不放寬 exact Origin。
 - 已確認 Cloudflare zone 上限為 100 MB；有效新上傳上限為 `94371840` bytes（90 MiB），
