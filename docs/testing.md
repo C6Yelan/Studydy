@@ -47,14 +47,14 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 ## GitHub Actions CI
 
-CI 使用 Python 3.12.14、Node 24 與 lock file；uv、npm、Docker build cache 只加速依賴取得，不略過測試。工作權限限於讀取 repository，不使用私人設定、secret、產品資料或外部生成模型；Compose／Nginx 邊界使用合成設定與隔離 echo upstream。正式 WSL 主機未啟用 AppArmor，CI 因此以暫存 Compose override 加入 `apparmor=unconfined`，對齊主機環境，而非放寬產品沙箱；runner 同時關閉額外的非特權 user namespace 限制。兩份產品／測試 Compose 原檔不變，seccomp、cap_drop、no-new-privileges、唯讀及無網路設定均保留並核對合併結果。
+CI 使用 Python 3.12.14、Node 24 與 lock file；uv、npm、Docker build cache 只加速依賴取得，不略過測試。工作權限限於讀取 repository，不使用私人設定、secret、產品資料或外部生成模型；Compose／Nginx 邊界使用合成設定與隔離 echo upstream。runner 較舊的 kernel 不允許在 Docker 遮蔽的 `/proc` 上掛載新的 proc，正式主機的 6.18 kernel 則允許；因此八個真實 Office 轉檔案例與一個沙箱隔離案例由 full 主機執行，quick 容器不增加 AppArmor 或 systempaths 例外。full 主機保留非特權 user namespace 設定，待完整通過後以單獨移除此設定的版本核對必要性；兩份 Compose、seccomp、cap_drop、no-new-privileges、唯讀及無網路設定均不變。
 
 | Job | 觸發 | 實際範圍 |
 | --- | --- | --- |
-| quick | 每次 push、pull_request，以及手動與排程執行 | 無網路 test 容器執行 backend 頂層、local_ai 與 ops/research 測試，包含固定 LibreOffice 的八項 Office 案例；另跑 npm ci／test／typecheck／build，以及 Compose、Nginx 邊界腳本 |
-| full | 對 dev／main 的 pull_request、workflow_dispatch、每日台北時間 02:17（排程由預設分支執行）；驗證期間另接受 be/decouple-imports 的 push | runtime 全部與其真 API browser fixtures、全部 mock browser specs；包含四個 runtime Office 案例，主機使用 Ubuntu 26.04 與 Dockerfile 相同 snapshot／固定 LibreOffice 26.2.5.2 |
+| quick | 每次 push、pull_request，以及手動與排程執行 | 無網路 test 容器執行 backend 頂層、local_ai 與 ops/research 測試，明列排除的九項移至 full 主機，沒有略過覆蓋；另跑 npm ci／test／typecheck／build，以及 Compose、Nginx 邊界腳本 |
+| full | 對 dev／main 的 pull_request、workflow_dispatch、每日台北時間 02:17（排程由預設分支執行）；驗證期間另接受 be/decouple-imports 的 push | 先跑 quick 移出的九項並檢查 JUnit 無 skipped，再跑 runtime 全部及其真 API browser fixtures、全部 mock browser specs；另包含四個 runtime Office 案例，主機使用 Ubuntu 26.04 與 Dockerfile 相同 snapshot／固定 LibreOffice 26.2.5.2 |
 
-本機 quick 使用 `docker compose -f compose.test.yaml build unit` 與 `docker compose -f compose.test.yaml run --rm unit`，前端執行下節列出的 Node／型別命令及 `npm --prefix frontend run build`。Compose 邊界須以 `STUDYDY_TEST_ENV_FILE` 指定合成設定，Nginx 邊界須提供 `STUDYDY_TEST_FRONTEND_IMAGE`／`STUDYDY_TEST_BACKEND_IMAGE`；不能沿用產品設定。Full 先依下節準備獨立前端 build、安裝 Chromium，再使用 workflow 的 runtime 命令；API specs 必須經 Python fixture 執行。Full 的 Ubuntu 26.04 主機依 workflow 安裝 `20261005T060000Z` snapshot 的 `4:26.2.5.2-0ubuntu0.26.04.1` LibreOffice 套件，不能使用 apt 的預設版本；主機不符時沿用下節 Office 容器入口驗證，不能將環境不符記為通過。
+本機可用 `docker compose -f compose.test.yaml build unit` 與 `docker compose -f compose.test.yaml run --rm unit` 執行完整單元套件；重現 CI 分工時使用 workflow 明列九個 node ID 的 quick／host 命令，前端執行下節列出的 Node／型別命令及 `npm --prefix frontend run build`。Compose 邊界須以 `STUDYDY_TEST_ENV_FILE` 指定合成設定，Nginx 邊界須提供 `STUDYDY_TEST_FRONTEND_IMAGE`／`STUDYDY_TEST_BACKEND_IMAGE`；不能沿用產品設定。Full 先依下節準備獨立前端 build、安裝 Chromium，再使用 workflow 的 runtime 命令；API specs 必須經 Python fixture 執行。Full 的 Ubuntu 26.04 主機依 workflow 安裝 `20261005T060000Z` snapshot 的 `4:26.2.5.2-0ubuntu0.26.04.1` LibreOffice 套件，不能使用 apt 的預設版本；主機不符時沿用下節 Office 容器入口驗證，不能將環境不符記為通過。
 
 `test_office_external_resources.py` 以隔離 HTTP server 與固定的合成公網 DNS 驗證圖片取得、逐次 redirect／目的 IP 核對、TLS hostname、大小／時間上限及原檔保留，測試不連到真實內部服務。真實 Office 案例另核對內網圖片不送出請求、下載後的圖片仍可離線轉檔，以及只有圖片準備階段能連網。`test_normalization_cancellation.py` 驗證多執行緒取消、啟動失敗與限額；由既有 `prlimit` 在 exec 後設定 AS／FSIZE／NOFILE／NPROC，沒有 Python `preexec_fn`。
 

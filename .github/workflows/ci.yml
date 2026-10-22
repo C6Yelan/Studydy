@@ -26,11 +26,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Allow Bubblewrap user namespaces on the CI host
-        # Run 39864413777: restrict_unprivileged_userns=1, bwrap mount permission denied,
-        # and the same eight Office cases failed in all three diagnostic rounds.
-        # Change only the runner policy; Compose seccomp/cap_drop/read_only remain unchanged.
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
@@ -53,44 +48,29 @@ jobs:
           load: true
           cache-from: type=gha,scope=backend-test
           cache-to: type=gha,mode=max,scope=backend-test
-      - name: Match CI container AppArmor to the production host
-        # Production WSL/Docker has no AppArmor profile; docker-default on the runner
-        # denied Bubblewrap mounts even with the userns sysctl disabled (run 39865178035).
-        # This CI-only override aligns hosts; it does not relax the product sandbox.
-        run: &test-container-override |
-          cat > "$RUNNER_TEMP/studydy-compose-ci.yaml" <<'YAML'
-          services:
-            unit:
-              security_opt:
-                - apparmor=unconfined
-          YAML
-          python3 - <<'PYCONFIG'
-          import json
-          import os
-          import subprocess
-          command = ['docker', 'compose', '-p', 'studydy', '-f', 'compose.test.yaml']
-          base = json.loads(subprocess.check_output(command + ['config', '--format', 'json']))['services']['unit']
-          command += ['-f', os.path.join(os.environ['RUNNER_TEMP'], 'studydy-compose-ci.yaml')]
-          merged = json.loads(subprocess.check_output(command + ['config', '--format', 'json']))['services']['unit']
-          assert set(merged['security_opt']) == set(base['security_opt']) | {'apparmor=unconfined'}
-          assert 'no-new-privileges:true' in merged['security_opt']
-          assert any(option.startswith('seccomp=') for option in merged['security_opt'])
-          for field in ['network_mode', 'read_only', 'cap_drop', 'tmpfs']:
-              assert merged[field] == base[field], field
-          print('::notice title=CI container isolation::security_opt=' + ', '.join(merged['security_opt']) + '; network/read_only/cap_drop/tmpfs preserved')
-          PYCONFIG
       - name: Offline Python unit, local AI protocol and research tests
         # backend/tests/runtime（含其 4 個 Office 案例）在 full 的固定版本主機執行。
-        # 頂層 Office 8 項在此使用固定 LibreOffice 26.2.5.2。
+        # The nine explicit bwrap cases below run in full's "Host sandbox and Office cases" step.
+        # The runner kernel cannot mount a new proc over Docker-masked /proc; production kernel 6.18 can.
+        # Keep the original container sandbox instead of unmasking system paths or disabling AppArmor.
         run: |
           office_version=$(docker run --rm --network none --entrypoint /usr/lib/libreoffice/program/soffice studydy-unit:latest --version)
           printf '::notice title=LibreOffice version::%s\n' "$office_version"
           mkdir -m 777 "$RUNNER_TEMP/studydy-results"
-          docker compose -p studydy -f compose.test.yaml -f "$RUNNER_TEMP/studydy-compose-ci.yaml" run --rm --no-deps \
+          docker compose -p studydy -f compose.test.yaml run --rm --no-deps \
             -v "$RUNNER_TEMP/studydy-results:/results" unit \
-            -q -o cache_dir=/tmp/pytest-cache --junitxml=/results/unit.xml \
+            --rootdir=. -q -o cache_dir=/tmp/pytest-cache --junitxml=/results/unit.xml \
             backend/tests --ignore=backend/tests/runtime local_ai/tests \
             ops/research/test_egress.py ops/research/test_benchmark.py \
+            '--deselect=backend/tests/test_conversion_sandbox.py::test_renderer_cannot_access_parent_files_environment_or_loopback' \
+            '--deselect=backend/tests/test_office_external_resources.py::test_real_conversion_skips_private_image_and_keeps_text[True-.pptx]' \
+            '--deselect=backend/tests/test_office_external_resources.py::test_real_conversion_skips_private_image_and_keeps_text[True-.docx]' \
+            '--deselect=backend/tests/test_office_external_resources.py::test_real_conversion_skips_private_image_and_keeps_text[False-.pptx]' \
+            '--deselect=backend/tests/test_office_external_resources.py::test_real_conversion_skips_private_image_and_keeps_text[False-.docx]' \
+            '--deselect=backend/tests/test_office_external_resources.py::test_downloaded_public_image_survives_offline_conversion[True-.pptx]' \
+            '--deselect=backend/tests/test_office_external_resources.py::test_downloaded_public_image_survives_offline_conversion[True-.docx]' \
+            '--deselect=backend/tests/test_office_external_resources.py::test_downloaded_public_image_survives_offline_conversion[False-.pptx]' \
+            '--deselect=backend/tests/test_office_external_resources.py::test_downloaded_public_image_survives_offline_conversion[False-.docx]' \
             2>&1 | tee "$RUNNER_TEMP/studydy-unit.log"
           python3 - <<'PY'
           import os
@@ -144,7 +124,7 @@ jobs:
                   payload += escaped
               print(prefix + payload, flush=True)
           root = Path(os.environ['RUNNER_TEMP'])
-          for kind, report in [('unit', root / 'studydy-results/unit.xml'), ('runtime', root / 'runtime.xml')]:
+          for kind, report in [('unit', root / 'studydy-results/unit.xml'), ('host-sandbox', root / 'host-sandbox.xml'), ('runtime', root / 'runtime.xml')]:
               log = root / f'studydy-{kind}.log'
               if log.exists():
                   text = log.read_text(errors='replace')
@@ -159,16 +139,13 @@ jobs:
                           identity = f"{case.get('classname')}::{case.get('name')}"
                           annotate(f'{kind}-testcase-{index}', identity + '\n' + failure.get('message', '') + '\n' + (failure.text or '')[-3000:])
           for log in root.glob('studydy-*.log'):
-              if log.name not in {'studydy-unit.log', 'studydy-runtime.log'}:
+              if log.name not in {'studydy-unit.log', 'studydy-host-sandbox.log', 'studydy-runtime.log'}:
                   annotate(log.stem, log.read_text(errors='replace')[-3000:])
           PY
-      - name: Diagnose runner and isolated Office failures
+      - name: Diagnose runner host
         if: failure()
-        run: &failure-probes |
+        run: &failure-host-diagnostics |
           python3 - <<'PY'
-          import json
-          import os
-          import re
           import subprocess
           def annotate(title, text):
               prefix = f'::notice title={title}::'
@@ -190,33 +167,6 @@ jobs:
           for title, command in commands:
               result = subprocess.run(command, capture_output=True, text=True, check=False)
               annotate(title, f'exit_code={result.returncode}\n{result.stdout}{result.stderr}')
-          image = subprocess.run(['docker', 'image', 'inspect', 'studydy-unit:latest'], capture_output=True, text=True, check=False)
-          if image.returncode:
-              annotate('test-image-unavailable', f'exit_code={image.returncode}\n{image.stderr}')
-          else:
-              # 一次 compose run：bwrap 與三個獨立 pytest 子程序都在相同容器／安全設定內執行。
-              script = r"""
-          import json
-          import re
-          import subprocess
-          import sys
-          probe = subprocess.run(['bwrap', '--unshare-all', '--die-with-parent', '--ro-bind', '/usr', '/usr', '--symlink', 'usr/lib', '/lib', '--symlink', 'usr/lib64', '/lib64', '--symlink', 'usr/bin', '/bin', '--proc', '/proc', '--dev', '/dev', '/bin/true'], capture_output=True, text=True, check=False)
-          print(json.dumps({'kind': 'bwrap', 'exit_code': probe.returncode, 'stderr': probe.stderr}), flush=True)
-          for attempt in range(1, 4):
-              result = subprocess.run([sys.executable, '-m', 'pytest', '-rA', '-vv', '--color=no', '-o', 'cache_dir=/tmp/pytest-cache', 'backend/tests/test_office_external_resources.py'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
-              output = result.stdout.splitlines()
-              short = [line for line in output if re.match(r'^(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b', line)]
-              verbose = [line for line in output if re.search(r'\S+::\S+.*\b(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS)\b', line)]
-              summaries = [line for line in output if re.match(r'^=+.*\b(passed|failed|errors?|skipped)\b', line) or 'ERROR collecting' in line or line.startswith('INTERNALERROR>')]
-              lines = [line.replace('backend/tests/test_office_external_resources.py::', '') for line in (short or verbose) + summaries]
-              print(json.dumps({'kind': f'office-round-{attempt}', 'exit_code': result.returncode, 'results': lines or ['No case result lines were produced']}), flush=True)
-          """
-              result = subprocess.run(['docker', 'compose', '-p', 'studydy', '-f', 'compose.test.yaml', '-f', os.path.join(os.environ['RUNNER_TEMP'], 'studydy-compose-ci.yaml'), 'run', '--rm', '--no-deps', '--entrypoint', '/app/backend/.venv/bin/python', 'unit', '-c', script], capture_output=True, text=True, check=False)
-              for line in result.stdout.splitlines():
-                  record = json.loads(line)
-                  detail = record.get('stderr', '\n'.join(record.get('results', [])))
-                  annotate(record['kind'], f"exit_code={record['exit_code']}\n{detail}")
-              annotate('diagnostic-container', f'exit_code={result.returncode}\n{result.stderr[-2000:]}')
           PY
 
   full:
@@ -239,9 +189,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Allow Bubblewrap user namespaces on the CI host
-        # Run 39864413777: restrict_unprivileged_userns=1, bwrap mount permission denied,
-        # and the same eight Office cases failed in all three diagnostic rounds.
-        # Change only the runner policy; Compose seccomp/cap_drop/read_only remain unchanged.
+        # Native host Bubblewrap needs user namespaces; retain this host-only setting
+        # until full passes and the requested comparison without it establishes necessity.
+        # No container or product sandbox setting is changed.
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
@@ -260,6 +210,33 @@ jobs:
             /usr/lib/libreoffice/program/soffice --version
             docker pull postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
           } 2>&1 | tee "$RUNNER_TEMP/studydy-setup.log"
+      - name: Host sandbox and Office cases
+        # Exactly the nine node IDs deselected by quick; same locked venv and LibreOffice snapshot.
+        # Run on the host to avoid the older runner kernel's masked-proc container restriction.
+        run: |
+          office_version=$(/usr/lib/libreoffice/program/soffice --version)
+          printf '::notice title=Host LibreOffice version::%s\n' "$office_version"
+          backend/.venv/bin/python -m pytest --rootdir=. -q -p no:cacheprovider \
+            --junitxml="$RUNNER_TEMP/host-sandbox.xml" \
+            'backend/tests/test_conversion_sandbox.py::test_renderer_cannot_access_parent_files_environment_or_loopback' \
+            'backend/tests/test_office_external_resources.py::test_real_conversion_skips_private_image_and_keeps_text[True-.pptx]' \
+            'backend/tests/test_office_external_resources.py::test_real_conversion_skips_private_image_and_keeps_text[True-.docx]' \
+            'backend/tests/test_office_external_resources.py::test_real_conversion_skips_private_image_and_keeps_text[False-.pptx]' \
+            'backend/tests/test_office_external_resources.py::test_real_conversion_skips_private_image_and_keeps_text[False-.docx]' \
+            'backend/tests/test_office_external_resources.py::test_downloaded_public_image_survives_offline_conversion[True-.pptx]' \
+            'backend/tests/test_office_external_resources.py::test_downloaded_public_image_survives_offline_conversion[True-.docx]' \
+            'backend/tests/test_office_external_resources.py::test_downloaded_public_image_survives_offline_conversion[False-.pptx]' \
+            'backend/tests/test_office_external_resources.py::test_downloaded_public_image_survives_offline_conversion[False-.docx]' \
+            2>&1 | tee "$RUNNER_TEMP/studydy-host-sandbox.log"
+          backend/.venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from xml.etree import ElementTree
+          report = Path(os.environ['RUNNER_TEMP']) / 'host-sandbox.xml'
+          skipped = list(ElementTree.parse(report).iter('skipped'))
+          if skipped:
+              raise SystemExit(f'CI requires every collected test to run: {len(skipped)} skipped')
+          PY
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
@@ -301,22 +278,6 @@ jobs:
       - name: Publish failure details as public annotations
         if: failure()
         run: *failure-details
-      - name: Prepare diagnostic image builder
+      - name: Diagnose runner host
         if: failure()
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Load the same test image for failure diagnosis
-        if: failure()
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ops/docker/backend.Dockerfile
-          target: test
-          tags: studydy-unit:latest
-          load: true
-          cache-from: type=gha,scope=backend-test
-      - name: Match diagnostic container AppArmor to the production host
-        if: failure()
-        run: *test-container-override
-      - name: Diagnose runner and isolated Office failures
-        if: failure()
-        run: *failure-probes
+        run: *failure-host-diagnostics
