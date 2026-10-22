@@ -47,7 +47,7 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 ## GitHub Actions CI
 
-CI 使用 Python 3.12.14、Node 24 與 lock file；uv、npm、Docker build cache 只加速依賴取得，不略過測試。工作權限限於讀取 repository，不使用私人設定、secret、產品資料或外部生成模型；Compose／Nginx 邊界使用合成設定與隔離 echo upstream。
+CI 使用 Python 3.12.14、Node 24 與 lock file；uv、npm、Docker build cache 只加速依賴取得，不略過測試。工作權限限於讀取 repository，不使用私人設定、secret、產品資料或外部生成模型；Compose／Nginx 邊界使用合成設定與隔離 echo upstream。GitHub runner 關閉額外的 AppArmor 非特權 user namespace 限制，讓 Bubblewrap 能建立隔離環境；產品沙箱與 Compose 的 seccomp、cap_drop、唯讀及無網路設定維持不變。
 
 | Job | 觸發 | 實際範圍 |
 | --- | --- | --- |
