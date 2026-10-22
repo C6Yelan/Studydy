@@ -310,3 +310,76 @@ test("learning navigator stays flat when regions do not match the map", async ({
   await expect(nav.getByRole("heading", { level: 3 })).toHaveCount(0);
   await expect(page.getByLabel("地圖摘要")).not.toContainText("區域");
 });
+
+test("chapter regions stay one level for a demo-sized material", async ({ page }) => {
+  const view = learningMap(8);
+  await mockLearningMapApi(page, view, true);
+  const ids = view.initial_learning_path.map((step) => step.concept_id);
+  await page.route(`**/v1/materials/${materialId}/knowledge-structures/*/regions`, (route) => route.fulfill({ json: {
+    schema: "knowledge-regions/v1", material_id: materialId, knowledge_structure_revision: view.knowledge_structure_revision,
+    basis: "chapters", partial: false, groups: [],
+    regions: [
+      { region_id: "chapter:1", label: "生成模型基礎", source_id: null, concept_ids: ids.slice(0, 5), group_id: null },
+      { region_id: "chapter:2", label: "推論與評估", source_id: null, concept_ids: ids.slice(5), group_id: null },
+    ],
+  } }));
+  await page.goto(mapPath);
+  await expect(page.getByLabel("地圖摘要")).toContainText("2章節");
+  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  const nav = page.getByRole("navigation", { name: "學習導覽" });
+  await expect(nav.getByRole("heading", { level: 3 })).toHaveText(["生成模型基礎5 個", "推論與評估3 個"]);
+  await expect(nav.getByRole("heading", { level: 4 })).toHaveCount(0);
+  await expect(nav.getByText("依教材內容整理的章節", { exact: true })).toBeVisible();
+  await expect(nav.getByLabel("跳到章節")).toHaveCount(0);
+  await navigationConcept(page, "A").click();
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".detail-kicker")).toHaveText("教材概念 · 生成模型基礎");
+});
+
+for (const width of [1536, 390])
+  test(`many chapters show source files as island groups with chapters inside at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 960 });
+    const view = learningMap(90);
+    await mockLearningMapApi(page, view, true);
+    const ids = view.initial_learning_path.map((step) => step.concept_id);
+    const groups = [
+      { group_id: "region:1", label: "01_從生成到推論", source_id: artifactId },
+      { group_id: "region:2", label: "02_Adaptive Reliability-Aware Reasoning for Large Language Model Agents", source_id: runId },
+      { group_id: "region:3", label: "03_評估", source_id: null },
+    ];
+    await page.route(`**/v1/materials/${materialId}/knowledge-structures/*/regions`, (route) => route.fulfill({ json: {
+      schema: "knowledge-regions/v1", material_id: materialId, knowledge_structure_revision: view.knowledge_structure_revision,
+      basis: "chapters", partial: true, groups,
+      regions: Array.from({ length: 30 }, (_, i) => ({
+        region_id: `chapter:${i + 1}`, label: `章節 ${i + 1}`, source_id: null,
+        concept_ids: ids.slice(i * 3, i * 3 + 3), group_id: groups[Math.floor(i / 10)].group_id,
+      })),
+    } }));
+    await page.goto(mapPath);
+    await expect(page.getByLabel("地圖摘要")).toContainText("30章節");
+    await expect(page.locator(".map-whereabouts")).toContainText("目前在 01_從生成到推論 › 章節 1");
+    await page.locator(".map-whereabouts").getByRole("button", { name: "看全部 3 個島群・30 個章節" }).click();
+    const nav = page.getByRole("navigation", { name: "學習導覽" });
+    await expect(nav.getByRole("heading", { level: 3 })).toHaveText([
+      "01_從生成到推論10 章 · 30 個",
+      "02_Adaptive Reliability-Aware Reasoning for Large Language Model Agents10 章 · 30 個",
+      "03_評估10 章 · 30 個",
+    ]);
+    await expect(nav.getByRole("heading", { level: 4 })).toHaveCount(30);
+    await expect(nav.getByRole("heading", { level: 4 }).nth(12)).toHaveText("章節 133 個");
+    await expect(nav.getByText("依內容整理的章節，來源檔為島群；部分依來源檔分區")).toBeVisible();
+    // 長島群名稱截斷在導覽欄內，章數仍可見。
+    const list = (await nav.locator(".navigator-list").boundingBox())!;
+    for (const count of await nav.locator(".navigator-region h3 small, .navigator-region h4 small").all()) {
+      const box = (await count.boundingBox())!;
+      expect(box.x + box.width).toBeLessThanOrEqual(list.x + list.width + 0.5);
+    }
+    const jump = nav.getByLabel("跳到章節");
+    await expect(jump.locator("optgroup")).toHaveCount(3);
+    await jump.selectOption({ label: "章節 25" });
+    const dialog = page.getByRole("dialog", { name: "概念詳情" });
+    await expect(dialog.getByRole("heading", { name: "Concept 73", exact: true })).toBeVisible();
+    await expect(dialog.locator(".detail-kicker")).toHaveText("教材概念 · 章節 25");
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".map-whereabouts")).toContainText("目前在 03_評估 › 章節 25");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });

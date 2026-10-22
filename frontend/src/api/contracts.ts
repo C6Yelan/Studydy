@@ -246,11 +246,16 @@ export type KnowledgeOutlineView = Pick<KnowledgeStructureView,
   concepts: { concept_id: string; label: string; aliases: string[]; claim_count: number }[];
 };
 
-// 地圖區域：多來源依主要來源檔分區；learning_order 是依學習順序推導的分段，不是教材章節。
+// 地圖區域：chapters 是模型分章並經程式驗證的章節；source 依主要來源檔分區；
+// learning_order 是依學習順序推導的分段，不是教材章節。
+// 章節分區時 groups 是來源檔分區（島群），每章以 group_id 指向所屬島群；單層呈現時為空。
+// partial：部分章節未通過驗證，該部分沿用來源檔分區。
 export type KnowledgeRegionsView = {
   schema: "knowledge-regions/v1"; material_id: string; knowledge_structure_revision: string;
-  basis: "source" | "learning_order";
-  regions: { region_id: string; label: string; source_id: string | null; concept_ids: string[] }[];
+  basis: "chapters" | "source" | "learning_order";
+  regions: { region_id: string; label: string; source_id: string | null; concept_ids: string[]; group_id?: string | null }[];
+  groups?: { group_id: string; label: string; source_id: string | null }[];
+  partial?: boolean;
 };
 
 // 學習統計只由作答事件推導，日期以台灣時間為界。

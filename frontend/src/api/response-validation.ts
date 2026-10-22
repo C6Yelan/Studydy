@@ -744,12 +744,23 @@ export function knowledgeRegions(value: unknown): value is KnowledgeRegionsView 
   const item = object(value);
   if (!item || item.schema !== "knowledge-regions/v1" || !isUuid(item.material_id)
     || !revision(item.knowledge_structure_revision, "knowledge-structure")
-    || !["source", "learning_order"].includes(String(item.basis)) || !Array.isArray(item.regions)) return false;
+    || !["chapters", "source", "learning_order"].includes(String(item.basis)) || !Array.isArray(item.regions)
+    || (item.groups !== undefined && !Array.isArray(item.groups))
+    || (item.partial !== undefined && typeof item.partial !== "boolean")) return false;
+  const groupIds = new Set<unknown>();
+  for (const value of (item.groups ?? []) as unknown[]) {
+    const group = object(value);
+    if (!group || typeof group.group_id !== "string" || typeof group.label !== "string" || !group.label
+      || !(group.source_id === null || isUuid(group.source_id)) || groupIds.has(group.group_id)) return false;
+    groupIds.add(group.group_id);
+  }
   const ids = item.regions.flatMap(value => {
     const region = object(value);
     return region && typeof region.region_id === "string" && typeof region.label === "string" && region.label
       && (region.source_id === null || isUuid(region.source_id)) && strings(region.concept_ids)
       && region.concept_ids.length > 0 && region.concept_ids.every(id => revision(id, "concept"))
+      // 有島群時每章都要指向存在的島群；沒有島群時不得帶 group_id。
+      && (groupIds.size ? groupIds.has(region.group_id) : region.group_id === undefined || region.group_id === null)
       ? region.concept_ids : [null];
   });
   // 每個概念只能屬於一個區域。

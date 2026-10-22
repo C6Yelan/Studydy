@@ -4,24 +4,61 @@ type MapView = Pick<KnowledgeOutlineView, "relations" | "initial_learning_path">
 
 type MapNode = { id: string; x: number; y: number; width: number; depth: 0 | 1 | 2 };
 
+// 章節數超過此值且有兩個以上來源檔時，地圖改為兩層：來源檔＝島群、章節＝島（千頁教材約 460 章）。
+// 一般教材章節不多，維持一層，避免每個島群只有一兩章。
+export const TWO_LEVEL_MIN_REGIONS = 24;
+
 export type MapRegions = {
   basis: KnowledgeRegionsView["basis"];
-  regions: { id: string; label: string; index: number; conceptIds: string[] }[];
+  partial: boolean;
+  regions: { id: string; label: string; index: number; conceptIds: string[]; group: number | null }[];
+  // 空陣列表示一層呈現；兩層時區域已依島群排列，同群相鄰。
+  groups: { id: string; label: string; index: number; regionIndexes: number[]; conceptCount: number }[];
   byConcept: Map<string, number>;
 };
 
 // 區域必須剛好涵蓋這份地圖的全部概念；版本或內容不一致時不分區，維持原本呈現。
 export function mapRegions(view: Pick<MapView, "concepts">, value: KnowledgeRegionsView | null): MapRegions | null {
   if (!value) return null;
+  const sourceGroups = value.groups ?? [];
+  const twoLevel = sourceGroups.length >= 2 && value.regions.length > TWO_LEVEL_MIN_REGIONS;
+  const groupIndex = new Map(sourceGroups.map((group, index) => [group.group_id, index]));
+  const ordered = twoLevel
+    ? [...value.regions].sort((a, b) => groupIndex.get(a.group_id!)! - groupIndex.get(b.group_id!)!)
+    : value.regions;
   const byConcept = new Map<string, number>();
-  value.regions.forEach((region, index) => region.concept_ids.forEach((id) => byConcept.set(id, index)));
+  ordered.forEach((region, index) => region.concept_ids.forEach((id) => byConcept.set(id, index)));
   if (byConcept.size !== view.concepts.length || !view.concepts.every((concept) => byConcept.has(concept.concept_id)))
     return null;
-  return {
-    basis: value.basis,
-    regions: value.regions.map((region, index) => ({ id: region.region_id, label: region.label, index, conceptIds: region.concept_ids })),
-    byConcept,
-  };
+  const regions = ordered.map((region, index) => ({
+    id: region.region_id, label: region.label, index, conceptIds: region.concept_ids,
+    group: twoLevel ? groupIndex.get(region.group_id!)! : null,
+  }));
+  const groups = twoLevel
+    ? sourceGroups
+      .map((group, index) => {
+        const members = regions.filter((region) => region.group === index);
+        return {
+          id: group.group_id, label: group.label, index, regionIndexes: members.map((region) => region.index),
+          conceptCount: members.reduce((sum, region) => sum + region.conceptIds.length, 0),
+        };
+      })
+      .filter((group) => group.regionIndexes.length > 0)
+    : [];
+  return { basis: value.basis, partial: value.partial ?? false, regions, groups, byConcept };
+}
+
+/** 島嶼配色：兩層時同一島群同色，一層時依區域。 */
+export function regionColorIndex(regions: MapRegions, regionIndex: number) {
+  return regions.regions[regionIndex]?.group ?? regionIndex;
+}
+
+/** 分區依據說明；章節為模型整理並經程式驗證，部分退回時明講。 */
+export function regionBasisText(regions: MapRegions) {
+  if (regions.basis === "chapters")
+    return (regions.groups.length ? "依內容整理的章節，來源檔為島群" : "依教材內容整理的章節")
+      + (regions.partial ? "；部分依來源檔分區" : "");
+  return regions.basis === "source" ? "依各概念的主要來源檔分區" : "依學習順序分段，非教材章節";
 }
 
 // API 已驗證路徑完整包含教材概念；導覽只依正式順序排列。

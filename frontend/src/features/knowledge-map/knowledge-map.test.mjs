@@ -235,3 +235,41 @@ test("grouped navigator windows keep region order and skip regions outside the r
     [["a", [3]], ["b", [4, 5]], ["c", [6]]]);
   assert.deepEqual(groupSlices(groups, { start: 3, end: 5 }).map(({ group }) => group.id), ["b"]);
 });
+
+test("chapter regions use two levels only for many chapters across several source files", async () => {
+  const { mapRegions, regionColorIndex, regionBasisText, TWO_LEVEL_MIN_REGIONS } = await import("./knowledge-map.ts");
+  const chapters = (count) => {
+    const ids = Array.from({ length: count * 3 }, (_, i) => `c${i}`);
+    return {
+      outline: { concepts: ids.map((concept_id) => ({ concept_id })) },
+      value: {
+        schema: "knowledge-regions/v1", material_id: "m", knowledge_structure_revision: "r", basis: "chapters",
+        // API 依島群排列；這裡故意交錯，前端仍要讓同群相鄰。
+        regions: Array.from({ length: count }, (_, i) => ({
+          region_id: `chapter:${i + 1}`, label: `章${i + 1}`, source_id: null,
+          concept_ids: ids.slice(i * 3, i * 3 + 3), group_id: i % 2 ? "region:2" : "region:1",
+        })),
+        groups: [
+          { group_id: "region:1", label: "01_生成", source_id: null },
+          { group_id: "region:2", label: "02_推論", source_id: null },
+          { group_id: "region:3", label: "沒有章節的檔", source_id: null },
+        ],
+        partial: true,
+      },
+    };
+  };
+  const big = chapters(TWO_LEVEL_MIN_REGIONS + 2);
+  const two = mapRegions(big.outline, big.value);
+  assert.deepEqual(two.groups.map((g) => [g.label, g.regionIndexes.length, g.conceptCount]), [["01_生成", 13, 39], ["02_推論", 13, 39]]);
+  assert.deepEqual(two.regions.slice(12, 15).map((r) => [r.label, r.group]), [["章25", 0], ["章2", 1], ["章4", 1]]);
+  assert.equal(two.byConcept.get("c3"), 13);
+  assert.equal(regionColorIndex(two, 20), 1);
+  assert.equal(regionBasisText(two), "依內容整理的章節，來源檔為島群；部分依來源檔分區");
+  // 三份 demo 的章數（9／15／14）維持一層，區域順序照 API。
+  const small = chapters(15);
+  const one = mapRegions(small.outline, { ...small.value, partial: false });
+  assert.deepEqual(one.groups, []);
+  assert.deepEqual(one.regions.slice(0, 3).map((r) => [r.label, r.group]), [["章1", null], ["章2", null], ["章3", null]]);
+  assert.equal(regionColorIndex(one, 2), 2);
+  assert.equal(regionBasisText(one), "依教材內容整理的章節");
+});

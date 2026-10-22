@@ -35,7 +35,7 @@ import { Icon } from "../../ui/Icon";
 import { EmptyState } from "../../ui/EmptyState";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
-import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, type MapRegions, type NavigatorRange } from "./knowledge-map";
+import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, regionBasisText, regionColorIndex, type MapRegions, type NavigatorRange } from "./knowledge-map";
 
 type Concept = KnowledgeOutlineView["concepts"][number];
 type Mode = "focus" | "review";
@@ -228,6 +228,34 @@ function ConceptMapNode({ data }: NodeProps<ConceptNode>) {
 }
 const nodeTypes = { concept: ConceptMapNode };
 
+function regionCountText(regions: MapRegions) {
+  if (regions.basis !== "chapters") return `${regions.regions.length} 個區域`;
+  return (regions.groups.length ? `${regions.groups.length} 個島群・` : "") + `${regions.regions.length} 個章節`;
+}
+
+/** 目前概念所在位置；兩層時寫出島群與章節。 */
+function whereabouts(regions: MapRegions, conceptId: string) {
+  const region = regions.regions[regions.byConcept.get(conceptId) ?? 0];
+  const group = region?.group != null ? regions.groups.find((item) => item.index === region.group) : null;
+  return (
+    <>
+      {group && <><b>{group.label}</b> › </>}
+      <b>{region?.label}</b>
+    </>
+  );
+}
+
+/** 把範圍內的章節切片依島群合併；章節已依島群排列，同群相鄰。 */
+function islandGroups<T extends { index: number }, S>(regions: MapRegions, slices: { group: T; slice: S }[]) {
+  const result: { group: MapRegions["groups"][number]; slices: { group: T; slice: S }[] }[] = [];
+  for (const item of slices) {
+    const group = regions.groups.find((candidate) => candidate.index === regions.regions[item.group.index].group)!;
+    if (result.at(-1)?.group !== group) result.push({ group, slices: [] });
+    result.at(-1)!.slices.push(item);
+  }
+  return result;
+}
+
 function LearningNavigator({
   view,
   selectedConceptId,
@@ -349,7 +377,7 @@ function LearningNavigator({
     <nav className="focus-navigator surface" aria-label="學習導覽">
       <header>
         <h2>學習導覽</h2>
-        <span>{groups ? `${groups.length} 個區域 · ` : ""}{view.concepts.length} 個概念</span>
+        <span>{groups ? `${regionCountText(regions!)} · ` : ""}{view.concepts.length} 個概念</span>
       </header>
       {(progress || firstStep) && (
         <p className="navigator-summary">
@@ -364,10 +392,29 @@ function LearningNavigator({
           )}
         </p>
       )}
-      {groups && (
-        <p className="navigator-basis">
-          {regions!.basis === "source" ? "依各概念的主要來源檔分區" : "依學習順序分段，非教材章節"}
-        </p>
+      {groups && <p className="navigator-basis">{regionBasisText(regions!)}</p>}
+      {groups && regions!.groups.length > 0 && (
+        // 兩層時章節很多（千頁教材約 460 章），清單只畫目前位置附近；用選單跳到任一章的第一個概念。
+        <label className="navigator-jump">
+          <span>跳到章節</span>
+          <select
+            value=""
+            onChange={(event) => {
+              const region = regions!.regions[Number(event.target.value)];
+              const first = region && items.find((item) => regions!.byConcept.get(item.concept.concept_id) === region.index);
+              if (first) focusConcept(first.concept.concept_id);
+            }}
+          >
+            <option value="" disabled>選擇章節（{regions!.regions.length} 章）</option>
+            {regions!.groups.map((group) => (
+              <optgroup key={group.id} label={group.label}>
+                {group.regionIndexes.map((index) => (
+                  <option key={index} value={index}>{regions!.regions[index].label}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
       )}
       <div className="navigator-list" id="focus-concept-list" ref={list}>
         {shown.start > 0 && (
@@ -376,11 +423,36 @@ function LearningNavigator({
           </button>
         )}
         {groups ? (
+          regions!.groups.length ? (
+            // 兩層：來源檔＝島群（h3），章節＝島（h4）；只畫目前範圍內的章節。
+            <ul className="navigator-regions">
+              {islandGroups(regions!, groupSlices(groups, shown)).map(({ group, slices }) => (
+                <li key={group.id} className="navigator-region navigator-island-group">
+                  <h3 title={group.label}>
+                    <i style={{ background: islandColors(regionPalette(view.material_id, group.index)).c2 }} aria-hidden="true" />
+                    <span>{group.label}</span>
+                    <small>{group.regionIndexes.length} 章 · {group.conceptCount} 個</small>
+                  </h3>
+                  <ul className="navigator-chapters">
+                    {slices.map(({ group: chapter, slice }) => (
+                      <li key={chapter.id} className="navigator-region">
+                        <h4 title={chapter.label}>
+                          <span>{chapter.label}</span>
+                          <small>{chapter.items.length} 個</small>
+                        </h4>
+                        <ul>{slice.map(renderItem)}</ul>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          ) : (
           <ul className="navigator-regions">
             {groupSlices(groups, shown).map(({ group, slice }) => (
               <li key={group.id} className="navigator-region">
                 <h3 title={group.label}>
-                  <i style={{ background: islandColors(regionPalette(view.material_id, group.index)).c2 }} aria-hidden="true" />
+                  <i style={{ background: islandColors(regionPalette(view.material_id, regionColorIndex(regions!, group.index))).c2 }} aria-hidden="true" />
                   <span>{group.label}</span>
                   <small>{group.items.length} 個</small>
                 </h3>
@@ -388,6 +460,7 @@ function LearningNavigator({
               </li>
             ))}
           </ul>
+          )
         ) : (
           <ul>{ordered.slice(shown.start, shown.end).map(renderItem)}</ul>
         )}
@@ -557,7 +630,7 @@ function MapGraph({
                   </small>
                 </span>
               </span>
-              <span className="island-node-art"><IslandArt palette={regions ? regionPalette(view.material_id, regions.byConcept.get(node.id)!) : palette} landmarks={current} /></span>
+              <span className="island-node-art"><IslandArt palette={regions ? regionPalette(view.material_id, regionColorIndex(regions, regions.byConcept.get(node.id)!)) : palette} landmarks={current} /></span>
             </>
           ),
         },
@@ -747,9 +820,9 @@ function MapGraph({
           {/* 地圖一次只畫目前概念附近兩層；標出所在區域，並提供回到全部區域清單的入口。 */}
           {!navigatorOpen && regions && regions.regions.length > 1 && (
             <p className="map-whereabouts">
-              <span>目前在 <b>{regions.regions[regions.byConcept.get(selected.concept_id) ?? 0]?.label}</b></span>
+              <span>目前在 {whereabouts(regions, selected.concept_id)}</span>
               <button className="text-button" type="button" onClick={() => setNavigatorOpen(true)}>
-                看全部 {regions.regions.length} 個區域
+                看全部 {regionCountText(regions)}
               </button>
             </p>
           )}
@@ -1215,8 +1288,8 @@ export function KnowledgeMapWorkspace({
               <strong>{view.relations.length}</strong>關係
             </span>
             {regions && regions.regions.length > 1 && (
-              <span title={regions.basis === "source" ? "依各概念的主要來源檔分區" : "依學習順序分段，非教材章節"}>
-                <strong>{regions.regions.length}</strong>區域
+              <span title={regionBasisText(regions)}>
+                <strong>{regions.regions.length}</strong>{regions.basis === "chapters" ? "章節" : "區域"}
               </span>
             )}
           </div>
