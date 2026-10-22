@@ -1,6 +1,7 @@
 """整個概念的卡面設計；模型安排重點與圖解，原文與 Evidence 保留不動。"""
 
 from copy import deepcopy
+from .json_schema import obj
 
 from content_identity import canonical_sha256
 
@@ -25,15 +26,6 @@ class CardDesignError(RuntimeError):
     def __init__(self, code, detail=None):
         super().__init__(code)
         self.detail = detail
-
-
-def obj(properties):
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": list(properties),
-        "additionalProperties": False,
-    }
 
 
 REFS = {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 0}}

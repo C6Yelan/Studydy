@@ -1,6 +1,7 @@
 """可接續的背景研究：分題查找、閱讀來源、依正文補查缺口，再交付候選。"""
 
 from copy import deepcopy
+from .json_schema import obj
 from collections import Counter
 import json
 import re
@@ -25,15 +26,6 @@ FOLLOW_UP_EVIDENCE_TOKENS = 32000
 RESEARCH_INPUT_TOKENS = 48000
 EVIDENCE_POLICY = "research-evidence/v5"
 COVERAGE_POLICY = "research-coverage/v3"
-
-
-def obj(properties):
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": list(properties),
-        "additionalProperties": False,
-    }
 
 
 TEXT = {"type": "string"}

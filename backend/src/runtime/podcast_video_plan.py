@@ -65,15 +65,6 @@ def source_turns(episode):
     ]
 
 
-def object_schema(properties):
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": list(properties),
-        "additionalProperties": False,
-    }
-
-
 def validate_cues(episode, cues):
     turns = source_turns(episode)
     used = [""] * len(turns)

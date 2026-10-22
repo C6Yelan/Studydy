@@ -2,11 +2,11 @@
 
 import re
 
+from .json_schema import obj
 from .podcast_video_plan import (
     KEY_TERM_LIMIT,
     SAFE_BOTTOM,
     V4_PAGE_LIMIT,
-    object_schema,
     term_at,
     term_width,
     validate_plan,
@@ -48,7 +48,7 @@ def semantic_schema(section_count):
     }
     variants = []
     for layout in ("concept", "comparison", "flow", "exchange"):
-        node = object_schema(
+        node = obj(
             {
                 "label": _line_text(NODE_LABEL_LIMIT, 1),
                 "text": {"type": "string", "enum": [""]},
@@ -60,7 +60,7 @@ def semantic_schema(section_count):
                 **spoken,
             }
         )
-        relation = object_schema(
+        relation = obj(
             {
                 "source": {"type": "integer", "minimum": 0, "maximum": 1},
                 "target": {"type": "integer", "minimum": 0, "maximum": 1},
@@ -76,7 +76,7 @@ def semantic_schema(section_count):
             else (1, 6)
         )
         variants.append(
-            object_schema(
+            obj(
                 {
                     "layout": {"type": "string", "enum": [layout]},
                     "title": {"type": "string", "minLength": 1, "maxLength": 28},
@@ -98,7 +98,7 @@ def semantic_schema(section_count):
                 }
             )
         )
-    section = object_schema(
+    section = obj(
         {
             "pages": {
                 "type": "array",
@@ -108,7 +108,7 @@ def semantic_schema(section_count):
             }
         }
     )
-    return object_schema(
+    return obj(
         {
             "sections": {
                 "type": "array",

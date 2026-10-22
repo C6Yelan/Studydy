@@ -1,6 +1,7 @@
 """有界的教材問答：檢索原文、必要時補查，逐段核對後保留能回答的部分。"""
 
 from copy import deepcopy
+from .json_schema import obj
 from collections import Counter
 import json
 import re
@@ -17,15 +18,6 @@ SUMMARY_TOKENS = 550
 
 SPOKEN_STYLE = """\n這次回答會直接朗讀，使用者無須看螢幕也要能理解。一般概念先用簡短中文說清楚，無須每次另加例子。除非使用者明確要求原句、逐字內容、拼寫或程式碼，否則不要展示或拼讀示例原字串、字母片段、分詞清單或程式語法，即使只列一兩個片段也不需要；需要例子時用中文口語情境說明機制，只保留回答核心所需的技術名稱。
 使用者要求的精確字面值、核心公式、條件、數值與否定仍須保留，不得為口語化改錯或省略。不要使用 Markdown 格式符號。覆核時也檢查這項要求；不必要的逐字例子應在 correction 改述為來源支持的機制，不要補成更長的字元清單。\n"""
-
-
-def obj(properties):
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": list(properties),
-        "additionalProperties": False,
-    }
 
 
 def _strings(maximum, length=240):
