@@ -39,7 +39,7 @@ for(const width of [1920,1440,390]) test(`published workspace chat drawer stays 
   expect(await panel.evaluate(el=>el.parentElement===document.body)).toBe(true);
   // 等面板的出現動畫結束再量位置。
   await panel.evaluate(el=>Promise.all(el.getAnimations().map(a=>a.finished)));
-  const opened=(await panel.boundingBox())!;expect(width-opened.x-opened.width).toBeCloseTo(inset,0);expect(opened.y).toBeGreaterThanOrEqual(8);expect(opened.y).toBeLessThanOrEqual(450);expect(900-opened.y-opened.height).toBeCloseTo(inset,0);expect(opened.x).toBeGreaterThanOrEqual(0);
+  const opened=(await panel.boundingBox())!;expect(width-opened.x-opened.width).toBeCloseTo(inset,0);expect(opened.y).toBeGreaterThanOrEqual(8);expect(opened.y).toBeLessThanOrEqual(width===390?(await page.locator('.app-header').boundingBox())!.height+1:450);expect(900-opened.y-opened.height).toBeCloseTo(inset,0);expect(opened.x).toBeGreaterThanOrEqual(0);
   await page.evaluate(()=>window.scrollTo(0,600));await expect.poll(()=>page.evaluate(()=>window.scrollY)).toBeGreaterThan(300);const moved=(await panel.boundingBox())!;expect(moved.x).toBeCloseTo(opened.x,0);expect(moved.y).toBeCloseTo(opened.y,0);
   if(index===1)await panel.screenshot({path:testInfo.outputPath(`chat-${width}.png`)});
   await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(trigger).toBeFocused();

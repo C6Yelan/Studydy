@@ -13,9 +13,11 @@ export function MaterialTools({ api, materialId, revision }: { api: StudydyApiCl
  const opened = useRef(false);
  const show = () => {
   for (const audio of document.querySelectorAll<HTMLMediaElement>('audio, video')) audio.pause();
-  // 抽屜從分頁列下緣展開，聊天時仍可切換分頁；開啟後固定位置，不隨捲動移動。
+  // 桌機從分頁列下緣展開，聊天時仍可切換分頁；手機是頁首下方的全高面板（由 CSS 定位）。
+  // 開啟後固定位置，不隨捲動移動。
   const toolbar = trigger.current?.closest('.material-learning-toolbar')?.getBoundingClientRect();
-  setTop(toolbar ? Math.min(Math.max(toolbar.bottom + 8, 8), window.innerHeight / 2) : null);
+  const phone = window.matchMedia('(max-width: 720px)').matches;
+  setTop(toolbar && !phone ? Math.min(Math.max(toolbar.bottom + 8, 8), window.innerHeight / 2) : null);
   setOpen(true);
  };
  const close = () => setOpen(false);
