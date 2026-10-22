@@ -7,8 +7,8 @@ import runtime.api.app as api
 import runtime.workers as workers
 
 
-START_ORDER = ("runtime", "voice", "scene", "video", "research", "card", "podcast")
-STOP_ORDER = ("podcast", "scene", "video", "research", "card", "voice", "runtime")
+START_ORDER = ("runtime", "voice", "scene", "video", "research", "card", "podcast", "chapters")
+STOP_ORDER = ("chapters", "podcast", "scene", "video", "research", "card", "voice", "runtime")
 
 
 def application(monkeypatch, *, fail_start=None, fail_stop=None):

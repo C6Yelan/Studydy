@@ -932,3 +932,35 @@ class StudySessionMove(Base):
     )
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
     completed_concept_ids: Mapped[list[str]] = mapped_column(ARRAY(Text))
+
+
+class KnowledgeChapters(Base):
+    """知識結構版本的章節分區（衍生資料）兼背景佇列；DDL 見 0012。"""
+
+    __tablename__ = "knowledge_chapters"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["learner_id", "material_id", "structure_revision"],
+            [
+                "knowledge_structures.learner_id",
+                "knowledge_structures.material_id",
+                "knowledge_structures.structure_revision",
+            ],
+        ),
+    )
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    status: Mapped[str] = mapped_column(Text)
+    policy: Mapped[str] = mapped_column(Text)
+    chapters: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    prompt_sha256: Mapped[str] = mapped_column(Text)
+    model_id: Mapped[str | None] = mapped_column(Text)
+    failed_windows: Mapped[list] = mapped_column(JSONB)
+    calls: Mapped[int] = mapped_column(Integer)
+    attempts: Mapped[int] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

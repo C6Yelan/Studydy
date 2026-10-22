@@ -344,14 +344,25 @@ class KnowledgeRegionView(_Closed):
     label: str
     source_id: UUID | None
     concept_ids: list[str]
+    # 章節分區時所屬的島群（來源檔分區）；單層呈現時為 None。
+    group_id: str | None
+
+
+class KnowledgeRegionGroupView(_Closed):
+    group_id: str
+    label: str
+    source_id: UUID | None
 
 
 class KnowledgeRegionsView(_Closed):
     schema_: Literal["knowledge-regions/v1"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
-    basis: Literal["source", "learning_order"]
+    basis: Literal["chapters", "source", "learning_order"]
     regions: list[KnowledgeRegionView]
+    groups: list[KnowledgeRegionGroupView]
+    # 部分章節窗未通過驗證，該部分沿用來源檔分區。
+    partial: bool
 
 
 class LearningActivityDayView(_Closed):

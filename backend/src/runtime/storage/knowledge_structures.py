@@ -218,6 +218,10 @@ def publish_knowledge_structure(
             material.head_revision = document["revision"]
             material.source_artifact_id = locked_run.source_artifact_id
             session.flush()
+            # 章節分區是此版本的衍生資料，由背景佇列依序計算；失敗時地圖沿用來源檔分區。
+            from ..knowledge_chapters import enqueue as enqueue_chapters
+
+            enqueue_chapters(session, learner_id, material_id, document["revision"])
             if locked_run.base_revision is not None and not review_only:
                 _prune_unreferenced_structures(
                     session, learner_id, material_id, material.head_revision

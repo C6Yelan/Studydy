@@ -67,7 +67,7 @@ class BackgroundWorker:
 def run_workers(dsn, local_config):
     """集中管理啟停順序；部分啟動或關閉失敗仍須清理其他工作。"""
     from . import card_generation, podcast_scenes, podcast_videos, podcast_worker
-    from . import research, topics, voice
+    from . import knowledge_chapters, research, topics, voice
 
     research_config = deepcopy(local_config)
 
@@ -93,12 +93,19 @@ def run_workers(dsn, local_config):
                 error_code=f"{key.upper()}_WORKER_FAILED",
                 drain=key in {"research", "card"},
             ).start()
+        # 章節分區：一次一份，教材分析進行中時等待；關閉時把進行中的工作放回佇列。
+        chapters = BackgroundWorker(
+            lambda: knowledge_chapters.step(dsn=dsn, stop=chapters.stop_event),
+            name="studydy-chapters",
+            error_code="CHAPTERS_WORKER_FAILED",
+        )
+        active["chapters"] = chapters.start()
         yield lambda: all(worker.is_alive() for worker in active.values())
     finally:
         # ExitStack 確保一個 stop 拋錯時仍呼叫其餘 stop。
         with ExitStack() as shutdown:
             for key in reversed(
-                ("podcast", "scene", "video", "research", "card", "voice", "runtime")
+                ("chapters", "podcast", "scene", "video", "research", "card", "voice", "runtime")
             ):
                 if key in active:
                     shutdown.callback(active[key].stop)

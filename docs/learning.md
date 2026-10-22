@@ -93,6 +93,22 @@ migration 0010 新增 `podcast_episode_progress`（每集播放位置與首次�
 
 `GET .../knowledge-structures/{revision}/regions` 把概念分成地圖區域，只作呈現用途，不改寫知識結構或 hash。多來源教材依每個概念重點 Evidence 最常引用的來源檔分區（區名為去副檔名的檔名）；只有一個主要來源時依學習順序切成至多四段，`basis` 標為 `learning_order`，畫面註明「非教材章節」。前端只在區域剛好涵蓋地圖全部概念時分區，否則維持不分區的導覽。
 
+### 章節分區（0012）
+
+`knowledge_chapters` 是知識結構版本的衍生資料（主鍵 learner／material／structure_revision，隨版本刪除），不產生新版本，也不改卡片、進度、XP 或徽章。新版本發布時在同一交易排入 `pending`；背景 `studydy-chapters` worker 一次處理一份，有教材分析排隊或進行中時先等待。程式依學習順序送出概念名稱、引用頁碼與主要來源檔（`runtime/knowledge_chapters.py` 的固定提示，hash 存於 `prompt_sha256`），模型只回各章起點與名稱；每次請求的輸入估算＋輸出上限 ≤ 32K tokens，概念超過 600 個時依學習順序切窗並盡量在來源檔改變處切開。程式驗證每個概念剛好一章、章數在合理範圍、每章至少 3 個概念、名稱非空不重複不空泛且 ≤ 24 字；不合格帶原因補正一次，仍不合格只有該窗退回來源檔分區。全部窗合格為 `ready`、部分退回為 `fallback`、全部不合格或工作失敗為 `failed`，不無限重試；服務關閉時進行中的工作放回佇列，租約過期中斷兩次判定失敗。
+
+regions API 有 `ready`／`fallback` 章節時回 `basis: "chapters"`，`partial` 標示部分退回；多來源教材另回 `groups`（來源檔分區），每章以 `group_id` 歸入成員最多的來源檔。前端在章節超過 24 個且有兩個以上島群時兩層呈現（來源檔＝島群、章節＝島，提供「跳到章節」選單），否則一層。沒有可用章節時沿用上述來源檔／學習順序分區。
+
+既有教材的一次性回填（只排入佇列，不在命令內呼叫模型）：
+
+```bash
+docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml \
+  -f compose.app-update.yaml exec backend /app/backend/.venv/bin/python -m runtime.container_app \
+  queue-chapters [--material <material_id> ...] [--requeue]
+```
+
+不帶 `--material` 時排入所有已發布、未清除且目前版本還沒有章節列的教材；`--requeue` 連已完成（含 `failed`）的也重新排入。
+
 ## 個人名稱與全站搜尋
 
 `GET／POST /v1/profile` 讀寫學生自己的顯示名稱（migration 0008 新增的 nullable `learners.display_name`）。名稱經 NFC 正規化並去除前後空白，空字串視為清除；限 20 字、不得含控制字元或換行，DB 約束同步把關。名稱只顯示在頁首與首頁問候語，不進入 `learner-identity/v1`，未設定時沿用原問候。

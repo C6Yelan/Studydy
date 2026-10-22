@@ -4,6 +4,7 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
+from uuid import UUID
 
 from .storage.database import configure_database
 
@@ -49,9 +50,14 @@ def check_sandbox() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("init", "migrate", "serve", "prepare-read-indexes")
+        "command",
+        choices=("init", "migrate", "serve", "prepare-read-indexes", "queue-chapters"),
     )
-    command = parser.parse_args().command
+    # queue-chapters：限定教材（可重複）；--requeue 連已完成的章節也重新排入。
+    parser.add_argument("--material", action="append", type=UUID, default=[])
+    parser.add_argument("--requeue", action="store_true")
+    arguments = parser.parse_args()
+    command = arguments.command
     stage = "configuration"
     try:
         if command == "init":
@@ -79,6 +85,15 @@ def main() -> None:
 
             stage = "read_indexes"
             print(f"Prepared read indexes: {backfill()}", flush=True)
+            return
+        if command == "queue-chapters":
+            from .knowledge_chapters import queue_existing
+
+            stage = "chapter_queue"
+            for material_id, action in queue_existing(
+                material_ids=arguments.material or None, requeue=arguments.requeue
+            ):
+                print(f"{material_id} {action}", flush=True)
             return
         stage = "api"
         run_local_app(host="0.0.0.0", port=8001)

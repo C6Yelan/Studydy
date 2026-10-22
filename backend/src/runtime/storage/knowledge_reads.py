@@ -16,6 +16,7 @@ from .knowledge_structures import (
 from .tables import (
     CardSourceIndex,
     CardSourceConcept,
+    KnowledgeChapters,
     KnowledgeReadIndex,
     KnowledgeEvidenceRef,
     KnowledgeStructure,
@@ -571,46 +572,137 @@ def group_regions(path, primary_sources):
     return "learning_order", regions
 
 
-def regions(session, owner, material_id, revision):
-    view = outline(session, owner, material_id, revision)
+def learning_path(view):
+    """建議學習順序；不在路徑上的概念依概念順序接在後面。"""
     path = [
         step["concept_id"]
         for step in sorted(view["initial_learning_path"], key=lambda s: s["position"])
     ]
     seen = set(path)
-    path += [c["concept_id"] for c in view["concepts"] if c["concept_id"] not in seen]
-    # 只取每個概念重點 Evidence 的來源欄位，不把整份概念內容解碼到 API。
+    return path + [c["concept_id"] for c in view["concepts"] if c["concept_id"] not in seen]
+
+
+def concept_sources(session, owner, material_id, revision, path, *, with_pages=False):
+    """每個概念的主要來源檔（重點引用最多者），with_pages 時另回傳引用頁碼。
+
+    只取每個概念重點 Evidence 的來源欄位，不把整份概念內容解碼。
+    """
+    page_column = ", (e->>'page')::int" if with_pages else ", NULL::int"
     rows = session.execute(
         text(
-            """
-            SELECT c.concept_id, e->>'source_id', e->>'source_name', count(*)
+            f"""
+            SELECT c.concept_id, e->>'source_id', e->>'source_name'{page_column}, count(*)
             FROM card_source_concepts c
             CROSS JOIN LATERAL jsonb_array_elements(c.payload->'concept'->'claims') claim
             CROSS JOIN LATERAL jsonb_array_elements(claim->'evidence') e
             WHERE c.learner_id = :owner AND c.material_id = :material
               AND c.structure_revision = :revision
-            GROUP BY 1, 2, 3
+            GROUP BY 1, 2, 3, 4
             """
         ),
         {"owner": owner, "material": material_id, "revision": revision},
     ).all()
     known = set(path)
-    best = {}
-    for concept_id, source_id, source_name, count in rows:
-        if concept_id not in known or source_id is None or source_name is None:
+    counts, pages = {}, {}
+    for concept_id, source_id, source_name, page, count in rows:
+        if concept_id not in known:
             continue
+        if page is not None:
+            pages.setdefault(concept_id, set()).add(page)
+        if source_id is None or source_name is None:
+            continue
+        key = (concept_id, source_id, source_name)
+        counts[key] = counts.get(key, 0) + count
+    best = {}
+    for (concept_id, source_id, source_name), count in counts.items():
         # 取重點引用最多的來源；次數相同時依檔名決定，不受查詢順序影響。
         rank = (-count, source_name)
         if concept_id not in best or rank < best[concept_id][0]:
             best[concept_id] = (rank, (source_id, source_name))
-    basis, grouped = group_regions(path, {k: v[1] for k, v in best.items()})
-    return {
+    primary = {k: v[1] for k, v in best.items()}
+    if with_pages:
+        return primary, {k: sorted(v) for k, v in pages.items()}
+    return primary
+
+
+def chapter_regions(path, source_regions, chapters):
+    """把已保存的章節轉成地圖分區；與目前概念全集不一致時回傳 None。
+
+    多來源教材另回傳島群（來源檔分區），每章歸入成員最多的來源區，
+    區域依島群、再依學習順序排列。
+    """
+    flat = [c for chapter in chapters for c in chapter["concept_ids"]]
+    if len(flat) != len(set(flat)) or set(flat) != set(path):
+        return None
+    group_of = {c: r["region_id"] for r in source_regions for c in r["concept_ids"]}
+    order = {r["region_id"]: i for i, r in enumerate(source_regions)}
+    regions = []
+    for index, chapter in enumerate(chapters, 1):
+        votes = {}
+        for concept_id in chapter["concept_ids"]:
+            group = group_of.get(concept_id)
+            votes[group] = votes.get(group, 0) + 1
+        group = min(votes, key=lambda g: (-votes[g], order.get(g, len(order))))
+        regions.append(
+            {
+                "region_id": f"chapter:{index}",
+                "label": chapter["title"],
+                "source_id": None,
+                "concept_ids": list(chapter["concept_ids"]),
+                "group_id": group,
+            }
+        )
+    used = {r["group_id"] for r in regions}
+    groups = [
+        {"group_id": r["region_id"], "label": r["label"], "source_id": r["source_id"]}
+        for r in source_regions
+        if r["region_id"] in used
+    ]
+    if len(groups) < 2:
+        groups = []
+        for region in regions:
+            region["group_id"] = None
+    else:
+        regions.sort(key=lambda r: order[r["group_id"]])
+    return regions, groups
+
+
+def regions(session, owner, material_id, revision):
+    view = outline(session, owner, material_id, revision)
+    path = learning_path(view)
+    basis, grouped = group_regions(
+        path, concept_sources(session, owner, material_id, revision, path)
+    )
+    result = {
         "schema": "knowledge-regions/v1",
         "material_id": str(material_id),
         "knowledge_structure_revision": revision,
         "basis": basis,
-        "regions": grouped,
+        "regions": [{**region, "group_id": None} for region in grouped],
+        "groups": [],
+        "partial": False,
     }
+    stored = session.execute(
+        select(KnowledgeChapters.status, KnowledgeChapters.chapters).where(
+            KnowledgeChapters.learner_id == owner,
+            KnowledgeChapters.material_id == material_id,
+            KnowledgeChapters.structure_revision == revision,
+        )
+    ).one_or_none()
+    if stored is None or stored.status not in ("ready", "fallback"):
+        return result
+    chapters = chapter_regions(
+        path, grouped if basis == "source" else [], stored.chapters
+    )
+    if chapters is None:
+        return result
+    result.update(
+        basis="chapters",
+        regions=chapters[0],
+        groups=chapters[1],
+        partial=stored.status == "fallback",
+    )
+    return result
 
 
 LIBRARY_SEARCH_CONCEPTS = 30
