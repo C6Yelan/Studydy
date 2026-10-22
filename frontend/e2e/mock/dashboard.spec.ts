@@ -696,3 +696,28 @@ for (const [width, height, fits] of [[1920, 950, true], [2560, 1300, true], [144
       expect(map.height).toBeGreaterThanOrEqual(380);
     }
   });
+
+test("achievements scroll inside the overview on desktop while the page and level column stay put", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({}) }));
+  await page.goto("/achievements");
+  const overview = page.getByRole("region", { name: "成就總覽" });
+  await expect(overview).toBeVisible();
+  // 頁面剛好填滿視窗；成就總覽內容比區域高，由它自己捲動。
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
+  expect(await overview.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  const header = (await page.locator(".app-header").boundingBox())!;
+  const level = (await page.locator(".level-xp").boundingBox())!;
+  const box = (await overview.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, 600);
+  await expect.poll(() => overview.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  // 只有成就區移動：頁面、頁首與左欄位置不變。
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect((await page.locator(".app-header").boundingBox())!.y).toBe(header.y);
+  expect((await page.locator(".level-xp").boundingBox())!.y).toBe(level.y);
+  // 手機兩欄上下排列，維持整頁捲動。
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true);
+  expect(await overview.evaluate((element) => getComputedStyle(element).overflowY)).not.toBe("auto");
+});

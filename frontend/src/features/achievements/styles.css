@@ -1,4 +1,4 @@
-/* 成就頁：左欄等級與經驗值（捲動時固定在畫面內），右欄成就總覽；窄螢幕上下排列。 */
+/* 成就頁：左欄等級與經驗值，右欄成就總覽；桌機頁面剛好填滿視窗，只有成就總覽在自己的區域內捲動。窄螢幕上下排列、整頁捲動。 */
 .achievements {
   display: grid;
   gap: 22px;
@@ -11,7 +11,7 @@
 }
 .achievements-layout > .surface { padding: 20px 22px; }
 .achievements-layout h2 { margin: 0; font-size: 17px; }
-.level-xp { position: sticky; top: 16px; display: grid; gap: 4px; }
+.level-xp { display: grid; align-content: start; gap: 4px; }
 .level-xp .level-next { margin-bottom: 8px; }
 
 /* 經驗值圖解：來源比例長條、四種來源（精簡列）、升級階梯 */
@@ -120,9 +120,26 @@
   white-space: nowrap;
   transform: translateX(-50%);
 }
+/* 頁首 70px＋內容區上緣 26px＋下緣 24px；左欄放不下時（矮螢幕）自己捲動。 */
+@media (min-width: 1101px) and (min-height: 640px) {
+  .app-shell.is-achievements .app-main { padding-bottom: 24px; }
+  .achievements {
+    height: calc(100dvh - 120px);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .achievements-layout { height: 100%; min-height: 0; align-items: stretch; }
+  .achievements-layout > .level-xp,
+  .achievements-layout > .badge-collection {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* 區塊高度固定時，內部各列維持內容高度、多出的部分捲動，不被壓縮而互相重疊。 */
+    grid-auto-rows: max-content;
+    align-content: start;
+  }
+}
 @media (max-width: 1100px) {
   .achievements-layout { grid-template-columns: minmax(0, 1fr); }
-  .level-xp { position: static; }
 }
 @media (max-width: 420px) {
   .xp-sources li { grid-template-columns: 36px minmax(0, 1fr) auto; }

@@ -44,7 +44,7 @@ export function AppShell({
   const isLearningWorkspace = ["knowledge-map", "study-session", "material-sources", "material-content", "research", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name);
   const section = currentSection(route);
   return (
-    <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}${wideRoutes.includes(route.name) ? " is-wide" : ""}${route.name === "home" ? " is-home" : ""}`}>
+    <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}${wideRoutes.includes(route.name) ? " is-wide" : ""}${route.name === "home" ? " is-home" : ""}${route.name === "achievements" ? " is-achievements" : ""}`}>
       <header className="app-header">
         <div className="header-start">
           <button

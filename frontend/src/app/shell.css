@@ -151,8 +151,8 @@
   display: none;
 }
 
-/* 導覽有六個入口：1360px 以下非目前頁只顯示圖示，避免和右側搜尋、帳號重疊。 */
-@media (max-width: 1360px) {
+/* 導覽有六個入口：1440px 以下非目前頁只顯示圖示，避免和右側搜尋、帳號重疊或把搜尋擠成兩行。 */
+@media (max-width: 1440px) {
   .main-nav a:not([aria-current="page"]) span {
     display: none;
   }
