@@ -1,4 +1,5 @@
 import { writeRoute, type AppRoute } from "./routes";
+import { RouteLink } from "../ui/RouteLink";
 import { Icon, type IconName } from "../ui/Icon";
 import "./shell.css";
 
@@ -34,7 +35,6 @@ export function AppShell({
 }) {
   const isLearningWorkspace = ["knowledge-map", "study-session", "material-sources", "material-content", "research", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name);
   const section = currentSection(route);
-  const navigate = (id: Section) => writeRoute(sections.find((item) => item.id === id)!.route);
   return (
     <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}`}>
       <header className="app-header">
@@ -52,15 +52,14 @@ export function AppShell({
         </div>
         <nav className="main-nav" aria-label="主要導覽">
           {sections.map((item) => (
-            <button
+            <RouteLink
               key={item.id}
-              type="button"
+              route={item.route}
               aria-current={section === item.id ? "page" : undefined}
-              onClick={() => navigate(item.id)}
             >
               <Icon name={item.icon} size={18} />
               <span>{item.label}</span>
-            </button>
+            </RouteLink>
           ))}
         </nav>
         <div className="account-controls">{accountAction}</div>
@@ -70,19 +69,19 @@ export function AppShell({
       </main>
       <nav className="tab-bar" aria-label="手機導覽">
         {sections.slice(0, 2).map((item) => (
-          <button key={item.id} type="button" aria-current={section === item.id ? "page" : undefined} onClick={() => navigate(item.id)}>
+          <RouteLink key={item.id} route={item.route} aria-current={section === item.id ? "page" : undefined}>
             <Icon name={item.icon} size={22} />
             <span>{item.short}</span>
-          </button>
+          </RouteLink>
         ))}
         <button className="tab-bar-upload" type="button" aria-label="上傳教材" onClick={() => writeRoute({ name: "upload" })}>
           <Icon name="plus" size={26} />
         </button>
         {sections.slice(2).map((item) => (
-          <button key={item.id} type="button" aria-current={section === item.id ? "page" : undefined} onClick={() => navigate(item.id)}>
+          <RouteLink key={item.id} route={item.route} aria-current={section === item.id ? "page" : undefined}>
             <Icon name={item.icon} size={22} />
             <span>{item.short}</span>
-          </button>
+          </RouteLink>
         ))}
       </nav>
     </div>

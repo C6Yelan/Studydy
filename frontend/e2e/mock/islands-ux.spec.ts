@@ -92,8 +92,8 @@ test("material cards keep the main action on its own row and secondary entries a
       const box = (await actions.boundingBox())!;
       const primary = (await actions.locator(".primary-button").boundingBox())!;
       expect(Math.abs(primary.width - box.width)).toBeLessThanOrEqual(1);
-      const cards = (await card.getByRole("button", { name: "概念卡", exact: true }).boundingBox())!;
-      const podcast = (await card.getByRole("button", { name: "Podcast", exact: true }).boundingBox())!;
+      const cards = (await card.getByRole("link", { name: "概念卡", exact: true }).boundingBox())!;
+      const podcast = (await card.getByRole("link", { name: "Podcast", exact: true }).boundingBox())!;
       expect(Math.abs(cards.y - podcast.y)).toBeLessThanOrEqual(1);
       expect(Math.abs(cards.height - podcast.height)).toBeLessThanOrEqual(1);
       expect(cards.y).toBeGreaterThan(primary.y + primary.height - 1);

@@ -379,6 +379,7 @@ def finish_step(
     claim,
     *,
     script=None,
+    title=None,
     audio=None,
     audio_provider=None,
     audio_mastering=None,
@@ -402,6 +403,8 @@ def finish_step(
         else:
             if script is not None:
                 episode["script"] = validate_script(script, episode)
+                if title:
+                    episode["title"] = title
             elif audio is not None and episode["script"]:
                 if (
                     not isinstance(audio_provider, str)

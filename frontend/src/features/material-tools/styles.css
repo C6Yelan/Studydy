@@ -385,6 +385,15 @@
 .material-qa-trigger:hover, .material-qa-trigger[aria-expanded="true"] { background:var(--studydy-blue); color:#fff; }
 .material-tool-panel.is-voice.voice-bubble.material-qa-drawer { position:fixed; top:calc(var(--shell-header-bottom, 78px) + 8px); right:12px; bottom:12px; z-index:30; display:flex; flex-direction:column; width:min(420px,calc(100vw - 24px)); height:auto; max-height:none; border:0; border-radius:var(--radius-panel); box-shadow:0 24px 60px -18px rgba(29,52,110,.45); animation:qa-drawer-in .25s cubic-bezier(.2,1,.4,1); }
 @keyframes qa-drawer-in { from { opacity:0; } }
+/* 寬螢幕：問答是右側面板，主內容讓出面板寬度，地圖與教材不被蓋住。 */
+@media (min-width:1100px) {
+  .material-tool-panel.is-voice.voice-bubble.material-qa-drawer { width:400px; box-shadow:0 12px 40px -18px rgba(29,52,110,.35); animation:qa-panel-in .25s cubic-bezier(.2,1,.4,1); }
+  html.qa-panel-open .app-shell.is-workspace .app-main { padding-right:calc(400px + 12px + var(--shell-gutter)); }
+}
+@keyframes qa-panel-in { from { opacity:0; } }
+@media (prefers-reduced-motion: reduce) {
+  .material-tool-panel.is-voice.voice-bubble.material-qa-drawer { animation:none; }
+}
 @media (max-width:720px) {
   .material-bar { gap:10px; margin-bottom:10px; padding:8px 14px 8px 8px; }
   .material-bar-meta { display:none; }
@@ -395,8 +404,10 @@
   .material-content-nav.map-tabs > button { padding:0 12px; font-size:14px; }
   .material-qa-trigger { width:42px; padding:0; justify-content:center; }
   .material-qa-trigger > span { display:none; }
-  .material-tool-panel.is-voice.voice-bubble.material-qa-drawer { top:calc(var(--shell-header-bottom, 64px) + 8px); right:8px; bottom:8px; left:8px; width:auto; }
-}/* 矮螢幕桌機：資訊列收進分頁列左側，把高度留給地圖、播放器與清單。 */
+  /* 手機：從底部升起的全高面板，頂端緊接頁首。 */
+  .material-tool-panel.is-voice.voice-bubble.material-qa-drawer { top:var(--shell-header-bottom, 64px); right:0; bottom:0; left:0; width:auto; border-radius:var(--radius-panel) var(--radius-panel) 0 0; padding-bottom:env(safe-area-inset-bottom); animation:qa-sheet-in .25s cubic-bezier(.2,1,.4,1); }
+}
+@keyframes qa-sheet-in { from { transform:translateY(40px); opacity:0; } }/* 矮螢幕桌機：資訊列收進分頁列左側，把高度留給地圖、播放器與清單。 */
 .material-toolbar-name { display:none; }
 @media (min-width:1000px) and (max-height:820px) {
   .material-bar { display:none; }

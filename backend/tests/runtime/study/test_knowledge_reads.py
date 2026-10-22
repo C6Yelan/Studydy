@@ -240,3 +240,28 @@ def test_progress_summary_returns_counts_without_outline_or_concept_states(close
     assert client.get(base, params={'extra': '1'}).status_code == 400
     client.cookies.clear()
     assert client.get(base).status_code == 401
+
+
+def test_regions_reuse_source_statistics_of_the_same_revision(closed_loop):
+    from sqlalchemy import event
+
+    owner, source, _, document, dsn, _ = closed_loop
+    key = (owner.learner_id, source.material_id, document['revision'])
+    expansions = []
+
+    def count(_conn, _cursor, statement, *_):
+        if 'card_source_concepts c' in statement:
+            expansions.append(statement)
+
+    with database_session(dsn) as db:
+        event.listen(db.get_bind(), 'before_cursor_execute', count)
+        try:
+            first = knowledge_reads.regions(db, *key)
+            second = knowledge_reads.regions(db, *key)
+        finally:
+            event.remove(db.get_bind(), 'before_cursor_execute', count)
+    assert first == second and len(expansions) == 1
+    # 權限仍由 outline 核對：他人讀同一版本照樣被拒。
+    from runtime.storage.knowledge_structures import KnowledgeStructureStoreError
+    with database_session(dsn) as db, pytest.raises(KnowledgeStructureStoreError):
+        knowledge_reads.regions(db, uuid4(), source.material_id, document['revision'])

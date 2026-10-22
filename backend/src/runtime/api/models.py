@@ -1376,6 +1376,8 @@ class PodcastAudio(_Closed):
 
 class PodcastEpisode(_Closed):
     script_sha256: str | None = None
+    # 短集名（衍生顯示資料）；舊資料或取名失敗時為 None。
+    title: str | None = None
     delivery: Literal["solo", "dialogue"]
     claims: list[PodcastClaim]
     script: PodcastBeatScript | PodcastScript | None

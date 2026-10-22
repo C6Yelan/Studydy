@@ -255,6 +255,8 @@ export function AccountPage({
         {isRegister ? "已經有帳戶？" : "還沒有帳戶？"}{" "}
         <a href={isRegister ? "/login" : "/register"}>{isRegister ? "立即登入" : "立即註冊"}</a>
       </p>
+      {/* 目前沒有寄信服務，無法自助重設密碼。 */}
+      {!isRegister && <p className="auth-forgot">忘記密碼？目前無法自行重設，請聯絡管理者協助。</p>}
     </AccountFrame>
   );
 }

@@ -74,7 +74,7 @@ async function speak(page:Page) {
 test('compact widget has one entry, chat bubbles, secondary sources and a growing single composer',async({page},testInfo)=>{
  await page.setViewportSize({width:1440,height:900});const mock=await mockVoice(page);await page.goto(mapPath);await open(page);
  const panel=page.getByRole('dialog',{name:'教材問答'}),input=page.getByLabel('問題／辨識文字');
- await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveCount(0);await expect(panel.getByRole('heading',{name:'教材問答',exact:true})).toBeVisible();await expect(input).toBeFocused();
+ await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveAttribute('aria-expanded','true');await expect(panel.getByRole('heading',{name:'教材問答',exact:true})).toBeVisible();await expect(input).toBeFocused();
  await expect(page.getByLabel('已保存的對話')).not.toBeVisible();
  const box=(await panel.boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!,composer=(await page.locator('.voice-composer').boundingBox())!;
  // 桌機改為頁首下方的右側抽屜。
@@ -154,8 +154,8 @@ test('390px chat uses the same compact header, fixed composer and keyboard focus
  await page.setViewportSize({width:390,height:844});const mock=await mockVoice(page),conversation=mock.add();for(let i=0;i<10;i++)mock.turn(conversation,`問題 ${i}`);
  await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
  const panel=page.getByRole('dialog',{name:'教材問答'}),box=(await panel.boundingBox())!,appHeader=(await page.locator('.app-header').boundingBox())!;
- expect(box.width).toBe(374);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(appHeader.height);expect(box.y+box.height).toBeLessThanOrEqual(844);
- await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveCount(0);await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
+ expect(box.width).toBe(390);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(appHeader.height);expect(box.y+box.height).toBeLessThanOrEqual(844);
+ await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveAttribute('aria-expanded','true');await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
  await page.getByLabel('問題／辨識文字').fill('多行草稿\n'.repeat(25));const composer=(await page.locator('.voice-composer').boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!;
  await page.locator('.voice-turns').evaluate(el=>{el.scrollTop=0;});expect((await page.locator('.voice-composer').boundingBox())!.y).toBeCloseTo(composer.y,0);expect((await page.locator('.voice-header').boundingBox())!.y).toBeCloseTo(header.y,0);expect(composer.y+composer.height).toBeLessThanOrEqual(box.y+box.height);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);await panel.screenshot({path:testInfo.outputPath('voice-mobile.png')});

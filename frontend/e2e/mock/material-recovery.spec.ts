@@ -116,7 +116,7 @@ for (const width of [1536, 390])
     await expect(page.getByRole("heading", { name: "教材處理失敗", exact: true })).toBeVisible();
     await expect(page.getByText("已完成的頁面整理或分析進度保存在本機。", { exact: false })).toBeVisible();
     await expect(page.getByText("最後記錄進度：", { exact: false })).toContainText("建立概念、關係與學習順序");
-    await expect(page.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "開啟知識地圖", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "接續已保存的分析", exact: true }).click();
     await expect(page.locator(".material-recovery-error")).toBeVisible();
     await expect(page.getByRole("button", { name: "接續已保存的分析", exact: true })).toBeFocused();
@@ -266,7 +266,7 @@ for (const status of ["active", "completed"] as const)
     await expect(actions.locator(".primary-button")).toHaveText(
       status === "active" ? "繼續學習" : "查看學習成果",
     );
-    await expect(actions.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveClass(
+    await expect(actions.getByRole("link", { name: "開啟知識地圖", exact: true })).toHaveClass(
       "secondary-button",
     );
     await expect(actions.getByRole("button", { name: "重新處理教材", exact: true })).toHaveCount(0);
@@ -275,7 +275,7 @@ for (const status of ["active", "completed"] as const)
     );
     saved.latest_attempt = newRun;
     await page.reload();
-    await expect(actions.getByRole("button")).toHaveText([
+    await expect(actions.locator(":is(button, a)")).toHaveText([
       status === "active" ? "繼續學習" : "查看學習成果",
       "開啟知識地圖",
       "查看進度",

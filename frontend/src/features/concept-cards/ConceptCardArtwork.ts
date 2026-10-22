@@ -11,7 +11,8 @@ const geometry = shapes as unknown as Record<string, [string, Record<string, str
 const FONT = '"Noto Sans CJK TC", "Microsoft JhengHei", system-ui, sans-serif';
 // 明確保留繁中文字型，避免等寬字型的系統後備採用簡體標點。
 const MONO = 'ui-monospace, "SFMono-Regular", Consolas, "DejaVu Sans Mono", "Noto Sans CJK TC", "Microsoft JhengHei", monospace';
-const ink = "#173d52", muted = "#526f7c", blue = "#256495", green = "#23695d";
+// 卡面配色沿用知識群島藍色系（與全站 token 一致）；下載的 PNG 也用同一組顏色。
+const ink = "#1d2742", muted = "#4a5677", blue = "#1d4fd6", green = "#0f7a99";
 let measureContext: CanvasRenderingContext2D | null = null;
 function measure(text: string, size: number, mono = false, weight = 400) {
   measureContext ??= document.createElement("canvas").getContext("2d");
@@ -155,7 +156,7 @@ function sparse(draw: CardCanvas, layout: Layout, frame: ReturnType<typeof spars
     const object = objects[0], region = regions[0], claim = layout.claims[0];
     const iconTop = region.top + (region.height - 234) / 2;
     const contentHeight = Math.min(region.height - 48, textHeight(claimText(claim), width, size));
-    draw.box(48, region.top, 294, region.height, 32, "#e1ecf5");
+    draw.box(48, region.top, 294, region.height, 32, "#e8efff");
     draw.icon(object.kind, 105, iconTop);
     draw.cardText({ text: object.label, x: 68, y: iconTop + 190, width: 254, height: 44, size: 28, minSize: 26, bold: true, center: true });
     draw.cardText({ text: claimText(claim), x: 390, y: region.top + (region.height - contentHeight) / 2, width, height: contentHeight, size, minSize: 30 });
@@ -164,18 +165,18 @@ function sparse(draw: CardCanvas, layout: Layout, frame: ReturnType<typeof spars
   if (frame.mode === "gallery") {
     objects.forEach((object, i) => {
       const cx = 600 + (i - (objects.length - 1) / 2) * (objects.length === 2 ? 440 : 345);
-      draw.circle(cx, 310, 90, i % 2 ? "#e0ede5" : "#e1ecf5");
+      draw.circle(cx, 310, 90, i % 2 ? "#e4f4fb" : "#e8efff");
       draw.icon(object.kind, cx - 72, 238, 144);
       draw.cardText({ text: object.label, x: cx - 150, y: 410, width: 300, height: 60, size: 30, minSize: 26, bold: true, center: true });
     });
     layout.claims.forEach((claim, i) => {
-      if (i > 0) draw.path(`M48 ${regions[i].top - 9}H1152`, "#becfce");
+      if (i > 0) draw.path(`M48 ${regions[i].top - 9}H1152`, "#cfdcf5");
       draw.cardText({ text: claimText(claim), x: 60, y: regions[i].top, width, height: regions[i].height, size, minSize: 28 });
     });
     return;
   }
   layout.claims.forEach((claim, i) => {
-    draw.box(48, regions[i].top, 1104, regions[i].height, 28, i % 2 ? "#e0ede5" : "#e3edf5");
+    draw.box(48, regions[i].top, 1104, regions[i].height, 28, i % 2 ? "#e4f4fb" : "#e8efff");
     draw.cardText({ text: claimText(claim), x: 88, y: regions[i].top + 24, width, height: regions[i].height - 48, size, minSize: 30 });
   });
   if (!layout.claims.length) draw.cardText({ text: "尚無可呈現的教材重點。", x: 88, y: 244, width: 1024, height: 70, size: 38 });
@@ -186,11 +187,11 @@ function points(draw: CardCanvas, layout: Layout) {
   const regions = count <= 2 ? [{ x: 48, y: 280, w: 535, h: 416 }, { x: 617, y: 280, w: 535, h: 416 }]
     : count === 3 ? [{ x: 48, y: 235, w: 490, h: 215 }, { x: 662, y: 235, w: 490, h: 215 }, { x: 355, y: 516, w: 490, h: 215 }]
     : [{ x: 48, y: 241, w: 535, h: 216 }, { x: 617, y: 241, w: 535, h: 216 }, { x: 48, y: 491, w: 535, h: 216 }, { x: 617, y: 491, w: 535, h: 216 }];
-  draw.path(count === 3 ? "M293 450 600 482 907 450M600 482V516" : "M315 465H885M600 420V505", "#9fb9c5", 3);
-  if (count === 3) { draw.circle(600, 482, 23, "#f8f7f0", "#9fb9c5"); draw.text("·", 600, 489, 17, muted, false, "center"); }
+  draw.path(count === 3 ? "M293 450 600 482 907 450M600 482V516" : "M315 465H885M600 420V505", "#a9bce6", 3);
+  if (count === 3) { draw.circle(600, 482, 23, "#f6f9ff", "#a9bce6"); draw.text("·", 600, 489, 17, muted, false, "center"); }
   layout.claims.forEach((claim, i) => {
     const r = regions[i], object = layout.objects.find(o => o.claimId === claim.claim_id);
-    draw.path(`M${r.x + 30} ${r.y}H${r.x + r.w - 30}Q${r.x + r.w} ${r.y} ${r.x + r.w} ${r.y + 30}V${r.y + r.h}H${r.x}V${r.y + 30}Q${r.x} ${r.y} ${r.x + 30} ${r.y}`, undefined, 1, i % 2 ? "#e0ede5" : "#e3edf5");
+    draw.path(`M${r.x + 30} ${r.y}H${r.x + r.w - 30}Q${r.x + r.w} ${r.y} ${r.x + r.w} ${r.y + 30}V${r.y + r.h}H${r.x}V${r.y + 30}Q${r.x} ${r.y} ${r.x + 30} ${r.y}`, undefined, 1, i % 2 ? "#e4f4fb" : "#e8efff");
     if (object) draw.icon(object.kind, r.x + 15, r.y + 26, 48);
     else draw.text(String(i + 1).padStart(2, "0"), r.x + 22, r.y + 47, 32, i % 2 ? green : blue, true);
     draw.cardText({ text: claimText(claim), x: r.x + 76, y: r.y + 20, width: r.w - 102, height: r.h - 38, size: 30, minSize: 26 });
@@ -204,7 +205,7 @@ function relation(draw: CardCanvas, layout: Layout, conceptId: string, compact: 
     draw.cardText({ text, x, y, width, height, size: 34, minSize: 28, bold: true, center: true });
   const node = (side: "source" | "target", y: number, caption: string, x = left, w = width) => {
     const concept = side === "source" ? source : target, current = concept.concept_id === conceptId;
-    draw.box(x, y, w, 138, 24, current ? "#dceaf5" : "#e0ede5", current ? blue : "#a5bdb3", 2);
+    draw.box(x, y, w, 138, 24, current ? "#dde7ff" : "#e4f4fb", current ? blue : "#9fcfe2", 2);
     draw.text(caption, x + 22, y + 30, 21, muted);
     label(concept.label, x + 22, y + 44, w - 44);
   };
@@ -213,17 +214,17 @@ function relation(draw: CardCanvas, layout: Layout, conceptId: string, compact: 
     : relation.type === "contrast" ? ["對照概念", "對照概念"] : ["相關概念", "相關概念"];
   if (["part_of", "classification"].includes(presentation)) {
     if (compact) {
-      draw.box(48, 220, 1104, 170, 28, "#e0ede5", "#93b3a8", 2);
+      draw.box(48, 220, 1104, 170, 28, "#e4f4fb", "#8fc4da", 2);
       draw.text(presentation === "classification" ? "分類" : "整體", 72, 254, 21, muted);
       label(target.label, 72, 269, 500);
-      draw.box(650, 244, 470, 120, 24, "#e0edf7", blue, 2);
+      draw.box(650, 244, 470, 120, 24, "#e8efff", blue, 2);
       draw.text(presentation === "classification" ? "類別" : "組成部分", 672, 274, 21, muted);
       label(source.label, 672, 286, 426, 70);
     } else {
-      draw.box(left, 232, width, 334, 30, "#e0ede5", "#93b3a8", 2);
+      draw.box(left, 232, width, 334, 30, "#e4f4fb", "#8fc4da", 2);
       draw.text(presentation === "classification" ? "分類" : "整體", left + 22, 266, 21, muted);
       label(target.label, left + 22, 279, width - 44);
-      draw.box(left + 28, 387, width - 56, 150, 24, "#e0edf7", blue, 2);
+      draw.box(left + 28, 387, width - 56, 150, 24, "#e8efff", blue, 2);
       draw.text(presentation === "classification" ? "類別" : "組成部分", left + 48, 420, 21, muted);
       label(source.label, left + 48, 433, width - 96);
     }
@@ -247,7 +248,7 @@ function relation(draw: CardCanvas, layout: Layout, conceptId: string, compact: 
     const top = compact ? compact.regions[i].top : 220 + i * (height + gap);
     const x = compact ? 48 : 500, w = compact ? 1104 : 652;
     const object = layout.objects.find(o => o.claimId === claim.claim_id);
-    draw.box(x, top, w, height, 24, i % 2 ? "#e0ede5" : "#e3edf5");
+    draw.box(x, top, w, height, 24, i % 2 ? "#e4f4fb" : "#e8efff");
     if (object) draw.icon(object.kind, x + 16, top + 20, 42);
     else draw.text(String(i + 1).padStart(2, "0"), x + 20, top + 47, 26, blue);
     draw.cardText({ text: claimText(claim), x: x + 74, y: top + 18, width: w - 96, height: height - 36, size: compact ? 34 : layout.claims.length === 1 ? 38 : 30, minSize: 28 });
@@ -264,7 +265,7 @@ function readable(draw: CardCanvas, layout: Layout) {
   layout.claims.forEach((claim, i) => {
     const height = total > available ? 92 + (available - layout.claims.length * 92) * heights[i] / total : heights[i];
     const y = top; top += height + 12;
-    draw.box(48, y, 1104, height, 22, i % 2 ? "#e0ede5" : "#e3edf5");
+    draw.box(48, y, 1104, height, 22, i % 2 ? "#e4f4fb" : "#e8efff");
     draw.cardText({ text: cardSourceText(claim), x: 72, y: y + 14, width: 1056, height: height - 28, size, minSize: 26 });
   });
 }
@@ -291,7 +292,7 @@ function contentTable(draw: CardCanvas, layout: Layout) {
   top += d.introHeight;
   rows.forEach((row, i) => {
     const y = top, height = d.heights[i]; top += height;
-    draw.box(48, y, 1104, height, 0, i % 2 ? "#e0ede5" : "#e3edf5");
+    draw.box(48, y, 1104, height, 0, i % 2 ? "#e4f4fb" : "#e8efff");
     draw.cardText({ text: row.label, x: 58, y: y + 2, width: d.keyWidth - 20, height: height - 4, size, bold: true });
     if (mono) draw.text(row.value, 66 + d.keyWidth, y + 5 + fontMetrics(size).ascent, size, ink, false, "left", true);
     else draw.cardText({ text: row.value, x: 64 + d.keyWidth, y: y + 2, width: d.valueWidth, height: height - 4, size });
@@ -317,9 +318,9 @@ function sequence(draw: CardCanvas, layout: Layout) {
   const notesY = rowStart + stepHeight * content.steps.length + 8;
   if (content.intro) draw.cardText({ text: content.intro, x: 48, y: 220, width: 1104, height: introHeight, size: 25 });
   people.forEach((person, i) => {
-    draw.box(i ? 840 : 80, headingY, 280, 58, 18, i ? "#e0ede5" : "#e3edf5");
+    draw.box(i ? 840 : 80, headingY, 280, 58, 18, i ? "#e4f4fb" : "#e8efff");
     draw.cardText({ text: person, x: i ? 850 : 90, y: headingY + 5, width: 260, height: 48, size: 30, minSize: 26, bold: true, center: true });
-    draw.path(`M${i ? 980 : 220} ${headingY + 58}V${notesY - 4}`, "#a0b8c7", 2, undefined, [6, 6]);
+    draw.path(`M${i ? 980 : 220} ${headingY + 58}V${notesY - 4}`, "#a9bce6", 2, undefined, [6, 6]);
   });
   content.steps.forEach((step, i) => {
     const y = rowStart + i * stepHeight, forward = step.from === people[0];
@@ -337,7 +338,7 @@ function fields(draw: CardCanvas, layout: Layout) {
   const compose = content.kind === "composition";
   const gap = compose ? 90 : 18, width = (1104 - gap * (content.fields.length - 1)) / content.fields.length;
   content.fields.forEach((field, i) => {
-    draw.box(48 + i * (width + gap), 300, width, 142, 20, i % 2 ? "#e0ede5" : "#e3edf5");
+    draw.box(48 + i * (width + gap), 300, width, 142, 20, i % 2 ? "#e4f4fb" : "#e8efff");
     draw.cardText({ text: field, x: 64 + i * (width + gap), y: 327, width: width - 32, height: 88, size: 36, minSize: 28, bold: true, center: true });
     if (compose && i > 0) draw.text("+", 48 + i * (width + gap) - gap / 2, 385, 38, blue, false, "center");
   });
@@ -366,7 +367,7 @@ function group(draw: CardCanvas, layout: Layout) {
   top += captionHeight;
   content.items.forEach((item, i) => {
     const y = top; top += d.rows[i] + 6;
-    draw.box(48, y, 1104, d.rows[i], 14, i % 2 ? "#e0ede5" : "#e3edf5");
+    draw.box(48, y, 1104, d.rows[i], 14, i % 2 ? "#e4f4fb" : "#e8efff");
     if (content.ordered) draw.text(item.ordinal!, 66, y + 37, 28, blue);
     draw.cardText({ text: item.label, x: content.ordered ? 116 : 68, y: y + 6, width: content.ordered ? 276 : 324, height: d.rows[i] - 12, size, minSize: 24, bold: true });
     draw.cardText({ text: item.description, x: 416, y: y + 6, width: 720, height: d.rows[i] - 12, size });
@@ -385,13 +386,13 @@ function technical(draw: CardCanvas, layout: Layout) {
   // 技術內容只取完整的前綴行，絕不在行內折斷運算子、識別符或條件。
   const firstUnfit = lines.findIndex(line => measure(line, size, true) > 975);
   const shown = lines.slice(0, Math.min(capacity, firstUnfit < 0 ? lines.length : firstUnfit));
-  draw.box(48, 224, 1104, 510, 28, code ? "#18394d" : "#e3edf5");
-  draw.text(code ? "程式碼" : "公式", 82, 270, 23, code ? "#b9dce9" : blue);
-  draw.path("M80 293H1120", code ? "#456473" : "#b6cbd7");
+  draw.box(48, 224, 1104, 510, 28, code ? "#1d2742" : "#e8efff");
+  draw.text(code ? "程式碼" : "公式", 82, 270, 23, code ? "#bcd0ff" : blue);
+  draw.path("M80 293H1120", code ? "#3d4a6b" : "#c3d2f0");
   shown.forEach((line, i) => draw.text(line, 126, 320 + size + i * size * 1.45, size, code ? "#f4fbff" : ink, false, "left", true));
-  shown.forEach((_, i) => draw.text(i + 1, 91, 320 + size + i * size * 1.45, 18, code ? "#8cbdca" : muted, false, "right"));
+  shown.forEach((_, i) => draw.text(i + 1, 91, 320 + size + i * size * 1.45, 18, code ? "#93a6d6" : muted, false, "right"));
   if (!shown.length) draw.cardText({ text: "原文單行超出圖卡容量。", x: 126, y: 371, width: 920, height: 140, size: 32, fill: code ? "#f4fbff" : ink });
-  draw.text(shown.length < lines.length ? `原文節錄 · 僅列完整前 ${shown.length} 行` : "", 82, 713, 20, code ? "#b9dce9" : blue);
+  draw.text(shown.length < lines.length ? `原文節錄 · 僅列完整前 ${shown.length} 行` : "", 82, 713, 20, code ? "#bcd0ff" : blue);
 }
 
 type DesignedPage = { family: "designed"; design: CardDesignPage; claims: ConceptCard["claims"] };
@@ -453,13 +454,13 @@ function designed(draw: CardCanvas, page: CardDesignPage) {
   }
   const canvasHeight = Math.ceil(Math.max(760, ...boxes.map(box => box.y + box.height + 60)));
   draw.context.canvas.height = canvasHeight;
-  draw.box(0, 0, 1200, canvasHeight, 28, "#f8f7f0");
+  draw.box(0, 0, 1200, canvasHeight, 28, "#f6f9ff");
   designText(draw, title, 48, 30);
-  draw.box(48, takeawayY, 1104, takeawayHeight, 22, "#173d52");
+  draw.box(48, takeawayY, 1104, takeawayHeight, 22, "#1d2742");
   designText(draw, takeaway, 72, takeawayY + 15, "#ffffff");
   page.blocks.forEach((block, index) => {
     const box = boxes[index];
-    draw.box(box.x, box.y, box.width, box.height, 22, index % 2 ? "#e0ede5" : "#e3edf5");
+    draw.box(box.x, box.y, box.width, box.height, 22, index % 2 ? "#e4f4fb" : "#e8efff");
     if (block.icon !== "none") draw.icon(block.icon, box.x + (box.soloIcon ? 56 : compact ? 18 : 20), box.y + (box.soloIcon ? 80 : compact ? 12 : 20), box.soloIcon ? 192 : compact ? 40 : 44);
     designText(draw, box.heading, box.x + box.headingX, box.y + box.headingY);
     designText(draw, box.body, box.x + box.bodyX, box.y + box.bodyY);
@@ -542,10 +543,10 @@ export function conceptCardCanvas(card: ConceptCard, structure: ConceptCardConte
     const compact = layout.family === "relation" ? compactRelationFrame(layout) : null;
     const contentHeight = sparseLayout?.height ?? compact?.height ?? 760;
     const primary = ["relation", "group"].includes(layout.family) ? layout.objects.find(o => o.role === "concept") : undefined;
-    draw.box(0, 0, 1200, 760, 28, "#f8f7f0");
+    draw.box(0, 0, 1200, 760, 28, "#f6f9ff");
     draw.cardText({ text: card.label, x: 48, y: 42, width: primary ? 976 : 1104, height: 109, size: 48, minSize: 38, bold: true, notice: "標題節錄" });
     if (primary) draw.icon(primary.kind, 1058, 52, 84);
-    draw.path("M48 175H1152", "#c8d4d2");
+    draw.path("M48 175H1152", "#cfdcf5");
     context.save(); context.translate(0, -30 + (760 - contentHeight) / 2);
     switch (layout.family) {
       case "technical": technical(draw, layout); break;

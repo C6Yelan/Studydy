@@ -735,6 +735,8 @@ export type PodcastScript = {
   review?: {correctness:{passed:boolean;reason:string};teaching_quality:{passed:boolean;reason:string}} | null;
 };
 export type PodcastEpisode = {
+  // 短集名；舊資料或取名失敗時沒有，改以概念名稱組成。
+  title?: string | null;
   delivery: "solo" | "dialogue";
   claims: PodcastClaim[];
   script: PodcastScript | null;

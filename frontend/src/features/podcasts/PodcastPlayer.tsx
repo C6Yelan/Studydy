@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
+import { createPortal } from "react-dom";
 import type { PodcastProgressUpdate, PodcastView } from "../../api/contracts";
 import { type VideoView, type usePodcastVideo } from "./PodcastVideo";
 
@@ -37,8 +38,8 @@ function ControlIcon({ name }: { name: "play" | "pause" | "previous" | "next" | 
 const SYNC_INTERVAL_MS = 15_000;
 export type ProgressSync = (body: PodcastProgressUpdate, keepalive: boolean) => Promise<unknown>;
 
-export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPosition, autoPlay, onEnded, onPrevious, onNext, mediaRef, videoState, resumeAt, onSync }: {
-  view: PodcastView; index: number; storageKey: string; settingsKey: string; rememberPosition: { current: boolean };
+export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsKey, rememberPosition, autoPlay, onEnded, onPrevious, onNext, mediaRef, videoState, resumeAt, onSync }: {
+  view: PodcastView; index: number; episodeLabel?: string; storageKey: string; settingsKey: string; rememberPosition: { current: boolean };
   mediaRef?: {current: HTMLMediaElement | null};
   videoState: ReturnType<typeof usePodcastVideo>;
   autoPlay: boolean; onEnded: (autoAdvance:boolean) => void; onPrevious: () => void; onNext: () => void;
@@ -125,9 +126,10 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     for (const track of tracks) track.mode = "hidden";
     setCaption(showSubtitles ? tracks.flatMap(track => Array.from(track.activeCues ?? []))
       .map(cue => (cue as VTTCue).getCueAsHTML().textContent ?? "").join("\n") : "");
-    const controlsHeight = controlsVisible ? viewport.current?.querySelector(".media-playback-controls")?.getBoundingClientRect().height ?? 0 : 0;
+    // 播放列平時在畫面底部常駐，只有全螢幕時疊在影片上，字幕才需要讓開。
+    const controlsHeight = controlsVisible && fullscreen ? viewport.current?.querySelector(".media-playback-controls")?.getBoundingClientRect().height ?? 0 : 0;
     setCaptionBottom(controlsHeight + 12);
-  }, [media, showSubtitles, controlsVisible]);
+  }, [media, showSubtitles, controlsVisible, fullscreen]);
   useEffect(() => {
     const element = media.current;
     const tracks = Array.from(element?.textTracks ?? []);
@@ -214,6 +216,32 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     onEnded:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget!==media.current)return;setPlaying(false);save(e.currentTarget);sync(e.currentTarget,{ended:true});onEnded(settings.autoAdvance)},
     onError:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current){setReady(false);setError("媒體讀取失敗，請重試。")}},
   };
+  // 播放列：平時固定在畫面底部（捲動或切換分頁時都看得到），全螢幕時疊在影片上。
+  const controls = <>
+      <div className="media-playback-controls" role="group" aria-label="播放控制">
+    <span className="media-now-playing">第 {index + 1} 集{episodeLabel ? ` · ${episodeLabel}` : ""}</span>
+    <div className="media-progress-track"><span aria-hidden="true" style={{width:`${length ? Math.max(0,Math.min(100,time / length * 100)) : 0}%`}}/>
+    <input className="media-timeline" type="range" aria-label="播放進度" aria-valuetext={`${formatTime(time)} / ${formatTime(length)}`} min={0} max={length} step={0.1} value={time} disabled={!ready} onChange={e => seek(Number(e.target.value))} />
+    </div>
+    <div className="media-controls"><div className="media-transport">
+      <button type="button" className="media-icon media-play" aria-label={playing ? "暫停" : "播放"} title={playing ? "暫停" : "播放"} disabled={!ready} onClick={toggle}><ControlIcon name={playing ? "pause" : "play"} /></button>
+      {index > 0 && <button type="button" className="media-icon" aria-label="上一集" title="上一集" onClick={onPrevious}><ControlIcon name="previous" /></button>}
+      {index + 1 < view.episode_count && <button type="button" className="media-icon" aria-label="下一集" title="下一集" onClick={onNext}><ControlIcon name="next" /></button>}
+      </div>
+      <div className="media-seek-buttons">
+        <button type="button" className="media-icon" aria-label="後退 10 秒" title="後退 10 秒" disabled={!ready} onClick={() => seek(time - 10)}><ControlIcon name="rewind" /></button>
+        <button type="button" className="media-icon" aria-label="前進 10 秒" title="前進 10 秒" disabled={!ready} onClick={() => seek(time + 10)}><ControlIcon name="forward" /></button>
+      </div>
+      <div className="media-volume"><button type="button" className="media-icon" aria-label={settings.muted || settings.volume === 0 ? "取消靜音" : "靜音"} title="音量" onClick={mute}><ControlIcon name={settings.muted || settings.volume === 0 ? "muted" : "volume"} /></button>
+        <input type="range" aria-label="音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))} /></div>
+      <span className="media-time" aria-live="off">{formatTime(time)} / {formatTime(length)}</span>
+      <div className="media-settings" ref={menu}><label className="media-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><button ref={gear} type="button" className="media-icon media-settings-toggle" aria-label="播放設定" title="播放設定" aria-expanded={menuOpen} aria-controls="podcast-player-settings" onClick={() => setMenuOpen(v => !v)}><span>{settings.speed}×</span><ControlIcon name="settings" /></button>
+        {menuOpen && <div id="podcast-player-settings" className="media-settings-panel" role="group" aria-label="播放設定選單"><label className="media-menu-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><div className="media-menu-seek"><button type="button" className="text-button" disabled={!ready} onClick={() => seek(time - 10)}><ControlIcon name="rewind" />後退 10 秒</button><button type="button" className="text-button" disabled={!ready} onClick={() => seek(time + 10)}><ControlIcon name="forward" />前進 10 秒</button></div>{video && <button type="button" className="text-button" aria-label="字幕" aria-pressed={showSubtitles} onClick={() => setShowSubtitles(value => !value)}>字幕：{showSubtitles ? "開啟" : "關閉"}</button>}<strong>播放速度</strong><div className="media-speed-options">{speeds.map(speed => <button type="button" key={speed} aria-pressed={settings.speed === speed} onClick={() => {setSettings(s => ({ ...s, speed }));setMenuOpen(false)}}>{speed === 1 ? "正常" : `${speed}×`}</button>)}</div><label className="media-menu-volume">音量<input type="range" aria-label="設定音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))}/></label></div>}
+        {video && <button type="button" className="media-icon" aria-label={fullscreen ? "退出全螢幕" : "全螢幕"} title={fullscreen ? "退出全螢幕" : "全螢幕"} onClick={() => void toggleFullscreen()}><ControlIcon name="fullscreen" /></button>}
+      </div>
+    </div>
+      </div>
+  </>;
   return <section className="media-player" aria-label={`第 ${index + 1} 集播放器`} onKeyDown={e => { if (e.key === "Escape" && menuOpen) { e.stopPropagation(); setMenuOpen(false); gear.current?.focus(); } }}>
     <div className={`media-viewport${video ? " has-video" : " audio-only"}${controlsVisible ? "" : " controls-idle"}`} ref={viewport}
       onPointerMove={showControls} onPointerDown={e => {
@@ -243,29 +271,9 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
         </div>}
       </div>
       {video && caption && <div className="media-subtitles" aria-hidden="true" style={{ bottom: captionBottom }}>{caption}</div>}
-      <div className="media-playback-controls" role="group" aria-label="播放控制">
-    <div className="media-progress-track"><span aria-hidden="true" style={{width:`${length ? Math.max(0,Math.min(100,time / length * 100)) : 0}%`}}/>
-    <input className="media-timeline" type="range" aria-label="播放進度" aria-valuetext={`${formatTime(time)} / ${formatTime(length)}`} min={0} max={length} step={0.1} value={time} disabled={!ready} onChange={e => seek(Number(e.target.value))} />
+      {fullscreen && controls}
     </div>
-    <div className="media-controls"><div className="media-transport">
-      <button type="button" className="media-icon media-play" aria-label={playing ? "暫停" : "播放"} title={playing ? "暫停" : "播放"} disabled={!ready} onClick={toggle}><ControlIcon name={playing ? "pause" : "play"} /></button>
-      {index > 0 && <button type="button" className="media-icon" aria-label="上一集" title="上一集" onClick={onPrevious}><ControlIcon name="previous" /></button>}
-      {index + 1 < view.episode_count && <button type="button" className="media-icon" aria-label="下一集" title="下一集" onClick={onNext}><ControlIcon name="next" /></button>}
-      </div>
-      <div className="media-seek-buttons">
-        <button type="button" className="media-icon" aria-label="後退 10 秒" title="後退 10 秒" disabled={!ready} onClick={() => seek(time - 10)}><ControlIcon name="rewind" /></button>
-        <button type="button" className="media-icon" aria-label="前進 10 秒" title="前進 10 秒" disabled={!ready} onClick={() => seek(time + 10)}><ControlIcon name="forward" /></button>
-      </div>
-      <div className="media-volume"><button type="button" className="media-icon" aria-label={settings.muted || settings.volume === 0 ? "取消靜音" : "靜音"} title="音量" onClick={mute}><ControlIcon name={settings.muted || settings.volume === 0 ? "muted" : "volume"} /></button>
-        <input type="range" aria-label="音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))} /></div>
-      <span className="media-time" aria-live="off">{formatTime(time)} / {formatTime(length)}</span>
-      <div className="media-settings" ref={menu}><label className="media-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><button ref={gear} type="button" className="media-icon media-settings-toggle" aria-label="播放設定" title="播放設定" aria-expanded={menuOpen} aria-controls="podcast-player-settings" onClick={() => setMenuOpen(v => !v)}><span>{settings.speed}×</span><ControlIcon name="settings" /></button>
-        {menuOpen && <div id="podcast-player-settings" className="media-settings-panel" role="group" aria-label="播放設定選單"><label className="media-menu-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><div className="media-menu-seek"><button type="button" className="text-button" disabled={!ready} onClick={() => seek(time - 10)}><ControlIcon name="rewind" />後退 10 秒</button><button type="button" className="text-button" disabled={!ready} onClick={() => seek(time + 10)}><ControlIcon name="forward" />前進 10 秒</button></div>{video && <button type="button" className="text-button" aria-label="字幕" aria-pressed={showSubtitles} onClick={() => setShowSubtitles(value => !value)}>字幕：{showSubtitles ? "開啟" : "關閉"}</button>}<strong>播放速度</strong><div className="media-speed-options">{speeds.map(speed => <button type="button" key={speed} aria-pressed={settings.speed === speed} onClick={() => {setSettings(s => ({ ...s, speed }));setMenuOpen(false)}}>{speed === 1 ? "正常" : `${speed}×`}</button>)}</div><label className="media-menu-volume">音量<input type="range" aria-label="設定音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))}/></label></div>}
-        {video && <button type="button" className="media-icon" aria-label={fullscreen ? "退出全螢幕" : "全螢幕"} title={fullscreen ? "退出全螢幕" : "全螢幕"} onClick={() => void toggleFullscreen()}><ControlIcon name="fullscreen" /></button>}
-      </div>
-    </div>
-      </div>
-    </div>
+    {!fullscreen && createPortal(<div className="podcast-dock" role="region" aria-label="播放列">{controls}</div>, document.body)}
     {error && <p className="form-error media-feedback" role="alert">{error}{!ready && <button type="button" className="text-button" onClick={() => { setError(null); media.current?.load(); }}>重新載入媒體</button>}</p>}
     {storageError && <p className="media-feedback">瀏覽器目前無法保存播放位置或設定。</p>}
   </section>;

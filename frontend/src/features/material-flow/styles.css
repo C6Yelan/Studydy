@@ -1592,7 +1592,7 @@
   gap: 8px;
   min-height: 0;
 }
-.material-bookshelf .library-item > .library-actions > button {
+.material-bookshelf .library-item > .library-actions > :is(button, a) {
   flex: 1 1 28%;
   min-width: 0;
   min-height: 40px;

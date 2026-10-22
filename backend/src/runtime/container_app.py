@@ -51,7 +51,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("init", "migrate", "serve", "prepare-read-indexes", "queue-chapters"),
+        choices=("init", "migrate", "serve", "prepare-read-indexes", "queue-chapters", "fill-podcast-titles"),
     )
     # queue-chapters：限定教材（可重複）；--requeue 連已完成的章節也重新排入。
     parser.add_argument("--material", action="append", type=UUID, default=[])
@@ -94,6 +94,13 @@ def main() -> None:
                 material_ids=arguments.material or None, requeue=arguments.requeue
             ):
                 print(f"{material_id} {action}", flush=True)
+            return
+        if command == "fill-podcast-titles":
+            from .podcast_titles import fill_missing
+
+            stage = "podcast_titles"
+            filled, failed = fill_missing()
+            print(f"Podcast titles filled={filled} failed={failed}", flush=True)
             return
         stage = "api"
         run_local_app(host="0.0.0.0", port=8001)

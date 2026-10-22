@@ -184,7 +184,7 @@ test("dashboard read failure keeps actions and recovers without reload", async (
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page
     .getByRole("navigation", { name: "主要導覽" })
-    .getByRole("button", { name: "我的教材", exact: true })
+    .getByRole("link", { name: "我的教材", exact: true })
     .click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("region", { name: "空教材引導" })).toBeVisible();
@@ -259,7 +259,7 @@ test("dashboard uses each material's head study and keeps stats out of keyboard 
     },
   ]);
   await page.goto("/");
-  await expect(page.getByRole("navigation", { name: "主要導覽" }).getByRole("button")).toHaveText([
+  await expect(page.getByRole("navigation", { name: "主要導覽" }).getByRole("link")).toHaveText([
     "首頁",
     "我的教材",
     "概念卡",
@@ -451,7 +451,9 @@ for (const count of [3, 6, 9])
       const boxes = await page.locator(".island-flag, .island-pin").evaluateAll((elements) =>
         elements.map((element) => {
           const { left, top, right, bottom } = element.getBoundingClientRect();
-          return { left, top, right, bottom, name: element.textContent ?? "" };
+          // 「你在這裡」貼在自己島的旗標上，只檢查它與其他島的標籤是否重疊。
+          const island = [...document.querySelectorAll(".archipelago-island")].indexOf(element.closest(".archipelago-island")!);
+          return { left, top, right, bottom, island, name: element.textContent ?? "" };
         }),
       );
       const stage = (await page.locator(".archipelago-stage").boundingBox())!;
@@ -461,6 +463,7 @@ for (const count of [3, 6, 9])
         expect(box.top).toBeGreaterThanOrEqual(stage.y - 1);
         expect(box.right).toBeLessThanOrEqual(stage.x + stage.width + 1);
         for (const other of boxes.slice(index + 1)) {
+          if (other.island === box.island) continue;
           const overlaps = box.left < other.right && other.left < box.right && box.top < other.bottom && other.top < box.bottom;
           expect(overlaps, `${box.name} / ${other.name}`).toBe(false);
         }

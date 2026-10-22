@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
@@ -6,7 +6,8 @@ import type {
   MaterialStructureLink,
   StudySessionLink,
 } from "../../api/contracts";
-import { writeRoute } from "../../app/routes";
+import { writeRoute, type AppRoute } from "../../app/routes";
+import { RouteLink } from "../../ui/RouteLink";
 import { Icon } from "../../ui/Icon";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
@@ -267,17 +268,16 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
               </button>
             )
           );
-          const mapAction = structure && (
-            <button
-              className={!studyAction ? "primary-button" : "secondary-button"}
-              type="button"
-              onClick={() => openStructure(item, structure)}
-            >
-              <Icon name="map" size={16} />
-              開啟知識地圖
-            </button>
-          );
           const deleting = pendingRemovals.current.has(item.material_id);
+          // 刪除中的卡片：fieldset 停用不涵蓋連結，改顯示停用的按鈕。
+          const entry = (className: string, route: AppRoute, children: ReactNode) => deleting
+            ? <button className={className} type="button" disabled>{children}</button>
+            : <RouteLink className={className} route={route}>{children}</RouteLink>;
+          const mapAction = structure && entry(
+            !studyAction ? "primary-button" : "secondary-button",
+            { name: "knowledge-map", materialId: item.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision },
+            <><Icon name="map" size={16} />開啟知識地圖</>,
+          );
           // 點島嶼或標題：有地圖開地圖，處理中看進度，其餘到來源頁建立地圖。
           const openPrimary = () => {
             if (structure) openStructure(item, structure);
@@ -357,8 +357,8 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                     </button>
                   )
                 )}
-                {structure && <><button className="secondary-button library-link" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "concept-cards" })}><Icon name="cards" size={16} />概念卡</button>
-                  <button className="secondary-button library-link" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "podcasts" })}><Icon name="headphones" size={16} />Podcast</button></>}
+                {structure && <>{entry("secondary-button library-link", { name: "material-content", materialId: item.material_id, kind: "concept-cards" }, <><Icon name="cards" size={16} />概念卡</>)}
+                  {entry("secondary-button library-link", { name: "material-content", materialId: item.material_id, kind: "podcasts" }, <><Icon name="headphones" size={16} />Podcast</>)}</>}
               </fieldset>
             </article>
           );

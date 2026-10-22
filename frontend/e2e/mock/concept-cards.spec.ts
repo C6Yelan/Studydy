@@ -445,7 +445,7 @@ test("library stays aligned and card review keeps compact content and controls",
   await page.goto("/materials");
   const materialSearch = await page.getByRole("searchbox").boundingBox();
   const materialCard = (await page.locator('.library-item').first().boundingBox())!;
-  await page.getByRole('navigation', { name: '主要導覽' }).getByRole('button', { name: '概念卡', exact: true }).click();
+  await page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: '概念卡', exact: true }).click();
   const cardSearch = await page.getByRole("searchbox").boundingBox();
   const cardTile = (await page.locator('.library-item').first().boundingBox())!;
   expect(cardSearch!.x).toBe(materialSearch!.x);
@@ -573,12 +573,12 @@ test("late card save and source read do not reopen a page after navigation", asy
   const saving = page.waitForRequest((r) => r.url().endsWith("/card-sets") && r.method() === "POST");
   await page.getByRole("button", { name: "保存並開始複習" }).click();
   await saving;
-  await page.getByRole("button", { name: "我的教材", exact: true }).click();
+  await page.getByRole("link", { name: "我的教材", exact: true }).click();
   const saved = page.waitForResponse((r) => r.url().endsWith("/card-sets") && r.request().method() === "POST");
   releaseSave();
   await saved;
   await expect(page).toHaveURL(/\/materials$/);
-  await page.getByLabel("資料結構講義.pdf", { exact: true }).getByRole("button", { name: "概念卡", exact: true }).click();
+  await page.getByLabel("資料結構講義.pdf", { exact: true }).getByRole("link", { name: "概念卡", exact: true }).click();
   await page.getByRole("button", { name: "開始複習", exact: true }).click();
   await page.locator(".concept-card-details > summary").click();
   let releaseSource!: () => void;
@@ -616,7 +616,7 @@ test("switching account while a card read is pending hides old content and rejec
   await page.getByLabel("Email", { exact: true }).fill("second@example.test");
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
-  await page.getByRole("button", { name: "概念卡", exact: true }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "概念卡", exact: true }).click();
   await expect(page.getByRole("region", { name: "空卡組引導" })).toBeVisible();
   await page.goto(`/concept-cards/${cardSetId}`);
   // 別人的卡組一律顯示「找不到」，不提供永遠不會成功的重新讀取。

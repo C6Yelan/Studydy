@@ -226,9 +226,10 @@ for (const state of states) {
       await expect(card.getByRole("button", { name: item.display_name, exact: true })).toHaveCount(
         0,
       );
-      await expect(card.locator(".state-actions > button")).toHaveText(actions);
+      await expect(card.locator(".state-actions > :is(button, a)")).toHaveText(actions);
       await expect(card.locator(".primary-button")).toHaveText(actions[0]);
-      await expect(card.getByRole("link")).toHaveCount(0);
+      // 只有知識地圖、概念卡、Podcast 入口是連結，不出現來源檔案等連結。
+      await expect(card.locator("a:not(.state-actions a)")).toHaveCount(0);
       await expect(card.locator("details:not(.material-management-menu)")).toHaveCount(0);
       await expect(card.getByRole("region", { name: "已發布版本" })).toHaveCount(0);
       await expect(card.getByRole("region", { name: "學習紀錄" })).toHaveCount(0);
@@ -263,7 +264,7 @@ test("latest structure controls exact saved learning binding, never an older sta
   await page.goto("/materials");
   await expect(page.getByRole("article").locator(".primary-button")).toHaveText("開啟知識地圖");
   await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
+  await page.getByRole("link", { name: "開啟知識地圖", exact: true }).click();
   await expect
     .poll(() => new URL(page.url()).pathname)
     .toBe(
@@ -464,7 +465,7 @@ for (const viewport of [
     await expect(cards.nth(0).locator(".primary-button")).toHaveText("建立知識地圖");
     for (const index of [1, 3]) {
       await expect(cards.nth(index).locator(".primary-button")).toHaveText("繼續學習");
-      await expect(cards.nth(index).getByRole("button", {name:"開啟知識地圖",exact:true})).toBeVisible();
+      await expect(cards.nth(index).getByRole("link", { name: "開啟知識地圖",exact:true})).toBeVisible();
     }
     for (const index of [2, 4])
       await expect(cards.nth(index).locator(".primary-button")).toHaveText("開啟知識地圖");

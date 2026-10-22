@@ -43,11 +43,11 @@ test("every page shares the top navigation and phones use the bottom tab bar", a
       if (width > 720) {
         await expect(desktopNav).toBeVisible();
         await expect(phoneNav).toBeHidden();
-        await expect(desktopNav.getByRole("button", { name: current, exact: true })).toHaveAttribute("aria-current", "page");
+        await expect(desktopNav.getByRole("link", { name: current, exact: true })).toHaveAttribute("aria-current", "page");
       } else {
         await expect(desktopNav).toBeHidden();
         await expect(phoneNav).toBeVisible();
-        await expect(phoneNav.getByRole("button", { name: current === "我的教材" ? "教材" : current, exact: true })).toHaveAttribute("aria-current", "page");
+        await expect(phoneNav.getByRole("link", { name: current === "我的教材" ? "教材" : current, exact: true })).toHaveAttribute("aria-current", "page");
         await expect(phoneNav.getByRole("button", { name: "上傳教材", exact: true })).toBeVisible();
       }
       if (selector === ".map-workspace" || selector === ".study-session-page")

@@ -301,7 +301,7 @@ for (const width of [1536, 390]) {
     const card = page.getByRole("article", { name: item.display_name, exact: true });
     await expect(card).not.toContainText(/partial|needs_review|部分內容待複核/);
     await expect(card.getByRole("button", { name: "繼續學習", exact: true })).toHaveCount(0);
-    await expect(card.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveClass(
+    await expect(card.getByRole("link", { name: "開啟知識地圖", exact: true })).toHaveClass(
       "primary-button",
     );
     item.study_sessions = [
@@ -315,7 +315,7 @@ for (const width of [1536, 390]) {
     await expect(card.getByRole("button", { name: "繼續學習", exact: true })).toHaveClass(
       "primary-button",
     );
-    await expect(card.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveClass(
+    await expect(card.getByRole("link", { name: "開啟知識地圖", exact: true })).toHaveClass(
       "secondary-button",
     );
     await card.getByRole("button", { name: "繼續學習", exact: true }).click();

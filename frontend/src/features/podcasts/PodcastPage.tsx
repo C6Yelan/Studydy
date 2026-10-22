@@ -45,14 +45,20 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     const resize = () => {
       const top = `${Math.ceil(layout.getBoundingClientRect().top + window.scrollY)}px`;
       if (layout.style.getPropertyValue('--watch-room-top') !== top) layout.style.setProperty('--watch-room-top', top);
+      // 底部常駐播放列佔用的高度（含與內容的間距），觀看室不延伸到播放列下方。
+      const dock = document.querySelector('.podcast-dock')?.getBoundingClientRect();
+      const space = `${dock ? Math.ceil(window.innerHeight - dock.top) : 0}px`;
+      if (layout.style.getPropertyValue('--podcast-dock-space') !== space) layout.style.setProperty('--podcast-dock-space', space);
     };
     const observer = new ResizeObserver(resize);
     observer.observe(layout);
+    const dock = document.querySelector('.podcast-dock');
+    if (dock) observer.observe(dock);
     document.querySelectorAll('.app-header, .material-learning-toolbar, .material-context, .podcast-page > .cards-page-header, .podcast-generation-summary').forEach(element => observer.observe(element));
     window.addEventListener('resize', resize);
     resize();
     return () => { observer.disconnect(); window.removeEventListener('resize', resize); };
-  }, [view?.podcast_id, view?.status, view?.generation?.active, videoState.state?.status, actionError, progress === undefined]);
+  }, [view?.podcast_id, view?.status, view?.generation?.active, videoState.state?.status, actionError, progress === undefined, index]);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => {
     let cancelled = false;
@@ -145,13 +151,13 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     {!previewReady && <PodcastProgress view={view} busy={busy} onAction={action => void act(action)} />}
     {previewReady && videoState.state?.status !== "ready" && <StateView title={videoState.error ? "無法載入影片" : "正在載入影片"} description={videoState.error || "正在確認本集影片。"} tone={videoState.error ? "failure" : "loading"} action={<button type="button" className="secondary-button" onClick={videoState.reload}>重新讀取</button>} />}
     {previewReady && videoState.state?.status === "ready" && progress !== undefined && <div ref={workspace} className="podcast-listening-layout">
-        <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} videoState={videoState} mediaRef={media} storageKey={storageKey}
+        <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} episodeLabel={episode.title || episodeTitle(episode.claims.map(c => c.label))} videoState={videoState} mediaRef={media} storageKey={storageKey}
           resumeAt={progress?.episodes.find((item) => item.episode_index === index)?.position_seconds ?? null} onSync={syncProgress} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = view.status === "ready"; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = view.status === "ready"; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={(autoAdvance) => {
           if (autoAdvance && index + 1 < view.episodes.length) { autoPlayNext.current = true; setIndex(index + 1); }
         }} />
       <div className="podcast-companion">
-      <aside ref={episodeList} className="surface podcast-episodes" aria-label="分集清單"><h2>分集清單</h2>{view.episodes.map((e, i) => <button type="button" key={i} aria-current={index === i ? "true" : undefined} onClick={() => { autoPlayNext.current = false; setIndex(i); }}>
-      <span className="podcast-episode-number">{String(i + 1).padStart(2, "0")}</span><span className="podcast-episode-summary"><strong title={[...new Set(e.claims.map(c => c.label))].join(" · ")}>{episodeTitle(e.claims.map(c => c.label))}</strong><small>{e.audio ? duration(e.audio.duration_seconds) : ["failed", "cancelled"].includes(view.status) ? "尚未完成" : view.episodes.findIndex(episode => !episode.audio) === i && view.status === "running" ? (e.script ? "製作音訊中" : "整理內容中") : "等待處理"}</small></span></button>)}</aside>
+      <aside ref={episodeList} className="surface podcast-episodes" aria-label="分集清單"><h2>分集清單</h2>{view.episodes.map((e, i) => <button type="button" key={i} aria-current={index === i ? "true" : undefined} onClick={() => { autoPlayNext.current = view.status === "ready" && !!media.current && !media.current.paused; setIndex(i); }}>
+      <span className="podcast-episode-number">{String(i + 1).padStart(2, "0")}</span><span className="podcast-episode-summary"><strong title={[...new Set(e.claims.map(c => c.label))].join(" · ")}>{e.title || episodeTitle(e.claims.map(c => c.label))}</strong><small>{e.audio ? duration(e.audio.duration_seconds) : ["failed", "cancelled"].includes(view.status) ? "尚未完成" : view.episodes.findIndex(episode => !episode.audio) === i && view.status === "running" ? (e.script ? "製作音訊中" : "整理內容中") : "等待處理"}</small></span></button>)}</aside>
         <section className="surface podcast-reading-area" aria-label="本集內容">
           <div className="podcast-content-tabs" role="tablist" aria-label="本集內容">
             {([['transcript', '逐字稿'], ['highlights', '本集重點']] as const).map(([tab, label]) => <button

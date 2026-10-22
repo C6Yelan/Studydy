@@ -118,11 +118,12 @@ for (const width of [1536, 390]) {
     await expect(card).not.toContainText(
       /來源檔案|第一章.pdf|轉換後 PDF|下載原檔|最新處理|教材轉換|先前題目與作答|partial|needs_review/,
     );
-    await expect(card.getByRole("link")).toHaveCount(0);
+    // 卡片只有操作入口是連結，不出現來源檔案等連結。
+    await expect(card.locator("a:not(.state-actions a)")).toHaveCount(0);
     await expect(card.locator("details:not(.material-management-menu)")).toHaveCount(0);
     await expect(card.locator(".library-state")).toHaveCount(0);
     await expect(card.locator(".primary-button")).toHaveText("開啟知識地圖");
-    await expect(card.locator(".state-actions > button")).toHaveText(["開啟知識地圖", "概念卡", "Podcast"]);
+    await expect(card.locator(".state-actions > :is(button, a)")).toHaveText(["開啟知識地圖", "概念卡", "Podcast"]);
     await page.clock.runFor(5_000);
     expect(reads).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

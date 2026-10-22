@@ -5,7 +5,7 @@ import json
 import logging
 from urllib.error import HTTPError
 
-from . import podcasts
+from . import podcast_titles, podcasts
 from .generation_jobs import cancellable_job
 from .provider_http import generation_response, provider_request, provider_error_code
 from .storage.tables import Podcast
@@ -85,7 +85,9 @@ def step(*, dsn=None):
                     dsn=dsn,
                 )
             else:
-                podcasts.finish_step(claim, script=result, dsn=dsn)
+                # 腳本完成後取短集名；失敗只沿用概念名稱組成的集名。
+                title = podcast_titles.generate({**episode, "script": result})
+                podcasts.finish_step(claim, script=result, title=title, dsn=dsn)
     except Exception as error:
         if claim is not None:
             code = (

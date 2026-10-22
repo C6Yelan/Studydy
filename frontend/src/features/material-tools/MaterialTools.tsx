@@ -22,10 +22,13 @@ export function MaterialTools({ api, materialId, revision }: { api: StudydyApiCl
  useEffect(() => {
   if (open) { opened.current = true; panel.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus(); }
   else if (opened.current) trigger.current?.focus();
+  // 寬螢幕時問答固定在右側，主內容讓出空間，不蓋住地圖或教材。
+  document.documentElement.classList.toggle('qa-panel-open', open);
+  return () => document.documentElement.classList.remove('qa-panel-open');
  }, [open]);
- // 入口在教材分頁列右側；抽屜屬於 viewport，不繼承內容區的寬度、transform 或 overflow。
+ // 入口在教材分頁列右側，開啟後仍可再按一次收起；面板屬於 viewport，不繼承內容區的寬度、transform 或 overflow。
  return <>
-  <button ref={trigger} className="material-qa-trigger" type="button" hidden={open} onClick={show} aria-expanded={open} aria-controls="voice-conversation" aria-label="教材問答"><Icon name="chat" size={18} /><span>教材問答</span></button>
+  <button ref={trigger} className="material-qa-trigger" type="button" onClick={open ? close : show} aria-expanded={open} aria-controls="voice-conversation" aria-label="教材問答"><Icon name="chat" size={18} /><span>教材問答</span></button>
   {open && createPortal(<section ref={panel} id="voice-conversation" className="material-tool-panel is-voice voice-bubble material-qa-drawer" style={top === null ? undefined : { top }} role="dialog" aria-modal="false" aria-label="教材問答" onKeyDown={e => { if (e.key === 'Escape' && !(e.target as HTMLElement).closest('dialog')) { e.stopPropagation(); close(); } }}>
    <VoicePanel api={api} materialId={materialId} revision={revision} onClose={close}/>
   </section>, document.body)}

@@ -142,6 +142,7 @@ code {
 .secondary-button,
 .text-button {
   display: inline-flex;
+  text-decoration: none;
   min-height: 46px;
   align-items: center;
   justify-content: center;

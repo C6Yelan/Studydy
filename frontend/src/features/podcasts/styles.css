@@ -22,7 +22,7 @@
 .podcast-page > .back-link { margin-bottom:8px; }
 .podcast-page > .cards-page-header { margin-bottom:8px; flex-wrap:nowrap; }
 .podcast-page > .cards-page-header h1 { margin:0; overflow-wrap:anywhere; }
-.podcast-listening-layout { --watch-gap:20px; --watch-companion-width:clamp(320px, 26vw, 360px); --watch-room-height:max(0px, calc(100dvh - var(--watch-room-top, 0px) - 24px - var(--watch-room-shell-bottom, 0px))); display:grid; grid-template-columns:minmax(0,1fr) var(--watch-companion-width); gap:var(--watch-gap); width:100%; margin:8px 0 0; align-items:start; container-type:inline-size; }
+.podcast-listening-layout { --watch-gap:20px; --watch-companion-width:clamp(320px, 26vw, 360px); --watch-room-height:max(0px, calc(100dvh - var(--watch-room-top, 0px) - 24px - var(--watch-room-shell-bottom, 0px) - var(--podcast-dock-space, 0px))); display:grid; grid-template-columns:minmax(0,1fr) var(--watch-companion-width); gap:var(--watch-gap); width:100%; margin:8px 0 0; align-items:start; container-type:inline-size; }
 .podcast-listening-layout > .media-player { grid-column:1; grid-row:1; }
 .podcast-companion { grid-column:2; grid-row:1; display:flex; flex-direction:column; gap:12px; min-width:0; height:var(--watch-room-height,600px); overflow:hidden; }
 /* 播放器本身維持 16:9；字幕與控制列不另占影片外的高度。 */
@@ -114,13 +114,13 @@
 @container podcast-player (max-width:720px) {
   .media-autoplay { display:none; }
   .media-settings-panel .media-menu-autoplay { display:flex; gap:8px; align-items:center; min-height:40px; margin-bottom:12px; font-size:13px; }
-  .has-video .media-seek-buttons { display:none; }
-  .has-video .media-menu-seek { display:flex; gap:8px; margin-bottom:12px; }
+  :is(.has-video, .podcast-dock) .media-seek-buttons { display:none; }
+  :is(.has-video, .podcast-dock) .media-menu-seek { display:flex; gap:8px; margin-bottom:12px; }
   .media-menu-seek button { display:flex; align-items:center; gap:4px; min-height:40px; font-size:12px; }
-  .has-video .media-controls, .has-video .media-transport, .has-video .media-settings { gap:0; }
-  .has-video .media-time { font-size:11px; margin-left:4px; }
-  .has-video .media-settings-toggle { gap:0; padding:0; width:40px; }
-  .has-video .media-settings-toggle svg { display:none; }
+  :is(.has-video, .podcast-dock) .media-controls, :is(.has-video, .podcast-dock) .media-transport, :is(.has-video, .podcast-dock) .media-settings { gap:0; }
+  :is(.has-video, .podcast-dock) .media-time { font-size:11px; margin-left:4px; }
+  :is(.has-video, .podcast-dock) .media-settings-toggle { gap:0; padding:0; width:40px; }
+  :is(.has-video, .podcast-dock) .media-settings-toggle svg { display:none; }
 }
 @container podcast-player (max-width:600px) {
   .media-settings-panel { width:min(280px, calc(100cqw - 24px)); padding:12px; }
@@ -306,4 +306,28 @@
   .podcast-content-panel > .podcast-transcript,
   .podcast-content-panel > .podcast-highlights { max-height: calc(62dvh - 56px); overflow-y: auto; }
   .podcast-content-panel:not([hidden]) { display: flex; flex-direction: column; min-height: 0; }
+}
+
+/* 底部常駐播放列：集數與內容在上方，播放控制固定在畫面底部；全螢幕時控制列回到影片上。 */
+.podcast-dock { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 15; width: min(920px, calc(100vw - 32px)); transform: translateX(-50%); container-type: inline-size; container-name: podcast-player; }
+.podcast-dock .media-playback-controls { position: relative; padding: 4px 16px 6px; border-radius: 26px; background: rgba(255, 255, 255, .97); color: var(--text-primary); box-shadow: 0 18px 40px -16px rgba(29, 52, 110, .45), 0 0 0 1px var(--border); backdrop-filter: blur(8px); opacity: 1; pointer-events: auto; }
+.podcast-dock .media-now-playing { display: block; overflow: hidden; padding: 6px 2px 0; color: var(--text-secondary); font-size: 12px; font-weight: 800; white-space: nowrap; text-overflow: ellipsis; }
+.podcast-dock .media-progress-track::before { background: var(--page-cool-2); }
+.podcast-dock .media-icon { color: var(--text-primary); }
+.podcast-dock .media-icon:hover:not(:disabled) { background: var(--page-cool); }
+.podcast-dock .media-play { background: var(--studydy-blue); color: #fff; }
+.podcast-dock .media-play:hover:not(:disabled) { background: var(--studydy-blue-hover); }
+.podcast-dock .media-time, .podcast-dock .media-autoplay { color: var(--text-secondary); }
+.podcast-dock .media-settings-panel { max-height: min(60dvh, 420px); overflow-y: auto; }
+.media-viewport .media-now-playing { display: none; }
+/* 寬螢幕的觀看室已扣除播放列高度；單欄版面在內容下方留出播放列高度，最後一段不被蓋住。 */
+@media (max-width: 850px) {
+  .podcast-listening-layout { padding-bottom: var(--podcast-dock-space, 0px); }
+}
+/* 有底部分頁列的寬度（≤1100px）：播放列放在分頁列上方。 */
+@media (max-width: 1100px) {
+  .podcast-dock { bottom: calc(100px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); }
+}
+@media (max-width: 480px) {
+  .podcast-dock .media-playback-controls { padding: 2px 10px 4px; border-radius: 20px; }
 }

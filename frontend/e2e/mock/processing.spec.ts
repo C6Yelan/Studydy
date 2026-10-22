@@ -384,7 +384,7 @@ test("polling uses backend progress, stops at terminal, and clears on unmount", 
   server = base;
   await page.goto(runPath);
   await expect(overall).toHaveAttribute("value", "6");
-  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("button", { name: "我的教材", exact: true }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "我的教材", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
   const unmountedReads = reads();

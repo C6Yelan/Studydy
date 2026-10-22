@@ -6,7 +6,8 @@ from knowledge_map.source_identity import _claims
 from learning_adaptation.learning_states import progress_plan
 from learning_adaptation.map_context import _context_from_validated_document
 from content_identity import canonical_sha256
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+from threading import Lock
 from .knowledge_structures import (
     KnowledgeStructureStoreError,
     _read_verified_document,
@@ -582,26 +583,43 @@ def learning_path(view):
     return path + [c["concept_id"] for c in view["concepts"] if c["concept_id"] not in seen]
 
 
+# 已發布版本的概念內容唯讀，來源統計不會改變；記住最近幾份，千頁教材的地圖分區
+# 不必每次重新展開全部 Evidence。呼叫端都先經 outline 核對權限與完整性才會用到。
+_SOURCE_ROWS: OrderedDict = OrderedDict()
+_SOURCE_ROWS_LIMIT = 8
+_SOURCE_ROWS_LOCK = Lock()
+
+
 def concept_sources(session, owner, material_id, revision, path, *, with_pages=False):
     """每個概念的主要來源檔（重點引用最多者），with_pages 時另回傳引用頁碼。
 
     只取每個概念重點 Evidence 的來源欄位，不把整份概念內容解碼。
     """
-    page_column = ", (e->>'page')::int" if with_pages else ", NULL::int"
-    rows = session.execute(
-        text(
-            f"""
-            SELECT c.concept_id, e->>'source_id', e->>'source_name'{page_column}, count(*)
-            FROM card_source_concepts c
-            CROSS JOIN LATERAL jsonb_array_elements(c.payload->'concept'->'claims') claim
-            CROSS JOIN LATERAL jsonb_array_elements(claim->'evidence') e
-            WHERE c.learner_id = :owner AND c.material_id = :material
-              AND c.structure_revision = :revision
-            GROUP BY 1, 2, 3, 4
-            """
-        ),
-        {"owner": owner, "material": material_id, "revision": revision},
-    ).all()
+    key = (owner, material_id, revision, with_pages)
+    with _SOURCE_ROWS_LOCK:
+        rows = _SOURCE_ROWS.get(key)
+        if rows is not None:
+            _SOURCE_ROWS.move_to_end(key)
+    if rows is None:
+        page_column = ", (e->>'page')::int" if with_pages else ", NULL::int"
+        rows = session.execute(
+            text(
+                f"""
+                SELECT c.concept_id, e->>'source_id', e->>'source_name'{page_column}, count(*)
+                FROM card_source_concepts c
+                CROSS JOIN LATERAL jsonb_array_elements(c.payload->'concept'->'claims') claim
+                CROSS JOIN LATERAL jsonb_array_elements(claim->'evidence') e
+                WHERE c.learner_id = :owner AND c.material_id = :material
+                  AND c.structure_revision = :revision
+                GROUP BY 1, 2, 3, 4
+                """
+            ),
+            {"owner": owner, "material": material_id, "revision": revision},
+        ).all()
+        with _SOURCE_ROWS_LOCK:
+            _SOURCE_ROWS[key] = rows
+            while len(_SOURCE_ROWS) > _SOURCE_ROWS_LIMIT:
+                _SOURCE_ROWS.popitem(last=False)
     known = set(path)
     counts, pages = {}, {}
     for concept_id, source_id, source_name, page, count in rows:

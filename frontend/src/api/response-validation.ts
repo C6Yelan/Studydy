@@ -1364,6 +1364,7 @@ export function podcast(value: unknown): value is PodcastView {
   const valid = item.episodes.every((v) => {
     const episode = object(v);
     if (!episode || !Array.isArray(episode.claims) || !episode.claims.length
+      || !(episode.title === undefined || episode.title === null || (typeof episode.title === "string" && !!episode.title.trim()))
       || !["solo", "dialogue"].includes(String(episode.delivery))
       || episode.delivery !== item.delivery) return false;
     if (!episode.claims.every((v) => {
