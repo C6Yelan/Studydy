@@ -6,7 +6,12 @@ from copy import deepcopy
 from uuid import UUID
 from fastapi import Request, Query
 from learning_adaptation import assessment_sets, assessment_state
-from learning_adaptation.learner_progress import apply_guidance, derive_learner_progress
+from learning_adaptation.learner_progress import (
+    LearnerProgressError,
+    apply_guidance,
+    derive_learner_progress,
+    progress_snapshot,
+)
 from learning_adaptation.study_sessions import (
     create_study_session,
     set_current_study_concept,
@@ -26,6 +31,7 @@ from .models import (
     LearningActivityView,
     LibrarySearchView,
     MapProgressView,
+    ProgressSummaryView,
     StudyWorkspaceView,
     AssessmentPlanView,
     AssessmentSetAction,
@@ -179,6 +185,58 @@ def install(app, settings):
                 for s in progress.concept_states
             ],
         }
+
+    @app.get(
+        "/v1/materials/{material_id}/knowledge-structures/{structure_revision}/progress-summary",
+        response_model=ProgressSummaryView,
+        tags=["learning"],
+    )
+    def progress_summary(
+        request: Request,
+        material_id: UUID,
+        structure_revision: str,
+        study_session_id: UUID | None = None,
+    ):
+        request_context.require_query(request, {"study_session_id"})
+        learner = request_context.trusted_learner(request, settings)
+        summary = {
+            "schema": "progress-summary/v1",
+            "material_id": material_id,
+            "knowledge_structure_revision": structure_revision,
+            "study_session_id": study_session_id,
+        }
+        if study_session_id is None:
+            with database_session(settings.dsn) as db:
+                plan = knowledge_reads.learning(
+                    db, learner.learner_id, material_id, structure_revision
+                )
+            return summary | {
+                "concept_count": len(plan["concepts"]),
+                "completed_count": 0,
+                "current_concept_id": None,
+                "current_concept_label": None,
+            }
+        with progress_snapshot(learner, study_session_id, dsn=settings.dsn) as (
+            _, study, plan, progress,
+        ):
+            # 學習工作階段須屬於路徑上的教材與版本，避免以他份教材的進度顯示。
+            if (
+                study.material_id != material_id
+                or study.knowledge_structure_revision != structure_revision
+            ):
+                raise LearnerProgressError("LEARNER_PROGRESS_UNAVAILABLE")
+            current = progress.current_concept_id
+            return summary | {
+                "concept_count": len(plan["concepts"]),
+                "completed_count": sum(
+                    s.status == "completed" for s in progress.concept_states
+                ),
+                "current_concept_id": current,
+                "current_concept_label": next(
+                    (c["label"] for c in plan["concepts"] if c["concept_id"] == current),
+                    None,
+                ),
+            }
 
     @app.get(
         "/v1/materials/{material_id}/knowledge-structures/{structure_revision}"

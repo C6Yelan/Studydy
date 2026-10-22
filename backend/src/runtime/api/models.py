@@ -947,6 +947,19 @@ class MapProgressView(_Closed):
     assessment_cycles: list[AssessmentCycleSummary]
 
 
+class ProgressSummaryView(_Closed):
+    """首頁島嶼只需數字與目前概念名稱，不下載完整 outline 與逐概念狀態。"""
+
+    schema_: Literal["progress-summary/v1"] = Field(alias="schema")
+    material_id: UUID
+    knowledge_structure_revision: str
+    study_session_id: UUID | None
+    concept_count: int
+    completed_count: int
+    current_concept_id: str | None
+    current_concept_label: str | None
+
+
 class StudyConceptLabelView(_Closed):
     concept_id: str
     label: str

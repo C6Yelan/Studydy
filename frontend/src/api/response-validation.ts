@@ -1,5 +1,5 @@
 import type {
-  KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, PodcastProgressView, StudyWorkspaceView,
+  KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, ProgressSummaryView, PodcastProgressView, StudyWorkspaceView,
   PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
   AnswerFeedbackView,
   CardSetSummary,
@@ -825,6 +825,17 @@ export function podcastProgress(value: unknown): value is PodcastProgressView {
       const episode = object(value);
       return !!episode && count(episode.episode_index) && position(episode.position_seconds) && typeof episode.completed === "boolean";
     }) && count(item.credited_seconds);
+}
+
+export function progressSummary(value: unknown): value is ProgressSummaryView {
+  const item = object(value);
+  const count = (value: unknown) => Number.isInteger(value) && (value as number) >= 0;
+  return !!item && item.schema === "progress-summary/v1" && isUuid(item.material_id)
+    && revision(item.knowledge_structure_revision, "knowledge-structure")
+    && (item.study_session_id === null || isUuid(item.study_session_id))
+    && count(item.concept_count) && count(item.completed_count) && (item.completed_count as number) <= (item.concept_count as number)
+    && (item.current_concept_id === null || revision(item.current_concept_id, "concept"))
+    && (item.current_concept_label === null || typeof item.current_concept_label === "string");
 }
 
 export function mapProgress(value: unknown): value is MapProgressView {

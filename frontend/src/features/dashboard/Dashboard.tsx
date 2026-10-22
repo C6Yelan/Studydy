@@ -122,16 +122,13 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
       if (!structure) continue;
       const session = headSession(material);
       const request = { materialId: material.material_id, structureRevision: structure.knowledge_structure_revision };
-      void Promise.all([
-        apiClient.getKnowledgeOutline(request),
-        session ? apiClient.readMapProgress(session.study_session_id, structure.knowledge_structure_revision) : Promise.resolve(null),
-      ]).then(([outline, map]) => {
+      // 只讀摘要，不下載完整 outline 與逐概念狀態（千頁教材可達數 MB）。
+      void apiClient.readProgressSummary(request, session?.study_session_id).then((summary) => {
         if (cancelled) return;
-        const currentId = map?.current_concept_id ?? session?.current_concept_id ?? null;
         const value: Progress = {
-          total: outline.concepts.length,
-          completed: map?.concept_states.filter((item) => item.status === "completed").length ?? 0,
-          currentLabel: outline.concepts.find((item) => item.concept_id === currentId)?.label ?? null,
+          total: summary.concept_count,
+          completed: summary.completed_count,
+          currentLabel: summary.current_concept_label,
         };
         setProgress((previous) => new Map(previous).set(material.material_id, value));
       }, () => undefined);

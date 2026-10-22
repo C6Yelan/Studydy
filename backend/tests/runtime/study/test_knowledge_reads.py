@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, select, text
 
 from product_fixtures import ORIGIN, _app, closed_loop
-from assessment_fixtures import concept_fixture, create, finish
+from assessment_fixtures import answer, concept_fixture, create, finish
 from runtime.storage import knowledge_reads
 from runtime.storage.tables import CardSet, CardSourceConcept, CardSourceIndex, KnowledgeReadIndex, KnowledgeStructure
 from runtime.storage.database import database_session
@@ -200,3 +200,43 @@ def test_relation_only_evidence_survives_read_projection_and_existing_index_repa
     with database_session(dsn) as db:
         assert db.get(KnowledgeStructure, key).document == document
         assert knowledge_reads.concept_context(db, *key, ids) == detail
+
+
+def test_progress_summary_returns_counts_without_outline_or_concept_states(closed_loop, monkeypatch, tmp_path):
+    fixture = concept_fixture(closed_loop, 3)
+    set_id = create(fixture)
+    finish(fixture)
+    answer(fixture, set_id)
+    mid, rev = fixture['source'].material_id, fixture['document']['revision']
+    study = fixture['study'].study_session_id
+    client = TestClient(_app(fixture['dsn'], tmp_path, monkeypatch), base_url=ORIGIN)
+    client.cookies.set('studydy_session', fixture['token'])
+    base = f'/v1/materials/{mid}/knowledge-structures/{rev}/progress-summary'
+    progress = client.get(f'/v1/study-sessions/{study}/map-progress').json()
+    labels = {c['concept_id']: c['label'] for c in fixture['document']['concepts']}
+
+    plain = client.get(base)
+    assert plain.status_code == 200, plain.json()
+    assert plain.json() == {
+        'schema': 'progress-summary/v1', 'material_id': str(mid), 'knowledge_structure_revision': rev,
+        'study_session_id': None, 'concept_count': len(labels), 'completed_count': 0,
+        'current_concept_id': None, 'current_concept_label': None,
+    }
+    session = client.get(base, params={'study_session_id': str(study)})
+    assert session.status_code == 200, session.json()
+    body = session.json()
+    assert body['concept_count'] == len(labels)
+    assert body['completed_count'] == sum(s['status'] == 'completed' for s in progress['concept_states'])
+    assert body['completed_count'] >= 1
+    assert body['current_concept_id'] == progress['current_concept_id']
+    assert body['current_concept_label'] == labels.get(progress['current_concept_id'])
+    assert 'concept_states' not in body and 'concepts' not in body
+
+    # 他份教材路徑、未知版本、不存在的工作階段與多餘參數都不可讀到進度。
+    other = base.replace(str(mid), str(uuid4()))
+    assert client.get(other, params={'study_session_id': str(study)}).status_code == 404
+    assert client.get(other).status_code == 404
+    assert client.get(base, params={'study_session_id': str(uuid4())}).status_code == 404
+    assert client.get(base, params={'extra': '1'}).status_code == 400
+    client.cookies.clear()
+    assert client.get(base).status_code == 401

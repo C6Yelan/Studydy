@@ -318,6 +318,13 @@ export type MapProgressView = Pick<LearnerProgressView,
   concept_states: (Pick<ConceptLearningStateView, "concept_id" | "status" | "attempts"> & { assessable: boolean })[];
 };
 
+// 首頁島嶼只需數字與目前概念名稱；沒有學習工作階段時只有概念數。
+export type ProgressSummaryView = {
+  schema: "progress-summary/v1"; material_id: string; knowledge_structure_revision: string;
+  study_session_id: string | null; concept_count: number; completed_count: number;
+  current_concept_id: string | null; current_concept_label: string | null;
+};
+
 export type StudyProgressView = Omit<LearnerProgressView, "schema"> & {
   schema: "study-progress/v1"; concept_count: number;
 };

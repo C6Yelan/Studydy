@@ -1,6 +1,6 @@
 import * as validate from "./response-validation.ts";
 import type {
-  KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, PodcastProgressView, PodcastProgressUpdate, StudyWorkspaceView,
+  KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, MapProgressView, ProgressSummaryView, PodcastProgressView, PodcastProgressUpdate, StudyWorkspaceView,
   PodcastContext, PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
   ApiReasonCode,
   CardSetCreate,
@@ -802,6 +802,14 @@ export class StudydyApiClient {
     }, (value): value is PodcastProgressView => validate.podcastProgress(value) && value.podcast_id === id);
     if (value.credited_seconds > 0 || body.ended) this.markActivityStale();
     return value;
+  }
+
+  readProgressSummary(request: KnowledgeStructureRequest, studySessionId?: string): Promise<ProgressSummaryView> {
+    const query = studySessionId ? `?${new URLSearchParams({ study_session_id: studySessionId })}` : "";
+    return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/progress-summary${query}`,
+      { method: "GET" }, (value): value is ProgressSummaryView => validate.progressSummary(value)
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision
+        && value.study_session_id === (studySessionId ?? null));
   }
 
   readMapProgress(id: string, revision: string): Promise<MapProgressView> {

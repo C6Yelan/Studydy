@@ -493,3 +493,26 @@ test("phone swipe hint counts the islands on the map and points to the full list
   await expect(hint).toHaveText("左右滑動看全部 4 座島");
   await expect(page.getByRole("button", { name: /還有 \d+ 座島嶼/ })).toHaveCount(0);
 });
+
+test("dashboard islands read the progress summary instead of the full outline", async ({ page }) => {
+  const second = { ...material, material_id: uuid(7), display_name: "Second.pdf", created_at: "2026-09-11T00:00:00Z" };
+  const requested: string[] = [];
+  page.on("request", (request) => requested.push(new URL(request.url()).pathname + new URL(request.url()).search));
+  await page.route(/\/progress-summary/, (route) => {
+    const url = new URL(route.request().url());
+    const id = url.pathname.split("/")[3];
+    const session = url.searchParams.get("study_session_id");
+    return route.fulfill({ json: {
+      schema: "progress-summary/v1", material_id: id, knowledge_structure_revision: revision, study_session_id: session,
+      concept_count: session ? 12 : 40, completed_count: session ? 5 : 0,
+      current_concept_id: session ? `concept:sha256:${"b".repeat(64)}` : null, current_concept_label: session ? "堆疊與佇列" : null,
+    } });
+  });
+  await mockLibrary(page, () => [withStudy("active"), second]);
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: `${longName}，學習中：堆疊與佇列` })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Second.pdf，尚未開始 · 40 個概念" })).toBeVisible();
+  await expect(page.locator(".archipelago-island.is-focus .progress-ring")).toContainText("5");
+  expect(requested.some((path) => path.includes(`/progress-summary?study_session_id=${sessionId}`))).toBe(true);
+  expect(requested.filter((path) => /\/outline|\/map-progress/.test(path))).toEqual([]);
+});
