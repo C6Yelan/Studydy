@@ -2,6 +2,7 @@ import { writeRoute, type AppRoute } from "./routes";
 import { RouteLink } from "../ui/RouteLink";
 import { Icon, type IconName } from "../ui/Icon";
 import "./shell.css";
+import "./chrome.css";
 
 type Section = "home" | "materials" | "cards" | "podcasts" | "achievements" | "profile";
 // 成就與個人檔案只放在桌機頁首；手機底部列維持四個入口加上傳（手機頁首的等級按鈕與頭像可進入這兩頁）。

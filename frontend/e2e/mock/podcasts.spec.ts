@@ -339,7 +339,8 @@ test('formal video player shares controls, transcript seek, pages and logout bou
   await page.getByRole('button',{name:'播放設定',exact:true}).click();await page.getByRole('button',{name:'全螢幕',exact:true}).click();
   await expect.poll(()=>page.evaluate(()=>document.fullscreenElement?.classList.contains('media-viewport'))).toBe(true);
   await page.getByRole('button',{name:'退出全螢幕',exact:true}).click();
-  await page.getByRole('button',{name:'登出',exact:true}).click();await expect(page.locator('video')).toHaveCount(0);
+  // 教材內從頭像選單登出。
+  await page.getByRole('button',{name:/^帳號選單/}).click();await page.getByRole('button',{name:'登出',exact:true}).click();await expect(page.locator('video')).toHaveCount(0);
 });
 
 test('preview waits for every video and audio, including direct links',async({page})=>{
@@ -435,7 +436,7 @@ test('video surface toggles once and controls recover from idle with keyboard an
 test.describe('touch playback',()=>{
  test.use({hasTouch:true,isMobile:true,viewport:{width:390,height:844}});
  // 播放列常駐在畫面底部（分頁列上方），播放中也不隱藏；點影片仍可暫停。
- test('taps toggle once; the docked controls stay visible above the tab bar',async({page})=>{
+ test('taps toggle once; the docked controls stay visible at the bottom of the material page',async({page})=>{
   // 時鐘照常走，快轉越過 2.5 秒閒置計時，不必真的等待。
   await page.clock.install();
   await mockEpisodeVideo(page);await page.goto(`/podcasts/${podcastId}`);
@@ -444,8 +445,10 @@ test.describe('touch playback',()=>{
   await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.paused)).toBe(false);
   await page.clock.fastForward(2800);
   await expect(controls).toHaveCSS('opacity','1');
-  const dockBox=(await page.locator('.podcast-dock').boundingBox())!,tabs=(await page.getByRole('navigation',{name:'手機導覽'}).boundingBox())!;
-  expect(dockBox.y+dockBox.height).toBeLessThanOrEqual(tabs.y);
+  // 教材內沒有手機底部導覽；播放列貼近畫面底部且完整可見。
+  await expect(page.getByRole('navigation',{name:'手機導覽'})).toBeHidden();
+  const dockBox=(await page.locator('.podcast-dock').boundingBox())!;
+  expect(dockBox.y+dockBox.height).toBeLessThanOrEqual(844-8);
   const display=(await page.locator('.media-display').boundingBox())!;
   await page.touchscreen.tap(display.x+80,display.y+20);
   await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.paused)).toBe(true);
@@ -700,13 +703,13 @@ test('desktop watch room fits measured page chrome and viewport height without s
     expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(height);
   }
   // 長標題與教材資訊改變時，依實際 chrome 高度重新計算，不以螢幕寬度猜測。
-  // 高度 900 時顯示完整教材資訊列（820 以下改收進分頁列）。
   await page.setViewportSize({ width: 1440, height: 900 });
   fixture.fixture.view.name = '長標題：逐步確認必要條件與例外情境。'.repeat(8);
   await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByRole('button', { name: '播放', exact: true })).toBeEnabled();
   const before = (await page.locator('.media-player').boundingBox())!;
-  await page.locator('.material-context span').evaluate(el => { el.textContent = '較長的教材名稱與來源資訊。'.repeat(20); });
+  // 教材頁首變高（例如出現提示）時重新量測。
+  await page.locator('.material-learning-toolbar').evaluate(el => { (el as HTMLElement).style.paddingBottom = '60px'; });
   await expect.poll(async () => (await page.locator('.media-player').boundingBox())!.y).toBeGreaterThan(before.y);
   await expect.poll(async () => {
     const box = (await page.locator('.media-player').boundingBox())!;
@@ -737,7 +740,9 @@ test('material podcast player keeps the chat entry in the material tab row',asyn
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/podcasts/${podcastId}`);
   await expect(page.locator('.podcast-listening-layout')).toBeVisible();
   const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
-  const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(toolbar.y);expect(box.y+box.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);expect(toolbar.x+toolbar.width-box.x-box.width).toBeLessThanOrEqual(12);
+  // 問答入口在教材頁首右端，緊鄰頭像選單。
+  const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(toolbar.y);expect(box.y+box.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);
+  const account=(await page.locator('.material-learning-toolbar .account-menu').boundingBox())!;expect(account.x-box.x-box.width).toBeLessThanOrEqual(12);expect(toolbar.x+toolbar.width-account.x-account.width).toBeLessThanOrEqual(12);
  }
 });
 

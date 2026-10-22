@@ -3,6 +3,7 @@ import { errorMessage, type StudydyApiClient } from "../api/client";
 import type { CardSetSummary, LearnerProfile, LibrarySearchView, PodcastSummary } from "../api/contracts";
 import { Icon } from "../ui/Icon";
 import { writeRoute } from "./routes";
+import "./header-tools.css";
 import { useDismissibleMenu } from "../features/material-flow/useDismissibleMenu";
 
 // 名稱與頁首、首頁共用；讀取失敗時視為未設定，不阻擋其他功能。
@@ -52,6 +53,23 @@ function openConcept(concept: LibrarySearchView["concepts"][number]) {
   );
 }
 
+// 結果名稱中標出關鍵字（不分大小寫，只標第一處）。
+function Highlight({ text, needle }: { text: string; needle: string }) {
+  const at = needle ? text.toLocaleLowerCase().indexOf(needle) : -1;
+  if (at < 0) return <>{text}</>;
+  return <>{text.slice(0, at)}<mark>{text.slice(at, at + needle.length)}</mark>{text.slice(at + needle.length)}</>;
+}
+
+// 方向鍵在搜尋欄與結果之間移動焦點。
+function moveFocus(container: HTMLElement | null, from: Element | null, step: 1 | -1, input: HTMLInputElement | null) {
+  const items = [...(container?.querySelectorAll<HTMLButtonElement>("li button") ?? [])];
+  if (!items.length) return;
+  const index = items.indexOf(from as HTMLButtonElement);
+  const next = index + step;
+  if (next < 0) input?.focus();
+  else items[Math.min(next, items.length - 1)].focus();
+}
+
 function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -60,6 +78,8 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
   // 卡組與 Podcast 數量少，開啟搜尋時讀一次清單，在前端比對名稱與所屬教材；讀不到時只少這兩類結果。
   const [lists, setLists] = useState<{ cardSets: CardSetSummary[] | null; podcasts: PodcastSummary[] | null } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const resultsBox = useRef<HTMLDivElement>(null);
+  const inputBox = useRef<HTMLInputElement>(null);
   const query = text.trim();
   useEffect(() => {
     if (!open) return;
@@ -122,6 +142,7 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
         }}>
           <Icon name="search" size={20} />
           <input
+            ref={inputBox}
             autoFocus
             type="search"
             aria-label="搜尋概念、教材、卡組或 Podcast"
@@ -130,11 +151,18 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
             value={text}
             onChange={(event) => setText(event.currentTarget.value)}
             // 搜尋欄有文字時，瀏覽器的 Escape 只會清空欄位；這裡一律直接關閉搜尋。
-            onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); close(); } }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") { event.preventDefault(); close(); }
+              if (event.key === "ArrowDown") { event.preventDefault(); moveFocus(resultsBox.current, null, 1, inputBox.current); }
+            }}
           />
           <button className="header-dialog-close" type="button" aria-label="關閉搜尋" onClick={close}>×</button>
         </form>
-        <div className="search-results">
+        <div ref={resultsBox} className="search-results" onKeyDown={(event) => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          moveFocus(resultsBox.current, document.activeElement, event.key === "ArrowDown" ? 1 : -1, inputBox.current);
+        }}>
           {!query ? <p className="search-hint">搜尋所有教材的概念名稱與別名，以及教材、卡組與 Podcast 名稱。</p>
             : !current ? <p role="status">正在搜尋…</p>
             : current.error ? <p role="alert">{current.error}<button className="text-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新搜尋</button></p>
@@ -142,7 +170,7 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
             : result && <>
               <p className="header-sr-only" role="status">找到 {result.materials.length} 份教材、{result.concepts.length} 個概念、{cardSets.length} 個卡組、{podcasts.length} 份 Podcast</p>
               {result.materials.length > 0 && <section aria-label="教材">
-                <h3>教材</h3>
+                <h3>教材<span>{result.materials.length}</span></h3>
                 <ul>{result.materials.map((material) => <li key={material.material_id}>
                   <button type="button" onClick={() => {
                     close();
@@ -151,41 +179,42 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
                     else writeRoute({ name: "materials" });
                   }}>
                     <Icon name="book" size={18} />
-                    <span><b>{material.display_name}</b><small>{material.knowledge_structure_revision ? "開啟知識地圖" : "知識地圖尚未建立"}</small></span>
+                    <span><b><Highlight text={material.display_name} needle={needle} /></b><small>{material.knowledge_structure_revision ? "開啟知識地圖" : "知識地圖尚未建立"}</small></span>
                   </button>
                 </li>)}</ul>
               </section>}
               {result.concepts.length > 0 && <section aria-label="概念">
-                <h3>概念</h3>
+                <h3>概念<span>{result.concepts.length}{result.concepts_truncated ? "+" : ""}</span></h3>
                 <ul>{result.concepts.map((concept) => <li key={`${concept.material_id}:${concept.concept_id}`}>
                   <button type="button" onClick={() => { close(); openConcept(concept); }}>
                     <Icon name="map" size={18} />
-                    <span><b>{concept.label}</b><small>{concept.claim_count} 個重點 · {concept.material_name}</small></span>
+                    <span><b><Highlight text={concept.label} needle={needle} /></b><small>{concept.claim_count} 個重點 · {concept.material_name}</small></span>
                   </button>
                 </li>)}</ul>
                 {result.concepts_truncated && <p className="search-hint">只顯示前 {result.concepts.length} 個概念，輸入更多關鍵字可縮小範圍。</p>}
               </section>}
               {cardSets.length > 0 && <section aria-label="卡組">
-                <h3>卡組</h3>
+                <h3>卡組<span>{cardSets.length}</span></h3>
                 <ul>{cardSets.map((item) => <li key={item.card_set_id}>
                   <button type="button" onClick={() => { close(); writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }); }}>
                     <Icon name="cards" size={18} />
-                    <span><b>{item.name}</b><small>{item.card_count !== null ? `${item.card_count} 張卡片 · ` : ""}{item.material_name}</small></span>
+                    <span><b><Highlight text={item.name} needle={needle} /></b><small>{item.card_count !== null ? `${item.card_count} 張卡片 · ` : ""}{item.material_name}</small></span>
                   </button>
                 </li>)}</ul>
               </section>}
               {podcasts.length > 0 && <section aria-label="Podcast">
-                <h3>Podcast</h3>
+                <h3>Podcast<span>{podcasts.length}</span></h3>
                 <ul>{podcasts.map((item) => <li key={item.podcast_id}>
                   <button type="button" onClick={() => { close(); writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id }); }}>
                     <Icon name="headphones" size={18} />
-                    <span><b>{item.name}</b><small>{item.episode_count} 集 · {item.material_name}</small></span>
+                    <span><b><Highlight text={item.name} needle={needle} /></b><small>{item.episode_count} 集 · {item.material_name}</small></span>
                   </button>
                 </li>)}</ul>
               </section>}
               {lists && (!lists.cardSets || !lists.podcasts) && <p className="search-hint">無法讀取卡組或 Podcast 清單，這兩類結果暫時不顯示。</p>}
             </>}
         </div>
+        <p className="search-keys" aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd> 選擇　<kbd>Enter</kbd> 開啟第一個概念　<kbd>Esc</kbd> 關閉</p>
       </Modal>
     </>
   );

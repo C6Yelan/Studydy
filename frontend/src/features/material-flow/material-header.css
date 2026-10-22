@@ -274,3 +274,11 @@
 .account-menu-list button:focus-visible {
   background: var(--page-cool);
 }
+
+/* 教材內概念卡／Podcast 分頁：數量摘要當作清單標題，與右側建立按鈕同一列。 */
+.material-content .collection-toolbar .collection-summary p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 900;
+}

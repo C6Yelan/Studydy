@@ -49,6 +49,13 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
       const dock = document.querySelector('.podcast-dock')?.getBoundingClientRect();
       const space = `${dock ? Math.ceil(window.innerHeight - dock.top) : 0}px`;
       if (layout.style.getPropertyValue('--podcast-dock-space') !== space) layout.style.setProperty('--podcast-dock-space', space);
+      // 寬螢幕：播放列對齊影片欄（左緣與寬度同影片），不浮在整頁中央。
+      const player = layout.querySelector('.media-player')?.getBoundingClientRect();
+      const root = document.documentElement.style;
+      if (player && window.matchMedia('(min-width: 1101px)').matches) {
+        root.setProperty('--podcast-dock-left', `${Math.round(player.left)}px`);
+        root.setProperty('--podcast-dock-width', `${Math.round(player.width)}px`);
+      } else { root.removeProperty('--podcast-dock-left'); root.removeProperty('--podcast-dock-width'); }
     };
     const observer = new ResizeObserver(resize);
     observer.observe(layout);
@@ -57,7 +64,10 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     document.querySelectorAll('.app-header, .material-learning-toolbar, .material-context, .podcast-page > .cards-page-header, .podcast-generation-summary').forEach(element => observer.observe(element));
     window.addEventListener('resize', resize);
     resize();
-    return () => { observer.disconnect(); window.removeEventListener('resize', resize); };
+    return () => {
+      observer.disconnect(); window.removeEventListener('resize', resize);
+      document.documentElement.style.removeProperty('--podcast-dock-left'); document.documentElement.style.removeProperty('--podcast-dock-width');
+    };
   }, [view?.podcast_id, view?.status, view?.generation?.active, videoState.state?.status, actionError, progress === undefined, index]);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => {

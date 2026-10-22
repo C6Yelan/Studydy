@@ -1,0 +1,62 @@
+/* 全站搜尋結果：分組標題附數量、關鍵字標示，底部是鍵盤操作提示。 */
+.search-results h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.search-results h3 > span {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--page-cool);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 18px;
+}
+.search-results section + section {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-light);
+}
+.search-results li button > svg {
+  flex: none;
+}
+.search-results li button > span {
+  flex: 1;
+}
+.search-results mark {
+  padding: 0 1px;
+  border-radius: 4px;
+  background: #fff0b8;
+  color: inherit;
+}
+.search-results li button:focus-visible {
+  outline: 2px solid var(--studydy-blue);
+  outline-offset: -2px;
+}
+.search-keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 10px 20px;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.search-keys kbd {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--page-cool);
+  color: var(--text-secondary);
+  font: 800 11px/1 inherit;
+}
+@media (max-width: 720px), (hover: none) {
+  .search-keys {
+    display: none;
+  }
+}

@@ -303,12 +303,13 @@ export function StudySessionPage({
           false, { knowledgeMap: { revision: route.structureRevision, mode: "review" } })} />
       <header className="study-header">
         <div>
-          <p className="eyebrow">學習進度</p>
           <h1>{completed ? "本次學習已結束" : visibleConcept.label}</h1>
-          <p>
-            {position !== undefined &&
-              `第 ${position} / ${data.view.concept_count} 個概念`}
-            {showMaterial && " · 學習進度會自動保存。"}
+          <p className="study-header-meta">
+            {position !== undefined && <span className="study-position">
+              <b>第 {position} / {data.view.concept_count} 個概念</b>
+              <span className="study-position-track" aria-hidden="true"><span style={{ width: `${(position / data.view.concept_count) * 100}%` }} /></span>
+            </span>}
+            {showMaterial && <span>學習進度會自動保存。</span>}
           </p>
         </div>
       </header>
@@ -393,20 +394,22 @@ export function StudySessionPage({
                   return (
                     <li key={group.set_id}>
                       <button
-                        className="text-button"
+                        className={`study-history-item is-${group.kind}`}
                         aria-current={group.set_id === data.selectedSetId ? "true" : undefined}
                         onClick={() => {
                           setContinueError(null);
                           writeRoute({ ...route, assessmentSetId: group.set_id });
                         }}
                       >
-                        第 {historySets.length - index} 組 ·{" "}
-                        {group.kind === "remediation" ? "補強" : "初篩"} · {label} ·{" "}
-                        {group.published_count === 0
-                          ? "此題組已結束"
-                          : group.answered_count === 0
-                            ? "尚未作答"
-                            : `已答 ${group.answered_count}/${group.published_count}`}
+                        <b>第 {historySets.length - index} 組 · {group.kind === "remediation" ? "補強" : "初篩"}</b>
+                        <span>{label}</span>
+                        <small>
+                          {group.published_count === 0
+                            ? "此題組已結束"
+                            : group.answered_count === 0
+                              ? "尚未作答"
+                              : `已答 ${group.answered_count}/${group.published_count}`}
+                        </small>
                       </button>
                     </li>
                   );

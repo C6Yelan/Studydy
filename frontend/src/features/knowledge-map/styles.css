@@ -939,10 +939,6 @@
 
 
 
-.assessment-concept-list { list-style: none; padding: 0; display: grid; gap: 12px; }
-.assessment-concept-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border: 0; border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
-.assessment-concept-list li > div { display: grid; gap: 8px; }
-@media (max-width: 600px) { .assessment-concept-list li { align-items: stretch; flex-direction: column; } }
 
 /* 知識群島外觀：海面畫布、膠囊狀的導覽按鈕與圖例。 */
 .focus-workspace > .focus-graph {
@@ -1257,5 +1253,174 @@
   /* 教材頁首兩列加上內容區留白；地圖填滿其餘高度（教材內沒有底部導覽）。 */
   .app-shell.is-material .is-focus-mode .map-content {
     height: max(360px, calc(100dvh - 150px - env(safe-area-inset-bottom)));
+  }
+}
+
+/* 學習與測驗：測驗紀錄標題列附摘要數字，概念列表與首頁卡片同一套白卡。 */
+.review-records {
+  display: grid;
+  gap: 14px;
+  max-width: 1100px;
+}
+.review-records-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+.review-records-head h2 {
+  margin: 0;
+  font-size: 24px;
+}
+.review-records-head p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.review-stats {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+}
+.review-stats > div {
+  display: grid;
+  gap: 2px;
+  min-width: 104px;
+  padding: 10px 16px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.review-stats dt {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.review-stats dd {
+  margin: 0;
+  color: var(--studydy-blue);
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+.review-stats dd small {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+.review-stats .is-pending dd {
+  color: var(--coral);
+}
+.review-stats .is-done dd {
+  color: var(--success);
+}
+.review-records > h3 {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 900;
+}
+.review-records-clear {
+  margin: 0;
+  padding: 16px 20px;
+  border-radius: var(--radius-card);
+  background: var(--success-soft);
+  color: var(--success);
+  font-weight: 800;
+}
+.assessment-concept-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.assessment-concept-list li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px 14px 14px;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.assessment-concept-list li > div {
+  display: grid;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+}
+.assessment-concept-list li strong {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.assessment-concept-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--studydy-blue-soft);
+  color: var(--studydy-blue);
+}
+.assessment-concept-list li.is-needs_review .assessment-concept-icon {
+  background: #fff0ec;
+  color: var(--coral);
+}
+.assessment-concept-list li.is-completed .assessment-concept-icon {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.assessment-concept-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.assessment-concept-meta small {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.assessment-concept-list li > button {
+  flex: none;
+}
+.review-records-done {
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.review-records-done > summary {
+  padding: 14px 18px;
+  color: var(--text-secondary);
+  font-weight: 800;
+  cursor: pointer;
+}
+.review-records-done[open] > summary {
+  border-bottom: 1px solid var(--border-light);
+}
+.review-records-done > .assessment-concept-list {
+  padding: 12px;
+}
+.review-records-done li {
+  box-shadow: none;
+  background: var(--page-cool);
+}
+@media (max-width: 720px) {
+  .review-stats {
+    width: 100%;
+  }
+  .review-stats > div {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+  }
+  .assessment-concept-list li {
+    flex-wrap: wrap;
+  }
+  .assessment-concept-list li > button {
+    width: 100%;
   }
 }

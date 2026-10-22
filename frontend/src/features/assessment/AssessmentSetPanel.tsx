@@ -647,14 +647,14 @@ export function AssessmentSetPanel({
             group.cycle.pending_count > 0 && <p>{conceptCompleted ? "本次練習有需要加強的重點，先前的完成紀錄會保留。" : "答錯的重點需連續答對兩道不同題；再次答錯會重新累積。"}</p>
           )}
           <div className="assessment-set-summary" aria-label="本輪檢測摘要">
-            <span>
+            <span className="is-correct">
               {isRemediation ? "本次答對" : "答對"}
               <strong>
                 {group.passed_count} / {group.published_count} 題
               </strong>
             </span>
             {group.cycle.pending_count > 0 && (
-              <span>
+              <span className="is-pending">
                 {isRemediation ? "仍待補強" : "待補強"}
                 <strong>{group.cycle.pending_count} 個重點</strong>
               </span>

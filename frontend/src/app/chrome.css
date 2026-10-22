@@ -1,0 +1,67 @@
+/* 全站外框精修：手機底部導覽與升級／徽章彈窗（不改元件行為，只調呈現）。 */
+
+/* 手機底部導覽：中央上傳鈕縮小並與其他入口的文字對齊，「上傳」字不再壓在導覽列邊緣。 */
+@media (max-width: 720px) {
+  .tab-bar {
+    height: 64px;
+    padding: 0 4px;
+    border-radius: 24px;
+  }
+  .tab-bar a,
+  .tab-bar button {
+    gap: 3px;
+    min-height: 50px;
+  }
+  .tab-bar a[aria-current="page"] {
+    position: relative;
+  }
+  .tab-bar a[aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    width: 18px;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--studydy-blue);
+  }
+  .tab-bar .tab-bar-upload {
+    width: 52px;
+    height: 52px;
+    margin-top: -30px;
+    box-shadow: 0 10px 20px -8px rgba(37, 99, 235, 0.65), 0 0 0 4px var(--surface);
+  }
+  .tab-bar .tab-bar-upload::after {
+    bottom: -19px;
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+}
+
+/* 升級／取得徽章：背景柔化，卡片上方加淺色光暈，主要按鈕佔滿寬度。 */
+.level-up {
+  backdrop-filter: blur(3px);
+}
+.level-up-card {
+  gap: 8px;
+  width: min(380px, 100%);
+  padding: 30px 24px 22px;
+  background: linear-gradient(180deg, #fff8e6 0, var(--surface) 160px);
+  box-shadow: 0 30px 60px -24px rgba(29, 52, 110, 0.55);
+}
+.level-up-eyebrow {
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--warning-soft);
+  font-size: 13px;
+}
+.level-up-card strong {
+  background: linear-gradient(90deg, var(--amber-deep), var(--coral));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 36px;
+}
+.level-up-card > .primary-button {
+  justify-self: stretch;
+  min-height: 46px;
+}

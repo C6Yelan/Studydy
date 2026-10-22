@@ -938,22 +938,34 @@ function ReviewView({ view, progress, startStudy, busyLabel, loading, returnToMa
   const pending = attempted.filter(concept => states.get(concept.concept_id)?.status !== "completed");
   const completed = attempted.filter(concept => states.get(concept.concept_id)?.status === "completed");
   const list = (concepts: Concept[], practice: boolean) => <ul className="assessment-concept-list">
-    {concepts.map(concept => <li key={concept.concept_id}>
-      <div><strong>{concept.label}</strong><LearningBadge conceptId={concept.concept_id} progress={progress}/></div>
-      <button className={practice ? "secondary-button" : "primary-button"} disabled={!!busyLabel}
-        onClick={() => startStudy(concept.concept_id)}>{busyLabel ?? (practice ? "再次練習" : "繼續測驗")}</button>
-    </li>)}
+    {concepts.map(concept => {
+      const state = states.get(concept.concept_id);
+      return <li key={concept.concept_id} className={`is-${state?.status ?? "not_started"}`}>
+        <span className="assessment-concept-icon" aria-hidden="true"><Icon name={practice ? "check" : "quiz"} size={20} /></span>
+        <div><strong>{concept.label}</strong>
+          <span className="assessment-concept-meta"><LearningBadge conceptId={concept.concept_id} progress={progress}/>{state?.attempts ? <small>已作答 {state.attempts} 題</small> : null}</span></div>
+        <button className={practice ? "secondary-button" : "primary-button"} disabled={!!busyLabel}
+          onClick={() => startStudy(concept.concept_id)}>{busyLabel ?? (practice ? "再次練習" : "繼續測驗")}</button>
+      </li>;
+    })}
   </ul>;
-  return <section aria-labelledby="review-title">
-    <div className="view-heading"><div><h2 id="review-title">測驗紀錄</h2>
-      <p>查看作答結果、繼續未完成的檢測，或再次練習已完成的概念。</p></div></div>
+  return <section className="review-records" aria-labelledby="review-title">
+    <header className="review-records-head">
+      <div><h2 id="review-title">測驗紀錄</h2>
+        <p>查看作答結果、繼續未完成的檢測，或再次練習已完成的概念。</p></div>
+      {!loading && attempted.length > 0 && <dl className="review-stats" aria-label="測驗摘要">
+        <div><dt>已作答概念</dt><dd>{attempted.length}<small> / {view.concepts.length}</small></dd></div>
+        <div className="is-pending"><dt>待完成</dt><dd>{pending.length}</dd></div>
+        <div className="is-done"><dt>已完成</dt><dd>{completed.length}</dd></div>
+      </dl>}
+    </header>
     {loading ? <p role="status">正在讀取學習進度…</p> : attempted.length === 0 ? <>
       <EmptyState label="開始學習引導" title="還沒有測驗紀錄" description="目前還沒有測驗紀錄，可以從知識地圖選擇概念開始學習。"
         action={<button className="primary-button" type="button" onClick={returnToMap}>回到知識地圖</button>} />
     </> : <>
       {pending.length > 0 && <h3>尚未完成／需要加強</h3>}
-      {pending.length ? list(pending, false) : <p>已有作答紀錄的概念都已完成。</p>}
-      {completed.length > 0 && <details><summary>已完成的概念 · 再次練習（{completed.length}）</summary>{list(completed, true)}</details>}
+      {pending.length ? list(pending, false) : <p className="review-records-clear">已有作答紀錄的概念都已完成。</p>}
+      {completed.length > 0 && <details className="review-records-done"><summary>已完成的概念 · 再次練習（{completed.length}）</summary>{list(completed, true)}</details>}
     </>}
   </section>;
 }

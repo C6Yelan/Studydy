@@ -40,10 +40,7 @@ export function AssessmentPanel({
           <span className="feedback-icon" aria-hidden="true">
             <Icon name={feedback.is_correct ? "check" : "warning"} size={24} />
           </span>
-          <div>
-            <p className="eyebrow">作答回饋</p>
-            <h2>{feedback.is_correct ? "答對了" : "這題需要再想一下"}</h2>
-          </div>
+          <h2>{feedback.is_correct ? "答對了" : "這題需要再想一下"}</h2>
         </header>
         <section className="feedback-section">
           <h3>題目</h3>
