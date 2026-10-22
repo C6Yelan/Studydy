@@ -765,7 +765,8 @@ export class StudydyApiClient {
       (value): value is LibrarySearchView => validate.librarySearch(value) && value.query === text.trim());
   }
 
-  getLearningActivity(options: { fresh?: boolean } = {}): Promise<LearningActivityView> {
+  // async：登出後仍可能被 popstate／focus 觸發，失效時要回傳 rejected promise 讓呼叫端處理，不能同步拋錯。
+  async getLearningActivity(options: { fresh?: boolean } = {}): Promise<LearningActivityView> {
     this.requireActive();
     // fresh 仍共用剛發出（2 秒內）的讀取，避免頁首與首頁同時載入時重複計算。
     if (!this.activity || Date.now() - this.activity.at > (options.fresh ? 2_000 : activityReuseMs)) {

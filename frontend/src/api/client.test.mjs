@@ -1465,6 +1465,14 @@ test("learning activity is shared briefly and re-read after a review", async () 
   assert.deepEqual(seen, [120, 120]);
 });
 
+test("learning activity after logout rejects instead of throwing synchronously", async () => {
+  const client = new StudydyApiClient(async () => Response.json(activityView()));
+  client.invalidate();
+  // 登出時 popstate 會讓頁首再讀一次；同步拋錯會繞過呼叫端的 .then 錯誤處理。
+  const pending = client.getLearningActivity();
+  await assert.rejects(pending, (error) => error.reasonCode === "SESSION_REQUIRED");
+});
+
 test("podcast progress posts listening reports with keepalive and checks the podcast", async () => {
   const podcastId = "77777777-7777-4777-8777-777777777777";
   const sent = [];
