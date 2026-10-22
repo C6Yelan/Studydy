@@ -253,11 +253,18 @@
   .podcast-dock .media-playback-controls { padding: 2px 10px 4px; border-radius: 20px; }
 }
 
-/* 寬螢幕：播放列對齊影片欄（位置由頁面量測）；教材內沒有手機底部導覽，播放列貼近畫面底部。 */
-@media (min-width: 1101px) {
+/* 雙欄版面（>850px）：播放列對齊影片欄（位置由頁面量測）。 */
+@media (min-width: 851px) {
   :root[style*="--podcast-dock-left"] .podcast-dock { left: var(--podcast-dock-left); width: var(--podcast-dock-width); transform: none; }
+  /* 播放列接在影片正下方（--podcast-dock-top 由頁面量測，視窗不夠高時仍貼在底部），影片與播放列之間不留空白。 */
+  :root[style*="--podcast-dock-top"] .podcast-dock { top: var(--podcast-dock-top); bottom: auto; }
+  /* 影片高度扣掉播放列（--podcast-dock-block＝播放列高度＋間距）；右欄不在播放列下方，延伸到播放列底部，逐字稿在欄內獨立捲動。 */
+  .podcast-listening-layout { --watch-room-height:max(0px, calc(100dvh - var(--watch-room-top, 0px) - 24px - var(--watch-room-shell-bottom, 0px) - var(--podcast-dock-block, 0px))); }
+  .podcast-listening-layout > .podcast-companion { height:calc(var(--watch-room-height) + var(--podcast-dock-block, 0px)); }
+  .podcast-listening-layout:has(.has-video) > .podcast-companion { height:min(calc(var(--watch-room-height) + var(--podcast-dock-block, 0px)), calc((100cqw - var(--watch-companion-width) - var(--watch-gap) - 2px) * 9 / 16 + 2px + var(--podcast-dock-block, 0px))); }
 }
-@media (max-width: 1100px) {
+/* 單欄版面：教材內沒有手機底部導覽，播放列貼近畫面底部。 */
+@media (max-width: 850px) {
   :root:has(.app-shell.is-material .material-header) .podcast-dock { bottom: calc(12px + env(safe-area-inset-bottom)); }
 }
 /* 返回與節目名稱之間留白收緊。 */

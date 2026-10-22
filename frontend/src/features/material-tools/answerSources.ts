@@ -29,6 +29,6 @@ export function answerSources(answer: VoiceTurn['answer']) {
     }
     source.quote=quote;
   }
-  // 來源統一放在回答下方的「查看來源」，正文保留原文。
+  // 正文保留原文；來源在回答下方顯示為「第 N 頁」小標籤（可開啟原頁），摘錄收在「引用原文」展開區。
   return {text: answer?.text ?? '', sources};
 }

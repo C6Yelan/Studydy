@@ -16,6 +16,8 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [reload, setReload] = useState(0);
+  // 從全站概念卡列表進入時保留返回；其餘情況在教材內，分頁列已能回到概念卡，不再重複。
+  const [fromCollection] = useState(() => !!window.history.state?.fromCollection);
   // 這個卡組的標記與需要加強張數；讀取失敗時只是不顯示標記，不影響瀏覽。
   const [summary, setSummary] = useState<CardReviewsView | null>(null);
   const refreshSummary = useCallback(() => {
@@ -34,7 +36,7 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
       try {
         let result = await apiClient.getCardStudy(cardSetId);
         if (cancelled) return;
-        if (!materialId) { writeRoute({ name: "card-set", cardSetId, materialId: result.material_id }, true); return; }
+        if (!materialId) { writeRoute({ name: "card-set", cardSetId, materialId: result.material_id }, true, window.history.state); return; }
         if (result.material_id !== materialId) { setNotFound(true); return; }
         loaded = true;
         setView(result);
@@ -56,7 +58,7 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
   if (notFound) return <NotFoundView title="找不到這個卡組" description="這個卡組可能已被刪除，或不屬於目前登入的帳號。"
     back={{ label: "回到概念卡", route: materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" } }} />;
   return <section className="cards-page cards-study-page">
-    <BackLink label="返回卡組" route={materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" }} />
+    {fromCollection && <BackLink label="返回卡組" route={{ name: "concept-cards" }} />}
     {view && view.generation.status !== "ready" && !error ? <CardGenerationProgress view={view} onRetry={() => {
       void apiClient.retryCardGeneration(cardSetId).then(() => setReload(n => n + 1)).catch(failure => setError(errorMessage(failure)));
     }} /> : error || !view?.batch ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入第一批卡片。"} tone={error ? "failure" : "loading"} live={!error} skeleton="deck" action={error ? <button className="primary-button" onClick={() => setReload(n => n + 1)}>重新讀取</button> : undefined} />

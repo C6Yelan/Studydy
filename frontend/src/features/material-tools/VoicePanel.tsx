@@ -53,11 +53,11 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
  },[]);
  // 建議問題讀取失敗只是不顯示，不影響問答。
  useEffect(()=>{
-  if(!revision)return;
+  if(!expectedRevision)return;
   let stopped=false;
-  void api.getKnowledgeOutline({materialId,structureRevision:revision}).then(outline=>{if(!stopped)setSuggestions(suggestedQuestions(outline));},()=>undefined);
+  void api.getKnowledgeOutline({materialId,structureRevision:expectedRevision}).then(outline=>{if(!stopped)setSuggestions(suggestedQuestions(outline));},()=>undefined);
   return()=>{stopped=true;};
- },[api,materialId,revision]);
+ },[api,materialId,expectedRevision]);
  const refreshList=async()=>{
   const request=++listVersion.current;
   const result=await api.studyTools<{conversations:Conversation[]}>(`/v1/materials/${materialId}/voice-conversations`);

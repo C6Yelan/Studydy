@@ -44,6 +44,13 @@ export function Modal({ label, open, onClose, className, children }: {
 
 type SearchState = { query: string; result: LibrarySearchView | null; error: string | null };
 
+// 頁首搜尋只有一個；其他頁面（例如找不到頁面）透過這裡開啟，不模擬鍵盤事件。
+let searchOpener: { visible: () => boolean; open: () => void } | null = null;
+/** 頁首目前是否顯示全站搜尋（教材內隱藏頁首時為 false）。 */
+export function globalSearchAvailable() { return searchOpener?.visible() ?? false; }
+/** 開啟頁首的全站搜尋；頁首未顯示搜尋時不動作。 */
+export function openGlobalSearch() { if (searchOpener?.visible()) searchOpener.open(); }
+
 // 依 history state 開啟指定概念（全站搜尋只在教材外出現，開啟的地圖一定是重新載入）。
 function openConcept(concept: LibrarySearchView["concepts"][number]) {
   writeRoute(
@@ -90,6 +97,11 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
     ]).then(([cardSets, podcasts]) => { if (!cancelled) setLists({ cardSets, podcasts }); });
     return () => { cancelled = true; };
   }, [apiClient, open]);
+  useEffect(() => {
+    const opener = { visible: () => trigger.current?.checkVisibility() ?? false, open: () => setOpen(true) };
+    searchOpener = opener;
+    return () => { if (searchOpener === opener) searchOpener = null; };
+  }, []);
   useEffect(() => {
     // 「/」開啟搜尋；正在輸入其他欄位時不攔截。教材內隱藏全站頁首，也不開全站搜尋（教材有自己的地圖搜尋）。
     const onKey = (event: KeyboardEvent) => {

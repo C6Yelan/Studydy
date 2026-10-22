@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardReviewsView, CardSetSummary, MaterialLibraryItem } from "../../api/contracts";
-import { writeRoute } from "../../app/routes";
+import { writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { islandColors, islandPalette } from "../../ui/art/Island";
 import { CardSetManagement } from "./CardSetManagement";
@@ -80,7 +80,13 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   };
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision);
   const create = () => { if (material && structure) writeRoute({ name: "card-set-create", materialId: material.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision }); else if (!material) writeRoute({ name: "card-set-new" }); };
-  const weakTotal = weak ? [...weak.values()].reduce((sum, count) => sum + count, 0) : 0;
+  // 教材內只計這份教材的卡組；全站計所有卡組。
+  const weakCounts = weak ? (material ? (sets ?? []).map(item => weak.get(item.card_set_id) ?? 0) : [...weak.values()]) : [];
+  const weakTotal = weakCounts.reduce((sum, count) => sum + count, 0);
+  // 需要加強頁只能篩到單一卡組：教材內只有一個卡組有不熟卡片時直接看該卡組，否則開啟全部卡組的需要加強。
+  const weakSets = material ? (sets ?? []).filter(item => (weak?.get(item.card_set_id) ?? 0) > 0) : [];
+  const reviewRoute: AppRoute = material && weakSets.length === 1
+    ? { name: "card-review", cardSetId: weakSets[0].card_set_id, materialId: material.material_id } : { name: "card-review" };
   return (
     <section className="material-library is-collection cards-library" aria-label={material ? "教材概念卡" : "我的概念卡"}>
       {contentNavigation}
@@ -98,17 +104,19 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
           <EmptyState label="空卡組引導" title={material ? "這份教材還沒有卡組" : "建立你的第一組概念卡"} description="選擇教材中的概念，建立你的第一組概念卡。"
             action={<button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}>{material ? "建立卡組" : "選擇教材"}</button>} />
         ) : <>
-          {/* 跨卡組的需要加強：一列入口，加強在獨立頁進行。 */}
-          {!material && <section className="cards-strengthen surface" aria-labelledby="cards-strengthen-title">
+          {/* 需要加強：一列入口，加強在獨立頁進行。 */}
+          <section className="cards-strengthen surface" aria-labelledby="cards-strengthen-title">
             <div className="cards-strengthen-bar">
               <img src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
               <p><b id="cards-strengthen-title">需要加強</b>
-                {weak === null ? <span>—</span> : weakTotal ? <span>{weakTotal} 張卡片標成不熟</span> : <span>目前沒有，瀏覽卡組時把不熟的卡片標起來</span>}</p>
-              {weakTotal > 0 && <button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-review" })}>
+                {weak === null ? <span>—</span> : weakTotal
+                  ? <span>{material ? "這份教材 " : ""}{weakTotal} 張卡片標成不熟{weakSets.length > 1 && " · 加強頁會一起列出各教材標成不熟的卡片"}</span>
+                  : <span>目前沒有，瀏覽卡組時把不熟的卡片標起來</span>}</p>
+              {weakTotal > 0 && <button className="primary-button" type="button" onClick={() => writeRoute(reviewRoute)}>
                 開始加強<Icon name="chevron-right" size={18} />
               </button>}
             </div>
-          </section>}
+          </section>
 
           <div className="library-grid">
             {sets.map((item) => (
@@ -136,9 +144,9 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
                 {!item.is_current_revision && (item.moved_to_card_set_id
                   ? <p className="library-state is-version">已移到新版（保留舊版卡面）</p>
                   // 到教材頁才有「移到新版」；標籤直接帶過去。
-                  : <button type="button" className="library-state is-version" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id })}>教材已有新版 · 查看移到新版</button>)}
+                  : <button type="button" className="library-state is-version" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>教材已有新版 · 查看移到新版</button>)}
                 {(weak?.get(item.card_set_id) ?? 0) > 0 && <p className="card-review-due"><Icon name="refresh" size={14} />需要加強 {weak!.get(item.card_set_id)} 張</p>}
-                <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id })}>開始複習</button></div>
+                <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>開始複習</button></div>
               </article>
             ))}
           </div>

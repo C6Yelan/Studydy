@@ -30,6 +30,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [readingTab, setReadingTab] = useState<"transcript" | "highlights">("transcript");
+  const [fromCollection] = useState(() => !!window.history.state?.fromCollection);
   const media = useRef<HTMLMediaElement | null>(null);
   const workspace = useRef<HTMLDivElement>(null);
   const active = useRef(false), changing = useRef(false);
@@ -45,28 +46,43 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     const resize = () => {
       const top = `${Math.ceil(layout.getBoundingClientRect().top + window.scrollY)}px`;
       if (layout.style.getPropertyValue('--watch-room-top') !== top) layout.style.setProperty('--watch-room-top', top);
-      // 底部常駐播放列佔用的高度（含與內容的間距），觀看室不延伸到播放列下方。
       const dock = document.querySelector('.podcast-dock')?.getBoundingClientRect();
-      const space = `${dock ? Math.ceil(window.innerHeight - dock.top) : 0}px`;
-      if (layout.style.getPropertyValue('--podcast-dock-space') !== space) layout.style.setProperty('--podcast-dock-space', space);
-      // 寬螢幕：播放列對齊影片欄（左緣與寬度同影片），不浮在整頁中央。
       const player = layout.querySelector('.media-player')?.getBoundingClientRect();
       const root = document.documentElement.style;
-      if (player && window.matchMedia('(min-width: 1101px)').matches) {
+      if (player && window.matchMedia('(min-width: 851px)').matches) {
+        // 雙欄版面：播放列與影片欄同寬、接在影片正下方；影片高度扣掉播放列，右欄延伸到播放列底部（styles.css）。
+        // 影片大小只依播放列高度計算，不依它的位置，不會互相牽動。
+        const dockHeight = dock?.height ?? 0;
+        const block = `${dock ? Math.ceil(dockHeight) + 12 : 0}px`;
+        if (layout.style.getPropertyValue('--podcast-dock-block') !== block) layout.style.setProperty('--podcast-dock-block', block);
+        layout.style.setProperty('--podcast-dock-space', '0px');
         root.setProperty('--podcast-dock-left', `${Math.round(player.left)}px`);
         root.setProperty('--podcast-dock-width', `${Math.round(player.width)}px`);
-      } else { root.removeProperty('--podcast-dock-left'); root.removeProperty('--podcast-dock-width'); }
+        // 視窗不夠高時仍完整顯示；有手機底部導覽（教材外）時留在導覽上方。
+        const bottomGap = document.querySelector('.app-shell > .tab-bar')?.checkVisibility() ? 100 : 16;
+        root.setProperty('--podcast-dock-top', `${Math.round(Math.min(player.bottom + 12, window.innerHeight - bottomGap - dockHeight))}px`);
+      } else {
+        root.removeProperty('--podcast-dock-left'); root.removeProperty('--podcast-dock-width'); root.removeProperty('--podcast-dock-top');
+        layout.style.removeProperty('--podcast-dock-block');
+        // 底部常駐播放列佔用的高度（含與內容的間距），觀看室不延伸到播放列下方。
+        const space = `${dock ? Math.ceil(window.innerHeight - dock.top) : 0}px`;
+        if (layout.style.getPropertyValue('--podcast-dock-space') !== space) layout.style.setProperty('--podcast-dock-space', space);
+      }
     };
     const observer = new ResizeObserver(resize);
     observer.observe(layout);
     const dock = document.querySelector('.podcast-dock');
     if (dock) observer.observe(dock);
+    const player = layout.querySelector('.media-player');
+    if (player) observer.observe(player);
     document.querySelectorAll('.app-header, .material-learning-toolbar, .material-context, .podcast-page > .cards-page-header, .podcast-generation-summary').forEach(element => observer.observe(element));
     window.addEventListener('resize', resize);
+    // 播放列是固定定位：頁面捲動時跟著影片底部（仍不超出視窗）。
+    window.addEventListener('scroll', resize, { passive: true });
     resize();
     return () => {
-      observer.disconnect(); window.removeEventListener('resize', resize);
-      document.documentElement.style.removeProperty('--podcast-dock-left'); document.documentElement.style.removeProperty('--podcast-dock-width');
+      observer.disconnect(); window.removeEventListener('resize', resize); window.removeEventListener('scroll', resize);
+      for (const name of ['--podcast-dock-left', '--podcast-dock-width', '--podcast-dock-top']) document.documentElement.style.removeProperty(name);
     };
   }, [view?.podcast_id, view?.status, view?.generation?.active, videoState.state?.status, actionError, progress === undefined, index]);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
@@ -77,7 +93,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
       try {
         const result = await apiClient.getPodcast(podcastId);
         if (cancelled) return;
-        if (!materialId) { writeRoute({ name: "podcast", podcastId, materialId: result.material_id }, true); return; }
+        if (!materialId) { writeRoute({ name: "podcast", podcastId, materialId: result.material_id }, true, window.history.state); return; }
         if (result.material_id !== materialId) { setNotFound(true); return; }
         setView(result); setError(null); setIndex((i) => Math.min(i, result.episodes.length - 1));
         if (result.status === "pending" || result.status === "running" || result.generation?.active) timer = setTimeout(() => void read(), 2000);
@@ -141,7 +157,8 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     } catch (e) { if (active.current) { setActionError(errorMessage(e)); setReload((v) => v + 1); } }
     finally { changing.current = false; if (active.current) setBusy(false); }
   };
-  const back = <BackLink label="返回 Podcast" route={materialId ? { name: "material-content", materialId, kind: "podcasts" } : { name: "podcasts" }} />;
+  // 從全站 Podcast 列表進入時保留返回；其餘情況在教材內，分頁列已能回到 Podcast，不再重複。
+  const back = fromCollection ? <BackLink label="返回 Podcast" route={{ name: "podcasts" }} /> : null;
   if (notFound) return <NotFoundView title="找不到這份 Podcast" description="這份 Podcast 可能已被刪除，或不屬於目前登入的帳號。"
     back={{ label: "回到 Podcast", route: materialId ? { name: "material-content", materialId, kind: "podcasts" } : { name: "podcasts" } }} />;
   if (error || !view) return <section className="cards-page podcast-page">{back}<StateView title={error ? "無法讀取 Podcast" : "正在讀取 Podcast"}

@@ -138,7 +138,9 @@ test("material collections filter both products while outer navigation opens the
   await page.getByRole('button', { name: '查看進度', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
   await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
-  await page.getByRole('button', { name: '返回 Podcast', exact: true }).click();
+  // 教材內已有分頁列，不再顯示重複的返回；用 Podcast 分頁回到列表。
+  await expect(page.getByRole('button', { name: '返回 Podcast', exact: true })).toHaveCount(0);
+  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: 'Podcast', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts$`));
   await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
   await expect(page.locator('.library-item')).toHaveCount(1);
@@ -680,7 +682,7 @@ test('companion panels keep episode navigation visible while tabs, chapters and 
 
 test('desktop watch room fits measured page chrome and viewport height without shrinking mobile video', async ({ page }) => {
   const fixture = await mockEpisodeVideo(page);
-  const sizes = [[1280, 720], [1366, 768], [1440, 720], [1440, 900], [1920, 1080], [2560, 1080], [1920, 600]];
+  const sizes = [[1000, 800], [1280, 720], [1366, 768], [1440, 720], [1440, 900], [1920, 1080], [2560, 1080], [1920, 600]];
   for (const [width, height] of sizes) {
     await page.setViewportSize({ width, height });
     await page.goto(`/podcasts/${podcastId}`);
@@ -696,12 +698,16 @@ test('desktop watch room fits measured page chrome and viewport height without s
     const display = (await page.locator('.media-display').boundingBox())!;
     expect(display.width / display.height).toBeCloseTo(16 / 9, 2);
     expect(companion.y).toBeCloseTo(player.y, 0);
-    expect(companion.height).toBeCloseTo(player.height, 0);
-    expect(companion.y + companion.height).toBeLessThanOrEqual(height - 20);
-    // 播放列常駐在底部，觀看室（影片與內容欄）不延伸到播放列下方。
+    // 播放列接在影片正下方（與影片欄同寬），影片與播放列之間不留大塊空白。
+    const dock = (await page.locator('.podcast-dock').boundingBox())!;
     expect(controls.y + controls.height).toBeLessThanOrEqual(height - 12);
-    expect(player.y + player.height).toBeLessThanOrEqual(controls.y);
-    expect(companion.y + companion.height).toBeLessThanOrEqual(controls.y);
+    expect(player.y + player.height).toBeLessThanOrEqual(dock.y);
+    expect(dock.y - (player.y + player.height)).toBeLessThanOrEqual(16);
+    expect(dock.x).toBeCloseTo(player.x, 0);
+    // 右欄不在播放列下方：延伸到播放列底部，逐字稿有完整高度。
+    expect(companion.x).toBeGreaterThanOrEqual(dock.x + dock.width);
+    expect(Math.abs(companion.y + companion.height - (dock.y + dock.height))).toBeLessThanOrEqual(2);
+    expect(companion.y + companion.height).toBeLessThanOrEqual(height - 12);
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(height);
   }

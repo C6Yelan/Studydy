@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { writeRoute, type AppRoute } from "../app/routes";
+import { globalSearchAvailable, openGlobalSearch } from "../app/HeaderTools";
 import { Icon } from "./Icon";
 import "./not-found.css";
 
@@ -14,9 +15,9 @@ export function NotFoundView({
   /** 回到相關清單，例如「回到我的教材」。 */
   back?: { label: string; route: AppRoute };
 }) {
-  // 全站搜尋在頁首；以「/」快捷鍵開啟（頁首隱藏時不會開，按鈕也就不顯示）。
+  // 全站搜尋在頁首；頁首隱藏搜尋時（例如教材內）不顯示這個入口。
   const [search, setSearch] = useState(false);
-  useEffect(() => { setSearch(document.querySelector<HTMLElement>(".header-search-trigger")?.checkVisibility() ?? false); }, []);
+  useEffect(() => { setSearch(globalSearchAvailable()); }, []);
   return (
     <section className="not-found surface" aria-labelledby="not-found-title">
       <div className="not-found-art" aria-hidden="true">
@@ -36,7 +37,7 @@ export function NotFoundView({
         )}
         {search && (
           <button className="text-button" type="button"
-            onClick={() => document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "/", bubbles: true }))}>
+            onClick={openGlobalSearch}>
             <Icon name="search" size={16} />搜尋全部內容
           </button>
         )}

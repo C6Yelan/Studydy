@@ -20,8 +20,9 @@ export type AppRoute =
   | { name: "card-set"; cardSetId: string; materialId?: string }
   | { name: "card-set-edit"; cardSetId: string; materialId?: string }
   | { name: "card-set-create"; materialId: string; runId: string; structureRevision: string }
-  /** 需要加強：逐張看標成不熟的概念卡；帶 cardSetId 時只看該卡組。 */
-  | { name: "card-review"; cardSetId?: string; materialId?: string }
+  /** 需要加強：逐張看標成不熟的概念卡；帶 cardSetId 時只看該卡組。只篩教材沒有對應頁面，materialId 必須搭配 cardSetId。 */
+  | { name: "card-review"; cardSetId?: undefined; materialId?: undefined }
+  | { name: "card-review"; cardSetId: string; materialId?: string }
   | { name: "upload" }
   | { name: "material-sources"; materialId: string }
   | { name: "material-run"; materialId: string; runId: string }

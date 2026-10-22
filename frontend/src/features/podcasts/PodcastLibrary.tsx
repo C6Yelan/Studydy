@@ -88,7 +88,7 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
           {item.generation ? !podcastComplete(item) && <p className="library-state">{item.generation.active ? (item.status === 'ready' ? '影片／字幕生成中' : podcastStatus[item.status]) : item.generation.failed_videos ? '部分影片生成失敗' : podcastStatus[item.status]} · 音訊 {item.completed_episodes} / {item.episode_count} 集 · 影片 {item.generation.completed_videos} / {item.episode_count} 集</p>
             : item.status !== "ready" && <p className="library-state">{podcastStatus[item.status]} · 音訊已完成 {item.completed_episodes} / {item.episode_count} 集</p>}
           {(item.generation?.active || ['pending','running'].includes(item.status)) && <PodcastCancelControl busy={deletingId!==null} onConfirm={()=>void cancelAndDelete(item.podcast_id)}/>}
-          <button type="button" className="primary-button" onClick={() => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id })}>{podcastPreviewReady(item) ? "開啟播放" : "查看進度"}</button>
+          <button type="button" className="primary-button" onClick={() => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>{podcastPreviewReady(item) ? "開啟播放" : "查看進度"}</button>
         </article>)}</div></>}
     </div>
   </section>;

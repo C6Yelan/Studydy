@@ -14,14 +14,13 @@ function Lines({ count, last = "60%" }: { count: number; last?: string }) {
     <Bone key={index} className="is-line" style={index === count - 1 ? { width: last } : undefined} />)}</>;
 }
 
-function Tabs() {
-  return <div className="skeleton-tabs">{Array.from({ length: 6 }, (_, index) => <Bone key={index} className="is-pill" />)}</div>;
-}
-
+/** 教材頁首：單列的返回＋島嶼縮圖＋名稱＋分頁＋教材問答＋頭像（分頁在窄螢幕裁切，與實際頁首橫向捲動一致）。 */
 function MaterialBar() {
   return <div className="skeleton-material-bar">
-    <Bone className="is-thumb" />
-    <div><Bone className="is-line is-title" style={{ width: "min(320px, 70%)" }} /><Bone className="is-line" style={{ width: "40%" }} /></div>
+    <Bone className="is-round" /><Bone className="is-thumb" />
+    <Bone className="is-line is-name" />
+    <div className="skeleton-tabs">{Array.from({ length: 6 }, (_, index) => <Bone key={index} className="is-pill" />)}</div>
+    <Bone className="is-pill is-chat" /><Bone className="is-round" />
   </div>;
 }
 
@@ -36,8 +35,8 @@ function Body({ variant }: { variant: SkeletonVariant }) {
     <div className="skeleton-heading"><Bone className="is-line is-title" style={{ width: "min(240px, 60%)" }} /><Bone className="is-line" style={{ width: "min(360px, 80%)" }} /></div>
     <Cards count={6} />
   </>;
-  if (variant === "material") return <><MaterialBar /><Tabs /><Cards count={3} /></>;
-  if (variant === "map") return <><MaterialBar /><Tabs />
+  if (variant === "material") return <><MaterialBar /><Cards count={3} /></>;
+  if (variant === "map") return <><MaterialBar />
     <div className="skeleton-map">
       <div className="skeleton-map-canvas">
         <Bone className="is-node is-center" /><Bone className="is-node is-left" /><Bone className="is-node is-right" />
