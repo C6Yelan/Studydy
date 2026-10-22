@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
+import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
+import { NotFoundView } from "../../ui/NotFoundView";
+import { BackLink } from "../../ui/BackLink";
 import type { CardStudyView, KnowledgeOutlineView } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
@@ -26,6 +28,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const [pageSize, setPageSize] = useState(8);
   const conceptList = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,7 +51,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
       try {
         const deck = route.name === "card-set-edit" ? await apiClient.getCardStudy(route.cardSetId) : null;
         if (deck && route.name === "card-set-edit" && !route.materialId) { if (!cancelled) writeRoute({ name: "card-set-edit", cardSetId: route.cardSetId, materialId: deck.material_id }, true); return; }
-        if (deck && route.materialId && deck.material_id !== route.materialId) throw new Error("這個卡組不屬於此教材。");
+        if (deck && route.materialId && deck.material_id !== route.materialId) { if (!cancelled) setNotFound(true); return; }
         const id = deck?.material_id ?? (route.name === "card-set-create" ? route.materialId : "");
         const revision = deck?.knowledge_structure_revision ?? (route.name === "card-set-create" ? route.structureRevision : "");
         const [material, structure] = await Promise.all([
@@ -69,7 +72,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         setSelected(new Set((deck?.navigation ?? structure.concepts).map((item) => item.concept_id)));
         setPreviewId(deck?.navigation[0]?.concept_id ?? structure.concepts[0]?.concept_id ?? null);
       } catch (failure) {
-        if (!cancelled) setError(errorMessage(failure));
+        if (!cancelled) { if (isNotFound(failure)) setNotFound(true); else setError(errorMessage(failure)); }
       }
     };
     void read();
@@ -132,9 +135,11 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     }
   };
   const backLabel = editing ? "返回卡組" : "返回知識地圖";
+  if (notFound) return <NotFoundView title={editing ? "找不到這個卡組" : "找不到這份教材"} description={editing ? "這個卡組可能已被刪除，或不屬於目前登入的帳號。" : "這份教材或地圖版本可能已被刪除，或不屬於目前登入的帳號。"}
+    back={editing ? { label: "回到概念卡", route: { name: "concept-cards" } } : { label: "回到我的教材", route: { name: "materials" } }} />;
   if (error || !view) return (
     <section className="cards-page">
-      {!embedded && <button className="text-button" type="button" onClick={back}>← {backLabel}</button>}
+      {!embedded && <BackLink label={backLabel} onClick={back} />}
       <StateView title={error ? "無法讀取概念" : "正在準備概念卡"}
         description={error ?? "正在載入教材的概念與重點。"} tone={error ? "failure" : "loading"} live={!error} skeleton="page"
         action={error ? <button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button> : undefined} />
@@ -149,7 +154,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     setPreviewId(id);
   };
   return <section className="cards-page cards-create">
-    {!embedded && <button className="cards-back text-button" type="button" onClick={back}><Icon name="arrow-left" size={17} /> {backLabel}</button>}
+    {!embedded && <BackLink label={backLabel} onClick={back} />}
     {!embedded && <header className="cards-page-header"><div><h1>{editing ? "管理卡組" : "建立概念卡組"}</h1><p className="cards-material-name"><Icon name="book" size={16} /> {materialName}</p></div></header>}
     <header className="cards-create-toolbar">
       <label className="cards-field">卡組名稱<input value={name} maxLength={200} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>

@@ -65,7 +65,7 @@ function Sea() {
     {waves.map(([x, y]) => <path key={`${x}-${y}`} className="sea-wave" d={`M${x * 10} ${y * 5.6} q8 -6 16 0 t16 0`} stroke="#fff" strokeOpacity=".7" strokeWidth="3" fill="none" strokeLinecap="round" />)}
     <ellipse cx="130" cy="486" rx="86" ry="42" fill="#fff" opacity=".22" />
     <ellipse cx="130" cy="486" rx="86" ry="42" fill="none" stroke="#fff" strokeWidth="3" strokeDasharray="4 10" strokeLinecap="round" opacity=".9" />
-    <g transform="translate(948 60)" opacity=".85">
+    <g className="sea-compass" transform="translate(948 60)" opacity=".85">
       <circle r="28" fill="#fff" opacity=".3" /><circle r="28" fill="none" stroke="#fff" strokeWidth="2" />
       <path d="M0 -24 L6 0 L0 24 L-6 0Z" fill="#fff" /><path d="M0 -24 L6 0 L-6 0Z" fill="#ff6b5e" />
     </g>
@@ -88,6 +88,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   const [reviewQueue, setReviewQueue] = useState<CardReviewQueueView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const [showAll, setShowAll] = useState(false);
   useEffect(() => {
     let cancelled = false;
     setError(null);
@@ -185,7 +186,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
                 <h2 id="archipelago-title">我的學習群島</h2>
                 {materials && <span>{materials.length} 份教材{pages > 0 && ` · ${pages} 頁`}</span>}
               </div>
-              <button className="text-button" type="button" onClick={() => writeRoute({ name: "materials" })}>列表檢視<Icon name="chevron-right" size={16} /></button>
+              <button className="text-button" type="button" onClick={() => writeRoute({ name: "materials" })}>看全部教材<Icon name="chevron-right" size={16} /></button>
             </header>
             {error ? (
               <div className="dashboard-error" role="alert">
@@ -206,7 +207,9 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
                       const slot = slots[index];
                       const status = statusText(state, value);
                       const started = value?.completed ?? 0;
-                      return <li key={material.material_id} className={`archipelago-island is-${state}${material === focus ? " is-focus" : ""}`}
+                      // 靠地圖左右緣的島，標籤改向內對齊，不被地圖邊緣裁掉。
+                      const edge = slot.x <= 25 ? " is-edge-left" : slot.x >= 75 ? " is-edge-right" : "";
+                      return <li key={material.material_id} className={`archipelago-island is-${state}${material === focus ? " is-focus" : ""}${edge}`}
                         style={{ left: `${slot.x}%`, top: `${slot.y}%`, width: `${slot.w}%` }}>
                         <button type="button" onClick={() => openMaterial(material)} aria-label={`${material.display_name}，${status}`}>
                           <IslandArt palette={islandPalette(material.material_id)} viewBox="100 60 840 470" landmarks={state !== "building"} />
@@ -224,10 +227,25 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
                   <button className="archipelago-new" type="button" onClick={() => writeRoute({ name: "upload" })}>
                     <span><Icon name="plus" size={24} /></span><b>發現新島嶼</b><small>上傳教材或輸入主題</small>
                   </button>
-                  {ordered.length > shown.length && <button className="archipelago-more" type="button" onClick={() => writeRoute({ name: "materials" })}>還有 {ordered.length - shown.length} 座島嶼</button>}
+                  {ordered.length > shown.length && <button className="archipelago-more" type="button" aria-expanded={showAll} aria-controls="archipelago-list" onClick={() => setShowAll((value) => !value)}>{showAll ? "收起島嶼清單" : `還有 ${ordered.length - shown.length} 座島嶼`}</button>}
                 </div>
+                {shown.length > 1 && <p className="archipelago-swipe-hint" aria-hidden="true"><Icon name="chevron-left" size={14} />左右滑動看全部 {shown.length} 座島<Icon name="chevron-right" size={14} /></p>}
               </div>
             )}
+            {/* 島嶼清單：手機一律顯示（地圖要橫向滑動），桌機在「還有 N 座島嶼」展開時顯示地圖放不下的島。 */}
+            {materials && ordered.length > 1 && <ul id="archipelago-list" className={`archipelago-list${showAll ? " is-open" : ""}`} aria-label="全部教材島嶼">
+              {ordered.map((material, index) => {
+                const state = islandState(material);
+                const status = statusText(state, progress.get(material.material_id));
+                return <li key={material.material_id} className={index < shown.length ? "is-on-map" : undefined}>
+                  <button type="button" onClick={() => openMaterial(material)}>
+                    <span className="archipelago-list-thumb" aria-hidden="true"><IslandArt palette={islandPalette(material.material_id)} landmarks={false} /></span>
+                    <span className="archipelago-list-text"><b>{material.display_name}</b><small>{status}</small></span>
+                    <Icon name="chevron-right" size={16} />
+                  </button>
+                </li>;
+              })}
+            </ul>}
             {materials && <footer className="archipelago-foot">
               <img src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
               <p className="guide-bubble">
@@ -246,15 +264,8 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
                 : !materials.length && <button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}>上傳教材<Icon name="chevron-right" size={18} /></button>}
             </footer>}
           </section>
-        </div>
-        <aside className="dashboard-side">
-          {activity === undefined && <>
-            <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "45%" }} /><Bone className="is-line" /><Bone className="is-line" style={{ width: "70%" }} /></div>
-            <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "35%" }} /><Bone className="is-row" /><Bone className="is-row" /></div>
-          </>}
-          {activity && <LevelCard activity={activity} />}
-          {activity && <BadgeShelf activity={activity} />}
-          {activity && activity.quests.length > 0 && <DailyQuests quests={activity.quests} onOpen={openQuest} />}
+          {/* 群島下方：學習總覽、本週節奏與 Podcast 並排，右欄只留等級、徽章、今日任務與複習。 */}
+          <div className="dashboard-below">
           <section className="dashboard-overview surface" aria-label="學習總覽">
             <h2>學習總覽</h2>
             <div className="dashboard-stats" aria-busy={materials === null && !error}>
@@ -270,6 +281,27 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
             </div>
           </section>
           {activity && <WeekRhythm activity={activity} />}
+          {podcasts && <section className="dashboard-shortcut is-podcast surface" aria-label="Podcast">
+            <header><h2>Podcast</h2>{podcasts.length > 0 && <button className="text-button" type="button" onClick={() => writeRoute({ name: "podcasts" })}>全部<Icon name="chevron-right" size={16} /></button>}</header>
+            {latestPodcast ? <button type="button" className="shortcut-podcast" onClick={() => writeRoute({ name: "podcast", podcastId: latestPodcast.podcast_id, materialId: latestPodcast.material_id })}>
+              <span className="shortcut-podcast-cover" aria-hidden="true"><Icon name="headphones" size={30} /></span>
+              <span>
+                <small>{latestPodcast.material_name}</small>
+                <b>{latestPodcast.name}</b>
+                <span>{latestPodcast.delivery === "dialogue" ? "雙人對談" : "單人講解"} · {latestPodcast.episode_count} 集</span>
+              </span>
+            </button> : <p>還沒有完成的 Podcast。可以從教材挑選概念生成節目。</p>}
+          </section>}
+          </div>
+        </div>
+        <aside className="dashboard-side">
+          {activity === undefined && <>
+            <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "45%" }} /><Bone className="is-line" /><Bone className="is-line" style={{ width: "70%" }} /></div>
+            <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "35%" }} /><Bone className="is-row" /><Bone className="is-row" /></div>
+          </>}
+          {activity && <LevelCard activity={activity} />}
+          {activity && <BadgeShelf activity={activity} />}
+          {activity && activity.quests.length > 0 && <DailyQuests quests={activity.quests} onOpen={openQuest} />}
           {cardSets === null && <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "40%" }} /><Bone className="is-panel" /></div>}
           {cardSets && <section className="dashboard-review surface" aria-labelledby="dashboard-review-title">
             <header>
@@ -286,17 +318,6 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
               setReviewQueue(queue);
             }} />
               : <p>還沒有概念卡。從教材的知識地圖挑選概念，就能建立一組。</p>}
-          </section>}
-          {podcasts && <section className="dashboard-shortcut is-podcast surface" aria-label="Podcast">
-            <header><h2>Podcast</h2>{podcasts.length > 0 && <button className="text-button" type="button" onClick={() => writeRoute({ name: "podcasts" })}>全部<Icon name="chevron-right" size={16} /></button>}</header>
-            {latestPodcast ? <button type="button" className="shortcut-podcast" onClick={() => writeRoute({ name: "podcast", podcastId: latestPodcast.podcast_id, materialId: latestPodcast.material_id })}>
-              <span className="shortcut-podcast-cover" aria-hidden="true"><Icon name="headphones" size={30} /></span>
-              <span>
-                <small>{latestPodcast.material_name}</small>
-                <b>{latestPodcast.name}</b>
-                <span>{latestPodcast.delivery === "dialogue" ? "雙人對談" : "單人講解"} · {latestPodcast.episode_count} 集</span>
-              </span>
-            </button> : <p>還沒有完成的 Podcast。可以從教材挑選概念生成節目。</p>}
           </section>}
         </aside>
       </div>

@@ -1,5 +1,4 @@
 .topic-page { color:var(--text-primary); }
-.app-shell.is-standard .app-main > .topic-page { max-width:1180px; }
 .topic-page .cards-page-header { margin-bottom:20px; flex-wrap:wrap; }
 .topic-history-bar { display:flex; align-items:center; gap:10px; min-width:0; margin-left:auto; }
 .topic-history-bar .tool-field { width:260px; margin:0; }
@@ -82,3 +81,21 @@
 .topic-selected-sources > summary { cursor:pointer; font-size:14px; color:var(--text-secondary); }
 .topic-selected-sources[open] > summary { margin-bottom:16px; }
 @media(max-width:900px) { .topic-analysis .processing-grid { grid-template-columns:1fr; } }
+
+/* 與其他頁同寬；流程步驟用較大的膠囊，停用的主要按鈕旁說明原因。 */
+.topic-page > .back-link { margin-bottom:12px; }
+.topic-history-bar { align-items:flex-end; }
+.topic-history-bar .tool-field { display:grid; gap:4px; }
+.topic-history-label { color:var(--text-muted); font-size:12px; font-weight:800; }
+.topic-page .topic-history-bar .tool-field select { min-height:44px; border-radius:999px; padding-inline:16px; }
+.topic-page > .learning-steps { gap:8px; padding:6px; border-radius:999px; background:var(--surface); box-shadow:var(--shadow); }
+.topic-page > .learning-steps li { gap:8px; padding:6px 14px 6px 6px; border-radius:999px; font-size:14px; font-weight:800; }
+.topic-page > .learning-steps li > span { width:26px; height:26px; font-size:13px; }
+.topic-page > .learning-steps li.is-current { background:var(--studydy-blue-soft); }
+.topic-section { border-radius:var(--radius-card); box-shadow:var(--shadow); }
+.topic-request textarea { font-size:15px; }
+.topic-disabled-hint { color:var(--text-muted); font-size:13px; font-weight:700; }
+@media(max-width:700px) {
+ .topic-page > .learning-steps { border-radius:22px; }
+ .topic-page > .learning-steps li { font-size:12px; padding:4px 10px 4px 4px; }
+}

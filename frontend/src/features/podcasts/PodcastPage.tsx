@@ -1,7 +1,9 @@
 import { usePodcastVideo } from "./PodcastVideo";
+import { BackLink } from "../../ui/BackLink";
 import { PodcastTranscript } from "./PodcastTranscript";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { errorMessage, type StudydyApiClient } from "../../api/client";
+import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
+import { NotFoundView } from "../../ui/NotFoundView";
 import type { PodcastProgressUpdate, PodcastProgressView, PodcastView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
@@ -17,10 +19,13 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
 }) {
   const storageKey = `studydy.podcast.position:${learnerId}:${podcastId}`;
   const [view, setView] = useState<PodcastView | null>(null);
+  const viewRef = useRef<PodcastView | null>(null);
+  viewRef.current = view;
   const [index, setIndex] = useState(() => savedPosition(storageKey).episode);
   // 雲端進度：undefined 讀取中、null 讀取失敗（改用此瀏覽器保存的位置）。
   const [progress, setProgress] = useState<PodcastProgressView | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -57,10 +62,10 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
         const result = await apiClient.getPodcast(podcastId);
         if (cancelled) return;
         if (!materialId) { writeRoute({ name: "podcast", podcastId, materialId: result.material_id }, true); return; }
-        if (result.material_id !== materialId) throw new Error("這份 Podcast 不屬於此教材。");
+        if (result.material_id !== materialId) { setNotFound(true); return; }
         setView(result); setError(null); setIndex((i) => Math.min(i, result.episodes.length - 1));
         if (result.status === "pending" || result.status === "running" || result.generation?.active) timer = setTimeout(() => void read(), 2000);
-      } catch (e) { if (!cancelled) setError(errorMessage(e)); }
+      } catch (e) { if (!cancelled) { if (isNotFound(e) && !viewRef.current) setNotFound(true); else setError(errorMessage(e)); } }
     };
     void read();
     return () => { cancelled = true; clearTimeout(timer); };
@@ -120,7 +125,9 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     } catch (e) { if (active.current) { setActionError(errorMessage(e)); setReload((v) => v + 1); } }
     finally { changing.current = false; if (active.current) setBusy(false); }
   };
-  const back = <button type="button" className="cards-back text-button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "podcasts" } : { name: "podcasts" })}><Icon name="arrow-left" size={17} /> 返回 Podcast</button>;
+  const back = <BackLink label="返回 Podcast" route={materialId ? { name: "material-content", materialId, kind: "podcasts" } : { name: "podcasts" }} />;
+  if (notFound) return <NotFoundView title="找不到這份 Podcast" description="這份 Podcast 可能已被刪除，或不屬於目前登入的帳號。"
+    back={{ label: "回到 Podcast", route: materialId ? { name: "material-content", materialId, kind: "podcasts" } : { name: "podcasts" } }} />;
   if (error || !view) return <section className="cards-page podcast-page">{back}<StateView title={error ? "無法讀取 Podcast" : "正在讀取 Podcast"}
     description={error ?? "正在載入已保存的內容。"} tone={error ? "failure" : "loading"} live={!error} skeleton="media"
     action={error ? <button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button> : undefined} /></section>;
@@ -128,7 +135,8 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const previewReady = podcastPreviewReady(view);
   const groups = [...new Set(episode.claims.map(c => c.concept_id))].map(id => ({ label: episode.claims.find(c => c.concept_id === id)!.label, claims: episode.claims.filter(c => c.concept_id === id) }));
   return <section className="cards-page podcast-page">
-    <header className="cards-page-header">{back}<div>
+    {back}
+    <header className="cards-page-header"><div>
       <h1>{view.name}</h1>
       {!materialId && <p className="cards-material-name"><Icon name="book" size={16} />{view.material_name}</p>}
     </div></header>
@@ -143,7 +151,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
         }} />
       <div className="podcast-companion">
       <aside ref={episodeList} className="surface podcast-episodes" aria-label="分集清單"><h2>分集清單</h2>{view.episodes.map((e, i) => <button type="button" key={i} aria-current={index === i ? "true" : undefined} onClick={() => { autoPlayNext.current = false; setIndex(i); }}>
-      <span className="podcast-episode-number">{String(i + 1).padStart(2, "0")}</span><span className="podcast-episode-summary"><strong title={[...new Set(e.claims.map(c => c.label))].join(" · ")}>{[...new Set(e.claims.map(c => c.label))].join(" · ")}</strong><small>{e.audio ? duration(e.audio.duration_seconds) : ["failed", "cancelled"].includes(view.status) ? "尚未完成" : view.episodes.findIndex(episode => !episode.audio) === i && view.status === "running" ? (e.script ? "製作音訊中" : "整理內容中") : "等待處理"}</small></span></button>)}</aside>
+      <span className="podcast-episode-number">{String(i + 1).padStart(2, "0")}</span><span className="podcast-episode-summary"><strong title={[...new Set(e.claims.map(c => c.label))].join(" · ")}>{episodeTitle(e.claims.map(c => c.label))}</strong><small>{e.audio ? duration(e.audio.duration_seconds) : ["failed", "cancelled"].includes(view.status) ? "尚未完成" : view.episodes.findIndex(episode => !episode.audio) === i && view.status === "running" ? (e.script ? "製作音訊中" : "整理內容中") : "等待處理"}</small></span></button>)}</aside>
         <section className="surface podcast-reading-area" aria-label="本集內容">
           <div className="podcast-content-tabs" role="tablist" aria-label="本集內容">
             {([['transcript', '逐字稿'], ['highlights', '本集重點']] as const).map(([tab, label]) => <button
@@ -172,4 +180,10 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
       </div>
     </div>}
   </section>;
+}
+
+// 分集沒有另外的集名：用前兩個概念當標題，其餘以「等 N 個概念」帶過，完整清單放在提示文字。
+function episodeTitle(labels: string[]) {
+  const unique = [...new Set(labels)];
+  return unique.length <= 2 ? unique.join("、") : `${unique.slice(0, 2).join("、")} 等 ${unique.length} 個概念`;
 }

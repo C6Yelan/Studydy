@@ -467,6 +467,8 @@ test('closing while the voice model loads stops microphone and prevents late ini
   await route.fulfill({contentType:'text/javascript',body:'export async function createVoiceVad(){window.lateVoiceInit=true;throw Error("Should not initialize after close");}'});
  });
  await page.goto(mapPath);await open(page);
+ // 只有移到「語音模式」開關時才預載語音模型（只用文字問答時不下載）。
+ await page.getByRole('switch',{name:'語音模式'}).hover();
  await expect.poll(()=>requested).toBe(true);
  await expect(page.getByRole('switch',{name:'語音模式'})).toHaveAttribute('aria-checked','false');
  await expect(page.getByLabel('問題／辨識文字')).toBeEnabled();

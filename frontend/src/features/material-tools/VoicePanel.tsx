@@ -5,7 +5,7 @@ import type { Conversation, VoiceTurn, VoiceView } from './types';
 import { Icon } from '../../ui/Icon';
 import type { PodcastContext } from '../../api/contracts';
 import { AnswerAudio } from './AnswerAudio';
-import { useContinuousVoice } from './useContinuousVoice';
+import { prefetchVoiceAssets, useContinuousVoice } from './useContinuousVoice';
 import { answerSources } from './answerSources';
 import { useDismissibleMenu } from '../material-flow/useDismissibleMenu';
 
@@ -162,7 +162,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
    </div>
   </header>
   <div className="voice-modes">
-   <button type="button" role="switch" aria-label="語音模式" aria-checked={mode==='voice'} onClick={()=>switchMode(mode==='voice'?'text':'voice')}>語音模式 · {mode==='voice'?'開啟':'關閉'}</button>
+   <button type="button" role="switch" aria-label="語音模式" aria-checked={mode==='voice'} onPointerEnter={prefetchVoiceAssets} onFocus={prefetchVoiceAssets} onClick={()=>switchMode(mode==='voice'?'text':'voice')}><Icon name="microphone" size={16}/>語音模式<span className="voice-switch" aria-hidden="true"><i/></span></button>
   </div>
   {view&&!view.is_current_revision&&<p className="voice-revision-note">使用先前的教材版本。開啟新對話可使用更新後內容。</p>}
   <div className="voice-turns" ref={transcript} aria-live="polite" aria-relevant="additions text" tabIndex={0} aria-label="教材問答紀錄" onScroll={event=>{
@@ -195,7 +195,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
 
    </div>
    {<div className="voice-composer-row">
-    <textarea ref={input} className="voice-composer-input" aria-label="問題／辨識文字" rows={1} maxLength={4000} value={question} disabled={busy||recording||preparing} onChange={event=>setQuestion(event.target.value)} placeholder="輸入問題……" title="Enter 送出，Shift+Enter 換行" onKeyDown={event=>{
+    <textarea ref={input} className="voice-composer-input" aria-label="問題／辨識文字" rows={1} maxLength={4000} value={question} disabled={busy||recording||preparing} onChange={event=>setQuestion(event.target.value)} placeholder="想問教材什麼？" title="Enter 送出，Shift+Enter 換行" onKeyDown={event=>{
      if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229){event.preventDefault();if(!busy&&!working&&!recording&&!preparing)send();}
     }}/>
     <button className="voice-send" type="submit" aria-label="送出問題" title="送出問題" disabled={busy||working||recording||preparing||!question.trim()}><Icon name={busy?'process':'send'} size={18}/></button>

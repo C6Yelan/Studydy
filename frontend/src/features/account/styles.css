@@ -273,3 +273,7 @@
     margin-top: 24px;
   }
 }
+
+/* 淺藍背景上改用深藍字，標題與說明對比足夠（白字約 1.9:1）。 */
+.auth-illustration h2 { color: #0f2f6b; text-shadow: none; }
+.auth-illustration > p { color: #1d3f7a; font-weight: 700; }

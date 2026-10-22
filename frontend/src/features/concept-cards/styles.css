@@ -3,8 +3,6 @@
 .cards-page-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 30px; }
 .cards-page h1 { margin: 7px 0 10px; font-size: clamp(25px, 2.5vw, 34px); letter-spacing: -.035em; overflow-wrap: anywhere; }
 .cards-page-header p { margin: 0; color: var(--text-secondary); line-height: 1.7; }
-.cards-back { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; margin-bottom: 22px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); color: var(--text-secondary); font-weight: 800; }
-.cards-back:hover { color: var(--studydy-blue); }
 .cards-page input[type="search"], .cards-field input { width: 100%; min-height: 44px; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-input); background: #fff; color: var(--text-primary); font: inherit; }
 .cards-empty, .cards-complete { text-align: center; padding: 65px 24px; border: 1px solid var(--border-light); border-radius: 18px; background: #fff; }
 .cards-empty-icon { display: grid; place-items: center; width: 80px; height: 80px; background: var(--studydy-blue-soft); color: var(--studydy-blue); border-radius: 24px; margin: 0 auto 24px; }
@@ -12,19 +10,15 @@
 .cards-empty p, .cards-complete p { color: var(--text-secondary); line-height: 1.7; margin-bottom: 25px; }
 .cards-complete .state-actions { justify-content: center; }
 .cards-no-results { padding: 25px 12px; color: var(--text-secondary); text-align: center; }
-.cards-material-picker { padding: 22px; border: 1px solid #cbdcf4; background: #fff; border-radius: 14px; margin-bottom: 24px; }
-.cards-material-picker header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
-.cards-material-picker h2 { margin: 0; font-size: 18px; }
-.cards-material-picker > div { display: grid; gap: 8px; max-height: 300px; overflow-y: auto; }
-.cards-material-picker > div > button { display: flex; align-items: center; gap: 12px; text-align: left; border: 1px solid var(--border-light); padding: 14px; border-radius: 12px; background: var(--page-cool); color: var(--text-primary); }
-.cards-material-picker > div > button span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
-.cards-material-picker svg { flex-shrink: 0; }
 .cards-dialog { max-width: min(440px, calc(100vw - 36px)); border: 1px solid var(--border); border-radius: 16px; padding: 28px; color: var(--text-primary); }
 .cards-dialog::backdrop { background: #13233e66; }
 .cards-dialog p { line-height: 1.8; overflow-wrap: anywhere; }
 .cards-dialog .state-actions { justify-content: flex-end; margin-top: 24px; }
 .cards-danger { background: #b13c3c; border-color: #b13c3c; }
-.cards-notice { border: 1px solid #ebdba6; background: #fffbef; color: #775b24; border-radius: 14px; padding: 12px 16px; font-size: 13px; line-height: 1.75; }
+/* 版本說明：與教材頁「有新版本」同一套紫色提示語言。 */
+.cards-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 0 16px; padding: 12px 18px; border: 0; border-radius: var(--radius-card); background: var(--violet-soft); color: #5b3ab8; font-size: 13px; font-weight: 700; line-height: 1.7; }
+.cards-version-tag { display: inline-flex !important; align-items: center; gap: 6px; width: fit-content; margin-top: 8px !important; padding: 4px 12px; border-radius: 999px; background: var(--violet-soft); color: #5b3ab8 !important; font-size: 12px !important; font-weight: 800; }
+.cards-version-tag svg { margin-top: 0 !important; }
 .cards-material-name { display: flex; align-items: center; gap: 7px; overflow-wrap: anywhere; }
 .cards-create-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 16px; align-items: start; }
 .cards-selection, .cards-preview { background: #fff; padding: 20px; border: 1px solid var(--border-light); border-radius: 14px; min-width: 0; }
@@ -75,7 +69,6 @@
 .flashcard-source-links > .text-button { display:block; max-width:100%; min-height:28px; padding:4px 8px; border:1px solid var(--border-light); border-radius:12px; background:var(--page-cool); font-size:12px; line-height:1.5; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cards-study { width:100%; max-width:1440px; margin:0 auto; }
 .cards-study-page { width:100%; max-width:none; }
-.cards-study-page > .cards-back { margin-bottom:12px; }
 .cards-study-heading { margin-bottom:12px; }
 .cards-study-heading h1 { font-size: 26px; }
 .cards-study-heading p { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; color: var(--text-secondary); margin: 0; overflow-wrap: anywhere; }
@@ -127,18 +120,13 @@
 }
 @media (prefers-reduced-motion: reduce) { .flashcard { animation: none; } }
 .cards-library-material { overflow-wrap: anywhere; line-height: 1.6; }
-.cards-library .cards-material-picker { margin-bottom: 26px; }
 @media (max-width: 700px) {
   .cards-study .flashcard-point p { font-size: 15px; }
 }
 .cards-creation-page { width: 100%; max-width: none; }
 .creation-page > .cards-page { padding: 0; max-width: none; margin: 0; }
 .creation-page > .cards-page-header { justify-content: flex-start; flex-wrap: nowrap; }
-.creation-back { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 44px; }
 .creation-page > .cards-page-header p { color: var(--text-secondary); }
-.creation-material { display: grid; gap: 8px; margin: 22px 0 28px; font-weight: 600; }
-.creation-material select { width: 100%; padding: 13px 16px; border: 1px solid var(--border); border-radius: 14px; background: white; color: var(--text-primary); font: inherit; font-weight: 400; }
-.creation-placeholder { display: grid; justify-items: center; gap: 15px; padding: 64px 24px; border: 1px dashed var(--border); border-radius: 16px; color: var(--text-muted); }
 
 /* 桌面建立頁依視窗分配剩餘高度，清單與長卡片內容在各自區域內閱讀。 */
 @media (min-width: 1000px) {
@@ -185,7 +173,20 @@
 
  }
 
-.cards-browse-layout { max-width:980px; margin-inline:auto; }
+/* 卡片區與頁面標題左對齊：左側概念清單、右側卡面（卡面本身最寬 860px）。 */
+.cards-browse-layout { grid-template-columns:240px minmax(0,860px); max-width:none; margin-inline:0; }
+.cards-browse-list { padding:10px; border:0; border-radius:var(--radius-card); box-shadow:var(--shadow); align-content:start; }
+.cards-browse-search { width:100%; min-height:38px; margin-bottom:4px; padding:6px 12px; border-radius:999px; font-size:13px; }
+.cards-browse-empty { margin:4px 8px; color:var(--text-muted); font-size:13px; }
+.cards-browse-list button { overflow-wrap:anywhere; }
+.cards-browse-list button[aria-current=true] { background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-weight:800; }
+@media(max-width:700px) {
+  .cards-browse-layout { grid-template-columns:minmax(0,1fr); }
+  /* 手機概念列橫向捲動：右緣淡出提示還有更多。 */
+  .cards-browse-list { align-items:center; scroll-snap-type:x proximity; -webkit-mask-image:linear-gradient(90deg,#000 85%,transparent); mask-image:linear-gradient(90deg,#000 85%,transparent); }
+  .cards-browse-list button { flex:none; scroll-snap-align:start; }
+  .cards-browse-search { flex:none; width:160px; margin:0; }
+}
 .cards-browse-layout .cards-study-stage { min-width:0; }
 
 .visual-card { width: 100%; max-width: 760px; margin: 0 auto; }
@@ -254,3 +255,21 @@
     flex-basis: calc(100% - 40px);
   }
 }
+
+/* 建立卡組／Podcast：返回膠囊在標題上方；選教材用島嶼縮圖清單。 */
+.creation-page > .back-link { flex-shrink: 0; margin-bottom: 10px; }
+.creation-page > .cards-page-header { margin-bottom: 18px; }
+.creation-page > .cards-page-header h1 { margin: 0 0 4px; }
+.creation-page > .cards-page-header p { margin: 0; }
+.creation-picker { padding: 20px; border-radius: var(--radius-card); box-shadow: var(--shadow); }
+.creation-picker h2 { margin: 0 0 12px; font-size: 17px; }
+.creation-picker-status { margin: 0; color: var(--text-secondary); }
+.creation-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.creation-picker-grid button { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 76px; padding: 10px 14px 10px 10px; border: 0; border-radius: 20px; background: var(--page-cool); color: var(--text-primary); text-align: left; transition: background .2s, box-shadow .2s; }
+.creation-picker-grid button:hover { background: var(--studydy-blue-soft); box-shadow: inset 0 0 0 1.5px var(--studydy-blue); }
+.creation-picker-grid button > svg { flex: none; color: var(--studydy-blue); }
+.creation-picker-thumb { flex: none; width: 84px; height: 56px; overflow: hidden; border-radius: 14px; background: linear-gradient(180deg, #8fe0fb, #3aa6e2); }
+.creation-picker-text { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.creation-picker-text strong { overflow-wrap: anywhere; font-size: 15px; font-weight: 900; }
+.creation-picker-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.cards-browse-layout .visual-card { margin-inline: 0; }

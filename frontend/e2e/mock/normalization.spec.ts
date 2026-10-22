@@ -161,7 +161,7 @@ for (const width of [1536, 390])
     await expect(page.getByRole("article")).not.toContainText("尚未建立知識地圖");
     await expect(page.getByRole("article").getByRole("link")).toHaveCount(0);
     await page.getByRole("button", { name: "管理「notes.txt」", exact: true }).click();
-    await page.getByRole("button", { name: "管理教材", exact: true }).click();
+    await page.getByRole("button", { name: "來源與更新", exact: true }).click();
     await expect(row.getByRole("link", { name: "下載原檔", exact: true })).toHaveAttribute(
       "href",
       `/v1/artifacts/${artifactId}/download`,

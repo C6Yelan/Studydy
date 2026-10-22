@@ -59,7 +59,7 @@ test("management menu renames with conflict recovery; deletion needs confirmatio
   await page.getByRole("button", { name: "重新命名", exact: true }).click();
   const dialog = page.getByRole("form", { name: "重新命名Podcast" });
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "我的 Podcast", exact: true })).toHaveCount(0);
+  await expect(page.locator(".library-item").getByRole("heading", { name: "我的 Podcast", exact: true })).toHaveCount(0);
   await dialog.getByLabel("Podcast 名稱").fill("更新後的名稱");
   fixture.conflict();
   await dialog.getByRole("button", { name: "儲存", exact: true }).click();
@@ -101,7 +101,7 @@ test("account creation chooses a material once and keeps name editing usable on 
   await mockPodcasts(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/podcasts/new");
-  await page.getByLabel("選擇教材").selectOption(materialId);
+  await page.getByRole("group", { name: "選擇教材" }).getByRole("button").first().click();
   const name = page.getByLabel("Podcast 名稱", { exact: true });
   await expect(name).toBeVisible();
   await expect(page).toHaveURL(new RegExp('/create-podcast$'));
@@ -669,14 +669,16 @@ test('companion panels keep episode navigation visible while tabs, chapters and 
   await expect(transcript.getByRole('button').first()).toBeEnabled();
   expect(await transcript.evaluate(el => el.scrollTop)).toBe(0);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect.poll(() => transcript.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
-  expect((await companion.boundingBox())!.height).toBeGreaterThan(844);
+  // 手機：逐字稿在固定高度內捲動，播放器黏在上方，不必捲回頂端才能暫停。
+  await expect.poll(() => transcript.evaluate(el => el.scrollHeight - el.clientHeight)).toBeGreaterThan(100);
+  expect(await page.locator('.podcast-listening-layout > .media-player').evaluate(el => getComputedStyle(el).position)).toBe('sticky');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await expect(companion.locator(':scope > .surface')).toHaveCount(2);
   await page.locator('.podcast-reading-area').screenshot({ path: testInfo.outputPath('companion-mobile-transcript.png') });
   await highlightsTab.click();
   await expect(page.getByRole('tabpanel', { name: '本集重點', exact: true })).toBeVisible();
-  expect(await highlights.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
+  // 重點同樣在固定高度內捲動。
+  expect(await highlights.evaluate(el => getComputedStyle(el).overflowY)).toBe('auto');
 });
 
 test('desktop watch room fits measured page chrome and viewport height without shrinking mobile video', async ({ page }, testInfo) => {

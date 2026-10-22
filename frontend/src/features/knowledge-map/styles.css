@@ -1126,3 +1126,56 @@
   font-weight: 700;
   text-align: center;
 }
+
+/* 手機：畫布高度扣掉頁首、教材列、分頁列與底部導覽，縮放按鈕不被底部導覽蓋住；
+   圖例維持單列，可橫向滑動，文字不再被擠成直排。 */
+@media (max-width: 720px) {
+  .is-focus-mode .map-content {
+    height: max(340px, min(600px, calc(100dvh - 370px - env(safe-area-inset-bottom))));
+  }
+  .map-annotations > .relation-legend {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .map-annotations > .relation-legend::-webkit-scrollbar {
+    display: none;
+  }
+  .map-annotations > .relation-legend > span {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
+/* 學習導覽按鈕下方的位置提示：目前區域＋回到全部區域。 */
+.map-whereabouts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  max-width: min(360px, 100%);
+  margin: 8px 0 0;
+  padding: 6px 6px 6px 14px;
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.map-whereabouts b {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.map-whereabouts .text-button {
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+@media (max-width: 720px) {
+  .map-whereabouts { max-width: min(220px, 100%); }
+}
+/* 學習導覽清單上下緣淡出，捲動時被切到的列不會突兀地露出半截文字。 */
+.navigator-list {
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+}

@@ -310,10 +310,12 @@
 }
 
 /* 右欄 */
-.dashboard-side > .surface {
+.dashboard-side > .surface,
+.dashboard-below > .surface {
   padding: 20px 22px;
 }
-.dashboard-side h2 {
+.dashboard-side h2,
+.dashboard-below h2 {
   margin: 0;
   font-size: 17px;
 }
@@ -839,4 +841,108 @@
   display: grid;
   gap: var(--space-3);
   padding: var(--space-5);
+}
+
+/* 群島下方三張卡並排；窄螢幕依寬度換行。 */
+.dashboard-below {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+/* 靠地圖左右緣的島：標籤向內對齊，不被地圖邊界裁切。 */
+.archipelago-island.is-edge-left .island-flag { left: 4%; transform: translate(0, -100%); }
+.archipelago-island.is-edge-left .island-flag::after { left: 28px; }
+.archipelago-island.is-edge-right .island-flag { left: auto; right: 4%; transform: translate(0, -100%); }
+.archipelago-island.is-edge-right .island-flag::after { left: auto; right: 28px; margin-left: 0; margin-right: -7px; }
+.island-flag { max-width: min(280px, 38vw); }
+.island-flag-text b,
+.island-flag-text small { max-width: min(220px, 30vw); }
+/* 全部島嶼清單：桌機展開時只列地圖放不下的島；手機一律列出全部。 */
+.archipelago-list {
+  display: none;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.archipelago-list.is-open { display: grid; }
+.archipelago-list.is-open > li.is-on-map { display: none; }
+.archipelago-list button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px 8px 8px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--page-cool);
+  color: var(--text-primary);
+  text-align: left;
+}
+.archipelago-list button:hover { background: var(--studydy-blue-soft); }
+.archipelago-list button > svg { flex: none; color: var(--studydy-blue); }
+.archipelago-list-thumb { flex: none; width: 64px; height: 42px; overflow: hidden; border-radius: 12px; background: linear-gradient(180deg, #8fe0fb, #3aa6e2); }
+.archipelago-list-text { display: grid; flex: 1; min-width: 0; }
+.archipelago-list-text b,
+.archipelago-list-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.archipelago-list-text b { font-size: 14px; font-weight: 900; }
+.archipelago-list-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.archipelago-swipe-hint { display: none; }
+@media (max-width: 720px) {
+  .sea-compass { display: none; }
+  .archipelago-viewport { position: relative; }
+  .archipelago-swipe-hint {
+    position: sticky;
+    left: 50%;
+    bottom: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin: -44px 0 10px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 800;
+    transform: translateX(-50%);
+  }
+  .archipelago-list,
+  .archipelago-list.is-open { display: grid; margin: 12px var(--shell-gutter) 0; }
+  .archipelago-list.is-open > li.is-on-map { display: block; }
+  .archipelago-more { display: none; }
+  .island-flag { max-width: 260px; }
+  .island-flag-text b,
+  .island-flag-text small { max-width: 200px; }
+}
+/* 手機：今日任務與複習緊接在群島之後，統計類卡片放到最後。 */
+@media (max-width: 720px) {
+  .dashboard-content { display: flex; flex-direction: column; align-items: stretch; }
+  .dashboard-primary,
+  .dashboard-side,
+  .dashboard-below { display: contents; }
+  .dashboard-content .archipelago { order: 1; }
+  .dashboard-content .dashboard-quests { order: 2; }
+  .dashboard-content .dashboard-review { order: 3; }
+  .dashboard-content .dashboard-level { order: 4; }
+  .dashboard-content .dashboard-badges { order: 5; }
+  .dashboard-content .dashboard-week { order: 6; }
+  .dashboard-content .dashboard-overview { order: 7; }
+  .dashboard-content .dashboard-shortcut { order: 8; }
+  .dashboard-content .dashboard-skeleton-card { order: 9; }
+}
+@media (max-width: 720px) {
+  /* display: contents 後卡片直接是彈性欄的項目，需允許縮窄，群島畫布只在自己的橫向捲動區內加寬。 */
+  .dashboard-content > *,
+  .dashboard-content .surface { min-width: 0; max-width: 100%; }
+  .dashboard-content .archipelago.surface { max-width: none; }
+}
+@media (max-width: 720px) {
+  /* 橫向捲動的群島畫布不可撐寬整頁（彈性欄的最小寬度不計入畫布內容）。 */
+  .archipelago-viewport { contain: inline-size; }
+}
+@media (max-width: 720px) {
+  .dashboard-content .surface { contain: inline-size; }
 }

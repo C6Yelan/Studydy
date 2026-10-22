@@ -39,13 +39,20 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
       else if (item.left < area.left) nav.scrollLeft -= area.left - item.left;
     };
     reveal();
+    // 分頁列可橫向捲動時，在還有內容的一側淡出，提示可以滑動。
+    const edges = () => {
+      nav.classList.toggle("can-scroll-left", nav.scrollLeft > 2);
+      nav.classList.toggle("can-scroll-right", nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 2);
+    };
+    edges();
+    nav.addEventListener("scroll", edges, { passive: true });
     if (window.history.state?.focusMaterialTab) {
       nav.querySelector<HTMLElement>('[aria-selected="true"]')?.focus({ preventScroll: true });
       window.history.replaceState({ ...window.history.state, focusMaterialTab: false }, "");
     }
-    const observer = new ResizeObserver(reveal);
+    const observer = new ResizeObserver(() => { reveal(); edges(); });
     observer.observe(nav);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); nav.removeEventListener("scroll", edges); };
   }, [current]);
   const activate = (id: Content, keyboard = false) => {
     if (id === "knowledge-map" || id === "review") {
@@ -75,13 +82,14 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
     return () => { cancelled = true; };
   }, [apiClient, materialId, material, loadMaterial]);
   const name = material?.display_name ?? materialName;
+  // 這是最近一次分析處理的頁數（可能只含新增來源），全部來源頁數在「教材來源」分頁。
   const pages = material?.latest_attempt?.total_pages;
   return <><header className="material-bar" aria-label="目前教材">
     <button className="material-bar-back" type="button" aria-label="回到我的教材" onClick={() => writeRoute({ name: "materials" })}><Icon name="arrow-left" size={20}/></button>
     <span className="material-bar-thumb" aria-hidden="true"><IslandArt palette={islandPalette(materialId)} landmarks={false}/></span>
     <div className="material-bar-info">
       {name && <p className="material-context"><span>{name}</span></p>}
-      {material && <p className="material-bar-meta">{[material.source_count ? `${material.source_count} 個來源` : null, pages ? `${pages} 頁` : null, `建立於 ${dateFormat.format(new Date(material.created_at))}`].filter(Boolean).join(" · ")}</p>}
+      {material && <p className="material-bar-meta">{[material.source_count ? `${material.source_count} 個來源` : null, pages ? `最近一次分析 ${pages} 頁` : null, `建立於 ${dateFormat.format(new Date(material.created_at))}`].filter(Boolean).join(" · ")}</p>}
     </div>
   </header>
   <VersionMoveNotice apiClient={apiClient} materialId={materialId}/>

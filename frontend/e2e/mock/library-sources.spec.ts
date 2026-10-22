@@ -129,7 +129,7 @@ for (const width of [1536, 390]) {
       true,
     );
     await card.getByRole("button", { name: "管理「資料結構」", exact: true }).click();
-    await card.getByRole("button", { name: "管理教材", exact: true }).click();
+    await card.getByRole("button", { name: "來源與更新", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/sources$`));
     const rows = page.getByRole("region", { name: "教材來源", exact: true }).locator(".source-row");
     await expect(rows.locator(".source-name")).toHaveText(

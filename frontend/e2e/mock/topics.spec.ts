@@ -21,7 +21,8 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  await page.goto('/topics');await expect(page.getByRole('heading',{name:'你想學什麼？'})).toBeVisible();
  const workspace=await page.locator('.topic-request').boundingBox();
  expect(workspace!.width).toBeGreaterThan(width===390?300:1000);
- expect(workspace!.width).toBeLessThanOrEqual(1180);
+ // 與其他頁同寬（全站內容框最寬 1600px）。
+ expect(workspace!.width).toBeLessThanOrEqual(1600);
  await page.screenshot({path:testInfo.outputPath('new-topic.png'),fullPage:true});
  await page.getByLabel('想學的主題').fill('TCP');await page.getByRole('button',{name:'產生學習範圍'}).click();await expect(page.getByRole('heading',{name:/確認學習範圍/})).toBeVisible();expect(approved).toBe(0);expect(created).toBe(0);
  const scopeEnd=await page.locator('.topic-scope-grid').boundingBox();

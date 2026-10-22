@@ -268,7 +268,7 @@ test('research detail rejects a foreign material and late reads cannot replace a
  const work={research_id:cid,material_id:tid,query:'其他教材的查詢',mode:'review',status:'selecting',selection:[],candidates:[],cursor:null,error_code:null,run_id:null,created_at:'2026-10-06T00:00:00Z'};
  await page.route(`**/v1/materials/${materialId}/research`,r=>json(r,{researches:[]}));
  await page.route(`**/v1/research/${cid}`,r=>json(r,work));
- await page.goto(`/materials/${materialId}/research/${cid}`);await expect(page.getByText('這筆查詢不屬於此教材。')).toBeVisible();await expect(page.getByRole('heading',{name:work.query,exact:true})).toHaveCount(0);
+ await page.goto(`/materials/${materialId}/research/${cid}`);await expect(page.getByRole('heading',{name:'找不到這筆補充學習',exact:true})).toBeVisible();await expect(page.getByRole('heading',{name:work.query,exact:true})).toHaveCount(0);
  let release!:()=>void;const delayed=new Promise<void>(resolve=>release=resolve);
  await page.route(`**/v1/research/${tid}`,async r=>{await delayed;return json(r,{...work,material_id:materialId,research_id:tid,query:'晚到的查詢'});});
  await page.goto(`/materials/${materialId}/research/${tid}`);await page.getByRole('button',{name:'返回補充學習',exact:true}).click();

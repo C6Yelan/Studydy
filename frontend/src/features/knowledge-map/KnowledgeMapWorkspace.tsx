@@ -32,6 +32,7 @@ import { useConceptContext } from "../material-flow/useConceptContext";
 import { errorMessage } from "../../api/client";
 import { ConceptContent } from "../../ui/ConceptContent";
 import { Icon } from "../../ui/Icon";
+import { EmptyState } from "../../ui/EmptyState";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
 import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, type MapRegions, type NavigatorRange } from "./knowledge-map";
@@ -278,8 +279,9 @@ function LearningNavigator({
       if (!selectedRow.current || !rail.clientHeight) return;
       const item = selectedRow.current.getBoundingClientRect();
       const bounds = rail.getBoundingClientRect();
-      if (item.top < bounds.top) rail.scrollTop += item.top - bounds.top;
-      else if (item.bottom > bounds.bottom) rail.scrollTop += item.bottom - bounds.bottom;
+      // 目前概念在可見範圍外時捲到清單中間，上下都看得到前後的概念。
+      if (item.top < bounds.top || item.bottom > bounds.bottom)
+        rail.scrollTop += item.top + item.height / 2 - (bounds.top + bounds.height / 2);
     };
     reveal();
     const observer = new ResizeObserver(reveal);
@@ -742,6 +744,15 @@ function MapGraph({
               }}
             />
           </div>
+          {/* 地圖一次只畫目前概念附近兩層；標出所在區域，並提供回到全部區域清單的入口。 */}
+          {!navigatorOpen && regions && regions.regions.length > 1 && (
+            <p className="map-whereabouts">
+              <span>目前在 <b>{regions.regions[regions.byConcept.get(selected.concept_id) ?? 0]?.label}</b></span>
+              <button className="text-button" type="button" onClick={() => setNavigatorOpen(true)}>
+                看全部 {regions.regions.length} 個區域
+              </button>
+            </p>
+          )}
         </div>
         <div className="map-annotations">
           <div className="relation-legend" aria-label="概念關係圖例">
@@ -752,6 +763,11 @@ function MapGraph({
               </span>
             ))}
           </div>
+          {projection.totalNodes <= 1 && view.concepts.length > 1 && (
+            <p className="map-limit-note" role="status">
+              這個概念目前沒有直接相連的概念。可從「學習導覽」選擇其他{regions && regions.regions.length > 1 ? "區域或" : ""}概念繼續探索。
+            </p>
+          )}
           {(nodes.length < projection.totalNodes || edges.length < projection.totalRelations) && (
             <p className="map-limit-note" role="status">
               兩層範圍：{nodes.length}／{projection.totalNodes} 個概念、{edges.length}／
@@ -853,8 +869,8 @@ function ReviewView({ view, progress, startStudy, busyLabel, loading, returnToMa
     <div className="view-heading"><div><h2 id="review-title">測驗紀錄</h2>
       <p>查看作答結果、繼續未完成的檢測，或再次練習已完成的概念。</p></div></div>
     {loading ? <p role="status">正在讀取學習進度…</p> : attempted.length === 0 ? <>
-      <p>目前還沒有測驗紀錄，可以從知識地圖選擇概念開始學習。</p>
-      <button className="secondary-button" type="button" onClick={returnToMap}>回到知識地圖</button>
+      <EmptyState label="開始學習引導" title="還沒有測驗紀錄" description="目前還沒有測驗紀錄，可以從知識地圖選擇概念開始學習。"
+        action={<button className="primary-button" type="button" onClick={returnToMap}>回到知識地圖</button>} />
     </> : <>
       {pending.length > 0 && <h3>尚未完成／需要加強</h3>}
       {pending.length ? list(pending, false) : <p>已有作答紀錄的概念都已完成。</p>}

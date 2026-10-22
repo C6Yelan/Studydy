@@ -234,3 +234,7 @@
     padding: 12px 16px;
   }
 }
+
+/* 徽章清單在對話框內捲動；說明文字固定在底部獨立一列，以分隔線區隔，不壓到最後一列徽章。 */
+.badge-wall { flex: 1; min-height: 0; }
+.badge-note { flex: none; padding: 12px 24px 16px; border-top: 1px solid var(--border); background: var(--surface); }

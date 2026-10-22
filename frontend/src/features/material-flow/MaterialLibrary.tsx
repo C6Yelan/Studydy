@@ -10,7 +10,9 @@ import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
-import { MaterialManagement } from "./MaterialManagement";
+import { CollectionHeader } from "../../ui/CollectionHeader";
+import { EmptyState } from "../../ui/EmptyState";
+import { MaterialManagement, pointerStartedWithMenuOpen } from "./MaterialManagement";
 import { formatFileSize } from "./material-flow";
 
 type LibraryTopic = {topic_id:string; request:string; proposal:{title:string}|null; status:string; version:number;
@@ -179,50 +181,24 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
   };
   return (
     <section className={libraryClass}>
-      <header className="library-header">
-        <div>
-          <h1 ref={heading} tabIndex={-1}>
-            我的教材
-          </h1>
-          <p className="library-subtitle">
-            {total === 0
-              ? "上傳教材後，可在這裡查看處理結果並接續學習。"
-              : `已保存 ${items.length} 份教材${preparingTopics.length ? `，${preparingTopics.length} 份準備中` : ''}，隨時接續你的學習。`}
-          </p>
-        </div>
-        {total > 0 && (
-          <div className="state-actions">
-            <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}>
-              <Icon name="sparkle" size={18} />
-              從主題建立
-            </button>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => writeRoute({ name: "upload" })}
-            >
-              <Icon name="upload" size={18} />
-              上傳教材
-            </button>
-          </div>
-        )}
-      </header>
-      {total > 0 && (
-        <form className="library-search" role="search" onSubmit={(event) => event.preventDefault()}>
-          <input
-            ref={searchInput}
-            type="search"
-            aria-label="搜尋教材名稱"
-            placeholder="搜尋教材名稱…"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            onKeyDown={(event) => {
-              // Chromium 原生 search 會用 Escape 清空；僅阻止此預設行為，保留右側 ×。
-              if (event.key === "Escape") event.preventDefault();
-            }}
-          />
-        </form>
-      )}
+      <CollectionHeader
+        eyebrow="知識群島"
+        title="我的教材"
+        subtitle={total === 0 ? "上傳教材後，可在這裡查看處理結果並接續學習。" : "每份教材都是一座島，從知識地圖開始探索與複習。"}
+        headingRef={heading}
+        actions={total > 0 && <>
+          <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}>
+            <Icon name="sparkle" size={18} />
+            從主題建立
+          </button>
+          <button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}>
+            <Icon name="upload" size={18} />
+            上傳教材
+          </button>
+        </>}
+        search={total > 0 ? { label: "搜尋教材名稱", placeholder: "搜尋教材名稱…", value: searchQuery, onChange: setSearchQuery, inputRef: searchInput } : undefined}
+        count={total > 0 ? `已保存 ${items.length} 份教材${preparingTopics.length ? `，${preparingTopics.length} 份準備中` : ""}` : undefined}
+      />
       {total > 0 && query && filteredItems.length === 0 && filteredTopics.length === 0 && (
         <div className="library-search-empty" role="status">
           <h2>找不到符合「{query}」的教材</h2>
@@ -230,21 +206,15 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
         </div>
       )}
       {total === 0 && (
-        <section className="library-empty surface" aria-label="空教材引導">
-          <div className="library-empty-illustration">
-            <img src="/assets/studydy/empty-disappointed.png" alt="Studydy 坐在打開的空箱子旁" />
-          </div>
-          <h2>尚未有學習教材</h2>
-          <p>先上傳第一份 PDF，讓 Studydy 陪你展開學習。</p>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => writeRoute({ name: "upload" })}
-          >
+        <EmptyState
+          label="空教材引導"
+          title="尚未有學習教材"
+          description="先上傳第一份 PDF，讓 Studydy 陪你展開學習。"
+          action={<button className="primary-button" type="button" onClick={() => writeRoute({ name: "upload" })}>
             <Icon name="upload" size={18} />
             上傳第一份教材
-          </button>
-        </section>
+          </button>}
+        />
       )}
       <div className="library-grid">
         {filteredTopics.map(topic => <article className="surface library-item" key={topic.topic_id} aria-label={topic.proposal?.title ?? topic.request}>
@@ -303,20 +273,28 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
               type="button"
               onClick={() => openStructure(item, structure)}
             >
+              <Icon name="map" size={16} />
               開啟知識地圖
             </button>
           );
           const deleting = pendingRemovals.current.has(item.material_id);
+          // 點島嶼或標題：有地圖開地圖，處理中看進度，其餘到來源頁建立地圖。
+          const openPrimary = () => {
+            if (structure) openStructure(item, structure);
+            else if (latest && (isProcessingRun || latest.status === "failed")) writeRoute({ name: "material-run", materialId: item.material_id, runId: latest.run_id });
+            else writeRoute(topic ? { name: "topic", topicId: topic.topic_id } : { name: "material-sources", materialId: item.material_id });
+          };
           return (
             <article
               className={`surface library-item${deleting ? " is-deleting" : ""}`}
               key={item.material_id}
               aria-label={item.display_name}
             >
-              <span className={`library-island${structure ? "" : " is-building"}`} aria-hidden="true">
+              <span className={`library-island${structure ? "" : " is-building"}${deleting ? "" : " is-clickable"}`} aria-hidden="true" onClick={deleting ? undefined : () => { if (!pointerStartedWithMenuOpen()) openPrimary(); }}>
                 <IslandArt palette={islandPalette(item.material_id)} landmarks={!!structure} />
               </span>
               <MaterialManagement
+                onOpen={openPrimary}
                 item={item}
                 apiClient={apiClient}
                 deleting={deleting}
@@ -349,7 +327,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                   <p className="library-state is-failed">知識地圖建立失敗</p>
                 )
               )}
-              <fieldset className="state-actions" disabled={deleting}>
+              <fieldset className={`state-actions library-actions${studyAction ? " has-study" : ""}`} disabled={deleting}>
                 {studyAction}
                 {mapAction}
                 {latest && (isProcessingRun || latest.status === "failed") ? (
@@ -379,8 +357,8 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                     </button>
                   )
                 )}
-                {structure && <><button className="text-button library-link" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "concept-cards" })}><Icon name="cards" size={16} />概念卡</button>
-                  <button className="text-button library-link" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "podcasts" })}><Icon name="headphones" size={16} />Podcast</button></>}
+                {structure && <><button className="secondary-button library-link" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "concept-cards" })}><Icon name="cards" size={16} />概念卡</button>
+                  <button className="secondary-button library-link" type="button" onClick={() => writeRoute({ name: "material-content", materialId: item.material_id, kind: "podcasts" })}><Icon name="headphones" size={16} />Podcast</button></>}
               </fieldset>
             </article>
           );

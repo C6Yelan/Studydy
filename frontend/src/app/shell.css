@@ -599,7 +599,6 @@
   .header-progress {
     padding-right: 6px;
   }
-  .header-progress-wide,
   .header-level {
     display: none;
   }
@@ -720,4 +719,44 @@
   .level-up-burst {
     animation: none;
   }
+}
+
+/* 帳號設定：欄位與說明間距收緊；內容可捲動時底部淡出提示還有「修改密碼」「登入裝置」。 */
+.account-settings section { gap: 8px; padding: 16px 0; }
+.account-settings form { gap: 8px; }
+.profile-field { gap: 4px; }
+.profile-help { margin-top: -2px; }
+.account-settings footer { margin-top: 0; }
+.profile-dialog .account-settings {
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent);
+  padding-bottom: 32px;
+}
+/* 手機：搜尋視窗高度扣掉底部導覽，結果最後一列不貼齊邊緣。 */
+@media (max-width: 720px) {
+  .search-dialog { max-height: calc(100dvh - 120px - env(safe-area-inset-bottom)); }
+  .search-results { padding-bottom: 24px; }
+}
+/* 手機中央「＋」加上可見的「上傳」字樣。 */
+.tab-bar .tab-bar-upload { position: relative; }
+.tab-bar .tab-bar-upload::after {
+  content: "上傳";
+  position: absolute;
+  bottom: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--studydy-blue);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+/* 連續天數一律帶「天」單位；手機收緊間距，長天數與 XP 仍放得下。 */
+.header-streak-unit { margin-left: 1px; font-size: 12px; }
+@media (max-width: 720px) {
+  .header-progress { gap: 4px; }
+  .header-streak { gap: 1px; padding: 3px 6px 3px 4px; }
+  .header-streak-unit { font-size: 11px; }
+}
+@media (max-width: 420px) {
+  .header-xp svg { display: none; }
 }

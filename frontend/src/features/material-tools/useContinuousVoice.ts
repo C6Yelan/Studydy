@@ -5,6 +5,24 @@ declare const __VOICE_ASSET_BASE__: string;
 
 type VoiceVad = Awaited<ReturnType<typeof createVoiceVad>>;
 
+/**
+ * 預先下載語音模型等公共資產（不取得麥克風）。只在使用者移到或聚焦「語音模式」開關時呼叫，
+ * 只用文字問答時不下載數 MB 的模型；之後的 fetch 重用瀏覽器快取。
+ */
+export function prefetchVoiceAssets() {
+  for (const file of ['silero_vad_v6.onnx', 'ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']) {
+    const href = __VOICE_ASSET_BASE__ + file;
+    if (document.querySelector(`link[href="${href}"]`)) continue;
+    const link = document.createElement('link');
+    link.rel = file.endsWith('.mjs') ? 'modulepreload' : 'preload';
+    if (link.rel === 'preload') link.as = 'fetch';
+    link.crossOrigin = 'anonymous'; link.href = href;
+    document.head.append(link);
+  }
+  // 預載失敗仍可用文字；實際開啟語音時由原本的錯誤處理回報。
+  void import('./voice-vad').catch(() => {});
+}
+
 export function useContinuousVoice({enabled, paused, onRecording, onSpeech, onError}: {
   enabled: boolean; paused: boolean; onRecording: (blob: Blob) => void;
   onSpeech: () => void; onError: (message: string) => void;
@@ -13,20 +31,6 @@ export function useContinuousVoice({enabled, paused, onRecording, onSpeech, onEr
   latest.current = {paused, onRecording, onSpeech, onError};
   const syncPaused = useRef<(() => void) | undefined>(undefined);
   const [state, setState] = useState<'off'|'permission'|'loading'|'listening'|'recording'>('off');
-  // 開啟問答面板即平行下載公共資產，不取得麥克風；之後的 fetch 重用瀏覽器快取。
-  useEffect(() => {
-    for (const file of ['silero_vad_v6.onnx', 'ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']) {
-      const href = __VOICE_ASSET_BASE__ + file;
-      if (document.querySelector(`link[href="${href}"]`)) continue;
-      const link = document.createElement('link');
-      link.rel = file.endsWith('.mjs') ? 'modulepreload' : 'preload';
-      if (link.rel === 'preload') link.as = 'fetch';
-      link.crossOrigin = 'anonymous'; link.href = href;
-      document.head.append(link);
-    }
-    // 預載失敗仍可用文字；實際開啟語音時由原本的錯誤處理回報。
-    void import('./voice-vad').catch(() => {});
-  }, []);
   useEffect(() => {
     if (!enabled) { setState('off'); return; }
     let cancelled = false, submitted = false;

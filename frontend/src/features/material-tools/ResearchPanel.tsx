@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { errorMessage, type StudydyApiClient } from '../../api/client';
 import { routePath, writeRoute } from '../../app/routes';
 import { Icon } from '../../ui/Icon';
+import { EmptyState } from '../../ui/EmptyState';
 import type { Topic } from '../topics/TopicPage';
 import { ResearchManagement } from './ResearchManagement';
 import { researchActive, researchTaskInfo, type ResearchSummary, type ResearchDraft } from './research';
@@ -91,16 +92,18 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
   return <section className="material-library is-collection supplementary-page research-library" aria-label="補充學習查詢">
     {contentNavigation}
     <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
-      <header className="library-header library-header-compact collection-toolbar"><div className="collection-summary" ref={heading} tabIndex={-1}><h1>補充學習</h1><p>{list === null ? '正在讀取查詢…' : `已保存 ${list.length} 筆查詢`}</p></div></header>
+      <header className="research-head">
+        <div><h1>補充學習</h1><p>先確認要查找的觀念與細節，再搜尋論文與 Wikipedia。</p></div>
+        <div className="collection-summary" ref={heading} tabIndex={-1}><p>{list === null ? '正在讀取查詢…' : `已保存 ${list.length} 筆查詢`}</p></div>
+      </header>
       <section className="surface research-compose" aria-labelledby="research-prompt"><h2 id="research-prompt">想補充什麼內容？</h2>
-        <form onSubmit={event => { event.preventDefault(); void search(); }}><input type="search" aria-label="想多了解什麼？" placeholder="輸入想補充的內容…" maxLength={1000} value={query} onChange={event => setQuery(event.target.value)}/>
+        <form onSubmit={event => { event.preventDefault(); void search(); }}><input type="search" aria-label="想多了解什麼？" placeholder="例如：想多了解 Transformer 的注意力機制如何計算" maxLength={1000} value={query} onChange={event => setQuery(event.target.value)}/>
           <button className="primary-button" type="submit" disabled={busy || !query.trim()}>{busy ? '正在建立規劃…' : '產生搜尋範圍'}<Icon name="chevron-right" size={16}/></button></form>
-        <p>先確認要查找的觀念與細節，再搜尋論文與 Wikipedia。</p>
         {searchError && <p className="form-error" role="alert">{searchError}</p>}
       </section>
       {listError && <p className="form-error" role="alert">{listError}<button className="text-button" type="button" onClick={() => void refresh().catch(error => setListError(errorMessage(error)))}>重新讀取查詢</button></p>}
-      {scopes.map(scope=><article className="surface research-record" key={scope.topic_id}><h2>{scope.request}</h2><p>{scope.status==='pending'?'正在整理觀念與細節，尚未搜尋。':scope.status==='failed'?'需求規劃未完成，可重試。':'待確認搜尋範圍，尚未搜尋。'}</p><div className="tool-footer-secondary"><button className="primary-button" disabled={removingScope!==null} onClick={()=>writeRoute({name:'topic',topicId:scope.topic_id})}>查看搜尋範圍</button><button className="text-button" disabled={removingScope!==null} onClick={()=>void removeScope(scope)}>{removingScope===scope.topic_id?'正在刪除…':'刪除搜尋範圍'}</button></div></article>)}
-      {list?.length === 0 && scopes.length===0 && <p className="research-empty">還沒有補充查詢。建立查詢後，可從卡片開啟來源與處理進度。</p>}
+      {scopes.map(scope=><article className="surface research-record research-scope" key={scope.topic_id}><h2 title={scope.request}>{scope.request}</h2><p>{scope.status==='pending'?'正在整理觀念與細節，尚未搜尋。':scope.status==='failed'?'需求規劃未完成，可重試。':'待確認搜尋範圍，尚未搜尋。'}</p><div className="tool-footer-secondary"><button className="primary-button" disabled={removingScope!==null} onClick={()=>writeRoute({name:'topic',topicId:scope.topic_id})}>查看搜尋範圍</button><button className="text-button" disabled={removingScope!==null} onClick={()=>void removeScope(scope)}>{removingScope===scope.topic_id?'正在刪除…':'刪除搜尋範圍'}</button></div></article>)}
+      {list?.length === 0 && scopes.length===0 && <EmptyState title="還沒有補充查詢" description="在上方輸入想多了解的內容；建立查詢後，可從卡片開啟來源與處理進度。" />}
       <div className="library-grid research-records" role="region" tabIndex={0} aria-label="補充搜尋紀錄">{list?.filter(item => item.status !== 'cancelled').map(renderRecord)}</div>
       {!!stopped.length && <details className="research-stopped">
         <summary>已停止的查詢 · {stopped.length} 筆</summary>

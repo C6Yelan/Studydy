@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { errorMessage, type StudydyApiClient } from '../../api/client';
+import { BackLink } from '../../ui/BackLink';
+import { errorMessage, isNotFound, type StudydyApiClient } from '../../api/client';
+import { NotFoundView } from '../../ui/NotFoundView';
 import { writeRoute } from '../../app/routes';
 import { Icon } from '../../ui/Icon';
 import { StateView } from '../../ui/StateView';
@@ -13,7 +15,7 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
 }) {
   const saved = draft?.tasks[researchId];
   const [stageRequest, setStageRequest] = useState<{ status: string; stage: number } | null>(null);
-  const [view, setView] = useState<Research | null>(null), [error, setError] = useState('');
+  const [view, setView] = useState<Research | null>(null), [error, setError] = useState(''), [notFound, setNotFound] = useState(false);
   const [selected, setSelected] = useState(saved?.selected ?? []);
   const [guidance, setGuidance] = useState('');
   useEffect(() => setGuidance(''), [researchId]);
@@ -31,11 +33,11 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
       try {
         const result = await api.studyTools<Research>(`/v1/research/${researchId}`);
         if (stopped) return;
-        if (result.research_id !== researchId || result.material_id !== materialId) { setError('這筆查詢不屬於此教材。'); setView(null); return; }
+        if (result.research_id !== researchId || result.material_id !== materialId) { setNotFound(true); setView(null); return; }
         if (!initialized.current) { initialized.current = true; setSelected(result.selection); }
         setView(result);
         if (researchActive.has(result.status) || result.status === 'submitted' && (!result.run || ['pending', 'running'].includes(result.run.status))) timer = setTimeout(read, 2000);
-      } catch (failure) { if (!stopped) setError(errorMessage(failure)); }
+      } catch (failure) { if (!stopped) { if (isNotFound(failure)) setNotFound(true); else setError(errorMessage(failure)); } }
     };
     void read(); return () => { stopped = true; clearTimeout(timer); };
   }, [api, materialId, researchId, reload]);
@@ -83,10 +85,12 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
   const acquiredCount = view?.candidates.filter(candidate => view.selection.includes(candidate.id) && candidate.state === 'ready').length ?? 0;
   const selectedCount = submitted || ['acquiring', 'normalizing'].includes(view?.status ?? '') ? view?.selection.length ?? 0 : selected.length;
   const stepDone = [!!view && view.status !== 'searching' && (['selecting', 'ready', 'submitted'].includes(view.status) && view.candidates.length > 0 || view.selection.length > 0), !!submitted || !!canConfirm, !!completed];
+  if (notFound) return <section className="cards-page supplementary-page research-detail">{contentNavigation}
+    <NotFoundView title="找不到這筆補充學習" description="這筆查詢可能已被刪除，或不屬於這份教材。" back={{ label: '回到補充學習', route: { name: 'material-content', materialId, kind: 'research' } }} /></section>;
   return <section className="cards-page supplementary-page research-detail">
     {contentNavigation}
     <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
-      <header className="cards-page-header research-detail-header"><button className="text-button" type="button" onClick={back}><Icon name="arrow-left" size={17}/>返回補充學習</button><div><details className="research-request"><summary><h1>{view?.query ?? '查詢詳情'}</h1></summary><p>{view?.query}</p></details></div></header>
+      <header className="cards-page-header research-detail-header"><BackLink label="返回補充學習" route={{ name: 'material-content', materialId, kind: 'research' }}/><div><details className="research-request"><summary><h1>{view?.query ?? '查詢詳情'}</h1></summary><p>{view?.query}</p></details></div></header>
       {!view ? <StateView title={error ? '無法讀取查詢' : '正在讀取查詢'} description={error || '正在載入來源與處理進度。'} tone={error ? 'failure' : 'loading'} live={!error} skeleton="page"
         action={error ? <button type="button" className="secondary-button" onClick={() => setReload(value => value + 1)}>重新讀取</button> : undefined}/> : <>
         {error && <p className="form-error" role="alert">{error}</p>}

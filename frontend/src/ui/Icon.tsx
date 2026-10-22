@@ -30,7 +30,11 @@ export type IconName =
   | "logout"
   | "compass"
   | "send"
-  | "flame";
+  | "flame"
+  | "edit"
+  | "trash"
+  | "play"
+  | "chevron-left";
 
 const paths: Record<IconName, React.ReactNode> = {
   microphone: <><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" /></>,
@@ -183,6 +187,10 @@ const paths: Record<IconName, React.ReactNode> = {
     </>
   ),
   flame: <path d="M12 3c.8 3.6-3.5 5.6-3.5 9.5a3.5 3.5 0 0 0 7 0c0-1.1-.4-2-1-2.8 2.3.7 4.5 3 4.5 6a7 7 0 0 1-14 0C5 10 10.6 8 12 3Z" />,
+  edit: <><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></>,
+  trash: <><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /><path d="M10 11v6M14 11v6" /></>,
+  play: <path d="M7 4.5v15l12-7.5Z" />,
+  "chevron-left": <path d="m15 18-6-6 6-6" />,
   send: (
     <>
       <path d="M4 12 20 4l-6 16-3-7Z" />

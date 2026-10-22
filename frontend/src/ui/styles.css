@@ -154,3 +154,67 @@
 .progress-ring svg { position: absolute; inset: 0; }
 .progress-ring em { position: relative; font-size: 11px; font-style: normal; font-weight: 900; color: var(--text-primary); }
 .progress-ring em svg { position: static; color: var(--amber-deep); }
+
+/* 返回控制：所有頁面同一種外觀（白色膠囊、藍色箭頭與文字）。 */
+.back-link {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  max-width: 100%;
+  min-height: 38px;
+  margin: 0 0 var(--space-4);
+  padding: 0 16px 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--studydy-blue);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}
+.back-link:hover {
+  background: var(--studydy-blue-soft-2);
+  color: var(--studydy-blue-deep);
+}
+.back-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 共用空狀態：吉祥物插圖＋標題＋說明＋主要按鈕（清單頁與教材分頁同一種）。 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  padding: var(--space-8) var(--space-6);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.empty-state .library-empty-illustration {
+  width: 170px;
+  height: 160px;
+  margin-bottom: 8px;
+}
+.empty-state h2 {
+  margin: 4px 0 8px;
+  font-size: 22px;
+}
+.empty-state p {
+  max-width: 520px;
+  margin: 0 0 20px;
+  color: var(--text-secondary);
+}
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+}

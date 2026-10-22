@@ -234,7 +234,7 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("form", { name: "刪除卡組確認" }).getByRole("heading", { name: "確定刪除？", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "確認刪除卡組" }).click();
-  await expect(page.getByRole("heading", { name: "收藏一組值得反覆看的重點" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "空卡組引導" })).toBeVisible();
   expect(fixture.forbiddenMutations).toEqual([]);
 });
 
@@ -301,7 +301,7 @@ test("card deletion confirms inline, cancels safely and retries once even when s
   await expect(search).toBeFocused();
   await search.fill("");
   await expect(card).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "收藏一組值得反覆看的重點" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "空卡組引導" })).toBeVisible();
   expect(deletes).toBe(2);
   expect(fixture.forbiddenMutations).toEqual([]);
 });
@@ -384,7 +384,7 @@ test("account collection can select a material; failed save retries the same int
   await page.goto("/concept-cards");
   await page.getByRole("button", { name: "建立卡組", exact: true }).click();
   await expect(page).toHaveURL(/\/concept-cards\/new$/);
-  await page.getByLabel("選擇教材", { exact: true }).selectOption({ label: "資料結構講義.pdf" });
+  await page.getByRole("group", { name: "選擇教材" }).getByRole("button", { name: /資料結構講義\.pdf/ }).click();
   await expect(page.getByRole("heading", { name: "建立概念卡組" })).toBeVisible();
   const keys: string[] = [];
   let fail = true;
@@ -450,12 +450,12 @@ test("library stays aligned and card review keeps compact content and controls",
   const cardTile = (await page.locator('.library-item').first().boundingBox())!;
   expect(cardSearch!.x).toBe(materialSearch!.x);
   expect(cardSearch!.width).toBeGreaterThanOrEqual(materialSearch!.width);
-  // 教材書架已有獨立的三欄規則；卡組沿用緊湊網格，只要求左緣對齊。
+  // 三個清單頁共用同一套欄數：卡組卡片與教材卡片左緣與寬度一致。
   expect(cardTile.x).toBeCloseTo(materialCard.x, 0);
-  expect(cardTile.width).toBeLessThan(320);
+  expect(Math.abs(cardTile.width - materialCard.width)).toBeLessThanOrEqual(1);
   // 卡組加上封面插畫後仍維持單張卡片高度上限。
   expect(cardTile.height).toBeLessThan(420);
-  await expect(page.getByRole('heading', { name: '我的概念卡', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '我的概念卡', exact: true, level: 1 })).toHaveCount(1);
   await expect(page.locator('.library-item').getByRole('button', { name: '管理卡組', exact: true })).toHaveCount(0);
   await page.screenshot({ path: "../.studydy-runtime/card-preview/library-aligned.png", fullPage: true });
   let release!: () => void;
@@ -608,7 +608,7 @@ test("switching account while a card read is pending hides old content and rejec
   await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   release();
   // 第二帳號只得到空卡組列表，舊卡組仍由 API 拒絕。
-  await page.route(`**/v1/card-sets/${cardSetId}/study`, (route) => json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Synthetic foreign card set" }, 404));
+  await page.route(`**/v1/card-sets/${cardSetId}/study`, (route) => json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Request could not be completed." }, 404));
   const stranger = { schema: "learner-identity/v1", learner_id: "77777777-7777-4777-8777-777777777777" };
   await page.route("**/v1/session/login", (route) => json(route, stranger));
   await page.route("**/v1/session/refresh", (route) => json(route, stranger));
@@ -617,9 +617,10 @@ test("switching account while a card read is pending hides old content and rejec
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
   await page.getByRole("button", { name: "概念卡", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "收藏一組值得反覆看的重點" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "空卡組引導" })).toBeVisible();
   await page.goto(`/concept-cards/${cardSetId}`);
-  await expect(page.getByRole("heading", { name: "無法開啟卡組" })).toBeVisible();
+  // 別人的卡組一律顯示「找不到」，不提供永遠不會成功的重新讀取。
+  await expect(page.getByRole("heading", { name: "找不到這個卡組" })).toBeVisible();
   await expect(page.locator(".flashcard")).toHaveCount(0);
 });
 

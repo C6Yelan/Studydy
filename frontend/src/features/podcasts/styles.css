@@ -19,9 +19,8 @@
 .podcast-claim-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
 .podcast-notice { background: #fff8e9; border: 1px solid #eadfc3; border-radius: 14px; color: #76603e; padding: 14px 18px; line-height: 1.7; }
 .cards-page.podcast-page { max-width:none; }
-.podcast-page > .cards-back { margin-bottom:12px; }
+.podcast-page > .back-link { margin-bottom:8px; }
 .podcast-page > .cards-page-header { margin-bottom:8px; flex-wrap:nowrap; }
-.podcast-page > .cards-page-header > .cards-back { margin-bottom:0; flex-shrink:0; min-height:44px; }
 .podcast-page > .cards-page-header h1 { margin:0; overflow-wrap:anywhere; }
 .podcast-listening-layout { --watch-gap:20px; --watch-companion-width:clamp(320px, 26vw, 360px); --watch-room-height:max(0px, calc(100dvh - var(--watch-room-top, 0px) - 24px - var(--watch-room-shell-bottom, 0px))); display:grid; grid-template-columns:minmax(0,1fr) var(--watch-companion-width); gap:var(--watch-gap); width:100%; margin:8px 0 0; align-items:start; container-type:inline-size; }
 .podcast-listening-layout > .media-player { grid-column:1; grid-row:1; }
@@ -285,3 +284,26 @@
 @media (max-width: 720px) { .app-shell.is-workspace .podcast-listening-layout { --watch-room-shell-bottom: 0px; } }
 /* 新字型的中文字寬較大；手機字幕略縮，長句仍能留在畫面與控制列之間。 */
 @media (max-width: 480px) { .media-subtitles { font-size: 13px; line-height: 1.3; } }
+
+/* 節目封面依所屬教材的島嶼配色，右下顯示集數；版本提示用標籤，按鈕固定在卡片底部。 */
+.podcast-tile .podcast-cover { background: linear-gradient(var(--cover-angle, 160deg), var(--cover-from, #9b6bff), var(--cover-to, #ff7aa8)); }
+.podcast-tile .podcast-cover i { position: absolute; right: 10px; bottom: 10px; padding: 2px 9px; border-radius: 999px; background: rgba(255, 255, 255, .9); color: var(--text-primary); font-size: 11px; font-style: normal; font-weight: 900; }
+.podcast-tile > .library-state { margin-bottom: 8px; }
+.podcast-tile > .primary-button { margin-top: auto; }
+
+/* 播放器：字幕改成圓角半透明膠囊；章節改成可換行的縱向清單，不再被側欄寬度裁掉。 */
+.media-subtitles { padding: 4px 14px; border-radius: 12px; background: rgba(16, 28, 46, .72); box-shadow: 0 6px 16px -8px rgba(0, 0, 0, .5); }
+.media-playback-controls button { border-radius: 999px; }
+.media-playback-controls input[type="range"] { accent-color: var(--studydy-blue); }
+.podcast-chapters { flex-direction: column; gap: 2px; max-height: 124px; padding: 8px; overflow-x: hidden; overflow-y: auto; }
+.podcast-chapters button { width: 100%; max-width: none; align-items: flex-start; text-align: left; border-radius: 12px; }
+.podcast-chapters button span { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.podcast-chapters time { padding-top: 1px; }
+/* 手機：播放器黏在畫面上方，逐字稿與重點在固定高度內捲動，不必捲回頂端才能暫停。 */
+@media (max-width: 850px) {
+  .podcast-listening-layout > .media-player { position: sticky; top: 8px; z-index: 3; border-radius: var(--radius-card); box-shadow: 0 16px 30px -18px rgba(16, 28, 46, .6); }
+  .podcast-reading-area { max-height: 62dvh; }
+  .podcast-content-panel > .podcast-transcript,
+  .podcast-content-panel > .podcast-highlights { max-height: calc(62dvh - 56px); overflow-y: auto; }
+  .podcast-content-panel:not([hidden]) { display: flex; flex-direction: column; min-height: 0; }
+}

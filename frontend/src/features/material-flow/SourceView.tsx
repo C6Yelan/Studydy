@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
+import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
+import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
 import type { SourceListView, MaterialLibraryItem, FormatCapability } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
-import { Icon } from "../../ui/Icon";
+import { BackLink } from "../../ui/BackLink";
 import { StateView } from "../../ui/StateView";
 import { rememberMaterial } from "./material-memory";
 import { MaterialContentNav } from "./MaterialContentNav";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
 import { automaticPollIntervalMs, formatFileSize, validateSourceFile } from "./material-flow";
+
+const SOURCE_PREVIEW_COUNT = 10;
 
 type QueuedFile = {
   file: File;
@@ -25,9 +28,13 @@ export function SourceView({
   materialId: string;
 }) {
   const [sourceList, setSourceList] = useState<SourceListView | null>(null);
+  const sourceListRef = useRef<SourceListView | null>(null);
+  sourceListRef.current = sourceList;
   const [material, setMaterial] = useState<MaterialLibraryItem | null>(null);
   const [sourceQuery,setSourceQuery]=useState('');
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [removing, setRemoving] = useState(false);
   const discardAccepted = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -113,6 +120,11 @@ export function SourceView({
           failure.reasonCode === "RESOURCE_NOT_FOUND"
         ) {
           writeRoute({ name: "materials" });
+          return;
+        }
+        // 第一次就讀不到：教材不存在或不屬於此帳號，不顯示確認／刪除流程。
+        if (isNotFound(failure) && !sourceListRef.current) {
+          setNotFound(true);
           return;
         }
         setError(errorMessage(failure));
@@ -239,6 +251,20 @@ export function SourceView({
       [next[index], next[index + offset]] = [next[index + offset], next[index]];
       return next;
     });
+  if (notFound) return <NotFoundView {...materialNotFound} />;
+  // 第一次讀取就失敗：只顯示錯誤與重新讀取，不顯示確認流程與刪除教材。
+  if (!sourceList && error)
+    return (
+      <StateView
+        title="無法讀取教材來源"
+        description={error}
+        tone="failure"
+        action={<>
+          <button className="primary-button" type="button" onClick={() => { setError(null); setReload((value) => value + 1); }}>重新讀取</button>
+          <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>回到我的教材</button>
+        </>}
+      />
+    );
   if (!sourceList && !error)
     return (
       <StateView
@@ -299,17 +325,13 @@ export function SourceView({
       <div role={currentStructure ? "tabpanel" : undefined} id={currentStructure ? "material-panel-sources" : undefined} aria-labelledby={currentStructure ? "material-tab-sources" : undefined}>
       {currentStructure && capabilityError && <p className="conversion-note" role="status">{capabilityError}</p>}
       {currentStructure && selectionError && <p id="source-selection-error" className="form-error" role="alert">{selectionError}</p>}
-      <header className={currentStructure ? "cards-page-header" : "upload-hero"}>
-        {!currentStructure && <img src="/assets/studydy/upload-guide.png" alt="" />}
+      {!currentStructure && <header className="upload-hero">
+        <img src="/assets/studydy/upload-guide.png" alt="" />
         <div>
-          <h1>{currentStructure ? "教材來源" : "確認教材"}</h1>
-          <p>
-            {currentStructure
-              ? "查看這份教材的來源，或上傳檔案追加內容。"
-              : "預覽教材內容、調整順序，確認後開始建立知識地圖。"}
-          </p>
+          <h1>確認教材</h1>
+          <p>預覽教材內容、調整順序，確認後開始建立知識地圖。</p>
         </div>
-      </header>
+      </header>}
       {error && (
         <div role="alert" className="surface source-request-error">
           <p className="form-error">{error}</p>
@@ -329,15 +351,17 @@ export function SourceView({
           <section className="surface source-list-card" aria-label="教材來源">
             <header className="source-list-header">
               <div>
-                <h2 ref={heading} tabIndex={-1}>
-                  {currentStructure ? "來源檔案" : "教材來源"}
-                </h2>
+                {/* 教材分頁內沒有另外的頁面標題，清單標題即本頁標題。 */}
+                {currentStructure
+                  ? <h1 ref={heading} tabIndex={-1}>教材來源</h1>
+                  : <h2 ref={heading} tabIndex={-1}>教材來源</h2>}
+                {currentStructure && <p className="source-list-intro">查看這份教材的來源，或上傳檔案追加內容。</p>}
                 <p>
                   {displayedSources.length + queue.length} 份
                   {queue.length === 0 &&
                     displayedSources.length > 0 &&
                     displayedSources.every((source) => source.status === "ready") &&
-                    ` · ${displayedSources.reduce((sum, source) => sum + (source.page_count ?? 0), 0)} 頁`}
+                    ` · ${currentStructure ? "全部來源共 " : ""}${displayedSources.reduce((sum, source) => sum + (source.page_count ?? 0), 0)} 頁`}
                 </p>
                 {currentStructure && <p className="source-inclusion-summary">
                   目前地圖使用 {displayedSources.filter(source => source.included).length} 份
@@ -346,10 +370,17 @@ export function SourceView({
               </div>
             </header>
             {removing && <p role="status">正在刪除教材…</p>}
-            {(currentStructure ? ['upload', 'research'] as const : ['all'] as const).map(group => <section key={group} aria-label={group === 'research' ? '網路補充學習資源' : '使用者上傳'}>
-            {currentStructure && <h3 className="source-group-title">{group === 'research' ? '網路補充學習資源' : '使用者上傳'}</h3>}
+            {(currentStructure ? ['upload', 'research'] as const : ['all'] as const).filter(group =>
+              // 只有一種來源時不顯示空的另一組；兩組都空時保留「使用者上傳」說明。
+              group === 'all' || group === 'upload' && queue.length > 0 || displayedSources.some(source => (source.origin ?? 'upload') === group)
+              || group === 'upload' && displayedSources.length === 0).map(group => {
+              const groupSources = visibleSources.filter(source => group === 'all' || (source.origin ?? 'upload') === group);
+              // 來源很多時（千頁教材有數十份）先顯示前 10 份；搜尋時一律顯示全部符合項目。
+              const collapsed = !!currentStructure && !sourceQuery.trim() && !expandedGroups.includes(group) && groupSources.length > SOURCE_PREVIEW_COUNT;
+              return <section key={group} aria-label={group === 'research' ? '網路補充學習資源' : '使用者上傳'}>
+            {currentStructure && <h3 className="source-group-title">{group === 'research' ? '網路補充學習資源' : '使用者上傳'}<small>{groupSources.length} 份</small></h3>}
             <ol className="source-list">
-              {visibleSources.filter(source => group === 'all' || (source.origin ?? 'upload') === group).map((source, index) => (
+              {(collapsed ? groupSources.slice(0, SOURCE_PREVIEW_COUNT) : groupSources).map((source, index) => (
                 <li className="source-row" key={source.source_id} aria-label={source.original_name}>
                   <div className="source-order">
                     <span className="source-number">{currentStructure ? displayedSources.indexOf(source)+1 : index+1}</span>
@@ -537,8 +568,10 @@ export function SourceView({
                 </li>
               ))}
             </ol>
-            {currentStructure && !visibleSources.some(source => (source.origin ?? "upload") === group) && <p className="source-group-empty">尚無{group === "research" ? "網路補充學習資源" : "上傳教材"}。</p>}
-            </section>)}
+            {collapsed && <button className="secondary-button source-show-all" type="button" onClick={() => setExpandedGroups(previous => [...previous, group])}>顯示全部 {groupSources.length} 份</button>}
+            {currentStructure && !sourceQuery.trim() && groupSources.length === 0 && queue.length === 0 && <p className="source-group-empty">尚無{group === "research" ? "網路補充學習資源" : "上傳教材"}。</p>}
+            </section>;
+            })}
             {currentStructure && sourceQuery.trim() && visibleSources.length===0 && <p className="cards-no-results">沒有符合的來源檔案。</p>}
             {!currentStructure && !removing && !hasActiveRun && (
               <div className="source-add-area">
@@ -635,10 +668,7 @@ export function SourceView({
             </section>
           )}
           <div className="source-footer">
-            <button className="text-button" onClick={() => writeRoute({ name: "materials" })}>
-              <Icon name="arrow-left" />
-              返回教材庫
-            </button>
+            <BackLink label="返回教材庫" route={{ name: "materials" }} />
             <MaterialRemoveControl
               inActionRow
               material={material}

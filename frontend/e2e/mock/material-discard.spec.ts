@@ -453,7 +453,7 @@ for (const touch of [false, true])
       ]) {
         await activate(trigger);
         await expect(menu).toHaveJSProperty("open", true);
-        await expect(menu.getByRole("button", { name: "管理教材", exact: true })).toBeVisible();
+        await expect(menu.getByRole("button", { name: "來源與更新", exact: true })).toBeVisible();
         await activate(outside.locator, outside.position);
         await closed();
       }
@@ -500,7 +500,7 @@ for (const touch of [false, true])
       await expect(trigger).toBeFocused();
       expect(deletes).toBe(0);
       await activate(trigger);
-      await activate(menu.getByRole("button", { name: "管理教材", exact: true }));
+      await activate(menu.getByRole("button", { name: "來源與更新", exact: true }));
       await expect(page).toHaveURL(new RegExp(`/materials/${firstItem.material_id}/sources$`));
       await expect(page.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
       await expect(page.getByLabel("選擇新增教材", { exact: true })).toBeEnabled();

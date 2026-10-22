@@ -126,12 +126,19 @@ for (const [width, height] of [[1536, 1024], [1366, 768], [1024, 768], [390, 844
     const flag = page.locator(".island-flag-text b");
     await expect(flag).toHaveText(longName);
     expect(await flag.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(221);
-    const main = (await page.locator(".dashboard-primary").boundingBox())!;
-    const side = (await page.locator(".dashboard-side").boundingBox())!;
-    if (width > 1200) {
-      expect(side.x).toBeGreaterThanOrEqual(main.x + main.width + 20);
-      expect(Math.abs(main.y - side.y)).toBeLessThan(2);
-    } else expect(side.y).toBeGreaterThanOrEqual(main.y + main.height);
+    if (width > 720) {
+      const main = (await page.locator(".dashboard-primary").boundingBox())!;
+      const side = (await page.locator(".dashboard-side").boundingBox())!;
+      if (width > 1200) {
+        expect(side.x).toBeGreaterThanOrEqual(main.x + main.width + 20);
+        expect(Math.abs(main.y - side.y)).toBeLessThan(2);
+      } else expect(side.y).toBeGreaterThanOrEqual(main.y + main.height);
+    } else {
+      // 手機：群島在最上方，其餘卡片依序排在下面。
+      const islands = (await page.locator(".archipelago").boundingBox())!;
+      const overview = (await page.locator(".dashboard-overview").boundingBox())!;
+      expect(overview.y).toBeGreaterThanOrEqual(islands.y + islands.height);
+    }
     await expect
       .poll(() => page.locator(".archipelago-foot img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
       .toBe(true);

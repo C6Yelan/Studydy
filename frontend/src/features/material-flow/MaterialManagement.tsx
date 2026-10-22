@@ -4,6 +4,15 @@ import { InlineNameEditor } from "./InlineNameEditor";
 import { useDismissibleMenu } from "./useDismissibleMenu";
 import { writeRoute } from "../../app/routes";
 import type { MaterialLibraryItem, MaterialDiscardView } from "../../api/contracts";
+import { Icon } from "../../ui/Icon";
+
+// 按下滑鼠／觸控時是否有開著的管理選單；選單在 document 捕獲階段就會關閉，所以在 window 捕獲階段先記錄。
+let menuOpenAtPointerDown = false;
+if (typeof window !== "undefined")
+  window.addEventListener("pointerdown", () => {
+    menuOpenAtPointerDown = !!document.querySelector(".material-management-menu[open]");
+  }, true);
+export const pointerStartedWithMenuOpen = () => menuOpenAtPointerDown;
 
 export function MaterialManagement({
   item,
@@ -11,7 +20,10 @@ export function MaterialManagement({
   deleting,
   onRenamed,
   onDeleted,
+  onOpen,
 }: {
+  /** 點標題開啟教材（滑鼠捷徑；鍵盤使用卡片內的按鈕）。 */
+  onOpen?: () => void;
   item: MaterialLibraryItem;
   apiClient: StudydyApiClient;
   deleting: boolean;
@@ -104,9 +116,11 @@ export function MaterialManagement({
                 writeRoute({ name: "material-sources", materialId: item.material_id });
               }}
             >
-              管理教材
+              <Icon name="file" size={16} />
+              來源與更新
             </button>
             <button type="button" onClick={() => choose("rename")}>
+              <Icon name="edit" size={16} />
               重新命名
             </button>
             <button
@@ -114,12 +128,15 @@ export function MaterialManagement({
               type="button"
               onClick={() => choose("delete")}
             >
+              <Icon name="trash" size={16} />
               刪除教材
             </button>
           </div>
         </details>
       )}
-      {mode !== "rename" && <h2 title={item.display_name}>{item.display_name}</h2>}
+      {mode !== "rename" && <h2 title={item.display_name} className={onOpen && !deleting ? "is-clickable" : undefined}
+        // 點標題若只是為了關閉開著的選單，就不開啟教材。
+        onClick={deleting || !onOpen ? undefined : () => { if (!menuOpenAtPointerDown) onOpen(); }}>{item.display_name}</h2>}
       {deleting ? (
         <p role="status" className="material-deleting">
           正在刪除…

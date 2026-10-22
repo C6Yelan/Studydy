@@ -283,6 +283,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
                   ? "重試未完成的上傳"
                   : "上傳並確認來源"}
           </button>
+          {!queue.length && <p className="upload-disabled-hint">先選擇或拖入教材檔案，按鈕就能使用。</p>}
         </section>
         <aside className="upload-aside" aria-label="教材處理說明">
           <section className="surface guide-card">

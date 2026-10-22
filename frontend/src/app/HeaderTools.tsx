@@ -31,6 +31,8 @@ export function Modal({ label, open, onClose, className, children }: {
     <dialog
       ref={ref}
       className={`header-dialog ${className}`}
+      role="dialog"
+      aria-modal="true"
       aria-label={label}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}

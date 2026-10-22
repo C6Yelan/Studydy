@@ -444,3 +444,40 @@
 .material-qa-drawer .voice-composer-row .voice-icon-button, .material-qa-drawer .voice-send { width:44px; height:44px; border-radius:50%; }
 .material-qa-drawer .voice-send { box-shadow:0 3px 0 var(--studydy-blue-deep); }
 .material-qa-drawer .voice-revision-note { padding:8px 16px; }
+
+/* 補充學習分頁：與其他教材分頁一致的頁首（標題＋說明，右側計數）、白色輸入卡與白色查詢卡片。 */
+.research-library .research-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin:0 0 14px; }
+.research-library .research-head h1 { margin:0 0 4px; font-size:24px; }
+.research-library .research-head p { margin:0; color:var(--text-secondary); font-size:14px; }
+.research-library .research-head .collection-summary { flex:none; padding:6px 14px; border-radius:999px; background:var(--surface); box-shadow:var(--shadow); font-size:13px; font-weight:800; }
+.research-library .research-head .collection-summary:focus { outline:none; }
+.research-library .research-compose { padding:20px; margin-bottom:18px; border-radius:var(--radius-card); box-shadow:var(--shadow); }
+.research-library .research-compose h2 { margin:0 0 10px; font-size:16px; }
+.research-library .research-compose input { border-radius:999px; padding-inline:18px; }
+.research-library .research-record { padding:16px 18px; background:var(--surface); }
+.research-library .research-record.is-complete { background:var(--surface); }
+/* 長查詢當標題：右側讓出「⋯」按鈕的位置，最多三行，完整內容在標題提示與查詢詳情。 */
+.research-library .research-record h2 { margin:10px 0 6px; padding-right:44px; font-size:15px; font-weight:900; line-height:1.45; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
+.research-library .research-record .research-card-link h2 { padding-right:0; }
+.research-library .research-record .research-card-link { display:block; padding-right:44px; }
+.research-library .research-record .material-management-menu { top:12px; right:12px; }
+.research-library .research-scope .tool-footer-secondary { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-top:auto; }
+@media(max-width:700px) { .research-library .research-head { flex-direction:column; align-items:flex-start; gap:8px; } }
+
+/* 教材分頁列可橫向捲動時，在還有分頁的一側淡出提示。 */
+.material-learning-toolbar .material-content-nav.can-scroll-right { -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 40px),transparent); mask-image:linear-gradient(90deg,#000 calc(100% - 40px),transparent); }
+.material-learning-toolbar .material-content-nav.can-scroll-left { -webkit-mask-image:linear-gradient(90deg,transparent,#000 40px); mask-image:linear-gradient(90deg,transparent,#000 40px); }
+.material-learning-toolbar .material-content-nav.can-scroll-left.can-scroll-right { -webkit-mask-image:linear-gradient(90deg,transparent,#000 40px,#000 calc(100% - 40px),transparent); mask-image:linear-gradient(90deg,transparent,#000 40px,#000 calc(100% - 40px),transparent); }
+/* 手機：「教材問答」留在分頁列右端（不浮在內容上），以短字「問答」標示；分頁列靠淡出提示可滑動。 */
+@media (max-width:720px) {
+  .material-learning-toolbar .material-qa-trigger { width:auto; gap:4px; padding:0 12px 0 10px; font-size:13px; }
+  .material-learning-toolbar .material-qa-trigger::after { content:"問答"; }
+}
+/* 語音模式是開關：右側滑塊，開啟時變藍。 */
+.material-qa-drawer .voice-modes button[role="switch"] { display:inline-flex; align-items:center; gap:8px; padding:0 8px 0 12px; background:var(--page-cool); color:var(--text-secondary); }
+.material-qa-drawer .voice-modes button[role="switch"][aria-checked="true"] { background:var(--studydy-blue-soft); color:var(--studydy-blue); }
+.voice-switch { position:relative; display:inline-block; width:34px; height:20px; border-radius:999px; background:#c9d3e6; transition:background .2s; }
+.voice-switch i { position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.25); transition:transform .2s; }
+[aria-checked="true"] > .voice-switch { background:var(--studydy-blue); }
+[aria-checked="true"] > .voice-switch i { transform:translateX(14px); }
+.research-detail-header > .back-link { flex-shrink:0; margin:0; }

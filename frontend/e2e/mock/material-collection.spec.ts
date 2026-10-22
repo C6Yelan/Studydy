@@ -339,7 +339,7 @@ for (const viewport of [
     ] as const) {
       await input.fill(query);
       await expect(page.locator(".library-item h2")).toHaveText([...expected]);
-      await expect(page.locator(".library-subtitle")).toContainText("已保存 5 份教材");
+      await expect(page.locator(".collection-summary")).toContainText("已保存 5 份教材");
     }
     await input.fill("資料庫");
     await expect(page.locator(".library-item")).toHaveCount(0);
@@ -404,7 +404,7 @@ test("polling reapplies the same material-name query to refreshed data", async (
   await expect.poll(reads).toBe(2);
   await expect(input).toHaveValue("python");
   await expect(page.locator(".library-item h2")).toHaveText([searchNames[0], "Python 更新.pdf"]);
-  await expect(page.locator(".library-subtitle")).toContainText("已保存 3 份教材");
+  await expect(page.locator(".collection-summary")).toContainText("已保存 3 份教材");
 });
 
 test("removing a search match preserves query and shows search no-result", async ({ page }) => {
@@ -430,7 +430,7 @@ test("removing a search match preserves query and shows search no-result", async
   await expect(page.getByRole("status")).toContainText("找不到符合「python」的教材");
   await expect(input).toHaveValue("python");
   await expect(page.locator(".library-empty")).toHaveCount(0);
-  await expect(page.locator(".library-subtitle")).toContainText("已保存 4 份教材");
+  await expect(page.locator(".collection-summary")).toContainText("已保存 4 份教材");
   expect(deletes).toBe(1);
 });
 
@@ -523,7 +523,7 @@ for (const viewport of [
     await page.screenshot({path:testInfo.outputPath("material-library.png"),fullPage:true});
     const card = cards.first();
     await card.getByRole("button", { name: `管理「${names[0]}」`, exact: true }).click();
-    await expect(card.getByRole("button", { name: "管理教材", exact: true })).toBeVisible();
+    await expect(card.getByRole("button", { name: "來源與更新", exact: true })).toBeVisible();
     await card.getByRole("button", { name: "重新命名", exact: true }).click();
     await expect(card.getByRole("textbox", { name: "教材名稱", exact: true })).toHaveValue(
       names[0],

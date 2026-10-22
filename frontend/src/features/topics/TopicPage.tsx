@@ -1,5 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
-import {errorMessage,type StudydyApiClient} from '../../api/client';
+import {BackLink} from '../../ui/BackLink';
+import {errorMessage,isNotFound,type StudydyApiClient} from '../../api/client';
+import {NotFoundView} from '../../ui/NotFoundView';
 import type {MaterialProcessingRunView} from '../../api/contracts';
 import {ProcessingProgress} from '../material-flow/ProcessingProgress';
 import {ProcessingTimeline} from '../material-flow/ProcessingTimeline';
@@ -55,6 +57,8 @@ function ScopeFields({draft,onChange,busy}:{draft:Scope;onChange:(scope:Scope)=>
 export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const [request,setRequest]=useState(''),[list,setList]=useState<Topic[]>([]),[view,setView]=useState<Topic|null>(null),[draft,setDraft]=useState<Scope|null>(null),[selected,setSelected]=useState<string[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
  const [editingRequest,setEditingRequest]=useState(false);
+ const [notFound,setNotFound]=useState(false);
+ const viewLoaded=useRef(false);
  const [guidance,setGuidance]=useState('');
  useEffect(()=>setGuidance(''),[topicId]);
  const requestLoaded=useRef(false);
@@ -62,10 +66,10 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useEffect(()=>{let stop=false;void api.studyTools<{topics:Topic[]}>(view?.material_id?`/v1/topics?material_id=${view.material_id}`:'/v1/topics').then(v=>{if(!stop)setList(v.topics);},e=>{if(!stop)setError(errorMessage(e));});return()=>{stop=true;};},[api,reload,view?.material_id]);
  useEffect(()=>{if(!topicId)return;let stop=false;let timer:ReturnType<typeof setTimeout>;
- const read=async()=>{try{const v=await api.studyTools<Topic>(`/v1/topics/${topicId}`);if(stop)return;setView(v);setList(previous=>previous.map(t=>t.topic_id===v.topic_id&&(t.version!==v.version||t.status!==v.status||t.proposal?.title!==v.proposal?.title)?{...t,proposal:v.proposal,version:v.version,status:v.status}:t));if(v.proposal&&loadedVersion.current!==`${v.topic_id}/${v.version}`){setDraft(v.proposal);loadedVersion.current=`${v.topic_id}/${v.version}`;}if(!requestLoaded.current){setRequest(v.request);requestLoaded.current=true;}
+ const read=async()=>{try{const v=await api.studyTools<Topic>(`/v1/topics/${topicId}`);if(stop)return;viewLoaded.current=true;setView(v);setList(previous=>previous.map(t=>t.topic_id===v.topic_id&&(t.version!==v.version||t.status!==v.status||t.proposal?.title!==v.proposal?.title)?{...t,proposal:v.proposal,version:v.version,status:v.status}:t));if(v.proposal&&loadedVersion.current!==`${v.topic_id}/${v.version}`){setDraft(v.proposal);loadedVersion.current=`${v.topic_id}/${v.version}`;}if(!requestLoaded.current){setRequest(v.request);requestLoaded.current=true;}
  if(v.research&&selectionLoaded.current!==v.research.research_id){setSelected(v.research.selection);selectionLoaded.current=v.research.research_id;}
  if(v.status==='pending'||v.research&&(active.has(v.research.status)||v.research.run&&['pending','running'].includes(v.research.run.status)))timer=setTimeout(read,1800);
- }catch(e){if(!stop)setError(errorMessage(e));}};void read();return()=>{stop=true;clearTimeout(timer);};},[api,topicId,reload]);
+ }catch(e){if(!stop){if(isNotFound(e)&&!viewLoaded.current)setNotFound(true);else setError(errorMessage(e));}}};void read();return()=>{stop=true;clearTimeout(timer);};},[api,topicId,reload]);
  const perform=async(fn:()=>Promise<unknown>)=>{setBusy(true);setError('');try{await fn();if(alive.current)setReload(v=>v+1);}catch(e){if(alive.current)setError(errorMessage(e));}finally{if(alive.current)setBusy(false);}};
  const generate=()=>perform(async()=>{const payload={request,...(view?.material_id?{material_id:view.material_id}:{})};const body=JSON.stringify(payload);if(createIntent.current?.body!==body)createIntent.current={body,key:crypto.randomUUID()};const t=await api.studyTools<Topic>('/v1/topics',payload,createIntent.current.key);createIntent.current=null;if(alive.current)writeRoute({name:'topic',topicId:t.topic_id});});
  const actResearch=(action:string,ids?:string[])=>perform(async()=>{
@@ -110,10 +114,11 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const inputStage=editingRequest||!view||['pending','failed','cancelled'].includes(view.status);
  const step=inputStage?0:view.status==='ready'?1:completed?4:hasMaterial?3:2;
  const errorNotice=error&&<p role="alert" className="form-error">{error}<button className="text-button" onClick={()=>{setError('');setReload(v=>v+1);}}>重新讀取</button></p>;
+ if(notFound)return <NotFoundView title="找不到這個學習主題" description="這個主題可能已被刪除，或不屬於目前登入的帳號。" back={{label:'從主題建立教材',route:{name:'topics'}}}/>;
  return <section className="cards-page topic-page">
- <button className="cards-back" onClick={back}>{view?.material_id?'返回補充學習':'返回我的教材'}</button>
+ <BackLink label={view?.material_id?'返回補充學習':'返回我的教材'} onClick={back}/>
  <header className="cards-page-header"><div><h1>{view?.material_id?'確認補充學習需求':'從主題建立教材'}</h1><p>先確認想查找的觀念與細節，再搜尋並核對來源。</p></div>
- <div className="topic-history-bar"><label className="tool-field"><span className="visually-hidden">已保存的主題</span><select aria-label="已保存的主題" value={topicId??''} onChange={e=>e.target.value?writeRoute({name:'topic',topicId:e.target.value}):view?.material_id?back():writeRoute({name:'topics'})}><option value="">新的學習主題</option>{list.map(t=><option key={t.topic_id} value={t.topic_id}>{t.proposal?.title??t.request}</option>)}</select></label><button className="secondary-button" disabled={!topicId} onClick={()=>view?.material_id?back():writeRoute({name:'topics'})}>新主題</button></div></header>
+ <div className="topic-history-bar"><label className="tool-field"><span className="topic-history-label">已保存的主題</span><select aria-label="已保存的主題" value={topicId??''} onChange={e=>e.target.value?writeRoute({name:'topic',topicId:e.target.value}):view?.material_id?back():writeRoute({name:'topics'})}><option value="">新的學習主題</option>{list.map(t=><option key={t.topic_id} value={t.topic_id}>{t.proposal?.title??t.request}</option>)}</select></label><button className="secondary-button" disabled={!topicId} onClick={()=>view?.material_id?back():writeRoute({name:'topics'})}>新主題</button></div></header>
  <LearningSteps labels={['學習需求','確認觀念與細節','選取來源',view?.material_id?'補充教材':'建立教材']} current={step}/>
  {(inputStage||view?.status!=='ready')&&errorNotice}
  {inputStage&&<section className="surface topic-section topic-request"><header className="tool-stage-heading"><div><h2>你想學什麼？</h2><p>可以是一個主題、一個問題，或想完成的學習目標。</p></div></header>
@@ -124,6 +129,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  <footer className="tool-stage-footer"><div className="tool-footer-secondary">
  {editingRequest&&<button className="secondary-button" disabled={busy} onClick={()=>setEditingRequest(false)}>返回目前規劃</button>}
  {view&&['pending','ready','failed'].includes(view.status)&&<button className="text-button" disabled={busy} onClick={()=>void perform(()=>api.studyTools(`/v1/topics/${view.topic_id}/actions`,{action:'cancel',expected_version:view.version}))}>取消這個規劃</button>}
+ {!request.trim()&&!view&&<span className="topic-disabled-hint">輸入想學的內容後，就能產生學習範圍。</span>}
  </div>{view?.status==='failed'?<button className="primary-button" disabled={busy} onClick={()=>void perform(()=>api.studyTools(`/v1/topics/${view.topic_id}/actions`,{action:'retry',expected_version:view.version}))}>重試規劃</button>:<button className="primary-button" disabled={busy||!request.trim()||view?.status==='pending'||!!topicId&&!view} onClick={()=>void generate()}>{view?'重新規劃主題':'產生學習範圍'}<Icon name="chevron-right" size={16}/></button>}</footer>
  </section>}
  {!inputStage&&draft&&view.status==='ready'&&<section className="surface topic-section topic-scope"><header className="tool-stage-heading"><div><h2>確認學習範圍</h2><p>請確認每項觀念與細節是否符合需求；確認前不會搜尋外部來源。</p></div><button className="text-button" disabled={busy} onClick={()=>setEditingRequest(true)}>修改學習需求</button></header>
