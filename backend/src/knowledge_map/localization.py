@@ -36,7 +36,9 @@ def _needs_translation(text, sources=()):
     )
 
 
-def localize_block(response, context, bundle, call):
+def localize_block(response, context, bundle, call, dropped=None):
+    """dropped 傳入時，兩輪修正仍不合格的項目只移除該項（重點、關係）或保留原文（概念名稱），
+    並累計在 dropped；未傳入時沿用整塊失敗。"""
     result = deepcopy(response)
     items, targets = {}, {}
     evidence = {e["evidence_id"]: e for e in bundle["evidence"]}
@@ -180,8 +182,22 @@ def localize_block(response, context, bundle, call):
             if not failed:
                 break
             if attempt == 1:
-                raise ValueError("SEMANTIC_OUTPUT_INVALID")
+                if dropped is None:
+                    raise ValueError("SEMANTIC_OUTPUT_INVALID")
+                for key in failed:
+                    target, field, _ = targets[key]
+                    if field == "m":
+                        target["dropped"] = True
+                        dropped["claims"] = dropped.get("claims", 0) + 1
+                    elif field == "r":
+                        target["dropped"] = True
+                        dropped["relations"] = dropped.get("relations", 0) + 1
+                    # 概念名稱翻不好時保留原文名稱；名稱不是 Evidence，不影響重點與來源。
             pending = failed
+    if dropped is not None:
+        for concept in result["concepts"]:
+            concept["c"] = [claim for claim in concept["c"] if not claim.get("dropped")]
+        result["relations"] = [r for r in result["relations"] if not r.get("dropped")]
     # 不讓修正失敗又默默變成整段外文；只能保存完整通過的批次。
     for concept in result["concepts"]:
         for claim in concept["c"]:

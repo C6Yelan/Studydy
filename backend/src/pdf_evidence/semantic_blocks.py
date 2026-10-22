@@ -101,12 +101,17 @@ def analyze_blocks(
                             translated, number = invoke(request, schema)
                             return translated
 
+                        # 修正兩輪仍不合格的重點／關係只移除該項並計入拒絕數，
+                        # 教材狀態因此標為部分內容，不讓單一項目使整份分析失敗。
+                        dropped = {}
                         response = localize_block(
-                            response, context, job["bundle"], translate
+                            response, context, job["bundle"], translate, dropped
                         )
                         block = project_block(
                             context, job["bundle"], job["id"], response
                         )
+                        block.rejected_claims += dropped.get("claims", 0)
+                        block.rejected_relations += dropped.get("relations", 0)
                     if archive is not None:
                         archive.complete_block(
                             job["id"], job["digest"], number, response

@@ -46,6 +46,29 @@ def test_invalid_translation_cannot_publish_original_foreign_text_as_success(fai
         localize_block(response, context, bundle, translate)
 
 
+@pytest.mark.parametrize('failure', ['omitted', 'duplicated', 'foreign'])
+def test_persistent_item_failure_drops_only_that_claim_when_counted(failure):
+    _, context, bundle, response = sample()
+    def translate(request, schema):
+        result = {}
+        for key, item in request['localization'].items():
+            token = next(iter(item['literals']), '')
+            if key.startswith('label'):
+                result[key] = '質量'
+            elif failure == 'omitted':
+                result[key] = '物體質量為6 kg。'
+            elif failure == 'duplicated':
+                result[key] = '物體質量為' + token + token + '。'
+            else:
+                result[key] = '中文：' + item['text']
+        return result
+    dropped = {}
+    result = localize_block(response, context, bundle, translate, dropped)
+    # 只移除修正失敗的重點並計數，其餘（概念名稱）照常保存；不默默留下外文重點。
+    assert dropped == {'claims': 1}
+    assert result['concepts'][0]['l'] == '質量' and result['concepts'][0]['c'] == []
+
+
 def test_valid_chinese_needs_no_extra_model_call():
     _, context, bundle, response = sample()
     response['concepts'][0].update(l='質量', c=[{'m': '物體質量為5 kg。', 's': [0]}])

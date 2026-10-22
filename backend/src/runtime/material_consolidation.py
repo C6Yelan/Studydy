@@ -343,11 +343,21 @@ def consolidate_structure(
                 merge.apply(document, [*accepted, *projected])
                 break
             except SemanticServiceError as error:
-                if (
-                    error.reason_code != "SEMANTIC_INPUT_TOO_LARGE"
-                    or len(components) == 1
-                ):
+                if error.reason_code != "SEMANTIC_INPUT_TOO_LARGE":
                     raise
+                if len(components) == 1:
+                    # 單一等義群（或單一概念）本身就超過容量：比照修正不合格的批次，
+                    # 這組維持原樣不合併並記錄原因，不截內容，也不讓整份分析失敗。
+                    audit["blocked_changes"].append(
+                        {
+                            "concepts": handles,
+                            "findings": {"reason_code": error.reason_code},
+                        }
+                    )
+                    completed += 1
+                    rescheduled = True
+                    projected = None
+                    break
                 middle = len(components) // 2
                 batches[0:0] = [components[:middle], components[middle:]]
                 rescheduled = True

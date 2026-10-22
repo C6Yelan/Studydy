@@ -368,7 +368,7 @@ def test_parallel_database_archive_keeps_successes_across_failed_batch(revisions
     enable_review(settings)
     monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', '1')
     actual = review._review_units
-    monkeypatch.setattr(review, '_review_units', lambda view, units, lock, *a: actual(view, units, test_lock(lock), *a))
+    monkeypatch.setattr(review, '_review_units', lambda view, units, lock, *a, **k: actual(view, units, test_lock(lock), *a, **k))
     b = add('B.pdf', 'A queue removes the first inserted element first.')
     c = add('C.pdf', 'A tree has a root and child nodes.')
     gate, mutex = Barrier(2), Lock()

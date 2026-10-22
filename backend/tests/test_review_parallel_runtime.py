@@ -198,3 +198,29 @@ def test_review_cache_reuses_same_input_across_run_revisions_but_not_source_chan
     unit = _pack_review(retry_view, retry_view['concepts'], changed, unit.payload['title'])
     assert _review_units(retry_view, [unit], config(), archive, lambda: None, lambda *p: None)[1] == 1
     assert len(calls) == 2
+
+
+def test_single_concept_still_too_large_is_left_unreviewed_when_skipping_is_allowed(tmp_path, monkeypatch):
+    from knowledge_map.material_review import _pack_review
+    view, original = inputs(2)
+    evidence = [deepcopy(e) for u in original for e in u.evidence]
+    oversized = _pack_review(view, view['concepts'][:1], evidence, 'Always oversized')
+    normal = original[1]
+    blocked = oversized.concepts[0]['concept_id']
+
+    def model(client, **kwargs):
+        request = kwargs['request']
+        # 這個概念不論是否收斂來源頁面都超過容量。
+        if request['title'].startswith('Always'):
+            raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
+        return wire_proposal(response(request))
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path / 'archive')
+    skipped = []
+    reviews, _ = _review_units(view, [oversized, normal], config(), archive, lambda: None, lambda *p: None, skipped=skipped)
+    # 只略過超量的單一概念；其他批次照常複核，不讓整份失敗。
+    assert skipped == [blocked]
+    assert [u.concepts for u, _ in reviews] == [normal.concepts]
+    # 未允許略過時維持原本的整體失敗。
+    with pytest.raises(SemanticServiceError, match='SEMANTIC_INPUT_TOO_LARGE'):
+        _review_units(view, [oversized], config(), Archive(tmp_path / 'other'), lambda: None, lambda *p: None)

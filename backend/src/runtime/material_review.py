@@ -401,6 +401,7 @@ def _checked_review(
             raise
         value = decoded
         edits = value.get("claim_edits")
+        retained = []
         for edit in edits if isinstance(edits, list) else []:
             if not isinstance(edit, dict) or type(edit.get("claim")) is not int:
                 continue  # 完整提案驗證會回報格式錯誤，不在文字還原時猜測編號。
@@ -418,12 +419,19 @@ def _checked_review(
                         edit["meaning"], correction["literals"]
                     )
                 except (ValueError, KeyError):
+                    if attempt:
+                        # 補正後仍無法原樣還原保留代號：只放棄這筆修改、保留原重點，
+                        # 由後續語言檢查標為待確認，不讓整份複核失敗。
+                        retained.append(edit)
+                        continue
                     if rejection_code is None:
                         rejected, rejection_code = (
                             deepcopy(value),
                             "REVIEW_CLAIM_EDIT_INVALID",
                         )
                     raise ReviewError("REVIEW_CLAIM_EDIT_INVALID") from None
+        if retained:
+            value["claim_edits"] = [edit for edit in edits if edit not in retained]
         archive.save_review(f"{name}/response", value)
         return value
 
@@ -577,9 +585,14 @@ def _review_part(view, unit, concepts, title, *, cited_pages_only=False):
 
 
 def _review_units(
-    view, units, lock, archive, check_cancel, progress, wait_cancellation_check=None
+    view, units, lock, archive, check_cancel, progress, wait_cancellation_check=None,
+    skipped=None,
 ):
-    """協調者分派／合併；失敗後不再派送，收完在途批次以保留有效結果。"""
+    """協調者分派／合併；失敗後不再派送，收完在途批次以保留有效結果。
+
+    skipped 傳入時，只剩單一概念且收斂來源後仍超過容量的批次不複核（保留草稿原樣），
+    概念 ID 記在 skipped；未傳入時沿用整體失敗。
+    """
     from .luna_test import enabled
 
     width = (
@@ -634,7 +647,19 @@ def _review_units(
                             cited_pages_only=True,
                         )
                         if len(part.evidence) == len(unit.evidence):
-                            failure = failure or error
+                            if skipped is None:
+                                failure = failure or error
+                                continue
+                            # 不截文字、不刪 Claim 或改 Evidence：這個概念保留已驗證的草稿，不套用複核。
+                            skipped.extend(c["concept_id"] for c in unit.concepts)
+                            archive.save_review(
+                                f"call-{index:06d}/skipped",
+                                {
+                                    "reason": error.reason_code,
+                                    "concept_ids": [c["concept_id"] for c in unit.concepts],
+                                },
+                            )
+                            split_units += 1
                             continue
                         units.append(part)
                         split = {
@@ -751,9 +776,13 @@ def review_structure(
             wait_cancellation_check=wait_cancellation_check,
         )
     started = time.monotonic()
+    skipped = []
     reviews, calls = _review_units(
-        view, units, lock, archive, check_cancel, progress, wait_cancellation_check
+        view, units, lock, archive, check_cancel, progress, wait_cancellation_check,
+        skipped=skipped,
     )
+    if skipped and not reviews:
+        raise SemanticServiceError("SEMANTIC_INPUT_TOO_LARGE")
     unit, proposal = combine_reviews(view, reviews)
     localized = (
         lock.get("material_semantics", {}).get("localization_policy")
@@ -795,7 +824,8 @@ def review_structure(
         for c in result["concepts"]
         for q in c["claims"]
     )
-    if language_edits or language_pending:
+    # 單一概念超過複核容量時保留草稿；這些概念未經複核，整份標為待確認。
+    if language_edits or language_pending or skipped:
         result["source_review_required"] = True
         if "SOURCE_REVIEW_SUGGESTED" not in result["status"]["reason_codes"]:
             result["status"]["reason_codes"].append("SOURCE_REVIEW_SUGGESTED")

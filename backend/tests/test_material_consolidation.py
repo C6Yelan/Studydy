@@ -350,3 +350,20 @@ def test_equivalence_check_only_applies_when_multiple_nodes_were_merged(monkeypa
     assert result['concepts'] == doc['concepts']
     assert operations == ['consolidation_rewrite', 'consolidation_check']
     assert not archive.values['consolidation/result']['blocked_changes']
+
+
+def test_single_group_over_capacity_stays_unmerged_and_needs_review(monkeypatch):
+    doc = document()
+    archive = Archive()
+    def model(_client, **kw):
+        request = kw['request']
+        if request['operation'] == 'consolidation_candidates':
+            return {'groups': [{'concepts': [0, 1], 'reason': '同一重試上限。'}]}
+        # 不論怎麼縮小，改寫請求都超過容量。
+        raise SemanticServiceError('SEMANTIC_INPUT_TOO_LARGE')
+    monkeypatch.setattr('runtime.material_consolidation.request_semantics', model)
+    result = consolidate_structure(doc, config(), archive, lambda: None, lambda *a: None)
+    # 不截內容、不合併，也不讓整份分析失敗；保留原概念並標示待確認。
+    assert result['concepts'] == doc['concepts'] and result['status']['quality'] == 'needs_review'
+    blocked = archive.values['consolidation/result']['blocked_changes']
+    assert blocked and all(b['findings'] == {'reason_code': 'SEMANTIC_INPUT_TOO_LARGE'} for b in blocked)

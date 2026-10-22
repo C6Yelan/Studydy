@@ -29,9 +29,10 @@ def test_review_translation_hints_keep_literals_and_allow_retaining_original(tmp
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
     lock = {'material_semantics': {'localization_policy': POLICY}, 'material_review': {'prompt': 'synthetic'}}
     if edit == 'invalid_literal':
-        with pytest.raises(ReviewError, match='REVIEW_CLAIM_EDIT_INVALID'):
-            _checked_review(unit, 1, lock, archive, None, archive.check)
-        assert len(requests) == 2
+        # 補正一次後仍改動保留代號：只放棄這筆修改、保留原重點，不讓整份複核失敗。
+        result, calls = _checked_review(unit, 1, lock, archive, None, archive.check)
+        assert calls == len(requests) == 2
+        assert result['claim_edits'] == []
     else:
         result, calls = _checked_review(unit, 1, lock, archive, None, archive.check)
         assert calls == len(requests) == 1
