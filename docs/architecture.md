@@ -37,13 +37,19 @@ Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；wor
 | [pdf_evidence](../backend/src/pdf_evidence/) | 擷取、Evidence 與分析流程 |
 | [knowledge_map](../backend/src/knowledge_map/) | 概念、Claim、Relation、檢核與確定性建構 |
 | [learning_adaptation](../backend/src/learning_adaptation/) | 題組、私密答案、評分、進度與導覽 |
-| [runtime/storage](../backend/src/runtime/storage/) | 持久資料、migration、完整性與檔案恢復 |
+| [knowledge_publication.py](../backend/src/runtime/knowledge_publication.py) | 協調知識結構發布、版本與工作驗證、索引建立及章節排程 |
+| [learning_activity.py](../backend/src/runtime/learning_activity.py) | 學習活動彙總、XP、等級、連續天數、徽章與今日任務 |
+| [local_ai_config.py](../backend/src/runtime/local_ai_config.py) | 讀取環境設定與 runtime lock，提供共用 AI 設定入口 |
+| [runtime/storage](../backend/src/runtime/storage/) | 資料存取、migration、完整性檢查與檔案恢復 |
+| [storage/card_moves.py](../backend/src/runtime/storage/card_moves.py) | 查詢卡組承接目標及原始卡片身分 |
 | [workers.py](../backend/src/runtime/workers.py) | 工作領取、lease、執行與恢復 |
 | [local_ai](../local_ai/) | OCR adapter、protocol 與模型執行設定 |
 
+HTTP 層處理請求邊界，runtime 用例協調流程，learning_adaptation／knowledge_map 處理學習與內容規則，storage 負責資料存取；現有查詢與索引建構仍保留跨層依賴。
+
 功能路由直接共用 [request_context.py](../backend/src/runtime/api/request_context.py) 的 session、query 與冪等鍵檢查；[study_workspace.py](../backend/src/runtime/study_workspace.py) 組合學習查詢，HTTP 層只投影公開資料。題組的查詢與完成判定位於 [assessment_state.py](../backend/src/learning_adaptation/assessment_state.py)，建立、交卷及生成工作由 `assessment_sets.py` 負責。
 
-[database.py](../backend/src/runtime/storage/database.py) 管理連線池與每次交易，`tables.py` 只做 ORM 映射。[artifacts.py](../backend/src/runtime/storage/artifacts.py) 統一原檔、轉檔及媒體的保存、完整性檢查與清理；PDF 預覽仍保留自己的型別限制。共同教材投影由 `knowledge_reads.py` 提供，`card_sources.py` 只處理卡組導覽與分批顯示。
+[database.py](../backend/src/runtime/storage/database.py) 管理連線池與每次交易，`tables.py` 只做 ORM 映射。[artifacts.py](../backend/src/runtime/storage/artifacts.py) 統一原檔、轉檔及媒體的保存、完整性檢查與清理；PDF 預覽仍保留自己的型別限制。發布流程由 `knowledge_publication.py` 協調，`knowledge_structures.py` 保留讀取與清理。`knowledge_reads.py` 保留讀取索引的建立、補建與投影，`card_sources.py` 處理卡組導覽與分批顯示。
 
 [provider_http.py](../backend/src/runtime/provider_http.py) 管理既有 provider 傳輸，工作續租與取消仍屬各執行流程。內容序列化使用 `content_identity.py`；講稿沿用 `podcast_script.py` 的獨立雜湊規則，避免改變已保存的身分。
 
