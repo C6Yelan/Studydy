@@ -23,11 +23,10 @@
 }
 .dashboard-content {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) 340px;
   gap: 24px;
   align-items: start;
 }
-.dashboard-primary,
 .dashboard-side {
   display: grid;
   gap: 24px;
@@ -64,59 +63,6 @@
   min-height: 32px;
   font-size: 14px;
 }
-.archipelago-viewport {
-  position: relative;
-  overflow: hidden;
-  border-radius: 22px;
-  background: var(--sea);
-}
-.archipelago-stage {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1000 / 560;
-  /* 島嶼標籤寬度以地圖寬度（cqw）計算，地圖縮放時島位與標籤一起縮放。 */
-  container-type: inline-size;
-}
-.archipelago-sea {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.sea-wave {
-  animation: sea-wave 4s ease-in-out infinite;
-}
-@keyframes sea-wave {
-  50% { transform: translateY(4px); opacity: 0.4; }
-}
-.archipelago-islands {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.archipelago-island {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  transition: transform 0.25s cubic-bezier(0.3, 1.4, 0.5, 1);
-}
-.archipelago-island:hover,
-.archipelago-island:focus-within {
-  transform: translate(-50%, -53%);
-  z-index: 2;
-}
-.archipelago-island > button {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  aspect-ratio: 840 / 470;
-}
-.archipelago-island.is-building .island-art,
-.archipelago-island.is-failed .island-art {
-  filter: saturate(0.35) brightness(1.05);
-  opacity: 0.85;
-}
 .island-flag {
   position: absolute;
   top: 8%;
@@ -141,12 +87,6 @@
   margin-left: -7px;
   border: 7px solid transparent;
   border-top-color: #fff;
-}
-.archipelago-island.is-focus .island-flag {
-  box-shadow: 0 0 0 3px var(--warning), 0 12px 24px -10px rgba(160, 90, 0, 0.5);
-}
-.archipelago-island.is-completed .island-flag {
-  background: linear-gradient(180deg, #fff, #fff6dd);
 }
 .island-flag-text {
   min-width: 0;
@@ -224,19 +164,6 @@
 }
 .archipelago-new b { font-size: 14px; font-weight: 900; }
 .archipelago-new small { font-size: 11px; font-weight: 800; }
-.archipelago-more {
-  position: absolute;
-  right: 16px;
-  bottom: 14px;
-  min-height: 34px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 800;
-}
 .archipelago-foot {
   position: relative;
   display: flex;
@@ -308,12 +235,10 @@
 }
 
 /* 右欄 */
-.dashboard-side > .surface,
-.dashboard-below > .surface {
+.dashboard-side > .surface {
   padding: 20px 22px;
 }
-.dashboard-side h2,
-.dashboard-below h2 {
+.dashboard-side h2 {
   margin: 0;
   font-size: 17px;
 }
@@ -355,128 +280,14 @@
   font-size: 11px;
   font-weight: 700;
 }
-.dashboard-shortcut header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-.dashboard-shortcut .text-button {
-  min-height: 28px;
-  font-size: 13px;
-}
-.dashboard-shortcut p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-.shortcut-card,
-.shortcut-podcast {
-  width: 100%;
-  border: 0;
-  text-align: left;
-  transition: transform 0.2s;
-}
-.shortcut-card:hover,
-.shortcut-podcast:hover {
-  transform: translateY(-2px);
-}
-.shortcut-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 150px;
-  overflow: hidden;
-  padding: 18px;
-  border-radius: 22px;
-  background: linear-gradient(145deg, #3d7bff, #6a5cff);
-  box-shadow: 0 14px 26px -14px rgba(61, 90, 255, 0.8);
-  color: #fff;
-}
-.shortcut-card::after {
-  content: "";
-  position: absolute;
-  top: -30px;
-  right: -30px;
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-}
-.shortcut-card small {
-  align-self: flex-start;
-  max-width: 100%;
-  overflow: hidden;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.2);
-  font-size: 11px;
-  font-weight: 900;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.shortcut-card b {
-  flex: 1;
-  font-size: 17px;
-  line-height: 1.45;
-}
-.shortcut-card span,
-.shortcut-podcast > span > span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 800;
-  opacity: 0.85;
-}
-.shortcut-podcast {
-  display: flex;
-  gap: 14px;
-  align-items: stretch;
-  padding: 0;
-  background: transparent;
-  color: var(--text-primary);
-}
-.shortcut-podcast-cover {
-  display: grid;
-  width: 96px;
-  min-height: 96px;
-  flex: none;
-  place-items: center;
-  border-radius: 20px;
-  background: linear-gradient(160deg, #9b6bff, #ff7aa8);
-  color: #fff;
-}
-.shortcut-podcast > span:last-child {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-}
-.shortcut-podcast small {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.shortcut-podcast b {
-  font-size: 15px;
-  line-height: 1.4;
-}
-.shortcut-podcast > span > span {
-  color: var(--violet);
-}
 
 @media (max-width: 1200px) {
   .dashboard-content {
     grid-template-columns: 1fr;
   }
   .dashboard-side {
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    align-items: start;
   }
 }
 @media (max-width: 720px) {
@@ -500,15 +311,6 @@
   }
   .archipelago-head {
     padding: 0 var(--shell-gutter) 12px;
-  }
-  /* 手機保留可讀的島嶼大小，改為左右滑動。 */
-  .archipelago-viewport {
-    overflow-x: auto;
-    border-radius: 0;
-    scrollbar-width: none;
-  }
-  .archipelago-stage {
-    width: 820px;
   }
   .archipelago-foot {
     margin: 0 var(--shell-gutter);
@@ -655,28 +457,6 @@
 .week-note {
   color: var(--text-muted);
   font-size: 11px;
-}
-
-/* 概念卡複習：標題列放到期與新卡張數 */
-.dashboard-review header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.dashboard-review header h2 {
-  margin-right: 4px;
-}
-.dashboard-review header .text-button {
-  min-height: 28px;
-  margin-left: auto;
-  font-size: 13px;
-}
-.dashboard-review > p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 14px;
 }
 
 /* 個人等級：等級、累計經驗值與本級進度條 */
@@ -827,47 +607,197 @@
 }
 
 /* 首頁骨架：群島讀取中先畫三座島的輪廓，右欄卡片保留位置，避免讀完後版面跳動。 */
-.archipelago-skeleton { position: absolute; inset: 0; pointer-events: none; }
-.archipelago-skeleton .skeleton-bone.is-island {
-  position: absolute;
-  aspect-ratio: 840 / 470;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  opacity: 0.55;
-}
 .dashboard-skeleton-card {
   display: grid;
   gap: var(--space-3);
   padding: var(--space-5);
 }
 
-/* 群島下方三張卡並排；窄螢幕依寬度換行。 */
-.dashboard-below {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 24px;
-  align-items: start;
+/* 互動群島地圖：島與標籤依 --tx/--ty/--k 換算到畫面位置，標籤字級固定；海浪圖層跟著縮放。 */
+.island-map {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
 }
-/* 靠地圖左右緣的島：標籤向內對齊，不被地圖邊界裁切。 */
-.archipelago-island.is-edge-left .island-flag { left: 4%; transform: translate(0, -100%); }
-.archipelago-island.is-edge-left .island-flag::after { left: 28px; }
-.archipelago-island.is-edge-right .island-flag { left: auto; right: 4%; transform: translate(0, -100%); }
-.archipelago-island.is-edge-right .island-flag::after { left: auto; right: 28px; margin-left: 0; margin-right: -7px; }
-/* 標籤最大寬度依島位而定（--flag-max），文字扣掉進度圈與留白約 60px。 */
-.island-flag { --flag-width: min(280px, var(--flag-max, 29cqw)); max-width: var(--flag-width); }
-.island-flag-text b,
-.island-flag-text small { max-width: calc(var(--flag-width) - 60px); }
-/* 全部島嶼清單：桌機展開時只列地圖放不下的島；手機一律列出全部。 */
+.island-map-viewport {
+  --tx: 0px;
+  --ty: 0px;
+  --k: 1;
+  position: relative;
+  height: clamp(440px, calc(100vh - 330px), 980px);
+  overflow: hidden;
+  background: linear-gradient(180deg, #8fe0fb, #3aa6e2);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.island-map-viewport.is-dragging { cursor: grabbing; }
+.island-map-viewport:focus-visible { outline: 3px solid var(--studydy-blue); outline-offset: -3px; }
+.island-map-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(var(--tx), var(--ty)) scale(var(--k));
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.island-map-sea { position: absolute; overflow: visible; }
+.island-map-sea pattern path { fill: none; stroke: #fff; stroke-opacity: 0.55; stroke-width: 3; stroke-linecap: round; }
+.island-map-islands { margin: 0; padding: 0; list-style: none; }
+.map-island {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(calc(var(--tx) + var(--x) * var(--k)), calc(var(--ty) + var(--y) * var(--k)));
+}
+.map-island:hover,
+.map-island:focus-within { z-index: 2; }
+/* 按鈕大小等於島在畫面上的大小（以島中心定位）；島圖固定以原尺寸繪製再縮放，縮放時不重新排版 SVG。 */
+.map-island > button:not(.archipelago-new) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--w) * var(--k));
+  height: calc(var(--h) * var(--k));
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: inherit;
+  transform: translate(-50%, -50%);
+}
+.island-map-viewport:not(.is-dragging) .map-island > button { cursor: pointer; }
+.map-island-art {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--w);
+  height: var(--h);
+  transform: scale(var(--k));
+  transform-origin: 0 0;
+  transition: translate 0.25s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.map-island-art .island-art { display: block; width: 100%; height: 100%; }
+.map-island:hover .map-island-art,
+.map-island:focus-within .map-island-art { translate: 0 -4px; }
+.map-island > button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; border-radius: 40%; }
+.map-island.is-building .island-art,
+.map-island.is-failed .island-art { filter: saturate(0.35) brightness(1.05); opacity: 0.85; }
+/* 標籤貼在島上緣（島高的 8%），字級固定。 */
+.map-island .island-flag {
+  top: 8%;
+  left: 50%;
+  transform: translate(-50%, -100%);
+}
+.map-island.is-focus .island-flag { box-shadow: 0 0 0 3px var(--warning), 0 12px 24px -10px rgba(160, 90, 0, 0.5); }
+.map-island.is-completed .island-flag { background: linear-gradient(180deg, #fff, #fff6dd); }
+/* 同一列相鄰的島至少相距約 400 地圖像素；標籤（文字＋進度圈約 74px）寬度隨縮放收窄，拉遠時也不互相重疊。 */
+.map-island .island-flag-text b,
+.map-island .island-flag-text small { max-width: max(32px, min(220px, calc(var(--k) * 400px - 74px))); }
+/* 拉遠時只留名稱，避免相鄰標籤互相遮住。 */
+.island-map-viewport[data-zoom="far"] .island-flag-text small,
+.island-map-viewport[data-zoom="far"] .island-pin { display: none; }
+.island-map-viewport[data-zoom="far"] .island-flag-text b { font-size: 13px; }
+.map-island.is-new .archipelago-new { position: absolute; top: 0; left: 0; white-space: nowrap; }
+.island-map-skeleton { position: absolute; inset: 0; pointer-events: none; }
+.island-map-skeleton .skeleton-bone.is-island {
+  position: absolute;
+  width: 22%;
+  aspect-ratio: 840 / 470;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0.55;
+}
+.island-map-compass {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 56px;
+  height: 56px;
+  opacity: 0.85;
+  pointer-events: none;
+}
+.island-map-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  margin: 0;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.island-map-viewport.is-touched .island-map-hint { opacity: 0; }
+.island-map-controls {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 20px -8px rgba(10, 40, 80, 0.45);
+}
+.island-map-controls button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+}
+.island-map-controls button + button { border-top: 1px solid var(--border); }
+.island-map-controls button:hover { background: var(--studydy-blue-soft); color: var(--studydy-blue); }
+.island-map-minimap {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  width: 168px;
+  height: 108px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  background: rgba(20, 110, 170, 0.35);
+  box-shadow: 0 8px 20px -10px rgba(10, 40, 80, 0.5);
+  cursor: pointer;
+  touch-action: none;
+}
+.island-map-minimap .minimap-sea { fill: rgba(143, 224, 251, 0.35); }
+.island-map-minimap ellipse.is-focus { stroke: var(--warning); stroke-width: 40; }
+.island-map-minimap .minimap-view { fill: rgba(255, 255, 255, 0.2); stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; }
+
+/* 右欄：今日任務下方的成就入口。 */
+.dashboard-achievements {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  color: var(--text-primary);
+  text-align: left;
+}
+.dashboard-achievements .stat-icon { margin: 0; }
+.dashboard-achievements > span:nth-child(2) { display: grid; flex: 1; min-width: 0; }
+.dashboard-achievements b { font-size: 15px; }
+.dashboard-achievements small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.dashboard-achievements > svg { color: var(--studydy-blue); }
+.dashboard-achievements:hover { background: var(--studydy-blue-soft); }
+
+/* 全部教材清單：只在手機顯示（桌機直接在地圖上操作）。 */
 .archipelago-list {
   display: none;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: 8px;
   margin: 12px 0 0;
   padding: 0;
   list-style: none;
 }
-.archipelago-list.is-open { display: grid; }
-.archipelago-list.is-open > li.is-on-map { display: none; }
 .archipelago-list button {
   display: flex;
   align-items: center;
@@ -888,60 +818,20 @@
 .archipelago-list-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .archipelago-list-text b { font-size: 14px; font-weight: 900; }
 .archipelago-list-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
-.archipelago-swipe-hint { display: none; }
-@media (max-width: 720px) {
-  .sea-compass { display: none; }
-  .archipelago-viewport { position: relative; }
-  .archipelago-swipe-hint {
-    position: sticky;
-    left: 50%;
-    bottom: 10px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin: -44px 0 10px;
-    padding: 4px 12px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
-    color: var(--text-secondary);
-    font-size: 12px;
-    font-weight: 800;
-    max-width: calc(100% - 24px);
-    text-align: center;
-    transform: translateX(-50%);
-  }
-  .archipelago-list,
-  .archipelago-list.is-open { display: grid; margin: 12px var(--shell-gutter) 0; }
-  .archipelago-list.is-open > li.is-on-map { display: block; }
-  .archipelago-more { display: none; }
-  .island-flag { --flag-width: min(260px, var(--flag-max, 29cqw)); }
+
+/* 寬螢幕：右欄維持固定寬度，多出的寬度都給地圖。 */
+@media (min-width: 1800px) {
+  .dashboard-content { grid-template-columns: minmax(0, 1fr) 380px; }
 }
-/* 手機：今日任務與複習緊接在群島之後，統計類卡片放到最後。 */
+
 @media (max-width: 720px) {
-  .dashboard-content { display: flex; flex-direction: column; align-items: stretch; }
-  .dashboard-primary,
-  .dashboard-side,
-  .dashboard-below { display: contents; }
-  .dashboard-content .archipelago { order: 1; }
-  .dashboard-content .dashboard-quests { order: 2; }
-  .dashboard-content .dashboard-review { order: 3; }
-  .dashboard-content .dashboard-level { order: 4; }
-  .dashboard-content .dashboard-badges { order: 5; }
-  .dashboard-content .dashboard-week { order: 6; }
-  .dashboard-content .dashboard-overview { order: 7; }
-  .dashboard-content .dashboard-shortcut { order: 8; }
-  .dashboard-content .dashboard-skeleton-card { order: 9; }
-}
-@media (max-width: 720px) {
-  /* display: contents 後卡片直接是彈性欄的項目，需允許縮窄，群島畫布只在自己的橫向捲動區內加寬。 */
-  .dashboard-content > *,
-  .dashboard-content .surface { min-width: 0; max-width: 100%; }
-  .dashboard-content .archipelago.surface { max-width: none; }
-}
-@media (max-width: 720px) {
-  /* 橫向捲動的群島畫布不可撐寬整頁（彈性欄的最小寬度不計入畫布內容）。 */
-  .archipelago-viewport { contain: inline-size; }
-}
-@media (max-width: 720px) {
-  .dashboard-content .surface { contain: inline-size; }
+  .island-map { border-radius: 0; }
+  .island-map-viewport { height: min(440px, 62vh); }
+  .island-map-compass,
+  .island-map-minimap { display: none; }
+  .island-map-controls { right: 12px; bottom: 12px; }
+  .island-map-hint { bottom: 12px; left: 12px; transform: none; }
+  .archipelago-list { display: grid; margin: 12px var(--shell-gutter) 0; }
+  .dashboard-content { grid-template-columns: minmax(0, 1fr); }
+  .dashboard-content > * { min-width: 0; }
 }

@@ -13,6 +13,10 @@
   position: relative;
   min-height: 100vh;
 }
+/* 首頁在寬螢幕放寬版面，多出的寬度給群島地圖。 */
+.app-shell.is-wide {
+  --application-frame-max: 2200px;
+}
 .app-header {
   position: relative;
   z-index: 5;

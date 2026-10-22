@@ -54,16 +54,14 @@
   color: var(--text-muted);
 }
 
-/* 首頁徽章卡 */
-.dashboard-badges header {
+/* 成就頁徽章區 */
+.badge-collection { display: grid; gap: 14px; padding: 20px 22px; }
+.badge-collection-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
 }
-.dashboard-badges header .text-button {
-  margin-left: auto;
-}
+.badge-collection-head h2 { margin: 0; font-size: 17px; }
 .badge-count {
   padding: 3px 10px;
   border-radius: 999px;
@@ -72,24 +70,10 @@
   font-size: 13px;
   font-weight: 900;
 }
-.badge-shelf {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.badge-empty {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
 .badge-next {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 14px;
   padding: 12px;
   border-radius: 18px;
   background: var(--page-cool);
@@ -127,33 +111,12 @@
 }
 
 /* 徽章牆 */
-.badge-dialog {
-  width: min(640px, calc(100vw - 32px));
-  max-height: min(720px, 88dvh);
-}
-.badge-dialog-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 18px 16px 12px 24px;
-  border-bottom: 1px solid var(--border);
-}
-.badge-dialog-head h2 {
-  margin: 0;
-  font-size: 20px;
-}
-.badge-dialog-head small {
-  color: var(--text-secondary);
-  font-weight: 700;
-}
 .badge-wall {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 10px;
   margin: 0;
-  padding: 16px 20px;
-  overflow-y: auto;
+  padding: 0;
   list-style: none;
 }
 .badge-wall li {
@@ -188,7 +151,6 @@
 }
 .badge-note {
   margin: 0;
-  padding: 0 24px 18px;
   color: var(--text-muted);
   font-size: 12px;
 }

@@ -4,6 +4,7 @@ import type { StudydyApiClient } from "../../api/client";
 import type { AppRoute } from "../../app/routes";
 import { PageSkeleton, type SkeletonVariant } from "../../ui/Skeleton";
 import "../knowledge-map/styles.css";
+import { AchievementsPage } from "../achievements/AchievementsPage";
 import { Dashboard } from "../dashboard/Dashboard";
 import { MaterialContent } from "./MaterialContent";
 import { MaterialLibrary } from "./MaterialLibrary";
@@ -78,6 +79,7 @@ function MaterialFlowBody({
   if (route.name === "podcast-new" || route.name === "podcast-create" || route.name === "card-set-new" || route.name === "card-set-create") return <CreateStudyContent apiClient={apiClient} route={route} />;
   if (route.name === "podcast") return <PodcastPage key={route.podcastId} apiClient={apiClient} podcastId={route.podcastId} materialId={route.materialId} learnerId={learnerId} />;
   if (route.name === "home") return <Dashboard apiClient={apiClient} />;
+  if (route.name === "achievements") return <AchievementsPage apiClient={apiClient} />;
   if (route.name === "concept-cards") return <CardSetLibrary apiClient={apiClient} />;
 
   if (route.name === "card-set-edit") return <CreateCardSet key={`edit/${route.cardSetId}`} apiClient={apiClient} route={route} />;

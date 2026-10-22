@@ -1502,12 +1502,12 @@ async function mockReviews(page: Page, view: ReturnType<typeof structureView>, {
   return { posts };
 }
 
-test("home review deck flips before grading, follows the backend schedule and finishes the round", async ({ page }) => {
+test("daily review deck flips before grading, follows the backend schedule and finishes the round", async ({ page }) => {
   const { view } = await mockCards(page, { saved: true });
   const { posts } = await mockReviews(page, view, { due: [0] });
-  await page.goto("/");
-  const review = page.getByRole("region", { name: "概念卡複習" });
-  await expect(review.locator(".review-counts")).toHaveText("1 張到期1 張新卡");
+  await page.goto("/concept-cards");
+  const review = page.getByRole("region", { name: "從所有卡組挑出該複習的卡片" });
+  await expect(review.locator(".cards-daily-review-text p").last()).toHaveText("1 張到期 · 1 張新卡");
   const card = review.getByRole("button", { name: "說說看：什麼是「堆疊（Stack）」？點一下看重點" });
   await expect(review.getByRole("button", { name: "記得" })).toBeDisabled();
   await card.click();
@@ -1515,7 +1515,7 @@ test("home review deck flips before grading, follows the backend schedule and fi
   await expect(review.locator(".review-claims")).toContainText("後進先出");
   await review.getByRole("button", { name: "模糊" }).click();
   await expect(review.getByRole("status").first()).toHaveText("明天再複習這張。");
-  await expect(review.locator(".review-counts")).toHaveText("1 張新卡");
+  await expect(review.locator(".cards-daily-review-text p").last()).toHaveText("1 張新卡");
   // 評分後焦點回到下一張卡，鍵盤可以繼續。
   await expect(review.getByRole("button", { name: /陣列（Array）/ })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -1529,8 +1529,8 @@ test("home review deck flips before grading, follows the backend schedule and fi
 test("a failed review keeps the card and retries with the same intent key", async ({ page }) => {
   const { view } = await mockCards(page, { saved: true });
   const { posts } = await mockReviews(page, view, { due: [], failFirstPost: true });
-  await page.goto("/");
-  const review = page.getByRole("region", { name: "概念卡複習" });
+  await page.goto("/concept-cards");
+  const review = page.getByRole("region", { name: "從所有卡組挑出該複習的卡片" });
   await review.getByRole("button", { name: /堆疊（Stack）/ }).click();
   await review.getByRole("button", { name: "忘了" }).click();
   await expect(review.getByRole("alert")).toContainText("評分尚未保存");
@@ -1544,8 +1544,8 @@ test("a failed review keeps the card and retries with the same intent key", asyn
 test("a review conflict from another tab reloads the queue instead of counting twice", async ({ page }) => {
   const { view } = await mockCards(page, { saved: true });
   const { posts } = await mockReviews(page, view, { due: [], conflictOnce: true });
-  await page.goto("/");
-  const review = page.getByRole("region", { name: "概念卡複習" });
+  await page.goto("/concept-cards");
+  const review = page.getByRole("region", { name: "從所有卡組挑出該複習的卡片" });
   await review.getByRole("button", { name: /堆疊（Stack）/ }).click();
   await review.getByRole("button", { name: "記得" }).click();
   await expect(review.getByRole("status").first()).toHaveText("這張卡已在其他頁面評分，已重新整理複習清單。");

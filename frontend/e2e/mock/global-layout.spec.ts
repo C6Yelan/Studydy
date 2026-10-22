@@ -46,12 +46,13 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-// 2560px 真正觸及 1600px 上限；768px 與 900px 共用相同的標準版面分支。
+// 2560px 真正觸及標準頁 1600px 上限（首頁放寬到 2200px）；768px 與 900px 共用相同的標準版面分支。
 for (const width of [2560, 1920, 1680, 1536, 1440, 1366, 1281, 1100, 1024, 900, 721, 390, 320]) {
   test(`standard frames stay centered without clipping at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1080 });
     for (const [path, heading] of [
       ["/", "歡迎回來！今天想探索哪座島？"],
+      ["/achievements", "我的成就"],
       ["/materials", "我的教材"],
       ["/upload", "上傳教材"],
     ]) {
@@ -60,13 +61,16 @@ for (const width of [2560, 1920, 1680, 1536, 1440, 1366, 1281, 1100, 1024, 900, 
       await expect(
         frame.getByRole("heading", { name: heading, level: 1, exact: true }),
       ).toBeVisible();
-      if (path === "/") {
+      if (path === "/achievements") {
         await expect(page.getByRole("region", { name: "學習總覽" })).toBeVisible();
         await expect(page.locator(".dashboard-stats")).toHaveAttribute("aria-busy", "false");
-        await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
+        await expect(page.getByRole("region", { name: "本週學習節奏" })).toBeVisible();
         await expect(page.getByRole("region", { name: "我的徽章" }).locator(".badge-count")).toHaveText("9 / 10");
+      }
+      if (path === "/") {
+        await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
         // 頁首學習進度與品牌、帳號工具不重疊，也不超出視窗。
-        const pill = page.getByRole("button", { name: "連續學習 128 天，第 15 級，累計 12450 XP" });
+        const pill = page.getByRole("button", { name: "連續學習 128 天，第 15 級，累計 12450 XP，查看成就" });
         await expect(pill).toBeVisible();
         const header = await page.evaluate(() => {
           const brand = document.querySelector(".header-start")!.getBoundingClientRect();
@@ -104,7 +108,7 @@ for (const width of [2560, 1920, 1680, 1536, 1440, 1366, 1281, 1100, 1024, 900, 
         };
       });
       expect(Math.abs(layout.centerOffset)).toBeLessThanOrEqual(2);
-      expect(layout.width).toBeCloseTo(Math.min(layout.usableWidth, 1600), 0);
+      expect(layout.width).toBeCloseTo(Math.min(layout.usableWidth, path === "/" ? 2200 : 1600), 0);
       if (path === "/upload")
         expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
       expect(layout.headingTop).toBeCloseTo(layout.top, 0);

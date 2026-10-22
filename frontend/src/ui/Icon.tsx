@@ -23,6 +23,8 @@ export type IconName =
   | "warning"
   | "sparkle"
   | "plus"
+  | "minus"
+  | "fit"
   | "quiz"
   | "chat"
   | "close"
@@ -153,6 +155,8 @@ const paths: Record<IconName, React.ReactNode> = {
     </>
   ),
   plus: <path d="M12 5v14M5 12h14" />,
+  minus: <path d="M5 12h14" />,
+  fit: <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />,
   quiz: (
     <>
       <rect x="5" y="4" width="14" height="17" rx="2.5" />

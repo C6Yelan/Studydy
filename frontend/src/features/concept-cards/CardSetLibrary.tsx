@@ -5,6 +5,7 @@ import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { islandColors, islandPalette } from "../../ui/art/Island";
 import { CardSetManagement } from "./CardSetManagement";
+import { ReviewDeck } from "./ReviewDeck";
 import { useConceptArtwork } from "./VisualConceptCard";
 import { StateView } from "../../ui/StateView";
 import { CollectionHeader } from "../../ui/CollectionHeader";
@@ -80,6 +81,8 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   };
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision);
   const create = () => { if (material && structure) writeRoute({ name: "card-set-create", materialId: material.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision }); else if (!material) writeRoute({ name: "card-set-new" }); };
+  const dailyDue = [...reviewCounts.values()].reduce((sum, item) => sum + item.due, 0);
+  const dailyNew = [...reviewCounts.values()].reduce((sum, item) => sum + item.fresh, 0);
   const filtered = sets?.filter((item) => `${item.name} ${item.material_name}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return (
     <section className="material-library is-collection cards-library" aria-label={material ? "教材概念卡" : "我的概念卡"}>
@@ -100,6 +103,20 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
           <EmptyState label="空卡組引導" title={material ? "這份教材還沒有卡組" : "建立你的第一組概念卡"} description="選擇教材中的概念，建立你的第一組概念卡。"
             action={<button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}>{material ? "建立卡組" : "選擇教材"}</button>} />
         ) : <>
+          {/* 跨卡組的今日複習（原本在首頁）；首頁「今日任務」的複習任務也導向這裡。 */}
+          {!material && <section className="cards-daily-review surface" aria-labelledby="cards-daily-review-title">
+            <div className="cards-daily-review-text">
+              <img src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
+              <p className="eyebrow">今天的複習</p>
+              <h2 id="cards-daily-review-title">從所有卡組挑出該複習的卡片</h2>
+              <p>{dailyDue + dailyNew > 0 ? [dailyDue > 0 && `${dailyDue} 張到期`, dailyNew > 0 && `${dailyNew} 張新卡`].filter(Boolean).join(" · ") : "先回想，再翻卡核對；依記得的程度安排下一次複習。"}</p>
+            </div>
+            <ReviewDeck apiClient={apiClient} variant="home" onQueue={(queue) => {
+              setReviewCounts(new Map(queue.sets.map(set => [set.card_set_id, { due: set.due_count, fresh: set.new_count }])));
+              // 評分後重新讀取學習活動，讓頁首經驗值與今日任務跟上（失敗時保留原畫面）。
+              void apiClient.getLearningActivity().catch(() => undefined);
+            }} />
+          </section>}
 
           <div className="library-grid">
             {filtered?.map((item) => (

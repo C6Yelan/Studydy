@@ -273,3 +273,37 @@
 .creation-picker-text strong { overflow-wrap: anywhere; font-size: 15px; font-weight: 900; }
 .creation-picker-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
 .cards-browse-layout .visual-card { margin-inline: 0; }
+
+/* 概念卡頁上方的跨卡組今日複習：說明在左、卡片在右；窄螢幕上下排列。 */
+.cards-daily-review {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 400px);
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 24px;
+  padding: 22px 24px;
+}
+.cards-daily-review-text {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  column-gap: 20px;
+  align-content: center;
+}
+.cards-daily-review-text img {
+  grid-row: 1 / 4;
+  width: 140px;
+  align-self: center;
+}
+.cards-daily-review-text h2 {
+  margin: 4px 0 8px;
+  font-size: 20px;
+}
+.cards-daily-review-text p:last-child {
+  margin: 0;
+  color: var(--text-secondary);
+}
+@media (max-width: 720px) {
+  .cards-daily-review { grid-template-columns: minmax(0, 1fr); padding: 18px; }
+  .cards-daily-review-text { grid-template-columns: 72px minmax(0, 1fr); column-gap: 12px; }
+  .cards-daily-review-text img { width: 72px; }
+}

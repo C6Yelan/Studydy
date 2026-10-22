@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../../api/contracts";
-import { Modal } from "../../app/HeaderTools";
 import { Icon, type IconName } from "../../ui/Icon";
 import "./styles.css";
 
@@ -57,16 +56,36 @@ function nextBadge(badges: KnownBadge[]) {
     .reduce<KnownBadge | null>((best, badge) => !best || badge.progress / badge.target > best.progress / best.target ? badge : best, null);
 }
 
-export function BadgeWall({ badges, open, onClose }: { badges: KnownBadge[]; open: boolean; onClose: () => void }) {
+function BadgeProgress({ badge, text }: { badge: KnownBadge; text: string }) {
+  const name = badgeText[badge.badge_id].name;
+  return <span className="badge-progress">
+    <span className="badge-progress-bar" role="progressbar" aria-label={`${name}進度`}
+      aria-valuemin={0} aria-valuemax={badge.target} aria-valuenow={badge.progress} aria-valuetext={progressText(badge)}>
+      <i style={{ width: `${(badge.progress / badge.target) * 100}%` }} />
+    </span>
+    <span>{text}</span>
+  </span>;
+}
+
+// 成就頁：下一個最接近的徽章與完整徽章牆。
+export function BadgeCollection({ activity }: { activity: LearningActivityView }) {
+  const badges = knownBadges(activity);
+  if (!badges.length) return null;
   const earned = badges.filter((badge) => badge.earned).length;
-  return <Modal label="我的徽章" open={open} onClose={onClose} className="badge-dialog">
-    <header className="badge-dialog-head">
-      <div>
-        <h2>我的徽章</h2>
-        <small>已取得 {earned} / {badges.length} 個</small>
-      </div>
-      <button className="header-dialog-close" type="button" aria-label="關閉我的徽章" onClick={onClose}>×</button>
+  const next = nextBadge(badges);
+  return <section className="badge-collection surface" aria-labelledby="badge-collection-title">
+    <header className="badge-collection-head">
+      <h2 id="badge-collection-title">我的徽章</h2>
+      <span className="badge-count">{earned} / {badges.length}</span>
     </header>
+    {next && <div className="badge-next">
+      <BadgeMedal badge={next} size={40} />
+      <span className="badge-next-text">
+        <small>下一個徽章</small>
+        <b>{badgeText[next.badge_id].name}</b>
+        <BadgeProgress badge={next} text={`${badgeText[next.badge_id].condition} · ${progressText(next)}`} />
+      </span>
+    </div>}
     <ul className="badge-wall">
       {badges.map((badge) => {
         const text = badgeText[badge.badge_id];
@@ -77,55 +96,12 @@ export function BadgeWall({ badges, open, onClose }: { badges: KnownBadge[]; ope
             <small>{text.condition}</small>
             {badge.earned
               ? <span className="badge-earned-on">{badge.earned_on ? `${formatDate(badge.earned_on)} 取得` : "已取得"}</span>
-              : <span className="badge-progress">
-                <span className="badge-progress-bar" role="progressbar" aria-label={`${text.name}進度`}
-                  aria-valuemin={0} aria-valuemax={badge.target} aria-valuenow={badge.progress} aria-valuetext={progressText(badge)}>
-                  <i style={{ width: `${(badge.progress / badge.target) * 100}%` }} />
-                </span>
-                <span>{progressText(badge)}</span>
-              </span>}
+              : <BadgeProgress badge={badge} text={progressText(badge)} />}
           </span>
         </li>;
       })}
     </ul>
     <p className="badge-note">依作答、概念完成、教材完成、概念卡複習、Podcast 收聽與連續學習的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。</p>
-  </Modal>;
-}
-
-// 首頁：已取得的徽章、下一個最接近的徽章，以及開啟完整徽章牆的入口。
-export function BadgeShelf({ activity }: { activity: LearningActivityView }) {
-  const badges = knownBadges(activity);
-  const [open, setOpen] = useState(false);
-  if (!badges.length) return null;
-  const earned = badges.filter((badge) => badge.earned);
-  const next = nextBadge(badges);
-  return <section className="dashboard-badges surface" aria-labelledby="dashboard-badges-title">
-    <header>
-      <h2 id="dashboard-badges-title">我的徽章</h2>
-      <span className="badge-count">{earned.length} / {badges.length}</span>
-      <button className="text-button" type="button" aria-haspopup="dialog" onClick={() => setOpen(true)}>全部徽章<Icon name="chevron-right" size={16} /></button>
-    </header>
-    {earned.length > 0 ? <ul className="badge-shelf" aria-label="已取得的徽章">
-      {earned.map((badge) => <li key={badge.badge_id} title={badgeText[badge.badge_id].name}>
-        <BadgeMedal badge={badge} size={44} />
-        <span className="header-sr-only">{badgeText[badge.badge_id].name}</span>
-      </li>)}
-    </ul> : <p className="badge-empty">還沒有徽章。作答、複習卡片或收聽 Podcast，就能拿到第一個。</p>}
-    {next && <div className="badge-next">
-      <BadgeMedal badge={next} size={40} />
-      <span className="badge-next-text">
-        <small>下一個徽章</small>
-        <b>{badgeText[next.badge_id].name}</b>
-        <span className="badge-progress">
-          <span className="badge-progress-bar" role="progressbar" aria-label={`${badgeText[next.badge_id].name}進度`}
-            aria-valuemin={0} aria-valuemax={next.target} aria-valuenow={next.progress} aria-valuetext={progressText(next)}>
-            <i style={{ width: `${(next.progress / next.target) * 100}%` }} />
-          </span>
-          <span>{badgeText[next.badge_id].condition} · {progressText(next)}</span>
-        </span>
-      </span>
-    </div>}
-    <BadgeWall badges={badges} open={open} onClose={() => setOpen(false)} />
   </section>;
 }
 
@@ -179,7 +155,7 @@ export function BadgeEarned({ badges, onClose }: { badges: KnownBadge[]; onClose
           <small>{badgeText[badge.badge_id].condition}</small>
         </li>)}
       </ul>
-      {badges.length > shown.length && <p>另外還有 {badges.length - shown.length} 個新徽章，到首頁「我的徽章」查看。</p>}
+      {badges.length > shown.length && <p>另外還有 {badges.length - shown.length} 個新徽章，到「成就」頁查看。</p>}
       <button className="primary-button" type="button" onClick={onClose}>太好了</button>
     </div>
   </div>;
