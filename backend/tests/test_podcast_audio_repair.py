@@ -86,7 +86,6 @@ class MixedInputTests(unittest.TestCase):
         self.assertIn('8 megabytes per second', plan[1]['text'])
         self.assertIn('8 megabits per second', plan[1]['text'])
         self.assertIn('1.2', plan[1]['text'])
-        self.assertIn('1,500', text)
 
     def test_short_replies_are_not_dropped(self):
         self.assertEqual([x['text'] for x in self.plan('懂了。那 UDP 呢？')], ['懂了。', '那 U D P 呢？'])

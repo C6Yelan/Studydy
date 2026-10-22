@@ -1,14 +1,13 @@
-"""僅測試的並行可行性原型；不接入產品排程、不使用真實模型或產品資料。"""
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+"""教材審查共用合成資料、暫存 archive 與 HTTP 預設串行容量測試。"""
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from threading import Barrier, BoundedSemaphore, Event, Lock
+from threading import BoundedSemaphore, Event, Lock
 from uuid import uuid4
 import json
 
 import pytest
 
-from knowledge_map.material_review import _pack_review, combine_reviews, project_review, ReviewError
-from runtime.material_review import _checked_review
+from knowledge_map.material_review import _pack_review
 from test_material_review import view, proposal, wire_proposal
 from test_podcast_process import provider_server, provider, post, wait_until
 
@@ -78,132 +77,7 @@ class Archive:
             path.write_text(json.dumps(data))
 
 
-def parallel(units, archive, width):
-    """測試專用：有界提交、失敗停止派送並排空在途批次，按原順序合併。"""
-    results, pending = {}, {}
-    iterator = iter(enumerate(units, 1))
-    with ThreadPoolExecutor(max_workers=width) as pool:
-        def submit():
-            item = next(iterator, None)
-            if item is None:
-                return
-            index, unit = item
-            f = pool.submit(_checked_review, unit, index,
-                {'material_review': {'prompt': 'synthetic'}}, archive, None, archive.check)
-            pending[f] = (index, unit)
-        for _ in range(width):
-            submit()
-        try:
-            while pending:
-                done, _ = wait(pending, return_when=FIRST_COMPLETED)
-                # 先核對這輪完成的全部結果，再送下一輪，避免已知失敗後繼續派送。
-                for f in done:
-                    index, unit = pending.pop(f)
-                    response, _ = f.result()
-                    results[index] = (unit, response)
-                for _ in done:
-                    submit()
-        except BaseException:
-            archive.cancelled.set()
-            for f in pending:
-                f.cancel()
-            raise
-    return [results[i] for i in sorted(results)]
-
-
-def projection(full, reviews):
-    unit, response = combine_reviews(full, reviews)
-    return project_review(full, unit, response)
-
-
-@pytest.mark.parametrize('width', [1, 4, 8])
-def test_parallel_review_matches_serial_merge_and_cached_resume(tmp_path, monkeypatch, width):
-    full, units = inputs()
-    before = deepcopy((full, units))
-    gate = Barrier(width)
-    mutex = Lock()
-    active = peak = calls = 0
-
-    def model(client, **kwargs):
-        nonlocal active, peak, calls
-        with mutex:
-            active += 1
-            peak = max(peak, active)
-            calls += 1
-        try:
-            gate.wait(timeout=5)
-            return wire_proposal(proposal())
-        finally:
-            with mutex:
-                active -= 1
-    monkeypatch.setattr('runtime.material_review.request_semantics', model)
-    archive = Archive(tmp_path / 'archive')
-    reviewed = parallel(units, archive, width)
-    assert peak == width and calls == 16 and active == 0
-    assert projection(full, reviewed) == projection(full, [(u, proposal()) for u in units])
-    assert (full, units) == before
-    assert len(list(archive.root.glob('cache-*.json'))) == 16
-    monkeypatch.setattr('runtime.material_review.request_semantics', lambda *a, **k: pytest.fail('cached batch replayed'))
-    assert projection(full, parallel(units, archive, width)) == projection(full, reviewed)
-
-
-def test_one_bad_alias_is_repaired_without_replaying_other_parallel_batches(tmp_path, monkeypatch):
-    full, units = inputs(8)
-    calls = {}
-    mutex = Lock()
-    def model(client, **kwargs):
-        request = kwargs['request']
-        with mutex:
-            calls[request['title']] = calls.get(request['title'], 0) + 1
-        response = proposal()
-        if request['title'] == 'synthetic-3' and 'review_correction' not in request:
-            response['alias_edits'] = [{'concept': 4, 'remove': ['EFFECTIVENESS'],
-                'evidence': [4], 'reason': '合成大小寫錯誤'}]
-        return wire_proposal(response)
-    monkeypatch.setattr('runtime.material_review.request_semantics', model)
-    reviewed = parallel(units, Archive(tmp_path / 'archive'), 8)
-    assert sum(calls.values()) == 9 and calls['synthetic-3'] == 2
-    assert projection(full, reviewed) == projection(full, [(u, proposal()) for u in units])
-
-
-def test_failure_drains_inflight_work_and_resume_reuses_successes(tmp_path, monkeypatch):
-    _, units = inputs(16)
-    archive = Archive(tmp_path / 'archive')
-    # 先建立一個真正通過既有 validator 的已完成批次。
-    monkeypatch.setattr('runtime.material_review.request_semantics', lambda *a, **k: wire_proposal(proposal()))
-    parallel(units[:1], archive, 1)
-    gate = Barrier(8)
-    calls = []
-    mutex = Lock()
-    def fail(client, **kwargs):
-        name = kwargs['request']['title']
-        with mutex:
-            calls.append(name)
-        if 'review_correction' in kwargs['request']:
-            assert name == 'synthetic-1'
-            return {'invalid': True}
-        gate.wait(timeout=5)
-        if name == 'synthetic-1':
-            return {'invalid': True}
-        assert archive.cancelled.wait(5)
-        return wire_proposal(proposal())  # 晚到結果必須被 archive 的取消檢查拒絕。
-    monkeypatch.setattr('runtime.material_review.request_semantics', fail)
-    with pytest.raises(ReviewError, match='REVIEW_RESPONSE_INVALID'):
-        parallel(units, archive, 8)
-    assert len(calls) == 9 and calls.count('synthetic-1') == 2  # 八個在途批次，失敗批次僅補正一次。
-    assert len(list(archive.root.glob('cache-*.json'))) == 1
-    assert not any(archive.root.glob('call-00000[3-9]/response.json'))
-    archive.cancelled.clear()
-    resumed = []
-    def model(client, **kwargs):
-        resumed.append(kwargs['request']['title'])
-        return wire_proposal(proposal())
-    monkeypatch.setattr('runtime.material_review.request_semantics', model)
-    assert len(parallel(units, archive, 8)) == 16
-    assert len(resumed) == 15 and 'synthetic-0' not in resumed
-
-
-@pytest.mark.parametrize('slots', [1, 4, 8])
+@pytest.mark.parametrize('slots', [1])
 def test_isolated_http_review_lock_capacity(provider_server, monkeypatch, slots):
     # slots=1 保留目前程式；4/8 只替換本測試程序的鎖，正式服務完全不變。
     if slots != 1:

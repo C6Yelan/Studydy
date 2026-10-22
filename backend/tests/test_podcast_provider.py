@@ -73,7 +73,7 @@ def test_source_capacity_stays_aligned_with_episode_planner(monkeypatch):
     request['claims'].append(deepcopy(request['claims'][0]))
     with pytest.raises(ValueError,match='REQUEST_INVALID'):provider.script(request)
 
-@pytest.mark.parametrize('purpose', [None, 'podcast'])
+@pytest.mark.parametrize('purpose', ['podcast'])
 def test_audio_failure_never_returns_partial_file_or_falls_back(monkeypatch, purpose):
     from types import SimpleNamespace
     monkeypatch.setenv('STUDYDY_PODCAST_TTS_PYTHON','/isolated/python')

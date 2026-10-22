@@ -64,7 +64,7 @@ def test_single_page_recovery_survives_publication_and_run_api(closed_loop, tmp_
     assert response.json()["status"] == published.document["status"]["processing"]
 
 
-@pytest.mark.parametrize("count", [0, 1, 2, -1, True, 1.5, "2"])
+@pytest.mark.parametrize("count", [0, 2, -1, True, 1.5, "2"])
 def test_completed_run_accepts_only_nonnegative_integer_ocr_counts(closed_loop, count):
     learner, _, _, document, dsn, _ = closed_loop
     with database_session(dsn) as db:

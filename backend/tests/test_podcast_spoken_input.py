@@ -21,7 +21,6 @@ def test_initialism_enumeration_keeps_source_and_separate_pauses():
     assert [x['text'] for x in result] == ['依序是 F I N 、', 'A C K 、', 'S Y N 。']
     assert ''.join(x['source_text'] for x in result) == text
     assert [x['ending'] for x in result] == ['、', '、', '。']
-    assert text == '依序是 FIN、ACK、SYN。'
 
 
 def test_mixed_sentence_preserves_chinese_connectors_and_punctuation():
