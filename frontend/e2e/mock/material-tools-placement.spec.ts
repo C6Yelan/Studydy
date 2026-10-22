@@ -26,7 +26,7 @@ async function mockWorkspaces(page:Page){
 // 入口固定在分頁列右端；抽屜屬於 viewport，從分頁列下緣展開，不受內容區的 transform、overflow 或捲動影響。
 for(const width of [1920,1440,390]) test(`published workspace chat drawer stays viewport anchored at ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:900});await mockWorkspaces(page);
- const inset=width===390?0:12; // 手機為貼齊左右與底部、上緣留 8px 的全高面板（教材內沒有全站頁首）
+ const inset=width===390?0:12; // 手機為全螢幕聊天室
  const paths=[mapPath,`/materials/${materialId}/podcasts`,`/materials/${materialId}/concept-cards`,`/materials/${materialId}/research`,`/materials/${materialId}/sources`,`${mapPath}/study-sessions/${sessionId}`];
  for(const [index,path] of paths.entries()){
   await page.goto(path);const trigger=opener(page);await expect(trigger).toBeVisible();await expect(trigger).toHaveCount(1);
@@ -39,7 +39,7 @@ for(const width of [1920,1440,390]) test(`published workspace chat drawer stays 
   expect(await panel.evaluate(el=>el.parentElement===document.body)).toBe(true);
   // 等面板的出現動畫結束再量位置。
   await panel.evaluate(el=>Promise.all(el.getAnimations().map(a=>a.finished)));
-  const opened=(await panel.boundingBox())!;expect(width-opened.x-opened.width).toBeCloseTo(inset,0);expect(opened.y).toBeGreaterThanOrEqual(8);expect(opened.y).toBeLessThanOrEqual(width===390?9:450);expect(900-opened.y-opened.height).toBeCloseTo(inset,0);expect(opened.x).toBeGreaterThanOrEqual(0);
+  const opened=(await panel.boundingBox())!;expect(width-opened.x-opened.width).toBeCloseTo(inset,0);expect(opened.y).toBeGreaterThanOrEqual(width===390?0:8);expect(opened.y).toBeLessThanOrEqual(width===390?0:450);expect(900-opened.y-opened.height).toBeCloseTo(inset,0);expect(opened.x).toBeGreaterThanOrEqual(0);
   await page.evaluate(()=>window.scrollTo(0,600));await expect.poll(()=>page.evaluate(()=>window.scrollY)).toBeGreaterThan(300);const moved=(await panel.boundingBox())!;expect(moved.x).toBeCloseTo(opened.x,0);expect(moved.y).toBeCloseTo(opened.y,0);
   await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(trigger).toBeFocused();
   if(index===0){

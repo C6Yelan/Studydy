@@ -69,6 +69,8 @@ def test_conversation_memory_persists_without_recompressing_or_reading_future(cl
         memory=deepcopy(db.get(VoiceConversation,cid).memory)
     assert memory and any(c['schema']['required']==['summary'] for c in calls)
     assert len(voice.read(owner,cid,dsn=dsn)['turns'])==9
+    # 對話標題固定是第一個問題，後續提問不改名。
+    assert voice.read(owner,cid,dsn=dsn)['title']=='最早未成功的問題'
     calls.clear()
     voice.add_turn(owner,cid,'reuse','繼續',dsn=dsn)
     assert voice.step(dsn=dsn)

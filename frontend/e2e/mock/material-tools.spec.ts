@@ -18,8 +18,8 @@ test('material voice text flow saves, cites, reopens and closes',async({page})=>
  await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();
  await page.getByLabel('問題／辨識文字').fill('堆疊是什麼？');await page.getByRole('button',{name:'送出問題',exact:true}).click();
  await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
- await page.getByText(/^查看來源 ·/).click();await expect(page.getByRole('button',{name:/來源 1.*PDF 第 1 頁/})).toBeVisible();
- await page.getByRole('button',{name:/來源 1.*PDF 第 1 頁/}).click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材來源'})).toHaveCount(0);await expect(page.getByRole('dialog',{name:'教材問答'})).toBeVisible();
+ await expect(page.locator('.voice-source-chips').getByRole('button',{name:'第 1 頁',exact:true})).toHaveAttribute('title',/PDF 第 1 頁/);
+ await page.locator('.voice-source-chips').getByRole('button',{name:'第 1 頁',exact:true}).click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材來源'})).toHaveCount(0);await expect(page.getByRole('dialog',{name:'教材問答'})).toBeVisible();
  await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByLabel('問題／辨識文字')).toHaveCount(0);await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();
  await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
  await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材問答'})).toHaveCount(0);await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();

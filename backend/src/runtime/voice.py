@@ -26,6 +26,8 @@ from . import retrieval, material_qa
 
 
 ACTIVE = ("transcribing", "pending", "answering", "speaking")
+# 對話標題在第一個問題送出（或語音辨識完成）時取代預設名稱，之後不再改。
+NEW_CONVERSATION_TITLE = "新的教材問答"
 
 
 def _conversation(db, owner, identity, *, read=False):
@@ -77,7 +79,7 @@ def create(owner, material_id, key, *, revision=None, dsn=None):
             learner_id=owner,
             material_id=material_id,
             knowledge_structure_revision=selected_revision,
-            title="新的教材問答",
+            title=NEW_CONVERSATION_TITLE,
             created_at=datetime.now(UTC),
             idempotency_key_sha256=digest,
         )
@@ -296,7 +298,7 @@ def add_turn(
             created_at=datetime.now(UTC),
         )
         db.add(turn)
-        if question:
+        if question and row.title == NEW_CONVERSATION_TITLE:
             row.title = question.strip()[:80]
         db.flush()
         return {"turn_id": turn.turn_id}
@@ -543,7 +545,9 @@ def _save_transcript(db, turn, result):
         if key in result
     }
     turn.status = "pending"
-    db.get(Conversation, turn.conversation_id).title = turn.question[:80]
+    conversation = db.get(Conversation, turn.conversation_id)
+    if conversation.title == NEW_CONVERSATION_TITLE:
+        conversation.title = turn.question[:80]
 
 
 def _save_answer(db, turn, state, result):

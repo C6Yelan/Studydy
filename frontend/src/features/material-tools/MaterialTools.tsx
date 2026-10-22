@@ -13,7 +13,7 @@ export function MaterialTools({ api, materialId, revision }: { api: StudydyApiCl
  const opened = useRef(false);
  const show = () => {
   for (const audio of document.querySelectorAll<HTMLMediaElement>('audio, video')) audio.pause();
-  // 桌機從分頁列下緣展開，聊天時仍可切換分頁；手機是頁首下方的全高面板（由 CSS 定位）。
+  // 桌機是教材頁首下緣展開的右側抽屜，聊天時仍可切換分頁；手機是全螢幕（由 CSS 定位）。
   // 開啟後固定位置，不隨捲動移動。
   const toolbar = trigger.current?.closest('.material-learning-toolbar')?.getBoundingClientRect();
   const phone = window.matchMedia('(max-width: 720px)').matches;
@@ -31,7 +31,7 @@ export function MaterialTools({ api, materialId, revision }: { api: StudydyApiCl
  // 入口在教材分頁列右側，開啟後仍可再按一次收起；面板屬於 viewport，不繼承內容區的寬度、transform 或 overflow。
  return <>
   <button ref={trigger} className="material-qa-trigger" type="button" onClick={open ? close : show} aria-expanded={open} aria-controls="voice-conversation" aria-label="教材問答"><Icon name="chat" size={18} /><span>教材問答</span></button>
-  {open && createPortal(<section ref={panel} id="voice-conversation" className="material-tool-panel is-voice voice-bubble material-qa-drawer" style={top === null ? undefined : { top }} role="dialog" aria-modal="false" aria-label="教材問答" onKeyDown={e => { if (e.key === 'Escape' && !(e.target as HTMLElement).closest('dialog')) { e.stopPropagation(); close(); } }}>
+  {open && createPortal(<section ref={panel} id="voice-conversation" className="material-qa-drawer" style={top === null ? undefined : { top }} role="dialog" aria-modal="false" aria-label="教材問答" onKeyDown={e => { if (e.key === 'Escape' && !(e.target as HTMLElement).closest('dialog')) { e.stopPropagation(); close(); } }}>
    <VoicePanel api={api} materialId={materialId} revision={revision} onClose={close}/>
   </section>, document.body)}
  </>;

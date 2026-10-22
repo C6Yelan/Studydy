@@ -24,11 +24,14 @@ export function SourceButton({
   resolver,
   evidence,
   label,
+  title,
 }: {
   apiClient: StudydyApiClient;
   resolver: string;
   evidence: EvidenceView;
   label?: string;
+  /** 按鈕文字較短時，提示完整來源。 */
+  title?: string;
 }) {
   const [source, setSource] = useState<EvidenceSourceView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +62,7 @@ export function SourceButton({
         disabled={busy}
         onClick={() => void open()}
         aria-haspopup="dialog"
-        title={label}
+        title={title ?? label}
       >
         {busy
           ? "正在讀取來源…"
