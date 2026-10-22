@@ -231,11 +231,14 @@ def test_worker_sends_the_chapter_prompt_through_the_luna_text_channel(closed_lo
     sent = []
 
     def provider(path, body):
+        # 請求進行中持有共用閘門，教材分析要等這筆結束才能領取。
+        assert kc.request_gate.locked()
         sent.append((path, body))
         return _answer(body["request"], body["schema"], kc.CONTEXT_LIMIT - kc.estimate_prompt_tokens(body["prompt"], body["request"]))
 
     monkeypatch.setattr(provider_http, "provider", provider)
     assert kc.step(dsn=fixture["dsn"], stop=Event())
+    assert not kc.request_gate.locked()
     row = _row(fixture)
     assert row["status"] == "ready" and row["model_id"] == "gpt-5.6-luna" and row["calls"] == 1
     path, body = sent[0]

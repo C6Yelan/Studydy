@@ -239,6 +239,9 @@ def delete_card_set(owner, card_set_id, *, dsn=None):
         if row.deleted_at is None:
             # 留下最小重送收據，舊建立請求不能在刪除後復活卡組；同時釋放版本引用。
             row.deleted_at = datetime.now(UTC)
+            # 刪除時結束未完成的生成，收據不留在 pending／running。
+            if row.status in ("pending", "running"):
+                row.status = "failed"
             row.knowledge_structure_revision = None
             row.name = ""
             row.concept_ids = []

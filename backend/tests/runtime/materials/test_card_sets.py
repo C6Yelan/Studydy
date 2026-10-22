@@ -248,3 +248,14 @@ def test_count_persists_without_structure_reads_and_respects_version_and_owner(c
     client.cookies.set('studydy_session', token)
     card_sets.delete_card_set(owner.learner_id, identity, dsn=dsn)
     assert client.post(url, headers={'Origin': origin}, json={**body, 'expected_version': 2}).status_code == 404
+
+
+def test_deleting_an_unfinished_set_ends_its_generation(closed_loop):
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)["card_set_id"]
+    with database_session(dsn) as db:
+        db.get(CardSet, identity).status = "running"
+    card_sets.delete_card_set(owner.learner_id, identity, dsn=dsn)
+    with database_session(dsn) as db:
+        row = db.get(CardSet, identity)
+        assert row.deleted_at is not None and row.status == "failed"

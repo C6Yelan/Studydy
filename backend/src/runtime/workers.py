@@ -13,6 +13,7 @@ from .material_processing import (
     execute_claimed_material_processing_run,
     recover_interrupted_material_runs,
 )
+from . import knowledge_chapters
 from .material_discard import finish_material_discards
 from .source_normalization import normalize_next
 from .storage.artifacts import reconcile_new_artifacts
@@ -235,7 +236,9 @@ class RuntimeWorkers:
                 normalize_next(dsn=self.dsn)
                 if self._stop.is_set():
                     return
-                claim = claim_next_material_processing_run(dsn=self.dsn)
+                # 等進行中的章節請求結束才領取分析，避免兩者同時使用語意服務。
+                with knowledge_chapters.request_gate:
+                    claim = claim_next_material_processing_run(dsn=self.dsn)
                 if claim is not None:
                     execute_claimed_material_processing_run(
                         claim,
