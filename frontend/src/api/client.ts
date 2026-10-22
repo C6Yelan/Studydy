@@ -1071,3 +1071,8 @@ export class StudydyApiClient {
 export function errorMessage(error: unknown): string {
   return error instanceof ApiClientError ? error.message : "發生未預期的錯誤，請稍後再試。";
 }
+
+/** 資源不存在或不屬於目前帳號；頁面改顯示「找不到」，不提供永遠不會成功的重新讀取。 */
+export function isNotFound(error: unknown): boolean {
+  return error instanceof ApiClientError && error.reasonCode === "RESOURCE_NOT_FOUND";
+}

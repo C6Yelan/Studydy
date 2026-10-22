@@ -1,7 +1,8 @@
 import { rememberMaterial, rememberedMaterial } from "../material-flow/material-memory";
 import { useEffect, useRef, useState } from "react";
 
-import { errorMessage, type StudydyApiClient } from "../../api/client";
+import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
+import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
 import type {
   KnowledgeOutlineView,
   MapProgressView,
@@ -38,6 +39,7 @@ export default function KnowledgeMap({
   const [reload, setReload] = useState(0);
   const [view, setView] = useState<KnowledgeOutlineView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState<"material" | "version" | null>(null);
   const [startMessage, setStartMessage] = useState<string | null>(null);
   const [isStartingStudy, setIsStartingStudy] = useState(false);
   const startIntent = useRef<{ conceptId: string; key: string } | null>(null);
@@ -146,7 +148,16 @@ export default function KnowledgeMap({
           setSavedSession(progressResult.value?.saved ?? null);
         }
       } catch (error) {
-        if (!cancelled) setMessage(errorMessage(error));
+        if (cancelled) return;
+        // 網址中的教材、處理紀錄或地圖版本不存在：教材也不存在時顯示找不到教材，否則提供開啟目前版本。
+        // 處理紀錄與版本對不上屬於資料不一致，維持讀取失敗畫面。
+        if (isNotFound(error)) {
+          const { material } = await materialTask;
+          if (cancelled) return;
+          setNotFound(material ? "version" : "material");
+          return;
+        }
+        setMessage(errorMessage(error));
       } finally {
         if (!cancelled) setIsLoadingProgress(false);
       }
@@ -224,6 +235,10 @@ export default function KnowledgeMap({
     }
   };
 
+  if (notFound === "material") return <NotFoundView {...materialNotFound} />;
+  if (notFound === "version")
+    return <NotFoundView title="找不到這個版本的知識地圖" description="網址中的地圖版本已不存在，可以開啟這份教材目前的知識地圖。"
+      back={{ label: "開啟目前的知識地圖", route: { name: "material", materialId: route.materialId } }} />;
   if (message)
     return (
       <StateView

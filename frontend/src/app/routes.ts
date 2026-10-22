@@ -1,5 +1,9 @@
 export type AppRoute =
   | { name: "home" }
+  /** 網址對不到任何頁面；保留原網址，顯示「找不到」頁。 */
+  | { name: "not-found"; path: string }
+  /** 只知道教材、還不知道要開哪一頁（例如 /materials/{id}）；讀取教材後導向知識地圖或來源頁。 */
+  | { name: "material"; materialId: string }
   | { name: "topics" }
   | { name: "topic"; topicId: string }
   | { name: "materials" }
@@ -32,7 +36,23 @@ type RouteRead = { route: AppRoute; isCanonical: boolean };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const structurePattern = /^knowledge-structure:sha256:[0-9a-f]{64}$/;
 
+// 常見的舊網址或簡寫：導向正確頁面，不顯示「找不到」。
+const aliases: Record<string, AppRoute> = {
+  "/home": { name: "home" },
+  "/dashboard": { name: "home" },
+  "/cards": { name: "concept-cards" },
+  "/card-sets": { name: "concept-cards" },
+  "/podcast": { name: "podcasts" },
+  "/library": { name: "materials" },
+  "/materials/new": { name: "upload" },
+};
+
 export function readRoute(pathname: string): RouteRead {
+  // 結尾多餘的斜線視為同一頁，改寫成正式網址。
+  const trimmed = pathname.length > 1 ? pathname.replace(/\/+$/, "") || "/" : pathname;
+  if (trimmed !== pathname) return { route: readRoute(trimmed).route, isCanonical: false };
+  const alias = aliases[pathname];
+  if (alias) return { route: alias, isCanonical: false };
   if (pathname === "/topics") return { route: { name: "topics" }, isCanonical: true };
   if (pathname === "/") return { route: { name: "home" }, isCanonical: true };
   if (pathname === "/materials") return { route: { name: "materials" }, isCanonical: true };
@@ -63,7 +83,7 @@ export function readRoute(pathname: string): RouteRead {
     setSegment,
     assessmentSetId,
   ] = segments;
-  const fallback: RouteRead = { route: { name: "home" }, isCanonical: false };
+  const fallback: RouteRead = { route: { name: "not-found", path: pathname }, isCanonical: false };
   if (materialSegment === "topics" && uuidPattern.test(materialId) && segments.length === 2) {
     const route: AppRoute = { name: "topic", topicId: materialId };
     return { route, isCanonical: routePath(route) === pathname };
@@ -78,6 +98,13 @@ export function readRoute(pathname: string): RouteRead {
     return { route, isCanonical: routePath(route) === pathname };
   }
   if (materialSegment !== "materials" || !uuidPattern.test(materialId)) return fallback;
+  if (segments.length === 2) {
+    const route: AppRoute = { name: "material", materialId };
+    return { route, isCanonical: routePath(route) === pathname };
+  }
+  // 舊網址 /materials/{id}/map 與 /materials/{id}/knowledge-map：導向教材目前的知識地圖。
+  if (segments.length === 3 && (resourceSegment === "map" || resourceSegment === "knowledge-map"))
+    return { route: { name: "material", materialId }, isCanonical: false };
 
   let route: AppRoute;
   if ((resourceSegment === "concept-cards" || resourceSegment === "podcasts") && uuidPattern.test(runId)
@@ -128,6 +155,11 @@ export function readRoute(pathname: string): RouteRead {
 }
 
 export function routePath(route: AppRoute): string {
+  if (route.name === "not-found") return route.path;
+  if (route.name === "material") {
+    if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");
+    return `/materials/${route.materialId}`;
+  }
   if (route.name === "research") {
     if (!uuidPattern.test(route.materialId) || !uuidPattern.test(route.researchId)) throw new Error("ROUTE_INVALID");
     return `/materials/${route.materialId}/research/${route.researchId}`;

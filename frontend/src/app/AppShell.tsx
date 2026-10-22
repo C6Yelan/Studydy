@@ -11,7 +11,8 @@ const sections: { id: Section; label: string; short: string; icon: IconName; rou
 ];
 
 // 教材內的概念卡／Podcast 屬於「我的教材」；全域清單才屬於各自分區。
-function currentSection(route: AppRoute): Section {
+function currentSection(route: AppRoute): Section | null {
+  if (route.name === "not-found") return null;
   if (route.name === "home") return "home";
   if ("materialId" in route && route.materialId) return "materials";
   if (["concept-cards", "card-set", "card-set-edit", "card-set-new"].includes(route.name)) return "cards";

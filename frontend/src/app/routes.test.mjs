@@ -35,13 +35,23 @@ test("unknown paths, malformed IDs and extra segments are not canonical routes",
     "/concept-cards/not-an-id",
     `/concept-cards/${materialId}/extra`,
     `/materials/not-an-id/runs/${runId}`,
-    `/materials/${materialId}`,
     `/materials/${materialId}/research/not-an-id`,
     `/materials/${materialId}/research/${runId}/extra`,
     `${studyPath}/extra`,
   ]) {
-    assert.deepEqual(readRoute(path), { route: { name: "home" }, isCanonical: false });
+    // 對不到頁面時保留原網址，由「找不到」頁顯示，不導回首頁。
+    assert.deepEqual(readRoute(path), { route: { name: "not-found", path }, isCanonical: false });
+    assert.equal(routePath(readRoute(path).route), path);
   }
+});
+
+test("material root and old aliases resolve to real pages", () => {
+  assert.deepEqual(readRoute(`/materials/${materialId}`), { route: { name: "material", materialId }, isCanonical: true });
+  for (const path of [`/materials/${materialId}/map`, `/materials/${materialId}/knowledge-map`, `/materials/${materialId}/`])
+    assert.deepEqual(readRoute(path), { route: { name: "material", materialId }, isCanonical: false });
+  assert.deepEqual(readRoute("/cards"), { route: { name: "concept-cards" }, isCanonical: false });
+  assert.deepEqual(readRoute("/materials/"), { route: { name: "materials" }, isCanonical: false });
+  assert.deepEqual(readRoute("/foo-bar/"), { route: { name: "not-found", path: "/foo-bar" }, isCanonical: false });
 });
 
 

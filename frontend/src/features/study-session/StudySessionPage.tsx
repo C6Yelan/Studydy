@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
+import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
+import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
 import type {
   AssessmentSetSummary,
   AssessmentSetView,
@@ -48,6 +49,7 @@ export function StudySessionPage({
 }) {
   const [data, setData] = useState<StudyData | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [panelPhase, setPanelPhase] = useState<AssessmentPhase | null>(null);
@@ -97,7 +99,7 @@ export function StudySessionPage({
         setData(next);
       },
       (error) => {
-        if (!cancelled) setMessage(errorMessage(error));
+        if (!cancelled) { setNotFound(isNotFound(error)); setMessage(errorMessage(error)); }
       },
     );
     return () => {
@@ -136,6 +138,7 @@ export function StudySessionPage({
     });
   };
 
+  if (notFound && message) return <NotFoundView title="找不到這段學習紀錄" description="這段學習紀錄可能已被刪除，或不屬於目前登入的帳號。" back={materialNotFound.back} />;
   if (message)
     return (
       <StateView

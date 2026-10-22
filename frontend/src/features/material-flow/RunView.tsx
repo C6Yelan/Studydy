@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
+import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
+import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
 import type { MaterialProcessingRunView, MaterialLibraryItem } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
@@ -39,6 +40,7 @@ export function RunView({
 }) {
   const [run, setRun] = useState<MaterialProcessingRunView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [reload, setReload] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
@@ -112,6 +114,11 @@ export function RunView({
           return;
         }
         if (version === cancelVersion.current) {
+          // 第一次就讀不到：處理紀錄不存在或不屬於此帳號。
+          if (!currentRun.current && (isNotFound(error) || (error instanceof Error && error.message === "RUN_MATERIAL_MISMATCH"))) {
+            setNotFound(true);
+            return;
+          }
           setMessage(errorMessage(error));
           return;
         }
@@ -162,6 +169,7 @@ export function RunView({
     return () => window.clearInterval(timer);
   }, [run?.run_id, run?.status]);
 
+  if (notFound) return <NotFoundView title="找不到這次處理" description="這筆處理紀錄可能已被刪除，或不屬於目前登入的帳號。" back={materialNotFound.back} />;
   if (message)
     return (
       <section className="processing-page task-page">

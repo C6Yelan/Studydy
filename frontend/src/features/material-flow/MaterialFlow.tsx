@@ -10,6 +10,8 @@ import { MaterialLibrary } from "./MaterialLibrary";
 import { RunView } from "./RunView";
 import { SourceView } from "./SourceView";
 import { UploadView } from "./UploadView";
+import { MaterialEntry } from "./MaterialEntry";
+import { NotFoundView } from "../../ui/NotFoundView";
 import { CardSetLibrary } from "../concept-cards/CardSetLibrary";
 import { PodcastLibrary } from "../podcasts/PodcastLibrary";
 import "../podcasts/styles.css";
@@ -59,6 +61,8 @@ function MaterialFlowBody({
   researchDraft?: ResearchDraft;
   onResearchDraftChange: (draft: ResearchDraft) => void;
 }) {
+  if (route.name === "not-found") return <NotFoundView />;
+  if (route.name === "material") return <MaterialEntry key={route.materialId} apiClient={apiClient} materialId={route.materialId} />;
   if (route.name === "topics" || route.name === "topic") return <TopicPage key={route.name === "topic" ? route.topicId : "new"} api={apiClient} topicId={route.name === "topic" ? route.topicId : undefined}/>;
   if ("materialId" in route && route.materialId && ["podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create"].includes(route.name)) {
     const kind = route.name.startsWith("podcast") ? "podcasts" : "concept-cards";

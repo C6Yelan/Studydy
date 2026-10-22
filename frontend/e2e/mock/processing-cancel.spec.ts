@@ -264,10 +264,11 @@ test("semantics DELETE 503 keeps processing and polling; confirmation can retry"
   expect(deletes()).toBe(2);
 });
 
-test("an ordinary GET 404 remains a read failure without accepted discard", async ({ page }) => {
+test("an ordinary GET 404 shows the not-found page without accepted discard", async ({ page }) => {
   await mockRun(page, () => null);
   await page.goto(runPath);
-  await expect(page.getByRole("heading", { name: "無法讀取處理狀態", exact: true })).toBeVisible();
+  // 不存在的處理紀錄顯示「找不到」頁並保留原網址，不當成刪除完成而導回教材庫。
+  await expect(page.getByRole("heading", { name: "找不到這次處理", exact: true })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
 });
 

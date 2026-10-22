@@ -19,8 +19,11 @@ type SessionState =
   | { status: "failed"; message: string; logoutPending: boolean };
 
 export default function App() {
-  const [route, setRoute] = useState<AppRoute>(() => readRoute(window.location.pathname).route);
-  const loginDestination = useRef<AppRoute>(readRoute(window.location.pathname).route);
+  // 登入／註冊頁本身不是登入後要回去的頁面。
+  const startRoute = (): AppRoute =>
+    ["/login", "/register"].includes(window.location.pathname) ? { name: "home" } : readRoute(window.location.pathname).route;
+  const [route, setRoute] = useState<AppRoute>(startRoute);
+  const loginDestination = useRef<AppRoute>(startRoute());
   const [session, setSession] = useState<SessionState>({ status: "starting" });
   const currentClient = useRef<StudydyApiClient | null>(null);
   const clientVersion = useRef(0);
@@ -118,8 +121,13 @@ export default function App() {
         return;
       }
       const next = readRoute(window.location.pathname);
-      if (!next.isCanonical) writeRoute({ name: "home" }, true);
-      setRoute(next.isCanonical ? next.route : { name: "home" });
+      // 別名與非正式寫法改寫成正式網址（writeRoute 會再觸發一次 popstate）；
+      // 對不到任何頁面時保留原網址並顯示「找不到」頁，不無聲導回首頁。
+      if (!next.isCanonical && next.route.name !== "not-found") {
+        writeRoute(next.route, true);
+        return;
+      }
+      setRoute(next.route);
     };
     readLocation();
     window.addEventListener("popstate", readLocation);

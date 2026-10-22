@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { errorMessage, type StudydyApiClient } from "../../api/client";
+import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
+import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
 import type { MaterialLibraryItem } from "../../api/contracts";
 import { rememberMaterial, rememberedMaterial } from "./material-memory";
 import { StateView } from "../../ui/StateView";
@@ -16,15 +17,17 @@ export function MaterialContent({ apiClient, learnerId, materialId, kind, childr
 }) {
   const [material, setMaterial] = useState<MaterialLibraryItem | null>(()=>rememberedMaterial(apiClient,materialId));
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    void apiClient.getMaterial(materialId).then(v => { if (!cancelled) { rememberMaterial(apiClient,v); setMaterial(v); } }, e => { if (!cancelled) setError(errorMessage(e)); });
+    void apiClient.getMaterial(materialId).then(v => { if (!cancelled) { rememberMaterial(apiClient,v); setMaterial(v); } }, e => { if (!cancelled) { setNotFound(isNotFound(e)); setError(errorMessage(e)); } });
     return () => { cancelled = true; };
   }, [apiClient, materialId, reload]);
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision) ?? material?.available_structures[0];
   const navigation = <MaterialContentNav apiClient={apiClient} materialId={materialId} current={kind} materialName={material?.display_name} mapRoute={structure ? { name: "knowledge-map", materialId, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision } : null} />;
+  if (notFound) return <NotFoundView {...materialNotFound} />;
   return <section className="material-content">
     {error || !material ? <StateView title={error ? "無法讀取教材" : "正在讀取教材"} description={error ?? "正在載入此教材的學習內容。"} tone={error ? "failure" : "loading"} live={!error} skeleton="material"
       action={error ? <button type="button" className="secondary-button" onClick={() => setReload(v => v + 1)}>重新讀取</button> : undefined} /> : <>
