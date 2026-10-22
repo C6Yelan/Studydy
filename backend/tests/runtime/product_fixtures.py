@@ -24,7 +24,7 @@ from runtime.learner_session import TrustedLearner, register_account
 from runtime.material_processing import _record_progress, claim_next_material_processing_run
 from runtime.source_resolver import _input, bind_structure_input
 from runtime.source_revisions import create_revision
-from runtime.storage.knowledge_structures import publish_knowledge_structure
+from runtime.knowledge_publication import publish_knowledge_structure
 from runtime.storage.migrations import load_migrations, run_migrations
 from runtime.storage.tables import Material, MaterialProcessingRun
 from runtime.storage.database import database_session
