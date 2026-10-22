@@ -149,8 +149,8 @@ test("profile save failure keeps the entered name and shows the error", async ({
   await settings.getByRole("button", { name: "儲存名稱" }).click();
   await expect(settings.getByRole("alert")).toBeVisible();
   await expect(settings.getByRole("textbox", { name: "顯示名稱" })).toHaveValue("以安");
-  // 學習活動讀不到時只有成就區顯示錯誤，帳號設定照常可用。
-  await expect(page.getByText("無法讀取學習成就")).toBeVisible();
+  // 學習活動讀不到時只有統計區顯示錯誤，帳號設定照常可用。
+  await expect(page.getByText("無法讀取學習統計")).toBeVisible();
 });
 
 function apiError(reason: string, status: number, retryable = false) {

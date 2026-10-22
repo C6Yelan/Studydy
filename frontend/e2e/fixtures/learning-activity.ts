@@ -7,10 +7,15 @@ type Quest = {
 };
 
 type Badge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
-// badge-rules/v1 的代號與門檻；預設全部未取得，等級徽章進度為目前等級。
+// badge-rules/v2 的代號與門檻（各系列由低到高）；預設全部未取得，等級徽章進度為目前等級。
 const badgeTargets: [string, number][] = [
-  ["first_answer", 1], ["answers_100", 100], ["first_concept", 1], ["concepts_25", 25], ["first_material", 1],
-  ["cards_100", 100], ["listen_30_minutes", 30], ["streak_3", 3], ["streak_7", 7], ["level_5", 5],
+  ["first_answer", 1], ["answers_100", 100], ["answers_300", 300], ["answers_1000", 1000],
+  ["first_concept", 1], ["concepts_25", 25], ["concepts_100", 100], ["concepts_300", 300],
+  ["first_material", 1], ["materials_3", 3], ["materials_10", 10],
+  ["cards_100", 100], ["cards_500", 500], ["cards_2000", 2000],
+  ["listen_30_minutes", 30], ["listen_180_minutes", 180], ["listen_600_minutes", 600],
+  ["streak_3", 3], ["streak_7", 7], ["streak_30", 30], ["streak_100", 100],
+  ["level_5", 5], ["level_10", 10], ["level_20", 20],
 ];
 
 export function learningActivity(options: {
@@ -42,14 +47,17 @@ export function learningActivity(options: {
       sources: options.sources ?? { answers: options.total ?? 0, concepts: 0, cards: 0, podcast: 0 },
     },
     badges: {
-      rule_version: "badge-rules/v1",
-      items: badgeTargets.map(([badge_id, target]): Badge => {
-        const custom = options.badges?.[badge_id];
-        // 等級徽章預設跟隨目前等級（達到第 5 級即已取得）。
-        const earned = custom?.earned ?? (!!custom?.earned_on || (badge_id === "level_5" && level >= target));
-        const progress = earned ? target : custom?.progress ?? (badge_id === "level_5" ? level : 0);
-        return { badge_id, earned, earned_on: earned ? custom?.earned_on ?? null : null, progress, target };
-      }),
+      rule_version: "badge-rules/v2",
+      // 指定了不在規則表的代號時照樣回傳（門檻 1），用來驗證畫面忽略不認得的徽章。
+      items: [...badgeTargets, ...Object.keys(options.badges ?? {}).filter((id) => !badgeTargets.some(([known]) => known === id)).map((id): [string, number] => [id, 1])]
+        .map(([badge_id, target]): Badge => {
+          const custom = options.badges?.[badge_id];
+          // 等級徽章預設跟隨目前等級（達到門檻等級即已取得）。
+          const isLevel = badge_id.startsWith("level_");
+          const earned = custom?.earned ?? (!!custom?.earned_on || (isLevel && level >= target));
+          const progress = earned ? target : custom?.progress ?? (isLevel ? Math.min(level, target) : 0);
+          return { badge_id, earned, earned_on: earned ? custom?.earned_on ?? null : null, progress, target };
+        }),
     },
     quests: (options.quests ?? []).map((quest) => ({
       material_id: null, study_session_id: null, podcast_id: null, episode_index: null, ...quest,

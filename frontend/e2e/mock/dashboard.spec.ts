@@ -300,23 +300,22 @@ test("home keeps only quests beside the map; achievements and reviews have their
   for (const name of ["第 2 級", "我的徽章", "本週學習節奏", "學習總覽", "Podcast", "概念卡複習"])
     await expect(page.getByRole("region", { name, exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: /第 2 級 · 245 XP/ }).click();
-  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page).toHaveURL(/\/achievements$/);
   await expect(page.getByRole("region", { name: "第 2 級" })).toBeVisible();
   await page.goto("/");
   await page.getByRole("button", { name: "開始複習：複習 5 張新的概念卡" }).click();
   await expect(page).toHaveURL(/\/concept-cards$/);
 });
 
-test("old achievements address opens the profile and home has no date line", async ({ page }) => {
+test("home shows the material count without page totals or a date line", async ({ page }) => {
+  await mockLibrary(page, () => [withStudy(), { ...material, material_id: uuid(7), latest_attempt: null }]);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("歡迎回來！今天想探索哪座島？");
+  await expect(page.locator(".archipelago-head span")).toHaveText("2 份教材");
   await expect(page.locator(".dashboard-greeting .eyebrow")).toHaveCount(0);
-  await page.goto("/achievements");
-  await expect(page).toHaveURL(/\/profile$/);
-  await expect(page.getByRole("region", { name: "帳號設定" })).toBeVisible();
 });
 
-test("achievements week rhythm shows answers, card reviews and listening per day", async ({ page }) => {
+test("profile week rhythm shows answers, card reviews and listening per day", async ({ page }) => {
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
     streak: 3, total: 40,
     days: [
@@ -334,22 +333,32 @@ test("achievements week rhythm shows answers, card reviews and listening per day
   await expect(week.locator(".week-summary")).toHaveText("本週作答 7 題（答對率 71%） · 複習 6 張卡 · 收聽 10 分鐘");
 });
 
-test("achievements level card, overview and header show real numbers without inventing any", async ({ page }) => {
+test("achievements level card, XP rules and profile overview show real numbers without inventing any", async ({ page }) => {
   await mockLibrary(page, () => [withStudy(), { ...material, material_id: uuid(7) }]);
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
     streak: 4, total: 245, todayXp: 32, level: [2, 145, 200],
     sources: { answers: 180, concepts: 30, cards: 20, podcast: 15 },
   }) }));
   await page.goto("/");
-  const pill = page.getByRole("button", { name: "連續學習 4 天，第 2 級，累計 245 XP，查看個人檔案" });
+  const pill = page.getByRole("button", { name: "連續學習 4 天，第 2 級，累計 245 XP，查看成就" });
   await expect(pill).toContainText("Lv 2");
   await pill.click();
-  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page).toHaveURL(/\/achievements$/);
   const level = page.getByRole("region", { name: "第 2 級" });
   await expect(level.getByText("累計 245 XP · 今天 +32")).toBeVisible();
   await expect(level.getByRole("progressbar", { name: "第 2 級經驗值" })).toHaveAttribute("aria-valuetext", "145 / 200 XP");
   await expect(level.getByText("再 55 XP 升到第 3 級")).toBeVisible();
   await expect(level.getByRole("list", { name: "經驗值來源" }).getByRole("listitem")).toHaveText(["作答 180", "概念完成 30", "概念卡 20", "Podcast 15"]);
+  // 經驗值說明列出每種來源的規則與已獲得的 XP，以及升級公式與目前差距。
+  const rules = page.getByRole("region", { name: "經驗值怎麼算" });
+  await expect(rules.getByRole("listitem")).toHaveCount(4);
+  await expect(rules.getByRole("listitem").filter({ hasText: "作答" })).toContainText(/答對 \+10、答錯 \+3.*180/);
+  await expect(rules.getByRole("listitem").filter({ hasText: "收聽 Podcast" })).toContainText("每天最多 +60");
+  await expect(rules).toContainText("第 n 級升到下一級需要 100×n XP");
+  await expect(rules).toContainText("目前第 2 級，再 55 XP 升到第 3 級");
+  await page.getByRole("button", { name: /^個人檔案：/ }).click();
+  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page.getByRole("region", { name: "第 2 級" })).toHaveCount(0);
   const stats = page.getByRole("region", { name: "學習總覽" }).locator(".dashboard-stats");
   await expect(stats).toHaveAttribute("aria-busy", "false");
   await expect(stats.locator("small")).toHaveText(["份教材", "學習中的教材", "已完成概念", "累計作答", "答對率"]);
@@ -362,7 +371,7 @@ test("achievements level card, overview and header show real numbers without inv
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
-test("achievements overview shows dashes when the library cannot be read", async ({ page }) => {
+test("profile overview shows dashes when the library cannot be read", async ({ page }) => {
   await page.route("**/v1/materials", (route) => route.fulfill({ status: 503, json: unavailable }));
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ days: [{ answers: 10, correct: 7, active: true }] }) }));
   await page.goto("/profile");
@@ -419,26 +428,41 @@ test("level-up plays once when the level is above the last level seen in this br
   await expect(page.getByRole("status").filter({ hasText: "升級了！" })).toHaveCount(0);
 });
 
-test("achievements badge wall shows earned dates and real progress", async ({ page }) => {
+test("achievements group badge tiers into series with earned dates and next-tier progress", async ({ page }) => {
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    level: [6, 0, 600],
     badges: {
-      first_answer: { earned_on: "2026-10-16" }, streak_3: { earned: true }, answers_100: { progress: 42 },
-      // 前端不認得的代號不顯示。
+      first_answer: { earned_on: "2026-10-16" }, answers_100: { earned_on: "2026-10-18" }, answers_300: { progress: 124 }, answers_1000: { progress: 124 },
+      streak_3: { earned: true }, concepts_25: { progress: 3 },
+      // 前端不認得的代號不顯示，也不算進數量。
       future_badge: { earned_on: "2026-10-20" },
     },
   }) }));
-  await page.goto("/profile");
+  await page.goto("/achievements");
   const wall = page.getByRole("region", { name: "我的徽章" });
-  await expect(wall.locator(".badge-count")).toHaveText("2 / 10");
-  // 下一個徽章取進度比例最高的未取得徽章（42/100 高於第 1 級 / 5）。
-  await expect(wall.locator(".badge-next")).toContainText("百題挑戰");
-  await expect(wall.locator(".badge-next").getByRole("progressbar")).toHaveAttribute("aria-valuetext", "42 / 100 題");
-  const items = wall.locator(".badge-wall > li");
-  await expect(items).toHaveCount(10);
-  await expect(items.nth(0)).toContainText("2026/10/16 取得");
-  await expect(items.filter({ hasText: "三日不間斷" })).toContainText("已取得");
-  await expect(items.filter({ hasText: "進階探險家" }).getByRole("progressbar")).toHaveAttribute("aria-valuetext", "目前第 1 級");
-  await expect(items.filter({ hasText: "用耳朵學習" }).getByRole("progressbar")).toHaveAttribute("aria-valuetext", "0 / 30 分鐘");
+  // 第 6 級：等級系列已取得 level_5；加上作答 2 層與連續 1 層，共 4 / 24。
+  await expect(wall.locator(".badge-count")).toHaveText("4 / 24");
+  await expect(wall).not.toContainText("future_badge");
+  const series = wall.locator(".badge-wall > li");
+  await expect(series).toHaveCount(7);
+  // 作答系列：目前為第 II 層（銀），下一層是題海航行者，進度 124 / 300。
+  const answers = series.filter({ hasText: "作答 ·" });
+  await expect(answers).toHaveClass(/is-tier-2/);
+  await expect(answers.locator(".badge-series-text > b")).toHaveText("百題挑戰");
+  await expect(answers.locator(".badge-series-count")).toHaveText("2 / 4");
+  await expect(answers).toContainText("下一層：題海航行者 · 累計作答 300 題");
+  await expect(answers.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "124 / 300 題");
+  await answers.locator("summary").click();
+  await expect(answers.locator(".badge-series-tiers li")).toHaveText([/初次作答.*2026\/10\/16 取得/, /百題挑戰.*2026\/10\/18 取得/, /題海航行者.*124 \/ 300 題/, /千題大師.*124 \/ 1000 題/]);
+  // 尚未取得任何層級的系列顯示第一層的條件與進度。
+  const cards = series.filter({ hasText: "概念卡複習 ·" });
+  await expect(cards).toHaveClass(/is-locked/);
+  await expect(cards).toContainText("取得條件：累計複習概念卡 100 次");
+  const levels = series.filter({ hasText: "等級 ·" });
+  await expect(levels.locator(".badge-series-text > b")).toHaveText("進階探險家");
+  await expect(levels.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "目前第 6 級");
+  // 最接近的下一個徽章：進度比例最高的未取得層級（等級 6/10 高於作答 124/300）。
+  await expect(wall.locator(".badge-next")).toContainText("資深航海士");
   await page.setViewportSize({ width: 390, height: 844 });
   const box = await wall.boundingBox();
   expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -475,9 +499,11 @@ test("dashboard hides learning numbers when learning activity is unavailable", a
   await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "今日任務" })).toHaveCount(0);
   await expect(page.locator(".dashboard-achievements, .header-progress")).toHaveCount(0);
-  await page.goto("/profile");
+  await page.goto("/achievements");
   await expect(page.getByText("無法讀取學習成就")).toBeVisible();
   await expect(page.locator(".dashboard-level, .badge-collection")).toHaveCount(0);
+  await page.goto("/profile");
+  await expect(page.getByText("無法讀取學習統計")).toBeVisible();
   // 帳號設定不受影響。
   await expect(page.getByRole("region", { name: "帳號設定" }).getByRole("button", { name: "儲存名稱" })).toBeEnabled();
 });

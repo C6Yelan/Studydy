@@ -12,11 +12,11 @@ const sections: { id: Section; label: string; short: string; icon: IconName; rou
 ];
 
 // 首頁與清單類頁面在寬螢幕放寬版面（表單與閱讀頁維持標準寬度）。
-const wideRoutes: AppRoute["name"][] = ["home", "materials", "concept-cards", "podcasts", "profile"];
+const wideRoutes: AppRoute["name"][] = ["home", "materials", "concept-cards", "podcasts", "profile", "achievements"];
 
 // 教材內的概念卡／Podcast 屬於「我的教材」；全域清單才屬於各自分區。
 function currentSection(route: AppRoute): Section | null {
-  if (route.name === "not-found" || route.name === "profile") return null;
+  if (route.name === "not-found" || route.name === "profile" || route.name === "achievements") return null;
   if (route.name === "home") return "home";
   if ("materialId" in route && route.materialId) return "materials";
   if (["concept-cards", "card-set", "card-set-edit", "card-set-new"].includes(route.name)) return "cards";

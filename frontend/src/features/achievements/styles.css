@@ -1,0 +1,51 @@
+/* 成就頁：等級卡與經驗值說明並排，徽章牆在下方全寬（窄螢幕上下排列）。 */
+.achievements {
+  display: grid;
+  gap: 22px;
+}
+.achievements-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 24px;
+  align-items: start;
+}
+.achievements-layout > .surface { padding: 20px 22px; }
+.achievements-layout h2 { margin: 0; font-size: 17px; }
+.achievements-layout .badge-collection { grid-column: 1 / -1; }
+.xp-rules ul {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.xp-rules li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--page-cool);
+}
+.xp-rules .stat-icon { flex: none; margin: 0; }
+.xp-rule-text { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.xp-rule-text b { font-size: 15px; }
+.xp-rule-text em {
+  margin-left: 8px;
+  color: var(--amber-deep);
+  font-style: normal;
+  font-weight: 900;
+}
+.xp-rule-text small,
+.xp-rule-earned small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.xp-rule-earned { display: grid; flex: none; justify-items: end; }
+.xp-rule-earned b { font-size: 17px; }
+.xp-level-rule {
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.xp-level-rule b { margin-right: 8px; color: var(--text-primary); }
+@media (max-width: 900px) {
+  .achievements-layout { grid-template-columns: minmax(0, 1fr); }
+}

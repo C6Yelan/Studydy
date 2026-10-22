@@ -6,6 +6,7 @@ export type AppRoute =
   | { name: "material"; materialId: string }
   | { name: "topics" }
   | { name: "profile" }
+  | { name: "achievements" }
   | { name: "topic"; topicId: string }
   | { name: "materials" }
   | { name: "material-content"; materialId: string; kind: "concept-cards" | "podcasts" | "research" }
@@ -46,7 +47,6 @@ const aliases: Record<string, AppRoute> = {
   "/podcast": { name: "podcasts" },
   "/library": { name: "materials" },
   "/materials/new": { name: "upload" },
-  "/achievements": { name: "profile" },
   "/account": { name: "profile" },
   "/settings": { name: "profile" },
 };
@@ -59,6 +59,7 @@ export function readRoute(pathname: string): RouteRead {
   if (alias) return { route: alias, isCanonical: false };
   if (pathname === "/topics") return { route: { name: "topics" }, isCanonical: true };
   if (pathname === "/profile") return { route: { name: "profile" }, isCanonical: true };
+  if (pathname === "/achievements") return { route: { name: "achievements" }, isCanonical: true };
   if (pathname === "/") return { route: { name: "home" }, isCanonical: true };
   if (pathname === "/materials") return { route: { name: "materials" }, isCanonical: true };
   if (pathname === "/podcasts/new") return { route: { name: "podcast-new" }, isCanonical: true };
@@ -172,6 +173,7 @@ export function routePath(route: AppRoute): string {
   if (route.name === "home") return "/";
   if (route.name === "topics") return "/topics";
   if (route.name === "profile") return "/profile";
+  if (route.name === "achievements") return "/achievements";
   if (route.name === "topic") { if (!uuidPattern.test(route.topicId)) throw new Error("ROUTE_INVALID"); return `/topics/${route.topicId}`; }
   if (route.name === "materials") return "/materials";
   if (route.name === "podcast-new") return "/podcasts/new";

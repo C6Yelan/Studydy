@@ -1,4 +1,4 @@
-"""徽章規則 badge-rules/v1：每個徽章的未達、剛好達標與取得日期。"""
+"""徽章規則 badge-rules/v2：每個徽章（各系列的每一層）的未達、剛好達標與取得日期。"""
 from datetime import date, timedelta
 
 import pytest
@@ -16,7 +16,7 @@ def badges(**records):
         "xp": {}, "active": set(), "streak": 0, "level": 1, **records,
     }
     view = derive_badges(**values)
-    assert view["rule_version"] == "badge-rules/v1"
+    assert view["rule_version"] == "badge-rules/v2"
     assert [item["badge_id"] for item in view["items"]] == [badge_id for badge_id, _, _ in BADGES]
     return {item["badge_id"]: item for item in view["items"]}
 
@@ -28,16 +28,24 @@ def state(item):
 def test_no_records_earns_nothing_and_shows_zero_progress():
     for badge_id, item in badges().items():
         # 沒有紀錄時為第 1 級，其餘進度為 0。
-        assert (item["earned"], item["earned_on"], item["progress"]) == (False, None, int(badge_id == "level_5"))
+        assert (item["earned"], item["earned_on"], item["progress"]) == (False, None, int(badge_id.startswith("level_")))
 
 
 @pytest.mark.parametrize(("badge_id", "field", "target"), [
     ("first_answer", "answers", 1),
     ("answers_100", "answers", 100),
+    ("answers_300", "answers", 300),
+    ("answers_1000", "answers", 1000),
     ("first_concept", "concepts", 1),
     ("concepts_25", "concepts", 25),
+    ("concepts_100", "concepts", 100),
+    ("concepts_300", "concepts", 300),
     ("first_material", "materials", 1),
+    ("materials_3", "materials", 3),
+    ("materials_10", "materials", 10),
     ("cards_100", "card_reviews", 100),
+    ("cards_500", "card_reviews", 500),
+    ("cards_2000", "card_reviews", 2000),
 ])
 def test_cumulative_badges_are_dated_on_the_day_the_total_reaches_the_target(badge_id, field, target):
     if target > 1:
@@ -48,14 +56,18 @@ def test_cumulative_badges_are_dated_on_the_day_the_total_reaches_the_target(bad
     assert state(exact) == (True, D2, target, target)
 
 
-def test_listening_badge_needs_30_full_minutes():
-    below = badges(listening={D1: 1000, D2: 799})["listen_30_minutes"]
-    assert state(below) == (False, None, 29, 30)
-    exact = badges(listening={D1: 1000, D2: 800, D3: 60})["listen_30_minutes"]
-    assert state(exact) == (True, D2, 30, 30)
+@pytest.mark.parametrize(("badge_id", "minutes"), [
+    ("listen_30_minutes", 30), ("listen_180_minutes", 180), ("listen_600_minutes", 600),
+])
+def test_listening_badges_need_full_minutes(badge_id, minutes):
+    seconds = minutes * 60
+    below = badges(listening={D1: 1000, D2: seconds - 1001})[badge_id]
+    assert state(below) == (False, None, minutes - 1, minutes)
+    exact = badges(listening={D1: 1000, D2: seconds - 1000, D3: 60})[badge_id]
+    assert state(exact) == (True, D2, minutes, minutes)
 
 
-@pytest.mark.parametrize(("badge_id", "length"), [("streak_3", 3), ("streak_7", 7)])
+@pytest.mark.parametrize(("badge_id", "length"), [("streak_3", 3), ("streak_7", 7), ("streak_30", 30), ("streak_100", 100)])
 def test_streak_badges_are_dated_on_the_first_run_that_reaches_the_length(badge_id, length):
     start = date(2026, 10, 1)
     # 中間斷一天：前一段只有 length-1 天，不算達標；未達時進度為目前連續天數。
@@ -75,6 +87,26 @@ def test_level_badge_uses_the_day_cumulative_xp_reaches_level_5():
     assert state(exact) == (True, D2, 5, 5)
     assert badges(xp={D1: 5000}, level=9)["level_5"]["progress"] == 5
 
+
+@pytest.mark.parametrize(("badge_id", "level"), [("level_10", 10), ("level_20", 20)])
+def test_higher_level_badges_use_the_same_cumulative_xp_threshold(badge_id, level):
+    threshold = xp_threshold(level)
+    assert level_for(threshold - 1)[0] == level - 1 and level_for(threshold)[0] == level
+    below = badges(xp={D1: threshold - 1}, level=level - 1)[badge_id]
+    assert state(below) == (False, None, level - 1, level)
+    exact = badges(xp={D1: threshold - 1, D2: 1}, level=level)[badge_id]
+    assert state(exact) == (True, D2, level, level)
+
+
+def test_series_tiers_rise_in_order_and_a_higher_tier_implies_the_lower_ones():
+    # 同一計量的門檻由低到高排列；取得高層級時，低層級都已取得且日期不晚於高層級。
+    series = {}
+    for badge_id, metric, target in BADGES:
+        series.setdefault(metric, []).append((badge_id, target))
+    for tiers in series.values():
+        assert [target for _, target in tiers] == sorted(target for _, target in tiers)
+    view = badges(answers={D1: 99, D2: 201, D3: 700})
+    assert [view[b]["earned_on"] for b in ("first_answer", "answers_100", "answers_300", "answers_1000")] == [D1, D2, D2, D3]
 
 def test_helpers_ignore_order_and_return_none_when_not_reached():
     assert reached_on({D3: 2, D1: 1}, 3) == D3

@@ -3,20 +3,32 @@ import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../..
 import { Icon, type IconName } from "../../ui/Icon";
 import "./styles.css";
 
-// 徽章（規則 badge-rules/v1）：取得與進度全部來自學習活動 API，這裡只負責名稱、說明與圖示。
-type BadgeText = { name: string; condition: string; unit: string; icon: IconName; tone: string; tier: 1 | 2 };
-const badgeText: Record<LearningBadgeId, BadgeText> = {
-  first_answer: { name: "初次作答", condition: "完成第一題作答", unit: "題", icon: "quiz", tone: "is-blue", tier: 1 },
-  answers_100: { name: "百題挑戰", condition: "累計作答 100 題", unit: "題", icon: "quiz", tone: "is-blue", tier: 2 },
-  first_concept: { name: "點亮概念", condition: "第一次完成一個概念", unit: "個", icon: "learning", tone: "is-green", tier: 1 },
-  concepts_25: { name: "概念收藏家", condition: "累計完成 25 個概念", unit: "個", icon: "learning", tone: "is-green", tier: 2 },
-  first_material: { name: "征服第一座島", condition: "完成一份教材的全部學習", unit: "份", icon: "map", tone: "is-amber", tier: 2 },
-  cards_100: { name: "卡片百回", condition: "累計複習概念卡 100 次", unit: "次", icon: "cards", tone: "is-violet", tier: 2 },
-  listen_30_minutes: { name: "用耳朵學習", condition: "Podcast 實際收聽累計 30 分鐘", unit: "分鐘", icon: "headphones", tone: "is-sea", tier: 1 },
-  streak_3: { name: "三日不間斷", condition: "連續 3 天有學習活動", unit: "天", icon: "flame", tone: "is-coral", tier: 1 },
-  streak_7: { name: "一週全勤", condition: "連續 7 天有學習活動", unit: "天", icon: "flame", tone: "is-coral", tier: 2 },
-  level_5: { name: "進階探險家", condition: "達到第 5 級（累計 1000 XP）", unit: "級", icon: "sparkle", tone: "is-gold", tier: 2 },
+// 徽章（規則 badge-rules/v2）：取得與進度全部來自學習活動 API，這裡只負責名稱、說明與圖示。
+// 同一計量的徽章是一個系列的不同層級（I→IV），獎章依層級上色：銅、銀、金、鑽石。
+type Series = "answers" | "concepts" | "materials" | "cards" | "listen" | "streak" | "level";
+const series: Record<Series, { title: string; unit: string; icon: IconName; condition: (target: number) => string }> = {
+  answers: { title: "作答", unit: "題", icon: "quiz", condition: (target) => target === 1 ? "完成第一題作答" : `累計作答 ${target} 題` },
+  concepts: { title: "概念完成", unit: "個", icon: "learning", condition: (target) => target === 1 ? "第一次完成一個概念" : `累計完成 ${target} 個概念` },
+  materials: { title: "教材完成", unit: "份", icon: "map", condition: (target) => target === 1 ? "完成一份教材的全部學習" : `完成 ${target} 份教材的全部學習` },
+  cards: { title: "概念卡複習", unit: "次", icon: "cards", condition: (target) => `累計複習概念卡 ${target} 次` },
+  listen: { title: "Podcast 收聽", unit: "分鐘", icon: "headphones", condition: (target) => `Podcast 實際收聽累計 ${target} 分鐘` },
+  streak: { title: "連續學習", unit: "天", icon: "flame", condition: (target) => `連續 ${target} 天有學習活動` },
+  level: { title: "等級", unit: "級", icon: "sparkle", condition: (target) => `達到第 ${target} 級` },
 };
+// 各系列依層級由低到高列出；層級即在系列中的位置。
+const tiers: Record<Series, [LearningBadgeId, string][]> = {
+  answers: [["first_answer", "初次作答"], ["answers_100", "百題挑戰"], ["answers_300", "題海航行者"], ["answers_1000", "千題大師"]],
+  concepts: [["first_concept", "點亮概念"], ["concepts_25", "概念收藏家"], ["concepts_100", "知識建築師"], ["concepts_300", "知識大典"]],
+  materials: [["first_material", "征服第一座島"], ["materials_3", "群島探險家"], ["materials_10", "群島領主"]],
+  cards: [["cards_100", "卡片百回"], ["cards_500", "記憶練習生"], ["cards_2000", "過目不忘"]],
+  listen: [["listen_30_minutes", "用耳朵學習"], ["listen_180_minutes", "通勤聆聽者"], ["listen_600_minutes", "聆聽大師"]],
+  streak: [["streak_3", "三日不間斷"], ["streak_7", "一週全勤"], ["streak_30", "月度堅持"], ["streak_100", "百日修行"]],
+  level: [["level_5", "進階探險家"], ["level_10", "資深航海士"], ["level_20", "傳奇學者"]],
+};
+const badgeText = Object.fromEntries(Object.entries(tiers).flatMap(([key, list]) =>
+  list.map(([id, name], index) => [id, { name, series: key as Series, tier: index + 1 }]))) as Record<LearningBadgeId, { name: string; series: Series; tier: number }>;
+const tierNames = ["銅", "銀", "金", "鑽石"];
+const roman = ["I", "II", "III", "IV"];
 
 type KnownBadge = LearningBadge & { badge_id: LearningBadgeId };
 // 前端不認得的徽章代號（後端規則較新時）不顯示，不猜測名稱。
@@ -29,31 +41,29 @@ function formatDate(value: string) {
   return `${year}/${month}/${day}`;
 }
 
+function conditionText(badge: KnownBadge) {
+  return series[badgeText[badge.badge_id].series].condition(badge.target);
+}
+
 function progressText(badge: KnownBadge) {
-  const text = badgeText[badge.badge_id];
-  return badge.badge_id === "level_5" ? `目前第 ${badge.progress} 級` : `${badge.progress} / ${badge.target} ${text.unit}`;
+  const info = series[badgeText[badge.badge_id].series];
+  return info === series.level ? `目前第 ${badge.progress} 級` : `${badge.progress} / ${badge.target} ${info.unit}`;
 }
 
 export function BadgeMedal({ badge, size = 56 }: { badge: KnownBadge; size?: number }) {
   const text = badgeText[badge.badge_id];
-  return <span className={`badge-medal ${text.tone}${badge.earned ? " is-earned" : " is-locked"}`} style={{ width: size, height: size }} aria-hidden="true">
+  return <span className={`badge-medal is-tier-${text.tier}${badge.earned ? " is-earned" : " is-locked"}`} style={{ width: size, height: size }} aria-hidden="true">
     <svg viewBox="0 0 64 64">
-      {text.tier === 2 && <>
+      {text.tier >= 2 && <>
         <path className="badge-ribbon" d="M20 44 L14 62 L22 57 L27 63 L31 48Z" />
         <path className="badge-ribbon" d="M44 44 L50 62 L42 57 L37 63 L33 48Z" />
       </>}
       <circle className="badge-rim" cx="32" cy="29" r="26" />
       <circle className="badge-face" cx="32" cy="29" r="20" />
-      {text.tier === 2 && <path className="badge-star" d="M32 1.5 l2.4 4.8 5.3.8-3.8 3.7.9 5.3-4.8-2.5-4.8 2.5.9-5.3-3.8-3.7 5.3-.8Z" />}
+      {text.tier >= 3 && <path className="badge-star" d="M32 1.5 l2.4 4.8 5.3.8-3.8 3.7.9 5.3-4.8-2.5-4.8 2.5.9-5.3-3.8-3.7 5.3-.8Z" />}
     </svg>
-    <span className="badge-glyph"><Icon name={badge.earned ? text.icon : "lock"} size={Math.round(size * 0.36)} /></span>
+    <span className="badge-glyph"><Icon name={badge.earned ? series[text.series].icon : "lock"} size={Math.round(size * 0.36)} /></span>
   </span>;
-}
-
-// 下一個最接近的徽章：未取得中進度比例最高者，同比例依規則順序。
-function nextBadge(badges: KnownBadge[]) {
-  return badges.filter((badge) => !badge.earned)
-    .reduce<KnownBadge | null>((best, badge) => !best || badge.progress / badge.target > best.progress / best.target ? badge : best, null);
 }
 
 function BadgeProgress({ badge, text }: { badge: KnownBadge; text: string }) {
@@ -67,12 +77,54 @@ function BadgeProgress({ badge, text }: { badge: KnownBadge; text: string }) {
   </span>;
 }
 
-// 成就頁：下一個最接近的徽章與完整徽章牆。
+// 一個系列一格：顯示目前層級與下一層的進度，展開可看各層取得日期。
+function BadgeSeriesCard({ kind, badges }: { kind: Series; badges: KnownBadge[] }) {
+  const info = series[kind];
+  const earned = badges.filter((badge) => badge.earned);
+  const current = earned.at(-1);
+  const next = badges.find((badge) => !badge.earned);
+  const shown = current ?? badges[0];
+  const tier = current ? badgeText[current.badge_id].tier : 0;
+  return <li className={`badge-series${current ? ` is-earned is-tier-${tier}` : " is-locked"}`}>
+    <div className="badge-series-main">
+      <BadgeMedal badge={shown} />
+      <span className="badge-series-text">
+        <small>{info.title} · {current ? `${tierNames[tier - 1]}・${roman[tier - 1]}` : "尚未取得"} <span className="badge-series-count">{earned.length} / {badges.length}</span></small>
+        <b>{badgeText[shown.badge_id].name}</b>
+        {next ? <>
+          <span className="badge-series-next">{current ? "下一層" : "取得條件"}：{current && `${badgeText[next.badge_id].name} · `}{conditionText(next)}</span>
+          <BadgeProgress badge={next} text={progressText(next)} />
+        </> : <span className="badge-earned-on">已達最高層級{current?.earned_on && ` · ${formatDate(current.earned_on)}`}</span>}
+      </span>
+    </div>
+    <details className="badge-series-tiers">
+      <summary>全部 {badges.length} 層</summary>
+      <ol>
+        {badges.map((badge) => <li key={badge.badge_id} className={badge.earned ? "is-earned" : undefined}>
+          <span className="badge-tier-mark">{roman[badgeText[badge.badge_id].tier - 1]}</span>
+          <span><b>{badgeText[badge.badge_id].name}</b><small>{conditionText(badge)}</small></span>
+          <span className="badge-tier-state">{badge.earned ? (badge.earned_on ? `${formatDate(badge.earned_on)} 取得` : "已取得") : progressText(badge)}</span>
+        </li>)}
+      </ol>
+    </details>
+  </li>;
+}
+
+// 下一個最接近的徽章：未取得中進度比例最高者，同比例依規則順序。
+function nextBadge(badges: KnownBadge[]) {
+  return badges.filter((badge) => !badge.earned)
+    .reduce<KnownBadge | null>((best, badge) => !best || badge.progress / badge.target > best.progress / best.target ? badge : best, null);
+}
+
+// 成就頁：下一個最接近的徽章與各系列的徽章卡。
 export function BadgeCollection({ activity }: { activity: LearningActivityView }) {
   const badges = knownBadges(activity);
   if (!badges.length) return null;
   const earned = badges.filter((badge) => badge.earned).length;
   const next = nextBadge(badges);
+  const grouped = (Object.keys(tiers) as Series[])
+    .map((kind) => [kind, tiers[kind].map(([id]) => badges.find((badge) => badge.badge_id === id)).filter((badge): badge is KnownBadge => !!badge)] as const)
+    .filter(([, list]) => list.length > 0);
   return <section className="badge-collection surface" aria-labelledby="badge-collection-title">
     <header className="badge-collection-head">
       <h2 id="badge-collection-title">我的徽章</h2>
@@ -81,27 +133,15 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
     {next && <div className="badge-next">
       <BadgeMedal badge={next} size={40} />
       <span className="badge-next-text">
-        <small>下一個徽章</small>
+        <small>最接近的下一個徽章</small>
         <b>{badgeText[next.badge_id].name}</b>
-        <BadgeProgress badge={next} text={`${badgeText[next.badge_id].condition} · ${progressText(next)}`} />
+        <BadgeProgress badge={next} text={`${conditionText(next)} · ${progressText(next)}`} />
       </span>
     </div>}
     <ul className="badge-wall">
-      {badges.map((badge) => {
-        const text = badgeText[badge.badge_id];
-        return <li key={badge.badge_id} className={badge.earned ? "is-earned" : "is-locked"}>
-          <BadgeMedal badge={badge} />
-          <span className="badge-wall-text">
-            <b>{text.name}</b>
-            <small>{text.condition}</small>
-            {badge.earned
-              ? <span className="badge-earned-on">{badge.earned_on ? `${formatDate(badge.earned_on)} 取得` : "已取得"}</span>
-              : <BadgeProgress badge={badge} text={progressText(badge)} />}
-          </span>
-        </li>;
-      })}
+      {grouped.map(([kind, list]) => <BadgeSeriesCard key={kind} kind={kind} badges={list} />)}
     </ul>
-    <p className="badge-note">依作答、概念完成、教材完成、概念卡複習、Podcast 收聽與連續學習的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。</p>
+    <p className="badge-note">依作答、概念完成、教材完成、概念卡複習、Podcast 收聽、連續學習與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。</p>
   </section>;
 }
 
@@ -152,7 +192,7 @@ export function BadgeEarned({ badges, onClose }: { badges: KnownBadge[]; onClose
         {shown.map((badge) => <li key={badge.badge_id}>
           <BadgeMedal badge={badge} size={64} />
           <b>{badgeText[badge.badge_id].name}</b>
-          <small>{badgeText[badge.badge_id].condition}</small>
+          <small>{conditionText(badge)}</small>
         </li>)}
       </ul>
       {badges.length > shown.length && <p>另外還有 {badges.length - shown.length} 個新徽章，到「成就」頁查看。</p>}

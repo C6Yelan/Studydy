@@ -3,15 +3,14 @@ import { useProfile } from "../../app/HeaderTools";
 import { useLearningActivity } from "../../app/LearningProgress";
 import { Icon, type IconName } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
-import { BadgeCollection } from "../badges/Badges";
 import { islandState, useMaterialProgress } from "../dashboard/islands";
-import { LevelCard, WeekRhythm } from "../dashboard/LearningCards";
+import { WeekRhythm } from "../dashboard/LearningCards";
 import { AccountSettings } from "./AccountSettings";
 import "../dashboard/styles.css";
 import "./styles.css";
 
-// 個人檔案：左側是學習成就（等級、總覽、本週節奏、徽章），右側是帳號設定。
-// 學習活動讀不到時只有成就區顯示錯誤，帳號設定仍可使用。
+// 個人檔案：左側是學習統計（總覽與本週節奏），右側是帳號設定；等級與徽章在「成就」頁。
+// 學習活動讀不到時只有統計區顯示錯誤，帳號設定仍可使用。
 export function ProfilePage({ apiClient }: { apiClient: StudydyApiClient }) {
   const name = useProfile(apiClient)?.display_name ?? null;
   const activity = useLearningActivity(apiClient, { fresh: true });
@@ -36,22 +35,21 @@ export function ProfilePage({ apiClient }: { apiClient: StudydyApiClient }) {
           第 {activity.xp.level} 級 · 累計 {activity.xp.total} XP · {activity.streak_days ? `連續學習 ${activity.streak_days} 天` : "今天還沒開始連續紀錄"}
         </p>}
       </div>
-      {/* 窄螢幕上帳號設定排在成就之後，提供直接跳過去的入口。 */}
+      {/* 窄螢幕上帳號設定排在統計之後，提供直接跳過去的入口。 */}
       <button className="secondary-button profile-settings-jump" type="button"
         onClick={() => document.getElementById("account-settings-title")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
         <Icon name="user" size={18} />帳號設定
       </button>
     </header>
     <div className="profile-layout">
-      <div className="profile-achievements">
-        {activity === undefined ? <StateView title="正在讀取學習成就" description="正在整理等級、徽章與本週紀錄。" tone="loading" live />
+      <div className="profile-main">
+        {activity === undefined ? <StateView title="正在讀取學習統計" description="正在整理學習總覽與本週紀錄。" tone="loading" live />
           // 頁內區塊的錯誤用 h2，頁面標題仍是名稱。
-          : activity === null ? <section className="profile-achievements-error surface" role="alert">
-            <h2>無法讀取學習成就</h2>
+          : activity === null ? <section className="section-failure surface" role="alert">
+            <h2>無法讀取學習統計</h2>
             <p>學習活動暫時無法讀取，請稍後再試；帳號設定仍可使用。</p>
           </section>
-          : <div className="achievements-grid">
-            <LevelCard activity={activity} />
+          : <div className="profile-stats">
             <section className="dashboard-overview surface" aria-labelledby="profile-overview-title">
               <h2 id="profile-overview-title">學習總覽</h2>
               <div className="dashboard-stats" aria-busy={materials === null && !error}>
@@ -63,7 +61,6 @@ export function ProfilePage({ apiClient }: { apiClient: StudydyApiClient }) {
               </div>
             </section>
             <WeekRhythm activity={activity} />
-            <BadgeCollection activity={activity} />
           </div>}
       </div>
       <AccountSettings apiClient={apiClient} />

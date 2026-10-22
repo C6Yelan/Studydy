@@ -187,7 +187,7 @@ def test_badges_follow_real_records_and_their_dates(closed_loop):
     owner, dsn = fixture["learner"].learner_id, fixture["dsn"]
     now = datetime(2026, 10, 22, 12, 0, tzinfo=TAIPEI)
     empty = {b["badge_id"]: b for b in activity(fixture, now=now)["badges"]["items"]}
-    assert activity(fixture, now=now)["badges"]["rule_version"] == "badge-rules/v1"
+    assert activity(fixture, now=now)["badges"]["rule_version"] == "badge-rules/v2"
     assert not any(b["earned"] for b in empty.values())
 
     set_id = create(fixture)

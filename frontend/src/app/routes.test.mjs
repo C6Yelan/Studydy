@@ -21,6 +21,7 @@ test("routes use expected paths and round trip", () => {
     [{ name: "card-set-create", materialId, runId, structureRevision }, `${mapPath}/create-cards`],
     [{ name: "upload" }, "/upload"],
     [{ name: "profile" }, "/profile"],
+    [{ name: "achievements" }, "/achievements"],
     [{ name: "material-run", materialId, runId }, materialRunPath],
     [{ name: "knowledge-map", materialId, runId, structureRevision }, mapPath],
     [{ name: "study-session", materialId, runId, structureRevision, studySessionId }, studyPath],

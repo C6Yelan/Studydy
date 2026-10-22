@@ -1,4 +1,4 @@
-/* 個人檔案：頁首頭像與名稱；左欄學習成就，右欄帳號設定（窄螢幕上下排列）。 */
+/* 個人檔案：頁首頭像與名稱；左欄學習統計，右欄帳號設定（窄螢幕上下排列）。 */
 .profile {
   display: grid;
   gap: 24px;
@@ -38,43 +38,22 @@
   gap: 24px;
   align-items: start;
 }
-.profile-achievements { min-width: 0; }
-.profile-achievements-error { padding: 20px 22px; }
-.profile-achievements-error h2 { margin: 0 0 6px; font-size: 17px; }
-.profile-achievements-error p { margin: 0; color: var(--text-secondary); }
-/* 成就區：左欄等級與總覽、右欄本週節奏，徽章牆在下方全寬。 */
-.achievements-grid {
+.profile-main { min-width: 0; }
+/* 學習統計：總覽與本週節奏上下排列。 */
+.profile-stats {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-areas: "level week" "overview week" "badges badges";
   gap: 24px;
-  align-items: start;
 }
-.achievements-grid > .surface {
-  padding: 20px 22px;
-}
-.achievements-grid h2 {
-  margin: 0;
-  font-size: 17px;
-}
-.achievements-grid .dashboard-level { grid-area: level; }
-.achievements-grid .dashboard-overview { grid-area: overview; }
-.achievements-grid .dashboard-overview h2 { margin-bottom: 14px; }
-.achievements-grid .dashboard-stats { grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); }
-.achievements-grid .dashboard-week { grid-area: week; align-self: stretch; }
-.achievements-grid .badge-collection { grid-area: badges; }
+.profile-stats > .surface { padding: 20px 22px; }
+.profile-stats h2 { margin: 0; font-size: 17px; }
+.profile-stats .dashboard-overview h2 { margin-bottom: 14px; }
+.profile-stats .dashboard-stats { grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); }
 @media (min-width: 1201px) {
   /* 寬螢幕帳號設定就在右欄，不需要跳轉按鈕（需高於共用按鈕樣式的優先順序）。 */
   .profile-head .profile-settings-jump { display: none; }
 }
 @media (max-width: 1200px) {
   .profile-layout { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 900px) {
-  .achievements-grid {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "level" "overview" "week" "badges";
-  }
 }
 @media (max-width: 720px) {
   .profile-head { flex-wrap: wrap; }

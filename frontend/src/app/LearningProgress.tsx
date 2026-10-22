@@ -78,8 +78,8 @@ export function LearningProgressPill({ apiClient, learnerId }: { apiClient: Stud
   const { streak_days: streak, xp } = activity;
   return <>
     <button className={`header-progress${streak ? "" : " is-idle"}`} type="button"
-      aria-label={`連續學習 ${streak} 天，第 ${xp.level} 級，累計 ${xp.total} XP，查看個人檔案`}
-      onClick={() => writeRoute({ name: "profile" })}>
+      aria-label={`連續學習 ${streak} 天，第 ${xp.level} 級，累計 ${xp.total} XP，查看成就`}
+      onClick={() => writeRoute({ name: "achievements" })}>
       <span className="header-streak"><Icon name="flame" size={17} /><b>{streak}</b><span className="header-streak-unit">天</span></span>
       <span className="header-level">Lv {xp.level}</span>
       <span className="header-xp"><Icon name="sparkle" size={15} />{xp.total} XP</span>

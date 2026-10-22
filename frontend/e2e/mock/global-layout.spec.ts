@@ -54,6 +54,7 @@ for (const width of [2560, 1920, 1366, 1281, 1100, 1024, 721, 390, 320]) {
     for (const [path, heading] of [
       ["/", "歡迎回來！今天想探索哪座島？"],
       ["/profile", "林以安同學的學習帳號"],
+      ["/achievements", "成就"],
       ["/materials", "我的教材"],
       ["/upload", "上傳教材"],
     ]) {
@@ -66,12 +67,16 @@ for (const width of [2560, 1920, 1366, 1281, 1100, 1024, 721, 390, 320]) {
         await expect(page.getByRole("region", { name: "學習總覽" })).toBeVisible();
         await expect(page.locator(".dashboard-stats")).toHaveAttribute("aria-busy", "false");
         await expect(page.getByRole("region", { name: "本週學習節奏" })).toBeVisible();
-        await expect(page.getByRole("region", { name: "我的徽章" }).locator(".badge-count")).toHaveText("9 / 10");
+      }
+      if (path === "/achievements") {
+        // 8 個指定的層級加上第 15 級已達的等級 I、II 層。
+        await expect(page.getByRole("region", { name: "我的徽章" }).locator(".badge-count")).toHaveText("10 / 24");
+        await expect(page.getByRole("region", { name: "經驗值怎麼算" })).toBeVisible();
       }
       if (path === "/") {
         await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
         // 頁首學習進度與品牌、帳號工具不重疊，也不超出視窗。
-        const pill = page.getByRole("button", { name: "連續學習 128 天，第 15 級，累計 12450 XP，查看個人檔案" });
+        const pill = page.getByRole("button", { name: "連續學習 128 天，第 15 級，累計 12450 XP，查看成就" });
         await expect(pill).toBeVisible();
         const header = await page.evaluate(() => {
           const brand = document.querySelector(".header-start")!.getBoundingClientRect();

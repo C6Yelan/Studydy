@@ -48,7 +48,6 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
     else if (material) openMaterial(material);
     else writeRoute({ name: "materials" });
   };
-  const pages = (materials ?? []).reduce((sum, item) => sum + (item.latest_attempt?.total_pages ?? 0), 0);
   const now = new Date();
   const hour = now.getHours();
   const greeting = name ? `${hour >= 5 && hour < 11 ? "早安" : hour >= 11 && hour < 18 ? "午安" : "晚安"}，${name}！` : "歡迎回來！";
@@ -67,7 +66,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
           <header className="archipelago-head">
             <div>
               <h2 id="archipelago-title">我的學習群島</h2>
-              {materials && <span>{materials.length} 份教材{pages > 0 && ` · ${pages} 頁`}</span>}
+              {materials && <span>{materials.length} 份教材</span>}
             </div>
             <button className="text-button" type="button" onClick={() => writeRoute({ name: "materials" })}>看全部教材<Icon name="chevron-right" size={16} /></button>
           </header>
@@ -112,9 +111,9 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
         <aside className="dashboard-side">
           {activity === undefined && <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "35%" }} /><Bone className="is-row" /><Bone className="is-row" /></div>}
           {activity && activity.quests.length > 0 && <DailyQuests quests={activity.quests} onOpen={openQuest} />}
-          {activity && <button className="dashboard-achievements surface" type="button" onClick={() => writeRoute({ name: "profile" })}>
+          {activity && <button className="dashboard-achievements surface" type="button" onClick={() => writeRoute({ name: "achievements" })}>
             <span className="stat-icon is-amber"><Icon name="sparkle" size={18} /></span>
-            <span><b>第 {activity.xp.level} 級 · {activity.xp.total} XP</b><small>查看等級、徽章與本週學習節奏</small></span>
+            <span><b>第 {activity.xp.level} 級 · {activity.xp.total} XP</b><small>查看等級、經驗值計算與徽章</small></span>
             <Icon name="chevron-right" size={16} />
           </button>}
         </aside>

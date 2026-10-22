@@ -1,7 +1,7 @@
 """學習活動：由作答、概念卡複習與 Podcast 收聽紀錄即時彙總，以台灣日期為界。
 
 XP、等級、連續天數、今日任務與徽章都從既有紀錄推導，不另存累計點數、任務或
-徽章狀態（規則 xp-rules/v1 與 badge-rules/v1，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
+徽章狀態（規則 xp-rules/v1 與 badge-rules/v2，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
 推導結果隨之改變；沒有紀錄的過去活動不補算。
 """
 
@@ -23,19 +23,34 @@ XP_LISTEN_STEP, XP_LISTEN_SECONDS, XP_LISTEN_DAILY_CAP = 5, 300, 60
 ACTIVE_LISTEN_SECONDS = 60
 NEW_CARD_QUEST = 5
 
-BADGE_RULE_VERSION = "badge-rules/v1"
-# 徽章依顯示順序列出：(代號, 計量, 門檻)。計量見 _badge_metrics；修改時一併更新版本字串與文件。
+BADGE_RULE_VERSION = "badge-rules/v2"
+# 徽章依顯示順序列出：(代號, 計量, 門檻)。同一計量的多個門檻是同一系列的不同層級（由低到高），
+# 計量見 derive_badges；修改時一併更新版本字串、API 模型、前端名稱與文件。
 BADGES = (
     ("first_answer", "answers", 1),
     ("answers_100", "answers", 100),
+    ("answers_300", "answers", 300),
+    ("answers_1000", "answers", 1000),
     ("first_concept", "concepts", 1),
     ("concepts_25", "concepts", 25),
+    ("concepts_100", "concepts", 100),
+    ("concepts_300", "concepts", 300),
     ("first_material", "materials", 1),
+    ("materials_3", "materials", 3),
+    ("materials_10", "materials", 10),
     ("cards_100", "card_reviews", 100),
+    ("cards_500", "card_reviews", 500),
+    ("cards_2000", "card_reviews", 2000),
     ("listen_30_minutes", "listened_minutes", 30),
+    ("listen_180_minutes", "listened_minutes", 180),
+    ("listen_600_minutes", "listened_minutes", 600),
     ("streak_3", "streak", 3),
     ("streak_7", "streak", 7),
+    ("streak_30", "streak", 30),
+    ("streak_100", "streak", 100),
     ("level_5", "level", 5),
+    ("level_10", "level", 10),
+    ("level_20", "level", 20),
 )
 
 
@@ -89,7 +104,7 @@ def xp_threshold(level):
 
 
 def derive_badges(*, answers, concepts, materials, card_reviews, listening, xp, active, streak, level):
-    """由每日紀錄推導徽章（規則 badge-rules/v1）。
+    """由每日紀錄推導徽章（規則 badge-rules/v2）。
 
     answers／concepts／materials／card_reviews／listening（秒）／xp 皆為 {台灣日期: 當天數量}；
     active 為有學習活動的日期集合。進度一律來自這些紀錄：累計型徽章的取得日期是累計
