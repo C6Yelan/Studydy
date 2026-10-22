@@ -1,11 +1,9 @@
-"""教材審查共用合成資料、暫存 archive 與 HTTP 預設串行容量測試。"""
+"""教材審查共用合成資料、暫存 archive 與真實 HTTP 預設單槽行為。"""
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from threading import BoundedSemaphore, Event, Lock
+from threading import Event, Lock
 from uuid import uuid4
 import json
-
-import pytest
 
 from knowledge_map.material_review import _pack_review
 from test_material_review import view, proposal, wire_proposal
@@ -77,11 +75,8 @@ class Archive:
             path.write_text(json.dumps(data))
 
 
-@pytest.mark.parametrize('slots', [1])
-def test_isolated_http_review_lock_capacity(provider_server, monkeypatch, slots):
-    # slots=1 保留目前程式；4/8 只替換本測試程序的鎖，正式服務完全不變。
-    if slots != 1:
-        monkeypatch.setattr(provider, 'TEXT_LOCK', BoundedSemaphore(slots))
+def test_isolated_http_review_lock_capacity(provider_server, monkeypatch):
+    slots = 1
     release, mutex = Event(), Lock()
     active = peak = entered = 0
     def generate(prompt, schema, **kwargs):

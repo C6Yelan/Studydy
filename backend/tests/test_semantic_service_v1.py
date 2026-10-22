@@ -24,7 +24,7 @@ def test_gemma_64k_capacity_upgrade_preserves_old_binding_and_rejects_downgrade(
     from copy import deepcopy
     from runtime.material_runtime import runtime_binding, runtime_binding_is_valid, same_material_runtime
     from runtime.material_runtime import validate_runtime_lock
-    from runtime.local_app import read_local_ai_config_from_environment
+    from runtime.local_ai_config import read_local_ai_config_from_environment
     old = read_local_ai_config_from_environment({})
     old['runtime_lock'] = _lock()
     new = deepcopy(old)

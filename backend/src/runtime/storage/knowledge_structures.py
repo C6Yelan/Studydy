@@ -12,7 +12,7 @@ from knowledge_map.structure import (
     validate_knowledge_structure,
 )
 
-from .tables import KnowledgeStructure, Material, MaterialProcessingRun
+from .tables import KnowledgeStructure, MaterialProcessingRun
 from .database import database_session
 from ..source_resolver import verify_structure_input
 

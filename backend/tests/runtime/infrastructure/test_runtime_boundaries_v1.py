@@ -9,6 +9,7 @@ import runtime.local_runtime as local_runtime
 import runtime.workers as workers_module
 from pdf_evidence.local_ai_process import LocalAIError
 from runtime.material_runtime import runtime_binding
+from runtime.local_ai_config import read_local_ai_config_from_environment
 
 
 def _environment(tmp_path: Path) -> dict[str, str]:
@@ -25,7 +26,7 @@ def test_stored_runtime_binding_rejects_wrong_identity_even_with_valid_hash(tmp_
     """重算 binding hash 不能讓與保存快照不同的模型身分通過。"""
     from content_identity import canonical_sha256
     from runtime.material_runtime import lock_matches_binding
-    config = local_app.read_local_ai_config_from_environment(_environment(tmp_path))
+    config = read_local_ai_config_from_environment(_environment(tmp_path))
     binding = runtime_binding(config)
     assert lock_matches_binding(config['runtime_lock'], binding)
     binding[field] = value
@@ -42,7 +43,7 @@ def test_local_app_composition_validates_settings_without_ai_then_starts_uvicorn
     monkeypatch.setattr(material_runtime, "validate_installed_local_runtime", lambda _: pytest.fail("startup must not load OCR"))
     app = local_app.create_local_app(
         profile="local", public_origin="http://127.0.0.1:4173", secure_cookie=False,
-        local_config=local_app.read_local_ai_config_from_environment(_environment(tmp_path)), dsn=None,
+        local_config=read_local_ai_config_from_environment(_environment(tmp_path)), dsn=None,
     )
     assert app.version == "v1"
 
@@ -90,7 +91,7 @@ def test_waiting_storage_does_not_block_other_api_requests(tmp_path, monkeypatch
     import httpx
     import runtime.api.app as api
 
-    config = local_app.read_local_ai_config_from_environment(_environment(tmp_path))
+    config = read_local_ai_config_from_environment(_environment(tmp_path))
     app = api.create_app(api.ApiSettings(
         profile='local', public_origin='http://127.0.0.1:4173', secure_cookie=False,
         local_config=config, dsn=None,
@@ -141,7 +142,7 @@ def test_empty_body_dependency_rejects_content_before_storage(tmp_path, monkeypa
     from fastapi.testclient import TestClient
     from uuid import uuid4
     import runtime.api.app as api
-    config = local_app.read_local_ai_config_from_environment(_environment(tmp_path))
+    config = read_local_ai_config_from_environment(_environment(tmp_path))
     app = api.create_app(api.ApiSettings(
         profile='local', public_origin='http://127.0.0.1:4173', secure_cookie=False,
         local_config=config, dsn=None,
