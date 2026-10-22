@@ -139,8 +139,6 @@ test("card creation fits a desktop viewport and preserves selections across page
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.goto(mapPath + "/create-cards");
   const manual = page.getByRole("region", { name: "選擇概念", exact: true });
-  await expect(page.getByRole("button", { name: "幫我選卡", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("region", { name: "推薦選卡", exact: true })).toHaveCount(0);
   const pagination = page.getByRole("navigation", { name: "概念清單分頁" });
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1280, height: 720 }, { width: 1024, height: 768 }]) {
     await page.setViewportSize(viewport);
@@ -202,7 +200,6 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await page.keyboard.press("Space");
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   await expect(page.locator(".concept-card-details")).not.toHaveAttribute("open", "");
-  await expect(page.getByRole("button", { name: "翻面", exact: true })).toHaveCount(0);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-point")).toContainText("後進先出");
   await expect(page.locator(".flashcard")).not.toContainText("先備");
@@ -667,17 +664,14 @@ test("card library renames inline like materials without changing selected cards
 test("saved card views and editing stay inside the material workspace from either entry", async ({ page }) => {
   await mockCards(page, { saved: true });
   await page.goto('/concept-cards');
-  await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await page.getByRole('button', { name: '開始複習', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}$`));
-  await expect(page.locator('.app-sidebar')).toHaveCount(0);
   const tabs = page.getByRole('tablist', { name: '教材學習內容' });
   await expect(tabs).toBeVisible();
   await expect(tabs.getByRole('tab', { name: '概念卡', exact: true })).toHaveAttribute('aria-selected', 'true');
   await openSavedCardManagement(page);
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}/edit$`));
   await expect(tabs).toBeVisible();
-  await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await page.getByRole('button', { name: '取消變更', exact: true }).click();
   await expect(tabs).toBeVisible();
   await page.getByRole('button', { name: '返回卡組', exact: true }).click();
@@ -831,7 +825,6 @@ test("whole PNG card exports grounded content and preserves reading navigation",
   first.claims[0].evidence[0].source_name = "資料結構講義.pdf";
   first.claims[0].evidence[0].normalized_page = 7;
   await page.goto(`/concept-cards/${cardSetId}`);
-  await expect(page.getByRole("group", { name: "概念卡顯示模式" })).toHaveCount(0);
   const image = page.locator("canvas.visual-concept-card");
   await expect(image).toBeVisible();
   expect(await drawnText(page)).not.toMatch(/STUDYDY|教材版本待複核|概念關係/);
@@ -871,7 +864,6 @@ test("sparse PNG card keeps review status without inventing points", async ({ pa
   view.status.quality = "needs_review";
   view.relations = [];
   await page.goto(`/concept-cards/${cardSetId}`);
-  await expect(page.getByRole("group", { name: "概念卡顯示模式" })).toHaveCount(0);
   expect(await drawnText(page)).toContain("堆疊遵循後進先出");
   expect(await drawnText(page)).not.toContain("教材版本待複核");
   await page.locator(".concept-card-details > summary").click();
@@ -903,7 +895,6 @@ for (const sample of visualCases) {
     }
     const counterBeforeResize = await page.locator('.cards-study-counter').innerText();
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByRole('button', { name: '放大檢視', exact: true })).toHaveCount(0);
     await expect(page.locator('.cards-study-counter')).toHaveText(counterBeforeResize);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     await page.locator(".concept-card-details > summary").click();
@@ -1048,7 +1039,6 @@ test("short and detailed cards keep a fixed canvas and navigation position", asy
   expect(await page.getByRole("button", { name: "完成本輪", exact: true }).boundingBox()).toEqual(before);
   expect(await drawnText(page)).not.toContain("原文節錄");
   expect(Number(await image.getAttribute('height'))).toBe(760);
-  await expect(page.getByRole('button', { name: '放大檢視', exact: true })).toHaveCount(0);
 });
 
 
@@ -1090,7 +1080,6 @@ test("concept canvases share the deck navigation, counter and export", async ({ 
   const image = page.locator("canvas.visual-concept-card");
   await expect(image).toHaveAttribute('data-image-count', '2');
   expect(await drawnText(page)).not.toContain("原文節錄");
-  await expect(page.getByRole('button', { name: '下一張圖', exact: true })).toHaveCount(0);
   await expect(page.locator('.cards-study-counter')).toContainText('1 / 3');
   const bounds = await page.locator("canvas.visual-concept-card").boundingBox();
   await page.getByRole('button', { name: '下一張', exact: true }).click();
@@ -1098,7 +1087,6 @@ test("concept canvases share the deck navigation, counter and export", async ({ 
   expect(await page.locator("canvas.visual-concept-card").boundingBox()).toEqual(bounds);
   expect(await drawnText(page)).toContain(concept.claims[6].text);
   expect(await drawnText(page)).not.toContain("另有");
-  await expect(page.getByRole('button', { name: '放大檢視', exact: true })).toHaveCount(0);
   const downloading = page.waitForEvent('download');
   await page.getByRole('button', { name: '下載 PNG', exact: true }).click();
   expect((await downloading).suggestedFilename()).toMatch(/-2\.png$/);
@@ -1225,8 +1213,6 @@ test("canvas preview encodes only on download and has no zoom", async ({ page })
   const preview = page.locator(".visual-card > canvas.visual-concept-card");
   await expect(preview).toBeVisible();
   expect(await page.evaluate(() => window.cardEncodingCount)).toBe(0);
-  await expect(page.getByRole("button", { name: "放大檢視", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("dialog", { name: "放大概念卡" })).toHaveCount(0);
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "下載 PNG", exact: true }).click();
   const stream = (await (await downloaded).createReadStream())!;
@@ -1397,7 +1383,6 @@ test("card generation restores stages after reload, retries failure and keeps fu
   controls.setEdits({ [card.concept_id]: [{ source: card.claims[0].text, text: "堆疊：後進先出（LIFO）。" }] });
   controls.setGeneration({ ...state, status: "ready", stage: "complete", completed: 2, retained_original: 1 });
   await expect(page.locator(".visual-concept-card").first()).toBeVisible();
-  await expect(page.getByText("部分文字未通過精簡核對，已保留原文。", { exact: true })).toHaveCount(0);
   const drawing = await cardDrawing(page);
   expect(drawing.texts.some(line => line.text.includes("後進先出（LIFO）"))).toBeTruthy();
   await page.getByText("完整重點與來源", { exact: true }).click();

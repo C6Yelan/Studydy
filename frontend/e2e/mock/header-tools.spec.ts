@@ -269,5 +269,4 @@ test("profile fits a 390px phone and jumps to account settings", async ({ page }
   const devicesButton = settings.getByRole("button", { name: "登出其他裝置" });
   await devicesButton.scrollIntoViewIfNeeded();
   await expect(devicesButton).toBeInViewport();
-  await page.screenshot({ path: test.info().outputPath("profile-390.png") });
 });

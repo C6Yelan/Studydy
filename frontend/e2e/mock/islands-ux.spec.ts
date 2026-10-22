@@ -99,7 +99,6 @@ test("material cards keep the main action on its own row and secondary entries a
       expect(cards.y).toBeGreaterThan(primary.y + primary.height - 1);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
-    await page.screenshot({ path: test.info().outputPath(`library-${width}.png`), fullPage: true });
   }
   // 點島嶼圖可直接開啟知識地圖。
   await page.getByRole("article", { name: "資料結構" }).locator(".library-island").click();

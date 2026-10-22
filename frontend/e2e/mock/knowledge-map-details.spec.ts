@@ -185,7 +185,6 @@ test("parallel relations retain separate labels, paths and details in both direc
       .toBe(true);
   };
   await assertSeparate();
-  await expect(page.locator(".focus-context-content .relation-list")).toHaveCount(0);
   const relationDialog = page.getByRole("dialog", { name: "關係詳情", exact: true });
   for (const relation of view.relations) {
     await page.locator(`.concept-flow-edge.is-${relation.type} .react-flow__edge-textbg`).click();

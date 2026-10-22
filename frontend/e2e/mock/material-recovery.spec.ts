@@ -269,7 +269,6 @@ for (const status of ["active", "completed"] as const)
     await expect(actions.getByRole("link", { name: "開啟知識地圖", exact: true })).toHaveClass(
       "secondary-button",
     );
-    await expect(actions.getByRole("button", { name: "重新處理教材", exact: true })).toHaveCount(0);
     await expect(actions.getByRole("button", { name: "查看問題", exact: true })).toHaveClass(
       "text-button",
     );

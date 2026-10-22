@@ -71,7 +71,7 @@ async function speak(page:Page) {
  await page.evaluate(()=>(window as any).speechActive=false);
 }
 
-test('compact widget has one entry, chat bubbles, secondary sources and a growing single composer',async({page},testInfo)=>{
+test('compact widget has one entry, chat bubbles, secondary sources and a growing single composer',async({page})=>{
  await page.setViewportSize({width:1440,height:900});const mock=await mockVoice(page);await page.goto(mapPath);await open(page);
  const panel=page.getByRole('dialog',{name:'教材問答'}),input=page.getByLabel('問題／辨識文字');
  await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveAttribute('aria-expanded','true');await expect(panel.getByRole('heading',{name:'教材問答',exact:true})).toBeVisible();await expect(input).toBeFocused();
@@ -80,20 +80,18 @@ test('compact widget has one entry, chat bubbles, secondary sources and a growin
  // 桌機改為頁首下方的右側抽屜。
  expect(box.width).toBeLessThanOrEqual(420);expect(box.y).toBeGreaterThanOrEqual((await page.locator('.app-header').boundingBox())!.height);expect(box.y+box.height).toBeLessThanOrEqual(900);expect(header.height).toBeLessThanOrEqual(56);expect(composer.height).toBeLessThan(110);
  expect((await page.locator('.voice-turns').boundingBox())!.height).toBeGreaterThan(box.height*.6);
- await panel.screenshot({path:testInfo.outputPath('voice-empty-desktop.png')});
  await page.getByRole('button',{name:'主要觀念是什麼？',exact:true}).click();await expect(input).toHaveValue('主要觀念是什麼？');await expect(input).toBeFocused();
  await input.fill('較長的輸入\n'.repeat(30));expect((await input.boundingBox())!.height).toBeLessThanOrEqual(112);expect(await input.evaluate(el=>el.scrollHeight>el.clientHeight)).toBe(true);
  await input.fill('堆疊是什麼？');await page.getByRole('button',{name:'送出問題',exact:true}).click();await expect(page.locator('.voice-answer')).toContainText(mock.answer.text);await expect(input).toHaveValue('');expect(mock.questions).toEqual(['堆疊是什麼？']);
  const user=(await page.locator('.voice-question').boundingBox())!,assistant=(await page.locator('.voice-response').boundingBox())!;expect(user.x).toBeGreaterThan(assistant.x);
  await expect(page.locator('.voice-question > span')).toHaveCount(0);await expect(page.getByRole('button',{name:/來源 1.*PDF 第 1 頁/})).toHaveCount(0);
- await panel.screenshot({path:testInfo.outputPath('voice-messages-desktop.png')});
  await page.getByText(/^查看來源 ·/).click();await page.getByRole('button',{name:/來源 1.*PDF 第 1 頁/}).click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(panel).toBeVisible();
  await input.fill('換行');await input.press('Shift+Enter');await input.pressSequentially('補充');await input.dispatchEvent('keydown',{key:'Enter',isComposing:true});expect(mock.questions).toHaveLength(1);await input.press('Enter');await expect.poll(()=>mock.questions.length).toBe(2);expect(mock.questions.at(-1)).toBe('換行\n補充');await expect(input).toHaveValue('');
  for(let i=0;i<3;i++){await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();await open(page);}
  await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.keyboard.press('Escape');await expect(panel).toBeVisible();await expect(page.getByRole('button',{name:'對話紀錄',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);
 });
 
-test('voice mode automatically moves through STT answer and audio with no second send',async({page},testInfo)=>{
+test('voice mode automatically moves through STT answer and audio with no second send',async({page})=>{
  const mock=await mockVoice(page);await microphone(page);await page.goto(mapPath);await open(page);
  await page.getByRole('switch',{name:'語音模式',exact:true}).click();
  await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
@@ -110,14 +108,12 @@ test('voice mode automatically moves through STT answer and audio with no second
  turn.status='answering';await expect(page.getByText('正在依教材整理回答…',{exact:true})).toBeVisible();
  mock.behavior.status='speaking';mock.reply(conversation,turn);
  await expect(page.getByText('正在產生語音…',{exact:true})).toBeVisible();await expect(page.locator('.voice-answer')).toContainText(mock.answer.text);
- await page.getByRole('dialog',{name:'教材問答'}).screenshot({path:testInfo.outputPath('voice-speaking-desktop.png')});
  mock.finishAudio(conversation,turn);
  const audio=page.locator('.answer-audio audio');await expect.poll(()=>audio.evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
  await expect(page.getByText('播放回答中',{exact:true})).toBeVisible();
  expect(mock.actions.filter(a=>a.action==='send')).toHaveLength(0);expect(mock.questions).toHaveLength(0);
  await expect(page.getByRole('button',{name:'送出問題',exact:true})).toHaveCount(1);
  await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
- await page.getByRole('dialog',{name:'教材問答'}).screenshot({path:testInfo.outputPath('voice-ready-desktop.png')});
 });
 
 test('audio retry preserves unsent text and switching conversations clears the composer',async({page})=>{
@@ -150,7 +146,7 @@ test('long conversations scroll independently without stealing reading position 
  await page.getByLabel('問題／辨識文字').fill('新的追問');await page.getByRole('button',{name:'送出問題',exact:true}).click();await expect(page.locator('.voice-question p').last()).toHaveText('新的追問');await expect.poll(()=>stream.evaluate(el=>el.scrollHeight-el.scrollTop-el.clientHeight)).toBeLessThan(2);
 });
 
-test('390px chat uses the same compact header, fixed composer and keyboard focus',async({page},testInfo)=>{
+test('390px chat uses the same compact header, fixed composer and keyboard focus',async({page})=>{
  await page.setViewportSize({width:390,height:844});const mock=await mockVoice(page),conversation=mock.add();for(let i=0;i<10;i++)mock.turn(conversation,`問題 ${i}`);
  await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
  const panel=page.getByRole('dialog',{name:'教材問答'}),box=(await panel.boundingBox())!,appHeader=(await page.locator('.app-header').boundingBox())!;
@@ -158,7 +154,7 @@ test('390px chat uses the same compact header, fixed composer and keyboard focus
  await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveAttribute('aria-expanded','true');await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
  await page.getByLabel('問題／辨識文字').fill('多行草稿\n'.repeat(25));const composer=(await page.locator('.voice-composer').boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!;
  await page.locator('.voice-turns').evaluate(el=>{el.scrollTop=0;});expect((await page.locator('.voice-composer').boundingBox())!.y).toBeCloseTo(composer.y,0);expect((await page.locator('.voice-header').boundingBox())!.y).toBeCloseTo(header.y,0);expect(composer.y+composer.height).toBeLessThanOrEqual(box.y+box.height);
- expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);await panel.screenshot({path:testInfo.outputPath('voice-mobile.png')});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
  await page.getByLabel('問題／辨識文字').focus();await page.keyboard.press('Tab');await expect(page.getByRole('button',{name:'送出問題',exact:true})).toBeFocused();
  await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();
 });
@@ -193,7 +189,7 @@ test('voice audio failure keeps text and sources and retries only audio with aut
  expect(mock.actions.at(-1)).toMatchObject({action:'retry',turnId:turn.turn_id});expect(mock.actions.at(-1)).not.toHaveProperty('question');expect(mock.recorded).toHaveLength(1);
 });
 
-test('blocked autoplay preserves ready state and offers explicit click-to-play',async({page},testInfo)=>{
+test('blocked autoplay preserves ready state and offers explicit click-to-play',async({page})=>{
  const mock=await mockVoice(page);mock.behavior.audio=true;await microphone(page);
  await page.addInitScript(()=>{const play=HTMLMediaElement.prototype.play;(window as any).playCalls=0;(window as any).allowPlay=false;HTMLMediaElement.prototype.play=function(){(window as any).playCalls++;return (window as any).allowPlay?play.call(this):Promise.reject(new DOMException('Blocked by test policy','NotAllowedError'));};});
  await page.goto(mapPath);await open(page);await page.getByRole('switch',{name:'語音模式',exact:true}).click();
@@ -203,7 +199,6 @@ test('blocked autoplay preserves ready state and offers explicit click-to-play',
  expect(turn.status).toBe('ready');await expect(page.getByText('本次處理未完成',{exact:true})).toHaveCount(0);
  await expect(page.getByRole('dialog',{name:'教材問答'}).getByRole('alert')).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).playCalls)).toBe(1);
- await page.getByRole('dialog',{name:'教材問答'}).screenshot({path:testInfo.outputPath('voice-autoplay-fallback.png')});
  await page.evaluate(()=>(window as any).allowPlay=true);await page.getByRole('button',{name:'播放回答語音',exact:true}).click();
  await expect.poll(()=>page.locator('.answer-audio audio').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
  await expect(page.getByText('語音回答已完成，點擊播放。',{exact:true})).toHaveCount(0);
@@ -226,12 +221,12 @@ test('switching to text preserves its draft and prevents a late voice answer fro
 });
 
 
-test('reload and reopen do not replay an old voice answer, and mobile voice controls stay readable',async({page},testInfo)=>{
+test('reload and reopen do not replay an old voice answer, and mobile voice controls stay readable',async({page})=>{
  await page.setViewportSize({width:390,height:844});const mock=await mockVoice(page);mock.behavior.audio=true;await microphone(page);await page.goto(mapPath);await open(page);
  await page.getByRole('switch',{name:'語音模式',exact:true}).click();await speak(page);await expect.poll(()=>mock.recorded.length).toBe(1);
  const turn=mock.recorded[0];turn.question='手機上的語音問題';mock.reply(mock.conversations[0],turn);
  await expect.poll(()=>page.locator('.answer-audio audio').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
- const panel=page.getByRole('dialog',{name:'教材問答'});await panel.screenshot({path:testInfo.outputPath('voice-ready-mobile.png')});
+ const panel=page.getByRole('dialog',{name:'教材問答'});
  const box=(await panel.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(390);expect(box.y+box.height).toBeLessThanOrEqual(844);expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
  const cid=mock.conversations[0].conversation_id;await page.reload();await open(page);await choose(page,cid);
  await expect(page.getByRole('switch',{name:'語音模式',exact:true})).toHaveAttribute('aria-checked','false');await expect(page.locator('.answer-audio audio')).toHaveCount(1);

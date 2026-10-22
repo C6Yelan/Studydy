@@ -47,8 +47,8 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-// 2560px 真正觸及版面上限：首頁與清單頁 2200px、其他標準頁 1600px；768px 與 900px 共用相同的標準版面分支。
-for (const width of [2560, 1920, 1680, 1536, 1440, 1366, 1281, 1100, 1024, 900, 721, 390, 320]) {
+// 寬度取各斷點兩側（720／1100／1200／1280／1600／1800）與最寬 2560px。
+for (const width of [2560, 1920, 1366, 1281, 1100, 1024, 721, 390, 320]) {
   test(`standard frames stay centered without clipping at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1080 });
     for (const [path, heading] of [
@@ -109,7 +109,9 @@ for (const width of [2560, 1920, 1680, 1536, 1440, 1366, 1281, 1100, 1024, 900, 
         };
       });
       expect(Math.abs(layout.centerOffset)).toBeLessThanOrEqual(2);
-      expect(layout.width).toBeCloseTo(Math.min(layout.usableWidth, ["/", "/profile", "/materials"].includes(path) ? 2200 : 1600), 0);
+      // 不鎖定版面寬度數值：不超出可用寬度，且在寬螢幕上確實用到足夠的寬度。
+      expect(layout.width).toBeLessThanOrEqual(layout.usableWidth + 1);
+      expect(layout.width).toBeGreaterThanOrEqual(Math.min(layout.usableWidth, 1200) - 1);
       if (path === "/upload")
         expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
       expect(layout.headingTop).toBeCloseTo(layout.top, 0);

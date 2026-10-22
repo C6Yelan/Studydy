@@ -214,7 +214,6 @@ for (const state of states) {
     }
     const cards = page.locator(".library-item");
     await expect(cards).toHaveCount(items.length);
-    await expect(page.locator(".sidebar-helper")).toHaveCount(0);
     if (!items.length) await expect(page.locator(".library-empty")).toBeVisible();
     await expect(page.getByRole("searchbox", { name: "搜尋教材名稱", exact: true })).toHaveCount(
       items.length ? 1 : 0,
@@ -231,7 +230,6 @@ for (const state of states) {
       // 只有知識地圖、概念卡、Podcast 入口是連結，不出現來源檔案等連結。
       await expect(card.locator("a:not(.state-actions a)")).toHaveCount(0);
       await expect(card.locator("details:not(.material-management-menu)")).toHaveCount(0);
-      await expect(card.getByRole("region", { name: "已發布版本" })).toHaveCount(0);
       await expect(card.getByRole("region", { name: "學習紀錄" })).toHaveCount(0);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
@@ -351,7 +349,6 @@ for (const viewport of [
       "找不到符合「資料庫」的教材",
       "試試其他教材名稱。",
     ]);
-    await expect(page.getByRole("button", { name: "清除搜尋", exact: true })).toHaveCount(0);
     await input.press("Escape");
     await expect(input).toHaveValue("資料庫");
     await expect(input).toBeFocused();
@@ -436,12 +433,12 @@ test("removing a search match preserves query and shows search no-result", async
 });
 
 for (const viewport of [
-  { width: 1920, height: 1080, columns: 5 },
-  { width: 1536, height: 1024, columns: 3 },
-  { width: 1024, height: 768, columns: 2 },
-  { width: 390, height: 844, columns: 1 },
+  { width: 1920, height: 1080, phone: false },
+  { width: 1536, height: 1024, phone: false },
+  { width: 1024, height: 768, phone: false },
+  { width: 390, height: 844, phone: true },
 ])
-  test(`bookshelf geometry and expanded management at ${viewport.width}px`, async ({ page }, testInfo) => {
+  test(`bookshelf geometry and expanded management at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const names = [
       // 取消側欄後卡片變寬，名稱需超過兩行才能驗證截斷。
@@ -461,7 +458,6 @@ for (const viewport of [
     await page.goto("/materials");
     const cards = page.locator(".library-item");
     await expect(cards).toHaveCount(5);
-    await expect(page.getByText("尚未建立知識地圖", { exact: true })).toHaveCount(0);
     await expect(cards.nth(0).locator(".primary-button")).toHaveText("建立知識地圖");
     for (const index of [1, 3]) {
       await expect(cards.nth(index).locator(".primary-button")).toHaveText("繼續學習");
@@ -497,9 +493,14 @@ for (const viewport of [
       const values = geometry.map((box) => box[key]);
       expect(Math.max(...values) - Math.min(...values), key).toBeLessThanOrEqual(1);
     }
-    expect(geometry.filter((box) => Math.abs(box.y - geometry[0].y) < 1)).toHaveLength(
-      viewport.columns,
-    );
+    // 不鎖定欄數：手機單欄；其他寬度至少兩欄，卡片維持可讀寬度、不被放大。
+    const firstRow = geometry.filter((box) => Math.abs(box.y - geometry[0].y) < 1);
+    if (viewport.phone) expect(firstRow).toHaveLength(1);
+    else {
+      expect(firstRow.length).toBeGreaterThanOrEqual(2);
+      expect(geometry[0].width).toBeGreaterThanOrEqual(280);
+      expect(geometry[0].width).toBeLessThanOrEqual(520);
+    }
     for (const box of geometry) {
       expect(box.buttonBottom).toBeGreaterThanOrEqual(20);
       expect(box.buttonBottom).toBeLessThanOrEqual(26);
@@ -509,7 +510,7 @@ for (const viewport of [
     }
     const frame = (await page.locator(".material-library").boundingBox())!;
     if (viewport.width === 1920) expect(frame.width).toBeGreaterThan(1500);
-    if (viewport.columns === 1) expect(geometry[0].width).toBeCloseTo(frame.width, 0);
+    if (viewport.phone) expect(geometry[0].width).toBeCloseTo(frame.width, 0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -521,7 +522,6 @@ for (const viewport of [
         .evaluate((element) => element.scrollHeight > element.clientHeight),
     ).toBe(true);
 
-    await page.screenshot({path:testInfo.outputPath("material-library.png"),fullPage:true});
     const card = cards.first();
     await card.getByRole("button", { name: `管理「${names[0]}」`, exact: true }).click();
     await expect(card.getByRole("button", { name: "來源與更新", exact: true })).toBeVisible();

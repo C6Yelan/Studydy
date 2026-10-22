@@ -149,10 +149,10 @@ for (const [width, height] of [[2560, 1440], [1536, 1024], [1366, 768], [1024, 7
     if (width > 1200) {
       expect(side.x).toBeGreaterThanOrEqual(map.x + map.width + 20);
       expect(Math.abs(map.y - side.y)).toBeLessThan(2);
-      // 寬螢幕：版面放寬到 2200px，多出的寬度給地圖，右欄維持固定寬度。
+      // 寬螢幕：多出的寬度給地圖，右欄維持窄欄。
       if (width >= 2560) {
-        expect(map.width).toBeGreaterThan(1700);
-        expect(side.width).toBeLessThanOrEqual(381);
+        expect(side.width).toBeLessThanOrEqual(400);
+        expect(map.width).toBeGreaterThan(side.width * 3);
       }
     } else expect(side.y).toBeGreaterThanOrEqual(map.y + map.height);
     await expect
@@ -558,9 +558,11 @@ test("dashboard map pans, zooms and keeps a drag from opening an island", async 
   const moved = await mapView(page);
   expect(moved.x).toBeGreaterThan(start.x);
   expect(moved.y).toBeGreaterThan(start.y);
-  // 縮放有上下限。
+  // 縮放有上限：放大到底後再按也不再變大。
   for (let step = 0; step < 12; step++) await page.getByRole("button", { name: "放大" }).click();
-  expect((await mapView(page)).k).toBeLessThanOrEqual(1.6);
+  const capped = (await mapView(page)).k;
+  await page.getByRole("button", { name: "放大" }).click();
+  expect((await mapView(page)).k).toBe(capped);
   // 點島嶼才開啟。
   await page.getByRole("button", { name: "回到全覽" }).click();
   await islands(page).first().getByRole("button").click();

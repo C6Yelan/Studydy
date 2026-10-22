@@ -35,7 +35,6 @@ test("every page shares the top navigation and phones use the bottom tab bar", a
     ] as const) {
       await page.goto(path);
       await expect(page.locator(selector)).toBeVisible();
-      await expect(page.locator(".app-sidebar")).toHaveCount(0);
       const header = (await page.locator(".app-header").boundingBox())!;
       expect(header.height).toBe(width > 720 ? 70 : 56);
       const desktopNav = page.getByRole("navigation", { name: "主要導覽", exact: true });

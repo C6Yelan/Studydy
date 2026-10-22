@@ -7,7 +7,7 @@ const source = (i: number) => ({ id: `source-${i}`, kind: i % 2 ? 'paper' : 'web
   authors: 'Fixture', year: 2026, url: 'https://example.org/agent', doi: null, license: 'CC-BY-4.0',
   license_url: null, version: '1', eligible: true, reason: 'fixture', state: 'candidate' });
 
-for (const mode of ['research', 'topic']) test(`${mode} paginates loaded sources and retains selection across explicit followup`, async ({ page }, testInfo) => {
+for (const mode of ['research', 'topic']) test(`${mode} paginates loaded sources and retains selection across explicit followup`, async ({ page }) => {
   await mockKnowledgeMapApi(page, structureView());
   let work: any = { research_id: researchId, material_id: mode === 'research' ? materialId : null,
     query: 'Agent', mode: 'review', approved_scope: { title: 'Agent', goals: ['工具呼叫'], topics: ['Agent'] }, status: 'selecting', candidates: Array.from({ length: 20 }, (_, i) => source(i)),
@@ -59,5 +59,4 @@ for (const mode of ['research', 'topic']) test(`${mode} paginates loaded sources
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await pager.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: testInfo.outputPath(`${mode}-pagination-mobile.png`) });
 });

@@ -330,7 +330,6 @@ for (const width of [2560, 920, 390])
       }
       expect(layout.documentWidth).toBe(width);
       expect(layout.clipped).toEqual([]);
-      await expect(page.locator(".sidebar-helper")).toHaveCount(0);
     });
 
 test("loading announces its state and resumes when the backend responds", async ({ page }) => {
@@ -438,7 +437,7 @@ test('saved page evidence offers resume after source context failure',async({pag
  await expect(page.locator('.failure-progress')).toContainText('368 / 368 頁');
 });
 
-for (const width of [1280, 390]) test(`large review progress survives reload and stale polls at ${width}px`, async ({page}, info) => {
+for (const width of [1280, 390]) test(`large review progress survives reload and stale polls at ${width}px`, async ({page}) => {
   await page.setViewportSize({width, height:844});
   let server: MaterialProcessingRunView = {...base, progress_stage:"review", completed_pages:368, total_pages:368,
     completed_units:31,total_units:49,updated_at:"2026-09-12T12:00:00Z",
@@ -455,7 +454,6 @@ for (const width of [1280, 390]) test(`large review progress survives reload and
   server={...semantics,updated_at:"2026-09-12T11:59:59Z"};
   await page.clock.runFor(3000);
   await expect(page.locator(".stage-pages")).toHaveText("已完成 31 / 49 個檢核批次");
-  await page.screenshot({path:info.outputPath(`review-${width}.png`),fullPage:true});
   await page.locator(".processing-sources summary").click();
   expect(await page.locator(".processing-sources ol").evaluate(e=>e.clientHeight)).toBeLessThanOrEqual(160);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(width);

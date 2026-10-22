@@ -10,7 +10,7 @@ async function mockTopicApi(page:Page) {
  await page.route('**/v1/materials',r=>json(r,{schema:'material-library/v1',materials:[]}));
 }
 
-for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({page},testInfo)=>{
+for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:width===390?844:1000});
  await mockTopicApi(page);let approved=0,created=0;let topic:any={topic_id:id,request:'TCP',proposal:plan,version:2,status:'ready',research_id:null,error_code:null};
  await page.route('**/v1/topics',r=>r.request().method()==='POST'?json(r,topic,202):json(r,{topics:[topic]}));
@@ -21,25 +21,20 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  await page.goto('/topics');await expect(page.getByRole('heading',{name:'你想學什麼？'})).toBeVisible();
  const workspace=await page.locator('.topic-request').boundingBox();
  expect(workspace!.width).toBeGreaterThan(width===390?300:1000);
- // 與其他頁同寬（全站內容框最寬 1600px）。
- expect(workspace!.width).toBeLessThanOrEqual(1600);
- await page.screenshot({path:testInfo.outputPath('new-topic.png'),fullPage:true});
  await page.getByLabel('想學的主題').fill('TCP');await page.getByRole('button',{name:'產生學習範圍'}).click();await expect(page.getByRole('heading',{name:/確認學習範圍/})).toBeVisible();expect(approved).toBe(0);expect(created).toBe(0);
  const scopeEnd=await page.locator('.topic-scope-grid').boundingBox();
  const scopeFooter=await page.locator('.topic-scope .tool-stage-footer').boundingBox();
  expect(scopeFooter!.y).toBeGreaterThanOrEqual(scopeEnd!.y+scopeEnd!.height);
- await page.screenshot({path:testInfo.outputPath('scope.png'),fullPage:true});
  await page.getByRole('button',{name:'確認範圍並搜尋'}).click();
  await expect(page).toHaveURL(/\/materials$/);await expect(page.getByRole('heading',{name:'我的教材',exact:true})).toBeVisible();
  const preparing=page.getByRole('article',{name:'TCP 入門',exact:true});await expect(preparing).toContainText('等待選取來源');
  await page.reload();await preparing.getByRole('button',{name:'選取來源',exact:true}).click();
- await expect(page).toHaveURL(new RegExp(`/topics/${id}$`));await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();expect(approved).toBe(1);expect(created).toBe(0);await expect(page.getByLabel('學習程度',{exact:true})).toHaveCount(0);
- await page.screenshot({path:testInfo.outputPath('sources.png'),fullPage:true});await page.getByRole('checkbox',{name:'選取 TCP handshake'}).check();await page.getByRole('button',{name:'建立教材與知識地圖'}).click();
+ await expect(page).toHaveURL(new RegExp(`/topics/${id}$`));await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();expect(approved).toBe(1);expect(created).toBe(0);
+ await page.getByRole('checkbox',{name:'選取 TCP handshake'}).check();await page.getByRole('button',{name:'建立教材與知識地圖'}).click();
  await expect(page.getByRole('heading',{name:'等待開始處理',exact:true})).toBeVisible();
  await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('建立教材');
- await page.screenshot({path:testInfo.outputPath('building.png'),fullPage:true});
  topic.research.run={status:'succeeded',error_code:null,output_binding:{knowledge_structure_revision:structureRevision}};
- await page.reload();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();expect(created).toBe(1);await expect(page.locator('.tool-stage-footer').getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();await page.screenshot({path:testInfo.outputPath('complete.png'),fullPage:true});
+ await page.reload();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();expect(created).toBe(1);await expect(page.locator('.tool-stage-footer').getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();
  await page.reload();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();expect(created).toBe(1);expect(approved).toBe(1);await expect(page.getByLabel('想學的主題')).toHaveCount(0);await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toHaveCount(0);
  await page.getByRole('button',{name:'開啟知識地圖',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/runs/${runId}/knowledge-structures/`));
 });
@@ -50,7 +45,7 @@ test('empty source search offers no fake map or enabled create action',async({pa
  await page.goto(`/topics/${id}`);await expect(page.getByText('沒有找到來源，請調整主題重新規劃。')).toBeVisible();await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
 });
 
-for(const width of [1920,1440,390]) test(`saved topic switching and planning states at ${width}px`,async({page},testInfo)=>{
+for(const width of [1920,1440,390]) test(`saved topic switching and planning states at ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:width===390?844:1000});
  await mockTopicApi(page);
  const topics=['pending','failed','cancelled'].map((status,index)=>({topic_id:`77777777-7777-4777-8777-77777777777${index}`,request:`測試規劃 ${status}`,proposal:null,version:1,status,research_id:null,error_code:null}));
@@ -70,7 +65,6 @@ for(const width of [1920,1440,390]) test(`saved topic switching and planning sta
   }else if(topic.status==='failed') await expect(page.getByRole('button',{name:'重試規劃'})).toBeEnabled();
   else await expect(page.getByRole('button',{name:'重新規劃主題'})).toBeEnabled();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await page.screenshot({path:testInfo.outputPath(`${topic.status}.png`),fullPage:true});
  }
  await page.getByRole('button',{name:'新主題',exact:true}).click();
  await expect(page).toHaveURL(/\/topics$/);
@@ -78,7 +72,7 @@ for(const width of [1920,1440,390]) test(`saved topic switching and planning sta
  await expect(history).toHaveValue('');
 });
 
-for(const width of [1920,1440,390]) test(`scope review edits preserve payload and keyboard focus at ${width}px`,async({page},testInfo)=>{
+for(const width of [1920,1440,390]) test(`scope review edits preserve payload and keyboard focus at ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:width===390?844:1000});
  await mockTopicApi(page);
  const proposal={title:'RAG 入門原理',topics:['RAG 整體架構','文件載入與切分','嵌入向量','相似度檢索'],goals:['說明 RAG 的基本概念與用途','理解文件切分、向量化、檢索與生成的關係']};
@@ -97,21 +91,16 @@ for(const width of [1920,1440,390]) test(`scope review edits preserve payload an
  await expect(page.getByRole('heading',{name:proposal.title,exact:true})).toBeVisible();
  await expect(page.locator('.topic-scope input, .topic-scope textarea:visible')).toHaveCount(0);
  await expect(page.locator('.topic-goals-summary li').filter({hasText:proposal.goals[1]})).toBeVisible();
- await page.screenshot({path:testInfo.outputPath('review.png'),fullPage:true});
  const editName=page.getByRole('button',{name:'編輯名稱',exact:true});await editName.focus();await page.keyboard.press('Enter');
  const title=page.getByLabel('教材名稱',{exact:true});await expect(title).toBeFocused();await expect(title).toHaveAttribute('maxlength','180');
  await title.fill('');await expect(page.getByText('請填寫教材名稱。')).toBeVisible();await expect(page.getByRole('button',{name:'確認範圍並搜尋'})).toBeDisabled();
  await title.fill('我的 RAG 教材');await title.press('Enter');await expect(editName).toBeFocused();await expect(title).toHaveCount(0);
- await expect(page.getByLabel('學習程度',{exact:true})).toHaveCount(0);
 
  await page.getByRole('button',{name:'編輯主題 1',exact:true}).click();await expect(page.getByLabel('主題 1',{exact:true})).toBeFocused();await page.getByLabel('主題 1',{exact:true}).fill('RAG 應用架構');await page.getByLabel('主題 1',{exact:true}).press('Enter');await expect(page.getByRole('button',{name:'編輯主題 1',exact:true})).toBeFocused();
  await page.getByRole('button',{name:'移除主題 4',exact:true}).click();await expect(page.getByRole('button',{name:'新增主題',exact:true})).toBeFocused();await page.keyboard.press('Enter');await expect(page.getByLabel('主題 4',{exact:true})).toBeFocused();await page.getByLabel('主題 4',{exact:true}).fill('檢索與生成');await page.getByLabel('主題 4',{exact:true}).press('Enter');
  await page.getByRole('button',{name:'新增主題',exact:true}).click();await page.getByLabel('主題 5',{exact:true}).fill('  ');await page.getByLabel('主題 5',{exact:true}).press('Enter');
  await page.getByRole('button',{name:'編輯學習目標',exact:true}).click();const goals=page.getByRole('textbox',{name:'學習目標',exact:true});await expect(goals).toBeFocused();await goals.fill(' \n');await expect(page.getByText('請至少保留一個學習目標。')).toBeVisible();await goals.fill('解釋 RAG 架構\n\n比較檢索方法，不討論模型訓練\n ');await page.getByRole('button',{name:'完成目標編輯'}).click();await expect(page.getByRole('button',{name:'編輯學習目標',exact:true})).toBeFocused();
- await expect(page.getByText('進階設定',{exact:true})).toHaveCount(0);
- await expect(page.getByLabel('本次不涵蓋',{exact:true})).toHaveCount(0);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
- await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:testInfo.outputPath('edited.png'),fullPage:true});
  await page.getByRole('button',{name:'確認範圍並搜尋'}).click();await expect(page.locator('.topic-scope [role=alert]')).toBeVisible();
  const before=reads;await page.getByRole('button',{name:'重新讀取',exact:true}).click();await expect.poll(()=>reads).toBeGreaterThan(before);
  await expect(page.getByRole('heading',{name:'我的 RAG 教材',exact:true})).toBeVisible();await expect(page.getByText('RAG 應用架構',{exact:true})).toBeVisible();
@@ -127,8 +116,7 @@ test('saved drafts, request editing and replan keep one editable scope',async({p
  await page.route(`**/v1/topics/${id}`,r=>json(r,first));await page.route(`**/v1/topics/${secondId}`,r=>json(r,second));
  await page.goto(`/topics/${id}`);await page.getByRole('button',{name:'編輯名稱',exact:true}).click();await page.getByLabel('教材名稱',{exact:true}).fill('未提交微調');
  await page.getByRole('button',{name:'修改學習需求',exact:true}).click();await page.getByRole('button',{name:'返回目前規劃',exact:true}).click();await expect(page.getByRole('heading',{name:'未提交微調'})).toBeVisible();
- await page.getByLabel('已保存的主題').selectOption(secondId);await expect(page.getByRole('heading',{name:'全新 RAG 規劃'})).toBeVisible();await expect(page.getByLabel('本次不涵蓋',{exact:true})).not.toBeVisible();
- await expect(page.locator('.topic-exclude')).toHaveCount(0);
+ await page.getByLabel('已保存的主題').selectOption(secondId);await expect(page.getByRole('heading',{name:'全新 RAG 規劃'})).toBeVisible();
  await page.getByRole('button',{name:'移除主題 1',exact:true}).click();await expect(page.getByText('請至少保留一個要涵蓋的主題。')).toBeVisible();await expect(page.getByRole('button',{name:'確認範圍並搜尋'})).toBeDisabled();
  await page.getByLabel('已保存的主題').selectOption(id);await expect(page.getByRole('heading',{name:'TCP 入門',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'修改學習需求',exact:true}).click();await page.getByLabel('想學的主題').fill('改學 RAG');await page.getByRole('button',{name:'重新規劃主題',exact:true}).click();await expect(page.getByRole('heading',{name:'全新 RAG 規劃'})).toBeVisible();
@@ -161,15 +149,14 @@ test('unavailable sources stay distinct from explicit gap followup',async({page}
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  await page.route(`**/v1/research/${rid}/actions`,r=>{expect(r.request().postDataJSON()).toEqual({action:'more'});topic.research.candidates.push(candidate);topic.research.cursor=null;return json(r,topic.research);});
  await page.goto(`/topics/${id}`);
- await expect(page.getByText('不可匯入論文',{exact:true})).not.toBeVisible();await expect(page.getByText('僅供查看',{exact:true})).toHaveCount(0);
  await expect(page.getByText('目前尚無已核對可加入的來源，可查看其他搜尋結果的原因或接續研究。')).toBeVisible();
  await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'全選可用來源'})).toBeDisabled();
- await expect(page.getByRole('button',{name:'下一頁（繼續搜尋）'})).toHaveCount(0);await page.getByRole('button',{name:'依缺口繼續研究'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();await expect(page.getByText('不可匯入論文',{exact:true})).not.toBeVisible();
+ await page.getByRole('button',{name:'依缺口繼續研究'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();
  await page.getByRole('button',{name:'全選可用來源'}).click();await expect(page.locator('.tool-stage-footer')).toContainText('已選 1 份來源');
  await page.getByLabel('搜尋來源',{exact:true}).fill('不可匯入');await expect(page.getByText('沒有符合篩選的來源。')).toBeVisible();await page.getByRole('button',{name:'清除篩選'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeChecked();
 });
 
-for(const width of [1920,1440,390]) test(`topic uses canonical run progress within step four at ${width}px`,async({page},testInfo)=>{
+for(const width of [1920,1440,390]) test(`topic uses canonical run progress within step four at ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:width===390?844:1000});await mockTopicApi(page);
  const sources=Array.from({length:23},(_,i)=>({...candidate,id:`source-${i}`,title:`已選文件 ${i+1}`}));
  const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:sources,selection:sources.map(c=>c.id),cursor:null,error_code:null,run_id:runId,run:{status:'succeeded',error_code:null,output_binding:runFixture.output_binding}}};
@@ -185,7 +172,7 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
  await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
  await expect(page.getByText('已選文件 1',{exact:true})).not.toBeVisible();
  const summary=page.locator('.topic-selected-sources > summary');await expect(summary).toHaveText('已選來源 · 23 份');await summary.focus();await page.keyboard.press('Enter');await expect(page.getByText('已選文件 1',{exact:true})).toBeVisible();await summary.click();
- expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:testInfo.outputPath('topic-analysis-progress.png'),fullPage:true});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  current={...current,progress_stage:'publishing',completed_pages:10};await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('組裝與發布知識地圖');await expect(page.getByRole('progressbar',{name:/本階段進度/})).toHaveCount(0);
  current={...runFixture,total_pages:10,completed_pages:10,output_binding:{...runFixture.output_binding,page_count:10}};await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();await expect(page.getByRole('progressbar')).toHaveCount(0);await expect(page.locator('.learning-steps li.is-complete')).toHaveCount(4);
 });

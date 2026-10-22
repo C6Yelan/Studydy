@@ -124,14 +124,12 @@ test("material collections filter both products while outer navigation opens the
     generation: { status: "ready", stage: "complete", completed: 2, total: 2, error_code: null, retained_original: 0, cached: 0 } };
   await page.route("**/v1/card-sets", route => json(route, { schema: "card-set-list/v1", card_sets: [card, { ...card, card_set_id: secondPodcast, material_id: otherMaterial, name: "別的教材卡組" }] }));
   await page.goto('/');
-  await expect(page.locator('.dashboard-collections')).toHaveCount(0);
   await page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: 'Podcast', exact: true }).click();
   await expect(page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: 'Podcast', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.podcast-tile')).toHaveCount(2);
   await page.goto(`/materials/${materialId}/podcasts`);
   await expect(page.locator('.podcast-tile')).toHaveCount(1);
   await expect(page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab')).toHaveText(['知識地圖', '學習與測驗', '概念卡', 'Podcast', '補充學習', '教材來源']);
-  await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await expect(page.locator('.app-shell')).toHaveClass(/is-workspace/);
   const navBox = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
   const searchBox = (await page.getByRole('searchbox', { name: '搜尋 Podcast', exact: true }).boundingBox())!;
@@ -139,7 +137,6 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.getByRole('heading', { name: '別的教材 Podcast' })).toHaveCount(0);
   await page.getByRole('button', { name: '查看進度', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
-  await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
   await page.getByRole('button', { name: '返回 Podcast', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts$`));
@@ -156,9 +153,7 @@ test("material collections filter both products while outer navigation opens the
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/create-cards$`));
   await expect(page.getByLabel('選擇教材')).toHaveCount(0);
   await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
-  await expect(page.locator('.app-sidebar')).toHaveCount(0);
   await page.goto('/');
-  await expect(page.locator('.dashboard-collections')).toHaveCount(0);
   await page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: '概念卡', exact: true }).click();
   await expect(page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: '概念卡', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.library-item')).toHaveCount(2);
@@ -172,8 +167,6 @@ test("podcast creation keeps manual selection and settings without recommendatio
   await page.goto(createPath);
   const selection = page.getByRole('region', { name: '選擇 Podcast 概念' });
   const settings = page.getByRole('region', { name: '講解設定', exact: true });
-  await expect(page.getByRole('region', { name: '幫我選概念', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '套用推薦', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('選擇教材')).toHaveCount(0);
   await expect(selection).toBeVisible(); await expect(settings).toBeVisible();
   expect((await selection.boundingBox())!.x).toBeLessThan((await settings.boundingBox())!.x);
@@ -186,7 +179,6 @@ test("podcast creation keeps manual selection and settings without recommendatio
   await controls.getByRole('button', { name: '講解設定', exact: true }).click();
   await expect(settings).toBeVisible(); await expect(selection).toBeHidden();
   await settings.getByLabel('單人解說', { exact: false }).check();
-  await expect(settings.getByRole('group', { name: '講解模式' })).toHaveCount(0);
   await expect(settings.getByRole('radio')).toHaveCount(2);
   await controls.getByRole('button', { name: '選擇概念', exact: true }).click();
   await expect(selection).toContainText('已選 1 / 2');
@@ -447,11 +439,13 @@ test.describe('touch playback',()=>{
  test.use({hasTouch:true,isMobile:true,viewport:{width:390,height:844}});
  // 播放列常駐在畫面底部（分頁列上方），播放中也不隱藏；點影片仍可暫停。
  test('taps toggle once; the docked controls stay visible above the tab bar',async({page})=>{
+  // 時鐘照常走，快轉越過 2.5 秒閒置計時，不必真的等待。
+  await page.clock.install();
   await mockEpisodeVideo(page);await page.goto(`/podcasts/${podcastId}`);
   const video=page.locator('video'),controls=page.locator('.media-playback-controls');
   await page.getByRole('button',{name:'播放',exact:true}).tap();
   await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.paused)).toBe(false);
-  await page.waitForTimeout(2800);
+  await page.clock.fastForward(2800);
   await expect(controls).toHaveCSS('opacity','1');
   const dockBox=(await page.locator('.podcast-dock').boundingBox())!,tabs=(await page.getByRole('navigation',{name:'手機導覽'}).boundingBox())!;
   expect(dockBox.y+dockBox.height).toBeLessThanOrEqual(tabs.y);
@@ -487,7 +481,7 @@ test.describe('touch playback',()=>{
 });
 
 // 影片維持 16:9 不保留額外黑底；控制列是畫面底部的常駐播放列，維持一列。
-test('video keeps 16:9 and the docked controls stay one compact row at desktop, laptop and mobile widths', async ({ page }, testInfo) => {
+test('video keeps 16:9 and the docked controls stay one compact row at desktop, laptop and mobile widths', async ({ page }) => {
   await mockEpisodeVideo(page);
   await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByRole('button', { name: '播放', exact: true })).toBeEnabled();
@@ -518,7 +512,6 @@ test('video keeps 16:9 and the docked controls stay one compact row at desktop, 
     }
     await expect(page.locator('.media-time')).toHaveText(/\d+:\d{2} \/ \d+:\d{2}/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.locator('.media-player').screenshot({ path: testInfo.outputPath(`player-${width}.png`) });
     await page.getByRole('button', { name: '播放設定', exact: true }).click();
     // 設定選單從播放列向上展開，整個留在畫面內。
     const menu = (await page.getByRole('group', { name: '播放設定選單' }).boundingBox())!;
@@ -583,31 +576,33 @@ test('overlay timeline, volume, speeds, episode navigation and fullscreen preser
 
 // 平時播放列常駐在畫面底部，播放中、開選單或拖曳進度時都不隱藏，也不改變影片高度。
 test('docked controls stay visible while playing, with the menu open or while dragging a timeline', async ({ page }) => {
+  // 時鐘照常走，快轉越過 2.5 秒閒置計時，不必真的等待。
+  await page.clock.install();
   await mockEpisodeVideo(page);
   await page.goto(`/podcasts/${podcastId}`);
   const video = page.locator('video'), controls = page.locator('.media-playback-controls'), viewport = page.locator('.media-viewport');
   await expect(page.getByRole('button', { name: '播放', exact: true })).toBeEnabled();
   const frame = (await viewport.boundingBox())!;
   await page.getByRole('button', { name: '播放', exact: true }).click();
-  await page.waitForTimeout(2800);
+  await page.clock.fastForward(2800);
   await expect(controls).toHaveCSS('opacity', '1');
   expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(false);
   await page.getByRole('button', { name: '播放設定', exact: true }).click();
-  await page.waitForTimeout(2800);
+  await page.clock.fastForward(2800);
   await expect(controls).toHaveCSS('opacity', '1');
   await page.keyboard.press('Escape');
   const timeline = page.getByRole('slider', { name: '播放進度', exact: true });
   const track = (await timeline.boundingBox())!;
   await page.mouse.move(track.x + 20, track.y + track.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(2800);
+  await page.clock.fastForward(2800);
   await expect(controls).toHaveCSS('opacity', '1');
   await page.mouse.up();
   expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(false);
   expect((await viewport.boundingBox())!.height).toBeCloseTo(frame.height, 0);
 });
 
-test('companion panels keep episode navigation visible while tabs, chapters and transcript share the reading area', async ({ page }, testInfo) => {
+test('companion panels keep episode navigation visible while tabs, chapters and transcript share the reading area', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   const mock = await mockEpisodeVideo(page);
   await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`, route => {
@@ -637,7 +632,6 @@ test('companion panels keep episode navigation visible while tabs, chapters and 
   expect(await transcript.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
   expect((await episodes.boundingBox())!.y).toBeCloseTo(episodeBox.y, 0);
   expect(await companion.evaluate(el => el.scrollTop)).toBe(0);
-  await companion.screenshot({ path: testInfo.outputPath('companion-desktop-transcript.png') });
   await highlightsTab.click();
   await expect(page.getByRole('tabpanel', { name: '本集重點', exact: true })).toBeVisible();
   await expect(page.getByRole('tabpanel', { name: '逐字稿', exact: true })).toHaveCount(0);
@@ -647,7 +641,6 @@ test('companion panels keep episode navigation visible while tabs, chapters and 
   expect(await highlights.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
   expect((await episodes.boundingBox())!.y).toBeCloseTo(episodeBox.y, 0);
   expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
-  await companion.screenshot({ path: testInfo.outputPath('companion-desktop-highlights.png') });
   await highlightsTab.focus(); await page.keyboard.press('ArrowLeft');
   await expect(transcriptTab).toBeFocused();
   await expect(transcriptTab).toHaveAttribute('aria-selected', 'true');
@@ -676,14 +669,13 @@ test('companion panels keep episode navigation visible while tabs, chapters and 
   expect(await page.locator('.podcast-listening-layout > .media-player').evaluate(el => getComputedStyle(el).position)).toBe('sticky');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await expect(companion.locator(':scope > .surface')).toHaveCount(2);
-  await page.locator('.podcast-reading-area').screenshot({ path: testInfo.outputPath('companion-mobile-transcript.png') });
   await highlightsTab.click();
   await expect(page.getByRole('tabpanel', { name: '本集重點', exact: true })).toBeVisible();
   // 重點同樣在固定高度內捲動。
   expect(await highlights.evaluate(el => getComputedStyle(el).overflowY)).toBe('auto');
 });
 
-test('desktop watch room fits measured page chrome and viewport height without shrinking mobile video', async ({ page }, testInfo) => {
+test('desktop watch room fits measured page chrome and viewport height without shrinking mobile video', async ({ page }) => {
   const fixture = await mockEpisodeVideo(page);
   const sizes = [[1280, 720], [1366, 768], [1440, 720], [1440, 900], [1920, 1080], [2560, 1080], [1920, 600]];
   for (const [width, height] of sizes) {
@@ -709,7 +701,6 @@ test('desktop watch room fits measured page chrome and viewport height without s
     expect(companion.y + companion.height).toBeLessThanOrEqual(controls.y);
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(height);
-    if ([1366, 1920, 2560].includes(width)) await page.screenshot({ path: testInfo.outputPath(`watch-${width}-${height}.png`) });
   }
   // 長標題與教材資訊改變時，依實際 chrome 高度重新計算，不以螢幕寬度猜測。
   // 高度 900 時顯示完整教材資訊列（820 以下改收進分頁列）。

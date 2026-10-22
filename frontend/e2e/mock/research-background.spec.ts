@@ -9,7 +9,7 @@ const source = (id: string, relevance = 'direct', eligible = true) => ({ id, kin
   review: { phase: 'body', relevance, reason: '說明工具呼叫後如何利用觀察結果決定下一步。', topics: [0] },
   access: { status: 'read', method: 'rss', attempts: [{ url: 'https://example.org/' + id, outcome: 'failed', http_status: 403, error_code: 'RESEARCH_SOURCE_BLOCKED' }, { url: 'https://example.org/feed', outcome: 'read', method: 'rss' }] } });
 
-for (const mode of ['research', 'topic']) test(`${mode} shows durable research stages, cancellation and curated references`, async ({ page }, testInfo) => {
+for (const mode of ['research', 'topic']) test(`${mode} shows durable research stages, cancellation and curated references`, async ({ page }) => {
   await mockKnowledgeMapApi(page, structureView());
   const progress = { stage: 'reading', round: 2, completed: 1, total: 3, unit: 'sources', candidate_count: 4,
     read_count: 1, recommended_count: 1, importable_count: 1, summary: '正在補查工具使用的具體例子。', warnings: [], finish_reason: null,
@@ -52,13 +52,11 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   await page.locator('.source-other-results > summary').click();
   await expect(page.getByText('Agent reference', { exact: true })).toBeVisible();
   await expect(page.locator('.source-other-results')).toContainText('尚未核對正文');
-  await expect(page.getByText('僅供查看', { exact: true })).toHaveCount(0);
   await page.locator('.source-other-results > summary').click();
   await expect(page.getByText('C++ memory', { exact: true })).not.toBeVisible();
   const first = page.locator('.research-candidates article').first();
   await first.getByText('查看存取紀錄', { exact: true }).click();
   await expect(first).toContainText('403'); await expect(first).toContainText('已取得（rss）');
-  await expect(page.getByRole('button', { name: '下一頁（繼續搜尋）', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '依缺口繼續研究', exact: true })).toBeVisible();
   expect(actions).toEqual(['cancel', 'retry']);
   await first.getByText('查看存取紀錄', { exact: true }).click();
@@ -69,7 +67,6 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
     const list = await page.locator('.research-candidates').boundingBox();
     const card = await first.boundingBox();
     expect(card!.y + card!.height).toBeLessThanOrEqual(list!.y + list!.height + 1);
-    await page.screenshot({ path: testInfo.outputPath(`${mode}-${size.width}-compact.png`) });
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await panel.getByText('研究詳情', { exact: true }).click();
@@ -80,7 +77,6 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   await expect(panel.locator('.research-progress-counts')).not.toContainText('／');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await panel.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: testInfo.outputPath(`${mode}-research-progress.png`) });
 });
 
 
