@@ -170,8 +170,8 @@ jobs:
           PY
 
   full:
-    # 暫時讓此分支 push 驗證 full；驗證完成後移除最後一個條件。
-    if: >-
+    # 暫時讓此分支 push 驗證 full 與 mock-browser；驗證完成後移除最後一個條件。
+    if: &extended-tests >-
       github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
       (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) ||
       (github.event_name == 'push' && github.ref == 'refs/heads/be/decouple-imports')
@@ -190,7 +190,7 @@ jobs:
           persist-credentials: false
       - name: Allow Bubblewrap user namespaces on the CI host
         # Native host Bubblewrap needs user namespaces; retain this host-only setting
-        # until full passes and the requested comparison without it establishes necessity.
+        # until all three jobs pass and the comparison without it establishes necessity.
         # No container or product sandbox setting is changed.
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
@@ -269,11 +269,53 @@ jobs:
           if skipped:
               raise SystemExit(f'CI requires every collected test to run: {len(skipped)} skipped')
           PY
+      - name: Publish failure details as public annotations
+        if: failure()
+        run: *failure-details
+      - name: Diagnose runner host
+        if: failure()
+        run: *failure-host-diagnostics
+
+  mock-browser:
+    if: *extended-tests
+    needs: quick
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      STUDYDY_E2E_FRONTEND_DIST: ${{ github.workspace }}/.studydy-runtime/test-frontend
+      STUDYDY_E2E_FRONTEND_PORT: '4390'
+      STUDYDY_E2E_API_PORT: '8209'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install locked browser harness environment
+        run: |
+          uv python install 3.12.14
+          uv sync --project backend --locked --no-dev --python 3.12.14
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend and install Chromium
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run build -- --outDir "$STUDYDY_E2E_FRONTEND_DIST" --emptyOutDir
+          cd frontend
+          npx playwright install --with-deps chromium
       - name: All mock browser specs
+        # This is the whole-suite process budget, not Playwright's test or expect timeout.
+        # Existing 30s test / 10s expect / zero retries / one worker remain unchanged.
         run: |
           PYTHONPATH=backend/tests/runtime backend/.venv/bin/python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/studydy-mock-browser.log"
           from browser_e2e_runner import main
-          raise SystemExit(main('e2e/mock/', timeout_seconds=600))
+          raise SystemExit(main('e2e/mock/', timeout_seconds=1800))
           PY
       - name: Publish failure details as public annotations
         if: failure()
