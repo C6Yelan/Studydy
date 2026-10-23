@@ -29,7 +29,8 @@ chmod 600 .env
 | STUDYDY_PORT／STUDYDY_PUBLIC_ORIGIN | 對外 port 與完整 origin，預設 4173／http://127.0.0.1:4173 |
 | STUDYDY_SECURE_COOKIE | 本機 HTTP 用 false，HTTPS 用 true |
 | STUDYDY_DATA_DIR | 持久資料根目錄，預設 ./data |
-| STUDYDY_UID／STUDYDY_GID | 資料 owner，預設 1000 |
+| STUDYDY_UID／STUDYDY_GID | 主機資料管理者與 bridge／tunnel／下載工具身分，預設 1000；GID 維持 1000 |
+| STUDYDY_BACKEND_UID | 後端與 OCR 子程序的專用 UID，預設 20001 |
 | POSTGRES_DB／POSTGRES_USER／POSTGRES_PASSWORD | 本部署資料庫與認證 |
 | STUDYDY_SEMANTIC_BASE_URL | 模型 origin，不含 /v1、帳密、query 或 fragment |
 | VLLM_API_KEY | 選用模型 Bearer token；空值不送 Authorization |
@@ -220,3 +221,11 @@ F5 共用本機 Whisper，對齊原講稿與實際 WAV 的詞時間點；拼音�
 末集播放結束（即使關閉自動接續）及手動入口都能進入原 revision 的既有 Assessment。使用 canonical study session 與 focus API，不新增 Podcast 題組或 mastery。已完成 session 僅開啟該概念已有的題組；沒有題組時引導回原版本地圖，不重新開啟完成狀態。播放、seek、聽完及 Voice 問答皆不產生 mastery 作答事件。
 
 30fps 只供 benchmark 輸入使用；正式 bundle 仍要求 1080p60。benchmark 結論及重跑命令見 [測試](testing.md)。原教材圖片／page-region asset、3D、生成影片與模型 executable code 均不在此版本範圍。
+
+## 後端專用 UID
+
+後端與 OCR 子程序使用 `STUDYDY_BACKEND_UID`，與主機開發工作分開計算 NPROC。`STUDYDY_UID/GID` 保留給資料管理者及低執行緒的 bridge、tunnel、下載工具；Podcast user service 亦維持原主機身分，與 backend 透過 HTTP JSON／bytes/base64 交接，不直接共用 artifacts。
+
+首次啟動前，若 `STUDYDY_DATA_DIR` 不存在，先由 `STUDYDY_UID/GID` 對應的主機管理者建立為0700；既有目錄不重設 owner／mode，不依賴 Docker 自動建立 root-owned bind source。init 不重設既有資料根、模型或 PostgreSQL 目錄的權限，只設定 artifacts 根為後端 UID、0700。既有 artifact 子樹須依核定部署步驟另行遷移 owner，不能以 init 代替遞迴遷移。檔案仍保留原0600／0400模式；jerry 必須使用 API 或服務 UID 的受控命令存取，GID1000不授予直接讀寫。
+
+正式版模型維持原 owner、內容及唯讀掛載，部署時只授後端 UID 必要的目錄穿越／讀取 ACL；init 不應清除既有 ACL。模型新增或重下載後須重新核對此讀取權限。不要更動 PostgreSQL 的999身分、共用開發 `.venv` 或主機分析資料。

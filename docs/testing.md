@@ -45,7 +45,13 @@ docker compose -p studydy-unit-tests -f compose.test.yaml run --build --rm unit
 
 容器不掛載產品資料，不需要 GPU 或模型。前端映像建置包含 Node tests、TypeScript 與 production build。
 
-完整後端映像從固定的 [Ubuntu snapshot](https://snapshot.ubuntu.com/) 安裝轉檔套件，避免一般套件站移除已鎖定的 LibreOffice 版本後無法重建。快照日期見 `ops/docker/backend.Dockerfile`；更新它與轉檔版本時須重新驗證實際輸出及來源 mapping。
+完整後端映像從固定的 [Ubuntu snapshot](https://snapshot.ubuntu.com/) 安裝轉檔套件，避免一般套件站移除已鎖定的 LibreOffice 版本後無法重建。轉檔套件維持已驗證的舊快照，CA／libxml2／libcurl 則從獨立安全快照安裝明確版本，避免安全更新連帶更換 LibreOffice／Bubblewrap。兩個快照日期與套件版本見 `ops/docker/backend.Dockerfile`；調整後須重新驗證實際版本、轉檔輸出及來源 mapping。
+
+後端使用 CPython 3.12.15。正式 lxml 6.1.3 wheel 仍內含舊 libxml2，因此暫時以 lock 中的 sdist／SHA-256 自行建置，動態連結 Ubuntu 的 `libxml2-16`／`libxslt1.1`（後者也提供 libexslt）。編譯用的 `libxml2-dev`／`libxslt1-dev` 與執行階段套件固定於同一安全快照版本；安全修補由 Ubuntu 套件的 backport 提供，之後更新安全快照與套件定版並重建映像即可套用，不能只用上游版號判斷是否已修補。
+
+生成的 wheel 保留於 `/opt/studydy/lxml`，完整、test 與 app-only 建置都使用同一份。`backend-app.Dockerfile` 必須以包含此 wheel 與對應系統庫的新完整 runtime 為基底。驗證時核對 `lxml.etree.LIBXML_VERSION`、`LIBXSLT_VERSION`、`LIBXML_COMPILED_VERSION` 與 `ldd`，確認 extension 動態連結系統庫。上游正式 wheel 內含 libxml2 ≥2.15.4 時，刪除 `lxml-build` 階段、自建 wheel 複製，以及 dependencies、test、app-only 三處 `--no-install-package lxml`／wheel 安裝，恢復一般 locked sync。
+
+CA 驗收依 [USN-8944-1](https://ubuntu.com/security/notices/USN-8944-1) 與 certifi 公告的官方修補範圍，確認 `emSign ECC Root CA - G3` 已移除；其他 G1／C1／C3 根仍可能保留，不額外變更上游信任政策。OCR 的 certifi 在 Dockerfile 明確固定為 2026.10.19。cloudflared 2026.10.3 使用 Go 1.27.3 的受損憑證拒絕修補，不能以此宣稱其系統信任庫已移除全部 emSign 根。
 
 測試容器的 tmpfs 提供 3 GiB 容量與執行權限，讓短片實際編碼及合成子程序取消測試能執行，保留 renderer 的空間檢查。
 
@@ -72,7 +78,7 @@ PYTHONPATH=local_ai/src backend/.venv/bin/pytest -q local_ai/tests
 
 ## Runtime 與瀏覽器
 
-Runtime 按 accounts、assessments、infrastructure、materials、sources、study 分類。fixture 預設建立 disposable PostgreSQL 18，每個案例使用獨立 DB 與 artifact root；禁止接產品 DB。
+Runtime 按 accounts、assessments、infrastructure、materials、sources、study 分類。fixture 預設建立與 Compose 相同固定映像的 disposable PostgreSQL 18.6，每個案例使用獨立 DB 與 artifact root；禁止接產品 DB。
 
 如需指定資料庫，STUDYDY_TEST_POSTGRES_DSN 只接受本機、名稱以 studydy_test 開頭的專用 control database，並核對版本及 superuser 權限。
 
@@ -537,3 +543,9 @@ PYTHONPATH=backend/src:backend/tests:local_ai/src .studydy-runtime/research-venv
 生態完整流程讀到六篇可用來源，含一篇 HTML，64 次請求後曾判四個子題已涵蓋；最後規則對相同證據重核的五次請求則保留乾旱子題為部分涵蓋，指出森林再萌發與恢復停滯條件仍有限。因此不把單次模型涵蓋判定當成穩定滿分。六篇的已選引用皆經實際 PDF 頁碼／區塊定位通過，個案、綜述與不同恢復指標的限制仍保留。原始結果與對照只存本機 `research-quality-*` 部署證據，不加入 Git／CI。
 
 AI Agent 同四個子題的完整回歸取得六篇正文，103 次請求後判為涵蓋；六篇全部通過已選引用的頁碼／區塊定位。結果保留信心失準、反思可能增加錯誤信心，以及任務／基準限制，不宣稱通用信心門檻。上述兩個完整流程、受控案例與重核、兩篇補回來源的閱讀合計 207 次 Luna 請求，皆完成；這是本輪這些驗證的實際次數，耗時或請求數不是品質分數。搜尋與模型輸出具有變動，不能只用涵蓋數差異推定單一改動的效果。
+
+## 專用 UID 的隔離驗證
+
+以獨立 Compose project 與暫存資料驗證 `STUDYDY_BACKEND_UID=20001`：新 artifact 由後端擁有且維持私有權限，init 不重設既有資料根／PostgreSQL／模型目錄。假模型只授目錄穿越與檔案讀取 ACL，重跑 init 後仍須有效；不讀真模型或真金鑰。bridge 的假金鑰依其保留的1000身分驗證。
+
+jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控命令驗證讀取，不放寬0700／0400斷言。沿用原NPROC1024、容器pids512及所有隔離參數；最小namespace探針不增加UID1000負載，也不調高限制。現有單元與runtime套件仍按原範圍執行。

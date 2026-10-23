@@ -15,8 +15,8 @@ import pytest
 from runtime.storage.migrations import DEFAULT_MIGRATIONS_DIR
 
 POSTGRES_IMAGE = (
-    "postgres:18.4-bookworm@"
-    "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382"
+    "postgres:18.6-bookworm@"
+    "sha256:bbf83594798e144bff365a9c191c5d779f181fb3135902064ab8ff11918020fc"
 )
 TEST_POSTGRES_DSN_ENVIRONMENT = "STUDYDY_TEST_POSTGRES_DSN"
 
