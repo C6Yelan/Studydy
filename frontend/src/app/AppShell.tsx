@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import { writeRoute, type AppRoute } from "./routes";
 import { RouteLink } from "../ui/RouteLink";
 import { Icon, type IconName } from "../ui/Icon";
@@ -48,8 +49,21 @@ export function AppShell({
   // 從全站「概念卡」「Podcast」直接開啟（沒有 materialId）的頁面仍屬全站。
   const isMaterialWorkspace = isLearningWorkspace && "materialId" in route && !!route.materialId && accountAction !== undefined;
   const section = currentSection(route);
+  // 同一教材內切換分頁時，新頁面讀完資料才畫出教材頁首；這段空檔（最多 3 秒）也不顯示全站頁首，避免閃一下。
+  // 從教材外進入時不套用，讀取中仍保留全站導覽。
+  const materialId = isMaterialWorkspace && "materialId" in route ? route.materialId ?? null : null;
+  const previousMaterial = useRef<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+  useLayoutEffect(() => {
+    const sameMaterial = materialId !== null && previousMaterial.current === materialId;
+    previousMaterial.current = materialId;
+    setSwitching(sameMaterial);
+    if (!sameMaterial) return;
+    const timer = window.setTimeout(() => setSwitching(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [route, materialId]);
   return (
-    <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}${isMaterialWorkspace ? " is-material" : ""}${wideRoutes.includes(route.name) ? " is-wide" : ""}${route.name === "home" ? " is-home" : ""}${route.name === "achievements" ? " is-achievements" : ""}`}>
+    <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}${isMaterialWorkspace ? " is-material" : ""}${switching ? " is-switching-tab" : ""}${wideRoutes.includes(route.name) ? " is-wide" : ""}${route.name === "home" ? " is-home" : ""}${route.name === "achievements" ? " is-achievements" : ""}`}>
       {/* 教材內不顯示頁首進度，但升級與徽章動畫仍要能出現。 */}
       {isMaterialWorkspace && <div className="material-shell-status">{status}</div>}
       <header className="app-header">

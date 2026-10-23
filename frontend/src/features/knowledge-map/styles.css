@@ -1149,15 +1149,12 @@
   }
 }
 
-/* 學習導覽按鈕下方的位置提示：目前區域＋回到全部區域。 */
+/* 學習導覽按鈕下方的位置提示：目前所在區域。 */
 .map-whereabouts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 10px;
+  width: fit-content;
   max-width: min(360px, 100%);
   margin: 8px 0 0;
-  padding: 6px 6px 6px 14px;
+  padding: 8px 14px;
   border-radius: 18px;
   background: var(--surface);
   box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
@@ -1168,11 +1165,6 @@
 .map-whereabouts b {
   color: var(--text-primary);
   overflow-wrap: anywhere;
-}
-.map-whereabouts .text-button {
-  min-height: 30px;
-  padding: 0 8px;
-  font-size: 12px;
 }
 @media (max-width: 720px) {
   .map-whereabouts { max-width: min(220px, 100%); }

@@ -824,14 +824,9 @@ function MapGraph({
               }}
             />
           </div>
-          {/* 地圖一次只畫目前概念附近兩層；標出所在區域，並提供回到全部區域清單的入口。 */}
+          {/* 地圖一次只畫目前概念附近兩層；標出所在區域，全部區域清單從「學習導覽」開啟。 */}
           {!navigatorOpen && regions && regions.regions.length > 1 && (
-            <p className="map-whereabouts">
-              <span>目前在 {whereabouts(regions, selected.concept_id)}</span>
-              <button className="text-button" type="button" onClick={() => setNavigatorOpen(true)}>
-                看全部 {regionCountText(regions)}
-              </button>
-            </p>
+            <p className="map-whereabouts">目前在 {whereabouts(regions, selected.concept_id)}</p>
           )}
         </div>
         <div className="map-annotations">

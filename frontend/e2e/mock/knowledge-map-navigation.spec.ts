@@ -357,7 +357,7 @@ for (const width of [1536, 390])
     await page.goto(mapPath);
     await expect(page.getByLabel("地圖摘要")).toContainText("30章節");
     await expect(page.locator(".map-whereabouts")).toContainText("目前在 01_從生成到推論 › 章節 1");
-    await page.locator(".map-whereabouts").getByRole("button", { name: "看全部 3 個島群・30 個章節" }).click();
+    await page.getByRole("button", { name: "學習導覽" }).click();
     const nav = page.getByRole("navigation", { name: "學習導覽" });
     await expect(nav.getByRole("heading", { level: 3 })).toHaveText([
       "01_從生成到推論10 章 · 30 個",

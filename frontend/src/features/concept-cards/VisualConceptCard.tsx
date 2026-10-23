@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ConceptCard, ConceptCardContext } from "../../api/contracts";
 type ArtworkModule = typeof import("./ConceptCardArtwork");
 let cachedArtwork: ArtworkModule | null = null;
@@ -17,20 +17,27 @@ export function useConceptArtwork() {
   return { artworkModule, loadFailed };
 }
 
-export function VisualConceptCard({ card, structure, pageIndex, cacheOwner }: {
-  card: ConceptCard; structure: ConceptCardContext; pageIndex?: number; cacheOwner: object;
+// sources：卡面下方與「下載 PNG」同一列、靠左顯示的來源連結。
+export function VisualConceptCard({ card, structure, pageIndex, cacheOwner, sources }: {
+  card: ConceptCard; structure: ConceptCardContext; pageIndex?: number; cacheOwner: object; sources?: ReactNode;
 }) {
   const { artworkModule, loadFailed } = useConceptArtwork();
   const pages = useMemo(() => artworkModule?.conceptCardPages(card, structure) ?? [], [artworkModule, card, structure]);
-  if (!artworkModule) return <div className="visual-card"><p role="status">{loadFailed ? "圖卡載入失敗，重新整理後再試。仍可查看下方完整重點。" : "正在載入圖卡…"}</p><div className="visual-card-actions"><button className="secondary-button" disabled>下載 PNG</button></div></div>;
+  if (!artworkModule) return <div className="visual-card"><p role="status">{loadFailed ? "圖卡載入失敗，重新整理後再試。仍可查看下方完整重點。" : "正在載入圖卡…"}</p><div className="visual-card-actions">{sources}<DownloadButton disabled /></div></div>;
   // 預覽直接列出此觀念的所有圖；複習時由卡組的單一導覽控制目前頁。
   return <>{(pageIndex === undefined ? pages.map((_, i) => i) : [pageIndex]).map(index =>
-    <CardImage key={index} card={card} structure={structure} cacheOwner={cacheOwner} artworkModule={artworkModule} pages={pages} pageIndex={index} />
+    <CardImage key={index} card={card} structure={structure} cacheOwner={cacheOwner} artworkModule={artworkModule} pages={pages} pageIndex={index} sources={sources} />
   )}</>;
 }
 
-function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageIndex }: {
-  card: ConceptCard; structure: ConceptCardContext; cacheOwner: object;
+function DownloadButton({ disabled, downloading = false, onClick }: { disabled: boolean; downloading?: boolean; onClick?: () => void }) {
+  return <button type="button" className="secondary-button visual-card-download" disabled={disabled} onClick={onClick}>
+    {downloading ? "正在下載…" : "下載 PNG"}
+  </button>;
+}
+
+function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageIndex, sources }: {
+  card: ConceptCard; structure: ConceptCardContext; cacheOwner: object; sources?: ReactNode;
   artworkModule: ArtworkModule; pages: ReturnType<ArtworkModule["conceptCardPages"]>; pageIndex: number;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -89,7 +96,8 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
         : <p role="status">正在繪製圖卡…</p>}
     </div>}
     <div className="visual-card-actions">
-      <button type="button" className="secondary-button" disabled={!ready || downloading} onClick={() => void download()}>{downloading ? "正在下載…" : "下載 PNG"}</button>
+      {sources}
+      <DownloadButton disabled={!ready || downloading} downloading={downloading} onClick={() => void download()} />
     </div>
     {downloadFailed && <p className="form-error" role="alert">PNG 下載失敗，請再試一次。</p>}
   </div>;

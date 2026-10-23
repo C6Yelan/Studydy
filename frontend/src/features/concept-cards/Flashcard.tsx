@@ -25,9 +25,9 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
     .flatMap(id => { const evidence = cardSourceIndex(structure).evidence.get(id); return evidence ? [evidence] : []; }) : [];
   return (
     <div className="concept-card">
-      <VisualConceptCard card={card} structure={structure} pageIndex={pageIndex} cacheOwner={apiClient} />
-      {designed && <div className="flashcard-source-links" aria-label="本張卡面來源">{sourceLinks(pageEvidence).map(evidence =>
-        <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`本張引用 · 第 ${evidence.normalized_page ?? evidence.page} 頁`} />)}</div>}
+      <VisualConceptCard card={card} structure={structure} pageIndex={pageIndex} cacheOwner={apiClient}
+        sources={designed && <div className="flashcard-source-links" aria-label="本張卡面來源">{sourceLinks(pageEvidence).map(evidence =>
+          <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`本張引用 · 第 ${evidence.normalized_page ?? evidence.page} 頁`} />)}</div>} />
       <details className="concept-card-details">
         <summary>完整重點與來源</summary>
         <div className="flashcard">

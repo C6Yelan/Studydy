@@ -122,11 +122,13 @@
 .visual-concept-card[hidden] { display: none; }
 .visual-concept-card { display: block; width: 100%; height: auto; object-fit: contain; }
 .concept-card-placeholder { aspect-ratio: 1200 / 760; display: grid; place-content: center; text-align: center; }
-.visual-card-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 12px; }
+/* 卡面下方一列：左側本張引用、右側較小的「下載 PNG」；放不下時下載按鈕換到下一列靠右。 */
+.visual-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+.visual-card-actions > .flashcard-source-links { flex: 1 1 260px; min-width: 0; }
+.visual-card-download { min-height: 36px; margin-left: auto; padding: 0 14px; font-size: 13px; }
 
 @media (max-width: 720px) {
-  .visual-card-actions { justify-content: flex-start; gap: 8px; }
-  .visual-card-actions button { min-height: 44px; padding-inline: 12px; }
+  .visual-card-download { min-height: 44px; padding-inline: 12px; }
 }
 
 .concept-card { min-width: 0; }

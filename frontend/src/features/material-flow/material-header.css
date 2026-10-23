@@ -14,7 +14,9 @@
 }
 /* 教材頁首出現後隱藏全站頁首與手機底部導覽（讀取中仍保留，方便離開）。 */
 .app-shell.is-material:has(.material-header) > .app-header,
-.app-shell.is-material:has(.material-header) > .tab-bar {
+.app-shell.is-material:has(.material-header) > .tab-bar,
+.app-shell.is-material.is-switching-tab > .app-header,
+.app-shell.is-material.is-switching-tab > .tab-bar {
   display: none;
 }
 /* 頁首進度不顯示，升級與徽章動畫（固定定位的彈窗）照常出現。 */
