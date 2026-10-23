@@ -108,6 +108,26 @@ function SourceDetail({ candidate: c, showAcquisitionDetails, onClose }: { candi
   </dialog>;
 }
 
+// 搜尋時找到、但不能加入教材的項目依原因分組；放在「研究詳情」裡，不佔選取來源的主畫面。
+export function OtherResults({ candidates }: { candidates: Candidate[] }) {
+  const otherResults = candidates.filter(c => !c.duplicate_of && !c.eligible);
+  if (!otherResults.length) return null;
+  return <details className="source-review source-other-results">
+      <summary>未列入可選的搜尋結果 · {otherResults.length} 份</summary>
+      <p>搜尋時找到、但目前不能加入教材的項目。選取清單只列已核對正文、可以加入的來源。</p>
+      {otherResultGroups.map(group => {
+        const items = otherResults.filter(c => otherResultGroup(c) === group);
+        return items.length > 0 && <section key={group} aria-label={group}>
+          <h4>{group} · {items.length} 份</h4>
+          <ul>{items.map(c => <li key={c.id}>
+            <strong>{c.title}</strong><p>{unavailableStatus(c)} · {c.screening?.basis === 'importability' || c.access?.fulltext_unavailable || c.source_type_review ? c.reason : c.screening?.reason ?? '本輪尚未閱讀這份來源，未判定其內容是否可用。'}</p>
+            <a href={/^https?:\/\//.test(c.url) ? c.url : undefined} target="_blank" rel="noreferrer">{sourceHost(c.url) || '原始來源'} ↗</a>
+          </li>)}</ul>
+        </section>;
+      })}
+  </details>;
+}
+
 export function SourceCandidates({ candidates, selected, disabled, onChange, readOnly = false, search, inlineSearch = false, showAcquisitionDetails = true, compact = false }: {
   candidates: Candidate[]; selected: string[]; disabled: boolean; compact?: boolean;
   onChange: (ids: string[]) => void; readOnly?: boolean; inlineSearch?: boolean; showAcquisitionDetails?: boolean; search?: { value: string; onChange: (value: string) => void };
@@ -126,7 +146,6 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
   const partiallySelected = !allSelected && eligible.some(candidate => selected.includes(candidate.id));
   useEffect(() => { if (selectAll.current) selectAll.current.indeterminate = partiallySelected; }, [partiallySelected, readOnly]);
   const available = readOnly ? candidates : candidates.filter(c => !c.duplicate_of && c.eligible);
-  const otherResults = candidates.filter(c => !c.duplicate_of && !c.eligible);
   const visible = available.filter(c =>
     (kind === 'all' || c.kind === kind) && (readOnly || !onlySelected || selected.includes(c.id)) &&
     `${c.title} ${c.authors}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
@@ -177,7 +196,7 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
           {(c.review || c.access?.attempts.length || showAcquisitionDetails) && <button type="button" className="text-button source-detail-open" aria-haspopup="dialog" onClick={() => setDetail(c)}>詳細資訊<Icon name="chevron-right" size={14} /></button>}
         </div>
       </article>; })}
-      {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前尚無已核對可加入的來源，可查看未列入的搜尋結果原因或接續研究。</p>}
+      {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前尚無已核對可加入的來源，可在「研究詳情」查看未列入的原因，或接續研究。</p>}
       {!visible.length && available.length > 0 && <p className="source-picker-empty">{onlySelected ? '目前沒有符合篩選的已選來源。' : '沒有符合篩選的來源。'}<button className="text-button" onClick={() => { setQuery(''); setKind('all'); setOnlySelected(false); }}>清除篩選</button></p>}
     </div>
     {pageCount > 1 && <nav className="source-pagination" aria-label="來源分頁">
@@ -191,20 +210,6 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
         <button type="button" className="text-button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>下一頁</button>
       </div>
     </nav>}
-    {!readOnly && otherResults.length > 0 && <details className="source-review source-other-results">
-      <summary>未列入可選的搜尋結果 · {otherResults.length} 份</summary>
-      <p>搜尋時找到、但目前不能加入教材的項目。上方只列已核對正文、可以加入的來源。</p>
-      {otherResultGroups.map(group => {
-        const items = otherResults.filter(c => otherResultGroup(c) === group);
-        return items.length > 0 && <section key={group} aria-label={group}>
-          <h4>{group} · {items.length} 份</h4>
-          <ul>{items.map(c => <li key={c.id}>
-            <strong>{c.title}</strong><p>{unavailableStatus(c)} · {c.screening?.basis === 'importability' || c.access?.fulltext_unavailable || c.source_type_review ? c.reason : c.screening?.reason ?? '本輪尚未閱讀這份來源，未判定其內容是否可用。'}</p>
-            <a href={/^https?:\/\//.test(c.url) ? c.url : undefined} target="_blank" rel="noreferrer">{sourceHost(c.url) || '原始來源'} ↗</a>
-          </li>)}</ul>
-        </section>;
-      })}
-    </details>}
     {detail && <SourceDetail candidate={detail} showAcquisitionDetails={showAcquisitionDetails} onClose={() => setDetail(null)} />}
   </div>;
 }

@@ -115,7 +115,7 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
           : { name: 'material-run', materialId, runId: view.run_id! }); }}>{publishedRevision ? '查看補充教材' : '查看教材分析'}<Icon name="chevron-right" size={16} /></button>}
         {['succeeded','partial'].includes(view.run?.status ?? '') && view.candidates.some(c => view.selection.includes(c.id) && c.state === 'failed') && <button className="secondary-button" disabled={busy} onClick={() => void perform('retry')}>重試未完成來源</button>}
       </div>}
-      {view.progress && stage !== 2 && <ResearchProgress progress={view.progress} running={view.status === 'searching'} />}
+      {view.progress && stage !== 2 && <ResearchProgress progress={view.progress} running={view.status === 'searching'} others={readOnly ? undefined : view.candidates} />}
       {!view.progress && stage === 0 && view.status === 'searching' && <div className="tool-wait" role="status"><span className="loading-ring" /><p>正在尋找補充資料，搜尋結果會保存在這筆紀錄。</p></div>}
       {stage === 2 && canConfirm && <div className="tool-selection-heading"><h4>確認加入的來源 · {acquiredCount} 份</h4><button className="text-button" disabled={busy} onClick={() => navigate(1)}>調整來源</button></div>}
       {stage === 2 && submitted && <h4 className="tool-section-label">{completed ? '已加入的來源' : '已送出的來源'} · {acquiredCount} 份</h4>}

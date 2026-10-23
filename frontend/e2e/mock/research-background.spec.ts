@@ -49,10 +49,14 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   await expect(page.locator('.research-candidates article')).toHaveCount(1);
   await expect(page.getByRole('checkbox', { name: '選取 Agent reference', exact: true })).toHaveCount(0);
   await expect(page.getByText('Agent reference', { exact: true })).not.toBeVisible();
-  await page.locator('.source-other-results > summary').click();
+  // 未列入的搜尋結果只在「研究詳情」裡，不在選取清單下方。
+  await expect(page.locator('.source-picker .source-other-results')).toHaveCount(0);
+  await panel.getByText('研究詳情', { exact: true }).click();
+  await panel.locator('.source-other-results > summary').click();
   await expect(page.getByText('Agent reference', { exact: true })).toBeVisible();
-  await expect(page.locator('.source-other-results')).toContainText('尚未核對正文');
-  await page.locator('.source-other-results > summary').click();
+  await expect(panel.locator('.source-other-results')).toContainText('尚未核對正文');
+  await panel.locator('.source-other-results > summary').click();
+  await panel.getByText('研究詳情', { exact: true }).click();
   await expect(page.getByText('C++ memory', { exact: true })).not.toBeVisible();
   const first = page.locator('.research-candidates article').first();
   // 存取紀錄等細節集中在「詳細資訊」面板，卡片本身不展開。

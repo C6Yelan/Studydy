@@ -146,7 +146,7 @@ test('unavailable sources stay distinct from explicit gap followup',async({page}
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  await page.route(`**/v1/research/${rid}/actions`,r=>{expect(r.request().postDataJSON()).toEqual({action:'more'});topic.research.candidates.push(candidate);topic.research.cursor=null;return json(r,topic.research);});
  await page.goto(`/topics/${id}`);
- await expect(page.getByText('目前尚無已核對可加入的來源，可查看未列入的搜尋結果原因或接續研究。')).toBeVisible();
+ await expect(page.getByText('目前尚無已核對可加入的來源，可在「研究詳情」查看未列入的原因，或接續研究。')).toBeVisible();
  await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'全選可用來源'})).toBeDisabled();
  await page.getByRole('button',{name:'依缺口繼續研究'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();
  await page.getByRole('button',{name:'全選可用來源'}).click();await expect(page.locator('.tool-stage-footer')).toContainText('已選 1 份來源');

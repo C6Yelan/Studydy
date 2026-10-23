@@ -145,6 +145,9 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .research-progress-details > ol li.is-done > span { background:var(--success); color:#fff; }
 .research-progress-details > ol li[aria-current="step"] > span { background:var(--studydy-blue); color:#fff; }
 .research-progress-counts { font-weight:700; }
+.research-progress .source-other-results { margin-top:6px; }
+.research-progress .source-other-results ul { max-height:none; overflow:visible; padding:0; }
+.research-progress .source-other-results li { background:var(--surface); }
 @media(max-width:700px) { .research-progress-details > ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:10px; } }
 
 /* ── 補充學習分頁（查詢列表） ── */

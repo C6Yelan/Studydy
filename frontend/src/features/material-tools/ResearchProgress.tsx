@@ -1,5 +1,6 @@
 import './research.css';
 import type { ResearchProgress as Progress } from './research';
+import { OtherResults, type Candidate } from './SourceCandidates';
 
 const stages = ['需求拆解', '收集來源與摘要', '摘要初篩', '重點閱讀與核對', '整理與缺口檢查'];
 const index: Record<string, number> = { planning: 0, searching: 1, collecting: 1, screening: 2, reading: 3, locating: 3, assessing: 3, following_up: 4, organizing: 4, complete: 4 };
@@ -9,7 +10,7 @@ const actions: Record<string, string> = {
   following_up: '正在檢查涵蓋程度，規劃缺口的下一輪查找', organizing: '正在去重、排序並整理來源用途',
 };
 
-export function ResearchProgress({ progress, running }: { progress: Progress; running: boolean }) {
+export function ResearchProgress({ progress, running, others }: { progress: Progress; running: boolean; others?: Candidate[] }) {
   const current = index[progress.stage] ?? 0;
   const uncovered = progress.topics.filter(topic => ['partial', 'missing'].includes(topic.status));
   const mainGaps = [...new Set(uncovered.map(topic => topic.topic.split(/[：:]/, 1)[0]))];
@@ -25,10 +26,11 @@ export function ResearchProgress({ progress, running }: { progress: Progress; ru
     <details className="research-progress-details"><summary>研究詳情</summary>
     <ol aria-label="研究階段">{stages.map((stage, i) => <li key={stage} className={i < current ? 'is-done' : undefined} aria-current={i === current ? 'step' : undefined}><span>{i + 1}</span>{stage}</li>)}</ol>
     <p className="research-progress-counts">搜尋找到 {progress.candidate_count} 份候選 · 初篩評估 {progress.screened_count ?? 0} 份 · 已核對正文 {progress.read_count} 份 · 可選來源 {progress.importable_count} 份</p>
-    {progress.stage === 'complete' && <p>本輪排定的查找與核對已結束。以上是實際處理數量，不是全部候選都已讀完；各來源的用途與未採用原因可在下方查看。</p>}
+    {progress.stage === 'complete' && <p>本輪排定的查找與核對已結束。以上是實際處理數量，不是全部候選都已讀完；可選來源的用途在各來源的詳細資訊，未列入的項目與原因在下方。</p>}
     {progress.stage !== 'complete' && progress.summary && <p>{progress.summary}</p>}
     {progress.stage === 'complete' && mainGaps.length > 0 && <p>本次尚未完整涵蓋：{mainGaps.join('、')}。</p>}
     {progress.finish_reason === 'references_only' && <p>目前已找到支持內容，但尚無可直接匯入的全文；可先查看原始來源。</p>}
+    {others && <OtherResults candidates={others} />}
     {running && <small>研究會在背景繼續，可離開頁面；返回後能查看進度或停止。</small>}
     </details>
   </section>;

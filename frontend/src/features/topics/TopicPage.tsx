@@ -185,7 +185,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
     {!completed&&<ProcessingTimeline stages={timelineStages} currentIndex={materialProgressStages.indexOf(materialRun.progress_stage)} activity={failed?'失敗':'已停止'}/>}
    </div>)}
   </section>}
-  {work.progress&&!hasMaterial&&<ResearchProgress progress={work.progress} running={work.status==='searching'}/>}
+  {work.progress&&!hasMaterial&&<ResearchProgress progress={work.progress} running={work.status==='searching'} others={readOnlySources?undefined:work.candidates}/>}
   {(!work.progress||work.status!=='searching')&&(hasMaterial&&readOnlySources?<details className="topic-selected-sources"><summary>已選來源 · {work.selection.length} 份</summary>
    <SourceCandidates candidates={visibleSources} selected={selected} disabled readOnly onChange={setSelected}/>
   </details>:visibleSources.length>0&&<SourceCandidates candidates={visibleSources} selected={selected} disabled={busy||working||readOnlySources} readOnly={readOnlySources} onChange={setSelected}/>)}
