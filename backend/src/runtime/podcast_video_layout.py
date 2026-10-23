@@ -1,5 +1,7 @@
 """語意分鏡編譯成有限圖形與 v4 聚焦／動態群組；座標、時間與文字容量由可信程式決定。"""
 
+import re
+
 from .podcast_video_plan import (
     KEY_TERM_LIMIT,
     SAFE_BOTTOM,
@@ -217,6 +219,9 @@ def _anchor_slot(anchor, narration, slots):
     return max(i for i, slot in enumerate(slots) if slot[1] <= at)
 
 
+BARE_NUMBER = re.compile(r"[-−+]?[\d.,]+%?")
+
+
 def _key_terms(terms, body, label):
     """只保留逐字出自卡片文字的短詞；標該詞第一次出現的位置，不標整句或整個標籤。"""
     if not isinstance(terms, list):
@@ -228,6 +233,9 @@ def _key_terms(terms, body, label):
             or not term
             or term != term.strip()
             or term_width(term) > KEY_TERM_LIMIT
+            # 單一字母／符號或單獨數值即使逐字出現也不是值得標的重點。
+            or len(term) < 2
+            or BARE_NUMBER.fullmatch(term)
             or "\n" in term
             or "\r" in term
         ):

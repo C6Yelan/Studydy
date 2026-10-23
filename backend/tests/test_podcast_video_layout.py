@@ -145,6 +145,12 @@ def test_key_terms_are_checked_verbatim_and_marked_once_without_failing():
     second['key_terms'] = []
     page = compile_layout(value, [{}], timeline(1, 4))['pages'][0]
     assert [m['quote'] for m in page['emphasis']] == ['RFC', '標頭']
+    # 單一字母與單獨數值即使逐字出現也丟掉；含數值的技術詞仍保留。
+    first.update(text='損失 L 為 0.09，RFC 9213 定義此欄位。', key_terms=['L', '0.09'])
+    second['key_terms'] = ['RFC 9213']
+    second['text'] = '依 RFC 9213 的定義。'
+    page = compile_layout(value, [{}], timeline(1, 4))['pages'][0]
+    assert [m['quote'] for m in page['emphasis']] == ['RFC 9213']
 
 
 def test_highlight_marks_only_the_first_occurrence_in_the_rendered_rows():
