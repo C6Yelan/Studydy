@@ -368,13 +368,24 @@ test("profile rhythm switches periods and pages back through earlier records", a
   await expect(rhythm.getByText("連續 3 天")).toBeVisible();
   await expect(rhythm.getByRole("button", { name: "週", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(rhythm.locator(".rhythm-pager b")).toHaveText("2026/10/19 – 10/25");
-  const bars = rhythm.locator(".rhythm-bars > li");
+  const bars = rhythm.locator(".rhythm-bars button");
   await expect(bars).toHaveCount(7);
-  await expect(rhythm.getByRole("listitem", { name: "星期三 10/21（今天）：作答 5 題，答對 4 題，標記 6 張卡，收聽 10 分鐘" })).toHaveClass(/is-today/);
+  await expect(rhythm.getByRole("button", { name: "星期三 10/21（今天）：作答 5 題，答對 4 題，標記 6 張卡，收聽 10 分鐘" })).toHaveClass(/is-today/);
   // 收聽不滿 1 分鐘不顯示分鐘數，也不算當天活躍。
-  await expect(rhythm.getByRole("listitem", { name: "星期二 10/20：沒有學習紀錄" })).not.toHaveClass(/is-active/);
-  await expect(rhythm.getByRole("listitem", { name: "星期四 10/22：尚未到" })).toHaveClass(/is-future/);
+  await expect(rhythm.getByRole("button", { name: "星期二 10/20：沒有學習紀錄" })).not.toHaveClass(/is-active/);
+  await expect(rhythm.getByRole("button", { name: "星期四 10/22：尚未到" })).toHaveClass(/is-future/);
   await expect(rhythm.locator(".rhythm-summary")).toHaveText("這段期間作答 7 題（答對率 71%） · 標記 6 張卡 · 收聽 10 分鐘 · 學習 2 天");
+  // 一格一根長條，高度是合計學習量（5 題＋6 張＋10 分鐘 = 21 為滿格，10/19 的 2 題約 10%）。
+  const fullDay = rhythm.getByRole("button", { name: /^星期三 10\/21/ });
+  await expect(fullDay.locator(".rhythm-bar i")).toHaveAttribute("style", "height: 100%;");
+  await expect(rhythm.getByRole("button", { name: /^星期一 10\/19/ }).locator(".rhythm-bar i")).toHaveAttribute("style", /height: 9\.5\d*%;/);
+  // 按長條在摘要列看細節，再按一次回到區間摘要。
+  await fullDay.click();
+  await expect(fullDay).toHaveAttribute("aria-pressed", "true");
+  await expect(rhythm.locator(".rhythm-summary")).toHaveText("星期三 10/21（今天）：作答 5 題，答對 4 題，標記 6 張卡，收聽 10 分鐘");
+  await fullDay.click();
+  await expect(rhythm.locator(".rhythm-summary")).toHaveText("這段期間作答 7 題（答對率 71%） · 標記 6 張卡 · 收聽 10 分鐘 · 學習 2 天");
+  await expect(rhythm.locator(".rhythm-legend")).toHaveCount(0);
   await expect(rhythm.getByRole("button", { name: "下一個週" })).toBeDisabled();
   // 往前翻到最早紀錄所在的那一頁就停。
   await rhythm.getByRole("button", { name: "上一個週" }).click();
@@ -388,16 +399,17 @@ test("profile rhythm switches periods and pages back through earlier records", a
   await expect(bars).toHaveCount(31);
   await rhythm.getByRole("button", { name: "上一個月" }).click();
   await expect(rhythm.locator(".rhythm-pager b")).toHaveText("2026 年 9 月");
-  await expect(rhythm.getByRole("listitem", { name: "9/2（週三）：作答 4 題，答對 4 題" })).toHaveClass(/is-active/);
+  await expect(rhythm.getByRole("button", { name: "9/2（週三）：作答 4 題，答對 4 題" })).toHaveClass(/is-active/);
   await expect(rhythm.getByRole("button", { name: "上一個月" })).toBeDisabled();
   // 近 3 個月：13 週的每週彙總。
   await rhythm.getByRole("button", { name: "近 3 個月" }).click();
   await expect(bars).toHaveCount(13);
-  await expect(rhythm.getByRole("listitem", { name: "10/19–10/25 這週：作答 7 題，答對 5 題，標記 6 張卡，收聽 10 分鐘，學習 2 天" })).toHaveClass(/is-today/);
-  // 近一年：每天一格的熱力圖。
+  await expect(rhythm.getByRole("button", { name: "10/19–10/25 這週：作答 7 題，答對 5 題，標記 6 張卡，收聽 10 分鐘，學習 2 天" })).toHaveClass(/is-today/);
+  // 近一年：52 週依自然月分組，一個月一根（頭尾月份只含部分天數）。
   await rhythm.getByRole("button", { name: "近一年" }).click();
-  await expect(rhythm.locator(".rhythm-heatmap-grid > li")).toHaveCount(364);
-  await expect(rhythm.getByRole("listitem", { name: "10/21（週三）（今天）：作答 5 題，答對 4 題，標記 6 張卡，收聽 10 分鐘" })).toHaveClass(/is-level-4/);
+  await expect(bars).toHaveCount(13);
+  await expect(rhythm.getByRole("button", { name: "2026 年 10 月：作答 7 題，答對 5 題，標記 6 張卡，收聽 10 分鐘，學習 2 天" })).toHaveClass(/is-today/);
+  await expect(rhythm.getByRole("button", { name: "2026 年 9 月：作答 4 題，答對 4 題，學習 1 天" })).toHaveClass(/is-active/);
   expect(requests).toEqual(["?period=week&offset=0", "?period=week&offset=1", "?period=week&offset=0", "?period=month&offset=0",
     "?period=month&offset=1", "?period=quarter&offset=0", "?period=year&offset=0"]);
   await page.setViewportSize({ width: 390, height: 844 });

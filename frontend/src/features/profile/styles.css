@@ -148,9 +148,6 @@
   background: var(--page-cool);
   transition: opacity 0.15s;
 }
-.profile-rhythm .is-answers { --series: var(--warning); }
-.profile-rhythm .is-cards { --series: var(--violet); }
-.profile-rhythm .is-listen { --series: var(--sea); }
 .rhythm-bars {
   display: grid;
   gap: 4px;
@@ -158,83 +155,40 @@
   padding: 0;
   list-style: none;
 }
-.rhythm-bars li {
+.rhythm-bars li { min-width: 0; }
+.rhythm-bars button {
   display: grid;
   justify-items: center;
   gap: 6px;
-  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--text-muted);
+  cursor: pointer;
 }
-.rhythm-bar-stack {
+.rhythm-bar {
   display: flex;
   align-items: flex-end;
-  justify-content: center;
-  gap: 2px;
-  width: min(100%, 44px);
+  width: min(100%, 36px);
   height: clamp(110px, 18vh, 170px);
-  padding: 0 3px;
   overflow: hidden;
   border-radius: 8px;
   background: var(--surface);
 }
 .rhythm-bars.is-compact { gap: 2px; }
-.rhythm-bars.is-compact .rhythm-bar-stack { gap: 1px; padding: 0 1px; border-radius: 4px; }
-.rhythm-bar-stack i { flex: 1; border-radius: 4px 4px 2px 2px; background: var(--series); }
-.rhythm-bars.is-compact .rhythm-bar-stack i { border-radius: 2px 2px 1px 1px; }
-.rhythm-bars li.is-today .rhythm-bar-stack { box-shadow: 0 0 0 2px var(--page-cool), 0 0 0 4px var(--amber-deep); }
-.rhythm-bars li.is-future .rhythm-bar-stack { opacity: 0.5; }
+.rhythm-bars.is-compact .rhythm-bar { border-radius: 4px; }
+.rhythm-bar i { width: 100%; border-radius: 6px 6px 2px 2px; background: var(--studydy-blue); }
+.rhythm-bars.is-compact .rhythm-bar i { border-radius: 2px 2px 1px 1px; }
+.rhythm-bars button:hover .rhythm-bar i,
+.rhythm-bars button[aria-pressed="true"] .rhythm-bar i { background: var(--studydy-blue-deep); }
+.rhythm-bars button[aria-pressed="true"] .rhythm-bar { box-shadow: 0 0 0 2px var(--studydy-blue); }
+.rhythm-bars button.is-today .rhythm-bar { box-shadow: 0 0 0 2px var(--page-cool), 0 0 0 4px var(--amber-deep); }
+.rhythm-bars button.is-future { cursor: default; }
+.rhythm-bars button.is-future .rhythm-bar { opacity: 0.5; }
 .rhythm-bars small { min-height: 15px; font-size: 11px; font-weight: 800; white-space: nowrap; }
-.rhythm-bars li.is-active small { color: var(--text-primary); }
-.rhythm-bars li.is-today small { color: var(--amber-deep); }
-/* 熱力圖：一欄一週、一格一天 */
-.rhythm-heatmap { display: grid; gap: 4px; }
-.rhythm-heatmap-months,
-.rhythm-heatmap-grid { display: grid; margin: 0; padding: 0; list-style: none; }
-.rhythm-heatmap-months { gap: 3px; color: var(--text-muted); font-size: 11px; font-weight: 800; }
-.rhythm-heatmap-months li { overflow: visible; white-space: nowrap; }
-.rhythm-heatmap-grid {
-  grid-auto-flow: column;
-  grid-template-rows: repeat(7, auto);
-  gap: 3px;
-}
-.rhythm-heatmap-grid li,
-.rhythm-scale li[class] {
-  aspect-ratio: 1;
-  border-radius: 3px;
-  background: var(--heat);
-}
-.rhythm-heatmap-grid li.is-today { box-shadow: 0 0 0 2px var(--amber-deep); }
-.rhythm-heatmap-grid li.is-future { opacity: 0.35; }
-.profile-rhythm .is-level-0 { --heat: #e3e8f2; }
-.profile-rhythm .is-level-1 { --heat: #c9e7f8; }
-.profile-rhythm .is-level-2 { --heat: #8fd0f2; }
-.profile-rhythm .is-level-3 { --heat: #3fa9e0; }
-.profile-rhythm .is-level-4 { --heat: #1678b8; }
-.rhythm-legend,
-.rhythm-scale {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  margin: 0;
-  padding: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 800;
-  list-style: none;
-}
-.rhythm-legend li { display: inline-flex; align-items: center; gap: 5px; }
-.rhythm-legend li::before {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: var(--series);
-  content: "";
-}
-.rhythm-scale { gap: 3px; }
-.rhythm-scale li[class] { width: 12px; }
-.rhythm-scale li:first-child { margin-right: 3px; }
-.rhythm-scale li:last-child { margin-left: 3px; }
+.rhythm-bars button.is-active small { color: var(--text-primary); }
+.rhythm-bars button.is-today small { color: var(--amber-deep); }
 .rhythm-summary { margin: 0; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
 .rhythm-note { color: var(--text-muted); font-size: 11px; }
 .rhythm-failure { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
@@ -264,7 +218,4 @@
   .rhythm-periods { margin-left: 0; width: 100%; }
   .rhythm-periods button { flex: 1; padding: 0 6px; }
   .rhythm-chart { padding: 12px 6px 8px; }
-  .rhythm-heatmap-grid, .rhythm-heatmap-months { gap: 1px; }
-  .rhythm-heatmap-grid li { border-radius: 1px; }
-  .rhythm-heatmap-months { font-size: 9px; }
 }

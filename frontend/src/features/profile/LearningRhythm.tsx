@@ -3,8 +3,9 @@ import type { StudydyApiClient } from "../../api/client";
 import type { LearningActivityDay, LearningRhythmPeriod, LearningRhythmView } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
 
-// 個人檔案的學習節奏：週、月顯示每天的長條，近 3 個月顯示每週彙總，近一年是每天一格的熱力圖；
-// 每個區間都能往前翻到最早有紀錄的時期。數字全部來自 /v1/learning-activity/rhythm 的每日彙總。
+// 個人檔案的學習節奏：四個區間都是一格一根單色長條（週、月每天一根，近 3 個月每週一根，近一年每月一根），
+// 高度是合計學習量；按長條在摘要列看這一格的細節。每個區間都能往前翻到最早有紀錄的時期。
+// 數字全部來自 /v1/learning-activity/rhythm 的每日彙總。
 
 const periods: [LearningRhythmPeriod, string][] = [["week", "週"], ["month", "月"], ["quarter", "近 3 個月"], ["year", "近一年"]];
 // 各區間最多往前翻的頁數（都約十年），與後端 RHYTHM_MAX_OFFSET 相同；超過會被後端拒絕。
@@ -47,50 +48,31 @@ function rangeLabel(view: LearningRhythmView) {
   return `${view.start.slice(0, 4)}/${monthDay(view.start)} – ${end}`;
 }
 
-// 長條：每個時間格三條（作答、概念卡、Podcast），各自以區間內的最大值為滿格。
-function Bars({ items, compact }: { items: Bucket[]; compact: boolean }) {
-  const peak = {
-    answers: Math.max(1, ...items.map((item) => item.answers)),
-    cards: Math.max(1, ...items.map((item) => item.cards)),
-    listened: Math.max(60, ...items.map((item) => item.listened)),
-  };
-  const height = (value: number, max: number) => `${value ? Math.max(8, (value / max) * 100) : 0}%`;
-  return <ol className={`rhythm-bars${compact ? " is-compact" : ""}`} style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
-    {items.map((item, index) => <li key={item.key} className={[item.today && "is-today", item.activeDays && "is-active", item.future && "is-future"].filter(Boolean).join(" ") || undefined}
-      aria-label={`${item.title}${item.today && item.dayCount === 1 ? "（今天）" : ""}：${item.future ? "尚未到" : detail(item) || "沒有學習紀錄"}`}>
-      <span className="rhythm-bar-stack" aria-hidden="true">
-        <i className="is-answers" style={{ height: height(item.answers, peak.answers) }} />
-        <i className="is-cards" style={{ height: height(item.cards, peak.cards) }} />
-        <i className="is-listen" style={{ height: height(minutes(item.listened) ? item.listened : 0, peak.listened) }} />
-      </span>
-      {/* 月檢視每格很窄，只標 1 號與每 5 天。 */}
-      <small aria-hidden="true">{!compact || index === 0 || (index + 1) % 5 === 0 ? item.label : ""}</small>
-    </li>)}
-  </ol>;
+// 合計學習量：作答題數＋標記卡數＋收聽分鐘（不滿 1 分鐘不算）；只決定長條高度，細節仍分開列出。
+const amount = (item: Bucket) => item.answers + item.cards + minutes(item.listened);
+
+function describe(item: Bucket) {
+  return `${item.title}${item.today && item.dayCount === 1 ? "（今天）" : ""}：${item.future ? "尚未到" : detail(item) || "沒有學習紀錄"}`;
 }
 
-// 熱力圖：一欄一週（週一在上）、一格一天，顏色深淺依當天作答、標記與收聽分鐘的合計。
-function Heatmap({ view }: { view: LearningRhythmView }) {
-  const score = (day: LearningActivityDay) => day.answers + day.card_reviews + minutes(day.listened_seconds);
-  const max = Math.max(1, ...view.days.map(score));
-  const weeks = Array.from({ length: view.days.length / 7 }, (_, index) => view.days.slice(index * 7, index * 7 + 7));
-  return <div className="rhythm-heatmap">
-    <ol className="rhythm-heatmap-months" aria-hidden="true" style={{ gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))` }}>
-      {weeks.map((week) => {
-        const first = week.find((day) => day.date.endsWith("-01"));
-        return <li key={week[0].date}>{first ? `${Number(first.date.slice(5, 7))}月` : ""}</li>;
-      })}
-    </ol>
-    <ol className="rhythm-heatmap-grid" style={{ gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))` }}>
-      {view.days.map((day) => {
-        const value = score(day);
-        const level = value ? Math.min(4, Math.ceil((value / max) * 4)) : day.active ? 1 : 0;
-        const item = bucket([day], view.today, "", `${monthDay(day.date)}（週${weekday(day.date)}）`);
-        return <li key={day.date} className={`is-level-${level}${day.date === view.today ? " is-today" : ""}${day.date > view.today ? " is-future" : ""}`}
-          aria-label={`${item.title}${item.today ? "（今天）" : ""}：${item.future ? "尚未到" : detail(item) || "沒有學習紀錄"}`} />;
-      })}
-    </ol>
-  </div>;
+// 長條：一格一根，以區間內最大的合計學習量為滿格。
+function Bars({ items, compact, selected, onSelect }: {
+  items: Bucket[]; compact: boolean; selected: string | null; onSelect: (key: string | null) => void;
+}) {
+  const peak = Math.max(1, ...items.map(amount));
+  return <ol className={`rhythm-bars${compact ? " is-compact" : ""}`} style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+    {items.map((item, index) => <li key={item.key}>
+      <button type="button" aria-label={describe(item)} aria-pressed={selected === item.key}
+        className={[item.today && "is-today", item.activeDays && "is-active", item.future && "is-future"].filter(Boolean).join(" ") || undefined}
+        onClick={() => onSelect(selected === item.key ? null : item.key)}>
+        <span className="rhythm-bar" aria-hidden="true">
+          <i style={{ height: `${amount(item) ? Math.max(6, (amount(item) / peak) * 100) : 0}%` }} />
+        </span>
+        {/* 月檢視每格很窄，只標 1 號與每 5 天。 */}
+        <small aria-hidden="true">{!compact || index === 0 || (index + 1) % 5 === 0 ? item.label : ""}</small>
+      </button>
+    </li>)}
+  </ol>;
 }
 
 export function LearningRhythm({ apiClient }: { apiClient: StudydyApiClient }) {
@@ -99,12 +81,14 @@ export function LearningRhythm({ apiClient }: { apiClient: StudydyApiClient }) {
   const [view, setView] = useState<LearningRhythmView | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [selected, setSelected] = useState<string | null>(null);
   // 只有讀到目前這一頁才算數；讀取中或失敗時不沿用上一頁的區間與翻頁判斷。
   const current = !failed && view?.period === period && view.offset === offset ? view : null;
   const loading = !failed && !current;
   useEffect(() => {
     let cancelled = false;
     setFailed(false);
+    setSelected(null);
     void apiClient.getLearningRhythm(period, offset).then(
       (value) => { if (!cancelled) setView(value); },
       () => { if (!cancelled) setFailed(true); },
@@ -122,7 +106,13 @@ export function LearningRhythm({ apiClient }: { apiClient: StudydyApiClient }) {
           const week = view.days.slice(index * 7, index * 7 + 7);
           return bucket(week, view.today, monthDay(week[0].date), `${monthDay(week[0].date)}–${monthDay(week[6].date)} 這週`);
         })
-        : [];
+        // 近一年：52 週依自然月分組，頭尾的月份可能只含部分天數。
+        : Object.values(view.days.reduce<Record<string, LearningActivityDay[]>>((months, day) => {
+          (months[day.date.slice(0, 7)] ??= []).push(day);
+          return months;
+        }, {})).map((days) => bucket(days, view.today, `${Number(days[0].date.slice(5, 7))}月`,
+          `${days[0].date.slice(0, 4)} 年 ${Number(days[0].date.slice(5, 7))} 月`));
+  const chosen = items.find((item) => item.key === selected);
   const total = view ? bucket(view.days, view.today, "", "") : null;
   const parts = total ? [
     total.answers && `作答 ${total.answers} 題（答對率 ${Math.round((total.correct / total.answers) * 100)}%）`,
@@ -155,16 +145,14 @@ export function LearningRhythm({ apiClient }: { apiClient: StudydyApiClient }) {
       <button className="secondary-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新讀取</button>
     </div> : view && <>
       <div className="rhythm-chart">
-        {view.period === "year" ? <Heatmap view={view} /> : <Bars items={items} compact={view.period === "month"} />}
+        <Bars items={items} compact={view.period === "month"} selected={selected} onSelect={setSelected} />
       </div>
-      {view.period === "year"
-        ? <ul className="rhythm-scale" aria-hidden="true"><li>少</li>{[0, 1, 2, 3, 4].map((level) => <li key={level} className={`is-level-${level}`} />)}<li>多</li></ul>
-        : <ul className="rhythm-legend" aria-hidden="true"><li className="is-answers">作答</li><li className="is-cards">概念卡</li><li className="is-listen">Podcast</li></ul>}
-      <p className="rhythm-summary">
-        {parts.length ? <>這段期間{parts.join(" · ")}</>
+      <p className="rhythm-summary" aria-live="polite">
+        {chosen ? describe(chosen)
+          : parts.length ? <>這段期間{parts.join(" · ")}</>
           : offset === 0 ? "這段期間還沒有學習紀錄，作答、標記卡片或收聽都會出現在這裡。" : "這段期間沒有學習紀錄。"}
       </p>
     </>}
-    <small className="rhythm-note">依作答、概念卡標記與實際收聽紀錄計算，以台灣時間為準；收聽滿 1 分鐘才算當天有學習。</small>
+    <small className="rhythm-note">長條高度是作答題數、標記卡數與收聽分鐘的合計，按長條可看細節；依作答、概念卡標記與實際收聽紀錄計算，以台灣時間為準；收聽滿 1 分鐘才算當天有學習。</small>
   </section>;
 }
