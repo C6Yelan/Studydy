@@ -15,7 +15,7 @@ export function ResearchProgress({ progress, running }: { progress: Progress; ru
   const mainGaps = [...new Set(uncovered.map(topic => topic.topic.split(/[：:]/, 1)[0]))];
   const countable = progress.total !== null && progress.total > 0 && progress.completed !== null;
   return <section className="research-progress" aria-label="背景研究進度">
-    <div className="research-progress-heading"><strong>{progress.stage === 'complete' ? progress.importable_count ? '研究已完成，可選擇要加入的來源' : '本次未找到適合加入的補充' : !running ? `研究停在：${stages[current]}` : actions[progress.stage] ?? '正在研究'}</strong><span>第 {progress.round} 輪</span></div>
+    <div className="research-progress-heading"><strong>{progress.stage === 'complete' ? progress.importable_count ? '研究已完成，可選擇要加入的來源' : '本次未找到適合加入的補充' : !running ? `研究停在：${stages[current]}` : actions[progress.stage] ?? '正在研究'}</strong></div>
     {running && <>
       <progress aria-label="目前研究階段進度" max={countable ? progress.total! : 1} value={countable ? progress.completed! : undefined} />
       <p role="status">{progress.waiting_until && progress.waiting_until * 1000 > Date.now()

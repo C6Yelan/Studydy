@@ -11,7 +11,7 @@ const source = (id: string, relevance = 'direct', eligible = true) => ({ id, kin
 
 for (const mode of ['research', 'topic']) test(`${mode} shows durable research stages, cancellation and curated references`, async ({ page }) => {
   await mockKnowledgeMapApi(page, structureView());
-  const progress = { stage: 'reading', round: 2, completed: 1, total: 3, unit: 'sources', candidate_count: 4,
+  const progress = { stage: 'reading', completed: 1, total: 3, unit: 'sources', candidate_count: 4,
     read_count: 1, recommended_count: 1, importable_count: 1, summary: '正在補查工具使用的具體例子。', warnings: [], finish_reason: null,
     topics: [{ topic: 'Agent 執行迴圈', status: 'partial', reason: '缺少完整案例。', source_ids: [] }],
     unavailable_sources: [{ id: 'blocked', title: '未完成的來源', url: 'https://example.org/blocked', access: { status: 'unavailable',
@@ -31,7 +31,7 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   const path = mode === 'research' ? `/materials/${materialId}/research/${researchId}` : `/topics/${topicId}`;
   await page.goto(path);
   const panel = page.getByRole('region', { name: '背景研究進度' });
-  await expect(panel).toContainText('第 2 輪');
+  await expect(panel).toContainText('正在取得正文並核對公開全文與替代入口');
   await expect(panel.locator('ol')).not.toBeVisible();
   await panel.getByText('研究詳情', { exact: true }).click();
   await expect(panel.locator('ol > li')).toHaveCount(5);
@@ -39,7 +39,7 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   await expect(panel.getByRole('progressbar')).toHaveAttribute('value', '1');
   await expect(panel.getByRole('progressbar')).toHaveAttribute('max', '3');
   await expect(page.locator('.research-candidates')).toHaveCount(0);
-  await page.reload(); await expect(panel).toContainText('第 2 輪');
+  await page.reload(); await expect(panel).toContainText('正在取得正文並核對公開全文與替代入口');
   await page.getByRole('button', { name: '停止處理', exact: true }).click();
   await expect(panel).toContainText('研究停在');
   await page.getByRole('button', { name: mode === 'research' ? '重試未完成部分' : '接續處理', exact: true }).click();

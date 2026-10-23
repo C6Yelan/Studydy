@@ -109,8 +109,13 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
     assert quests["finish_podcast_episode"]["done"] is False
     assert quests["finish_podcast_episode"]["podcast_id"] == podcast and quests["finish_podcast_episode"]["episode_index"] == 0
 
+    # 播到片尾但這集只實際聽了 360 秒（未達集長 45%）：不算聽完。
     podcast_progress.save_progress(owner, podcast, 0, 900, 0, ended=True, dsn=dsn, now=start + timedelta(minutes=7))
-    finished = activity(fixture, now=start + timedelta(minutes=8))
+    skipped = activity(fixture, now=start + timedelta(minutes=7))
+    assert {q["kind"]: q["done"] for q in skipped["quests"]}["finish_podcast_episode"] is False
+    # 再實際聽 60 秒並播到片尾，累積 420 秒達門檻才算聽完。
+    podcast_progress.save_progress(owner, podcast, 0, 900, 60, ended=True, dsn=dsn, now=start + timedelta(minutes=8))
+    finished = activity(fixture, now=start + timedelta(minutes=9))
     assert {q["kind"]: q["done"] for q in finished["quests"]}["finish_podcast_episode"] is True
     # 完成的題組與聽完的集數各自形成徽章系列。
     earned = {b["badge_id"]: b for b in finished["badges"]["items"]}

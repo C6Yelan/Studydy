@@ -15,7 +15,7 @@ export type Research = {
   approved_scope?: {title:string;topics:string[];goals:string[]}|null;
 };
 export type ResearchProgress = {
-  stage: string; round: number; completed: number | null; total: number | null; unit: string;
+  stage: string; completed: number | null; total: number | null; unit: string;
   candidate_count: number; read_count: number; recommended_count: number; importable_count: number;
   screened_count?: number; deep_read_count?: number; reference_count?: number; excluded_count?: number; uncertain_count?: number;
   summary: string; warnings: string[]; finish_reason?: string | null; waiting_until?: number | null;

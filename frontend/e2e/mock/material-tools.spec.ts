@@ -355,14 +355,14 @@ test('compact research workflow navigates available stages without changing the 
  await expect(page.locator('.source-picker-filters')).not.toContainText('已選 0');
  await expect(page.getByText('可加入',{exact:true})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'取消全選',exact:true})).toHaveCount(0);
- await expect(page.locator('.source-pagination').getByRole('button',{name:'下一頁',exact:true})).toBeDisabled();
+ await expect(page.locator('.source-pagination')).toHaveCount(0);
  const sidebar=(await nav.boundingBox())!,body=(await page.locator('.research-detail-body').boundingBox())!;
  expect(sidebar.y+sidebar.height).toBeLessThanOrEqual(body.y);expect(sidebar.height).toBeLessThan(50);
  await page.getByRole('checkbox',{name:'選取 來源 0',exact:true}).check();await page.getByLabel('只看已選',{exact:true}).check();await expect(page.locator('.research-candidates article')).toHaveCount(1);
  await search.click();await expect(search).toHaveAttribute('aria-pressed','true');await expect(page.locator('.research-candidates article')).toHaveCount(4);await expect(page.getByRole('checkbox',{name:/選取 來源/})).toHaveCount(0);expect(actions).toHaveLength(0);
  await page.getByRole('button',{name:'前往選取來源',exact:true}).click();await expect(page.getByRole('checkbox',{name:'選取 來源 0',exact:true})).toBeChecked();await expect(page.locator('.research-candidates article')).toHaveCount(1);await page.getByLabel('只看已選',{exact:true}).uncheck();
- await page.getByLabel('篩選來源',{exact:true}).fill('來源 0');await expect(page.getByRole('button',{name:'下一頁',exact:true})).toBeDisabled();expect(actions).toHaveLength(0);
- await expect(page.locator('.source-pagination')).toContainText('已載入 1 份');await expect(selection).toHaveAttribute('aria-current','step');await expect(page.getByLabel('篩選來源',{exact:true})).toHaveValue('來源 0');
+ await page.getByLabel('篩選來源',{exact:true}).fill('來源 0');await expect(page.locator('.research-candidates article')).toHaveCount(1);expect(actions).toHaveLength(0);
+ await expect(selection).toHaveAttribute('aria-current','step');await expect(page.getByLabel('篩選來源',{exact:true})).toHaveValue('來源 0');
  await page.getByRole('button',{name:'取得選取的 1 份來源',exact:true}).click();await expect(search).toBeDisabled();await expect(add).toBeDisabled();await expect(page.getByRole('button',{name:'停止處理',exact:true})).toBeVisible();expect(actions[0]).toEqual({action:'acquire',selected:['s0']});
  work={...work,status:'ready',candidates:work.candidates.map((c:any)=>c.id==='s0'?{...c,state:'ready'}:c)};
  await expect(page.getByRole('button',{name:'確認加入教材',exact:true})).toBeVisible();await expect(add).toHaveAttribute('aria-current','step');await expect(page.getByLabel('我了解加入後不可逆')).toBeVisible();

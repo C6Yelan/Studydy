@@ -59,6 +59,9 @@ def test_html_body_preserves_literals_structure_and_provenance(monkeypatch):
     assert metadata['original_sha256']==sha256(BODY.encode()).hexdigest()
     assert metadata['derivative_license']=='CC-BY-SA-4.0'
     assert 'https://example.org/lesson' in data.decode() and 'A Teacher' in data.decode()
+    # Wikipedia 條目沒有個別作者；頁面 metadata 的作者（實際會誤抓權威控制欄位）改以網站名稱代替。
+    wiki=web.html_document(BODY.encode(),'https://en.wikipedia.org/wiki/HTTP','text/html')
+    assert wiki['authors']=='en.wikipedia.org'
 
 
 @pytest.mark.parametrize('replacement',[

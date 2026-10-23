@@ -1,8 +1,9 @@
 """Podcast 收聽進度：每集播放位置、首次聽完時間與每天實際收聽秒數。
 
 播放位置以最後寫入為準，供跨裝置接續。實際收聽秒數由前端回報「距上次回報
-實際播放的牆鐘秒數」，伺服器只採計不超過距離此學生上一筆採計的實際經過時間
-（另加少量寬限）、單次上限與集長的部分，重送或多分頁同時播放不會多算。
+實際播放的牆鐘秒數」（暫停時不計），伺服器只採計不超過距離此學生上一筆採計的
+實際經過時間（另加少量寬限）、單次上限與集長的部分，重送或多分頁同時播放不會多算。
+聽完要播到片尾，且這一集累積採計的收聽秒數達門檻；只拖到片尾不算。
 """
 
 from datetime import datetime
@@ -20,8 +21,10 @@ TIMEZONE = ZoneInfo("Asia/Taipei")
 REPORT_LIMIT_SECONDS = 60
 # 計時器與網路延遲造成的誤差寬限。
 CLOCK_GRACE_SECONDS = 2
-# 播放到距片尾 1 秒內視為聽完。
+# 播放到距片尾 1 秒內視為播到片尾。
 END_TOLERANCE_SECONDS = 1
+# 聽完需累積的實際收聽秒數占集長比例；最快 2 倍速從頭聽到尾約為集長一半，留少量誤差。
+COMPLETION_LISTENED_RATIO = 0.45
 
 
 def _durations(row):
@@ -109,8 +112,6 @@ def save_progress(owner, podcast_id, episode_index, position_seconds, listened_s
             db.add(progress)
         progress.position_seconds = min(position_seconds, duration)
         progress.updated_at = now
-        if progress.completed_at is None and (ended or position_seconds >= duration - END_TOLERANCE_SECONDS):
-            progress.completed_at = now
         credited = 0
         if listened_seconds > 0:
             last = db.scalar(select(func.max(PodcastListeningDay.updated_at))
@@ -128,6 +129,15 @@ def save_progress(owner, podcast_id, episode_index, position_seconds, listened_s
             record.listened_seconds = min(86400, record.listened_seconds + credited)
             record.updated_at = now
         db.flush()
+        if progress.completed_at is None and (ended or position_seconds >= duration - END_TOLERANCE_SECONDS):
+            listened = db.scalar(
+                select(func.coalesce(func.sum(PodcastListeningDay.listened_seconds), 0))
+                .where(PodcastListeningDay.podcast_id == podcast_id,
+                       PodcastListeningDay.episode_index == episode_index)
+            )
+            if listened >= duration * COMPLETION_LISTENED_RATIO:
+                progress.completed_at = now
+                db.flush()
         return _view(db, podcast_id, credited)
 
 

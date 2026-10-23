@@ -302,7 +302,10 @@ def html_document(data, final, media):
         raise SourceAccessError(code, url=final)
     if not title:
         raise SourceError("RESEARCH_IDENTITY_UNCONFIRMED")
-    author = (metadata.author if metadata else None) or urlsplit(final).hostname
+    # Wikipedia 條目沒有個別作者，頁面 metadata 會誤抓頁尾的權威控制欄位，一律以網站名稱代替。
+    author = (
+        None if wikipedia_article(final) else metadata.author if metadata else None
+    ) or urlsplit(final).hostname
     digest = sha256(data).hexdigest()
     return {
         "url": final,

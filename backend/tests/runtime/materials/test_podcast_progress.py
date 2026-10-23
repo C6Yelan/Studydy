@@ -51,10 +51,18 @@ def test_positions_resume_across_devices_and_mark_finished_episodes(closed_loop)
     assert saved["current"]["episode_index"] == 0 and saved["current"]["position_seconds"] == 42.5
     # 另一台裝置開啟時讀到同一個位置。
     assert podcast_progress.read_progress(learner, identity, dsn=dsn)["current"]["position_seconds"] == 42.5
-    finished = podcast_progress.save_progress(learner, identity, 0, 599.5, 10, dsn=dsn, now=now + timedelta(seconds=10))
+    # 直接拖到片尾：這集只實際聽了 25 秒，不算聽完。
+    skipped = podcast_progress.save_progress(learner, identity, 0, 599.5, 10, dsn=dsn, now=now + timedelta(seconds=10))
+    assert skipped["episodes"] == [{"episode_index": 0, "position_seconds": 599.5, "completed": False}]
+    # 實際播放累積到集長 45%（270 秒）後再播到片尾才算聽完。
+    for step in range(1, 5):
+        podcast_progress.save_progress(learner, identity, 0, 60.0 * step, 60, dsn=dsn,
+                                       now=now + timedelta(seconds=10 + 60 * step))
+    finished = podcast_progress.save_progress(learner, identity, 0, 599.5, 5, ended=True, dsn=dsn,
+                                              now=now + timedelta(seconds=300))
     assert finished["episodes"] == [{"episode_index": 0, "position_seconds": 599.5, "completed": True}]
     # 聽完後重新從頭聽，聽完紀錄保留。
-    again = podcast_progress.save_progress(learner, identity, 0, 3, 0, dsn=dsn, now=now + timedelta(seconds=20))
+    again = podcast_progress.save_progress(learner, identity, 0, 3, 0, dsn=dsn, now=now + timedelta(seconds=310))
     assert again["episodes"][0]["completed"] is True and again["current"]["position_seconds"] == 3
     with pytest.raises(PodcastError, match="^REQUEST_INVALID$"):
         podcast_progress.save_progress(learner, identity, 0, 700, 0, dsn=dsn)

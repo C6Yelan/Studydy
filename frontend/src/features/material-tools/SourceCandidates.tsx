@@ -57,6 +57,14 @@ function unavailableStatus(candidate: Candidate) {
   return '目前無法加入';
 }
 
+// 未列入可選的搜尋結果依原因分組，讓使用者知道數量多是因為無關或沒有全文，不是漏列。
+function otherResultGroup(candidate: Candidate) {
+  if (candidate.review?.relevance === 'unrelated') return '與主題無關';
+  if (candidate.access?.fulltext_unavailable || candidate.access?.status === 'unavailable' || candidate.review?.phase !== 'body') return '未取得全文';
+  return '其他原因';
+}
+const otherResultGroups = ['與主題無關', '未取得全文', '其他原因'];
+
 export function SourceCandidates({ candidates, selected, disabled, onChange, readOnly = false, search, inlineSearch = false, showAcquisitionDetails = true, compact = false }: {
   candidates: Candidate[]; selected: string[]; disabled: boolean; compact?: boolean;
   onChange: (ids: string[]) => void; readOnly?: boolean; inlineSearch?: boolean; showAcquisitionDetails?: boolean; search?: { value: string; onChange: (value: string) => void };
@@ -105,7 +113,8 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
     </>}
     <div ref={list} className="research-candidates" tabIndex={0} aria-label={readOnly ? '已選來源' : '來源搜尋結果'}>
       {pageItems.map(c => {
-        const metadata = [sourceKindLabel(c.kind), c.authors, c.year].filter(Boolean).join(' · ');
+        // Wikipedia 沒有個別作者，作者欄只是網站名稱，與下方連結重複。
+        const metadata = [sourceKindLabel(c.kind), c.kind === 'wikipedia' ? null : c.authors, c.year].filter(Boolean).join(' · ');
         const host = sourceHost(c.url);
         const link = /^https?:\/\//.test(c.url) ? c.url : undefined;
         const relevance = c.review ? c.review.relevance === 'direct' ? '直接相關' : c.review.relevance === 'related' ? '背景參考' : '不相關' : null;
@@ -143,10 +152,10 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
           </>}
         </div>
       </article>; })}
-      {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前尚無已核對可加入的來源，可查看其他搜尋結果的原因或接續研究。</p>}
+      {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前尚無已核對可加入的來源，可查看未列入的搜尋結果原因或接續研究。</p>}
       {!visible.length && available.length > 0 && <p className="source-picker-empty">{onlySelected ? '目前沒有符合篩選的已選來源。' : '沒有符合篩選的來源。'}<button className="text-button" onClick={() => { setQuery(''); setKind('all'); setOnlySelected(false); }}>清除篩選</button></p>}
     </div>
-    {visible.length > 0 && <nav className="source-pagination" aria-label="來源分頁">
+    {pageCount > 1 && <nav className="source-pagination" aria-label="來源分頁">
       <p role="status">第 {currentPage} / {pageCount} 頁 · {visible.length ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, visible.length)}` : '0'} / 已載入 {visible.length} 份</p>
       <div className="source-page-buttons">
         <button type="button" className="text-button" disabled={currentPage === 1} onClick={() => { setPage(currentPage - 1); }}>上一頁</button>
@@ -158,12 +167,18 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
       </div>
     </nav>}
     {!readOnly && otherResults.length > 0 && <details className="source-review source-other-results">
-      <summary>其他搜尋結果 · {otherResults.length} 份</summary>
-      <p>這些項目尚未完成核對，或目前無法加入教材；不代表都與需求無關。上方只列本輪已核對可選的來源。</p>
-      <ul>{otherResults.map(c => <li key={c.id}>
-        <strong>{c.title}</strong><p>{unavailableStatus(c)} · {c.screening?.basis === 'importability' || c.access?.fulltext_unavailable || c.source_type_review ? c.reason : c.screening?.reason ?? '本輪尚未閱讀這份來源，未判定其內容是否可用。'}</p>
-        <a href={/^https?:\/\//.test(c.url) ? c.url : undefined} target="_blank" rel="noreferrer">{sourceHost(c.url) || '原始來源'} ↗</a>
-      </li>)}</ul>
+      <summary>未列入可選的搜尋結果 · {otherResults.length} 份</summary>
+      <p>搜尋時找到、但目前不能加入教材的項目。上方只列已核對正文、可以加入的來源。</p>
+      {otherResultGroups.map(group => {
+        const items = otherResults.filter(c => otherResultGroup(c) === group);
+        return items.length > 0 && <section key={group} aria-label={group}>
+          <h4>{group} · {items.length} 份</h4>
+          <ul>{items.map(c => <li key={c.id}>
+            <strong>{c.title}</strong><p>{unavailableStatus(c)} · {c.screening?.basis === 'importability' || c.access?.fulltext_unavailable || c.source_type_review ? c.reason : c.screening?.reason ?? '本輪尚未閱讀這份來源，未判定其內容是否可用。'}</p>
+            <a href={/^https?:\/\//.test(c.url) ? c.url : undefined} target="_blank" rel="noreferrer">{sourceHost(c.url) || '原始來源'} ↗</a>
+          </li>)}</ul>
+        </section>;
+      })}
     </details>}
   </div>;
 }
