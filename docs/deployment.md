@@ -260,3 +260,9 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 ## 0011 教材新版承接（2026-10-22）
 
 0011 新增 `material_version_moves`（學生確認「移到新版」的請求與重送結果）、`card_set_moves`（舊卡組→新版卡組及概念對應）、`study_session_moves`（舊版學習→新版學習及承接的已完成概念）三張表。舊卡組與學習需要能查詢的「已移轉」連結、合併時的卡片身分，以及整次確認的冪等紀錄，既有欄位沒有可用位置，因此追加 migration。對教材、卡組與學習的外鍵皆為 ON DELETE CASCADE（教材清除時一併刪除），不修改既有資料。上線前同 0009／0010 先在正式 DB dump 的一次性副本套用並核對原業務表資料不變；套用後需使用識別 0011 的後端，採前向修正。前端可單獨退回（舊前端不顯示「有新版本」，已承接的資料照常可讀）。
+
+## 後端身分與既有資料
+
+`STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。
+
+既有artifacts需由核准部署程序先遷移owner，保留0700目錄及原0600／0400檔案契約。不得遞迴chown整個data；data根、data/podcast、PostgreSQL、模型內容及jerry分析資料保持原狀。模型僅授新後端UID只讀ACL。部署／回滾前應在停止該版backend寫入後重新盤點範圍，具體路徑、數量、操作順序與回滾命令由本次部署狀態檔提供，不在產品初始化時自動遷移。

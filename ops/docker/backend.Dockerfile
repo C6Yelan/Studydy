@@ -84,7 +84,7 @@ COPY backend/src /app/backend/src
 COPY backend/migrations /app/backend/migrations
 COPY local_ai/runtime-lock.json /app/local_ai/runtime-lock.json
 RUN chmod -R a+rX /app/backend/src /app/backend/migrations /app/local_ai
-USER 1000:1000
+USER 20001:1000
 ENTRYPOINT ["/app/backend/.venv/bin/python", "-m", "runtime.container_app"]
 CMD ["serve"]
 
@@ -94,7 +94,7 @@ COPY --link --from=ocr-packages /opt/studydy/ocr/runtime /opt/studydy/ocr/runtim
 COPY local_ai /app/local_ai
 RUN uv pip install --python /opt/studydy/ocr/runtime/bin/python --no-deps /app/local_ai \
     && chmod -R a+rX /app/local_ai
-USER 1000:1000
+USER 20001:1000
 
 FROM backend AS test
 USER root
@@ -107,7 +107,7 @@ COPY local_ai/src /app/local_ai/src
 COPY local_ai/tests /app/local_ai/tests
 RUN chmod -R a+rX /app
 ENV PYTHONPATH=/app/backend/src:/app/backend/tests:/app/local_ai/src
-USER 1000:1000
+USER 20001:1000
 ENTRYPOINT ["/app/backend/.venv/bin/pytest"]
 CMD ["-q", "-o", "cache_dir=/tmp/pytest-cache", "backend/tests", "--ignore=backend/tests/runtime", "local_ai/tests"]
 

@@ -11,4 +11,4 @@ COPY backend/src /app/backend/src
 COPY backend/migrations /app/backend/migrations
 COPY local_ai/runtime-lock.json /app/local_ai/runtime-lock.json
 RUN chmod -R a+rX /app/backend/src /app/backend/migrations
-USER 1000:1000
+USER 20001:1000

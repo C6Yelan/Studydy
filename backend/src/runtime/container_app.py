@@ -14,14 +14,17 @@ from .storage.migrations import run_migrations
 from .storage.baseline import BaselineError
 
 
-def initialize_data(root: Path, uid: int, gid: int) -> None:
-    if uid <= 0 or gid <= 0 or root.is_symlink():
+def initialize_data(root: Path, uid: int, gid: int, *, backend_uid: int | None = None) -> None:
+    backend_uid = uid if backend_uid is None else backend_uid
+    if uid <= 0 or gid <= 0 or backend_uid <= 0 or root.is_symlink():
         raise ValueError("CONTAINER_DATA_INVALID")
+    root_created = not root.exists()
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    root.chmod(0o700)
-    os.chown(root, uid, gid)
+    if root_created:
+        root.chmod(0o700)
+        os.chown(root, uid, gid)
     for relative, owner, group in (
-        ("artifacts", uid, gid),
+        ("artifacts", backend_uid, gid),
         ("models", uid, gid),
         ("models/unlimited-ocr", uid, gid),
         ("postgres", 999, 999),
@@ -29,9 +32,12 @@ def initialize_data(root: Path, uid: int, gid: int) -> None:
         path = root / relative
         if path.is_symlink():
             raise ValueError("CONTAINER_DATA_INVALID")
+        created = not path.exists()
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        path.chmod(0o700)
-        os.chown(path, owner, group)
+        # 既有模型的讀取 ACL、PG 與主機資料權限由部署維護，不在 init 重設。
+        if relative == "artifacts" or created:
+            path.chmod(0o700)
+            os.chown(path, owner, group)
 
 
 def check_sandbox() -> None:
@@ -66,6 +72,7 @@ def main() -> None:
                 Path("/data"),
                 int(os.environ["STUDYDY_UID"]),
                 int(os.environ["STUDYDY_GID"]),
+                backend_uid=int(os.environ["STUDYDY_BACKEND_UID"]),
             )
             return
         if command == "serve":

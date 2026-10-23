@@ -10,6 +10,7 @@ services:
     environment:
       STUDYDY_UID: ${STUDYDY_UID:-1000}
       STUDYDY_GID: ${STUDYDY_GID:-1000}
+      STUDYDY_BACKEND_UID: ${STUDYDY_BACKEND_UID:-20001}
     volumes:
       - ${STUDYDY_DATA_DIR:-./data}:/data
     network_mode: none
@@ -46,7 +47,7 @@ services:
       target: ocr
     devices:
       - nvidia.com/gpu=all
-    user: "${STUDYDY_UID:-1000}:${STUDYDY_GID:-1000}"
+    user: "${STUDYDY_BACKEND_UID:-20001}:${STUDYDY_GID:-1000}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,7 +73,7 @@ services:
       - ${STUDYDY_DATA_DIR:-./data}/models/unlimited-ocr:/opt/studydy/models/unlimited-ocr:ro
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=1g,mode=1777
-      - /opt/studydy/runtime:rw,nosuid,nodev,size=16m,mode=0700,uid=${STUDYDY_UID:-1000},gid=${STUDYDY_GID:-1000}
+      - /opt/studydy/runtime:rw,nosuid,nodev,size=16m,mode=0700,uid=${STUDYDY_BACKEND_UID:-20001},gid=${STUDYDY_GID:-1000}
     extra_hosts: ["host.docker.internal:host-gateway"]
     read_only: true
     cap_drop: [ALL]
