@@ -68,7 +68,7 @@ onnx==1.16.0
 onnxruntime-gpu==1.23.2
 openai-whisper==20250625
 packaging==26.3
-pillow==12.3.0
+pillow==13.0.0
 platformdirs==4.12.2
 pooch==1.9.0
 protobuf==4.25.8

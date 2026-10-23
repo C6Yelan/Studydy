@@ -12,6 +12,12 @@ bundle 只包含需要的 `backend/src`、`ops` 與 `local_ai/runtime-lock.json`
 切換前確認沒有進行中的工作，再更新 service 的 `WorkingDirectory`／`ExecStart` 並重啟。
 同時記錄 bundle SHA、檔案 hash 與實際啟動路徑，避免容器與主機 provider 運行不同版本。
 
+## Pillow 版本契約
+
+Pillow 固定為 13.0.0，涵蓋後端 test extra、Podcast 影片與 CosyVoice requirements，以及 OCR 獨立環境。OCR 使用 Pillow 解析 PyMuPDF 重繪的 PNG；升級須核對相同合成 PDF 的文字與座標，影片另核對實際渲染及字幕排版。
+
+PyMuPDF 維持 1.28.0，renderer 的嚴格版本契約不變。此批不修改 OCR 的 torch／transformers、模型 revision 或 runtime lock；正式 Podcast 的套件更新仍須建立新環境並經驗收，不直接修改正在服務的 venv。
+
 ## PostgreSQL 18.6 升級結論
 
 [官方 18.6 發行說明](https://www.postgresql.org/docs/release/18.6/)指出 18.5 未正式發行，18.X 升級不需 dump／restore。依目前 `backend/migrations`：
