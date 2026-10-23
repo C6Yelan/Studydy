@@ -178,7 +178,6 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
   if (!all.length) return null;
   const earnedIds = new Set(all.filter((badge) => badge.earned).map((badge) => badge.badge_id));
   const shown = all.filter((badge) => revealed(badge, earnedIds));
-  const hiddenSteps = all.length - shown.length;
   // 系列依規則表順序（同系列由低到高），特殊成就排在後面。
   const order = [...Object.values(tiers).flat().map(([id]) => id), ...Object.keys(specials)];
   const sorted = [...shown].sort((a, b) => order.indexOf(a.badge_id) - order.indexOf(b.badge_id));
@@ -210,7 +209,6 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
         <small>「？？？」是隱藏成就，只有提示，達成後才揭曉。</small>
       </header>
       {locked.length > 0 && <ul className="badge-grid">{locked.map((badge) => <BadgeCell key={badge.badge_id} badge={badge} />)}</ul>}
-      {hiddenSteps > 0 && <p className="badge-chain-note"><Icon name="lock" size={14} />另有 {hiddenSteps} 個成就藏在成就鏈後面，完成前一步才會出現。</p>}
     </section>
     <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、教材問答、學習天數與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
   </section>;

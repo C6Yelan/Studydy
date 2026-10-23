@@ -134,13 +134,11 @@
   font-size: 12px;
   font-weight: 800;
 }
-.badge-empty,
-.badge-chain-note {
+.badge-empty {
   margin: 0;
   color: var(--text-secondary);
   font-size: 13px;
 }
-.badge-chain-note { display: flex; align-items: center; gap: 6px; color: var(--violet); font-weight: 700; }
 .badge-note {
   margin: 0;
   color: var(--text-muted);

@@ -446,10 +446,14 @@ test("profile keeps devices in their own card and fits a wide window without scr
   await mockLibrary(page, () => [withStudy()]);
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ total: 245, level: [2, 145, 150] }) }));
   await page.route("**/v1/learning-activity/rhythm?*", (route) => route.fulfill({ json: learningRhythm({}) }));
-  await page.route("**/v1/account/sessions", (route) => route.fulfill({ json: { schema: "account-sessions/v1", active_sessions: 2 } }));
+  const now = Date.now();
+  await page.route("**/v1/account/sessions", (route) => route.fulfill({ json: { schema: "account-sessions/v2", sessions: [
+    { session_id: "11111111-1111-4111-8111-111111111111", device_label: "Chrome · Windows", created_at: new Date(now - 864e5).toISOString(), last_used_at: new Date(now).toISOString(), current: true },
+    { session_id: "22222222-2222-4222-8222-222222222222", device_label: "Safari · iPhone", created_at: new Date(now - 3 * 864e5).toISOString(), last_used_at: new Date(now - 2 * 36e5).toISOString(), current: false },
+  ] } }));
   await page.goto("/profile");
   const devices = page.getByRole("region", { name: "登入裝置" });
-  await expect(devices).toContainText("目前有 2 個有效登入（含這個裝置）。");
+  await expect(devices.getByRole("listitem")).toHaveText([/Chrome · Windows這個裝置/, /Safari · iPhone最後使用 2 小時前/]);
   const settings = page.getByRole("region", { name: "帳號設定" });
   await expect(settings.getByRole("heading", { level: 3 })).toHaveText(["個人名稱", "修改密碼"]);
   await expect(settings.getByRole("region", { name: "登入裝置" })).toHaveCount(0);
@@ -623,9 +627,8 @@ test("hidden achievements show only hints and achievement chains reveal one step
   await expect(combo).not.toContainText("連續答對");
   await expect(combo.getByRole("progressbar")).toHaveCount(0);
   await expect(locked.locator(".badge-cell").filter({ hasText: "很厚、很厚的一本。" }).locator(".badge-rarity")).toHaveText("傳說");
-  // 成就鏈後面的步驟完全不顯示，只說明還有幾個。
+  // 成就鏈後面的步驟完全不顯示，也不提示還有幾個（當作彩蛋）。
   await expect(locked).not.toContainText("十題只是開始。");
-  await expect(locked.locator(".badge-chain-note")).toContainText("另有 5 個成就藏在成就鏈後面");
   // 依稀有度的取得數：夜貓子是普通。
   await expect(page.getByRole("list", { name: "依稀有度的取得數" }).getByRole("listitem").first()).toContainText(/^1/);
   // 取得第一步後，第二步以「？？？」與提示出現，第三步仍隱藏。
@@ -635,7 +638,6 @@ test("hidden achievements show only hints and achievement chains reveal one step
   await expect(locked.locator(".badge-cell").filter({ hasText: "十題只是開始。" })).toContainText(/成就鏈 · 第 2 步.*？？？/);
   await expect(locked).not.toContainText("連對達人");
   await expect(locked).not.toContainText("再遠一點");
-  await expect(locked.locator(".badge-chain-note")).toContainText("另有 4 個成就");
 });
 
 test("new badge notice shows once per badge after the first visit in this browser", async ({ page }) => {
