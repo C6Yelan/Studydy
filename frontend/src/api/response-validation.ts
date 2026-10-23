@@ -719,10 +719,20 @@ export function learnerProfile(value: unknown): value is LearnerProfile {
     && (item.display_name === null || (typeof item.display_name === "string" && item.display_name.length > 0 && [...item.display_name].length <= 20));
 }
 
+function accountSession(value: unknown): boolean {
+  const item = object(value);
+  return !!item && isUuid(item.session_id) && typeof item.current === "boolean"
+    && (item.device_label === null || (typeof item.device_label === "string" && item.device_label.length > 0 && item.device_label.length <= 64))
+    && timestamp(item.created_at) && timestamp(item.last_used_at);
+}
+
+// 目前這個登入一定在清單裡且排第一，只有一個。
 export function accountSessions(value: unknown): value is AccountSessions {
   const item = object(value);
-  return !!item && item.schema === "account-sessions/v1" && Number.isSafeInteger(item.active_sessions)
-    && (item.active_sessions as number) >= 1;
+  if (!item || item.schema !== "account-sessions/v2" || !Array.isArray(item.sessions) || !item.sessions.every(accountSession))
+    return false;
+  const sessions = item.sessions as { current: boolean }[];
+  return sessions.length > 0 && sessions[0].current && sessions.filter((session) => session.current).length === 1;
 }
 
 export function librarySearch(value: unknown): value is LibrarySearchView {

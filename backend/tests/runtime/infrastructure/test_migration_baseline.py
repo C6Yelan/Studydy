@@ -10,7 +10,7 @@ import pytest
 from content_identity import canonical_sha256
 from migration_fixtures import baseline_migrations_dir, create_legacy_database, legacy_account
 from product_fixtures import seed_pdf, _pdf
-from runtime.learner_session import resolve_session
+from runtime.learner_session import _token_digest, resolve_session
 from runtime.storage import baseline
 from runtime.storage.migrations import load_migrations, run_migrations
 
@@ -59,7 +59,14 @@ def test_check_adopt_repeat_and_restore_preserve_existing_data(legacy_copy, tmp_
         "restored_legacy_ledger"
     ]
     assert snapshot(dsn) == (before, ledger)
-    assert resolve_session(account.raw_token, dsn=dsn).learner_id == account.learner_id
+    # 退回舊帳本後的 Schema 只給舊後端使用（目前的 session 解析會讀 0013 欄位），
+    # 這裡直接核對登入仍有效。
+    with psycopg.connect(dsn) as connection:
+        assert connection.execute(
+            "SELECT learner_id FROM learner_sessions WHERE token_sha256 = %s AND revoked_at IS NULL "
+            "AND idle_expires_at > now() AND absolute_expires_at > now()",
+            (_token_digest(account.raw_token),),
+        ).fetchone() == (account.learner_id,)
 
 
 def test_fresh_schema_matches_independent_legacy_fixture(clean_database_dsn, tmp_path):

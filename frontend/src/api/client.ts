@@ -749,9 +749,15 @@ export class StudydyApiClient {
     return this.json("/v1/account/sessions", { method: "GET" }, validate.accountSessions);
   }
 
-  // 撤銷其他裝置的登入，保留目前這個；回傳之後的有效登入數。
+  // 撤銷其他裝置的登入，保留目前這個；回傳之後的有效登入。
   revokeOtherSessions(): Promise<AccountSessions> {
     return this.json("/v1/account/sessions/others", { method: "DELETE", headers: { Origin: origin() } },
+      validate.accountSessions);
+  }
+
+  // 撤銷本人另一個登入（目前這個用登出）；回傳之後的有效登入。
+  revokeSession(sessionId: string): Promise<AccountSessions> {
+    return this.json(`/v1/account/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE", headers: { Origin: origin() } },
       validate.accountSessions);
   }
 

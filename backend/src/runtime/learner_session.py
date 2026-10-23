@@ -10,7 +10,7 @@ from threading import Lock
 from uuid import UUID, uuid4
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,8 @@ from .storage.database import database_session
 
 IDLE_LIFETIME = timedelta(days=7)
 ABSOLUTE_LIFETIME = timedelta(days=30)
+# 每次請求解析 session 時，距上次記錄超過這段時間才更新最後使用時間，避免每個請求都寫入。
+LAST_USED_INTERVAL = timedelta(minutes=5)
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _EMAIL_ADDRESS = TypeAdapter(EmailStr)
 _CURRENT_SCRYPT = (2**14, 8, 5)
@@ -44,6 +46,58 @@ class CreatedSession:
     raw_token: str = field(repr=False)
 
 
+@dataclass(frozen=True)
+class ActiveSession:
+    """本人一個仍有效的登入；只含可公開的 session_id，不含 token 雜湊。"""
+
+    session_id: UUID
+    device_label: str | None
+    created_at: datetime
+    last_used_at: datetime
+    current: bool
+
+
+# 依出現順序比對：Edge／Opera／Samsung 的 User-Agent 也含 Chrome，iPhone 的含 Mac OS X，
+# Android 的含 Linux，所以較特定的寫在前面。
+_BROWSERS = (
+    ("Edge", ("Edg/", "EdgA/", "EdgiOS/")),
+    ("Opera", ("OPR/", "OPT/")),
+    ("Samsung Internet", ("SamsungBrowser/",)),
+    ("Firefox", ("Firefox/", "FxiOS/")),
+    ("Chrome", ("CriOS/", "Chrome/")),
+    ("Safari", ("Version/",)),
+)
+_SYSTEMS = (
+    ("iPhone", ("iPhone",)),
+    ("iPad", ("iPad",)),
+    ("Android", ("Android",)),
+    ("Windows", ("Windows",)),
+    ("ChromeOS", ("CrOS",)),
+    ("macOS", ("Macintosh", "Mac OS X")),
+    ("Linux", ("Linux",)),
+)
+
+
+def device_label(user_agent: str | None) -> str | None:
+    """把 User-Agent 簡化成「瀏覽器 · 系統」；兩者都認不出時回傳 None。
+
+    只保存這個標籤，不保存原始 User-Agent。Safari 只認含 Version/ 的 Safari，
+    App 內建瀏覽器等其他情況只顯示系統。
+    """
+    if not isinstance(user_agent, str):
+        return None
+    agent = user_agent[:512]
+
+    def first(rules: tuple[tuple[str, tuple[str, ...]], ...]) -> str | None:
+        return next((name for name, marks in rules if any(m in agent for m in marks)), None)
+
+    browser = first(_BROWSERS)
+    if browser == "Safari" and "Safari/" not in agent:
+        browser = None
+    parts = [part for part in (browser, first(_SYSTEMS)) if part]
+    return " · ".join(parts) or None
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -64,8 +118,10 @@ def _token_digest(raw_token: str | None) -> bytes | None:
     return sha256(token_bytes).digest()
 
 
-def _add_session(session: Session, learner_id: UUID) -> CreatedSession:
-    """為指定使用者建立登入 session。"""
+def _add_session(
+    session: Session, learner_id: UUID, label: str | None = None
+) -> CreatedSession:
+    """為指定使用者建立登入 session；label 為 device_label() 的結果。"""
     token_bytes = secrets.token_bytes(32)
     now = _utc_now()
     session.add(
@@ -78,6 +134,8 @@ def _add_session(session: Session, learner_id: UUID) -> CreatedSession:
             absolute_expires_at=now + ABSOLUTE_LIFETIME,
             revoked_at=None,
             updated_at=now,
+            device_label=label,
+            last_used_at=now,
         )
     )
     return CreatedSession(learner_id=learner_id, raw_token=_encode_token(token_bytes))
@@ -118,7 +176,11 @@ def _password_hash(password: str) -> str:
 
 
 def register_account(
-    email: str, password: str, *, dsn: str | None = None
+    email: str,
+    password: str,
+    *,
+    dsn: str | None = None,
+    label: str | None = None,
 ) -> CreatedSession:
     """以同一交易建立帳號與登入 session。"""
     email = _credentials(email, password)
@@ -135,7 +197,7 @@ def register_account(
                 )
             )
             session.flush()
-            created = _add_session(session, learner_id)
+            created = _add_session(session, learner_id, label)
     except IntegrityError as error:
         if getattr(error.orig, "sqlstate", None) == "23505":
             raise SessionError("ACCOUNT_UNAVAILABLE") from None
@@ -168,7 +230,11 @@ def _password_profile(stored: str | None, password: str) -> tuple[int, int, int]
 
 
 def login_account(
-    email: str, password: str, *, dsn: str | None = None
+    email: str,
+    password: str,
+    *,
+    dsn: str | None = None,
+    label: str | None = None,
 ) -> CreatedSession:
     """驗證密碼後為原 learner 建立 session；失效 token 不會被復活。"""
     email = _credentials(email, password)
@@ -183,7 +249,7 @@ def login_account(
                 raise SessionError("INVALID_CREDENTIALS")
             if profile != _CURRENT_SCRYPT:
                 learner.password_hash = _password_hash(password)
-            created = _add_session(session, learner.learner_id)
+            created = _add_session(session, learner.learner_id, label)
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise SessionError("SESSION_STORAGE_FAILED") from None
     return created
@@ -194,16 +260,23 @@ def resolve_session(
     *,
     dsn: str | None = None,
 ) -> TrustedLearner | None:
-    """解析仍有效的 exact token；此讀取不延長 session。"""
+    """解析仍有效的 exact token；不延長 session，只記錄最後使用時間。
+
+    最後使用時間距今超過 LAST_USED_INTERVAL 才寫入，大多數請求只有一次讀取。
+    """
 
     token_digest = _token_digest(raw_token)
     if token_digest is None:
         return None
     now = _utc_now()
+    stale = or_(
+        LearnerSession.last_used_at.is_(None),
+        LearnerSession.last_used_at < now - LAST_USED_INTERVAL,
+    )
     try:
         with database_session(dsn) as session:
-            learner_id = session.scalar(
-                select(LearnerSession.learner_id)
+            found = session.execute(
+                select(LearnerSession.learner_id, stale)
                 .join(Learner, Learner.learner_id == LearnerSession.learner_id)
                 .where(
                     LearnerSession.token_sha256 == token_digest,
@@ -211,12 +284,18 @@ def resolve_session(
                     LearnerSession.idle_expires_at > now,
                     LearnerSession.absolute_expires_at > now,
                 )
-            )
+            ).first()
+            if found is not None and found[1]:
+                session.execute(
+                    update(LearnerSession)
+                    .where(LearnerSession.token_sha256 == token_digest, stale)
+                    .values(last_used_at=now)
+                )
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise SessionError("SESSION_STORAGE_FAILED") from None
-    if learner_id is None:
+    if found is None:
         return None
-    return TrustedLearner(learner_id=learner_id)
+    return TrustedLearner(learner_id=found[0])
 
 
 def refresh_session(
@@ -248,6 +327,7 @@ def refresh_session(
                 stored.absolute_expires_at,
             )
             stored.updated_at = now
+            stored.last_used_at = now
             learner_id = stored.learner_id
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise SessionError("SESSION_STORAGE_FAILED") from None
@@ -291,17 +371,43 @@ def _active(stored: LearnerSession | None, now: datetime) -> bool:
     )
 
 
-def _active_count(session: Session, learner_id: UUID, now: datetime) -> int:
-    return session.scalar(
-        select(func.count())
-        .select_from(LearnerSession)
+def _active_sessions(
+    session: Session, current: LearnerSession, now: datetime
+) -> list[ActiveSession]:
+    """本人仍有效的登入：目前這個排第一，其餘依最後使用時間由新到舊。
+
+    0013 之前建立的 session 沒有最後使用時間，以 updated_at（建立或上次 refresh）代替。
+    """
+    last_used = func.coalesce(LearnerSession.last_used_at, LearnerSession.updated_at)
+    rows = session.execute(
+        select(
+            LearnerSession.session_id,
+            LearnerSession.device_label,
+            LearnerSession.created_at,
+            last_used,
+        )
         .where(
-            LearnerSession.learner_id == learner_id,
+            LearnerSession.learner_id == current.learner_id,
             LearnerSession.revoked_at.is_(None),
             LearnerSession.idle_expires_at > now,
             LearnerSession.absolute_expires_at > now,
         )
-    )
+        .order_by(
+            (LearnerSession.session_id == current.session_id).desc(),
+            last_used.desc(),
+            LearnerSession.created_at.desc(),
+        )
+    ).all()
+    return [
+        ActiveSession(
+            session_id=row[0],
+            device_label=row[1],
+            created_at=row[2],
+            last_used_at=row[3],
+            current=row[0] == current.session_id,
+        )
+        for row in rows
+    ]
 
 
 def _lock_current(session: Session, token_digest: bytes) -> tuple[Learner, LearnerSession]:
@@ -338,17 +444,30 @@ def _revoke_others(session: Session, current: LearnerSession, now: datetime) -> 
     )
 
 
-def count_active_sessions(learner_id: UUID, *, dsn: str | None = None) -> int:
-    """本人目前仍有效（未撤銷、未逾期）的登入數，含目前這個。"""
+def list_active_sessions(
+    raw_token: str | None, *, dsn: str | None = None
+) -> list[ActiveSession]:
+    """列出目前 token 所屬帳號仍有效（未撤銷、未逾期）的登入，含目前這個。"""
+    token_digest = _token_digest(raw_token)
+    if token_digest is None:
+        raise SessionError("SESSION_REQUIRED")
     try:
         with database_session(dsn) as session:
-            return _active_count(session, learner_id, _utc_now())
+            current = session.scalar(
+                select(LearnerSession).where(LearnerSession.token_sha256 == token_digest)
+            )
+            now = _utc_now()
+            if not _active(current, now):
+                raise SessionError("SESSION_REQUIRED")
+            return _active_sessions(session, current, now)
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise SessionError("SESSION_STORAGE_FAILED") from None
 
 
-def revoke_other_sessions(raw_token: str | None, *, dsn: str | None = None) -> int:
-    """撤銷本人其他所有 session，保留目前這個；回傳之後的有效登入數。"""
+def revoke_other_sessions(
+    raw_token: str | None, *, dsn: str | None = None
+) -> list[ActiveSession]:
+    """撤銷本人其他所有 session，保留目前這個；回傳之後的有效登入。"""
     token_digest = _token_digest(raw_token)
     if token_digest is None:
         raise SessionError("SESSION_REQUIRED")
@@ -357,7 +476,42 @@ def revoke_other_sessions(raw_token: str | None, *, dsn: str | None = None) -> i
             _, current = _lock_current(session, token_digest)
             now = _utc_now()
             _revoke_others(session, current, now)
-            return _active_count(session, current.learner_id, now)
+            return _active_sessions(session, current, now)
+    except (DatabaseConfigurationError, SQLAlchemyError):
+        raise SessionError("SESSION_STORAGE_FAILED") from None
+
+
+def revoke_own_session(
+    raw_token: str | None, session_id: UUID, *, dsn: str | None = None
+) -> list[ActiveSession]:
+    """撤銷本人另一個登入；回傳之後的有效登入。
+
+    目前這個登入不能用這裡撤銷（改用登出）；不屬於本人或不存在的 session_id 一律
+    RESOURCE_NOT_FOUND，不透露其他帳號是否有這個登入。本人已失效的登入視為已完成。
+    """
+    token_digest = _token_digest(raw_token)
+    if token_digest is None:
+        raise SessionError("SESSION_REQUIRED")
+    try:
+        with database_session(dsn) as session:
+            _, current = _lock_current(session, token_digest)
+            if session_id == current.session_id:
+                raise SessionError("REQUEST_INVALID")
+            target = session.scalar(
+                select(LearnerSession)
+                .where(
+                    LearnerSession.session_id == session_id,
+                    LearnerSession.learner_id == current.learner_id,
+                )
+                .with_for_update()
+            )
+            if target is None:
+                raise SessionError("RESOURCE_NOT_FOUND")
+            now = _utc_now()
+            if target.revoked_at is None:
+                target.revoked_at = now
+                target.updated_at = now
+            return _active_sessions(session, current, now)
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise SessionError("SESSION_STORAGE_FAILED") from None
 
@@ -368,12 +522,12 @@ def change_password(
     new_password: str,
     *,
     dsn: str | None = None,
-) -> int:
+) -> list[ActiveSession]:
     """核對目前密碼後更新雜湊，並撤銷其他所有 session。
 
     目前 session 保留原 token：cookie 為 HttpOnly、無法由頁面讀取，重新簽發會讓
     同一瀏覽器其他分頁正在送出的請求收到 401 而被登出。目前密碼錯誤時整筆交易
-    不寫入任何資料。回傳之後的有效登入數。
+    不寫入任何資料。回傳之後的有效登入。
     """
     token_digest = _token_digest(raw_token)
     if token_digest is None:
@@ -390,7 +544,7 @@ def change_password(
             now = _utc_now()
             learner.password_hash = _password_hash(new_password)
             _revoke_others(session, current, now)
-            return _active_count(session, current.learner_id, now)
+            return _active_sessions(session, current, now)
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise SessionError("SESSION_STORAGE_FAILED") from None
 

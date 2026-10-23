@@ -37,11 +37,13 @@ from ..learner_session import (
     PasswordAttemptLimiter,
     SessionError,
     change_password,
-    count_active_sessions,
+    device_label,
+    list_active_sessions,
     login_account,
     revoke_other_sessions,
     refresh_session,
     register_account,
+    revoke_own_session,
     revoke_session,
 )
 from ..material_discard import MaterialDiscardError, request_material_discard
@@ -83,6 +85,7 @@ from .models import (
     LearnerProfileUpdate,
     LearnerProfileView,
     PasswordChange,
+    AccountSessionView,
     AccountSessionsView,
     MaterialDiscardView,
     MaterialDraftCreate,
@@ -657,7 +660,12 @@ def create_app(settings: ApiSettings) -> FastAPI:
         request: Request, response: Response, body: AccountCredentials
     ) -> LearnerIdentityView:
         request_context.require_query(request, set())
-        created = register_account(body.email, body.password, dsn=settings.dsn)
+        created = register_account(
+            body.email,
+            body.password,
+            dsn=settings.dsn,
+            label=device_label(request.headers.get("user-agent")),
+        )
         _set_session_cookie(response, created.raw_token, settings)
         return LearnerIdentityView(learner_id=created.learner_id)
 
@@ -671,7 +679,12 @@ def create_app(settings: ApiSettings) -> FastAPI:
         request: Request, response: Response, body: AccountCredentials
     ) -> LearnerIdentityView:
         request_context.require_query(request, set())
-        created = login_account(body.email, body.password, dsn=settings.dsn)
+        created = login_account(
+            body.email,
+            body.password,
+            dsn=settings.dsn,
+            label=device_label(request.headers.get("user-agent")),
+        )
         _set_session_cookie(response, created.raw_token, settings)
         return LearnerIdentityView(learner_id=created.learner_id)
 
@@ -713,6 +726,11 @@ def create_app(settings: ApiSettings) -> FastAPI:
 
     password_attempts = PasswordAttemptLimiter()
 
+    def sessions_view(sessions) -> AccountSessionsView:
+        return AccountSessionsView(
+            sessions=[AccountSessionView(**vars(item)) for item in sessions]
+        )
+
     @app.get(
         "/v1/account/sessions",
         response_model=AccountSessionsView,
@@ -721,9 +739,11 @@ def create_app(settings: ApiSettings) -> FastAPI:
     )
     def read_account_sessions_route(request: Request) -> AccountSessionsView:
         request_context.require_query(request, set())
-        learner = request_context.trusted_learner(request, settings)
-        return AccountSessionsView(
-            active_sessions=count_active_sessions(learner.learner_id, dsn=settings.dsn)
+        request_context.trusted_learner(request, settings)
+        return sessions_view(
+            list_active_sessions(
+                request.cookies.get(request_context.SESSION_COOKIE), dsn=settings.dsn
+            )
         )
 
     @app.delete(
@@ -736,9 +756,30 @@ def create_app(settings: ApiSettings) -> FastAPI:
     def revoke_other_sessions_route(request: Request) -> AccountSessionsView:
         request_context.require_query(request, set())
         request_context.trusted_learner(request, settings)
-        return AccountSessionsView(
-            active_sessions=revoke_other_sessions(
+        return sessions_view(
+            revoke_other_sessions(
                 request.cookies.get(request_context.SESSION_COOKIE), dsn=settings.dsn
+            )
+        )
+
+    @app.delete(
+        "/v1/account/sessions/{session_id}",
+        response_model=AccountSessionsView,
+        operation_id="revokeAccountSession",
+        tags=["session"],
+        dependencies=[Depends(request_context.require_empty_body)],
+    )
+    def revoke_account_session_route(
+        request: Request, session_id: UUID
+    ) -> AccountSessionsView:
+        # 只能撤銷本人另一個登入；目前這個用 DELETE /v1/session 登出。
+        request_context.require_query(request, set())
+        request_context.trusted_learner(request, settings)
+        return sessions_view(
+            revoke_own_session(
+                request.cookies.get(request_context.SESSION_COOKIE),
+                session_id,
+                dsn=settings.dsn,
             )
         )
 
@@ -768,7 +809,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
                 password_attempts.record_failure(learner.learner_id)
             raise
         password_attempts.reset(learner.learner_id)
-        return AccountSessionsView(active_sessions=active)
+        return sessions_view(active)
 
     @app.post(
         "/v1/session/refresh",

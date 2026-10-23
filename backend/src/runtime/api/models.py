@@ -49,12 +49,21 @@ class PasswordChange(_Closed):
     new_password: str = Field(min_length=15, max_length=128, repr=False)
 
 
+class AccountSessionView(_Closed):
+    # 只公開 session_id；token 雜湊不離開後端。device_label 為 None 表示未知裝置。
+    session_id: UUID
+    device_label: str | None
+    created_at: datetime
+    last_used_at: datetime
+    current: bool
+
+
 class AccountSessionsView(_Closed):
-    schema_: Literal["account-sessions/v1"] = Field(
-        default="account-sessions/v1", alias="schema"
+    schema_: Literal["account-sessions/v2"] = Field(
+        default="account-sessions/v2", alias="schema"
     )
-    # 本人仍有效的登入數，含目前這個。
-    active_sessions: int
+    # 本人仍有效的登入：目前這個排第一，其餘依最後使用時間由新到舊。
+    sessions: list[AccountSessionView]
 
 
 class LibrarySearchMaterialView(_Closed):

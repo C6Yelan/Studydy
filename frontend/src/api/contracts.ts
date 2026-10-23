@@ -69,8 +69,12 @@ export type ApiErrorView = {
 export type LearnerIdentity = { schema: "learner-identity/v1"; learner_id: string };
 // 個人顯示名稱；未設定為 null，畫面沿用不含名字的問候。
 export type LearnerProfile = { schema: "learner-profile/v1"; display_name: string | null };
-// 本人目前仍有效的登入數，含目前這個裝置。
-export type AccountSessions = { schema: "account-sessions/v1"; active_sessions: number };
+// 本人一個仍有效的登入；device_label 為 null 表示未知裝置（舊登入或無法辨識的瀏覽器）。
+export type AccountSession = {
+  session_id: string; device_label: string | null; created_at: string; last_used_at: string; current: boolean;
+};
+// 本人目前仍有效的登入：目前這個裝置排第一，其餘依最後使用時間由新到舊。
+export type AccountSessions = { schema: "account-sessions/v2"; sessions: AccountSession[] };
 
 // 全站搜尋：只查教材名稱與各教材目前版本的概念名稱／別名。
 export type LibrarySearchView = {

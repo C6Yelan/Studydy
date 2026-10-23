@@ -1306,23 +1306,37 @@ test("profile is read once per login, updated with Origin and pushed to listener
   await assert.rejects(tooLong.getProfile(), ApiClientError);
 });
 
-test("account sessions and password change send Origin and validate the session count", async () => {
+test("account sessions, single revoke and password change send Origin and validate the device list", async () => {
   const requests = [];
+  const current = { session_id: materialId, device_label: "Chrome · Windows", created_at: "2026-10-20T01:00:00Z", last_used_at: "2026-10-23T01:00:00Z", current: true };
+  const phone = { ...current, session_id: "00000000-0000-4000-8000-0000000000aa", device_label: null, current: false };
   const client = new StudydyApiClient(async (path, init) => {
     requests.push([path, init.method, init.headers?.Origin ?? null, init.body ?? null]);
-    return Response.json({ schema: "account-sessions/v1", active_sessions: path === "/v1/account/sessions" ? 3 : 1 });
+    return Response.json({ schema: "account-sessions/v2", sessions: path === "/v1/account/sessions" ? [current, phone] : [current] });
   });
-  assert.equal((await client.getAccountSessions()).active_sessions, 3);
-  assert.equal((await client.revokeOtherSessions()).active_sessions, 1);
-  assert.equal((await client.changePassword("old synthetic secret", "new synthetic secret 1")).active_sessions, 1);
+  assert.deepEqual((await client.getAccountSessions()).sessions, [current, phone]);
+  assert.equal((await client.revokeSession(phone.session_id)).sessions.length, 1);
+  assert.equal((await client.revokeOtherSessions()).sessions.length, 1);
+  assert.equal((await client.changePassword("old synthetic secret", "new synthetic secret 1")).sessions.length, 1);
   assert.deepEqual(requests.map(([path, method]) => [path, method]), [
-    ["/v1/account/sessions", "GET"], ["/v1/account/sessions/others", "DELETE"], ["/v1/account/password", "POST"],
+    ["/v1/account/sessions", "GET"], [`/v1/account/sessions/${phone.session_id}`, "DELETE"],
+    ["/v1/account/sessions/others", "DELETE"], ["/v1/account/password", "POST"],
   ]);
-  assert.ok(requests[1][2] && requests[2][2]);
-  assert.deepEqual(JSON.parse(requests[2][3]), {
+  assert.ok(requests[1][2] && requests[2][2] && requests[3][2]);
+  assert.deepEqual(JSON.parse(requests[3][3]), {
     schema: "password-change/v1", current_password: "old synthetic secret", new_password: "new synthetic secret 1",
   });
-  for (const body of [{ schema: "account-sessions/v1", active_sessions: 0 }, { schema: "account-sessions/v1", active_sessions: 1.5 }, { schema: "learner-profile/v1" }]) {
+  // 清單必須有且只有一個目前裝置並排第一；欄位格式不符或舊版契約都拒絕。
+  for (const body of [
+    { schema: "account-sessions/v2", sessions: [] },
+    { schema: "account-sessions/v2", sessions: [phone, current] },
+    { schema: "account-sessions/v2", sessions: [current, { ...phone, current: true }] },
+    { schema: "account-sessions/v2", sessions: [{ ...current, device_label: "" }] },
+    { schema: "account-sessions/v2", sessions: [{ ...current, last_used_at: "yesterday" }] },
+    { schema: "account-sessions/v2", sessions: [{ ...current, session_id: "not-a-uuid" }] },
+    { schema: "account-sessions/v1", active_sessions: 2 },
+    { schema: "learner-profile/v1" },
+  ]) {
     const broken = new StudydyApiClient(async () => Response.json(body));
     await assert.rejects(broken.getAccountSessions(), ApiClientError);
   }

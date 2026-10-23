@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
-import type { AccountSessions } from "../../api/contracts";
+import type { AccountSession, AccountSessions } from "../../api/contracts";
 import { useProfile } from "../../app/HeaderTools";
+import { Icon } from "../../ui/Icon";
 
 const NAME_LIMIT = 20;
 
-// 登入中的裝置數：帳號設定（改密碼後其他裝置登出）與登入裝置卡片共用同一份。
-export function useAccountSessions(apiClient: StudydyApiClient): [AccountSessions | null, (sessions: AccountSessions) => void] {
-  const [sessions, setSessions] = useState<AccountSessions | null>(null);
+// 登入裝置清單：帳號設定（改密碼後其他裝置登出）與登入裝置卡片共用同一份。
+// undefined 表示讀取中，null 表示讀取失敗。
+export function useAccountSessions(apiClient: StudydyApiClient): [AccountSessions | null | undefined, (sessions: AccountSessions) => void] {
+  const [sessions, setSessions] = useState<AccountSessions | null | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;
-    void apiClient.getAccountSessions().then((value) => { if (!cancelled) setSessions(value); }, () => undefined);
+    void apiClient.getAccountSessions().then(
+      (value) => { if (!cancelled) setSessions(value); },
+      () => { if (!cancelled) setSessions(null); },
+    );
     return () => { cancelled = true; };
   }, [apiClient]);
   return [sessions, setSessions];
@@ -152,35 +157,114 @@ function PasswordSection({ apiClient, onChanged }: {
   );
 }
 
+// 收合時顯示的裝置數（含這個裝置）；寬螢幕兩欄排列剛好一列，讓個人檔案不必整頁捲動。
+const VISIBLE_DEVICES = 2;
+const taipeiDate = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric" });
+const taipeiDateWithYear = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "numeric", day: "numeric" });
+const taipeiFull = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" });
+const taipeiYear = new Intl.DateTimeFormat("en", { timeZone: "Asia/Taipei", year: "numeric" });
+
+// 一週內用相對時間，更早顯示台灣時區的日期（不同年份才加年份）。
+function relativeTime(value: string, now = Date.now()): string {
+  const at = Date.parse(value);
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return "剛剛";
+  if (minutes < 60) return `${minutes} 分鐘前`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} 小時前`;
+  if (minutes < 7 * 24 * 60) return `${Math.floor(minutes / (24 * 60))} 天前`;
+  return calendarDate(value, now);
+}
+
+function calendarDate(value: string, now = Date.now()): string {
+  const sameYear = taipeiYear.format(Date.parse(value)) === taipeiYear.format(now);
+  return (sameYear ? taipeiDate : taipeiDateWithYear).format(Date.parse(value));
+}
+
+const phoneSystems = ["iPhone", "iPad", "Android"];
+
 export function DevicesCard({ apiClient, sessions, onChanged }: {
-  apiClient: StudydyApiClient; sessions: AccountSessions | null; onChanged: (sessions: AccountSessions) => void;
+  apiClient: StudydyApiClient; sessions: AccountSessions | null | undefined; onChanged: (sessions: AccountSessions) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const count = sessions?.active_sessions ?? null;
+  const [notice, setNotice] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const list = sessions?.sessions ?? [];
+  const shown = expanded ? list : list.slice(0, VISIBLE_DEVICES);
+  const hidden = list.length - shown.length;
   return (
     <section className="profile-devices surface" aria-labelledby="account-devices-heading">
-      <h2 id="account-devices-heading">登入裝置</h2>
-      {/* 讀不到數量時不顯示數字，仍可操作。 */}
-      <p className="profile-help">
-        {count === null ? "可讓其他裝置上的登入全部失效，這個裝置會維持登入。"
-          : count === 1 ? "目前只有這個裝置登入中。"
-          : `目前有 ${count} 個有效登入（含這個裝置）。`}
-      </p>
-      {error && <p className="form-error" role="alert">{error}</p>}
-      {done && <p className="form-success" role="status">已登出其他裝置，目前只有這個裝置登入中。</p>}
-      <footer>
-        <button className="secondary-button" type="button" disabled={busy || count === 1} onClick={() => {
+      <header>
+        <h2 id="account-devices-heading" ref={heading} tabIndex={-1}>登入裝置</h2>
+        {(hidden > 0 || expanded) && <button className="text-button device-more" type="button" aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}>{expanded ? "收合" : `顯示其他 ${hidden} 個裝置`}</button>}
+        <button className="secondary-button" type="button" disabled={busy || list.length === 1} onClick={() => {
           setBusy(true);
           setError(null);
-          setDone(false);
+          setNotice(null);
           void apiClient.revokeOtherSessions().then(
-            (value) => { setBusy(false); setDone(true); onChanged(value); },
+            (value) => { setBusy(false); setNotice("已登出其他裝置，目前只有這個裝置登入中。"); setExpanded(false); onChanged(value); },
             (failure) => { setBusy(false); setError(errorMessage(failure)); },
           );
         }}>{busy ? "正在登出…" : "登出其他裝置"}</button>
-      </footer>
+      </header>
+      {sessions === undefined && <p className="profile-help" role="status">正在讀取登入裝置…</p>}
+      {/* 讀不到清單時仍可一次登出其他裝置。 */}
+      {sessions === null && <p className="profile-help">無法讀取登入裝置清單；仍可讓其他裝置上的登入全部失效，這個裝置會維持登入。</p>}
+      {sessions && <ul className={`device-list${expanded ? " is-expanded" : ""}`}>
+        {shown.map((item) => <DeviceRow key={item.session_id} apiClient={apiClient} session={item} onRevoked={(value) => {
+          setError(null);
+          setNotice(`已登出「${item.device_label ?? "未知裝置"}」。`);
+          onChanged(value);
+          heading.current?.focus();
+        }} />)}
+      </ul>}
+      {error && <p className="form-error" role="alert">{error}</p>}
+      {notice && <p className="form-success" role="status">{notice}</p>}
     </section>
+  );
+}
+
+// 一個登入：這個裝置只顯示標記；其他裝置可在列內確認後個別登出。
+function DeviceRow({ apiClient, session, onRevoked }: {
+  apiClient: StudydyApiClient; session: AccountSession; onRevoked: (sessions: AccountSessions) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const keep = useRef<HTMLButtonElement>(null);
+  const opener = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (confirming) keep.current?.focus(); }, [confirming]);
+  const label = session.device_label ?? "未知裝置";
+  const system = session.device_label?.split(" · ").at(-1) ?? "";
+  const close = () => { setConfirming(false); setError(null); requestAnimationFrame(() => opener.current?.focus()); };
+  return (
+    <li className={`device-row${session.current ? " is-current" : ""}`}>
+      <span className="stat-icon is-blue"><Icon name={phoneSystems.includes(system) ? "phone" : "monitor"} size={16} /></span>
+      <div className="device-text">
+        <strong>{label}{session.current && <span className="device-current">這個裝置</span>}</strong>
+        <small>
+          {session.current ? "使用中" : <>最後使用 <time dateTime={session.last_used_at} title={taipeiFull.format(Date.parse(session.last_used_at))}>{relativeTime(session.last_used_at)}</time></>}
+          {" · "}<time dateTime={session.created_at} title={taipeiFull.format(Date.parse(session.created_at))}>{calendarDate(session.created_at)}</time> 登入
+        </small>
+      </div>
+      {!session.current && !confirming && <button ref={opener} className="text-button" type="button"
+        aria-label={`登出「${label}」`} onClick={() => setConfirming(true)}>登出</button>}
+      {confirming && <div className="device-confirm" role="group" aria-label={`登出「${label}」確認`}
+        onKeyDown={(event) => { if (event.key === "Escape" && !busy) { event.preventDefault(); close(); } }}>
+        <span>登出這個裝置？</span>
+        <button ref={keep} className="secondary-button" type="button" disabled={busy} onClick={close}>取消</button>
+        <button className="secondary-button cancel-confirm-button" type="button" disabled={busy} onClick={() => {
+          setBusy(true);
+          setError(null);
+          void apiClient.revokeSession(session.session_id).then(
+            (value) => { setBusy(false); onRevoked(value); },
+            (failure) => { setBusy(false); setError(errorMessage(failure)); },
+          );
+        }}>{busy ? "正在登出…" : "登出"}</button>
+        {error && <p className="form-error" role="alert">{error}</p>}
+      </div>}
+    </li>
   );
 }

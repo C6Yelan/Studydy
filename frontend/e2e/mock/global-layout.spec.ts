@@ -15,7 +15,10 @@ const responses: Record<string, unknown> = {
   "/v1/materials": { schema: "material-library/v1", materials: [] },
   "/v1/card-sets": { schema: "card-set-list/v1", card_sets: [] },
   "/v1/podcasts": { schema: "podcast-list/v1", podcasts: [] },
-  "/v1/account/sessions": { schema: "account-sessions/v1", active_sessions: 2 },
+  "/v1/account/sessions": { schema: "account-sessions/v2", sessions: [
+    { session_id: "11111111-1111-4111-8111-111111111111", device_label: "Chrome · Windows", created_at: "2026-10-20T01:00:00Z", last_used_at: "2026-10-23T01:00:00Z", current: true },
+    { session_id: "22222222-2222-4222-8222-222222222222", device_label: "Samsung Internet · Android", created_at: "2026-10-19T01:00:00Z", last_used_at: "2026-10-22T01:00:00Z", current: false },
+  ] },
   // 較長名稱，檢查頁首在各寬度不溢出。
   "/v1/profile": { schema: "learner-profile/v1", display_name: "林以安同學的學習帳號" },
   // 有學習紀錄的頁首進度、等級、今日任務與學習節奏，讓各寬度一併檢查頁首、首頁右欄與個人檔案不溢出。

@@ -62,7 +62,8 @@ Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；wor
 - Email 正規化後唯一，密碼以隨機 salt 的 scrypt 保存；參數見 [learner_session.py](../backend/src/runtime/learner_session.py)。
 - API 以 HttpOnly session cookie 與 owner scope 授權；寫入檢查 Origin，私人回應使用 private/no-store。前端身分提示不授予資料權限。
 - 登出使 client 與私人畫面失效，延遲回應不能恢復另一個帳號資料。
-- 修改密碼（`POST /v1/account/password`）須核對目前密碼，成功後撤銷本人其他所有 session，目前 session 沿用原 token（重新簽發會讓同一瀏覽器其他分頁進行中的請求收到 401 而被登出）；目前密碼錯誤整筆不寫入。同帳號 15 分鐘內錯誤 5 次即回 429 `TOO_MANY_ATTEMPTS`，紀錄只在 API 程序記憶體，重啟歸零。`DELETE /v1/account/sessions/others` 撤銷其他 session，`GET /v1/account/sessions` 回傳未撤銷且未逾期的登入數。兩種寫入先鎖帳號再鎖目前 session，避免兩個裝置同時操作互鎖。
+- 修改密碼（`POST /v1/account/password`）須核對目前密碼，成功後撤銷本人其他所有 session，目前 session 沿用原 token（重新簽發會讓同一瀏覽器其他分頁進行中的請求收到 401 而被登出）；目前密碼錯誤整筆不寫入。同帳號 15 分鐘內錯誤 5 次即回 429 `TOO_MANY_ATTEMPTS`，紀錄只在 API 程序記憶體，重啟歸零。`GET /v1/account/sessions`（`account-sessions/v2`）列出本人未撤銷且未逾期的登入：只公開 `session_id`、裝置標籤、登入時間與最後使用時間，目前這個排第一。`DELETE /v1/account/sessions/others` 撤銷其他 session；`DELETE /v1/account/sessions/{session_id}` 撤銷本人另一個登入，目前這個回 400（改用登出），不屬於本人或不存在一律 404。三種寫入先鎖帳號再鎖目前 session，避免兩個裝置同時操作互鎖。
+- 裝置標籤在註冊／登入時由伺服器從 User-Agent 解析成「瀏覽器 · 系統」（如 `Chrome · Windows`），只存標籤，不存原始 User-Agent 或 IP；認不出為 NULL。最後使用時間由 session 解析記錄，距上次超過 5 分鐘才寫入，不延長 session 期限；0013 前的 session 以 `updated_at` 代替。
 - Material／Study 鎖、版本與唯一約束保護並行操作；lease／worker token 阻擋過期結果發布。
 - Progress／resume 在同一唯讀 snapshot 投影，整組交卷在同一交易保存。
 - DB 與檔案透過 staging、quarantine 及 reconciliation 保持一致。

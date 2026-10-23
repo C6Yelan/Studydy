@@ -36,6 +36,8 @@ export type IconName =
   | "edit"
   | "trash"
   | "play"
+  | "monitor"
+  | "phone"
   | "chevron-left";
 
 const paths: Record<IconName, React.ReactNode> = {
@@ -194,6 +196,8 @@ const paths: Record<IconName, React.ReactNode> = {
   edit: <><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></>,
   trash: <><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /><path d="M10 11v6M14 11v6" /></>,
   play: <path d="M7 4.5v15l12-7.5Z" />,
+  monitor: <><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>,
+  phone: <><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M11 18h2" /></>,
   "chevron-left": <path d="m15 18-6-6 6-6" />,
   send: (
     <>

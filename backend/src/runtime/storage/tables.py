@@ -73,6 +73,9 @@ class LearnerSession(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    # 0013：登入時由 User-Agent 解析的「瀏覽器 · 系統」與最後使用時間；舊 session 為 NULL。
+    device_label: Mapped[str | None] = mapped_column(Text)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Material(Base):

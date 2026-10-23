@@ -50,10 +50,13 @@ def test_domain_baseline_and_repeat_preserve_account_and_session(clean_database_
     assert run_migrations(clean_database_dsn) == tuple(m.version for m in load_migrations()[BASELINE_VERSIONS:])
     assert run_migrations(clean_database_dsn) == ()
     with psycopg.connect(clean_database_dsn) as connection:
+        # 後續 migration 新增的欄位為 NULL，原有欄位不變。
         assert connection.execute(
-            "SELECT to_jsonb(l) - 'display_name', to_jsonb(s) "
+            "SELECT to_jsonb(l) - 'display_name', "
+            "to_jsonb(s) - ARRAY['device_label', 'last_used_at'], "
+            "s.device_label IS NULL AND s.last_used_at IS NULL "
             "FROM learners l JOIN learner_sessions s USING (learner_id)"
-        ).fetchall() == before
+        ).fetchall() == [(*row, True) for row in before]
         assert read_marker(connection)[3] == [[v, h, t.isoformat()] for v, h, t in ledger]
 
 

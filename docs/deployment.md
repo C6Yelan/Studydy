@@ -256,3 +256,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 ## 學習活動 v3 與成就規則（2026-10-23）
 
 後端改為 `learning-activity/v3`（經驗值 `xp-rules/v3`、徽章 `badge-rules/v6`）並新增 `/v1/learning-activity/rhythm`；前端只接受這組版本，前後端必須一起上線，不可只更新其中一邊（任一邊是舊版時，頁首等級、成就與個人檔案的學習進度都會因版本不符而讀不到）。不需 migration，退回時前後端一起退回。
+
+## 0013 登入裝置清單（2026-10-23）
+
+0013 只在 `learner_sessions` 新增 nullable `device_label`（1–64 字元 CHECK）與 `last_used_at`，不回填、不改寫既有資料；新後端啟動（`serve`／`migrate`）時由 `run_migrations` 自動套用。上線前同 0009–0011 先在正式 DB dump 的一次性副本套用並核對原業務表資料不變。後端改為 `account-sessions/v2`（裝置清單，取代登入數），並新增 `DELETE /v1/account/sessions/{session_id}`；前端只接受 v2，前後端必須一起上線（只更新任一邊時，個人檔案讀不到登入裝置，修改密碼成功後也會顯示錯誤）。套用後需使用識別 0013 的後端，採前向修正；退回時前後端一起退回。既有登入沒有裝置標籤，顯示「未知裝置」，最後使用時間在下一次請求後開始記錄。

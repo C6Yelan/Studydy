@@ -186,23 +186,38 @@ function apiError(reason: string, status: number, retryable = false) {
   return { status, json: { schema: "api-error/v1", request_id: otherMaterial, reason_code: reason, retryable, message: "Request could not be completed." } };
 }
 
+// 第一筆是這個裝置；其餘依最後使用時間由新到舊，最後一筆是沒有標籤的舊登入。
+function deviceSessions(count: number) {
+  const now = Date.now();
+  const labels = ["Chrome · Windows", "Safari · iPhone", "Firefox · macOS", "Edge · Windows", "Chrome · Android"];
+  return Array.from({ length: count }, (_, index) => ({
+    session_id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    device_label: index > 0 && index === count - 1 ? null : labels[index % labels.length],
+    created_at: new Date(now - (index + 1) * 864e5).toISOString(),
+    last_used_at: new Date(now - index * 3 * 36e5).toISOString(),
+    current: index === 0,
+  }));
+}
+
 async function mockAccount(page: Page, initialSessions = 3) {
-  let active = initialSessions;
+  let sessions = deviceSessions(initialSessions);
+  const view = () => ({ schema: "account-sessions/v2", sessions });
   const writes: { path: string; method: string; origin: string | undefined; body: unknown }[] = [];
   await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: "以安" } }));
-  await page.route("**/v1/account/sessions", (route) => route.fulfill({ json: { schema: "account-sessions/v1", active_sessions: active } }));
-  await page.route("**/v1/account/sessions/others", (route) => {
-    writes.push({ path: "others", method: route.request().method(), origin: route.request().headers().origin, body: route.request().postData() });
-    active = 1;
-    return route.fulfill({ json: { schema: "account-sessions/v1", active_sessions: 1 } });
+  await page.route("**/v1/account/sessions", (route) => route.fulfill({ json: view() }));
+  await page.route("**/v1/account/sessions/*", (route) => {
+    const target = new URL(route.request().url()).pathname.split("/").at(-1)!;
+    writes.push({ path: target, method: route.request().method(), origin: route.request().headers().origin, body: route.request().postData() });
+    sessions = target === "others" ? sessions.slice(0, 1) : sessions.filter((item) => item.session_id !== target);
+    return route.fulfill({ json: view() });
   });
   const passwordReplies: (() => Parameters<import("@playwright/test").Route["fulfill"]>[0])[] = [];
   await page.route("**/v1/account/password", (route) => {
     writes.push({ path: "password", method: route.request().method(), origin: route.request().headers().origin, body: route.request().postDataJSON() });
     const reply = passwordReplies.shift();
     if (reply) return route.fulfill(reply());
-    active = 1;
-    return route.fulfill({ json: { schema: "account-sessions/v1", active_sessions: 1 } });
+    sessions = sessions.slice(0, 1);
+    return route.fulfill({ json: view() });
   });
   return { writes, passwordReplies };
 }
@@ -217,7 +232,9 @@ test("password change validates input, reports a wrong current password and then
   const section = dialog.getByRole("region", { name: "修改密碼" });
   await expect(dialog.getByRole("region", { name: "個人名稱" })).toBeVisible();
   // 登入裝置是帳號設定之外的獨立卡片。
-  await expect(page.getByRole("region", { name: "登入裝置" })).toContainText("目前有 3 個有效登入（含這個裝置）。");
+  // 三個登入先顯示兩個，其餘收合。
+  await expect(page.getByRole("region", { name: "登入裝置" }).getByRole("listitem")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "顯示其他 1 個裝置" })).toBeVisible();
   const submit = section.getByRole("button", { name: "更新密碼" });
   await expect(submit).toBeDisabled();
   await section.getByLabel("目前密碼").fill("old synthetic secret");
@@ -241,7 +258,7 @@ test("password change validates input, reports a wrong current password and then
   await submit.click();
   await expect(section.getByRole("status")).toHaveText("密碼已更新，其他裝置已登出；這個裝置維持登入。");
   for (const label of ["目前密碼", "確認新密碼"]) await expect(section.getByLabel(label)).toHaveValue("");
-  await expect(page.getByRole("region", { name: "登入裝置" })).toContainText("目前只有這個裝置登入中。");
+  await expect(page.getByRole("region", { name: "登入裝置" }).getByRole("listitem")).toHaveText([/Chrome · Windows這個裝置/]);
   await expect(page.getByRole("button", { name: "登出其他裝置" })).toBeDisabled();
   expect(writes).toHaveLength(3);
   for (const write of writes) {
@@ -255,26 +272,65 @@ test("password change validates input, reports a wrong current password and then
   await expect(section.getByLabel("新密碼", { exact: true })).toHaveValue("");
 });
 
-test("sign out other devices keeps this device and hides the count when it cannot be read", async ({ page }) => {
+test("device list signs out one device after confirming in place and expands long lists", async ({ page }) => {
+  await mockKnowledgeMapApi(page);
+  const { writes } = await mockAccount(page, 6);
+  await page.goto("/profile");
+  const devices = page.getByRole("region", { name: "登入裝置" });
+  const rows = devices.getByRole("listitem");
+  // 這個裝置排第一且不能在這裡登出；最後使用時間為相對時間，沒有標籤的顯示未知裝置。
+  await expect(rows).toHaveText([/^Chrome · Windows這個裝置使用中 · /, /^Safari · iPhone最後使用 3 小時前 · /]);
+  await expect(rows.first().getByRole("button")).toHaveCount(0);
+  await devices.getByRole("button", { name: "顯示其他 4 個裝置" }).click();
+  await expect(rows).toHaveCount(6);
+  await expect(rows.nth(2)).toContainText("Firefox · macOS最後使用 6 小時前");
+  await expect(rows.last()).toContainText("未知裝置");
+  await devices.getByRole("button", { name: "收合" }).click();
+  await expect(rows).toHaveCount(2);
+
+  const opener = devices.getByRole("button", { name: "登出「Safari · iPhone」" });
+  await opener.click();
+  const confirm = devices.getByRole("group", { name: "登出「Safari · iPhone」確認" });
+  await expect(confirm.getByRole("button", { name: "取消" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(confirm).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  expect(writes).toEqual([]);
+  await opener.click();
+  await confirm.getByRole("button", { name: "登出", exact: true }).click();
+  await expect(devices.getByRole("status")).toHaveText("已登出「Safari · iPhone」。");
+  await expect(devices).not.toContainText("Safari · iPhone最後使用");
+  await expect(rows).toHaveText([/這個裝置/, /Firefox · macOS/]);
+  await expect(devices.getByRole("button", { name: "顯示其他 3 個裝置" })).toBeVisible();
+  expect(writes).toEqual([{ path: "00000000-0000-4000-8000-000000000002", method: "DELETE", origin: new URL(page.url()).origin, body: null }]);
+  // 個別登出失敗時留在確認列並顯示原因。
+  await page.route("**/v1/account/sessions/*", (route) => route.fulfill(apiError("RESOURCE_NOT_FOUND", 404)));
+  await devices.getByRole("button", { name: "登出「Firefox · macOS」" }).click();
+  await devices.getByRole("group", { name: "登出「Firefox · macOS」確認" }).getByRole("button", { name: "登出", exact: true }).click();
+  await expect(devices.getByRole("alert")).toHaveText("找不到這筆資料，或你沒有權限讀取。");
+  await expect(rows).toHaveCount(2);
+});
+
+test("sign out other devices keeps this device and still works when the list cannot be read", async ({ page }) => {
   await mockKnowledgeMapApi(page);
   const { writes } = await mockAccount(page, 2);
   await page.goto(mapPath);
   await page.getByRole("button", { name: "個人檔案：以安" }).click();
   const devices = page.getByRole("region", { name: "登入裝置" });
-  await expect(devices).toContainText("目前有 2 個有效登入（含這個裝置）。");
+  await expect(devices.getByRole("listitem")).toHaveCount(2);
   await devices.getByRole("button", { name: "登出其他裝置" }).click();
   await expect(devices.getByRole("status")).toHaveText("已登出其他裝置，目前只有這個裝置登入中。");
-  await expect(devices).toContainText("目前只有這個裝置登入中。");
+  await expect(devices.getByRole("listitem")).toHaveText([/這個裝置/]);
   expect(writes).toEqual([{ path: "others", method: "DELETE", origin: new URL(page.url()).origin, body: null }]);
   await expect(page).toHaveURL(/\/profile$/);
 
   await page.unroute("**/v1/account/sessions");
   await page.route("**/v1/account/sessions", (route) => route.fulfill(apiError("STORAGE_UNAVAILABLE", 503, true)));
-  await page.unroute("**/v1/account/sessions/others");
-  await page.route("**/v1/account/sessions/others", (route) => route.fulfill(apiError("STORAGE_UNAVAILABLE", 503, true)));
+  await page.unroute("**/v1/account/sessions/*");
+  await page.route("**/v1/account/sessions/*", (route) => route.fulfill(apiError("STORAGE_UNAVAILABLE", 503, true)));
   await page.reload();
-  await expect(devices).toContainText("可讓其他裝置上的登入全部失效，這個裝置會維持登入。");
-  await expect(devices).not.toContainText(/\d+ 個有效登入/);
+  await expect(devices).toContainText("無法讀取登入裝置清單；仍可讓其他裝置上的登入全部失效，這個裝置會維持登入。");
+  await expect(devices.getByRole("listitem")).toHaveCount(0);
   await devices.getByRole("button", { name: "登出其他裝置" }).click();
   await expect(devices.getByRole("alert")).toHaveText("資料服務暫時無法使用，請稍後再試。");
   await expect(page.getByRole("region", { name: "帳號設定" })).toBeVisible();
@@ -287,7 +343,9 @@ test("profile fits a 390px phone and jumps to account settings", async ({ page }
   await page.goto("/");
   await page.getByRole("button", { name: "個人檔案：以安" }).click();
   const settings = page.getByRole("region", { name: "帳號設定" });
-  await expect(page.getByRole("region", { name: "登入裝置" })).toContainText("3 個有效登入");
+  // 三個登入先顯示兩個，其餘收合。
+  await expect(page.getByRole("region", { name: "登入裝置" }).getByRole("listitem")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "顯示其他 1 個裝置" })).toBeVisible();
   const box = (await settings.boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);
