@@ -9,7 +9,7 @@ dependencies = [
     "markdown-it-py==3.0.0",
     "olefile==0.47",
     "pydantic==2.13.4",
-    "psycopg[binary]==3.3.4",
+    "psycopg[binary]==3.3.5",
     "PyMuPDF==1.28.0",
     "SQLAlchemy==2.0.51",
     "uvicorn==0.51.0",

@@ -78,7 +78,7 @@ PYTHONPATH=local_ai/src backend/.venv/bin/pytest -q local_ai/tests
 
 ## Runtime 與瀏覽器
 
-Runtime 按 accounts、assessments、infrastructure、materials、sources、study 分類。fixture 預設建立 disposable PostgreSQL 18，每個案例使用獨立 DB 與 artifact root；禁止接產品 DB。
+Runtime 按 accounts、assessments、infrastructure、materials、sources、study 分類。fixture 預設建立與 Compose 相同固定映像的 disposable PostgreSQL 18.6，每個案例使用獨立 DB 與 artifact root；禁止接產品 DB。
 
 如需指定資料庫，STUDYDY_TEST_POSTGRES_DSN 只接受本機、名稱以 studydy_test 開頭的專用 control database，並核對版本及 superuser 權限。
 

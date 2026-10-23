@@ -32,6 +32,16 @@ bundle 只包含需要的 `backend/src`、`ops` 與 `local_ai/runtime-lock.json`
 做建置與驗證。這些是一次性歷史證據，不是目前 production working directory、資料來源，
 也不是下次 rebuild 的輸入。容器內 `/tmp` 的 Nginx 設定與 cache 是 tmpfs，不是另一份 source。
 
+## PostgreSQL 18.6 升級結論
+
+[官方 18.6 發行說明](https://www.postgresql.org/docs/release/18.6/)指出 18.5 未正式發行，18.X 升級不需 dump／restore。依目前 `backend/migrations`：
+
+- `0006_read_indexes.sql` 在 `material_passages` 建立 `material_passages_concepts`／`material_passages_terms` 兩個 GIN。正式升級後須人工檢查該表 `pg_class.reltuples` 是否合理；若異常，安排 `ANALYZE` 修正統計，不能以全套 `REINDEX` 取代此判斷。
+- 未宣告 `btree_gist`、`ltree` 或相關 GiST 索引，沒有 migration 層面必做的 REINDEX；若現場另有擴充，需另核對 float NaN／bit 的 btree_gist 索引及超長 ltree 值的 btree 索引。
+- 未見自訂 logical-decoding plugin、pgcrypto PGP 或失敗的 `COPY FROM STDIN` 腳本。官方所述 plugin 白名單、受影響密文重加密與 COPY 終止符，僅在現場另有這些用法時評估。
+
+以上只根據程式庫定義，未查產品 DB 的擴充或統計；沒有執行 DB 維護。部署時需另行核定人工操作，不改寫既有 migration。
+
 ## 固定部署邊界
 
 - Compose project：`studydy`；公開設定必須同時使用 `compose.yaml`＋`compose.tunnel.yaml`。
