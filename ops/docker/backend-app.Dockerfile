@@ -3,7 +3,8 @@ ARG RUNTIME_IMAGE=studydy-backend-runtime:local
 FROM ${RUNTIME_IMAGE}
 USER root
 COPY backend/pyproject.toml backend/uv.lock /app/backend/
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --project backend --locked --no-dev --python 3.12.14 \
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --project backend --locked --no-dev --no-install-package lxml --python 3.12.15 \
+    && uv pip install --python /app/backend/.venv/bin/python --no-deps /opt/studydy/lxml/lxml-*.whl \
     && chmod -R a+rX /app/backend/.venv
 RUN rm -rf /app/backend/src /app/backend/migrations
 COPY backend/src /app/backend/src

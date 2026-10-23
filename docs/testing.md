@@ -45,7 +45,11 @@ docker compose -p studydy-unit-tests -f compose.test.yaml run --build --rm unit
 
 容器不掛載產品資料，不需要 GPU 或模型。前端映像建置包含 Node tests、TypeScript 與 production build。
 
-完整後端映像從固定的 [Ubuntu snapshot](https://snapshot.ubuntu.com/) 安裝轉檔套件，避免一般套件站移除已鎖定的 LibreOffice 版本後無法重建。快照日期見 `ops/docker/backend.Dockerfile`；更新它與轉檔版本時須重新驗證實際輸出及來源 mapping。
+完整後端映像從固定的 [Ubuntu snapshot](https://snapshot.ubuntu.com/) 安裝轉檔套件，避免一般套件站移除已鎖定的 LibreOffice 版本後無法重建。轉檔套件維持已驗證的舊快照，CA／libxml2／libcurl 則從獨立安全快照安裝明確版本，避免安全更新連帶更換 LibreOffice／Bubblewrap。兩個快照日期與套件版本見 `ops/docker/backend.Dockerfile`；調整後須重新驗證實際版本、轉檔輸出及來源 mapping。
+
+後端使用 CPython 3.12.15。正式 lxml 6.1.3 wheel 仍內含舊 libxml2，因此完整映像以 lock 中的 sdist／SHA-256 自行建置，只將 libxml2 更新為 2.15.4；libxslt 1.1.43 與其上游 backport 維持不變。生成的 wheel 保留於 `/opt/studydy/lxml`，完整、test 與 app-only 建置都使用同一份。`backend-app.Dockerfile` 必須以這次完整建置的新 runtime 為基底，不能沿用尚未包含此 wheel 的舊 runtime。驗證時實際核對 `lxml.etree.LIBXML_VERSION`，不能只看 lxml 套件版號或系統 libxml2。
+
+CA 驗收依 [USN-8944-1](https://ubuntu.com/security/notices/USN-8944-1) 與 certifi 公告的官方修補範圍，確認 `emSign ECC Root CA - G3` 已移除；其他 G1／C1／C3 根仍可能保留，不額外變更上游信任政策。OCR 的 certifi 在 Dockerfile 明確固定為 2026.10.19。cloudflared 2026.10.3 使用 Go 1.27.3 的受損憑證拒絕修補，不能以此宣稱其系統信任庫已移除全部 emSign 根。
 
 測試容器的 tmpfs 提供 3 GiB 容量與執行權限，讓短片實際編碼及合成子程序取消測試能執行，保留 renderer 的空間檢查。
 
