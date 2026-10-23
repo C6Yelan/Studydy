@@ -18,7 +18,7 @@ for (const width of [1366, 390]) {
     await expect(cards).toHaveCount(2);
     const first = (await cards.nth(0).boundingBox())!;
     const second = (await cards.nth(1).boundingBox())!;
-    if (width > 1280) {
+    if (width >= 1280) {
       expect(first.y).toBeCloseTo(second.y, 0);
       expect(second.x).toBeGreaterThan(first.x + first.width);
     } else expect(second.y).toBeGreaterThanOrEqual(first.y + first.height);

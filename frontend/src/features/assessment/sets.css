@@ -223,7 +223,7 @@ details .assessment-paper .assessment-set-item {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-@media (min-width: 1281px) {
+@media (min-width: 1280px) { /* 特殊值：與作答頁雙欄題卡同步，1280px 筆電維持雙欄 */
   .assessment-set-items,
   .assessment-review-points {
     grid-template-columns: repeat(2, minmax(0, 1fr));

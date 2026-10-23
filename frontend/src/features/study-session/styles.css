@@ -93,7 +93,7 @@
   }
 }
 
-@media (min-width: 1281px) {
+@media (min-width: 1280px) { /* 特殊值：1280px 筆電維持雙欄題卡與黏性側欄 */
   .study-workspace {
     grid-template-columns: minmax(0, 1fr) clamp(300px, 22vw, 320px);
     gap: var(--space-6);
@@ -128,7 +128,7 @@
   box-shadow: none;
 }
 
-@media (min-width: 1281px) {
+@media (min-width: 1280px) { /* 特殊值：1280px 筆電維持雙欄題卡與黏性側欄 */
   .study-workspace:not(.is-preparation-mode) .study-rail {
     position: sticky;
     top: 80px;
