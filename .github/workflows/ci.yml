@@ -142,39 +142,11 @@ jobs:
               if log.name not in {'studydy-unit.log', 'studydy-host-sandbox.log', 'studydy-runtime.log'}:
                   annotate(log.stem, log.read_text(errors='replace')[-3000:])
           PY
-      - name: Diagnose runner host
-        if: failure()
-        run: &failure-host-diagnostics |
-          python3 - <<'PY'
-          import subprocess
-          def annotate(title, text):
-              prefix = f'::notice title={title}::'
-              payload = ''
-              for char in text:
-                  escaped = char.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                  candidate = prefix + payload + escaped
-                  if len(candidate) > 3500 or len(candidate.encode()) > 4096:
-                      print(prefix + payload, flush=True)
-                      payload = ''
-                  payload += escaped
-              print(prefix + payload, flush=True)
-          commands = [
-              ('namespace-policy', ['sysctl', 'kernel.apparmor_restrict_unprivileged_userns', 'kernel.unprivileged_userns_clone', 'user.max_user_namespaces']),
-              ('nproc', ['nproc']),
-              ('memory', ['free', '-m']),
-              ('ulimits', ['bash', '-c', 'ulimit -a']),
-          ]
-          for title, command in commands:
-              result = subprocess.run(command, capture_output=True, text=True, check=False)
-              annotate(title, f'exit_code={result.returncode}\n{result.stdout}{result.stderr}')
-          PY
 
   full:
-    # 暫時讓此分支 push 驗證 full 與 mock-browser；驗證完成後移除最後一個條件。
     if: &extended-tests >-
       github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
-      (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main')) ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/be/decouple-imports')
+      (github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.base_ref == 'main'))
     needs: quick
     runs-on: ubuntu-26.04
     timeout-minutes: 45
@@ -267,9 +239,6 @@ jobs:
       - name: Publish failure details as public annotations
         if: failure()
         run: *failure-details
-      - name: Diagnose runner host
-        if: failure()
-        run: *failure-host-diagnostics
 
   mock-browser:
     if: *extended-tests
@@ -315,6 +284,3 @@ jobs:
       - name: Publish failure details as public annotations
         if: failure()
         run: *failure-details
-      - name: Diagnose runner host
-        if: failure()
-        run: *failure-host-diagnostics
