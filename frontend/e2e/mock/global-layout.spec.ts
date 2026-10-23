@@ -52,8 +52,9 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-// 寬度取各斷點兩側（720／1100／1200／1280／1600／1800）與最寬 2560px。
-for (const width of [2560, 1920, 1366, 1281, 1100, 1024, 721, 390, 320]) {
+// 寬度取共用斷點兩側（720／1024／1280）、頁首帳號區收合門檻（1759）與最寬 2560px；
+// 1650、1460、910 是曾經導覽與帳號區或學習進度重疊的寬度，768 是直向平板。
+for (const width of [2560, 1920, 1760, 1650, 1460, 1366, 1281, 1100, 1024, 910, 768, 721, 390, 320]) {
   test(`standard frames stay centered without clipping at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1080 });
     for (const [path, heading] of [
@@ -73,6 +74,9 @@ for (const width of [2560, 1920, 1366, 1281, 1100, 1024, 721, 390, 320]) {
         await expect(page.locator(".profile-stat-list")).toHaveAttribute("aria-busy", "false");
         await expect(page.getByRole("region", { name: "學習節奏" })).toBeVisible();
         await expect(page.getByRole("region", { name: "登入裝置" })).toBeVisible();
+        // 平板寬度的五個統計說明不被擠成「…」。
+        expect(await page.locator(".profile-stat small").evaluateAll((nodes) =>
+          nodes.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent))).toEqual([]);
       }
       if (path === "/achievements") {
         // 8 個指定的層級加上第 15 級已達的等級 I～III 層；分母不含成就鏈中尚未揭曉的 5 步。

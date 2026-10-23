@@ -261,11 +261,14 @@
     grid-template-areas: "overview" "rhythm" "settings" "devices";
   }
 }
+/* 平板：五個統計在一列會把說明擠成「…」，改成每格至少 130px 自動換列。 */
+@media (max-width: 1024px) {
+  .profile-stat-list { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); min-width: 100%; }
+}
 @media (max-width: 720px) {
   .profile-head { flex-wrap: wrap; }
   .profile-avatar { width: 52px; height: 52px; font-size: 22px; }
   .profile-settings-jump { width: 100%; margin-left: 0; }
-  .profile-stat-list { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); min-width: 100%; }
   .rhythm-periods { margin-left: 0; width: 100%; }
   .rhythm-periods button { flex: 1; padding: 0 6px; }
   .rhythm-chart { padding: 12px 6px 8px; }
