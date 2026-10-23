@@ -59,6 +59,8 @@ test("wrong points directly form groups and survive lost create responses", asyn
     expect(response.status()).toBe(202);
     await route.abort();
   });
+  // 第一次交卷會跳出新徽章（初次作答、第一份題組），先關閉才能繼續操作。
+  await page.getByRole("dialog", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
   await page.getByRole("button", { name: "開始補強 2 題", exact: true }).click();
   await expect(page.getByRole("button", { name: "重新讀取題組", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "重新讀取題組", exact: true }).click();
