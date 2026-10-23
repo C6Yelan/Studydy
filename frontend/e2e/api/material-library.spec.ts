@@ -92,7 +92,8 @@ test("fresh profiles reopen the current head and read exact historical versions"
     ).toBeVisible();
     await expect(freshPage).toHaveURL(`${browserOrigin}${headPath}`);
   }
-  await freshPage.getByRole("link", { name: /^(教材庫|我的教材)$/, exact: true }).click();
+  // 教材內由教材頁首的返回按鈕回到教材庫。
+  await freshPage.getByRole("button", { name: "回到我的教材", exact: true }).click();
   const pdfUrl = `/v1/artifacts/${material.source_artifact_id}`;
   const pdf = await fresh.request.get(`${browserOrigin}${pdfUrl}`);
   expect(pdf.status()).toBe(200);
