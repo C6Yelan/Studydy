@@ -1,5 +1,6 @@
 import './research.css';
 import { useEffect, useRef, useState } from 'react';
+import { Icon } from '../../ui/Icon';
 
 export type Candidate = {
   id: string; kind: string; title: string; authors: string; year: number | null;
@@ -65,6 +66,48 @@ function otherResultGroup(candidate: Candidate) {
 }
 const otherResultGroups = ['與主題無關', '未取得全文', '其他原因'];
 
+function relevanceLabel(relevance: string) {
+  return relevance === 'direct' ? '直接相關' : relevance === 'related' ? '背景參考' : '不相關';
+}
+
+// 來源的閱讀判斷、存取紀錄與授權資訊集中在一個側邊面板（手機為底部面板），卡片本身維持固定高度。
+function SourceDetail({ candidate: c, showAcquisitionDetails, onClose }: { candidate: Candidate; showAcquisitionDetails: boolean; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const opener = useRef<Element | null>(null);
+  useEffect(() => {
+    opener.current = document.activeElement;
+    dialog.current?.showModal();
+    return () => { (opener.current as HTMLElement | null)?.focus?.(); };
+  }, []);
+  const link = /^https?:\/\//.test(c.url) ? c.url : undefined;
+  const checked = c.review && `${c.review.scope === 'sections' ? '已核對相關區段。' : c.review.phase === 'body' ? '已核對全文。' : '摘要初篩。'}${c.review.reason}`;
+  return <dialog ref={dialog} className="source-detail-panel" aria-labelledby="source-detail-title"
+    onCancel={event => { event.preventDefault(); event.stopPropagation(); onClose(); }}
+    onKeyDown={event => { if (event.key === 'Escape') event.stopPropagation(); }}
+    onClick={event => { if (event.target === dialog.current) onClose(); }}>
+    <header>
+      <div>
+        <h2 id="source-detail-title">{c.title}</h2>
+        <p>{[sourceKindLabel(c.kind), c.kind === 'wikipedia' ? null : c.authors, c.year].filter(Boolean).join(' · ')}</p>
+      </div>
+      <button type="button" className="source-detail-close" aria-label="關閉詳細資訊" onClick={onClose}><Icon name="close" size={18} /></button>
+    </header>
+    <div className="source-detail-body">
+      {link && <a className="source-host-link" href={link} target="_blank" rel="noreferrer" title={c.url}>{sourceHost(c.url) || '原始來源'} ↗</a>}
+      {checked && <section><h3>閱讀判斷{c.review && <span className={`source-relevance is-${c.review.relevance}`}>{relevanceLabel(c.review.relevance)}</span>}</h3>{/* 多個區段的判斷以「。」加空白接在一起，拆回段落。 */}{checked.split(/(?<=[。！？])\s+/).map((paragraph, i) => <p key={i}>{paragraph}</p>)}</section>}
+      {!!c.access?.attempts.length && <section><h3>存取紀錄</h3><ul className="source-attempts">{c.access.attempts.map((attempt, i) => <li key={i}><a href={/^https?:\/\//.test(attempt.url) ? attempt.url : undefined} target="_blank" rel="noreferrer">{attempt.url}</a><span>{attempt.outcome === 'read' ? `已取得（${attempt.method ?? c.access?.method ?? '正文'}）` : `${attempt.http_status ?? ''} ${sourceReasons[attempt.error_code ?? ''] ?? '取得未完成'}`}</span></li>)}</ul></section>}
+      {showAcquisitionDetails && <section className="source-license"><h3>授權與取得資訊</h3>
+        {c.discovered_by?.length ? <p>搜尋來源：{c.discovered_by.join('、')}（同篇文件合併顯示）</p> : null}
+        <p>{c.license || '尚未確認授權'} · {c.reason}</p>
+        {c.license_url && <a href={c.license_url} target="_blank" rel="noreferrer">查看授權說明 ↗</a>}
+        <p>版本：{c.version}</p>
+        {c.acquisition && <p>取得時間：{new Date(c.acquisition.acquired_at).toLocaleString('zh-TW')}</p>}
+        {c.acquisition?.license_text && <pre>{c.acquisition.license_text}</pre>}
+      </section>}
+    </div>
+  </dialog>;
+}
+
 export function SourceCandidates({ candidates, selected, disabled, onChange, readOnly = false, search, inlineSearch = false, showAcquisitionDetails = true, compact = false }: {
   candidates: Candidate[]; selected: string[]; disabled: boolean; compact?: boolean;
   onChange: (ids: string[]) => void; readOnly?: boolean; inlineSearch?: boolean; showAcquisitionDetails?: boolean; search?: { value: string; onChange: (value: string) => void };
@@ -75,6 +118,7 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
   const [kind, setKind] = useState('all');
   const [onlySelected, setOnlySelected] = useState(false);
   const [page, setPage] = useState(1);
+  const [detail, setDetail] = useState<Candidate | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const selectAll = useRef<HTMLInputElement>(null);
   const eligible = candidates.filter(candidate => candidate.eligible);
@@ -113,43 +157,24 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
     </>}
     <div ref={list} className="research-candidates" tabIndex={0} aria-label={readOnly ? '已選來源' : '來源搜尋結果'}>
       {pageItems.map(c => {
-        // Wikipedia 沒有個別作者，作者欄只是網站名稱，與下方連結重複。
-        const metadata = [sourceKindLabel(c.kind), c.kind === 'wikipedia' ? null : c.authors, c.year].filter(Boolean).join(' · ');
+        // 只剩來源類型時（Wikipedia 沒有個別作者與年份）與下方網址重複，不另列。
+        const metadata = [c.kind === 'wikipedia' ? null : c.authors, c.year].some(Boolean)
+          ? [sourceKindLabel(c.kind), c.kind === 'wikipedia' ? null : c.authors, c.year].filter(Boolean).join(' · ') : '';
         const host = sourceHost(c.url);
         const link = /^https?:\/\//.test(c.url) ? c.url : undefined;
-        const relevance = c.review ? c.review.relevance === 'direct' ? '直接相關' : c.review.relevance === 'related' ? '背景參考' : '不相關' : null;
-        const checked = c.review ? `${c.review.scope === 'sections' ? '已核對相關區段。' : c.review.phase === 'body' ? '已核對全文。' : '摘要初篩。'}${c.review.reason}` : null;
-        const attempts = !!c.access?.attempts.length && <ul className="source-attempts">{c.access!.attempts.map((attempt, i) => <li key={i}><a href={/^https?:\/\//.test(attempt.url) ? attempt.url : undefined} target="_blank" rel="noreferrer">{attempt.url}</a><span>{attempt.outcome === 'read' ? `已取得（${attempt.method ?? c.access?.method ?? '正文'}）` : `${attempt.http_status ?? ''} ${sourceReasons[attempt.error_code ?? ''] ?? '取得未完成'}`}</span></li>)}</ul>;
-        const license = <div className="source-license">
-          {c.discovered_by?.length ? <p>搜尋來源：{c.discovered_by.join('、')}（同篇文件合併顯示）</p> : null}
-          <p>{c.license || '尚未確認授權'} · {c.reason}</p>
-          {c.license_url && <a href={c.license_url} target="_blank" rel="noreferrer">查看授權說明 ↗</a>}
-          <p>版本：{c.version}</p>
-          {c.acquisition && <p>取得時間：{new Date(c.acquisition.acquired_at).toLocaleString('zh-TW')}</p>}
-          {c.acquisition?.license_text && <pre>{c.acquisition.license_text}</pre>}
-        </div>;
         const state = (readOnly && !compact || !c.eligible || c.error_code || c.state === 'failed' || readOnly && c.state === 'normalizing') && <span className={`source-state${c.error_code || c.state === 'failed' ? ' is-failed' : !c.eligible ? ' is-muted' : c.state === 'ready' ? ' is-ready' : ''}`}>{!c.eligible ? unavailableStatus(c) : c.error_code ? '取得失敗' : states[c.state] ?? '可加入'}</span>;
         return <article key={c.id} className={selected.includes(c.id) && !readOnly ? 'is-selected' : undefined}>
         <div className="source-candidate-heading">
           <label>{!readOnly && <input type="checkbox" aria-label={`選取 ${c.title}`} disabled={!c.eligible || disabled} checked={selected.includes(c.id)} onChange={e => onChange(e.target.checked ? [...selected, c.id] : selected.filter(x => x !== c.id))} />}<strong>{c.title}</strong></label>
-          {state}
+          {(c.review || state) && <span className="source-badges">{c.review && <span className={`source-relevance is-${c.review.relevance}`}>{relevanceLabel(c.review.relevance)}</span>}{state}</span>}
         </div>
-        <p className="source-byline" title={metadata}>{metadata}</p>
+        {metadata && <p className="source-byline" title={metadata}>{metadata}</p>}
         {!readOnly && c.review?.phase === 'body' && <p className="source-purpose">{c.review.reason.split(/(?<=[。！？])/).slice(0, 2).join('')}</p>}
         {!readOnly && !c.eligible && c.review && <p className="source-reference-note">{c.reason}</p>}
         {c.error_code && <p className="source-error">{sourceReasons[c.error_code] ?? '取得失敗，可重試。'}</p>}
         <div className="source-candidate-links">
           {link ? <a className="source-host-link" href={link} target="_blank" rel="noreferrer" title={c.url}>{host || '原始來源'} ↗</a> : <span className="source-host-link">{host || '原始來源'}</span>}
-          {relevance && <span className={`source-relevance is-${c.review!.relevance}`}>{relevance}</span>}
-          {readOnly ? (checked || attempts || showAcquisitionDetails) && <details className="source-more"><summary>詳細資訊</summary><div>
-            {checked && <p><strong>閱讀判斷</strong>{checked}</p>}
-            {attempts && <><strong>存取紀錄</strong>{attempts}</>}
-            {showAcquisitionDetails && <><strong>授權與取得資訊</strong>{license}</>}
-          </div></details> : <>
-            {checked && <details className="source-review"><summary>閱讀判斷</summary><p>{checked}</p></details>}
-            {attempts && <details><summary>查看存取紀錄</summary>{attempts}</details>}
-            {showAcquisitionDetails && <details><summary>授權與取得資訊</summary>{license}</details>}
-          </>}
+          {(c.review || c.access?.attempts.length || showAcquisitionDetails) && <button type="button" className="text-button source-detail-open" aria-haspopup="dialog" onClick={() => setDetail(c)}>詳細資訊<Icon name="chevron-right" size={14} /></button>}
         </div>
       </article>; })}
       {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前尚無已核對可加入的來源，可查看未列入的搜尋結果原因或接續研究。</p>}
@@ -180,5 +205,6 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
         </section>;
       })}
     </details>}
+    {detail && <SourceDetail candidate={detail} showAcquisitionDetails={showAcquisitionDetails} onClose={() => setDetail(null)} />}
   </div>;
 }

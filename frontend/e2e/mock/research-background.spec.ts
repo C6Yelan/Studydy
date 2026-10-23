@@ -55,11 +55,13 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   await page.locator('.source-other-results > summary').click();
   await expect(page.getByText('C++ memory', { exact: true })).not.toBeVisible();
   const first = page.locator('.research-candidates article').first();
-  await first.getByText('查看存取紀錄', { exact: true }).click();
-  await expect(first).toContainText('403'); await expect(first).toContainText('已取得（rss）');
+  // 存取紀錄等細節集中在「詳細資訊」面板，卡片本身不展開。
+  await first.getByRole('button', { name: '詳細資訊' }).click();
+  await expect(page.locator('.source-detail-panel')).toContainText('403'); await expect(page.locator('.source-detail-panel')).toContainText('已取得（rss）');
+  await page.keyboard.press('Escape'); await expect(page.locator('.source-detail-panel')).toHaveCount(0);
+  await expect(first.getByRole('button', { name: '詳細資訊' })).toBeFocused();
   await expect(page.getByRole('button', { name: '依缺口繼續研究', exact: true })).toBeVisible();
   expect(actions).toEqual(['cancel', 'retry']);
-  await first.getByText('查看存取紀錄', { exact: true }).click();
   for (const size of [{ width: 1280, height: 720 }, { width: 1366, height: 768 }]) {
     await page.setViewportSize(size);
     const progressBox = await panel.boundingBox();

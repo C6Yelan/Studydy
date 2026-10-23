@@ -230,7 +230,8 @@ test('source search provenance and partial service failures remain clear',async(
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  await page.goto(`/topics/${id}`);await expect(page.getByText('已保留搜尋結果；部分主題仍缺少正文依據，或有來源未完成。請查看涵蓋情況與各來源說明。')).toBeVisible();
  await expect(page.getByText('此入口回應 403，未取得正文。')).toBeVisible();
- await page.getByText('授權與取得資訊',{exact:true}).click();await expect(page.getByText('搜尋來源：OpenAlex、Crossref（同篇文件合併顯示）')).toBeVisible();
+ await page.getByRole('button',{name:'詳細資訊'}).click();const detail=page.getByRole('dialog',{name:'TCP handshake'});await expect(detail.getByRole('heading',{name:'授權與取得資訊'})).toBeVisible();await expect(detail.getByText('搜尋來源：OpenAlex、Crossref（同篇文件合併顯示）')).toBeVisible();
+ await detail.getByRole('button',{name:'關閉詳細資訊'}).click();await expect(detail).toHaveCount(0);
  await page.getByRole('checkbox',{name:'選取 TCP handshake'}).check();await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeEnabled();
 });
 
