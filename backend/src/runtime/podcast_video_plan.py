@@ -13,6 +13,8 @@ SCHEMAS = ("podcast-storyboard/v2", "podcast-storyboard/v3", "podcast-storyboard
 SAFE_BOTTOM = 850
 # 重點詞以中文字寬計：英數字算半個，完整標頭名稱（如 CDN-Cache-Control）仍可標出。
 KEY_TERM_LIMIT = 16
+# v4 一段講稿可拆成多頁：上限為原 12 段上限的兩倍，每段頁數上限由 schema 依段數分配。
+V4_PAGE_LIMIT = 24
 
 
 def term_width(text):
@@ -138,16 +140,27 @@ def validate_plan(plan, cues):
             or ("schema" in plan and plan["schema"] not in SCHEMAS)
         )
         or not isinstance(plan["pages"], list)
-        or not 1 <= len(plan["pages"]) <= 12
+        or not 1
+        <= len(plan["pages"])
+        <= (V4_PAGE_LIMIT if plan.get("schema") == "podcast-storyboard/v4" else 12)
     ):
-        raise ValueError("VIDEO_STORYBOARD_INVALID:pages must contain 1..12 pages")
+        raise ValueError(
+            "VIDEO_STORYBOARD_INVALID:pages must contain 1..12 pages (v4: 1..24)"
+        )
     next_cue = 0
     v4 = plan.get("schema") == "podcast-storyboard/v4"
     motion = v4 or plan.get("schema") == "podcast-storyboard/v3"
     bottom = SAFE_BOTTOM if v4 else 1020
     for page_index, page in enumerate(plan["pages"]):
         where = f"VIDEO_STORYBOARD_INVALID:page={page_index}"
-        dynamic = {"motion", "spotlight"} if v4 else {"motion"} if motion else set()
+        # v4 子頁可從段內某句字幕開始（caption_index），與前一頁共用該 teaching cue。
+        dynamic = (
+            {"motion", "spotlight", "caption_index"}
+            if v4
+            else {"motion"}
+            if motion
+            else set()
+        )
         if (
             not isinstance(page, dict)
             or (set(page) - dynamic)
@@ -165,11 +178,20 @@ def validate_plan(plan, cues):
                 where
                 + ", title must be 1..28 characters and elements must contain 1..60 items"
             )
+        shared = "caption_index" in page
         if (
             type(page["start_cue"]) is not int
             or type(page["end_cue"]) is not int
-            or page["start_cue"] != next_cue
-            or not next_cue <= page["end_cue"] < len(cues)
+            or page["start_cue"] != (next_cue - 1 if shared else next_cue)
+            or not page["start_cue"] <= page["end_cue"] < len(cues)
+            or (
+                shared
+                and (
+                    not page_index
+                    or type(page["caption_index"]) is not int
+                    or page["caption_index"] < 0
+                )
+            )
         ):
             raise ValueError(
                 where
@@ -455,9 +477,29 @@ def visual_window(timeline, start_cue, end_cue, caption_index=None):
     return start, end
 
 
+def page_windows(timeline, plan):
+    """每頁的實測起訖：起點是首個 cue 或字幕的開頭，終點是下一頁起點或最後 cue 的結尾。"""
+    starts = [
+        visual_window(timeline, p["start_cue"], p["start_cue"], p.get("caption_index"))[
+            0
+        ]
+        for p in plan["pages"]
+    ]
+    ends = starts[1:] + [timeline["segments"][plan["pages"][-1]["end_cue"]]["end"]]
+    return list(zip(starts, ends))
+
+
 def validate_visual_timing(plan, timeline):
     """細揭示只引用已驗證字幕的實測邊界，不改 teaching cue 或自行補秒數。"""
     captions = timeline.get("captions", [])
+    if any(
+        "caption_index" in p and not 0 <= p["caption_index"] < len(captions)
+        for p in plan["pages"]
+    ):
+        raise ValueError(
+            "VIDEO_STORYBOARD_INVALID:page caption_index has no measured anchor"
+        )
+    windows = page_windows(timeline, plan)
     for i, page in enumerate(plan["pages"]):
         steps = page.get("spotlight", {}).get("steps", [])
         entries = (
@@ -467,21 +509,36 @@ def validate_visual_timing(plan, timeline):
             + steps
         )
         where = f"VIDEO_STORYBOARD_INVALID:page={i}"
+        page_start, page_end = windows[i]
+        if "caption_index" in page:
+            entries = entries + [page]
+            if not windows[i - 1][0] < page_start < page_end:
+                raise ValueError(
+                    where + ", a page split must start after the previous page"
+                )
         for item in entries:
+            if "caption_index" in item and (
+                type(item["caption_index"]) is not int
+                or not 0 <= item["caption_index"] < len(captions)
+            ):
+                raise ValueError(where + ", caption_index has no measured anchor")
+            when = visual_window(
+                timeline,
+                item["start_cue"],
+                item["start_cue"],
+                item.get("caption_index"),
+            )[0]
+            if not page_start <= when < page_end:
+                raise ValueError(where + ", visual anchor must stay within its page")
             if "caption_index" not in item:
                 continue
             index = item["caption_index"]
-            if type(index) is not int or not 0 <= index < len(captions):
-                raise ValueError(where + ", caption_index has no measured anchor")
             cue = timeline["segments"][item["start_cue"]]
             if not cue["start"] <= captions[index]["start"] < cue["end"]:
                 raise ValueError(
                     where + ", caption_index must start inside its teaching cue"
                 )
-        visible = {
-            j: timeline["segments"][page["start_cue"]]["start"]
-            for j in range(len(page["elements"]))
-        }
+        visible = {j: page_start for j in range(len(page["elements"]))}
         for group in page.get("reveal", []):
             when = visual_window(
                 timeline,
@@ -498,8 +555,7 @@ def validate_visual_timing(plan, timeline):
             for s in steps
         ]
         if steps and (
-            starts[0] != timeline["segments"][page["start_cue"]]["start"]
-            or any(a >= b for a, b in zip(starts, starts[1:]))
+            starts[0] != page_start or any(a >= b for a, b in zip(starts, starts[1:]))
         ):
             raise ValueError(
                 where

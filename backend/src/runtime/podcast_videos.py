@@ -16,6 +16,7 @@ from . import podcasts
 from .podcast_video_plan import (
     POLICY,
     SCHEMAS,
+    page_windows,
     timeline_for_video,
     validate_plan,
     validate_visual_timing,
@@ -321,12 +322,8 @@ def validate_bundle(state, bundle):
             "timeline": timeline,
             "storyboard": plan,
             "pages": [
-                {
-                    "title": p["title"],
-                    "start": timeline["segments"][p["start_cue"]]["start"],
-                    "end": timeline["segments"][p["end_cue"]]["end"],
-                }
-                for p in plan["pages"]
+                {"title": p["title"], "start": start, "end": end}
+                for p, (start, end) in zip(plan["pages"], page_windows(timeline, plan))
             ],
         }
         if "caption_alignment" in bundle["alignment"]:

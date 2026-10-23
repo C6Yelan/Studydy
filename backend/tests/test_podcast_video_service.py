@@ -14,11 +14,11 @@ spec.loader.exec_module(service)
 
 
 def model_design(schema, kind='comparison'):
-    page = design(kind, 2)['pages'][0]
-    return {'pages': [{'layout': kind, 'title': page['title'],
+    page = design(kind, 2)['sections'][0]['pages'][0]
+    return {'sections': [{'pages': [{'layout': kind, 'title': page['title'], 'anchor': '',
                        'nodes': [{'label': n['label'], 'text': n['text'], 'anchor': '這是第一個', 'key_terms': ['必要條件']}
                                  for n in page['nodes']],
-                       'relations': []} for _ in range(schema['properties']['pages']['minItems'])]}
+                       'relations': []}]} for _ in range(schema['properties']['sections']['minItems'])]}
 
 
 def test_cancel_before_start_never_calls_model():
@@ -60,10 +60,10 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
     calls=[];rendered=[]
     def model(prompt,schema,**kwargs):
         assert kwargs['timeout'] is None
-        assert set(schema['properties'])=={'pages'}
-        assert schema['properties']['pages']['minItems']==2
+        assert set(schema['properties'])=={'sections'}
+        assert schema['properties']['sections']['minItems']==2
         source = json.loads(prompt[prompt.index('{"source":'):])['source']
-        assert set(source) == {'pages', 'sources', 'page_context'}
+        assert set(source) == {'sections', 'sources', 'page_context'}
         assert [p['blocks'][0]['text'] for p in source['page_context']] == [c['text'] for c in episode['claims']]
         assert [s['block_indices'] for s in source['sources']] == [[0], [1]]
         assert '"evidence_id"' not in prompt and all('claim' not in s for s in source['sources'])
@@ -76,7 +76,7 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
             if failure=='layout':result.write_text('{"error":"VIDEO_LAYOUT_INVALID:bad bounds"}');return 1
             from runtime.podcast_video_layout import compile_layout
             request=json.loads(Path(args[3]).read_text())
-            assert all('cue_index' not in n for p in request['semantic_plan']['pages'] for n in p['nodes'])
+            assert all('cue_index' not in n for s in request['semantic_plan']['sections'] for p in s['pages'] for n in p['nodes'])
             # 合成對齊只核對分頁與 anchor 換算；實際 timeline 驗證由 renderer 測試涵蓋。
             measured={'segments':[{'start':2*i,'end':2*i+2,'text':'\n'.join(p['text'] for p in c['parts'])}
                                   for i,c in enumerate(request['cues'])]}
@@ -114,8 +114,8 @@ def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(
     alignment.update(groups=[[0,1]],starts=[0],anchors=[alignment['anchors'][0]])
     monkeypatch.setenv('STUDYDY_VIDEO_PYTHON',sys.executable);monkeypatch.setenv('STUDYDY_VIDEO_WORK_DIR',str(tmp_path));monkeypatch.setattr(service,'ensure_space',lambda _:None)
     def model(prompt,schema,**kwargs):
-        if 'pages' in schema['properties']:
-            assert schema['properties']['pages']['minItems']==schema['properties']['pages']['maxItems']==1
+        if 'sections' in schema['properties']:
+            assert schema['properties']['sections']['minItems']==schema['properties']['sections']['maxItems']==1
             return model_design(schema)
         return {k:{'passed':True,'reason':'synthetic'} for k in ('correctness','teaching_quality')}
     def process(args,env,timeout,cancelled):

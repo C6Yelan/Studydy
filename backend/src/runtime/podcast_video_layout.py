@@ -5,6 +5,7 @@ import re
 from .podcast_video_plan import (
     KEY_TERM_LIMIT,
     SAFE_BOTTOM,
+    V4_PAGE_LIMIT,
     object_schema,
     term_at,
     term_width,
@@ -29,7 +30,12 @@ def _line_text(limit, minimum=0):
     }
 
 
-def semantic_schema(page_count):
+def section_page_limit(section_count):
+    """每段最多 3 頁，且全集不超過 V4_PAGE_LIMIT；由 schema 保證，不需事後合併。"""
+    return max(1, min(3, V4_PAGE_LIMIT // section_count))
+
+
+def semantic_schema(section_count):
     # anchor／key_terms 只是逐字引用；能否採用由 compile_layout 對講稿與節點文字核對。
     spoken = {
         "anchor": _line_text(ANCHOR_LIMIT, 1),
@@ -74,6 +80,8 @@ def semantic_schema(page_count):
                 {
                     "layout": {"type": "string", "enum": [layout]},
                     "title": {"type": "string", "minLength": 1, "maxLength": 28},
+                    # 同段第 2 頁起的換頁位置；第一頁從段首開始，留空即可。
+                    "anchor": _line_text(ANCHOR_LIMIT),
                     "nodes": {
                         "type": "array",
                         "minItems": low,
@@ -89,13 +97,23 @@ def semantic_schema(page_count):
                 }
             )
         )
-    return object_schema(
+    section = object_schema(
         {
             "pages": {
                 "type": "array",
-                "minItems": page_count,
-                "maxItems": page_count,
+                "minItems": 1,
+                "maxItems": section_page_limit(section_count),
                 "items": {"anyOf": variants},
+            }
+        }
+    )
+    return object_schema(
+        {
+            "sections": {
+                "type": "array",
+                "minItems": section_count,
+                "maxItems": section_count,
+                "items": section,
             }
         }
     )
@@ -211,12 +229,33 @@ def _slots(timeline, start, end):
     return narration, list(unique.values())
 
 
-def _anchor_slot(anchor, narration, slots):
-    """anchor 必須逐字出現在該頁講稿；對不到回傳 None，由版面退回頁首或前一步。"""
+def _anchor_slot(anchor, narration, slots, limit=None):
+    """anchor 必須逐字出現在本段講稿且落在本頁範圍；否則回傳 None，由版面退回。"""
     at = narration.find(anchor) if isinstance(anchor, str) and anchor else -1
-    if at < 0:
+    if at < 0 or at < slots[0][1] or (limit is not None and at >= limit):
         return None
     return max(i for i, slot in enumerate(slots) if slot[1] <= at)
+
+
+def _split(pages, narration, slots):
+    """段內換頁位置（段內實測起點索引）：第一頁從段首開始，第 2 頁起採用逐字 anchor。
+
+    對不到、倒退、不在本段或擠掉後頁所需起點的 anchor 不採用，改放在前後已定換頁點之間
+    居中的實測起點；實測起點比頁數少時，只保留放得下的前幾頁。都不產生新秒數。
+    """
+    count = min(len(pages), len(slots))
+    bounds = [0] + [None] * (count - 1)
+    last = 0
+    for k in range(1, count):
+        w = _anchor_slot(pages[k]["anchor"], narration, slots)
+        if w is not None and bounds[last] + (k - last) <= w <= len(slots) - (count - k):
+            bounds[k], last = w, k
+    known = [k for k, b in enumerate(bounds) if b is not None] + [count]
+    for a, b in zip(known, known[1:]):
+        stop = bounds[b] if b < count else len(slots)
+        for m in range(a + 1, b):
+            bounds[m] = bounds[a] + (m - a) * (stop - bounds[a]) // (b - a)
+    return bounds
 
 
 BARE_NUMBER = re.compile(r"[-−+]?[\d.,]+%?")
@@ -255,17 +294,30 @@ def _key_terms(terms, body, label):
     return [(target, term) for target, term, _ in marks]
 
 
-def _check_page(spec, p, start, cues):
-    where = f"VIDEO_STORYBOARD_INVALID:page={p}"
-    if set(spec) != {"layout", "title", "start_cue", "end_cue", "nodes", "relations"}:
+def _check_section(section, p, start, cues):
+    where = f"VIDEO_STORYBOARD_INVALID:section={p}"
+    if (
+        set(section) != {"start_cue", "end_cue", "pages"}
+        or type(section["start_cue"]) is not int
+        or type(section["end_cue"]) is not int
+        or section["start_cue"] != start
+        or not start <= section["end_cue"] < len(cues)
+        or not isinstance(section["pages"], list)
+        or not 1 <= len(section["pages"]) <= 3
+    ):
+        raise ValueError(where + ", invalid section range or page count")
+    for i, spec in enumerate(section["pages"]):
+        _check_page(spec, f"{where},page={i}")
+
+
+def _check_page(spec, where):
+    if set(spec) != {"layout", "title", "anchor", "nodes", "relations"}:
         raise ValueError(where + ", invalid semantic page fields")
-    end, kind = spec["end_cue"], spec["layout"]
+    kind = spec["layout"]
     nodes, relations = spec["nodes"], spec["relations"]
     if (
-        type(spec["start_cue"]) is not int
-        or type(end) is not int
-        or spec["start_cue"] != start
-        or not start <= end < len(cues)
+        not isinstance(spec["title"], str)
+        or not 1 <= len(spec["title"]) <= 28
         or kind not in ("concept", "comparison", "flow", "exchange")
         or not isinstance(nodes, list)
         or not 1 <= len(nodes) <= 6
@@ -316,9 +368,9 @@ def _check_page(spec, p, start, cues):
     return where
 
 
-def _schedule(kind, items, narration, slots):
+def _schedule(kind, items, narration, slots, limit):
     """把逐字 anchor 換成頁內實測起點索引；不產生新秒數。"""
-    wanted = [_anchor_slot(item["anchor"], narration, slots) for item in items]
+    wanted = [_anchor_slot(item["anchor"], narration, slots, limit) for item in items]
     if kind == "comparison":
         return [0 if w is None else w for w in wanted]
     if kind == "exchange":
@@ -353,18 +405,44 @@ def _anchor(slot):
 def compile_layout(design, cues, timeline):
     """只編排模型明示的節點／關係，不自行新增箭頭、推論或文字。"""
     try:
-        if set(design) != {"pages"} or not 1 <= len(design["pages"]) <= 12:
-            raise ValueError("VIDEO_STORYBOARD_INVALID:expected 1..12 semantic pages")
-        pages = []
+        if set(design) != {"sections"} or not 1 <= len(design["sections"]) <= 12:
+            raise ValueError("VIDEO_STORYBOARD_INVALID:expected 1..12 sections")
+        specs = []
         next_cue = 0
-        for p, spec in enumerate(design["pages"]):
-            _check_page(spec, p, next_cue, cues)
-            start, end, kind = spec["start_cue"], spec["end_cue"], spec["layout"]
+        for p, section in enumerate(design["sections"]):
+            _check_section(section, p, next_cue, cues)
+            narration, section_slots = _slots(
+                timeline, section["start_cue"], section["end_cue"]
+            )
+            bounds = _split(section["pages"], narration, section_slots)
+            for k, first in enumerate(bounds):
+                stop = bounds[k + 1] if k + 1 < len(bounds) else len(section_slots)
+                following = section_slots[stop] if stop < len(section_slots) else None
+                specs.append(
+                    (
+                        section["pages"][k],
+                        narration,
+                        section_slots[first:stop],
+                        following[1] if following else None,
+                        # 下一頁從字幕開始時共用該 cue；從 cue 開頭開始時本頁止於前一個 cue。
+                        section["end_cue"]
+                        if following is None
+                        else following[2] - (following[3] is None),
+                    )
+                )
+            next_cue = section["end_cue"] + 1
+        if len(specs) > V4_PAGE_LIMIT:
+            raise ValueError(
+                f"VIDEO_STORYBOARD_INVALID:at most {V4_PAGE_LIMIT} pages in total"
+            )
+        pages = []
+        for spec, narration, slots, limit, end in specs:
+            kind = spec["layout"]
             nodes, relations = spec["nodes"], spec["relations"]
-            narration, slots = _slots(timeline, start, end)
+            start = slots[0][2]
             page = {
                 "title": spec["title"],
-                "start_cue": start,
+                **_anchor(slots[0]),
                 "end_cue": end,
                 "elements": [],
                 "emphasis": [],
@@ -377,7 +455,7 @@ def compile_layout(design, cues, timeline):
                 return len(elements) - 1
 
             if kind in ("concept", "flow"):
-                chosen = _schedule(kind, nodes, narration, slots)
+                chosen = _schedule(kind, nodes, narration, slots, limit)
                 steps = []
                 row = min(130, (SAFE_BOTTOM - 200) // len(nodes))
                 for k, s in enumerate(chosen):
@@ -435,7 +513,7 @@ def compile_layout(design, cues, timeline):
                         {"rails": rails, "card": card, **_anchor(slot)}
                     )
             elif kind == "comparison":
-                chosen = _schedule(kind, nodes, narration, slots)
+                chosen = _schedule(kind, nodes, narration, slots, limit)
                 groups = []
                 w = (1720 - (len(nodes) - 1) * 70) // len(nodes)
                 for i, (node, s) in enumerate(zip(nodes, chosen)):
@@ -466,7 +544,7 @@ def compile_layout(design, cues, timeline):
                     _highlight(page, node, targets, slot, color, end)
                 page["motion"] = {"layout": kind, "groups": groups}
             else:
-                chosen = _schedule(kind, relations, narration, slots)
+                chosen = _schedule(kind, relations, narration, slots, limit)
                 groups = []
                 centers = []
                 for i, node in enumerate(nodes):
@@ -488,7 +566,7 @@ def compile_layout(design, cues, timeline):
                         add(_line(x + 250, 300, 0, SAFE_BOTTOM - 10 - 300, start)),
                     ]
                     centers.append(x + 250)
-                    groups.append({"elements": group, "start_cue": start})
+                    groups.append({"elements": group, **_anchor(slots[0])})
                 step = 440 // max(1, len(relations) - 1)
                 for i, (edge, s) in enumerate(zip(relations, chosen)):
                     slot = slots[s]
@@ -530,7 +608,6 @@ def compile_layout(design, cues, timeline):
                     )
                 page["motion"] = {"layout": kind, "groups": groups}
             pages.append(page)
-            next_cue = end + 1
         result = validate_plan(
             {"schema": "podcast-storyboard/v4", "pages": pages}, cues
         )

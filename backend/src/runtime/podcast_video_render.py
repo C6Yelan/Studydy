@@ -15,6 +15,7 @@ import time
 import traceback
 
 from .podcast_video_plan import (
+    page_windows,
     term_at,
     validate_plan,
     timeline_for_video,
@@ -286,18 +287,18 @@ def draw_rows(draw, rows, size, rgb, marks=(), dx=0, dy=0):
             )
 
 
-def page_highlights(t, timeline, page, bounds):
+def page_highlights(t, timeline, page, marks, page_end):
     """重點詞在所屬卡片被講到時淡入，之後維持到換頁；往回 seek 即消失。"""
     from .podcast_video_motion import ease
 
     result = {}
-    for mark, segments in zip(page.get("emphasis", []), bounds):
+    for mark, segments in zip(page.get("emphasis", []), marks):
         if mark["kind"] != "highlight":
             continue
         start = visual_window(
             timeline, mark["start_cue"], mark["end_cue"], mark.get("caption_index")
         )[0]
-        end = timeline["segments"][mark["end_cue"]]["end"]
+        end = min(page_end, timeline["segments"][mark["end_cue"]]["end"])
         alpha = ease((t - start) / 0.3) if start <= t < end else 0.0
         result.setdefault(mark["element_index"], []).append(
             (segments, palette_rgb(mark["color"]), alpha)
@@ -446,17 +447,26 @@ def draw_rail(draw, page, spot):
 
 
 def draw_scene(
-    t, timeline, plan, page_index, text_layouts, mark_layouts, scene_cache=None
+    t,
+    timeline,
+    plan,
+    page_index,
+    text_layouts,
+    mark_layouts,
+    scene_cache=None,
+    bounds=None,
 ):
     from PIL import Image, ImageDraw, ImageColor
 
     page = plan["pages"][page_index]
+    if bounds is None:
+        bounds = page_windows(timeline, plan)[page_index]
     spacious = plan.get("schema") == "podcast-storyboard/v4"
     states = None
     if "motion" in page:
         from .podcast_video_motion import scene_state
 
-        groups = scene_state(t, timeline, page)
+        groups = scene_state(t, timeline, page, bounds)
         states = {
             j: state
             for group, state in zip(page["motion"]["groups"], groups)
@@ -466,7 +476,7 @@ def draw_scene(
     if "spotlight" in page:
         from .podcast_video_motion import spotlight_state
 
-        spot = spotlight_state(t, timeline, page)
+        spot = spotlight_state(t, timeline, page, bounds)
     visible = tuple(
         not any(
             index in group["elements"]
@@ -484,7 +494,7 @@ def draw_scene(
     if page.get("emphasis") and mark_layouts is None:
         mark_layouts = emphasis_layouts(plan, text_layouts)
     highlights = (
-        page_highlights(t, timeline, page, mark_layouts[page_index])
+        page_highlights(t, timeline, page, mark_layouts[page_index], bounds[1])
         if page.get("emphasis")
         else {}
     )
@@ -634,17 +644,19 @@ def draw_scene(
 def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None, *, scene_cache=None):
     from PIL import Image, ImageDraw
 
-    cue_index = next(
-        (i for i, s in enumerate(timeline["segments"]) if s["start"] <= t < s["end"]),
-        len(timeline["segments"]) - 1,
-    )
-    page_index, page = next(
-        (i, p)
-        for i, p in enumerate(plan["pages"])
-        if p["start_cue"] <= cue_index <= p["end_cue"]
-    )
+    # 頁面依實測起點選取；v4 子頁可從段內字幕開始，未拆頁時與依 cue 選頁相同。
+    windows = page_windows(timeline, plan)
+    page_index = max([0] + [i for i, (start, _) in enumerate(windows) if start <= t])
+    page = plan["pages"][page_index]
     image = draw_scene(
-        t, timeline, plan, page_index, text_layouts, mark_layouts, scene_cache
+        t,
+        timeline,
+        plan,
+        page_index,
+        text_layouts,
+        mark_layouts,
+        scene_cache,
+        windows[page_index],
     )
     if (
         plan.get("schema") in ("podcast-storyboard/v3", "podcast-storyboard/v4")
@@ -652,9 +664,9 @@ def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None, *, scene_cach
     ):
         from .podcast_video_motion import transition
 
-        blend = transition(t, timeline, page)
+        blend = transition(t, timeline, page, windows[page_index])
         if blend < 1:
-            boundary = timeline["segments"][page["start_cue"]]["start"]
+            boundary = windows[page_index][0]
             previous = draw_scene(
                 math.nextafter(boundary, -math.inf),
                 timeline,
@@ -663,6 +675,7 @@ def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None, *, scene_cach
                 text_layouts,
                 mark_layouts,
                 scene_cache,
+                windows[page_index - 1],
             )
             image = Image.blend(previous, image, blend)
     d = ImageDraw.Draw(image, "RGBA")

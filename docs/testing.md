@@ -14,7 +14,7 @@
 
 模型講稿只輸出角色、台詞與來源編號；程式將合法編號連回原 claim 的 Evidence，保存格式沿用 v2。新稿不捏造 review 通過欄位，舊稿原文與 hash 保留。基本格式、來源索引／Evidence 不越界、實際語音容量、媒體完整性與時序身分仍檢查。音量正規化照常執行，量測值僅記錄，不因偏離目標的小幅差異否決整集。
 
-分鏡模型只輸出每頁標題、圖解類型、節點文字與訊息方向，以及每個節點逐字取自講稿的 `anchor` 與 0～2 個逐字取自節點文字的 `key_terms`，仍是一次呼叫。分頁依原稿段落與 ASR cue 歸屬建立；秒數、cue／字幕索引由程式以逐字 anchor 換算成實測起點，對不到就退回頁首或下一個實測起點，不整份失敗；不符的重點詞直接丟掉。concept／flow 以聚焦版面一次只亮正在講的那張卡，comparison 點亮正在講的那欄，exchange 依 anchor 出現訊息；內容停在底部字幕帶之上。沒有依特定教材、標題或句子設例外，也不以截字或補造內容修復結果。
+分鏡模型只輸出每頁標題、圖解類型、節點文字與訊息方向，以及每個節點逐字取自講稿的 `anchor` 與 0～2 個逐字取自節點文字的 `key_terms`，仍是一次呼叫。每段講稿可拆成 1～3 頁（全集最多 24 頁），第 2 頁起由逐字頁 anchor 決定換頁，對不到時改用前後換頁點之間居中的實測起點。分頁依原稿段落與 ASR cue 歸屬建立；秒數、cue／字幕索引由程式以逐字 anchor 換算成實測起點，對不到就退回頁首或下一個實測起點，不整份失敗；不符的重點詞直接丟掉。concept／flow 以聚焦版面一次只亮正在講的那張卡，comparison 點亮正在講的那欄，exchange 依 anchor 出現訊息；內容停在底部字幕帶之上。沒有依特定教材、標題或句子設例外，也不以截字或補造內容修復結果。
 
 對應測試：`test_podcast_provider.py`、`test_podcast_beats.py`、`test_podcast_episode_plan.py`、`test_podcast_audio.py`、`test_podcast_video_service.py` 及 runtime 的 Podcast／video 案例。這些程式檢查不宣稱模型內容已經過獨立教學審查；實際品質以生成結果與播放檢查回報。
 
@@ -135,7 +135,7 @@ F3：`backend/tests/runtime/materials/test_topics.py` 驗證確認前無研究�
 
 F5：`backend/tests/test_scene_alignment.py` 驗證測得時間點、同音字不改稿、不可杜撰時間及流程條件；`backend/tests/runtime/materials/test_podcast_scenes.py` 驗證真 DB 的依賴身分、準備重送、取消晚到、刪除與音訊不變。`frontend/e2e/mock/podcasts.spec.ts` 的同步案例使用測試 WAV 的實際 media clock，檢查暫停、seek、2× 倍速及版面；不能用此替代真實 Podcast 對齊驗收。實際模型與公開站成果另留在本機 `data/scenes/acceptance/`。
 
-Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_video_layout.py`（anchor 換算與退回、重點詞驗證與丟棄、字幕帶上緣）、`test_podcast_video_motion.py`（聚焦時間窗、章節列、重點詞像素、往返 seek）、`test_podcast_video_render.py`、`test_podcast_video_service.py` 及 `backend/tests/runtime/materials/test_podcast_videos.py`（v2／v3／v4 結果保存與讀取）覆蓋。模式回歸包含完整單人、快速雙人、完整雙人的音訊完成自動排隊；長對談逐字還原、角色與 Evidence 關係；短問答合併 cue；來源核對失敗後重做仍須再驗證。`frontend/e2e/mock/podcasts.spec.ts` 另驗證雙人共用 cue 的角色標籤與跳轉。這些合成測試不代表真實音質或分鏡品質；真實模式驗證的私人證據保存在本機 `data/podcast/mode-qualification-20261005/`，不加入 Git／CI。
+Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_video_layout.py`（anchor 換算與退回、段內拆頁與退回、頁數上限、重點詞驗證與丟棄、字幕帶上緣）、`test_podcast_video_motion.py`（聚焦時間窗、章節列、重點詞像素、往返 seek）、`test_podcast_video_render.py`、`test_podcast_video_service.py` 及 `backend/tests/runtime/materials/test_podcast_videos.py`（v2／v3／v4 結果保存與讀取）覆蓋。模式回歸包含完整單人、快速雙人、完整雙人的音訊完成自動排隊；長對談逐字還原、角色與 Evidence 關係；短問答合併 cue；來源核對失敗後重做仍須再驗證。`frontend/e2e/mock/podcasts.spec.ts` 另驗證雙人共用 cue 的角色標籤與跳轉。這些合成測試不代表真實音質或分鏡品質；真實模式驗證的私人證據保存在本機 `data/podcast/mode-qualification-20261005/`，不加入 Git／CI。
 
 2026-10-05 以相同四個來源重點，經正式 API 新建完整單人（73.38 秒／6 輪）、快速雙人（107.8 秒／11 輪）、完整雙人（125.34 秒／12 輪），三者皆由音訊完成自動排入影片。兩組雙人曾因版面或來源核對失敗停止；補上所有超框的具體回饋，並分開計算版面與來源核對的修正機會後，正式重試均通過。最後核對原稿與音訊 hash 未變，影片時間軸逐字還原角色與來源，並完成公開站字幕、seek、2×、手機版及整支 H.264 1080p60 解碼；結果各為 13／14／13 個 cue、3／4／3 頁。這不等於多教材或更長完整課程均已驗收，也不取代人耳音質審查。
 

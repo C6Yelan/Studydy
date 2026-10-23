@@ -15,7 +15,7 @@ def scene(kind='exchange', count=2):
     """exchange 四則訊息與 comparison 各欄都對到第 0～3 句字幕；聚焦頁每張卡一句。"""
     value = design(kind, count)
     if kind == 'comparison':
-        value['pages'][0]['nodes'][0]['key_terms'] = ['必要條件']
+        value['sections'][0]['pages'][0]['nodes'][0]['key_terms'] = ['必要條件']
     measured = timeline(1, 4 if kind in ('exchange', 'comparison') else max(count, 4))
     return compile_layout(value, [{}], measured), measured
 
@@ -38,7 +38,7 @@ def test_entrance_is_continuous_and_preserves_existing_geometry(kind):
 
 def test_comparison_lights_the_spoken_column_and_its_terms_never_leak_into_the_past():
     value = design('comparison', 2)
-    value['pages'][0]['nodes'][1].update(anchor=CAPTIONS[1][:5], key_terms=['必要條件'])
+    value['sections'][0]['pages'][0]['nodes'][1].update(anchor=CAPTIONS[1][:5], key_terms=['必要條件'])
     timeline_ = timeline(1, 4)
     plan = compile_layout(value, [{}], timeline_); page = plan['pages'][0]
     assert scene_state(1.999,timeline_,page)[0]['focus'] == 1
@@ -131,10 +131,11 @@ def test_subtitle_band_stays_empty_except_progress_bar(kind):
 
 
 def two_pages():
-    value = design('concept', 1, end=0); other = deepcopy(value['pages'][0])
-    other.update(title='下一個模型', start_cue=1, end_cue=1)
-    other['nodes'][0].update(label='另一個概念', anchor=CAPTIONS[1][:4])
-    value['pages'].append(other)
+    value = design('concept', 1, end=0); other = deepcopy(value['sections'][0])
+    other.update(start_cue=1, end_cue=1)
+    other['pages'][0].update(title='下一個模型')
+    other['pages'][0]['nodes'][0].update(label='另一個概念', anchor=CAPTIONS[1][:4])
+    value['sections'].append(other)
     return compile_layout(value, [{}, {}], timeline(2, 2)), timeline(2, 2)
 
 
@@ -240,7 +241,7 @@ def test_motion_render_still_checks_audio_hash_and_source_script(tmp_path):
 
 def test_tied_anchors_do_not_invent_order_and_short_windows_finish_in_time():
     value = design()
-    value['pages'][0]['relations'][1]['anchor'] = CAPTIONS[0][:5]
+    value['sections'][0]['pages'][0]['relations'][1]['anchor'] = CAPTIONS[0][:5]
     timeline_ = timeline(1, 4)
     plan = compile_layout(value,[{}],timeline_)
     state = scene_state(.1,timeline_,plan['pages'][0])
@@ -257,7 +258,7 @@ def test_tied_anchors_do_not_invent_order_and_short_windows_finish_in_time():
 
 def test_text_pixels_really_fade_and_dim_on_rgb_canvas():
     from PIL import ImageColor
-    value = design('comparison', 2); value['pages'][0]['nodes'][1]['anchor'] = CAPTIONS[1][:5]
+    value = design('comparison', 2); value['sections'][0]['pages'][0]['nodes'][1]['anchor'] = CAPTIONS[1][:5]
     timeline_ = timeline(1, 4)
     plan = compile_layout(value, [{}], timeline_); e = plan['pages'][0]['elements'][0]
     positions = render.layouts(plan)
@@ -275,7 +276,7 @@ def test_text_pixels_really_fade_and_dim_on_rgb_canvas():
 def test_highlight_keeps_size_and_wrapping_and_only_recolors_the_term():
     from PIL import ImageColor
     value = design('concept', 1)
-    value['pages'][0]['nodes'][0].update(text='經過 CDN 的回應會依 CDN-Cache-Control 決定快取。', key_terms=['CDN-Cache-Control'])
+    value['sections'][0]['pages'][0]['nodes'][0].update(text='經過 CDN 的回應會依 CDN-Cache-Control 決定快取。', key_terms=['CDN-Cache-Control'])
     timeline_ = timeline(1, 4)
     plan = compile_layout(value, [{}], timeline_)
     plain = deepcopy(plan); plain['pages'][0]['emphasis'] = []
@@ -309,8 +310,8 @@ def test_renderer_cli_compiles_v4_storyboard(tmp_path):
 
 def test_first_delayed_focus_smoothly_leaves_the_page_preview():
     value = design('comparison',2,end=1)
-    value['pages'][0]['nodes'][0]['anchor'] = CAPTIONS[2][:5]
-    value['pages'][0]['nodes'][1]['anchor'] = CAPTIONS[3][:5]
+    value['sections'][0]['pages'][0]['nodes'][0]['anchor'] = CAPTIONS[2][:5]
+    value['sections'][0]['pages'][0]['nodes'][1]['anchor'] = CAPTIONS[3][:5]
     timeline_ = timeline(2, 4)
     plan = compile_layout(value,[{},{}],timeline_);page = plan['pages'][0]
     assert scene_state(3.9,timeline_,page)[1]['focus'] == 1
@@ -321,7 +322,7 @@ def test_first_delayed_focus_smoothly_leaves_the_page_preview():
 
 def test_highlight_cannot_appear_before_its_card():
     value = design('concept', 2)
-    value['pages'][0]['nodes'][1]['key_terms'] = ['必要條件']
+    value['sections'][0]['pages'][0]['nodes'][1]['key_terms'] = ['必要條件']
     plan, timeline_ = compile_layout(value, [{}], timeline(1, 4)), timeline(1, 4)
     mark = plan['pages'][0]['emphasis'][0]
     assert mark['caption_index'] == 1
@@ -329,3 +330,14 @@ def test_highlight_cannot_appear_before_its_card():
     del mark['caption_index']  # 退回頁首會早於第二張卡出現。
     with pytest.raises(ValueError, match='emphasis must not precede'):
         validate_visual_timing(plan, timeline_)
+
+
+def test_subpage_counter_selection_and_crossfade_follow_the_split_caption():
+    from test_podcast_video_layout import split
+    plan, measured = split()
+    first, second = (render.draw_frame(t, measured, plan, render.layouts(plan)) for t in (1.99, 2.5))
+    # 同一個 cue 內，2 秒的字幕開頭就換到第二頁：頁碼由 01 / 02 變成 02 / 02，並短暫交叉淡化。
+    assert first.crop((0, 150, 1920, 852)).tobytes() != second.crop((0, 150, 1920, 852)).tobytes()
+    assert 0 < transition(2.1, measured, plan['pages'][1], (2, 8)) < 1 == transition(2.25, measured, plan['pages'][1], (2, 8))
+    counter = (1680, 60, 1800, 110)
+    assert first.crop(counter).tobytes() != second.crop(counter).tobytes()

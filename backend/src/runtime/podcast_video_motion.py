@@ -141,12 +141,22 @@ def validate_motion_timing(page, timeline, visible, where):
                     )
 
 
-def scene_state(t, timeline, page):
+def page_window(timeline, page, bounds=None):
+    """頁面起訖；未給 bounds 時以 cue 邊界計算，與未拆頁的分鏡相同。"""
+    if bounds is not None:
+        return bounds
+    return (
+        timeline["segments"][page["start_cue"]]["start"],
+        timeline["segments"][page["end_cue"]]["end"],
+    )
+
+
+def scene_state(t, timeline, page, bounds=None):
     """同時的語意 anchor 同時聚焦；不替模型杜撰額外的教學先後。"""
     groups = page["motion"]["groups"]
-    page_start = timeline["segments"][page["start_cue"]]["start"]
+    page_start, page_end = page_window(timeline, page, bounds)
     appearances = {
-        j: (page_start, timeline["segments"][page["start_cue"]]["end"])
+        j: (page_start, min(page_end, timeline["segments"][page["start_cue"]]["end"]))
         for j in range(len(page["elements"]))
     }
     for reveal in page.get("reveal", []):
@@ -262,17 +272,19 @@ def validate_spotlight(page, where):
             )
         used += [*step["rails"], *step["card"]]
     first = spotlight["steps"][0]
-    if first["start_cue"] != page["start_cue"] or "caption_index" in first:
+    if first["start_cue"] != page["start_cue"] or first.get(
+        "caption_index"
+    ) != page.get("caption_index"):
         raise ValueError(where + ", the first spotlight card starts with the page")
     if sorted(used) != list(range(len(elements))):
         raise ValueError(where + ", spotlight must use every element exactly once")
 
 
-def spotlight_state(t, timeline, page):
+def spotlight_state(t, timeline, page, bounds=None):
     """每張卡從自己的實測起點亮到下一張開始；交接時短暫交叉淡化，頁首卡直接出現。"""
     steps = page["spotlight"]["steps"]
     starts = [window(step, timeline)[0] for step in steps]
-    ends = starts[1:] + [timeline["segments"][page["end_cue"]]["end"]]
+    ends = starts[1:] + [page_window(timeline, page, bounds)[1]]
     fades = [min(0.3, (end - start) / 3) for start, end in zip(starts, ends)]
     result = []
     for k, (start, end) in enumerate(zip(starts, ends)):
@@ -284,7 +296,6 @@ def spotlight_state(t, timeline, page):
     return result
 
 
-def transition(t, timeline, page):
-    start = timeline["segments"][page["start_cue"]]["start"]
-    end = timeline["segments"][page["end_cue"]]["end"]
+def transition(t, timeline, page, bounds=None):
+    start, end = page_window(timeline, page, bounds)
     return progress(t, start, end, 0.2)

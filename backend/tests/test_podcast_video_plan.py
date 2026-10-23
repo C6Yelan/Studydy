@@ -187,7 +187,7 @@ def test_v4_highlight_is_an_exact_short_term_inside_one_text_element(change):
     pytest.importorskip('PIL')
     from test_podcast_video_layout import design, timeline
     from runtime.podcast_video_layout import compile_layout
-    value=design('concept',1);value['pages'][0]['nodes'][0].update(text='CDN-Cache-Control 只對 CDN 生效。',key_terms=['CDN-Cache-Control'])
+    value=design('concept',1);value['sections'][0]['pages'][0]['nodes'][0].update(text='CDN-Cache-Control 只對 CDN 生效。',key_terms=['CDN-Cache-Control'])
     compiled=compile_layout(value,[{}],timeline(1,4));mark=compiled['pages'][0]['emphasis'][0]
     assert validate_plan(compiled,[{}])==compiled
     if change=='missing':mark['quote']='Cache-Control:'

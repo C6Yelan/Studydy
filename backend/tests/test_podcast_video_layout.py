@@ -28,8 +28,8 @@ def design(kind='exchange', count=2, end=0):
         nodes = [{'label': f'節點{i+1}', 'text': '來源支持的必要條件與說明。', 'anchor': CAPTIONS[i][:5], 'key_terms': []}
                  for i in range(count)]
         relations = []
-    return {'pages': [{'layout': kind, 'title': '雙方獨立完成傳送', 'start_cue': 0, 'end_cue': end,
-                       'nodes': nodes, 'relations': relations}]}
+    return {'sections': [{'start_cue': 0, 'end_cue': end, 'pages': [
+        {'layout': kind, 'title': '雙方獨立完成傳送', 'anchor': '', 'nodes': nodes, 'relations': relations}]}]}
 
 
 def steps(plan, page=0):
@@ -42,7 +42,7 @@ def test_model_schema_has_verbatim_anchor_and_terms_but_no_geometry_or_timing():
                   '"start_cue"', '"end_cue"', '"reveal"', '"focus"'):
         assert field not in raw
     assert all(kind in raw for kind in ('concept', 'comparison', 'flow', 'exchange'))
-    variants = semantic_schema(1)['properties']['pages']['items']['anyOf']
+    variants = semantic_schema(1)['properties']['sections']['items']['properties']['pages']['items']['anyOf']
     for variant in variants:
         node = variant['properties']['nodes']['items']['properties']
         layout = variant['properties']['layout']['enum'][0]
@@ -60,7 +60,7 @@ def test_supported_layouts_fit_measured_text_above_the_subtitle_band(kind, count
     pytest.importorskip('PIL')
     value = design(kind, count)
     if kind != 'exchange':
-        for node in value['pages'][0]['nodes']:
+        for node in value['sections'][0]['pages'][0]['nodes']:
             node.update(label='標' * 16, text='字' * 64)
     before = deepcopy(value)
     measured = timeline(1, 6)
@@ -77,7 +77,7 @@ def test_supported_layouts_fit_measured_text_above_the_subtitle_band(kind, count
 def test_verbatim_anchors_become_measured_card_starts_and_first_card_opens_the_page():
     pytest.importorskip('PIL')
     value = design('concept', 3, end=1)
-    nodes = value['pages'][0]['nodes']
+    nodes = value['sections'][0]['pages'][0]['nodes']
     nodes[0]['anchor'] = CAPTIONS[2][:4]  # 第一張卡一律從頁首開始，避免開頭空白。
     nodes[1]['anchor'] = CAPTIONS[1][2:8]
     nodes[2]['anchor'] = CAPTIONS[3]
@@ -89,7 +89,7 @@ def test_verbatim_anchors_become_measured_card_starts_and_first_card_opens_the_p
 def test_unmatched_or_backward_anchors_fall_back_without_failing_the_page():
     pytest.importorskip('PIL')
     value = design('concept', 3, end=1)
-    nodes = value['pages'][0]['nodes']
+    nodes = value['sections'][0]['pages'][0]['nodes']
     nodes[1]['anchor'] = '講稿裡沒有這句'
     nodes[2]['anchor'] = CAPTIONS[0][:5]  # 倒退到第一張卡之前，改用下一個實測起點。
     assert steps(compile_layout(value, [{}, {}], timeline(2, 4))) == [(0, None), (0, 1), (1, None)]
@@ -110,13 +110,13 @@ def test_too_few_measured_starts_share_a_card_instead_of_failing_the_video():
     layouts(plan)
     # 只有一個實測起點時，四個節點以兩欄小格共用一張卡，60 字說明仍放得下。
     single = design('concept', 4)
-    for node in single['pages'][0]['nodes']:
+    for node in single['sections'][0]['pages'][0]['nodes']:
         node.update(label='標' * 8, text=('完整條件與必要說明，' * 6)[:60])
     shared = compile_layout(single, [{}], timeline(1, 1))
     assert [len(s['rails']) for s in shared['pages'][0]['spotlight']['steps']] == [4]
     layouts(shared)
     crowded = design('concept', 4)
-    for node in crowded['pages'][0]['nodes']:
+    for node in crowded['sections'][0]['pages'][0]['nodes']:
         node['text'] = '完整條件與必要說明，' * 12
     with pytest.raises(ValueError, match='VIDEO_LAYOUT_INVALID'):
         compile_layout(crowded, [{}], timeline(1, 1))
@@ -125,7 +125,7 @@ def test_too_few_measured_starts_share_a_card_instead_of_failing_the_video():
 def test_key_terms_are_checked_verbatim_and_marked_once_without_failing():
     pytest.importorskip('PIL')
     value = design('concept', 2)
-    first, second = value['pages'][0]['nodes']
+    first, second = value['sections'][0]['pages'][0]['nodes']
     first.update(label='目標欄位', text='RFC 9213 引入 CDN-Cache-Control 標頭，CDN 會依它決定快取。',
                  key_terms=['CDN-Cache-Control 標頭', '標頭'])  # 第二個與第一個重疊，丟掉。
     second.update(label='HTTP 快取', key_terms=['不存在的詞', '來源支持的必要條件與說明。'])  # 不逐字／整句都丟掉。
@@ -157,7 +157,7 @@ def test_highlight_marks_only_the_first_occurrence_in_the_rendered_rows():
     pytest.importorskip('PIL')
     from runtime.podcast_video_render import highlight_segments
     value = design('concept', 1)
-    node = value['pages'][0]['nodes'][0]
+    node = value['sections'][0]['pages'][0]['nodes'][0]
     node.update(text='快取' * 25 + 'Content-Type 與 Content-Type', key_terms=['Content-Type'])
     plan = compile_layout(value, [{}], timeline(1, 4))
     mark = plan['pages'][0]['emphasis'][0]
@@ -172,12 +172,12 @@ def test_highlight_marks_only_the_first_occurrence_in_the_rendered_rows():
 def test_comparison_columns_stay_visible_and_focus_on_their_measured_anchor():
     pytest.importorskip('PIL')
     value = design('comparison', 2)
-    value['pages'][0]['nodes'][1]['anchor'] = CAPTIONS[2][1:6]
+    value['sections'][0]['pages'][0]['nodes'][1]['anchor'] = CAPTIONS[2][1:6]
     plan = compile_layout(value, [{}], timeline(1, 4))
     page = plan['pages'][0]
     assert [(g['start_cue'], g.get('caption_index')) for g in page['motion']['groups']] == [(0, None), (0, 2)]
     assert page['reveal'] == []
-    value['pages'][0]['nodes'][1]['anchor'] = '講稿裡沒有這句'
+    value['sections'][0]['pages'][0]['nodes'][1]['anchor'] = '講稿裡沒有這句'
     page = compile_layout(value, [{}], timeline(1, 4))['pages'][0]
     assert [g.get('caption_index') for g in page['motion']['groups']] == [None, None]
 
@@ -199,7 +199,7 @@ def test_exchange_preserves_packet_direction_and_deterministic_reveal_on_reverse
 def test_exchange_messages_keep_spoken_order_when_an_anchor_is_unusable():
     pytest.importorskip('PIL')
     value = design()
-    relations = value['pages'][0]['relations']
+    relations = value['sections'][0]['pages'][0]['relations']
     relations[1]['anchor'] = '講稿裡沒有這句'
     relations[2]['anchor'] = CAPTIONS[0][:5]
     page = compile_layout(value, [{}], timeline(1, 4))['pages'][0]
@@ -210,18 +210,18 @@ def test_exchange_messages_keep_spoken_order_when_an_anchor_is_unusable():
 @pytest.mark.parametrize('change', ['foreign', 'self', 'geometry', 'page', 'label', 'flow_relation', 'missing_anchor', 'legacy_timing'])
 def test_semantic_contract_keeps_invalid_references_out_of_renderer(change):
     pytest.importorskip('PIL')
-    value = design(); page = value['pages'][0]
+    value = design(); page = value['sections'][0]['pages'][0]
     if change == 'foreign': page['relations'][0]['target'] = 9
     elif change == 'self': page['relations'][0]['target'] = 0
     elif change == 'geometry': page['nodes'][0]['x'] = 100
-    elif change == 'page': page['start_cue'] = 1
+    elif change == 'page': value['sections'][0]['start_cue'] = 1
     elif change == 'label': page['nodes'][0]['label'] = '標' * 33
     elif change == 'flow_relation':
-        value = design('flow', 2); value['pages'][0]['relations'] = [{'source': 0, 'target': 1, 'label': '', 'anchor': '第一句', 'key_terms': []}]
+        value = design('flow', 2); value['sections'][0]['pages'][0]['relations'] = [{'source': 0, 'target': 1, 'label': '', 'anchor': '第一句', 'key_terms': []}]
     elif change == 'missing_anchor':
-        value = design('concept', 2); del value['pages'][0]['nodes'][0]['anchor']
+        value = design('concept', 2); del value['sections'][0]['pages'][0]['nodes'][0]['anchor']
     else:
-        value = design('concept', 2); value['pages'][0]['nodes'][0].update(cue_index=0, reveal=True, focus=True)
+        value = design('concept', 2); value['sections'][0]['pages'][0]['nodes'][0].update(cue_index=0, reveal=True, focus=True)
     with pytest.raises(ValueError, match='VIDEO_STORYBOARD_INVALID'):
         compile_layout(value, [{}], timeline(1, 4))
 
@@ -229,9 +229,9 @@ def test_semantic_contract_keeps_invalid_references_out_of_renderer(change):
 def test_complete_technical_names_and_longer_sentences_fit_without_truncation():
     pytest.importorskip('PIL')
     value = design('concept', 4)
-    node = value['pages'][0]['nodes'][2]
+    node = value['sections'][0]['pages'][0]['nodes'][2]
     node.update(label='Content-Transfer-Encoding', text='此欄位描述傳輸編碼。')
-    longer = value['pages'][0]['nodes'][3]
+    longer = value['sections'][0]['pages'][0]['nodes'][3]
     longer['text'] = '此欄位描述傳輸編碼，必須保留完整名稱與必要條件。' * 3
     assert 64 < len(longer['text']) <= 120
     compiled = compile_layout(value, [{}], timeline(1, 4))
@@ -241,7 +241,7 @@ def test_complete_technical_names_and_longer_sentences_fit_without_truncation():
     assert page['elements'][page['spotlight']['steps'][2]['rails'][0]]['text'] == node['label']
     assert [page['elements'][j]['text'] for j in page['spotlight']['steps'][3]['card'][1:]][1] == longer['text']
     layouts(compiled)
-    schema = semantic_schema(1)['properties']['pages']['items']['anyOf'][0]['properties']['nodes']['items']['properties']
+    schema = semantic_schema(1)['properties']['sections']['items']['properties']['pages']['items']['anyOf'][0]['properties']['nodes']['items']['properties']
     assert schema['label']['maxLength'] >= len(node['label'])
     assert schema['text']['maxLength'] >= len(longer['text'])
 
@@ -260,7 +260,7 @@ def test_latin_key_terms_need_word_boundaries_and_do_not_split_technical_names()
     assert term_at('x_t 與 t，', 't') == 6 and term_at('max-age=60', 'age') == -1
     assert term_at('HTTP 快取與快取', '快取') == 5  # 中文詞不受詞邊界限制。
     value = design('concept', 2)
-    first, second = value['pages'][0]['nodes']
+    first, second = value['sections'][0]['pages'][0]['nodes']
     first.update(text='CDN-Cache-Control: max-age=60 表示欄位套用於 CDN。', key_terms=['CDN', 'max-age=60'])
     second.update(text='只看 CDN-Cache-Control 標頭。', key_terms=['CDN', 'Cache'])  # 沒有合格位置就丟掉。
     plan = compile_layout(value, [{}], timeline(1, 4))
@@ -270,3 +270,84 @@ def test_latin_key_terms_need_word_boundaries_and_do_not_split_technical_names()
     rows = layouts(plan)[0][page['emphasis'][0]['element_index']]
     (row, a, b), = emphasis_layouts(plan, layouts(plan))[0][0]
     assert sum(len(rows[r][2]) for r in range(row)) + a == first['text'].rindex('CDN')
+
+
+def split(kinds=('flow', 'concept'), anchors=('', CAPTIONS[1][:5]), cues=2, captions=4):
+    """同一段講稿拆成多頁；第 2 頁起以逐字 anchor 決定換頁位置。"""
+    pages = []
+    for kind, anchor in zip(kinds, anchors):
+        page = design(kind, 2)['sections'][0]['pages'][0]
+        page['anchor'] = anchor
+        pages.append(page)
+    value = {'sections': [{'start_cue': 0, 'end_cue': cues - 1, 'pages': pages}]}
+    return compile_layout(value, [{}] * cues, timeline(cues, captions)), timeline(cues, captions)
+
+
+def windows(plan):
+    return [(p['start_cue'], p.get('caption_index'), p['end_cue']) for p in plan['pages']]
+
+
+def test_one_section_splits_into_pages_at_verbatim_anchors():
+    pytest.importorskip('PIL')
+    from runtime.podcast_video_plan import page_windows
+    plan, measured = split()
+    # 第二頁從第 2 句字幕開始，與第一頁共用同一個 teaching cue。
+    assert windows(plan) == [(0, None, 0), (0, 1, 1)]
+    assert page_windows(measured, plan) == [(0, 2), (2, 8)]
+    assert 'spotlight' in plan['pages'][0] and 'spotlight' in plan['pages'][1]
+    # 換頁點正好在 cue 開頭時，上一頁止於前一個 cue。
+    plan, _ = split(anchors=('', CAPTIONS[2][:5]))
+    assert windows(plan) == [(0, None, 0), (1, None, 1)]
+    # 子頁的節點 anchor 落在前一頁範圍時退回子頁頁首，不跨頁。
+    assert plan['pages'][1]['spotlight']['steps'][0]['start_cue'] == 1
+
+
+@pytest.mark.parametrize('anchor', ['講稿裡沒有這句', CAPTIONS[0][:5], CAPTIONS[3][:5]])
+def test_unusable_page_anchor_takes_the_middle_measured_start_without_failing(anchor):
+    pytest.importorskip('PIL')
+    # 對不到、等於段首或擠掉第三頁所需起點時，都改放在前後換頁點之間居中的實測起點。
+    plan, _ = split(('concept', 'concept', 'concept'), ('', anchor, CAPTIONS[3][:5]), cues=2, captions=4)
+    # 段內實測起點依序為 0 秒（cue 0）、2 秒（字幕 1）、4 秒（cue 1）、6 秒（字幕 3），居中取第 1 個。
+    assert [w[:2] for w in windows(plan)] == [(0, None), (0, 1), (1, 3)]
+
+
+def test_section_with_too_few_measured_starts_keeps_the_pages_that_fit():
+    pytest.importorskip('PIL')
+    plan, _ = split(anchors=('', '講稿裡沒有這句'), cues=1, captions=1)
+    assert len(plan['pages']) == 1
+
+
+def test_section_page_limit_keeps_the_whole_storyboard_within_24_pages():
+    from runtime.podcast_video_layout import section_page_limit
+    from runtime.podcast_video_plan import V4_PAGE_LIMIT
+    assert V4_PAGE_LIMIT == 24
+    assert [section_page_limit(n) for n in (1, 8, 9, 12)] == [3, 3, 2, 2]
+    assert all(n * section_page_limit(n) <= V4_PAGE_LIMIT for n in range(1, 13))
+    schema = semantic_schema(12)['properties']['sections']['items']['properties']['pages']
+    assert (schema['minItems'], schema['maxItems']) == (1, 2)
+
+
+@pytest.mark.parametrize('kind', ['comparison', 'exchange'])
+def test_comparison_and_exchange_subpages_anchor_to_their_own_page_start(kind):
+    pytest.importorskip('PIL')
+    from runtime.podcast_video_motion import scene_state
+    from runtime.podcast_video_plan import page_windows
+    plan, measured = split(('concept', kind), ('', CAPTIONS[1][:5]))
+    page = plan['pages'][1]
+    assert (page['start_cue'], page['caption_index']) == (0, 1)
+    groups = page['motion']['groups']
+    assert (groups[0]['start_cue'], groups[0].get('caption_index')) == (0, 1)
+    bounds = page_windows(measured, plan)[1]
+    assert scene_state(2, measured, page, bounds)[0]['entrance'] == 0 < scene_state(2.1, measured, page, bounds)[0]['entrance']
+
+
+@pytest.mark.parametrize('change', ['first_page_caption', 'not_shared', 'anchor_before_page'])
+def test_page_split_cannot_hide_content_outside_its_window(change):
+    pytest.importorskip('PIL')
+    from runtime.podcast_video_plan import validate_plan, validate_visual_timing
+    plan, measured = split()
+    if change == 'first_page_caption': plan['pages'][0]['caption_index'] = 0
+    elif change == 'not_shared': plan['pages'][1]['start_cue'] = 1
+    else: plan['pages'][1]['spotlight']['steps'][1]['caption_index'] = 0
+    with pytest.raises(ValueError, match='VIDEO_STORYBOARD_INVALID'):
+        validate_plan(plan, [{}, {}]); validate_visual_timing(plan, measured)
