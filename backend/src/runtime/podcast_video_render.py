@@ -15,6 +15,7 @@ import time
 import traceback
 
 from .podcast_video_plan import (
+    term_at,
     validate_plan,
     timeline_for_video,
     validate_visual_timing,
@@ -232,8 +233,8 @@ def emphasis_layouts(plan, text_layouts):
 
 
 def highlight_segments(rows, text, quote):
-    """重點詞第一次出現位置對到已排好的行；可跨行，不改字級或斷行。"""
-    start = text.index(quote)
+    """重點詞第一個合格位置（見 term_at）對到已排好的行；可跨行，不改字級或斷行。"""
+    start = term_at(text, quote)
     stop = start + len(quote)
     segments = []
     offset = 0

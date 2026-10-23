@@ -182,7 +182,7 @@ def test_multiline_quote_feedback_is_not_misreported_as_duplicate_text():
     with pytest.raises(ValueError,match='quote must be single-line'):validate_plan(value,cues)
 
 
-@pytest.mark.parametrize('change',['missing','whole','wide','newline','old_kind','no_color','legacy_schema'])
+@pytest.mark.parametrize('change',['missing','whole','wide','newline','old_kind','no_color','legacy_schema','split_name'])
 def test_v4_highlight_is_an_exact_short_term_inside_one_text_element(change):
     pytest.importorskip('PIL')
     from test_podcast_video_layout import design, timeline
@@ -198,4 +198,5 @@ def test_v4_highlight_is_an_exact_short_term_inside_one_text_element(change):
     if change=='old_kind':mark['kind']='outline'
     if change=='no_color':del mark['color']
     if change=='legacy_schema':compiled['schema']='podcast-storyboard/v3'
+    if change=='split_name':mark['quote']='Cache'  # 只出現在技術名稱中間，沒有詞邊界。
     with pytest.raises(ValueError,match='VIDEO_STORYBOARD_INVALID'):validate_plan(compiled,[{}])

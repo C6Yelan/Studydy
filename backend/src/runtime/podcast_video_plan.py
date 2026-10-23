@@ -19,6 +19,29 @@ def term_width(text):
     return sum(0.5 if c.isascii() else 1 for c in text)
 
 
+TECHNICAL_CHARS = "-_.:/="
+
+
+def term_at(text, term):
+    """重點詞第一個合格位置：英數開頭／結尾要有詞邊界，不把 CDN-Cache-Control 切開標出 CDN。"""
+
+    def technical(c):
+        return c.isascii() and (c.isalnum() or c in TECHNICAL_CHARS)
+
+    at = text.find(term)
+    while at >= 0:
+        before = text[at - 1] if at else ""
+        after = text[at + len(term) : at + len(term) + 1]
+        if not (
+            term[0].isascii() and term[0].isalnum() and before and technical(before)
+        ) and not (
+            term[-1].isascii() and term[-1].isalnum() and after and technical(after)
+        ):
+            return at
+        at = text.find(term, at + 1)
+    return -1
+
+
 KINDS = ("text", "box", "circle", "line", "arrow")
 COLORS = ("ink", "teal", "blue", "orange", "muted")
 
@@ -355,7 +378,7 @@ def validate_emphasis(page, page_index, v4=False):
                 or quote != quote.strip()
                 or term_width(quote) > KEY_TERM_LIMIT
                 or any(c in quote + e["text"] for c in "\r\n")
-                or quote not in e["text"]
+                or term_at(e["text"], quote) < 0
                 or quote == e["text"]
             ):
                 raise ValueError(
@@ -391,8 +414,9 @@ def validate_emphasis(page, page_index, v4=False):
                     raise ValueError(
                         detail + ", overlapping emphasis on the same target"
                     )
-                left_start = e["text"].index(left)
-                right_start = e["text"].index(right)
+                find = term_at if m["kind"] == "highlight" else str.index
+                left_start = find(e["text"], left)
+                right_start = find(e["text"], right)
                 if max(left_start, right_start) < min(
                     left_start + len(left), right_start + len(right)
                 ):

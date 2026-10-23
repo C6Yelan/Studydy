@@ -127,13 +127,13 @@ def test_key_terms_are_checked_verbatim_and_marked_once_without_failing():
     value = design('concept', 2)
     first, second = value['pages'][0]['nodes']
     first.update(label='目標欄位', text='RFC 9213 引入 CDN-Cache-Control 標頭，CDN 會依它決定快取。',
-                 key_terms=['CDN-Cache-Control', 'CDN'])  # 第二個與第一個重疊，丟掉。
+                 key_terms=['CDN-Cache-Control 標頭', '標頭'])  # 第二個與第一個重疊，丟掉。
     second.update(label='HTTP 快取', key_terms=['不存在的詞', '來源支持的必要條件與說明。'])  # 不逐字／整句都丟掉。
     plan = compile_layout(value, [{}], timeline(1, 4))
     page = plan['pages'][0]
     marks = page['emphasis']
     assert [(m['quote'], page['elements'][m['element_index']]['text']) for m in marks] == \
-        [('CDN-Cache-Control', first['text'])]
+        [('CDN-Cache-Control 標頭', first['text'])]
     assert marks[0]['kind'] == 'highlight' and marks[0]['end_cue'] == 0
     assert (marks[0]['start_cue'], marks[0].get('caption_index')) == steps(plan)[0]
     # 不在說明裡、但是標籤一部分的詞才標在標籤；整個標籤、太長或含空白邊界的詞丟掉。
@@ -245,3 +245,22 @@ def test_longer_contract_still_rejects_text_that_cannot_fit_its_area():
     from runtime.podcast_video_layout import _element
     with pytest.raises(ValueError, match='VIDEO_LAYOUT_INVALID'):
         _element('完整文字。'*20,100,200,100,60,0)
+
+
+def test_latin_key_terms_need_word_boundaries_and_do_not_split_technical_names():
+    pytest.importorskip('PIL')
+    from runtime.podcast_video_plan import term_at
+    assert term_at('CDN-Cache-Control: max-age=60 套用於 CDN。', 'CDN') == 'CDN-Cache-Control: max-age=60 套用於 '.__len__()
+    assert term_at('x_t 與 t，', 't') == 6 and term_at('max-age=60', 'age') == -1
+    assert term_at('HTTP 快取與快取', '快取') == 5  # 中文詞不受詞邊界限制。
+    value = design('concept', 2)
+    first, second = value['pages'][0]['nodes']
+    first.update(text='CDN-Cache-Control: max-age=60 表示欄位套用於 CDN。', key_terms=['CDN', 'max-age=60'])
+    second.update(text='只看 CDN-Cache-Control 標頭。', key_terms=['CDN', 'Cache'])  # 沒有合格位置就丟掉。
+    plan = compile_layout(value, [{}], timeline(1, 4))
+    page = plan['pages'][0]
+    marks = [(m['quote'], page['elements'][m['element_index']]['text']) for m in page['emphasis']]
+    assert marks == [('CDN', first['text']), ('max-age=60', first['text'])]
+    rows = layouts(plan)[0][page['emphasis'][0]['element_index']]
+    (row, a, b), = emphasis_layouts(plan, layouts(plan))[0][0]
+    assert sum(len(rows[r][2]) for r in range(row)) + a == first['text'].rindex('CDN')

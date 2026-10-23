@@ -145,8 +145,12 @@ def test_cached_frames_preserve_animation_progress_and_reverse_seek(kind, emphas
     if emphasis:
         for page in plan['pages']:
             target = next(j for j, e in enumerate(page['elements']) if e['kind'] == 'text' and len(e['text']) >= 3)
-            page['emphasis'] = [{'element_index': target, 'start_cue': page['elements'][target]['cue_index'],
-                                 'end_cue': page['end_cue'], 'kind': 'highlight', 'quote': page['elements'][target]['text'][1:3],
+            element = page['elements'][target]
+            if element['text'].isascii():  # 英數訊息名稱不能被切開標色，改加一段中文說明再標。
+                element['text'] += ' 訊息內容'
+            page['emphasis'] = [{'element_index': target, 'start_cue': element['cue_index'],
+                                 'end_cue': page['end_cue'], 'kind': 'highlight',
+                                 'quote': '訊息' if element['text'].endswith('訊息內容') else element['text'][1:3],
                                  'color': 'orange'}]
             for item in page.get('spotlight', {}).get('steps', []) + page.get('motion', {}).get('groups', []):
                 if target in item.get('card', item.get('elements', [])) and 'caption_index' in item:

@@ -4,6 +4,7 @@ from .podcast_video_plan import (
     KEY_TERM_LIMIT,
     SAFE_BOTTOM,
     object_schema,
+    term_at,
     term_width,
     validate_plan,
     validate_visual_timing,
@@ -232,7 +233,7 @@ def _key_terms(terms, body, label):
         ):
             continue
         for target, text in (("body", body), ("label", label)):
-            at = text.find(term)
+            at = term_at(text, term)
             if at >= 0 and term != text:
                 break
         else:
