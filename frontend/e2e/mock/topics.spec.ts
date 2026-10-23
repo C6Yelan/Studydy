@@ -139,16 +139,18 @@ test('retry and pending polling load the new proposal, cancel remains available'
 });
 
 
-test('unavailable sources stay distinct from explicit gap followup',async({page})=>{
+test('unavailable sources stay distinct and there is no manual gap followup',async({page})=>{
  await mockTopicApi(page);
  const blocked={...candidate,id:'blocked',title:'不可匯入論文',kind:'paper',eligible:false,license:'cc-by-nc-nd'};
- const topic:any={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'TCP',mode:'self-study',approved_scope:plan,status:'selecting',candidates:[blocked],selection:[],cursor:'next',error_code:null,run_id:null}};
+ const topic:any={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'TCP',mode:'self-study',approved_scope:plan,status:'selecting',candidates:[blocked],selection:[],cursor:null,error_code:null,run_id:null}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
- await page.route(`**/v1/research/${rid}/actions`,r=>{expect(r.request().postDataJSON()).toEqual({action:'more'});topic.research.candidates.push(candidate);topic.research.cursor=null;return json(r,topic.research);});
  await page.goto(`/topics/${id}`);
- await expect(page.getByText('目前尚無已核對可加入的來源，可在「研究詳情」查看未列入的原因，或接續研究。')).toBeVisible();
+ await expect(page.getByText('目前尚無已核對可加入的來源，可在「研究詳情」查看未列入的原因。')).toBeVisible();
  await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'全選可用來源'})).toBeDisabled();
- await page.getByRole('button',{name:'依缺口繼續研究'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();
+ // 研究會自動補查缺口；結束後不再提供手動補查與補查方向。
+ await expect(page.getByRole('button',{name:'依缺口繼續研究'})).toHaveCount(0);await expect(page.getByText('調整補查方向')).toHaveCount(0);
+ topic.research.candidates=[blocked,candidate];await page.reload();
+ await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();
  await page.getByRole('button',{name:'全選可用來源'}).click();await expect(page.locator('.tool-stage-footer')).toContainText('已選 1 份來源');
  await page.getByLabel('搜尋來源',{exact:true}).fill('不可匯入');await expect(page.getByText('沒有符合篩選的來源。')).toBeVisible();await page.getByRole('button',{name:'清除篩選'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeChecked();
 });

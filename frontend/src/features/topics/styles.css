@@ -46,7 +46,6 @@
 .topic-approved-summary dd:last-child { margin-bottom:0; }
 .topic-approved-summary dd ul { margin:0; padding-left:18px; }
 .topic-approved-summary > .text-button { min-height:32px; font-size:13px; }
-.topic-guidance { max-width:100%; }
 .topic-retry { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-left:auto; }
 .topic-retry .form-error { flex-basis:100%; margin:0; }
 

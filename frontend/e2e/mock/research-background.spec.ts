@@ -41,7 +41,7 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   await expect(page.locator('.research-candidates')).toHaveCount(0);
   await page.reload(); await expect(panel).toContainText('正在取得正文並核對公開全文與替代入口');
   await page.getByRole('button', { name: '停止處理', exact: true }).click();
-  await expect(panel).toContainText('研究停在');
+  await expect(panel).toContainText('搜尋已停止，目前 1 份來源仍可選取');
   await page.getByRole('button', { name: mode === 'research' ? '重試未完成部分' : '接續處理', exact: true }).click();
   await expect(panel.getByRole('progressbar')).toBeVisible();
   work = { ...work, status: 'selecting', progress: { ...progress, stage: 'complete', completed: null, total: null, finish_reason: 'gaps_remaining', summary: '已整理可用來源，仍缺少案例。' } };
@@ -64,7 +64,7 @@ for (const mode of ['research', 'topic']) test(`${mode} shows durable research s
   await expect(page.locator('.source-detail-panel')).toContainText('403'); await expect(page.locator('.source-detail-panel')).toContainText('已取得（rss）');
   await page.keyboard.press('Escape'); await expect(page.locator('.source-detail-panel')).toHaveCount(0);
   await expect(first.getByRole('button', { name: '詳細資訊' })).toBeFocused();
-  await expect(page.getByRole('button', { name: '依缺口繼續研究', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '依缺口繼續研究', exact: true })).toHaveCount(0);
   expect(actions).toEqual(['cancel', 'retry']);
   for (const size of [{ width: 1280, height: 720 }, { width: 1366, height: 768 }]) {
     await page.setViewportSize(size);
@@ -123,25 +123,6 @@ test('stopped research is preserved in collapsed history while the current task 
   await expect(page.getByRole('heading',{name:'已停止的舊測試查詢',exact:true})).not.toBeVisible();
   await page.getByText('已停止的查詢 · 1 筆',{exact:true}).click();
   await expect(page.getByRole('heading',{name:'已停止的舊測試查詢',exact:true})).toBeVisible();
-});
-
-
-test('focused followup preserves the confirmed scope and sends the optional direction', async ({page}) => {
-  await mockKnowledgeMapApi(page, structureView());
-  const scope={title:'Agent',goals:['理解迴圈，不需要完整程式'],topics:['Agent 執行迴圈']};
-  let work:any={research_id:researchId,material_id:materialId,query:'Agent',mode:'review',approved_scope:scope,
-    status:'selecting',candidates:[source('ready')],selection:[],cursor:null,error_code:null,run_id:null,is_current_revision:true};
-  await page.route(`**/v1/research/${researchId}`,r=>json(r,work));
-  await page.route(`**/v1/research/${researchId}/actions`,r=>{
-    expect(r.request().postDataJSON()).toEqual({action:'more',guidance:'只補停止條件的官方說明'});
-    work={...work,status:'searching'};return json(r,work);
-  });
-  await page.goto(`/materials/${materialId}/research/${researchId}`);
-  await page.getByText('調整補查方向',{exact:true}).click();
-  await page.getByLabel('補查方向（選填）').fill('只補停止條件的官方說明');
-  await page.getByRole('button',{name:'依缺口繼續研究',exact:true}).click();
-  await expect(page.getByRole('button',{name:'停止處理',exact:true})).toBeVisible();
-  expect(work.approved_scope).toEqual(scope);
 });
 
 

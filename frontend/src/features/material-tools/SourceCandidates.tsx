@@ -196,7 +196,7 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
           {(c.review || c.access?.attempts.length || showAcquisitionDetails) && <button type="button" className="text-button source-detail-open" aria-haspopup="dialog" onClick={() => setDetail(c)}>詳細資訊<Icon name="chevron-right" size={14} /></button>}
         </div>
       </article>; })}
-      {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前尚無已核對可加入的來源，可在「研究詳情」查看未列入的原因，或接續研究。</p>}
+      {!readOnly && !eligible.length && candidates.length > 0 && <p className="source-picker-empty">目前尚無已核對可加入的來源，可在「研究詳情」查看未列入的原因。</p>}
       {!visible.length && available.length > 0 && <p className="source-picker-empty">{onlySelected ? '目前沒有符合篩選的已選來源。' : '沒有符合篩選的來源。'}<button className="text-button" onClick={() => { setQuery(''); setKind('all'); setOnlySelected(false); }}>清除篩選</button></p>}
     </div>
     {pageCount > 1 && <nav className="source-pagination" aria-label="來源分頁">
