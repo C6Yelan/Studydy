@@ -246,27 +246,8 @@
 .device-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
 .device-row > .text-button { flex: none; }
 /* 列內確認：沿用原位置確認的取消／危險按鈕樣式。 */
-.device-confirm {
-  display: flex;
-  flex-basis: 100%;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px 8px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-  font-size: 13px;
-  font-weight: 800;
-}
-.device-confirm span { margin-right: auto; }
-.device-confirm button { min-height: 32px; padding: 0 12px; font-size: 13px; }
-.device-confirm .cancel-confirm-button,
-.device-confirm .cancel-confirm-button:hover:not(:disabled) {
-  color: var(--error);
-  border-color: var(--error);
-  background: var(--error-soft);
-}
-.device-confirm .form-error { flex-basis: 100%; }
+/* 裝置列內的登出確認換到下一行（InlineConfirm）。 */
+.device-row > .inline-confirm { flex-basis: 100%; }
 .device-more { font-size: 13px; }
 
 @media (min-width: 1201px) {

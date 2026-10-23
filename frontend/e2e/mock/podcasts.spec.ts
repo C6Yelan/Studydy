@@ -74,7 +74,7 @@ test("management menu renames with conflict recovery; deletion needs confirmatio
   await page.getByRole("button", { name: "返回 Podcast", exact: true }).click();
   await page.getByRole("button", { name: "管理 Podcast「更新後的名稱」" }).click();
   await page.getByRole("button", { name: "刪除 Podcast", exact: true }).click();
-  await page.getByRole("form", { name: "刪除 Podcast 確認" }).getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("group", { name: "刪除 Podcast 確認" }).getByRole("button", { name: "取消", exact: true }).click();
   expect(fixture.deletes()).toBe(0);
   await page.getByRole("button", { name: "管理 Podcast「更新後的名稱」" }).click();
   await page.getByRole("button", { name: "刪除 Podcast", exact: true }).click();

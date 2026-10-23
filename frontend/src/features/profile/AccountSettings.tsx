@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { InlineConfirm } from "../../ui/InlineConfirm";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AccountSession, AccountSessions } from "../../api/contracts";
 import { useProfile } from "../../app/HeaderTools";
@@ -233,9 +234,7 @@ function DeviceRow({ apiClient, session, onRevoked }: {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const keep = useRef<HTMLButtonElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
-  useEffect(() => { if (confirming) keep.current?.focus(); }, [confirming]);
   const label = session.device_label ?? "未知裝置";
   const system = session.device_label?.split(" · ").at(-1) ?? "";
   const close = () => { setConfirming(false); setError(null); requestAnimationFrame(() => opener.current?.focus()); };
@@ -251,20 +250,15 @@ function DeviceRow({ apiClient, session, onRevoked }: {
       </div>
       {!session.current && !confirming && <button ref={opener} className="text-button" type="button"
         aria-label={`登出「${label}」`} onClick={() => setConfirming(true)}>登出</button>}
-      {confirming && <div className="device-confirm" role="group" aria-label={`登出「${label}」確認`}
-        onKeyDown={(event) => { if (event.key === "Escape" && !busy) { event.preventDefault(); close(); } }}>
-        <span>登出這個裝置？</span>
-        <button ref={keep} className="secondary-button" type="button" disabled={busy} onClick={close}>取消</button>
-        <button className="secondary-button cancel-confirm-button" type="button" disabled={busy} onClick={() => {
+      {confirming && <InlineConfirm message="登出這個裝置？" label={`登出「${label}」確認`} confirmLabel="登出" busyLabel="正在登出…"
+        busy={busy} error={error} onCancel={close} onConfirm={() => {
           setBusy(true);
           setError(null);
           void apiClient.revokeSession(session.session_id).then(
             (value) => { setBusy(false); onRevoked(value); },
             (failure) => { setBusy(false); setError(errorMessage(failure)); },
           );
-        }}>{busy ? "正在登出…" : "登出"}</button>
-        {error && <p className="form-error" role="alert">{error}</p>}
-      </div>}
+        }} />}
     </li>
   );
 }

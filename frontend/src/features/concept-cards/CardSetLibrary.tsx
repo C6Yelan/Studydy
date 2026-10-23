@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { InlineConfirm } from "../../ui/InlineConfirm";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardReviewsView, CardSetSummary, MaterialLibraryItem } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
@@ -27,7 +28,6 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   const [removing, setRemoving] = useState<CardSetSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const cancel = useRef<HTMLButtonElement>(null);
   const opener = useRef<HTMLElement | null>(null);
   const restoreFocus = useRef(false);
   const deleting = useRef(false);
@@ -54,10 +54,8 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
     setSets(previous => previous?.map(current => current.card_set_id === item.card_set_id && current.version <= item.version ? item : current) ?? null);
   }, []);
   useEffect(() => {
-    if (removing) cancel.current?.focus();
-    else if (restoreFocus.current && opener.current?.isConnected) opener.current.focus({ preventScroll: true });
+    if (!removing && restoreFocus.current && opener.current?.isConnected) opener.current.focus({ preventScroll: true });
   }, [removing]);
-  useEffect(() => { if (deleteError && !busy) cancel.current?.focus(); }, [deleteError, busy]);
   const closeDelete = () => {
     if (deleting.current) return;
     restoreFocus.current = true;
@@ -127,16 +125,8 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
                     opener.current = element; restoreFocus.current = false;
                     setDeleteError(null); setRemoving(item);
                   }} />
-                {removing?.card_set_id === item.card_set_id && <form className="material-management-form" aria-label="刪除卡組確認" aria-busy={busy}
-                  onSubmit={event => { event.preventDefault(); void remove(); }}
-                  onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); closeDelete(); } }}>
-                  <h3>確定刪除？</h3>
-                  <div className="material-management-actions">
-                    <button ref={cancel} className="secondary-button" type="button" disabled={busy} onClick={closeDelete}>取消</button>
-                    <button className="secondary-button cancel-confirm-button" type="submit" aria-label={busy ? "正在刪除…" : "確認刪除卡組"} disabled={busy}>{busy ? "正在刪除…" : "刪除"}</button>
-                  </div>
-                  {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
-                </form>}
+                {removing?.card_set_id === item.card_set_id && <InlineConfirm message="確定刪除？" label="刪除卡組確認" confirmLabel="刪除"
+                  confirmAriaLabel="確認刪除卡組" busyLabel="正在刪除…" busy={busy} error={deleteError} onCancel={closeDelete} onConfirm={() => void remove()} />}
                 <p className="library-metadata">{new Date(item.created_at).toLocaleDateString()} · <CardCount key={`${item.card_set_id}:${item.version}`} item={item} apiClient={apiClient} onSaved={countSaved} /></p>
                 {!material && <p className="cards-library-material" title={item.material_name}>{item.material_name}</p>}
                 {!item.is_current_revision && (item.moved_to_card_set_id

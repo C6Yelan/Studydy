@@ -71,7 +71,7 @@ test("real API persists selected cards across fresh login and resolves original 
   await reopened.getByRole("button", { name: "管理卡組「隔離測試卡組已編輯」" }).click();
   await reopened.getByRole("button", { name: "刪除卡組「隔離測試卡組已編輯」" }).click();
   await expect(reopened.getByRole("dialog")).toHaveCount(0);
-  await expect(reopened.getByRole("form", { name: "刪除卡組確認" })).toBeVisible();
+  await expect(reopened.getByRole("group", { name: "刪除卡組確認" })).toBeVisible();
   await reopened.getByRole("button", { name: "確認刪除卡組" }).click();
   // 刪除最後一個卡組後回到空卡組引導。
   await expect(reopened.getByRole("region", { name: "空卡組引導" })).toBeVisible();

@@ -229,7 +229,7 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await page.getByRole("button", { name: "管理卡組「我的資料結構卡組」" }).click();
   await page.getByRole("button", { name: "刪除卡組「我的資料結構卡組」" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("form", { name: "刪除卡組確認" }).getByRole("heading", { name: "確定刪除？", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "刪除卡組確認" }).getByText("確定刪除？", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "確認刪除卡組" }).click();
   await expect(page.getByRole("region", { name: "空卡組引導" })).toBeVisible();
   expect(fixture.forbiddenMutations).toEqual([]);
@@ -251,13 +251,13 @@ test("card deletion confirms inline, cancels safely and retries once", async ({ 
   await page.goto("/concept-cards");
   const card = page.getByRole("article", { name: title, exact: true });
   const opener = card.getByRole("button", { name: `管理卡組「${title}」`, exact: true });
-  const confirmation = card.getByRole("form", { name: "刪除卡組確認" });
+  const confirmation = card.getByRole("group", { name: "刪除卡組確認" });
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     await opener.click();
     await card.getByRole("button", { name: `刪除卡組「${title}」`, exact: true }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(confirmation.getByRole("heading", { name: "確定刪除？", exact: true })).toBeVisible();
+    await expect(confirmation.getByText("確定刪除？", { exact: true })).toBeVisible();
     await expect(confirmation.getByText(title, { exact: true })).toHaveCount(0);
     await expect(confirmation.getByRole("button", { name: "取消", exact: true })).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
@@ -277,9 +277,10 @@ test("card deletion confirms inline, cancels safely and retries once", async ({ 
   await expect(confirmation.getByRole("button", { name: "取消", exact: true })).toBeFocused();
   await expect(card).toBeVisible();
   expect(deletes).toBe(1);
-  await confirmation.evaluate(form => {
-    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  // 連按兩次確認（同一個事件迴圈內）只送出一次刪除。
+  await confirmation.getByRole("button", { name: "確認刪除卡組", exact: true }).evaluate(button => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
   });
   await expect.poll(() => deletes).toBe(2);
   await expect(confirmation.getByRole("button", { name: "正在刪除…", exact: true })).toBeDisabled();

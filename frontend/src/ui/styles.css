@@ -227,9 +227,12 @@
 /* 原位置確認（InlineConfirm）：取代瀏覽器原生確認框。 */
 .inline-confirm { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; width:100%; padding:10px 12px; border-radius:16px; background:var(--page-cool); }
 .inline-confirm > span { flex:1 1 12em; color:var(--text-primary); font-size:13px; font-weight:800; line-height:1.5; }
+.inline-confirm > span small { display:block; margin-top:2px; color:var(--text-secondary); font-size:12px; font-weight:600; }
+.inline-confirm > .form-error { flex-basis:100%; margin:0; }
 .inline-confirm-actions { display:flex; flex:none; gap:8px; margin-left:auto; }
 .inline-confirm-actions button { min-height:34px; padding:0 14px; font-size:13px; }
 .inline-confirm .cancel-confirm-button,
 .inline-confirm .cancel-confirm-button:hover:not(:disabled) { color:var(--error); border-color:var(--error); background:var(--error-soft); }
 /* 教材卡是直向排列：確認列和原本的按鈕列一樣貼在卡片底部，不撐高。 */
 .library-item > .inline-confirm { margin-top:auto; }
+.material-bookshelf .library-item > .inline-confirm { grid-column:1 / -1; }
