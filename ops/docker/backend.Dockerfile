@@ -15,24 +15,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --snapshot "$UBUNTU_SECURITY_SNAPSHOT" \
        ca-certificates=20260816ubuntu0.26.04.1 \
        libxml2-16=2.15.2+dfsg-0.1ubuntu0.3 \
+       libxslt1.1=1.1.45-0.1 \
        libcurl4t64=8.18.0-1ubuntu2.8 \
        libcurl3t64-gnutls=8.18.0-1ubuntu2.8 \
     && rm -rf /var/lib/apt/lists/*
 ENV UV_PYTHON_INSTALL_DIR=/opt/python
 RUN uv python install 3.12.15 && chmod -R a+rX /opt/python
-# 正式 lxml 6.1.3 wheel 仍內含 libxml2 2.14.6；只重建這個 wheel。
-# 其他靜態函式庫維持上游 6.1.3 Linux wheel 版本，保留其 libxslt 安全 backport。
+# 正式 lxml 6.1.3 wheel 仍內含舊 libxml2；暫時自建並動態連結 Ubuntu 系統庫。
+# 安全修補由上述套件快照提供；上游 wheel 內含 libxml2 >=2.15.4 時移除此階段。
 FROM runtime-base AS lxml-build
 RUN apt-get update --snapshot "$UBUNTU_SECURITY_SNAPSHOT" \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --snapshot "$UBUNTU_SECURITY_SNAPSHOT" \
        build-essential pkg-config \
+       libxml2-dev=2.15.2+dfsg-0.1ubuntu0.3 \
+       libxslt1-dev=1.1.45-0.1 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY backend/uv.lock /build/uv.lock
 RUN uv run --no-project --python 3.12.15 python - <<'PYTHON'
 import hashlib
 import pathlib
-import tarfile
 import tomllib
 import urllib.request
 
@@ -44,26 +46,10 @@ with urllib.request.urlopen(source["url"]) as response:
 if "sha256:" + hashlib.sha256(archive).hexdigest() != source["hash"]:
     raise ValueError("lxml source checksum mismatch")
 pathlib.Path("lxml.tar.gz").write_bytes(archive)
-with tarfile.open("lxml.tar.gz") as source_archive:
-    source_archive.extractall(filter="data")
-pathlib.Path("lxml-" + lxml["version"]).rename("lxml")
-pathlib.Path("lxml/libs").mkdir()
-with urllib.request.urlopen("https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz") as response:
-    archive = response.read()
-if hashlib.sha256(archive).hexdigest() != "98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821":
-    raise ValueError("libxml2 source checksum mismatch")
-pathlib.Path("lxml/libs/libxml2-2.15.4.tar.xz").write_bytes(archive)
 PYTHON
 RUN uv venv --python 3.12.15 /build/venv \
     && uv pip install --python /build/venv/bin/python setuptools==83.0.0
-ENV STATIC_DEPS=true \
-    LIBXML2_VERSION=2.15.4 \
-    LIBXSLT_VERSION=1.1.43 \
-    LIBICONV_VERSION=1.18 \
-    ZLIB_VERSION=1.3.2 \
-    MULTICORE=2 \
-    CFLAGS="-O2 -fPIC"
-RUN uv build --python /build/venv/bin/python --no-build-isolation --wheel --out-dir /wheels /build/lxml
+RUN uv build --python /build/venv/bin/python --no-build-isolation --wheel --out-dir /wheels /build/lxml.tar.gz
 
 FROM runtime-base AS dependencies
 WORKDIR /app
