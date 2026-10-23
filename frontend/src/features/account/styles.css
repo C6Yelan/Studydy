@@ -274,7 +274,8 @@
 }
 
 /* 矮螢幕：卡片隨可視高度縮短（內容仍可撐開），避免整頁捲動。 */
-@media (min-width: 601px) and (max-height: 900px) {
+/* 保留 max-height: 900px：登入卡片最高 780px＋上下留白的視窗高度，依內容高度決定。 */
+@media (min-width: 721px) and (max-height: 900px) {
   .auth-card,
   .auth-illustration {
     min-height: min(780px, calc(100svh - 112px));
@@ -285,7 +286,7 @@
 }
 
 /* 手機：品牌在上，海面縮成橫幅（只留標題與小吉祥物），表單在下。 */
-@media (max-width: 600px) {
+@media (max-width: 720px) {
   .auth-page {
     align-content: start;
     gap: 14px;

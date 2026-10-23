@@ -10,7 +10,7 @@
 .creation-head .flow-head-aside .learning-step-mark { width:28px; height:28px; font-size:13px; }
 .creation-head .flow-head-aside .learning-steps li + li::before { top:13px; right:calc(50% + 19px); left:calc(-50% + 19px); }
 .creation-head .cards-material-name { display:inline-flex; color:var(--text-secondary); font-weight:700; }
-@media (max-width:760px) {
+@media (max-width:720px) {
   .creation-head .flow-head-row { flex-direction:column; align-items:stretch; gap:12px; }
   .creation-head .flow-head-aside { flex:none; }
 }
@@ -20,7 +20,7 @@
 .creation-name { display:flex; align-items:center; gap:10px; width:100%; margin:0; color:var(--text-primary); font-size:13px; font-weight:800; white-space:nowrap; }
 .creation-name input { flex:1; min-width:0; min-height:42px; padding:8px 14px; border:1.5px solid var(--border); border-radius:var(--radius-input); background:var(--surface); color:var(--text-primary); font:inherit; font-size:14px; font-weight:600; }
 .creation-name input:focus { border-color:var(--studydy-blue); outline:none; box-shadow:0 0 0 3px var(--studydy-blue-soft); }
-@media (max-width:640px) { .creation-name { display:grid; gap:6px; white-space:normal; } }
+@media (max-width:720px) { .creation-name { display:grid; gap:6px; white-space:normal; } }
 
 /* 選教材：島嶼縮圖清單（與我的教材同一套外觀）。 */
 /* 每格等高（最高的一格決定所有列高），縮圖、文字與箭頭在每格中垂直置中、上下對齊。 */
@@ -93,6 +93,7 @@
 .podcast-config-nav { display:none; }
 
 /* 桌面：填滿教材外框，長清單與預覽在各自區域內捲動，主要按鈕固定在卡片頁尾。 */
+/* 保留 1000px：三欄概念清單＋預覽欄需約 1000px，1024×768 橫向平板仍可用桌面填滿版面；與 CreateCardSet.tsx 的每頁數量門檻一致。 */
 @media (min-width:1000px) {
   .material-content:has(.creation-page) { display:flex; flex-direction:column; height:calc(100dvh - var(--shell-header-height,56px)); min-height:0; }
   .material-content:has(.creation-page) > :not(.material-content-body) { flex-shrink:0; }
@@ -115,10 +116,12 @@
   .material-content .creation-page .cards-preview .visual-concept-card { flex:1; min-height:0; }
   .material-content .creation-page .podcast-settings { align-self:start; }
 }
+/* 與上方 1000px 互補（保留理由同上）。 */
 @media (max-width:999px) {
   .cards-create-grid { grid-template-columns:minmax(0,1fr) minmax(260px,.8fr); }
   .cards-concept-list { grid-template-columns:minmax(0,1fr); }
 }
+/* 保留 900px：選概念與講解設定（最窄 260px）並排需約 900px；直向平板改用分頁切換，橫向平板維持並排。 */
 @media (max-width:900px) {
   .podcast-config-nav { display:flex; gap:6px; }
   .podcast-config-nav button { flex:1; min-width:0; min-height:40px; padding:8px 4px; font-size:13px; }
@@ -127,7 +130,7 @@
   .podcast-settings h3 { display:none; }
   .podcast-concept-list { grid-template-columns:minmax(0,1fr); max-height:46vh; }
 }
-@media (max-width:700px) {
+@media (max-width:720px) {
   .cards-create-grid { grid-template-columns:minmax(0,1fr); }
   .cards-preview { padding:14px; }
 }

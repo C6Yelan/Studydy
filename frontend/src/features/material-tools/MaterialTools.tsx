@@ -16,6 +16,7 @@ export function MaterialTools({ api, materialId, revision }: { api: StudydyApiCl
   // 桌機是教材頁首下緣展開的右側抽屜，聊天時仍可切換分頁；手機是全螢幕（由 CSS 定位）。
   // 開啟後固定位置，不隨捲動移動。
   const toolbar = trigger.current?.closest('.material-learning-toolbar')?.getBoundingClientRect();
+  // 手機斷點（styles.css 共用斷點）：抽屜改全螢幕，不依頁首定位。
   const phone = window.matchMedia('(max-width: 720px)').matches;
   setTop(toolbar && !phone ? Math.min(Math.max(toolbar.bottom + 8, 8), window.innerHeight / 2) : null);
   setOpen(true);

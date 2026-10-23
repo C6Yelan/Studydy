@@ -80,7 +80,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .source-detail-body p { margin:0; color:var(--text-secondary); }
 .source-detail-body pre { margin:0; white-space:pre-wrap; }
 @keyframes source-detail-in { from { transform:translateX(24px); opacity:0; } }
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .source-detail-panel { inset:auto 0 0 0; width:100vw; height:auto; max-height:85dvh; border-radius:24px 24px 0 0; }
   @keyframes source-detail-in { from { transform:translateY(24px); opacity:0; } }
 }
@@ -160,14 +160,14 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .research-status.is-attention { background:var(--warning-soft); color:#7a5300; }
 .research-stopped { margin-top:16px; color:var(--text-secondary); font-size:13px; }
 .research-stopped > summary { margin-bottom:12px; font-weight:800; cursor:pointer; }
-@media(max-width:700px) {
+@media(max-width:720px) {
   .research-library .research-head { flex-direction:column; align-items:flex-start; gap:8px; }
   .research-library .research-records { grid-template-columns:minmax(0,1fr); }
   .research-compose { grid-template-columns:minmax(0,1fr); padding:16px; }
   .research-compose::before { display:none; }
   .research-compose > .form-error { grid-column:1; }
 }
-@media(max-width:600px) { .research-compose form { flex-direction:column; } }
+@media(max-width:720px) { .research-compose form { flex-direction:column; } }
 
 .supplementary-page .research-candidates { grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); max-height:none; overflow:visible; }
 
@@ -196,6 +196,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .research-detail-body > details summary { font-weight:800; cursor:pointer; }
 .research-detail .tool-stage-footer { margin:0; padding:12px 0 0; border-top:1px solid var(--border-light); }
 .research-detail .research-candidates { gap:8px; }
+/* 保留 1000px：與 creation.css 相同，雙欄來源與一屏填滿版面需約 1000px，1024×768 橫向平板仍使用；依內容寬度決定。 */
 @media(min-width:1000px) {
   .research-detail .research-candidates { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .research-detail .research-confirm { display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -206,12 +207,13 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 @container research-sources (min-width:1100px) {
   .source-picker.is-compact .research-candidates { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
+/* 與上方 1000px 互補（保留理由同上）。 */
 @media(max-width:999px) {
   .research-detail .research-candidates, .source-picker.is-compact .research-candidates { grid-template-columns:minmax(0,1fr); }
   .source-picker.is-compact .source-picker-filters { grid-template-columns:minmax(0,1fr) 140px; gap:6px 8px; }
   .research-detail .tool-stage-footer { position:sticky; bottom:max(72px,calc(env(safe-area-inset-bottom) + 64px)); z-index:1; background:var(--surface); }
 }
-@media(max-width:700px) {
+@media(max-width:720px) {
   .research-detail-body { padding:14px; }
   .research-detail .research-detail-header { gap:10px; }
   .source-picker-filters { grid-template-columns:minmax(0,1fr) 120px; gap:8px; }
@@ -219,7 +221,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
   .tool-result { padding:14px; }
 }
 
-/* 寬螢幕：補充學習一屏內完成，查詢紀錄與來源清單在自己的區塊內捲動。 */
+/* 寬螢幕：補充學習一屏內完成，查詢紀錄與來源清單在自己的區塊內捲動（保留 1000px，理由同上）。 */
 @media(min-width:1000px) {
   .material-content:has(.supplementary-page) { display:flex; flex-direction:column; height:calc(100dvh - var(--shell-header-height,56px)); min-height:0; padding-bottom:80px; }
   .material-content-body:has(.supplementary-page), .supplementary-page, .supplementary-page .research-panel { display:flex; flex-direction:column; flex:1; min-height:0; }

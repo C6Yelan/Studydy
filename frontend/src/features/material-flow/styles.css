@@ -617,7 +617,7 @@
   }
 }
 
-@media (max-width: 920px) {
+@media (max-width: 1024px) {
   .processing-grid {
     grid-template-columns: 1fr;
   }
@@ -626,7 +626,7 @@
   }
 }
 
-@media (max-width: 620px) {
+@media (max-width: 720px) {
 
   .processing-card {
     padding: var(--space-5);
@@ -642,7 +642,7 @@
     font-size: 30px;
   }
 }
-@media (max-width: 600px) {
+@media (max-width: 720px) {
   .library-header h1 {
     font-size: 28px;
   }
@@ -661,14 +661,14 @@
 .material-content-body > .cards-page { max-width: none; }
 .material-content-body > .material-library { width: 100%; min-width: 0; }
 .material-content-body .cards-page h1 { font-size: 24px; }
-@media (max-width: 780px) { .material-content { padding: 0 0 12px; } }
+@media (max-width: 720px) { .material-content { padding: 0 0 12px; } }
 
 /* 教材頁內容分頁的工具列：數量與建立操作。 */
 .collection-toolbar { flex-wrap: nowrap; gap: 16px; margin-bottom: 18px; }
 .collection-summary { flex: 0 0 auto; color: var(--text-secondary); font-size: 12px; }
 .collection-summary p { margin: 0; white-space: nowrap; }
 .collection-toolbar > button { flex: 0 0 auto; }
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .collection-toolbar { flex-wrap: wrap; gap: 12px; }
   .collection-toolbar > button { margin-left: auto; }
 }
@@ -681,7 +681,7 @@
 .material-content .material-search-row > button { min-height:40px; font-size:14px; }
 .source-picker-filters.is-external-search { display:flex; justify-content:flex-end; }
 .source-picker-filters.is-external-search select { width:150px; max-width:100%; }
-@media(max-width:900px) {
+@media(max-width:1024px) {
  .material-content .material-search-row { flex-wrap:wrap; gap:12px; }
  .material-content .material-search-row .material-search { order:0; flex:1 0 100%; max-width:none; }
  .material-content .material-search-row .collection-summary { order:1; }
@@ -709,9 +709,10 @@
   line-height:1.2;
 }
 @media (max-width:1599px) { .is-collection .library-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
-@media (max-width:1199px) { .is-collection .library-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media (max-width:650px) { .is-collection .library-grid { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:1280px) { .is-collection .library-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:720px) { .is-collection .library-grid { grid-template-columns:minmax(0,1fr); } }
 /* 寬螢幕清單頁放寬到 2200px：多加欄數，卡片維持約 350px 寬，不放大插圖。 */
+/* 保留 1800／2300px：依卡片約 350px 寬換算欄數，套用共用 1600px 會讓 5 欄卡片過窄。 */
 @media (min-width:1800px) { .is-collection .library-grid { grid-template-columns:repeat(5,minmax(0,1fr)); } }
 @media (min-width:2300px) { .is-collection .library-grid { grid-template-columns:repeat(6,minmax(0,1fr)); } }
 
@@ -886,7 +887,7 @@ button.library-state { border: 0; font: inherit; font-size: 12px; cursor: pointe
 button.library-state:hover { background: var(--violet); color: #fff; }
 
 /* 手機：教材卡改橫式（左側島嶼縮圖），一屏可看更多份。 */
-@media (max-width: 650px) {
+@media (max-width: 720px) {
   .material-bookshelf .library-item {
     display: grid;
     grid-template-columns: 96px minmax(0, 1fr);
@@ -916,7 +917,7 @@ button.library-state:hover { background: var(--violet); color: #fff; }
 
 /* 同列卡片的操作區保留兩列高度，按鈕起點對齊（只有一個主要操作的卡片也一樣）。 */
 .material-bookshelf .library-item > .library-actions { min-height: 104px; } /* 含上方 12px 內距 */
-@media (max-width: 650px) {
+@media (max-width: 720px) {
   .material-bookshelf .library-item h2 { min-height: 2.9em; }
 }
 /* 次要入口固定同一列等寬（不換行），操作區高度在每張卡片都相同。 */
@@ -928,6 +929,6 @@ button.library-state:hover { background: var(--violet); color: #fff; }
   white-space: nowrap;
 }
 .material-bookshelf .library-item > .library-actions > .secondary-button:not(:first-child) svg { flex: none; }
-@media (max-width: 650px) {
+@media (max-width: 720px) {
   .material-bookshelf .library-item { padding: 14px 14px 20px; }
 }

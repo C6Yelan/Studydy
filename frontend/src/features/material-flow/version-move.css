@@ -151,7 +151,7 @@
   justify-content: flex-end;
   gap: var(--space-3);
 }
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .version-move-notice {
     flex-wrap: wrap;
     padding: var(--space-4);

@@ -141,6 +141,7 @@
 }
 
 /* 分頁放不下時：非目前分頁只留圖示（名稱由 aria-label 提供）。 */
+/* 保留 1360px：長教材名稱（最寬 17vw）＋六個分頁名稱＋問答與頭像約需 1320px 才不需橫向捲動，套用 1280px 會在 1281–1320px 擠出捲動；依內容寬度決定。 */
 @media (max-width: 1360px) and (min-width: 721px) {
   .material-header .material-content-nav.map-tabs > button:not(.is-active) > span {
     display: none;
@@ -149,7 +150,7 @@
     padding: 0 12px;
   }
 }
-@media (max-width: 1100px) and (min-width: 721px) {
+@media (max-width: 1024px) and (min-width: 721px) {
   .material-header-thumb {
     display: none;
   }
@@ -164,6 +165,7 @@
 }
 /* 寬螢幕開啟教材問答時主內容讓出抽屜寬度（material-tools/styles.css）：所有分頁（含目前分頁）只留圖示，
    名稱由 aria-label 與滑鼠提示提供，1100px 起的寬度都能看到全部分頁；問答入口與縮圖也收起。 */
+/* 保留 1100px：與 material-tools/styles.css 的抽屜推開版面同一門檻（依內容寬度決定）。 */
 @media (min-width: 1100px) {
   html.qa-panel-open .material-header .material-content-nav.map-tabs > button > span {
     display: none;

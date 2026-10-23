@@ -53,6 +53,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
       const dock = document.querySelector('.podcast-dock')?.getBoundingClientRect();
       const player = layout.querySelector('.media-player')?.getBoundingClientRect();
       const root = document.documentElement.style;
+      // 與 podcasts/styles.css 的雙欄門檻一致（依內容寬度保留的 850px）。
       if (player && window.matchMedia('(min-width: 851px)').matches) {
         // 雙欄版面：播放列與影片欄同寬、接在影片正下方；影片高度扣掉播放列，右欄延伸到播放列底部（styles.css）。
         // 影片大小只依播放列高度計算，不依它的位置，不會互相牽動。

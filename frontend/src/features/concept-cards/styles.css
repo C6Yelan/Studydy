@@ -59,7 +59,7 @@
 .cards-keyboard-hint { margin:8px 0 0; text-align:center; color:var(--text-muted); font-size:12px; }
 .cards-study-notice { text-align: center; font-size: 13px; color: var(--text-secondary); }
 @keyframes card-reveal { from { opacity: .6; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-@media (max-width: 700px) {
+@media (max-width: 720px) {
   .cards-page-header { align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; }
   .cards-page-header > .primary-button { min-height: 42px; font-size: 14px; }
   .cards-study-heading h1 { font-size: 23px; }
@@ -79,7 +79,7 @@
 .cards-library-material { overflow-wrap: anywhere; line-height: 1.6; }
 /* 卡組卡片：標題不預留第二行，單行標題與日期之間不留空白（只影響概念卡頁）。 */
 .cards-library .library-item h2 { min-height: 0; margin: 8px 0 4px; }
-@media (max-width: 700px) {
+@media (max-width: 720px) {
   .cards-study .flashcard-point p { font-size: 15px; }
 }
 
@@ -96,7 +96,7 @@
 .cards-browse-list button { border:0; border-radius:12px; padding:12px; text-align:left; background:transparent; color:var(--text-primary); line-height:1.5; }
 .cards-browse-list button[aria-current=true] { background:#eaf2ff; color:#285998; }
 
-@media(max-width:700px) { .cards-browse-layout { grid-template-columns:1fr; gap:12px; } .cards-browse-list { display:flex; max-height:100px; overflow:auto; } .cards-browse-list button { min-width:120px; }
+@media(max-width:720px) { .cards-browse-layout { grid-template-columns:1fr; gap:12px; } .cards-browse-list { display:flex; max-height:100px; overflow:auto; } .cards-browse-list button { min-width:120px; }
 
  }
 
@@ -107,7 +107,7 @@
 .cards-browse-empty { margin:4px 8px; color:var(--text-muted); font-size:13px; }
 .cards-browse-list button { overflow-wrap:anywhere; }
 .cards-browse-list button[aria-current=true] { background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-weight:800; }
-@media(max-width:700px) {
+@media(max-width:720px) {
   .cards-browse-layout { grid-template-columns:minmax(0,1fr); }
   /* 手機概念列橫向捲動：右緣淡出提示還有更多。 */
   .cards-browse-list { align-items:center; scroll-snap-type:x proximity; -webkit-mask-image:linear-gradient(90deg,#000 85%,transparent); mask-image:linear-gradient(90deg,#000 85%,transparent); }
@@ -124,7 +124,7 @@
 .concept-card-placeholder { aspect-ratio: 1200 / 760; display: grid; place-content: center; text-align: center; }
 .visual-card-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 12px; }
 
-@media (max-width: 700px) {
+@media (max-width: 720px) {
   .visual-card-actions { justify-content: flex-start; gap: 8px; }
   .visual-card-actions button { min-height: 44px; padding-inline: 12px; }
 }

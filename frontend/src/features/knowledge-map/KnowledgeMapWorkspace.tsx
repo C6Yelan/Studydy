@@ -89,7 +89,8 @@ function DetailPanel({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const panel = ref.current!;
-    const mobile = window.matchMedia("(max-width: 900px)");
+    // 平板斷點（styles.css 共用斷點；與 knowledge-map/styles.css 的浮層詳情同一門檻）：詳情改用 modal 浮層。
+    const mobile = window.matchMedia("(max-width: 1024px)");
     const update = () => {
       if (panel.open) panel.close();
       if (mobile.matches) panel.showModal();
@@ -737,7 +738,7 @@ function MapGraph({
       // 按需文字到達後，先讓節點量測更新，再計算第一次視野。
       secondFrame = requestAnimationFrame(() => {
         fittedConcept.current = selected.concept_id;
-        // 手機畫布太窄，初次視野只框住中心與第一層，其餘可平移或縮小查看。
+        // 畫布本身太窄（依畫布寬度而非視窗斷點），初次視野只框住中心與第一層，其餘可平移或縮小查看。
         const narrow = graphElement.current!.clientWidth < 600;
         void graph.fitView(narrow ? { ...fitViewOptions, minZoom: 0.5, nodes: layout.filter((node) => node.depth < 2).map((node) => ({ id: node.id })) } : fitViewOptions);
       });

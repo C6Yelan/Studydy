@@ -10,7 +10,7 @@ async function cardGrid(page: Page, count: number, width: number) {
   const rects = await cards.evaluateAll((nodes) =>
     nodes.map((node) => node.getBoundingClientRect().toJSON()),
   );
-  if (width >= 1280) {
+  if (width > 1280) {
     expect(rects[1].y).toBeCloseTo(rects[0].y, 0);
     expect(rects[1].x).toBeGreaterThan(rects[0].x + rects[0].width);
     for (let i = 2; i < count; i++) {
@@ -28,8 +28,8 @@ async function cardGrid(page: Page, count: number, width: number) {
   return rects;
 }
 
-// 1280px：雙欄題卡；760px：單欄題卡、雙欄選項；390px：題卡與選項皆單欄。
-for (const width of [1280, 760, 390]) {
+// 1366px（大於 1280px）：雙欄題卡；760px：單欄題卡、雙欄選項；390px（手機）：題卡與選項皆單欄。
+for (const width of [1366, 760, 390]) {
   for (const count of [3, 6]) {
     test(`${count} questions and review at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
@@ -41,7 +41,7 @@ for (const width of [1280, 760, 390]) {
         .first()
         .locator("label")
         .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
-      expect(new Set(labels.map((n) => n.x)).size).toBe(width >= 1280 || width < 760 ? 1 : 2);
+      expect(new Set(labels.map((n) => n.x)).size).toBe(width > 1280 || width <= 720 ? 1 : 2);
       expect(Math.min(...labels.map((n) => n.height))).toBeGreaterThanOrEqual(44);
       if (count === 3) {
         const first = page.locator(".assessment-set-item").first().getByRole("radio");
@@ -67,12 +67,12 @@ for (const width of [1280, 760, 390]) {
     const fixture = await studyLayoutFixture(page, "ready", { count: 3, longContent: true });
     await fixture.open();
     const questions = await cardGrid(page, 3, width);
-    if (width >= 1280) expect(questions[0].height).toBeGreaterThan(questions[1].height);
+    if (width > 1280) expect(questions[0].height).toBeGreaterThan(questions[1].height);
     fixture.setStage("completed");
     await page.reload();
     await page.locator(".assessment-answer-review > summary").click();
     const review = await cardGrid(page, 3, width);
-    if (width >= 1280) expect(review[0].height).toBeGreaterThan(review[1].height);
+    if (width > 1280) expect(review[0].height).toBeGreaterThan(review[1].height);
     expect(
       await page
         .locator(".feedback-card")

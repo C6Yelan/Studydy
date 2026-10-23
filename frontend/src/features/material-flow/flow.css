@@ -11,7 +11,7 @@
 .flow-head h1:focus { outline:none; }
 .flow-head p { margin:0; color:var(--text-secondary); font-size:15px; line-height:1.6; }
 .flow-head-art { flex:none; width:84px; height:84px; object-fit:contain; margin-bottom:-6px; }
-@media (max-width:640px) { .flow-head-art { width:60px; height:60px; } .flow-head p { font-size:14px; } }
+@media (max-width:720px) { .flow-head-art { width:60px; height:60px; } .flow-head p { font-size:14px; } }
 
 /* 步驟列：圓點＋連接線，已完成綠色、目前藍色、未開始灰色。 */
 .learning-steps { display:grid; grid-auto-columns:minmax(0,1fr); grid-auto-flow:column; margin:0; padding:14px 18px; list-style:none; border-radius:var(--radius-card); background:var(--surface); box-shadow:var(--shadow); }
@@ -24,7 +24,7 @@
 .learning-steps .is-current { color:var(--studydy-blue); font-weight:900; }
 .learning-steps .is-current .learning-step-mark { background:var(--studydy-blue); color:#fff; box-shadow:0 0 0 5px var(--studydy-blue-soft); }
 .learning-step-label { max-width:100%; overflow-wrap:anywhere; line-height:1.35; }
-@media (max-width:640px) {
+@media (max-width:720px) {
   .learning-steps { padding:12px 8px; }
   .learning-steps li { font-size:12px; }
   .learning-step-mark { width:28px; height:28px; font-size:13px; }
@@ -60,7 +60,7 @@
 .flow-wait { display:flex; align-items:center; gap:14px; padding:18px 20px; border-radius:18px; background:var(--studydy-blue-soft-2); color:var(--text-secondary); font-size:14px; font-weight:700; }
 .flow-wait .loading-ring { flex:none; width:26px; height:26px; margin:0; }
 .flow-wait p { margin:0; }
-@media (max-width:640px) {
+@media (max-width:720px) {
   .flow-page { gap:14px; }
   .flow-stage { gap:14px; padding:18px 16px 0; }
   .flow-stage-icon { width:40px; height:40px; border-radius:14px; }
@@ -102,7 +102,7 @@
 .flow-steps-preview li > span { display:grid; place-items:center; flex:none; width:32px; height:32px; border-radius:12px; background:var(--surface); color:var(--studydy-blue); }
 .flow-steps-preview strong { display:block; font-size:13px; }
 .flow-steps-preview p { margin:2px 0 0; color:var(--text-secondary); font-size:12px; line-height:1.55; }
-@media (max-width:760px) { .flow-steps-preview { grid-template-columns:1fr; } }
+@media (max-width:720px) { .flow-steps-preview { grid-template-columns:1fr; } }
 
 
 /* 完成：一張成果卡＋可查看內容。 */
@@ -115,7 +115,7 @@
 .flow-result-stats li { display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:0 14px; border-radius:999px; background:var(--page-cool); color:var(--text-primary); font-size:13px; font-weight:800; }
 .flow-result-stats svg { color:var(--success); }
 .flow-result-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:4px; }
-@media (max-width:640px) {
+@media (max-width:720px) {
   .flow-result { grid-template-columns:1fr; justify-items:center; padding:22px 18px; text-align:center; }
   .flow-result > img { width:110px; height:110px; }
   .flow-result-stats, .flow-result-actions { justify-content:center; }
@@ -199,7 +199,7 @@
 .source-recheck p { margin:0; color:var(--text-secondary); font-size:13px; line-height:1.65; }
 .source-recheck p + p { margin-top:4px; }
 
-@media (max-width:760px) {
+@media (max-width:720px) {
   .source-row { flex-wrap:wrap; gap:10px 12px; }
   .source-row-actions { justify-content:flex-start; max-width:none; width:100%; padding-left:44px; }
   .source-recheck { grid-template-columns:minmax(0,1fr); padding:18px; }

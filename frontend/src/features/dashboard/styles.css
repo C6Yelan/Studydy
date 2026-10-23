@@ -201,7 +201,7 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
 .quick-item-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
 .quick-item-text small:first-child { color: var(--studydy-blue); font-size: 11px; font-weight: 900; }
 
-@media (max-width: 1200px) {
+@media (max-width: 1280px) {
   .dashboard-content {
     grid-template-columns: 1fr;
   }
@@ -556,12 +556,13 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
 .archipelago-list-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
 
 /* 寬螢幕：右欄維持固定寬度，多出的寬度都給地圖。 */
-@media (min-width: 1800px) {
+@media (min-width: 1600px) {
   .dashboard-content { grid-template-columns: minmax(0, 1fr) 380px; }
 }
 /* 夠大的桌機螢幕（例如 1920×1080）：首頁剛好填滿視窗、不出現捲軸，地圖吃掉剩餘高度；
    較小的螢幕維持地圖最小高度，頁面照常捲動。 */
-@media (min-width: 1201px) and (min-height: 760px) {
+/* 保留 min-height: 760px：首頁填滿視窗所需的最低高度（地圖最小 380px＋問候列與頁首），不是寬度斷點。 */
+@media (min-width: 1281px) and (min-height: 760px) {
   .app-shell.is-home .app-main { padding-bottom: 24px; }
   /* 頁首 70px＋內容區上緣 26px＋下緣 24px（--shell-offset 在不同寬度不等於實際頁首位置，這裡用實測值）。 */
   .dashboard {

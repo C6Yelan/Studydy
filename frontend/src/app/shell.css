@@ -138,7 +138,8 @@
 }
 .app-shell.is-workspace .app-main > .task-page { padding-bottom: 48px; }
 /* 矮螢幕桌機的學習頁再收緊上下留白。 */
-@media (min-width: 1000px) and (max-height: 820px) {
+/* 保留 max-height: 820px：依學習頁內容需要的視窗高度決定，不是寬度斷點。 */
+@media (min-width: 1025px) and (max-height: 820px) {
   .app-shell {
     --shell-offset: 90px;
   }
@@ -151,8 +152,8 @@
   display: none;
 }
 
-/* 導覽有六個入口：1440px 以下非目前頁只顯示圖示，避免和右側搜尋、帳號重疊或把搜尋擠成兩行。 */
-@media (max-width: 1440px) {
+/* 導覽有六個入口：寬螢幕以下非目前頁只顯示圖示，避免和左側學習進度、右側搜尋與帳號重疊或把搜尋擠成兩行。 */
+@media (max-width: 1599px) {
   .main-nav a:not([aria-current="page"]) span {
     display: none;
   }
@@ -617,7 +618,8 @@
 }
 .header-progress:hover .header-level-bar { background: #ffe7a8; }
 /* 頁首右側隨寬度收合：登出只留圖示（保留無障礙名稱）、隱藏名稱並縮短搜尋，避免與中央導覽重疊。 */
-@media (max-width: 1600px) {
+/* 保留 1759px：完整六個導覽名稱（約 660px）置中時，右側完整帳號區（約 494px）要到約 1760px 才放得下，依內容寬度決定。 */
+@media (max-width: 1759px) {
   .account-button {
     justify-content: center;
     width: 46px;
@@ -638,7 +640,8 @@
     padding-right: 4px;
   }
 }
-@media (min-width: 1281px) and (max-width: 1600px) {
+/* 與上方 1759px 同一門檻（依內容寬度保留）：帳號區收合時搜尋鈕維持 180px。 */
+@media (min-width: 1281px) and (max-width: 1759px) {
   .header-search-trigger {
     min-width: 180px;
   }
@@ -671,7 +674,7 @@
   .header-level-shield b { font-size: 13px; }
 }
 /* 窄螢幕頁首空間有限：有學習進度時品牌只留吉祥物（按鈕仍有無障礙名稱）。 */
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .app-header:has(.header-progress) .brand span {
     display: none;
   }
@@ -685,7 +688,7 @@
   .header-level-meter small { display: none; }
 }
 /* 中央導覽置中、兩側最窄的寬度：只留盾牌與連續天數數字。 */
-@media (min-width: 721px) and (max-width: 1100px) {
+@media (min-width: 721px) and (max-width: 1280px) {
   .header-level-meter,
   .header-streak-unit {
     display: none;
@@ -694,7 +697,7 @@
   .header-level { padding-left: 0; }
   .header-streak { padding: 3px 6px 3px 4px; }
 }
-@media (max-width: 380px) {
+@media (max-width: 480px) {
   .header-level-meter,
   .header-streak-unit {
     display: none;

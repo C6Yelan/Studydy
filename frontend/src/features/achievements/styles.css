@@ -75,7 +75,8 @@
 .xp-source-earned b { font-size: 15px; }
 .xp-source-earned small { color: var(--text-muted); font-size: 10px; font-weight: 800; }
 /* 頁首 70px＋內容區上緣 26px＋下緣 24px；左欄放不下時（矮螢幕）自己捲動。 */
-@media (min-width: 1101px) and (min-height: 640px) {
+/* 保留 min-height: 640px：低於此高度兩欄各自捲動會太擠，改回整頁捲動；依內容高度決定。 */
+@media (min-width: 1025px) and (min-height: 640px) {
   .app-shell.is-achievements .app-main { padding-bottom: 24px; }
   .achievements {
     height: calc(100dvh - 120px);
@@ -92,10 +93,10 @@
     align-content: start;
   }
 }
-@media (max-width: 1100px) {
+@media (max-width: 1024px) {
   .achievements-layout { grid-template-columns: minmax(0, 1fr); }
 }
-@media (max-width: 420px) {
+@media (max-width: 480px) {
   .xp-sources li { grid-template-columns: 36px minmax(0, 1fr) auto; }
   .xp-source-earned { display: none; }
 }

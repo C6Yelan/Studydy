@@ -139,7 +139,7 @@
   border: 0;
 }
 
-@media (max-width: 620px) {
+@media (max-width: 720px) {
   .assessment-card {
     padding: var(--space-5);
   }

@@ -250,11 +250,11 @@
 .device-row > .inline-confirm { flex-basis: 100%; }
 .device-more { font-size: 13px; }
 
-@media (min-width: 1201px) {
+@media (min-width: 1281px) {
   /* 寬螢幕帳號設定就在右欄，不需要跳轉按鈕（需高於共用按鈕樣式的優先順序）。 */
   .profile-head .profile-settings-jump { display: none; }
 }
-@media (max-width: 1200px) {
+@media (max-width: 1280px) {
   .profile-layout {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;

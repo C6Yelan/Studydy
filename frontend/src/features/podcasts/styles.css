@@ -27,6 +27,7 @@
 .podcast-listening-layout > .media-player { grid-column:1; grid-row:1; }
 .podcast-companion { grid-column:2; grid-row:1; display:flex; flex-direction:column; gap:12px; min-width:0; height:var(--watch-room-height,600px); overflow:hidden; }
 /* 播放器本身維持 16:9；字幕與控制列不另占影片外的高度。 */
+/* 保留 850px：雙欄需影片欄約 480px＋右欄 320px 以上；直向平板（768／820）單欄、橫向平板（1024）雙欄，依內容寬度決定。與 PodcastPage.tsx 量測門檻一致。 */
 @media (min-width:851px) {
   .podcast-listening-layout:has(.has-video) { max-width:calc((var(--watch-room-height) - 2px) * 16 / 9 + 2px + var(--watch-companion-width) + var(--watch-gap)); margin-inline:auto; }
   .podcast-listening-layout:has(.has-video) > .podcast-companion { height:min(var(--watch-room-height), calc((100cqw - var(--watch-companion-width) - var(--watch-gap) - 2px) * 9 / 16 + 2px)); }
@@ -151,6 +152,7 @@
 .podcast-chapters button:hover { background:var(--page-cool); }
 .podcast-chapters button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .podcast-chapters time { flex-shrink:0; color:var(--studydy-blue); font-variant-numeric:tabular-nums; }
+/* 與上方 851px 互補（保留理由同上）。 */
 @media(max-width:850px) {
   .podcast-listening-layout { grid-template-columns:minmax(0,1fr); gap:16px; }
   .podcast-listening-layout > .media-player { grid-column:1; grid-row:1; }
@@ -220,7 +222,7 @@
 .podcast-chapters button { width: 100%; max-width: none; align-items: flex-start; text-align: left; border-radius: 12px; }
 .podcast-chapters button span { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .podcast-chapters time { padding-top: 1px; }
-/* 手機：播放器黏在畫面上方，逐字稿與重點在固定高度內捲動，不必捲回頂端才能暫停。 */
+/* 單欄（手機與直向平板，保留 850px 理由見上）：播放器黏在畫面上方，逐字稿與重點在固定高度內捲動，不必捲回頂端才能暫停。 */
 @media (max-width: 850px) {
   .podcast-listening-layout > .media-player { position: sticky; top: 8px; z-index: 3; border-radius: var(--radius-card); box-shadow: 0 16px 30px -18px rgba(16, 28, 46, .6); }
   .podcast-reading-area { max-height: 62dvh; }
@@ -241,19 +243,19 @@
 .podcast-dock .media-time, .podcast-dock .media-autoplay { color: var(--text-secondary); }
 .podcast-dock .media-settings-panel { max-height: min(60dvh, 420px); overflow-y: auto; }
 .media-viewport .media-now-playing { display: none; }
-/* 寬螢幕的觀看室已扣除播放列高度；單欄版面在內容下方留出播放列高度，最後一段不被蓋住。 */
+/* 寬螢幕的觀看室已扣除播放列高度；單欄版面（保留 850px 理由見上）在內容下方留出播放列高度，最後一段不被蓋住。 */
 @media (max-width: 850px) {
   .podcast-listening-layout { padding-bottom: var(--podcast-dock-space, 0px); }
 }
-/* 有底部分頁列的寬度（≤1100px）：播放列放在分頁列上方。 */
-@media (max-width: 1100px) {
+/* 手機有底部分頁列：播放列放在分頁列上方。 */
+@media (max-width: 720px) {
   .podcast-dock { bottom: calc(100px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); }
 }
 @media (max-width: 480px) {
   .podcast-dock .media-playback-controls { padding: 2px 10px 4px; border-radius: 20px; }
 }
 
-/* 雙欄版面（>850px）：播放列對齊影片欄（位置由頁面量測）。 */
+/* 雙欄版面（>850px，保留理由見上）：播放列對齊影片欄（位置由頁面量測）。 */
 @media (min-width: 851px) {
   :root[style*="--podcast-dock-left"] .podcast-dock { left: var(--podcast-dock-left); width: var(--podcast-dock-width); transform: none; }
   /* 播放列接在影片正下方（--podcast-dock-top 由頁面量測，視窗不夠高時仍貼在底部），影片與播放列之間不留空白。 */
@@ -263,7 +265,7 @@
   .podcast-listening-layout > .podcast-companion { height:calc(var(--watch-room-height) + var(--podcast-dock-block, 0px)); }
   .podcast-listening-layout:has(.has-video) > .podcast-companion { height:min(calc(var(--watch-room-height) + var(--podcast-dock-block, 0px)), calc((100cqw - var(--watch-companion-width) - var(--watch-gap) - 2px) * 9 / 16 + 2px + var(--podcast-dock-block, 0px))); }
 }
-/* 單欄版面：教材內沒有手機底部導覽，播放列貼近畫面底部。 */
+/* 單欄版面（保留 850px 理由見上）：教材內沒有手機底部導覽，播放列貼近畫面底部。 */
 @media (max-width: 850px) {
   :root:has(.app-shell.is-material .material-header) .podcast-dock { bottom: calc(12px + env(safe-area-inset-bottom)); }
 }

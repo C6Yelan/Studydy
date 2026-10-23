@@ -1,6 +1,14 @@
 @import "@fontsource-variable/nunito";
 @import "@fontsource-variable/noto-sans-tc";
 
+/* 全站共用 RWD 斷點（CSS media query 不能用變數，各檔直接寫數值；TS 端的 matchMedia 也直接寫相同數值並註解）：
+   - 小手機  max-width: 480px   — 再收緊間距與次要文字。
+   - 手機    max-width: 720px   — 單欄、底部導覽列、教材頁首分兩列、問答全螢幕（min-width: 721px 為非手機）。
+   - 平板    max-width: 1024px  — 側欄改浮層或移到下方、工具列換行（min-width: 1025px 為桌機以上）。
+   - 桌機    max-width: 1280px  — 頁首收合文字、雙欄版面改單欄（min-width: 1281px 為大桌機）。
+   - 寬螢幕  min-width: 1600px  — 多加欄數或放寬側欄（max-width: 1599px 為寬螢幕以下）。
+   只有由元件自身內容寬度或視窗高度決定的條件才使用其他數值，並在該條 media query 旁註明理由。 */
+
 :root {
   color: #1d2742;
   background: #f3f7fc;

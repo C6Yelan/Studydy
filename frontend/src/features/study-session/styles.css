@@ -79,12 +79,12 @@
   align-self: start;
   gap: var(--space-4);
 }
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .study-learning-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-@media (max-width: 620px) {
+@media (max-width: 720px) {
   .study-session-page {
     padding: 0 0 var(--space-8);
   }
@@ -93,7 +93,7 @@
   }
 }
 
-@media (min-width: 1280px) {
+@media (min-width: 1281px) {
   .study-workspace {
     grid-template-columns: minmax(0, 1fr) clamp(300px, 22vw, 320px);
     gap: var(--space-6);
@@ -128,7 +128,7 @@
   box-shadow: none;
 }
 
-@media (min-width: 1280px) {
+@media (min-width: 1281px) {
   .study-workspace:not(.is-preparation-mode) .study-rail {
     position: sticky;
     top: 80px;
@@ -304,7 +304,7 @@
   font-size: 12px;
   font-weight: 700;
 }
-@media (max-width: 620px) {
+@media (max-width: 720px) {
   .study-position-track {
     width: 96px;
   }

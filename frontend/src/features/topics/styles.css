@@ -33,7 +33,7 @@
 
 /* 3. 選取來源與 4. 建立教材：來源已分頁，清單隨頁面捲動，寬螢幕兩欄。 */
 .topic-sources .research-candidates { max-height:none; overflow:visible; }
-@media(min-width:1100px) { .topic-sources .research-candidates { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(min-width:1025px) { .topic-sources .research-candidates { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .topic-approved-summary { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; padding:12px 16px; border-radius:18px; background:var(--page-cool); }
 .topic-approved-icon { display:grid; place-items:center; flex:none; width:36px; height:36px; border-radius:12px; background:var(--surface); color:var(--studydy-blue); }
 .topic-approved-summary > div { flex:1; min-width:0; }
@@ -63,8 +63,8 @@
 .topic-selected-sources > summary { color:var(--text-secondary); font-size:14px; font-weight:800; cursor:pointer; }
 .topic-selected-sources[open] > summary { margin-bottom:12px; }
 
-@media(max-width:900px) { .topic-analysis .processing-grid { grid-template-columns:minmax(0,1fr); } }
-@media(max-width:640px) {
+@media(max-width:1024px) { .topic-analysis .processing-grid { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:720px) {
   .topic-scope-index { display:none; }
   .topic-approved-icon { display:none; }
   .topic-approved-summary > div { flex-basis:100%; }

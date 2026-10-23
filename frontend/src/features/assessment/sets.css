@@ -95,7 +95,7 @@
   white-space: normal;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 720px) {
   .assessment-set-actions > .primary-button,
   .assessment-set-actions > .secondary-button {
     width: 100%;
@@ -223,7 +223,7 @@ details .assessment-paper .assessment-set-item {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-@media (min-width: 1280px) {
+@media (min-width: 1281px) {
   .assessment-set-items,
   .assessment-review-points {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -256,12 +256,12 @@ details .assessment-paper .assessment-set-item {
 .assessment-set-submit-row .primary-button {
   min-width: 180px;
 }
-@media (width < 760px) {
+@media (max-width: 720px) {
   .assessment-paper .assessment-options {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-@media (max-width: 600px) {
+@media (max-width: 720px) {
   .assessment-paper .assessment-set-item,
   .assessment-set-submit {
     padding: 1rem;
@@ -356,7 +356,7 @@ details .assessment-paper .assessment-set-item {
   text-align: left;
 }
 
-@media (max-width: 620px) {
+@media (max-width: 720px) {
   .assessment-set-header.is-preparing {
     padding: var(--space-5);
   }

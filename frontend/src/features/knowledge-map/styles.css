@@ -857,12 +857,12 @@
 }
 
 /* 集中管理響應式配置；同一斷點內保留原有規則順序。 */
-@media (max-width: 1100px) {
+@media (max-width: 1024px) {
   .map-facts {
     display: none;
   }
 }
-@media (min-width: 901px) {
+@media (min-width: 1025px) {
   .focus-context .detail-panel {
     position: static;
     height: 100%;
@@ -871,13 +871,13 @@
     border-radius: 0;
   }
 }
-@media (max-width: 1199px) and (min-width: 901px) {
+@media (max-width: 1280px) and (min-width: 1025px) {
   .review-workspace {
     grid-template-columns: 230px minmax(0, 1fr);
     grid-template-areas: "list context" "list points" "list actions";
   }
 }
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .map-workspace {
     padding: 8px 12px 12px;
   }
@@ -910,7 +910,7 @@
     padding-top: 0;
   }
 }
-@media (max-width: 620px) {
+@media (max-width: 720px) {
   .map-tabs {
     gap: 0;
     justify-content: space-between;

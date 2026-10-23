@@ -85,6 +85,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   useEffect(() => {
     const list = conceptList.current;
     if (!list) return;
+    // 與 creation.css 的桌面填滿版面同一門檻（1000px，依內容寬度保留的特殊值）。
     const desktop = window.matchMedia("(min-width: 1000px)");
     let previousSize: number | null = null;
     const resize = () => {

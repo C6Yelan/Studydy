@@ -32,7 +32,7 @@
 .scene-sources { padding:14px 0 0; border-top:1px solid var(--border-light); }
 .scene-sources summary { font-size:12px; color:var(--text-secondary); cursor:pointer; }
 .scene-sources .text-button { display:block; text-align:left; font-size:12px; min-height:34px; }
-@media(max-width:700px) {
+@media(max-width:720px) {
  .synced-scene { padding:20px; }
  .synced-scene h3 { margin:18px 0; font-size:22px; }
  .scene-main-text { font-size:18px; }
@@ -48,4 +48,4 @@
 }
 
 .synced-scene { border:0; padding:18px 4px 24px; border-radius:0; }
-@media(max-width:700px) { .synced-scene { padding:14px 0 20px; } }
+@media(max-width:720px) { .synced-scene { padding:14px 0 20px; } }
