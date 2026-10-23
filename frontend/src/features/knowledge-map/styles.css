@@ -1267,7 +1267,6 @@
 .review-records {
   display: grid;
   gap: 14px;
-  max-width: 1100px;
 }
 .review-records-head {
   display: flex;

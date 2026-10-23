@@ -667,6 +667,13 @@ test("saved card views and editing stay inside the material workspace from eithe
   await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
   await expect(tabs).toBeVisible();
+  // 從全站概念卡列表開啟管理卡組時保留返回該列表。
+  await page.goto('/concept-cards');
+  await page.getByRole('button', { name: '管理卡組「資料結構 · 核心概念」' }).click();
+  await page.locator('.material-management-menu[open]').getByRole('button', { name: '管理卡組', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}/edit$`));
+  await page.getByRole('button', { name: '返回我的概念卡', exact: true }).click();
+  await expect(page).toHaveURL(/\/concept-cards$/);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
@@ -1530,6 +1537,33 @@ test("a mark conflict from another tab moves on without counting twice", async (
   await expect(page.locator(".card-review-notice")).toHaveText("上一張卡已在其他頁面標記過，這裡不重複標記。");
   await expect(page.getByRole("article", { name: "需要加強：陣列（Array）" })).toBeVisible();
   expect(posts.length).toBe(1);
+});
+
+test("material needs-work entry opens a review of only this material's card sets and returns to the material", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true });
+  await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" } });
+  await page.goto(`/materials/${materialId}/concept-cards`);
+  const strip = page.getByRole("region", { name: "需要加強" });
+  await expect(strip).toContainText("這份教材 2 張卡片標成不熟");
+  const read = page.waitForRequest(request => new URL(request.url()).pathname === "/v1/card-reviews" && new URL(request.url()).searchParams.has("material_id"));
+  await strip.getByRole("button", { name: "開始加強" }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/review$`));
+  // 只讀這份教材的需要加強；頁首仍是教材頁首（概念卡分頁）。
+  const params = new URL((await read).url()).searchParams;
+  expect(params.get("material_id")).toBe(materialId);
+  expect(params.has("card_set_id")).toBe(false);
+  const tabs = page.getByRole("tablist", { name: "教材學習內容" });
+  await expect(tabs.getByRole("tab", { name: "概念卡", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".card-review-heading")).toContainText("這份教材各卡組中標成不熟的卡片");
+  // 混合多個卡組時標示卡組名稱；同一份教材內不再重複教材名稱。
+  await expect(page.locator(".card-review-source")).toHaveText("資料結構 · 核心概念");
+  // 卡組名稱過長時以省略號截斷（省略號要設在文字元素上，彈性容器本身不會顯示）。
+  await expect(page.locator(".card-review-source > span")).toHaveCSS("text-overflow", "ellipsis");
+  await page.getByRole("article", { name: "需要加強：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
+  await page.getByRole("article", { name: "需要加強：陣列（Array）" }).getByRole("button", { name: "熟悉" }).click();
+  await expect(page.getByText("這一輪加強完成！")).toBeVisible();
+  await page.getByRole("button", { name: "返回概念卡", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
 });
 
 test("card set page links to strengthening only that set and returns to the set", async ({ page }) => {

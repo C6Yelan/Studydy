@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { StudydyApiClient } from "../api/client";
 import type { LearningActivityView } from "../api/contracts";
 import { BadgeEarned, useNewBadges } from "../features/badges/Badges";
@@ -62,6 +62,7 @@ export function LearningProgressPill({ apiClient, learnerId }: { apiClient: Stud
   const key = `studydy.level-seen:${learnerId}`;
   const level = activity?.xp.level;
   const [newBadges, clearBadges] = useNewBadges(activity ?? null, learnerId);
+  const closeLevelUp = useCallback(() => setCelebrate(null), []);
   useEffect(() => {
     if (level === undefined) return;
     const seen = seenLevel(key);
@@ -89,7 +90,7 @@ export function LearningProgressPill({ apiClient, learnerId }: { apiClient: Stud
       </span>
       <span className="header-streak" aria-hidden="true"><Icon name="flame" size={17} /><b>{streak}</b><span className="header-streak-unit">天</span></span>
     </button>
-    {celebrate !== null && <LevelUp level={celebrate} onClose={() => setCelebrate(null)} />}
+    {celebrate !== null && <LevelUp level={celebrate} onClose={closeLevelUp} />}
     {/* 同時升級與取得徽章時，先看升級，關閉後再顯示徽章。 */}
     {celebrate === null && newBadges.length > 0 && <BadgeEarned badges={newBadges} onClose={clearBadges} />}
   </>;

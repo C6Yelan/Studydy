@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { MaterialLibraryItem } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
@@ -8,7 +8,7 @@ import { Icon } from "../../ui/Icon";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { BackLink } from "../../ui/BackLink";
 import { EmptyState } from "../../ui/EmptyState";
-import { FlowStage, LearningSteps } from "./Flow";
+import { FlowHeader, FlowStage, LearningSteps } from "./Flow";
 import "./creation.css";
 
 type CreationRoute = Extract<AppRoute, { name: "podcast-new" | "podcast-create" | "card-set-new" | "card-set-create" }>;
@@ -17,25 +17,12 @@ type CreationRoute = Extract<AppRoute, { name: "podcast-new" | "podcast-create" 
 const cardSetSteps = ["選擇教材", "挑選概念", "開始複習"];
 const podcastSteps = ["選擇教材", "挑選概念與形式", "生成 Podcast"];
 
-/**
- * 建立與管理學習內容的頁首：返回、標題與一句說明；右側為步驟列（建立時）或其他資訊。
- * 版型沿用建立教材流程（Flow.tsx）的 flow-head 與步驟列，只把步驟列縮成與標題同列，
- * 讓下方填滿視窗的選取區保留足夠高度。
- */
-export function CreationHeader({ back, title, description, aside }: { back: ReactNode; title: string; description?: ReactNode; aside?: ReactNode }) {
-  return <header className="flow-head creation-head">
-    {back}
-    <div className="flow-head-row">
-      <div className="flow-head-text"><h1>{title}</h1>{description && <p>{description}</p>}</div>
-      {aside && <div className="creation-head-aside">{aside}</div>}
-    </div>
-  </header>;
-}
-
 export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApiClient; route: CreationRoute }) {
   const podcast = route.name.startsWith("podcast");
   const selected = "materialId" in route ? route.materialId : "";
   const needsMaterialSelection = !selected;
+  // 教材內（已有教材頁首與分頁列）不再重複返回；從全站選教材進入時保留返回全站清單。
+  const fromCollection = !!window.history.state?.fromCollection;
   const [materials, setMaterials] = useState<MaterialLibraryItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -49,7 +36,7 @@ export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApi
   }, [apiClient, reload, needsMaterialSelection]);
   const choose = (material: MaterialLibraryItem) => {
     const head = material.available_structures.find(s => s.knowledge_structure_revision === material.head_revision);
-    if (head) writeRoute({ name: podcast ? "podcast-create" : "card-set-create", materialId: material.material_id, runId: head.run_id, structureRevision: head.knowledge_structure_revision });
+    if (head) writeRoute({ name: podcast ? "podcast-create" : "card-set-create", materialId: material.material_id, runId: head.run_id, structureRevision: head.knowledge_structure_revision }, false, { fromCollection: true });
   };
   // 選教材用島嶼卡片清單（與我的教材同一套外觀），不用瀏覽器原生下拉選單。
   const materialPicker = <FlowStage icon="book" title="選擇教材" className="creation-picker"
@@ -64,12 +51,11 @@ export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApi
         </button></li>)}</ul>}
     </div>
   </FlowStage>;
-  const listRoute: AppRoute = selected ? { name: "material-content", materialId: selected, kind: podcast ? "podcasts" : "concept-cards" } : { name: podcast ? "podcasts" : "concept-cards" };
   return <section className={`cards-page creation-page flow-page${podcast ? " podcast-creation-page" : " cards-creation-page"}`}>
-    <CreationHeader
-      back={<BackLink label={needsMaterialSelection ? (podcast ? "返回我的 Podcast" : "返回我的概念卡") : (podcast ? "返回 Podcast" : "返回卡組")} route={listRoute} />}
+    <FlowHeader className="creation-head"
+      back={(needsMaterialSelection || fromCollection) && <BackLink label={podcast ? "返回我的 Podcast" : "返回我的概念卡"} route={{ name: podcast ? "podcasts" : "concept-cards" }} />}
       title={podcast ? "建立 Podcast" : "建立概念卡組"}
-      description={needsMaterialSelection ? "先選一份教材，再挑選想複習的概念。" : podcast ? "挑選要講解的概念與形式，保存後開始生成。" : "挑選這份教材中想複習的概念。"}
+      description={needsMaterialSelection ? (podcast ? "先選一份教材，再挑選想收聽的概念與講解形式。" : "先選一份教材，再挑選想複習的概念。") : podcast ? "挑選要講解的概念與形式，保存後開始生成。" : "挑選這份教材中想複習的概念。"}
       aside={<LearningSteps labels={podcast ? podcastSteps : cardSetSteps} current={needsMaterialSelection ? 0 : 1} label={podcast ? "建立 Podcast 步驟" : "建立卡組步驟"} />} />
     {needsMaterialSelection && error && <p role="alert" className="form-error">{error}<button type="button" className="text-button" onClick={() => setReload(v => v + 1)}>重新讀取</button></p>}
     {needsMaterialSelection && materials?.length === 0 ? <EmptyState title="還沒有可用的知識地圖" description={podcast ? "先上傳教材並建立知識地圖，才能把重點做成 Podcast。" : "先上傳教材並建立知識地圖，才能挑選概念做成卡組。"}

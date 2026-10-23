@@ -106,6 +106,8 @@ test("account creation chooses a material once and keeps name editing usable on 
   await expect(name).toBeVisible();
   await expect(page).toHaveURL(new RegExp('/create-podcast$'));
   await expect(page.getByLabel("選擇教材")).toHaveCount(0);
+  // 從全站選教材進入（已在教材頁首內）仍保留返回全站 Podcast。
+  await expect(page.getByRole("button", { name: "返回我的 Podcast", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await name.fill("手機建立測試");
@@ -169,6 +171,10 @@ test("podcast creation keeps manual selection and settings without recommendatio
   await expect(page.getByLabel('選擇教材')).toHaveCount(0);
   await expect(selection).toBeVisible(); await expect(settings).toBeVisible();
   expect((await selection.boundingBox())!.x).toBeLessThan((await settings.boundingBox())!.x);
+  // 全選／取消全選與搜尋同一列（與建立卡組相同）。
+  const searchBox = (await selection.getByRole('searchbox').boundingBox())!;
+  const selectAll = (await selection.getByRole('button', { name: '全選', exact: true }).boundingBox())!;
+  expect(Math.abs(selectAll.y + selectAll.height / 2 - (searchBox.y + searchBox.height / 2))).toBeLessThanOrEqual(4);
   await selection.locator('.podcast-concept-option').last().getByRole('checkbox').uncheck();
   await selection.getByLabel('只看已選').check();
   await expect(selection).toContainText('已選 1 / 2');

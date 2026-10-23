@@ -120,8 +120,12 @@ for (const width of [2560, 1920, 1366, 1281, 1100, 1024, 721, 390, 320]) {
       // 不鎖定版面寬度數值：不超出可用寬度，且在寬螢幕上確實用到足夠的寬度。
       expect(layout.width).toBeLessThanOrEqual(layout.usableWidth + 1);
       expect(layout.width).toBeGreaterThanOrEqual(Math.min(layout.usableWidth, 1200) - 1);
-      if (path === "/upload")
-        expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
+      if (path === "/upload") {
+        // 拖放區撐滿階段卡片的內容寬度（只扣卡片左右內距）。
+        const drop = (await page.locator(".file-drop").boundingBox())!;
+        const stage = (await page.locator(".flow-stage").filter({ has: page.locator(".file-drop") }).boundingBox())!;
+        expect(drop.width).toBeGreaterThanOrEqual(stage.width - 80);
+      }
       expect(layout.headingTop).toBeCloseTo(layout.top, 0);
       expect(layout.documentWidth).toBe(width);
       expect(layout.clipped).toEqual([]);

@@ -20,9 +20,8 @@ export type AppRoute =
   | { name: "card-set"; cardSetId: string; materialId?: string }
   | { name: "card-set-edit"; cardSetId: string; materialId?: string }
   | { name: "card-set-create"; materialId: string; runId: string; structureRevision: string }
-  /** 需要加強：逐張看標成不熟的概念卡；帶 cardSetId 時只看該卡組。只篩教材沒有對應頁面，materialId 必須搭配 cardSetId。 */
-  | { name: "card-review"; cardSetId?: undefined; materialId?: undefined }
-  | { name: "card-review"; cardSetId: string; materialId?: string }
+  /** 需要加強：逐張看標成不熟的概念卡；帶 cardSetId 時只看該卡組，只帶 materialId 時只看這份教材的卡組。 */
+  | { name: "card-review"; cardSetId?: string; materialId?: string }
   | { name: "upload" }
   | { name: "material-sources"; materialId: string }
   | { name: "material-run"; materialId: string; runId: string }
@@ -118,7 +117,9 @@ export function readRoute(pathname: string): RouteRead {
     return { route: { name: "material", materialId }, isCanonical: false };
 
   let route: AppRoute;
-  if ((resourceSegment === "concept-cards" || resourceSegment === "podcasts") && uuidPattern.test(runId)
+  if (resourceSegment === "concept-cards" && runId === "review" && segments.length === 4) {
+    route = { name: "card-review", materialId };
+  } else if ((resourceSegment === "concept-cards" || resourceSegment === "podcasts") && uuidPattern.test(runId)
     && (segments.length === 4 || (resourceSegment === "concept-cards" && segments.length === 5 && (structureSegment === "edit" || structureSegment === "review")))) {
     route = resourceSegment === "podcasts" ? { name: "podcast", podcastId: runId, materialId }
       : structureSegment === "review" ? { name: "card-review", cardSetId: runId, materialId }
@@ -192,9 +193,8 @@ export function routePath(route: AppRoute): string {
   }
   if (route.name === "concept-cards") return "/concept-cards";
   if (route.name === "card-review") {
-    if (!route.cardSetId) return "/concept-cards/review";
-    if (!uuidPattern.test(route.cardSetId) || (route.materialId && !uuidPattern.test(route.materialId))) throw new Error("ROUTE_INVALID");
-    return `${route.materialId ? `/materials/${route.materialId}` : ""}/concept-cards/${route.cardSetId}/review`;
+    if ((route.cardSetId && !uuidPattern.test(route.cardSetId)) || (route.materialId && !uuidPattern.test(route.materialId))) throw new Error("ROUTE_INVALID");
+    return `${route.materialId ? `/materials/${route.materialId}` : ""}/concept-cards${route.cardSetId ? `/${route.cardSetId}` : ""}/review`;
   }
   if (route.name === "card-set" || route.name === "card-set-edit") {
     if (!uuidPattern.test(route.cardSetId)) throw new Error("ROUTE_INVALID");

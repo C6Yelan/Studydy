@@ -75,8 +75,8 @@ export function CreatePodcast({ apiClient, route }: {
   const toggle = (id: string) => setSelected(previous => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   return <FlowStage icon="headphones" className="podcast-create" title="選擇概念與講解形式"
     description="依所選重點生成，內容較多時自動拆成多集。"
-    aside={<label className="cards-field creation-name">Podcast 名稱<input value={name} maxLength={200} disabled={busy} onChange={e => setName(e.target.value)} /></label>}
-    footer={<FlowFooter className="podcast-create-footer"
+    aside={<label className="creation-name">Podcast 名稱<input value={name} maxLength={200} disabled={busy} onChange={e => setName(e.target.value)} /></label>}
+    footer={<FlowFooter
       secondary={<div className="cards-create-summary"><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · 生成需要幾分鐘，可先離開頁面。</span></div>}
       primary={<button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始生成 Podcast"}<Icon name="chevron-right" size={18} /></button>} />}>
     {saveError && <p className="form-error" role="alert">{saveError}</p>}
@@ -87,10 +87,11 @@ export function CreatePodcast({ apiClient, route }: {
       <section id="podcast-config-selection" className={`podcast-config-section podcast-selection${activePanel === "selection" ? " is-active" : ""}`} aria-label="選擇 Podcast 概念">
         <div className="cards-selection-heading">
           <input className="cards-concept-search" type="search" aria-label="搜尋 Podcast 概念" placeholder="搜尋概念…" value={query} onChange={e => setQuery(e.target.value)} />
+          {/* 全選與篩選和建立卡組同一列：搜尋、全選／取消全選、只看已選、已選數量。 */}
+          <div className="cards-selection-actions"><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(true)}>{query.trim() ? "選取搜尋結果" : "全選"}</button><span>／</span><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(false)}>{query.trim() ? "取消搜尋結果" : "取消全選"}</button></div>
+          <label className="podcast-only-selected"><input type="checkbox" checked={onlySelected} onChange={e => setOnlySelected(e.target.checked)} />只看已選</label>
           <span className="flow-chip" aria-live="polite">已選 {selected.size} / {view.concepts.length}</span>
         </div>
-        <div className="podcast-selection-tools"><div><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(true)}>{query.trim() ? "選取搜尋結果" : "全選"}</button><span>／</span><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(false)}>{query.trim() ? "取消搜尋結果" : "取消全選"}</button></div>
-          <label><input type="checkbox" checked={onlySelected} onChange={e => setOnlySelected(e.target.checked)} />只看已選</label></div>
         <div className="podcast-concept-list">{visible.map(concept => <div className={`podcast-concept-option${selected.has(concept.concept_id) ? " is-selected" : ""}`} key={concept.concept_id}>
           <label><input type="checkbox" disabled={busy} checked={selected.has(concept.concept_id)} onChange={() => toggle(concept.concept_id)} />
             <span><strong title={concept.label}>{concept.label}</strong><small>{concept.claim_count} 個重點</small></span></label>

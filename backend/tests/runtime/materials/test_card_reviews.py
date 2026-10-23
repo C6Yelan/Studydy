@@ -37,7 +37,7 @@ def ready_set(fixture, key="cards"):
 
 
 def test_marks_weak_list_and_replay(two_concepts):
-    owner, _, _, document, dsn, _ = two_concepts
+    owner, source, _, document, dsn, _ = two_concepts
     set_id, ids = ready_set(two_concepts)
     learner = owner.learner_id
     empty = card_reviews.review_summary(learner, dsn=dsn)
@@ -64,6 +64,10 @@ def test_marks_weak_list_and_replay(two_concepts):
     labels = {c["concept_id"]: c["label"] for c in document["concepts"]}
     assert summary["cards"][0]["card"]["label"] == labels[ids[1]] and summary["cards"][0]["card"]["claims"]
     assert summary["marks"] == []
+    # 指定教材時只計這份教材的卡組。
+    assert card_reviews.review_summary(learner, material_id=source.material_id, dsn=dsn) == summary
+    elsewhere = card_reviews.review_summary(learner, material_id=uuid4(), dsn=dsn)
+    assert (elsewhere["forgot_count"], elsewhere["sets"], elsewhere["cards"]) == (0, [], [])
     one = card_reviews.review_summary(learner, card_set_id=set_id, dsn=dsn)
     assert one["marks"] == [
         {"card_set_id": set_id, "concept_id": ids[0], "rating": "forgot", "review_count": 1},
@@ -166,12 +170,15 @@ def test_api_boundaries_and_owner_isolation(two_concepts, tmp_path, monkeypatch)
     assert summary.json()["schema"] == "card-reviews/v2"
     assert [mark["rating"] for mark in summary.json()["marks"]] == ["remembered"]
     assert client.get("/v1/card-reviews", params={"card_set_id": "nope"}).status_code == 400
+    assert client.get("/v1/card-reviews", params={"material_id": "nope"}).status_code == 400
+    assert client.get("/v1/card-reviews", params={"material_id": str(uuid4())}).json()["sets"] == []
     assert client.get("/v1/card-reviews", params={"limit": "5"}).status_code == 400
 
     other = register_account(f"other_{uuid4().hex[:8]}@example.com", "Synthetic test password 42", dsn=dsn)
     foreign = TestClient(_app(dsn, tmp_path, monkeypatch), base_url=ORIGIN)
     foreign.cookies.set("studydy_session", other.raw_token)
     assert foreign.get("/v1/card-reviews").json()["sets"] == []
+    assert foreign.get("/v1/card-reviews", params={"material_id": str(two_concepts[1].material_id)}).json()["sets"] == []
     assert foreign.get("/v1/card-reviews", params={"card_set_id": str(set_id)}).status_code == 404
     stolen = foreign.post(url, headers={**HEADERS, "Idempotency-Key": "x"}, json={**body, "expected_review_count": 1})
     assert stolen.status_code == 404

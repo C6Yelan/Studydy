@@ -21,7 +21,7 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
   // 這個卡組的標記與需要加強張數；讀取失敗時只是不顯示標記，不影響瀏覽。
   const [summary, setSummary] = useState<CardReviewsView | null>(null);
   const refreshSummary = useCallback(() => {
-    void apiClient.getCardReviews(cardSetId).then(setSummary, () => undefined);
+    void apiClient.getCardReviews({ cardSetId }).then(setSummary, () => undefined);
   }, [apiClient, cardSetId]);
   useEffect(refreshSummary, [refreshSummary]);
   const markable = !!summary?.sets.some(set => set.card_set_id === cardSetId);

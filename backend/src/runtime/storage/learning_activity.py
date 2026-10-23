@@ -514,7 +514,7 @@ def _card_quest(session, owner, credited):
     """
     from ..card_reviews import _CARDS
 
-    total = session.execute(text(_CARDS + "SELECT count(*) FROM cards"), {"owner": owner, "card_set": None}).scalar()
+    total = session.execute(text(_CARDS + "SELECT count(*) FROM cards"), {"owner": owner, "card_set": None, "material": None}).scalar()
     target = min(MARK_QUEST, total)
     if not target:
         return None

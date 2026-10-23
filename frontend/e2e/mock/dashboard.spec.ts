@@ -669,6 +669,10 @@ test("level-up and badge dialogs open one after another, close by Escape or back
   await expect(levelDialog.getByRole("button", { name: "太好了" })).toBeFocused();
   // 同時升級與取得徽章時，先只顯示升級。
   await expect(badgeDialog).toHaveCount(0);
+  // 強制回應的對話框不自動關閉（WCAG 2.2.1），等再久也要由使用者關閉。
+  await page.clock.runFor(60_000);
+  await expect(levelDialog).toBeVisible();
+  await expect(badgeDialog).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(levelDialog).toHaveCount(0);
   await expect(badgeDialog).toContainText("點亮概念");

@@ -100,8 +100,8 @@
 
  }
 
-/* 卡片區與頁面標題左對齊：左側概念清單、右側卡面（卡面本身最寬 860px）。 */
-.cards-browse-layout { grid-template-columns:240px minmax(0,860px); max-width:none; margin-inline:0; }
+/* 卡片區與頁面標題左對齊：左側概念清單、右側白卡填滿其餘寬度（卡面最寬 760px，在白卡內置中，見 .visual-card）。 */
+.cards-browse-layout { grid-template-columns:240px minmax(0,1fr); max-width:none; margin-inline:0; }
 .cards-browse-list { padding:10px; border:0; border-radius:var(--radius-card); box-shadow:var(--shadow); align-content:start; }
 .cards-browse-search { width:100%; min-height:38px; margin-bottom:4px; padding:6px 12px; border-radius:999px; font-size:13px; }
 .cards-browse-empty { margin:4px 8px; color:var(--text-muted); font-size:13px; }
@@ -115,6 +115,8 @@
   .cards-browse-search { flex:none; width:160px; margin:0; }
 }
 .cards-browse-layout .cards-study-stage { min-width:0; }
+/* 白卡填滿右欄時，卡面、來源頁碼與完整重點一起在白卡內置中、左緣對齊卡面。 */
+.cards-browse-layout .concept-card { max-width:760px; margin-inline:auto; }
 
 .visual-card { width: 100%; max-width: 760px; margin: 0 auto; }
 .visual-concept-card[hidden] { display: none; }
@@ -166,8 +168,6 @@
   font-size: 12px;
   font-weight: 800;
 }
-
-.cards-browse-layout .visual-card { margin-inline: 0; }
 
 /* 概念卡頁上方的跨卡組「需要加強」：一列入口，加強在獨立頁進行。 */
 .cards-strengthen {
@@ -267,7 +267,7 @@
   filter: brightness(1.05);
 }
 .cards-browse-layout .cards-study-stage.surface {
-  max-width: 860px;
+  max-width: none;
   margin: 0;
   padding: 18px 20px 14px;
   border-radius: var(--radius-panel);

@@ -83,10 +83,8 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   // 教材內只計這份教材的卡組；全站計所有卡組。
   const weakCounts = weak ? (material ? (sets ?? []).map(item => weak.get(item.card_set_id) ?? 0) : [...weak.values()]) : [];
   const weakTotal = weakCounts.reduce((sum, count) => sum + count, 0);
-  // 需要加強頁只能篩到單一卡組：教材內只有一個卡組有不熟卡片時直接看該卡組，否則開啟全部卡組的需要加強。
-  const weakSets = material ? (sets ?? []).filter(item => (weak?.get(item.card_set_id) ?? 0) > 0) : [];
-  const reviewRoute: AppRoute = material && weakSets.length === 1
-    ? { name: "card-review", cardSetId: weakSets[0].card_set_id, materialId: material.material_id } : { name: "card-review" };
+  // 教材內的需要加強只看這份教材的卡組；全站看所有卡組。
+  const reviewRoute: AppRoute = material ? { name: "card-review", materialId: material.material_id } : { name: "card-review" };
   return (
     <section className="material-library is-collection cards-library" aria-label={material ? "教材概念卡" : "我的概念卡"}>
       {contentNavigation}
@@ -110,7 +108,7 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
               <img src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
               <p><b id="cards-strengthen-title">需要加強</b>
                 {weak === null ? <span>—</span> : weakTotal
-                  ? <span>{material ? "這份教材 " : ""}{weakTotal} 張卡片標成不熟{weakSets.length > 1 && " · 加強頁會一起列出各教材標成不熟的卡片"}</span>
+                  ? <span>{material ? "這份教材 " : ""}{weakTotal} 張卡片標成不熟</span>
                   : <span>目前沒有，瀏覽卡組時把不熟的卡片標起來</span>}</p>
               {weakTotal > 0 && <button className="primary-button" type="button" onClick={() => writeRoute(reviewRoute)}>
                 開始加強<Icon name="chevron-right" size={18} />
@@ -122,7 +120,7 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
             {sets.map((item) => (
               <article className="surface library-item" key={item.card_set_id} aria-label={item.name}>
                 <CardSetArt item={item} />
-                <CardSetManagement item={item} materialId={item.material_id} apiClient={apiClient} onChanged={() => setReload(n => n + 1)}
+                <CardSetManagement item={item} materialId={item.material_id} fromCollection={!material} apiClient={apiClient} onChanged={() => setReload(n => n + 1)}
                   confirmingDelete={removing?.card_set_id === item.card_set_id}
                   onDelete={element => {
                     if (deleting.current) return;

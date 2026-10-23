@@ -12,10 +12,15 @@ export const uploadSteps = ["上傳教材", "確認教材", "建立知識地圖"
 /** 從主題建立教材的四個步驟；教材重試後回到處理頁時沿用。 */
 export const topicSteps = ["學習需求", "確認觀念與細節", "選取來源", "建立教材"];
 
-export function FlowHeader({ title, description, back, image, headingId }: {
+/**
+ * 頁首：返回、標題與一句說明；右側可放插圖，或縮小的步驟列等其他資訊（aside，
+ * 建立卡組／Podcast 用來讓下方填滿視窗的選取區保留足夠高度）。
+ */
+export function FlowHeader({ title, description, back, image, headingId, aside, className = "" }: {
   title: ReactNode; description?: ReactNode; back?: ReactNode; image?: string; headingId?: string;
+  aside?: ReactNode; className?: string;
 }) {
-  return <header className="flow-head">
+  return <header className={`flow-head ${className}`.trim()}>
     {back}
     <div className="flow-head-row">
       <div className="flow-head-text">
@@ -23,6 +28,7 @@ export function FlowHeader({ title, description, back, image, headingId }: {
         {description && <p>{description}</p>}
       </div>
       {image && <img className="flow-head-art" src={image} alt="" />}
+      {aside && <div className="flow-head-aside">{aside}</div>}
     </div>
   </header>;
 }

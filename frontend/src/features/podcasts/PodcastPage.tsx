@@ -43,9 +43,13 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     if (!layout) return;
     // 量測實際頁首／導覽佔用的位置；可用高度交由 CSS 的 dvh 計算。
     // 使用文件座標，避免捲動時播放器跟著放大或縮小。
+    // 捲動時也會呼叫：只在值改變時寫入，避免每次捲動都改樣式、觸發重新計算版面。
+    const write = (style: CSSStyleDeclaration, name: string, value: string | null) => {
+      if (value === null) { if (style.getPropertyValue(name)) style.removeProperty(name); }
+      else if (style.getPropertyValue(name) !== value) style.setProperty(name, value);
+    };
     const resize = () => {
-      const top = `${Math.ceil(layout.getBoundingClientRect().top + window.scrollY)}px`;
-      if (layout.style.getPropertyValue('--watch-room-top') !== top) layout.style.setProperty('--watch-room-top', top);
+      write(layout.style, '--watch-room-top', `${Math.ceil(layout.getBoundingClientRect().top + window.scrollY)}px`);
       const dock = document.querySelector('.podcast-dock')?.getBoundingClientRect();
       const player = layout.querySelector('.media-player')?.getBoundingClientRect();
       const root = document.documentElement.style;
@@ -53,20 +57,18 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
         // 雙欄版面：播放列與影片欄同寬、接在影片正下方；影片高度扣掉播放列，右欄延伸到播放列底部（styles.css）。
         // 影片大小只依播放列高度計算，不依它的位置，不會互相牽動。
         const dockHeight = dock?.height ?? 0;
-        const block = `${dock ? Math.ceil(dockHeight) + 12 : 0}px`;
-        if (layout.style.getPropertyValue('--podcast-dock-block') !== block) layout.style.setProperty('--podcast-dock-block', block);
-        layout.style.setProperty('--podcast-dock-space', '0px');
-        root.setProperty('--podcast-dock-left', `${Math.round(player.left)}px`);
-        root.setProperty('--podcast-dock-width', `${Math.round(player.width)}px`);
+        write(layout.style, '--podcast-dock-block', `${dock ? Math.ceil(dockHeight) + 12 : 0}px`);
+        write(layout.style, '--podcast-dock-space', '0px');
+        write(root, '--podcast-dock-left', `${Math.round(player.left)}px`);
+        write(root, '--podcast-dock-width', `${Math.round(player.width)}px`);
         // 視窗不夠高時仍完整顯示；有手機底部導覽（教材外）時留在導覽上方。
         const bottomGap = document.querySelector('.app-shell > .tab-bar')?.checkVisibility() ? 100 : 16;
-        root.setProperty('--podcast-dock-top', `${Math.round(Math.min(player.bottom + 12, window.innerHeight - bottomGap - dockHeight))}px`);
+        write(root, '--podcast-dock-top', `${Math.round(Math.min(player.bottom + 12, window.innerHeight - bottomGap - dockHeight))}px`);
       } else {
-        root.removeProperty('--podcast-dock-left'); root.removeProperty('--podcast-dock-width'); root.removeProperty('--podcast-dock-top');
-        layout.style.removeProperty('--podcast-dock-block');
+        for (const name of ['--podcast-dock-left', '--podcast-dock-width', '--podcast-dock-top']) write(root, name, null);
+        write(layout.style, '--podcast-dock-block', null);
         // 底部常駐播放列佔用的高度（含與內容的間距），觀看室不延伸到播放列下方。
-        const space = `${dock ? Math.ceil(window.innerHeight - dock.top) : 0}px`;
-        if (layout.style.getPropertyValue('--podcast-dock-space') !== space) layout.style.setProperty('--podcast-dock-space', space);
+        write(layout.style, '--podcast-dock-space', `${dock ? Math.ceil(window.innerHeight - dock.top) : 0}px`);
       }
     };
     const observer = new ResizeObserver(resize);

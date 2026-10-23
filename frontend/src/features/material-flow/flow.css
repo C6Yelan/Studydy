@@ -72,7 +72,7 @@
 }
 
 /* 上傳：拖放區＋待上傳清單，維持閱讀寬度置中。 */
-.upload-stage-body { display:grid; gap:12px; width:100%; max-width:880px; margin-inline:auto; }
+.upload-stage-body { display:grid; gap:12px; width:100%; }
 .file-drop { position:relative; display:grid; justify-items:center; gap:8px; padding:36px 24px; border:2px dashed #c8d7f5; border-radius:22px; background:var(--studydy-blue-soft-2); color:var(--text-secondary); text-align:center; cursor:pointer; transition:background .2s, border-color .2s; }
 .file-drop:hover, .file-drop.is-dragging { border-color:var(--studydy-blue); background:var(--studydy-blue-soft); }
 .file-drop:focus-within { outline:3px solid #0757ff40; outline-offset:3px; }

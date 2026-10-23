@@ -20,6 +20,7 @@ test("routes use expected paths and round trip", () => {
     [{ name: "card-set-edit", cardSetId: materialId }, `/concept-cards/${materialId}/edit`],
     [{ name: "card-review" }, "/concept-cards/review"],
     [{ name: "card-review", cardSetId: materialId }, `/concept-cards/${materialId}/review`],
+    [{ name: "card-review", materialId }, `/materials/${materialId}/concept-cards/review`],
     [{ name: "card-set-create", materialId, runId, structureRevision }, `${mapPath}/create-cards`],
     [{ name: "upload" }, "/upload"],
     [{ name: "profile" }, "/profile"],
@@ -38,6 +39,7 @@ test("unknown paths, malformed IDs and extra segments are not canonical routes",
     "/unknown",
     "/concept-cards/not-an-id",
     `/concept-cards/${materialId}/extra`,
+    `/materials/${materialId}/concept-cards/review/extra`,
     `/materials/not-an-id/runs/${runId}`,
     `/materials/${materialId}/research/not-an-id`,
     `/materials/${materialId}/research/${runId}/extra`,
@@ -76,6 +78,8 @@ test("material collections and saved content preserve their scoped URLs", () => 
     { name: "card-set", materialId, cardSetId: studySessionId },
     { name: "card-set-edit", materialId, cardSetId: studySessionId },
     { name: "card-review", materialId, cardSetId: studySessionId },
+    // 教材內的需要加強只看這份教材的卡組。
+    { name: "card-review", materialId },
   ]) {
     assert.deepEqual(readRoute(routePath(route)), { route, isCanonical: true });
   }

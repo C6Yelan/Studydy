@@ -1376,13 +1376,19 @@ function cardReviews(change = () => undefined) {
 }
 
 test("card reviews keep weak cards and marks bound to their card set and source", async () => {
-  const read = (value, id) => new StudydyApiClient(async () => Response.json(value)).getCardReviews(id);
+  const paths = [];
+  const read = (value, id, scope = { cardSetId: id }) => new StudydyApiClient(async (path) => { paths.push(path); return Response.json(value); }).getCardReviews(scope);
   assert.equal((await read(cardReviews())).cards[0].card.label, "Stack");
   const marked = (value) => { value.marks = [{ card_set_id: setId, concept_id: conceptId, rating: "remembered", review_count: 1 }]; };
   assert.equal((await read(cardReviews(marked), setId)).marks.length, 1);
   // 只有指定卡組時才會有標記清單；指定卡組時不接受別的卡組。
   await assert.rejects(read(cardReviews(marked)), ApiClientError);
   await assert.rejects(read(cardReviews(), materialId), ApiClientError);
+  // 指定教材時只接受這份教材的卡片。
+  const material = cardReviews().cards[0].material_id;
+  assert.equal((await read(cardReviews(), undefined, { materialId: material })).cards.length, 1);
+  assert.equal(paths.at(-1), `/v1/card-reviews?material_id=${material}`);
+  await assert.rejects(read(cardReviews(), undefined, { materialId: setId }), ApiClientError);
   for (const change of [
     (value) => { value.cards[0].source_resolver = "/v1/materials/x/evidence"; },
     (value) => { value.cards[0].review_count = 0; },

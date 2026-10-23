@@ -474,11 +474,15 @@ export class StudydyApiClient {
     }, (value): value is CardSetSummary => validate.cardSetSummary(value) && value.card_set_id === id);
   }
 
-  getCardReviews(cardSetId?: string): Promise<CardReviewsView> {
-    const query = cardSetId ? `?${new URLSearchParams({ card_set_id: cardSetId })}` : "";
+  /** 需要加強：指定卡組時另含該卡組的標記；指定教材時只計這份教材的卡組。 */
+  getCardReviews(scope: { cardSetId?: string; materialId?: string } = {}): Promise<CardReviewsView> {
+    const { cardSetId, materialId } = scope;
+    const params = new URLSearchParams({ ...(cardSetId ? { card_set_id: cardSetId } : {}), ...(materialId ? { material_id: materialId } : {}) });
+    const query = params.size ? `?${params}` : "";
     return this.json(`/v1/card-reviews${query}`, { method: "GET" },
       (value): value is CardReviewsView => validate.cardReviews(value)
-        && (cardSetId ? [...value.cards, ...value.marks].every((item) => item.card_set_id === cardSetId) : !value.marks.length));
+        && (cardSetId ? [...value.cards, ...value.marks].every((item) => item.card_set_id === cardSetId) : !value.marks.length)
+        && (!materialId || value.cards.every((item) => item.material_id === materialId)));
   }
 
   // key 由呼叫端在第一次標記時產生，網路失敗重送沿用同一個鍵，不會重複計次。

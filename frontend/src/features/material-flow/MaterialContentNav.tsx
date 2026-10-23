@@ -96,7 +96,7 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
       {name && <p className="material-context" title={meta ? `${name}\n${meta}` : name}><span>{name}</span></p>}
     </div>
     <div ref={navigation} className="material-content-nav map-tabs" role="tablist" aria-label="教材學習內容">
-      {items.map((item, index) => <button key={item.id} type="button" id={tabId(item.id)} role="tab" aria-label={item.label} aria-selected={current === item.id} aria-controls={panelId(item.id)}
+      {items.map((item, index) => <button key={item.id} type="button" id={tabId(item.id)} role="tab" aria-label={item.label} title={item.label} aria-selected={current === item.id} aria-controls={panelId(item.id)}
         className={current === item.id ? "is-active" : undefined} tabIndex={current === item.id ? 0 : -1} disabled={(!mapRoute && item.id !== "sources") || (item.id === "review" && assessmentDisabled)}
         ref={element => { if (item.id === "knowledge-map" || item.id === "review") onMapTabRef?.(item.id === "review" ? "review" : "focus", element); }}
         onClick={() => activate(item.id)} onKeyDown={event => {

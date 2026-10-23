@@ -72,7 +72,7 @@ function MaterialFlowBody({
     const kind = route.name.startsWith("podcast") ? "podcasts" : "concept-cards";
     const content = route.name === "podcast" ? <PodcastPage key={route.podcastId} apiClient={apiClient} podcastId={route.podcastId} materialId={route.materialId} learnerId={learnerId} />
       : route.name === "card-set" ? <CardSetPage key={route.cardSetId} apiClient={apiClient} cardSetId={route.cardSetId} materialId={route.materialId} />
-      : route.name === "card-review" ? <CardReviewPage key={route.cardSetId ?? "all"} apiClient={apiClient} cardSetId={route.cardSetId} materialId={route.materialId} />
+      : route.name === "card-review" ? <CardReviewPage key={route.cardSetId ?? "material"} apiClient={apiClient} cardSetId={route.cardSetId} materialId={route.materialId} />
       : route.name === "card-set-edit" ? <CreateCardSet key={`edit/${route.cardSetId}`} apiClient={apiClient} route={route} />
       : route.name === "podcast-create" || route.name === "card-set-create" ? <CreateStudyContent apiClient={apiClient} route={route} /> : null;
     return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind={kind}>{content}</MaterialContent>;

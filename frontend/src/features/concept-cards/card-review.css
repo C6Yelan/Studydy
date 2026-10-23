@@ -120,8 +120,16 @@
   color: var(--studydy-blue-deep);
   font-size: 12px;
   font-weight: 800;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.card-review-source svg {
+  flex: none;
+}
+/* 卡組名稱太長時以省略號截斷（彈性容器本身不會顯示省略號，要放在文字元素上）。 */
+.card-review-source > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .card-review-pages {
   display: flex;

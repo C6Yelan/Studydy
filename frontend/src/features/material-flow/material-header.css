@@ -162,6 +162,27 @@
     display: none;
   }
 }
+/* 寬螢幕開啟教材問答時主內容讓出抽屜寬度（material-tools/styles.css）：所有分頁（含目前分頁）只留圖示，
+   名稱由 aria-label 與滑鼠提示提供，1100px 起的寬度都能看到全部分頁；問答入口與縮圖也收起。 */
+@media (min-width: 1100px) {
+  html.qa-panel-open .material-header .material-content-nav.map-tabs > button > span {
+    display: none;
+  }
+  html.qa-panel-open .material-header .material-content-nav.map-tabs > button {
+    padding: 0 12px;
+  }
+  html.qa-panel-open .material-header-thumb {
+    display: none;
+  }
+  html.qa-panel-open .material-header .material-qa-trigger {
+    width: 42px;
+    padding: 0;
+    justify-content: center;
+  }
+  html.qa-panel-open .material-header .material-qa-trigger > span {
+    display: none;
+  }
+}
 
 /* 手機：第一列返回＋教材名稱＋問答＋頭像，第二列分頁可橫向滑動；教材內不顯示底部導覽。 */
 @media (max-width: 720px) {

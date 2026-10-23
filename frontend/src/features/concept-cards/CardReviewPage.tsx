@@ -18,9 +18,13 @@ type LoadedCard = { item: CardReviewItem; card: CardBatch["cards"][number]; cont
  * 卡片內容由卡組的瀏覽 API 讀取（需要加強清單只給卡片重點，沒有圖卡需要的教材關係）。
  */
 export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient: StudydyApiClient; cardSetId?: string; materialId?: string }) {
+  // 只篩教材時在教材內：教材頁首的「概念卡」分頁已能回到這份教材的卡組，頁首不再另放返回。
+  const materialOnly = !cardSetId && !!materialId;
   const back: { label: string; route: AppRoute } = cardSetId
     ? { label: "返回卡組", route: { name: "card-set", cardSetId, materialId } }
+    : materialId ? { label: "返回概念卡", route: { name: "material-content", materialId, kind: "concept-cards" } }
     : { label: "返回概念卡", route: { name: "concept-cards" } };
+  const backLink = materialOnly ? null : <BackLink {...back} />;
   // 這一輪的清單在開始時固定；標記後只往下一張，不重新排入同一批卡。
   const [round, setRound] = useState<CardReviewItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -31,33 +35,33 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
   useEffect(() => {
     let cancelled = false;
     setRound(null); setLoadError(null); setPosition(0); setMarked({ forgot: 0, remembered: 0 }); setNotice(null);
-    void apiClient.getCardReviews(cardSetId).then(
+    void apiClient.getCardReviews({ cardSetId, materialId: materialOnly ? materialId : undefined }).then(
       (value) => { if (!cancelled) setRound(value.cards); },
       (failure) => { if (!cancelled) setLoadError(errorMessage(failure)); },
     );
     return () => { cancelled = true; };
-  }, [apiClient, cardSetId, reload]);
+  }, [apiClient, cardSetId, materialId, materialOnly, reload]);
   const setName = round?.[0]?.card_set_name;
   const heading = <header className="card-review-heading">
     <div>
       <h1>需要加強</h1>
-      <p>{cardSetId ? setName ? `卡組「${setName}」中標成不熟的卡片` : "這個卡組標成不熟的卡片" : "所有卡組中標成不熟的卡片"} · 看完卡片，再標記熟不熟。</p>
+      <p>{cardSetId ? setName ? `卡組「${setName}」中標成不熟的卡片` : "這個卡組標成不熟的卡片" : materialOnly ? "這份教材各卡組中標成不熟的卡片" : "所有卡組中標成不熟的卡片"} · 看完卡片，再標記熟不熟。</p>
     </div>
   </header>;
   if (loadError) return <section className="card-review-page">
-    <BackLink {...back} />
+    {backLink}
     {heading}
     <StateView title="無法讀取需要加強的卡片" description={loadError} tone="failure"
       action={<button className="primary-button" type="button" onClick={() => setReload((value) => value + 1)}>重新讀取</button>} />
   </section>;
   if (!round) return <section className="card-review-page">
-    <BackLink {...back} />
+    {backLink}
     {heading}
     <StateView title="正在讀取需要加強的卡片" description="正在整理這一輪要看的卡片。" tone="loading" live skeleton="deck" />
   </section>;
   const done = position >= round.length;
   return <section className="card-review-page">
-    <BackLink {...back} />
+    {backLink}
     {heading}
     {round.length > 0 && <div className="card-review-progress" aria-label="這一輪進度">
       <span>{done ? <>這一輪完成</> : <>第 <b>{position + 1}</b> / {round.length} 張</>}</span>
@@ -78,7 +82,7 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
           </div>
         </div>
         : <ReviewCard key={`${round[position].card_set_id}:${round[position].card.concept_id}`} apiClient={apiClient} item={round[position]}
-          showSetName={!cardSetId}
+          source={cardSetId ? null : materialOnly ? item => item.card_set_name : item => `${item.card_set_name} · ${item.material_name}`}
           onMarked={(rating) => {
             setPosition((value) => value + 1);
             if (!rating) { setNotice("上一張卡已在其他頁面標記過，這裡不重複標記。"); return; }
@@ -90,8 +94,10 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
   </section>;
 }
 
-function ReviewCard({ apiClient, item, showSetName, onMarked }: {
-  apiClient: StudydyApiClient; item: CardReviewItem; showSetName: boolean;
+function ReviewCard({ apiClient, item, source, onMarked }: {
+  apiClient: StudydyApiClient; item: CardReviewItem;
+  /** 混合多個卡組時標示這張卡的來源（教材內只寫卡組，全站另附教材）。 */
+  source: ((item: CardReviewItem) => string) | null;
   /** 標記完成後換下一張；null 表示這張已在其他頁面標記過，不重複計次。 */
   onMarked: (rating: CardReviewRating | null) => void;
 }) {
@@ -135,7 +141,7 @@ function ReviewCard({ apiClient, item, showSetName, onMarked }: {
     } finally { setBusy(false); }
   }, [busy, submit, item, onMarked]);
   return <article className="card-review-stage" aria-label={`需要加強：${item.card.label}`}>
-    {showSetName && <p className="card-review-source"><Icon name="cards" size={15} />{item.card_set_name} · {item.material_name}</p>}
+    {source && <p className="card-review-source" title={source(item)}><Icon name="cards" size={15} /><span>{source(item)}</span></p>}
     {loaded
       ? <Flashcard key={pageIndex} card={loaded.card} structure={loaded.context} pageIndex={pageIndex} materialName={item.material_name} apiClient={apiClient} sourceResolver={loaded.sourceResolver} />
       : <StateView title={error ? "無法讀取這張卡片" : "正在讀取卡片"} description={error ?? "正在取得卡面與來源。"} tone={error ? "failure" : "loading"} live={!error}

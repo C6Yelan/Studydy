@@ -92,16 +92,22 @@ _CARDS = """
               WHERE v.source_card_set_id = s.card_set_id AND t.deleted_at IS NULL
           )
           AND (CAST(:card_set AS uuid) IS NULL OR s.card_set_id = CAST(:card_set AS uuid))
+          AND (CAST(:material AS uuid) IS NULL OR s.material_id = CAST(:material AS uuid))
     )
 """
 
 
-def review_summary(owner, *, card_set_id=None, limit=WEAK_LIMIT, dsn=None):
+def review_summary(owner, *, card_set_id=None, material_id=None, limit=WEAK_LIMIT, dsn=None):
     """各卡組的標記張數與需要加強（標成不熟）的卡片，較久沒標記的在前。
 
     指定卡組時另回傳該卡組每張已標記卡片的標記，供瀏覽時顯示與修改。
+    指定教材時只計這份教材的卡組（需要加強的張數上限套用在這份教材內）。
     """
-    values = {"owner": owner, "card_set": str(card_set_id) if card_set_id else None}
+    values = {
+        "owner": owner,
+        "card_set": str(card_set_id) if card_set_id else None,
+        "material": str(material_id) if material_id else None,
+    }
     with database_session(dsn) as session:
         if card_set_id is not None:
             _owned_card(session, owner, card_set_id, read=True)

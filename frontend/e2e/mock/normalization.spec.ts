@@ -396,7 +396,10 @@ for (const viewport of [
     await page.goto("/upload");
     await expect(page.locator(".file-drop")).toContainText("PDF、TXT");
     await expectApplicationFrame();
-    expect((await page.locator(".file-drop").boundingBox())!.width).toBeLessThanOrEqual(880);
+    // 拖放區撐滿階段卡片的內容寬度（只扣卡片左右內距）。
+    const drop = (await page.locator(".file-drop").boundingBox())!;
+    const stage = (await page.locator(".flow-stage").filter({ has: page.locator(".file-drop") }).boundingBox())!;
+    expect(drop.width).toBeGreaterThanOrEqual(stage.width - 80);
     await expect(page.locator(".learning-steps [aria-current=step]")).toContainText("上傳教材");
     await page.goto(`/materials/${materialId}/sources`);
     await expect(page.getByRole("link", { name: "預覽 PDF", exact: true })).toBeVisible();

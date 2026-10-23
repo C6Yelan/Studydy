@@ -17,6 +17,8 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   route: Extract<AppRoute, { name: "card-set-create" | "card-set-edit" }>;
 }) {
   const editing = route.name === "card-set-edit";
+  // 管理卡組在教材內（已有教材頁首與分頁列）不再重複返回；從全站概念卡列表進入時保留返回該列表。
+  const [fromCollection] = useState(() => !!window.history.state?.fromCollection);
   const routeKey = routePath(route);
   const [view, setView] = useState<KnowledgeOutlineView | null>(null);
   const [saved, setSaved] = useState<CardStudyView | null>(null);
@@ -52,7 +54,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     const read = async () => {
       try {
         const deck = route.name === "card-set-edit" ? await apiClient.getCardStudy(route.cardSetId) : null;
-        if (deck && route.name === "card-set-edit" && !route.materialId) { if (!cancelled) writeRoute({ name: "card-set-edit", cardSetId: route.cardSetId, materialId: deck.material_id }, true); return; }
+        if (deck && route.name === "card-set-edit" && !route.materialId) { if (!cancelled) writeRoute({ name: "card-set-edit", cardSetId: route.cardSetId, materialId: deck.material_id }, true, window.history.state); return; }
         if (deck && route.materialId && deck.material_id !== route.materialId) { if (!cancelled) setNotFound(true); return; }
         const id = deck?.material_id ?? (route.name === "card-set-create" ? route.materialId : "");
         const revision = deck?.knowledge_structure_revision ?? (route.name === "card-set-create" ? route.structureRevision : "");
@@ -101,7 +103,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   }, [view]);
   const previewRead = useConceptContext(apiClient, materialId, view?.knowledge_structure_revision ?? "", view && previewId ? [previewId] : [], true);
   const back = () => writeRoute(route.name === "card-set-edit"
-    ? { name: "card-set", cardSetId: route.cardSetId, ...(route.materialId ? { materialId: route.materialId } : {}) }
+    ? fromCollection ? { name: "concept-cards" } : { name: "card-set", cardSetId: route.cardSetId, ...(route.materialId ? { materialId: route.materialId } : {}) }
     : { ...route, name: "knowledge-map" });
   const validName = name.trim().length > 0 && Array.from(name.trim()).length <= 200 && !/[\p{Cc}\p{Cs}]/u.test(name);
   const save = async () => {
@@ -136,11 +138,10 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
       if (current()) setBusy(false);
     }
   };
-  const backLabel = editing ? "返回卡組" : "返回知識地圖";
   if (notFound) return <NotFoundView title={editing ? "找不到這個卡組" : "找不到這份教材"} description={editing ? "這個卡組可能已被刪除，或不屬於目前登入的帳號。" : "這份教材或地圖版本可能已被刪除，或不屬於目前登入的帳號。"}
     back={editing ? { label: "回到概念卡", route: { name: "concept-cards" } } : { label: "回到我的教材", route: { name: "materials" } }} />;
   // 管理卡組自己一頁（不經 CreateStudyContent），頁首與建立頁同一套 flow-head。
-  const header = !embedded && <FlowHeader back={<BackLink label={backLabel} onClick={back} />} title="管理卡組"
+  const header = !embedded && <FlowHeader back={fromCollection && <BackLink label="返回我的概念卡" onClick={back} />} title="管理卡組"
     description={materialName ? <span className="cards-material-name"><Icon name="book" size={16} /> {materialName}</span> : undefined} />;
   if (error || !view) {
     const state = <StateView title={error ? "無法讀取概念" : "正在準備概念卡"}
@@ -160,7 +161,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const stage = <FlowStage icon="cards" className="cards-create"
     title={editing ? "調整卡組內容" : "選擇概念"}
     description={editing ? "修改名稱或勾選要保留的概念，保存後卡組會依新內容更新。" : "勾選想做成卡片的概念，按「預覽」查看卡面。"}
-    aside={<label className="cards-field creation-name">卡組名稱<input value={name} maxLength={200} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>}
+    aside={<label className="creation-name">卡組名稱<input value={name} maxLength={200} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>}
     footer={<FlowFooter
       secondary={<>
         <div className="cards-create-summary"><strong>{selected.size} 個觀念</strong><span>{editing ? "卡片張數會在保存後重新計算。" : "保存後精簡卡面，卡片張數會在生成完成後計算。"}</span></div>
@@ -193,5 +194,5 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
       <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h3>卡片預覽</h3><span>{preview ? preview.label : "點概念旁的「預覽」查看卡面"}</span></div>{previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p className="cards-preview-status" role="status">正在讀取概念與來源…</p> : null}{preview && <Flashcard key={preview.concept_id} card={preview} structure={previewRead.context!} materialName={materialName} apiClient={apiClient} sourceResolver={view.source_resolver} />}</section>
     </div>
   </FlowStage>;
-  return embedded ? stage : <section className="cards-page creation-page flow-page cards-creation-page cards-edit-page">{header}{stage}</section>;
+  return embedded ? stage : <section className="cards-page creation-page flow-page cards-creation-page">{header}{stage}</section>;
 }
