@@ -3,15 +3,14 @@ from copy import deepcopy
 from typing import Literal
 from uuid import UUID
 from fastapi import Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from .. import research
 
 
 class Action(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["more", "acquire", "cancel", "retry"]
+    action: Literal["acquire", "cancel", "retry"]
     selected: list[str] | None = None
-    guidance: str | None = Field(default=None, max_length=1000)
 
 
 class Confirm(BaseModel):
@@ -43,7 +42,6 @@ def install(app, settings):
             identity,
             body.action,
             body.selected,
-            guidance=body.guidance,
             dsn=settings.dsn,
         )
 

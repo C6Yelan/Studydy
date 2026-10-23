@@ -219,9 +219,21 @@ def test_all_selected_deep_reads_finish_before_followup(monkeypatch):
 def test_resuming_previously_completed_research_reads_remaining_candidates(monkeypatch):
     value=state();value['candidates']=[candidate('unread')]
     value['candidates'][0]['review']={'phase':'metadata','relevance':'unrelated','topics':[],'reason':'initial guess','quotes':[]}
-    value['search_state'].update(stage='following_up',topics=['queue'],continue_requested=True)
+    value['search_state'].update(stage='following_up',topics=['queue'])
     monkeypatch.setattr(flow,'inspect_candidate',inspect)
     done,_=drive(value)
+    assert done['candidates'][0]['review']['phase']=='body'
+
+
+def test_saved_state_with_removed_manual_follow_up_keys_runs_automatic_flow(monkeypatch):
+    # 已移除的手動補查曾在研究狀態留下這兩個鍵；舊資料照常走自動流程，不再送給模型。
+    value=state();value['candidates']=[candidate('unread')]
+    value['search_state'].update(stage='following_up',topics=['queue'],continue_requested=True,followup_guidance='focus')
+    monkeypatch.setattr(flow,'inspect_candidate',inspect)
+    def provider(path,body):
+        assert not {'continue_requested','followup_guidance'}&set(body['request'])
+        return review_provider(path,body)
+    done,_=drive(value,provider)
     assert done['candidates'][0]['review']['phase']=='body'
 
 
@@ -1262,14 +1274,6 @@ def test_background_arxiv_reference_is_not_promoted_by_available_license():
     assert not flow._needs_body(source)
     source['screening']={'decision':'read','basis':'gap_followup','reason':'Specific missing condition'}
     assert flow._needs_body(source)
-
-
-def test_explicit_continuation_rechecks_failed_identity_once_without_rereading_verified_sources():
-    blocked=candidate('blocked');blocked.update(screening={'decision':'reference','basis':'importability','reason':'identity failed'},review={'phase':'metadata','relevance':'direct','topics':[0]},access={'status':'not_reviewed','attempts':[{'error_code':'RESEARCH_IDENTITY_UNCONFIRMED'}]})
-    value=state();value['candidates']=[blocked];value['search_state'].update(stage='following_up',topics=['Agent memory'],continue_requested=True)
-    result=flow.advance(value,lambda *args:pytest.fail('No model needed to retry a known failed entry'))
-    assert result['search_state']['stage']=='reading' and not result['search_state'].get('continue_requested')
-    assert result['candidates'][0]['screening']['decision']=='read'
 
 
 def test_finishing_read_queue_still_completes_other_screened_reads(monkeypatch):

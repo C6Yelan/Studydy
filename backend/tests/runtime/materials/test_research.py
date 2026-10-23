@@ -112,16 +112,19 @@ def test_revision_conflict_keeps_acquired_sources(revisions,monkeypatch):
     assert r['status']=='ready' and r['candidates'][0]['state']=='ready' and not r['is_current_revision']
 
 
-def test_more_results_preserve_selection_and_reject_unlicensed(closed_loop,monkeypatch):
+def pages(*results):
+    """依序回傳各頁搜尋結果；自動補查用 next_page 接續時才會取到下一頁。"""
+    remaining=list(results)
+    return lambda *a,**kwargs:remaining.pop(0) if len(remaining)>1 else remaining[0]
+
+
+def test_next_page_results_merge_and_reject_unlicensed(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
-    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([candidate()], 'next',[]))
-    identity=create_confirmed_research(owner,source.material_id,'q','r',dsn=dsn)['research_id']
-    search_to_selection(owner,identity,dsn)
-    research.action(owner,identity,'more',dsn=dsn)
     monkeypatch.setattr(research,'provider',continue_provider)
     c=candidate('unlicensed');c.update(eligible=False,license='unknown',download_url=None)
-    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([candidate(),c], None,[]))
+    monkeypatch.setattr(research.research_sources,'search',pages(([candidate()],'next',[]),([candidate(),c],None,[])))
+    identity=create_confirmed_research(owner,source.material_id,'q','r',dsn=dsn)['research_id']
     search_to_selection(owner,identity,dsn)
     assert len(research.read(owner,identity,dsn=dsn)['candidates'])==2
     with pytest.raises(SourceError,match='REQUEST_INVALID'):research.action(owner,identity,'acquire',['unlicensed'],dsn=dsn)
@@ -221,18 +224,14 @@ def test_deleted_research_keeps_source_files_and_research_origin(revisions,monke
         assert row.candidates and row.status=='cancelled'
 
 
-def test_cross_provider_more_deduplicates_without_replacing_candidate_or_exposing_downloads(closed_loop,monkeypatch):
+def test_cross_provider_next_page_deduplicates_without_replacing_candidate_or_exposing_downloads(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     mock_search(monkeypatch)
     first=candidate();first.update(doi='https://doi.org/10.1234/paper',discovered_by=['OpenAlex'],download_locations=[{'download_url':'https://example.org/a.pdf','license':'cc-by','version':'publishedVersion','url':'https://example.org/article','license_url':None}])
-    monkeypatch.setattr(research,'provider',review_provider)
-    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([first],'more',[]))
-    work=create_confirmed_research(owner,source.material_id,'queue','cross-provider',dsn=dsn)
-    search_to_selection(owner,work['research_id'],dsn)
     other=deepcopy(first);other.update(id='crossref-other-id',doi='10.1234/PAPER',discovered_by=['Crossref'])
-    research.action(owner,work['research_id'],'more',dsn=dsn)
     monkeypatch.setattr(research,'provider',continue_provider)
-    monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([other],None,['source temporarily unavailable']))
+    monkeypatch.setattr(research.research_sources,'search',pages(([first],'more',[]),([other],None,['source temporarily unavailable'])))
+    work=create_confirmed_research(owner,source.material_id,'queue','cross-provider',dsn=dsn)
     search_to_selection(owner,work['research_id'],dsn)
     result=research.read(owner,work['research_id'],dsn=dsn)
     assert result['error_code']=='RESEARCH_PARTIAL_SEARCH'

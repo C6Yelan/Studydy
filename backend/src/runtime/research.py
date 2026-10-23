@@ -204,9 +204,7 @@ def delete(owner, identity, *, dsn=None):
         return {"research_id": row.research_id, "status": "deleted"}
 
 
-def action(owner, identity, action, selected=None, *, guidance=None, dsn=None):
-    if guidance is not None and action != "more":
-        raise SourceError("REQUEST_INVALID")
+def action(owner, identity, action, selected=None, *, dsn=None):
     with database_session(dsn) as db:
         row, material = _owned(db, owner, identity)
         if row.topic_id and db.get(TopicScope, row.topic_id).status != "approved":
@@ -214,22 +212,9 @@ def action(owner, identity, action, selected=None, *, guidance=None, dsn=None):
         if (
             not row.topic_id
             or (row.search_state or {}).get("schema") != "material-research/v3"
-        ) and (action == "more" or action == "retry" and not row.selection):
+        ) and action == "retry" and not row.selection:
             raise SourceError("RESEARCH_SCOPE_REQUIRED")
-        if action == "more":
-            if row.status != "selecting":
-                raise SourceError("REQUEST_INVALID")
-            progress = deepcopy(row.search_state)
-            progress.update(
-                stage="following_up",
-                summary="依目前缺口接續研究。",
-                continue_requested=True,
-            )
-            if guidance and guidance.strip():
-                progress["followup_guidance"] = guidance.strip()
-            row.search_state = progress
-            row.status = "searching"
-        elif action == "acquire":
+        if action == "acquire":
             if not row.material_id:
                 raise SourceError("REQUEST_INVALID")
             if row.status == "acquiring" and row.selection == selected:

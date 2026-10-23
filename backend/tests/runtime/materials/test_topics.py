@@ -138,10 +138,14 @@ def test_topic_api_requires_identity_origin_and_exact_scope(closed_loop,monkeypa
         work=db.get(MaterialResearch,UUID(r.json()['research_id']))
         material=db.get(Material,closed_loop[1].material_id)
         work.material_id=material.material_id;work.base_revision=material.head_revision
-        work.topic_id=None;work.status='selecting'
+        work.topic_id=None;work.status='failed';work.selection=None
         research_id=str(work.research_id)
-    rejected=client.post('/v1/research/'+research_id+'/actions',headers=headers,json={'action':'more'})
+    rejected=client.post('/v1/research/'+research_id+'/actions',headers=headers,json={'action':'retry'})
     assert rejected.status_code==409 and rejected.json()['reason_code']=='RESEARCH_SCOPE_REQUIRED'
+    # 研究會自動依缺口補查；手動補查動作與補查方向已移除。
+    for body in ({'action':'more'},{'action':'retry','guidance':'focus'}):
+        removed=client.post('/v1/research/'+research_id+'/actions',headers=headers,json=body)
+        assert removed.status_code==400 and removed.json()['reason_code']=='REQUEST_INVALID'
 
 
 

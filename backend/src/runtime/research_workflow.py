@@ -1431,39 +1431,6 @@ def _follow_up(workflow, candidates, context, call):
             for c in reviewed
         )
     )
-    continue_requested = workflow.pop("continue_requested", False)
-    if continue_requested:
-        # 使用者要求接續時，重查曾因文件身分或全文取得失敗而擱置的入口；自動補查不反覆重試。
-        retry_sources = [
-            c
-            for c in candidates
-            if c.get("screening")
-            and c.get("screening").get("basis") == "importability"
-            and c.get("review", {}).get("phase") != "body"
-            and any(
-                attempt.get("error_code")
-                in ("RESEARCH_IDENTITY_UNCONFIRMED", "RESEARCH_BODY_UNAVAILABLE")
-                for attempt in c.get("access", {}).get("attempts", [])
-            )
-        ]
-        if retry_sources:
-            for c in retry_sources:
-                c["screening"] = {
-                    "decision": "read",
-                    "basis": "user_retry",
-                    "reason": "依接續研究要求重新核對文件身分與取得條件。",
-                }
-                c["access"]["status"] = "not_reviewed"
-                c["access"].pop("exhausted", None)
-            workflow.update(
-                stage="reading", read_queue=[c["id"] for c in retry_sources]
-            )
-            return {
-                "search_state": workflow,
-                "candidates": candidates,
-                "status": "searching",
-                "cursor": None,
-            }
     all_reviewed = reviewed
     # 共用原文只送一次，仍逐題保存判斷與來源；不以一份跨題摘要取代各題依據。
     previous = deepcopy(
@@ -1717,13 +1684,12 @@ def _follow_up(workflow, candidates, context, call):
         "items 是已取得且符合匯入條件的正文來源；reference_only 僅供參考，不能代替可交付的教材內容。sources 使用本次 items 的 index。"
         "items.verified_type 已由來源核對步驟確認；本步判斷原文支持程度，不重新用儲存庫或出版形式淘汰來源。"
         "需求以使用者原始 request 與 approved_scope 為準，不把研究計畫自行舉出的例子或工具變成額外硬條件。"
-        "followup_guidance 是使用者調整的補查方向，只能針對已確認需求找來源或補機制，不能新增 topics、推翻已確認的限制或加回已刪除項目。若已讀的總覽只說明一半流程，可查論文或 Wikipedia 中該具名操作的相關內容，不要反覆擴讀無關章節。"
         "本輪已排定的搜尋與初篩後應讀正文完成後，才進行涵蓋核對；背景或排除來源不必全部深讀。read_next 可從 unread 選取需要升級深入的背景來源，或需擴大閱讀的既有來源；scope=sections 表示只核對了相關區段，不是全文。"
         "即使子題已有 covered，若存在會改變教學解釋的具體疑點（方法未核對、適用條件不明或相反結果），仍可提出 read_next 或 searches；已支持的內容不必因此整題降為缺失。沒有具體疑點就不為湊篇數或形式上再驗證而追加工作。"
         "unread 包含已初篩但尚未讀正文的來源；screening_decision=read 表示先前已判斷值得讀，不能當作已讀或已排除。已有可能補足缺口的來源時，可選 read_next 核對正文，不必先重複搜尋。"
         "同樣能補足缺口時，優先核對 fulltext_location_known=true 的來源；沒有已知取得位置不代表內容偏題，也不能以能下載代替正文支持。"
         "unread.skipped_sections 是尚未閱讀區段中較相關的定位線索與略過理由；skipped_section_count 是完整數量，不保證線索列出全部。只有區段可能補足具體缺口時才選 read_next；不要僅因 scope=sections 就重讀全文。"
-        "followup_guidance 明確要求覆核已知來源時，先用 read_next 排定該來源，不得以一般內容已足夠為由略過明確的覆核要求。已選定的 read_next 工作必須處理。"
+        "已選定的 read_next 工作必須處理。"
         "reading_policy_current=false 表示舊閱讀規則可能漏取原文；有具體缺口或覆核要求時，可選 read_next 重看該來源已讀區段，不限於 skipped_sections。不要為更新標記而重讀所有來源。"
         "unread 是按需求排序的一批候選線索；unread_more=true 表示還有下一批。若本批沒有需要讀的來源，read_next 留空，系統可接續查看其他候選，不能宣稱已檢查全部。"
         "若略過的只是參考文獻或明確偏題內容，應補查其他來源，不重讀已核對的正文。"
@@ -1741,7 +1707,6 @@ def _follow_up(workflow, candidates, context, call):
             **context,
             "topics": _topic_input(workflow["topics"]),
             "round": workflow["round"],
-            "continue_requested": continue_requested,
             "coverage_topics": coverage_topics,
             "previous_coverage": [
                 {
@@ -1843,8 +1808,6 @@ def _follow_up(workflow, candidates, context, call):
         for topic in coverage_batch:
             checked[str(topic)] = topic_signatures[str(topic)]
     if more_batches:
-        if continue_requested:
-            workflow["continue_requested"] = True
         return {
             "search_state": workflow,
             "candidates": candidates,
@@ -1867,11 +1830,7 @@ def _follow_up(workflow, candidates, context, call):
         if not repeated:
             workflow.pop("stalled_search_round", None)
         workflow["last_evidence_signature"] = signature
-    stalled = (
-        unread_offset == 0
-        and workflow.get("stalled_checks", 0) >= 2
-        and not continue_requested
-    )
+    stalled = unread_offset == 0 and workflow.get("stalled_checks", 0) >= 2
     planned = _searches(result["searches"], workflow["topics"])
     if stalled:
         # 初篩參考資料可在缺口判斷中升級為應讀；尚未讀過的選定來源不是重複取證。
@@ -1960,8 +1919,6 @@ def _follow_up(workflow, candidates, context, call):
         }
     if unread_more:
         workflow["unread_offset"] = unread_offset + len(unread)
-        if continue_requested:
-            workflow["continue_requested"] = True
         workflow["stage"] = "following_up"
         return {
             "search_state": workflow,
@@ -2108,11 +2065,6 @@ def advance(state, call, *, read_document=None, retrieve_existing=None):
         "mode": state["mode"],
         "material_title": state.get("material_title"),
         "approved_scope": state.get("approved_scope"),
-        **(
-            {"followup_guidance": workflow["followup_guidance"]}
-            if workflow.get("followup_guidance")
-            else {}
-        ),
     }
     if stage == "planning":
         return _plan_search(workflow, candidates, state, context, call)
