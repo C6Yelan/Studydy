@@ -20,7 +20,10 @@ type LibraryTopic = {topic_id:string; request:string; proposal:{title:string}|nu
   research:{status:string; material_id:string|null}|null};
 const topicStages:Record<string,string> = {searching:'正在搜尋來源', selecting:'等待選取來源', acquiring:'正在取得來源',
   normalizing:'正在轉換來源', ready:'正在準備教材分析', submitted:'已送入教材分析', failed:'準備未完成', cancelled:'已停止，可接續處理'};
-const topicWorking = (topic:LibraryTopic) => ['searching','acquiring','normalizing','ready'].includes(topic.research?.status ?? '');
+const topicWorking = (topic:LibraryTopic) => topic.status === 'pending' || ['searching','acquiring','normalizing','ready'].includes(topic.research?.status ?? '');
+// 確認範圍前（規劃中、等待確認、規劃失敗）也列出，離開後才能回到同一個主題。
+const planningStages:Record<string,string> = {pending:'正在規劃學習範圍', ready:'等待確認觀念與細節', failed:'規劃未完成，可重新規劃'};
+const topicStage = (topic:LibraryTopic) => planningStages[topic.status] ?? topicStages[topic.research?.status ?? ''] ?? '等待更新';
 
 function isProcessing(status: string | undefined) {
   return status === "pending" || status === "running";
@@ -91,7 +94,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
           return;
         }
         setItems(materials);
-        setTopics(topicList.topics.filter(topic => topic.status === "approved"));
+        setTopics(topicList.topics.filter(topic => topic.status !== "cancelled"));
         setMessage(null);
         for (const id of pendingRemovals.current) {
           if (!materials.some((item) => item.material_id === id))
@@ -161,7 +164,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
     );
     return <section className={libraryClass}>{state}</section>;
   }
-  const preparingTopics = topics.filter(topic => topic.research && !topic.research.material_id);
+  const preparingTopics = topics.filter(topic => topic.status !== "approved" || topic.research && !topic.research.material_id);
   const total = items.length + preparingTopics.length;
   const restoreLibraryFocus = () => heading.current?.focus({ preventScroll: true });
   const handleRenamed = (updated: MaterialLibraryItem) => {
@@ -208,11 +211,11 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
           <span className="library-island is-building" aria-hidden="true"><IslandArt palette={islandPalette(topic.topic_id)} landmarks={false}/></span>
           <h2>{topic.proposal?.title ?? topic.request}</h2>
           <p className="library-metadata">從主題建立 · 準備中的教材</p>
-          <p className="library-state">{topicStages[topic.research!.status] ?? '等待更新'}</p>
+          <p className="library-state">{topicStage(topic)}</p>
           <div className="state-actions"><button className="primary-button" onClick={()=>writeRoute({name:'topic',topicId:topic.topic_id})}>
-            {topic.research?.status === 'selecting' ? '選取來源' : '查看進度'}
+            {topic.status === 'ready' ? '確認範圍' : topic.status !== 'approved' ? '繼續規劃' : topic.research?.status === 'selecting' ? '選取來源' : '查看進度'}
           </button><button className="text-button" disabled={cancellingTopicId !== null} onClick={async()=>{
-            if(!window.confirm('取消建立這份教材並停止來源準備？'))return;
+            if(!window.confirm(topic.status === 'approved' ? '取消建立這份教材並停止來源準備？' : '取消這個主題規劃？'))return;
             setCancellingTopicId(topic.topic_id);
             try { await apiClient.studyTools(`/v1/topics/${topic.topic_id}/actions`, {action:'cancel',expected_version:topic.version}); setReload(value=>value+1); }
             catch(error) { setMessage(errorMessage(error)); }

@@ -249,3 +249,19 @@ test('approval failure stays on scope and confirmed topics can be cancelled from
  page.once('dialog',dialog=>dialog.dismiss());await card.getByRole('button',{name:'取消建立'}).click();await expect(card).toBeVisible();
  page.once('dialog',dialog=>dialog.accept());await card.getByRole('button',{name:'取消建立'}).click();await expect(card).toHaveCount(0);
 });
+test('topics still being planned stay reachable from the library',async({page})=>{
+ await mockTopicApi(page);
+ let topic:any={topic_id:id,request:'TCP',proposal:plan,version:2,status:'ready',research_id:null,error_code:null,research:null};
+ await page.route('**/v1/topics',r=>json(r,{topics:topic.status==='cancelled'?[]:[topic]}));
+ await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
+ await page.route(`**/v1/topics/${id}/actions`,r=>{expect(r.request().postDataJSON()).toEqual({action:'cancel',expected_version:2});topic={...topic,status:'cancelled'};return json(r,topic);});
+ await page.goto('/materials');
+ const card=page.getByRole('article',{name:'TCP 入門',exact:true});
+ await expect(card).toContainText('等待確認觀念與細節');
+ await expect(page.locator('main')).toContainText('已保存 0 份教材，1 份準備中');
+ await card.getByRole('button',{name:'確認範圍'}).click();
+ await expect(page).toHaveURL(new RegExp(`/topics/${id}$`));
+ await page.goto('/materials');
+ page.once('dialog',dialog=>{expect(dialog.message()).toBe('取消這個主題規劃？');void dialog.accept();});
+ await card.getByRole('button',{name:'取消建立'}).click();await expect(card).toHaveCount(0);
+});
