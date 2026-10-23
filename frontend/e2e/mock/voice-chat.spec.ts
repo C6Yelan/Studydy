@@ -127,8 +127,11 @@ test('audio retry preserves unsent text and switching conversations clears the c
  const input=page.getByLabel('問題／辨識文字');await expect(input).toHaveValue('');await expect(page.locator('.voice-revision-note')).toContainText('先前的教材版本');
  await input.fill('下一個尚未送出的問題');await page.getByRole('button',{name:'重試語音',exact:true}).click();await expect(page.getByText('正在產生語音…',{exact:true})).toBeVisible();await expect(input).toHaveValue('下一個尚未送出的問題');expect(mock.actions.at(-1)).toMatchObject({action:'retry',turnId:answer.turn_id});expect(mock.actions.at(-1)).not.toHaveProperty('question');
  answer.status='ready';await expect(input).toBeEnabled();await choose(page,second.conversation_id);await expect(input).toHaveValue('');
- await page.getByRole('button',{name:'對話紀錄',exact:true}).click();page.once('dialog',dialog=>dialog.dismiss());await page.getByRole('button',{name:'刪除對話',exact:true}).click();expect(mock.deletes()).toBe(0);
- page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'刪除對話',exact:true}).click();await expect(input).toBeFocused();await expect(page.locator('.voice-turn')).toHaveCount(0);expect(mock.deletes()).toBe(1);
+ await page.getByRole('button',{name:'對話紀錄',exact:true}).click();page.on('dialog',()=>{throw new Error('native confirmation is not allowed');});await page.getByRole('button',{name:'刪除對話',exact:true}).click();
+ const confirmDelete=page.getByRole('group',{name:'刪除這段對話及語音？教材會保留。'});await expect(confirmDelete).toBeVisible();
+ // Esc 只收起確認，不關閉問答抽屜。
+ await page.keyboard.press('Escape');await expect(confirmDelete).toHaveCount(0);await expect(page.getByRole('button',{name:'刪除對話',exact:true})).toBeVisible();expect(mock.deletes()).toBe(0);
+ await page.getByRole('button',{name:'刪除對話',exact:true}).click();await confirmDelete.getByRole('button',{name:'刪除對話',exact:true}).click();await expect(input).toBeFocused();await expect(page.locator('.voice-turn')).toHaveCount(0);expect(mock.deletes()).toBe(1);
 });
 
 test('long conversations scroll independently without stealing reading position and audio excludes other media',async({page})=>{

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { InlineConfirm } from "../../ui/InlineConfirm";
 
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
@@ -54,6 +55,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
   const [message, setMessage] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [cancellingTopicId, setCancellingTopicId] = useState<string|null>(null);
+  const [confirmingTopicId, setConfirmingTopicId] = useState<string | null>(null);
   const [startingMaterialId, setStartingMaterialId] = useState<string | null>(null);
   const startCurrentStudy = async (item: MaterialLibraryItem, structure: MaterialStructureLink) => {
     if (startingMaterialId) return;
@@ -212,15 +214,18 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
           <h2>{topic.proposal?.title ?? topic.request}</h2>
           <p className="library-metadata">從主題建立 · 準備中的教材</p>
           <p className="library-state">{topicStage(topic)}</p>
-          <div className="state-actions"><button className="primary-button" onClick={()=>writeRoute({name:'topic',topicId:topic.topic_id})}>
+          {confirmingTopicId === topic.topic_id
+            ? <InlineConfirm message={topic.status === 'approved' ? '取消建立這份教材並停止來源準備？' : '取消這個主題規劃？'}
+              cancelLabel="保留" confirmLabel="取消建立" busyLabel="正在取消…" busy={cancellingTopicId === topic.topic_id}
+              onCancel={() => setConfirmingTopicId(null)} onConfirm={async () => {
+                setCancellingTopicId(topic.topic_id);
+                try { await apiClient.studyTools(`/v1/topics/${topic.topic_id}/actions`, {action:'cancel',expected_version:topic.version}); setConfirmingTopicId(null); setReload(value=>value+1); }
+                catch(error) { setMessage(errorMessage(error)); }
+                finally { setCancellingTopicId(null); }
+              }} />
+            : <div className="state-actions"><button className="primary-button" onClick={()=>writeRoute({name:'topic',topicId:topic.topic_id})}>
             {topic.status === 'ready' ? '確認範圍' : topic.status !== 'approved' ? '繼續規劃' : topic.research?.status === 'selecting' ? '選取來源' : '查看進度'}
-          </button><button className="text-button" disabled={cancellingTopicId !== null} onClick={async()=>{
-            if(!window.confirm(topic.status === 'approved' ? '取消建立這份教材並停止來源準備？' : '取消這個主題規劃？'))return;
-            setCancellingTopicId(topic.topic_id);
-            try { await apiClient.studyTools(`/v1/topics/${topic.topic_id}/actions`, {action:'cancel',expected_version:topic.version}); setReload(value=>value+1); }
-            catch(error) { setMessage(errorMessage(error)); }
-            finally { setCancellingTopicId(null); }
-          }}>取消建立</button></div>
+          </button><button className="text-button" data-inline-confirm-trigger disabled={cancellingTopicId !== null} onClick={() => setConfirmingTopicId(topic.topic_id)}>取消建立</button></div>}
         </article>)}
         {items.map((item) => {
           const latest = item.latest_attempt;

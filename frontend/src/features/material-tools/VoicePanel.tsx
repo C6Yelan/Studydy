@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { InlineConfirm } from '../../ui/InlineConfirm';
 import { ApiClientError, errorMessage, type StudydyApiClient } from '../../api/client';
 import { SourceButton, sourceLinks } from '../../ui/SourceButton';
 import type { Conversation, VoiceTurn, VoiceView } from './types';
@@ -36,6 +37,9 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
  const [list,setList]=useState<Conversation[]>([]),[id,setId]=useState<string|null>(null),[detail,setView]=useState<VoiceView|null>(null);
  const view=detail?.conversation_id===id?detail:null;
  const [question,setQuestion]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
+ // 刪除對話在對話紀錄面板內原位置確認；換到別段對話時收起。
+ const [confirmingDelete,setConfirmingDelete]=useState(false);
+ useEffect(()=>setConfirmingDelete(false),[id]);
  const [mode,setMode]=useState<'text'|'voice'>('text');
  const [outgoing,setOutgoing]=useState<{text:string;after:number}|null>(null),[historyOpen,setHistoryOpen]=useState(false),[behind,setBehind]=useState(false),[suggestions,setSuggestions]=useState<string[]>([]);
  const alive=useRef(true),inFlight=useRef(false),version=useRef(0),readVersion=useRef(0),listVersion=useRef(0),current=useRef<string|null>(null);
@@ -228,9 +232,10 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
    {historyOpen&&<div ref={historyPanel} id="voice-history" className="voice-history" role="group" aria-label="已保存的對話">
     <div className="voice-history-head"><h3>對話紀錄</h3><button type="button" className="voice-history-new" disabled={busy||recording||preparing} onClick={()=>choose(null)}><Icon name="plus" size={16}/>新對話</button></div>
     <div className="voice-history-list">{list.map(c=><button type="button" key={c.conversation_id} data-conversation-id={c.conversation_id} title={c.title} aria-current={c.conversation_id===id?'true':undefined} disabled={busy} onClick={()=>{switchMode('text');choose(c.conversation_id);}}><Icon name="chat" size={16}/><span>{c.title}</span></button>)}{!list.length&&<p>還沒有對話。問第一個問題後會出現在這裡。</p>}</div>
-    {id&&<button type="button" className="text-button voice-delete" disabled={busy||recording||preparing} onClick={()=>{
-     if(window.confirm('刪除這段對話及語音？教材會保留。'))void perform(async()=>{await api.studyTools(`/v1/voice-conversations/${id}`,undefined,undefined,'DELETE');if(alive.current){choose(null);await refreshList();}});
-    }}><Icon name="trash" size={16}/>刪除對話</button>}
+    {id&&(confirmingDelete
+     ?<InlineConfirm message="刪除這段對話及語音？教材會保留。" confirmLabel="刪除對話" busyLabel="正在刪除…" busy={busy}
+       onCancel={()=>setConfirmingDelete(false)} onConfirm={()=>void perform(async()=>{await api.studyTools(`/v1/voice-conversations/${id}`,undefined,undefined,'DELETE');if(alive.current){setConfirmingDelete(false);choose(null);await refreshList();}})}/>
+     :<button type="button" className="text-button voice-delete" data-inline-confirm-trigger disabled={busy||recording||preparing} onClick={()=>setConfirmingDelete(true)}><Icon name="trash" size={16}/>刪除對話</button>)}
    </div>}
   </div>
   <form className="voice-composer" onSubmit={event=>{event.preventDefault();if(!busy&&!working&&!recording&&!preparing)send();}}>

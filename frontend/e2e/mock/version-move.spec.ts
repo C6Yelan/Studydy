@@ -156,11 +156,13 @@ test("sources page starts a review-only recheck of the current version", async (
   await page.goto(`/materials/${materialId}/sources`);
   const section = page.getByRole("region", { name: "重新分析與重新檢核" });
   await expect(section).toContainText("舊版的卡組與學習進度會保留");
-  page.once("dialog", (dialog) => void dialog.dismiss());
+  page.on("dialog", () => { throw new Error("native confirmation is not allowed"); });
   await section.getByRole("button", { name: "重新檢核" }).click();
+  await expect(section.getByRole("group", { name: /重新檢核會用模型重新檢查/ })).toBeVisible();
+  await section.getByRole("button", { name: "取消", exact: true }).click();
   expect(sent).toEqual([]);
-  page.once("dialog", (dialog) => void dialog.accept());
   await section.getByRole("button", { name: "重新檢核" }).click();
+  await section.getByRole("button", { name: "開始檢核" }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${reviewRun.run_id}$`));
   expect(sent).toEqual([{ key: expect.any(String), body: { schema: "material-review-create/v1", base_revision: structureRevision } }]);
 });

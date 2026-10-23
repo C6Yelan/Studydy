@@ -26,11 +26,15 @@ test('unconfirmed supplement scope can be cancelled from the list after confirma
  await page.goto(`/materials/${materialId}/research`);
  const card=page.locator('article').filter({hasText:state.scope.request});
  await expect(card.getByRole('button',{name:'查看搜尋範圍',exact:true})).toBeVisible();
- page.once('dialog',dialog=>dialog.dismiss());
+ page.on('dialog',()=>{throw new Error('native confirmation is not allowed');});
+ // 在卡片內原位置確認，不使用瀏覽器原生確認框。
  await card.getByRole('button',{name:'取消這個規劃',exact:true}).click();
- expect(state.actions()).toBe(0);await expect(card).toBeVisible();
- page.once('dialog',dialog=>dialog.accept());
+ await expect(card.getByRole('group',{name:'取消這個補充規劃？不會刪除教材或其他查詢。'})).toBeVisible();
+ await expect(card.getByRole('button',{name:'保留',exact:true})).toBeFocused();
+ await page.keyboard.press('Escape');
+ expect(state.actions()).toBe(0);await expect(card.getByRole('button',{name:'取消這個規劃',exact:true})).toBeFocused();
  await card.getByRole('button',{name:'取消這個規劃',exact:true}).click();
+ await card.getByRole('button',{name:'取消規劃',exact:true}).click();
  await expect(card).toHaveCount(0);expect(state.actions()).toBe(1);
  await page.reload();await expect(page.getByRole('button',{name:'查看搜尋範圍',exact:true})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'產生搜尋範圍',exact:true})).toBeVisible();
@@ -40,9 +44,10 @@ test('failed scope cancellation keeps the plan visible and permits retry',async(
  const state=await setup(page,true,true);
  await page.goto(`/materials/${materialId}/research`);
  const card=page.locator('article').filter({hasText:state.scope.request});
- page.once('dialog',dialog=>dialog.accept());
  await card.getByRole('button',{name:'取消這個規劃',exact:true}).click();
+ await card.getByRole('button',{name:'取消規劃',exact:true}).click();
  await expect(page.getByRole('alert')).toBeVisible();await expect(card).toBeVisible();
+ await card.getByRole('button',{name:'保留',exact:true}).click();
  await expect(card.getByRole('button',{name:'取消這個規劃',exact:true})).toBeEnabled();
  expect(state.actions()).toBe(1);expect(state.scope.status).toBe('ready');
 });

@@ -251,8 +251,9 @@ test('approval failure stays on scope and confirmed topics can be cancelled from
  topic={...topic,status:'approved',version:3,research_id:rid,research:{status:'searching',material_id:null}};
  await page.route(`**/v1/topics/${id}/actions`,r=>{expect(r.request().postDataJSON()).toEqual({action:'cancel',expected_version:3});topic.status='cancelled';return json(r,topic);});
  await page.goto('/materials');const card=page.getByRole('article',{name:'TCP 入門',exact:true});await expect(card).toContainText('正在搜尋來源');
- page.once('dialog',dialog=>dialog.dismiss());await card.getByRole('button',{name:'取消建立'}).click();await expect(card).toBeVisible();
- page.once('dialog',dialog=>dialog.accept());await card.getByRole('button',{name:'取消建立'}).click();await expect(card).toHaveCount(0);
+ page.on('dialog',()=>{throw new Error('native confirmation is not allowed');});
+ await card.getByRole('button',{name:'取消建立'}).click();await expect(card.getByRole('group',{name:'取消建立這份教材並停止來源準備？'})).toBeVisible();await card.getByRole('button',{name:'保留',exact:true}).click();await expect(card).toBeVisible();
+ await card.getByRole('button',{name:'取消建立'}).click();await card.getByRole('button',{name:'取消建立',exact:true}).click();await expect(card).toHaveCount(0);
 });
 test('topics still being planned stay reachable from the library',async({page})=>{
  await mockTopicApi(page);
@@ -267,6 +268,6 @@ test('topics still being planned stay reachable from the library',async({page})=
  await card.getByRole('button',{name:'確認範圍'}).click();
  await expect(page).toHaveURL(new RegExp(`/topics/${id}$`));
  await page.goto('/materials');
- page.once('dialog',dialog=>{expect(dialog.message()).toBe('取消這個主題規劃？');void dialog.accept();});
- await card.getByRole('button',{name:'取消建立'}).click();await expect(card).toHaveCount(0);
+ await card.getByRole('button',{name:'取消建立'}).click();await expect(card.getByRole('group',{name:'取消這個主題規劃？'})).toBeVisible();
+ await card.getByRole('button',{name:'取消建立',exact:true}).click();await expect(card).toHaveCount(0);
 });
