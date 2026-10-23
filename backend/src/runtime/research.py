@@ -51,66 +51,69 @@ def _owned(db, owner, identity, *, read=False, allow_deleted=False):
     return row, material
 
 
+# 回應只送學習者畫面用到的欄位；搜尋管道、初篩、存取紀錄與內部計數留在資料庫供除錯。
+CANDIDATE_FIELDS = (
+    "id",
+    "kind",
+    "title",
+    "authors",
+    "year",
+    "url",
+    "license",
+    "license_url",
+    "state",
+    "error_code",
+)
+
+
+def _candidate_view(item):
+    value = {k: deepcopy(item[k]) for k in CANDIDATE_FIELDS if k in item}
+    if item.get("acquisition"):
+        # 引用需標示授權，保留授權全文與取得時間。
+        value["acquisition"] = {
+            k: item["acquisition"][k]
+            for k in ("license_text", "acquired_at")
+            if k in item["acquisition"]
+        }
+    if item.get("review"):
+        value["review"] = {
+            k: item["review"][k]
+            for k in ("phase", "relevance", "reason", "scope")
+            if k in item["review"]
+        }
+    return value
+
+
 def _view(row):
     value = {
         k: deepcopy(getattr(row, k))
         for k in (
             "research_id",
             "material_id",
-            "base_revision",
             "query",
-            "mode",
             "status",
-            "candidates",
             "selection",
-            "search_query",
-            "cursor",
             "error_code",
             "run_id",
             "created_at",
-            "topic_id",
         )
     }
-    # 下載目標與授權快照保留在後端，前端只消費來源說明與取得結果。
-    for item in value["candidates"]:
-        item.pop("download_url", None)
-        item.pop("download_locations", None)
-        item.pop("page_identity", None)
-        item.pop("web_document", None)
-        item.pop("_reading_text", None)
-        item.pop("_document_snapshot", None)
-        item.pop("_acquired_document", None)
-        item.pop("_review_chunks", None)
-        item.pop("_prior_review", None)
-        item.pop("_read_offset", None)
-        if not research_workflow.source_allowed(item):
-            item["eligible"] = False
-            if not item.get("source_type_review"):
-                item["reason"] = "尚未核對論文／Wikipedia 文件類型；可接續研究。"
-        item.pop("inspection_sha256", None)
-        item.pop("inspection_text_sha256", None)
-        item.pop("public_entries", None)
-        item.pop("entry_lookup_done", None)
-        for field in (
-            "description",
-            "_preview_text",
-            "_read_plan",
-            "_read_plan_cursor",
-            "_window_scan_offset",
-            "_selected_windows",
-            "_reading_scope",
-            "_skipped_sections",
-            "reading_mode",
-            "reading_focus",
-        ):
-            item.pop(field, None)
-        # 引用仍留在研究紀錄供核對；輪詢畫面只需判斷說明，不重送每篇原文摘錄。
-        if item.get("review"):
-            item["review"].pop("quotes", None)
-            item["review"].pop("skipped_sections", None)
-        if row.search_state and item.get("review", {}).get("phase") != "body":
-            item["eligible"] = False
-    value["progress"] = research_workflow.progress(row.search_state, row.candidates)
+    # 只送可選或已選的來源：未通過核對與重複的搜尋結果不在畫面上出現，也不再隨輪詢送出。
+    candidates = []
+    for item in row.candidates:
+        eligible = (
+            item.get("eligible", False)
+            and research_workflow.source_allowed(item)
+            and not (row.search_state and item.get("review", {}).get("phase") != "body")
+        )
+        selected = item["id"] in row.selection
+        if not selected and (not eligible or item.get("duplicate_of")):
+            continue
+        candidates.append({**_candidate_view(item), "eligible": eligible})
+    value["candidates"] = candidates
+    value["progress"] = research_workflow.progress(
+        row.search_state, row.candidates, running=row.status == "searching"
+    )
     return value
 
 
@@ -121,10 +124,8 @@ def listing(owner, material_id, *, dsn=None):
         columns = (
             Research.research_id,
             Research.query,
-            Research.mode,
             Research.status,
             Research.selection,
-            Research.error_code,
             Research.run_id,
             Research.created_at,
             func.jsonb_array_length(
@@ -178,10 +179,14 @@ def read(owner, identity, *, dsn=None, allow_deleted=False):
             run = db.get(MaterialProcessingRun, row.run_id)
             value["run"] = (
                 {
-                    "run_id": str(run.run_id),
                     "status": run.status,
-                    "error_code": run.error_code,
-                    "output_binding": run.output_binding,
+                    "output_binding": {
+                        "knowledge_structure_revision": run.output_binding.get(
+                            "knowledge_structure_revision"
+                        )
+                    }
+                    if run.output_binding
+                    else None,
                 }
                 if run
                 else None
@@ -399,7 +404,24 @@ def claim(*, dsn=None):
         row.lease_token = uuid4()
         row.lease_expires_at = now + timedelta(minutes=30)
         return {
-            **_view(row),
+            **{
+                k: deepcopy(getattr(row, k))
+                for k in (
+                    "research_id",
+                    "material_id",
+                    "base_revision",
+                    "query",
+                    "mode",
+                    "status",
+                    "selection",
+                    "search_query",
+                    "cursor",
+                    "error_code",
+                    "run_id",
+                    "created_at",
+                    "topic_id",
+                )
+            },
             "owner": row.learner_id,
             "lease_token": row.lease_token,
             "candidates": deepcopy(row.candidates),

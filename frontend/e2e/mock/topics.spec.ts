@@ -3,7 +3,7 @@ import {materialId,runId,structureRevision,structureView,mockKnowledgeMapApi,jso
 const id='77777777-7777-4777-8777-777777777777';
 const rid='88888888-8888-4888-8888-888888888888';
 const plan={title:'TCP 入門',goals:['理解握手，不討論進階壅塞演算法'],topics:['SYN、SYN-ACK、ACK']};
-const candidate={id:'source',kind:'official',title:'TCP handshake',authors:'Mozilla Contributors',year:null,url:'https://developer.mozilla.org/en-US/docs/Glossary/TCP_handshake',doi:null,license:'CC-BY-SA',license_url:null,version:'current',eligible:true,reason:'來源可使用',state:'candidate'};
+const candidate={id:'source',kind:'official',title:'TCP handshake',authors:'Mozilla Contributors',year:null,url:'https://developer.mozilla.org/en-US/docs/Glossary/TCP_handshake',license:'CC-BY-SA',license_url:null,eligible:true,state:'candidate'};
 
 async function mockTopicApi(page:Page) {
  await mockKnowledgeMapApi(page,structureView());
@@ -16,8 +16,8 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  await page.route('**/v1/topics',r=>r.request().method()==='POST'?json(r,topic,202):json(r,{topics:[topic]}));
  await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  await page.route(`**/v1/material-processing-runs/${runId}`,r=>{const done=topic.research?.run?.status==='succeeded';return json(r,{...runFixture,status:done?'succeeded':'pending',progress_stage:done?'completed':'queued',completed_pages:done?2:0,output_binding:done?runFixture.output_binding:null,completed_at:done?runFixture.completed_at:null});});
- await page.route(`**/v1/topics/${id}/approve`,r=>{const body=r.request().postDataJSON();expect(body.expected_version).toBe(2);expect(body.proposal).toEqual(plan);approved++;topic={...topic,proposal:body.proposal,version:3,status:'approved',research_id:rid,research:{research_id:rid,material_id:null,query:'TCP',mode:'self-study',approved_scope:plan,status:'selecting',candidates:[candidate],selection:[],cursor:null,error_code:null,run_id:null}};return json(r,topic);});
- await page.route(`**/v1/topics/${id}/material`,r=>{expect(r.request().postDataJSON()).toEqual({selected:['source']});created++;topic.research={...topic.research,material_id:materialId,selection:['source'],status:'submitted',run_id:runId,run:{status:'pending',error_code:null}};return json(r,{material_id:materialId,research_id:rid},202);});
+ await page.route(`**/v1/topics/${id}/approve`,r=>{const body=r.request().postDataJSON();expect(body.expected_version).toBe(2);expect(body.proposal).toEqual(plan);approved++;topic={...topic,proposal:body.proposal,version:3,status:'approved',research_id:rid,research:{research_id:rid,material_id:null,query:'TCP',approved_scope:plan,status:'selecting',candidates:[candidate],selection:[],error_code:null,run_id:null}};return json(r,topic);});
+ await page.route(`**/v1/topics/${id}/material`,r=>{expect(r.request().postDataJSON()).toEqual({selected:['source']});created++;topic.research={...topic.research,material_id:materialId,selection:['source'],status:'submitted',run_id:runId,run:{status:'pending',output_binding:null}};return json(r,{material_id:materialId,research_id:rid},202);});
  await page.goto('/topics');await expect(page.getByRole('heading',{name:'你想學什麼？'})).toBeVisible();
  const workspace=await page.locator('.topic-request').boundingBox();
  expect(workspace!.width).toBeGreaterThan(width===390?300:1000);
@@ -40,9 +40,9 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
 });
 
 test('empty source search offers no fake map or enabled create action',async({page})=>{
- await mockTopicApi(page);const topic={topic_id:id,request:'空結果',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'空結果',mode:'self-study',approved_scope:plan,status:'selecting',candidates:[],selection:[],cursor:null,error_code:null,run_id:null}};
+ await mockTopicApi(page);const topic={topic_id:id,request:'空結果',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'空結果',approved_scope:plan,status:'selecting',candidates:[],selection:[],error_code:null,run_id:null}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
- await page.goto(`/topics/${id}`);await expect(page.getByText('沒有找到來源，請調整主題重新規劃。')).toBeVisible();await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
+ await page.goto(`/topics/${id}`);await expect(page.getByText('沒有找到可加入的來源，可用「重新規劃」調整學習範圍後再搜尋。')).toBeVisible();await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
 });
 
 for(const width of [1920,1440,390]) test(`saved planning states reopen from their links at ${width}px`,async({page})=>{
@@ -79,7 +79,7 @@ for(const width of [1920,1440,390]) test(`scope review edits preserve payload an
   attempts++;keys.push(r.request().headers()['idempotency-key']);
   expect(r.request().postDataJSON()).toEqual({expected_version:2,proposal:{title:'我的 RAG 教材',topics:['RAG 應用架構','文件載入與切分','嵌入向量','檢索與生成'],goals:['解釋 RAG 架構','比較檢索方法，不討論模型訓練']}});
   if(attempts===1)return json(r,{schema:'api-error/v1',request_id:id,reason_code:'INTERNAL_ERROR',retryable:true,message:'Retry'},500);
-  topic={...topic,proposal:r.request().postDataJSON().proposal,status:'approved',version:3,research_id:rid,research:{research_id:rid,material_id:null,status:'searching',query:'RAG',mode:'self-study',candidates:[],selection:[],cursor:null,error_code:null,run_id:null}};
+  topic={...topic,proposal:r.request().postDataJSON().proposal,status:'approved',version:3,research_id:rid,research:{research_id:rid,material_id:null,status:'searching',query:'RAG',candidates:[],selection:[],error_code:null,run_id:null}};
   return json(r,topic);
  });
  await page.goto(`/topics/${id}`);
@@ -139,26 +139,26 @@ test('retry and pending polling load the new proposal, cancel remains available'
 });
 
 
-test('unavailable sources stay distinct and there is no manual gap followup',async({page})=>{
+test('only selectable sources are listed and there is no manual gap followup',async({page})=>{
  await mockTopicApi(page);
- const blocked={...candidate,id:'blocked',title:'不可匯入論文',kind:'paper',eligible:false,license:'cc-by-nc-nd'};
- const topic:any={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'TCP',mode:'self-study',approved_scope:plan,status:'selecting',candidates:[blocked],selection:[],cursor:null,error_code:null,run_id:null}};
+ // 後端只送可選或已選的來源；沒有可選來源時不列出未通過核對的搜尋結果。
+ const topic:any={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'TCP',approved_scope:plan,status:'selecting',candidates:[],selection:[],error_code:null,run_id:null}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  await page.goto(`/topics/${id}`);
- await expect(page.getByText('目前尚無已核對可加入的來源，可在「研究詳情」查看未列入的原因。')).toBeVisible();
- await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'全選可用來源'})).toBeDisabled();
+ await expect(page.getByText('沒有找到可加入的來源，可用「重新規劃」調整學習範圍後再搜尋。')).toBeVisible();
+ await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.locator('.research-candidates')).toHaveCount(0);
  // 研究會自動補查缺口；結束後不再提供手動補查與補查方向。
  await expect(page.getByRole('button',{name:'依缺口繼續研究'})).toHaveCount(0);await expect(page.getByText('調整補查方向')).toHaveCount(0);
- topic.research.candidates=[blocked,candidate];await page.reload();
+ topic.research.candidates=[candidate];await page.reload();
  await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();
  await page.getByRole('button',{name:'全選可用來源'}).click();await expect(page.locator('.tool-stage-footer')).toContainText('已選 1 份來源');
- await page.getByLabel('搜尋來源',{exact:true}).fill('不可匯入');await expect(page.getByText('沒有符合篩選的來源。')).toBeVisible();await page.getByRole('button',{name:'清除篩選'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeChecked();
+ await page.getByLabel('搜尋來源',{exact:true}).fill('不存在');await expect(page.getByText('沒有符合篩選的來源。')).toBeVisible();await page.getByRole('button',{name:'清除篩選'}).click();await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeChecked();
 });
 
 for(const width of [1920,1440,390]) test(`topic uses canonical run progress within step four at ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:width===390?844:1000});await mockTopicApi(page);
  const sources=Array.from({length:23},(_,i)=>({...candidate,id:`source-${i}`,title:`已選文件 ${i+1}`}));
- const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:sources,selection:sources.map(c=>c.id),cursor:null,error_code:null,run_id:runId,run:{status:'succeeded',error_code:null,output_binding:runFixture.output_binding}}};
+ const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:sources,selection:sources.map(c=>c.id),error_code:null,run_id:runId,run:{status:'succeeded',output_binding:{knowledge_structure_revision:runFixture.output_binding.knowledge_structure_revision}}}};
  let current:any={...runFixture,status:'running',progress_stage:'semantics',total_pages:10,completed_pages:4,source_names:sources.map(c=>c.title),output_binding:null,completed_at:null,created_at:new Date(Date.now()-65000).toISOString()};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));await page.route(`**/v1/material-processing-runs/${runId}`,r=>json(r,current));
  await page.goto(`/topics/${id}`);
@@ -179,7 +179,7 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
 for(const status of ['failed','cancelled','partial'] as const) test(`topic material run ${status} retains canonical outcome`,async({page})=>{
  await mockTopicApi(page);
  const current={...runFixture,status,cancel_requested_at:status==='cancelled'?runFixture.updated_at:null,progress_stage:status==='partial'?'completed':'semantics',completed_pages:status==='partial'?2:1,analysis_saved:status==='failed',output_binding:status==='partial'?runFixture.output_binding:null,error_code:status==='failed'?'MATERIAL_ANALYSIS_FAILED':null};
- const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],cursor:null,error_code:null,run_id:runId,run:{status:'running',error_code:null}}};
+ const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],error_code:null,run_id:runId,run:{status:'running',output_binding:null}}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));await page.route(`**/v1/material-processing-runs/${runId}`,r=>json(r,current));
  await page.goto(`/topics/${id}`);await expect(page.getByRole('heading',{name:status==='failed'?'教材處理失敗':status==='cancelled'?'已取消教材處理':'教材與知識地圖已建立',exact:true})).toBeVisible();
  await expect(page.getByRole('progressbar')).toHaveCount(0);
@@ -192,7 +192,7 @@ for(const status of ['failed','cancelled','partial'] as const) test(`topic mater
 
 test('cancelled topic material can be deleted and leaves once the material is gone',async({page})=>{
  await mockTopicApi(page);
- const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],cursor:null,error_code:null,run_id:runId,run:{status:'cancelled',error_code:null}}};
+ const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],error_code:null,run_id:runId,run:{status:'cancelled',output_binding:null}}};
  let gone=false,discards=0;
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  await page.route(`**/v1/material-processing-runs/${runId}`,r=>gone?r.fulfill({status:404,json:{schema:'api-error/v1',request_id:id,reason_code:'RESOURCE_NOT_FOUND',retryable:false,message:'Request could not be completed.'}}):json(r,{...runFixture,status:'cancelled',cancel_requested_at:runFixture.updated_at,progress_stage:'semantics',completed_pages:1,output_binding:null}));
@@ -206,7 +206,7 @@ test('cancelled topic material can be deleted and leaves once the material is go
 
 test('topic run loading failures retry and unknown progress remains indeterminate',async({page})=>{
  await mockTopicApi(page);
- const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],cursor:null,error_code:null,run_id:runId,run:{status:'running',error_code:null}}};
+ const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],error_code:null,run_id:runId,run:{status:'running',output_binding:null}}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));let fail=true;
  await page.route(`**/v1/material-processing-runs/${runId}`,r=>fail?json(r,{schema:'api-error/v1',request_id:id,reason_code:'INTERNAL_ERROR',retryable:true,message:'Retry'},500):json(r,{...runFixture,status:'running',progress_stage:'evidence',total_pages:null,completed_pages:0,completed_at:null,output_binding:null}));
  await page.goto(`/topics/${id}`);await expect(page.getByRole('alert')).toContainText('無法讀取處理狀態');await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
@@ -216,7 +216,7 @@ test('topic run loading failures retry and unknown progress remains indeterminat
 
 test('topic rejects a foreign run and ignores late responses after switching topics',async({page})=>{
  await mockTopicApi(page);
- const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],cursor:null,error_code:null,run_id:runId,run:{status:'running',error_code:null}}};
+ const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],error_code:null,run_id:runId,run:{status:'running',output_binding:null}}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});let retry=false,waiting=false;
  await page.route(`**/v1/material-processing-runs/${runId}`,async r=>{if(!retry)return json(r,{...runFixture,material_id:id});waiting=true;await held;return json(r,runFixture);});
@@ -225,14 +225,16 @@ test('topic rejects a foreign run and ignores late responses after switching top
  await expect(page).toHaveURL(/\/materials$/);await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);await expect(page.getByRole('progressbar')).toHaveCount(0);
 });
 
-test('source search provenance and partial service failures remain clear',async({page})=>{
+test('failed sources and partial service failures remain clear',async({page})=>{
  await mockTopicApi(page);
- const source={...candidate,state:'failed',error_code:'RESEARCH_SOURCE_BLOCKED',discovered_by:['OpenAlex','Crossref']};
- const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,status:'selecting',query:'TCP',mode:'self-study',candidates:[source],selection:[],cursor:'more',error_code:'RESEARCH_PARTIAL_SEARCH',run_id:null}};
+ const source={...candidate,state:'failed',error_code:'RESEARCH_SOURCE_BLOCKED',acquisition:{license_text:'CC BY-SA 4.0 授權全文',acquired_at:'2026-10-01T00:00:00Z'}};
+ const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,status:'selecting',query:'TCP',candidates:[source],selection:[],error_code:'RESEARCH_PARTIAL_SEARCH',run_id:null}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
- await page.goto(`/topics/${id}`);await expect(page.getByText('已保留搜尋結果；部分主題仍缺少正文依據，或有來源未完成。請查看涵蓋情況與各來源說明。')).toBeVisible();
- await expect(page.getByText('此入口回應 403，未取得正文。')).toBeVisible();
- await page.getByRole('button',{name:'詳細資訊'}).click();const detail=page.getByRole('dialog',{name:'TCP handshake'});await expect(detail.getByRole('heading',{name:'授權與取得資訊'})).toBeVisible();await expect(detail.getByText('搜尋來源：OpenAlex、Crossref（同篇文件合併顯示）')).toBeVisible();
+ await page.goto(`/topics/${id}`);await expect(page.getByText('已保留搜尋結果；部分觀念還沒找到合適來源，或有來源未完成。')).toBeVisible();
+ await expect(page.getByText('來源網站拒絕讀取，未取得正文。')).toBeVisible();await expect(page.locator('.source-state.is-failed')).toHaveText('取得失敗');
+ await page.getByRole('button',{name:'詳細資訊'}).click();const detail=page.getByRole('dialog',{name:'TCP handshake'});await expect(detail.getByRole('heading',{name:'授權與取得資訊'})).toBeVisible();await expect(detail).toContainText('CC-BY-SA');await expect(detail.locator('pre')).toHaveText('CC BY-SA 4.0 授權全文');await expect(detail).toContainText('取得時間：');
+ // 搜尋管道、版本與存取紀錄屬於內部除錯資訊，不顯示。
+ await expect(detail).not.toContainText('搜尋來源');await expect(detail).not.toContainText('版本');await expect(detail).not.toContainText('存取紀錄');
  await detail.getByRole('button',{name:'關閉詳細資訊'}).click();await expect(detail).toHaveCount(0);
  await page.getByRole('checkbox',{name:'選取 TCP handshake'}).check();await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeEnabled();
 });

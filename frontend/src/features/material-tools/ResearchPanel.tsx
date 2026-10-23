@@ -83,7 +83,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
           <a className="research-card-link" href={routePath(route)} onClick={event => {
             if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); writeRoute(route); }
           }}><h2 title={item.query}>{item.query}</h2></a>
-          <p className="library-metadata research-record-counts">{item.candidate_count} 個候選來源 · {item.run_status === 'succeeded' ? `已加入 ${item.selection.length} 份` : item.status === 'submitted' ? `已送出 ${item.selection.length} 份` : `已選 ${tasks.current[item.research_id]?.selected.length ?? item.selection.length} 份`}</p>
+          <p className="library-metadata research-record-counts">{item.run_status === 'succeeded' ? `已加入 ${item.selection.length} 份` : item.status === 'submitted' ? `已送出 ${item.selection.length} 份` : `已選 ${tasks.current[item.research_id]?.selected.length ?? item.selection.length} 份`}</p>
           <p className="research-record-description">{info.description}</p>
           {item.created_at && <time className="library-metadata" dateTime={item.created_at}>{new Date(item.created_at).toLocaleString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})} 建立</time>}
           <button className={info.tone === 'complete' ? 'secondary-button' : 'primary-button'} type="button" onClick={() => writeRoute(route)}>{info.cta}<Icon name="chevron-right" size={16}/></button>

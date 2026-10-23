@@ -85,10 +85,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
   @keyframes source-detail-in { from { transform:translateY(24px); opacity:0; } }
 }
 @media (prefers-reduced-motion: reduce) { .source-detail-panel[open] { animation:none; } }
-.source-attempts { margin:0; padding:0; list-style:none; }
-.source-attempts li { margin:4px 0; overflow-wrap:anywhere; }
-.source-attempts li > span { display:block; color:var(--text-secondary); }
-.source-attempts a, .source-license a { color:var(--studydy-blue); }
+.source-license a { color:var(--studydy-blue); }
 .research-candidates pre { max-height:150px; overflow:auto; font-size:11px; white-space:pre-wrap; overflow-wrap:anywhere; }
 .source-picker.is-readonly .research-candidates { max-height:360px; }
 .source-picker-empty { grid-column:1 / -1; margin:0; padding:22px 12px; color:var(--text-secondary); font-size:14px; text-align:center; }
@@ -97,17 +94,6 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .source-page-buttons, .source-page-number { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
 .source-page-buttons .text-button { min-width:34px; min-height:34px; padding:0 10px; border-radius:999px; font-size:13px; }
 .source-page-buttons [aria-current="page"] { background:var(--studydy-blue); color:#fff; }
-.source-other-results { color:var(--text-secondary); font-size:13px; }
-.source-other-results > summary { cursor:pointer; font-weight:800; }
-.source-other-results > p { margin:8px 0; }
-.source-other-results section + section { margin-top:12px; }
-.source-other-results h4 { margin:0 0 6px; color:var(--text-primary); font-size:13px; font-weight:800; }
-.source-other-results ul { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
-.source-other-results li { padding:10px 14px; border-radius:16px; background:var(--page-cool); }
-.source-other-results li strong { display:block; color:var(--text-primary); font-size:13px; }
-.source-other-results li p { margin:2px 0 4px; font-size:12px; }
-.source-other-results li a { color:var(--studydy-blue); font-size:12px; font-weight:800; text-decoration:none; }
-.source-review, .source-reference-note { margin:0; }
 
 /* 精簡模式（補充學習）：工具列一列，卡片以標題為主。 */
 .source-picker.is-compact .source-picker-filters { grid-template-columns:minmax(0,1fr) 140px auto auto; align-items:center; gap:10px; }
@@ -122,33 +108,13 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 /* ── 研究進度 ── */
 .research-progress { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; min-width:0; margin:0; padding:12px 16px; border-radius:18px; background:var(--studydy-blue-soft-2); }
 .research-progress-heading { display:flex; flex:1; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; font-size:14px; }
-.research-progress > .research-progress-details { margin:0; }
-.research-progress > .research-progress-details[open], .research-progress > progress, .research-progress > p { flex-basis:100%; }
+.research-progress > progress, .research-progress > p, .research-progress > small { flex-basis:100%; }
+.research-progress-heading > span { color:var(--text-secondary); font-size:12px; font-weight:700; }
 .research-progress progress { width:100%; height:10px; overflow:hidden; border:0; border-radius:999px; background:var(--surface); accent-color:var(--studydy-blue); }
 .research-progress progress::-webkit-progress-bar { border-radius:999px; background:var(--surface); }
 .research-progress progress::-webkit-progress-value { border-radius:999px; background:var(--studydy-blue); }
-.research-progress progress:indeterminate { background:linear-gradient(90deg,var(--surface) 0 30%,var(--studydy-blue-soft) 45% 55%,var(--surface) 70%) 0 0/200% 100%; animation:research-progress-sweep 1.6s linear infinite; }
-.research-progress progress:indeterminate::-webkit-progress-bar { background:transparent; }
-@keyframes research-progress-sweep { to { background-position:-200% 0; } }
-@media (prefers-reduced-motion: reduce) { .research-progress progress:indeterminate { animation:none; } }
 .research-progress p { margin:4px 0; color:var(--text-secondary); font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
 .research-progress small { color:var(--text-muted); font-size:12px; }
-.research-progress details { font-size:12px; }
-.research-progress details summary { color:var(--studydy-blue); font-weight:800; cursor:pointer; }
-.research-progress a { overflow-wrap:anywhere; }
-.research-progress details ul { max-height:220px; overflow:auto; padding-left:20px; }
-.research-progress details li > span { margin-left:8px; color:var(--text-muted); }
-.research-progress-details > ol { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; margin:10px 0; padding:0; list-style:none; }
-.research-progress-details > ol li { display:flex; align-items:center; gap:6px; color:var(--text-muted); font-size:12px; font-weight:700; }
-.research-progress-details > ol li > span { display:grid; place-items:center; flex:none; width:22px; height:22px; border-radius:50%; background:var(--surface); }
-.research-progress-details > ol li[aria-current="step"], .research-progress-details > ol li.is-done { color:var(--studydy-blue); }
-.research-progress-details > ol li.is-done > span { background:var(--success); color:#fff; }
-.research-progress-details > ol li[aria-current="step"] > span { background:var(--studydy-blue); color:#fff; }
-.research-progress-counts { font-weight:700; }
-.research-progress .source-other-results { margin-top:6px; }
-.research-progress .source-other-results ul { max-height:none; overflow:visible; padding:0; }
-.research-progress .source-other-results li { background:var(--surface); }
-@media(max-width:700px) { .research-progress-details > ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:10px; } }
 
 /* ── 補充學習分頁（查詢列表） ── */
 .supplementary-page, .supplementary-page .research-panel { width:100%; max-width:none; }

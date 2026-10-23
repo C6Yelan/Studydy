@@ -24,6 +24,11 @@ def candidate(i='paper1'):
         'version':'publishedVersion','eligible':True,'reason':'synthetic','state':'candidate'}
 
 
+def saved_candidates(dsn,identity):
+    """研究內部狀態只留在資料庫；回應不含搜尋管道、存取紀錄等除錯欄位。"""
+    with database_session(dsn) as db:return deepcopy(db.get(MaterialResearch,identity).candidates)
+
+
 def mock_search(monkeypatch):
     monkeypatch.setattr(research,'provider',review_provider)
     monkeypatch.setattr(research.research_sources,'search',lambda *a,**kwargs:([candidate()],None,[]))
@@ -126,7 +131,8 @@ def test_next_page_results_merge_and_reject_unlicensed(closed_loop,monkeypatch):
     monkeypatch.setattr(research.research_sources,'search',pages(([candidate()],'next',[]),([candidate(),c],None,[])))
     identity=create_confirmed_research(owner,source.material_id,'q','r',dsn=dsn)['research_id']
     search_to_selection(owner,identity,dsn)
-    assert len(research.read(owner,identity,dsn=dsn)['candidates'])==2
+    assert len(saved_candidates(dsn,identity))==2
+    assert [c['id'] for c in research.read(owner,identity,dsn=dsn)['candidates']]==['paper1']
     with pytest.raises(SourceError,match='REQUEST_INVALID'):research.action(owner,identity,'acquire',['unlicensed'],dsn=dsn)
 
 
@@ -184,12 +190,12 @@ def test_analysis_retry_updates_research_entry_atomically(revisions,monkeypatch)
 def test_new_research_reuses_identical_unpublished_source(closed_loop,monkeypatch):
     learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
     first=ready(owner,source.material_id,dsn,monkeypatch)
-    source_id=research.read(owner,first,dsn=dsn)['candidates'][0]['source_id']
+    source_id=saved_candidates(dsn,first)[0]['source_id']
     second=create_confirmed_research(owner,source.material_id,'再找同一份補充','second',dsn=dsn)['research_id']
     search_to_selection(owner,second,dsn);research.action(owner,second,'acquire',['paper1'],dsn=dsn)
     for _ in range(3):research.step(dsn=dsn)
     result=research.read(owner,second,dsn=dsn)
-    assert result['status']=='ready' and result['candidates'][0]['source_id']==source_id
+    assert result['status']=='ready' and saved_candidates(dsn,second)[0]['source_id']==source_id
     with database_session(dsn) as db:assert len(db.scalars(select(MaterialSource)).all())==2
 
 
@@ -235,10 +241,10 @@ def test_cross_provider_next_page_deduplicates_without_replacing_candidate_or_ex
     search_to_selection(owner,work['research_id'],dsn)
     result=research.read(owner,work['research_id'],dsn=dsn)
     assert result['error_code']=='RESEARCH_PARTIAL_SEARCH'
-    assert len(result['candidates'])==1
-    saved=result['candidates'][0]
+    assert len(result['candidates'])==1 and len(saved_candidates(dsn,work['research_id']))==1
+    saved=saved_candidates(dsn,work['research_id'])[0]
     assert saved['id']==first['id'] and saved['discovered_by']==['OpenAlex','Crossref']
-    assert 'download_url' not in saved and 'download_locations' not in saved
+    assert 'download_url' not in result['candidates'][0] and 'download_locations' not in result['candidates'][0]
     research.action(owner,work['research_id'],'acquire',[first['id']],dsn=dsn)
     assert research.read(owner,work['research_id'],dsn=dsn)['selection']==[first['id']]
 
@@ -264,10 +270,12 @@ def test_wikipedia_source_uses_existing_normalization_and_records_acquisition(re
     result=research.read(owner,identity,dsn=dsn)
     assert result['status']=='ready'
     acquired=result['candidates'][0]
-    assert acquired['state']=='ready' and acquired['normalization_id']
-    assert acquired['acquisition']['original_sha256']==doc['original_sha256']
-    assert acquired['acquisition']['download_url']==doc['url']
-    assert acquired['acquisition']['derivative_license']=='CC-BY-SA-4.0'
+    saved=saved_candidates(dsn,identity)[0]
+    assert acquired['state']=='ready' and saved['normalization_id']
+    assert saved['acquisition']['original_sha256']==doc['original_sha256']
+    assert saved['acquisition']['download_url']==doc['url']
+    assert saved['acquisition']['derivative_license']=='CC-BY-SA-4.0'
+    assert acquired['acquisition']['acquired_at']==saved['acquisition']['acquired_at']
     assert 'download_url' not in acquired and 'page_identity' not in acquired
     assert 'quotes' not in acquired['review']
     with database_session(dsn) as db:
@@ -287,10 +295,13 @@ def test_background_checkpoint_survives_cancel_and_retry_without_repeating_finis
     stale=research.claim(dsn=dsn)
     research.action(owner,identity,'cancel',dsn=dsn)
     assert not research.save(stale,lambda row:setattr(row,'status','selecting'),dsn=dsn)
-    assert research.read(owner,identity,dsn=dsn)['progress']==checkpoint
+    # 停止後進度保持原檢查點，只不再送出進行中的說明。
+    assert research.read(owner,identity,dsn=dsn)['progress']=={**checkpoint,'summary':''}
     research.action(owner,identity,'retry',dsn=dsn)
     done=search_to_selection(owner,identity,dsn)
-    assert len(calls)==1 and done['progress']['stage']=='complete' and done['progress']['read_count']==1
+    saved=saved_candidates(dsn,identity)
+    assert len(calls)==1 and done['progress']['stage']=='complete'
+    assert sum(c['access']['status']=='read' and c['review']['phase']=='body' for c in saved)==1
     assert '_reading_text' not in done['candidates'][0] and '_review_chunks' not in done['candidates'][0]
 
 
@@ -308,7 +319,7 @@ def test_cancel_while_reading_does_not_publish_late_body(closed_loop,monkeypatch
     monkeypatch.setattr(research.research_workflow,'inspect_candidate',inspect)
     research.step(dsn=dsn)
     view=research.read(owner,identity,dsn=dsn)
-    assert view['status']=='cancelled' and 'access' not in view['candidates'][0]
+    assert view['status']=='cancelled' and 'access' not in saved_candidates(dsn,identity)[0]
 
 
 def test_background_source_text_is_lossless_and_summary_does_not_expose_it(closed_loop,monkeypatch):
@@ -320,7 +331,7 @@ def test_background_source_text_is_lossless_and_summary_does_not_expose_it(close
         row.candidates=[{**candidate(),'_reading_text':'literal\x00source','_read_offset':0,'access':{'status':'read','characters':14}}]
     with database_session(dsn) as db:assert db.get(MaterialResearch,identity).candidates[0]['_reading_text']=='literal\x00source'
     assert research.listing(owner,source.material_id,dsn=dsn)['researches'][0]['candidate_count']==1
-    assert '_reading_text' not in research.read(owner,identity,dsn=dsn)['candidates'][0]
+    assert 'literal' not in repr(research.read(owner,identity,dsn=dsn))
 
 
 def test_plan_uses_current_material_concepts_without_sending_evidence_or_answers(closed_loop,monkeypatch):
@@ -498,3 +509,38 @@ def test_partial_acquisition_submits_only_ready_sources_and_keeps_failures(revis
     with database_session(dsn) as db:
         assert db.get(ResearchDocument,(identity,sha256(new_data).digest())) is None
     assert read_knowledge_structure(owner,material,run_id=outcome.run_id,dsn=dsn).document==document
+
+
+def test_view_sends_only_learner_facing_fields(closed_loop,monkeypatch):
+    learner,source,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    mock_search(monkeypatch)
+    identity=create_confirmed_research(owner,source.material_id,'queue','slim-view',dsn=dsn)['research_id']
+    internal={'discovered_by':['OpenAlex'],'screening':{'decision':'read','reason':'r','basis':'summary'},'preview':{'text':'p'},
+        'access':{'status':'read','method':'pdf','attempts':[{'url':'https://example.org/a','outcome':'read','http_status':200}]},
+        'research_topics':[0],'description_kind':'abstract','inspection_sha256':'digest','source_id':str(uuid4())}
+    usable={**candidate('usable'),**internal,'source_type_review':{'type':'paper','reason':'r','document_key':'digest'},
+        'review':{'phase':'body','relevance':'direct','reason':'切題','topics':[0],'scope':'sections','quotes':[{'quote':'q'}]},
+        'acquisition':{'license_text':'CC BY','acquired_at':'2026-10-01T00:00:00Z','original_sha256':'x','download_url':'https://example.org/a.pdf'}}
+    with database_session(dsn) as db:
+        row=db.get(MaterialResearch,identity)
+        row.status='selecting'
+        row.search_state={**row.search_state,'stage':'complete','round':2,'summary':'舊說明','warnings':['RESEARCH_NO_NEW_EVIDENCE'],'finish_reason':'covered',
+            'coverage':[{'topic':'佇列：順序','status':'missing','reason':'r','source_ids':['usable']}]}
+        row.candidates=[usable,{**candidate('unread'),**internal},{**usable,'id':'copy','duplicate_of':'usable'}]
+    view=research.read(owner,identity,dsn=dsn)
+    assert [c['id'] for c in view['candidates']]==['usable']
+    assert set(view['candidates'][0])=={'id','kind','title','authors','year','url','license','license_url','eligible','state','acquisition','review'}
+    assert set(view['candidates'][0]['acquisition'])=={'license_text','acquired_at'}
+    assert set(view['candidates'][0]['review'])=={'phase','relevance','reason','scope'}
+    assert view['progress']=={'stage':'complete','completed':None,'total':None,'unit':'queries','topics':[{'topic':'佇列：順序','status':'missing'}],
+        'summary':'','finish_reason':'covered','waiting_until':None}
+    forbidden={'screening','preview','access','discovered_by','version','research_topics','description_kind','source_type_review','source_id',
+        'doi','duplicate_of','round','warnings','unavailable_sources','candidate_count','read_count','importable_count','screened_count',
+        'mode','cursor','search_query','base_revision','topic_id'}
+    def keys(value):
+        if isinstance(value,dict):
+            for k,v in value.items():yield k;yield from keys(v)
+        elif isinstance(value,list):
+            for v in value:yield from keys(v)
+    # 已核准範圍是使用者自己的規劃，其 topics 鍵不屬於內部欄位。
+    assert not forbidden & set(keys({k:v for k,v in view.items() if k!='approved_scope'}))

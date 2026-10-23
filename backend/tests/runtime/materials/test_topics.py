@@ -186,7 +186,8 @@ def test_supplement_uses_confirmed_scope_and_never_searches_before_approval(clos
     edited={**PLAN,'topics':['佇列停止：何時沒有可處理資料','錯誤恢復：重試與終止的條件']}
     approved=topics.approve(owner,scope['topic_id'],view['version'],edited,'confirm-supplement',dsn=dsn)
     work=research.read(owner,approved['research_id'],dsn=dsn)
-    assert work['material_id']==source.material_id and work['mode']=='review'
+    with database_session(dsn) as db:mode=db.get(MaterialResearch,approved['research_id']).mode
+    assert work['material_id']==source.material_id and mode=='review'
     assert work['approved_scope']==edited
     assert research.step(dsn=dsn)
     progress=research.read(owner,approved['research_id'],dsn=dsn)['progress']

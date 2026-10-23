@@ -477,97 +477,47 @@ def _searches(values, topics):
     return result
 
 
-def progress(state, candidates):
+def progress(state, candidates, *, running):
+    """畫面用的研究進度：目前階段的可計數進度、仍缺來源的觀念與結束原因。"""
     if not state:
         return None
     stage = state["stage"]
     searches = state.get("searches", [])
-    read = [c for c in candidates if c.get("access", {}).get("status") == "read"]
-    checked = [
-        c
-        for c in read
-        if source_allowed(c) and c.get("review", {}).get("phase") == "body"
-    ]
-    screened = [c for c in candidates if c.get("screening") and not _needs_preview(c)]
     deep = [
         c
         for c in candidates
         if c.get("screening")
         and c.get("screening")["decision"] in ("read", "uncertain")
     ]
-    if stage in ("planning", "following_up", "organizing"):
-        done = total = None
-    elif stage == "searching":
+    if stage == "searching":
         done = sum(s["status"] != "pending" for s in searches)
         total = len(searches)
     elif stage == "collecting":
         done = sum(not _needs_preview(c) for c in candidates)
         total = len(candidates)
     elif stage == "screening":
-        done = len(screened)
+        done = sum(
+            bool(c.get("screening")) and not _needs_preview(c) for c in candidates
+        )
         total = len(candidates)
     elif stage in ("reading", "locating", "assessing"):
         done = sum(not _needs_body(c) for c in deep)
         total = len(deep)
     else:
         done = total = None
-    by_id = {c["id"]: c for c in candidates}
-    topics = [
-        {
-            **topic,
-            "sources": [
-                {
-                    "id": identity,
-                    "title": by_id[identity]["title"],
-                    "url": by_id[identity]["url"],
-                }
-                for identity in topic.get("source_ids", [])
-                if identity in by_id
-            ],
-        }
-        for topic in state.get("coverage", [])
-    ]
     return {
         "stage": stage,
-        "round": state.get("round", 1),
         "completed": done,
         "total": total,
         "unit": "sources"
         if stage in ("collecting", "screening", "reading", "locating", "assessing")
         else "queries",
-        "candidate_count": len(candidates),
-        "read_count": len(checked),
-        "screened_count": len(screened),
-        "deep_read_count": len(deep),
-        "reference_count": sum(
-            c.get("screening")["decision"] == "reference" for c in screened
-        ),
-        "excluded_count": sum(
-            c.get("screening")["decision"] == "exclude" for c in screened
-        ),
-        "uncertain_count": sum(
-            c.get("screening")["decision"] == "uncertain" for c in screened
-        ),
-        "recommended_count": sum(
-            c.get("review", {}).get("phase") == "body"
-            and c["review"]["relevance"] == "direct"
-            for c in candidates
-        ),
-        "importable_count": sum(
-            source_allowed(c)
-            and c.get("eligible", False)
-            and c.get("review", {}).get("phase") == "body"
-            and c["review"]["relevance"] != "unrelated"
-            for c in candidates
-        ),
-        "topics": topics,
-        "summary": state.get("summary", ""),
-        "warnings": state.get("warnings", []),
-        "unavailable_sources": [
-            {"id": c["id"], "title": c["title"], "url": c["url"], "access": c["access"]}
-            for c in candidates
-            if c.get("access", {}).get("status") == "unavailable"
+        "topics": [
+            {"topic": topic["topic"], "status": topic["status"]}
+            for topic in state.get("coverage", [])
         ],
+        # 進度說明只描述進行中的工作；停止或完成後不再顯示舊階段的文字。
+        "summary": state.get("summary", "") if running else "",
         "finish_reason": state.get("finish_reason"),
         "waiting_until": state.get("waiting_until"),
     }

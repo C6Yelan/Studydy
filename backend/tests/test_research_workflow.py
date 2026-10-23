@@ -48,7 +48,7 @@ def test_stages_are_resumable_and_complete_all_planned_searches(monkeypatch):
     assert done['search_state']['finish_reason']=='covered'
     assert done['candidates'][0]['review']['quotes'][0]['quote']=='Agent memory stores observations.'
     assert '_reading_text' not in done['candidates'][0]
-    assert flow.progress(done['search_state'],done['candidates'])['read_count']==1
+    assert sum(c.get('access',{}).get('status')=='read' and c.get('review',{}).get('phase')=='body' and flow.source_allowed(c) for c in done['candidates'])==1
 
 
 def test_covered_topic_can_check_a_specific_counterexample_without_rejecting_existing_evidence(monkeypatch):
@@ -198,7 +198,7 @@ def test_explicit_retry_after_is_saved_instead_of_busy_waiting(monkeypatch):
     for _ in range(6):value.update(flow.advance(value,review_provider))
     assert value['search_state']['waiting_until']==1600
     assert value['status']=='searching'
-    assert flow.progress(value['search_state'],value['candidates'])['waiting_until']==1600
+    assert flow.progress(value['search_state'],value['candidates'],running=True)['waiting_until']==1600
 
 
 def test_all_selected_deep_reads_finish_before_followup(monkeypatch):
@@ -283,7 +283,7 @@ def test_deferred_source_waits_only_after_checking_available_evidence(monkeypatc
         value.update(flow.advance(value,provider))
         if value['search_state'].get('waiting_until') or value['status']=='selecting':break
     assert read==['other'] and value['search_state']['waiting_until']==1600
-    assert flow.progress(value['search_state'],value['candidates'])['completed']==1
+    assert flow.progress(value['search_state'],value['candidates'],running=True)['completed']==1
     monkeypatch.setattr(flow.time,'time',lambda:1600)
     done,_=drive(value,provider)
     assert read==['other','deferred']
@@ -335,7 +335,7 @@ def test_unavailable_fulltext_with_only_viewer_text_is_not_reported_as_reviewed_
     done,_=drive(state(),provider)
     assert done['candidates'][0]['access']['status']=='unavailable'
     assert done['candidates'][0]['review']['phase']=='unavailable'
-    assert flow.progress(done['search_state'],done['candidates'])['read_count']==0
+    assert sum(c.get('access',{}).get('status')=='read' and c.get('review',{}).get('phase')=='body' and flow.source_allowed(c) for c in done['candidates'])==0
 
 
 def test_summary_screening_routes_references_and_exclusions_without_body_reads(monkeypatch):
@@ -352,8 +352,7 @@ def test_summary_screening_routes_references_and_exclusions_without_body_reads(m
     done,_=drive(state(),provider)
     assert fetched==['deep']
     assert {c['id']:c['screening']['decision'] for c in done['candidates']}=={'deep':'read','reference':'reference','excluded':'exclude'}
-    p=flow.progress(done['search_state'],done['candidates'])
-    assert (p['screened_count'],p['deep_read_count'],p['reference_count'],p['excluded_count'])==(3,1,1,1)
+    assert not any(flow._needs_preview(c) for c in done['candidates'])
 
 
 def test_uncertain_summary_expands_then_checks_body_when_information_is_still_missing(monkeypatch):

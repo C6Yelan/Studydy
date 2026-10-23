@@ -213,7 +213,8 @@ test('research collection cards open scoped detail pages and retain task drafts 
  const first=page.getByRole('article',{name:records[0].query,exact:true}),progress=page.getByRole('article',{name:records[1].query,exact:true});
  await expect(page.locator('.research-record')).toHaveCount(3);expect(detailReads).toBe(0);
  await expect(page.locator('.research-candidates')).toHaveCount(0);
- await expect(first).toContainText('4 個候選來源');await expect(progress).toContainText('已送出 1 份');
+ // 列表卡只說明選取狀態，不列搜尋找到的候選總數。
+ await expect(first).toContainText('已選 0 份');await expect(first).not.toContainText('候選');await expect(progress).toContainText('已送出 1 份');
  const a=(await first.boundingBox())!,b=(await progress.boundingBox())!;expect(b.x).toBeGreaterThan(a.x+a.width);expect(b.y).toBeCloseTo(a.y,0);
  const last=(await page.locator('.research-record').last().boundingBox())!,grid=(await page.locator('.research-records').boundingBox())!;
  const gutter=await page.locator('.research-records').evaluate(el=>el.offsetWidth-el.clientWidth+parseFloat(getComputedStyle(el).paddingRight));

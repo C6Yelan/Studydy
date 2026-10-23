@@ -8,7 +8,7 @@ import { Icon } from '../../ui/Icon';
 import { StateView } from '../../ui/StateView';
 import { ResearchProgress } from './ResearchProgress';
 import { SourceCandidates, sourceReasons as reasons } from './SourceCandidates';
-import { researchActive, researchTaskInfo, researchSummary, type Research, type ResearchDraft } from './research';
+import { researchActive, type Research, type ResearchDraft } from './research';
 
 export function ResearchDetail({ api, materialId, researchId, draft, onDraftChange, onMaterialUpdated, contentNavigation }: {
   api: StudydyApiClient; materialId: string; researchId: string; draft?: ResearchDraft;
@@ -65,7 +65,6 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
   const publishedRevision = completed ? view?.run?.output_binding?.knowledge_structure_revision : undefined;
   const selectionMatches = !!view && view.selection.length === selected.length && view.selection.every(id => selected.includes(id));
   const canConfirm = view?.status === 'ready' && !editing && selectionMatches;
-  const info = view ? researchTaskInfo(researchSummary(view)) : null;
   const stageNames = [view?.progress ? '背景研究' : '搜尋資料', '選取來源', '加入教材'];
   const currentStage = submitted || canConfirm ? 2 : view?.progress && view.status === 'searching' || !view?.candidates.length || (['failed', 'cancelled'].includes(view?.status ?? '') && !view?.selection.length) ? 0 : 1;
   const editable = !!view && ['selecting', 'ready', 'failed'].includes(view.status);
@@ -113,13 +112,12 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
           : { name: 'material-run', materialId, runId: view.run_id! }); }}>{publishedRevision ? '查看補充教材' : '查看教材分析'}<Icon name="chevron-right" size={16} /></button>}
         {['succeeded','partial'].includes(view.run?.status ?? '') && view.candidates.some(c => view.selection.includes(c.id) && c.state === 'failed') && <button className="secondary-button" disabled={busy} onClick={() => void perform('retry')}>重試未完成來源</button>}
       </div>}
-      {view.progress && stage !== 2 && <ResearchProgress progress={view.progress} running={view.status === 'searching'} others={readOnly ? undefined : view.candidates} />}
+      {view.progress && stage !== 2 && <ResearchProgress progress={view.progress} running={view.status === 'searching'} available={view.candidates.filter(candidate => candidate.eligible).length} />}
       {!view.progress && stage === 0 && view.status === 'searching' && <div className="tool-wait" role="status"><span className="loading-ring" /><p>正在尋找補充資料，搜尋結果會保存在這筆紀錄。</p></div>}
       {stage === 2 && canConfirm && <div className="tool-selection-heading"><h4>確認加入的來源 · {acquiredCount} 份</h4><button className="text-button" disabled={busy} onClick={() => navigate(1)}>調整來源</button></div>}
       {stage === 2 && submitted && <h4 className="tool-section-label">{completed ? '已加入的來源' : '已送出的來源'} · {acquiredCount} 份</h4>}
       {(!view.progress || view.status !== 'searching') && displayed.length > 0 && <SourceCandidates compact showAcquisitionDetails={false} candidates={displayed} selected={selected} disabled={working || !editable || stage !== 1} readOnly={readOnly} search={{value:sourceQuery,onChange:setSourceQuery}} inlineSearch onChange={ids => { setSelected(ids); setConfirmed(false); }} />}
-      {view.progress && view.status === 'selecting' && !displayed.length && <p className="tool-empty">這次尚未整理出切題的正文來源，可在「研究詳情」查看原因，或重新確認搜尋範圍。</p>}
-      {!view.candidates.length && !researchActive.has(view.status) && <p className="tool-empty">尚未取得可用來源。可在「研究詳情」查看原因，或重新確認搜尋範圍。</p>}
+      {!view.candidates.length && !researchActive.has(view.status) && <p className="tool-empty">{view.progress ? '可重新確認搜尋範圍後再搜尋。' : '尚未取得可用來源，可重新確認搜尋範圍後再搜尋。'}</p>}
       {stage === 2 && canConfirm && <div className="research-confirm">{acquiredCount < view.selection.length && <p>部分來源處理未完成，本次先加入已準備好的 {acquiredCount} 份；未完成紀錄會保留。</p>}<p>這些來源目前尚未納入知識地圖；確認後會開始分析。加入後會更新教材與知識地圖，<strong>無法撤回新增內容</strong>。</p><label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我了解加入後不可逆</label></div>}
       {!submitted && <footer className="tool-stage-footer">
         <div className="tool-footer-secondary">

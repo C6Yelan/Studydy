@@ -18,8 +18,7 @@ import '../material-tools/styles.css';
 import './styles.css';
 
 type Scope={title:string;goals:string[];topics:string[]};
-type Work=Research&{material_id:string|null;run?:{status:string;error_code:string|null;output_binding?:{knowledge_structure_revision:string}|null}};
-export type Topic={topic_id:string;material_id:string|null;request:string;proposal:Scope|null;version:number;status:string;research_id:string|null;research?:Work;error_code:string|null};
+export type Topic={topic_id:string;material_id:string|null;request:string;proposal:Scope|null;version:number;status:string;research_id:string|null;research?:Research;error_code:string|null};
 const active=new Set(['searching','acquiring','normalizing','ready']);
 const stages:Record<string,string>={searching:'正在搜尋來源',selecting:'選擇想加入的來源',acquiring:'正在取得選取來源',normalizing:'正在轉換文件',ready:'正在建立教材分析',submitted:'已送入教材分析',failed:'處理未完成',cancelled:'已停止'};
 const timelineStages=materialProgressStages.slice(0,-1).map(stage=>({label:materialProgressStageLabel(stage),icon:stage==='semantics'?'map' as const:'process' as const}));
@@ -73,7 +72,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const perform=async(fn:()=>Promise<unknown>)=>{setBusy(true);setError('');try{await fn();if(alive.current)setReload(v=>v+1);}catch(e){if(alive.current)setError(errorMessage(e));}finally{if(alive.current)setBusy(false);}};
  const generate=()=>perform(async()=>{const payload={request,...(view?.material_id?{material_id:view.material_id}:{})};const body=JSON.stringify(payload);if(createIntent.current?.body!==body)createIntent.current={body,key:crypto.randomUUID()};const t=await api.studyTools<Topic>('/v1/topics',payload,createIntent.current.key);createIntent.current=null;if(alive.current)writeRoute({name:'topic',topicId:t.topic_id});});
  const actResearch=(action:string,ids?:string[])=>perform(async()=>{
-  const result=await api.studyTools<Work>(`/v1/research/${view?.research_id}/actions`,{action,...(ids?{selected:ids}:{})});
+  const result=await api.studyTools<Research>(`/v1/research/${view?.research_id}/actions`,{action,...(ids?{selected:ids}:{})});
   if(alive.current)setView(previous=>previous?.research_id===result.research_id?{...previous,research:result}:previous);
  });
  const work=view?.research,working=!!work&&active.has(work.status);
@@ -182,12 +181,11 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
     {!completed&&<ProcessingTimeline stages={timelineStages} currentIndex={materialProgressStages.indexOf(materialRun.progress_stage)} activity={failed?'失敗':'已停止'}/>}
    </div>)}
   </section>}
-  {work.progress&&!hasMaterial&&<ResearchProgress progress={work.progress} running={work.status==='searching'} others={readOnlySources?undefined:work.candidates}/>}
+  {work.progress&&!hasMaterial&&<ResearchProgress progress={work.progress} running={work.status==='searching'} available={work.candidates.filter(c=>c.eligible).length}/>}
   {(!work.progress||work.status!=='searching')&&(hasMaterial&&readOnlySources?<details className="topic-selected-sources"><summary>已選來源 · {work.selection.length} 份</summary>
    <SourceCandidates candidates={visibleSources} selected={selected} disabled readOnly onChange={setSelected}/>
   </details>:visibleSources.length>0&&<SourceCandidates candidates={visibleSources} selected={selected} disabled={busy||working||readOnlySources} readOnly={readOnlySources} onChange={setSelected}/>)}
-  {work.progress&&work.status==='selecting'&&!visibleSources.length&&<p className="tool-empty">這次尚未整理出切題的正文來源，可在「研究詳情」查看原因，或用「重新規劃」調整範圍。</p>}
-  {!work.candidates.length&&work.status==='selecting'&&<p className="tool-empty">沒有找到來源，請調整主題重新規劃。</p>}
+  {!work.candidates.length&&work.status==='selecting'&&<p className="tool-empty">{work.progress?'':'沒有找到可加入的來源，'}可用「重新規劃」調整學習範圍後再搜尋。</p>}
  </FlowStage>}
  </section>;
 }
