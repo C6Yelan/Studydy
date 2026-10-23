@@ -20,7 +20,7 @@ from runtime.storage.tables import Artifact, Podcast, PodcastVideo
 from runtime.storage.database import database_session
 
 
-def bundle(state, motion=False):
+def bundle(state, schema='v2'):
     episode=state['episode'];turns=[t for s in episode['script']['segments'] for t in s['turns']]
     cues=[{'title':f'重點{i+1}','parts':[{'turn_index':i,'text':turn['text']}]} for i,turn in enumerate(turns)]
     duration=episode['audio']['duration_seconds'];starts=[i*duration/len(cues) for i in range(len(cues))]
@@ -29,9 +29,18 @@ def bundle(state, motion=False):
     raw=b'\x00\x00\x00\x18ftyp'+b'synthetic-test-video'*10
     plan={'schema':'podcast-storyboard/v2','pages':[{'title':'合成影片','start_cue':0,'end_cue':len(cues)-1,'elements':[
         {'kind':'box','cue_index':0,'text':'合成測試','x':100,'y':250,'w':600,'h':200,'size':42,'color':'teal','filled':False}]}]}
-    if motion:
+    if schema=='v3':
         plan['schema']='podcast-storyboard/v3'
         plan['pages'][0]['motion']={'layout':'concept','groups':[{'elements':[0],'start_cue':0}]}
+    if schema=='v4':
+        # 聚焦頁：右側卡片＋左側章節列，內容停在字幕帶之上，重點詞逐字標在卡片文字中。
+        plan['schema']='podcast-storyboard/v4'
+        plan['pages'][0].update(elements=[
+            {'kind':'box','cue_index':0,'text':'','x':700,'y':200,'w':1110,'h':650,'size':28,'color':'teal','filled':False},
+            {'kind':'text','cue_index':0,'text':'合成測試標頭','x':760,'y':248,'w':990,'h':96,'size':64,'color':'teal','filled':False},
+            {'kind':'text','cue_index':0,'text':'合成測試標頭','x':174,'y':230,'w':456,'h':51,'size':34,'color':'teal','filled':False}],
+            spotlight={'layout':'concept','steps':[{'start_cue':0,'rails':[2],'card':[0,1]}]},
+            emphasis=[{'element_index':1,'start_cue':0,'end_cue':len(cues)-1,'kind':'highlight','quote':'標頭','color':'teal'}])
     return {'policy':POLICY,'model':'synthetic-test','cues':cues,'plan':plan,
             'alignment':{'starts':starts,'anchors':anchors,'duration':duration,'method':'synthetic','producer':'synthetic'},
             'render':{'width':1920,'height':1080,'fps':60,'duration':duration,'sha256':sha256(raw).hexdigest()},
@@ -58,15 +67,15 @@ def test_corrected_audio_requeues_cancelled_video_and_rejects_old_result(closed_
     assert videos.finish(new,bundle=bundle(new),dsn=dsn)
 
 
-@pytest.mark.parametrize('motion',[False,True])
-def test_audio_automatically_queues_one_video_and_published_video_survives_reopen(closed_loop,motion):
+@pytest.mark.parametrize('schema',['v2','v3','v4'])
+def test_audio_automatically_queues_one_video_and_published_video_survives_reopen(closed_loop,schema):
     owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop)
     original=podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)['episodes']
     state=videos.read(owner.learner_id,identity,0,dsn=dsn)
     assert state['status']=='pending'
     assert videos.prepare(owner.learner_id,identity,0,dsn=dsn)['version']==state['version']
     claim=videos.claim(dsn=dsn);assert videos.claim(dsn=dsn) is None
-    assert videos.finish(claim,bundle=bundle(claim,motion),dsn=dsn)
+    assert videos.finish(claim,bundle=bundle(claim,schema),dsn=dsn)
     published=videos.read(owner.learner_id,identity,0,dsn=dsn)
     assert published['status']=='ready' and published['video']['fps']==60
     assert videos.ready_manifest(owner.learner_id,identity,0,dsn=dsn)['timeline']['granularity']=='script_cue'
@@ -74,19 +83,19 @@ def test_audio_automatically_queues_one_video_and_published_video_survives_reope
 
     assert videos.prepare(owner.learner_id,identity,0,dsn=dsn)['version']==published['version']
     assert videos.claim(dsn=dsn) is None
-    assert videos.ready_manifest(owner.learner_id,identity,0,dsn=dsn)['storyboard']['schema']==('podcast-storyboard/v3' if motion else 'podcast-storyboard/v2')
+    assert videos.ready_manifest(owner.learner_id,identity,0,dsn=dsn)['storyboard']['schema']=='podcast-storyboard/'+schema
 
 
-@pytest.mark.parametrize('motion',[False,True])
-def test_cancel_and_delete_fence_late_video_without_changing_audio(closed_loop,motion):
+@pytest.mark.parametrize('schema',['v2','v3','v4'])
+def test_cancel_and_delete_fence_late_video_without_changing_audio(closed_loop,schema):
     owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop);claim=videos.claim(dsn=dsn)
     before=podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)['episodes']
     view=videos.read(owner.learner_id,identity,0,dsn=dsn)
     videos.action(owner.learner_id,identity,0,'cancel',view['version'],dsn=dsn)
-    assert not videos.finish(claim,bundle=bundle(claim,motion),dsn=dsn)
+    assert not videos.finish(claim,bundle=bundle(claim,schema),dsn=dsn)
     view=videos.read(owner.learner_id,identity,0,dsn=dsn)
     videos.action(owner.learner_id,identity,0,'retry',view['version'],dsn=dsn)
-    claim=videos.claim(dsn=dsn);videos.finish(claim,bundle=bundle(claim,motion),dsn=dsn)
+    claim=videos.claim(dsn=dsn);videos.finish(claim,bundle=bundle(claim,schema),dsn=dsn)
     assert podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)['episodes']==before
     manifest=videos.ready_manifest(owner.learner_id,identity,0,dsn=dsn)
     podcasts.delete_podcast(owner.learner_id,identity,dsn=dsn)
@@ -121,12 +130,12 @@ def test_video_worker_reports_provider_failure_but_audio_remains_ready(closed_lo
     assert podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)['status']=='ready'
 
 
-@pytest.mark.parametrize('motion',[False,True])
-def test_video_api_owner_ranges_and_timeline(closed_loop,monkeypatch,motion):
+@pytest.mark.parametrize('schema',['v2','v3','v4'])
+def test_video_api_owner_ranges_and_timeline(closed_loop,monkeypatch,schema):
     import runtime.api.app as api
     monkeypatch.setattr(api,'runtime_binding',lambda _: {})
     owner,_,settings,_,dsn,token=closed_loop;identity=ready(closed_loop)
-    claim=videos.claim(dsn=dsn);videos.finish(claim,bundle=bundle(claim,motion),dsn=dsn)
+    claim=videos.claim(dsn=dsn);videos.finish(claim,bundle=bundle(claim,schema),dsn=dsn)
     origin='http://127.0.0.1:4173';client=TestClient(create_app(ApiSettings(profile='local',public_origin=origin,secure_cookie=False,local_config=settings,dsn=dsn)),base_url=origin)
     root=f'/v1/podcasts/{identity}/episodes/0'
     assert client.get(root+'/video/media').status_code==401
@@ -191,7 +200,7 @@ def test_delivery_automatically_queues_video_and_keeps_original_roles(closed_loo
 
 def test_v3_motion_anchor_is_checked_before_writing_artifact(closed_loop):
     owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop);state=videos.claim(dsn=dsn)
-    value=bundle(state,True)
+    value=bundle(state,'v3')
     value['plan']['pages'][0]['motion']['groups'][0]['caption_index']=99
     with pytest.raises(SourceError,match='VIDEO_STORYBOARD_INVALID'):
         videos.finish(state,bundle=value,dsn=dsn)

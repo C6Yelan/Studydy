@@ -180,3 +180,22 @@ def test_multiline_quote_feedback_is_not_misreported_as_duplicate_text():
     _,cues,_=sample();value=plan();page=value['pages'][0];page['elements'][0]['text']='第一行\n第二行'
     page['emphasis']=[{'element_index':0,'start_cue':0,'end_cue':0,'kind':'outline','quote':'第一行\n第二行'}]
     with pytest.raises(ValueError,match='quote must be single-line'):validate_plan(value,cues)
+
+
+@pytest.mark.parametrize('change',['missing','whole','wide','newline','old_kind','no_color','legacy_schema'])
+def test_v4_highlight_is_an_exact_short_term_inside_one_text_element(change):
+    pytest.importorskip('PIL')
+    from test_podcast_video_layout import design, timeline
+    from runtime.podcast_video_layout import compile_layout
+    value=design('concept',1);value['pages'][0]['nodes'][0].update(text='CDN-Cache-Control 只對 CDN 生效。',key_terms=['CDN-Cache-Control'])
+    compiled=compile_layout(value,[{}],timeline(1,4));mark=compiled['pages'][0]['emphasis'][0]
+    assert validate_plan(compiled,[{}])==compiled
+    if change=='missing':mark['quote']='Cache-Control:'
+    if change=='whole':mark['quote']=compiled['pages'][0]['elements'][mark['element_index']]['text']
+    if change=='wide':
+        compiled['pages'][0]['elements'][mark['element_index']]['text']='長'*20+'。';mark['quote']='長'*17
+    if change=='newline':mark['quote']='CDN\nCache'
+    if change=='old_kind':mark['kind']='outline'
+    if change=='no_color':del mark['color']
+    if change=='legacy_schema':compiled['schema']='podcast-storyboard/v3'
+    with pytest.raises(ValueError,match='VIDEO_STORYBOARD_INVALID'):validate_plan(compiled,[{}])

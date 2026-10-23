@@ -15,6 +15,7 @@ from content_identity import canonical_sha256
 from . import podcasts
 from .podcast_video_plan import (
     POLICY,
+    SCHEMAS,
     timeline_for_video,
     validate_plan,
     validate_visual_timing,
@@ -296,9 +297,9 @@ def validate_bundle(state, bundle):
             or abs(metadata["duration"] - episode["audio"]["duration_seconds"]) > 0.05
         ):
             raise SourceError("VIDEO_RESULT_INVALID")
-        if not isinstance(bundle["plan"], dict) or bundle["plan"].get("schema") not in (
-            "podcast-storyboard/v2",
-            "podcast-storyboard/v3",
+        if (
+            not isinstance(bundle["plan"], dict)
+            or bundle["plan"].get("schema") not in SCHEMAS
         ):
             raise SourceError("VIDEO_RESULT_INVALID")
         plan = validate_plan(bundle["plan"], bundle["cues"])

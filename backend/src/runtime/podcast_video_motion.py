@@ -67,12 +67,13 @@ def validate_motion(page, where):
     for group in groups:
         elements = [page["elements"][j] for j in group["elements"]]
         if "source" not in group:
+            # v4 比較欄把標題與說明分成兩個文字元素，說明才能用一般墨色標重點詞。
             if elements[0]["kind"] not in ("text", "box", "circle") or any(
-                e["kind"] != "line" for e in elements[1:]
+                e["kind"] not in ("line", "text") for e in elements[1:]
             ):
                 raise ValueError(
                     where
-                    + ", motion node must contain a labelled shape and optional guides"
+                    + ", motion node must contain a labelled shape and optional text or guides"
                 )
             continue
         if (
@@ -204,6 +205,82 @@ def scene_state(t, timeline, page):
                 else None,
             }
         )
+    return result
+
+
+def validate_spotlight(page, where):
+    """聚焦頁：左側章節列列出所有節點，右側同一區域依序只亮一張卡；實測起點不足時相鄰節點共用一張卡。"""
+    spotlight = page["spotlight"]
+    if (
+        not isinstance(spotlight, dict)
+        or set(spotlight) != {"layout", "steps"}
+        or spotlight["layout"] not in ("concept", "flow")
+        or not isinstance(spotlight["steps"], list)
+        or not 1 <= len(spotlight["steps"]) <= 6
+    ):
+        raise ValueError(where + ", invalid spotlight steps")
+    elements = page["elements"]
+    used = []
+    for k, step in enumerate(spotlight["steps"]):
+        fields = {"start_cue", "rails", "card"}
+        if (
+            not isinstance(step, dict)
+            or set(step) not in (fields, fields | {"caption_index"})
+            or type(step["start_cue"]) is not int
+            or not page["start_cue"] <= step["start_cue"] <= page["end_cue"]
+            or (
+                "caption_index" in step
+                and (
+                    type(step["caption_index"]) is not int or step["caption_index"] < 0
+                )
+            )
+            or not isinstance(step["rails"], list)
+            or not 1 <= len(step["rails"]) <= 6
+            or not isinstance(step["card"], list)
+            or not len(step["rails"]) + 1
+            <= len(step["card"])
+            <= 2 * len(step["rails"]) + 1
+            or any(
+                type(j) is not int or not 0 <= j < len(elements)
+                for j in [*step["rails"], *step["card"]]
+            )
+        ):
+            raise ValueError(
+                where + f", spotlight step={k} has invalid anchor or elements"
+            )
+        rails = [elements[j] for j in step["rails"]]
+        card = [elements[j] for j in step["card"]]
+        if (
+            any(e["kind"] != "text" for e in rails + card[1:])
+            or card[0]["kind"] != "box"
+            or card[0]["text"]
+            or any(e["cue_index"] != step["start_cue"] for e in rails + card)
+        ):
+            raise ValueError(
+                where
+                + f", spotlight step={k} needs rail labels and a card box with text"
+            )
+        used += [*step["rails"], *step["card"]]
+    first = spotlight["steps"][0]
+    if first["start_cue"] != page["start_cue"] or "caption_index" in first:
+        raise ValueError(where + ", the first spotlight card starts with the page")
+    if sorted(used) != list(range(len(elements))):
+        raise ValueError(where + ", spotlight must use every element exactly once")
+
+
+def spotlight_state(t, timeline, page):
+    """每張卡從自己的實測起點亮到下一張開始；交接時短暫交叉淡化，頁首卡直接出現。"""
+    steps = page["spotlight"]["steps"]
+    starts = [window(step, timeline)[0] for step in steps]
+    ends = starts[1:] + [timeline["segments"][page["end_cue"]]["end"]]
+    fades = [min(0.3, (end - start) / 3) for start, end in zip(starts, ends)]
+    result = []
+    for k, (start, end) in enumerate(zip(starts, ends)):
+        arrive = 1.0 if k == 0 else ease((t - start) / fades[k]) if t >= start else 0.0
+        leave = (
+            ease((t - end) / fades[k + 1]) if k + 1 < len(steps) and t >= end else 0.0
+        )
+        result.append({"now": arrive * (1 - leave), "done": t >= end})
     return result
 
 

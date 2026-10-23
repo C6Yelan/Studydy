@@ -29,6 +29,10 @@ PALETTE = {
     "muted": "#74818c",
 }
 BACKGROUND = "#fafbf9"
+# 聚焦頁左側章節列：尚未講到／已講完的節點用中性灰，正在講的用卡片主色。
+RAIL_TODO = "#a3adb7"
+RAIL_DONE = "#5d6b79"
+RAIL_LINE = "#c3ccd4"
 MAX_VIDEO_BYTES = 100 * 1024 * 1024
 
 
@@ -93,13 +97,25 @@ def lines(text, size, width):
     return result
 
 
+def line_step(size, spacious):
+    """v4 大字卡片用 1.5 倍行距；舊分鏡維持原本固定 10px，已存影片的重繪結果不變。"""
+    return size + size // 2 if spacious else size + 10
+
+
 def layouts(plan):
     """超出文字區或互相覆蓋就拒絕，不以縮小字體掩蓋分鏡問題。"""
+    spacious = plan.get("schema") == "podcast-storyboard/v4"
     result = []
     errors = []
     for page_index, page in enumerate(plan["pages"]):
         items = []
         bounds = []
+        # 聚焦頁的卡片共用同一區域、依時間輪替，不同步驟之間不算互相覆蓋。
+        owner = {
+            j: k
+            for k, step in enumerate(page.get("spotlight", {}).get("steps", []))
+            for j in step["card"]
+        }
         for index, e in enumerate(page["elements"]):
             if not e["text"]:
                 items.append([])
@@ -119,7 +135,8 @@ def layouts(plan):
                 )
                 items.append([])
                 continue
-            height = len(text_lines) * (e["size"] + 10)
+            step = line_step(e["size"], spacious)
+            height = len(text_lines) * step
             if height > e["h"] - 2 * padding:
                 errors.append(
                     f"page={page_index},element={index},height={e['h']}; {len(text_lines)} wrapped lines at size={e['size']} require height>={height + 2 * padding}; move or shorten text if canvas space is insufficient"
@@ -141,12 +158,16 @@ def layouts(plan):
                 )
                 rendered.append((x, y, text))
                 bounds.append((index, x, y, x + length, y + e["size"] + 5))
-                y += e["size"] + 10
+                y += step
             items.append(rendered)
         for i, a in enumerate(bounds):
             for b in bounds[i + 1 :]:
+                rotating = (
+                    a[0] in owner and b[0] in owner and owner[a[0]] != owner[b[0]]
+                )
                 if (
                     a[0] != b[0]
+                    and not rotating
                     and max(a[1], b[1]) < min(a[3], b[3])
                     and max(a[2], b[2]) < min(a[4], b[4])
                 ):
@@ -166,6 +187,15 @@ def emphasis_layouts(plan, text_layouts):
         bounds = []
         for mark_index, mark in enumerate(page.get("emphasis", [])):
             e = page["elements"][mark["element_index"]]
+            if mark["kind"] == "highlight":
+                bounds.append(
+                    highlight_segments(
+                        text_layouts[page_index][mark["element_index"]],
+                        e["text"],
+                        mark["quote"],
+                    )
+                )
+                continue
             if mark["kind"] == "trace":
                 bounds.append((e["x"], e["y"], e["x"] + e["w"], e["y"] + e["h"]))
                 continue
@@ -201,6 +231,85 @@ def emphasis_layouts(plan, text_layouts):
     return result
 
 
+def highlight_segments(rows, text, quote):
+    """重點詞第一次出現位置對到已排好的行；可跨行，不改字級或斷行。"""
+    start = text.index(quote)
+    stop = start + len(quote)
+    segments = []
+    offset = 0
+    for row, (_, _, line) in enumerate(rows):
+        a, b = max(start, offset), min(stop, offset + len(line))
+        if a < b:
+            segments.append((row, a - offset, b - offset))
+        offset += len(line)
+    return segments
+
+
+def mix(a, b, amount):
+    return tuple(round(x + (y - x) * amount) for x, y in zip(a, b))
+
+
+def draw_rows(draw, rows, size, rgb, marks=(), dx=0, dy=0):
+    """逐行繪字；重點詞同字級同位置，只改成卡片主色並加淡色底。"""
+    f = font(size)
+    for row, (x, y, text) in enumerate(rows):
+        x, y = x - dx, y - dy
+        spans = [
+            (a, b, color, alpha)
+            for segments, color, alpha in marks
+            for r, a, b in segments
+            if r == row and alpha > 0
+        ]
+        if not spans:
+            draw.text((x, y), text, font=f, fill=rgb)
+            continue
+        for a, b, color, alpha in spans:
+            draw.rounded_rectangle(
+                (
+                    x + f.getlength(text[:a]) - 4,
+                    y + size * 0.12,
+                    x + f.getlength(text[:b]) + 4,
+                    y + size * 1.28,
+                ),
+                radius=8,
+                fill=(*color, round(34 * alpha)),
+            )
+        cuts = sorted({0, len(text), *(v for a, b, _, _ in spans for v in (a, b))})
+        for a, b in zip(cuts, cuts[1:]):
+            hit = next(((c, al) for s, e, c, al in spans if s <= a and b <= e), None)
+            draw.text(
+                (x + f.getlength(text[:a]), y),
+                text[a:b],
+                font=f,
+                fill=mix(rgb[:3], hit[0], hit[1]) if hit else rgb,
+            )
+
+
+def page_highlights(t, timeline, page, bounds):
+    """重點詞在所屬卡片被講到時淡入，之後維持到換頁；往回 seek 即消失。"""
+    from .podcast_video_motion import ease
+
+    result = {}
+    for mark, segments in zip(page.get("emphasis", []), bounds):
+        if mark["kind"] != "highlight":
+            continue
+        start = visual_window(
+            timeline, mark["start_cue"], mark["end_cue"], mark.get("caption_index")
+        )[0]
+        end = timeline["segments"][mark["end_cue"]]["end"]
+        alpha = ease((t - start) / 0.3) if start <= t < end else 0.0
+        result.setdefault(mark["element_index"], []).append(
+            (segments, palette_rgb(mark["color"]), alpha)
+        )
+    return result
+
+
+def palette_rgb(color):
+    from PIL import ImageColor
+
+    return ImageColor.getrgb(PALETTE[color])
+
+
 def emphasis_opacity(t, start, end):
     """只以實測 cue 時間控制出現／退場；seek 後也不留下前一個標記。"""
     if not start <= t < end:
@@ -230,6 +339,8 @@ def trace_path(draw, points, progress, color, width):
 
 def draw_emphasis(draw, t, timeline, page, bounds, element_states=None):
     for mark, box in zip(page.get("emphasis", []), bounds):
+        if mark["kind"] == "highlight":
+            continue
         start, end = visual_window(
             timeline, mark["start_cue"], mark["end_cue"], mark.get("caption_index")
         )
@@ -283,12 +394,63 @@ def draw_emphasis(draw, t, timeline, page, bounds, element_states=None):
                 )
 
 
+def draw_rail(draw, page, spot):
+    """左側章節列：todo 灰、now 主色淡底、done 打勾；回傳卡片不透明度與章節文字顏色。"""
+    from PIL import ImageColor
+
+    elements = page["elements"]
+    rows = [
+        (j, state)
+        for step, state in zip(page["spotlight"]["steps"], spot)
+        for j in step["rails"]
+    ]
+    centers = [elements[j]["y"] + elements[j]["h"] / 2 for j, _ in rows]
+    if page["spotlight"]["layout"] == "flow":
+        for a, b in zip(centers, centers[1:]):
+            draw.line((132, a + 30, 132, b - 30), fill=RAIL_LINE, width=3)
+    opacity = {
+        j: state["now"]
+        for step, state in zip(page["spotlight"]["steps"], spot)
+        for j in step["card"]
+    }
+    colors = {}
+    for number, ((j, state), cy) in enumerate(zip(rows, centers), 1):
+        e = elements[j]
+        own = ImageColor.getrgb(PALETTE[e["color"]])
+        now = state["now"]
+        color = mix(
+            ImageColor.getrgb(RAIL_DONE if state["done"] else RAIL_TODO), own, now
+        )
+        colors[j] = color
+        if now > 0:
+            draw.rounded_rectangle(
+                (96, e["y"] - 14, 630, e["y"] + e["h"] + 14),
+                radius=20,
+                fill=(*own, round(28 * now)),
+            )
+        draw.ellipse(
+            (110, cy - 22, 154, cy + 22),
+            fill=(*own, round(255 * now)),
+            outline=color,
+            width=3,
+        )
+        draw.text(
+            (132, cy),
+            "✓" if state["done"] else str(number),
+            font=font(26),
+            fill=mix(color, (255, 255, 255), now),
+            anchor="mm",
+        )
+    return opacity, colors
+
+
 def draw_scene(
     t, timeline, plan, page_index, text_layouts, mark_layouts, scene_cache=None
 ):
     from PIL import Image, ImageDraw, ImageColor
 
     page = plan["pages"][page_index]
+    spacious = plan.get("schema") == "podcast-storyboard/v4"
     states = None
     if "motion" in page:
         from .podcast_video_motion import scene_state
@@ -299,6 +461,11 @@ def draw_scene(
             for group, state in zip(page["motion"]["groups"], groups)
             for j in group["elements"]
         }
+    spot = None
+    if "spotlight" in page:
+        from .podcast_video_motion import spotlight_state
+
+        spot = spotlight_state(t, timeline, page)
     visible = tuple(
         not any(
             index in group["elements"]
@@ -313,10 +480,19 @@ def draw_scene(
         )
         for index in range(len(page["elements"]))
     )
+    if page.get("emphasis") and mark_layouts is None:
+        mark_layouts = emphasis_layouts(plan, text_layouts)
+    highlights = (
+        page_highlights(t, timeline, page, mark_layouts[page_index])
+        if page.get("emphasis")
+        else {}
+    )
     # 只重用視覺狀態完全相同的頁面；逐幀進度條在副本上畫，不能污染快取。
-    # emphasis 仍走原繪製路徑，避免漏掉以時間推進的描線或淡出。
+    # 舊版 emphasis 仍走原繪製路徑，避免漏掉以時間推進的描線或淡出。
     cache_key = None
-    if scene_cache is not None and not page.get("emphasis"):
+    if scene_cache is not None and all(
+        m["kind"] == "highlight" for m in page.get("emphasis", [])
+    ):
         cache_key = (
             visible,
             tuple(
@@ -327,6 +503,11 @@ def draw_scene(
             )
             if states is not None
             else (),
+            tuple((s["now"], s["done"]) for s in spot) if spot else (),
+            tuple(
+                (j, tuple(alpha for _, _, alpha in marks))
+                for j, marks in sorted(highlights.items())
+            ),
         )
         previous = scene_cache.get(page_index)
         if previous is not None and previous[0] == cache_key:
@@ -341,15 +522,16 @@ def draw_scene(
         fill=PALETTE["muted"],
     )
     d.line((100, 140, 1820, 140), fill="#d7e0e4", width=2)
+    cards, rail_colors = draw_rail(d, page, spot) if spot else ({}, {})
     for index, e in enumerate(page["elements"]):
         # Reveal 完全由時間推導；往回 seek 不留下未到時機的元素。
         if not visible[index]:
             continue
         state = states[index] if states is not None else None
-        opacity = state["opacity"] if state else 1
+        opacity = state["opacity"] if state else cards.get(index, 1)
         if opacity <= 0:
             continue
-        rgb = ImageColor.getrgb(PALETTE[e["color"]])
+        rgb = rail_colors.get(index) or ImageColor.getrgb(PALETTE[e["color"]])
         rgba = (*rgb, round(255 * opacity))
         area = (e["x"], e["y"], e["x"] + e["w"], e["y"] + e["h"])
         if state and e["kind"] == "text":
@@ -359,13 +541,19 @@ def draw_scene(
                     e["x"],
                     rows[0][1],
                     max(x + font(e["size"]).getlength(text) for x, y, text in rows),
-                    rows[-1][1] + e["size"] + 10,
+                    rows[-1][1] + line_step(e["size"], spacious),
                 )
                 d.rectangle(
                     area_text,
                     fill=(*rgb, round(18 * state["focus"] * state["entrance"])),
                 )
-        if e["kind"] in ("box", "circle"):
+        if index in cards and e["kind"] == "box":
+            # 聚焦卡：白底、主色細框與左側色條，隨講述時間交叉淡化。
+            d.rectangle(
+                area, fill=(255, 255, 255, round(255 * opacity)), outline=rgba, width=2
+            )
+            d.rectangle((e["x"], e["y"], e["x"] + 10, e["y"] + e["h"]), fill=rgba)
+        elif e["kind"] in ("box", "circle"):
             draw = d.rectangle if e["kind"] == "box" else d.ellipse
             fill = (
                 (*rgb, round(opacity * (32 if e["filled"] else 18 * state["focus"])))
@@ -416,22 +604,24 @@ def draw_scene(
                     fill=(*ImageColor.getrgb(PALETTE["teal"]), token_alpha),
                 )
         rows = text_layouts[page_index][index]
-        if state and rows and opacity < 1:
+        marks = highlights.get(index, ())
+        if rows and opacity < 1:
             # Pillow 的 RGB draw.text 不混合 fill alpha；在文字區明確合成，字體不縮放。
             base = image.crop(area)
             paint = base.copy()
-            text_draw = ImageDraw.Draw(paint)
-            for x, y, text in rows:
-                text_draw.text(
-                    (x - e["x"], y - e["y"]), text, font=font(e["size"]), fill=rgb
-                )
+            draw_rows(
+                ImageDraw.Draw(paint, "RGBA" if marks else None),
+                rows,
+                e["size"],
+                rgb,
+                marks,
+                e["x"],
+                e["y"],
+            )
             image.paste(Image.blend(base, paint, opacity), (e["x"], e["y"]))
         else:
-            for x, y, text in rows:
-                d.text((x, y), text, font=font(e["size"]), fill=rgba)
-    if page.get("emphasis"):
-        if mark_layouts is None:
-            mark_layouts = emphasis_layouts(plan, text_layouts)
+            draw_rows(d, rows, e["size"], rgba, marks)
+    if any(m["kind"] != "highlight" for m in page.get("emphasis", [])):
         draw_emphasis(d, t, timeline, page, mark_layouts[page_index], states)
     if cache_key is not None:
         if page_index not in scene_cache and len(scene_cache) >= 2:
@@ -455,7 +645,10 @@ def draw_frame(t, timeline, plan, text_layouts, mark_layouts=None, *, scene_cach
     image = draw_scene(
         t, timeline, plan, page_index, text_layouts, mark_layouts, scene_cache
     )
-    if plan.get("schema") == "podcast-storyboard/v3" and page_index:
+    if (
+        plan.get("schema") in ("podcast-storyboard/v3", "podcast-storyboard/v4")
+        and page_index
+    ):
         from .podcast_video_motion import transition
 
         blend = transition(t, timeline, page)
@@ -685,10 +878,7 @@ if __name__ == "__main__":
                     request["source_resolver"],
                 )
                 request["plan"] = compile_layout(
-                    request["semantic_plan"],
-                    request["cues"],
-                    timeline,
-                    motion="--motion" in sys.argv[4:],
+                    request["semantic_plan"], request["cues"], timeline
                 )
             validate_plan(request["plan"], request["cues"])
             text_layouts = layouts(request["plan"])

@@ -16,7 +16,8 @@ spec.loader.exec_module(service)
 def model_design(schema, kind='comparison'):
     page = design(kind, 2)['pages'][0]
     return {'pages': [{'layout': kind, 'title': page['title'],
-                       'nodes': [{k: n[k] for k in ('label', 'text')} for n in page['nodes']],
+                       'nodes': [{'label': n['label'], 'text': n['text'], 'anchor': '這是第一個', 'key_terms': ['必要條件']}
+                                 for n in page['nodes']],
                        'relations': []} for _ in range(schema['properties']['pages']['minItems'])]}
 
 
@@ -66,6 +67,7 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
         assert [p['blocks'][0]['text'] for p in source['page_context']] == [c['text'] for c in episode['claims']]
         assert [s['block_indices'] for s in source['sources']] == [[0], [1]]
         assert '"evidence_id"' not in prompt and all('claim' not in s for s in source['sources'])
+        assert 'anchor' in prompt and 'key_terms' in prompt
         calls.append(prompt);return model_design(schema,kind)
     def process(args,env,timeout,cancelled):
         assert timeout is None
@@ -74,9 +76,15 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
             if failure=='layout':result.write_text('{"error":"VIDEO_LAYOUT_INVALID:bad bounds"}');return 1
             from runtime.podcast_video_layout import compile_layout
             request=json.loads(Path(args[3]).read_text())
-            value=compile_layout(request['semantic_plan'],request['cues'],motion=True)
+            assert all('cue_index' not in n for p in request['semantic_plan']['pages'] for n in p['nodes'])
+            # 合成對齊只核對分頁與 anchor 換算；實際 timeline 驗證由 renderer 測試涵蓋。
+            measured={'segments':[{'start':2*i,'end':2*i+2,'text':'\n'.join(p['text'] for p in c['parts'])}
+                                  for i,c in enumerate(request['cues'])]}
+            value=compile_layout(request['semantic_plan'],request['cues'],measured)
             assert [(p['start_cue'],p['end_cue']) for p in value['pages']]==[(0,0),(1,1)]
-            assert all(sum(e['kind']=='arrow' for e in p['elements'])==(1 if kind=='flow' else 0) for p in value['pages'])
+            assert all(('spotlight' in p)==(kind=='flow') and not any(e['kind']=='arrow' for e in p['elements']) for p in value['pages'])
+            # 只有逐字出自節點文字的重點詞會留下；第一頁 anchor 對得到，第二頁對不到則退回頁首。
+            assert {m['quote'] for p in value['pages'] for m in p['emphasis']}=={'必要條件'}
             result.write_text(json.dumps({'valid':True,'plan':value}))
         else:
             if failure=='render':return 1

@@ -1,50 +1,62 @@
-"""語意分鏡編譯成有限圖形與可選 v3 動態群組；座標、留白與文字容量由可信程式決定。"""
+"""語意分鏡編譯成有限圖形與 v4 聚焦／動態群組；座標、時間與文字容量由可信程式決定。"""
 
 from .podcast_video_plan import (
+    KEY_TERM_LIMIT,
+    SAFE_BOTTOM,
     object_schema,
+    term_width,
     validate_plan,
     validate_visual_timing,
-    visual_window,
 )
 
 
 # 容納完整技術名稱與短句；能否放入畫面仍由實際字型量測決定。
 NODE_LABEL_LIMIT = 32
 NODE_TEXT_LIMIT = 120
+ANCHOR_LIMIT = 40
+COLORS = ("teal", "blue", "orange")
+
+
+def _line_text(limit, minimum=0):
+    return {
+        "type": "string",
+        "minLength": minimum,
+        "maxLength": limit,
+        "pattern": r"^[^\r\n]*$",
+    }
 
 
 def semantic_schema(page_count):
+    # anchor／key_terms 只是逐字引用；能否採用由 compile_layout 對講稿與節點文字核對。
+    spoken = {
+        "anchor": _line_text(ANCHOR_LIMIT, 1),
+        "key_terms": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 2,
+            "items": _line_text(2 * KEY_TERM_LIMIT, 1),
+        },
+    }
     variants = []
     for layout in ("concept", "comparison", "flow", "exchange"):
         node = object_schema(
             {
-                "label": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": NODE_LABEL_LIMIT,
-                    "pattern": r"^[^\r\n]*$",
-                },
-                "text": {"type": "string", "enum": [""]}
-                if layout == "exchange"
-                else {
-                    "type": "string",
-                    "maxLength": NODE_TEXT_LIMIT,
-                    "pattern": r"^[^\r\n]*$",
-                },
+                "label": _line_text(NODE_LABEL_LIMIT, 1),
+                "text": {"type": "string", "enum": [""]},
+            }
+            if layout == "exchange"
+            else {
+                "label": _line_text(NODE_LABEL_LIMIT, 1),
+                "text": _line_text(NODE_TEXT_LIMIT),
+                **spoken,
             }
         )
         relation = object_schema(
             {
                 "source": {"type": "integer", "minimum": 0, "maximum": 1},
                 "target": {"type": "integer", "minimum": 0, "maximum": 1},
-                "label": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 36,
-                    "pattern": r"^[^\r\n]*$",
-                }
-                if layout == "exchange"
-                else {"type": "string", "enum": [""]},
+                "label": _line_text(36, 1),
+                **spoken,
             }
         )
         low, high = (
@@ -87,7 +99,7 @@ def semantic_schema(page_count):
 
 
 def _element(text, x, y, w, h, cue, color="ink", kind="text", maximum=42):
-    from .podcast_video_render import lines, font
+    from .podcast_video_render import lines, font, line_step
 
     padding = 32 if kind == "box" else 0
     size = next(
@@ -95,7 +107,7 @@ def _element(text, x, y, w, h, cue, color="ink", kind="text", maximum=42):
             s
             for s in (64, 52, 42, 34, 28)
             if s <= maximum
-            and len(lines(text, s, w - padding)) * (s + 10) <= h - padding
+            and len(lines(text, s, w - padding)) * line_step(s, True) <= h - padding
             and all(
                 font(s).getlength(line) <= w - padding
                 for line in lines(text, s, w - padding)
@@ -121,6 +133,17 @@ def _element(text, x, y, w, h, cue, color="ink", kind="text", maximum=42):
     }
 
 
+def _fitted(text, x, y, w, h, cue, color, maximum):
+    """文字元素只占實際行高，讓下一段緊接排列；字級仍由 _element 量測。"""
+    from .podcast_video_render import lines, line_step
+
+    element = _element(text, x, y, w, h, cue, color, "text", maximum)
+    element["h"] = len(lines(text, element["size"], w)) * line_step(
+        element["size"], True
+    )
+    return element
+
+
 def _line(x, y, w, h, cue, color="muted", kind="line"):
     return {
         "kind": kind,
@@ -136,40 +159,170 @@ def _line(x, y, w, h, cue, color="muted", kind="line"):
     }
 
 
-def _node_geometry(kind, node_count, node_index):
-    """依頁面語意配置節點區域；文字量測仍由 _element 決定字級。"""
-    if kind == "exchange":
-        x, y, w, h = 140 + node_index * 1140, 190, 500, 100
-        shape, size = "box", 42
-    elif kind == "comparison":
-        w = (1720 - (node_count - 1) * 70) // node_count
-        x, y, h = 100 + node_index * (w + 70), 240, 680
-        shape, size = "text", 52
-    elif kind == "concept" and node_count <= 4:
-        if node_count == 1:
-            x, y, w, h = 180, 260, 1560, 640
-        elif node_index == 0:
-            x, y, w, h = 120, 260, 670, 640
+def _slots(timeline, start, end):
+    """頁內可用的實測起點：每個 teaching cue 開頭與其中的字幕開頭，附講稿字元位置。"""
+    segments = timeline["segments"]
+    page_start, page_end = segments[start]["start"], segments[end]["end"]
+    offset = sum(len(s["text"].replace("\n", "")) for s in segments[:start])
+    slots = []
+    narration = ""
+    for cue in range(start, end + 1):
+        slots.append((segments[cue]["start"], len(narration), cue, None))
+        narration += segments[cue]["text"].replace("\n", "")
+    position = 0
+    for index, caption in enumerate(timeline.get("captions", [])):
+        here = position - offset
+        position += len(caption["text"].replace("\n", ""))
+        if not page_start < caption["start"] < page_end:
+            continue
+        cue = next(
+            c
+            for c in range(start, end + 1)
+            if segments[c]["start"] <= caption["start"] < segments[c]["end"]
+        )
+        slots.append((caption["start"], here, cue, index))
+    unique = {}
+    for slot in sorted(slots, key=lambda s: (s[0], s[3] is not None)):
+        unique.setdefault(slot[0], slot)
+    return narration, list(unique.values())
+
+
+def _anchor_slot(anchor, narration, slots):
+    """anchor 必須逐字出現在該頁講稿；對不到回傳 None，由版面退回頁首或前一步。"""
+    at = narration.find(anchor) if isinstance(anchor, str) and anchor else -1
+    if at < 0:
+        return None
+    return max(i for i, slot in enumerate(slots) if slot[1] <= at)
+
+
+def _key_terms(terms, body, label):
+    """只保留逐字出自卡片文字的短詞；標該詞第一次出現的位置，不標整句或整個標籤。"""
+    if not isinstance(terms, list) or len(terms) > 2:
+        raise ValueError(
+            "VIDEO_STORYBOARD_INVALID:key_terms must be a list of at most two terms"
+        )
+    marks = []
+    for term in terms:
+        if (
+            not isinstance(term, str)
+            or not term
+            or term != term.strip()
+            or term_width(term) > KEY_TERM_LIMIT
+            or "\n" in term
+            or "\r" in term
+        ):
+            continue
+        for target, text in (("body", body), ("label", label)):
+            at = text.find(term)
+            if at >= 0 and term != text:
+                break
         else:
-            h = 760 // (node_count - 1)
-            x, y, w = 930, 200 + (node_index - 1) * h, 850
-            h -= 16
-        shape, size = "text", 52 if node_index == 0 else 42
-    else:
-        columns = min(3, node_count)
-        rows = (node_count + 2) // 3
-        row, col = divmod(node_index, columns)
-        if row % 2:
-            col = columns - 1 - col
-        w = (1720 - (columns - 1) * 100) // columns
-        x = 100 + col * (w + 100)
-        y = 200 + row * 420 if rows > 1 else 310
-        h = 360 if rows > 1 else 540
-        shape, size = "box" if kind == "flow" else "text", 42
-    return x, y, w, h, shape, size
+            continue
+        if any(
+            t == target and max(at, s) < min(at + len(term), s + len(o))
+            for t, o, s in marks
+        ):
+            continue
+        marks.append((target, term, at))
+    return [(target, term) for target, term, _ in marks]
 
 
-def compile_layout(design, cues, timeline=None, *, motion=False):
+def _check_page(spec, p, start, cues):
+    where = f"VIDEO_STORYBOARD_INVALID:page={p}"
+    if set(spec) != {"layout", "title", "start_cue", "end_cue", "nodes", "relations"}:
+        raise ValueError(where + ", invalid semantic page fields")
+    end, kind = spec["end_cue"], spec["layout"]
+    nodes, relations = spec["nodes"], spec["relations"]
+    if (
+        type(spec["start_cue"]) is not int
+        or type(end) is not int
+        or spec["start_cue"] != start
+        or not start <= end < len(cues)
+        or kind not in ("concept", "comparison", "flow", "exchange")
+        or not isinstance(nodes, list)
+        or not 1 <= len(nodes) <= 6
+        or not isinstance(relations, list)
+        or len(relations) > 6
+    ):
+        raise ValueError(where + ", invalid page range, layout or item count")
+    if kind == "exchange" and (len(nodes) != 2 or not relations):
+        raise ValueError(
+            where + ", exchange requires two participants and ordered messages"
+        )
+    if kind == "comparison" and not 2 <= len(nodes) <= 3:
+        raise ValueError(where + ", comparison requires two or three groups")
+    if kind != "exchange" and relations:
+        raise ValueError(
+            where
+            + ", only exchange has explicit messages; flow steps are connected in order"
+        )
+    spoken = {"anchor", "key_terms"}
+    for i, node in enumerate(nodes):
+        if (
+            set(node)
+            != ({"label", "text"} if kind == "exchange" else {"label", "text"} | spoken)
+            or not isinstance(node["label"], str)
+            or not 1 <= len(node["label"]) <= NODE_LABEL_LIMIT
+            or not isinstance(node["text"], str)
+            or len(node["text"]) > NODE_TEXT_LIMIT
+            or any(c in node["label"] + node["text"] for c in "\r\n")
+            or (kind == "exchange" and node["text"])
+        ):
+            raise ValueError(
+                where
+                + f", node={i}: provide a short label and explanation; exchange participants use empty text"
+            )
+    for i, relation in enumerate(relations):
+        if (
+            set(relation) != {"source", "target", "label"} | spoken
+            or any(
+                type(relation[k]) is not int or not 0 <= relation[k] < len(nodes)
+                for k in ("source", "target")
+            )
+            or relation["source"] == relation["target"]
+            or not isinstance(relation["label"], str)
+            or not 1 <= len(relation["label"]) <= 36
+            or any(c in relation["label"] for c in "\r\n")
+        ):
+            raise ValueError(where + f", relation={i}: invalid participant or label")
+    return where
+
+
+def _schedule(kind, items, narration, slots):
+    """把逐字 anchor 換成頁內實測起點索引；不產生新秒數。"""
+    wanted = [_anchor_slot(item["anchor"], narration, slots) for item in items]
+    if kind == "comparison":
+        return [0 if w is None else w for w in wanted]
+    if kind == "exchange":
+        # 訊息方向依講述順序呈現；對不到或倒序的 anchor 與前一則同時出現。
+        result = []
+        for w in wanted:
+            result.append(max(0 if w is None else w, result[-1] if result else 0))
+        return result
+    # 聚焦版面一次只亮一張卡：第一張從頁首開始，其後各占一個較晚的實測起點。
+    if len(slots) < len(items):
+        # 字幕只有段落粒度時實測起點可能不足；依序把相鄰節點併入同一張卡，不整份失敗。
+        return [k * len(slots) // len(items) for k in range(len(items))]
+    result = [0]
+    for k, w in enumerate(wanted[1:], 1):
+        earliest = result[-1] + 1
+        result.append(
+            min(
+                earliest if w is None or w < earliest else w,
+                len(slots) - (len(items) - k),
+            )
+        )
+    return result
+
+
+def _anchor(slot):
+    return {
+        "start_cue": slot[2],
+        **({"caption_index": slot[3]} if slot[3] is not None else {}),
+    }
+
+
+def compile_layout(design, cues, timeline):
     """只編排模型明示的節點／關係，不自行新增箭頭、推論或文字。"""
     try:
         if set(design) != {"pages"} or not 1 <= len(design["pages"]) <= 12:
@@ -177,146 +330,10 @@ def compile_layout(design, cues, timeline=None, *, motion=False):
         pages = []
         next_cue = 0
         for p, spec in enumerate(design["pages"]):
-            where = f"VIDEO_STORYBOARD_INVALID:page={p}"
-            if set(spec) != {
-                "layout",
-                "title",
-                "start_cue",
-                "end_cue",
-                "nodes",
-                "relations",
-            }:
-                raise ValueError(where + ", invalid semantic page fields")
-            start, end = spec["start_cue"], spec["end_cue"]
-            kind = spec["layout"]
+            _check_page(spec, p, next_cue, cues)
+            start, end, kind = spec["start_cue"], spec["end_cue"], spec["layout"]
             nodes, relations = spec["nodes"], spec["relations"]
-            if (
-                type(start) is not int
-                or type(end) is not int
-                or start != next_cue
-                or not start <= end < len(cues)
-                or kind not in ("concept", "comparison", "flow", "exchange")
-                or not isinstance(nodes, list)
-                or not 1 <= len(nodes) <= 6
-                or not isinstance(relations, list)
-                or len(relations) > 6
-            ):
-                raise ValueError(where + ", invalid page range, layout or item count")
-            if kind == "exchange" and (len(nodes) != 2 or not relations):
-                raise ValueError(
-                    where + ", exchange requires two participants and ordered messages"
-                )
-            if kind == "comparison" and not 2 <= len(nodes) <= 3:
-                raise ValueError(where + ", comparison requires two or three groups")
-            if kind in ("concept", "comparison") and relations:
-                raise ValueError(
-                    where + ", use flow or exchange for supported directed relations"
-                )
-            for i, node in enumerate(nodes):
-                if (
-                    set(node)
-                    not in (
-                        {"label", "text", "cue_index", "reveal", "focus"},
-                        {
-                            "label",
-                            "text",
-                            "cue_index",
-                            "reveal",
-                            "focus",
-                            "caption_index",
-                        },
-                    )
-                    or not isinstance(node["label"], str)
-                    or not 1 <= len(node["label"]) <= NODE_LABEL_LIMIT
-                    or not isinstance(node["text"], str)
-                    or len(node["text"]) > NODE_TEXT_LIMIT
-                    or "\n" in node["label"] + node["text"]
-                    or "\r" in node["label"] + node["text"]
-                    or (kind == "exchange" and node["text"])
-                ):
-                    raise ValueError(
-                        where
-                        + f", node={i}: provide a short label and explanation; exchange participants use empty text"
-                    )
-            for i, relation in enumerate(relations):
-                if (
-                    set(relation)
-                    not in (
-                        {"source", "target", "label", "cue_index", "reveal", "focus"},
-                        {
-                            "source",
-                            "target",
-                            "label",
-                            "cue_index",
-                            "reveal",
-                            "focus",
-                            "caption_index",
-                        },
-                    )
-                    or any(
-                        type(relation[k]) is not int
-                        or not 0 <= relation[k] < len(nodes)
-                        for k in ("source", "target")
-                    )
-                    or relation["source"] == relation["target"]
-                    or not isinstance(relation["label"], str)
-                    or len(relation["label"]) > 36
-                    or "\n" in relation["label"]
-                    or "\r" in relation["label"]
-                ):
-                    raise ValueError(
-                        where + f", relation={i}: invalid participant or label"
-                    )
-                if kind == "flow" and (
-                    relation["target"] != relation["source"] + 1 or relation["label"]
-                ):
-                    raise ValueError(
-                        where
-                        + f", relation={i}: flow connects adjacent ordered steps; put explanations in the step nodes"
-                    )
-                if kind == "exchange" and not relation["label"]:
-                    raise ValueError(
-                        where
-                        + f", relation={i}: message needs its source-supported label"
-                    )
-            for item in nodes + relations:
-                if (
-                    type(item["cue_index"]) is not int
-                    or not start <= item["cue_index"] <= end
-                    or type(item["reveal"]) is not bool
-                    or type(item["focus"]) is not bool
-                ):
-                    raise ValueError(
-                        where
-                        + ", cue_index must be within the page; reveal/focus must be boolean"
-                    )
-                caption = item.get("caption_index")
-                if caption is not None:
-                    if (
-                        timeline is None
-                        or type(caption) is not int
-                        or not 0 <= caption < len(timeline.get("captions", []))
-                    ):
-                        raise ValueError(
-                            where + ", caption_index has no measured anchor"
-                        )
-                    cue = timeline["segments"][item["cue_index"]]
-                    if (
-                        not cue["start"]
-                        <= timeline["captions"][caption]["start"]
-                        < cue["end"]
-                    ):
-                        raise ValueError(
-                            where
-                            + ", caption_index must belong to cue_index; use null for whole-cue timing"
-                        )
-            if kind == "exchange" and any(
-                a["cue_index"] > b["cue_index"]
-                for a, b in zip(relations, relations[1:])
-            ):
-                raise ValueError(
-                    where + ", exchange messages must follow the spoken sequence"
-                )
+            narration, slots = _slots(timeline, start, end)
             page = {
                 "title": spec["title"],
                 "start_cue": start,
@@ -326,158 +343,201 @@ def compile_layout(design, cues, timeline=None, *, motion=False):
                 "reveal": [],
             }
             elements = page["elements"]
-            visible = []
-            node_bounds = []
-            motion_groups = []
 
-            def group(item, first, **relation):
-                motion_groups.append(
-                    {
-                        "elements": list(range(first, len(elements))),
-                        "start_cue": item["cue_index"],
-                        **(
-                            {"caption_index": item["caption_index"]}
-                            if item.get("caption_index") is not None
-                            else {}
-                        ),
-                        **relation,
-                    }
-                )
-
-            def appearance(item):
-                return (
-                    (item["cue_index"], item.get("caption_index"))
-                    if item["reveal"]
-                    else (start, None)
-                )
-
-            def time_at(when):
-                return (
-                    visual_window(timeline, when[0], when[0], when[1])[0]
-                    if timeline
-                    else when[0]
-                )
-
-            node_starts = [appearance(n) for n in nodes]
-            for edge in relations:
-                when = appearance(edge)
-                for target in (edge["source"], edge["target"]):
-                    node_starts[target] = min(node_starts[target], when, key=time_at)
-
-            def add(element, when, focus=False, mark="outline", caption=None):
-                index = len(elements)
+            def add(element):
                 elements.append(element)
-                visible.append(when)
-                if focus:
-                    page["emphasis"].append(
-                        {
-                            "element_index": index,
-                            "start_cue": element["cue_index"],
-                            "end_cue": element["cue_index"],
-                            "kind": mark,
-                            "quote": "",
-                            **(
-                                {"caption_index": caption}
-                                if caption is not None
-                                else {}
-                            ),
-                        }
-                    )
-                return index
+                return len(elements) - 1
 
-            for i, node in enumerate(nodes):
-                first = len(elements)
-                color = ("teal", "blue", "orange")[i % 3]
-                text = node["label"] + ("\n" + node["text"] if node["text"] else "")
-                x, y, w, h, shape, size = _node_geometry(kind, len(nodes), i)
-                add(
-                    _element(text, x, y, w, h, node["cue_index"], color, shape, size),
-                    node_starts[i],
-                    node["focus"],
-                    caption=node.get("caption_index"),
-                )
-                node_bounds.append((x, y, w, h))
-                if kind == "comparison":
-                    add(_line(x, 200, w, 0, node["cue_index"], color), node_starts[i])
-                if kind == "exchange":
-                    add(
-                        _line(x + w // 2, 300, 0, 700, node["cue_index"]),
-                        node_starts[i],
+            if kind in ("concept", "flow"):
+                chosen = _schedule(kind, nodes, narration, slots)
+                steps = []
+                row = min(130, (SAFE_BOTTOM - 200) // len(nodes))
+                for k, s in enumerate(chosen):
+                    if not steps or steps[-1][0] != s:
+                        steps.append((s, []))
+                    steps[-1][1].append(k)
+                page["spotlight"] = {"layout": kind, "steps": []}
+                for s, members in steps:
+                    slot = slots[s]
+                    cue = slot[2]
+                    card = [
+                        add(
+                            _line(
+                                700,
+                                200,
+                                1110,
+                                SAFE_BOTTOM - 200,
+                                cue,
+                                COLORS[members[0] % 3],
+                                "box",
+                            )
+                        )
+                    ]
+                    rails = []
+                    # 同一張卡放多個節點時平分高度；放不下由字型量測回報 VIDEO_LAYOUT_INVALID。
+                    band = (SAFE_BOTTOM - 40 - 248 - 24 * (len(members) - 1)) // len(
+                        members
                     )
-                group(node, first)
-            for i, edge in enumerate(relations):
-                first = len(elements)
-                when = appearance(edge)
-                a, b = node_bounds[edge["source"]], node_bounds[edge["target"]]
-                if kind == "exchange":
-                    x1, x2 = a[0] + a[2] // 2, b[0] + b[2] // 2
-                    y = 370 + i * (600 // max(1, len(relations) - 1))
-                    add(
+                    top = 248
+                    for k in members:
+                        node, color = nodes[k], COLORS[k % 3]
+                        rail = _fitted(
+                            node["label"], 174, 0, 456, row - 16, cue, color, 34
+                        )
+                        rail["y"] = 200 + k * row + (row - 16 - rail["h"]) // 2
+                        rails.append(add(rail))
+                        label = _fitted(
+                            node["label"],
+                            760,
+                            top,
+                            990,
+                            min(230, band),
+                            cue,
+                            color,
+                            64 if len(members) == 1 else 52,
+                        )
+                        card.append(add(label))
+                        targets = {"label": (node["label"], card[-1])}
+                        if node["text"]:
+                            y = label["y"] + label["h"] + 24
+                            card.append(
+                                add(
+                                    _fitted(
+                                        node["text"],
+                                        760,
+                                        y,
+                                        990,
+                                        top + band - y,
+                                        cue,
+                                        "ink",
+                                        52 if len(members) == 1 else 42,
+                                    )
+                                )
+                            )
+                            targets["body"] = (node["text"], card[-1])
+                        top += band + 24
+                        _highlight(page, node, targets, slot, color, end)
+                    page["spotlight"]["steps"].append(
+                        {"rails": rails, "card": card, **_anchor(slot)}
+                    )
+            elif kind == "comparison":
+                chosen = _schedule(kind, nodes, narration, slots)
+                groups = []
+                w = (1720 - (len(nodes) - 1) * 70) // len(nodes)
+                for i, (node, s) in enumerate(zip(nodes, chosen)):
+                    slot, color = slots[s], COLORS[i % 3]
+                    x = 100 + i * (w + 70)
+                    label = _fitted(node["label"], x, 230, w, 230, slot[2], color, 52)
+                    group = [add(label)]
+                    targets = {"label": (node["label"], group[0])}
+                    if node["text"]:
+                        top = label["y"] + label["h"] + 20
+                        group.append(
+                            add(
+                                _fitted(
+                                    node["text"],
+                                    x,
+                                    top,
+                                    w,
+                                    SAFE_BOTTOM - top,
+                                    slot[2],
+                                    "ink",
+                                    42,
+                                )
+                            )
+                        )
+                        targets["body"] = (node["text"], group[1])
+                    group.append(add(_line(x, 200, w, 0, slot[2], color)))
+                    groups.append({"elements": group, **_anchor(slot)})
+                    _highlight(page, node, targets, slot, color, end)
+                page["motion"] = {"layout": kind, "groups": groups}
+            else:
+                chosen = _schedule(kind, relations, narration, slots)
+                groups = []
+                centers = []
+                for i, node in enumerate(nodes):
+                    x = 140 + i * 1140
+                    group = [
+                        add(
+                            _element(
+                                node["label"],
+                                x,
+                                190,
+                                500,
+                                100,
+                                start,
+                                COLORS[i],
+                                "box",
+                                42,
+                            )
+                        ),
+                        add(_line(x + 250, 300, 0, SAFE_BOTTOM - 10 - 300, start)),
+                    ]
+                    centers.append(x + 250)
+                    groups.append({"elements": group, "start_cue": start})
+                step = 440 // max(1, len(relations) - 1)
+                for i, (edge, s) in enumerate(zip(relations, chosen)):
+                    slot = slots[s]
+                    y = 370 + i * step
+                    label = add(
                         _element(
                             edge["label"],
                             420,
                             y - 47,
                             1080,
                             42,
-                            edge["cue_index"],
+                            slot[2],
                             "ink",
                             maximum=34,
-                        ),
-                        when,
+                        )
                     )
-                    arrow = _line(x1, y, x2 - x1, 0, edge["cue_index"], "ink", "arrow")
-                elif a[1] == b[1]:
-                    direction = 1 if a[0] < b[0] else -1
-                    x1 = a[0] + a[2] + 12 if direction == 1 else a[0] - 12
-                    x2 = b[0] - 12 if direction == 1 else b[0] + b[2] + 12
-                    arrow = _line(
-                        x1,
-                        a[1] + a[3] // 2,
-                        x2 - x1,
-                        0,
-                        edge["cue_index"],
-                        "ink",
-                        "arrow",
+                    x1, x2 = centers[edge["source"]], centers[edge["target"]]
+                    group = [
+                        label,
+                        add(_line(x1, y, x2 - x1, 0, slot[2], "ink", "arrow")),
+                    ]
+                    groups.append(
+                        {
+                            "elements": group,
+                            "source": edge["source"],
+                            "target": edge["target"],
+                            **_anchor(slot),
+                        }
                     )
-                else:
-                    x = a[0] + a[2] // 2
-                    y = a[1] + a[3] + 12
-                    arrow = _line(
-                        x, y, 0, b[1] - 12 - y, edge["cue_index"], "ink", "arrow"
+                    if s:
+                        page["reveal"].append({"elements": group, **_anchor(slot)})
+                    _highlight(
+                        page,
+                        edge,
+                        {"body": (edge["label"], label), "label": ("", label)},
+                        slot,
+                        "orange",
+                        end,
                     )
-                add(arrow, when, edge["focus"], "trace", edge.get("caption_index"))
-                group(edge, first, source=edge["source"], target=edge["target"])
-            groups = {}
-            for i, when in enumerate(visible):
-                if time_at(when) > time_at((start, None)):
-                    groups.setdefault(when, []).append(i)
-            page["reveal"] = [
-                {
-                    "start_cue": cue,
-                    "elements": targets,
-                    **({"caption_index": caption} if caption is not None else {}),
-                }
-                for (cue, caption), targets in sorted(
-                    groups.items(), key=lambda pair: time_at(pair[0])
-                )
-            ]
-            if motion:
-                page["motion"] = {"layout": kind, "groups": motion_groups}
+                page["motion"] = {"layout": kind, "groups": groups}
             pages.append(page)
             next_cue = end + 1
         result = validate_plan(
-            {
-                "schema": "podcast-storyboard/v3"
-                if motion
-                else "podcast-storyboard/v2",
-                "pages": pages,
-            },
-            cues,
+            {"schema": "podcast-storyboard/v4", "pages": pages}, cues
         )
-        if timeline is not None:
-            validate_visual_timing(result, timeline)
+        validate_visual_timing(result, timeline)
         return result
     except (KeyError, TypeError, IndexError) as error:
         raise ValueError(
             "VIDEO_STORYBOARD_INVALID:invalid semantic layout fields"
         ) from error
+
+
+def _highlight(page, item, targets, slot, color, end):
+    body, label = targets.get("body", ("", None)), targets["label"]
+    for target, term in _key_terms(item["key_terms"], body[0], label[0]):
+        page["emphasis"].append(
+            {
+                "element_index": (body if target == "body" else label)[1],
+                "end_cue": end,
+                "kind": "highlight",
+                "quote": term,
+                "color": color,
+                **_anchor(slot),
+            }
+        )

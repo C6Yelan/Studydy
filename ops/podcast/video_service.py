@@ -110,6 +110,10 @@ def produce(body, *, luna, model, align, text_lock, asr_lock, cancelled):
 依輸入 pages 的順序，每段產生一頁。用簡短標題與完整短句說明，不貼整段逐字稿。長度上限不是要填滿的目標；超長時重新精簡整句，保留必要條件，不截斷句尾、技術名稱、數值或單位，也不填入無意義字元。時間、座標、換行、字體由程式處理。
 concept 呈現觀念與補充說明；comparison 的每個節點必須代表同一層級的一個比較對象，label 填對象名稱，各對象依相同面向說明；不可把比較面向、總述或某對象的子流程另占一欄。整理多種性質、責任或重點時用 concept，不要勉強使用 comparison；flow 的節點只放實際步驟，程式依序連線，relations 留空；exchange 用兩個參與者與實際傳送的訊息，參與者只填 label、text 留空。性質、條件、補充說明不可充當額外步驟或訊息；可融入對應節點說明，容納不了時改用 concept。
 exchange 的 source/target 是從 0 開始的參與者索引，表示真正的傳送方向；不可把時間先後當成訊息方向。數值、單位、否定與必要條件依原稿保留，不增加來源未支持的事實。
+concept 與 flow 頁一次只放大正在講的那個節點，左側列出本頁所有節點；節點依旁白講到的順序排列，每個節點要對應旁白中確實講到的一段。
+每個 concept／comparison／flow 節點與每則 exchange 訊息另外輸出：
+- anchor：旁白第一次開始解說這個節點內容的位置，從該頁 narration 逐字複製 4～20 字的連續片段（標點、空白、大小寫完全一致，不跨段落），在該頁只出現一次為佳；程式用它對到實際說話時間。頁尾若有回顧或總結句，不要從總結句取 anchor。
+- key_terms：0～2 個最值得看的重點詞，必須逐字出自該節點 text（exchange 訊息則出自其 label），每個不超過 16 個中文字寬（英數字與符號算半個）；優先技術名稱本身（標頭、欄位、指令、演算法、模型名稱），其次是關鍵數值或條件。不可是整句或整段 text，不挑「的」「這個」之類泛用詞；沒有明確重點就留空陣列。
 """
         source = {
             "pages": [
@@ -146,15 +150,9 @@ exchange 的 source/target 是從 0 開始的參與者索引，表示真正的�
             raise ValueError(
                 "VIDEO_STORYBOARD_INVALID:page count does not match narration"
             )
+        # anchor／key_terms 由 compile_layout 對講稿與節點文字逐字核對；對不到只退回，不整份失敗。
         for page, (_, start, end) in zip(semantic_plan["pages"], page_ranges):
             page.update(start_cue=start, end_cue=end)
-            if page["layout"] == "flow":
-                page["relations"] = [
-                    {"source": i, "target": i + 1, "label": ""}
-                    for i in range(len(page["nodes"]) - 1)
-                ]
-            for item in page["nodes"] + page["relations"]:
-                item.update(cue_index=start, reveal=False, focus=False)
         request.write_text(
             json.dumps(
                 {
@@ -166,7 +164,7 @@ exchange 的 source/target 是從 0 開始的參與者索引，表示真正的�
                 ensure_ascii=False,
             )
         )
-        checked = _process(args + ["--motion", "--validate"], env, None, cancelled)
+        checked = _process(args + ["--validate"], env, None, cancelled)
         if checked:
             code = (
                 json.loads(result.read_text()).get("error", "VIDEO_LAYOUT_INVALID")
@@ -200,7 +198,7 @@ exchange 的 source/target 是從 0 開始的參與者索引，表示真正的�
             raise ValueError("VIDEO_TOO_LARGE")
         return {
             "policy": POLICY,
-            "model": f"codex-cli/{model};semantic-layout/v3",
+            "model": f"codex-cli/{model};semantic-layout/v4",
             "cues": split["cues"],
             "alignment": alignment,
             "plan": plan,

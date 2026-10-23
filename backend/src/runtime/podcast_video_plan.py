@@ -8,6 +8,17 @@ from .scene_alignment import normalized
 
 
 POLICY = "flat-report/v4"
+SCHEMAS = ("podcast-storyboard/v2", "podcast-storyboard/v3", "podcast-storyboard/v4")
+# v4 內容保留在底部字幕帶之上；播放器字幕疊在影片底部。
+SAFE_BOTTOM = 850
+# 重點詞以中文字寬計：英數字算半個，完整標頭名稱（如 CDN-Cache-Control）仍可標出。
+KEY_TERM_LIMIT = 16
+
+
+def term_width(text):
+    return sum(0.5 if c.isascii() else 1 for c in text)
+
+
 KINDS = ("text", "box", "circle", "line", "arrow")
 COLORS = ("ink", "teal", "blue", "orange", "muted")
 
@@ -101,23 +112,22 @@ def validate_plan(plan, cues):
         not isinstance(plan, dict)
         or (
             set(plan) not in ({"pages"}, {"schema", "pages"})
-            or (
-                "schema" in plan
-                and plan["schema"]
-                not in ("podcast-storyboard/v2", "podcast-storyboard/v3")
-            )
+            or ("schema" in plan and plan["schema"] not in SCHEMAS)
         )
         or not isinstance(plan["pages"], list)
         or not 1 <= len(plan["pages"]) <= 12
     ):
         raise ValueError("VIDEO_STORYBOARD_INVALID:pages must contain 1..12 pages")
     next_cue = 0
+    v4 = plan.get("schema") == "podcast-storyboard/v4"
+    motion = v4 or plan.get("schema") == "podcast-storyboard/v3"
+    bottom = SAFE_BOTTOM if v4 else 1020
     for page_index, page in enumerate(plan["pages"]):
         where = f"VIDEO_STORYBOARD_INVALID:page={page_index}"
-        motion = plan.get("schema") == "podcast-storyboard/v3"
+        dynamic = {"motion", "spotlight"} if v4 else {"motion"} if motion else set()
         if (
             not isinstance(page, dict)
-            or (set(page) - ({"motion"} if motion else set()))
+            or (set(page) - dynamic)
             not in (
                 {"title", "start_cue", "end_cue", "elements"},
                 {"title", "start_cue", "end_cue", "elements", "emphasis"},
@@ -184,12 +194,12 @@ def validate_plan(plan, cues):
             if not (
                 100 <= e["x"] <= 1820
                 and 100 <= e["x"] + e["w"] <= 1820
-                and 180 <= e["y"] <= 1020
-                and 180 <= e["y"] + e["h"] <= 1020
+                and 180 <= e["y"] <= bottom
+                and 180 <= e["y"] + e["h"] <= bottom
             ):
                 raise ValueError(
                     where
-                    + f", bounds ({e['x']},{e['y']})..({e['x'] + e['w']},{e['y'] + e['h']}); both endpoints must fit x=100..1820,y=180..1020"
+                    + f", bounds ({e['x']},{e['y']})..({e['x'] + e['w']},{e['y'] + e['h']}); both endpoints must fit x=100..1820,y=180..{bottom}"
                 )
             if e["kind"] in ("text", "box", "circle") and (e["w"] <= 0 or e["h"] <= 0):
                 raise ValueError(
@@ -254,12 +264,23 @@ def validate_plan(plan, cues):
             for target in group["elements"]:
                 visible_at[target] = group["start_cue"]
         validate_connections(page, visible_at, where)
-        validate_emphasis(page, page_index)
-        if motion:
+        validate_emphasis(page, page_index, v4)
+        if "spotlight" in page:
+            from .podcast_video_motion import validate_spotlight
+
+            if "motion" in page or groups:
+                raise ValueError(
+                    where
+                    + ", spotlight pages use their steps instead of motion or reveal"
+                )
+            validate_spotlight(page, where)
+        elif motion:
             from .podcast_video_motion import validate_motion
 
             if "motion" not in page:
-                raise ValueError(where + ", v3 requires motion groups")
+                raise ValueError(
+                    where + ", v3/v4 requires motion groups or spotlight steps"
+                )
             validate_motion(page, where)
         next_cue = page["end_cue"] + 1
     if next_cue != len(cues):
@@ -269,8 +290,9 @@ def validate_plan(plan, cues):
     return deepcopy(plan)
 
 
-def validate_emphasis(page, page_index):
-    # 舊影片保留原分鏡；標記是覆蓋在既有元素上的暫時強調，不增加教材內容。
+def validate_emphasis(page, page_index, v4=False):
+    # 舊影片保留原分鏡；標記是覆蓋在既有元素上的強調，不增加教材內容。
+    # v4 只用 highlight：逐字重點詞以卡片主色呈現，標該詞第一次出現的位置。
     marks = page.get("emphasis", [])
     where = f"VIDEO_STORYBOARD_INVALID:page={page_index},emphasis"
     if not isinstance(marks, list) or len(marks) > 12:
@@ -278,20 +300,12 @@ def validate_emphasis(page, page_index):
     occupied = {}
     for index, m in enumerate(marks):
         detail = where + f"={index}"
+        fields = {"element_index", "start_cue", "end_cue", "kind", "quote"} | (
+            {"color"} if v4 else set()
+        )
         if (
             not isinstance(m, dict)
-            or set(m)
-            not in (
-                {"element_index", "start_cue", "end_cue", "kind", "quote"},
-                {
-                    "element_index",
-                    "start_cue",
-                    "end_cue",
-                    "kind",
-                    "quote",
-                    "caption_index",
-                },
-            )
+            or set(m) not in (fields, fields | {"caption_index"})
             or any(
                 type(m[k]) is not int for k in ("element_index", "start_cue", "end_cue")
             )
@@ -299,7 +313,9 @@ def validate_emphasis(page, page_index):
                 "caption_index" in m
                 and (type(m["caption_index"]) is not int or m["caption_index"] < 0)
             )
-            or m["kind"] not in ("underline", "outline", "trace")
+            or m["kind"]
+            not in (("highlight",) if v4 else ("underline", "outline", "trace"))
+            or (v4 and m["color"] not in COLORS)
             or not isinstance(m["quote"], str)
             or len(m["quote"]) > 80
         ):
@@ -331,6 +347,21 @@ def validate_emphasis(page, page_index):
             raise ValueError(
                 detail + ", text emphasis requires a labelled text/box/circle"
             )
+        elif m["kind"] == "highlight":
+            quote = m["quote"]
+            if (
+                e["kind"] != "text"
+                or not quote
+                or quote != quote.strip()
+                or term_width(quote) > KEY_TERM_LIMIT
+                or any(c in quote + e["text"] for c in "\r\n")
+                or quote not in e["text"]
+                or quote == e["text"]
+            ):
+                raise ValueError(
+                    detail
+                    + f", highlight needs an exact term of at most {KEY_TERM_LIMIT} full-width characters inside a single-paragraph text element, not the whole text"
+                )
         elif m["quote"]:
             if "\n" in m["quote"] or "\r" in m["quote"]:
                 raise ValueError(
@@ -404,10 +435,12 @@ def validate_visual_timing(plan, timeline):
     """細揭示只引用已驗證字幕的實測邊界，不改 teaching cue 或自行補秒數。"""
     captions = timeline.get("captions", [])
     for i, page in enumerate(plan["pages"]):
+        steps = page.get("spotlight", {}).get("steps", [])
         entries = (
             page.get("reveal", [])
             + page.get("emphasis", [])
             + page.get("motion", {}).get("groups", [])
+            + steps
         )
         where = f"VIDEO_STORYBOARD_INVALID:page={i}"
         for item in entries:
@@ -433,6 +466,23 @@ def validate_visual_timing(plan, timeline):
                 group.get("caption_index"),
             )[0]
             for target in group["elements"]:
+                visible[target] = when
+        starts = [
+            visual_window(
+                timeline, s["start_cue"], s["start_cue"], s.get("caption_index")
+            )[0]
+            for s in steps
+        ]
+        if steps and (
+            starts[0] != timeline["segments"][page["start_cue"]]["start"]
+            or any(a >= b for a, b in zip(starts, starts[1:]))
+        ):
+            raise ValueError(
+                where
+                + ", spotlight steps must start at the page and follow strictly later measured starts"
+            )
+        for step, when in zip(steps, starts):
+            for target in step["card"]:
                 visible[target] = when
         validate_connections(page, visible, where)
         if "motion" in page:
