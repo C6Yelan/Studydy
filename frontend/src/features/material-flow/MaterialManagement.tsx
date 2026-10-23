@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { InlineConfirm } from "../../ui/InlineConfirm";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import { InlineNameEditor } from "./InlineNameEditor";
 import { useDismissibleMenu } from "./useDismissibleMenu";
@@ -37,7 +38,6 @@ export function MaterialManagement({
   const menu = useRef<HTMLDetailsElement>(null);
   const opener = useRef<HTMLElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  const cancel = useRef<HTMLButtonElement>(null);
   const inFlight = useRef(false);
   const mounted = useRef(true);
   const interacted = useRef(false);
@@ -53,11 +53,10 @@ export function MaterialManagement({
     if (mode === "rename") {
       input.current?.focus();
       input.current?.select();
-    } else if (mode === "delete") cancel.current?.focus();
-    else opener.current?.focus({ preventScroll: true });
+    } else if (mode !== "delete") opener.current?.focus({ preventScroll: true });
   }, [mode, deleting]);
   useEffect(() => {
-    if (error && !busy) (mode === "rename" ? input.current : cancel.current)?.focus();
+    if (error && !busy && mode === "rename") input.current?.focus();
   }, [error, busy, mode]);
   const choose = (next: "rename" | "delete") => {
     if (menu.current) menu.current.open = false;
@@ -142,49 +141,8 @@ export function MaterialManagement({
           正在刪除…
         </p>
       ) : (
-        mode === "rename" ? <InlineNameEditor label="教材名稱" name={name} busy={busy} error={error} inputRef={input} onChange={setName} onSave={() => void submit()} onCancel={close} /> : mode === "delete" && (
-          <form
-            className="material-management-form"
-            aria-label="刪除教材確認"
-            aria-busy={busy}
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submit();
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                close();
-              }
-            }}
-          >
-            <h3>確定刪除教材與相關資料？</h3>
-            <div className="material-management-actions">
-              <button
-                ref={cancel}
-                className="secondary-button"
-                type="button"
-                disabled={busy}
-                onClick={close}
-              >
-                取消
-              </button>
-              <button
-                className="secondary-button cancel-confirm-button"
-                type="submit"
-                aria-label={busy ? "正在刪除…" : "確認刪除"}
-                disabled={busy}
-              >
-                {busy ? "正在刪除…" : "刪除"}
-              </button>
-            </div>
-            {error && (
-              <p className="form-error" role="alert">
-                {error}
-              </p>
-            )}
-          </form>
-        )
+        mode === "rename" ? <InlineNameEditor label="教材名稱" name={name} busy={busy} error={error} inputRef={input} onChange={setName} onSave={() => void submit()} onCancel={close} /> : mode === "delete" && <InlineConfirm message="確定刪除教材與相關資料？" label="刪除教材確認" confirmLabel="刪除"
+          confirmAriaLabel="確認刪除" busyLabel="正在刪除…" busy={busy} error={error} onCancel={close} onConfirm={() => void submit()} />
       )}
     </>
   );

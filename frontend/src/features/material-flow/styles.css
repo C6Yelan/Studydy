@@ -391,8 +391,7 @@
   justify-content: flex-start;
 }
 .cancel-confirmation .cancel-confirm-button,
-.cancel-confirmation .cancel-confirm-button:hover:not(:disabled),
-.material-management-form .cancel-confirm-button {
+.cancel-confirmation .cancel-confirm-button:hover:not(:disabled) {
   color: var(--error);
   border-color: var(--error);
   background: var(--error-soft);

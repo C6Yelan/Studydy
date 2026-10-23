@@ -258,7 +258,7 @@ test('research deletion follows the shared menu pattern, cancels safely and cann
  const management=page.getByRole('button',{name:'管理查詢「待刪除查詢」',exact:true});
  await management.click();await page.keyboard.press('Escape');await expect(management).toBeFocused();
  await management.click();await page.getByRole('button',{name:'刪除查詢',exact:true}).click();
- const confirmation=page.getByRole('form',{name:'刪除查詢「待刪除查詢」確認'});
+ const confirmation=page.getByRole('group',{name:'刪除查詢「待刪除查詢」確認'});
  await expect(confirmation.getByRole('button',{name:'取消',exact:true})).toBeFocused();
  await expect(confirmation).toContainText('來源檔案');await confirmation.getByRole('button',{name:'取消',exact:true}).click();expect(deletes).toBe(0);
  await management.click();await page.getByRole('button',{name:'刪除查詢',exact:true}).click();

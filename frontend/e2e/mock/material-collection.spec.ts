@@ -391,7 +391,7 @@ for (const viewport of [
     await card.getByRole("button", { name: `管理「${names[0]}」`, exact: true }).click();
     await card.getByRole("button", { name: "刪除教材", exact: true }).click();
     await expect(card.getByRole("button", { name: "確認刪除", exact: true })).toBeVisible();
-    const confirmation = (await card.getByRole("form").boundingBox())!;
+    const confirmation = (await card.getByRole("group", { name: "刪除教材確認" }).boundingBox())!;
     const deleting = (await card.boundingBox())!;
     expect(confirmation.y + confirmation.height).toBeLessThanOrEqual(deleting.y + deleting.height);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

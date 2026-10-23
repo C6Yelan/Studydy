@@ -158,7 +158,7 @@ for (const viewport of [
       await expect(card.locator("details")).not.toHaveAttribute("open", "");
       await menu.click();
       await card.getByRole("button", { name: "刪除教材", exact: true }).click();
-      const confirmation = card.getByRole("form", { name: "刪除教材確認" });
+      const confirmation = card.getByRole("group", { name: "刪除教材確認" });
       const text = await confirmation.innerText();
       expect(text).toContain("確定刪除教材與相關資料？");
       expect(text).not.toMatch(/將刪除|會先停止|此操作無法復原/);
@@ -271,8 +271,8 @@ for (const viewport of [
     const opener = card.getByRole("button", { name: /^管理「/ });
     await opener.click();
     await card.getByRole("button", { name: "刪除教材", exact: true }).click();
-    const confirm = card.getByRole("form", { name: "刪除教材確認" });
-    await expect(confirm.getByRole("heading", { name: "確定刪除教材與相關資料？", exact: true })).toBeVisible();
+    const confirm = card.getByRole("group", { name: "刪除教材確認" });
+    await expect(confirm.getByText("確定刪除教材與相關資料？", { exact: true })).toBeVisible();
     await expect(confirm.getByRole("button", { name: "取消", exact: true })).toBeFocused();
     await confirm.getByRole("button", { name: "取消", exact: true }).click();
     expect(deletes).toBe(0);
@@ -317,7 +317,7 @@ test("removing publishing material disables all actions and polls until absent",
   const card = page.getByRole("article", { name: target.display_name, exact: true });
   await card.getByRole("button", { name: /^管理「/ }).click();
   await card.getByRole("button", { name: "刪除教材", exact: true }).click();
-  await expect(card.getByRole("form").getByRole("heading", { name: "確定刪除教材與相關資料？", exact: true })).toBeVisible();
+  await expect(card.getByRole("group", { name: "刪除教材確認" }).getByText("確定刪除教材與相關資料？", { exact: true })).toBeVisible();
   await card.getByRole("button", { name: "確認刪除", exact: true }).click();
   await expect(card.getByRole("status")).toHaveText("正在刪除…");
   const actions = card.locator(".state-actions").getByRole("button");
@@ -488,7 +488,7 @@ for (const touch of [false, true])
       await activate(trigger);
       await activate(menu.getByRole("button", { name: "刪除教材", exact: true }));
       await closed();
-      await expect(first.getByRole("form", { name: "刪除教材確認" })).toBeVisible();
+      await expect(first.getByRole("group", { name: "刪除教材確認" })).toBeVisible();
       await expect(first.getByRole("button", { name: "取消", exact: true })).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(trigger).toBeFocused();
