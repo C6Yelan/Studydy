@@ -180,7 +180,7 @@
 .source-request-error { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:16px 20px; border-radius:var(--radius-card); }
 .source-request-error p { margin:0; }
 
-/* 「教材來源」分頁：標題與搜尋同列，下方來源清單與重新檢核卡。 */
+/* 「教材來源」分頁：標題與搜尋同列，下方來源清單。 */
 .source-panel { display:grid; gap:16px; min-width:0; }
 .source-panel-head { display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px 20px; }
 .source-panel-title { min-width:0; }
@@ -194,17 +194,10 @@
 .source-panel > .source-list-card { display:flex; flex-direction:column; gap:0; padding:20px 22px; border-radius:var(--radius-card); box-shadow:var(--shadow); }
 .source-panel > .source-list-card > .tool-stage-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin:16px -22px -20px; padding:14px 22px; border-top:1px solid var(--border-light); border-radius:0 0 var(--radius-card) var(--radius-card); background:var(--studydy-blue-soft-2); }
 .source-panel > .source-list-card .tool-footer-secondary { display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px; min-width:0; }
-.source-recheck { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:16px 18px; padding:20px 24px; border-radius:var(--radius-card); box-shadow:var(--shadow); }
-.source-recheck h2 { margin:0 0 4px; font-size:17px; }
-.source-recheck p { margin:0; color:var(--text-secondary); font-size:13px; line-height:1.65; }
-.source-recheck p + p { margin-top:4px; }
 
 @media (max-width:720px) {
   .source-row { flex-wrap:wrap; gap:10px 12px; }
   .source-row-actions { justify-content:flex-start; max-width:none; width:100%; padding-left:44px; }
-  .source-recheck { grid-template-columns:minmax(0,1fr); padding:18px; }
-  .source-recheck > .flow-stage-icon { display:none; }
-  .source-recheck > button { justify-self:start; }
   .source-panel > .source-list-card { padding:16px; }
   .source-panel > .source-list-card > .tool-stage-footer { margin:14px -16px -16px; padding:14px 16px; }
   .source-panel-head .material-search-row { flex-basis:100%; max-width:none; }

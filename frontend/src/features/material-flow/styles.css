@@ -831,8 +831,6 @@
   right: 22px;
 }
 .is-collection .library-item > .state-actions > .primary-button:first-child { flex: 1; }
-/* 教材來源頁的重新檢核入口：沿用既有檢核流程，完成後產生新版本。 */
-
 /* 三個清單頁（我的教材、概念卡、Podcast）共用頁首與工具列。 */
 .collection-head { align-items: flex-end; margin-bottom: 18px; }
 .collection-head-text { min-width: 0; }

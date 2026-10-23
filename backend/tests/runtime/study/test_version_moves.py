@@ -21,7 +21,7 @@ from runtime.storage.materials import MaterialLibraryError
 
 
 def new_revision(fixture, mutation):
-    """以追加來源產生新版本；mutation 改寫舊概念，模擬重新分析的結果。"""
+    """以追加來源產生新版本；mutation 改寫舊概念，模擬新版改寫的結果。"""
     owner, material, dsn = fixture["learner"].learner_id, fixture["source"].material_id, fixture["dsn"]
     old = fixture["document"]
     with pymupdf.open() as pdf:
@@ -47,7 +47,7 @@ def new_revision(fixture, mutation):
     }]})
     signals = next(c for c in document["concepts"] if c["label"] == "Signals")
     if mutation == "rewrite":
-        # 重新分析改寫名稱與重點文字，原文區塊不變。
+        # 新版改寫名稱與重點文字，原文區塊不變。
         signals["label"] = "Signal codes"
         for index, claim in enumerate(signals["claims"]):
             claim["text"] = f"Signal {index} is sent with code{index}."

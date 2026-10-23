@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { InlineConfirm } from "../../ui/InlineConfirm";
 import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
 import type { SourceListView, MaterialLibraryItem, FormatCapability } from "../../api/contracts";
@@ -189,17 +188,6 @@ export function SourceView({
         intent.current.key,
         baseRevision,
       );
-      writeRoute({ name: "material-run", materialId, runId: created.run_id });
-    });
-  // 重新檢核：沿用已保存地圖與來源產生新版本（後端 /review）；舊版卡組與進度保留，由學生自行移到新版。
-  const recheckIntent = useRef<{ base: string; key: string } | null>(null);
-  const [confirmingRecheck, setConfirmingRecheck] = useState(false);
-  const recheck = () =>
-    perform(async () => {
-      if (!baseRevision || hasActiveRun) return;
-      if (recheckIntent.current?.base !== baseRevision)
-        recheckIntent.current = { base: baseRevision, key: crypto.randomUUID() };
-      const created = await apiClient.reviewMaterial(materialId, baseRevision, recheckIntent.current.key);
       writeRoute({ name: "material-run", materialId, runId: created.run_id });
     });
   const chooseFiles = (files: FileList | null) => {
@@ -621,21 +609,6 @@ export function SourceView({
           {sourceQuery.trim() && visibleSources.length === 0 && <p className="cards-no-results">沒有符合的來源檔案。</p>}
           {listFooter}
         </section>
-        {!removing && !adjustingSources && (
-          <section className="surface source-recheck" aria-labelledby="source-recheck-title">
-            <span className="flow-stage-icon" aria-hidden="true"><Icon name="refresh" size={22} /></span>
-            <div>
-              <h2 id="source-recheck-title">重新分析與重新檢核</h2>
-              <p>重新檢核沿用目前的地圖與來源，重新檢查重點、合併重複概念並更新檢索，不重新辨識或下載來源。完成後產生新版本；舊版的卡組與學習進度會保留，可在教材頁按「移到新版」承接。</p>
-              <p>要分析新的內容，請用「新增來源」加入教材後更新地圖。</p>
-            </div>
-            {confirmingRecheck
-              ? <InlineConfirm message="重新檢核會用模型重新檢查目前的重點與概念，完成後產生新版本。" danger={false}
-                confirmLabel="開始檢核" busyLabel="正在建立檢核…" busy={busy}
-                onCancel={() => setConfirmingRecheck(false)} onConfirm={() => void recheck()} />
-              : <button className="secondary-button" type="button" data-inline-confirm-trigger disabled={busy} onClick={() => setConfirmingRecheck(true)}>重新檢核</button>}
-          </section>
-        )}
         {bottom}
       </div>
     </section>

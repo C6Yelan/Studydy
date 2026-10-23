@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { MaterialLibraryItem, VersionMovePreview } from "../../src/api/contracts";
 import { artifactId, materialId, run, runId, sessionId, structureRevision, structureView, mockKnowledgeMapApi, json } from "../fixtures/knowledge-map";
 
-// 教材新版承接：教材頁的「有新版本」提示、預覽、確認與重送，以及來源頁的重新檢核入口。
+// 教材新版承接：教材頁的「有新版本」提示、預覽、確認與重送。
 const oldRevision = `knowledge-structure:sha256:${"f".repeat(64)}`;
 const oldRunId = "22222222-2222-4222-8222-999999999999";
 const cardSetId = "55555555-5555-4555-8555-555555555555";
@@ -131,38 +131,4 @@ test("a material with only its current version does not ask for a move preview",
   await page.waitForLoadState("networkidle");
   expect(reads).toEqual([]);
   await expect(page.getByRole("region", { name: "有新版本" })).toHaveCount(0);
-});
-
-test("sources page starts a review-only recheck of the current version", async ({ page }) => {
-  await mockKnowledgeMapApi(page);
-  const item = { ...material(1), source_count: 1 };
-  await page.route(`**/v1/materials/${materialId}`, (route) => json(route, item));
-  await page.route("**/v1/materials", (route) => json(route, { schema: "material-library/v1", materials: [item] }));
-  await page.route(`**/v1/materials/${materialId}/sources`, (route) => json(route, {
-    schema: "material-sources/v1", material_id: materialId, sources: [{
-      source_id: "11111111-1111-4111-8111-000000000010", normalization_id: "11111111-1111-4111-8111-000000000011",
-      original_artifact_id: "11111111-1111-4111-8111-000000000012", normalized_artifact_id: artifactId,
-      original_name: "A.pdf", media_type: "application/pdf", status: "ready", page_count: 2, error_code: null, included: true,
-    }],
-  }));
-  const reviewRun = { ...run, run_id: "22222222-2222-4222-8222-888888888888", base_revision: structureRevision,
-    status: "pending", progress_stage: "queued", completed_pages: 0, output_binding: null, completed_at: null };
-  const sent: { key: string | undefined; body: unknown }[] = [];
-  await page.route(`**/v1/materials/${materialId}/review`, (route) => {
-    sent.push({ key: route.request().headers()["idempotency-key"], body: route.request().postDataJSON() });
-    return json(route, reviewRun, 202);
-  });
-  await page.route(`**/v1/material-processing-runs/${reviewRun.run_id}`, (route) => json(route, reviewRun));
-  await page.goto(`/materials/${materialId}/sources`);
-  const section = page.getByRole("region", { name: "重新分析與重新檢核" });
-  await expect(section).toContainText("舊版的卡組與學習進度會保留");
-  page.on("dialog", () => { throw new Error("native confirmation is not allowed"); });
-  await section.getByRole("button", { name: "重新檢核" }).click();
-  await expect(section.getByRole("group", { name: /重新檢核會用模型重新檢查/ })).toBeVisible();
-  await section.getByRole("button", { name: "取消", exact: true }).click();
-  expect(sent).toEqual([]);
-  await section.getByRole("button", { name: "重新檢核" }).click();
-  await section.getByRole("button", { name: "開始檢核" }).click();
-  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${reviewRun.run_id}$`));
-  expect(sent).toEqual([{ key: expect.any(String), body: { schema: "material-review-create/v1", base_revision: structureRevision } }]);
 });

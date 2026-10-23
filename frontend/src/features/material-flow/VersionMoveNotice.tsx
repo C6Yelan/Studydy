@@ -90,7 +90,7 @@ export function VersionMoveNotice({ apiClient, materialId }: { apiClient: Studyd
   return <>
     {pending && <section className="version-move-notice" aria-label="有新版本">
       <span className="version-move-badge"><Icon name="sparkle" size={16}/>有新版本</span>
-      <p>這份教材已重新分析或檢核，產生了新版本。你的{/^\d/.test(parts) ? " " : ""}{parts}還在舊版，確認後才會移到新版。</p>
+      <p>這份教材已更新，產生了新版本。你的{/^\d/.test(parts) ? " " : ""}{parts}還在舊版，確認後才會移到新版。</p>
       <button className="primary-button" type="button" onClick={() => { setError(null); setOpen(true); }}>移到新版</button>
     </section>}
     <Modal label="移到新版" open={open} onClose={close} className="version-move-dialog">

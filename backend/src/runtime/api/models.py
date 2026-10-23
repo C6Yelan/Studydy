@@ -1248,11 +1248,6 @@ class VersionMoveView(_Closed):
     created_at: datetime
 
 
-class MaterialReviewCreate(_Closed):
-    schema_: Literal["material-review-create/v1"] = Field(alias="schema")
-    base_revision: str = Field(pattern=r"^knowledge-structure:sha256:[0-9a-f]{64}$")
-
-
 class FormatCapability(_Closed):
     extension: str
     media_type: str

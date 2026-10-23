@@ -576,16 +576,6 @@ export class StudydyApiClient {
       validate.materialRun,
     );
   }
-  /** 重新檢核目前版本：沿用已保存地圖與來源，只重跑檢核、去重與索引（後端 /review）。 */
-  reviewMaterial(materialId: string, baseRevision: string, key: string): Promise<MaterialProcessingRunView> {
-    return this.post(
-      `/v1/materials/${encodeURIComponent(materialId)}/review`,
-      { schema: "material-review-create/v1", base_revision: baseRevision },
-      key,
-      (value): value is MaterialProcessingRunView => validate.materialRun(value) && value.material_id === materialId,
-    );
-  }
-
   getVersionMove(materialId: string): Promise<VersionMovePreview> {
     return this.json(`/v1/materials/${encodeURIComponent(materialId)}/version-move`, { method: "GET" },
       (value): value is VersionMovePreview => validate.versionMovePreview(value) && value.material_id === materialId);

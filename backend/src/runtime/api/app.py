@@ -94,7 +94,6 @@ from .models import (
     MaterialLibraryView,
     MaterialProcessingRunView,
     MaterialRename,
-    MaterialReviewCreate,
     RevisionCancel,
     RevisionCreate,
     SourceCapabilities,
@@ -386,7 +385,6 @@ def _install_openapi(app: FastAPI) -> None:
         "/v1/materials/{material_id}/sources",
         "/v1/materials/{material_id}/revisions",
         "/v1/material-processing-runs/{run_id}/retry",
-        "/v1/materials/{material_id}/review",
         "/v1/card-sets/{card_set_id}/reviews",
         "/v1/materials/{material_id}/version-move",
         "/v1/study-sessions",
@@ -1021,28 +1019,6 @@ def create_app(settings: ApiSettings) -> FastAPI:
                 owner,
                 run_id,
                 update_only=True,
-                dsn=settings.dsn,
-            )
-        )
-
-    @app.post(
-        "/v1/materials/{material_id}/review",
-        status_code=202,
-        response_model=MaterialProcessingRunView,
-    )
-    def review_material_revision(
-        request: Request, material_id: UUID, body: MaterialReviewCreate
-    ):
-        request_context.require_query(request, set())
-        owner = request_context.trusted_learner(request, settings).learner_id
-        return project_material_run(
-            create_revision(
-                owner,
-                material_id,
-                [],
-                request_context.idempotency_key(request),
-                deepcopy(settings.local_config),
-                base_revision=body.base_revision,
                 dsn=settings.dsn,
             )
         )
