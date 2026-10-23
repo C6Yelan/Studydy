@@ -311,10 +311,38 @@ def test_unusable_page_anchor_takes_the_middle_measured_start_without_failing(an
     assert [w[:2] for w in windows(plan)] == [(0, None), (0, 1), (1, 3)]
 
 
-def test_section_with_too_few_measured_starts_keeps_the_pages_that_fit():
+def test_pages_without_their_own_measured_start_merge_into_the_previous_page():
     pytest.importorskip('PIL')
+    # 無字幕、單 cue 的段只有一個實測起點：flow＋concept 兩頁併成一頁，節點都保留、沿用第一頁標題。
     plan, _ = split(anchors=('', '講稿裡沒有這句'), cues=1, captions=1)
-    assert len(plan['pages']) == 1
+    measured = timeline(1, 1); del measured['captions']
+    value = {'sections': [{'start_cue': 0, 'end_cue': 0, 'pages': [
+        dict(design('flow', 2)['sections'][0]['pages'][0], title='步驟'),
+        dict(design('concept', 2)['sections'][0]['pages'][0], title='組成', anchor=CAPTIONS[0][:4])]}]}
+    for page in (plan, compile_layout(value, [{}], measured)):
+        assert len(page['pages']) == 1
+        rails = page['pages'][0]['spotlight']['steps'][0]['rails']
+        assert len(rails) == 4
+    merged = compile_layout(value, [{}], measured)['pages'][0]
+    assert merged['title'] == '步驟' and merged['spotlight']['layout'] == 'concept'
+    # exchange 併入時保留訊息方向；併入後放不下才照規則回報版面錯誤。
+    value['sections'][0]['pages'][1] = design()['sections'][0]['pages'][0]
+    texts = [e['text'] for e in compile_layout(value, [{}], measured)['pages'][0]['elements']]
+    assert '參與者1 → 參與者2' in texts
+    for page in value['sections'][0]['pages']:
+        page['layout'] = 'concept'; page['relations'] = []
+        page['nodes'] = [dict(design('concept', 1)['sections'][0]['pages'][0]['nodes'][0], text='完整條件與必要說明，' * 12) for _ in range(6)]
+    with pytest.raises(ValueError, match='VIDEO_LAYOUT_INVALID'):
+        compile_layout(value, [{}], measured)
+
+
+def test_exchange_needs_at_least_two_messages():
+    pytest.importorskip('PIL')
+    schema = semantic_schema(1)['properties']['sections']['items']['properties']['pages']['items']['anyOf'][3]
+    assert schema['properties']['relations']['minItems'] == 2
+    value = design(); value['sections'][0]['pages'][0]['relations'] = value['sections'][0]['pages'][0]['relations'][:1]
+    with pytest.raises(ValueError, match='at least two ordered messages'):
+        compile_layout(value, [{}], timeline(1, 4))
 
 
 def test_section_page_limit_keeps_the_whole_storyboard_within_24_pages():

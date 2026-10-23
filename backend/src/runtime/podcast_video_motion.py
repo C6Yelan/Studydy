@@ -141,20 +141,11 @@ def validate_motion_timing(page, timeline, visible, where):
                     )
 
 
-def page_window(timeline, page, bounds=None):
-    """頁面起訖；未給 bounds 時以 cue 邊界計算，與未拆頁的分鏡相同。"""
-    if bounds is not None:
-        return bounds
-    return (
-        timeline["segments"][page["start_cue"]]["start"],
-        timeline["segments"][page["end_cue"]]["end"],
-    )
-
-
-def scene_state(t, timeline, page, bounds=None):
+def scene_state(t, timeline, page, bounds):
     """同時的語意 anchor 同時聚焦；不替模型杜撰額外的教學先後。"""
     groups = page["motion"]["groups"]
-    page_start, page_end = page_window(timeline, page, bounds)
+    # bounds 是 page_windows 算出的實測頁起訖；子頁可從字幕開始，不能由 cue 推回。
+    page_start, page_end = bounds
     appearances = {
         j: (page_start, min(page_end, timeline["segments"][page["start_cue"]]["end"]))
         for j in range(len(page["elements"]))
@@ -245,7 +236,8 @@ def validate_spotlight(page, where):
                 )
             )
             or not isinstance(step["rails"], list)
-            or not 1 <= len(step["rails"]) <= 6
+            # 併頁時同一張卡可放多頁節點；能否放下由版面量測決定。
+            or not 1 <= len(step["rails"]) <= 18
             or not isinstance(step["card"], list)
             or not len(step["rails"]) + 1
             <= len(step["card"])
@@ -280,11 +272,11 @@ def validate_spotlight(page, where):
         raise ValueError(where + ", spotlight must use every element exactly once")
 
 
-def spotlight_state(t, timeline, page, bounds=None):
+def spotlight_state(t, timeline, page, bounds):
     """每張卡從自己的實測起點亮到下一張開始；交接時短暫交叉淡化，頁首卡直接出現。"""
     steps = page["spotlight"]["steps"]
     starts = [window(step, timeline)[0] for step in steps]
-    ends = starts[1:] + [page_window(timeline, page, bounds)[1]]
+    ends = starts[1:] + [bounds[1]]
     fades = [min(0.3, (end - start) / 3) for start, end in zip(starts, ends)]
     result = []
     for k, (start, end) in enumerate(zip(starts, ends)):
@@ -296,6 +288,6 @@ def spotlight_state(t, timeline, page, bounds=None):
     return result
 
 
-def transition(t, timeline, page, bounds=None):
-    start, end = page_window(timeline, page, bounds)
+def transition(t, timeline, page, bounds):
+    start, end = bounds
     return progress(t, start, end, 0.2)

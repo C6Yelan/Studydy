@@ -195,7 +195,12 @@ def validate_plan(plan, cues):
         ):
             raise ValueError(
                 where
-                + f", start_cue must be {next_cue}; end_cue must be {next_cue}..{len(cues) - 1}"
+                + (
+                    f", a page starting at caption_index must share the previous page's last cue {next_cue - 1}"
+                    if shared
+                    else f", start_cue must be {next_cue}"
+                )
+                + f"; end_cue must be start_cue..{len(cues) - 1}"
             )
         for element_index, e in enumerate(page["elements"]):
             where = (

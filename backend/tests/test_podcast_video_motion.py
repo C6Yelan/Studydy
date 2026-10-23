@@ -4,7 +4,7 @@ from hashlib import sha256
 import pytest
 from runtime.podcast_video_layout import compile_layout
 from runtime.podcast_video_motion import scene_state, spotlight_state, transition
-from runtime.podcast_video_plan import SAFE_BOTTOM, validate_plan, validate_visual_timing
+from runtime.podcast_video_plan import SAFE_BOTTOM, page_windows, validate_plan, validate_visual_timing
 from runtime import podcast_video_render as render
 from test_podcast_video_layout import CAPTIONS, design, timeline
 
@@ -27,9 +27,9 @@ def board(plan, timeline, t):
 @pytest.mark.parametrize('kind', ['comparison', 'exchange'])
 def test_entrance_is_continuous_and_preserves_existing_geometry(kind):
     plan, timeline = scene(kind); page = plan['pages'][0]
-    initial = scene_state(0, timeline, page); partial = scene_state(.1, timeline, page)
+    initial = scene_state(0, timeline, page, page_windows(timeline, plan)[0]); partial = scene_state(.1, timeline, page, page_windows(timeline, plan)[0])
     assert initial[0]['entrance'] == 0 < partial[0]['entrance'] < 1
-    assert scene_state(.5, timeline, page)[0]['entrance'] == 1
+    assert scene_state(.5, timeline, page, page_windows(timeline, plan)[0])[0]['entrance'] == 1
     assert len({board(plan,timeline,t) for t in (0,.1,.5)}) == 3
     before = deepcopy(page)
     for t in (7,2.1,.1,4.3): board(plan,timeline,t)
@@ -41,13 +41,13 @@ def test_comparison_lights_the_spoken_column_and_its_terms_never_leak_into_the_p
     value['sections'][0]['pages'][0]['nodes'][1].update(anchor=CAPTIONS[1][:5], key_terms=['必要條件'])
     timeline_ = timeline(1, 4)
     plan = compile_layout(value, [{}], timeline_); page = plan['pages'][0]
-    assert scene_state(1.999,timeline_,page)[0]['focus'] == 1
-    assert scene_state(1.999,timeline_,page)[1]['focus'] == 0
-    partial = scene_state(2.1,timeline_,page)
+    assert scene_state(1.999, timeline_, page, page_windows(timeline_, plan)[0])[0]['focus'] == 1
+    assert scene_state(1.999, timeline_, page, page_windows(timeline_, plan)[0])[1]['focus'] == 0
+    partial = scene_state(2.1, timeline_, page, page_windows(timeline_, plan)[0])
     assert 0 < partial[0]['focus'] < 1 and 0 < partial[1]['focus'] < 1
-    assert scene_state(2.5,timeline_,page)[0]['focus'] == 0
-    assert scene_state(2.5,timeline_,page)[1]['focus'] == 1
-    assert scene_state(7.9,timeline_,page)[0]['opacity'] == .65  # 持續可讀，不移除舊欄位。
+    assert scene_state(2.5, timeline_, page, page_windows(timeline_, plan)[0])[0]['focus'] == 0
+    assert scene_state(2.5, timeline_, page, page_windows(timeline_, plan)[0])[1]['focus'] == 1
+    assert scene_state(7.9, timeline_, page, page_windows(timeline_, plan)[0])[0]['opacity'] == .65  # 持續可讀，不移除舊欄位。
     without = deepcopy(plan); without['pages'][0]['emphasis'] = []
     assert board(plan,timeline_,1.999) == board(without,timeline_,1.999)
     assert board(plan,timeline_,2.5) != board(without,timeline_,2.5)
@@ -58,16 +58,16 @@ def test_relation_draw_on_and_directed_progression_use_only_existing_arrow():
     page = plan['pages'][0]; group_index = 3
     group = page['motion']['groups'][group_index]
     start = 2
-    before = scene_state(start-.001,timeline,page)[group_index]
-    first = scene_state(start+.15,timeline,page)[group_index]
-    last = scene_state(start+.5,timeline,page)[group_index]
-    done = scene_state(start+.8,timeline,page)[group_index]
+    before = scene_state(start-.001, timeline, page, page_windows(timeline, plan)[0])[group_index]
+    first = scene_state(start+.15, timeline, page, page_windows(timeline, plan)[0])[group_index]
+    last = scene_state(start+.5, timeline, page, page_windows(timeline, plan)[0])[group_index]
+    done = scene_state(start+.8, timeline, page, page_windows(timeline, plan)[0])[group_index]
     assert before['draw'] == 0 and before['token'] is None
     assert 0 < first['draw'] < last['draw'] == 1
     assert 0 < first['token'] < last['token'] < 1 and done['token'] is None
     arrow = next(page['elements'][j] for j in group['elements'] if page['elements'][j]['kind'] == 'arrow')
     assert arrow['w'] < 0  # 回覆沿原本的反向箭頭移動。
-    assert scene_state(start+.8,timeline,page)[group['target']]['focus'] == 1
+    assert scene_state(start+.8, timeline, page, page_windows(timeline, plan)[0])[group['target']]['focus'] == 1
 
 
 def spotlight(kind='concept', count=3):
@@ -77,11 +77,11 @@ def spotlight(kind='concept', count=3):
 def test_spotlight_shows_one_card_at_a_time_and_marks_rail_progress():
     plan, timeline = spotlight()
     page = plan['pages'][0]
-    assert [(s['now'], s['done']) for s in spotlight_state(1, timeline, page)] == [(1, False), (0, False), (0, False)]
-    crossing = spotlight_state(2.1, timeline, page)
+    assert [(s['now'], s['done']) for s in spotlight_state(1, timeline, page, page_windows(timeline, plan)[0])] == [(1, False), (0, False), (0, False)]
+    crossing = spotlight_state(2.1, timeline, page, page_windows(timeline, plan)[0])
     assert 0 < crossing[0]['now'] < 1 and 0 < crossing[1]['now'] < 1 and crossing[0]['done']
-    assert [(s['now'], s['done']) for s in spotlight_state(3, timeline, page)] == [(0, True), (1, False), (0, False)]
-    assert [(s['now'], s['done']) for s in spotlight_state(7.9, timeline, page)] == [(0, True), (0, True), (1, False)]
+    assert [(s['now'], s['done']) for s in spotlight_state(3, timeline, page, page_windows(timeline, plan)[0])] == [(0, True), (1, False), (0, False)]
+    assert [(s['now'], s['done']) for s in spotlight_state(7.9, timeline, page, page_windows(timeline, plan)[0])] == [(0, True), (0, True), (1, False)]
     card = page['elements'][page['spotlight']['steps'][0]['card'][0]]
     area = (card['x'], card['y'], card['x'] + card['w'], card['y'] + card['h'])
     frames = {t: render.draw_frame(t, timeline, plan, render.layouts(plan)) for t in (1, 3, 5)}
@@ -173,9 +173,9 @@ def test_cached_frames_preserve_animation_progress_and_reverse_seek(kind, emphas
 def test_crossfade_is_short_and_has_no_future_page():
     import math
     plan, timeline = two_pages(); page = plan['pages'][1]
-    assert transition(2,timeline,page) == 0
-    assert 0 < transition(2.1,timeline,page) < 1
-    assert transition(2.2,timeline,page) == 1
+    assert transition(2,timeline,page,page_windows(timeline,plan)[1]) == 0
+    assert 0 < transition(2.1,timeline,page,page_windows(timeline,plan)[1]) < 1
+    assert transition(2.2,timeline,page,page_windows(timeline,plan)[1]) == 1
     assert board(plan,timeline,2) == board(plan,timeline,math.nextafter(2,-math.inf))
     assert len({board(plan,timeline,t) for t in (1.99,2.1,2.3)}) == 3
 
@@ -244,7 +244,7 @@ def test_tied_anchors_do_not_invent_order_and_short_windows_finish_in_time():
     value['sections'][0]['pages'][0]['relations'][1]['anchor'] = CAPTIONS[0][:5]
     timeline_ = timeline(1, 4)
     plan = compile_layout(value,[{}],timeline_)
-    state = scene_state(.1,timeline_,plan['pages'][0])
+    state = scene_state(.1, timeline_, plan['pages'][0], page_windows(timeline_, plan)[0])
     assert state[2]['focus'] == state[3]['focus'] == 1
     assert state[2]['token'] == state[3]['token']
     for segment in timeline_['segments']:segment['end'] /= 100
@@ -252,7 +252,7 @@ def test_tied_anchors_do_not_invent_order_and_short_windows_finish_in_time():
         caption['start'] /= 100;caption['end'] /= 100
     timeline_['duration'] /= 100
     plan = compile_layout(value,[{}],timeline_)
-    states = scene_state(.019,timeline_,plan['pages'][0])
+    states = scene_state(.019, timeline_, plan['pages'][0], page_windows(timeline_, plan)[0])
     assert states[2]['entrance'] == states[2]['draw'] == 1 and states[2]['token'] is None
 
 
@@ -314,10 +314,10 @@ def test_first_delayed_focus_smoothly_leaves_the_page_preview():
     value['sections'][0]['pages'][0]['nodes'][1]['anchor'] = CAPTIONS[3][:5]
     timeline_ = timeline(2, 4)
     plan = compile_layout(value,[{},{}],timeline_);page = plan['pages'][0]
-    assert scene_state(3.9,timeline_,page)[1]['focus'] == 1
-    assert scene_state(4,timeline_,page)[1]['focus'] == 1
-    assert 0 < scene_state(4.1,timeline_,page)[1]['focus'] < 1
-    assert scene_state(4.4,timeline_,page)[1]['focus'] == 0
+    assert scene_state(3.9, timeline_, page, page_windows(timeline_, plan)[0])[1]['focus'] == 1
+    assert scene_state(4, timeline_, page, page_windows(timeline_, plan)[0])[1]['focus'] == 1
+    assert 0 < scene_state(4.1, timeline_, page, page_windows(timeline_, plan)[0])[1]['focus'] < 1
+    assert scene_state(4.4, timeline_, page, page_windows(timeline_, plan)[0])[1]['focus'] == 0
 
 
 def test_highlight_cannot_appear_before_its_card():

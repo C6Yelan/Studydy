@@ -90,7 +90,8 @@ def semantic_schema(section_count):
                     },
                     "relations": {
                         "type": "array",
-                        "minItems": 1 if layout == "exchange" else 0,
+                        # 只有一則訊息時改用 concept，避免整頁只剩一條箭頭。
+                        "minItems": 2 if layout == "exchange" else 0,
                         "maxItems": 6 if layout == "exchange" else 0,
                         "items": relation,
                     },
@@ -241,9 +242,9 @@ def _split(pages, narration, slots):
     """段內換頁位置（段內實測起點索引）：第一頁從段首開始，第 2 頁起採用逐字 anchor。
 
     對不到、倒退、不在本段或擠掉後頁所需起點的 anchor 不採用，改放在前後已定換頁點之間
-    居中的實測起點；實測起點比頁數少時，只保留放得下的前幾頁。都不產生新秒數。
+    居中的實測起點。都不產生新秒數；呼叫前已用 _merge_tail 讓頁數不超過實測起點數。
     """
-    count = min(len(pages), len(slots))
+    count = len(pages)
     bounds = [0] + [None] * (count - 1)
     last = 0
     for k in range(1, count):
@@ -294,6 +295,47 @@ def _key_terms(terms, body, label):
     return [(target, term) for target, term, _ in marks]
 
 
+def _as_nodes(page):
+    """把一頁的內容轉成聚焦卡節點；exchange 訊息保留方向，寫成「傳送方 → 接收方」。"""
+    if page["layout"] != "exchange":
+        return [dict(node) for node in page["nodes"]]
+    names = [node["label"] for node in page["nodes"]]
+    return [
+        {
+            "label": r["label"],
+            "text": f"{names[r['source']]} → {names[r['target']]}",
+            "anchor": r["anchor"],
+            "key_terms": r["key_terms"],
+        }
+        for r in page["relations"]
+    ]
+
+
+def _merge_tail(pages, capacity):
+    """段內實測起點比頁數少時，放不下獨立起點的頁把節點併入前一頁，不丟內容。
+
+    併入後沿用前一頁的標題與 anchor；同為 concept 或同為 flow 時保留版型，其餘改用 concept
+    聚焦卡。節點過多放不下時，由版面量測照常回報 VIDEO_LAYOUT_INVALID。
+    """
+    if len(pages) <= capacity:
+        return pages
+    head, tail = pages[: capacity - 1], pages[capacity - 1 :]
+    kinds = {p["layout"] for p in tail}
+    layout = (
+        tail[0]["layout"]
+        if len(kinds) == 1 and kinds <= {"concept", "flow"}
+        else "concept"
+    )
+    merged = {
+        "layout": layout,
+        "title": tail[0]["title"],
+        "anchor": tail[0]["anchor"],
+        "nodes": [node for p in tail for node in _as_nodes(p)],
+        "relations": [],
+    }
+    return head + [merged]
+
+
 def _check_section(section, p, start, cues):
     where = f"VIDEO_STORYBOARD_INVALID:section={p}"
     if (
@@ -325,9 +367,10 @@ def _check_page(spec, where):
         or len(relations) > 6
     ):
         raise ValueError(where + ", invalid page range, layout or item count")
-    if kind == "exchange" and (len(nodes) != 2 or not relations):
+    if kind == "exchange" and (len(nodes) != 2 or len(relations) < 2):
         raise ValueError(
-            where + ", exchange requires two participants and ordered messages"
+            where
+            + ", exchange requires two participants and at least two ordered messages"
         )
     if kind == "comparison" and not 2 <= len(nodes) <= 3:
         raise ValueError(where + ", comparison requires two or three groups")
@@ -414,13 +457,14 @@ def compile_layout(design, cues, timeline):
             narration, section_slots = _slots(
                 timeline, section["start_cue"], section["end_cue"]
             )
-            bounds = _split(section["pages"], narration, section_slots)
+            section_pages = _merge_tail(section["pages"], len(section_slots))
+            bounds = _split(section_pages, narration, section_slots)
             for k, first in enumerate(bounds):
                 stop = bounds[k + 1] if k + 1 < len(bounds) else len(section_slots)
                 following = section_slots[stop] if stop < len(section_slots) else None
                 specs.append(
                     (
-                        section["pages"][k],
+                        section_pages[k],
                         narration,
                         section_slots[first:stop],
                         following[1] if following else None,
