@@ -108,6 +108,13 @@ def test_too_few_measured_starts_share_a_card_instead_of_failing_the_video():
     shared = [page['elements'][j]['text'] for j in page['spotlight']['steps'][0]['card'][1:]]
     assert shared == ['節點1', '來源支持的必要條件與說明。', '節點2', '來源支持的必要條件與說明。']
     layouts(plan)
+    # 只有一個實測起點時，四個節點以兩欄小格共用一張卡，60 字說明仍放得下。
+    single = design('concept', 4)
+    for node in single['pages'][0]['nodes']:
+        node.update(label='標' * 8, text=('完整條件與必要說明，' * 6)[:60])
+    shared = compile_layout(single, [{}], timeline(1, 1))
+    assert [len(s['rails']) for s in shared['pages'][0]['spotlight']['steps']] == [4]
+    layouts(shared)
     crowded = design('concept', 4)
     for node in crowded['pages'][0]['nodes']:
         node['text'] = '完整條件與必要說明，' * 12
@@ -134,9 +141,10 @@ def test_key_terms_are_checked_verbatim_and_marked_once_without_failing():
     second['key_terms'] = ['字' * (KEY_TERM_LIMIT + 1), ' HTTP']  # 中文字寬超過上限、前後空白都丟掉。
     page = compile_layout(value, [{}], timeline(1, 4))['pages'][0]
     assert [(m['quote'], page['elements'][m['element_index']]['text']) for m in page['emphasis']] == [('目標', '目標欄位')]
-    first['key_terms'] = ['CDN', 'RFC', '標頭']
-    with pytest.raises(ValueError, match='VIDEO_STORYBOARD_INVALID'):
-        compile_layout(value, [{}], timeline(1, 4))
+    first['key_terms'] = ['RFC', '標頭', 'CDN']  # 超過兩個只取前兩個，不讓整份失敗。
+    second['key_terms'] = []
+    page = compile_layout(value, [{}], timeline(1, 4))['pages'][0]
+    assert [m['quote'] for m in page['emphasis']] == ['RFC', '標頭']
 
 
 def test_highlight_marks_only_the_first_occurrence_in_the_rendered_rows():

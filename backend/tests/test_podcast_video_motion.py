@@ -313,3 +313,15 @@ def test_first_delayed_focus_smoothly_leaves_the_page_preview():
     assert scene_state(4,timeline_,page)[1]['focus'] == 1
     assert 0 < scene_state(4.1,timeline_,page)[1]['focus'] < 1
     assert scene_state(4.4,timeline_,page)[1]['focus'] == 0
+
+
+def test_highlight_cannot_appear_before_its_card():
+    value = design('concept', 2)
+    value['pages'][0]['nodes'][1]['key_terms'] = ['必要條件']
+    plan, timeline_ = compile_layout(value, [{}], timeline(1, 4)), timeline(1, 4)
+    mark = plan['pages'][0]['emphasis'][0]
+    assert mark['caption_index'] == 1
+    validate_visual_timing(plan, timeline_)
+    del mark['caption_index']  # 退回頁首會早於第二張卡出現。
+    with pytest.raises(ValueError, match='emphasis must not precede'):
+        validate_visual_timing(plan, timeline_)

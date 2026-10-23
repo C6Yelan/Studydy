@@ -144,6 +144,27 @@ def _fitted(text, x, y, w, h, cue, color, maximum):
     return element
 
 
+def _cell(node, x, y, w, h, cue, color, maximum):
+    """卡片內的一個節點：標題字級由大到小試，留給說明的高度足夠才採用；都放不下才拒絕。"""
+    for size in (64, 52, 42, 34, 28):
+        if size > maximum[0]:
+            continue
+        try:
+            label = _fitted(node["label"], x, y, w, h, cue, color, size)
+            if not node["text"]:
+                return label, None
+            top = label["y"] + label["h"] + 24
+            body = _fitted(
+                node["text"], x, top, w, y + h - top, cue, "ink", min(size, maximum[1])
+            )
+            return label, body
+        except ValueError:
+            continue
+    raise ValueError(
+        "VIDEO_LAYOUT_INVALID:node text exceeds its reading area; shorten the label or explanation without dropping necessary conditions"
+    )
+
+
 def _line(x, y, w, h, cue, color="muted", kind="line"):
     return {
         "kind": kind,
@@ -197,12 +218,10 @@ def _anchor_slot(anchor, narration, slots):
 
 def _key_terms(terms, body, label):
     """只保留逐字出自卡片文字的短詞；標該詞第一次出現的位置，不標整句或整個標籤。"""
-    if not isinstance(terms, list) or len(terms) > 2:
-        raise ValueError(
-            "VIDEO_STORYBOARD_INVALID:key_terms must be a list of at most two terms"
-        )
+    if not isinstance(terms, list):
+        raise ValueError("VIDEO_STORYBOARD_INVALID:key_terms must be a list")
     marks = []
-    for term in terms:
+    for term in terms[:2]:
         if (
             not isinstance(term, str)
             or not term
@@ -374,48 +393,34 @@ def compile_layout(design, cues, timeline):
                         )
                     ]
                     rails = []
-                    # 同一張卡放多個節點時平分高度；放不下由字型量測回報 VIDEO_LAYOUT_INVALID。
-                    band = (SAFE_BOTTOM - 40 - 248 - 24 * (len(members) - 1)) // len(
-                        members
-                    )
-                    top = 248
-                    for k in members:
+                    # 實測起點不足而共用一張卡時，卡內改成兩欄小格，標題與說明一起找放得下的字級。
+                    columns = 1 if len(members) == 1 else 2
+                    rows = -(-len(members) // columns)
+                    w = (990 - 40 * (columns - 1)) // columns
+                    h = (SAFE_BOTTOM - 40 - 248 - 24 * (rows - 1)) // rows
+                    for i, k in enumerate(members):
                         node, color = nodes[k], COLORS[k % 3]
                         rail = _fitted(
                             node["label"], 174, 0, 456, row - 16, cue, color, 34
                         )
                         rail["y"] = 200 + k * row + (row - 16 - rail["h"]) // 2
                         rails.append(add(rail))
-                        label = _fitted(
-                            node["label"],
-                            760,
-                            top,
-                            990,
-                            min(230, band),
+                        r, c = divmod(i, columns)
+                        label, body = _cell(
+                            node,
+                            760 + c * (w + 40),
+                            248 + r * (h + 24),
+                            w,
+                            h,
                             cue,
                             color,
-                            64 if len(members) == 1 else 52,
+                            (64, 52) if len(members) == 1 else (42, 42),
                         )
                         card.append(add(label))
                         targets = {"label": (node["label"], card[-1])}
-                        if node["text"]:
-                            y = label["y"] + label["h"] + 24
-                            card.append(
-                                add(
-                                    _fitted(
-                                        node["text"],
-                                        760,
-                                        y,
-                                        990,
-                                        top + band - y,
-                                        cue,
-                                        "ink",
-                                        52 if len(members) == 1 else 42,
-                                    )
-                                )
-                            )
+                        if body:
+                            card.append(add(body))
                             targets["body"] = (node["text"], card[-1])
-                        top += band + 24
                         _highlight(page, node, targets, slot, color, end)
                     page["spotlight"]["steps"].append(
                         {"rails": rails, "card": card, **_anchor(slot)}
