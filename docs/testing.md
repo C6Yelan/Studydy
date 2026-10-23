@@ -47,7 +47,7 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 ## GitHub Actions CI
 
-CI 使用 Python 3.12.14、Node 24 與 lock file；uv、npm、Docker build cache 只加速依賴取得，不略過測試。工作權限限於讀取 repository，不使用私人設定、secret、產品資料或外部生成模型；Compose／Nginx 邊界使用合成設定與隔離 echo upstream。runner 較舊的 kernel 不允許在 Docker 遮蔽的 `/proc` 上掛載新的 proc，正式主機的 6.18 kernel 則允許；因此八個真實 Office 轉檔案例與一個沙箱隔離案例由 full 主機執行，quick 容器不增加 AppArmor 或 systempaths 例外。full 主機保留非特權 user namespace 設定，待三個 job 都通過後以單獨移除此設定的版本核對必要性；兩份 Compose、seccomp、cap_drop、no-new-privileges、唯讀及無網路設定均不變。
+CI 使用 Python 3.12.14、Node 24 與 lock file；uv、npm、Docker build cache 只加速依賴取得，不略過測試。工作權限限於讀取 repository，不使用私人設定、secret、產品資料或外部生成模型；Compose／Nginx 邊界使用合成設定與隔離 echo upstream。runner 較舊的 kernel 不允許在 Docker 遮蔽的 `/proc` 上掛載新的 proc，正式主機的 6.18 kernel 則允許；因此八個真實 Office 轉檔案例與一個沙箱隔離案例由 full 主機執行，quick 容器不增加 AppArmor 或 systempaths 例外。full 主機維持 runner 的預設 user namespace 設定；兩份 Compose、seccomp、cap_drop、no-new-privileges、唯讀及無網路設定均不變。
 
 | Job | 觸發 | 實際範圍 |
 | --- | --- | --- |
