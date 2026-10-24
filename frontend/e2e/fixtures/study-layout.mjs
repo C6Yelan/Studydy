@@ -359,7 +359,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       });
     if (path === "/v1/session") return send({ schema: "learner-identity/v1", learner_id: uuid(9) });
     if (path === "/v1/source-capabilities")
-      return send({ schema: "source-capabilities/v1", quality_notice: "PDF", formats: [] });
+      return send({ schema: "source-capabilities/v2", max_request_bytes: 104857600, max_images: 50, max_media_seconds: 7200, youtube: false, quality_notice: "PDF", formats: [] });
     if (isSource) {
       const evidenceId = path.slice(sourcePrefix.length, -"/source".length);
       const evidence = claims

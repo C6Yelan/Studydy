@@ -12,11 +12,15 @@ from uuid import uuid4
 from sqlalchemy import delete, or_, select
 
 from document_normalization.converter import (
-    MAX_FILE_BYTES,
-    MIME,
+    MAX_AUDIO_BYTES,
+    VIDEO_AUDIO_MIME,
+    VIDEO_MIME,
+    YOUTUBE_MIME,
     NormalizationError,
     conversion_policy,
     convert,
+    is_media,
+    media_policy,
 )
 from content_identity import canonical_bytes, canonical_sha256
 from .storage.artifacts import (
@@ -48,6 +52,11 @@ def _name(value):
     ):
         raise SourceError("REQUEST_INVALID")
     return value
+
+
+def _policy(media):
+    """文件沿用原轉檔政策；圖片組、音訊、影片與 YouTube 使用媒體政策。"""
+    return media_policy() if is_media(media) else conversion_policy()
 
 
 def create_draft(owner, name, key, *, dsn=None):
@@ -94,11 +103,18 @@ def upload_source(
     research_attempt=None,
     analysis_scope=None,
 ):
+    from .media_sources import upload_limit
+
     name = _name(name)
-    extension = PurePath(name).suffix.lower()
-    if MIME.get(extension) != media:
-        raise SourceError("UNSUPPORTED_MEDIA_TYPE")
-    if not data or len(data) > MAX_FILE_BYTES:
+    if media == YOUTUBE_MIME:
+        # YouTube 參照只由連結入口建立，內容是影片 ID 與標題，不是使用者檔案。
+        if PurePath(name).suffix != ".youtube" or research_attempt is not None:
+            raise SourceError("UNSUPPORTED_MEDIA_TYPE")
+        limit = 65536
+    else:
+        # 影片在此之前已抽成音軌，保存上限與音訊相同。
+        limit = min(upload_limit(name, media), MAX_AUDIO_BYTES)
+    if not data or len(data) > limit:
         raise SourceError("MATERIAL_TOO_LARGE")
     if analysis_scope is not None and (
         research_attempt is None
@@ -194,8 +210,15 @@ def upload_source(
                     ):
                         return duplicate.source_id
                 raise SourceError("DUPLICATE_SOURCE")
-            policy = conversion_policy()
-            blob = write_blob(session, owner, material_id, data, "original", media)
+            policy = _policy(media)
+            blob = write_blob(
+                session,
+                owner,
+                material_id,
+                data,
+                "original",
+                VIDEO_AUDIO_MIME if media in VIDEO_MIME.values() else media,
+            )
             now = datetime.now(UTC)
             identity = uuid4()
             session.add(
@@ -367,19 +390,26 @@ def normalize_next(*, dsn=None):
         claim
     )
     try:
-        with open_verified_artifact(owner, original_id, dsn=dsn) as stream:
-            data = stream.file.read()
         from .generation_jobs import check_job
 
-        pdf, mapping = convert(
-            data,
-            PurePath(name).suffix.lower(),
-            media,
-            policy,
-            cancellation_check=lambda: check_job(
-                SourceNormalization, identity, token, dsn=dsn
-            ),
-        )
+        if is_media(media):
+            from .media_sources import normalize_media
+
+            pdf, mapping = normalize_media(
+                identity, token, owner, original_id, name, media, policy, dsn=dsn
+            )
+        else:
+            with open_verified_artifact(owner, original_id, dsn=dsn) as stream:
+                data = stream.file.read()
+            pdf, mapping = convert(
+                data,
+                PurePath(name).suffix.lower(),
+                media,
+                policy,
+                cancellation_check=lambda: check_job(
+                    SourceNormalization, identity, token, dsn=dsn
+                ),
+            )
         from pdf_evidence.analysis_scope import locate_scope
 
         # 範圍定位只讀轉檔結果，不使用模型，也不改完整 PDF。
@@ -470,7 +500,7 @@ def retry_normalization(owner, material_id, identity, *, dsn=None):
             raise SourceError("RESOURCE_NOT_FOUND")
         if job.status == "failed":
             # 重試以現行轉檔政策處理原檔；已完成的來源快照保持不變。
-            job.policy = conversion_policy()
+            job.policy = _policy(source.media_type)
             job.status = "pending"
             job.error_code = None
             job.attempt = 0

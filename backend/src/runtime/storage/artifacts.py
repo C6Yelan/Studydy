@@ -190,7 +190,13 @@ def _verify_file(path: Path, expected_digest: bytes, expected_size: int) -> Bina
 def write_blob(
     session, learner_id, material_id, data: bytes, kind: str, media_type: str
 ):
-    if not data or len(data) > 100 * 1024 * 1024:
+    # 只有音訊原檔（含影片抽出的音軌）可到 300 MiB，其餘維持 100 MiB。
+    limit = (
+        300 * 1024 * 1024
+        if kind == "original" and media_type.startswith("audio/")
+        else 100 * 1024 * 1024
+    )
+    if not data or len(data) > limit:
         raise ArtifactError("ARTIFACT_TOO_LARGE")
 
     artifact_id = uuid4()

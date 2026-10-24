@@ -215,3 +215,26 @@ def test_formula_keeps_nearby_variable_definition_without_using_a_foreign_or_dis
     result=provider.script_context(request['claims'],pages)
     assert list(result)==['p0']
     assert [b['evidence_id'] for b in result['p0']['blocks']]==['definition','formula']
+
+
+def test_media_transcription_runs_isolated_gpu_script_and_reports_failure(monkeypatch):
+    import base64
+    from types import SimpleNamespace
+    monkeypatch.setenv('STUDYDY_STT_PYTHON','/isolated/stt-python')
+    monkeypatch.setenv('STUDYDY_PODCAST_PROVIDER_TOKEN','x'*32)
+    calls=[]
+    def run(args,**kwargs):
+        calls.append(args)
+        assert args[0]=='/isolated/stt-python' and args[1].endswith('transcribe_media.py')
+        assert Path(args[2]).read_bytes()==b'OggS-speech'
+        assert kwargs['timeout'] is None and 'STUDYDY_PODCAST_PROVIDER_TOKEN' not in kwargs['env']
+        Path(args[3]).write_text('{"segments":[{"start":0,"end":1,"text":"堆疊"}],"language":"zh"}')
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(provider.podcast_process,'run',run)
+    body={'audio':base64.b64encode(b'OggS-speech').decode()}
+    assert provider.media_transcribe(body)['segments'][0]['text']=='堆疊'
+    # 暫存音訊在回傳前刪除。
+    assert not Path(calls[0][2]).exists()
+    monkeypatch.setattr(provider.podcast_process,'run',lambda args,**kwargs:SimpleNamespace(returncode=1))
+    with pytest.raises(RuntimeError,match='MEDIA_TRANSCRIPT_FAILED'):provider.media_transcribe(body)
+    with pytest.raises(ValueError,match='REQUEST_INVALID'):provider.media_transcribe({'audio':''})

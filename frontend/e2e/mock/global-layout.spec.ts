@@ -8,8 +8,8 @@ const responses: Record<string, unknown> = {
   "/v1/session/refresh": identity,
   "/v1/session": identity,
   "/v1/source-capabilities": {
-    schema: "source-capabilities/v1",
-    formats: [{ extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 }],
+    schema: "source-capabilities/v2", max_request_bytes: 104857600, max_images: 50, max_media_seconds: 7200, youtube: false,
+    formats: [{ extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600, kind: "document" }],
     quality_notice: "PDF",
   },
   "/v1/topics": { topics: [] },

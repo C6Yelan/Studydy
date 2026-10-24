@@ -122,7 +122,10 @@ def test_source_api_origin_owner_download_and_no_model(closed_loop,monkeypatch):
     client=TestClient(app);client.cookies.set('studydy_session',token)
     capabilities=client.get('/v1/source-capabilities')
     assert capabilities.status_code==200
-    assert {item['extension'] for item in capabilities.json()['formats']}==set(MIME)
+    formats=capabilities.json()['formats']
+    assert {item['extension'] for item in formats if item['kind']=='document'}==set(MIME)
+    assert {item['extension'] for item in formats if item['kind']!='document'}=={'.png','.jpg','.jpeg','.webp','.mp3','.m4a','.wav','.mp4'}
+    assert capabilities.json()['youtube'] is True and capabilities.json()['max_images']==50
     with monkeypatch.context() as missing_tools:
         missing_tools.setattr('document_normalization.converter.shutil.which',lambda _:None)
         unavailable=client.get('/v1/source-capabilities')

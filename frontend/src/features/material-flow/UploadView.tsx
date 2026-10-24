@@ -1,23 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { FormatCapability } from "../../api/contracts";
+import type { SourceCapabilities } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { FlowFooter, FlowHeader, FlowStage, LearningSteps, uploadSteps } from "./Flow";
-import { formatFileSize, validateSourceFile } from "./material-flow";
-
-type QueuedFile = {
-  file: File;
-  key: string;
-  status: "pending" | "uploading" | "uploaded" | "failed";
-  error: string | null;
-};
+import { formatFileSize } from "./material-flow";
+import { QueuedImages, YoutubeSourceInput } from "./QueuedSourceParts";
+import {
+  queueFiles,
+  queuedName,
+  queuedSize,
+  uploadQueued,
+  type QueuedSource,
+} from "./source-uploads";
 
 export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
-  const [formats, setFormats] = useState<FormatCapability[]>([]);
-  const [formatsReady, setFormatsReady] = useState(false);
+  const [capabilities, setCapabilities] = useState<SourceCapabilities | null>(null);
+  const formats = capabilities?.formats ?? [];
+  const formatsReady = capabilities !== null;
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
-  const [queue, setQueue] = useState<QueuedFile[]>([]);
+  const [queue, setQueue] = useState<QueuedSource[]>([]);
   const [selectionError, setSelectionError] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,10 +36,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
     let cancelled = false;
     void apiClient.sourceCapabilities().then(
       (value) => {
-        if (!cancelled) {
-          setFormats(value.formats);
-          setFormatsReady(true);
-        }
+        if (!cancelled) setCapabilities(value);
       },
       () => {
         if (!cancelled) {
@@ -67,26 +66,24 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       window.removeEventListener("blur", clearDrag);
     };
   }, []);
-  const chooseFiles = (files: FileList | null) => {
+  const chooseFiles = async (files: FileList | null) => {
     if (submitting.current || !files?.length) return;
-    if (!formatsReady) {
+    if (!capabilities) {
       setSelectionError("請待支援格式載入後重新選擇教材。");
       return;
     }
-    const additions: QueuedFile[] = [];
-    const rejected: string[] = [];
-    for (const file of Array.from(files)) {
-      const problem = validateSourceFile(file, formats);
-      if (problem) rejected.push(`「${file.name}」：${problem}`);
-      else additions.push({ file, key: crypto.randomUUID(), status: "pending", error: null });
-    }
+    const { queue: next, rejected } = await queueFiles(Array.from(files), capabilities, queue);
     // 拒絕的檔案不入列，也不覆蓋合法候選既有的上傳失敗資訊。
     setSelectionError(rejected.join(" "));
-    if (additions.length) {
-      setQueue((previous) => [...previous, ...additions]);
+    if (next.length !== queue.length || next.some((item, index) => item !== queue[index])) {
+      setQueue(next);
       setError(null);
     }
   };
+  const updateItem = (key: string, change: Partial<QueuedSource>) =>
+    setQueue((previous) =>
+      previous.map((value) => (value.key === key ? { ...value, ...change } : value)),
+    );
   const submit = async () => {
     if (submitting.current || !queue.length) return;
     submitting.current = true;
@@ -95,35 +92,29 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
     clearDrag();
     try {
       // 保留 draft 與逐檔的同一意圖；回應遺失或部分失敗時不重建已成功的來源。
-      draft.current ??= { key: crypto.randomUUID(), name: queue[0].file.name, id: null };
+      draft.current ??= {
+        key: crypto.randomUUID(),
+        name: queue[0].kind === "youtube" ? "YouTube 影片" : queuedName(queue[0]),
+        id: null,
+      };
       const intent = draft.current;
       intent.id ??= (await apiClient.createDraft(intent.name, intent.key)).material_id;
       let failed = false;
       for (const item of queue.filter((item) => item.status !== "uploaded")) {
-        setQueue((previous) =>
-          previous.map((value) =>
-            value.key === item.key ? { ...value, status: "uploading", error: null } : value,
-          ),
-        );
+        updateItem(item.key, { status: "uploading", error: null, progress: null });
         try {
-          const format = formats.find((value) =>
-            item.file.name.toLowerCase().endsWith(value.extension),
-          )!;
-          await apiClient.uploadSource(intent.id, item.file, format.media_type, item.key);
-          setQueue((previous) =>
-            previous.map((value) =>
-              value.key === item.key ? { ...value, status: "uploaded", error: null } : value,
-            ),
+          await uploadQueued(
+            apiClient,
+            intent.id,
+            item,
+            capabilities!,
+            (progress) => updateItem(item.key, { progress }),
+            (packed) => updateItem(item.key, { packed }),
           );
+          updateItem(item.key, { status: "uploaded", error: null, progress: null });
         } catch (failure) {
           failed = true;
-          setQueue((previous) =>
-            previous.map((value) =>
-              value.key === item.key
-                ? { ...value, status: "failed", error: errorMessage(failure) }
-                : value,
-            ),
-          );
+          updateItem(item.key, { status: "failed", error: errorMessage(failure), progress: null });
         }
       }
       if (!failed) writeRoute({ name: "material-sources", materialId: intent.id });
@@ -134,10 +125,8 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       setBusy(false);
     }
   };
-  const hasNonPdf = queue.some(({ file }) =>
-    formats.some(
-      (format) => format.extension !== ".pdf" && file.name.toLowerCase().endsWith(format.extension),
-    ),
+  const hasNonPdf = queue.some(
+    (item) => item.kind !== "file" || !item.file!.name.toLowerCase().endsWith(".pdf"),
   );
   const uploadLabel = busy
     ? "正在上傳…"
@@ -151,21 +140,21 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       <FlowHeader
         headingId="upload-title"
         title="上傳教材"
-        description="選擇一份或多份教材，確認來源後再開始分析。"
+        description="選擇文件、圖片、音訊、影片或 YouTube 影片，確認來源後再開始分析。"
         image="/assets/studydy/upload-guide.png"
       />
       <LearningSteps labels={uploadSteps} current={0} />
       <FlowStage
         icon="upload"
         title="選擇教材檔案"
-        description="各份檔案分開保留；非 PDF 教材會先轉換成 PDF，下一步可以預覽與調整順序。"
+        description="各份檔案分開保留；多張圖片會合成一份、依順序成為各頁；音訊與影片會在本機轉成逐字稿。"
         label="上傳教材檔案"
         footer={
           <FlowFooter
             secondary={
               queue.length > 0 ? (
                 <span>
-                  共 {queue.length} 份 · {formatFileSize(queue.reduce((total, item) => total + item.file.size, 0))}
+                  共 {queue.length} 份 · {formatFileSize(queue.reduce((total, item) => total + queuedSize(item), 0))}
                 </span>
               ) : (
                 <span className="upload-disabled-hint">先選擇或拖入教材檔案，按鈕就能使用。</span>
@@ -210,7 +199,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
               setSelectionError(
                 folder ? "不接受資料夾，請選擇教材檔案。" : "請拖曳教材檔案，不接受文字或網址。",
               );
-            else chooseFiles(event.dataTransfer.files);
+            else void chooseFiles(event.dataTransfer.files);
           }}
         >
           <input
@@ -224,7 +213,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             onClick={(event) => {
               event.currentTarget.value = "";
             }}
-            onChange={(event) => chooseFiles(event.currentTarget.files)}
+            onChange={(event) => void chooseFiles(event.currentTarget.files)}
           />
           <span className="file-drop-icon">
             <Icon name="upload" size={26} />
@@ -232,10 +221,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
           <strong>
             {queue.length ? "拖放或點擊以加入更多教材" : "將教材拖放到此處，或點擊選取"}
           </strong>
-          <span>
-            {formats.map((format) => format.extension.slice(1).toUpperCase()).join("、")} ·
-            可選多份 · {formatsReady ? `每份最大 ${formatFileSize(Math.min(...formats.map((format) => format.max_bytes)))}` : "正在載入上傳限制"}
-          </span>
+          <span>{formatsReady ? uploadLimitSummary(capabilities!) : "正在載入上傳限制"}</span>
         </label>
         {selectionError && (
           <p id="upload-selection-error" className="form-error" role="alert">
@@ -245,23 +231,32 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
         {queue.length > 0 && (
           <ul className="chosen-files" aria-label="待上傳教材">
             {queue.map((item) => (
-              <li className={`chosen-file is-${item.status}`} aria-label={`已選擇 ${item.file.name}`} key={item.key}>
+              <li className={`chosen-file is-${item.status}`} aria-label={`已選擇 ${queuedName(item)}`} key={item.key}>
                 <span className="chosen-file-icon">
                   <Icon name={item.status === "uploaded" ? "check" : item.status === "failed" ? "warning" : "file"} />
                 </span>
                 <div className="chosen-file-body">
-                  <strong title={item.file.name}>{item.file.name}</strong>
+                  <strong title={queuedName(item)}>{queuedName(item)}</strong>
                   <small role="status">
-                    {formatFileSize(item.file.size)} ·{" "}
-                    {
-                      {
-                        pending: "準備上傳",
-                        uploading: "上傳中",
-                        uploaded: "已上傳",
-                        failed: "上傳失敗，可重試",
-                      }[item.status]
-                    }
+                    {item.kind === "youtube" ? "YouTube 影片" : formatFileSize(queuedSize(item))} ·{" "}
+                    {item.status === "uploading" && item.progress !== null
+                      ? `上傳中 ${Math.floor(item.progress * 100)}%`
+                      : {
+                          pending: "準備上傳",
+                          uploading: "上傳中",
+                          uploaded: "已上傳",
+                          failed: "上傳失敗，可重試",
+                        }[item.status]}
                   </small>
+                  {item.kind === "images" && (
+                    <QueuedImages
+                      item={item}
+                      disabled={busy || item.status === "uploaded"}
+                      onChange={(next) =>
+                        setQueue((previous) => previous.map((value) => (value.key === item.key ? next : value)))
+                      }
+                    />
+                  )}
                   {item.error && (
                     <p className="form-error" role="alert">
                       {item.error}
@@ -272,7 +267,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
                   className="flow-icon-button"
                   type="button"
                   disabled={busy || item.status === "uploaded"}
-                  aria-label={`移除 ${item.file.name}`}
+                  aria-label={`移除 ${queuedName(item)}`}
                   title="移除"
                   onClick={() => {
                     setQueue((previous) => previous.filter((value) => value.key !== item.key));
@@ -285,13 +280,25 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             ))}
           </ul>
         )}
+        {capabilities?.youtube && (
+          <YoutubeSourceInput
+            disabled={busy}
+            onAdd={(url) => {
+              setQueue((previous) => [
+                ...previous,
+                { key: crypto.randomUUID(), kind: "youtube", status: "pending", error: null, progress: null, url },
+              ]);
+              setError(null);
+            }}
+          />
+        )}
         {capabilityError && (
           <p className="flow-hint" role="status">
             {capabilityError}
           </p>
         )}
         {hasNonPdf && (
-          <p className="flow-notice">非 PDF 教材會先轉換為 PDF，請在下一步確認轉換內容。</p>
+          <p className="flow-notice">非 PDF 教材會先轉換為 PDF；音訊、影片與 YouTube 會轉成約 2 分鐘一段的逐字稿。請在下一步確認轉換內容。</p>
         )}
         {error && (
           <p className="form-error" role="alert">
@@ -325,4 +332,25 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       </FlowStage>
     </section>
   );
+}
+
+/** 依實際能力列出可選格式與上限，避免畫面與後端限制不一致。 */
+export function uploadLimitSummary(capabilities: SourceCapabilities): string {
+  const groups: [string, string][] = [
+    ["document", "文件"],
+    ["image", "圖片"],
+    ["audio", "音訊"],
+    ["video", "影片"],
+  ];
+  const parts = groups.flatMap(([kind, label]) => {
+    const formats = capabilities.formats.filter((format) => format.kind === kind);
+    if (!formats.length) return [];
+    const names = [...new Set(formats.map((format) => format.extension.slice(1).toUpperCase().replace("JPEG", "JPG")))].join("、");
+    const max = formatFileSize(Math.max(...formats.map((format) => format.max_bytes)));
+    const note = kind === "image" ? `一次最多 ${capabilities.max_images} 張、合計 ${max}` : `每份最大 ${max}`;
+    return [`${label} ${names}（${note}）`];
+  });
+  const hours = capabilities.max_media_seconds / 3600;
+  const media = capabilities.formats.some((format) => format.kind === "audio" || format.kind === "video");
+  return [...parts, ...(media ? [`音訊／影片最長 ${hours} 小時`] : []), "可選多份"].join(" · ");
 }

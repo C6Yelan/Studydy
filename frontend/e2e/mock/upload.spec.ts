@@ -63,10 +63,10 @@ async function setup(page: Page) {
   await page.route("**/v1/source-capabilities", (route) =>
     route.fulfill({
       json: {
-        schema: "source-capabilities/v1",
+        schema: "source-capabilities/v2", max_request_bytes: 104857600, max_images: 50, max_media_seconds: 7200, youtube: false,
         formats: [
-          { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
-          { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
+          { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600, kind: "document" },
+          { extension: ".txt", media_type: "text/plain", max_bytes: 104857600, kind: "document" },
         ],
       },
     }),
@@ -237,13 +237,13 @@ for (const width of [1536, 390]) {
     await page.goto("/upload");
     await expect(page.getByRole("heading", { name: "上傳教材", exact: true })).toBeVisible();
     await expect(page.locator(".flow-head p")).toHaveText(
-      "選擇一份或多份教材，確認來源後再開始分析。",
+      "選擇文件、圖片、音訊、影片或 YouTube 影片，確認來源後再開始分析。",
     );
     await expect(page.locator(".file-drop strong")).toHaveText("將教材拖放到此處，或點擊選取");
     await expect(page.locator(".file-drop > span:last-child")).toHaveText(
-      "PDF、TXT · 可選多份 · 每份最大 100.0 MiB",
+      "文件 PDF、TXT（每份最大 100.0 MiB） · 可選多份",
     );
-    const conversion = page.getByText("非 PDF 教材會先轉換為 PDF，請在下一步確認轉換內容。", {
+    const conversion = page.getByText("非 PDF 教材會先轉換為 PDF；音訊、影片與 YouTube 會轉成約 2 分鐘一段的逐字稿。請在下一步確認轉換內容。", {
       exact: true,
     });
     const input = page.getByLabel("選擇教材檔案", { exact: true });

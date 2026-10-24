@@ -80,7 +80,7 @@ test.beforeEach(async ({ page }) => {
     expect(route.request().method()).toBe("GET");
     if (path === "/v1/topics") return route.fulfill({ json: { topics: [] } });
     if (path === "/v1/source-capabilities")
-      return route.fulfill({ json: { schema: "source-capabilities/v1", quality_notice: "PDF", formats: [] } });
+      return route.fulfill({ json: { schema: "source-capabilities/v2", max_request_bytes: 104857600, max_images: 50, max_media_seconds: 7200, youtube: false, quality_notice: "PDF", formats: [] } });
     // 概念數、進度、概念卡與 Podcast 只是首頁補充資訊；讀不到時首頁仍須可用。
     return route.fulfill({
       status: 404,

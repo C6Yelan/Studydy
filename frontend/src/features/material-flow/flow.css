@@ -202,3 +202,13 @@
   .source-panel > .source-list-card > .tool-stage-footer { margin:14px -16px -16px; padding:14px 16px; }
   .source-panel-head .material-search-row { flex-basis:100%; max-width:none; }
 }
+/* 圖片組：第幾張即第幾頁，可調整順序；YouTube 連結輸入。 */
+.queued-images { display:grid; gap:6px; margin:8px 0 0; padding:0; list-style:none; }
+.queued-images li { display:flex; align-items:center; gap:8px; min-width:0; }
+.queued-images img { flex:none; width:44px; height:44px; border-radius:8px; object-fit:cover; background:var(--surface); }
+.queued-image-name { flex:1; min-width:0; overflow:hidden; color:var(--text-secondary); font-size:12px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.youtube-source-input { display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px; width:100%; margin-top:12px; }
+.youtube-source-input label { display:grid; flex:1 1 260px; gap:4px; min-width:0; color:var(--text-secondary); font-size:13px; font-weight:800; }
+.youtube-source-input input { min-width:0; min-height:40px; padding:0 12px; border:1.5px solid var(--border); border-radius:12px; font:inherit; font-weight:600; color:var(--text-primary); background:var(--surface); }
+.youtube-source-input .secondary-button { min-height:40px; }
+.youtube-source-input .form-error { flex-basis:100%; margin:0; }

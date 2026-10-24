@@ -266,9 +266,9 @@ export async function mockKnowledgeMapApi(
   );
   await mockGet(page, "/v1/topics", () => ({topics: []}));
   await mockGet(page, "/v1/source-capabilities", () => ({
-    schema: "source-capabilities/v1",
+    schema: "source-capabilities/v2", max_request_bytes: 104857600, max_images: 50, max_media_seconds: 7200, youtube: false,
     quality_notice: "PDF 優先",
-    formats: [{ extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 }],
+    formats: [{ extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600, kind: "document" }],
   }));
   await page.route(pathMatches("/v1/session"), (route) => {
     if (route.request().method() === "GET")

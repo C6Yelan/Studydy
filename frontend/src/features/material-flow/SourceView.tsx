@@ -1,25 +1,43 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
-import type { SourceListView, MaterialLibraryItem, FormatCapability } from "../../api/contracts";
+import type { SourceListView, MaterialLibraryItem, SourceCapabilities, SourceView as SourceItem } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { BackLink } from "../../ui/BackLink";
 import { StateView } from "../../ui/StateView";
 import { rememberMaterial } from "./material-memory";
 import { MaterialContentNav } from "./MaterialContentNav";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
-import { automaticPollIntervalMs, formatFileSize, validateSourceFile } from "./material-flow";
+import { automaticPollIntervalMs, formatFileSize } from "./material-flow";
+import { QueuedImages, YoutubeSourceInput } from "./QueuedSourceParts";
+import { queueFiles, queuedName, queuedSize, uploadQueued, type QueuedSource } from "./source-uploads";
 import { FlowFooter, FlowHeader, FlowStage, LearningSteps, uploadSteps } from "./Flow";
 import { Icon } from "../../ui/Icon";
 
 const SOURCE_PREVIEW_COUNT = 10;
 
-type QueuedFile = {
-  file: File;
-  key: string;
-  mediaType: string;
-  error: string | null;
-  status: "pending" | "uploading" | "failed" | "uploaded";
+const timedMedia = new Set(["audio/mpeg", "audio/mp4", "audio/wav", "video/mp4", "application/vnd.studydy.youtube+json"]);
+
+/** 音訊、影片與 YouTube 的「頁」是約 2 分鐘的逐字稿時間段。 */
+function sourcePages(source: Pick<SourceItem, "media_type" | "page_count">): string {
+  return timedMedia.has(source.media_type) ? `${source.page_count} 段逐字稿` : `${source.page_count} 頁`;
+}
+
+const sourceFailures: Record<string, string> = {
+  MEDIA_TOO_LONG: "超過 2 小時上限。",
+  MEDIA_UNREADABLE: "無法讀取這個音訊或影片。",
+  MEDIA_NO_AUDIO: "沒有聲音軌。",
+  TRANSCRIPT_EMPTY: "沒有辨識到可用的語音或字幕。",
+  STT_PROVIDER_UNAVAILABLE: "本機語音辨識服務暫時無法連線，請稍後重試。",
+  STT_FAILED: "語音辨識失敗，請重試。",
+  IMAGE_SET_INVALID: "圖片組格式不正確，請重新選擇圖片。",
+  IMAGE_UNREADABLE: "有圖片無法讀取，請確認檔案完整。",
+  IMAGE_TOO_LARGE: "有圖片解析度過高（上限 4000 萬像素）。",
+  YOUTUBE_UNAVAILABLE: "目前無法讀取這部 YouTube 影片，請稍後重試。",
+  YOUTUBE_PRIVATE: "影片已改為私人。",
+  YOUTUBE_MEMBERS_ONLY: "影片需要會員或登入才能觀看。",
+  YOUTUBE_AGE_RESTRICTED: "影片有年齡限制。",
+  YOUTUBE_LIVE: "影片目前是直播或尚未播出。",
 };
 
 export function SourceView({
@@ -44,22 +62,20 @@ export function SourceView({
   const [reload, setReload] = useState(0);
   const [selectionError, setSelectionError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
-  const [queue, setQueue] = useState<QueuedFile[]>([]);
+  const [queue, setQueue] = useState<QueuedSource[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const seenSources = useRef(new Set<string>());
   const uploadedKeys = useRef(new Set<string>());
   const intent = useRef({ signature: "", key: crypto.randomUUID() });
-  const [formats, setFormats] = useState<FormatCapability[]>([]);
-  const [formatsReady, setFormatsReady] = useState(false);
+  const [capabilities, setCapabilities] = useState<SourceCapabilities | null>(null);
+  const formats = capabilities?.formats ?? [];
+  const formatsReady = capabilities !== null;
   const [capabilityError, setCapabilityError] = useState("");
   useEffect(() => {
     let cancelled = false;
     void apiClient.sourceCapabilities().then(
       (value) => {
-        if (!cancelled) {
-          setFormats(value.formats);
-          setFormatsReady(true);
-        }
+        if (!cancelled) setCapabilities(value);
       },
       () => {
         if (!cancelled) {
@@ -190,48 +206,37 @@ export function SourceView({
       );
       writeRoute({ name: "material-run", materialId, runId: created.run_id });
     });
-  const chooseFiles = (files: FileList | null) => {
+  const chooseFiles = async (files: FileList | null) => {
     if (!files?.length || submitting.current || discardAccepted.current) return;
-    if (!formatsReady) {
+    if (!capabilities) {
       setSelectionError("請待支援格式載入後重新選擇教材。");
       return;
     }
-    const newFiles: QueuedFile[] = [];
-    const rejected: string[] = [];
-    for (const file of Array.from(files)) {
-      const problem = validateSourceFile(file, formats);
-      if (problem) rejected.push(`「${file.name}」：${problem}`);
-      else
-        newFiles.push({
-          file,
-          key: crypto.randomUUID(),
-          mediaType: formats.find((format) => file.name.toLowerCase().endsWith(format.extension))!
-            .media_type,
-          status: "pending",
-          error: null,
-        });
-    }
+    const { queue: next, rejected } = await queueFiles(Array.from(files), capabilities, queue);
     setSelectionError(rejected.join(" "));
-    if (newFiles.length) setQueue((previous) => [...previous, ...newFiles]);
+    setQueue(next);
   };
-  const updateQueuedFile = (
-    key: string,
-    status: QueuedFile["status"],
-    error: string | null = null,
-  ) =>
+  const updateQueued = (key: string, change: Partial<QueuedSource>) =>
     setQueue((previous) =>
-      previous.map((item) => (item.key === key ? { ...item, status, error } : item)),
+      previous.map((item) => (item.key === key ? { ...item, ...change } : item)),
     );
   const upload = () =>
     perform(async () => {
       for (const item of queue.filter((item) => item.status !== "uploaded")) {
-        updateQueuedFile(item.key, "uploading");
+        updateQueued(item.key, { status: "uploading", error: null, progress: null });
         try {
-          await apiClient.uploadSource(materialId, item.file, item.mediaType, item.key);
+          await uploadQueued(
+            apiClient,
+            materialId,
+            item,
+            capabilities!,
+            (progress) => updateQueued(item.key, { progress }),
+            (packed) => updateQueued(item.key, { packed }),
+          );
           uploadedKeys.current.add(item.key);
-          updateQueuedFile(item.key, "uploaded");
+          updateQueued(item.key, { status: "uploaded", error: null, progress: null });
         } catch (failure) {
-          updateQueuedFile(item.key, "failed", errorMessage(failure));
+          updateQueued(item.key, { status: "failed", error: errorMessage(failure), progress: null });
         }
       }
       setReload((value) => value + 1);
@@ -304,11 +309,22 @@ export function SourceView({
         aria-describedby={selectionError ? "source-selection-error" : undefined}
         disabled={busy || !formatsReady}
         onChange={(event) => {
-          chooseFiles(event.currentTarget.files);
+          void chooseFiles(event.currentTarget.files);
           event.currentTarget.value = "";
         }}
       />
     </label>
+  );
+  const youtubeInput = capabilities?.youtube && (
+    <YoutubeSourceInput
+      disabled={busy}
+      onAdd={(url) =>
+        setQueue((previous) => [
+          ...previous,
+          { key: crypto.randomUUID(), kind: "youtube", status: "pending", error: null, progress: null, url },
+        ])
+      }
+    />
   );
   const pageCount = displayedSources.reduce((sum, source) => sum + (source.page_count ?? 0), 0);
   const allReady = queue.length === 0 && displayedSources.length > 0 && displayedSources.every((source) => source.status === "ready");
@@ -329,13 +345,17 @@ export function SourceView({
             <div className="source-content">
               <strong className="source-name" title={source.original_name}>{source.original_name}</strong>
               <div className="source-metadata">
-                {source.page_count !== null && <span>{source.page_count} 頁</span>}
+                {source.page_count !== null && <span>{sourcePages(source)}</span>}
                 {source.analysis_mode === "selected" && source.analysis_page_count != null && <span>依學習需求選讀 {source.analysis_page_count} 頁中的相關段落</span>}
                 {currentStructure && <span className={source.included ? "is-included" : undefined}>{source.included ? "目前地圖使用中" : "尚未納入目前地圖"}</span>}
               </div>
               {source.status !== "ready" && (
                 <p className={source.status === "failed" ? "form-error" : "source-progress"} role="status">
-                  {source.status === "pending" ? "等待轉換" : source.status === "running" ? "正在轉換…" : "轉換失敗"}
+                  {source.status === "pending"
+                    ? "等待轉換"
+                    : source.status === "running"
+                      ? timedMedia.has(source.media_type) ? "正在轉成逐字稿…" : "正在轉換…"
+                      : `轉換失敗${source.error_code && sourceFailures[source.error_code] ? `：${sourceFailures[source.error_code]}` : ""}`}
                 </p>
               )}
               {source.error_code && (
@@ -355,10 +375,10 @@ export function SourceView({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  預覽 PDF
+                  {timedMedia.has(source.media_type) ? "預覽逐字稿" : "預覽 PDF"}
                 </a>
               )}
-              <a
+              {source.media_type !== "application/vnd.studydy.youtube+json" && <a
                 className="text-button source-download"
                 href={removing ? undefined : `/v1/artifacts/${source.original_artifact_id}/download`}
                 aria-disabled={removing || undefined}
@@ -366,8 +386,8 @@ export function SourceView({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                下載原檔
-              </a>
+                {source.media_type === "video/mp4" ? "下載音軌" : "下載原檔"}
+              </a>}
               {!source.included && !removing && (
                 <>
                   {currentStructure && (
@@ -441,16 +461,25 @@ export function SourceView({
           </li>
         ))}
         {group !== "research" && queue.map((item, index) => (
-          <li className={`source-row source-upload-row is-${item.status}`} key={item.key} aria-label={item.file.name}>
+          <li className={`source-row source-upload-row is-${item.status}`} key={item.key} aria-label={queuedName(item)}>
             <span className="source-number">{displayedSources.length + index + 1}</span>
             <div className="source-content">
-              <strong className="source-name" title={item.file.name}>{item.file.name}</strong>
+              <strong className="source-name" title={queuedName(item)}>{queuedName(item)}</strong>
               <div className="source-metadata">
-                <span>{formatFileSize(item.file.size)}</span>
+                <span>{item.kind === "youtube" ? "YouTube 影片" : formatFileSize(queuedSize(item))}</span>
                 <span className={`source-upload-status is-${item.status}`} role="status">
-                  {{ pending: "待上傳", uploading: "上傳中…", failed: "上傳失敗", uploaded: "已上傳" }[item.status]}
+                  {item.status === "uploading" && item.progress !== null
+                    ? `上傳中 ${Math.floor(item.progress * 100)}%`
+                    : { pending: "待上傳", uploading: "上傳中…", failed: "上傳失敗", uploaded: "已上傳" }[item.status]}
                 </span>
               </div>
+              {item.kind === "images" && (
+                <QueuedImages
+                  item={item}
+                  disabled={busy || item.status === "uploaded"}
+                  onChange={(next) => setQueue((previous) => previous.map((value) => (value.key === item.key ? next : value)))}
+                />
+              )}
               {item.error && (
                 <p className="form-error" role="alert">
                   {item.error}
@@ -569,6 +598,7 @@ export function SourceView({
             <div className="source-add-area">
               {sourcePicker}
               <span className="flow-hint">可再加入其他檔案，一起建立同一份知識地圖。</span>
+              {youtubeInput}
               {capabilityError && <p className="flow-hint" role="status">{capabilityError}</p>}
               {selectionError && <p id="source-selection-error" className="form-error" role="alert">{selectionError}</p>}
             </div>
@@ -599,6 +629,7 @@ export function SourceView({
             </form>
             {!removing && !hasActiveRun && sourcePicker}
           </div>
+          {!removing && !hasActiveRun && youtubeInput}
         </header>
         {capabilityError && <p className="flow-hint" role="status">{capabilityError}</p>}
         {selectionError && <p id="source-selection-error" className="form-error" role="alert">{selectionError}</p>}

@@ -3,6 +3,7 @@ name = "studydy-page-evidence"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "av==19.0.1",
     "email-validator==2.3.0",
     "fastapi==0.139.2",
     "httpx==0.28.1",
@@ -16,6 +17,7 @@ dependencies = [
     "tiktoken==0.12.0",
     "pypinyin==0.55.0",
     "trafilatura==2.3.1",
+    "yt-dlp==2026.10.21",
 ]
 
 [project.optional-dependencies]

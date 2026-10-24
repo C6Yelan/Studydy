@@ -89,10 +89,10 @@ async function mockSources(page: Page, append = false) {
         expect(request.method()).toBe("GET");
         return route.fulfill({
           json: {
-            schema: "source-capabilities/v1",
+            schema: "source-capabilities/v2", max_request_bytes: 104857600, max_images: 50, max_media_seconds: 7200, youtube: false,
             formats: [
-              { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
-              { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
+              { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600, kind: "document" },
+              { extension: ".txt", media_type: "text/plain", max_bytes: 104857600, kind: "document" },
             ],
           },
         });

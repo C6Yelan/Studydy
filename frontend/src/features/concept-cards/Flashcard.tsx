@@ -3,7 +3,7 @@ import type { StudydyApiClient } from "../../api/client";
 import type { ConceptCard, ConceptCardContext, ConceptDifficulty } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text";
 import { VisualConceptCard } from "./VisualConceptCard";
-import { SourceButton, sourceLinks } from "../../ui/SourceButton";
+import { evidencePlace, SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { cardContent } from "./card-content";
 import { cardRelations, cardSourceIndex, hasCardEvidence } from "./card-relation";
 
@@ -30,7 +30,7 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
       <DifficultyBadge concept={difficulty} detail />
       <VisualConceptCard card={card} structure={structure} pageIndex={pageIndex} cacheOwner={apiClient}
         sources={designed && <div className="flashcard-source-links" aria-label="本張卡面來源">{sourceLinks(pageEvidence).map(evidence =>
-          <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`本張引用 · 第 ${evidence.normalized_page ?? evidence.page} 頁`} />)}</div>} />
+          <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`本張引用 · ${evidencePlace(evidence)}`} />)}</div>} />
       <details className="concept-card-details">
         <summary>完整重點與來源</summary>
         <div className="flashcard">
@@ -54,7 +54,7 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
                 <p>{relation.source.label} ／ {relation.target.label}</p>
                 <p>{relation.relation.learner_reason}</p>
                 <div className="flashcard-source-links">{sourceLinks(relation.evidence).map(evidence => <SourceButton key={evidence.evidence_id}
-                  apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`關係來源 · 第 ${evidence.normalized_page ?? evidence.page} 頁`} />)}</div>
+                  apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`關係來源 · ${evidencePlace(evidence)}`} />)}</div>
               </section>)}
               {unresolved.map(relation => <section key={relation.relation_id} className="flashcard-relation" aria-label="待複核的教材關係">
                 <h3>教材關係 · 待複核</h3>
@@ -71,7 +71,7 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
                 <div className="flashcard-source-links">
                   {sourceLinks(shownEvidence).map(evidence => (
                     <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence}
-                      label={evidence.source_name ? `${evidence.source_name} · 第 ${evidence.normalized_page ?? evidence.page} 頁` : undefined} />
+                      label={evidence.source_name ? `${evidence.source_name} · ${evidencePlace(evidence)}` : undefined} />
                   ))}
                 </div>
               </section>

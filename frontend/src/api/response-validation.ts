@@ -32,6 +32,7 @@ import type {
   MaterialLibraryView,
   MaterialProcessingRunView,
   SourceCapabilities,
+  SourceUploadProgress,
   SourceListView,
   SourceView,
   StudyResumeView,
@@ -280,21 +281,54 @@ export function sourceList(value: unknown): value is SourceListView {
 
 export function capabilities(value: unknown): value is SourceCapabilities {
   const item = object(value);
+  const positive = (number: unknown) => Number.isSafeInteger(number) && Number(number) > 0;
   return (
     !!item &&
-    item.schema === "source-capabilities/v1" &&
+    item.schema === "source-capabilities/v2" &&
+    positive(item.max_request_bytes) &&
+    positive(item.max_images) &&
+    positive(item.max_media_seconds) &&
+    typeof item.youtube === "boolean" &&
     Array.isArray(item.formats) &&
     item.formats.every((v) => {
       const format = object(v);
       return (
         !!format &&
         typeof format.extension === "string" &&
-        [".pdf", ".docx", ".pptx", ".doc", ".ppt", ".txt", ".md"].includes(format.extension) &&
+        /^\.[a-z0-9]+$/.test(format.extension) &&
         typeof format.media_type === "string" &&
-        Number.isInteger(format.max_bytes) &&
-        Number(format.max_bytes) > 0
+        ["document", "image", "audio", "video"].includes(String(format.kind)) &&
+        positive(format.max_bytes)
       );
     })
+  );
+}
+
+export function sourceUploadProgress(value: unknown): value is SourceUploadProgress {
+  const item = object(value);
+  return (
+    !!item &&
+    item.schema === "source-upload-progress/v1" &&
+    Number.isSafeInteger(item.received_bytes) &&
+    Number(item.received_bytes) > 0 &&
+    (item.source_id === null || isUuid(item.source_id))
+  );
+}
+
+function playback(value: unknown): boolean {
+  const item = object(value);
+  if (!item) return false;
+  const seconds = [item.start_seconds, item.end_seconds].every(
+    (number) => typeof number === "number" && Number.isFinite(number) && number >= 0,
+  );
+  return (
+    seconds &&
+    ((item.kind === "audio" &&
+      typeof item.url === "string" &&
+      /^\/v1\/artifacts\/[0-9a-f-]+\/media$/.test(item.url)) ||
+      (item.kind === "youtube" &&
+        typeof item.video_id === "string" &&
+        /^[A-Za-z0-9_-]{11}$/.test(item.video_id)))
   );
 }
 
@@ -303,7 +337,7 @@ export function evidenceSource(value: unknown): value is EvidenceSourceView {
   return (
     !!item &&
     item.schema === "evidence-source/v1" &&
-    ["pdf", "docx", "pptx", "doc", "ppt", "txt", "md"].includes(String(item.format)) &&
+    ["pdf", "docx", "pptx", "doc", "ppt", "txt", "md", "images", "audio", "video", "youtube"].includes(String(item.format)) &&
     typeof item.original_name === "string" &&
     typeof item.label === "string" &&
     ["exact", "ambiguous", "unavailable"].includes(String(item.accuracy)) &&
@@ -313,7 +347,9 @@ export function evidenceSource(value: unknown): value is EvidenceSourceView {
     typeof item.original_url === "string" &&
     /^\/v1\/artifacts\/[0-9a-f-]+\/download$/.test(item.original_url) &&
     typeof item.preview_url === "string" &&
-    /^\/v1\/artifacts\/[0-9a-f-]+#page=[1-9]\d*$/.test(item.preview_url)
+    /^\/v1\/artifacts\/[0-9a-f-]+#page=[1-9]\d*$/.test(item.preview_url) &&
+    (item.playback === undefined || playback(item.playback)) &&
+    (["audio", "video", "youtube"].includes(String(item.format)) === (item.playback !== undefined))
   );
 }
 

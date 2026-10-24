@@ -11,6 +11,8 @@ flowchart LR
     API --> Store[(Artifact Store)]
     DB --> Worker[教材 Worker]
     Worker --> Convert[隔離轉檔]
+    Worker --> STT[本機語音辨識 provider]
+    STT --> Convert
     Worker --> Evidence[原生文字／Unlimited-OCR]
     Evidence --> Model[語意模型服務]
     Model --> Validate[來源與結構驗證]
@@ -39,7 +41,8 @@ Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；wor
 | 位置 | 責任 |
 | --- | --- |
 | [runtime/api](../backend/src/runtime/api/) | HTTP 契約、認證、Origin、錯誤與公開投影 |
-| [document_normalization](../backend/src/document_normalization/) | 沙箱轉檔、格式檢查與來源 mapping |
+| [document_normalization](../backend/src/document_normalization/) | 沙箱轉檔、格式檢查與來源 mapping；`media.py` 處理圖片組、音軌與逐字稿頁面 |
+| [media_sources.py](../backend/src/runtime/media_sources.py) | 分段上傳、影片抽音軌、YouTube 讀取與限制、送本機辨識及媒體來源轉換 |
 | [pdf_evidence](../backend/src/pdf_evidence/) | 擷取、Evidence 與分析流程 |
 | [knowledge_map](../backend/src/knowledge_map/) | 概念、Claim、Relation、檢核與確定性建構 |
 | [learning_adaptation](../backend/src/learning_adaptation/) | 題組、私密答案、評分、進度與導覽 |

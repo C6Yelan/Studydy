@@ -5,7 +5,6 @@ import {
   materialProgressStageLabel,
   materialCurrentStagePercent,
   materialOverallProgressPercent,
-  validateSourceFile,
   materialFailureMessage,
 } from "./material-flow.ts";
 
@@ -20,23 +19,6 @@ test("review failures explain the actual cause instead of a generic failure", ()
 test("material stages describe the current processing work", () => {
   assert.equal(materialProgressStageLabel("evidence"), "整理頁面與教材來源");
   assert.equal(materialProgressStageLabel("semantics"), "建立概念、關係與學習順序");
-});
-
-test("each source follows its advertised format and individual size limit", () => {
-  const formats = [
-    { extension: ".pdf", media_type: "application/pdf", max_bytes: 100 * 1024 * 1024 },
-    { extension: ".txt", media_type: "text/plain", max_bytes: 100 * 1024 * 1024 },
-  ];
-  const valid = { name: "教材.PDF", type: "application/pdf", size: formats[0].max_bytes };
-  assert.equal(validateSourceFile(valid, formats), null);
-  assert.equal(validateSourceFile({ name: "notes.txt", type: "", size: 12 }, formats), null);
-  assert.match(validateSourceFile({ ...valid, type: "text/plain" }, formats), /類型不一致/);
-  assert.match(validateSourceFile({ ...valid, name: "file.exe" }, formats), /不支援/);
-  assert.match(validateSourceFile({ ...valid, size: 0 }, formats), /空白/);
-  assert.match(
-    validateSourceFile({ ...valid, size: formats[0].max_bytes + 1 }, formats),
-    /100 MiB/,
-  );
 });
 
 function processing(stage, completed, total = 45, status = "running") {
@@ -96,15 +78,6 @@ test("delete warning describes existing learner content, independently of active
   }
   assert.match(materialDeleteCopy(initial, [{ status: "running" }]).notice, /先停止/);
   assert.doesNotMatch(materialDeleteCopy().scope, /知識地圖|學習紀錄|題目|作答/);
-});
-
-
-test("configured upload limit controls selection and message", () => {
-  const max = 90 * 1024 * 1024;
-  const formats = [{ extension: ".pdf", media_type: "application/pdf", max_bytes: max }];
-  const file = { name: "fixture.pdf", type: "application/pdf", size: max };
-  assert.equal(validateSourceFile(file, formats), null);
-  assert.match(validateSourceFile({ ...file, size: max + 1 }, formats), /90 MiB/);
 });
 
 

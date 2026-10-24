@@ -698,6 +698,12 @@ def search_library(session, owner, query):
     }
 
 
+def _clock(seconds):
+    seconds = int(seconds)
+    hours, rest = divmod(seconds, 3600)
+    return (f"{hours}:" if hours else "") + f"{rest // 60:02d}:{rest % 60:02d}"
+
+
 def resolve_evidence_source(owner, material_id, revision, evidence_id, *, dsn=None):
     with database_session(dsn) as session:
         source, evidence = evidence_source(
@@ -748,7 +754,30 @@ def resolve_evidence_source(owner, material_id, revision, evidence_id, *, dsn=No
         first_line = min(locator["line_start"] for locator in locators)
         last_line = max(locator["line_end"] for locator in locators)
         label = f"原文第 {first_line}–{last_line} 行（轉換後第 {normalized_page} 頁）"
+    elif mapping["format"] == "images" and locators:
+        label = f"第 {locators[0]['image_number']} 張圖片"
+    playback = None
+    if mapping["format"] in ("audio", "video", "youtube") and locators:
+        # 每頁是約 2 分鐘的逐字稿時間段；回查時從該段開頭播放。
+        start = locators[0]["start_seconds"]
+        end = locators[0]["end_seconds"]
+        label = f"{_clock(start)}–{_clock(end)}（第 {normalized_page} 段逐字稿）"
+        if mapping["format"] == "youtube":
+            playback = {
+                "kind": "youtube",
+                "video_id": mapping["media"]["video_id"],
+                "start_seconds": start,
+                "end_seconds": end,
+            }
+        else:
+            playback = {
+                "kind": "audio",
+                "url": f"/v1/artifacts/{source['original_artifact_id']}/media",
+                "start_seconds": start,
+                "end_seconds": end,
+            }
     return {
+        **({"playback": playback} if playback else {}),
         "schema": "evidence-source/v1",
         "format": mapping["format"],
         "original_name": source["original_name"],

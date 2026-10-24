@@ -4,7 +4,7 @@
 
 **上傳教材 → 確認來源 → 分析與檢核 → 知識地圖 → 題組練習 → 錯題補強**
 
-支援 PDF、DOC／DOCX、PPT／PPTX、UTF-8 TXT 與 Markdown，可追加來源建立新版本，並承接符合條件的作答證據。
+支援 PDF、DOC／DOCX、PPT／PPTX、UTF-8 TXT、Markdown、圖片（PNG／JPG／WebP，多張合成一份）、音訊（MP3／M4A／WAV）、影片（MP4，只保留音軌）與 YouTube 連結；音訊與影片在本機轉成逐字稿。可追加來源建立新版本，並承接符合條件的作答證據。
 
 ## 部署與使用
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 import signal
 import shutil
@@ -24,6 +25,37 @@ MIME = {
     ".md": "text/markdown",
 }
 MAX_FILE_BYTES = 100 * 1024 * 1024
+# 圖片組在瀏覽器依順序打包成 0001.png… 的 ZIP，原檔即此壓縮檔。
+IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
+IMAGE_SET_MIME = "application/zip"
+MAX_IMAGES = 50
+AUDIO_MIME = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav"}
+VIDEO_MIME = {".mp4": "video/mp4"}
+# 影片只保存抽出的音軌，原影片不進 artifact store。
+VIDEO_AUDIO_MIME = "audio/mp4"
+YOUTUBE_MIME = "application/vnd.studydy.youtube+json"
+MAX_AUDIO_BYTES = 300 * 1024 * 1024
+MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
+MAX_MEDIA_SECONDS = 2 * 60 * 60
+SEGMENT_SECONDS = 120
+MEDIA_POLICY = {
+    "schema": "normalization-policy/v1",
+    "kind": "media",
+    "version": 1,
+    "av": "19.0.1",
+    "pymupdf": "1.28.0",
+    "max_images": MAX_IMAGES,
+    "image_page_points": 842,
+    "max_media_seconds": MAX_MEDIA_SECONDS,
+    "segment_seconds": SEGMENT_SECONDS,
+    "stt": "faster-whisper:large-v3-turbo;media-transcript/v1",
+    "youtube_subtitles": "uploader-only;zh-Hant>zh-Hans>original",
+}
 POLICY = {
     "schema": "normalization-policy/v1",
     "version": 3,
@@ -65,6 +97,33 @@ def normalizer_available():
     )
 
 
+def media_available():
+    """媒體與圖片只需沙箱與 PyAV，不需要 LibreOffice。"""
+    try:
+        import av  # noqa: F401
+    except ImportError:
+        return False
+    return all(shutil.which(tool) for tool in ("prlimit", "bwrap"))
+
+
+def is_media(media_type):
+    return media_type in (
+        IMAGE_SET_MIME,
+        YOUTUBE_MIME,
+        *AUDIO_MIME.values(),
+        *VIDEO_MIME.values(),
+    )
+
+
+def media_policy():
+    """圖片組、音訊、影片與 YouTube 的轉換政策；文件仍用 conversion_policy。"""
+    if not media_available():
+        raise NormalizationError("NORMALIZER_UNAVAILABLE")
+    import yt_dlp
+
+    return {**MEDIA_POLICY, "yt_dlp": yt_dlp.version.__version__}
+
+
 def conversion_policy():
     if not normalizer_available():
         raise NormalizationError("NORMALIZER_UNAVAILABLE")
@@ -92,12 +151,6 @@ def convert(
     if cancellation_check:
         cancellation_check()
 
-    # venv 的 Python 為 symlink，須掛載基底直譯器及套件目錄。
-    base = Path(sys.base_prefix)
-    site = Path(sysconfig.get_path("purelib"))
-    if not site.is_dir():
-        raise NormalizationError("NORMALIZER_UNAVAILABLE")
-
     with tempfile.TemporaryDirectory(prefix="studydy-normalize-") as temporary:
         root = Path(temporary)
         source = root / "input"
@@ -105,85 +158,9 @@ def convert(
         source.mkdir()
         output.mkdir()
         (source / ("source" + extension)).write_bytes(data)
-
-        # 子程序只讀所需 runtime／系統資源，僅 output 可寫；不繼承外部環境。
-        command = [
-            # 由已 exec 的工具設限，避免在背景 Thread 的 fork 子程序執行 Python。
-            "prlimit",
-            f"--as={2 * 1024**3}",
-            f"--fsize={MAX_FILE_BYTES}",
-            "--nofile=128",
-            "--nproc=1024",
-            "--",
-            "bwrap",
-            "--unshare-all",
-            "--die-with-parent",
-            "--new-session",
-            "--cap-drop",
-            "ALL",
-            "--ro-bind",
-            "/usr",
-            "/usr",
-            "--symlink",
-            "usr/bin",
-            "/bin",
-            "--symlink",
-            "usr/lib",
-            "/lib",
-            "--symlink",
-            "usr/lib64",
-            "/lib64",
-            "--ro-bind",
-            "/etc/fonts",
-            "/etc/fonts",
-            "--ro-bind",
-            "/etc/libreoffice",
-            "/etc/libreoffice",
-            "--ro-bind",
-            "/etc/ld.so.cache",
-            "/etc/ld.so.cache",
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
-            "--tmpfs",
-            "/tmp",
-            "--ro-bind",
-            str(base),
-            "/runtime",
-            "--ro-bind",
-            str(site),
-            "/runtime/lib/python3.12/site-packages",
-            "--ro-bind",
-            str(Path(__file__).with_name("renderer.py")),
-            "/renderer.py",
-            "--ro-bind",
-            str(source),
-            "/input",
-            "--bind",
-            str(output),
-            "/output",
-            "--clearenv",
-            "--setenv",
-            "HOME",
-            "/tmp",
-            "--setenv",
-            "PATH",
-            "/usr/bin",
-            "--setenv",
-            "LANG",
-            "C.UTF-8",
-            "--setenv",
-            "SAL_USE_VCLPLUGIN",
-            "svp",
-            # 避免 LibreOffice 依主機 CPU 數開大量工作執行緒，耗盡 2 GiB 位址空間。
-            "--setenv",
-            "MAX_CONCURRENCY",
-            "2",
-            "--setenv",
-            "XDG_CACHE_HOME",
-            "/tmp/cache",
-        ]
+        command = _sandbox_command(
+            [("--ro-bind", str(source), "/input")], output, MAX_FILE_BYTES
+        )
         renderer = [
             "/runtime/bin/python3.12",
             "/renderer.py",
@@ -201,30 +178,12 @@ def convert(
                 ]
                 if prepare else []
             )
-            process = subprocess.Popen(
+            _run_sandbox(
                 command + network + renderer + (["--prepare-office"] if prepare else []),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=True,
+                cancellation_check,
+                _SAFE_ERRORS,
+                "NORMALIZATION_FAILED",
             )
-            try:
-                while True:
-                    if cancellation_check:
-                        cancellation_check()
-                    try:
-                        stdout, _ = process.communicate(timeout=0.5)
-                        break
-                    except subprocess.TimeoutExpired:
-                        continue
-            except BaseException:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.communicate()
-                raise
-            if process.returncode:
-                reason = stdout.decode(errors="replace").strip()
-                raise NormalizationError(
-                    reason if reason in _SAFE_ERRORS else "NORMALIZATION_FAILED"
-                )
 
         try:
             pdf = (output / "normalized.pdf").read_bytes()
@@ -239,3 +198,200 @@ def convert(
         except (OSError, KeyError, ValueError):
             raise NormalizationError("NORMALIZATION_FAILED") from None
         return pdf, mapping
+
+
+def _sandbox_command(binds, output, fsize, script="renderer.py"):
+    """子程序只讀所需 runtime／系統資源，僅 output 可寫；不繼承外部環境。"""
+    # venv 的 Python 為 symlink，須掛載基底直譯器及套件目錄。
+    base = Path(sys.base_prefix)
+    site = Path(sysconfig.get_path("purelib"))
+    if not site.is_dir():
+        raise NormalizationError("NORMALIZER_UNAVAILABLE")
+    return [
+        # 由已 exec 的工具設限，避免在背景 Thread 的 fork 子程序執行 Python。
+        "prlimit",
+        f"--as={2 * 1024**3}",
+        f"--fsize={fsize}",
+        "--nofile=128",
+        "--nproc=1024",
+        "--",
+        "bwrap",
+        "--unshare-all",
+        "--die-with-parent",
+        "--new-session",
+        "--cap-drop",
+        "ALL",
+        "--ro-bind",
+        "/usr",
+        "/usr",
+        "--symlink",
+        "usr/bin",
+        "/bin",
+        "--symlink",
+        "usr/lib",
+        "/lib",
+        "--symlink",
+        "usr/lib64",
+        "/lib64",
+        "--ro-bind",
+        "/etc/fonts",
+        "/etc/fonts",
+        "--ro-bind-try",
+        "/etc/libreoffice",
+        "/etc/libreoffice",
+        "--ro-bind",
+        "/etc/ld.so.cache",
+        "/etc/ld.so.cache",
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--tmpfs",
+        "/tmp",
+        "--ro-bind",
+        str(base),
+        "/runtime",
+        "--ro-bind",
+        str(site),
+        "/runtime/lib/python3.12/site-packages",
+        "--ro-bind",
+        str(Path(__file__).with_name(script)),
+        "/" + script,
+        *[item for bind in binds for item in bind],
+        "--bind",
+        str(output),
+        "/output",
+        "--clearenv",
+        "--setenv",
+        "HOME",
+        "/tmp",
+        "--setenv",
+        "PATH",
+        "/usr/bin",
+        "--setenv",
+        "LANG",
+        "C.UTF-8",
+        "--setenv",
+        "SAL_USE_VCLPLUGIN",
+        "svp",
+        # 避免 LibreOffice 依主機 CPU 數開大量工作執行緒，耗盡 2 GiB 位址空間。
+        "--setenv",
+        "MAX_CONCURRENCY",
+        "2",
+        "--setenv",
+        "XDG_CACHE_HOME",
+        "/tmp/cache",
+    ]
+
+
+def _run_sandbox(command, cancellation_check, safe_errors, fallback):
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        while True:
+            if cancellation_check:
+                cancellation_check()
+            try:
+                stdout, _ = process.communicate(timeout=0.5)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+    except BaseException:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        raise
+    if process.returncode:
+        reason = stdout.decode(errors="replace").strip()
+        raise NormalizationError(reason if reason in safe_errors else fallback)
+
+
+_MEDIA_ERRORS = {
+    "MEDIA_UNREADABLE",
+    "MEDIA_NO_AUDIO",
+    "MEDIA_TOO_LONG",
+    "MATERIAL_TOO_LARGE",
+    "IMAGE_SET_INVALID",
+    "IMAGE_UNREADABLE",
+    "IMAGE_TOO_LARGE",
+    "TRANSCRIPT_EMPTY",
+    "TRANSCRIPT_INVALID",
+    "NORMALIZER_VERSION_MISMATCH",
+}
+
+
+@contextmanager
+def media_step(command, source_path, *, work_dir=None, cancellation_check=None):
+    """在斷網沙箱執行 media.py；回傳只含輸出檔的暫存目錄，離開時刪除。
+
+    影片可達 2 GiB，因此輸入以唯讀 bind 掛入，不複製；大型暫存放在呼叫端指定的磁碟。
+    """
+    if not media_available():
+        raise NormalizationError("NORMALIZER_UNAVAILABLE")
+    source_path = Path(source_path)
+    with tempfile.TemporaryDirectory(
+        prefix="studydy-media-", dir=work_dir
+    ) as temporary:
+        output = Path(temporary) / "output"
+        output.mkdir()
+        target = "/input/source" + source_path.suffix.lower()
+        command_line = _sandbox_command(
+            [("--ro-bind", str(source_path), target)],
+            output,
+            MAX_AUDIO_BYTES,
+            "media.py",
+        ) + ["/runtime/bin/python3.12", "/media.py", command, target, "/output"]
+        _run_sandbox(
+            command_line, cancellation_check, _MEDIA_ERRORS, "MEDIA_PROCESSING_FAILED"
+        )
+        yield output
+
+
+def _normalized_output(output, original_sha256):
+    try:
+        pdf = (output / "normalized.pdf").read_bytes()
+        mapping = json.loads((output / "mapping.json").read_text())
+        if (
+            not pdf
+            or len(pdf) > MAX_FILE_BYTES
+            or mapping["original_sha256"] != original_sha256
+            or mapping["normalized_sha256"] != hashlib.sha256(pdf).hexdigest()
+            or mapping["page_count"] != len(mapping["records"])
+        ):
+            raise ValueError
+    except (OSError, KeyError, ValueError, TypeError):
+        raise NormalizationError("NORMALIZATION_FAILED") from None
+    return pdf, mapping
+
+
+def convert_images(data, policy, *, cancellation_check=None):
+    """圖片組轉成一張一頁的 PDF；文字由既有 OCR 流程辨識。"""
+    if policy != media_policy():
+        raise NormalizationError("NORMALIZER_VERSION_MISMATCH")
+    with tempfile.TemporaryDirectory(prefix="studydy-images-") as temporary:
+        source = Path(temporary) / "images.zip"
+        source.write_bytes(data)
+        with media_step(
+            "images", source, cancellation_check=cancellation_check
+        ) as output:
+            return _normalized_output(output, hashlib.sha256(data).hexdigest())
+
+
+def render_transcript(transcript, policy, *, work_dir=None, cancellation_check=None):
+    """逐字稿約每 2 分鐘排成一頁；mapping 記錄每頁的時間範圍。"""
+    if policy.get("kind") != "media" or {
+        key: value for key, value in policy.items() if key != "yt_dlp"
+    } != MEDIA_POLICY:
+        raise NormalizationError("NORMALIZER_VERSION_MISMATCH")
+    with tempfile.TemporaryDirectory(
+        prefix="studydy-transcript-", dir=work_dir
+    ) as temporary:
+        source = Path(temporary) / "transcript.json"
+        source.write_text(json.dumps(transcript, ensure_ascii=False))
+        with media_step(
+            "transcript", source, work_dir=work_dir, cancellation_check=cancellation_check
+        ) as output:
+            return _normalized_output(output, transcript["original_sha256"])

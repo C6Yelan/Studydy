@@ -81,10 +81,10 @@ for (const width of [1536, 390]) {
     await page.route("**/v1/source-capabilities", (route) =>
       route.fulfill({
         json: {
-          schema: "source-capabilities/v1",
+          schema: "source-capabilities/v2", max_request_bytes: 104857600, max_images: 50, max_media_seconds: 7200, youtube: false,
           formats: [
-            { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 },
-            { extension: ".txt", media_type: "text/plain", max_bytes: 104857600 },
+            { extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600, kind: "document" },
+            { extension: ".txt", media_type: "text/plain", max_bytes: 104857600, kind: "document" },
           ],
         },
       }),

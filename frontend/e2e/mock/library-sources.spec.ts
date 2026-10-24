@@ -93,8 +93,8 @@ for (const width of [1536, 390]) {
         case "/v1/source-capabilities":
           return route.fulfill({
             json: {
-              schema: "source-capabilities/v1",
-              formats: [{ extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600 }],
+              schema: "source-capabilities/v2", max_request_bytes: 104857600, max_images: 50, max_media_seconds: 7200, youtube: false,
+              formats: [{ extension: ".pdf", media_type: "application/pdf", max_bytes: 104857600, kind: "document" }],
             },
           });
         case `/v1/materials/${materialId}/sources`:

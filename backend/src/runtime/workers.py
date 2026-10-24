@@ -15,6 +15,7 @@ from .material_processing import (
 )
 from . import knowledge_chapters
 from .material_discard import finish_material_discards
+from .media_sources import cleanup_stale_uploads
 from .source_normalization import normalize_next
 from .storage.artifacts import reconcile_new_artifacts
 from .storage.analysis_archive import (
@@ -203,6 +204,13 @@ class RuntimeWorkers:
                             return
                         recover(dsn=self.dsn)
                     next_recovery = monotonic() + 10
+                    try:
+                        # 暫存清理失敗不能擋住其他維護工作。
+                        cleanup_stale_uploads()
+                    except Exception as error:
+                        logging.getLogger(__name__).warning(
+                            "UPLOAD_CLEANUP_FAILED error_type=%s", type(error).__name__
+                        )
                 if self._stop.is_set():
                     return
                 finish_material_discards(dsn=self.dsn)

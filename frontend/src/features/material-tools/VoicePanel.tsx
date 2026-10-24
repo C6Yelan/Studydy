@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { InlineConfirm } from '../../ui/InlineConfirm';
 import { ApiClientError, errorMessage, type StudydyApiClient } from '../../api/client';
-import { SourceButton, sourceLinks } from '../../ui/SourceButton';
+import { evidencePlace, evidenceSourceTitle, SourceButton, sourceLinks } from '../../ui/SourceButton';
 import type { Conversation, VoiceTurn, VoiceView } from './types';
 import { Icon } from '../../ui/Icon';
 import type { KnowledgeOutlineView, PodcastContext } from '../../api/contracts';
@@ -213,8 +213,8 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
       <div className="voice-reply"><img className="voice-avatar" src={mascot} alt=""/>
        <div className="voice-response" aria-label="教材回答">
         {turn.answer&&<><p className="voice-answer">{answerText}</p>
-         <div className="voice-source-chips" aria-label="回答來源">{sourceLinks(sources).map(source=><SourceButton key={source.evidence_id} apiClient={api} resolver={view!.source_resolver} evidence={source} label={`第 ${source.normalized_page??source.page} 頁`} title={`${source.source_name??'教材'} · PDF 第 ${source.normalized_page??source.page} 頁`}/>)}{!sources.length&&<small>教材沒有足夠依據。</small>}</div>
-         {sources.some(source=>source.quote)&&<details className="voice-sources"><summary>引用原文 · {sources.length}</summary><ol className="voice-source-list">{sources.map(source=><li key={source.evidence_id}><small>{source.source_name??'教材'} · 第 {source.normalized_page??source.page} 頁</small>{source.quote&&<p className="voice-source-excerpt">{source.quote}</p>}</li>)}</ol></details>}
+         <div className="voice-source-chips" aria-label="回答來源">{sourceLinks(sources).map(source=><SourceButton key={source.evidence_id} apiClient={api} resolver={view!.source_resolver} evidence={source} label={evidencePlace(source)} title={evidenceSourceTitle(source)}/>)}{!sources.length&&<small>教材沒有足夠依據。</small>}</div>
+         {sources.some(source=>source.quote)&&<details className="voice-sources"><summary>引用原文 · {sources.length}</summary><ol className="voice-source-list">{sources.map(source=><li key={source.evidence_id}><small>{source.source_name??'教材'} · {evidencePlace(source)}</small>{source.quote&&<p className="voice-source-excerpt">{source.quote}</p>}</li>)}</ol></details>}
          {turn.audio_url&&<div className="voice-answer-actions"><AnswerAudio src={turn.audio_url} autoPlay={mode==='voice'&&autoPlayTurnId===turn.turn_id} onAutoPlayAttempt={()=>setAutoPlayTurnId(previous=>previous===turn.turn_id?null:previous)} register={element=>audios.current.add(element)} onPlay={element=>pauseMedia(element)}/></div>}
         </>}
         {waiting&&!turn.answer&&<p className="voice-typing"><span aria-hidden="true"><i/><i/><i/></span>正在輸入…</p>}

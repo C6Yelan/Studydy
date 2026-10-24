@@ -1,4 +1,4 @@
-import type { FormatCapability, MaterialProcessingRunView } from "../../api/contracts";
+import type { MaterialProcessingRunView } from "../../api/contracts";
 
 export const automaticPollIntervalMs = 1_500;
 export const materialProgressStages = [
@@ -62,21 +62,9 @@ export function materialElapsedLabel(createdAt: string, now: number): string {
   return minutes > 0 ? `${minutes} 分 ${seconds} 秒` : `${seconds} 秒`;
 }
 
-export function validateSourceFile(
-  file: Pick<File, "name" | "size" | "type">,
-  formats: FormatCapability[],
-): string | null {
-  const format = formats.find((item) => file.name.toLowerCase().endsWith(item.extension));
-  if (!format) return "目前不支援這個教材格式。";
-  if (file.type && file.type !== "application/octet-stream" && file.type !== format.media_type)
-    return "副檔名與檔案類型不一致。";
-  if (file.size === 0) return "教材不可為空白檔案。";
-  if (file.size > format.max_bytes) return `每份檔案最多 ${format.max_bytes / (1024 * 1024)} MiB。`;
-  return null;
-}
-
 export function formatFileSize(sizeBytes: number): string {
   if (sizeBytes < 1024 * 1024) return `${Math.max(1, Math.round(sizeBytes / 1024))} KiB`;
+  if (sizeBytes >= 1024 ** 3) return `${(sizeBytes / 1024 ** 3).toFixed(1)} GiB`;
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 

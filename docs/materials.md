@@ -4,7 +4,7 @@
 
 ## 來源與轉檔
 
-教材是具名的來源集合。單檔與轉換後 PDF 上限皆為 100 MiB，格式能力由/v1/source-capabilities 宣告。
+教材是具名的來源集合。文件與一組圖片上限 100 MiB、音訊 300 MiB、影片 2 GiB，轉換後 PDF 上限 100 MiB；音訊與影片長度上限 2 小時。格式能力由 `/v1/source-capabilities`（`source-capabilities/v2`）宣告，含格式種類與單次請求上限。超過單次請求上限（正式站 90 MiB）的檔案由瀏覽器依序分段送到 `/v1/materials/{id}/source-parts`，暫存在 artifact 磁碟的 `.media-work/uploads`，收齊後才建立來源；同一意圖重送最後一段不會重複建立，中斷超過一天的暫存由維護 worker 清除。
 
 | 格式 | 處理與定位 |
 | --- | --- |
@@ -14,8 +14,24 @@
 | DOC／PPT | 檢查二進位 Office 格式再轉 PDF；僅提供轉換後頁碼 |
 | UTF-8 TXT | 有界換行排版；保存原行號及 PDF 頁碼 |
 | Markdown | 限制 HTML 排版；raw HTML 顯示為文字、不載入圖片，保存 block 及 PDF 頁碼 |
+| 圖片 PNG／JPG／WebP | 一次最多 50 張、可調整順序，合成一份來源：第幾張即第幾頁，交由 OCR 辨識文字 |
+| 音訊 MP3／M4A／WAV | 本機語音辨識成逐字稿，約每 2 分鐘一頁；來源從該時間段播放原音 |
+| 影片 MP4 | 上傳時只抽出音軌保存、原影片不保存，之後與音訊相同；來源只播音軌 |
+| YouTube 連結 | 只保存影片參照、逐字稿與分析結果；來源以 YouTube 內嵌播放器從該時間播放 |
 
 原檔、PDF 與 mapping 各自保存 hash。下載使用原 MIME 與 attachment，PDF 預覽使用獨立入口。解析在 Bubblewrap 子程序內執行，唯讀掛載 runtime 及輸入，僅輸出／暫存可寫。只有 DOCX／PPTX 的受控圖片準備階段可連線，實際 Office 與 PDF 解析始終在斷網沙箱；超連結保留，其他 HTTP(S) 外部素材在轉檔副本內盡力取得並內嵌，失敗或超出下載限額就略過，不因此拒絕整份文件。原檔不改寫；其餘格式仍不連線。資源限制、版本檢查與禁止的主動內容見 [converter.py](../backend/src/document_normalization/converter.py) 及 [renderer.py](../backend/src/document_normalization/renderer.py)。失敗來源按「重試轉換」時使用現行轉檔政策，已完成來源的快照保持不變。
+
+## 圖片、音訊、影片與 YouTube
+
+圖片組在瀏覽器依目前順序打包成不壓縮的 ZIP（`0001.png`、`0002.jpg`…），原檔即此壓縮檔。沙箱以 PyMuPDF／PyAV 將每張圖排成一頁（長邊 842 pt，JPEG 依 EXIF 轉正），mapping 記錄 `image_number`；之後與掃描 PDF 相同，由 Unlimited-OCR 建立 Evidence。HEIC 不支援：PyAV 讀不到 iPhone 照片常用的圖塊組合，`pillow-heif` 隨附 GPL 的 x265，需另行授權評估。
+
+音訊、影片音軌與沒有可用字幕的 YouTube 在斷網沙箱轉成 16 kHz 單聲道 Opus，再送到主機 Podcast provider 的 `/media-transcribe`，由本機 faster-whisper large-v3-turbo 以顯示卡批次辨識（語言自動偵測），不外送。辨識與 CosyVoice 共用 provider 的 GPU 鎖；教材 OCR 與轉檔都在教材 worker 執行緒上依序執行，不會與這裡的辨識同時進行。實測 1 小時中文課程：CPU int8 約 12.7 分鐘，顯示卡約 1 分鐘。
+
+YouTube 連結以 yt-dlp 讀取：只接受單支影片（Shorts 照常；帶清單參數的影片網址只取該影片），拒絕播放清單、直播或尚未播出、會員限定、私人與年齡限制影片，以及超過 2 小時的影片，並回報具體原因。只用上傳者字幕，順序為繁體中文 → 簡體中文 → 影片原語言；YouTube 自動字幕不用，改暫存音軌以本機辨識，辨識後立即刪除。影片的原檔是 `youtube-source/v1` 參照（影片 ID、標題、頻道、長度），不保存影音。使用 yt-dlp 有服務條款灰色地帶，YouTube 改版時需更新 yt-dlp；版本記在轉檔政策。
+
+逐字稿依每句開始時間歸入 2 分鐘時間段，一段一頁（沒有語音的時間段不成頁），單頁放不下時縮小字級而不換頁；辨識片段併成約 180 字的段落，原文不改寫。mapping 的 `origin_locator` 為 `start_seconds`／`end_seconds`，`media` 記錄辨識來源（`whisper` 或 `uploader_subtitles`）與語言。Evidence 仍是 1-based 頁碼與區塊，下游（OCR、索引、問答、Podcast、筆記、題組）照常使用；來源回查顯示時間範圍，音訊由 `/v1/artifacts/{id}/media`（支援 Range）從該段開頭播放，YouTube 由 `youtube-nocookie.com` 內嵌播放器從該秒播放。介面把這類來源的「頁」稱為「段」。
+
+媒體轉換政策為 `normalization-policy/v1` 的 `kind: media`（另記 yt-dlp 版本），文件轉檔政策不變。轉換沿用來源正規化的 lease 與取消：辨識等待期間持續續租，取消或刪除教材會中斷 provider 請求。辨識服務不可用或失敗時如實標為失敗（`STT_PROVIDER_UNAVAILABLE`／`STT_FAILED`），可按「重試轉換」。
 
 ## 草稿與來源快照
 

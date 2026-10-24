@@ -20,9 +20,19 @@ from starlette.exceptions import HTTPException as StarletteHttpException
 from starlette.routing import Match
 
 from document_normalization.converter import (
+    AUDIO_MIME,
+    IMAGE_MIME,
+    IMAGE_SET_MIME,
+    MAX_AUDIO_BYTES,
     MAX_FILE_BYTES,
+    MAX_IMAGES,
+    MAX_MEDIA_SECONDS,
+    MAX_VIDEO_BYTES,
     MIME,
+    VIDEO_MIME,
+    YOUTUBE_MIME,
     NormalizationError,
+    media_available,
     normalizer_available,
 )
 from learning_adaptation import assessment_state
@@ -52,6 +62,7 @@ from ..material_processing import (
     read_material_processing_run,
 )
 from ..material_runtime import MaterialRuntimeError, runtime_binding
+from ..media_sources import add_youtube_source, receive_chunk, store_upload_bytes
 from ..source_normalization import (
     create_draft,
     read_sources,
@@ -61,6 +72,7 @@ from ..source_normalization import (
 )
 from ..errors import PodcastError, SourceError
 from . import request_context
+from .media import artifact_response
 from .study_routes import install as install_study_routes
 from .card_routes import install as install_card_routes
 from .podcast_routes import install as install_podcast_routes
@@ -98,6 +110,8 @@ from .models import (
     RevisionCreate,
     SourceCapabilities,
     SourceListView,
+    SourceUploadProgress,
+    YoutubeSourceCreate,
     VersionMoveCreate,
     VersionMovePreviewView,
     VersionMoveView,
@@ -138,6 +152,17 @@ _ERROR_STATUS = {
     "MATERIAL_NOT_DISCARDABLE": (409, False),
     "MATERIAL_TOO_LARGE": (413, False),
     "UNSUPPORTED_MEDIA_TYPE": (415, False),
+    "UPLOAD_OFFSET_MISMATCH": (409, True),
+    "MEDIA_TOO_LONG": (422, False),
+    "MEDIA_UNREADABLE": (422, False),
+    "MEDIA_NO_AUDIO": (422, False),
+    "YOUTUBE_URL_INVALID": (400, False),
+    "YOUTUBE_PLAYLIST_REJECTED": (422, False),
+    "YOUTUBE_LIVE": (422, False),
+    "YOUTUBE_MEMBERS_ONLY": (422, False),
+    "YOUTUBE_PRIVATE": (422, False),
+    "YOUTUBE_AGE_RESTRICTED": (422, False),
+    "YOUTUBE_UNAVAILABLE": (422, True),
     "STORAGE_UNAVAILABLE": (503, True),
     "INTERNAL_ERROR": (500, False),
 }
@@ -385,6 +410,8 @@ def _install_openapi(app: FastAPI) -> None:
         "/v1/materials/{material_id}/card-sets",
         "/v1/materials",
         "/v1/materials/{material_id}/sources",
+        "/v1/materials/{material_id}/source-parts",
+        "/v1/materials/{material_id}/youtube-sources",
         "/v1/materials/{material_id}/revisions",
         "/v1/material-processing-runs/{run_id}/retry",
         "/v1/card-sets/{card_set_id}/reviews",
@@ -544,8 +571,13 @@ def _install_openapi(app: FastAPI) -> None:
                     response_codes.add(404)
                 if path in idempotent_paths and method == "post":
                     response_codes.add(409)
-                if path == "/v1/materials/{material_id}/sources" and method == "post":
-                    response_codes.update({413, 415})
+                if path in (
+                    "/v1/materials/{material_id}/sources",
+                    "/v1/materials/{material_id}/source-parts",
+                ) and method == "post":
+                    response_codes.update({413, 415, 422})
+                if path == "/v1/materials/{material_id}/youtube-sources":
+                    response_codes.add(422)
                 response_codes.add(503)
                 for code in sorted(response_codes):
                     operation.setdefault("responses", {})[str(code)] = deepcopy(
@@ -902,17 +934,36 @@ def create_app(settings: ApiSettings) -> FastAPI:
     def source_capabilities(request: Request):
         request_context.require_query(request, set())
         request_context.trusted_learner(request, settings)
-        enabled = normalizer_available()
+        documents = normalizer_available()
+        media = media_available()
+        # 單次請求受部署上限限制；超過時由瀏覽器分段上傳，總大小仍依各格式上限。
+        formats = [
+            {
+                "extension": ext,
+                "media_type": mime,
+                "max_bytes": MAX_FILE_BYTES,
+                "kind": "document",
+            }
+            for ext, mime in MIME.items()
+            if ext == ".pdf" or documents
+        ]
+        if media:
+            formats += [
+                {"extension": ext, "media_type": mime, "max_bytes": MAX_FILE_BYTES, "kind": "image"}
+                for ext, mime in IMAGE_MIME.items()
+            ] + [
+                {"extension": ext, "media_type": mime, "max_bytes": MAX_AUDIO_BYTES, "kind": "audio"}
+                for ext, mime in AUDIO_MIME.items()
+            ] + [
+                {"extension": ext, "media_type": mime, "max_bytes": MAX_VIDEO_BYTES, "kind": "video"}
+                for ext, mime in VIDEO_MIME.items()
+            ]
         return SourceCapabilities(
-            formats=[
-                {
-                    "extension": ext,
-                    "media_type": media,
-                    "max_bytes": settings.upload_max_bytes,
-                }
-                for ext, media in MIME.items()
-                if ext == ".pdf" or enabled
-            ],
+            formats=formats,
+            max_request_bytes=settings.upload_max_bytes,
+            max_images=MAX_IMAGES,
+            max_media_seconds=MAX_MEDIA_SECONDS,
+            youtube=media,
         )
 
     @app.post("/v1/materials", status_code=201, response_model=MaterialDraftView)
@@ -951,17 +1002,94 @@ def create_app(settings: ApiSettings) -> FastAPI:
             if len(data) + len(chunk) > settings.upload_max_bytes:
                 raise request_context.ApiFailure("MATERIAL_TOO_LARGE")
             data.extend(chunk)
+        media = request.headers.get("content-type")
+        if media == YOUTUBE_MIME:
+            raise request_context.ApiFailure("UNSUPPORTED_MEDIA_TYPE")
         await run_in_threadpool(
-            upload_source,
+            store_upload_bytes
+            if media in (*AUDIO_MIME.values(), *VIDEO_MIME.values())
+            else upload_source,
             owner,
             material_id,
             bytes(data),
             name,
-            request.headers.get("content-type"),
+            media,
             key,
             dsn=settings.dsn,
         )
         return await run_in_threadpool(read_sources, owner, material_id, dsn=settings.dsn)
+
+    @app.post(
+        "/v1/materials/{material_id}/source-parts",
+        status_code=202,
+        response_model=SourceUploadProgress,
+    )
+    async def upload_material_source_part(request: Request, material_id: UUID):
+        """超過單次請求上限的檔案依序分段上傳；最後一段收齊後才建立來源。"""
+        request_context.require_query(request, set())
+        owner = (
+            await run_in_threadpool(request_context.trusted_learner, request, settings)
+        ).learner_id
+        key = request_context.idempotency_key(request)
+        names = request.headers.getlist("x-material-name")
+        offsets = request.headers.getlist("x-upload-offset")
+        totals = request.headers.getlist("x-upload-total")
+        if (
+            len(names) != 1
+            or len(names[0]) > 2400
+            or len(offsets) != 1
+            or len(totals) != 1
+            or not offsets[0].isdigit()
+            or not totals[0].isdigit()
+            or len(offsets[0]) > 12
+            or len(totals[0]) > 12
+        ):
+            raise request_context.ApiFailure("REQUEST_INVALID")
+        try:
+            name = unquote(names[0], encoding="utf-8", errors="strict")
+        except UnicodeError:
+            raise request_context.ApiFailure("REQUEST_INVALID") from None
+        media = request.headers.get("content-type")
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > settings.upload_max_bytes:
+                raise request_context.ApiFailure("MATERIAL_TOO_LARGE")
+            data.extend(chunk)
+        progress = await run_in_threadpool(
+            receive_chunk,
+            owner,
+            material_id,
+            key,
+            name,
+            media,
+            int(totals[0]),
+            int(offsets[0]),
+            bytes(data),
+            dsn=settings.dsn,
+        )
+        return SourceUploadProgress(**progress)
+
+    @app.post(
+        "/v1/materials/{material_id}/youtube-sources",
+        status_code=202,
+        response_model=SourceListView,
+    )
+    def add_material_youtube_source(
+        request: Request, material_id: UUID, body: YoutubeSourceCreate
+    ):
+        """只核對影片可用性與限制；字幕或語音辨識在背景轉換工作中進行。"""
+        request_context.require_query(request, set())
+        owner = request_context.trusted_learner(request, settings).learner_id
+        if not media_available():
+            raise request_context.ApiFailure("NORMALIZER_UNAVAILABLE")
+        add_youtube_source(
+            owner,
+            material_id,
+            body.url,
+            request_context.idempotency_key(request),
+            dsn=settings.dsn,
+        )
+        return read_sources(owner, material_id, dsn=settings.dsn)
 
     @app.get("/v1/materials/{material_id}/sources", response_model=SourceListView)
     def get_material_sources(request: Request, material_id: UUID):
@@ -1137,7 +1265,8 @@ def create_app(settings: ApiSettings) -> FastAPI:
             source = context.__enter__()
         except Exception:
             raise request_context.ApiFailure("RESOURCE_NOT_FOUND") from None
-        extension = next((ext for ext, mime in MIME.items() if mime == media), ".bin")
+        known = {**MIME, ".zip": IMAGE_SET_MIME, **AUDIO_MIME, ".youtube": YOUTUBE_MIME}
+        extension = next((ext for ext, mime in known.items() if mime == media), ".bin")
         download_name = original_name or ("material" + extension)
         disposition = (
             f'attachment; filename="material{extension}"; '
@@ -1152,6 +1281,30 @@ def create_app(settings: ApiSettings) -> FastAPI:
                 "Content-Length": str(source.size_bytes),
             },
         )
+
+    @app.get("/v1/artifacts/{artifact_id}/media", response_class=StreamingResponse)
+    def original_media(request: Request, artifact_id: UUID):
+        """來源回查從指定時間播放原音訊（影片為抽出的音軌），支援 Range。"""
+        request_context.require_query(request, set())
+        owner = request_context.trusted_learner(request, settings).learner_id
+        with database_session(settings.dsn) as session:
+            artifact = session.get(Artifact, artifact_id)
+            if (
+                artifact is None
+                or artifact.learner_id != owner
+                or artifact.kind != "original"
+                or artifact.media_type not in AUDIO_MIME.values()
+            ):
+                raise request_context.ApiFailure("RESOURCE_NOT_FOUND")
+            media = artifact.media_type
+        try:
+            return artifact_response(
+                request,
+                open_verified_artifact(owner, artifact_id, dsn=settings.dsn),
+                media,
+            )
+        except Exception:
+            raise request_context.ApiFailure("RESOURCE_NOT_FOUND") from None
 
     @app.delete(
         "/v1/materials/{material_id}",

@@ -32,6 +32,10 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 `backend/tests/test_podcast_process.py` 以本機 HTTP 與真實測試子程序驗證取消、等待資源鎖時取消、提早／遲到的取消、不同 lease 隔離、有明定期限的操作逾時及子程序群組回收，另以推進單調時鐘確認無期限的音訊程序不受原時限影響、長時間工作仍可取消。`backend/tests/runtime/materials/test_podcast_cancellation.py` 使用隔離 DB，驗證正在產稿／製作音訊時取消或刪除會停止子程序，且下一筆節目能完成；另核對取消會刪除已生成的音訊與所有子工作、保留原教材，以及音訊已完成時仍可取消整份節目。音訊租約使用縮短到期時間的隔離案例，驗證正常續期可跨過原到期點、失聯租約不會復活。這些測試不呼叫真實模型、不使用產品 DB，也不宣稱生成內容品質已驗收。
 
+## 媒體來源
+
+`test_media_sources.py` 不連網，驗證 YouTube 網址（Shorts、帶清單參數的單支影片、純播放清單拒絕）、直播／會員／私人／年齡限制／超過 2 小時的拒絕原因、上傳者字幕的語言順序與不用自動字幕、WebVTT 解析、2 分鐘時間段分頁、長度上限、圖片組順序與格式檢查、EXIF 轉正，以及逐字稿 PDF 一段一頁與時間 mapping。`runtime/sources/test_media_source_flow.py` 使用隔離 DB 與真實沙箱，語音辨識及 YouTube 讀取以替身取代：分段上傳的位移檢查、最後一段重送不重複建立、音訊轉成時間段頁面並由媒體端點以 Range 播放、影片只保存音軌、圖片組一張一頁、YouTube 只保存參照與逐字稿、無字幕時辨識後刪除音軌、拒絕原因不建立來源、辨識失敗可重試、過期暫存清除，以及 0018 的 artifact 型別與大小限制；音訊與 YouTube 另沿正式分析流程發布後核對來源回查的時間標籤與播放位置。`e2e/mock/media-sources.spec.ts` 驗證圖片組排序與打包順序、音訊分段上傳、YouTube 輸入與播放清單提示，以及來源視窗從引用時間播放原音或 YouTube。這些替身測試不代表真實辨識、字幕或 YouTube 可用性；真實驗收另以公開素材執行。
+
 ## 選擇範圍
 
 `test_goal_metrics.py` 與 `test_goal_planning.py` 驗證可檢測 target 計量、真實完成、原排期落後量、固定今日配額、完整概念超量與唯讀預覽。`runtime/study/test_goals_stages.py` 驗證沒有 Study 也能讀取真實承接證據、概念完成不補造點數、目標權限、教材新版重排與提示關閉、同值儲存不重排，以及過期目標保留原日期調整比例。

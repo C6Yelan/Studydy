@@ -54,7 +54,8 @@ def test_upload_limit_capability_stream_and_rejected_state(limit, tmp_path, monk
         raise request_context.ApiFailure('STORAGE_UNAVAILABLE')
     monkeypatch.setattr(api, 'upload_source', store)
     client = TestClient(application, base_url=ORIGIN)
-    assert client.get('/v1/source-capabilities').json()['formats'][0]['max_bytes'] == limit
+    # 單次請求上限；較大的檔案改由分段上傳，總大小依各格式的 max_bytes。
+    assert client.get('/v1/source-capabilities').json()['max_request_bytes'] == limit
     for size in [limit - 1, limit, limit + 1]:
         def chunks():
             remaining = size

@@ -19,6 +19,33 @@ export function sourceLinks(evidence: EvidenceView[]): EvidenceView[] {
   return [...links.values()];
 }
 
+const timedSource = /\.(mp3|m4a|wav|mp4|youtube)$/i;
+
+/** 音訊、影片與 YouTube 的「頁」是約 2 分鐘的逐字稿時間段，畫面稱為「段」。 */
+export function evidencePlace(
+  evidence: Pick<EvidenceView, "page" | "normalized_page" | "source_name">,
+): string {
+  const page = evidence.normalized_page ?? evidence.page;
+  return evidence.source_name && timedSource.test(evidence.source_name)
+    ? `第 ${page} 段`
+    : `第 ${page} 頁`;
+}
+
+/** 完整來源名稱：文件標「PDF 第 N 頁」，音訊／影片／YouTube 標「第 N 段」。 */
+export function evidenceSourceTitle(
+  evidence: Pick<EvidenceView, "page" | "normalized_page" | "source_name">,
+): string {
+  const timed = !!evidence.source_name && timedSource.test(evidence.source_name);
+  return `${evidence.source_name ?? "教材"} · ${timed ? "" : "PDF "}${evidencePlace(evidence)}`;
+}
+
+function clock(seconds: number): string {
+  const whole = Math.floor(seconds);
+  const hours = Math.floor(whole / 3600);
+  const rest = `${String(Math.floor((whole % 3600) / 60)).padStart(2, "0")}:${String(whole % 60).padStart(2, "0")}`;
+  return hours ? `${hours}:${rest}` : rest;
+}
+
 export function SourceButton({
   apiClient,
   resolver,
@@ -67,8 +94,8 @@ export function SourceButton({
         {busy
           ? "正在讀取來源…"
           : label ?? (evidence.source_name
-            ? `${evidence.source_name} · PDF 第 ${evidence.normalized_page ?? evidence.page} 頁`
-            : `查看第 ${evidence.normalized_page ?? evidence.page} 頁來源`)}
+            ? evidenceSourceTitle(evidence)
+            : `查看${evidencePlace(evidence)}來源`)}
       </button>
       {error && (
         <p role="alert" className="form-error">
@@ -101,24 +128,62 @@ export function SourceButton({
               ，請以轉換後 PDF 回查。
             </p>
           )}
-          {source.format !== "pdf" && <p>此 PDF 由系統自動轉換，轉換品質不保證。</p>}
+          {source.playback ? (
+            <>
+              <p>逐字稿由本機語音辨識或影片上傳者的字幕產生，可能有誤，請以原音回查。</p>
+              {source.playback.kind === "audio" ? (
+                <audio
+                  className="source-media"
+                  controls
+                  autoPlay
+                  preload="metadata"
+                  src={`${source.playback.url}#t=${Math.floor(source.playback.start_seconds)}`}
+                  aria-label={`從 ${clock(source.playback.start_seconds)} 播放原音`}
+                />
+              ) : (
+                <iframe
+                  className="source-media source-youtube"
+                  src={`https://www.youtube-nocookie.com/embed/${source.playback.video_id}?start=${Math.floor(source.playback.start_seconds)}&autoplay=1&rel=0`}
+                  title={`YouTube 影片，從 ${clock(source.playback.start_seconds)} 播放`}
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  referrerPolicy="strict-origin-when-cross-origin"
+                />
+              )}
+            </>
+          ) : source.format === "images" ? (
+            <p>圖片中的文字由系統辨識，辨識品質不保證。</p>
+          ) : (
+            source.format !== "pdf" && <p>此 PDF 由系統自動轉換，轉換品質不保證。</p>
+          )}
           <div className="state-actions">
             <a
-              className="primary-button"
+              className={source.playback ? "secondary-button" : "primary-button"}
               href={source.preview_url}
               target="_blank"
               rel="noopener noreferrer"
             >
-              開啟 PDF 來源頁
+              {source.playback ? "開啟逐字稿頁" : source.format === "images" ? "開啟圖片頁" : "開啟 PDF 來源頁"}
             </a>
-            <a
-              className="secondary-button"
-              href={source.original_url}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              下載原檔
-            </a>
+            {source.playback?.kind === "youtube" ? (
+              <a
+                className="secondary-button"
+                href={`https://www.youtube.com/watch?v=${source.playback.video_id}&t=${Math.floor(source.playback.start_seconds)}s`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                在 YouTube 開啟
+              </a>
+            ) : (
+              <a
+                className="secondary-button"
+                href={source.original_url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {source.format === "video" ? "下載音軌" : "下載原檔"}
+              </a>
+            )}
             <button
               className="secondary-button"
               type="button"

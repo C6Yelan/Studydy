@@ -40,8 +40,9 @@ PyMuPDF 維持 1.28.0，renderer 的嚴格版本契約不變。此批不修改 O
 - 私有 `.env` 留在正式 checkout；`STUDYDY_TUNNEL_TOKEN_FILE` 指定 repo 外的 token 檔絕對路徑，只由 cloudflared 唯讀掛載。
   不讀出、複製或雜湊 token；只檢查 metadata，不把值放進 environment、image 或紀錄。
 - HTTPS origin 是 `https://studydy.net`，Secure cookie=true。維護入口不放寬 exact Origin。
-- 已確認 Cloudflare zone 上限為 100 MB；有效新上傳上限為 `94371840` bytes（90 MiB），
-  Nginx／API 共用設定，UI 讀取 capabilities。既有 artifact 讀取權限不變。
+- 已確認 Cloudflare zone 上限為 100 MB；單次上傳請求上限為 `94371840` bytes（90 MiB），
+  Nginx／API 共用設定，UI 讀取 capabilities。較大的檔案（圖片組、音訊、影片）由瀏覽器分段上傳，
+  每段不超過此上限，總大小依各格式上限。既有 artifact 讀取權限不變。
 - 已核准公開 Internet 部署；Access 為 optional。沿用目前 Cloudflare 設定，不需為 rebuild
   重新建立 Tunnel、DNS 或憑證。私有 API 保留 `private, no-store`，不強制公共快取。
 
@@ -54,6 +55,14 @@ PyMuPDF 維持 1.28.0，renderer 的嚴格版本契約不變。此批不修改 O
 新語音統一使用 `dynamic-pauses/v1`：短句續講 250ms、一般句尾 550ms、20 字以上長句 850ms、問句與一般換人 650ms、簡短接話前 350ms、換主題 1100ms。依原講稿的文字與數字計數，短句為 6 字以內；縮寫與數值的朗讀展開不改變分類。換段優先，符合一個條件就選定停頓，不疊加；現有片段兩端靜音計入目標。固定停頓機制與臨時試聽設定已移除，`/pause-preview` 及其資產回 404。既有影音不改時間軸，新建節目以新音訊重新對齊字幕及影片。
 
 跨語言教材更新需一起部署後端與 runtime lock。新分析寫入 `localized_meaning_v2`，以完整數量 token 保護短數值；既有 `localized_meaning`／`semantic_meaning` 仍依各自已保存的規則讀取。寫入 v2 後，回復版本必須能讀取 v2；需經驗證的相容映像或前向修復。原有知識結構與來源不搬移、不改 hash；舊分析提示的 checkpoint 不與新的翻譯政策混用。
+
+## 媒體來源（圖片、音訊、影片、YouTube）
+
+- 後端新增 Python 依賴 `av==19.0.1`（PyAV，wheel 內含 FFmpeg）與 `yt-dlp==2026.10.21`，記在 `backend/pyproject.toml`／`uv.lock`。沒有新系統套件，輕量更新的 `uv sync` 即會安裝，不需完整重建 OCR 映像；部署後在容器內核對 `import av, yt_dlp` 與版本。
+- Migration `0018_media_sources.sql` 放寬 `artifacts` 的原檔型別（ZIP 圖片組、MP3／M4A／WAV、YouTube 參照）及音訊原檔 300 MiB 上限；只改 check constraint，不搬資料。
+- 主機 provider 新增 `/media-transcribe` 與 `ops/podcast/transcribe_media.py`（顯示卡辨識，沿用 STT 環境與 CUDA `LD_LIBRARY_PATH`）。先以新 bundle 更新並重啟 provider，再更新 backend；舊 provider 收到請求會回 404，來源標為 `STT_FAILED`，可在更新後重試。
+- 分段上傳與轉換暫存在 `data/artifacts/.media-work/`；單支影片暫存最多 2 GiB，部署主機需保留對應空間。中斷超過一天的暫存由維護 worker 清除。
+- YouTube 改版造成讀取失敗時，更新 `yt-dlp` 版本並重建後端；失敗的來源可重試。
 
 ## 核准 source 與直接建置
 

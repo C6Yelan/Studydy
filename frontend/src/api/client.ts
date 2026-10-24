@@ -39,6 +39,7 @@ import type {
   MaterialRename,
   SourceCapabilities,
   SourceListView,
+  SourceUploadProgress,
   StudyResumeView,
   StudySessionCreate,
   StudySessionFocus,
@@ -108,6 +109,17 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   SOURCE_IN_USE: "這份來源已被分析引用，無法刪除；可取消勾選，不加入這次更新。",
   SOURCE_BUSY: "教材仍在轉換中，完成後才可移除。",
   UNSUPPORTED_MEDIA_TYPE: "此檔案格式目前不支援，請優先使用 PDF。",
+  UPLOAD_OFFSET_MISMATCH: "上傳中斷，請重試上傳。",
+  MEDIA_TOO_LONG: "音訊或影片超過 2 小時上限，請剪短後再上傳。",
+  MEDIA_UNREADABLE: "無法讀取這個音訊或影片檔，請確認檔案完整。",
+  MEDIA_NO_AUDIO: "這個影片沒有聲音軌，無法轉成逐字稿。",
+  YOUTUBE_URL_INVALID: "請貼上單支 YouTube 影片的網址。",
+  YOUTUBE_PLAYLIST_REJECTED: "不支援播放清單，請貼上單支影片的網址。",
+  YOUTUBE_LIVE: "不支援直播或尚未播出的影片，請等直播結束、影片處理完成後再加入。",
+  YOUTUBE_MEMBERS_ONLY: "這是會員限定或需要登入才能觀看的影片，無法加入。",
+  YOUTUBE_PRIVATE: "這是私人影片，無法加入。",
+  YOUTUBE_AGE_RESTRICTED: "這部影片有年齡限制，無法加入。",
+  YOUTUBE_UNAVAILABLE: "目前無法讀取這部 YouTube 影片，請確認網址或稍後再試。",
   STORAGE_UNAVAILABLE: "資料服務暫時無法使用，請稍後再試。",
   INTERNAL_ERROR: genericApiMessage,
 };
@@ -540,6 +552,41 @@ export class StudydyApiClient {
           "X-Material-Name": encodeURIComponent(file.name),
         },
       },
+      validate.sourceList,
+    );
+  }
+  /** 超過單次請求上限的檔案依序分段上傳；最後一段收齊後後端才建立來源。 */
+  uploadSourcePart(
+    materialId: string,
+    file: Blob,
+    name: string,
+    mediaType: string,
+    key: string,
+    offset: number,
+    total: number,
+  ): Promise<SourceUploadProgress> {
+    return this.json(
+      `/v1/materials/${encodeURIComponent(materialId)}/source-parts`,
+      {
+        method: "POST",
+        body: file,
+        headers: {
+          "Content-Type": mediaType,
+          Origin: origin(),
+          "Idempotency-Key": key,
+          "X-Material-Name": encodeURIComponent(name),
+          "X-Upload-Offset": String(offset),
+          "X-Upload-Total": String(total),
+        },
+      },
+      validate.sourceUploadProgress,
+    );
+  }
+  addYoutubeSource(materialId: string, url: string, key: string): Promise<SourceListView> {
+    return this.post(
+      `/v1/materials/${encodeURIComponent(materialId)}/youtube-sources`,
+      { schema: "youtube-source-create/v1", url },
+      key,
       validate.sourceList,
     );
   }

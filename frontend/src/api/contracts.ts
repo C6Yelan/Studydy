@@ -55,6 +55,17 @@ export type KnownApiReasonCode =
   | "ASSESSMENT_SET_ACTIVE"
   | "MATERIAL_TOO_LARGE"
   | "UNSUPPORTED_MEDIA_TYPE"
+  | "UPLOAD_OFFSET_MISMATCH"
+  | "MEDIA_TOO_LONG"
+  | "MEDIA_UNREADABLE"
+  | "MEDIA_NO_AUDIO"
+  | "YOUTUBE_URL_INVALID"
+  | "YOUTUBE_PLAYLIST_REJECTED"
+  | "YOUTUBE_LIVE"
+  | "YOUTUBE_MEMBERS_ONLY"
+  | "YOUTUBE_PRIVATE"
+  | "YOUTUBE_AGE_RESTRICTED"
+  | "YOUTUBE_UNAVAILABLE"
   | "STORAGE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
@@ -791,11 +802,38 @@ export type SourceListView = {
   discard_requested?: boolean;
   sources: SourceView[];
 };
-export type FormatCapability = { extension: string; media_type: string; max_bytes: number };
-export type SourceCapabilities = { schema: "source-capabilities/v1"; formats: FormatCapability[] };
+export type FormatCapability = {
+  extension: string;
+  media_type: string;
+  /** 單檔總大小上限；圖片為整組合計。 */
+  max_bytes: number;
+  kind: "document" | "image" | "audio" | "video";
+};
+export type SourceCapabilities = {
+  schema: "source-capabilities/v2";
+  formats: FormatCapability[];
+  /** 單次請求上限；較大的檔案改用分段上傳。 */
+  max_request_bytes: number;
+  max_images: number;
+  max_media_seconds: number;
+  youtube: boolean;
+};
+export type SourceUploadProgress = {
+  schema: "source-upload-progress/v1";
+  received_bytes: number;
+  source_id: string | null;
+};
+/** 音訊（含影片音軌）由私人媒體端點播放；YouTube 用內嵌播放器。 */
+export type MediaPlayback = {
+  kind: "audio" | "youtube";
+  start_seconds: number;
+  end_seconds: number;
+  url?: string;
+  video_id?: string;
+};
 export type EvidenceSourceView = {
   schema: "evidence-source/v1";
-  format: "pdf" | "docx" | "pptx" | "doc" | "ppt" | "txt" | "md";
+  format: "pdf" | "docx" | "pptx" | "doc" | "ppt" | "txt" | "md" | "images" | "audio" | "video" | "youtube";
   original_name: string;
   original_url: string;
   preview_url: string;
@@ -803,6 +841,7 @@ export type EvidenceSourceView = {
   accuracy: "exact" | "ambiguous" | "unavailable";
   origin_locators: Record<string, unknown>[];
   label: string;
+  playback?: MediaPlayback;
 };
 
 export type PodcastSummary = {

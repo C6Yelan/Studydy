@@ -42,6 +42,7 @@ def failure_code(error):
         "SCENE_ALIGNMENT_FAILED",
         "LUNA_GENERATION_TIMEOUT",
         "VOICE_TRANSCRIPT_INVALID",
+        "MEDIA_TRANSCRIPT_FAILED",
         "PODCAST_SCRIPT_INVALID",
         "PODCAST_SCRIPT_NEEDS_REVIEW",
         "PODCAST_AUDIO_INVALID",
@@ -460,6 +461,38 @@ def transcribe(body, *, cancelled=None):
         return json.loads(output.read_text())
 
 
+def media_transcribe(body, *, cancelled=None):
+    """教材音訊、影片音軌與無字幕 YouTube 的逐字稿；音訊只在暫存目錄，完成即刪除。"""
+    import base64
+
+    data = base64.b64decode(body["audio"], validate=True)
+    if not 0 < len(data) <= 48 * 1024 * 1024:
+        raise ValueError("REQUEST_INVALID")
+    with tempfile.TemporaryDirectory(prefix="studydy-media-stt-") as temporary:
+        audio = Path(temporary) / "speech.ogg"
+        output = Path(temporary) / "transcript.json"
+        audio.write_bytes(data)
+        del data
+        result = podcast_process.run(
+            [
+                os.environ["STUDYDY_STT_PYTHON"],
+                str(Path(__file__).with_name("transcribe_media.py")),
+                str(audio),
+                str(output),
+            ],
+            timeout=None,
+            cancelled=cancelled,
+            env={
+                k: v
+                for k, v in os.environ.items()
+                if k != "STUDYDY_PODCAST_PROVIDER_TOKEN"
+            },
+        )
+        if result.returncode != 0 or not output.is_file():
+            raise RuntimeError("MEDIA_TRANSCRIPT_FAILED")
+        return json.loads(output.read_text())
+
+
 def align_audio(body, *, cancelled=None, max_texts=12):
     import base64
 
@@ -519,6 +552,7 @@ class Handler(BaseHTTPRequestHandler):
             "/script",
             "/audio",
             "/transcribe",
+            "/media-transcribe",
             "/semantics",
             "/luna-health",
             "/align",
@@ -534,7 +568,15 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 not 0
                 < size
-                <= (140 if self.path in {"/align", "/video"} else 18) * 1024 * 1024
+                <= (
+                    140
+                    if self.path in {"/align", "/video"}
+                    else 66
+                    if self.path == "/media-transcribe"
+                    else 18
+                )
+                * 1024
+                * 1024
             ):
                 raise ValueError("REQUEST_INVALID")
             body = json.loads(self.rfile.read(size))
@@ -558,7 +600,8 @@ class Handler(BaseHTTPRequestHandler):
                 else VIDEO_LOCK
                 if self.path == "/video"
                 else LOCK
-                if self.path == "/audio"
+                # 教材辨識用顯示卡，與 CosyVoice 共用同一把 GPU 鎖。
+                if self.path in {"/audio", "/media-transcribe"}
                 else ASR_LOCK
                 if self.path in {"/transcribe", "/align"}
                 else TEXT_LOCK
@@ -650,6 +693,12 @@ class Handler(BaseHTTPRequestHandler):
                     {**result, "provider": f"codex-exec:{MODEL};scene-source-check/v1"},
                     ensure_ascii=False,
                 ).encode(),
+                "application/json",
+            )
+        elif self.path == "/media-transcribe":
+            result = media_transcribe(body, cancelled=cancelled)
+            data, media = (
+                json.dumps(result, ensure_ascii=False).encode(),
                 "application/json",
             )
         elif self.path == "/transcribe":

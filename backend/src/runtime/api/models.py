@@ -1258,14 +1258,33 @@ class FormatCapability(_Closed):
     extension: str
     media_type: str
     max_bytes: int
+    kind: Literal["document", "image", "audio", "video"]
 
 
 class SourceCapabilities(_Closed):
-    schema_: Literal["source-capabilities/v1"] = Field(
-        default="source-capabilities/v1",
+    schema_: Literal["source-capabilities/v2"] = Field(
+        default="source-capabilities/v2",
         alias="schema",
     )
     formats: list[FormatCapability]
+    # 單次請求上限；較大的檔案改用分段上傳。圖片為一組最多張數，總大小依圖片格式上限。
+    max_request_bytes: int
+    max_images: int
+    max_media_seconds: int
+    youtube: bool
+
+
+class SourceUploadProgress(_Closed):
+    schema_: Literal["source-upload-progress/v1"] = Field(
+        default="source-upload-progress/v1", alias="schema"
+    )
+    received_bytes: int
+    source_id: UUID | None
+
+
+class YoutubeSourceCreate(_Closed):
+    schema_: Literal["youtube-source-create/v1"] = Field(alias="schema")
+    url: str = Field(min_length=1, max_length=2048)
 
 
 class PdfOrigin(_Closed):
@@ -1288,16 +1307,43 @@ class TextOrigin(_Closed):
     line_end: int = Field(ge=1)
 
 
+class ImageOrigin(_Closed):
+    image_number: int = Field(ge=1)
+
+
+class MediaOrigin(_Closed):
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(ge=0)
+
+
+class MediaPlayback(_Closed):
+    """音訊（含影片音軌）由私人媒體端點播放；YouTube 用內嵌播放器。"""
+
+    kind: Literal["audio", "youtube"]
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(ge=0)
+    url: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    video_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
 class EvidenceSourceView(_Closed):
     schema_: Literal["evidence-source/v1"] = Field(alias="schema")
-    format: Literal["pdf", "docx", "pptx", "doc", "ppt", "txt", "md"]
+    format: Literal[
+        "pdf", "docx", "pptx", "doc", "ppt", "txt", "md",
+        "images", "audio", "video", "youtube",
+    ]
     original_name: str
     original_url: str
     preview_url: str
     normalized_page: int
     accuracy: Literal["exact", "ambiguous", "unavailable"]
-    origin_locators: list[PdfOrigin | SlideOrigin | DocumentOrigin | TextOrigin]
+    origin_locators: list[
+        PdfOrigin | SlideOrigin | DocumentOrigin | TextOrigin | ImageOrigin | MediaOrigin
+    ]
     label: str
+    playback: MediaPlayback | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class PodcastCreate(_Closed):
