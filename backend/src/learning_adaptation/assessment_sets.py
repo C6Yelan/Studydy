@@ -292,7 +292,7 @@ def submit_set_answers(
         }
     )
     with database_session(dsn) as session:
-        study, _, _ = _scope(session, learner, sid, lock=True)
+        study, _, document = _scope(session, learner, sid, lock=True)
         group = _round(session, study, set_id, lock=True)
         previous = group.action_receipts.get(key)
         if previous is not None:
@@ -349,6 +349,8 @@ def submit_set_answers(
         group.action_receipts = {**group.action_receipts, key: fingerprint}
         _touch_diagnostic(session, group)
         session.flush()
+        from .learning_insights import enqueue_diagnoses
+        enqueue_diagnoses(session, study, group, document)
 
 
 def change_set(

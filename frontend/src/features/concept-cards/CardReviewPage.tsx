@@ -1,3 +1,4 @@
+import { useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardBatch, CardReviewItem, CardReviewRating, CardStudyView } from "../../api/contracts";
@@ -102,6 +103,7 @@ function ReviewCard({ apiClient, item, source, onMarked }: {
   onMarked: (rating: CardReviewRating | null) => void;
 }) {
   const { artworkModule, loadFailed } = useConceptArtwork();
+  const difficulty = useConceptDifficulty(apiClient, item.material_id, item.knowledge_structure_revision);
   const [loaded, setLoaded] = useState<LoadedCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -143,7 +145,7 @@ function ReviewCard({ apiClient, item, source, onMarked }: {
   return <article className="card-review-stage" aria-label={`需要加強：${item.card.label}`}>
     {source && <p className="card-review-source" title={source(item)}><Icon name="cards" size={15} /><span>{source(item)}</span></p>}
     {loaded
-      ? <Flashcard key={pageIndex} card={loaded.card} structure={loaded.context} pageIndex={pageIndex} materialName={item.material_name} apiClient={apiClient} sourceResolver={loaded.sourceResolver} />
+      ? <Flashcard key={pageIndex} card={loaded.card} difficulty={difficulty.data?.concepts.find(concept => concept.concept_id === loaded.card.concept_id)} structure={loaded.context} pageIndex={pageIndex} materialName={item.material_name} apiClient={apiClient} sourceResolver={loaded.sourceResolver} />
       : <StateView title={error ? "無法讀取這張卡片" : "正在讀取卡片"} description={error ?? "正在取得卡面與來源。"} tone={error ? "failure" : "loading"} live={!error}
         action={error ? <button className="primary-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新讀取</button> : undefined} />}
     {loaded && pages > 1 && !loadFailed && <div className="card-review-pages" role="group" aria-label="這個概念的卡面">

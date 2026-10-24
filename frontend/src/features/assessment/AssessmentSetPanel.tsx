@@ -1,3 +1,4 @@
+import { LearningDiagnosis } from "../learning-diagnosis/LearningDiagnosis";
 import { useEffect, useLayoutEffect, useRef, useState, type SubmitEvent } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
@@ -19,6 +20,7 @@ type Concept = KnowledgeStructureView["concepts"][number];
 export function AssessmentSetPanel({
   apiClient,
   studySessionId,
+  materialId,
   selectedSetId,
   initialSet,
   concept,
@@ -34,6 +36,7 @@ export function AssessmentSetPanel({
 }: {
   apiClient: StudydyApiClient;
   studySessionId: string;
+  materialId: string;
   selectedSetId: string | null;
   initialSet: AssessmentSetView | null;
   concept: Concept;
@@ -681,6 +684,7 @@ export function AssessmentSetPanel({
               </span>
             )}
           </div>
+          <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} setId={group.set_id} />
           {group.cycle.active_set_id && group.cycle.active_set_id !== group.set_id && (
             <button
               className="primary-button"

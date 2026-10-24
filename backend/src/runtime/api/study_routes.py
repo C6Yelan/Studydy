@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Literal
 from uuid import UUID
 from fastapi import Request, Query
+from sqlalchemy import text
 from learning_adaptation import assessment_sets, assessment_state
 from learning_adaptation.learner_progress import (
     LearnerProgressError,
@@ -55,6 +56,28 @@ from .models import (
 
 
 def install(app, settings):
+    from learning_adaptation.learning_insights import read_diagnosis, read_difficulty
+    from .models import LearningDiagnosisView, ConceptDifficultyView
+
+    @app.get("/v1/materials/{material_id}/knowledge-structures/{structure_revision}/learning-diagnosis",
+             response_model=LearningDiagnosisView, tags=["learning"])
+    def learning_diagnosis(request: Request, material_id: UUID, structure_revision: str,
+                           set_id: UUID | None = None):
+        request_context.require_query(request, {"set_id"})
+        learner = request_context.trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+            return read_diagnosis(db, learner.learner_id, material_id, structure_revision, set_id)
+
+    @app.get("/v1/materials/{material_id}/knowledge-structures/{structure_revision}/concept-difficulty",
+             response_model=ConceptDifficultyView, tags=["learning"])
+    def concept_difficulty(request: Request, material_id: UUID, structure_revision: str):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+            return read_difficulty(db, learner.learner_id, material_id, structure_revision)
+
     @app.get(
         "/v1/materials/{material_id}/knowledge-structures/{structure_revision}/outline",
         response_model=KnowledgeOutlineView,

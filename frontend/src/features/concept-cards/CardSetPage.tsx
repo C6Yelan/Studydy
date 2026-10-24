@@ -1,3 +1,4 @@
+import { useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { BackLink } from "../../ui/BackLink";
 import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
@@ -113,6 +114,7 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
   weak: number | null;
 }) {
   const { artworkModule, loadFailed } = useConceptArtwork();
+  const difficulty = useConceptDifficulty(apiClient, view.material_id, view.knowledge_structure_revision);
   const [order, setOrder] = useState(() => view.navigation.map((_, i) => i));
   const [position, setPosition] = useState(0);
   const [pageIndex, setPageIndex] = useState(0);
@@ -278,7 +280,7 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
     </nav>
       <section ref={stage} tabIndex={-1} className="cards-study-stage surface" aria-label={finished ? "本輪瀏覽完成" : `第 ${absolute ?? localPage + 1} 張概念卡`}>
         {finished ? <div className="cards-complete"><h2>已瀏覽全部卡片</h2><p>{total !== null ? `這一輪看過了 ${total} 張概念卡。想再回顧一次嗎？` : "已瀏覽全部觀念與卡片，想再回顧一次嗎？"}</p><div className="state-actions"><button className="primary-button" onClick={() => restart(false)}>再看一次</button><button className="secondary-button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}>返回卡組</button></div></div>
-          : <>{card && batch ? <Flashcard key={`${card.concept_id}:${localPage}`} card={card} pageIndex={localPage} structure={batch.context} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
+          : <>{card && batch ? <Flashcard key={`${card.concept_id}:${localPage}`} card={card} difficulty={difficulty.data?.concepts.find(item => item.concept_id === card.concept_id)} pageIndex={localPage} structure={batch.context} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
             : <StateView title={error ? "無法讀取這批卡片" : "正在讀取卡片"} description={error ?? "正在取得這個觀念及來源。"} tone={error ? "failure" : "loading"} action={error ? <button className="primary-button" onClick={onReload}>重新讀取卡組</button> : undefined} />}
             {card && marks && <div className="cards-study-mark">
               <span>這張卡你熟悉嗎？{currentMark && <b>目前：{markLabel(currentMark.rating)}</b>}</span>

@@ -1,5 +1,6 @@
 import * as validate from "./response-validation.ts";
 import type {
+  LearningDiagnosisView, ConceptDifficultyView,
   KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, LearningRhythmPeriod, LearningRhythmView, MapProgressView, ProgressSummaryView, PodcastProgressView, PodcastProgressUpdate, StudyWorkspaceView,
   PodcastContext, PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
   ApiReasonCode,
@@ -666,6 +667,20 @@ export class StudydyApiClient {
     );
     if (view.material_id !== materialId) throw schemaMismatch("教材身分不一致。");
     return view;
+  }
+
+  async getLearningDiagnosis(request: KnowledgeStructureRequest, setId?: string): Promise<LearningDiagnosisView> {
+    const query = setId ? `?set_id=${encodeURIComponent(setId)}` : "";
+    return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/learning-diagnosis${query}`,
+      { method: "GET" }, (value): value is LearningDiagnosisView => validate.learningDiagnosis(value)
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision
+        && value.scope === (setId ? "set" : "material") && value.set_id === (setId ?? null));
+  }
+
+  async getConceptDifficulty(request: KnowledgeStructureRequest): Promise<ConceptDifficultyView> {
+    return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/concept-difficulty`,
+      { method: "GET" }, (value): value is ConceptDifficultyView => validate.conceptDifficulty(value)
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
   }
 
   async getKnowledgeOutline(request: KnowledgeStructureRequest): Promise<KnowledgeOutlineView> {

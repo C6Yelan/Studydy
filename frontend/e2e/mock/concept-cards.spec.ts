@@ -1,11 +1,39 @@
 import { recordCardDrawing, cardDrawing, drawnText, expectCardTextFits } from "../fixtures/canvas-cards";
 import { visualCases, visualCase } from "../fixtures/visual-concept-cards";
+import { difficultyView } from "../fixtures/learning-diagnosis";
 import type { CardGeneration, CardTextEdit, CardDesign } from "../../src/api/contracts";
 import { expect, test, type Page } from "@playwright/test";
 import { artifactId, materialId, runId, sessionId, structureRevision, structureView, mockKnowledgeMapApi, json } from "../fixtures/knowledge-map";
 
 const cardSetId = "55555555-5555-4555-8555-555555555555";
 const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
+
+test("card difficulty stays bound to the saved card revision", async ({ page }) => {
+  const fixture = await mockCards(page, { saved: true });
+  fixture.material.head_revision = `knowledge-structure:sha256:${"9".repeat(64)}`;
+  fixture.material.available_structures.push({ ...fixture.material.available_structures[0],
+    run_id: "66666666-6666-4666-8666-666666666666", knowledge_structure_revision: fixture.material.head_revision });
+  const requests: string[] = [];
+  let assessed = true;
+  await page.route("**/concept-difficulty", route => {
+    requests.push(decodeURIComponent(new URL(route.request().url()).pathname));
+    return json(route, { ...difficultyView(materialId, structureRevision), status: assessed ? "ready" : "failed", concepts: [{
+      concept_id: structureView().concepts[0].concept_id, label: "堆疊（Stack）", level: assessed ? "hard" : null, reason: assessed ? "先理解後進先出的順序。" : null,
+      personal_difficulty: true, incorrect_count: 2, answer_count: 3,
+    }] });
+  });
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("偏難");
+  await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("先理解後進先出的順序。");
+  await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("你的難點");
+  await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("答錯率 67%（2 / 3 題）");
+  expect(requests).toEqual([`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/concept-difficulty`]);
+  assessed = false;
+  await page.reload();
+  await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("你的難點");
+  await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("答錯率 67%（2 / 3 題）");
+  await expect(page.locator(".concept-card > .concept-difficulty")).not.toContainText("一般");
+});
 
 async function mockCards(page: Page, { saved = false, long = false, many = false, withProgress = false, title = "資料結構 · 核心概念", savedCount = null as number | null } = {}) {
   await recordCardDrawing(page);
@@ -122,7 +150,7 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
     if (!exists) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Request could not be completed." }, 404);
     return json(route, { ...summary(), schema: "card-set/v1", source_resolver: decodeURIComponent(view.source_resolver), status: view.status, excluded_pages: [], display_edits: displayEdits, generation: generation ?? readyGeneration(), cards: selection.map((id) => view.concepts.find((item) => item.concept_id === id)!).map(({ concept_id, label, claims }) => ({ concept_id, label, claims })) });
   });
-  return { requests, forbiddenMutations, view, summary, study, batch, setDesigns: (value: Record<string, CardDesign>) => { designs = value; }, setGeneration: (value: CardGeneration | null) => { generation = value; }, setEdits: (value: Record<string, CardTextEdit[]>) => { displayEdits = value; } };
+  return { requests, forbiddenMutations, material, view, summary, study, batch, setDesigns: (value: Record<string, CardDesign>) => { designs = value; }, setGeneration: (value: CardGeneration | null) => { generation = value; }, setEdits: (value: Record<string, CardTextEdit[]>) => { displayEdits = value; } };
 }
 
 async function openSavedCardManagement(page: Page) {

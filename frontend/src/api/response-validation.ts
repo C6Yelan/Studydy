@@ -1,4 +1,5 @@
 import type {
+  LearningDiagnosisView, ConceptDifficultyView,
   KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, LearningRhythmView, MapProgressView, ProgressSummaryView, PodcastProgressView, StudyWorkspaceView,
   PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
   AnswerFeedbackView,
@@ -861,6 +862,54 @@ export function progressSummary(value: unknown): value is ProgressSummaryView {
     && count(item.concept_count) && count(item.completed_count) && (item.completed_count as number) <= (item.concept_count as number)
     && (item.current_concept_id === null || revision(item.current_concept_id, "concept"))
     && (item.current_concept_label === null || typeof item.current_concept_label === "string");
+}
+
+export function learningDiagnosis(value: unknown): value is LearningDiagnosisView {
+  const item = object(value);
+  const findings = (value: unknown) => Array.isArray(value) && value.every(value => {
+    const finding = object(value);
+    return !!finding && revision(finding.concept_id, "concept") && typeof finding.label === "string"
+      && Array.isArray(finding.points) && finding.points.every(value => {
+        const point = object(value);
+        return !!point && revision(point.claim_id, "claim") && typeof point.title === "string"
+          && Number.isSafeInteger(point.answer_count) && Number(point.answer_count) >= 0
+          && Number.isSafeInteger(point.correct_count) && Number(point.correct_count) >= 0 && Number(point.correct_count) <= Number(point.answer_count)
+          && (point.latest_is_correct === null || typeof point.latest_is_correct === "boolean")
+          && Array.isArray(point.evidence) && point.evidence.every(value => {
+            const source = object(value);
+            return !!source && revision(source.evidence_id, "evidence") && Number.isSafeInteger(source.page) && Number(source.page) >= 1
+              && (source.source_name == null || typeof source.source_name === "string")
+              && (source.normalized_page == null || Number.isSafeInteger(source.normalized_page) && Number(source.normalized_page) >= 1);
+          });
+      });
+  });
+  return !!item && item.schema === "learning-diagnosis/v1" && isUuid(item.material_id)
+    && revision(item.knowledge_structure_revision, "knowledge-structure")
+    && item.source_resolver === `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
+    && (item.scope === "material" ? item.set_id === null : item.scope === "set" && isUuid(item.set_id))
+    && ["no_answers", "not_generated", "pending", "running", "ready", "failed"].includes(String(item.status))
+    && item.mode === "template"
+    && Number.isSafeInteger(item.event_watermark) && Number(item.event_watermark) >= 0
+    && findings(item.strengths) && findings(item.weaknesses) && findings(item.recommendations)
+    && (item.failure_reason === null || typeof item.failure_reason === "string");
+}
+
+export function conceptDifficulty(value: unknown): value is ConceptDifficultyView {
+  const item = object(value);
+  return !!item && item.schema === "concept-difficulty/v1" && isUuid(item.material_id)
+    && revision(item.knowledge_structure_revision, "knowledge-structure")
+    && ["not_generated", "pending", "running", "ready", "failed"].includes(String(item.status))
+    && item.mode === "model"
+    && (item.failure_reason === null || typeof item.failure_reason === "string")
+    && Array.isArray(item.concepts) && item.concepts.every(value => {
+      const concept = object(value);
+      return !!concept && revision(concept.concept_id, "concept") && typeof concept.label === "string"
+        && (concept.level === null || ["standard", "hard"].includes(String(concept.level)))
+        && (concept.reason === null || typeof concept.reason === "string")
+        && typeof concept.personal_difficulty === "boolean"
+        && Number.isSafeInteger(concept.incorrect_count) && Number(concept.incorrect_count) >= 0
+        && Number.isSafeInteger(concept.answer_count) && Number(concept.answer_count) >= Number(concept.incorrect_count);
+    }) && new Set(item.concepts.map(concept => concept.concept_id)).size === item.concepts.length;
 }
 
 export function mapProgress(value: unknown): value is MapProgressView {

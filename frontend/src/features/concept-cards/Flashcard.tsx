@@ -1,18 +1,20 @@
+import { DifficultyBadge } from "../learning-diagnosis/LearningDiagnosis";
 import type { StudydyApiClient } from "../../api/client";
-import type { ConceptCard, ConceptCardContext } from "../../api/contracts";
+import type { ConceptCard, ConceptCardContext, ConceptDifficulty } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text";
 import { VisualConceptCard } from "./VisualConceptCard";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { cardContent } from "./card-content";
 import { cardRelations, cardSourceIndex, hasCardEvidence } from "./card-relation";
 
-export function Flashcard({ card, structure, materialName, apiClient, sourceResolver, pageIndex }: {
+export function Flashcard({ card, structure, materialName, apiClient, sourceResolver, pageIndex, difficulty }: {
   card: ConceptCard;
   structure: ConceptCardContext;
   materialName: string;
   apiClient: StudydyApiClient;
   sourceResolver: string;
   pageIndex?: number;
+  difficulty?: ConceptDifficulty;
 }) {
   const relations = cardRelations(card, structure);
   const content = cardContent(card, structure);
@@ -25,6 +27,7 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
     .flatMap(id => { const evidence = cardSourceIndex(structure).evidence.get(id); return evidence ? [evidence] : []; }) : [];
   return (
     <div className="concept-card">
+      <DifficultyBadge concept={difficulty} detail />
       <VisualConceptCard card={card} structure={structure} pageIndex={pageIndex} cacheOwner={apiClient}
         sources={designed && <div className="flashcard-source-links" aria-label="本張卡面來源">{sourceLinks(pageEvidence).map(evidence =>
           <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`本張引用 · 第 ${evidence.normalized_page ?? evidence.page} 頁`} />)}</div>} />

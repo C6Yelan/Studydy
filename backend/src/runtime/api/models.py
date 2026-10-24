@@ -1436,3 +1436,62 @@ class PodcastListView(_Closed):
 class PodcastDeletedView(_Closed):
     schema_: Literal["podcast-deleted/v1"] = Field(alias="schema")
     podcast_id: UUID
+
+
+class LearningDiagnosisEvidence(_Closed):
+    evidence_id: str
+    page: int
+    source_id: str
+    source_name: str
+    normalized_page: int
+
+
+class LearningDiagnosisPoint(_Closed):
+    claim_id: str
+    title: str
+    answer_count: int
+    correct_count: int
+    latest_is_correct: bool | None
+    evidence: list[LearningDiagnosisEvidence]
+
+
+class LearningDiagnosisFinding(_Closed):
+    concept_id: str
+    label: str
+    points: list[LearningDiagnosisPoint]
+
+
+class LearningDiagnosisView(_Closed):
+    schema_: Literal["learning-diagnosis/v1"] = Field(alias="schema")
+    material_id: UUID
+    knowledge_structure_revision: str
+    scope: Literal["material", "set"]
+    source_resolver: str
+    set_id: UUID | None
+    status: Literal["no_answers", "not_generated", "pending", "running", "ready", "failed"]
+    mode: Literal["template"]
+    event_watermark: int
+    strengths: list[LearningDiagnosisFinding]
+    weaknesses: list[LearningDiagnosisFinding]
+    recommendations: list[LearningDiagnosisFinding]
+    failure_reason: str | None
+
+
+class ConceptDifficultyItem(_Closed):
+    concept_id: str
+    label: str
+    level: Literal["standard", "hard"] | None
+    reason: str | None
+    personal_difficulty: bool
+    incorrect_count: int
+    answer_count: int
+
+
+class ConceptDifficultyView(_Closed):
+    schema_: Literal["concept-difficulty/v1"] = Field(alias="schema")
+    material_id: UUID
+    knowledge_structure_revision: str
+    status: Literal["not_generated", "pending", "running", "ready", "failed"]
+    mode: Literal["model"]
+    concepts: list[ConceptDifficultyItem]
+    failure_reason: str | None

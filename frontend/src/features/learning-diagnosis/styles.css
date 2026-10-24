@@ -1,0 +1,27 @@
+.learning-diagnosis, .diagnosis-difficulties { min-width: 0; }
+.learning-diagnosis h2 { margin: 0 0 16px; font-size: 1.3rem; }
+.learning-diagnosis h3, .diagnosis-difficulties h3 { margin: 0 0 8px; font-size: 1.05rem; }
+.diagnosis-sections { display: grid; gap: 20px; }
+.diagnosis-sections p, .difficulty-reason { margin: 6px 0 0; color: var(--text-secondary); line-height: 1.65; }
+.diagnosis-point-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.diagnosis-point-list > li { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.diagnosis-point-list > li > div { min-width: 0; overflow-wrap: anywhere; }
+.diagnosis-claims { padding-left: 20px; margin: 8px 0 0; display: grid; gap: 12px; }
+.diagnosis-claims li::marker { color: var(--text-secondary); }
+.diagnosis-answer-count { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: .9rem; }
+.diagnosis-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.diagnosis-point-list button { flex-shrink: 0; max-width: 100%; white-space: normal; }
+.concept-difficulty { display: inline-flex; flex-wrap: wrap; gap: 5px; vertical-align: middle; }
+.difficulty-badge { display: inline-block; border-radius: 999px; padding: 3px 8px; background: var(--page-cool); color: var(--text-secondary); font-size: .75rem; font-weight: 700; line-height: 1.5; }
+.difficulty-badge.is-hard { background: var(--warning-soft); color: var(--text-primary); }
+.difficulty-badge.is-personal { background: var(--violet-soft); color: var(--text-primary); }
+.concept-difficulty.has-reason { display: flex; margin-top: 8px; }
+.difficulty-reason { display: block; flex-basis: 100%; font-size: .9rem; font-weight: 400; }
+.difficulty-reason > span { display: block; }
+.review-diagnosis { padding: 24px; border-bottom: 1px solid var(--border); display: grid; gap: 28px; }
+.assessment-cycle > .learning-diagnosis { margin: 24px 0; padding-top: 20px; border-top: 1px solid var(--border); }
+.concept-card > .concept-difficulty { margin: 0 0 12px; }
+@media (max-width: 600px) {
+  .review-diagnosis { padding: 20px 16px; }
+  .diagnosis-point-list > li { align-items: flex-start; flex-direction: column; gap: 10px; }
+}

@@ -22,6 +22,7 @@ from .storage.analysis_archive import (
     reconcile_published_checkpoints,
 )
 from learning_adaptation.assessment_sets import run_next_set
+from learning_adaptation.learning_insights import run_next_insight
 
 _IDLE_WAIT_SECONDS = 0.1
 _STARTUP_WAIT_SECONDS = 5
@@ -183,6 +184,8 @@ class RuntimeWorkers:
         while not self._stop.is_set():
             try:
                 run_next_set(dsn=self.dsn, shutdown=self._stop)
+                if not self._stop.is_set():
+                    run_next_insight("diagnosis", dsn=self.dsn, shutdown=self._stop)
             except Exception as error:
                 logging.getLogger(__name__).warning(
                     "ASSESSMENT_WORKER_ITERATION_FAILED error_type=%s", type(error).__name__
@@ -246,6 +249,9 @@ class RuntimeWorkers:
                         dsn=self.dsn,
                         shutdown=self._stop,
                     )
+                if not self._stop.is_set():
+                    with knowledge_chapters.request_gate:
+                        run_next_insight("difficulty", dsn=self.dsn, shutdown=self._stop)
             except Exception as error:
                 if is_starting:
                     self._startup_error = error

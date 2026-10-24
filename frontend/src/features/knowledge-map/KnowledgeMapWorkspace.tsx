@@ -1,3 +1,4 @@
+import { DifficultyBadge, DifficultyList, LearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import type { AppRoute } from "../../app/routes";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
@@ -26,6 +27,7 @@ import type {
   KnowledgeRegionsView,
   RelationType,
   MapProgressView,
+  ConceptDifficultyView,
   StudySessionView,
 } from "../../api/contracts";
 import { useConceptContext } from "../material-flow/useConceptContext";
@@ -164,12 +166,14 @@ function ConceptDetail({
   isLoadingProgress,
   progressMessage,
   region,
+  difficulty,
 }: {
   view: KnowledgeOutlineView;
   progress: MapProgressView | null;
   apiClient: StudydyApiClient;
   concept: Concept;
   region: string | null;
+  difficulty: ConceptDifficultyView | null;
   close: () => void;
   studyAction: ReactNode;
   isLoadingProgress: boolean;
@@ -191,6 +195,7 @@ function ConceptDetail({
       {progress ? <LearningBadge conceptId={concept.concept_id} progress={progress} /> : (
         <span className="map-learning-badge">{isLoadingProgress ? "讀取學習狀態…" : progressMessage ? "學習狀態暫時無法讀取" : "尚未開始"}</span>
       )}
+      <DifficultyBadge concept={difficulty?.concepts.find(item => item.concept_id === concept.concept_id)} detail />
       <section>
         <h3>教材重點</h3>
         {read.error ? <p role="alert">{read.error}<button type="button" onClick={read.retry}>重新讀取</button></p>
@@ -486,9 +491,11 @@ function MapGraph({
   detail,
   regions,
   toolbar,
+  difficulty,
 }: {
   apiClient: StudydyApiClient;
   detail: ReactNode;
+  difficulty: ConceptDifficultyView | null;
   /** 浮在地圖左上的搜尋與地圖摘要，和「學習導覽」排成同一列。 */
   toolbar: ReactNode;
   regions: MapRegions | null;
@@ -630,6 +637,7 @@ function MapGraph({
                   <strong>{concept.label}</strong>
                   <small>
                     <LearningBadge conceptId={concept.concept_id} progress={progress} />
+                    <DifficultyBadge concept={difficulty?.concepts.find(item => item.concept_id === concept.concept_id)} hardOnly />
                     {concept.claim_count} 個重點
                   </small>
                 </span>
@@ -694,6 +702,7 @@ function MapGraph({
     previewRead.error,
     selected.concept_id,
     highlightedRelation,
+    difficulty,
     conceptById,
     progress,
     openConcept,
@@ -994,6 +1003,7 @@ export function KnowledgeMapWorkspace({
   startMessage: string | null;
   view: KnowledgeOutlineView;
 }) {
+  const difficulty = useConceptDifficulty(apiClient, mapRoute.materialId, view.knowledge_structure_revision);
   const initialConceptId = progress?.current_concept_id ?? initialFocusConceptId(view);
   // 只記住目前瀏覽器紀錄的呈現位置；登入、作答與 learner progress 仍由 API 管理。
   const [restored] = useState(() => {
@@ -1211,6 +1221,7 @@ export function KnowledgeMapWorkspace({
             isLoadingProgress={isLoadingProgress}
             progressMessage={progressMessage}
             region={regionLabel(selectedConcept.concept_id)}
+            difficulty={difficulty.data}
           />
         )}
       </>
@@ -1333,9 +1344,14 @@ export function KnowledgeMapWorkspace({
                 view={view}
                 regions={regions}
                 toolbar={mapToolbar}
+                difficulty={difficulty.data}
               />
             </ReactFlowProvider>
           )}
+          {mode === "review" && <div className="review-diagnosis">
+            <LearningDiagnosis api={apiClient} materialId={mapRoute.materialId} revision={view.knowledge_structure_revision} onReview={onStartStudy} disabled={isStartingStudy} />
+            <DifficultyList report={difficulty} onReview={onStartStudy} disabled={isStartingStudy} />
+          </div>}
           {mode === "review" &&
             (progressMessage ? (
               <div className="review-empty">

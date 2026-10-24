@@ -28,7 +28,7 @@ export function SourceButton({
 }: {
   apiClient: StudydyApiClient;
   resolver: string;
-  evidence: EvidenceView;
+  evidence: Pick<EvidenceView, "evidence_id" | "page" | "normalized_page" | "source_name">;
   label?: string;
   /** 按鈕文字較短時，提示完整來源。 */
   title?: string;

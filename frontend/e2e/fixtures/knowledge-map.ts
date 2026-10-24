@@ -1,4 +1,5 @@
 import { conceptsView, readResponse } from "./knowledge-read-views.mjs";
+import { diagnosisView, difficultyView } from "./learning-diagnosis";
 // 地圖 browser 測試共用的合成資料與 API 攔截；不呼叫真實後端或模型。
 import { expect, type Page, type Route } from "@playwright/test";
 import type { EvidenceView } from "../../src/api/contracts";
@@ -297,6 +298,8 @@ export async function mockKnowledgeMapApi(
   }));
   await mockGet(page, `/v1/material-processing-runs/${runId}`, () => boundRun);
   await mockGet(page, mapPath, () => view);
+  await mockGet(page, `${mapPath}/concept-difficulty`, () => difficultyView(materialId, revision));
+  await mockGet(page, `${mapPath}/learning-diagnosis`, () => diagnosisView(materialId, revision));
   await mockGet(page, `${mapPath}/concepts`, route => {
     const query = new URL(route.request().url()).searchParams;
     return conceptsView(view, materialId, (query.get("ids") ?? "").split(","), query.get("neighbors") === "true");

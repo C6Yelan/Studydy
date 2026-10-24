@@ -364,6 +364,7 @@ export function StudySessionPage({
                 </section>
               ) : <AssessmentSetPanel
                 apiClient={apiClient}
+                materialId={route.materialId}
                 studySessionId={route.studySessionId}
                 selectedSetId={data.selectedSetId}
                 initialSet={data.selectedSet}

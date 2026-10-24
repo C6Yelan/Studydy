@@ -223,6 +223,10 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 `0013_session_devices.sql` 只在 `learner_sessions` 新增 nullable `device_label`（1–64 字元 CHECK）與 `last_used_at`，不回填、不改寫既有資料；新後端啟動（`serve`／`migrate`）時由 `run_migrations` 自動套用。套用前同 0009–0011 在獨立 DB 副本驗證並核對原業務資料不變。後端使用 `account-sessions/v2`（裝置清單，取代登入數），並提供 `DELETE /v1/account/sessions/{session_id}`；前端只接受 v2，前後端必須一起上線（只更新任一邊時，個人檔案讀不到登入裝置，修改密碼成功後也會顯示錯誤）。套用後需使用識別 0013 的後端，採前向修正；退回時前後端一起退回。既有登入沒有裝置標籤，顯示「未知裝置」，最後使用時間在下一次請求後開始記錄。
 
+## 0014 學習診斷與概念難度
+
+`0014_learning_insights.sql` 新增教材版本綁定的難度與診斷工作／快取，不改寫教材與作答紀錄。套用前依本文件備份產品 DB，並在隔離資料庫驗證 migration。前後端一起更新；舊紀錄不會因讀取頁面觸發生成，舊教材難度於部署後以明確指定擁有者的補跑操作排入背景工作。診斷採模板；難度補跑會呼叫模型，每份版本至多 5 次，回報排入份數、實際呼叫數與失敗項目。超容量的教材保留未完成狀態，不自動套用其他難度規則。回復時保留新增資料表，不刪除產品資料。
+
 ## 後端身分與既有資料
 
 `STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。

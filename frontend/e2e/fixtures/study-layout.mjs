@@ -297,6 +297,12 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     const path = actualPath.replace(/\/workspace$/, "/resume");
     const query = address.searchParams;
     const send = (body, status = 200) => route.fulfill({ json: readResponse(request.url(), body, runId), status });
+    if (request.method() === "GET" && actualPath === `${mapPath}/learning-diagnosis`) return send({
+      schema: "learning-diagnosis/v1", material_id: materialId, knowledge_structure_revision: structureRevision,
+      source_resolver: `${mapPath}/evidence`,
+      scope: "set", set_id: query.get("set_id"), status: "ready", mode: "template", event_watermark: 4,
+      strengths: [], weaknesses: [], recommendations: [], failure_reason: null,
+    });
     if (request.method() === "GET" && actualPath === `${mapPath}/outline`) return send(outlineView(knowledgeStructure, materialId, runId));
     if (request.method() === "GET" && actualPath === `${mapPath}/concepts`) return send(conceptsView(knowledgeStructure, materialId, (query.get("ids") ?? "").split(","), query.get("neighbors") === "true"));
     const reject = (reason_code, status) =>

@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from .storage.tables import (
     Material,
+    LearningInsight,
     CardSet,
     Podcast,
     PodcastVideo,
@@ -43,7 +44,9 @@ def lease_is_current(row, token, *, now=None):
 
 
 def _source_active(db, row):
-    if isinstance(row, CardSet):
+    if isinstance(row, LearningInsight):
+        material_id = row.material_id
+    elif isinstance(row, CardSet):
         if row.deleted_at is not None:
             return False
         material_id = row.material_id

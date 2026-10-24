@@ -29,6 +29,7 @@ MIN_OUTPUT_TOKENS = {
     "assessment": 16384,
     "assessment_check": 16384,
     "concept_card": 4096,
+    "concept_difficulty": 4096,
 }
 # 候選目錄最多占 8K tokens；原始來源與最低輸出空間仍各自檢查。
 MAX_MATERIAL_CATALOG_TOKENS = 8192
