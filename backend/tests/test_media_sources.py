@@ -212,13 +212,18 @@ def test_image_type_must_match_its_extension(tmp_path):
         media.image_set(source, tmp_path)
 
 
-def test_jpeg_orientation_is_read_from_exif():
+@pytest.mark.parametrize(
+    ("orientation", "rotation"),
+    # PyMuPDF 的 rotate 為逆時針：6（順時針 90 度）是 270；5、7 只補旋轉、不處理鏡像。
+    [(1, 0), (2, 0), (3, 180), (4, 0), (5, 90), (6, 270), (7, 270), (8, 90)],
+)
+def test_jpeg_orientation_is_read_from_exif(orientation, rotation):
     media = _media_module()
-    tiff = b"MM\x00\x2a\x00\x00\x00\x08" + b"\x00\x01" + b"\x01\x12\x00\x03\x00\x00\x00\x01\x00\x06\x00\x00" + b"\x00\x00\x00\x00"
+    entry = b"\x01\x12\x00\x03\x00\x00\x00\x01" + bytes([0, orientation]) + b"\x00\x00"
+    tiff = b"MM\x00\x2a\x00\x00\x00\x08" + b"\x00\x01" + entry + b"\x00\x00\x00\x00"
     app1 = b"Exif\x00\x00" + tiff
     data = b"\xff\xd8" + b"\xff\xe1" + (len(app1) + 2).to_bytes(2, "big") + app1 + b"\xff\xda"
-    # EXIF 6（需順時針轉 90 度）對應 PyMuPDF 逆時針 270 度。
-    assert media._jpeg_rotation(data) == 270
+    assert media._jpeg_rotation(data) == rotation
     assert media._jpeg_rotation(b"\xff\xd8\xff\xda") == 0
 
 

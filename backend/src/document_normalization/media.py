@@ -180,7 +180,8 @@ def _jpeg_rotation(data):
                 if int.from_bytes(tiff[start : start + 2], order) == 0x0112:
                     value = int.from_bytes(tiff[start + 8 : start + 10], order)
                     # PyMuPDF 的 rotate 為逆時針；EXIF 6 需順時針 90 度，即逆時針 270 度。
-                    return {3: 180, 6: 270, 8: 90}.get(value, 0)
+                    # 5、7 是鏡像加旋轉：只補旋轉（與 8、6 同向），鏡像不處理。
+                    return {3: 180, 5: 90, 6: 270, 7: 270, 8: 90}.get(value, 0)
             return 0
         if marker in (0xDA, 0xD9):
             return 0
