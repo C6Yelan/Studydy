@@ -451,6 +451,7 @@ function resumeView() {
     knowledge_structure: structureView(),
     progress: {
       schema: "learner-progress/v1",
+      starting_level: "some_knowledge", learning_path: [conceptId],
       assessment_cycles: [],
       study_session_id: sessionId,
       knowledge_structure_revision: structureRevision,
@@ -876,6 +877,7 @@ function assessmentSetView() {
     items: [
       {
         ordinal: 1,
+        target_concept_id: conceptId,
         target_claim_id: claimId,
         state: "verified",
         attempts: 1,

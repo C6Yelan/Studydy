@@ -1,0 +1,15 @@
+.starting-level-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-panel); padding: 24px; color: var(--text-primary); }
+.starting-level-dialog::backdrop { background: rgb(29 39 66 / 45%); }
+.starting-level-dialog h2, .starting-level-setting h2 { margin: 0 0 8px; }
+.starting-level-dialog > p, .starting-level-setting p { margin: 0 0 16px; color: var(--text-secondary); line-height: 1.6; }
+.starting-level-options { border: 0; margin: 0 0 20px; padding: 0; display: grid; gap: 10px; }
+.starting-level-options label { display: flex; align-items: start; gap: 12px; border: 1px solid var(--border); border-radius: 14px; padding: 14px; cursor: pointer; }
+.starting-level-options label.is-selected { border-color: var(--studydy-blue); background: var(--studydy-blue-soft); }
+.starting-level-options input { margin-top: 5px; }
+.starting-level-options small { display: block; margin-top: 4px; color: var(--text-secondary); line-height: 1.6; }
+.starting-level-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.starting-level-setting h2 { font-size: 1.3rem; }
+.starting-level-setting p { margin-bottom: 0; }
+.starting-level-next { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.starting-reading-intro { margin: 20px 0; padding: 24px; }
+.starting-reading-intro > .primary-button { margin-top: 20px; }

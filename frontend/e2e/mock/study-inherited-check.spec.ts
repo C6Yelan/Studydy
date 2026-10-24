@@ -5,13 +5,13 @@ for (const width of [1366, 390]) {
   test(`inherited pass survives refresh and advances without generating at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     const fixture = await studyLayoutFixture(page, "completed", {
-      navigation: true, wrong: [], inheritedCheck: true, nextLabel: "Next topic",
+      navigation: true, startingLevel: "beginner", wrong: [], inheritedCheck: true, nextLabel: "Next topic",
     });
     await fixture.open();
     const summary = page.locator(".inherited-check");
     await expect(summary.getByRole("heading", { name: "已完成", exact: true })).toBeVisible();
     await expect(summary.getByRole("button", { name: "查看原始結果", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "開始本輪 6 題", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "開始作答", exact: true })).toHaveCount(0);
     const box = (await summary.boundingBox())!;
     const heading = (await summary.locator("h2").boundingBox())!;
     const buttons = await summary.getByRole("button").evaluateAll(nodes =>
@@ -30,7 +30,7 @@ for (const width of [1366, 390]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await summary.getByRole("button", { name: "下一個觀念：Next topic", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Next topic", level: 1, exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "開始本輪 6 題", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "開始作答", exact: true })).toBeVisible();
     expect(fixture.requests.filter(request => request.path.endsWith("/assessment-sets"))).toHaveLength(0);
     expect(fixture.requests.filter(request => request.path.endsWith("/guidance/apply"))).toHaveLength(1);
   });
@@ -39,7 +39,7 @@ for (const width of [1366, 390]) {
 test("long inherited next-step label stays inside the card", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const fixture = await studyLayoutFixture(page, "completed", {
-    navigation: true, wrong: [], inheritedCheck: true,
+    navigation: true, startingLevel: "beginner", wrong: [], inheritedCheck: true,
     nextLabel: "NetworkApplicationProtocolResponsibilities".repeat(4),
   });
   await fixture.open();

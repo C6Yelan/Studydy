@@ -881,10 +881,10 @@ class AssessmentCycleView(AssessmentCycleSummary):
 
 
 class AssessmentSetSummary(_Closed):
-    kind: Literal["diagnostic", "remediation"]
+    kind: Literal["diagnostic", "remediation", "material_diagnostic"]
     diagnostic_set_id: UUID | None
     set_id: UUID
-    target_concept_id: str
+    target_concept_id: str | None
     status: Literal[
         "preparing",
         "partial_ready",
@@ -914,6 +914,7 @@ class AssessmentSetListView(_Closed):
 
 class AssessmentSetItemView(_Closed):
     ordinal: int
+    target_concept_id: str
     target_claim_id: str
     state: Literal[
         "pending", "generating", "verified", "published", "failed", "omitted"
@@ -932,7 +933,7 @@ class AssessmentSetView(AssessmentSetSummary):
     material_id: UUID
     knowledge_structure_revision: str
     selection_policy: Literal[
-        "single-concept-grounded-points/v1", "needs-review-points/v1"
+        "single-concept-grounded-points/v1", "needs-review-points/v1", "material-diagnostic/v1"
     ]
     point_count: int
     excluded_count: int
@@ -941,7 +942,7 @@ class AssessmentSetView(AssessmentSetSummary):
     can_publish_partial: bool
     can_complete: bool
     items: list[AssessmentSetItemView]
-    cycle: AssessmentCycleView
+    cycle: AssessmentCycleView | None
 
 
 class GuidanceApply(_Closed):
@@ -954,6 +955,8 @@ class LearnerProgressView(_Closed):
     schema_: Literal["learner-progress/v1"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
+    starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"] | None
+    learning_path: list[str]
     event_watermark: int
     current_concept_id: str | None
     deferred_concept_ids: list[str]
@@ -979,6 +982,8 @@ class MapProgressView(_Closed):
     schema_: Literal["map-progress/v1"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
+    starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"] | None
+    learning_path: list[str]
     current_concept_id: str | None
     concept_states: list[MapConceptStateView]
     next_action: dict[str, Any]
@@ -1018,6 +1023,7 @@ class StudyNavigationView(_Closed):
 class StudyWorkspaceView(_Closed):
     schema_: Literal["study-workspace/v1"] = Field(alias="schema")
     session: StudySessionView
+    starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"] | None
     run_id: UUID
     source_artifact_id: UUID
     outline: StudyNavigationView
@@ -1495,3 +1501,27 @@ class ConceptDifficultyView(_Closed):
     knowledge_structure_revision: str
     mode: Literal["structure"]
     concepts: list[ConceptDifficultyItem]
+
+
+class StartingLevelView(_Closed):
+    schema_: Literal["starting-level/v1"] = Field(alias="schema")
+    material_id: UUID
+    starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"] | None
+
+
+class StartingLevelUpdate(_Closed):
+    schema_: Literal["starting-level-update/v1"] = Field(alias="schema")
+    starting_level: str
+
+
+class StudyStartCreate(_Closed):
+    schema_: Literal["study-start/v1"] = Field(alias="schema")
+    knowledge_structure_revision: str
+    current_concept_id: str | None = None
+
+
+class StudyStartView(_Closed):
+    schema_: Literal["study-start/v1"] = Field(alias="schema")
+    session: StudySessionView
+    selected_set_id: UUID | None
+    starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"]

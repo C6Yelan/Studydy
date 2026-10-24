@@ -1,6 +1,6 @@
 """題組的授權範圍、公開投影與完成狀態；讀取不依賴生成工作。"""
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, or_
 
 from runtime.learner_session import TrustedLearner
 from runtime.storage.knowledge_structures import _read_verified_document
@@ -134,7 +134,8 @@ def has_active_set(session, study_session_id, concept_id=None):
         AssessmentSet.status.in_(ACTIVE),
     )
     if concept_id is not None:
-        query = query.where(AssessmentSet.target_concept_id == concept_id)
+        query = query.where(or_(AssessmentSet.target_concept_id == concept_id,
+                                AssessmentSet.kind == "material_diagnostic"))
     return session.scalar(query.limit(1)) is not None
 
 
@@ -272,7 +273,8 @@ def _cycle(session, study, root):
                 AssessmentSet.study_session_id == study.study_session_id,
                 AssessmentSet.status.in_(ACTIVE),
                 AssessmentSet.set_id.not_in(groups),
-                AssessmentSet.target_concept_id == root.target_concept_id,
+                or_(AssessmentSet.target_concept_id == root.target_concept_id,
+                    AssessmentSet.kind == "material_diagnostic"),
             )
             .limit(1)
         )
@@ -585,6 +587,7 @@ def _read_set(session, study, set_id):
         projected.append(
             {
                 "ordinal": item.ordinal,
+                "target_concept_id": item.target_concept_id,
                 "target_claim_id": item.target_claim_id,
                 "state": item.state,
                 "attempts": item.attempts,
@@ -605,7 +608,9 @@ def _read_set(session, study, set_id):
                 AssessmentSet.study_session_id == sid,
                 AssessmentSet.set_id != set_id,
                 AssessmentSet.status.in_(ACTIVE),
-                AssessmentSet.target_concept_id == group.target_concept_id,
+                (True if group.kind == "material_diagnostic" else or_(
+                    AssessmentSet.target_concept_id == group.target_concept_id,
+                    AssessmentSet.kind == "material_diagnostic")),
             )
             .limit(1)
         )
@@ -641,5 +646,5 @@ def _read_set(session, study, set_id):
         ),
         "can_complete": group.status in ("ready", "in_progress"),
         "items": projected,
-        "cycle": _cycle(session, study, cycle_root),
+        "cycle": None if group.kind == "material_diagnostic" else _cycle(session, study, cycle_root),
     }

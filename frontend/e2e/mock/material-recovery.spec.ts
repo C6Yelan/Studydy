@@ -252,6 +252,11 @@ for (const status of ["active", "completed"] as const)
     await page.route("**/v1/materials", (route) =>
       route.fulfill({ json: { schema: "material-library/v1", materials: [saved] } }),
     );
+    await page.route(`**/v1/materials/${materialId}/study-start`, route => route.fulfill({ json: {
+      schema: "study-start/v1", starting_level: "some_knowledge", selected_set_id: null,
+      session: { ...saved.study_sessions[0], schema: "study-session/v1", material_id: materialId,
+        deferred_concept_ids: [], no_safe_claim_ids: [], event_watermark: 0, completed_at: status === "completed" ? stamp : null },
+    } }));
     const retries: string[] = [];
     page.on("request", (request) => {
       if (new URL(request.url()).pathname.endsWith("/retry")) retries.push(request.url());

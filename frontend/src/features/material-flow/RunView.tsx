@@ -1,3 +1,4 @@
+import { useStudyStart } from "../study-session/StartingLevel";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
@@ -477,6 +478,7 @@ function RevisionRun({
   now: number;
   onChange: (run: MaterialProcessingRunView) => void;
 }) {
+  const launch = useStudyStart(apiClient, run.material_id);
   const [material, setMaterial] = useState<MaterialLibraryItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -544,22 +546,10 @@ function RevisionRun({
           開啟目前地圖
         </button>
       )}
-      {savedSession && (
-        <button
-          className="secondary-button"
-          onClick={() =>
-            writeRoute({
-              name: "study-session",
-              materialId: run.material_id,
-              runId: savedSession.run_id,
-              structureRevision: savedSession.knowledge_structure_revision,
-              studySessionId: savedSession.study_session_id,
-            })
-          }
-        >
-          繼續學習
-        </button>
-      )}
+      {savedSession && <button className="secondary-button" disabled={launch.busy}
+        onClick={() => void launch.start({ materialId: run.material_id, runId: savedSession.run_id, structureRevision: savedSession.knowledge_structure_revision })}>繼續學習</button>}
+      {launch.dialog}
+      {launch.error && <p className="form-error" role="alert">{launch.error}</p>}
     </>
   );
   const libraryActions = (

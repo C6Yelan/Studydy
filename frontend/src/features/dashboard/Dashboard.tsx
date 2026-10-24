@@ -1,3 +1,4 @@
+import { useStudyStart } from "../study-session/StartingLevel";
 import { useMemo, useState } from "react";
 import type { StudydyApiClient } from "../../api/client";
 import type { LearningQuest } from "../../api/contracts";
@@ -14,6 +15,7 @@ import { headSession, islandState, openMaterial, statusText, useMaterialProgress
 import "./styles.css";
 
 export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
+  const launch = useStudyStart(apiClient);
   const [retry, setRetry] = useState(0);
   const { materials, progress, error } = useMaterialProgress(apiClient, retry);
   // 首頁一律重新計算，頁首共用同一份結果。
@@ -38,7 +40,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   const next: QuickItem = focus && continueRoute && focusSession?.status === "completed"
     ? { icon: "check", kicker: "查看學習成果", title: focus.display_name, meta: "這份教材已完成學習", onOpen: () => writeRoute(continueRoute) }
     : focus && continueRoute ? { icon: "learning", kicker: "繼續學習", title: focusProgress?.currentLabel ?? focus.display_name,
-      meta: focusProgress?.currentLabel ? `上次停在 · ${focus.display_name}` : "回來接續上次的學習", onOpen: () => writeRoute(continueRoute) }
+      meta: focusProgress?.currentLabel ? `上次停在 · ${focus.display_name}` : "回來接續上次的學習", onOpen: () => void launch.start({ materialId: focus.material_id, runId: focusSession!.run_id, structureRevision: focusSession!.knowledge_structure_revision }) }
     : focus ? { icon: "map", kicker: "開啟知識地圖", title: focus.display_name, meta: "從第一個概念開始", onOpen: () => openMaterial(focus) }
     : materials?.length ? { icon: "process", kicker: "教材整理中", title: "完成後就能開始探索", meta: "整理進度可在我的教材查看" }
     : { icon: "upload", kicker: "上傳教材", title: "建立你的第一座島嶼", meta: "上傳 PDF 或從主題建立教材", onOpen: () => writeRoute({ name: "upload" }) };
@@ -53,7 +55,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
     }
     const material = materials?.find((item) => item.material_id === quest.material_id);
     const link = material?.study_sessions.find((item) => item.study_session_id === quest.study_session_id);
-    if (material && link) writeRoute({ name: "study-session", materialId: material.material_id, runId: link.run_id, structureRevision: link.knowledge_structure_revision, studySessionId: link.study_session_id });
+    if (material && link) void launch.start({ materialId: material.material_id, runId: link.run_id, structureRevision: link.knowledge_structure_revision });
     else if (material) openMaterial(material);
     else writeRoute({ name: "materials" });
   };
@@ -63,6 +65,8 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
 
   return (
     <section className="dashboard">
+      {launch.dialog}
+      {launch.error && <p className="form-error" role="alert">{launch.error}</p>}
       <header className="dashboard-greeting">
         <div className="dashboard-hello">
           <h1>{greeting}今天想探索哪座島？</h1>

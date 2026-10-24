@@ -103,6 +103,7 @@ class Material(Base):
         PostgreSQLUUID(as_uuid=True), unique=True
     )
     head_revision: Mapped[str | None] = mapped_column(Text)
+    starting_level: Mapped[str | None] = mapped_column(Text)
     upload_idempotency_key_sha256: Mapped[bytes] = mapped_column(
         LargeBinary, nullable=False
     )
@@ -467,6 +468,7 @@ class StudySession(Base):
         DateTime(timezone=True), nullable=False
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    start_receipts: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     last_event_number: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default=text("0")
     )
@@ -530,7 +532,7 @@ class AssessmentSet(Base):
         PostgreSQLUUID(as_uuid=True), nullable=False
     )
     knowledge_structure_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    target_concept_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target_concept_id: Mapped[str | None] = mapped_column(Text)
     diagnostic_set_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     target_plan: Mapped[dict] = mapped_column(JSONB, nullable=False)

@@ -26,6 +26,7 @@ from ..storage.database import database_session
 from ..study_workspace import read_workspace, read_resume
 from . import request_context
 from .models import (
+    StartingLevelView, StartingLevelUpdate, StudyStartCreate, StudyStartView,
     KnowledgeOutlineView,
     KnowledgeConceptsView,
     KnowledgeRegionsView,
@@ -56,6 +57,31 @@ from .models import (
 
 
 def install(app, settings):
+    from learning_adaptation import starting_levels
+
+    @app.get("/v1/materials/{material_id}/starting-level", response_model=StartingLevelView, tags=["learning"])
+    def starting_level(request: Request, material_id: UUID):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            return starting_levels.read_level(db, learner.learner_id, material_id)
+
+    @app.put("/v1/materials/{material_id}/starting-level", response_model=StartingLevelView, tags=["learning"])
+    def update_starting_level(request: Request, material_id: UUID, body: StartingLevelUpdate):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        return starting_levels.set_level(learner, material_id, body.starting_level, dsn=settings.dsn)
+
+    @app.post("/v1/materials/{material_id}/study-start", response_model=StudyStartView, tags=["learning"])
+    def start_material_study(request: Request, material_id: UUID, body: StudyStartCreate):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        result = starting_levels.start_learning(learner, material_id, body.knowledge_structure_revision,
+            request_context.idempotency_key(request), settings.local_config,
+            current_concept_id=body.current_concept_id, dsn=settings.dsn)
+        result["session"] = project_study_session(result["session"])
+        return result
+
     from learning_adaptation.learning_insights import read_diagnosis, read_difficulty
     from .models import LearningDiagnosisView, ConceptDifficultyView
 
@@ -213,6 +239,8 @@ def install(app, settings):
         progress = derive_learner_progress(learner, study_session_id, dsn=settings.dsn)
         return {
             "schema": "map-progress/v1",
+            "starting_level": progress.starting_level,
+            "learning_path": progress.learning_path,
             "study_session_id": study_session_id,
             "knowledge_structure_revision": progress.knowledge_structure_revision,
             "current_concept_id": progress.current_concept_id,

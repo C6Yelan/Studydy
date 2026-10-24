@@ -38,7 +38,7 @@ for (const width of [1366, 390]) {
     const workspace = (await page.locator(".study-workspace").boundingBox())!;
     const main = (await page.locator(".study-main").boundingBox())!;
     expect(main.width).toBeCloseTo(workspace.width, 0);
-    await expect(page.getByRole("button", { name: "開始本輪 6 題", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "開始作答", exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );

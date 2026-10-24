@@ -1,3 +1,4 @@
+import { useStudyStart } from "../study-session/StartingLevel";
 import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { VersionMovePreview, VersionMoveResult, VersionMoveUnmapped } from "../../api/contracts";
@@ -28,6 +29,7 @@ function UnmappedList({ title, items }: { title: string; items: VersionMoveUnmap
  * 只有學生確認後才承接；可對應的概念承接，其餘列出。只有教材保留舊版本時才查詢預覽。
  */
 export function VersionMoveNotice({ apiClient, materialId }: { apiClient: StudydyApiClient; materialId: string }) {
+  const launch = useStudyStart(apiClient, materialId);
   const material = rememberedMaterial(apiClient, materialId);
   const head = material?.head_revision ?? null;
   const hasOlder = !!head && !!material?.available_structures.some((item) => item.knowledge_structure_revision !== head);
@@ -88,6 +90,8 @@ export function VersionMoveNotice({ apiClient, materialId }: { apiClient: Studyd
   const chosen = selected.size > 0 || (includeStudy && !!preview?.study);
   const headStructure = material?.available_structures.find((item) => item.knowledge_structure_revision === head);
   return <>
+    {launch.dialog}
+    {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
     {pending && <section className="version-move-notice" aria-label="有新版本">
       <span className="version-move-badge"><Icon name="sparkle" size={16}/>有新版本</span>
       <p>這份教材已更新，產生了新版本。你的{/^\d/.test(parts) ? " " : ""}{parts}還在舊版，確認後才會移到新版。</p>
@@ -103,7 +107,7 @@ export function VersionMoveNotice({ apiClient, materialId }: { apiClient: Studyd
         {result.card_sets.some((item) => item.status === "pending") && <p className="version-move-note">部分卡面正在依新版內容重新製作，完成後就能繼續複習。</p>}
         <div className="version-move-actions">
           {result.card_sets.length === 1 && <button className="secondary-button" type="button" onClick={() => { setOpen(false); writeRoute({ name: "card-set", cardSetId: result.card_sets[0].card_set_id, materialId }); }}>查看新版卡組</button>}
-          {result.study_session_id && headStructure && <button className="secondary-button" type="button" onClick={() => { setOpen(false); writeRoute({ name: "study-session", materialId, runId: headStructure.run_id, structureRevision: result.to_revision, studySessionId: result.study_session_id! }); }}>前往新版學習</button>}
+          {result.study_session_id && headStructure && <button className="secondary-button" type="button" disabled={launch.busy} onClick={() => { setOpen(false); void launch.start({ materialId, runId: headStructure.run_id, structureRevision: result.to_revision }); }}>前往新版學習</button>}
           <button className="primary-button" type="button" onClick={close}>完成</button>
         </div>
       </div> : preview && <div className="version-move-body">

@@ -34,6 +34,10 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 ## 選擇範圍
 
+`runtime/study/test_starting_level.py` 透過真 API 與隔離 DB 驗證必須由學生選程度、擁有者／Origin 邊界、切換不改現有題組或答案、開始請求重送、跨概念取材與作答、未測重點保留，以及後續只準備剩餘重點。`test_starting_levels.py` 驗證每概念一題、15 題上限、難點優先與路線排序；原交卷、補強、來源及進度測試保留。
+
+Migration 驗證先在 0013 建立原題組、補強及答案，再升級至 0014，核對既有資料與 API 投影不變、單概念成員約束仍有效。這些驗證使用受控出題替身，不呼叫真實模型或寫入產品資料。前端涵蓋首次選擇、初學閱讀、直接作答、跨概念題組、深連結與原版本恢復，並依 TASK 核對 global-layout／shell-layout。
+
 `runtime/study/test_learning_insights.py` 使用隔離資料庫驗證教材／題組的即時診斷、交卷時間邊界、補強完成規則、真實統計與來源、版本授權，以及個人難點的 3 題／50% 門檻。`test_learning_insights.py` 驗證短標題與結構難度門檻、複習候選排序及最多 3 個的上限。
 
 前端以 `learning-diagnosis.spec.ts` 驗證直接讀取、空區塊省略、精簡建議與結構標記；`concept-cards.spec.ts` 核對卡組原版本。相關版面檢查沿用 `global-layout` 與 `shell-layout`。這些功能不呼叫模型，也不以合成測試宣稱學習完成。

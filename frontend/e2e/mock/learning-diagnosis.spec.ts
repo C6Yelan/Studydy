@@ -20,9 +20,9 @@ for (const width of [1366, 390]) {
     const difficulties = page.getByRole("region", { name: "教材難點" });
     await expect(difficulties).toContainText(hard.reason);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const start = page.waitForRequest(request => request.method() === "POST" && /\/assessment-sets$/.test(new URL(request.url()).pathname));
+    const start = page.waitForRequest(request => request.method() === "POST" && /\/study-start$/.test(new URL(request.url()).pathname));
     await difficulties.getByRole("button", { name: "複習 Stack" }).click();
-    expect((await start).postDataJSON().target_concept_id).toBe(firstConcept);
+    expect((await start).postDataJSON().current_concept_id).toBe(firstConcept);
   });
 }
 
@@ -81,9 +81,9 @@ test("recommendations preserve the three supplied concepts and their review targ
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   const section = page.getByRole("region", { name: "建議先複習" });
   await expect(section.locator("li strong")).toHaveText(recommendations.map(item => item.label));
-  const start = page.waitForRequest(request => request.method() === "POST" && /\/assessment-sets$/.test(new URL(request.url()).pathname));
+  const start = page.waitForRequest(request => request.method() === "POST" && /\/study-start$/.test(new URL(request.url()).pathname));
   await section.getByRole("button").first().click();
-  expect((await start).postDataJSON().target_concept_id).toBe(recommendations[0].concept_id);
+  expect((await start).postDataJSON().current_concept_id).toBe(recommendations[0].concept_id);
 });
 
 test("set diagnosis reads the selected result and opens its concept for review", async ({ page }) => {

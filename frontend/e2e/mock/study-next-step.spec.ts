@@ -29,7 +29,7 @@ for (const width of [1366, 390]) {
     });
     const label = "使用者端與多階段網路服務中的請求及回應角色";
     const fixture = await studyLayoutFixture(page, "completed", {
-      navigation: true,
+      navigation: true, startingLevel: "beginner",
       kind: "remediation",
       wrong: [],
       nextLabel: label,
@@ -55,7 +55,7 @@ for (const width of [1366, 390]) {
     await expect(page).toHaveURL(new RegExp(fixture.path + "$"));
     await expect(page.getByRole("heading", { name: label, level: 1, exact: true })).toBeVisible();
     await expect(page.locator(".current-concept-card")).toContainText(label);
-    await expect(page.getByRole("button", { name: "開始本輪 6 題", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "開始作答", exact: true })).toBeVisible();
     const requests = fixture.requests.filter((request) => request.path.endsWith("/guidance/apply"));
     expect(requests).toHaveLength(1);
     expect(JSON.parse(requests[0].body!)).toEqual({
@@ -67,7 +67,7 @@ for (const width of [1366, 390]) {
 
 test("complete applies authority before showing completion", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "completed", {
-    navigation: true,
+    navigation: true, startingLevel: "beginner",
     nextAction: "complete",
     wrong: [],
   });
@@ -89,7 +89,7 @@ for (const [name, stage, scenario] of [
   ["another active set", "completed", { wrong: [], preparingHistory: true }],
 ] as const)
   test(`${name} does not offer advance`, async ({ page }) => {
-    const fixture = await studyLayoutFixture(page, stage, { navigation: true, ...scenario });
+    const fixture = await studyLayoutFixture(page, stage, { navigation: true, startingLevel: "beginner", ...scenario });
     await fixture.open();
     await expect(page.getByRole("button", { name: /下一個觀念|完成本次學習/ })).toHaveCount(0);
     if (name === "wrong points")
@@ -98,7 +98,7 @@ for (const [name, stage, scenario] of [
 
 test("a completed concept retains navigation after a wrong practice answer", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "completed", {
-    navigation: true, wrong: [2], conceptStatus: "completed",
+    navigation: true, startingLevel: "beginner", wrong: [2], conceptStatus: "completed",
   });
   await fixture.open();
   await expect(page.getByText("本次練習有需要加強的重點，先前的完成紀錄會保留。", { exact: true })).toBeVisible();
@@ -108,7 +108,7 @@ test("a completed concept retains navigation after a wrong practice answer", asy
 });
 
 test("failed apply keeps result and allows retry with the same guidance", async ({ page }) => {
-  const fixture = await studyLayoutFixture(page, "completed", { navigation: true, wrong: [] });
+  const fixture = await studyLayoutFixture(page, "completed", { navigation: true, startingLevel: "beginner", wrong: [] });
   await fixture.open();
   const before = page.url();
   const revisions: string[] = [];
@@ -132,7 +132,7 @@ test("failed apply keeps result and allows retry with the same guidance", async 
 });
 
 test("stale guidance refreshes the decision without automatic apply", async ({ page }) => {
-  const fixture = await studyLayoutFixture(page, "completed", { navigation: true, wrong: [] });
+  const fixture = await studyLayoutFixture(page, "completed", { navigation: true, startingLevel: "beginner", wrong: [] });
   await fixture.open();
   const before = page.url();
   const revisions: string[] = [];
@@ -160,7 +160,7 @@ test("incomplete cycle follows the backend next action without claiming a pass",
   page,
 }) => {
   const fixture = await studyLayoutFixture(page, "completed", {
-    navigation: true,
+    navigation: true, startingLevel: "beginner",
     wrong: [],
     unavailable: 1,
   });

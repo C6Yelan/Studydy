@@ -137,6 +137,16 @@ test.beforeEach(async ({ page }) => {
 
 async function mockLibrary(page: Page, readItems: () => MaterialLibraryItem[]) {
   let reads = 0;
+  await page.route("**/v1/materials/*/study-start", route => {
+    const mid = new URL(route.request().url()).pathname.split("/")[3];
+    const body = route.request().postDataJSON();
+    const material = readItems().find(item => item.material_id === mid)!;
+    const structure = material.available_structures.find(item => item.knowledge_structure_revision === body.knowledge_structure_revision)!;
+    const stored = material.study_sessions.find(item => item.knowledge_structure_revision === body.knowledge_structure_revision && item.run_id === structure.run_id)!;
+    return route.fulfill({ json: { schema: "study-start/v1", starting_level: "some_knowledge", selected_set_id: null,
+      session: { ...stored, schema: "study-session/v1", material_id: mid, deferred_concept_ids: [], no_safe_claim_ids: [], event_watermark: 0,
+        completed_at: stored.status === "completed" ? stored.started_at : null } } });
+  });
   await page.route("**/v1/materials", (route) => {
     expect(route.request().method()).toBe("GET");
     reads++;

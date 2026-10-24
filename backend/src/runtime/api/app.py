@@ -116,6 +116,7 @@ _ERROR_STATUS = {
     "LEARNER_GUIDANCE_STALE": (409, True),
     "ASSESSMENT_SET_CONFLICT": (409, False),
     "ASSESSMENT_SET_ACTIVE": (409, False),
+    "STARTING_LEVEL_REQUIRED": (409, False),
     "DUPLICATE_SOURCE": (409, False),
     "REVISION_CONFLICT": (409, False),
     "REVISION_IN_PROGRESS": (409, True),
@@ -613,7 +614,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
             )
         if request.headers.getlist("x-learner-id"):
             return _error_response("REQUEST_INVALID")
-        if request.method in {"POST", "DELETE"}:
+        if request.method in {"POST", "PUT", "DELETE"}:
             origins = request.headers.getlist("origin")
             if len(origins) != 1 or origins[0] != settings.public_origin:
                 return _error_response("ORIGIN_NOT_ALLOWED")

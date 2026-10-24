@@ -19,19 +19,14 @@ def _check_scope(study, plan, material_id, revision, run_id):
         raise SourceError("RESOURCE_NOT_FOUND")
 
 
-def _selection(rounds, concept_id, set_id):
-    selected_id = (
-        str(set_id)
-        if set_id is not None
-        else next(
-            (
-                group["set_id"]
-                for group in rounds
-                if group["target_concept_id"] == concept_id
-            ),
-            None,
-        )
-    )
+def _selection(rounds, concept_id, set_id, *, level=None):
+    selected_id = str(set_id) if set_id is not None else None
+    if selected_id is None:
+        active = next((group for group in rounds if group["status"] in assessment_state.ACTIVE
+                       and (group["target_concept_id"] == concept_id or group["kind"] == "material_diagnostic")), None)
+        selected = active or (next((group for group in rounds if group["target_concept_id"] == concept_id), None)
+                              if level != "beginner" else None)
+        selected_id = selected["set_id"] if selected else None
     selected = next((group for group in rounds if group["set_id"] == selected_id), None)
     if selected_id is not None and selected is None:
         raise SourceError("RESOURCE_NOT_FOUND")
@@ -51,11 +46,14 @@ def read_workspace(
         meta = knowledge_reads.metadata(db, learner.learner_id, material_id, revision)
         run = read_material_processing_run(learner.learner_id, run_id, dsn=dsn)
         rounds = assessment_state._list_sets(db, study)["sets"]
-        selected_id, selected = _selection(rounds, study.current_concept_id, set_id)
+        selected_id, selected = _selection(rounds, study.current_concept_id, set_id, level=progress.starting_level)
+        selected_set = assessment_state._read_set(db, study, UUID(selected_id)) if selected_id else None
+        member_concepts = [item["target_concept_id"] for item in selected_set["items"]] if selected_set else []
         identities = list(
             dict.fromkeys(
                 identity
                 for identity in (
+                    *member_concepts,
                     selected["target_concept_id"] if selected else None,
                     study.current_concept_id,
                     progress.next_action.target_concept_id,
@@ -92,6 +90,7 @@ def read_workspace(
         return {
             "schema": "study-workspace/v1",
             "session": study,
+            "starting_level": progress.starting_level,
             "run_id": run_id,
             "source_artifact_id": run.source_artifact_id,
             "outline": navigation,
@@ -104,9 +103,7 @@ def read_workspace(
             "focus_concept_ids": identities,
             "assessment_sets": rounds,
             "selected_set_id": selected_id,
-            "selected_set": assessment_state._read_set(db, study, UUID(selected_id))
-            if selected_id
-            else None,
+            "selected_set": selected_set,
         }
 
 
@@ -125,7 +122,7 @@ def read_resume(
         )
         run = read_material_processing_run(learner.learner_id, run_id, dsn=dsn)
         rounds = assessment_state._list_sets(db, study)["sets"]
-        selected_id, _ = _selection(rounds, study.current_concept_id, set_id)
+        selected_id, _ = _selection(rounds, study.current_concept_id, set_id, level=progress.starting_level)
         return {
             "session": study,
             "run_id": run_id,

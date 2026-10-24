@@ -1,3 +1,4 @@
+import { useStudyStart } from "../study-session/StartingLevel";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InlineConfirm } from "../../ui/InlineConfirm";
 
@@ -5,7 +6,6 @@ import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
   MaterialLibraryItem,
   MaterialStructureLink,
-  StudySessionLink,
 } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { RouteLink } from "../../ui/RouteLink";
@@ -39,16 +39,6 @@ function openStructure(item: MaterialLibraryItem, structure: MaterialStructureLi
   });
 }
 
-function openStudy(item: MaterialLibraryItem, session: StudySessionLink) {
-  writeRoute({
-    name: "study-session",
-    materialId: item.material_id,
-    runId: session.run_id,
-    structureRevision: session.knowledge_structure_revision,
-    studySessionId: session.study_session_id,
-  });
-}
-
 export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) {
   const [items, setItems] = useState<MaterialLibraryItem[] | null>(null);
   const [topics, setTopics] = useState<LibraryTopic[]>([]);
@@ -56,29 +46,10 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
   const [reload, setReload] = useState(0);
   const [cancellingTopicId, setCancellingTopicId] = useState<string|null>(null);
   const [confirmingTopicId, setConfirmingTopicId] = useState<string | null>(null);
-  const [startingMaterialId, setStartingMaterialId] = useState<string | null>(null);
-  const startCurrentStudy = async (item: MaterialLibraryItem, structure: MaterialStructureLink) => {
-    if (startingMaterialId) return;
-    setStartingMaterialId(item.material_id);
-    try {
-      const session = await apiClient.createStudySession({
-        schema: "study-session-create/v1",
-        material_id: item.material_id,
-        knowledge_structure_revision: structure.knowledge_structure_revision,
-      });
-      writeRoute({
-        name: "study-session",
-        materialId: item.material_id,
-        runId: structure.run_id,
-        structureRevision: structure.knowledge_structure_revision,
-        studySessionId: session.study_session_id,
-      });
-    } catch (error) {
-      setMessage(errorMessage(error));
-    } finally {
-      setStartingMaterialId(null);
-    }
-  };
+  const launch = useStudyStart(apiClient);
+  const startCurrentStudy = (item: MaterialLibraryItem, structure: MaterialStructureLink) => launch.start({
+    materialId: item.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision,
+  });
   const heading = useRef<HTMLHeadingElement>(null);
   const pendingRemovals = useRef(new Set<string>());
   const mutationVersion = useRef(0);
@@ -179,6 +150,8 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
   };
   return (
     <section className={libraryClass}>
+      {launch.dialog}
+      {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
       <CollectionHeader
         title="我的教材"
         subtitle={total === 0 ? "上傳教材後，可在這裡查看處理結果並接續學習。" : <>
@@ -246,7 +219,10 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
             <button
               className="primary-button"
               type="button"
-              onClick={() => openStudy(item, savedSession)}
+              disabled={launch.busy}
+              onClick={() => savedSession.status === "completed"
+                ? writeRoute({ name: "study-session", materialId: item.material_id, runId: savedSession.run_id, structureRevision: savedSession.knowledge_structure_revision, studySessionId: savedSession.study_session_id })
+                : void launch.start({ materialId: item.material_id, runId: savedSession.run_id, structureRevision: savedSession.knowledge_structure_revision })}
             >
               {savedSession.status === "completed" ? "查看學習成果" : "繼續學習"}
             </button>
@@ -255,10 +231,10 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
             item.study_sessions.length > 0 && (
               <button
                 className="primary-button"
-                disabled={startingMaterialId !== null}
+                disabled={launch.busy}
                 onClick={() => void startCurrentStudy(item, structure)}
               >
-                {startingMaterialId === item.material_id ? "正在接續學習…" : "接續更新後的學習"}
+                {launch.busy ? "正在接續學習…" : "接續更新後的學習"}
               </button>
             )
           );

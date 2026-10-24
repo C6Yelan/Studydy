@@ -121,18 +121,7 @@ function materialWithHistory(studies: SavedSession[], publishedRun = run) {
   };
 }
 
-function trackStudyWrites(page: Page) {
-  const writes: { method: string; path: string; body: unknown }[] = [];
-  page.on("request", (request) => {
-    const path = new URL(request.url()).pathname;
-    if (path.startsWith("/v1/study-sessions") && request.method() !== "GET")
-      writes.push({ method: request.method(), path, body: request.postDataJSON() });
-  });
-  return writes;
-}
-
-
-for (const stage of ["preparation", "completed"] as const) {
+for (const stage of ["completed"] as const) {
  test(`direct assessment entry creates ${stage === "completed" ? "practice" : "first assessment"} without rereading`,async({page})=>{
   const fixture=await studyLayoutFixture(page,stage,{wrong:[]});
   let snapshot:StudyWorkspaceView;
@@ -155,67 +144,44 @@ for (const stage of ["preparation", "completed"] as const) {
   await expect(page).toHaveURL(/assessment-sets/);
   await expect(page.getByRole('progressbar',{name:'準備進度'})).toBeVisible();
   await expect(page.locator('.current-concept-card')).not.toBeVisible();
-  expect(fixture.requests.filter(r=>r.path.endsWith('/assessment-sets'))).toHaveLength(1);
+  expect(fixture.requests.filter(r=>r.path.endsWith('/study-start'))).toHaveLength(1);
  });
 }
-for (const pending of ["create", "saved-focus", "second-focus"] as const) {
-  for (const destination of ["leave", "material", "run", "structure"] as const) {
-    test(`stale ${pending} cannot navigate after ${destination} changes`, async ({ page }) => {
-      await mockKnowledgeMapApi(page);
-      if (pending === "saved-focus") {
-        await page.route(`**/v1/materials/${materialId}`, (route) =>
-          json(route, materialWithHistory([{ ...session(), run_id: runId }])),
-        );
-      }
-      // 在 response.json 的 continuation 完成後才斷言，避免只測到 response 尚未消化。
-      await page.addInitScript((waitingForCreate) => {
-        const readJson = Response.prototype.json;
-        Response.prototype.json = async function () {
-          const value = await readJson.call(this);
-          if (value.schema === "study-session/v1" && this.url.endsWith(waitingForCreate ? "/study-sessions" : "/focus")) {
-            setTimeout(() => document.documentElement.dataset.studyResponseRead = "true", 0);
-          }
-          return value;
-        };
-      }, pending === "create");
-      let release!: () => void;
-      const blocked = new Promise<void>((resolve) => { release = resolve; });
-      const selected = pending === "saved-focus" ? secondConcept : firstConcept;
-      const aligned = { ...session(), current_concept_id: selected };
-      await page.route("**/v1/study-sessions", async (route) => {
-        if (pending === "create") await blocked;
-        // 故意回傳不同觀念；失效 create 不得再送 focus。
-        return json(route, { ...session(), current_concept_id: secondConcept }, 201);
-      });
-      await page.route(`**/v1/study-sessions/${sessionId}/focus`, async (route) => {
-        await blocked;
-        return json(route, aligned);
-      });
-      const writes = trackStudyWrites(page);
-      await page.goto(mapPath);
-      await openMapConcept(page, pending === "saved-focus" ? "Array" : "Stack");
-      await page.getByRole("button", {
-        name: "檢測這個概念", exact: true,
-      }).click();
-      await expect.poll(() => writes.length).toBe(pending === "second-focus" ? 2 : 1);
-      const nextPath = destination === "leave" ? "/materials"
-        : destination === "material" ? mapPath.replace(materialId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-        : destination === "run" ? mapPath.replace(runId, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
-        : mapPath.replace(encodeURIComponent(structureRevision), encodeURIComponent(`knowledge-structure:sha256:${"9".repeat(64)}`));
-      await page.evaluate((path) => {
-        window.history.pushState(null, "", path);
-        window.dispatchEvent(new PopStateEvent("popstate"));
-        delete document.documentElement.dataset.studyResponseRead;
-      }, nextPath);
-      await expect(page.getByRole("region", { name: "學習入口" })).toHaveCount(0);
-      release();
-      await expect(page.locator("html")).toHaveAttribute("data-study-response-read", "true");
-      expect(new URL(page.url()).pathname).toBe(nextPath);
-      expect(writes).toHaveLength(pending === "second-focus" ? 2 : 1);
+for (const destination of ["leave", "material", "run", "structure"] as const) {
+  test(`late study start cannot navigate after ${destination} changes`, async ({ page }) => {
+    await mockKnowledgeMapApi(page);
+    await page.addInitScript(() => {
+      const readJson = Response.prototype.json;
+      Response.prototype.json = async function () {
+        const value = await readJson.call(this);
+        if (value.schema === "study-start/v1" && this.url.endsWith("/study-start"))
+          setTimeout(() => document.documentElement.dataset.studyResponseRead = "true", 0);
+        return value;
+      };
     });
-  }
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const starts: unknown[] = [];
+    await page.route(`**/v1/materials/${materialId}/study-start`, async route => {
+      starts.push(route.request().postDataJSON());
+      await blocked;
+      return json(route, { schema: "study-start/v1", session: { ...session(), current_concept_id: secondConcept }, selected_set_id: null, starting_level: "some_knowledge" });
+    });
+    await page.goto(mapPath);
+    await openMapConcept(page, "Array");
+    await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
+    await expect.poll(() => starts.length).toBe(1);
+    const nextPath = destination === "leave" ? "/materials"
+      : destination === "material" ? mapPath.replace(materialId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      : destination === "run" ? mapPath.replace(runId, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+      : mapPath.replace(encodeURIComponent(structureRevision), encodeURIComponent(`knowledge-structure:sha256:${"9".repeat(64)}`));
+    await page.evaluate(path => { window.history.pushState(null, "", path); window.dispatchEvent(new PopStateEvent("popstate")); }, nextPath);
+    release();
+    await expect(page.locator("html")).toHaveAttribute("data-study-response-read", "true");
+    expect(new URL(page.url()).pathname).toBe(nextPath);
+    expect(starts).toHaveLength(1);
+  });
 }
-
 
 test("restoring a saved assessment normalizes the URL without downloading resume twice", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "ready", { wrong: [] });

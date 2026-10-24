@@ -58,7 +58,7 @@ Gemma 的專案預設 context 為 65,536 tokens，包含輸入與輸出；服務
 
 init 建立資料目錄及權限；後端依序核對 migration checksum、套用待執行版本，再啟動 API 與 worker。重跑不重建已有帳號或清空資料。登入、已保存資料讀取、上傳與轉檔不需語意模型。
 
-初始化 SQL 的 0001–0007 為身份／教材、來源／分析、學習／評量、研究、卡片／媒體、讀取索引與跨領域外鍵，直接建立所需結構，不重播歷史資料轉換。後續 0008–0013 分別加入個人顯示名稱、概念卡學習標記、Podcast 收聽進度、教材新版承接、知識章節與登入裝置清單；實際檔案以 [migration 目錄](../backend/migrations/) 為準。
+初始化 SQL 的 0001–0007 為身份／教材、來源／分析、學習／評量、研究、卡片／媒體、讀取索引與跨領域外鍵，直接建立所需結構，不重播歷史資料轉換。後續 0008–0014 分別加入個人顯示名稱、概念卡學習標記、Podcast 收聽進度、教材新版承接、知識章節、登入裝置清單與起始程度／跨概念診斷；實際檔案以 [migration 目錄](../backend/migrations/) 為準。
 
 新初始化 prefix 一經發布便固定，後續 Schema 變更繼續追加 SQL。
 
@@ -209,7 +209,7 @@ Luna 的後端總額度為 65,536 tokens，包含輸入與輸出，使用與 pro
 
 `0005_cards_and_media.sql` 的 nullable `voice_turns.context` 保存 locator 與必要來源引用，不複製 script。Podcast 刪除後拒絕使用該 locator 新追問，既有回答依 Voice 保存規則保留；不自動搬移或重製 Podcast、音訊、影片及 manifest。provider、backend 與 frontend 須共同支援相同互動契約。
 
-末集播放結束（即使關閉自動接續）及手動入口都能進入原 revision 的既有 Assessment。使用 canonical study session 與 focus API，不新增 Podcast 題組或 mastery。已完成 session 僅開啟該概念已有的題組；沒有題組時引導回原版本地圖，不重新開啟完成狀態。播放、seek、聽完及 Voice 問答皆不產生 mastery 作答事件。
+播放、seek、聽完及 Voice 問答皆不產生 mastery 作答事件。教材學習與程度選擇見[學習與評量](learning.md#起始程度與跨概念診斷)。
 
 30fps 只供 benchmark 輸入使用；正式 bundle 仍要求 1080p60。benchmark 結論及重跑命令見 [測試](testing.md)。原教材圖片／page-region asset、3D、生成影片與模型 executable code 均不在此版本範圍。
 

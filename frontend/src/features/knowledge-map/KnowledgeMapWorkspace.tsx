@@ -1,4 +1,5 @@
 import { DifficultyBadge, DifficultyList, LearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
+import { StartingLevelControl } from "../study-session/StartingLevel";
 import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import type { AppRoute } from "../../app/routes";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
@@ -276,7 +277,7 @@ function LearningNavigator({
   focusConcept: (id: string) => void;
 }) {
   const items = useMemo(() => learningNavigationItems(view), [view]);
-  // 兩個以上區域才分組；組內維持建議學習順序。單次分桶，避免區域數×概念數的重複篩選。
+  // 兩個以上區域才分組；組內維持教材順序。單次分桶，避免區域數×概念數的重複篩選。
   const groups = useMemo(() => {
     if (!regions || regions.regions.length <= 1) return null;
     const buckets = regions.regions.map((region) => ({ ...region, items: [] as typeof items }));
@@ -394,7 +395,7 @@ function LearningNavigator({
               已完成 {completed} 個
             </>
           ) : (
-            `建議從第 ${firstStep!.position} 個概念開始`
+            `教材順序從第 ${firstStep!.position} 個概念開始`
           )}
         </p>
       )}
@@ -1004,6 +1005,7 @@ export function KnowledgeMapWorkspace({
   view: KnowledgeOutlineView;
 }) {
   const difficulty = useConceptDifficulty(apiClient, mapRoute.materialId, view.knowledge_structure_revision);
+  const nextLearningConcept = view.concepts.find(concept => concept.concept_id === progress?.learning_path[0]);
   const initialConceptId = progress?.current_concept_id ?? initialFocusConceptId(view);
   // 只記住目前瀏覽器紀錄的呈現位置；登入、作答與 learner progress 仍由 API 管理。
   const [restored] = useState(() => {
@@ -1349,6 +1351,10 @@ export function KnowledgeMapWorkspace({
             </ReactFlowProvider>
           )}
           {mode === "review" && <div className="review-diagnosis">
+            <StartingLevelControl api={apiClient} materialId={mapRoute.materialId} onChanged={onReloadProgress}
+              nextConcept={nextLearningConcept?.label ?? null} busy={isStartingStudy}
+              onContinue={nextLearningConcept ? () => onStartStudy(nextLearningConcept.concept_id)
+                : !progress && view.initial_learning_path[0] ? () => onStartStudy(view.initial_learning_path[0].concept_id) : null} />
             <LearningDiagnosis api={apiClient} materialId={mapRoute.materialId} revision={view.knowledge_structure_revision} onReview={onStartStudy} disabled={isStartingStudy} />
             <DifficultyList report={difficulty} onReview={onStartStudy} disabled={isStartingStudy} />
           </div>}

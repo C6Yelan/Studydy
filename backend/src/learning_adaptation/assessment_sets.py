@@ -9,7 +9,7 @@ from threading import Event, Thread
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from runtime.material_runtime import validate_runtime_lock
 from content_identity import canonical_sha256
@@ -53,7 +53,7 @@ def plan_concept(context, concept_id):
 
 
 def _create_group(
-    session, study, plan, *, lock, key, fingerprint, diagnostic_set_id=None
+    session, study, plan, *, lock, key, fingerprint, diagnostic_set_id=None, kind=None
 ):
     """初篩與補強共用題組／成員保存；呼叫者負責各自的資格與狀態轉移。"""
     group = AssessmentSet(
@@ -63,7 +63,7 @@ def _create_group(
         study_session_id=study.study_session_id,
         knowledge_structure_revision=study.knowledge_structure_revision,
         target_concept_id=plan["concept_id"],
-        kind="remediation" if diagnostic_set_id is not None else "diagnostic",
+        kind=kind or ("remediation" if diagnostic_set_id is not None else "diagnostic"),
         diagnostic_set_id=diagnostic_set_id,
         target_plan=plan,
         requested_count=len(plan["targets"]),
@@ -85,7 +85,7 @@ def _create_group(
                 ordinal=ordinal,
                 study_session_id=study.study_session_id,
                 knowledge_structure_revision=study.knowledge_structure_revision,
-                target_concept_id=plan["concept_id"],
+                target_concept_id=target.get("concept_id", plan["concept_id"]),
                 target_claim_id=target["claim_id"],
                 state="pending",
                 attempts=0,
@@ -94,36 +94,43 @@ def _create_group(
     return group
 
 
-def create_set(learner, sid, concept_id, idempotency_key, local_config, *, dsn=None):
+def create_set_in_transaction(session, study, context, concept_id, idempotency_key, local_config, *, state=None):
     key = assessments._key(idempotency_key)
-    fingerprint = bytes.fromhex(
-        canonical_sha256({"session": str(sid), "concept": concept_id})
-    )
+    fingerprint = bytes.fromhex(canonical_sha256({"session": str(study.study_session_id), "concept": concept_id}))
+    old = session.scalar(select(AssessmentSet).where(
+        AssessmentSet.study_session_id == study.study_session_id,
+        AssessmentSet.idempotency_key_sha256 == key))
+    if old is not None:
+        if bytes(old.request_fingerprint) != fingerprint:
+            raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
+        return old.set_id
+    if study.status not in ("active", "no_safe", "completed"):
+        raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
+    if has_active_set(session, study.study_session_id, concept_id):
+        raise AssessmentSetError("ASSESSMENT_SET_ACTIVE")
+    plan = plan_concept(context, concept_id)
+    if state is None:
+        from runtime.storage import knowledge_reads
+        from .learning_insights import _material_states
+        indexed = knowledge_reads.learning(session, study.learner_id, study.material_id, study.knowledge_structure_revision)
+        state = next(item for item in _material_states(session, study, indexed)[1] if item.concept_id == concept_id)
+    # 未完成概念只補剩餘重點；已完成概念的「再次練習」仍建立整組。
+    if state.status != "completed":
+        completed = set(state.completed_claim_ids)
+        plan["targets"] = [target for target in plan["targets"]
+                           if not set(target["covered_claim_ids"]) <= completed]
+    study.status, study.completed_at = "active", None
+    lock = deepcopy(validate_runtime_lock(local_config["runtime_lock"]))
+    study.current_concept_id = concept_id
+    study.last_applied_guidance_revision = study.last_applied_progress_sha256 = None
+    group = _create_group(session, study, plan, lock=lock, key=key, fingerprint=fingerprint)
+    return group.set_id
+
+
+def create_set(learner, sid, concept_id, idempotency_key, local_config, *, dsn=None):
     with database_session(dsn) as session:
         study, context, _ = _scope(session, learner, sid, lock=True)
-        old = session.scalar(
-            select(AssessmentSet).where(
-                AssessmentSet.study_session_id == sid,
-                AssessmentSet.idempotency_key_sha256 == key,
-            )
-        )
-        if old is not None:
-            if bytes(old.request_fingerprint) != fingerprint:
-                raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
-            return old.set_id
-        if study.status not in ("active", "no_safe", "completed"):
-            raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
-        if has_active_set(session, sid, concept_id):
-            raise AssessmentSetError("ASSESSMENT_SET_ACTIVE")
-        plan = plan_concept(context, concept_id)
-        study.status, study.completed_at = "active", None
-        lock = deepcopy(validate_runtime_lock(local_config["runtime_lock"]))
-        study.current_concept_id = concept_id
-        study.last_applied_guidance_revision = study.last_applied_progress_sha256 = None
-        group = _create_group(
-            session, study, plan, lock=lock, key=key, fingerprint=fingerprint
-        )
-        return group.set_id
+        return create_set_in_transaction(session, study, context, concept_id, idempotency_key, local_config)
 
 
 def _touch_diagnostic(session, group):
@@ -376,7 +383,9 @@ def change_set(
                     AssessmentSet.study_session_id == sid,
                     AssessmentSet.set_id != set_id,
                     AssessmentSet.status.in_(ACTIVE),
-                    AssessmentSet.target_concept_id == group.target_concept_id,
+                    (True if group.kind == "material_diagnostic" else or_(
+                        AssessmentSet.target_concept_id == group.target_concept_id,
+                        AssessmentSet.kind == "material_diagnostic")),
                 )
                 .limit(1)
             )
@@ -570,9 +579,8 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
             if item.state != "generating":
                 raise AssessmentSetError("ASSESSMENT_SET_STALE_WORK")
             concept = next(
-                item
-                for item in context.concepts
-                if item.concept_id == group.target_concept_id
+                concept for concept in context.concepts
+                if concept.concept_id == item.target_concept_id
             )
             claim = next(
                 point

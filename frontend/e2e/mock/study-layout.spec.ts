@@ -4,11 +4,8 @@ import { readRoute } from "../../src/app/routes";
 import { studyLayoutFixture } from "../fixtures/study-layout.mjs";
 
 async function preparationLayout(page: Page, width: number) {
-  await expect(page.locator(".study-learning-grid")).toHaveClass(/is-preparation-mode/);
-  await expect(page.locator(".study-material-summary")).not.toHaveAttribute("open", "");
-  await expect(page.locator(".current-concept-card")).not.toBeVisible();
-  await expect(page.locator(".study-current-action")).toBeVisible();
-  await expect(page.locator(".study-rail")).toBeVisible();
+  await expect(page.getByRole("region", { name: "先閱讀概念說明" })).toBeVisible();
+  await expect(page.locator(".current-concept-card")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 
@@ -39,15 +36,12 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     const fixture = await studyLayoutFixture(page);
     await fixture.open();
-    const start = page.getByRole("button", { name: "開始本輪 6 題", exact: true });
+    const start = page.getByRole("button", { name: "開始作答", exact: true });
     await expect(start).toBeEnabled();
-    await expect(
-      page.getByText("完成所有題目後一起交卷並查看結果。", { exact: true }),
-    ).toBeVisible();
     await preparationLayout(page, viewport.width);
-    if (viewport.width > 900) await expect(start).toBeInViewport();
+    await start.scrollIntoViewIfNeeded();
+    await expect(start).toBeInViewport();
     await expect(page.locator(".assessment-set-history")).toHaveAttribute("open", "");
-    await page.locator(".study-material-summary > summary").click();
     const sources = page.getByRole("region", { name: "教材來源", exact: true }).getByRole("button");
     await expect(sources).toHaveCount(1);
     await sources.click();
@@ -58,7 +52,6 @@ for (const viewport of [
     );
     await page.keyboard.press("Escape");
     await expect(sources).toBeFocused();
-    await page.locator(".study-material-summary > summary").click();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -68,24 +61,11 @@ for (const viewport of [
       await gate;
       await route.fallback();
     });
-    const originalPanel = await page.locator(".assessment-set-panel").elementHandle();
-    const originalHeader = await page.locator(".study-header").elementHandle();
     await start.click();
-    expect(
-      await originalPanel!.evaluate(
-        (element) => element === document.querySelector(".assessment-set-panel"),
-      ),
-    ).toBe(true);
-    expect(
-      await originalHeader!.evaluate(
-        (element) => element === document.querySelector(".study-header"),
-      ),
-    ).toBe(true);
-    await expect(page.getByRole("heading", { name: "正在開始本輪練習…" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "正在開始作答…", exact: true })).toBeDisabled();
+    release();
     await inlinePreparing(page);
     const bar = page.getByRole("progressbar", { name: "準備進度" });
-    await expect(bar).not.toHaveAttribute("aria-valuenow");
-    release();
     await expect(page.getByText("0 / 6 題", { exact: true })).toBeVisible();
     await expect(bar).toHaveAttribute("aria-valuenow", "0");
     fixture.setPreparedCount(2);
@@ -132,7 +112,7 @@ for (const viewport of [
     fixture.setStage("ready");
     await expect(page.locator(".assessment-set-item")).toHaveCount(6);
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-question-mode/);
-    await expect(page.locator(".current-concept-card")).toHaveCount(0);
+    await expect(page.locator(".current-concept-card")).not.toBeVisible();
     const readyResponse = page.waitForResponse(
       (response) =>
         response.url().includes("/workspace?") &&
@@ -208,33 +188,17 @@ for (const viewport of [
   });
 }
 
-test("plan loading and generation failure keep their state; no-safe skips assessment planning", async ({ page }) => {
+test("generation failure and no-safe keep clear states and readable material", async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   const fixture = await studyLayoutFixture(page, "failed");
   await fixture.open();
   await expect(page.getByRole("button", { name: "再試一次", exact: true })).toBeVisible();
   await inlinePreparing(page, "intervention");
-  fixture.setStage("preparation");
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await page.route("**/assessment-plan?*", async (route) => {
-    await gate;
-    await route.fallback();
-  });
-  await fixture.open();
-  await expect(page.getByText("正在讀取這個觀念的檢測範圍…", { exact: true })).toBeVisible();
-  await preparationLayout(page, 1366);
-  release();
-  await expect(page.getByRole("button", { name: "開始本輪 6 題", exact: true })).toBeEnabled();
   fixture.setStage("no-safe");
-  const plans: string[] = [];
-  page.on("request", request => { if (request.url().includes("/assessment-plan?")) plans.push(request.url()); });
   await fixture.open();
   await expect(page.getByRole("heading", { name: "此概念目前無法提供可靠檢測", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /開始本輪/ })).toHaveCount(0);
-  expect(plans).toEqual([]);
+  await page.locator(".study-material-summary > summary").click();
+  await expect(page.locator(".current-concept-card")).toBeVisible();
 });
 
 test("create failure restores entry and retry retains its idempotency key", async ({ page }) => {
@@ -256,11 +220,11 @@ test("create failure restores entry and retry retains its idempotency key", asyn
     return route.fallback();
   });
   await fixture.open();
-  const start = page.getByRole("button", { name: "開始本輪 6 題", exact: true });
+  const start = page.getByRole("button", { name: "開始作答", exact: true });
   await start.click();
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(start).toBeEnabled();
-  await expect(page.locator(".current-concept-card")).not.toBeVisible();
+  await expect(page.locator(".current-concept-card")).toBeVisible();
   await start.click();
   await expect(page.getByText("2 / 6 題", { exact: true })).toBeVisible();
   await inlinePreparing(page);

@@ -157,15 +157,11 @@ def _stored(row: StudySession) -> StoredStudySession:
     )
 
 
-def create_study_session(
-    learner: TrustedLearner,
-    material_id: UUID,
-    knowledge_structure_revision: str,
-    idempotency_key: str,
-    *,
-    current_concept_id: str | None = None,
-    dsn: str | None = None,
-) -> StoredStudySession:
+def ensure_study_session_in_transaction(
+    session, learner, material_id, knowledge_structure_revision, idempotency_key,
+    *, current_concept_id=None,
+):
+    """建立入口與開始學習共用同一個 Material 鎖下的 canonical session。"""
     learner_id = _learner(learner)
     if (
         not isinstance(material_id, UUID)
@@ -177,90 +173,106 @@ def create_study_session(
     fingerprint = _fingerprint(
         material_id, knowledge_structure_revision, current_concept_id
     )
+    # 在不可變的地圖身分上序列化建立請求，包括首次寫入。
+    context = _context(
+        session,
+        learner_id,
+        material_id,
+        knowledge_structure_revision,
+        lock=True,
+    )
+    initial_intent = session.scalar(
+        select(StudySession).where(
+            StudySession.learner_id == learner_id,
+            StudySession.idempotency_key_sha256 == key,
+        )
+    )
+    if (
+        initial_intent is not None
+        and bytes(initial_intent.request_fingerprint) != fingerprint
+    ):
+        raise StudySessionError("STUDY_SESSION_IDEMPOTENCY_CONFLICT")
+    canonical = session.scalars(
+        select(StudySession).where(
+            StudySession.learner_id == learner_id,
+            StudySession.material_id == material_id,
+            StudySession.knowledge_structure_revision
+            == knowledge_structure_revision,
+        )
+    ).one_or_none()
+    if canonical is not None:
+        # 後續同範圍請求只讀取既有 session；建立時的意圖指紋保持不變。
+        _validate_context(canonical, context)
+        return canonical, context
+    known = {concept.concept_id for concept in context.concepts}
+    from .inherited_progress import preferred_focus
+
+    selected = (
+        current_concept_id
+        or preferred_focus(
+            session, learner_id, material_id, knowledge_structure_revision
+        )
+        or (
+            context.initial_learning_path[0]
+            if context.initial_learning_path
+            else None
+        )
+    )
+    if selected not in known:
+        raise StudySessionError("STUDY_SESSION_TARGET_INVALID")
+    session.execute(
+        insert(StudySession)
+        .values(
+            study_session_id=uuid4(),
+            learner_id=learner_id,
+            material_id=material_id,
+            knowledge_structure_revision=knowledge_structure_revision,
+            current_concept_id=selected,
+            no_safe_claim_ids=[],
+            deferred_concept_ids=[],
+            last_applied_guidance_revision=None,
+            last_applied_progress_sha256=None,
+            status="active",
+            idempotency_key_sha256=key,
+            request_fingerprint=fingerprint,
+            started_at=datetime.now(UTC),
+            completed_at=None,
+            last_event_number=0,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[
+                StudySession.learner_id,
+                StudySession.idempotency_key_sha256,
+            ]
+        )
+    )
+    stored = session.scalar(
+        select(StudySession).where(
+            StudySession.learner_id == learner_id,
+            StudySession.idempotency_key_sha256 == key,
+        )
+    )
+    if stored is None or bytes(stored.request_fingerprint) != fingerprint:
+        raise StudySessionError("STUDY_SESSION_IDEMPOTENCY_CONFLICT")
+    _validate_context(stored, context)
+    return stored, context
+
+
+def create_study_session(
+    learner: TrustedLearner,
+    material_id: UUID,
+    knowledge_structure_revision: str,
+    idempotency_key: str,
+    *,
+    current_concept_id: str | None = None,
+    dsn: str | None = None,
+) -> StoredStudySession:
     try:
         with database_session(dsn) as session:
-            # 在不可變的地圖身分上序列化建立請求，包括首次寫入。
-            context = _context(
-                session,
-                learner_id,
-                material_id,
-                knowledge_structure_revision,
-                lock=True,
+            stored, _ = ensure_study_session_in_transaction(
+                session, learner, material_id, knowledge_structure_revision,
+                idempotency_key, current_concept_id=current_concept_id,
             )
-            initial_intent = session.scalar(
-                select(StudySession).where(
-                    StudySession.learner_id == learner_id,
-                    StudySession.idempotency_key_sha256 == key,
-                )
-            )
-            if (
-                initial_intent is not None
-                and bytes(initial_intent.request_fingerprint) != fingerprint
-            ):
-                raise StudySessionError("STUDY_SESSION_IDEMPOTENCY_CONFLICT")
-            canonical = session.scalars(
-                select(StudySession).where(
-                    StudySession.learner_id == learner_id,
-                    StudySession.material_id == material_id,
-                    StudySession.knowledge_structure_revision
-                    == knowledge_structure_revision,
-                )
-            ).one_or_none()
-            if canonical is not None:
-                # 後續同範圍請求只讀取既有 session；建立時的意圖指紋保持不變。
-                _validate_context(canonical, context)
-                return _stored(canonical)
-            known = {concept.concept_id for concept in context.concepts}
-            from .inherited_progress import preferred_focus
-
-            selected = (
-                current_concept_id
-                or preferred_focus(
-                    session, learner_id, material_id, knowledge_structure_revision
-                )
-                or (
-                    context.initial_learning_path[0]
-                    if context.initial_learning_path
-                    else None
-                )
-            )
-            if selected not in known:
-                raise StudySessionError("STUDY_SESSION_TARGET_INVALID")
-            session.execute(
-                insert(StudySession)
-                .values(
-                    study_session_id=uuid4(),
-                    learner_id=learner_id,
-                    material_id=material_id,
-                    knowledge_structure_revision=knowledge_structure_revision,
-                    current_concept_id=selected,
-                    no_safe_claim_ids=[],
-                    deferred_concept_ids=[],
-                    last_applied_guidance_revision=None,
-                    last_applied_progress_sha256=None,
-                    status="active",
-                    idempotency_key_sha256=key,
-                    request_fingerprint=fingerprint,
-                    started_at=datetime.now(UTC),
-                    completed_at=None,
-                    last_event_number=0,
-                )
-                .on_conflict_do_nothing(
-                    index_elements=[
-                        StudySession.learner_id,
-                        StudySession.idempotency_key_sha256,
-                    ]
-                )
-            )
-            stored = session.scalar(
-                select(StudySession).where(
-                    StudySession.learner_id == learner_id,
-                    StudySession.idempotency_key_sha256 == key,
-                )
-            )
-            if stored is None or bytes(stored.request_fingerprint) != fingerprint:
-                raise StudySessionError("STUDY_SESSION_IDEMPOTENCY_CONFLICT")
-            _validate_context(stored, context)
             return _stored(stored)
     except StudySessionError:
         raise

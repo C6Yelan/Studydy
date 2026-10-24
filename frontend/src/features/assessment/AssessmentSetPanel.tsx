@@ -2,11 +2,11 @@ import { LearningDiagnosis } from "../learning-diagnosis/LearningDiagnosis";
 import { useEffect, useLayoutEffect, useRef, useState, type SubmitEvent } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
-  AssessmentPlanView,
   AssessmentRecordView,
   AssessmentSetAction,
   AssessmentSetAnswer,
   AssessmentSetView,
+  ConceptAssessmentSetView,
   KnowledgeStructureView,
 } from "../../api/contracts";
 import { AssessmentPanel } from "./AssessmentPanel";
@@ -37,8 +37,8 @@ export function AssessmentSetPanel({
   apiClient: StudydyApiClient;
   studySessionId: string;
   materialId: string;
-  selectedSetId: string | null;
-  initialSet: AssessmentSetView | null;
+  selectedSetId: string;
+  initialSet: ConceptAssessmentSetView;
   concept: Concept;
   view: Pick<KnowledgeStructureView, "knowledge_structure_revision" | "source_resolver" | "concepts">;
   completed: boolean;
@@ -50,8 +50,7 @@ export function AssessmentSetPanel({
   onPhaseChange: (phase: AssessmentPhase) => void;
   continuation?: { label: string; busy: boolean; onContinue: () => Promise<void> };
 }) {
-  const [plan, setPlan] = useState<AssessmentPlanView | null>(null);
-  const [group, setGroup] = useState<AssessmentSetView | null>(null);
+  const [group, setGroup] = useState<ConceptAssessmentSetView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -61,13 +60,12 @@ export function AssessmentSetPanel({
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [submissionNeedsRefresh, setSubmissionNeedsRefresh] = useState(false);
   const rejectedSubmission = useRef(false);
-  const latestGroup = useRef<AssessmentSetView | null>(null);
+  const latestGroup = useRef<ConceptAssessmentSetView | null>(null);
   const submissionIntent = useRef<{
     key: string;
     version: number;
     answers: AssessmentSetAnswer[];
   } | null>(null);
-  const createIntent = useRef<string | null>(null);
   const actionIntent = useRef<{
     id: string;
     action: AssessmentSetAction;
@@ -88,6 +86,7 @@ export function AssessmentSetPanel({
     if (!isCurrent() || (selected.current && next.set_id !== selected.current)) return false;
     if (
       next.knowledge_structure_revision !== view.knowledge_structure_revision ||
+      next.kind === "material_diagnostic" ||
       next.target_concept_id !== concept.concept_id
     ) {
       throw new Error("題組與目前觀念不一致，請重新開啟學習紀錄。");
@@ -130,7 +129,6 @@ export function AssessmentSetPanel({
     let cancelled = false;
     alive.current = true;
     setGroup(null);
-    setPlan(null);
     setMessage(null);
     setSelections({});
     setSubmissionError(null);
@@ -140,7 +138,6 @@ export function AssessmentSetPanel({
     setSubmissionNeedsRefresh(false);
     setBusy(false);
     setStarting(false);
-    createIntent.current = null;
     actionIntent.current = null;
     cycleIntent.current = null;
     void (async () => {
@@ -150,11 +147,6 @@ export function AssessmentSetPanel({
           const restored = reload === 0 && initialSet?.set_id === selectedSetId
             ? initialSet : await apiClient.readAssessmentSet(studySessionId, selectedSetId);
           if (!cancelled) accept(restored);
-        } else if (!completed) {
-          const nextPlan = await apiClient.readAssessmentPlan(studySessionId, concept.concept_id);
-          if (nextPlan.knowledge_structure_revision !== view.knowledge_structure_revision)
-            throw new Error("題組與教材版本不一致。");
-          if (!cancelled) setPlan(nextPlan);
         }
       } catch (error) {
         if (!cancelled) setMessage(errorMessage(error));
@@ -201,53 +193,6 @@ export function AssessmentSetPanel({
   useEffect(() => {
     preparationTitle.current?.focus();
   }, [phase]);
-
-  const create = async () => {
-    if (busy || completed) return;
-    setBusy(true);
-    setStarting(true);
-    setMessage(null);
-    if (!createIntent.current) createIntent.current = crypto.randomUUID();
-    try {
-      const next = await apiClient.createAssessmentSet(
-        studySessionId,
-        concept.concept_id,
-        createIntent.current,
-      );
-      if (!isCurrent()) return;
-      accept(next);
-      createIntent.current = null;
-      onSetSelected(next.set_id);
-    } catch (error) {
-      if (!isCurrent()) return;
-      if (error instanceof ApiClientError && error.reasonCode === "ASSESSMENT_SET_ACTIVE") {
-        createIntent.current = null;
-        try {
-          const sets = await apiClient.listAssessmentSets(studySessionId);
-          if (!isCurrent()) return;
-          if (sets.knowledge_structure_revision !== view.knowledge_structure_revision)
-            throw new Error("題組與教材版本不一致。");
-          const existing = sets.sets.find(
-            (item) =>
-              item.target_concept_id === concept.concept_id &&
-              sets.active_set_ids.includes(item.set_id),
-          );
-          if (existing) {
-            onSetSelected(existing.set_id);
-            return;
-          }
-          setMessage("已讀取最新狀態，可以再次開始這個觀念的題組。");
-        } catch (readError) {
-          if (isCurrent()) setMessage(errorMessage(readError));
-        }
-      } else setMessage(errorMessage(error));
-    } finally {
-      if (isCurrent()) {
-        setBusy(false);
-        setStarting(false);
-      }
-    }
-  };
 
   const action = async (kind: AssessmentSetAction) => {
     if (!group || busy) return;
@@ -598,27 +543,7 @@ export function AssessmentSetPanel({
                 )}
               </div>
               {readError}
-              {!group && !plan && !message && !completed && (
-                <p role="status">正在讀取這個觀念的檢測範圍…</p>
-              )}
-              {!group && completed && <p>此學習紀錄已結束，可以從題目與作答紀錄回顧。</p>}
-              {plan && !group && (
-                <>
-                  {plan.requested_count > 0 && <p>完成所有題目後一起交卷並查看結果。</p>}
-                  {plan.excluded.length > 0 && (
-                    <p>有 {plan.excluded.length} 個教材重點目前未納入本輪檢測。</p>
-                  )}
-                  <button
-                    className="primary-button"
-                    disabled={busy || plan.requested_count === 0}
-                    aria-busy={busy}
-                    onClick={() => void create()}
-                  >
-                    <Icon name="learning" />
-                    {busy ? "正在建立題組…" : `開始本輪 ${plan.requested_count} 題`}
-                  </button>
-                </>
-              )}
+              {!group && !message && <p role="status">正在讀取題組…</p>}
               {group && prepared && (
                 <p className="assessment-set-count">
                   本組 {group.published_count} 題

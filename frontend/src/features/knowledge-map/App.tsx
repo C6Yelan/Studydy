@@ -1,3 +1,4 @@
+import { useStudyStart } from "../study-session/StartingLevel";
 import { rememberMaterial, rememberedMaterial } from "../material-flow/material-memory";
 import { useEffect, useRef, useState } from "react";
 
@@ -9,9 +10,8 @@ import type {
   MaterialLibraryItem,
   StudySessionView,
 } from "../../api/contracts";
-import { routePath, writeRoute, type AppRoute } from "../../app/routes";
+import { writeRoute, type AppRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
-import { initialFocusConceptId } from "./knowledge-map";
 import { KnowledgeMapWorkspace } from "./KnowledgeMapWorkspace";
 import "./styles.css";
 
@@ -40,22 +40,7 @@ export default function KnowledgeMap({
   const [view, setView] = useState<KnowledgeOutlineView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [notFound, setNotFound] = useState<"material" | "version" | null>(null);
-  const [startMessage, setStartMessage] = useState<string | null>(null);
-  const [isStartingStudy, setIsStartingStudy] = useState(false);
-  const startIntent = useRef<{ conceptId: string; key: string } | null>(null);
-  const activePage = useRef(false);
-  const pageVersion = useRef(0);
-
-  useEffect(() => {
-    activePage.current = true;
-    pageVersion.current += 1;
-    startIntent.current = null;
-    setIsStartingStudy(false);
-    setStartMessage(null);
-    return () => {
-      activePage.current = false;
-    };
-  }, [apiClient, route.materialId, route.runId, route.structureRevision]);
+  const launch = useStudyStart(apiClient, `${route.materialId}:${route.structureRevision}`);
 
   const loadedRouteKey = useRef("");
   useEffect(() => {
@@ -168,71 +153,8 @@ export default function KnowledgeMap({
     };
   }, [apiClient, route.materialId, route.runId, route.structureRevision, reload]);
 
-  const openStudySession = (studySessionId: string, assessmentSetId?: string) =>
-    writeRoute({ ...route, name: "study-session", studySessionId, assessmentSetId });
-
-  const startStudy = async (conceptId: string) => {
-    if (isStartingStudy || isLoadingProgress) return;
-    const version = pageVersion.current;
-    // 路由可能已寫入但 React 尚未卸載舊頁；兩者都有效才接受 mutation 回應。
-    const isCurrentPage = () =>
-      activePage.current &&
-      pageVersion.current === version &&
-      window.location.pathname === routePath(route);
-    if (startIntent.current?.conceptId !== conceptId) {
-      startIntent.current = { conceptId, key: crypto.randomUUID() };
-    }
-    setIsStartingStudy(true);
-    setStartMessage(null);
-    try {
-      let session = savedSession
-        ? progress?.current_concept_id === conceptId
-          ? { ...savedSession, current_concept_id: conceptId }
-          : await apiClient.focusStudySession(savedSession.study_session_id, conceptId)
-        : await apiClient.createStudySession(
-            {
-              schema: "study-session-create/v1",
-              material_id: route.materialId,
-              knowledge_structure_revision: route.structureRevision,
-              current_concept_id: conceptId,
-            },
-            startIntent.current.key,
-          );
-      if (!isCurrentPage()) return;
-      // 並行建立可能取得其他觀念的既有紀錄；未結束的紀錄仍需對齊選定觀念。
-      if (session.current_concept_id !== conceptId) {
-        session = await apiClient.focusStudySession(session.study_session_id, conceptId);
-        if (!isCurrentPage()) return;
-      }
-      const latest = await apiClient.readMapProgress(session.study_session_id, route.structureRevision);
-      if (!isCurrentPage()) return;
-      const cycle = latest.assessment_cycles.find(item => item.concept_id === conceptId);
-      if (cycle?.active_set_id) {
-        openStudySession(session.study_session_id, cycle.active_set_id);
-        return;
-      }
-      const state = latest.concept_states.find(item => item.concept_id === conceptId);
-      if (state?.assessable === false) {
-        openStudySession(session.study_session_id);
-        return;
-      }
-      if (cycle?.outcome === "needs_review" && state?.status !== "completed") {
-        openStudySession(session.study_session_id, cycle.diagnostic_set_id);
-        return;
-      }
-      if (cycle?.outcome === "incomplete" && state?.status !== "completed") {
-        const previous = await apiClient.readAssessmentSet(session.study_session_id, cycle.diagnostic_set_id);
-        if (!isCurrentPage()) return;
-        if (previous.status === "failed") { openStudySession(session.study_session_id, previous.set_id); return; }
-      }
-      const group = await apiClient.createAssessmentSet(session.study_session_id, conceptId, startIntent.current!.key);
-      if (!isCurrentPage()) return;
-      openStudySession(session.study_session_id, group.set_id);
-    } catch (error) {
-      if (!isCurrentPage()) return;
-      setStartMessage(errorMessage(error));
-      setIsStartingStudy(false);
-    }
+  const startStudy = (conceptId: string) => {
+    if (!isLoadingProgress) void launch.start({ ...route, conceptId });
   };
 
   if (notFound === "material") return <NotFoundView {...materialNotFound} />;
@@ -277,14 +199,14 @@ export default function KnowledgeMap({
       />
     );
   return (
-    <KnowledgeMapWorkspace
+    <>{launch.dialog}<KnowledgeMapWorkspace
       key={view.knowledge_structure_revision}
       apiClient={apiClient}
       progress={progress}
       learningStateStatus={savedSession?.status ?? null}
       progressMessage={progressMessage}
       onReloadProgress={() => setReload((value) => value + 1)}
-      isStartingStudy={isStartingStudy || isLoadingProgress}
+      isStartingStudy={launch.busy || isLoadingProgress}
       isLoadingProgress={isLoadingProgress}
       onReturnToRun={() =>
         writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })
@@ -292,8 +214,8 @@ export default function KnowledgeMap({
       mapRoute={route}
       materialName={materialName}
       onStartStudy={startStudy}
-      startMessage={startMessage}
+      startMessage={launch.error}
       view={view}
-    />
+    /></>
   );
 }

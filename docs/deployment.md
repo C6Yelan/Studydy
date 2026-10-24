@@ -223,6 +223,12 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 `0013_session_devices.sql` 只在 `learner_sessions` 新增 nullable `device_label`（1–64 字元 CHECK）與 `last_used_at`，不回填、不改寫既有資料；新後端啟動（`serve`／`migrate`）時由 `run_migrations` 自動套用。套用前同 0009–0011 在獨立 DB 副本驗證並核對原業務資料不變。後端使用 `account-sessions/v2`（裝置清單，取代登入數），並提供 `DELETE /v1/account/sessions/{session_id}`；前端只接受 v2，前後端必須一起上線（只更新任一邊時，個人檔案讀不到登入裝置，修改密碼成功後也會顯示錯誤）。套用後需使用識別 0013 的後端，採前向修正；退回時前後端一起退回。既有登入沒有裝置標籤，顯示「未知裝置」，最後使用時間在下一次請求後開始記錄。
 
+## 0014 起始程度與跨概念診斷
+
+`0014_starting_level.sql` 新增教材的 nullable `starting_level` 與學習開始請求回執，不推測或回填學生程度。題組新增 `material_diagnostic` 種類，調整跨概念成員範圍外鍵，保留原單概念／補強與私密答案的範圍保護；既有題組及答案不改寫。部署前備份產品 DB，並在隔離資料庫驗證 0013 升級至 0014 保留原資料。
+
+前後端須一起更新，以支援程度選擇、空的整組概念目標及每題自己的概念。0014 一經套用，舊版 migration runner 會因不識別新帳本版本而拒絕啟動；舊題組讀取程式也不識別跨概念資料。回復須採支援 0014 的修正版或前向修正，不能只重啟舊映像。若需還原部署前 DB，必須先處理切換後的新資料，不自動覆蓋或丟棄新題組與作答。
+
 ## 後端身分與既有資料
 
 `STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。

@@ -1,4 +1,5 @@
 export type KnownApiReasonCode =
+  | "STARTING_LEVEL_REQUIRED"
   | "SCENE_CONFLICT"
   | "SCENE_ALIGNMENT_INVALID"
   | "SCENE_ALIGNMENT_FAILED"
@@ -172,6 +173,10 @@ export type MaterialLibraryView = {
   materials: MaterialLibraryItem[];
 };
 
+export type StartingLevel = "beginner" | "some_knowledge" | "familiar" | "gaps";
+export type StartingLevelView = { schema: "starting-level/v1"; material_id: string; starting_level: StartingLevel | null };
+export type StudyStartView = { schema: "study-start/v1"; session: StudySessionView; selected_set_id: string | null; starting_level: StartingLevel };
+
 type SourceLocatorView = {
   page: number;
   block_id: string;
@@ -338,7 +343,7 @@ export type KnowledgeSearchView = {
 };
 
 export type MapProgressView = Pick<LearnerProgressView,
-  "study_session_id" | "knowledge_structure_revision" | "current_concept_id" | "assessment_cycles" | "next_action"> & {
+  "study_session_id" | "knowledge_structure_revision" | "current_concept_id" | "assessment_cycles" | "next_action" | "starting_level" | "learning_path"> & {
   schema: "map-progress/v1";
   concept_states: (Pick<ConceptLearningStateView, "concept_id" | "status" | "attempts"> & { assessable: boolean })[];
 };
@@ -366,6 +371,7 @@ export type StudyWorkspaceView = Omit<StudyResumeView, "schema" | "knowledge_str
   outline: StudyNavigationView;
   context: KnowledgeConceptsView | null;
   progress: StudyProgressView;
+  starting_level: StartingLevel | null;
 };
 
 export type CardDesignSources = { claim_ids: string[]; relation_ids: string[]; evidence_ids: string[] };
@@ -601,6 +607,8 @@ export type LearnerProgressView = {
   weaknesses: { concept_id: string; claim_ids: string[]; reason: string }[];
   next_action: NextActionView;
   guidance_revision: string;
+  starting_level: StartingLevel | null;
+  learning_path: string[];
 };
 
 export type AssessmentRecordView = {
@@ -660,11 +668,9 @@ type AssessmentCycleView = AssessmentCycleSummary & {
   }[];
 };
 
-export type AssessmentSetSummary = {
-  kind: "diagnostic" | "remediation";
+type AssessmentSetSummaryBase = {
   diagnostic_set_id: string | null;
   set_id: string;
-  target_concept_id: string;
   status:
     | "preparing"
     | "partial_ready"
@@ -683,6 +689,10 @@ export type AssessmentSetSummary = {
   completed_at: string | null;
 };
 
+export type ConceptAssessmentSetSummary = AssessmentSetSummaryBase & { kind: "diagnostic" | "remediation"; target_concept_id: string };
+export type MaterialDiagnosticSetSummary = AssessmentSetSummaryBase & { kind: "material_diagnostic"; target_concept_id: null };
+export type AssessmentSetSummary = ConceptAssessmentSetSummary | MaterialDiagnosticSetSummary;
+
 export type AssessmentSetListView = {
   schema: "assessment-set-list/v1";
   study_session_id: string;
@@ -693,6 +703,7 @@ export type AssessmentSetListView = {
 
 type AssessmentSetItem = {
   ordinal: number;
+  target_concept_id: string;
   target_claim_id: string;
   state: "pending" | "generating" | "verified" | "published" | "failed" | "omitted";
   attempts: number;
@@ -703,13 +714,11 @@ type AssessmentSetItem = {
   can_submit: boolean;
 };
 
-export type AssessmentSetView = AssessmentSetSummary & {
+type AssessmentSetDetails = {
   schema: "assessment-set/v1";
   study_session_id: string;
   material_id: string;
   knowledge_structure_revision: string;
-  cycle: AssessmentCycleView;
-  selection_policy: "single-concept-grounded-points/v1" | "needs-review-points/v1";
   point_count: number;
   excluded_count: number;
   verified_count: number;
@@ -718,6 +727,15 @@ export type AssessmentSetView = AssessmentSetSummary & {
   can_complete: boolean;
   items: AssessmentSetItem[];
 };
+
+export type ConceptAssessmentSetView = ConceptAssessmentSetSummary & AssessmentSetDetails & {
+  cycle: AssessmentCycleView;
+  selection_policy: "single-concept-grounded-points/v1" | "needs-review-points/v1";
+};
+export type MaterialDiagnosticSetView = MaterialDiagnosticSetSummary & AssessmentSetDetails & {
+  cycle: null; selection_policy: "material-diagnostic/v1";
+};
+export type AssessmentSetView = ConceptAssessmentSetView | MaterialDiagnosticSetView;
 
 export type AssessmentSetAnswer = {
   assessment_revision: string;
