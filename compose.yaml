@@ -5,6 +5,8 @@ services:
       context: .
       dockerfile: ops/docker/backend.Dockerfile
       target: backend
+      args:
+        STUDYDY_BACKEND_UID: ${STUDYDY_BACKEND_UID:-20001}
     user: "0:0"
     command: ["init"]
     environment:
@@ -45,6 +47,8 @@ services:
       context: .
       dockerfile: ops/docker/backend.Dockerfile
       target: ocr
+      args:
+        STUDYDY_BACKEND_UID: ${STUDYDY_BACKEND_UID:-20001}
     devices:
       - nvidia.com/gpu=all
     user: "${STUDYDY_BACKEND_UID:-20001}:${STUDYDY_GID:-1000}"
@@ -184,6 +188,8 @@ services:
       context: .
       dockerfile: ops/docker/backend.Dockerfile
       target: ocr
+      args:
+        STUDYDY_BACKEND_UID: ${STUDYDY_BACKEND_UID:-20001}
     user: "${STUDYDY_UID:-1000}:${STUDYDY_GID:-1000}"
     command: ["--lock", "/app/local_ai/runtime-lock.json", "--output", "/models"]
     entrypoint: ["/opt/studydy/ocr/runtime/bin/python", "-m", "studydy_local_ai.download"]

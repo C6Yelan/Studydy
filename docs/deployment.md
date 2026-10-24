@@ -246,7 +246,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 ## 後端身分與既有資料
 
-`STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。
+`STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。完整建置時 Compose 以同名建置參數在 backend 階段建立 `studydy-backend` passwd 項目（HOME=/tmp tmpfs）；torch／transformers 以 `getpass`、`~` 決定身分與 cache，缺少此項目時 OCR 子程序會 CHILD_EXITED。改 UID 須完整重建 backend 映像，輕量更新沿用 runtime 映像內的項目。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。
 
 既有artifacts需由核准部署程序先遷移owner，保留0700目錄及原0600／0400檔案契約。不得遞迴chown整個data；data根、data/podcast、PostgreSQL、模型內容及jerry分析資料保持原狀。模型僅授新後端UID只讀ACL。部署／回滾前應在停止該版backend寫入後重新盤點範圍，具體路徑、數量、操作順序與回滾命令由本次部署狀態檔提供，不在產品初始化時自動遷移。
 

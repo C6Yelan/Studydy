@@ -298,3 +298,5 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 以獨立 Compose project 與暫存資料驗證 `STUDYDY_BACKEND_UID=20001`：新 artifact 由後端擁有且維持私有權限，init 不重設既有資料根／PostgreSQL／模型目錄。假模型只授目錄穿越與檔案讀取 ACL，重跑 init 後仍須有效；不讀真模型或真金鑰。bridge 的假金鑰依其保留的1000身分驗證。
 
 jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控命令驗證讀取，不放寬0700／0400斷言。沿用原NPROC1024、容器pids512及所有隔離參數；最小namespace探針不增加UID1000負載，也不調高限制。現有單元與runtime套件仍按原範圍執行。
+
+完整重建後端映像後，以 `python3 -B ops/tests/backend_identity.py <映像>` 核對執行 UID 有 passwd 身分、HOME 為 /tmp，且比照 OCR 子程序的清空環境仍可匯入 transformers、torch inductor cache 與 matplotlib 設定落在 /tmp。腳本以唯讀 rootfs、無網路執行，不 build／pull、不掛產品資料、不載入模型；UID 依 `STUDYDY_BACKEND_UID`（預設20001）。
