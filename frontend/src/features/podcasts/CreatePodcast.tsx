@@ -103,7 +103,7 @@ export function CreatePodcast({ apiClient, route }: {
       <section id="podcast-config-settings" className={`podcast-config-section podcast-settings${activePanel === "settings" ? " is-active" : ""}`} aria-label="講解設定">
         <h3>講解設定</h3>
         <fieldset className="podcast-delivery"><legend>講解形式</legend>
-          <label className={delivery === "dialogue" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "dialogue"} disabled={busy} onChange={() => setDelivery("dialogue")} /><span><strong>雙人對談</strong><small>以對話串起教材重點。</small></span></label>
+          <label className={delivery === "dialogue" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "dialogue"} disabled={busy} onChange={() => setDelivery("dialogue")} /><span><strong>雙人對談</strong><small>兩位主持人以節目形式帶你走過教材重點。</small></span></label>
           <label className={delivery === "solo" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "solo"} disabled={busy} onChange={() => setDelivery("solo")} /><span><strong>單人解說</strong><small>以自然口語說明重點。</small></span></label>
         </fieldset>
       </section>
