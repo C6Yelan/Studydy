@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiClientError, errorMessage, type StudydyApiClient } from '../../api/client';
-import type { EvidenceView, PodcastContext, PodcastView } from '../../api/contracts';
+import type { EvidenceView, PodcastContext, PodcastEpisode, PodcastView } from '../../api/contracts';
 import { formatTime } from './PodcastPlayer';
 
 export type Timeline={schema:'podcast-transcript-timeline/v1';podcast_id:string;episode_index:number;audio_sha256:string;script_sha256:string;source_resolver:string;
@@ -35,6 +35,11 @@ function validTimeline(value:Timeline,view:PodcastView,index:number):boolean {
     }
     return previous===episode.audio?.duration_seconds;
   }catch{return false}
+}
+
+// 新集數顯示主持人名字；節目化前的舊集沒有名字，以中性的主持人／來賓標示。
+function speakerName(episode:PodcastEpisode,speaker:'host'|'guest'):string {
+  return episode.hosts?.[speaker]??(speaker==='host'?'主持人':'來賓');
 }
 
 export function PodcastTranscript({api,view,index,media,active,videoVersion}:{
@@ -80,12 +85,12 @@ export function PodcastTranscript({api,view,index,media,active,videoVersion}:{
     {current?<><p className="podcast-meta-note">點擊講稿可跳到對應位置。</p><ol ref={list} className="podcast-timed-transcript">{current.segments.map((s,i)=><li key={s.id}>
       <button type="button" aria-current={clock.index===i?'true':undefined} disabled={!clock.ready} onClick={()=>{if(media.current)media.current.currentTime=s.start}}>
         <time>{formatTime(s.start)}</time><span>{s.turns.map((turn,j)=><span className="transcript-turn" key={j}>
-          <small>{episode.delivery==='solo'?'旁白':turn.speaker==='host'?'學習者':'講解者'}</small><span>{turn.text}</span>
+          <small>{speakerName(episode,turn.speaker)}</small><span>{turn.text}</span>
         </span>)}</span>
       </button>
     </li>)}</ol></>
       :<><p className="podcast-meta-note">時間軸尚未準備完成，可先閱讀逐字稿。</p><ol ref={list}>{episode.script.segments.map((s,i)=><li key={s.beat_id??i}>
-        {s.title&&<strong>{s.title}</strong>}{s.turns.map((turn,j)=><div key={j}><span className="podcast-transcript-speaker">{episode.delivery==='solo'?'旁白':turn.speaker==='host'?'學習者':'講解者'}</span><p>{turn.text}</p></div>)}
+        {s.title&&<strong>{s.title}</strong>}{s.turns.map((turn,j)=><div key={j}><span className="podcast-transcript-speaker">{speakerName(episode,turn.speaker)}</span><p>{turn.text}</p></div>)}
       </li>)}</ol></>}
   </>;
 }

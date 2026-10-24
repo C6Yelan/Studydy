@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
 import math
+import secrets
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, or_, select, update
@@ -33,6 +34,21 @@ from .audio import validate_audio
 
 
 from .generation_jobs import WORKER_LEASE_TTL, lease_is_current
+
+# 主持人名字庫：host.wav 為女聲、guest.wav 為男聲，名字對應原聲線；單人只用 host。
+HOST_PAIRS = (
+    ("小晴", "阿哲"),
+    ("小安", "阿凱"),
+    ("小語", "阿誠"),
+    ("小芸", "阿翔"),
+    ("小葵", "阿峰"),
+    ("小珊", "阿傑"),
+)
+
+
+def _pick_hosts(delivery):
+    host, guest = secrets.choice(HOST_PAIRS)
+    return {"host": host, "guest": guest} if delivery == "dialogue" else {"host": host}
 
 
 def _child_statuses(db, podcast_ids):
@@ -133,8 +149,11 @@ def create_podcast(
         passages = retrieval.evidence_context(db, owner, material_id, revision, ids)
         pages = _context_pages([p for p in passages if p["evidence_id"] in ids])
         episodes = plan_episodes(view, concept_ids, pages)
+        # 每個 Podcast 抽一組主持人，同系列各集沿用。
+        hosts = _pick_hosts(delivery)
         for episode in episodes:
             episode["delivery"] = delivery
+            episode["hosts"] = dict(hosts)
         # 舊模式欄位保留歷史資料；新建固定儲存值，不再參與 API 或生成決策。
         row = Podcast(
             podcast_id=uuid4(),
@@ -321,7 +340,17 @@ def claim_step(*, dsn=None):
             row.lease_expires_at = now + WORKER_LEASE_TTL
             row.version += 1
             index = next(i for i, e in enumerate(row.episodes) if not e.get("audio"))
+            if row.episodes[index]["script"] is None and "hosts" not in row.episodes[index]:
+                # 節目化前建立、尚未寫完的 Podcast：補一組主持人給還沒有名字的集數，已完成集數不改。
+                hosts = _pick_hosts(row.episodes[index]["delivery"])
+                row.episodes = [
+                    e
+                    if "hosts" in e or e["script"] is not None
+                    else {**e, "hosts": dict(hosts)}
+                    for e in row.episodes
+                ]
             episode = deepcopy(row.episodes[index])
+            following = row.episodes[index + 1] if index + 1 < len(row.episodes) else None
             context = {}
             try:
                 if episode["script"] is None:
@@ -348,6 +377,16 @@ def claim_step(*, dsn=None):
                 "index": index,
                 "episode": episode,
                 "source_context": context,
+                # 講稿開場與下集預告所需的系列位置；不送下一集的原文。
+                "series": {
+                    "episode_number": index + 1,
+                    "episode_count": len(row.episodes),
+                    "next_concepts": list(
+                        dict.fromkeys(c["label"] for c in following["claims"])
+                    )
+                    if following
+                    else [],
+                },
             }
     return None
 

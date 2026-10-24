@@ -9,8 +9,15 @@ provider=importlib.util.module_from_spec(spec);spec.loader.exec_module(provider)
 
 
 def body():
-    return {'delivery':'solo','claims':[{'concept_id':'c0','claim_id':'repeated','label':'非空檢查',
+    return {'delivery':'solo','hosts':{'host':'小晴'},
+        'series':{'episode_number':1,'episode_count':1,'next_concepts':[]},
+        'claims':[{'concept_id':'c0','claim_id':'repeated','label':'非空檢查',
         'text':'空堆疊不可 pop。','evidence':[{'evidence_id':'e0','page_ref':'p0','quote':'空堆疊不可 pop。'}]}]}
+
+
+def dialogue():
+    return {**body(),'delivery':'dialogue','hosts':{'host':'小晴','guest':'阿哲'},
+        'series':{'episode_number':1,'episode_count':2,'next_concepts':['佇列']}}
 
 
 def candidate(text='空堆疊不可 pop。', sources=None):
@@ -53,9 +60,48 @@ def test_same_claim_ids_keep_distinct_source_positions(monkeypatch):
 def test_source_free_questions_and_consecutive_speakers_are_allowed(monkeypatch):
     value=candidate();value['segments'][0]['turns'].insert(0,{'speaker':'host','text':'為什麼？','source_indices':[]})
     monkeypatch.setattr(provider,'luna',lambda *_,**kwargs:value)
-    result=provider.script({**body(),'delivery':'dialogue'})
+    result=provider.script(dialogue())
     assert [t['speaker'] for t in result['segments'][0]['turns']]==['host','host']
     assert result['segments'][0]['turns'][0]['parts'][0]['source_refs']==[]
+
+
+def test_show_prompt_uses_host_names_series_preview_and_spoken_numbers(monkeypatch):
+    prompts=[]
+    def model(prompt,schema,**kwargs):prompts.append(prompt);return candidate()
+    monkeypatch.setattr(provider,'luna',model)
+    result=provider.script(dialogue())
+    assert result['provider'].endswith(';source-script/v13')
+    prompt=prompts[0]
+    assert 'host「小晴」' in prompt and 'guest「阿哲」' in prompt
+    assert '"next_concepts": ["佇列"]' in prompt and '"episode_count": 2' in prompt
+    assert '本集路線' in prompt and '3～5 點回顧' in prompt and '本集重點' in prompt
+    assert '不要補來源沒有的邊界' in prompt and '另一個範例的數值' in prompt
+    provider.script(body())
+    assert '單人主持：由主持人「小晴」' in prompts[1] and '雙主持' not in prompts[1]
+    assert '"next_concepts": []' in prompts[1]
+
+
+@pytest.mark.parametrize('change',[
+    lambda b:b.pop('hosts'),
+    lambda b:b['hosts'].pop('guest'),
+    lambda b:b['hosts'].update(guest='小晴'),
+    lambda b:b['hosts'].update(host=''),
+    lambda b:b['hosts'].update(host='主持人'*3),
+    lambda b:b.pop('series'),
+    lambda b:b['series'].update(next_concepts=[]),
+    lambda b:b['series'].update(episode_number=3),
+    lambda b:b['series'].update(episode_count='2'),
+])
+def test_show_input_is_validated_before_calling_the_model(monkeypatch,change):
+    calls=[]
+    monkeypatch.setattr(provider,'luna',lambda *a,**k:calls.append(a) or candidate())
+    request=dialogue();change(request)
+    with pytest.raises(ValueError,match='REQUEST_INVALID'):provider.script(request)
+    assert calls==[]
+    solo=body();solo['hosts']['guest']='阿哲'
+    with pytest.raises(ValueError,match='REQUEST_INVALID'):provider.script(solo)
+    last=dialogue();last['series']={'episode_number':2,'episode_count':2,'next_concepts':['佇列']}
+    with pytest.raises(ValueError,match='REQUEST_INVALID'):provider.script(last)
 
 
 def test_model_schema_only_exposes_current_source_indices():
@@ -63,6 +109,8 @@ def test_model_schema_only_exposes_current_source_indices():
     turn=schema['properties']['segments']['items']['properties']['turns']['items']
     assert set(turn['properties'])=={'speaker','text','source_indices'}
     assert turn['properties']['source_indices']['items']['enum']==[0]
+    # 每段輪數與 synthesize.py 的語音上限一致。
+    assert schema['properties']['segments']['items']['properties']['turns']['maxItems']==12
 
 
 def test_source_capacity_stays_aligned_with_episode_planner(monkeypatch):

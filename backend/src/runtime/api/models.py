@@ -1420,6 +1420,8 @@ class PodcastEpisode(_Closed):
     # 短集名（衍生顯示資料）；舊資料或取名失敗時為 None。
     title: str | None = None
     delivery: Literal["solo", "dialogue"]
+    # 主持人名字（建立時抽定，同系列相同）；節目化前的舊集為 None。
+    hosts: dict[Literal["host", "guest"], str] | None = None
     claims: list[PodcastClaim]
     script: PodcastBeatScript | PodcastScript | None
     audio: PodcastAudio | None

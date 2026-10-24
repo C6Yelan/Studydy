@@ -1121,6 +1121,23 @@ test("dialogue podcast reads two speakers while rejecting incomplete or mismatch
   await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getPodcast(setId), e => e.kind === "schema");
 });
 
+test("podcast host names match the delivery roles", async () => {
+  const value = podcastView();
+  value.delivery = value.episodes[0].delivery = "dialogue";
+  value.episodes[0].script.segments = [{ claim_id: claimId, turns: [{ speaker: "host", text: "今天先從疊盤子說起。" }, { speaker: "guest", text: "最後放的先取。" }] }];
+  value.episodes[0].hosts = { host: "小晴", guest: "阿哲" };
+  assert.deepEqual((await new StudydyApiClient(async () => Response.json(value)).getPodcast(setId)).episodes[0].hosts, { host: "小晴", guest: "阿哲" });
+  for (const hosts of [{ host: "小晴" }, { host: "小晴", guest: " " }, { host: "小晴", guest: "阿哲", extra: "x" }, "小晴"]) {
+    value.episodes[0].hosts = hosts;
+    await assert.rejects(new StudydyApiClient(async () => Response.json(value)).getPodcast(setId), e => e.kind === "schema");
+  }
+  const solo = podcastView();
+  solo.episodes[0].hosts = { host: "小晴" };
+  assert.equal((await new StudydyApiClient(async () => Response.json(solo)).getPodcast(setId)).episodes[0].hosts.host, "小晴");
+  solo.episodes[0].hosts = { host: "小晴", guest: "阿哲" };
+  await assert.rejects(new StudydyApiClient(async () => Response.json(solo)).getPodcast(setId), e => e.kind === "schema");
+});
+
 
 test("extended dialogue keeps all follow-up turns", async () => {
   const value = podcastView();

@@ -833,6 +833,8 @@ export type PodcastEpisode = {
   // 短集名；舊資料或取名失敗時沒有，改以概念名稱組成。
   title?: string | null;
   delivery: "solo" | "dialogue";
+  // 主持人名字；節目化前建立的集數沒有，逐字稿改顯示「主持人／來賓」。
+  hosts?: { host: string; guest?: string } | null;
   claims: PodcastClaim[];
   script: PodcastScript | null;
   script_sha256?: string | null;

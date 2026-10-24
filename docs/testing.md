@@ -179,6 +179,7 @@ Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_
 
 ## Podcast 講稿、時間軸與互動
 
+- `test_podcast_provider.py` 核對節目講稿 prompt 帶入主持人名字、系列位置與下集預告，主持人名字或系列資訊不合格時不呼叫模型；`runtime/materials/test_podcasts.py` 核對建立時抽定的主持人在同系列各集相同、API 回傳 `hosts`、worker 領取時附系列位置，以及舊的未寫稿集數補名字而不改已完成集數。
 - `test_podcast_beats.py` 核對多來源 beat、重複 claim ID 的來源位置、逐 part 引用與 claim 跨 beat；`test_podcast_cues.py` 核對字幕錨點與教學段落的對應。
 - `test_podcast_audio.py` 核對首尾 trim、內部停頓與保護區、語境停頓、非有限值及無聲拒絕，以及真 FFmpeg 音量正規化、AAC 解碼、1080p60 編碼與 bundle 驗證。
 - `test_podcast_timeline.py` 核對原文字元範圍、VTT escaping、舊影片與 refined scene 的唯讀 locator 投影；stored manifest、script hash 與 VTT 不變。

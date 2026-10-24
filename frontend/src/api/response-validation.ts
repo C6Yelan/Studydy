@@ -1522,6 +1522,12 @@ export function podcast(value: unknown): value is PodcastView {
       || !(episode.title === undefined || episode.title === null || (typeof episode.title === "string" && !!episode.title.trim()))
       || !["solo", "dialogue"].includes(String(episode.delivery))
       || episode.delivery !== item.delivery) return false;
+    if (episode.hosts !== undefined && episode.hosts !== null) {
+      const hosts = object(episode.hosts);
+      const roles = episode.delivery === "dialogue" ? ["host", "guest"] : ["host"];
+      if (!hosts || Object.keys(hosts).length !== roles.length
+        || !roles.every(role => typeof hosts[role] === "string" && !!(hosts[role] as string).trim())) return false;
+    }
     if (!episode.claims.every((v) => {
       const c = object(v);
       if (!c || !conceptCard({ concept_id: c.concept_id, label: c.label, claims: [c] })

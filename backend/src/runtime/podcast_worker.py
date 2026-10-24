@@ -33,6 +33,8 @@ def step(*, dsn=None):
                 else {
                     "claims": episode["claims"],
                     "delivery": episode["delivery"],
+                    "hosts": episode["hosts"],
+                    "series": claim["series"],
                     "source_context": claim["source_context"],
                 }
             )

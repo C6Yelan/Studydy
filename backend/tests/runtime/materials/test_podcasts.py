@@ -327,6 +327,46 @@ def test_extended_dialogue_and_actual_audio_provider_are_preserved(closed_loop):
     assert view["episodes"][0]["audio"]["provider"] == "synthetic-voice/exact-engine"
 
 
+def test_hosts_are_fixed_per_podcast_and_series_position_goes_to_the_script_step(closed_loop):
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop, delivery="dialogue")["podcast_id"]
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        hosts = row.episodes[0]["hosts"]
+        assert (hosts["host"], hosts["guest"]) in podcasts.HOST_PAIRS
+        # 以兩集模擬系列：第二集換成另一組概念名稱，主持人沿用同一組。
+        second = deepcopy(row.episodes[0])
+        second["claims"] = [{**c, "label": "下一集概念"} for c in second["claims"]]
+        row.episodes = [row.episodes[0], second]
+    claim = podcasts.claim_step(dsn=dsn)
+    assert claim["episode"]["hosts"] == hosts
+    assert claim["series"] == {"episode_number": 1, "episode_count": 2, "next_concepts": ["下一集概念"]}
+    view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+    assert [e["hosts"] for e in view["episodes"]] == [hosts, hosts]
+    solo = create(closed_loop, key="solo-hosts")["podcast_id"]
+    with database_session(dsn) as db:
+        assert set(db.get(Podcast, solo).episodes[0]["hosts"]) == {"host"}
+
+
+def test_unscripted_episodes_created_before_hosts_get_one_pair_without_touching_saved_scripts(closed_loop):
+    _, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop, delivery="dialogue")["podcast_id"]
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        done = {k: v for k, v in row.episodes[0].items() if k != "hosts"}
+        done["script"] = {"provider": "old", "segments": []}
+        done["audio"] = {"artifact_id": str(uuid4()), "sha256": "a" * 64, "duration_seconds": 1, "provider": "old"}
+        pending = {**done, "script": None, "audio": None}
+        row.episodes = [done, pending, deepcopy(pending)]
+    claim = podcasts.claim_step(dsn=dsn)
+    assert claim["index"] == 1 and claim["series"]["episode_number"] == 2
+    with database_session(dsn) as db:
+        episodes = db.get(Podcast, identity).episodes
+    assert "hosts" not in episodes[0] and episodes[0]["script"] == done["script"]
+    assert episodes[1]["hosts"] == episodes[2]["hosts"] == claim["episode"]["hosts"]
+    assert set(claim["episode"]["hosts"]) == {"host", "guest"}
+
+
 def test_dialogue_roles_are_required_per_episode_not_per_claim():
     episode = {"delivery": "dialogue", "claims": [{"claim_id": "one"}, {"claim_id": "two"}]}
     value = {"provider": "synthetic", "segments": [
@@ -359,6 +399,8 @@ def test_v2_podcast_finishes_without_quality_verdicts_or_loudness_report(closed_
     response=client.get(f'/v1/podcasts/{identity}')
     assert response.status_code==200
     assert response.json()['episodes'][0]['script']['review'] is None
+    assert response.json()['episodes'][0]['hosts']==result['episodes'][0]['hosts']
+    assert set(result['episodes'][0]['hosts'])=={'host'}
 
 
 def test_failed_podcast_with_waiting_scenes_does_not_poll_forever(closed_loop):

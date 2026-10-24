@@ -271,7 +271,8 @@ test("saved dialogue transcripts keep roles and switch with the selected episode
   ] };
   await page.goto(`/podcasts/${podcastId}`);
   const first = page.locator('.podcast-transcript');
-  await expect(first.locator('.podcast-transcript-speaker')).toHaveText(['講解者', '學習者']);
+  // 節目化前的舊集沒有主持人名字，以中性的主持人／來賓標示。
+  await expect(first.locator('.podcast-transcript-speaker')).toHaveText(['來賓', '主持人']);
   await expect(first.locator('li p')).toHaveText([firstTurn, '這個條件要保留。\n不能略過。']);
   await page.getByRole('tab', { name: '本集重點', exact:true }).click();
   await expect(page.getByRole('tabpanel', { name: '本集重點', exact:true })).toContainText('合成測試重點');
@@ -384,7 +385,7 @@ test('full dialogue video keeps both speakers inside a shared cue and seeks acro
   const mock=await mockEpisodeVideo(page);
   mock.fixture.view.delivery='dialogue';
   for(const episode of mock.fixture.view.episodes){
-    episode.delivery='dialogue';
+    episode.delivery='dialogue';episode.hosts={host:'小晴',guest:'阿哲'};
     if(episode.script)episode.script={...episode.script,segments:episode.script.segments.map(s=>({...s,turns:[{speaker:'host',text:'為什麼需要這個條件？'},{speaker:'guest',text:'條件決定這個觀念的適用範圍。'}]}))};
   }
   await page.route(`**/v1/podcasts/${podcastId}/episodes/0/timeline`,r=>json(r,{
@@ -393,8 +394,8 @@ test('full dialogue video keeps both speakers inside a shared cue and seeks acro
       {id:'b',start:6,end:12,title:'下一個重點',text:'接著確認來源中的另一個限制。',turns:[{speaker:'guest',text:'接著確認來源中的另一個限制。'}]}]}));
   await page.goto(`/podcasts/${podcastId}`);
   const transcript=page.getByRole('tabpanel',{name:'逐字稿',exact:true}),first=transcript.getByRole('button',{name:/為什麼需要/}),second=transcript.getByRole('button',{name:/接著確認/});
-  await expect(first.locator('small')).toHaveText(['學習者','講解者']);
-  await expect(second.locator('small')).toHaveText(['講解者']);
+  await expect(first.locator('small')).toHaveText(['小晴','阿哲']);
+  await expect(second.locator('small')).toHaveText(['阿哲']);
   await expect(first).toBeEnabled();await second.click();
   await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeCloseTo(6,1);
   await expect(second).toHaveAttribute('aria-current','true');

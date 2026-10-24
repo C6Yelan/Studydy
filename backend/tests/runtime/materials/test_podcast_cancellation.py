@@ -40,6 +40,8 @@ def test_cancel_or_delete_running_job_kills_child_and_unblocks_next(closed_loop,
                 timeout=65, cancelled=cancelled)
 
     def generate_script(body, *, cancelled=None):
+        # worker 必須送出主持人名字與系列位置，provider 才能寫開場與預告。
+        assert set(body['hosts']) == {'host'} and body['series']['episode_number'] == 1
         wait_first('script', cancelled)
         return script({'episode': {'claims': body['claims']}})
 
