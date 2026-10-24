@@ -367,9 +367,14 @@ def _normalized_output(output, original_sha256):
     return pdf, mapping
 
 
+def _without_ytdlp(policy):
+    return {key: value for key, value in policy.items() if key != "yt_dlp"}
+
+
 def convert_images(data, policy, *, cancellation_check=None):
     """圖片組轉成一張一頁的 PDF；文字由既有 OCR 流程辨識。"""
-    if policy != media_policy():
+    # yt-dlp 版本只記錄 YouTube 讀取來源，不影響圖片轉換；升級後排隊中的圖片組仍可轉換。
+    if _without_ytdlp(policy) != MEDIA_POLICY:
         raise NormalizationError("NORMALIZER_VERSION_MISMATCH")
     with tempfile.TemporaryDirectory(prefix="studydy-images-") as temporary:
         source = Path(temporary) / "images.zip"
@@ -382,9 +387,7 @@ def convert_images(data, policy, *, cancellation_check=None):
 
 def render_transcript(transcript, policy, *, work_dir=None, cancellation_check=None):
     """逐字稿約每 2 分鐘排成一頁；mapping 記錄每頁的時間範圍。"""
-    if policy.get("kind") != "media" or {
-        key: value for key, value in policy.items() if key != "yt_dlp"
-    } != MEDIA_POLICY:
+    if _without_ytdlp(policy) != MEDIA_POLICY:
         raise NormalizationError("NORMALIZER_VERSION_MISMATCH")
     with tempfile.TemporaryDirectory(
         prefix="studydy-transcript-", dir=work_dir

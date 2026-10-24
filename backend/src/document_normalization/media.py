@@ -24,6 +24,10 @@ import pymupdf
 MAX_IMAGES = 50
 MAX_IMAGE_SET_BYTES = 100 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
+# OCR 以 200 dpi 繪製長邊 842 pt 的頁面（約 2,340 px）；更高的解析度只會讓 PDF 變大。
+MAX_EMBED_SIDE = 2500
+# 小於此大小、解析度也夠低的 JPEG 原樣嵌入；其餘重新壓縮，讓 50 張照片仍在 100 MiB 內。
+KEEP_ORIGINAL_BYTES = 1536 * 1024
 MAX_MEDIA_SECONDS = 2 * 60 * 60
 # 長度以容器 metadata 判斷；容許少量編碼尾端誤差，不容許實際更長的內容。
 DURATION_TOLERANCE_SECONDS = 1
@@ -106,9 +110,12 @@ def extract(source, output):
             str(target), "w", format="mp4"
         ) as muxed:
             stream = _audio_stream(container)
-            encoded = muxed.add_stream("aac", rate=48000)
-            encoded.bit_rate = 128000
-            resampler = av.AudioResampler(format="fltp", layout="stereo", rate=48000)
+            # 少見的音軌編碼才走這裡；單聲道 24 kHz 讓 2 小時影片約 40 秒轉完，
+            # 最後一段上傳請求不會超過 Cloudflare 約 100 秒的回應期限。
+            encoded = muxed.add_stream("aac", rate=24000)
+            encoded.bit_rate = 64000
+            encoded.layout = "mono"
+            resampler = av.AudioResampler(format="fltp", layout="mono", rate=24000)
             for frame in container.decode(stream):
                 for converted in resampler.resample(frame):
                     muxed.mux(encoded.encode(converted))
@@ -172,7 +179,8 @@ def _jpeg_rotation(data):
                     return 0
                 if int.from_bytes(tiff[start : start + 2], order) == 0x0112:
                     value = int.from_bytes(tiff[start + 8 : start + 10], order)
-                    return {3: 180, 6: 90, 8: 270}.get(value, 0)
+                    # PyMuPDF 的 rotate 為逆時針；EXIF 6 需順時針 90 度，即逆時針 270 度。
+                    return {3: 180, 6: 270, 8: 90}.get(value, 0)
             return 0
         if marker in (0xDA, 0xD9):
             return 0
@@ -214,6 +222,28 @@ def _image_pixmap(name, data):
     return pixmap, _jpeg_rotation(data) if extension in (".jpg", ".jpeg") else 0
 
 
+def _embedded_image(name, data):
+    """回傳要嵌入 PDF 的壓縮影像 bytes、原始寬高與旋轉角度，不以未壓縮像素嵌入。"""
+    pixmap, rotation = _image_pixmap(name, data)
+    width, height = pixmap.width, pixmap.height
+    if (
+        Path(name).suffix.lower() in (".jpg", ".jpeg")
+        and len(data) <= KEEP_ORIGINAL_BYTES
+        and max(width, height) <= MAX_EMBED_SIDE
+    ):
+        return data, width, height, rotation
+    if max(width, height) > MAX_EMBED_SIDE:
+        scale = MAX_EMBED_SIDE / max(width, height)
+        pixmap = pymupdf.Pixmap(
+            pixmap, max(1, round(width * scale)), max(1, round(height * scale)), None
+        )
+    # 投影片截圖用 PNG 保留銳利文字；照片類 PNG 過大時改用 JPEG。
+    encoded = pixmap.tobytes("png")
+    if len(encoded) > KEEP_ORIGINAL_BYTES:
+        encoded = pixmap.tobytes("jpg", jpg_quality=88)
+    return encoded, width, height, rotation
+
+
 def image_set(source, output):
     """壓縮檔只能有 0001.<格式> 起連號的圖片；第幾張就是第幾頁。"""
     if source.stat().st_size > MAX_IMAGE_SET_BYTES:
@@ -241,13 +271,14 @@ def image_set(source, output):
         records = []
         with pymupdf.open() as document:
             for number, entry in enumerate(entries, 1):
-                pixmap, rotation = _image_pixmap(entry.filename, archive.read(entry))
-                width, height = pixmap.width, pixmap.height
+                image, width, height, rotation = _embedded_image(
+                    entry.filename, archive.read(entry)
+                )
                 if rotation in (90, 270):
                     width, height = height, width
                 scale = PAGE.height / max(width, height)
                 page = document.new_page(width=width * scale, height=height * scale)
-                page.insert_image(page.rect, pixmap=pixmap, rotate=rotation)
+                page.insert_image(page.rect, stream=image, rotate=rotation)
                 records.append(
                     {
                         "normalized_page": number,

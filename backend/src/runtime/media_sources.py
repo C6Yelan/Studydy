@@ -207,14 +207,22 @@ def store_upload(owner, material_id, path, name, media, key, *, dsn=None):
 
 
 def cleanup_stale_uploads(*, now=None):
-    """中斷超過一天的分段上傳視為放棄；只刪暫存，不影響已建立來源。"""
-    folder = work_root() / "uploads"
-    if not folder.is_dir():
-        return
+    """清除超過一天的媒體暫存：中斷的分段上傳，以及程序被終止後留下的轉換目錄
+    （原檔副本、YouTube 音軌、沙箱輸出）。正常結束的工作會自行刪除，不會等到這裡。"""
+    root = work_root()
     limit = (now or time.time()) - _UPLOAD_STALE_SECONDS
-    for path in folder.iterdir():
+    uploads = root / "uploads"
+    candidates = [path for path in root.iterdir() if path.name != "uploads"]
+    if uploads.is_dir():
+        candidates += list(uploads.iterdir())
+    for path in candidates:
         try:
-            if path.stat(follow_symlinks=False).st_mtime < limit:
+            details = path.stat(follow_symlinks=False)
+            if details.st_mtime >= limit:
+                continue
+            if stat.S_ISDIR(details.st_mode):
+                shutil.rmtree(path)
+            else:
                 path.unlink()
         except FileNotFoundError:
             continue
@@ -371,11 +379,11 @@ def pick_subtitle(info):
         return None
 
     original = info.get("language")
-    return (
-        first(_TRADITIONAL)
-        or first(_SIMPLIFIED)
-        or (first((original,)) if isinstance(original, str) and original else None)
+    # 原語言以主語言碼比對，例如影片標 en-US、字幕軌為 en。
+    originals = (
+        (original, original.split("-")[0]) if isinstance(original, str) and original else ()
     )
+    return first(_TRADITIONAL) or first(_SIMPLIFIED) or first(originals)
 
 
 _CUE_TIME = re.compile(

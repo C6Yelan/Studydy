@@ -93,6 +93,7 @@ def test_uploader_subtitles_prefer_traditional_then_simplified_then_original_lan
     assert pick_subtitle(_info(language="en", subtitles=_tracks("en", "zh-Hans"))) == "zh-Hans"
     assert pick_subtitle(_info(language="ja", subtitles=_tracks("ja", "en"))) == "ja"
     assert pick_subtitle(_info(language="en", subtitles=_tracks("en-US"))) == "en-US"
+    assert pick_subtitle(_info(language="en-US", subtitles=_tracks("en", "fr"))) == "en"
     # 只有其他語言、或只有自動字幕時改用本機辨識。
     assert pick_subtitle(_info(language="en", subtitles=_tracks("fr"))) is None
     assert pick_subtitle(_info(language="en", subtitles={}, automatic_captions=_tracks("en", "zh-TW"))) is None
@@ -216,7 +217,8 @@ def test_jpeg_orientation_is_read_from_exif():
     tiff = b"MM\x00\x2a\x00\x00\x00\x08" + b"\x00\x01" + b"\x01\x12\x00\x03\x00\x00\x00\x01\x00\x06\x00\x00" + b"\x00\x00\x00\x00"
     app1 = b"Exif\x00\x00" + tiff
     data = b"\xff\xd8" + b"\xff\xe1" + (len(app1) + 2).to_bytes(2, "big") + app1 + b"\xff\xda"
-    assert media._jpeg_rotation(data) == 90
+    # EXIF 6（需順時針轉 90 度）對應 PyMuPDF 逆時針 270 度。
+    assert media._jpeg_rotation(data) == 270
     assert media._jpeg_rotation(b"\xff\xd8\xff\xda") == 0
 
 
@@ -253,3 +255,68 @@ def test_transcript_pdf_keeps_one_page_per_window_and_time_mapping(tmp_path):
         assert len(document) == 2
         assert "後進先出" in document[0].get_text() and "先進先出" in document[1].get_text()
         assert "片尾" not in "".join(page.get_text() for page in document)
+
+
+def test_phone_photo_with_exif_orientation_is_upright_and_stays_compressed(tmp_path):
+    import numpy
+
+    upright = numpy.full((300, 400, 3), 255, numpy.uint8)
+    upright[:60, :80] = 0  # 正向時左上角的黑塊
+    stored = numpy.ascontiguousarray(numpy.rot90(upright, 1))  # 手機直拍：像素逆時針轉，EXIF 6
+    pixmap = pymupdf.Pixmap(pymupdf.csRGB, stored.shape[1], stored.shape[0], stored.tobytes(), False)
+    tiff = b"MM\x00\x2a\x00\x00\x00\x08\x00\x01\x01\x12\x00\x03\x00\x00\x00\x01\x00\x06\x00\x00\x00\x00\x00\x00"
+    app1 = b"Exif\x00\x00" + tiff
+    jpeg = pixmap.tobytes("jpg", jpg_quality=90)
+    jpeg = jpeg[:2] + b"\xff\xe1" + (len(app1) + 2).to_bytes(2, "big") + app1 + jpeg[2:]
+    media = _media_module()
+    for name, data, limit in (("small", jpeg, None), ("reencoded", jpeg, 1)):
+        if limit:
+            media.KEEP_ORIGINAL_BYTES = limit  # 強制走重新壓縮的路徑
+        source = tmp_path / f"{name}.zip"
+        source.write_bytes(_zip([("0001.jpg", data)]))
+        output = tmp_path / name
+        output.mkdir()
+        media.image_set(source, output)
+        with pymupdf.open(output / "normalized.pdf") as document:
+            page = document[0]
+            assert page.rect.width > page.rect.height
+            render = page.get_pixmap(dpi=36)
+            assert render.pixel(3, 3)[0] < 60 and render.pixel(render.width - 4, render.height - 4)[0] > 200
+            # 嵌入的是壓縮影像，不是未壓縮像素。
+            assert (output / "normalized.pdf").stat().st_size < 400 * 300 * 3 / 2
+
+
+def test_video_audio_is_transcoded_when_the_track_cannot_be_copied(tmp_path, monkeypatch):
+    import numpy
+
+    video = tmp_path / "lecture.mp4"
+    with av.open(str(video), "w") as output:
+        picture = output.add_stream("mpeg4", rate=5)
+        picture.width, picture.height, picture.pix_fmt = 64, 48, "yuv420p"
+        sound = output.add_stream("aac", rate=48000)
+        frame = av.AudioFrame(format="fltp", layout="stereo", samples=1024)
+        frame.sample_rate = 48000
+        for plane in frame.planes:
+            plane.update(bytes(plane.buffer_size))
+        for index in range(2 * 48000 // 1024):
+            frame.pts = index * 1024
+            for packet in sound.encode(frame):
+                output.mux(packet)
+        for index in range(10):
+            image = av.VideoFrame.from_ndarray(numpy.zeros((48, 64, 3), numpy.uint8), format="rgb24")
+            for packet in picture.encode(image):
+                output.mux(packet)
+        for stream in (picture, sound):
+            for packet in stream.encode(None):
+                output.mux(packet)
+    media = _media_module()
+
+    def refuse(self, *args, **kwargs):
+        raise ValueError("codec not supported in container")
+
+    monkeypatch.setattr(av.container.OutputContainer, "add_stream_from_template", refuse)
+    media.extract(video, tmp_path)
+    with av.open(str(tmp_path / "audio.m4a")) as stored:
+        assert [stream.type for stream in stored.streams] == ["audio"]
+        assert stored.streams.audio[0].codec_context.name == "aac"
+        assert stored.streams.audio[0].codec_context.sample_rate == 24000

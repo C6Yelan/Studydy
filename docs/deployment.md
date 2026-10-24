@@ -58,10 +58,10 @@ PyMuPDF 維持 1.28.0，renderer 的嚴格版本契約不變。此批不修改 O
 
 ## 媒體來源（圖片、音訊、影片、YouTube）
 
-- 後端新增 Python 依賴 `av==19.0.1`（PyAV，wheel 內含 FFmpeg）與 `yt-dlp==2026.10.21`，記在 `backend/pyproject.toml`／`uv.lock`。沒有新系統套件，輕量更新的 `uv sync` 即會安裝，不需完整重建 OCR 映像；部署後在容器內核對 `import av, yt_dlp` 與版本。
+- 後端新增 Python 依賴 `av==19.0.1`（PyAV，wheel 內含 FFmpeg，其中包括 GPL 授權的 libx264／libx265 編碼器；本站以網站服務提供，不散布映像或執行檔，轉檔只用解碼與 AAC／Opus 編碼）與 `yt-dlp==2026.10.21`（Unlicense），記在 `backend/pyproject.toml`／`uv.lock`。沒有新系統套件，輕量更新的 `uv sync` 即會安裝，不需完整重建 OCR 映像；部署後在容器內核對 `import av, yt_dlp` 與版本。
 - Migration `0018_media_sources.sql` 放寬 `artifacts` 的原檔型別（ZIP 圖片組、MP3／M4A／WAV、YouTube 參照）及音訊原檔 300 MiB 上限；只改 check constraint，不搬資料。
 - 主機 provider 新增 `/media-transcribe` 與 `ops/podcast/transcribe_media.py`（顯示卡辨識，沿用 STT 環境與 CUDA `LD_LIBRARY_PATH`）。先以新 bundle 更新並重啟 provider，再更新 backend；舊 provider 收到請求會回 404，來源標為 `STT_FAILED`，可在更新後重試。
-- 分段上傳與轉換暫存在 `data/artifacts/.media-work/`；單支影片暫存最多 2 GiB，部署主機需保留對應空間。中斷超過一天的暫存由維護 worker 清除。
+- 分段上傳與轉換暫存在 `data/artifacts/.media-work/`；單支影片暫存最多 2 GiB，部署主機需保留對應空間。中斷超過一天的分段上傳與轉換暫存（含程序被終止時留下的原檔副本與 YouTube 音軌）由維護 worker 清除。
 - YouTube 改版造成讀取失敗時，更新 `yt-dlp` 版本並重建後端；失敗的來源可重試。
 
 ## 核准 source 與直接建置

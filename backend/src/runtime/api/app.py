@@ -1268,6 +1268,9 @@ def create_app(settings: ApiSettings) -> FastAPI:
         known = {**MIME, ".zip": IMAGE_SET_MIME, **AUDIO_MIME, ".youtube": YOUTUBE_MIME}
         extension = next((ext for ext, mime in known.items() if mime == media), ".bin")
         download_name = original_name or ("material" + extension)
+        if media == AUDIO_MIME[".m4a"] and download_name.lower().endswith(".mp4"):
+            # 影片只保存抽出的音軌，下載檔名改為音訊副檔名。
+            download_name = download_name[:-4] + ".m4a"
         disposition = (
             f'attachment; filename="material{extension}"; '
             f"filename*=UTF-8''{quote(download_name, safe='')}"

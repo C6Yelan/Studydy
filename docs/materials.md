@@ -4,7 +4,7 @@
 
 ## 來源與轉檔
 
-教材是具名的來源集合。文件與一組圖片上限 100 MiB、音訊 300 MiB、影片 2 GiB，轉換後 PDF 上限 100 MiB；音訊與影片長度上限 2 小時。格式能力由 `/v1/source-capabilities`（`source-capabilities/v2`）宣告，含格式種類與單次請求上限。超過單次請求上限（正式站 90 MiB）的檔案由瀏覽器依序分段送到 `/v1/materials/{id}/source-parts`，暫存在 artifact 磁碟的 `.media-work/uploads`，收齊後才建立來源；同一意圖重送最後一段不會重複建立，中斷超過一天的暫存由維護 worker 清除。
+教材是具名的來源集合。文件與一組圖片上限 100 MiB、音訊 300 MiB、影片 2 GiB，轉換後 PDF 上限 100 MiB；音訊與影片長度上限 2 小時。格式能力由 `/v1/source-capabilities`（`source-capabilities/v2`）宣告，含格式種類與單次請求上限。超過單次請求上限（正式站 90 MiB）的檔案由瀏覽器依序分段送到 `/v1/materials/{id}/source-parts`，暫存在 artifact 磁碟的 `.media-work/uploads`，收齊後才建立來源；同一意圖重送最後一段不會重複建立。中斷超過一天的分段上傳，以及程序被終止後留在 `.media-work` 的轉換暫存（原檔副本、YouTube 音軌、沙箱輸出），由維護 worker 清除。
 
 | 格式 | 處理與定位 |
 | --- | --- |
@@ -23,7 +23,7 @@
 
 ## 圖片、音訊、影片與 YouTube
 
-圖片組在瀏覽器依目前順序打包成不壓縮的 ZIP（`0001.png`、`0002.jpg`…），原檔即此壓縮檔。沙箱以 PyMuPDF／PyAV 將每張圖排成一頁（長邊 842 pt，JPEG 依 EXIF 轉正），mapping 記錄 `image_number`；之後與掃描 PDF 相同，由 Unlimited-OCR 建立 Evidence。HEIC 不支援：PyAV 讀不到 iPhone 照片常用的圖塊組合，`pillow-heif` 隨附 GPL 的 x265，需另行授權評估。
+圖片組在瀏覽器依目前順序打包成不壓縮的 ZIP（`0001.png`、`0002.jpg`…），原檔即此壓縮檔。沙箱以 PyMuPDF／PyAV 將每張圖排成一頁（長邊 842 pt，JPEG 依 EXIF 轉正），mapping 記錄 `image_number`；之後與掃描 PDF 相同，由 Unlimited-OCR 建立 Evidence。嵌入 PDF 的一律是壓縮影像：不超過 1.5 MiB 且長邊不超過 2,500 px 的 JPEG 原樣嵌入，其餘縮到長邊 2,500 px（OCR 繪製約 2,340 px 已足夠）後以 PNG 或 JPEG 嵌入；50 張 1,200 萬畫素手機照片（合計 88 MiB）轉成約 30 MB 的 PDF。HEIC 不支援：PyAV 無法組合 iPhone 照片常用的圖塊格式。
 
 音訊、影片音軌與沒有可用字幕的 YouTube 在斷網沙箱轉成 16 kHz 單聲道 Opus，再送到主機 Podcast provider 的 `/media-transcribe`，由本機 faster-whisper large-v3-turbo 以顯示卡批次辨識（語言自動偵測），不外送。辨識與 CosyVoice 共用 provider 的 GPU 鎖；教材 OCR 與轉檔都在教材 worker 執行緒上依序執行，不會與這裡的辨識同時進行。實測 1 小時中文課程：CPU int8 約 12.7 分鐘，顯示卡約 1 分鐘。
 

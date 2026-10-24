@@ -247,6 +247,7 @@ def test_video_upload_keeps_only_the_audio_track(closed_loop, tmp_path):
             assert [stream.type for stream in container.streams] == ["audio"]
     download = client.get(f"/v1/artifacts/{source['original_artifact_id']}/download")
     assert download.status_code == 200 and download.headers["content-type"] == "audio/mp4"
+    assert download.headers["content-disposition"].endswith("lecture.m4a")
     rejected = client.post(
         f"/v1/materials/{material}/sources",
         content=b"{}",
@@ -417,16 +418,28 @@ def test_stt_failure_is_recorded_and_retry_uses_the_saved_audio(closed_loop, mon
     assert ready["status"] == "ready" and ready["page_count"] == 1
 
 
-def test_stale_partial_uploads_are_removed(closed_loop):
-    folder = media_sources.work_root() / "uploads"
+def test_stale_uploads_and_interrupted_conversion_files_are_removed(closed_loop):
+    root = media_sources.work_root()
+    folder = root / "uploads"
     folder.mkdir(exist_ok=True)
     stale, fresh = folder / "stale.part", folder / "fresh.part"
     stale.write_bytes(b"x")
     fresh.write_bytes(b"y")
+    # 程序被終止時留下的轉換目錄（原檔副本、YouTube 音軌）與沙箱輸出。
+    interrupted = root / "normalize-abc"
+    interrupted.mkdir()
+    (interrupted / "youtube-audio.m4a").write_bytes(b"audio")
+    sandbox = root / "studydy-media-xyz"
+    (sandbox / "output").mkdir(parents=True)
+    running = root / "normalize-current"
+    running.mkdir()
     old = time.time() - 2 * 24 * 3600
-    os.utime(stale, (old, old))
+    for path in (stale, interrupted, sandbox):
+        os.utime(path, (old, old))
     media_sources.cleanup_stale_uploads()
     assert not stale.exists() and fresh.exists()
+    assert not interrupted.exists() and not sandbox.exists() and running.exists()
+    assert folder.is_dir()
 
 
 def test_artifact_constraints_allow_larger_audio_originals_only(closed_loop):
