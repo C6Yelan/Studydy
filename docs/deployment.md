@@ -229,6 +229,12 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 前後端須一起更新，以支援程度選擇、空的整組概念目標及每題自己的概念。0014 一經套用，舊版 migration runner 會因不識別新帳本版本而拒絕啟動；舊題組讀取程式也不識別跨概念資料。回復須採支援 0014 的修正版或前向修正，不能只重啟舊映像。若需還原部署前 DB，必須先處理切換後的新資料，不自動覆蓋或丟棄新題組與作答。
 
+## 0015 目標日期與分天關卡
+
+`0015_learning_goals.sql` 新增目標、排期／當日計量基準及版本更新提示的已讀資訊，對擁有者與教材有外鍵保護，不改寫既有題組、答案或完成規則。套用前備份產品 DB，並在隔離環境核對升級後原資料保留；同批備份只在新版部署驗證完成後取代前一份，不刪除其他既有備份。
+
+前後端一起更新，才能顯示教材目標、首頁關卡與島嶼摘要。套用 0015 後，回復版本必須識別新 migration 與當日基準寫入規則；採相容修正版或前向修復，不直接重啟舊版，也不自動還原 DB 丟棄新的設定或作答。不需補跑模型或建立固定未來日程。
+
 ## 後端身分與既有資料
 
 `STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。

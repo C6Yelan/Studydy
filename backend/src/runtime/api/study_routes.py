@@ -26,6 +26,7 @@ from ..storage.database import database_session
 from ..study_workspace import read_workspace, read_resume
 from . import request_context
 from .models import (
+    LearningGoalView, LearningGoalUpdate, LearningGoalAck, LearningGoalListView,
     StartingLevelView, StartingLevelUpdate, StudyStartCreate, StudyStartView,
     KnowledgeOutlineView,
     KnowledgeConceptsView,
@@ -57,6 +58,40 @@ from .models import (
 
 
 def install(app, settings):
+    from learning_adaptation import learning_goals
+
+    @app.get("/v1/materials/{material_id}/goal", response_model=LearningGoalView, tags=["learning"])
+    def material_goal(request: Request, material_id: UUID,
+                      preview_offset: int = Query(0, ge=0), preview_days: int = Query(7, ge=1, le=31)):
+        request_context.require_query(request, {"preview_offset", "preview_days"})
+        learner = request_context.trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+            db.info["read_snapshot"] = {"documents": {}, "inherited": {}, "cycles": {}}
+            return learning_goals.read_goal(db, learner.learner_id, material_id,
+                                            preview_offset=preview_offset, preview_days=preview_days)
+
+    @app.put("/v1/materials/{material_id}/goal", response_model=LearningGoalView, tags=["learning"])
+    def update_material_goal(request: Request, material_id: UUID, body: LearningGoalUpdate):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        return learning_goals.set_goal(learner, material_id, body.target_date, body.target_percent, dsn=settings.dsn)
+
+    @app.post("/v1/materials/{material_id}/goal/acknowledge-update", response_model=LearningGoalView, tags=["learning"])
+    def acknowledge_goal_update(request: Request, material_id: UUID, body: LearningGoalAck):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        return learning_goals.acknowledge_update(learner, material_id, body.knowledge_structure_revision, dsn=settings.dsn)
+
+    @app.get("/v1/learning-goals", response_model=LearningGoalListView, tags=["learning"])
+    def learning_goal_list(request: Request):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+            db.info["read_snapshot"] = {"documents": {}, "inherited": {}, "cycles": {}}
+            return learning_goals.list_goals(db, learner.learner_id)
+
     from learning_adaptation import starting_levels
 
     @app.get("/v1/materials/{material_id}/starting-level", response_model=StartingLevelView, tags=["learning"])

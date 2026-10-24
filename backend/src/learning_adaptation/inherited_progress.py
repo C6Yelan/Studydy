@@ -1,4 +1,4 @@
-"""將歷次地圖中未變 Claim 的作答證據投影到目前學習狀態。"""
+"""將歷次地圖中未變 Claim 的作答證據投影到指定版本。"""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -76,7 +76,7 @@ def preferred_focus(session, owner, material_id, revision):
     return next(iter(matched_concepts)) if len(matched_concepts) == 1 else None
 
 
-def inherited_progress(session, learner, study, plan, *, include_cycles=True):
+def inherited_progress(session, learner, material_id, revision, plan, *, include_cycles=True):
     from runtime.storage.knowledge_reads import learning
     from .assessment_state import _cycle
 
@@ -84,8 +84,8 @@ def inherited_progress(session, learner, study, plan, *, include_cycles=True):
     cache = snapshot["inherited"] if snapshot is not None else None
     key = (
         learner.learner_id,
-        study.study_session_id,
-        study.knowledge_structure_revision,
+        material_id,
+        revision,
         include_cycles,
     )
     if cache is not None and key in cache:
@@ -94,8 +94,8 @@ def inherited_progress(session, learner, study, plan, *, include_cycles=True):
     current = session.execute(
         select(KnowledgeStructure.run_id, KnowledgeStructure.created_at).where(
             KnowledgeStructure.learner_id == learner.learner_id,
-            KnowledgeStructure.material_id == study.material_id,
-            KnowledgeStructure.structure_revision == study.knowledge_structure_revision,
+            KnowledgeStructure.material_id == material_id,
+            KnowledgeStructure.structure_revision == revision,
         )
     ).one_or_none()
     if current is None:
@@ -119,7 +119,7 @@ def inherited_progress(session, learner, study, plan, *, include_cycles=True):
         )
         .where(
             StudySession.learner_id == learner.learner_id,
-            StudySession.material_id == study.material_id,
+            StudySession.material_id == material_id,
             KnowledgeStructure.created_at < current.created_at,
         )
         .order_by(StudySession.started_at, StudySession.study_session_id)
@@ -130,8 +130,8 @@ def inherited_progress(session, learner, study, plan, *, include_cycles=True):
     current_claims = {
         concept["concept_id"]: set(concept["claim_ids"]) for concept in plan["concepts"]
     }
-    for session_id, revision in previous_sessions:
-        previous = learning(session, learner.learner_id, study.material_id, revision)
+    for session_id, previous_revision in previous_sessions:
+        previous = learning(session, learner.learner_id, material_id, previous_revision)
         # 與 unchanged_claims 相同的一對一來源／文字簽章，簽章在發布時固定。
         matches = {
             tuple(origins[0]): tuple(plan["claim_signatures"][identity][0])
@@ -187,7 +187,7 @@ def inherited_progress(session, learner, study, plan, *, include_cycles=True):
                     "concept_id": target_id,
                     "inherited_from": {
                         "study_session_id": str(session_id),
-                        "knowledge_structure_revision": revision,
+                        "knowledge_structure_revision": previous_revision,
                         "run_id": previous["run_id"],
                     },
                 }

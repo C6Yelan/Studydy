@@ -72,6 +72,7 @@ async function mockLibrary(page: Page, items: () => readonly MaterialLibraryItem
 test.beforeEach(async ({ page }) => {
   await page.route(/\/v[12]\//, (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path === "/v1/learning-goals") return route.fulfill({ json: { schema: "learning-goals/v1", today: "2026-10-24", goals: [] } });
     if (["/v1/session", "/v1/session/refresh"].includes(path)) {
       expect(route.request().method()).toBe(path.endsWith("/refresh") ? "POST" : "GET");
       return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });

@@ -1,7 +1,9 @@
 import { useStudyStart } from "../study-session/StartingLevel";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { StudydyApiClient } from "../../api/client";
-import type { LearningQuest } from "../../api/contracts";
+import type { LearningGoalSummary, LearningGoalsView, LearningQuest } from "../../api/contracts";
+import { errorMessage } from "../../api/client";
+import { goalSummaryText } from "../learning-goals/goal-summary";
 import { useLearningActivity } from "../../app/LearningProgress";
 import { DailyQuests } from "./LearningCards";
 import { useProfile } from "../../app/HeaderTools";
@@ -21,6 +23,23 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   // 首頁一律重新計算，頁首共用同一份結果。
   const activity = useLearningActivity(apiClient, { fresh: true });
   const name = useProfile(apiClient)?.display_name;
+  const [goals, setGoals] = useState<LearningGoalsView | null>(null);
+  const [goalsError, setGoalsError] = useState<string | null>(null);
+  const [goalsReload, setGoalsReload] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setGoals(null); setGoalsError(null);
+    const read = () => void apiClient.getLearningGoals().then(value => {
+      if (!cancelled) { setGoals(value); setGoalsError(null); }
+    }, failure => { if (!cancelled) { setGoals(null); setGoalsError(errorMessage(failure)); } });
+    read();
+    window.addEventListener("focus", read);
+    return () => { cancelled = true; window.removeEventListener("focus", read); };
+  }, [apiClient, goalsReload]);
+  const goalsByMaterial = useMemo(() => new Map(goals?.goals.map(goal => [goal.material_id, goal]) ?? []), [goals]);
+  const openGoal = (goal: LearningGoalSummary) => writeRoute({ name: "knowledge-map", materialId: goal.material_id,
+    runId: goal.run_id, structureRevision: goal.knowledge_structure_revision }, false,
+    { knowledgeMap: { revision: goal.knowledge_structure_revision, mode: "review" } });
 
   // 依最近學習排序：有學習紀錄的教材在前，其餘依建立時間。
   const ordered = useMemo(() => [...(materials ?? [])].sort((a, b) => {
@@ -90,22 +109,24 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
               <p>{error}</p>
               <button className="secondary-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新讀取</button>
             </div>
-          ) : <IslandMap materials={materials} progress={progress} focusId={focus?.material_id} />}
+          ) : <IslandMap materials={materials} progress={progress} goals={goalsByMaterial} focusId={focus?.material_id} />}
         </section>
         {/* 右欄：今日任務與快速存取；等級在全站頁首，徽章與統計在「成就」頁。 */}
         <aside className="dashboard-side">
           {activity === undefined && <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "35%" }} /><Bone className="is-row" /><Bone className="is-row" /></div>}
-          {activity && activity.quests.length > 0 && <DailyQuests quests={activity.quests} onOpen={openQuest} />}
+          {((activity?.quests.length ?? 0) > 0 || (goals?.goals.length ?? 0) > 0) && <DailyQuests quests={activity?.quests ?? []} goals={goals?.goals ?? []} onOpen={openQuest} onOpenGoal={openGoal} />}
+          {goalsError && <p role="alert" className="dashboard-goal-error">學習目標暫時無法讀取。{goalsError}<button className="text-button" onClick={() => setGoalsReload(value => value + 1)}>重新讀取目標</button></p>}
           {materials && <QuickAccess apiClient={apiClient} next={next} />}
         </aside>
         {/* 手機上地圖較小，在右欄之後另列全部教材方便直接點選。 */}
         {materials && ordered.length > 1 && <ul className="archipelago-list" aria-label="全部教材島嶼">
           {ordered.map((material) => {
             const status = statusText(islandState(material), progress.get(material.material_id));
+            const goal = goalsByMaterial.get(material.material_id);
             return <li key={material.material_id}>
               <button type="button" onClick={() => openMaterial(material)}>
                 <span className="archipelago-list-thumb" aria-hidden="true"><IslandArt palette={islandPalette(material.material_id)} landmarks={false} /></span>
-                <span className="archipelago-list-text"><b>{material.display_name}</b><small>{status}</small></span>
+                <span className="archipelago-list-text"><b>{material.display_name}</b><small>{status}</small>{goal && <small className="island-goal-summary">{goalSummaryText(goal)}</small>}</span>
                 <Icon name="chevron-right" size={16} />
               </button>
             </li>;

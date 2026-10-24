@@ -1525,3 +1525,83 @@ class StudyStartView(_Closed):
     session: StudySessionView
     selected_set_id: UUID | None
     starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"]
+
+
+class GoalConceptView(_Closed):
+    concept_id: str
+    label: str
+    remaining_points: int
+
+
+class GoalStageView(_Closed):
+    date: date_type
+    quota_points: int
+    completed_points: int
+    remaining_points: int
+    scheduled_points: int
+    done: bool
+    concepts: list[GoalConceptView]
+
+
+class GoalProgressView(_Closed):
+    target_date: date_type
+    target_percent: Literal[60, 80, 100]
+    assessable_points: int
+    completed_points: int
+    target_points: int
+    remaining_points: int
+    achieved: bool
+    days_remaining: int
+    overdue_days: int
+    behind_points: int
+    daily_limit: Literal[20]
+    quota_over_limit: bool
+    scheduled_over_limit: bool
+    today_stage: GoalStageView
+
+
+class GoalUpdateNotice(_Closed):
+    knowledge_structure_revision: str
+    previous_points: int
+    current_points: int
+
+
+class GoalPlanView(GoalProgressView):
+    future_stages: list[GoalStageView]
+    preview_offset: int
+    preview_has_more: bool
+    manual_review: list[GoalConceptView]
+    update_notice: GoalUpdateNotice | None
+
+
+class LearningGoalView(_Closed):
+    schema_: Literal["learning-goal/v1"] = Field(alias="schema")
+    material_id: UUID
+    knowledge_structure_revision: str
+    run_id: UUID
+    today: date_type
+    goal: GoalPlanView | None
+
+
+class LearningGoalUpdate(_Closed):
+    schema_: Literal["learning-goal-update/v1"] = Field(alias="schema")
+    target_date: date_type
+    target_percent: StrictInt
+
+
+class LearningGoalAck(_Closed):
+    schema_: Literal["learning-goal-ack/v1"] = Field(alias="schema")
+    knowledge_structure_revision: str
+
+
+class LearningGoalSummary(GoalProgressView):
+    material_id: UUID
+    material_name: str
+    knowledge_structure_revision: str
+    run_id: UUID
+
+
+class LearningGoalListView(_Closed):
+    schema_: Literal["learning-goals/v1"] = Field(alias="schema")
+    today: date_type
+    goals: list[LearningGoalSummary]

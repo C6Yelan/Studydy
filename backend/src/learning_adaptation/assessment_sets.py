@@ -56,6 +56,8 @@ def _create_group(
     session, study, plan, *, lock, key, fingerprint, diagnostic_set_id=None, kind=None
 ):
     """初篩與補強共用題組／成員保存；呼叫者負責各自的資格與狀態轉移。"""
+    from .learning_goals import freeze_goal_day
+    freeze_goal_day(session, study.learner_id, study.material_id)
     group = AssessmentSet(
         set_id=uuid4(),
         learner_id=study.learner_id,
@@ -246,6 +248,8 @@ def _assessment_row(study, item, prepared):
 def _seal(session, study, group, items):
     if group.sealed_at is not None:
         raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
+    from .learning_goals import freeze_goal_day
+    freeze_goal_day(session, study.learner_id, study.material_id)
     expected_provenance = assessments._provenance(group)
     for item in items:
         if item.state == "verified":
@@ -399,6 +403,8 @@ def change_set(
                 )
             ):
                 raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
+            from .learning_goals import freeze_goal_day
+            freeze_goal_day(session, study.learner_id, study.material_id)
             for item in rows:
                 if item.state == "failed" and item.attempts < MAX_ATTEMPTS:
                     item.state, item.failure_reason = "pending", None
@@ -706,6 +712,9 @@ def _commit_prepared(work, prepared, reason, *, dsn):
             )
             if duplicate is not None:
                 prepared, reason = None, "NO_SAFE_ASSESSMENT"
+        if reason == "NO_SAFE_ASSESSMENT":
+            from .learning_goals import freeze_goal_day
+            freeze_goal_day(session, study.learner_id, study.material_id)
         item.state = "verified" if prepared is not None else "failed"
         item.prepared_document, item.failure_reason = prepared, reason
         group.lease_token = group.lease_expires_at = None

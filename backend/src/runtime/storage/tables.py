@@ -963,3 +963,22 @@ class KnowledgeChapters(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class LearningGoal(Base):
+    __tablename__ = "learning_goals"
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
+    target_date: Mapped[date] = mapped_column(Date, nullable=False)
+    target_percent: Mapped[int] = mapped_column(Integer, nullable=False)
+    baseline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    baseline_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    baseline_assessable_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    baseline_completed_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    baseline_unavailable_claim_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    notice_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    notice_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    daily_date: Mapped[date] = mapped_column(Date, nullable=False)
+    daily_unavailable_claim_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    daily_completed_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    daily_quota_points: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -1,4 +1,5 @@
 export type KnownApiReasonCode =
+  | "LEARNING_GOAL_STALE"
   | "STARTING_LEVEL_REQUIRED"
   | "SCENE_CONFLICT"
   | "SCENE_ALIGNMENT_INVALID"
@@ -176,6 +177,28 @@ export type MaterialLibraryView = {
 export type StartingLevel = "beginner" | "some_knowledge" | "familiar" | "gaps";
 export type StartingLevelView = { schema: "starting-level/v1"; material_id: string; starting_level: StartingLevel | null };
 export type StudyStartView = { schema: "study-start/v1"; session: StudySessionView; selected_set_id: string | null; starting_level: StartingLevel };
+
+export type GoalConcept = { concept_id: string; label: string; remaining_points: number };
+export type GoalStage = {
+  date: string; quota_points: number; completed_points: number; remaining_points: number;
+  scheduled_points: number; done: boolean; concepts: GoalConcept[];
+};
+export type LearningGoalSummary = {
+  material_id: string; material_name: string; knowledge_structure_revision: string; run_id: string;
+  target_date: string; target_percent: 60 | 80 | 100;
+  assessable_points: number; completed_points: number; target_points: number; remaining_points: number;
+  achieved: boolean; days_remaining: number; overdue_days: number; behind_points: number;
+  daily_limit: 20; quota_over_limit: boolean; scheduled_over_limit: boolean; today_stage: GoalStage;
+};
+export type LearningGoal = Omit<LearningGoalSummary, "material_id" | "material_name" | "knowledge_structure_revision" | "run_id"> & {
+  future_stages: GoalStage[]; preview_offset: number; preview_has_more: boolean; manual_review: GoalConcept[];
+  update_notice: { knowledge_structure_revision: string; previous_points: number; current_points: number } | null;
+};
+export type LearningGoalView = {
+  schema: "learning-goal/v1"; material_id: string; knowledge_structure_revision: string; run_id: string;
+  today: string; goal: LearningGoal | null;
+};
+export type LearningGoalsView = { schema: "learning-goals/v1"; today: string; goals: LearningGoalSummary[] };
 
 type SourceLocatorView = {
   page: number;

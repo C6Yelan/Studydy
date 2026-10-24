@@ -1,5 +1,6 @@
 import * as validate from "./response-validation.ts";
 import type {
+  LearningGoalView, LearningGoalsView,
   StartingLevel, StartingLevelView, StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
   KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, LearningRhythmPeriod, LearningRhythmView, MapProgressView, ProgressSummaryView, PodcastProgressView, PodcastProgressUpdate, StudyWorkspaceView,
@@ -51,6 +52,7 @@ type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Re
 
 const genericApiMessage = "請求無法完成，請稍後再試。";
 const apiErrorMessages: Record<KnownApiReasonCode, string> = {
+  LEARNING_GOAL_STALE: "教材或目標已更新，請重新讀取學習目標。",
   STARTING_LEVEL_REQUIRED: "請先選擇這份教材的起始程度。",
   VOICE_PODCAST_CONTEXT_INVALID: "這段 Podcast 已不可用，請重新選段或改用教材問答。",
   PODCAST_CONFLICT: "Podcast 狀態已更新，請重新讀取後操作。",
@@ -682,6 +684,30 @@ export class StudydyApiClient {
   async getStartingLevel(materialId: string): Promise<StartingLevelView> {
     return this.json(`/v1/materials/${materialId}/starting-level`, { method: "GET" },
       (value): value is StartingLevelView => validate.startingLevelView(value) && value.material_id === materialId);
+  }
+
+  async getLearningGoal(materialId: string, offset = 0): Promise<LearningGoalView> {
+    return this.json(`/v1/materials/${materialId}/goal?preview_offset=${offset}&preview_days=7`, { method: "GET" },
+      (value): value is LearningGoalView => validate.learningGoal(value) && value.material_id === materialId);
+  }
+
+  async setLearningGoal(materialId: string, date: string, percent: 60 | 80 | 100): Promise<LearningGoalView> {
+    return this.json(`/v1/materials/${materialId}/goal`, {
+      method: "PUT", headers: { Origin: origin(), "Content-Type": "application/json" },
+      body: JSON.stringify({ schema: "learning-goal-update/v1", target_date: date, target_percent: percent }),
+    }, (value): value is LearningGoalView => validate.learningGoal(value) && value.material_id === materialId
+      && value.goal?.target_date === date && value.goal.target_percent === percent);
+  }
+
+  async acknowledgeGoalUpdate(materialId: string, revision: string): Promise<LearningGoalView> {
+    return this.json(`/v1/materials/${materialId}/goal/acknowledge-update`, {
+      method: "POST", headers: { Origin: origin(), "Content-Type": "application/json" },
+      body: JSON.stringify({ schema: "learning-goal-ack/v1", knowledge_structure_revision: revision }),
+    }, (value): value is LearningGoalView => validate.learningGoal(value) && value.material_id === materialId);
+  }
+
+  getLearningGoals(): Promise<LearningGoalsView> {
+    return this.json("/v1/learning-goals", { method: "GET" }, validate.learningGoals);
   }
 
   async setStartingLevel(materialId: string, level: StartingLevel): Promise<StartingLevelView> {

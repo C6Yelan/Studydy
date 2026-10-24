@@ -232,7 +232,7 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
             if len(events) != study.last_event_number:
                 raise LearnerProgressError("LEARNER_PROGRESS_STALE")
             inherited, inherited_cycles = inherited_progress(
-                db, learner, study, context
+                db, learner, study.material_id, study.knowledge_structure_revision, context
             )
             cycles = _read_cycles(db, row)
             evidence = (

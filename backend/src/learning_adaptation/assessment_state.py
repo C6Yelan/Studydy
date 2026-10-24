@@ -248,7 +248,8 @@ def _cycle(session, study, root):
         inherited, _ = inherited_progress(
             session,
             TrustedLearner(learner_id=study.learner_id),
-            study,
+            study.material_id,
+            study.knowledge_structure_revision,
             plan,
             include_cycles=False,
         )

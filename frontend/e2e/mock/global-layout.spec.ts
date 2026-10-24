@@ -4,6 +4,7 @@ import { learningActivity, learningRhythm } from "../fixtures/learning-activity"
 const id = "11111111-1111-4111-8111-111111111111";
 const identity = { schema: "learner-identity/v1", learner_id: id };
 const responses: Record<string, unknown> = {
+  "/v1/learning-goals": { schema: "learning-goals/v1", today: "2026-10-24", goals: [] },
   "/v1/session/refresh": identity,
   "/v1/session": identity,
   "/v1/source-capabilities": {

@@ -1,4 +1,5 @@
 import type {
+  LearningGoalView, LearningGoalsView,
   StartingLevel, StartingLevelView, StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
   KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, LearningRhythmView, MapProgressView, ProgressSummaryView, PodcastProgressView, StudyWorkspaceView,
@@ -55,6 +56,54 @@ export function studyStart(value: unknown): value is StudyStartView {
   const item = object(value);
   return !!item && item.schema === "study-start/v1" && studySession(item.session)
     && startingLevel(item.starting_level) && (item.selected_set_id === null || isUuid(item.selected_set_id));
+}
+
+function goalConcepts(value: unknown): boolean {
+  return Array.isArray(value) && value.every(value => {
+    const concept = object(value);
+    return !!concept && revision(concept.concept_id, "concept") && typeof concept.label === "string" && count(concept.remaining_points);
+  });
+}
+
+function goalStage(value: unknown): boolean {
+  const stage = object(value);
+  return !!stage && typeof stage.date === "string" && isoDate.test(stage.date)
+    && [stage.quota_points, stage.completed_points, stage.remaining_points, stage.scheduled_points].every(count)
+    && typeof stage.done === "boolean" && goalConcepts(stage.concepts);
+}
+
+function goalMetrics(value: unknown): boolean {
+  const goal = object(value);
+  return !!goal && typeof goal.target_date === "string" && isoDate.test(goal.target_date)
+    && typeof goal.target_percent === "number" && [60, 80, 100].includes(goal.target_percent)
+    && [goal.assessable_points, goal.completed_points, goal.target_points, goal.remaining_points, goal.days_remaining, goal.overdue_days, goal.behind_points].every(count)
+    && goal.daily_limit === 20 && typeof goal.achieved === "boolean"
+    && typeof goal.quota_over_limit === "boolean" && typeof goal.scheduled_over_limit === "boolean"
+    && goalStage(goal.today_stage)
+    && (goal.assessable_points !== 0 || !goal.achieved);
+}
+
+export function learningGoal(value: unknown): value is LearningGoalView {
+  const item = object(value), goal = object(item?.goal);
+  return !!item && item.schema === "learning-goal/v1" && isUuid(item.material_id)
+    && revision(item.knowledge_structure_revision, "knowledge-structure") && isUuid(item.run_id)
+    && typeof item.today === "string" && isoDate.test(item.today)
+    && (item.goal === null || (!!goal && goalMetrics(goal)
+      && Array.isArray(goal.future_stages) && goal.future_stages.every(goalStage)
+      && count(goal.preview_offset) && typeof goal.preview_has_more === "boolean" && goalConcepts(goal.manual_review)
+      && (goal.update_notice === null || (!!object(goal.update_notice)
+        && revision(object(goal.update_notice)!.knowledge_structure_revision, "knowledge-structure")
+        && count(object(goal.update_notice)!.previous_points) && count(object(goal.update_notice)!.current_points)))));
+}
+
+export function learningGoals(value: unknown): value is LearningGoalsView {
+  const item = object(value);
+  return !!item && item.schema === "learning-goals/v1" && typeof item.today === "string" && isoDate.test(item.today)
+    && Array.isArray(item.goals) && item.goals.every(value => {
+      const goal = object(value);
+      return !!goal && goalMetrics(goal) && isUuid(goal.material_id) && typeof goal.material_name === "string"
+        && revision(goal.knowledge_structure_revision, "knowledge-structure") && isUuid(goal.run_id);
+    }) && new Set(item.goals.map(goal => goal.material_id)).size === item.goals.length;
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

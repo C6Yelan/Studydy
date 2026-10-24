@@ -1,5 +1,6 @@
 import { conceptsView, readResponse } from "./knowledge-read-views.mjs";
 import { diagnosisView, difficultyView } from "./learning-diagnosis";
+import { emptyGoal, goalToday } from "./learning-goals";
 // 地圖 browser 測試共用的合成資料與 API 攔截；不呼叫真實後端或模型。
 import { expect, type Page, type Route } from "@playwright/test";
 import type { EvidenceView } from "../../src/api/contracts";
@@ -300,6 +301,8 @@ export async function mockKnowledgeMapApi(
   }));
   await mockGet(page, `/v1/material-processing-runs/${runId}`, () => boundRun);
   await mockGet(page, mapPath, () => view);
+  await mockGet(page, "/v1/learning-goals", () => ({ schema: "learning-goals/v1", today: goalToday, goals: [] }));
+  await mockGet(page, `/v1/materials/${materialId}/goal`, () => emptyGoal(materialId, revision, runId));
   await mockGet(page, `/v1/materials/${materialId}/starting-level`, () => ({ schema: "starting-level/v1", material_id: materialId, starting_level: "some_knowledge" }));
   await page.route(pathMatches(`/v1/materials/${materialId}/study-start`), route => {
     const body = route.request().postDataJSON();

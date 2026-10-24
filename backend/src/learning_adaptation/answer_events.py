@@ -218,6 +218,8 @@ def record_answer(session, study, assessment, selected_option_id, idempotency_ke
     fingerprint = _fingerprint(
         study_session_id, assessment_revision, question_id, selected_option_id
     )
+    from .learning_goals import freeze_goal_day
+    freeze_goal_day(session, study.learner_id, study.material_id)
     study.last_event_number += 1
     record_set_answer(session, assessment)
     created = AnswerEvent(

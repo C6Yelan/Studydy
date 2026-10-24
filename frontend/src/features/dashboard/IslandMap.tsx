@@ -7,6 +7,8 @@ import { Icon } from "../../ui/Icon";
 import { Bone } from "../../ui/Skeleton";
 import { cellX, cellY, layoutIslands } from "./island-layout";
 import { islandState, openMaterial, statusText, type IslandProgress } from "./islands";
+import type { LearningGoalSummary } from "../../api/contracts";
+import { goalSummaryText } from "../learning-goals/goal-summary";
 
 // 可拖曳、縮放的群島地圖（島位見 island-layout.ts）。畫面位移與縮放存在 CSS 變數 --tx/--ty/--k，
 // 拖曳時直接改變數、不經過 React 重繪，島的標籤維持固定字級。
@@ -20,9 +22,10 @@ type View = { x: number; y: number; k: number };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-export function IslandMap({ materials, progress, focusId }: {
+export function IslandMap({ materials, progress, goals, focusId }: {
   materials: MaterialLibraryItem[] | null;
   progress: Map<string, IslandProgress>;
+  goals: Map<string, LearningGoalSummary>;
   /** 只用於島太多時初始置中的位置，地圖上不另外標記。 */
   focusId: string | undefined;
 }) {
@@ -255,15 +258,17 @@ export function IslandMap({ materials, progress, focusId }: {
           const value = progress.get(material.material_id);
           const status = statusText(state, value);
           const started = value?.completed ?? 0;
+          const goal = goals.get(material.material_id);
+          const goalText = goal ? goalSummaryText(goal) : null;
           return <li key={material.material_id} className={`map-island is-${state}`}
             style={{ "--x": `${x}px`, "--y": `${y}px`, "--w": `${w}px`, "--h": `${h}px` } as CSSProperties}>
-            <button type="button" onClick={() => openMaterial(material)} onFocus={() => reveal(x, y)} aria-label={`${material.display_name}，${status}`}>
+            <button type="button" onClick={() => openMaterial(material)} onFocus={() => reveal(x, y)} aria-label={`${material.display_name}，${status}${goalText ? `，${goalText}` : ""}`}>
               <span className="map-island-art"><IslandArt palette={islandPalette(material.material_id)} viewBox="100 60 840 470" landmarks={state !== "building"} /></span>
               <span className="island-flag">
                 <ProgressRing ratio={value && value.total ? started / value.total : 0} color={state === "completed" ? "var(--success)" : "var(--warning)"}>
                   {state === "building" ? <Icon name="process" size={16} /> : state === "failed" ? <Icon name="warning" size={16} /> : started}
                 </ProgressRing>
-                <span className="island-flag-text"><b>{material.display_name}</b><small>{status}</small></span>
+                <span className="island-flag-text"><b>{material.display_name}</b><small>{status}</small>{goalText && <small className="island-goal-summary">{goalText}</small>}</span>
               </span>
             </button>
           </li>;

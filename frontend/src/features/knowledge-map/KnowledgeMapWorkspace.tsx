@@ -1,5 +1,6 @@
 import { DifficultyBadge, DifficultyList, LearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { StartingLevelControl } from "../study-session/StartingLevel";
+import { LearningGoalPanel } from "../learning-goals/LearningGoalPanel";
 import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import type { AppRoute } from "../../app/routes";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
@@ -1355,6 +1356,7 @@ export function KnowledgeMapWorkspace({
               nextConcept={nextLearningConcept?.label ?? null} busy={isStartingStudy}
               onContinue={nextLearningConcept ? () => onStartStudy(nextLearningConcept.concept_id)
                 : !progress && view.initial_learning_path[0] ? () => onStartStudy(view.initial_learning_path[0].concept_id) : null} />
+            <LearningGoalPanel key={mapRoute.materialId} api={apiClient} materialId={mapRoute.materialId} />
             <LearningDiagnosis api={apiClient} materialId={mapRoute.materialId} revision={view.knowledge_structure_revision} onReview={onStartStudy} disabled={isStartingStudy} />
             <DifficultyList report={difficulty} onReview={onStartStudy} disabled={isStartingStudy} />
           </div>}

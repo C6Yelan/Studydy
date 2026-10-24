@@ -85,12 +85,12 @@ def _material_states(db, study, plan, *, through=None):
     from .learning_states import derive_learning_states
     from .assessment_state import unavailable_claims, completed_concepts
     from .inherited_progress import inherited_progress
-    from .study_sessions import _stored
     from runtime.learner_session import TrustedLearner
 
     events = _read_events(db, study)
     inherited, inherited_cycles = inherited_progress(
-        db, TrustedLearner(study.learner_id), _stored(study), plan, include_cycles=through is None)
+        db, TrustedLearner(study.learner_id), study.material_id, study.knowledge_structure_revision,
+        plan, include_cycles=through is None)
     if through is not None:
         events = tuple(event for event in events if event.created_at <= through)
         inherited = tuple(event for event in inherited if event.created_at <= through)
