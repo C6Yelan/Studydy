@@ -12,6 +12,8 @@ def concepts():
 
 
 def response(request):
+    if request.get("phase") == "review_paragraph":
+        return {"checks": [{"part": part, "supported": True, "reason": ""} for part in request["parts"]]}
     return {"paragraphs": [{"heading": c["label"], "text": q["text"], "table": None, "formula": None,
         "claim_ids": [q["claim_id"]], "evidence_ids": q.get("evidence_ids") or [e["evidence_id"] for e in q["evidence"]]}
         for c in request["concepts"] for q in c["claims"]]}
@@ -79,7 +81,9 @@ def test_full_notes_batch_without_omitting_points(monkeypatch):
         calls.append(request)
         return response(request)
     result = full(values, answer)
-    assert len(result) == 3 and len(calls) == 3
+    assert len(result) == 3
+    assert len([r for r in calls if r.get("phase") == "review_paragraph"]) == 3
+    assert len([r for r in calls if r.get("phase") != "review_paragraph"]) == 3
     assert {v for p in result for v in p["claim_ids"]} == {"q0", "q1", "q2"}
 
 
@@ -129,7 +133,7 @@ def test_large_summary_selects_points_then_writes_with_complete_original_evidenc
             return {'claim_ids':[request['candidates'][0]['ref']]}
         return response(request)
     result=mn.compute_summary(values,model)
-    assert len(calls)==2 and calls[0]['phase']=='select_summary'
+    assert len(calls)==3 and calls[0]['phase']=='select_summary'
     assert calls[1]['evidence'][0]['quotes']==[values[0]['claims'][0]['evidence'][0]['quote']]
     assert result[0]['claim_ids']==['q0']
 
@@ -156,7 +160,7 @@ def test_summary_overflow_correction_keeps_font_and_makes_a_shorter_body():
             value['paragraphs'][0]['text']='太長的摘要正文。'*500
         return value
     result=mn.compute_summary(concepts(),model)
-    assert len(calls)==2 and calls[1]['correction']['problem']=='NOTE_SUMMARY_TOO_LONG'
+    assert len(calls)==5 and calls[1]['correction']['problem']=='NOTE_SUMMARY_TOO_LONG'
     assert len(pymupdf.open(stream=nc.summary_pdf(result)))==1
 
 
@@ -186,3 +190,103 @@ def test_same_evidence_distinct_quotes_stay_complete_and_anchor_survives_order_i
     for seed in ('1','3'):
         result=subprocess.check_output([sys.executable,'-c',script],input=json.dumps({'raw':raw,'concepts':values}).encode(),env={**os.environ,'PYTHONHASHSEED':seed})
         assert result.decode().strip()==original['anchor']
+
+
+@pytest.mark.parametrize('bad_part', ['text', 'formula', 'table.row.0'])
+def test_content_mismatch_regenerates_the_paragraph_and_rechecks_every_part(bad_part):
+    values=concepts()[:1]
+    values[0]['claims']=values[0]['claims'][:1]
+    calls=[]
+    writers=[]
+    def model(request):
+        calls.append(request)
+        if request.get('phase')=='review_paragraph':
+            return {'checks':[{'part':part,'supported':not (len(writers)==1 and part==bad_part),
+                'reason':'該條件與數值的配對不受同一範例支持。' if len(writers)==1 and part==bad_part else ''}
+                for part in request['parts']]}
+        writers.append(request)
+        result=response(request)
+        result['paragraphs'][0].update(formula='來源例中的值',table={'headers':['項目','來源內容'],'rows':[['甲','範例甲的值']]})
+        return result
+    result=full(values,model)
+    assert len(writers)==2 and len(calls)==4
+    feedback=writers[1]['correction']['content_review']
+    assert feedback['issues'][0]['part']==bad_part
+    assert writers[1]['correction']['problem']=='NOTE_CONTENT_UNSUPPORTED'
+    assert result and calls[-1]['phase']=='review_paragraph'
+    assert calls[-1]['parts']==['heading','text','formula','table.headers','table.row.0']
+
+
+@pytest.mark.parametrize('bad_response', ['missing_part','duplicate_part','string_boolean','empty_checks'])
+def test_content_review_rejects_missing_or_malformed_verdicts(bad_response):
+    raw=response({'concepts':concepts()})
+    paragraph=nc.validate(raw,concepts(),'full')[0]
+    def model(request):
+        checks=[{'part':p,'supported':True,'reason':''} for p in request['parts']]
+        if bad_response=='missing_part':checks.pop()
+        if bad_response=='duplicate_part':checks[-1]=checks[0]
+        if bad_response=='string_boolean':checks[0]['supported']='true'
+        if bad_response=='empty_checks':checks=[]
+        return {'checks':checks}
+    with pytest.raises(nc.ReviewInvalid,match='NOTE_REVIEW_INVALID'):
+        nc.review_paragraph(paragraph,model)
+
+
+def test_content_review_sees_only_cited_original_and_keeps_all_table_rows():
+    values=concepts()
+    raw=response({'concepts':values})
+    raw['paragraphs'][0].update(formula='原文公式',table={'headers':['項目','內容'],'rows':[['甲','原文甲'],['乙','原文乙']]})
+    p=nc.validate(raw,values,'full')[0]
+    seen=[]
+    def model(request):
+        seen.append(request)
+        return response(request)
+    assert nc.review_paragraph(p,model)==[]
+    assert seen[0]['parts']==['heading','text','formula','table.headers','table.row.0','table.row.1']
+    assert [q for e in seen[0]['evidence'] for q in e['quotes']]==['原文 0']
+    assert seen[0]['paragraph']['formula']=='原文公式'
+    assert seen[0]['paragraph']['table']==raw['paragraphs'][0]['table']
+
+
+def test_repair_does_not_rewrite_or_recheck_other_supported_paragraphs():
+    calls=[]
+    writers=[]
+    seen_bad=False
+    def model(request):
+        nonlocal seen_bad
+        calls.append(request)
+        if request.get('phase')=='review_paragraph':
+            rejected=request['paragraph']['text']=='第 1 個重點' and not seen_bad
+            if rejected:seen_bad=True
+            return {'checks':[{'part':p,'supported':not (rejected and p=='text'),
+                'reason':'需修正此段說明。' if rejected and p=='text' else ''} for p in request['parts']]}
+        writers.append(request)
+        return response(request)
+    result=full(concepts(),model)
+    assert len(writers)==2
+    assert len(writers[1]['concepts'][0]['claims'])==1
+    assert writers[1]['concepts'][0]['claims'][0]['text']=='第 1 個重點'
+    reviewed=[r['paragraph']['text'] for r in calls if r.get('phase')=='review_paragraph']
+    assert reviewed==['第 0 個重點','第 1 個重點','第 1 個重點','第 2 個重點']
+    assert [p['text'] for p in result]==['第 0 個重點','第 1 個重點','第 2 個重點']
+
+
+def test_writer_and_checker_keep_source_page_block_order_and_geometry():
+    values=concepts()
+    e=values[0]['claims'][0]['evidence'][0]
+    e.update(source_id='source-a',source_name='A.pdf',page=7,normalized_page=2,block_order=4,
+        source_locator={'page':7,'region':[12.3456,24.5678,102.7890,48.9012]})
+    original=deepcopy(e)
+    request,_=mn.model_request(values,'full')
+    source=request['evidence'][0]
+    assert source['source_id']=='source-a' and source['page']==2 and source['block_order']==4
+    assert source['region']==[12.35,24.57,102.79,48.9]
+    paragraph=nc.validate(response({'concepts':values}),values,'full')[0]
+    checks=[]
+    def model(request):
+        checks.append(request)
+        return response(request)
+    nc.review_paragraph(paragraph,model)
+    for key in ('source_id','source_name','page','block_order','region','quotes'):
+        assert checks[0]['evidence'][0][key]==source[key]
+    assert e==original and paragraph['evidence'][0]==original

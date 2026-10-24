@@ -80,8 +80,16 @@ def generate(owner, material_id, revision, kind, expected_generation, *, dsn=Non
         elif expected_generation != row.generation:
             raise SourceError("REVISION_CONFLICT")
         else:
-            if row.status == "ready" or row.section_plan is None:
-                row.runtime_lock = configured_lock()
+            current_lock = configured_lock()
+            contract_changed = (
+                row.runtime_lock.get("material_notes") != current_lock["material_notes"]
+                or row.runtime_lock.get("semantic_service") != current_lock["semantic_service"]
+                or row.runtime_lock.get("material_review", {}).get("generation")
+                   != current_lock["material_review"]["generation"]
+            )
+            if row.status == "ready" or row.section_plan is None or contract_changed:
+                # 只清除未發布的工作；不可把舊契約批次混入新請求，已發布內容與註記仍保留。
+                row.runtime_lock = current_lock
                 row.section_plan = row.section_results = row.progress_stage = None
             row.status, row.error_code, row.attempts = "pending", None, 0
             row.updated_at = datetime.now(UTC)
@@ -212,8 +220,7 @@ def model_request(concepts, kind):
             for item in claim["evidence"]:
                 source = evidence.setdefault(item["evidence_id"], {
                     "evidence_id": f"E{len(evidence) + 1}",
-                    "page": item.get("normalized_page", item["page"]),
-                    "source_name": item.get("source_name"), "quotes": [],
+                    **note_content.evidence_location(item), "quotes": [],
                 })
                 if item["quote"] not in source["quotes"]:
                     source["quotes"].append(item["quote"])
@@ -261,7 +268,6 @@ def generate_part(part, mode, call):
             result = note_content.validate(canonical_response(response, identities), part, mode)
             if mode == "summary":
                 note_content.summary_pdf(result)
-            return result
         except (ValueError, TypeError, KeyError) as error:
             if attempt:
                 raise
@@ -273,7 +279,37 @@ def generate_part(part, mode, call):
                 "請依原始來源重新撰寫並修正此問題，完整筆記不可遺漏任何重點。"
             )
             request = {**request, "correction": {"problem": code, "instruction": instruction}}
-    raise AssertionError("unreachable")
+        else:
+            break
+    checked = []
+    repaired_any = False
+    for index, paragraph in enumerate(result):
+        issues = note_content.review_paragraph(paragraph, call)
+        if not issues:
+            checked.append(paragraph)
+            continue
+        # 只重生不符段落，避免把已核對的其他段落重新改寫並引入新錯誤。
+        repaired_any = True
+        ids = set(paragraph["claim_ids"])
+        scope = [{**c, "claims": [q for q in c["claims"] if q["claim_id"] in ids]} for c in part]
+        scope = [c for c in scope if c["claims"]]
+        repair, mapping = model_request(scope, mode)
+        repair["correction"] = {
+            "problem": "NOTE_CONTENT_UNSUPPORTED",
+            "instruction": "只重寫這個段落，保持原有大致篇幅，保留本次提供的所有重點。只依原文修正，不把核對理由當作新來源。",
+            "content_review": {"paragraph_index": index,
+                "paragraph": {k: paragraph[k] for k in ("heading", "text", "formula", "table")},
+                "issues": issues},
+        }
+        # 替換前後保留同一組重點；摘要亦不能在修正單段時偷偷刪掉原本涵蓋的點。
+        repaired = note_content.validate(canonical_response(call(repair), mapping), scope, "full")
+        for replacement in repaired:
+            if note_content.review_paragraph(replacement, call):
+                raise ValueError("NOTE_CONTENT_UNSUPPORTED")
+        checked.extend(repaired)
+    if mode == "summary" and repaired_any:
+        note_content.summary_pdf(checked)
+    return checked
 
 
 def compute_summary(concepts, call):
@@ -408,7 +444,8 @@ def step(*, dsn=None, call=None, stop=None):
         lock = deepcopy(claim["lock"])
         policy = lock["material_notes"]
         if (policy["version"] != note_content.POLICY or policy["prompt"] != note_content.PROMPT
-            or policy["selection_prompt"] != note_content.SELECTION_PROMPT):
+            or policy["selection_prompt"] != note_content.SELECTION_PROMPT
+            or policy["review_prompt"] != note_content.REVIEW_PROMPT):
             raise ValueError("NOTE_CONTRACT_INVALID")
         # 沿現有文字 provider 通道，使用工作建立時封存的獨立筆記契約。
         lock["material_review"] = {**lock["material_review"], "prompt": policy["prompt"], "max_tokens": policy["max_tokens"]}
@@ -417,9 +454,14 @@ def step(*, dsn=None, call=None, stop=None):
             _check(claim, dsn, stop, count_call=True)
             if call is not None:
                 return call(payload)
-            selection = payload.get("phase") == "select_summary"
-            task_lock = {**lock["material_review"], "prompt": policy["selection_prompt"] if selection else policy["prompt"]}
-            schema = note_content.SummarySelection if selection else note_content.Response
+            phase = payload.get("phase")
+            if phase == "review_paragraph":
+                prompt, schema = policy["review_prompt"], note_content.ContentReview
+            elif phase == "select_summary":
+                prompt, schema = policy["selection_prompt"], note_content.SummarySelection
+            else:
+                prompt, schema = policy["prompt"], note_content.Response
+            task_lock = {**lock["material_review"], "prompt": prompt}
             with semantic_client() as client:
                 return request_semantics(client, runtime_lock={**lock, "material_review": task_lock}, task="material_review",
                     request=payload, response_schema=schema.model_json_schema(),
@@ -437,7 +479,7 @@ def step(*, dsn=None, call=None, stop=None):
     except Exception as error:
         code = error.reason_code if isinstance(error, SemanticServiceError) else str(error)
         if code not in {"NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_COVERAGE_INCOMPLETE",
-            "NOTE_SUMMARY_TOO_LONG", "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID"} and not isinstance(error, SemanticServiceError):
+            "NOTE_SUMMARY_TOO_LONG", "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID", "NOTE_CONTENT_UNSUPPORTED", "NOTE_REVIEW_INVALID"} and not isinstance(error, SemanticServiceError):
             code = "NOTE_GENERATION_FAILED"
         logging.getLogger(__name__).warning("NOTE_GENERATION_FAILED error_type=%s", type(error).__name__)
         _save(claim, dsn, error=code)

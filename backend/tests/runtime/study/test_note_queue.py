@@ -16,6 +16,8 @@ HEADERS = {"Origin": ORIGIN}
 
 
 def answer(request):
+    if request.get("phase") == "review_paragraph":
+        return {"checks": [{"part": part, "supported": True, "reason": ""} for part in request["parts"]]}
     return {"paragraphs": [{"heading": c["label"], "text": q["text"], "table": None, "formula": None,
         "claim_ids": [q["claim_id"]], "evidence_ids": q.get("evidence_ids") or [e["evidence_id"] for e in q["evidence"]]}
         for c in request["concepts"] for q in c["claims"]]}
@@ -76,6 +78,8 @@ def test_annotations_keep_snapshot_and_failed_regeneration_preserves_readable_no
     assert failed["paragraphs"] == first["paragraphs"] and failed["annotations"][0]["body"] == "我的筆記"
     client.post(path + "/summary", headers=HEADERS, json={"expected_generation": 1})
     def changed_prose(request):
+        if request.get("phase") == "review_paragraph":
+            return answer(request)
         result = answer(request)
         result["paragraphs"][0]["text"] += "（重新整理）"
         return result
@@ -185,6 +189,8 @@ def test_full_sections_report_progress_and_resume_saved_parts(closed_loop, tmp_p
     assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code == 202
     calls=[]
     def stop_second(request):
+        if request.get("phase") == "review_paragraph":
+            return answer(request)
         calls.append(request)
         if len(calls)==2:
             view=client.get(path+'/full').json()
@@ -199,6 +205,8 @@ def test_full_sections_report_progress_and_resume_saved_parts(closed_loop, tmp_p
     assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
     resumed=[]
     def finish_remaining(request):
+        if request.get("phase") == "review_paragraph":
+            return answer(request)
         resumed.append(request)
         return answer(request)
     assert mn.step(dsn=f['dsn'],call=finish_remaining)
@@ -207,3 +215,85 @@ def test_full_sections_report_progress_and_resume_saved_parts(closed_loop, tmp_p
     assert len(resumed)==1 and len(done['paragraphs'])==3
     with database_session(f['dsn']) as db:
         assert db.get(MaterialNotes,(owner,material,revision,'full')).section_results is None
+
+
+def test_changed_contract_discards_unpublished_sections_and_retry_can_finish(closed_loop, tmp_path, monkeypatch):
+    f, client, path=setup(closed_loop,tmp_path,monkeypatch)
+    drain(f)
+    assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
+    drain(f)
+    first=client.get(path+'/full').json()
+    key=(f['learner'].learner_id,f['source'].material_id,f['document']['revision'],'full')
+    with database_session(f['dsn']) as db:
+        row=db.get(MaterialNotes,key)
+        old=deepcopy(row.runtime_lock)
+        old['material_notes'].update(version='material-notes/v1',prompt='previous writing policy')
+        old['material_notes'].pop('review_prompt')
+        row.runtime_lock=old
+        row.status,row.error_code='failed','NOTE_CONTRACT_INVALID'
+        row.section_results=[deepcopy(row.paragraphs)]
+        row.progress_stage='validating'
+    queued=client.post(path+'/full',headers=HEADERS,json={'expected_generation':1})
+    assert queued.status_code==202
+    assert queued.json()['progress'] is None and queued.json()['paragraphs']==first['paragraphs']
+    with database_session(f['dsn']) as db:
+        row=db.get(MaterialNotes,key)
+        assert row.section_plan is None and row.section_results is None
+        assert row.runtime_lock==mn.configured_lock()
+    calls=[]
+    def model(request):
+        calls.append(request)
+        return answer(request)
+    assert mn.step(dsn=f['dsn'],call=model)
+    final=client.get(path+'/full').json()
+    assert final['status']=='ready' and final['generation']==2
+    assert any(r.get('phase')!='review_paragraph' for r in calls)
+    assert len([r for r in calls if r.get('phase')=='review_paragraph'])==3
+
+
+def test_content_rejection_keeps_published_notes_and_does_not_checkpoint_unchecked_full_notes(closed_loop, tmp_path, monkeypatch):
+    f,client,path=setup(closed_loop,tmp_path,monkeypatch)
+    drain(f)
+    old=client.get(path+'/summary').json()
+    assert client.post(path+'/summary',headers=HEADERS,json={'expected_generation':1}).status_code==202
+    calls=[]
+    def reject(request):
+        calls.append(request)
+        if request.get('phase')=='review_paragraph':
+            return {'checks':[{'part':p,'supported':p!='text','reason':'來源沒有此條件。' if p=='text' else ''} for p in request['parts']]}
+        return answer(request)
+    drain(f,reject)
+    failed=client.get(path+'/summary').json()
+    assert failed['status']=='failed' and failed['error_code']=='NOTE_CONTENT_UNSUPPORTED'
+    assert failed['paragraphs']==old['paragraphs'] and failed['generation']==1
+    assert [r.get('phase','generate') for r in calls]==['generate','review_paragraph']*2
+    assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
+    drain(f,reject)
+    full=client.get(path+'/full').json()
+    assert full['status']=='failed' and full['paragraphs']==[]
+    assert full['progress']['completed_parts']==0
+    with database_session(f['dsn']) as db:
+        key=(f['learner'].learner_id,f['source'].material_id,f['document']['revision'],'full')
+        assert db.get(MaterialNotes,key).section_results==[]
+
+
+def test_step_dispatches_content_checks_with_the_saved_review_contract(closed_loop,tmp_path,monkeypatch):
+    f,client,path=setup(closed_loop,tmp_path,monkeypatch)
+    seen=[]
+    def semantics(_client,*,runtime_lock,task,request,response_schema,cancellation_check):
+        cancellation_check()
+        phase=request.get('phase','generate')
+        seen.append(phase)
+        assert task=='material_review'
+        if phase=='review_paragraph':
+            assert runtime_lock['material_review']['prompt']==runtime_lock['material_notes']['review_prompt']
+            assert 'checks' in response_schema['properties']
+        else:
+            assert runtime_lock['material_review']['prompt']==runtime_lock['material_notes']['prompt']
+        return answer(request)
+    monkeypatch.setattr(mn,'request_semantics',semantics)
+    while mn.step(dsn=f['dsn']):pass
+    result=client.get(path+'/summary').json()
+    assert result['status']=='ready'
+    assert seen.count('review_paragraph')==4  # fixture 的一段教材，加上本教材三段
+    assert seen.count('generate')==2

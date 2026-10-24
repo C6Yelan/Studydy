@@ -109,3 +109,16 @@ test("full notes show restored section progress and retain completed work on ret
   await expect(page.getByRole("button", { name: "生成中", exact: true })).toBeDisabled();
   await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("value", "1");
 });
+
+
+test("content verification failure retains the last published notes", async ({ page }) => {
+  const initial = notes();
+  initial.status = "failed";
+  initial.error_code = "NOTE_CONTENT_UNSUPPORTED";
+  await setup(page, initial);
+  await page.goto(`/materials/${materialId}/notes`);
+  await expect(page.getByText(/筆記內容與引用原文不符/)).toBeVisible();
+  await expect(page.getByText(/以下保留上一份筆記/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "堆疊的順序" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重新生成", exact: true })).toBeEnabled();
+});

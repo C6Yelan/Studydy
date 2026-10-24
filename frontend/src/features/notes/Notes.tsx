@@ -46,6 +46,9 @@ function AnnotationEditor({ api, editor, close, saved }: { api: StudydyApiClient
 }
 
 const failureMessages: Record<string, string> = {
+  NOTE_CONTENT_UNSUPPORTED: "筆記內容與引用原文不符，重新生成後仍未通過核對，尚未發布。",
+  NOTE_REVIEW_INVALID: "筆記內容核對未完成，尚未發布。請稍後重試。",
+  NOTE_CONTRACT_INVALID: "筆記生成規則已更新，請重新生成。已完成的筆記與註記仍保留。",
   NOTE_SUMMARY_TOO_LONG: "重點整理超過 A4 一頁，尚未發布。可重新生成。",
   NOTE_COVERAGE_INCOMPLETE: "完整筆記尚未涵蓋所有重點，尚未發布。可重新生成。",
   NOTE_INPUT_TOO_LARGE: "教材內容超出這次筆記生成容量，尚未發布。",
@@ -96,7 +99,7 @@ function NotesContent({ api, materialId, revision, kind }: { api: StudydyApiClie
       {(view.source_status.quality === "needs_review" || view.source_status.processing !== "succeeded" || view.source_status.decision !== "retain") &&
         <p className="note-source-notice">教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。</p>}
       <div className="note-status" aria-live="polite">
-        {pending ? <p>{view.status === "pending" ? "筆記已排入生成佇列。" : "正在撰寫並核對筆記來源…"}{view.paragraphs.length > 0 && "以下仍可閱讀上一份筆記。"}</p>
+        {pending ? <p>{view.status === "pending" ? "筆記已排入生成佇列。" : "正在撰寫並逐段核對筆記內容…"}{view.paragraphs.length > 0 && "以下仍可閱讀上一份筆記。"}</p>
           : view.status === "failed" ? <p>{failureMessages[view.error_code ?? ""] ?? "筆記生成未完成，請稍後重試。"}{view.paragraphs.length > 0 && "以下保留上一份筆記。"}</p>
           : view.status === "not_generated" ? <p>{kind === "full" ? "完整筆記依教材學習順序涵蓋所有重點，按下按鈕後開始生成。" : "重點整理尚未生成。"}</p> : null}
         <button type="button" className={view.paragraphs.length ? "secondary-button" : "primary-button"} disabled={busy || pending} onClick={() => void generate()}>
