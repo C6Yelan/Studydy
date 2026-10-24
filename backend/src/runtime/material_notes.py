@@ -260,27 +260,105 @@ def batches(concepts):
     return result
 
 
+def _layout_request(request, paragraphs, layout, *, expand=False):
+    action = "充實" if expand else "精簡"
+    ratio = round(layout["target_height_ratio"] * 100)
+    instruction = (
+        f"依實測排版{action}到目前稿高約 {ratio}%。"
+        f"本次標題、正文、公式與所有表格儲存格合計目標為 {layout['suggested_characters']} 字，"
+        + ("請接近這個目標。" if expand else "輸出前自行計數，不得超過這個依本稿超頁比例算出的目標。")
+        + "不要套固定段數；以填入一頁為目標，不改字級。"
+        + ("對照原文補充尚未說明的核心內容，包含已引用重點中省略的用途、機制或必要條件；只有編號列出不算已解說。沒有其他核心內容可補時保留原稿，不以重複敘述填空。" if expand else
+           "優先精簡贅詞與重複說明、合併相近段落／表格，盡量保留不同主題及其必要條件。")
+    )
+    correction = {
+        "problem": "NOTE_SUMMARY_ROOM" if expand else "NOTE_SUMMARY_TOO_LONG",
+        "instruction": instruction, "layout": layout,
+        "previous_body": [{k: p[k] for k in ("heading", "text", "formula", "table")} for p in paragraphs],
+    }
+    if not expand:
+        correction["max_paragraphs"] = max(1, int(len(paragraphs) * layout["target_height_ratio"]))
+        correction["instruction"] += (
+            f"依本稿超頁比例，合併相近主題為至多 {correction['max_paragraphs']} 段，減少標題及段間留白；保留不同主題的核心敘述。")
+    return {**request, "correction": correction}
+
+
 def generate_part(part, mode, call):
     request, identities = model_request(part, mode)
-    for attempt in range(2):
+    format_retried, expanded, reflows = False, False, 0
+    reference_repair = None
+    repaired_references = set()
+    while True:
         response = call(request)
         try:
+            if reference_repair is not None:
+                original, index = reference_repair
+                repaired = note_content.Response.model_validate(response).model_dump()["paragraphs"][index]
+                # 引用補正只採用出錯段落的編號，正文及其他合法段落不跟著重寫。
+                for field in ("claim_ids", "evidence_ids"):
+                    original["paragraphs"][index][field] = repaired[field]
+                response = original
             result = note_content.validate(canonical_response(response, identities), part, mode)
-            if mode == "summary":
-                note_content.summary_pdf(result)
         except (ValueError, TypeError, KeyError) as error:
-            if attempt:
+            reference_error = isinstance(error, note_content.ReferenceInvalid)
+            if (reference_error and error.paragraph_index in repaired_references
+                or not reference_error and format_retried):
                 raise
+            format_retried = True
             code = str(error) if str(error).startswith("NOTE_") else "NOTE_FORMAT_INVALID"
-            instruction = (
-                "摘要仍超頁：請只保留最重要內容，縮為至多3段、正文總長350～450字，"
-                "刪除非必要表格，不縮小字級；保留必要條件與正確引用。"
-                if code == "NOTE_SUMMARY_TOO_LONG" else
-                "請依原始來源重新撰寫並修正此問題，完整筆記不可遺漏任何重點。"
-            )
-            request = {**request, "correction": {"problem": code, "instruction": instruction}}
-        else:
-            break
+            instruction = ("只修正 previous_response 的 claim_ids／evidence_ids，標題、正文、公式與表格保持不變。每個 claim_ids 都須有其對應的 evidence_ids；刪掉不屬於本段 claim_ids 的 evidence_ids，兩種編號都不可重複。"
+                if code == "NOTE_REFERENCE_INVALID" else "修正前次回應的格式或重點涵蓋問題，並遵守已有的排版限制。")
+            request = {**request, "correction": {**request.get("correction", {}),
+                "problem": code,
+                "instruction": instruction,
+                "previous_response": response}}
+            if reference_error:
+                repaired_references.add(error.paragraph_index)
+                reference_repair = (deepcopy(response), error.paragraph_index)
+                claims = {original: ref for ref, original in identities["claims"].items()}
+                evidence = {original: ref for ref, original in identities["evidence"].items()}
+                request["correction"]["reference_error"] = {
+                    "paragraph_index": error.paragraph_index,
+                    "claims_missing_evidence": [claims[c] for c in error.missing_claims],
+                    "evidence_options": {q["claim_id"]: q["evidence_ids"]
+                        for c in request["concepts"] for q in c["claims"]
+                        if q["claim_id"] in {claims[cid] for cid in error.missing_claims}},
+                    "evidence_not_in_paragraph_claims": [evidence[e] for e in error.extra_evidence],
+                }
+            continue
+        # 每份重排新稿各可修正一次格式；較早稿件用過的補正不應阻止新稿修正引用。
+        format_retried = False
+        reference_repair = None
+        repaired_references.clear()
+        if mode == "summary":
+            layout = note_content.summary_layout(result)
+            if not layout["fits"]:
+                if reflows >= 4:
+                    raise note_content.SummaryTooLong(layout)
+                reflows += 1
+                request = _layout_request(request, result, layout)
+                continue
+            if not expanded and not reflows:
+                smallest = min(note_content.summary_layout([p])["used_height_pt"] for p in result)
+                room = layout["available_height_pt"] - layout["used_height_pt"]
+                # ID 已列出不代表其核心內容已說明；有空間就請模型檢查一次可補充的來源內容。
+                if room >= smallest:
+                    expanded = True
+                    request = _layout_request(request, result, layout, expand=True)
+                    continue
+        checked, changed = _check_paragraphs(result, part, mode, call)
+        if mode == "summary" and changed:
+            layout = note_content.summary_layout(checked)
+            if not layout["fits"]:
+                if reflows >= 4:
+                    raise note_content.SummaryTooLong(layout)
+                reflows += 1
+                request = _layout_request(request, checked, layout)
+                continue  # 重排改動正文後，全部新段落仍須重新核對。
+        return checked
+
+
+def _check_paragraphs(result, part, mode, call):
     checked = []
     repaired_any = False
     for index, paragraph in enumerate(result):
@@ -296,7 +374,7 @@ def generate_part(part, mode, call):
         repair, mapping = model_request(scope, mode)
         repair["correction"] = {
             "problem": "NOTE_CONTENT_UNSUPPORTED",
-            "instruction": "只重寫這個段落，保持原有大致篇幅，保留本次提供的所有重點。只依原文修正，不把核對理由當作新來源。",
+            "instruction": "只修正這個段落中核對指出的不符字句；其他已有來源支持的敘述保持不變，避免重寫時新增斷言。保持原有大致篇幅，保留本次提供的所有重點。只依原文修正，不把核對理由當作新來源。",
             "content_review": {"paragraph_index": index,
                 "paragraph": {k: paragraph[k] for k in ("heading", "text", "formula", "table")},
                 "issues": issues},
@@ -307,16 +385,14 @@ def generate_part(part, mode, call):
             if note_content.review_paragraph(replacement, call):
                 raise ValueError("NOTE_CONTENT_UNSUPPORTED")
         checked.extend(repaired)
-    if mode == "summary" and repaired_any:
-        note_content.summary_pdf(checked)
-    return checked
+    return checked, repaired_any
 
 
-def compute_summary(concepts, call):
+def compute_summary(concepts, call, *, input_budget):
     if not concepts or not any(c["claims"] for c in concepts):
         raise ValueError("NOTE_SOURCE_EMPTY")
     selected = concepts
-    while len(batches(selected)) > 1:
+    while estimate_prompt_tokens(note_content.PROMPT, model_request(selected, "summary")[0]) > input_budget:
         # 挑選只需知識結構；確定選中重點後，寫作仍帶入完整原文，不截斷 Evidence。
         catalog = {}
         for c in selected:
@@ -326,9 +402,9 @@ def compute_summary(concepts, call):
                     item["concepts"].append(c["label"])
         groups, group = [], []
         for item in catalog.values():
-            if estimate_prompt_tokens(note_content.SELECTION_PROMPT, {"candidates": [item]}) > BATCH_TOKENS:
+            if estimate_prompt_tokens(note_content.SELECTION_PROMPT, {"candidates": [item]}) > input_budget:
                 raise ValueError("NOTE_INPUT_TOO_LARGE")
-            if group and estimate_prompt_tokens(note_content.SELECTION_PROMPT, {"candidates": [*group, item]}) > BATCH_TOKENS:
+            if group and estimate_prompt_tokens(note_content.SELECTION_PROMPT, {"candidates": [*group, item]}) > input_budget:
                 groups.append(group)
                 group = []
             group.append(item)
@@ -336,12 +412,13 @@ def compute_summary(concepts, call):
             groups.append(group)
         chosen = set()
         for group in groups:
-            limit = min(12, max(1, len(group) // 2))
+            limit = max(1, len(group) // 2)
             request = {"phase": "select_summary", "max_claims": limit, "candidates": group}
             allowed = {c["ref"] for c in group}
             for attempt in range(2):
+                response = call(request)
                 try:
-                    refs = note_content.SummarySelection.model_validate(call(request)).claim_ids
+                    refs = note_content.SummarySelection.model_validate(response).claim_ids
                     if len(refs) > limit or len(refs) != len(set(refs)) or not set(refs) <= allowed:
                         raise ValueError("NOTE_SELECTION_INVALID")
                     chosen.update(refs)
@@ -349,7 +426,10 @@ def compute_summary(concepts, call):
                 except ValueError:
                     if attempt:
                         raise ValueError("NOTE_SELECTION_INVALID") from None
-                    request = {**request, "correction": "只選輸入中的 ref，勿重複，數量須在 1 到 max_claims 之間。"}
+                    request = {**request, "correction": {
+                        "instruction": f"修正前次選取結果，只選輸入中的 ref，勿重複。請自行計數，最多 {limit} 個；超過時刪除較次要項目，不要再增加。",
+                        "previous_response": response,
+                    }}
         ids = {cid for cid, c in catalog.items() if c["ref"] in chosen}
         if len(ids) >= len(catalog):
             raise ValueError("NOTE_INPUT_TOO_LARGE")
@@ -461,15 +541,21 @@ def step(*, dsn=None, call=None, stop=None):
                 prompt, schema = policy["selection_prompt"], note_content.SummarySelection
             else:
                 prompt, schema = policy["prompt"], note_content.Response
+            response_schema = schema.model_json_schema()
+            if phase == "select_summary":
+                response_schema["properties"]["claim_ids"]["maxItems"] = payload["max_claims"]
+            elif phase != "review_paragraph" and "max_paragraphs" in payload.get("correction", {}):
+                response_schema["properties"]["paragraphs"]["maxItems"] = payload["correction"]["max_paragraphs"]
             task_lock = {**lock["material_review"], "prompt": prompt}
             with semantic_client() as client:
                 return request_semantics(client, runtime_lock={**lock, "material_review": task_lock}, task="material_review",
-                    request=payload, response_schema=schema.model_json_schema(),
+                    request=payload, response_schema=response_schema,
                     cancellation_check=lambda: _check(claim, dsn, stop))
 
         concepts = _concepts(claim, dsn)
         result = (_complete_full(claim, concepts, request, dsn) if claim["key"][3] == "full"
-                  else compute_summary(concepts, request))
+                  else compute_summary(concepts, request,
+                      input_budget=lock["semantic_service"]["max_model_len"] - policy["max_tokens"]))
         _check(claim, dsn, stop)
         _save(claim, dsn, paragraphs=result)
     except WorkerStopping:

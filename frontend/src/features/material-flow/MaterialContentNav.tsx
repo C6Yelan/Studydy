@@ -14,7 +14,7 @@ type Content = "knowledge-map" | "review" | "concept-cards" | "podcasts" | "rese
 const items: { id: Content; label: string; icon: IconName }[] = [
   { id: "knowledge-map", label: "知識地圖", icon: "map" }, { id: "review", label: "學習與測驗", icon: "quiz" },
   { id: "concept-cards", label: "概念卡", icon: "cards" }, { id: "podcasts", label: "Podcast", icon: "headphones" },
-  { id: "notes", label: "筆記", icon: "file" },
+  { id: "notes", label: "筆記", icon: "book" },
   { id: "research", label: "補充學習", icon: "sparkle" }, { id: "sources", label: "教材來源", icon: "file" },
 ];
 const dateFormat = new Intl.DateTimeFormat("zh-TW", { year: "numeric", month: "2-digit", day: "2-digit" });

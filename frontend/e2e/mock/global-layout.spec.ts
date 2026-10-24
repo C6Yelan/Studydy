@@ -59,12 +59,12 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1366, 1281, 1100, 1024, 910, 
   test(`standard frames stay centered without clipping at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1080 });
     for (const [path, heading] of [
-      ["/", "歡迎回來！今天想探索哪座島？"],
+      ["/", /^(早安|午安|晚安)，林以安同學的學習帳號！今天想探索哪座島？$/],
       ["/profile", "林以安同學的學習帳號"],
       ["/achievements", "成就"],
       ["/materials", "我的教材"],
       ["/upload", "上傳教材"],
-    ]) {
+    ] as const) {
       await page.goto(path);
       const frame = page.locator(".app-main > section");
       await expect(

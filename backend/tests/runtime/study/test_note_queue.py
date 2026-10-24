@@ -266,7 +266,8 @@ def test_content_rejection_keeps_published_notes_and_does_not_checkpoint_uncheck
     failed=client.get(path+'/summary').json()
     assert failed['status']=='failed' and failed['error_code']=='NOTE_CONTENT_UNSUPPORTED'
     assert failed['paragraphs']==old['paragraphs'] and failed['generation']==1
-    assert [r.get('phase','generate') for r in calls]==['generate','review_paragraph']*2
+    assert [r.get('phase','generate') for r in calls]==['generate']+['generate','review_paragraph']*2
+    assert calls[1]['correction']['problem']=='NOTE_SUMMARY_ROOM'
     assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
     drain(f,reject)
     full=client.get(path+'/full').json()
@@ -296,4 +297,4 @@ def test_step_dispatches_content_checks_with_the_saved_review_contract(closed_lo
     result=client.get(path+'/summary').json()
     assert result['status']=='ready'
     assert seen.count('review_paragraph')==4  # fixture 的一段教材，加上本教材三段
-    assert seen.count('generate')==2
+    assert seen.count('generate')==4  # 兩份短稿各檢查一次可補充的來源內容。

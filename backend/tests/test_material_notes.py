@@ -132,8 +132,8 @@ def test_large_summary_selects_points_then_writes_with_complete_original_evidenc
         if request.get('phase')=='select_summary':
             return {'claim_ids':[request['candidates'][0]['ref']]}
         return response(request)
-    result=mn.compute_summary(values,model)
-    assert len(calls)==3 and calls[0]['phase']=='select_summary'
+    result=mn.compute_summary(values,model,input_budget=mn.BATCH_TOKENS)
+    assert len(calls)==4 and calls[0]['phase']=='select_summary'
     assert calls[1]['evidence'][0]['quotes']==[values[0]['claims'][0]['evidence'][0]['quote']]
     assert result[0]['claim_ids']==['q0']
 
@@ -147,7 +147,7 @@ def test_summary_selection_cannot_invent_ids_or_skip_validation():
         calls.append(request)
         return {'claim_ids':['not-in-input']}
     with pytest.raises(ValueError,match='NOTE_SELECTION_INVALID'):
-        mn.compute_summary(values,model)
+        mn.compute_summary(values,model,input_budget=mn.BATCH_TOKENS)
     assert len(calls)==2
 
 
@@ -159,7 +159,7 @@ def test_summary_overflow_correction_keeps_font_and_makes_a_shorter_body():
         if len(calls)==1:
             value['paragraphs'][0]['text']='太長的摘要正文。'*500
         return value
-    result=mn.compute_summary(concepts(),model)
+    result=mn.compute_summary(concepts(),model,input_budget=mn.BATCH_TOKENS)
     assert len(calls)==5 and calls[1]['correction']['problem']=='NOTE_SUMMARY_TOO_LONG'
     assert len(pymupdf.open(stream=nc.summary_pdf(result)))==1
 
@@ -290,3 +290,109 @@ def test_writer_and_checker_keep_source_page_block_order_and_geometry():
     for key in ('source_id','source_name','page','block_order','region','quotes'):
         assert checks[0]['evidence'][0][key]==source[key]
     assert e==original and paragraph['evidence'][0]==original
+
+
+def test_summary_overflow_feedback_uses_measured_page_ratio():
+    p={'heading':'合成稿','text':'合成測試文字。'*400,'formula':None,'table':None}
+    layout=nc.summary_layout([p])
+    assert not layout['fits'] and layout['used_height_pt']>layout['available_height_pt']
+    target=(layout['available_height_pt']-12*1.4)/layout['used_height_pt']
+    assert layout['target_height_ratio']==pytest.approx(target,abs=.0001)
+    assert layout['suggested_characters']==pytest.approx(layout['current_characters']*target,abs=1)
+    assert 450<layout['suggested_characters']<layout['current_characters']
+    with pytest.raises(nc.SummaryTooLong) as error:nc.summary_pdf([p])
+    assert error.value.layout==layout
+    request=mn._layout_request({'kind':'summary'},[p],layout)
+    assert request['correction']['layout']==layout
+    assert request['correction']['previous_body'][0]['text']==p['text']
+
+
+@pytest.mark.parametrize('all_ids_present',[False,True])
+def test_summary_with_room_tries_to_cover_more_available_points(all_ids_present):
+    writers=[]
+    def model(request):
+        if request.get('phase')=='review_paragraph':return response(request)
+        writers.append(request)
+        result=response(request)
+        if len(writers)==1 and not all_ids_present:result['paragraphs']=result['paragraphs'][:1]
+        return result
+    result=mn.compute_summary(concepts(),model,input_budget=mn.BATCH_TOKENS)
+    assert len(writers)==2
+    assert writers[1]['correction']['problem']=='NOTE_SUMMARY_ROOM'
+    assert writers[1]['correction']['layout']['target_height_ratio']>1
+    assert {q for p in result for q in p['claim_ids']}=={'q0','q1','q2'}
+
+
+def test_reflowed_summary_can_repair_its_own_references_after_earlier_repair():
+    writers=[]
+    def model(request):
+        if request.get('phase')=='review_paragraph':return response(request)
+        writers.append(request)
+        result=response(request)
+        if len(writers) in (1,3):result['paragraphs'][0]['evidence_ids']=['unknown']
+        if len(writers)==2:result['paragraphs'][0]['text']='合成超頁正文。'*500
+        return result
+    result=mn.compute_summary(concepts(),model,input_budget=mn.BATCH_TOKENS)
+    assert len(writers)==4
+    assert writers[3]['correction']['problem']=='NOTE_REFERENCE_INVALID'
+    assert writers[3]['correction']['layout']['height_ratio']>1
+    assert writers[3]['correction']['previous_response']['paragraphs'][0]['evidence_ids']==['unknown']
+    assert nc.summary_layout(result)['fits']
+
+
+def test_reference_repair_receives_exact_missing_and_extra_compact_ids():
+    writers=[]
+    def model(request):
+        if request.get('phase')=='review_paragraph':return response(request)
+        writers.append(request)
+        result=response(request)
+        if len(writers)==1:
+            result['paragraphs'][0]['evidence_ids']=result['paragraphs'][1]['evidence_ids'][:]
+            result['paragraphs'][2]['evidence_ids']=result['paragraphs'][1]['evidence_ids'][:]
+        else:
+            result['paragraphs'][0]['text']='不得採用的擴寫。'
+            result['paragraphs'][1]['evidence_ids']=['unknown']
+        return result
+    result=mn.generate_part(concepts(),'full',model)
+    assert result[0]['text']!='不得採用的擴寫。'
+    assert len(writers)==3 and writers[2]['correction']['reference_error']['paragraph_index']==2
+    assert writers[1]['correction']['reference_error']=={
+        'paragraph_index':0,'claims_missing_evidence':['C1'],
+        'evidence_options':{'C1':['E1']},
+        'evidence_not_in_paragraph_claims':['E2']}
+
+
+def test_summary_reflows_content_repair_that_exceeds_one_page_then_rechecks():
+    values=concepts();values[0]['claims']=values[0]['claims'][:1]
+    writers=[];reviews=[]
+    def model(request):
+        if request.get('phase')=='review_paragraph':
+            reviews.append(request)
+            bad=len(reviews)==1
+            return {'checks':[{'part':p,'supported':not (bad and p=='text'),'reason':'修正來源條件。' if bad and p=='text' else ''} for p in request['parts']]}
+        writers.append(request)
+        result=response(request)
+        if request.get('correction',{}).get('problem')=='NOTE_CONTENT_UNSUPPORTED':
+            result['paragraphs'][0]['text']='合成長稿。'*700
+        return result
+    result=mn.compute_summary(values,model,input_budget=mn.BATCH_TOKENS)
+    assert len(writers)==4 and len(reviews)==3
+    assert writers[3]['correction']['problem']=='NOTE_SUMMARY_TOO_LONG'
+    assert writers[3]['correction']['layout']['height_ratio']>1
+    assert nc.summary_layout(result)['fits']
+
+
+def test_summary_uses_available_context_instead_of_full_note_batch_limit():
+    values=concepts()
+    for q in values[0]['claims']:q['evidence'][0]['quote']='合成來源完整條件。'*900
+    request,_=mn.model_request(values,'summary')
+    size=mn.estimate_prompt_tokens(nc.PROMPT,request)
+    assert size>mn.BATCH_TOKENS
+    calls=[]
+    def model(request):
+        calls.append(request)
+        return response(request)
+    result=mn.compute_summary(values,model,input_budget=size+100)
+    assert len(result)==3
+    assert all(r.get('phase')!='select_summary' for r in calls)
+    assert len(calls[0]['concepts'][0]['claims'])==3
