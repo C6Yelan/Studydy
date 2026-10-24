@@ -1653,3 +1653,61 @@ class LearningGoalListView(_Closed):
     schema_: Literal["learning-goals/v1"] = Field(alias="schema")
     today: date_type
     goals: list[LearningGoalSummary]
+
+
+class NoteTableView(_Closed):
+    headers: list[str]
+    rows: list[list[str]]
+
+
+class NoteConceptView(_Closed):
+    concept_id: str
+    label: str
+
+
+class NoteParagraphView(_Closed):
+    id: str
+    anchor: str
+    heading: str
+    text: str
+    table: NoteTableView | None
+    formula: str | None
+    claim_ids: list[str]
+    evidence_ids: list[str]
+    concepts: list[NoteConceptView]
+    evidence: list[EvidenceView]
+
+
+class NoteAnnotationView(_Closed):
+    annotation_id: UUID
+    anchor: str
+    body: str
+    original_revision: str
+    original_paragraph: NoteParagraphView
+    paragraph_id: str | None
+    updated_at: datetime
+
+
+class NoteProgressView(_Closed):
+    stage: Literal["generating", "validating", "completed"]
+    completed_sections: int
+    total_sections: int
+    completed_parts: int
+    total_parts: int
+    current_section: str | None
+
+
+class MaterialNotesView(_Closed):
+    schema_: Literal["material-notes/v1"] = Field(alias="schema")
+    material_id: UUID
+    knowledge_structure_revision: str
+    run_id: UUID
+    kind: Literal["summary", "full"]
+    status: Literal["not_generated", "pending", "running", "ready", "failed"]
+    generation: int
+    source_status: StatusView
+    progress: NoteProgressView | None
+    paragraphs: list[NoteParagraphView]
+    annotations: list[NoteAnnotationView]
+    source_resolver: str
+    error_code: str | None

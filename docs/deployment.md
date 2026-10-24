@@ -244,6 +244,14 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 前後端一起更新，才能顯示教材目標、首頁關卡與島嶼摘要。套用 0015 後，回復版本必須識別新 migration 與當日基準寫入規則；採相容修正版或前向修復，不直接重啟舊版，也不自動還原 DB 丟棄新的設定或作答。不需補跑模型或建立固定未來日程。
 
+## 0016 文字筆記與個人註記
+
+`0016_material_notes.sql` 新增筆記生成／快取及個人註記兩張表，不修改既有教材、題組或答案。套用前備份產品 DB；隔離環境由 0015 升級並逐表核對既有資料不變。新後端須與支援筆記分頁的前端一起部署。已套用後只能使用識別 0016 的相容版本或前向修復，不直接啟動舊 migration runner，也不還原 DB 丟棄新註記。
+
+本批筆記使用目前正式 Luna（gpt-5.6-luna）；雲端 Pod／Gemma 切換不屬本批，沒有新增切換抽象。筆記請求使用 runtime lock 新增的 `material_notes`／`material-notes/v1` 契約；原教材與題組保存的舊 lock／hash 不改寫。沿既有文字 provider，不修改 Podcast provider 程式或重啟其服務。PyMuPDF 使用現有依賴，A4 正文排版不需新增系統套件。
+
+部署後由維護程序呼叫 `runtime.material_notes.queue_existing(owner=<已授權 learner UUID>)`，僅為本人目前版本缺少的重點整理排工作；重跑不重新生成已有結果，也不建立完整筆記。回報教材份數與實際 provider 呼叫次數，不能把工作嘗試數當成模型請求數。程式失敗或容量不足時如實保留 failed，學生可手動重試。
+
 ## 後端身分與既有資料
 
 `STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。完整建置時 Compose 以同名建置參數在 backend 階段建立 `studydy-backend` passwd 項目（HOME=/tmp tmpfs）；torch／transformers 以 `getpass`、`~` 決定身分與 cache，缺少此項目時 OCR 子程序會 CHILD_EXITED。改 UID 須完整重建 backend 映像，輕量更新沿用 runtime 映像內的項目。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。

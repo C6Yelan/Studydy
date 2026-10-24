@@ -56,7 +56,7 @@ test("map tabs cycle and missing path references still fail the strict API contr
   await mockLearningMapApi(page, view, false);
   await page.goto(mapPath);
   const tabs = page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab");
-  await expect(tabs).toHaveText(["知識地圖", "學習與測驗", "概念卡", "Podcast", "補充學習", "教材來源"]);
+  await expect(tabs).toHaveText(["知識地圖", "學習與測驗", "概念卡", "Podcast", "筆記", "補充學習", "教材來源"]);
   await expect(page.getByRole("tab", { name: "學習順序", exact: true })).toHaveCount(0);
   await tabs.nth(1).focus();
   await page.keyboard.press("Home");

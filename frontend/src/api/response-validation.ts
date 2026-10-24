@@ -1,4 +1,5 @@
 import type {
+  MaterialNotesView,
   LearningGoalView, LearningGoalsView,
   StartingLevel, StartingLevelView, StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
@@ -1630,4 +1631,38 @@ export function podcast(value: unknown): value is PodcastView {
 export function podcastDeleted(value: unknown): value is PodcastDeletedView {
   const item = object(value);
   return !!item && item.schema === "podcast-deleted/v1" && isUuid(item.podcast_id);
+}
+
+
+function noteParagraph(value: unknown): boolean {
+  const p = object(value);
+  if (!p || typeof p.id !== "string" || typeof p.anchor !== "string" || typeof p.heading !== "string" || typeof p.text !== "string"
+    || !(p.formula === null || typeof p.formula === "string") || !strings(p.claim_ids) || !strings(p.evidence_ids)
+    || !Array.isArray(p.concepts) || !p.concepts.every(c => { const x = object(c); return x && typeof x.concept_id === "string" && typeof x.label === "string"; })
+    || !Array.isArray(p.evidence) || !p.evidence.length || !p.evidence.every(cardEvidence)) return false;
+  const t = object(p.table);
+  return p.table === null || !!t && strings(t.headers) && Array.isArray(t.rows) && t.rows.every(strings);
+}
+
+function noteProgress(value: unknown): boolean {
+  if (value === null) return true;
+  const p = object(value);
+  return !!p && ["generating", "validating", "completed"].includes(String(p.stage))
+    && [p.completed_sections, p.total_sections, p.completed_parts, p.total_parts].every(v => Number.isInteger(v) && Number(v) >= 0)
+    && Number(p.completed_sections) <= Number(p.total_sections) && Number(p.completed_parts) <= Number(p.total_parts)
+    && (p.current_section === null || typeof p.current_section === "string");
+}
+
+export function materialNotes(value: unknown): value is MaterialNotesView {
+  const v = object(value);
+  return !!v && v.schema === "material-notes/v1" && isUuid(v.material_id) && isUuid(v.run_id)
+    && revision(v.knowledge_structure_revision, "knowledge-structure") && ["summary", "full"].includes(String(v.kind))
+    && ["not_generated", "pending", "running", "ready", "failed"].includes(String(v.status))
+    && Number.isInteger(v.generation) && Number(v.generation) >= 0 && typeof v.source_resolver === "string"
+    && (v.error_code === null || typeof v.error_code === "string")
+    && knowledgeStatus(v.source_status) && noteProgress(v.progress) && Array.isArray(v.paragraphs) && v.paragraphs.every(noteParagraph)
+    && Array.isArray(v.annotations) && v.annotations.every(a => { const x = object(a); return !!x
+      && isUuid(x.annotation_id) && typeof x.anchor === "string" && typeof x.body === "string"
+      && revision(x.original_revision, "knowledge-structure") && noteParagraph(x.original_paragraph)
+      && (x.paragraph_id === null || typeof x.paragraph_id === "string") && timestamp(x.updated_at); });
 }

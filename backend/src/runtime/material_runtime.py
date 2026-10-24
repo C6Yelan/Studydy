@@ -294,7 +294,7 @@ def _validate_review_contract(lock):
 def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, Any]:
     """各用途獨立核對既有契約；不改寫已封存的模型、政策或 hash。"""
     try:
-        if not isinstance(lock, dict) or set(lock) - {"material_review"} != {
+        if not isinstance(lock, dict) or set(lock) - {"material_review", "material_notes"} != {
             "schema",
             "python",
             "packages",
@@ -306,6 +306,16 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             raise ValueError
         if "material_review" in lock:
             _validate_review_contract(lock)
+        if "material_notes" in lock:
+            notes = lock["material_notes"]
+            if (set(notes) != {"version", "prompt", "selection_prompt", "max_tokens", "summary_layout"}
+                or notes["version"] != "material-notes/v1"
+                or not isinstance(notes["prompt"], str) or not notes["prompt"].strip()
+                or not isinstance(notes["selection_prompt"], str) or not notes["selection_prompt"].strip()
+                or type(notes["max_tokens"]) is not int
+                or not 1 <= notes["max_tokens"] <= lock["semantic_service"]["max_model_len"]
+                or notes["summary_layout"] != "a4-12pt-18mm/v1"):
+                raise ValueError
         semantic = lock["semantic_service"]
         material = lock["material_semantics"]
         if not isinstance(material, dict):

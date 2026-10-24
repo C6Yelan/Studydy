@@ -36,6 +36,12 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 `test_media_sources.py` 不連網，驗證 YouTube 網址（Shorts、帶清單參數的單支影片、純播放清單拒絕）、直播／會員／私人／年齡限制／超過 2 小時的拒絕原因、上傳者字幕的語言順序與不用自動字幕、WebVTT 解析、2 分鐘時間段分頁、長度上限、圖片組順序與格式檢查、EXIF 轉正與嵌入壓縮影像（不以未壓縮像素嵌入），以及逐字稿 PDF 一段一頁與時間 mapping。`runtime/sources/test_media_source_flow.py` 使用隔離 DB 與真實沙箱，語音辨識及 YouTube 讀取以替身取代：分段上傳的位移檢查、最後一段重送不重複建立、音訊轉成時間段頁面並由媒體端點以 Range 播放、影片只保存音軌、圖片組一張一頁、YouTube 只保存參照與逐字稿、無字幕時辨識後刪除音軌、拒絕原因不建立來源、辨識失敗可重試、過期的分段上傳與中斷轉換暫存清除，以及 0016 的 artifact 型別與大小限制；音訊與 YouTube 另沿正式分析流程發布後核對來源回查的時間標籤與播放位置。`e2e/mock/media-sources.spec.ts` 驗證圖片組排序與打包順序、音訊分段上傳、YouTube 輸入與播放清單提示，以及來源視窗從引用時間播放原音或 YouTube。這些替身測試不代表真實辨識、字幕或 YouTube 可用性；真實驗收另以公開素材執行。
 
+## 文字筆記
+
+`test_material_notes.py` 核對合法來源、完整筆記全部重點涵蓋、重點整理 A4 一頁及固定可讀字級、註記精確對應與一次補正。包含同 Evidence 的不同節錄完整保留，重點排序、ID 重建及程序重啟不改變註記對應。`runtime/study/test_note_queue.py` 驗證自動重點整理／按需完整筆記、擁有者與 Origin、重送不重複排程、失敗保留發布內容、租約恢復、過期 worker 不能覆寫，以及新版的原段落快照與來源保留。另核對完整筆記依地圖章節顯示真實分區進度，失敗重試只呼叫尚未完成的批次，發布後清除暫存批次內容。`test_notes_migration.py` 在含真實合成教材與作答的 0015 升級 0016，核對所有原資料表逐列相同。
+
+`test_notes_browser.py`／`e2e/api/notes.spec.ts` 使用隔離 DB 與受控模型走真 UI：儲存註記、重載、查來源、按需生成完整筆記及重生後註記保留。`e2e/mock/notes.spec.ts` 涵蓋失敗／先前段落、手機及鍵盤；共用教材分頁列修改須包含 global-layout／shell-layout 與完整 mock 套件。上述合成案例不代表模型內容品質；真模型驗收另以三份已授權教材，核對每段合法來源、完整涵蓋與 A4 正文，再對照原文審稿。
+
 ## 選擇範圍
 
 `test_goal_metrics.py` 與 `test_goal_planning.py` 驗證可檢測 target 計量、真實完成、原排期落後量、固定今日配額、完整概念超量與唯讀預覽。`runtime/study/test_goals_stages.py` 驗證沒有 Study 也能讀取真實承接證據、概念完成不補造點數、目標權限、教材新版重排與提示關閉、同值儲存不重排，以及過期目標保留原日期調整比例。

@@ -982,3 +982,39 @@ class LearningGoal(Base):
     daily_unavailable_claim_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
     daily_completed_points: Mapped[int] = mapped_column(Integer, nullable=False)
     daily_quota_points: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class MaterialNotes(Base):
+    __tablename__ = "material_notes"
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    status: Mapped[str] = mapped_column(Text)
+    generation: Mapped[int] = mapped_column(Integer)
+    paragraphs: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    runtime_lock: Mapped[dict] = mapped_column(JSONB)
+    calls: Mapped[int] = mapped_column(Integer)
+    attempts: Mapped[int] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    section_plan: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    section_results: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    progress_stage: Mapped[str | None] = mapped_column(Text)
+    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class NoteAnnotation(Base):
+    __tablename__ = "note_annotations"
+    annotation_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    kind: Mapped[str] = mapped_column(Text)
+    structure_revision: Mapped[str] = mapped_column(Text)
+    anchor: Mapped[str] = mapped_column(Text)
+    paragraph_snapshot: Mapped[dict] = mapped_column(JSONB)
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

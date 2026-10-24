@@ -1,5 +1,6 @@
 import * as validate from "./response-validation.ts";
 import type {
+  MaterialNotesView, NoteKind,
   LearningGoalView, LearningGoalsView,
   StartingLevel, StartingLevelView, StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
@@ -731,6 +732,25 @@ export class StudydyApiClient {
   async getStartingLevel(materialId: string): Promise<StartingLevelView> {
     return this.json(`/v1/materials/${materialId}/starting-level`, { method: "GET" },
       (value): value is StartingLevelView => validate.startingLevelView(value) && value.material_id === materialId);
+  }
+
+  async getNotes(materialId: string, revision: string, kind: NoteKind): Promise<MaterialNotesView> {
+    return this.json(`/v1/materials/${materialId}/knowledge-structures/${revision}/notes/${kind}`, { method: "GET" },
+      (v): v is MaterialNotesView => validate.materialNotes(v) && v.material_id === materialId && v.knowledge_structure_revision === revision && v.kind === kind);
+  }
+
+  async generateNotes(materialId: string, revision: string, kind: NoteKind, generation: number): Promise<MaterialNotesView> {
+    return this.json(`/v1/materials/${materialId}/knowledge-structures/${revision}/notes/${kind}`, {
+      method: "POST", headers: { Origin: origin(), "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_generation: generation }),
+    }, (v): v is MaterialNotesView => validate.materialNotes(v) && v.material_id === materialId && v.knowledge_structure_revision === revision && v.kind === kind);
+  }
+
+  async saveNoteAnnotation(view: MaterialNotesView, id: string, paragraphId: string | null, body: string): Promise<MaterialNotesView> {
+    return this.json(`/v1/materials/${view.material_id}/knowledge-structures/${view.knowledge_structure_revision}/notes/${view.kind}/annotations/${id}`, {
+      method: "PUT", headers: { Origin: origin(), "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_generation: view.generation, paragraph_id: paragraphId, body }),
+    }, (v): v is MaterialNotesView => validate.materialNotes(v) && v.material_id === view.material_id && v.knowledge_structure_revision === view.knowledge_structure_revision && v.kind === view.kind);
   }
 
   async getLearningGoal(materialId: string, offset = 0): Promise<LearningGoalView> {

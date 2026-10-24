@@ -69,6 +69,7 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
     from .tables import (
         CardSet,
         MaterialResearch,
+        NoteAnnotation,
         Podcast,
         StudySession,
         VoiceConversation,
@@ -143,8 +144,13 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
             )
             .limit(1)
         )
+        # 個人註記的原段落仍需能回查當時來源；不能因教材新版就清掉版本。
+        annotation = session.scalar(select(NoteAnnotation.annotation_id).where(
+            NoteAnnotation.learner_id == owner, NoteAnnotation.material_id == material_id,
+            NoteAnnotation.structure_revision == row.structure_revision).limit(1))
         if (
-            referenced is None
+            annotation is None
+            and referenced is None
             and active is None
             and card_set is None
             and podcast is None

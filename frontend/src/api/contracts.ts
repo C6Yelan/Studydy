@@ -948,3 +948,24 @@ export type VersionMoveResult = {
   study_session_id: string | null;
   created_at: string;
 };
+
+export type NoteKind = "summary" | "full";
+export type NoteParagraph = {
+  id: string; anchor: string; heading: string; text: string;
+  table: { headers: string[]; rows: string[][] } | null; formula: string | null;
+  claim_ids: string[]; evidence_ids: string[];
+  concepts: { concept_id: string; label: string }[]; evidence: EvidenceView[];
+};
+export type NoteAnnotation = {
+  annotation_id: string; anchor: string; body: string;
+  original_revision: string; original_paragraph: NoteParagraph;
+  paragraph_id: string | null; updated_at: string;
+};
+export type MaterialNotesView = {
+  schema: "material-notes/v1"; material_id: string; knowledge_structure_revision: string;
+  run_id: string; kind: NoteKind; status: "not_generated" | "pending" | "running" | "ready" | "failed";
+  generation: number; source_status: KnowledgeStructureView["status"]; paragraphs: NoteParagraph[]; annotations: NoteAnnotation[];
+  source_resolver: string; error_code: string | null;
+  progress: { stage: "generating" | "validating" | "completed"; completed_sections: number; total_sections: number;
+    completed_parts: number; total_parts: number; current_section: string | null } | null;
+};

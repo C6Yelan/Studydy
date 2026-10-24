@@ -69,6 +69,10 @@ test.beforeEach(async ({ page }) => {
       case "/v1/profile":
         expect(request.method()).toBe("GET");
         return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
+      // 首頁會讀取已部署的教材目標；新帳號尚未設定目標。
+      case "/v1/learning-goals":
+        expect(request.method()).toBe("GET");
+        return route.fulfill({ json: { schema: "learning-goals/v1", today: "2026-10-25", goals: [] } });
       // 頁首學習進度（等級與連續天數）；新帳號沒有學習紀錄。
       case "/v1/learning-activity":
         expect(request.method()).toBe("GET");

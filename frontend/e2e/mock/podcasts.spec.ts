@@ -131,7 +131,7 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.locator('.podcast-tile')).toHaveCount(2);
   await page.goto(`/materials/${materialId}/podcasts`);
   await expect(page.locator('.podcast-tile')).toHaveCount(1);
-  await expect(page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab')).toHaveText(['知識地圖', '學習與測驗', '概念卡', 'Podcast', '補充學習', '教材來源']);
+  await expect(page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab')).toHaveText(['知識地圖', '學習與測驗', '概念卡', 'Podcast', '筆記', '補充學習', '教材來源']);
   await expect(page.locator('.app-shell')).toHaveClass(/is-workspace/);
   const navBox = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
   const createBox = (await page.getByRole('button', { name: '建立 Podcast', exact: true }).boundingBox())!;

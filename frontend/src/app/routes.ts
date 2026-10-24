@@ -9,7 +9,7 @@ export type AppRoute =
   | { name: "achievements" }
   | { name: "topic"; topicId: string }
   | { name: "materials" }
-  | { name: "material-content"; materialId: string; kind: "concept-cards" | "podcasts" | "research" }
+  | { name: "material-content"; materialId: string; kind: "concept-cards" | "podcasts" | "research" | "notes" }
   | { name: "research"; materialId: string; researchId: string }
   | { name: "podcast-new" }
   | { name: "card-set-new" }
@@ -126,7 +126,7 @@ export function readRoute(pathname: string): RouteRead {
       : { name: segments.length === 5 ? "card-set-edit" : "card-set", cardSetId: runId, materialId };
   } else if (resourceSegment === "research" && segments.length === 4 && uuidPattern.test(runId)) {
     route = { name: "research", materialId, researchId: runId };
-  } else if (segments.length === 3 && (resourceSegment === "concept-cards" || resourceSegment === "podcasts" || resourceSegment === "research")) {
+  } else if (segments.length === 3 && (resourceSegment === "concept-cards" || resourceSegment === "podcasts" || resourceSegment === "research" || resourceSegment === "notes")) {
     route = { name: "material-content", materialId, kind: resourceSegment };
   } else if (segments.length === 3 && resourceSegment === "sources") {
     route = { name: "material-sources", materialId };

@@ -73,6 +73,7 @@ test("material collections and saved content preserve their scoped URLs", () => 
     { name: "material-content", materialId, kind: "podcasts" },
     { name: "material-content", materialId, kind: "concept-cards" },
     { name: "material-content", materialId, kind: "research" },
+    { name: "material-content", materialId, kind: "notes" },
     { name: "research", materialId, researchId: studySessionId },
     { name: "podcast", materialId, podcastId: studySessionId },
     { name: "card-set", materialId, cardSetId: studySessionId },
