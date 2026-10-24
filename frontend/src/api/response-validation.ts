@@ -887,25 +887,23 @@ export function learningDiagnosis(value: unknown): value is LearningDiagnosisVie
     && revision(item.knowledge_structure_revision, "knowledge-structure")
     && item.source_resolver === `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
     && (item.scope === "material" ? item.set_id === null : item.scope === "set" && isUuid(item.set_id))
-    && ["no_answers", "not_generated", "pending", "running", "ready", "failed"].includes(String(item.status))
-    && item.mode === "template"
-    && Number.isSafeInteger(item.event_watermark) && Number(item.event_watermark) >= 0
-    && findings(item.strengths) && findings(item.weaknesses) && findings(item.recommendations)
-    && (item.failure_reason === null || typeof item.failure_reason === "string");
+    && findings(item.strengths) && findings(item.weaknesses)
+    && Array.isArray(item.recommendations) && item.recommendations.length <= 3 && item.recommendations.every(value => {
+      const recommendation = object(value);
+      return !!recommendation && revision(recommendation.concept_id, "concept")
+        && typeof recommendation.label === "string" && typeof recommendation.reason === "string";
+    });
 }
 
 export function conceptDifficulty(value: unknown): value is ConceptDifficultyView {
   const item = object(value);
   return !!item && item.schema === "concept-difficulty/v1" && isUuid(item.material_id)
     && revision(item.knowledge_structure_revision, "knowledge-structure")
-    && ["not_generated", "pending", "running", "ready", "failed"].includes(String(item.status))
-    && item.mode === "model"
-    && (item.failure_reason === null || typeof item.failure_reason === "string")
+    && item.mode === "structure"
     && Array.isArray(item.concepts) && item.concepts.every(value => {
       const concept = object(value);
       return !!concept && revision(concept.concept_id, "concept") && typeof concept.label === "string"
-        && (concept.level === null || ["standard", "hard"].includes(String(concept.level)))
-        && (concept.reason === null || typeof concept.reason === "string")
+        && ["standard", "hard"].includes(String(concept.level)) && typeof concept.reason === "string"
         && typeof concept.personal_difficulty === "boolean"
         && Number.isSafeInteger(concept.incorrect_count) && Number(concept.incorrect_count) >= 0
         && Number.isSafeInteger(concept.answer_count) && Number(concept.answer_count) >= Number(concept.incorrect_count);

@@ -300,8 +300,8 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     if (request.method() === "GET" && actualPath === `${mapPath}/learning-diagnosis`) return send({
       schema: "learning-diagnosis/v1", material_id: materialId, knowledge_structure_revision: structureRevision,
       source_resolver: `${mapPath}/evidence`,
-      scope: "set", set_id: query.get("set_id"), status: "ready", mode: "template", event_watermark: 4,
-      strengths: [], weaknesses: [], recommendations: [], failure_reason: null,
+      scope: "set", set_id: query.get("set_id"),
+      strengths: [], weaknesses: [], recommendations: [],
     });
     if (request.method() === "GET" && actualPath === `${mapPath}/outline`) return send(outlineView(knowledgeStructure, materialId, runId));
     if (request.method() === "GET" && actualPath === `${mapPath}/concepts`) return send(conceptsView(knowledgeStructure, materialId, (query.get("ids") ?? "").split(","), query.get("neighbors") === "true"));

@@ -637,7 +637,7 @@ function MapGraph({
                   <strong>{concept.label}</strong>
                   <small>
                     <LearningBadge conceptId={concept.concept_id} progress={progress} />
-                    <DifficultyBadge concept={difficulty?.concepts.find(item => item.concept_id === concept.concept_id)} hardOnly />
+                    <DifficultyBadge concept={difficulty?.concepts.find(item => item.concept_id === concept.concept_id)} />
                     {concept.claim_count} 個重點
                   </small>
                 </span>

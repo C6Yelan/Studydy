@@ -572,23 +572,21 @@ export type DiagnosisPoint = {
   evidence: Pick<EvidenceView, "evidence_id" | "page" | "source_id" | "source_name" | "normalized_page">[];
 };
 export type DiagnosisFinding = { concept_id: string; label: string; points: DiagnosisPoint[] };
+export type DiagnosisRecommendation = { concept_id: string; label: string; reason: string };
 export type LearningDiagnosisView = {
   schema: "learning-diagnosis/v1"; material_id: string; knowledge_structure_revision: string;
   scope: "material" | "set"; set_id: string | null;
-  status: "no_answers" | "not_generated" | "pending" | "running" | "ready" | "failed";
-  mode: "template"; event_watermark: number;
   source_resolver: string;
-  strengths: DiagnosisFinding[]; weaknesses: DiagnosisFinding[]; recommendations: DiagnosisFinding[];
-  failure_reason: string | null;
+  strengths: DiagnosisFinding[]; weaknesses: DiagnosisFinding[]; recommendations: DiagnosisRecommendation[];
 };
 export type ConceptDifficulty = {
-  concept_id: string; label: string; level: "standard" | "hard" | null; reason: string | null;
+  concept_id: string; label: string; level: "standard" | "hard"; reason: string;
   personal_difficulty: boolean; incorrect_count: number; answer_count: number;
 };
 export type ConceptDifficultyView = {
   schema: "concept-difficulty/v1"; material_id: string; knowledge_structure_revision: string;
-  status: "not_generated" | "pending" | "running" | "ready" | "failed"; mode: "model";
-  concepts: ConceptDifficulty[]; failure_reason: string | null;
+  mode: "structure";
+  concepts: ConceptDifficulty[];
 };
 
 export type LearnerProgressView = {

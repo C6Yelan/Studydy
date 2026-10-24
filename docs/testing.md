@@ -34,9 +34,9 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 ## 選擇範圍
 
-`runtime/study/test_learning_insights.py` 使用隔離資料庫驗證交卷後的教材／題組診斷、快取更新、補強完成規則、來源字元保留、過期租約、查詢授權，以及個人難點的 3 題／50% 門檻；`test_learning_insights.py` 驗證模板、短編號映射與模型契約。前端對應 `learning-diagnosis.spec.ts` 與 `concept-cards.spec.ts` 的原版本難度案例，並核對 `knowledge-map-review`、`knowledge-map-details`、`study-results`、`global-layout`、`shell-layout`。
+`runtime/study/test_learning_insights.py` 使用隔離資料庫驗證教材／題組的即時診斷、交卷時間邊界、補強完成規則、真實統計與來源、版本授權，以及個人難點的 3 題／50% 門檻。`test_learning_insights.py` 驗證短標題與結構難度門檻、複習候選排序及最多 3 個的上限。
 
-診斷正式採模板；難度使用受控模型替身測試短編號對照、完整覆蓋、分段容量與呼叫上限。`test_difficulty_jobs.py` 驗證成功批次接續與租約。這些測試不呼叫真實模型；內容品質另以已授權教材與作答做難度對照和理由抽查，不以合成測試宣稱品質合格或學習完成。
+前端以 `learning-diagnosis.spec.ts` 驗證直接讀取、空區塊省略、精簡建議與結構標記；`concept-cards.spec.ts` 核對卡組原版本。相關版面檢查沿用 `global-layout` 與 `shell-layout`。這些功能不呼叫模型，也不以合成測試宣稱學習完成。
 
 | 變更 | 驗證入口 |
 | --- | --- |

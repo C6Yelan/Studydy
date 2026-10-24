@@ -961,27 +961,3 @@ class KnowledgeChapters(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-
-
-class LearningInsight(Base):
-    __tablename__ = "learning_insights"
-    insight_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
-    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
-    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), nullable=False)
-    structure_revision: Mapped[str] = mapped_column(Text, nullable=False)
-    task: Mapped[str] = mapped_column(Text, nullable=False)
-    scope_key: Mapped[str] = mapped_column(Text, nullable=False)
-    study_session_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    set_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    event_watermark: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False)
-    input_document: Mapped[dict] = mapped_column(EvidenceJSONB, nullable=False)
-    runtime_lock_document: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
-    completed_batches: Mapped[list] = mapped_column(EvidenceJSONB, nullable=False, default=list)
-    model_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    result_document: Mapped[dict | None] = mapped_column(EvidenceJSONB(none_as_null=True))
-    failure_reason: Mapped[str | None] = mapped_column(Text)
-    lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
-    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

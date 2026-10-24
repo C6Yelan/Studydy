@@ -14,25 +14,22 @@ test("card difficulty stays bound to the saved card revision", async ({ page }) 
   fixture.material.available_structures.push({ ...fixture.material.available_structures[0],
     run_id: "66666666-6666-4666-8666-666666666666", knowledge_structure_revision: fixture.material.head_revision });
   const requests: string[] = [];
-  let assessed = true;
   await page.route("**/concept-difficulty", route => {
     requests.push(decodeURIComponent(new URL(route.request().url()).pathname));
-    return json(route, { ...difficultyView(materialId, structureRevision), status: assessed ? "ready" : "failed", concepts: [{
-      concept_id: structureView().concepts[0].concept_id, label: "堆疊（Stack）", level: assessed ? "hard" : null, reason: assessed ? "先理解後進先出的順序。" : null,
+    return json(route, { ...difficultyView(materialId, structureRevision), concepts: [{
+      concept_id: structureView().concepts[0].concept_id, label: "堆疊（Stack）", level: "hard", reason: "需先學 3 層先備概念。",
       personal_difficulty: true, incorrect_count: 2, answer_count: 3,
     }] });
   });
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
-  await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("偏難");
-  await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("先理解後進先出的順序。");
+  await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("預估偏難");
+  await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("需先學 3 層先備概念。");
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("你的難點");
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("答錯率 67%（2 / 3 題）");
   expect(requests).toEqual([`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/concept-difficulty`]);
-  assessed = false;
   await page.reload();
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("你的難點");
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("答錯率 67%（2 / 3 題）");
-  await expect(page.locator(".concept-card > .concept-difficulty")).not.toContainText("一般");
 });
 
 async function mockCards(page: Page, { saved = false, long = false, many = false, withProgress = false, title = "資料結構 · 核心概念", savedCount = null as number | null } = {}) {

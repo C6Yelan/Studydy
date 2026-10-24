@@ -1461,6 +1461,12 @@ class LearningDiagnosisFinding(_Closed):
     points: list[LearningDiagnosisPoint]
 
 
+class LearningDiagnosisRecommendation(_Closed):
+    concept_id: str
+    label: str
+    reason: str
+
+
 class LearningDiagnosisView(_Closed):
     schema_: Literal["learning-diagnosis/v1"] = Field(alias="schema")
     material_id: UUID
@@ -1468,20 +1474,16 @@ class LearningDiagnosisView(_Closed):
     scope: Literal["material", "set"]
     source_resolver: str
     set_id: UUID | None
-    status: Literal["no_answers", "not_generated", "pending", "running", "ready", "failed"]
-    mode: Literal["template"]
-    event_watermark: int
     strengths: list[LearningDiagnosisFinding]
     weaknesses: list[LearningDiagnosisFinding]
-    recommendations: list[LearningDiagnosisFinding]
-    failure_reason: str | None
+    recommendations: list[LearningDiagnosisRecommendation]
 
 
 class ConceptDifficultyItem(_Closed):
     concept_id: str
     label: str
-    level: Literal["standard", "hard"] | None
-    reason: str | None
+    level: Literal["standard", "hard"]
+    reason: str
     personal_difficulty: bool
     incorrect_count: int
     answer_count: int
@@ -1491,7 +1493,5 @@ class ConceptDifficultyView(_Closed):
     schema_: Literal["concept-difficulty/v1"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
-    status: Literal["not_generated", "pending", "running", "ready", "failed"]
-    mode: Literal["model"]
+    mode: Literal["structure"]
     concepts: list[ConceptDifficultyItem]
-    failure_reason: str | None

@@ -1,37 +1,26 @@
-"""診斷使用逐重點真實資料；難度短編號必須完整映回來源概念。"""
-from copy import deepcopy
+"""診斷來源、結構難度門檻與複習建議排序。"""
 from types import SimpleNamespace
 
-import pytest
-
-from learning_adaptation.learning_insights import diagnosis_input, template_diagnosis
-from learning_adaptation.concept_difficulty import difficulty_batches, generate_difficulty
-from runtime.local_ai_config import _runtime_lock
-from runtime.material_runtime import validate_runtime_lock
+from learning_adaptation.learning_insights import diagnosis_input, template_diagnosis, structural_difficulty
 
 
-def document():
-    return {"concepts": [
-        {"concept_id": "real-concept-one", "label": "快取有效期", "claims": [
-            {"claim_id": "p1", "text": "freshness_lifetime > current_age 時為新鮮。", "evidence_refs": ["e1"]},
-            {"claim_id": "p2", "text": "過期後需要重新驗證。", "evidence_refs": ["e1"]}]},
-        {"concept_id": "real-concept-two", "label": "未測概念", "claims": [{"claim_id": "p3", "text": "重點。", "evidence_refs": ["e1"]}]},
-    ], "relations": [{"type": "prerequisite", "source_concept_id": "real-concept-one", "target_concept_id": "real-concept-two"}],
-        "initial_learning_path": [{"concept_id": "real-concept-one"}, {"concept_id": "real-concept-two"}],
-        "evidence": [{"evidence_id": "e1", "page": 1}],
-        "input_binding": {"bundle": {"pages": [{"source_id": "s1", "normalized_page": 2}]},
-                          "manifest": {"items": [{"source_id": "s1", "original_name": "合成教材.pdf"}]}}}
+def concept_views():
+    evidence = {"evidence_id": "e1", "page": 1, "source_id": "s1",
+                "normalized_page": 2, "source_name": "合成教材.pdf"}
+    return [{"concept_id": "real-concept-one", "label": "快取有效期", "claims": [
+        {"claim_id": "p1", "text": "freshness_lifetime > current_age 時為新鮮。", "evidence": [evidence]},
+        {"claim_id": "p2", "text": "過期後需要重新驗證。", "evidence": [evidence]}]}]
 
 
 def test_template_uses_per_point_counts_latest_answer_and_source():
-    states = [SimpleNamespace(concept_id="real-concept-one", label="快取有效期", attempts=3,
+    states = [SimpleNamespace(concept_id="real-concept-one", label="快取有效期", attempts=3, correct_answers=2,
         completed_claim_ids=["p2"], weak_claim_ids=["p1"])]
     plan = {"concepts": [{"concept_id": "real-concept-one", "targets": [
         {"claim_id": "p1", "covered_claim_ids": ["p1"]},
         {"claim_id": "p2", "covered_claim_ids": ["p2"]}]}]}
     events = [SimpleNamespace(target_concept_id="real-concept-one", target_claim_id=claim, is_correct=correct)
               for claim, correct in (("p1", False), ("p2", True), ("p1", True))]
-    data = diagnosis_input(document(), states, events, plan, scope="set")
+    data = diagnosis_input(concept_views(), states, events, plan, scope="set")
     result = template_diagnosis(data)
     strength = result["strengths"][0]["points"][0]
     assert strength["claim_id"] == "p2" and strength["correct_count"] == 1
@@ -43,7 +32,6 @@ def test_template_uses_per_point_counts_latest_answer_and_source():
     assert weakness["evidence"] == [{"evidence_id": "e1", "page": 1, "source_id": "s1",
                                     "source_name": "合成教材.pdf", "normalized_page": 2}]
     assert result["recommendations"][0]["concept_id"] == "real-concept-one"
-    assert "未測概念" not in str(result)
 
 
 def test_no_evidence_is_not_a_strength_or_a_weakness():
@@ -51,43 +39,34 @@ def test_no_evidence_is_not_a_strength_or_a_weakness():
         "strengths": [], "weaknesses": [], "recommendations": []}
 
 
-def test_short_ids_are_mapped_back_and_no_real_ids_reach_model():
-    calls = []
-    def model(client, **kwargs):
-        calls.append(kwargs["request"])
-        return {"c1": {"level": "hard", "reason": "需要區分有效期與目前經過時間。"}, "c2": {"level": "standard", "reason": ""}}
-    result = generate_difficulty(document(), _runtime_lock(), semantic_call=model)
-    assert len(calls) == 1 and "real-concept" not in str(calls)
-    assert result["concepts"][0]["concept_id"] == "real-concept-one"
-    assert result["concepts"][0]["level"] == "hard"
-    assert result["concepts"][1]["level"] == "standard"
+
+def test_structural_difficulty_uses_longest_prerequisite_chain_and_five_points():
+    def concept(identity, prerequisites=(), count=1):
+        return {"concept_id": identity, "label": identity, "prerequisite_ids": list(prerequisites),
+                "claim_ids": [f"{identity}-point-{index}" for index in range(count)]}
+    plan = {"concepts": [concept("deep", ["root", "middle"]),
+                         concept("middle", ["first"]), concept("first", ["root"]),
+                         concept("root", count=4), concept("many", count=5)]}
+    result = {item["concept_id"]: item for item in structural_difficulty(plan)}
+    assert len(result) == 5
+    assert result["deep"]["level"] == "hard"
+    assert "需先學 3 層先備概念" in result["deep"]["reason"]
+    assert result["middle"]["level"] == "standard"
+    assert result["root"]["level"] == "standard"
+    assert result["many"]["level"] == "hard"
+    assert result["many"]["reason"] == "包含 5 個重點"
 
 
-@pytest.mark.parametrize("ids", [["c1"], ["c1", "c9"]])
-def test_difficulty_rejects_missing_duplicate_or_foreign_short_id(ids):
-    with pytest.raises(ValueError, match="DIFFICULTY_OUTPUT_INVALID"):
-        generate_difficulty(document(), _runtime_lock(), semantic_call=lambda *a, **k: {identity: {"level": "standard", "reason": ""} for identity in ids})
-
-
-def test_call_budget_is_checked_before_any_model_request():
-    source = document()
-    for concept in source["concepts"]:
-        concept["claims"] = [{"text": "word " * 2500}]
-    lock = _runtime_lock()
-    lock["semantic_service"]["max_model_len"] = 8192
-    calls = []
-    with pytest.raises(ValueError, match="CALL_BUDGET_EXCEEDED"):
-        generate_difficulty(source, lock, max_calls=1, semantic_call=lambda *a, **k: calls.append(k))
-    assert calls == []
-
-
-def test_old_runtime_snapshot_is_valid_without_rewriting_it():
-    current = _runtime_lock()
-    old = deepcopy(current)
-    old.pop("concept_difficulty")
-    original = deepcopy(old)
-    assert validate_runtime_lock(old) == original
-    assert validate_runtime_lock(current) == current
-    current["concept_difficulty"]["request_schema"] = "wrong"
-    with pytest.raises(Exception, match="RUNTIME_LOCK_INVALID"):
-        validate_runtime_lock(current)
+def test_recommendations_prioritize_weak_point_count_then_personal_and_limit_three():
+    def concept(identity, weak, personal):
+        return {"concept_id": identity, "label": identity, "points": [],
+                "completed_claim_ids": [], "weak_claim_ids": [str(index) for index in range(weak)],
+                "personal_difficulty": personal, "answer_count": 4, "incorrect_count": 2}
+    result = template_diagnosis({"concepts": [concept("two", 2, False), concept("tie-personal", 2, True),
+        concept("three", 3, False), concept("only-personal", 0, True), concept("one", 1, True)]})
+    assert [item["concept_id"] for item in result["recommendations"]] == ["three", "tie-personal", "two"]
+    assert result["recommendations"][0]["reason"] == "3 個重點尚待加強。"
+    assert all(set(item) == {"concept_id", "label", "reason"} for item in result["recommendations"])
+    personal_only = template_diagnosis({"concepts": [concept("only-personal", 0, True)]})
+    assert personal_only["recommendations"] == [
+        {"concept_id": "only-personal", "label": "only-personal", "reason": "答錯 2/4 題，是你的難點。"}]
