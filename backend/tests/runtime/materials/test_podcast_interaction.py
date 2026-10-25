@@ -83,6 +83,69 @@ def test_beats_queue_alignment_and_timeline_without_video(closed_loop):
         {'segment_index': 0, 'turn_index': i, 'start': 0, 'end': len(text)} for i, text in enumerate(turns)]
 
 
+def test_timeline_api_waits_for_alignment_after_audio_finishes(closed_loop,monkeypatch):
+    """音訊完成後、對齊寫入前讀時間軸：回可重試的 409，不是 500。"""
+    import runtime.api.app as api
+    monkeypatch.setattr(api,'runtime_binding',lambda _: {})
+    owner,_,settings,_,dsn,token=closed_loop
+    view=beats(closed_loop,spoken='堆疊會依後進先出的順序處理。先放入的項目會留在較後面處理。')
+    origin='http://127.0.0.1:4173'
+    client=TestClient(create_app(ApiSettings(profile='local',public_origin=origin,secure_cookie=False,local_config=settings,dsn=dsn)),base_url=origin)
+    client.cookies.set('studydy_session',token)
+    root=f"/v1/podcasts/{view['podcast_id']}/episodes/0"
+    def not_ready(path):
+        response=client.get(root+path)
+        assert response.status_code==409
+        assert response.json()['reason_code']=='PODCAST_TIMELINE_NOT_READY'
+        assert response.json()['retryable'] is True
+    assert view['episodes'][0]['audio']
+    assert scenes.read(owner.learner_id,view['podcast_id'],dsn=dsn)['episodes'][0]['status']=='pending'
+    not_ready('/timeline');not_ready('/subtitles')
+    assert client.get(root+'/export/md').json()['reason_code']=='SCENE_CONFLICT'
+    state=scenes.claim(dsn=dsn);assert state
+    not_ready('/timeline')
+    spoken=' '.join(t['text'] for t in state['episode']['script']['segments'][0]['turns']);quote=normalized(spoken)[:12]
+    scenes.finish(state,{'starts':[0],'anchors':[{'script_offset':0,'text':quote,'audio_start':0,
+        'boundary_script_offset':0,'boundary_text':quote,'boundary_audio_start':0}],
+        'duration':1,'method':'synthetic','producer':'fixture'},dsn=dsn)
+    response=client.get(root+'/timeline')
+    assert response.status_code==200 and response.json()['schema']=='podcast-transcript-timeline/v1'
+    with database_session(dsn) as db:
+        row=db.scalar(select(PodcastScenes).where(PodcastScenes.podcast_id==view['podcast_id']))
+        row.manifest={**row.manifest,'duration':row.manifest['duration']+1}
+    response=client.get(root+'/timeline')
+    assert response.status_code==409
+    assert response.json()['reason_code']=='PODCAST_TIMELINE_SOURCE_MISMATCH'
+    assert response.json()['retryable'] is False
+
+
+def test_timeline_api_reports_alignment_that_will_not_finish(closed_loop,monkeypatch):
+    """對齊失敗或沒有對齊工作（舊版講稿不建工作）不會自行完成：回不可重試的 409。"""
+    import runtime.api.app as api
+    monkeypatch.setattr(api,'runtime_binding',lambda _: {})
+    owner,_,settings,_,dsn,token=closed_loop
+    view=beats(closed_loop,spoken='堆疊會依後進先出的順序處理。先放入的項目會留在較後面處理。')
+    origin='http://127.0.0.1:4173'
+    client=TestClient(create_app(ApiSettings(profile='local',public_origin=origin,secure_cookie=False,local_config=settings,dsn=dsn)),base_url=origin)
+    client.cookies.set('studydy_session',token)
+    root=f"/v1/podcasts/{view['podcast_id']}/episodes/0"
+    def unavailable(status):
+        assert scenes.read(owner.learner_id,view['podcast_id'],dsn=dsn)['episodes'][0]['status']==status
+        for path in ('/timeline','/subtitles'):
+            response=client.get(root+path)
+            assert response.status_code==409
+            assert response.json()['reason_code']=='PODCAST_TIMELINE_UNAVAILABLE'
+            assert response.json()['retryable'] is False
+        assert client.get(root+'/export/md').json()['reason_code']=='SCENE_CONFLICT'
+    state=scenes.claim(dsn=dsn);assert state
+    scenes.finish(state,error='SCENE_ALIGNMENT_FAILED',dsn=dsn)
+    unavailable('failed')
+    # 舊版講稿（script.schema != SCHEMA）不建立對齊工作，讀取時就是沒有場景列的 unprepared。
+    with database_session(dsn) as db:
+        db.execute(PodcastScenes.__table__.delete().where(PodcastScenes.podcast_id==view['podcast_id']))
+    unavailable('unprepared')
+
+
 def test_voice_old_revision_context_and_assessment_authority(closed_loop):
     learner,source,_,original,dsn,_=closed_loop;owner=learner.learner_id;view=beats(closed_loop);locator=context(view)
     updated=new_head(closed_loop)
