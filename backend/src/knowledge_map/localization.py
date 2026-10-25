@@ -3,8 +3,8 @@
 from copy import deepcopy
 import re
 
-from .claim_literals import mask_literals, restore_literals
-from .semantic_projection import _expand_claim, _project_claim
+from .claim_literals import mask_literals, restore_literals, EXCERPT_PROJECTIONS, LITERAL_REPAIRS, quoted_sources
+from .semantic_projection import _expand_claim, _project_claim, spoken_handles
 
 POLICY = "traditional-chinese-literals/v1"
 
@@ -42,6 +42,23 @@ def localize_block(response, context, bundle, call, dropped=None):
     result = deepcopy(response)
     items, targets = {}, {}
     evidence = {e["evidence_id"]: e for e in bundle["evidence"]}
+    excerpt_handles = spoken_handles(context)
+    excerpt_evidence_ids = {context["evidence"][h]["evidence_id"] for h in excerpt_handles}
+
+    def project(claim):
+        expanded = _expand_claim(claim, context["evidence"], excerpt_handles=excerpt_handles)
+        return _project_claim(
+            expanded, evidence,
+            excerpts=expanded is not None and any(isinstance(ref, dict) for ref in claim["s"]),
+            excerpt_evidence_ids=excerpt_evidence_ids,
+        )
+
+    def sources_for(projected):
+        return quoted_sources(
+            projected["source_spans"], evidence,
+            excerpts=projected["projection"] in EXCERPT_PROJECTIONS,
+            excerpt_evidence_ids=excerpt_evidence_ids,
+        )
 
     def add(key, text, target, field, *, maximum=4096, sources=None):
         if sources:
@@ -75,15 +92,11 @@ def localize_block(response, context, bundle, call, dropped=None):
         if _needs_translation(concept["l"]):
             add(f"label_{index}", concept["l"], concept, "l", maximum=256)
         for number, claim in enumerate(concept["c"]):
-            projected = _project_claim(
-                _expand_claim(claim, context["evidence"]), evidence
-            )
+            projected = project(claim)
             if projected is None:
                 continue
-            sources = [
-                evidence[span["evidence_id"]] for span in projected["source_spans"]
-            ]
-            if projected["projection"] == "source_literal_repair" or _needs_translation(
+            sources = sources_for(projected)
+            if projected["projection"] in LITERAL_REPAIRS or _needs_translation(
                 projected["text"], sources
             ):
                 original = " ".join(source["exact_text"] for source in sources)
@@ -154,16 +167,10 @@ def localize_block(response, context, bundle, call, dropped=None):
                             f"還原字面值後不得超過 {maximum} 字元，請縮短中文敘述。"
                         )
                     elif field == "m":
-                        projected = _project_claim(
-                            _expand_claim({**target, "m": value}, context["evidence"]),
-                            evidence,
-                        )
+                        projected = project({**target, "m": value})
                         if projected is not None:
-                            sources = [
-                                evidence[span["evidence_id"]]
-                                for span in projected["source_spans"]
-                            ]
-                            if projected["projection"] == "source_literal_repair":
+                            sources = sources_for(projected)
+                            if projected["projection"] in LITERAL_REPAIRS:
                                 reason = "還原後仍改變來源技術值；只能翻譯散文，保留來源所有數字、單位、程式與公式，不新增技術值。"
                             elif _needs_translation(projected["text"], sources):
                                 reason = "仍含未翻譯的外文敘述，須譯成繁體中文；只有保留代號內的原文不可改寫。"
@@ -201,17 +208,12 @@ def localize_block(response, context, bundle, call, dropped=None):
     # 不讓修正失敗又默默變成整段外文；只能保存完整通過的批次。
     for concept in result["concepts"]:
         for claim in concept["c"]:
-            projected = _project_claim(
-                _expand_claim(claim, context["evidence"]), evidence
-            )
+            projected = project(claim)
             if projected is not None and (
-                projected["projection"] == "source_literal_repair"
+                projected["projection"] in LITERAL_REPAIRS
                 or _needs_translation(
                     projected["text"],
-                    [
-                        evidence[span["evidence_id"]]
-                        for span in projected["source_spans"]
-                    ],
+                    sources_for(projected),
                 )
             ):
                 raise ValueError("SEMANTIC_OUTPUT_INVALID")

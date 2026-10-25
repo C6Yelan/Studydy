@@ -135,7 +135,13 @@ def _publish(closed_loop, material_id, normalization_id, key, monkeypatch, tmp_p
         source_sha = pdf.sha256
 
     def semantics(_client, **request):
-        handles = [item[0] for section in request["request"]["sections"] for item in section["evidence"]]
+        payload = request["request"]
+        rows = [item for section in payload["sections"] for item in section["evidence"]]
+        pages = {item["page"]: item["source_id"] for item in payload.get("source_pages", [])}
+        handles = [
+            {"e": item[0], "q": item[3]} if pages.get(item[1]) in payload.get("spoken_sources", {}) else item[0]
+            for item in rows
+        ]
         return {
             "concepts": [{"l": "資料結構", "a": [], "c": [{"m": "堆疊與佇列", "s": handles}]}],
             "relations": [],
@@ -211,6 +217,10 @@ def test_chunked_audio_becomes_time_pages_and_plays_from_the_cited_segment(close
     assert foreign.get(f"/v1/artifacts/{source['original_artifact_id']}/media").status_code == 401
 
     document, published = _publish(closed_loop, material, source["normalization_id"], "audio-run", monkeypatch, tmp_path)
+    assert document["input_binding"]["manifest"]["items"][0]["transcript"] == {
+        "format": "audio", "transcript_source": "whisper", "language": "zh",
+    }
+    assert document["concepts"][0]["claims"][0]["projection"] == "spoken_excerpt_meaning/v1"
     second = next(item for item in document["evidence"] if item["page"] == 2)
     resolved = resolve_evidence_source(owner, material, published.revision, second["evidence_id"], dsn=dsn)
     assert resolved["format"] == "audio" and resolved["normalized_page"] == 2

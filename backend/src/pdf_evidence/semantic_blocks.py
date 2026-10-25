@@ -3,12 +3,13 @@
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from threading import Event, Lock
 
-from knowledge_map.semantic_projection import SemanticState, build_semantic_bundles
+from knowledge_map.semantic_projection import SemanticState, build_semantic_bundles, spoken_handles
 from knowledge_map.independent_blocks import (
     block_request,
     block_schema,
     project_block,
     merge_block,
+    repair_excerpt_quotes,
 )
 from knowledge_map.localization import localize_block, POLICY as LOCALIZATION_POLICY
 from runtime.semantic_service import semantic_client, SemanticServiceError
@@ -94,6 +95,16 @@ def analyze_blocks(
                 try:
                     response, number = invoke(job["request"], job["schema"])
                     block = project_block(context, job["bundle"], job["id"], response)
+                    if task.get("spoken_policy") == "source-excerpts/v1" and block.rejected_claims:
+                        def repair_quotes(request, schema):
+                            nonlocal number
+                            corrected, number = invoke(request, schema)
+                            return corrected
+
+                        response = repair_excerpt_quotes(
+                            response, context, job["bundle"], repair_quotes
+                        )
+                        block = project_block(context, job["bundle"], job["id"], response)
                     if task.get("localization_policy") == LOCALIZATION_POLICY:
 
                         def translate(request, schema):
@@ -179,7 +190,8 @@ def analyze_blocks(
                     raise ValueError("ANALYSIS_CHECKPOINT_INVALID")
                 request = block_request(context, bundle)
                 schema = block_schema(
-                    [row[0] for s in request["sections"] for row in s["evidence"]]
+                    [row[0] for s in request["sections"] for row in s["evidence"]],
+                    excerpt_handles=spoken_handles(context),
                 )
                 # 不把併行數放入輸入身分，調低併行上限不會作廢已完成批次。
                 signature = canonical_sha256(

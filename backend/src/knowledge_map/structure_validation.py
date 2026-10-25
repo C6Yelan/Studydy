@@ -9,7 +9,10 @@ from typing import Any
 from uuid import UUID
 
 from .semantic_projection import _unsupported_null_meaning
-from .claim_literals import LITERAL_PROJECTION, preserves_literals
+from .claim_literals import (
+    LITERAL_PROJECTION, EXCERPT_PROJECTION, EXCERPT_PROJECTIONS, LITERAL_REPAIRS,
+    preserves_literals, quoted_sources, transcript_evidence_ids,
+)
 from .structure_rules import (
     STRUCTURE_SCHEMA,
     RELATION_BASIS,
@@ -233,6 +236,7 @@ def _validate_concepts(document):
     evidence_ids = [item["evidence_id"] for item in evidence]
     known_evidence = set(evidence_ids)
     evidence_by_id = {item["evidence_id"]: item for item in evidence}
+    excerpt_evidence_ids = transcript_evidence_ids(document) if "input_binding" in document else None
     evidence_order = {
         evidence_id: index for index, evidence_id in enumerate(evidence_ids)
     }
@@ -294,13 +298,18 @@ def _validate_concepts(document):
                 or not set(claim["evidence_refs"]) <= known_evidence
             ):
                 return False
-            if any(
-                not isinstance(span, dict)
-                or set(span) != {"evidence_id", "quote"}
-                or span["evidence_id"] not in known_evidence
-                or span["quote"] != evidence_by_id[span["evidence_id"]]["exact_text"]
-                for span in claim["source_spans"]
-            ):
+            sources = quoted_sources(
+                claim["source_spans"], evidence_by_id,
+                excerpts=claim["projection"] in EXCERPT_PROJECTIONS,
+                # 草稿尚未綁來源；完整區塊的來源類型在 finalize 時核對。
+                # 生成投影已按 context 檢查逐字稿，這裡不把 PDF 短標題誤當口語節錄。
+                excerpt_evidence_ids=excerpt_evidence_ids
+                if excerpt_evidence_ids is not None else {
+                    span["evidence_id"] for span in claim["source_spans"]
+                    if span["quote"] != evidence_by_id[span["evidence_id"]]["exact_text"]
+                },
+            )
+            if sources is None:
                 return False
             if claim["evidence_refs"] != list(
                 dict.fromkeys(span["evidence_id"] for span in claim["source_spans"])
@@ -310,7 +319,7 @@ def _validate_concepts(document):
             source_text = " ".join(span["quote"] for span in claim["source_spans"])
             if _unsupported_null_meaning(claim["text"], source_text):
                 return False
-            if claim["projection"] == "source_literal_repair":
+            if claim["projection"] in LITERAL_REPAIRS:
                 if claim["text"] != source_text:
                     return False
             # 已發布的原投影沿用當時規則；不重寫舊內容或雜湊。
@@ -330,13 +339,10 @@ def _validate_concepts(document):
                     )
                 ):
                     return False
-            elif claim["projection"] in {"localized_meaning", LITERAL_PROJECTION}:
+            elif claim["projection"] in {"localized_meaning", LITERAL_PROJECTION, EXCERPT_PROJECTION}:
                 if not preserves_literals(
                     claim["text"],
-                    [
-                        evidence_by_id[span["evidence_id"]]
-                        for span in claim["source_spans"]
-                    ],
+                    sources,
                     legacy=claim["projection"] == "localized_meaning",
                 ):
                     return False

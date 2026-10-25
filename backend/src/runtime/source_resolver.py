@@ -21,6 +21,7 @@ from .storage.database import database_session
 from .storage.artifacts import open_verified_artifact
 from .errors import SourceError
 from .material_runtime import lock_matches_binding
+from .source_transcript import transcript_metadata
 
 
 def _bound_input(session, owner, run):
@@ -126,6 +127,11 @@ def _bound_input(session, owner, run):
                 or bytes(artifact.sha256).hex() != item[f"{prefix}_sha256"]
             ):
                 raise SourceError("SOURCE_BINDING_INVALID")
+        # 舊來源集合沒有此欄位，保留其原封存身分；新集合核對實際 mapping。
+        if "transcript" in item and item["transcript"] != transcript_metadata(
+            owner, item, session
+        ):
+            raise SourceError("SOURCE_BINDING_INVALID")
 
     first_source = manifest["items"][0]
     if str(run.source_artifact_id) != first_source["normalized_artifact_id"]:

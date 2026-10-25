@@ -10,7 +10,10 @@ import re
 from typing import Any
 
 from content_identity import canonical_sha256
-from .claim_literals import LITERAL_PROJECTION, preserves_literals
+from .claim_literals import (
+    LITERAL_PROJECTION, EXCERPT_PROJECTION, EXCERPT_REPAIR, LITERAL_REPAIRS,
+    preserves_literals, quoted_sources,
+)
 
 from .structure_rules import (
     RELATION_BASIS,
@@ -296,6 +299,20 @@ def semantic_request(
                 for claim in concept["claims"]
             ]
     return {
+        **(
+            {
+                "spoken_sources": {
+                    source_id: metadata
+                    for source_id, metadata in context["spoken_sources"].items()
+                    if source_id in {
+                        source_pages[item["page"] - 1]["source_id"]
+                        for item in bundle["evidence"]
+                    }
+                },
+            }
+            if context.get("spoken_sources")
+            else {}
+        ),
         "existing_concepts": catalog,
         "catalog_policy": (
             "Only a bounded selection of relevant saved concepts is listed. Omitted concepts and "
@@ -371,8 +388,19 @@ def semantic_request(
     }
 
 
-def _expand_claim(claim: Any, sources: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """模型只選完整 Evidence ID；引用文字由程式展開，不接受手算字元範圍。"""
+def spoken_handles(context):
+    pages = context.get("source_pages", [])
+    sources = context.get("spoken_sources", {})
+    return {
+        index for index, item in enumerate(context["evidence"])
+        if pages and pages[item["page"] - 1]["source_id"] in sources
+    }
+
+
+def _expand_claim(
+    claim: Any, sources: list[dict[str, Any]], *, excerpt_handles=frozenset()
+) -> dict[str, Any] | None:
+    """一般來源選完整 Evidence；口語來源選逐字節錄，位置由程式核對。"""
 
     if (
         not isinstance(claim, dict)
@@ -381,12 +409,21 @@ def _expand_claim(claim: Any, sources: list[dict[str, Any]]) -> dict[str, Any] |
     ):
         return None
     spans = []
-    for handle in claim["s"]:
+    for reference in claim["s"]:
+        excerpt = isinstance(reference, dict)
+        if excerpt and set(reference) != {"e", "q"}:
+            return None
+        if excerpt and not isinstance(reference["q"], str):
+            return None
+        handle = reference["e"] if excerpt else reference
         if type(handle) is not int or not 0 <= handle < len(sources):
+            return None
+        if excerpt != (handle in excerpt_handles):
             return None
         source = sources[handle]
         spans.append(
-            {"evidence_id": source["evidence_id"], "quote": source["exact_text"]}
+            {"evidence_id": source["evidence_id"],
+             "quote": reference["q"] if excerpt else source["exact_text"]}
         )
     return {
         "meaning": " ".join(span["quote"] for span in spans)
@@ -408,7 +445,7 @@ def _unsupported_null_meaning(text: str, source_text: str) -> bool:
 
 
 def _project_claim(
-    claim: Any, evidence: dict[str, dict[str, Any]]
+    claim: Any, evidence: dict[str, dict[str, Any]], *, excerpts=False, excerpt_evidence_ids=None
 ) -> dict[str, Any] | None:
     if not isinstance(claim, dict) or set(claim) != {"meaning", "source_spans"}:
         return None
@@ -419,26 +456,17 @@ def _project_claim(
     spans = claim["source_spans"]
     if not isinstance(spans, list) or not spans:
         return None
-    projected: list[dict[str, str]] = []
+    sources = quoted_sources(spans, evidence, excerpts=excerpts, excerpt_evidence_ids=excerpt_evidence_ids)
+    if sources is None:
+        return None
+    projected = []
     for span in spans:
-        if not isinstance(span, dict) or set(span) != {"evidence_id", "quote"}:
-            return None
-        source = evidence.get(span["evidence_id"])
-        quote = span["quote"]
-        if (
-            not isinstance(quote, str)
-            or not quote
-            or source is None
-            or quote != source["exact_text"]
-        ):
-            return None
-        item = {"evidence_id": span["evidence_id"], "quote": quote}
-        if item not in projected:
-            projected.append(item)
+        if span not in projected:
+            projected.append(span)
     source_text = " ".join(span["quote"] for span in projected)
     needs_literal_repair = not preserves_literals(
         meaning,
-        [evidence[span["evidence_id"]] for span in projected],
+        sources,
     )
     text = source_text if needs_literal_repair else meaning
     # 不把模型誤填的 JSON 空值字串當教材；來源真的討論 null 時仍可保留。
@@ -447,9 +475,11 @@ def _project_claim(
     return {
         "text": text,
         "source_spans": projected,
-        "projection": "source_literal_repair"
-        if needs_literal_repair
-        else LITERAL_PROJECTION,
+        "projection": (
+            EXCERPT_REPAIR if needs_literal_repair else EXCERPT_PROJECTION
+        ) if excerpts else (
+            "source_literal_repair" if needs_literal_repair else LITERAL_PROJECTION
+        ),
     }
 
 
@@ -469,6 +499,8 @@ def apply_semantic_response(
     ):
         raise ValueError("SEMANTIC_OUTPUT_INVALID")
     non_content_ids = set(context.get("non_content_evidence_ids", []))
+    excerpt_handles = spoken_handles(context)
+    excerpt_evidence_ids = {context["evidence"][h]["evidence_id"] for h in excerpt_handles}
     evidence = {
         item["evidence_id"]: item
         for item in bundle["evidence"]
@@ -551,13 +583,21 @@ def apply_semantic_response(
             raise ValueError("SEMANTIC_OUTPUT_INVALID")
         claim_identities = {canonical_sha256(claim) for claim in current["claims"]}
         for proposed_claim in proposal["c"]:
+            expanded = _expand_claim(
+                proposed_claim, context["evidence"], excerpt_handles=excerpt_handles
+            )
             claim = _project_claim(
-                _expand_claim(proposed_claim, context["evidence"]), evidence
+                expanded,
+                evidence,
+                excerpts=expanded is not None and any(
+                    isinstance(ref, dict) for ref in proposed_claim["s"]
+                ),
+                excerpt_evidence_ids=excerpt_evidence_ids,
             )
             if claim is None:
                 state.rejected_claims += 1
                 continue
-            if claim["projection"] == "source_literal_repair":
+            if claim["projection"] in LITERAL_REPAIRS:
                 state.literal_repairs += 1
             identity = canonical_sha256(claim)
             if identity not in claim_identities:

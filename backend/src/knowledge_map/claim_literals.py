@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 
 LITERAL_PROJECTION = "localized_meaning_v2"
+EXCERPT_PROJECTION = "spoken_excerpt_meaning/v1"
+EXCERPT_REPAIR = "spoken_excerpt_literal_repair/v1"
+EXCERPT_PROJECTIONS = {EXCERPT_PROJECTION, EXCERPT_REPAIR}
+LITERAL_REPAIRS = {"source_literal_repair", EXCERPT_REPAIR}
 
 _NUMBER = r"[+−-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+−-]?\d+)?"
 _UNIT = (
@@ -242,3 +247,75 @@ def preserves_literals(meaning: str, sources: list[dict], *, legacy: bool = Fals
             if " ".join(declaration[0].split()) not in normalized:
                 return False
     return True
+
+
+_CLAUSE_PUNCTUATION = frozenset("。！？；，：.!?;,:")
+MIN_EXCERPT_CHARACTERS = 4
+
+
+def _is_boundary_punctuation(text, index):
+    """半形標點須後接空白或原文結尾才算邊界，避免從 10:30、1:2、v1.2.3 中間切開；全形標點不受限。"""
+    char = text[index]
+    if char not in _CLAUSE_PUNCTUATION:
+        return False
+    return not char.isascii() or index + 1 == len(text) or text[index + 1].isspace()
+
+
+def _clause_bounds(text, start, end):
+    """只依來源的句／子句標點切分；無標點時保守引用整段，空白不單獨建立邊界。"""
+    before = text[:start].rstrip()
+    after_index = len(text) - len(text[end:].lstrip())
+    quote_end = start + len(text[start:end].rstrip())
+    return (not before or _is_boundary_punctuation(text, len(before) - 1)) and (
+        after_index == len(text)
+        or _is_boundary_punctuation(text, after_index)
+        or (quote_end > start and _is_boundary_punctuation(text, quote_end - 1))
+    )
+
+
+def transcript_evidence_ids(document):
+    """從已綁定來源取得逐字稿 Evidence；不以 Claim／概念名稱猜來源。"""
+    binding = document["input_binding"]
+    sources = {item["source_id"] for item in binding["manifest"]["items"] if "transcript" in item}
+    pages = binding["bundle"]["pages"]
+    return {
+        item["evidence_id"] for item in document["evidence"]
+        if pages[item["page"] - 1]["source_id"] in sources
+    }
+
+
+def quoted_sources(spans, evidence, *, excerpts=False, excerpt_evidence_ids=None):
+    """節錄須足夠長、唯一逐字定位且位於子句邊界，不能切斷技術字面值。"""
+    sources = []
+    for span in spans:
+        if not isinstance(span, dict) or set(span) != {"evidence_id", "quote"}:
+            return None
+        source = evidence.get(span["evidence_id"])
+        quote = span["quote"]
+        if source is None or not isinstance(quote, str) or not quote.strip():
+            return None
+        spoken = excerpts and (
+            excerpt_evidence_ids is None or span["evidence_id"] in excerpt_evidence_ids
+        )
+        if spoken and sum(
+            not char.isspace() and not unicodedata.category(char).startswith("P")
+            for char in quote
+        ) < MIN_EXCERPT_CHARACTERS:
+            return None
+        text = source["exact_text"]
+        if quote != text:
+            if not spoken:
+                return None
+            start = text.find(quote)
+            end = start + len(quote)
+            if start < 0 or text.find(quote, start + 1) >= 0:
+                return None
+            if not _clause_bounds(text, start, end):
+                return None
+            if any(
+                a < start < b or a < end < b
+                for a, b in _literal_ranges(text, source.get("kind", "paragraph"))
+            ):
+                return None
+        sources.append({**source, "exact_text": quote})
+    return sources

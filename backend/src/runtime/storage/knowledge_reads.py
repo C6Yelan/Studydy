@@ -84,13 +84,8 @@ def prepare_concept_index(
     for relation in view["relations"]:
         for identity in {relation["source_concept_id"], relation["target_concept_id"]}:
             adjacent[identity].append(relation)
-    # 保留既有 Claim 節錄；關係專屬 Evidence 則使用 canonical 原文與來源位置。
-    evidence = {
-        e["evidence_id"]: e
-        for concept in view["concepts"]
-        for claim in concept["claims"]
-        for e in claim["evidence"]
-    }
+    # 關係引用完整區塊，不能被同區塊最後一個 Claim 的節錄覆蓋。
+    evidence = {}
     canonical = {item["evidence_id"]: item for item in document["evidence"]}
     sources = {
         item["source_id"]: item for item in document["input_binding"]["manifest"]["items"]

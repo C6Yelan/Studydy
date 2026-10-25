@@ -25,6 +25,7 @@ from .storage.tables import (
 )
 from .generation_jobs import lease_is_current
 from .storage.database import database_session
+from .source_transcript import transcript_metadata
 
 
 def _descriptor(session, job):
@@ -40,7 +41,7 @@ def _descriptor(session, job):
     )
     if mapping is None or job.page_count is None:
         raise SourceError("SOURCE_NOT_READY")
-    return {
+    item = {
         "source_id": str(source.source_id),
         "normalization_id": str(job.normalization_id),
         "original_artifact_id": str(original.artifact_id),
@@ -55,6 +56,10 @@ def _descriptor(session, job):
         "page_count": job.page_count,
         "analysis_scope": deepcopy(job.analysis_scope),
     }
+    transcript = transcript_metadata(job.learner_id, item, session)
+    if transcript is not None:
+        item["transcript"] = transcript
+    return item
 
 
 def _fingerprint(material_id, normalization_ids, runtime, base_revision):

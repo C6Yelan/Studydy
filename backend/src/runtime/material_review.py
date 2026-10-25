@@ -14,6 +14,8 @@ from knowledge_map.material_review import (
     combine_reviews,
     response_schema,
     validate_proposal,
+    transcript_restore_text,
+    is_spoken_claim,
 )
 from knowledge_map.localization import POLICY as LOCALIZATION_POLICY, _needs_translation
 from knowledge_map.claim_literals import language_correction_template, restore_literals
@@ -38,11 +40,14 @@ def review_inputs(document, *, preserved_concept_ids=frozenset()):
             normalized_page=location["normalized_page"],
             source_name=sources[location["source_id"]]["original_name"],
         )
+        if "transcript" in sources[location["source_id"]]:
+            e["transcript"] = deepcopy(sources[location["source_id"]]["transcript"])
         evidence[e["evidence_id"]] = e
     for c in view["concepts"]:
         for q in c["claims"]:
             q["evidence"] = [
-                deepcopy(evidence[e["evidence_id"]]) for e in q["evidence"]
+                {**deepcopy(evidence[e["evidence_id"]]), "quote": e["quote"]}
+                for e in q["evidence"]
             ]
     owners = {}
     for c in view["concepts"]:
@@ -85,6 +90,20 @@ def review_inputs(document, *, preserved_concept_ids=frozenset()):
             )
         units.append(unit)
     return view, units
+
+
+def _uncertain_claim_ids(unit, assignments):
+    """解碼階段只辨識可定位的口語疑義；完整提案仍由既有 validator 核對。"""
+    return {
+        claim["claim_id"]
+        for assignment in assignments
+        if isinstance(assignment, dict)
+        and assignment.get("issue") == "uncertain"
+        and type(assignment.get("concept")) is int
+        and 0 <= assignment["concept"] < len(unit.concepts)
+        for claim in unit.concepts[assignment["concept"]]["claims"]
+        if is_spoken_claim(claim)
+    }
 
 
 def _review_response_schema(unit):
@@ -400,6 +419,7 @@ def _checked_review(
                 rejected, rejection_code = deepcopy(value), "REVIEW_RESPONSE_INVALID"
             raise
         value = decoded
+        uncertain_claims = _uncertain_claim_ids(unit, value["assignments"])
         edits = value.get("claim_edits")
         retained = []
         for edit in edits if isinstance(edits, list) else []:
@@ -414,6 +434,11 @@ def _checked_review(
                 None,
             )
             if correction is not None:
+                if (
+                    unit.claims[edit["claim"]]["claim_id"] in uncertain_claims
+                    and transcript_restore_text(unit, edit["claim"], edit.get("meaning")) is not None
+                ):
+                    continue  # 原文還原不是翻譯，不要求模型把已保存原字改成保留代號。
                 try:
                     edit["meaning"] = restore_literals(
                         edit["meaning"], correction["literals"]
@@ -784,6 +809,7 @@ def review_structure(
     if skipped and not reviews:
         raise SemanticServiceError("SEMANTIC_INPUT_TOO_LARGE")
     unit, proposal = combine_reviews(view, reviews)
+    uncertain_claims = _uncertain_claim_ids(unit, proposal["assignments"])
     localized = (
         lock.get("material_semantics", {}).get("localization_policy")
         == LOCALIZATION_POLICY
@@ -794,6 +820,10 @@ def review_structure(
         edit
         for edit in proposal["claim_edits"]
         if localized
+        and not (
+            unit.claims[edit["claim"]]["claim_id"] in uncertain_claims
+            and transcript_restore_text(unit, edit["claim"], edit["meaning"]) is not None
+        )
         and _needs_translation(
             edit["meaning"],
             [
@@ -862,4 +892,10 @@ def review_structure(
         check_cancel,
         consolidation_progress,
         wait_cancellation_check=wait_cancellation_check,
+        # ASR 疑義維持原 Claim；後續去重不可把待人工核對的字詞再改寫。
+        preserved_claim_ids={
+            projection["claim_mapping"][claim_id]
+            for claim_id in uncertain_claims
+            if claim_id in projection["claim_mapping"]
+        },
     )
