@@ -1,0 +1,35 @@
+-- Podcast 建立時選擇是否生成影片；既有節目建立時都會自動生成影片，因此標為 true，新建節目由程式明確寫入。
+ALTER TABLE public.podcasts ADD COLUMN video_enabled boolean NOT NULL DEFAULT true;
+ALTER TABLE public.podcasts ALTER COLUMN video_enabled DROP DEFAULT;
+-- Podcast 音訊改存無損 FLAC；既有 WAV 保留，可由維護腳本逐檔轉換。
+ALTER TABLE public.artifacts DROP CONSTRAINT artifact_role_media;
+ALTER TABLE public.artifacts ADD CONSTRAINT artifact_role_media CHECK (
+    ((kind = 'podcast_video') AND (media_type = 'video/mp4'))
+    OR ((kind = 'podcast_audio') AND (media_type = ANY (ARRAY['audio/wav', 'audio/flac'])))
+    OR ((kind = 'normalized_pdf') AND (media_type = 'application/pdf'))
+    OR ((kind = 'source_mapping') AND (media_type = 'application/json'))
+    OR ((kind = 'original') AND (media_type = ANY (ARRAY[
+        'application/pdf',
+        'application/msword',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'text/plain',
+        'text/markdown',
+        'application/zip',
+        'audio/mpeg',
+        'audio/mp4',
+        'audio/wav',
+        'application/vnd.studydy.youtube+json'
+    ])))
+);
+-- 使用者刪除影片：只刪影片 artifact，保留 manifest（舊版講稿的逐字稿時間軸只存在影片 manifest）。
+ALTER TABLE public.podcast_videos DROP CONSTRAINT podcast_videos_status_check;
+ALTER TABLE public.podcast_videos ADD CONSTRAINT podcast_videos_status_check CHECK (
+    status = ANY (ARRAY['pending', 'running', 'ready', 'failed', 'cancelled', 'removed'])
+);
+ALTER TABLE public.podcast_videos DROP CONSTRAINT podcast_videos_check1;
+ALTER TABLE public.podcast_videos ADD CONSTRAINT podcast_videos_check1 CHECK (
+    ((status = 'ready') = (artifact_id IS NOT NULL))
+    AND ((status = ANY (ARRAY['ready', 'removed'])) = (manifest IS NOT NULL))
+);

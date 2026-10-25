@@ -30,14 +30,19 @@
 .profile-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
-  grid-template-rows: auto auto 1fr;
-  grid-template-areas: "overview settings" "rhythm settings" "devices settings";
+  grid-template-rows: auto auto auto 1fr;
+  grid-template-areas: "overview settings" "rhythm settings" "devices settings" "storage settings";
   gap: 18px 24px;
   align-items: start;
 }
 .profile-overview-slot { grid-area: overview; min-width: 0; }
 .profile-rhythm { grid-area: rhythm; min-width: 0; }
 .profile-devices { grid-area: devices; }
+.profile-storage { grid-area: storage; display: grid; gap: 8px; min-width: 0; }
+.profile-storage p { margin: 0; }
+.profile-storage-numbers { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.profile-storage-numbers span { color: var(--text-secondary); font-size: 14px; }
+.profile-storage-meter { width: 100%; height: 10px; accent-color: var(--studydy-blue); }
 .profile-layout > .account-settings { grid-area: settings; }
 .profile-layout > .surface,
 .profile-overview { padding: 18px 22px; }
@@ -258,7 +263,7 @@
   .profile-layout {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
-    grid-template-areas: "overview" "rhythm" "settings" "devices";
+    grid-template-areas: "overview" "rhythm" "settings" "devices" "storage";
   }
 }
 /* 平板：五個統計在一列會把說明擠成「…」，改成每格至少 130px 自動換列。 */

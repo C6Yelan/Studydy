@@ -86,11 +86,30 @@ def work_root():
     return path
 
 
-def _upload_paths(owner, material_id, key):
-    digest = hashlib.sha256(f"{owner}:{material_id}:{key}".encode()).hexdigest()
+def _upload_folder():
     folder = work_root() / "uploads"
     folder.mkdir(mode=0o700, exist_ok=True)
-    return folder / f"{digest}.part", folder / f"{digest}.json"
+    return folder
+
+
+def _upload_paths(owner, material_id, key):
+    # 檔名以帳號開頭，帳號空間可計入尚未收齊的分段上傳。
+    digest = hashlib.sha256(f"{owner}:{material_id}:{key}".encode()).hexdigest()
+    folder = _upload_folder()
+    return folder / f"{owner.hex}-{digest}.part", folder / f"{owner.hex}-{digest}.json"
+
+
+def pending_upload_bytes(owner):
+    """此帳號尚未收齊的分段上傳暫存大小。"""
+    total = 0
+    for path in _upload_folder().glob(f"{owner.hex}-*"):
+        try:
+            details = path.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if stat.S_ISREG(details.st_mode):
+            total += details.st_size
+    return total
 
 
 def _existing_source(owner, material_id, key, *, dsn):
@@ -147,10 +166,18 @@ def receive_chunk(owner, material_id, key, name, media, total, offset, chunk, *,
         except ValueError:
             stored = None
         if offset == 0:
+            part.unlink(missing_ok=True)
+            # 第一段才知道整個檔案的大小：以已用＋整檔大小判斷帳號空間，超過就不留暫存。
+            from .storage_usage import require_room
+
+            try:
+                require_room(owner, total, dsn=dsn)
+            except Exception:
+                meta.unlink(missing_ok=True)
+                raise
             os.ftruncate(descriptor, 0)
             os.lseek(descriptor, 0, os.SEEK_SET)
             os.write(descriptor, json.dumps(intent).encode())
-            part.unlink(missing_ok=True)
         elif stored != intent:
             raise SourceError("UPLOAD_OFFSET_MISMATCH")
         received = part.stat().st_size if part.exists() else 0

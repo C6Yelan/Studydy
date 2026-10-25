@@ -48,7 +48,8 @@ def bundle(state, schema='v2'):
 
 
 def ready(fixture):
-    identity=create(fixture)['podcast_id'];complete(fixture[4]);return identity
+    # 建立時勾選影片：每集音訊完成後自動排隊影片。
+    identity=create(fixture,video=True)['podcast_id'];complete(fixture[4]);return identity
 
 
 def test_corrected_audio_requeues_cancelled_video_and_rejects_old_result(closed_loop):
@@ -181,7 +182,7 @@ def test_material_removal_cascades_video_and_quarantines_media(closed_loop):
 def test_delivery_automatically_queues_video_and_keeps_original_roles(closed_loop,delivery):
     owner,source,_,document,dsn,_=closed_loop
     saved=podcasts.create_podcast(owner.learner_id,source.material_id,document['revision'],'合成模式驗證',
-        [c['concept_id'] for c in document['concepts']],'video-delivery-'+delivery,delivery=delivery,dsn=dsn)
+        [c['concept_id'] for c in document['concepts']],'video-delivery-'+delivery,delivery=delivery,video=True,dsn=dsn)
     state=podcasts.claim_step(dsn=dsn)
     script={'provider':'synthetic','segments':[{'claim_id':c['claim_id'],'turns':
         [{'speaker':'host','text':'這個觀念要如何解釋？'},{'speaker':'guest','text':c['text']}]

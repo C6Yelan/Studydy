@@ -174,7 +174,7 @@ def install(app, settings):
             manifest = podcast_videos.ready_manifest(learner, identity, index, dsn=settings.dsn)
             if manifest is None:
                 raise request_context.ApiFailure('RESOURCE_NOT_FOUND')
-            response = artifact_response(request, open_verified_artifact(learner, manifest['artifact_id'], dsn=settings.dsn), MIME[format])
+            response = artifact_response(request, open_verified_artifact(learner, manifest['artifact_id'], dsn=settings.dsn, stream=True), MIME[format])
             response.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
             record_export(learner, 'podcast', dsn=settings.dsn)
             return response

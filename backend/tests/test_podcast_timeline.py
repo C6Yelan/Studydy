@@ -58,7 +58,7 @@ def test_timeline_api_authorization_and_unprepared_state(monkeypatch):
         return {'episodes': [episode]}
 
     monkeypatch.setattr(scene_routes.podcasts, 'read_podcast', read)
-    monkeypatch.setattr(scene_routes.podcast_videos, 'ready_manifest', lambda *a, **kw: None)
+    monkeypatch.setattr(scene_routes.podcast_videos, 'timeline_manifest', lambda *a, **kw: None)
     monkeypatch.setattr(scene_routes.podcast_scenes, 'read', lambda *a, **kw: {'episodes': [state]})
     monkeypatch.setattr(scene_routes.request_context, 'trusted_learner', trusted)
     from runtime.api.app import _error_response

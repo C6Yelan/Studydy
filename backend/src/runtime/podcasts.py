@@ -30,7 +30,8 @@ from .podcast_access import _locked
 from .podcast_sources import plan_episodes, source_context, _context_pages
 from . import retrieval
 from .errors import SourceError, PodcastError
-from .audio import validate_audio
+from .audio import FLAC_MEDIA_TYPE, validate_audio, wav_to_flac
+from .storage_usage import require_room
 
 
 from .generation_jobs import WORKER_LEASE_TTL, lease_is_current
@@ -74,14 +75,12 @@ def _summary(row, material, child_statuses):
         or any(status in ("pending", "running") for status in active_children),
         "completed_videos": videos.count("ready"),
         "failed_videos": videos.count("failed"),
+        # 沒有影片工作（未勾選影片）或影片已刪除的分集只播音訊，不再等待影片。
         "preview_ready": row.status == "ready"
         and all(e.get("audio") for e in row.episodes)
-        and videos.count("ready") == len(row.episodes),
+        and all(status in ("ready", "removed") for status in videos),
         "retryable_videos": row.status == "ready"
-        and (
-            len(videos) < len(row.episodes)
-            or any(s in ("failed", "cancelled") for s in videos)
-        ),
+        and any(s in ("failed", "cancelled") for s in videos),
     }
     return {
         "podcast_id": row.podcast_id,
@@ -89,6 +88,7 @@ def _summary(row, material, child_statuses):
         "material_name": material.display_name,
         "name": row.name,
         "delivery": row.episodes[0]["delivery"],
+        "video_enabled": row.video_enabled,
         "knowledge_structure_revision": row.knowledge_structure_revision,
         "concept_ids": row.concept_ids,
         "status": row.status,
@@ -107,10 +107,19 @@ def _summary(row, material, child_statuses):
 
 
 def create_podcast(
-    owner, material_id, revision, name, concept_ids, key, *, delivery, dsn=None
+    owner,
+    material_id,
+    revision,
+    name,
+    concept_ids,
+    key,
+    *,
+    delivery,
+    video=False,
+    dsn=None,
 ):
     name = validate_concept_selection(name, concept_ids)
-    if delivery not in {"solo", "dialogue"}:
+    if delivery not in {"solo", "dialogue"} or type(video) is not bool:
         raise PodcastError("REQUEST_INVALID")
     digest = _key_digest(key)
     selection = {
@@ -118,6 +127,7 @@ def create_podcast(
         "name": name,
         "concept_ids": concept_ids,
         "delivery": delivery,
+        "video": video,
     }
     fingerprint = bytes.fromhex(canonical_sha256(selection))
     with database_session(dsn) as db:
@@ -135,6 +145,7 @@ def create_podcast(
             if row.status == "deleted":
                 raise PodcastError("RESOURCE_NOT_FOUND")
             return _summary(row, material, _child_statuses(db, [row.podcast_id]))
+        require_room(owner, dsn=dsn)
         document = _read_verified_document(db, owner, material_id, revision=revision)
         retrieval._scope(db, owner, material_id, revision)
         view = _view(document, material_id)
@@ -169,6 +180,7 @@ def create_podcast(
             created_at=datetime.now(UTC),
             idempotency_key_sha256=digest,
             request_fingerprint=fingerprint,
+            video_enabled=video,
         )
         db.add(row)
         db.flush()
@@ -242,13 +254,22 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
         if action == "rename":
             row.name = validate_concept_selection(name, row.concept_ids)
         elif action == "retry" and row.status == "ready":
-            from .podcast_videos import enqueue
-
             summary = _summary(row, material, _child_statuses(db, [row.podcast_id]))
             if not summary["generation"]["retryable_videos"]:
                 raise PodcastError("PODCAST_CONFLICT")
-            for index in range(len(row.episodes)):
-                video = enqueue(db, row, index)
+            # 只重試失敗或取消的影片；沒有影片工作的分集維持只有音訊。
+            require_room(owner, dsn=dsn)
+            from .podcast_videos import enqueue
+
+            for video in db.scalars(
+                select(PodcastVideo)
+                .where(
+                    PodcastVideo.podcast_id == identity,
+                    PodcastVideo.status.in_(("failed", "cancelled")),
+                )
+                .with_for_update()
+            ).all():
+                video = enqueue(db, row, video.episode_index)
                 if video.status in ("failed", "cancelled"):
                     video.status = "pending"
                     video.error_code = None
@@ -457,13 +478,14 @@ def finish_step(
                     except (ValueError, KeyError, TypeError):
                         raise PodcastError("PODCAST_AUDIO_INVALID") from None
                 duration = validate_audio(audio)
+                # 無損 FLAC 保存；sha256 仍記發布時的 WAV，影片與對齊的音訊身分不變。
                 artifact = write_blob(
                     db,
                     row.learner_id,
                     row.material_id,
-                    audio,
+                    wav_to_flac(audio),
                     "podcast_audio",
-                    "audio/wav",
+                    FLAC_MEDIA_TYPE,
                 )
                 episode["audio"] = {
                     "artifact_id": str(artifact.artifact_id),
@@ -481,9 +503,10 @@ def finish_step(
                 raise PodcastError("PODCAST_SCRIPT_INVALID")
             row.episodes = episodes
             if audio is not None:
-                from .podcast_videos import enqueue
+                if row.video_enabled:
+                    from .podcast_videos import enqueue
 
-                enqueue(db, row, claim["index"])
+                    enqueue(db, row, claim["index"])
                 from .podcast_scenes import enqueue as enqueue_alignment
 
                 enqueue_alignment(db, row, claim["index"])

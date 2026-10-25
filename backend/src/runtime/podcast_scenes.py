@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import base64
 import math
 import re
-from uuid import UUID, uuid4
+from uuid import uuid4
 from sqlalchemy import or_, select
 from content_identity import canonical_sha256
 from .podcast_access import _locked
@@ -13,10 +13,9 @@ from .errors import SourceError
 from .storage.tables import PodcastScenes as Scenes, Podcast, Material
 from .storage.database import database_session
 from .storage.knowledge_structures import _read_verified_document
-from .storage.artifacts import open_verified_artifact
 from .provider_http import provider
 from .generation_jobs import WORKER_LEASE_TTL, cancellable_job, lease_is_current
-from .audio import validate_audio
+from .audio import episode_wav
 from .podcast_sources import source_context
 from .scene_alignment import normalized
 from .podcast_script import SCHEMA, references, sources
@@ -573,13 +572,7 @@ def step(*, dsn=None):
         ) as job:
             alignment = state["alignment"]
             if not alignment:
-                with open_verified_artifact(
-                    state["owner"],
-                    UUID(state["episode"]["audio"]["artifact_id"]),
-                    dsn=dsn,
-                ) as artifact:
-                    audio = artifact.file.read(100 * 1024 * 1024 + 1)
-                validate_audio(audio)
+                audio = episode_wav(state["owner"], state["episode"], dsn=dsn)
                 texts = [
                     " ".join(t["text"] for t in s["turns"])
                     for s in state["episode"]["script"]["segments"]

@@ -28,6 +28,10 @@ def install(app, settings):
     def prepare(request: Request, identity: UUID, index: int):
         return podcast_videos.prepare(owner(request), identity, index, dsn=settings.dsn)
 
+    @app.delete("/v1/podcasts/{identity}/episodes/{index}/video")
+    def remove(request: Request, identity: UUID, index: int):
+        return podcast_videos.remove(owner(request), identity, index, dsn=settings.dsn)
+
     @app.post("/v1/podcasts/{identity}/episodes/{index}/video/actions")
     def action(request: Request, identity: UUID, index: int, body: Action):
         return podcast_videos.action(
@@ -49,6 +53,8 @@ def install(app, settings):
             raise SourceError("RESOURCE_NOT_FOUND")
         return artifact_response(
             request,
-            open_verified_artifact(learner, manifest["artifact_id"], dsn=settings.dsn),
+            open_verified_artifact(
+                learner, manifest["artifact_id"], dsn=settings.dsn, stream=True
+            ),
             "video/mp4",
         )

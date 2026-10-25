@@ -15,7 +15,7 @@ async function mockPodcasts(page: Page) {
   const view: PodcastView = {
     schema: "podcast/v1", run_id:runId, podcast_id: podcastId, material_id: materialId,
     material_name: "資料結構講義.pdf", knowledge_structure_revision: structureRevision,
-    name: "我的 Podcast", delivery: "solo", concept_ids: claims.map(c => c.concept_id),
+    name: "我的 Podcast", delivery: "solo", video_enabled: true, concept_ids: claims.map(c => c.concept_id),
     status: "running", error_code: null, version: 1, created_at: "2026-10-03T00:00:00Z",
     episode_count: 3, completed_episodes: 1, duration_seconds: null as number | null, is_current_revision: true,
     source_resolver: `/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`,
@@ -210,9 +210,15 @@ test("podcast creation keeps manual selection and settings without recommendatio
     return json(route, fixture.view, 201);
   });
   await controls.getByRole('button', { name: '講解設定', exact: true }).click();
+  // 影片預設不勾；勾選後才隨音訊生成。
+  const videoOption = page.getByRole('checkbox', { name: /同時生成教學影片/ });
+  await expect(videoOption).not.toBeChecked();
+  await expect(page.locator('.cards-create-summary')).toContainText('只有音訊');
+  await videoOption.check();
   await page.getByRole('button', { name: '開始生成 Podcast' }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
   expect(body.concept_ids).toEqual([first.concept_id]); expect(body.delivery).toBe('solo'); expect(body).not.toHaveProperty('mode');
+  expect(body.video).toBe(true);
   await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
 });
 
@@ -392,6 +398,52 @@ test('preview waits for every video and audio, including direct links',async({pa
   await expect(page.locator('video')).toHaveCount(1);
   await expect(page.locator('audio')).toHaveCount(0);
   await expect(page.getByRole('region',{name:'Podcast 生成進度'})).toHaveCount(0);
+});
+
+test('audio-only podcast plays audio in the same player without video progress',async({page})=>{
+  const {fixture}=await mockEpisodeVideo(page);
+  fixture.view.video_enabled=false;
+  fixture.view.generation={active:false,preview_ready:true,retryable_videos:false,completed_videos:0,failed_videos:0};
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video`,r=>json(r,{schema:'podcast-video/v1',podcast_id:podcastId,episode_index:Number(new URL(r.request().url()).pathname.split('/').at(-2)),status:'unprepared',version:0,error_code:null,video:null}));
+  await page.goto(`/podcasts/${podcastId}`);
+  const media=page.locator('video');
+  await expect(media).toHaveAttribute('src',new RegExp(`/v1/podcasts/${podcastId}/episodes/0/audio$`));
+  await expect(page.getByRole('button',{name:'播放',exact:true})).toBeEnabled();
+  await expect(page.getByRole('region',{name:'Podcast 生成進度'})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'刪除本集影片'})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'全螢幕',exact:true})).toHaveCount(0);
+  // 逐字稿時間軸不依賴影片。
+  await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByRole('button',{name:/前半段/})).toBeVisible();
+  await page.goto('/podcasts');
+  await expect(page.getByRole('button',{name:'開啟播放'})).toBeVisible();
+  await expect(page.getByText(/影片 \d+ \/ \d+ 集/)).toHaveCount(0);
+});
+
+test('deleting one episode video keeps its audio, transcript and other episodes',async({page})=>{
+  await mockEpisodeVideo(page);
+  const removed=new Set<number>();const deletes:string[]=[];
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video`,r=>{
+    const index=Number(new URL(r.request().url()).pathname.split('/').at(-2));
+    if(r.request().method()==='DELETE'){deletes.push(`${index}:${r.request().headers().origin??''}`);removed.add(index);}
+    if(!removed.has(index))return r.fallback();
+    return json(r,{schema:'podcast-video/v1',podcast_id:podcastId,episode_index:index,status:'removed',version:3,error_code:null,video:null});
+  });
+  await page.goto(`/podcasts/${podcastId}`);
+  const media=page.locator('video');
+  await expect(media).toHaveAttribute('src',/\/episodes\/0\/video\/media$/);
+  await page.getByRole('button',{name:'刪除本集影片'}).click();
+  const confirm=page.getByRole('group',{name:'刪除影片確認'});
+  await expect(confirm).toContainText('音訊、逐字稿與收聽進度都會保留');
+  await confirm.getByRole('button',{name:'保留影片'}).click();
+  expect(deletes).toEqual([]);
+  await page.getByRole('button',{name:'刪除本集影片'}).click();
+  await page.getByRole('group',{name:'刪除影片確認'}).getByRole('button',{name:'刪除影片'}).click();
+  await expect(media).toHaveAttribute('src',/\/episodes\/0\/audio$/);
+  expect(deletes).toHaveLength(1);expect(deletes[0]).toMatch(/^0:http/);
+  await expect(page.getByRole('button',{name:'刪除本集影片'})).toHaveCount(0);
+  await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByRole('button',{name:/前半段/})).toBeVisible();
+  await page.getByRole('navigation',{name:'分集清單'}).or(page.getByRole('complementary',{name:'分集清單'})).getByRole('button').nth(1).click();
+  await expect(media).toHaveAttribute('src',/\/episodes\/1\/video\/media$/);
 });
 
 test('cancelling video preparation confirms deletion of the whole podcast',async({page})=>{

@@ -73,6 +73,7 @@ from ..source_normalization import (
     upload_source,
 )
 from ..errors import PodcastError, SourceError
+from ..storage_usage import StorageQuotaError, account_usage, require_room
 from . import request_context
 from .media import artifact_response
 from .study_routes import install as install_study_routes
@@ -93,6 +94,7 @@ from ..storage.database import database_ready, database_session
 from ..workers import run_workers
 from .models import (
     AccountCredentials,
+    AccountStorageView,
     ApiErrorView,
     EvidenceSourceView,
     LearnerIdentityView,
@@ -123,6 +125,7 @@ from .models import (
 
 _ERROR_MESSAGE = "Request could not be completed."
 _ERROR_STATUS = {
+    "STORAGE_QUOTA_EXCEEDED": (409, False),
     "PODCAST_CONFLICT": (409, False),
     "PODCAST_SOURCE_INSUFFICIENT": (422, False),
     "PODCAST_SOURCE_TOO_LARGE": (422, False),
@@ -342,7 +345,7 @@ _ERROR_STATUS.update(
 
 
 def _error_response(
-    reason_code: str, *, status_code: int | None = None
+    reason_code: str, *, status_code: int | None = None, storage: dict | None = None
 ) -> JSONResponse:
     default_status, retryable = _ERROR_STATUS[reason_code]
     body = ApiErrorView.model_validate(
@@ -352,10 +355,11 @@ def _error_response(
             "reason_code": reason_code,
             "retryable": retryable,
             "message": _ERROR_MESSAGE,
+            **({"storage": storage} if storage is not None else {}),
         }
     )
     return JSONResponse(
-        body.model_dump(mode="json", by_alias=True),
+        body.model_dump(mode="json", by_alias=True, exclude_none=True),
         status_code=default_status if status_code is None else status_code,
     )
 
@@ -524,9 +528,10 @@ def _install_openapi(app: FastAPI) -> None:
                         operation["responses"][code] = {
                             "description": "Owner-authorized verified Podcast audio",
                             "content": {
-                                "audio/wav": {
+                                media: {
                                     "schema": {"type": "string", "format": "binary"}
                                 }
+                                for media in ("audio/flac", "audio/wav")
                             },
                         }
                     operation["responses"]["416"] = {
@@ -664,6 +669,14 @@ def create_app(settings: ApiSettings) -> FastAPI:
             return await call_next(request)
         except request_context.ApiFailure as error:
             return _error_response(error.reason_code)
+        except StorageQuotaError as error:
+            return _error_response(
+                "STORAGE_QUOTA_EXCEEDED",
+                storage={
+                    "used_bytes": error.used_bytes,
+                    "limit_bytes": error.limit_bytes,
+                },
+            )
         except Exception as error:
             return _error_response(_fixed_exception(error))
 
@@ -751,6 +764,17 @@ def create_app(settings: ApiSettings) -> FastAPI:
         request_context.require_query(request, set())
         learner = request_context.trusted_learner(request, settings)
         return learner_profile.read_profile(learner.learner_id, dsn=settings.dsn)
+
+    @app.get(
+        "/v1/account/storage",
+        response_model=AccountStorageView,
+        operation_id="readAccountStorage",
+        tags=["session"],
+    )
+    def read_account_storage_route(request: Request):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        return account_usage(learner.learner_id, dsn=settings.dsn)
 
     @app.post(
         "/v1/profile",
@@ -1014,6 +1038,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         media = request.headers.get("content-type")
         if media == YOUTUBE_MIME:
             raise request_context.ApiFailure("UNSUPPORTED_MEDIA_TYPE")
+        await run_in_threadpool(require_room, owner, len(data), dsn=settings.dsn)
         await run_in_threadpool(
             store_upload_bytes
             if media in (*AUDIO_MIME.values(), *VIDEO_MIME.values())
@@ -1091,6 +1116,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
         owner = request_context.trusted_learner(request, settings).learner_id
         if not media_available():
             raise request_context.ApiFailure("NORMALIZER_UNAVAILABLE")
+        require_room(owner, dsn=settings.dsn)
         add_youtube_source(
             owner,
             material_id,
@@ -1312,7 +1338,9 @@ def create_app(settings: ApiSettings) -> FastAPI:
         try:
             return artifact_response(
                 request,
-                open_verified_artifact(owner, artifact_id, dsn=settings.dsn),
+                open_verified_artifact(
+                    owner, artifact_id, dsn=settings.dsn, stream=True
+                ),
                 media,
             )
         except Exception:

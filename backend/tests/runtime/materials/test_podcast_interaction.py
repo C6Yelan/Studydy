@@ -59,7 +59,8 @@ def new_head(f):
 def test_beats_queue_alignment_and_timeline_without_video(closed_loop):
     owner,_,_,_,dsn,_=closed_loop
     view=beats(closed_loop, spoken='堆疊會依後進先出的順序處理。先放入的項目會留在較後面處理，最後放入的項目會先被取出。例如先放入第一個項目，再放入第二個項目，取出時會先得到第二個項目。')
-    assert videos.read(owner.learner_id,view['podcast_id'],0,dsn=dsn)['status']=='pending'
+    # 建立時沒勾影片：不生成影片，分鏡對齊與時間軸照常。
+    assert videos.read(owner.learner_id,view['podcast_id'],0,dsn=dsn)['status']=='unprepared'
     state=scenes.claim(dsn=dsn);assert state
     spoken=' '.join(t['text'] for t in state['episode']['script']['segments'][0]['turns']);quote=normalized(spoken)[:12]
     alignment={'starts':[0],'anchors':[{'script_offset':0,'text':quote,'audio_start':0,
@@ -213,7 +214,7 @@ def test_recording_context_and_late_answer_after_cancel_or_delete(closed_loop):
 
 
 def test_additive_migration_preserves_legacy_artifacts(closed_loop):
-    owner,source,_,_,dsn,_=closed_loop;saved=create(closed_loop);complete(dsn)
+    owner,source,_,_,dsn,_=closed_loop;saved=create(closed_loop,video=True);complete(dsn)
     state=videos.claim(dsn=dsn);videos.finish(state,bundle=bundle(state),dsn=dsn)
     cid=voice.create(owner.learner_id,source.material_id,'legacy-conversation',dsn=dsn)['conversation_id']
     voice.add_turn(owner.learner_id,cid,'old-question','舊問題',dsn=dsn)

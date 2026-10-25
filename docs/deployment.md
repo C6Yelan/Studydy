@@ -266,6 +266,24 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 新後端寫入新表與新欄位，必須先套用 0019 才能啟動，且前端要同時更新到接受 `xp-rules/v4`／`badge-rules/v7` 的版本。只改 Python 與前端，不需新增套件、不改 runtime lock，可用輕量後端更新（以 `docker inspect studydy-backend-1` 當下映像為基底）與前端輕量部署。已套用後回復版本須識別 0019，採前向修復，不還原 DB 丟棄新紀錄。部署後關卡、準時達成目標與匯出才開始累計，不補跑也不推測過去的紀錄。
 
+## 0019 Podcast 影片選項、FLAC 音訊與帳號空間
+
+`0019_podcast_audio_storage.sql`：`podcasts` 新增 `video_enabled`（既有列設為 true，維持原本自動生成影片；之後新建由程式明確寫入，沒有預設值）；`artifacts` 的 `podcast_audio` 允許 `audio/wav` 與 `audio/flac`；`podcast_videos` 新增 `removed` 狀態（刪除影片後保留 manifest、artifact 為 NULL）。只改欄位與 check constraint，不搬資料。
+
+- 只需 backend 輕量更新（映像沿用當下正式映像為底圖，FLAC 用既有 PyAV 編解碼，沒有新依賴或系統套件），再重建前端靜態檔；provider 不需更新或重啟（影片與對齊仍收到原 WAV）。backend 啟動時套用 migration，舊 backend 不認得 `removed` 與 `audio/flac`，因此不要回退到舊映像而保留新資料；回退前先確認沒有新建 FLAC 分集與已刪除的影片。
+- 部署時進行中的分段上傳會因暫存檔改為帳號前綴而回報「上傳中斷」，重新上傳即可；舊暫存一天後由維護 worker 清除。
+- 帳號空間上限 5 GiB 為程式常數 `runtime/storage_usage.py` 的 `ACCOUNT_STORAGE_LIMIT_BYTES`，調整後需重建 backend。
+
+既有 WAV 轉 FLAC 使用維護腳本 `python -m runtime.podcast_audio_flac`，部署本身不會執行。建議在沒有 Podcast 生成、使用者較少的時段執行（替換瞬間正在讀同一檔的請求可能失敗一次，重試即可）：
+
+~~~bash
+docker compose exec backend /app/backend/.venv/bin/python -m runtime.podcast_audio_flac --dry-run
+docker compose exec backend /app/backend/.venv/bin/python -m runtime.podcast_audio_flac --backup-dir /data/artifacts/.podcast-wav-backup --limit 1
+docker compose exec backend /app/backend/.venv/bin/python -m runtime.podcast_audio_flac --backup-dir /data/artifacts/.podcast-wav-backup
+~~~
+
+dry-run 只讀取並在記憶體試轉，逐檔輸出 JSON 與合計（`wav_bytes`、`flac_bytes`、`saved_bytes`），不寫檔也不改 DB。正式執行先確認備份目錄可用空間不少於全部 WAV 大小；每檔先整檔核對 DB 雜湊並備份、讀回核對，再轉 FLAC，以獨立解碼比對 PCM 與還原後的整份 WAV，皆一致才在同一 artifact ID 換成 FLAC 並更新 `media_type／sha256／size_bytes`，最後刪除 WAV。任何一檔失敗都保留原狀並在輸出標 `failed`（結束碼 1），其他檔照常處理；中途被終止時，下次執行先依 DB 狀態還原或收尾 `.staging` 的暫存。分集 JSON（artifact ID 與原 WAV 的 `audio.sha256`）不變，所以既有影片、對齊、時間軸與收聽進度維持有效。備份位於主機 `data/artifacts/.podcast-wav-backup/<artifact>.wav`（容器身分 20001 可寫），抽查播放與影片無誤後由管理者刪除；它不計入帳號空間。
+
 ## 後端身分與既有資料
 
 `STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。完整建置時 Compose 以同名建置參數在 backend 階段建立 `studydy-backend` passwd 項目（HOME=/tmp tmpfs）；torch／transformers 以 `getpass`、`~` 決定身分與 cache，缺少此項目時 OCR 子程序會 CHILD_EXITED。改 UID 須完整重建 backend 映像，輕量更新沿用 runtime 映像內的項目。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。

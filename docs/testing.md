@@ -32,6 +32,10 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 `backend/tests/test_podcast_process.py` 以本機 HTTP 與真實測試子程序驗證取消、等待資源鎖時取消、提早／遲到的取消、不同 lease 隔離、有明定期限的操作逾時及子程序群組回收，另以推進單調時鐘確認無期限的音訊程序不受原時限影響、長時間工作仍可取消。`backend/tests/runtime/materials/test_podcast_cancellation.py` 使用隔離 DB，驗證正在產稿／製作音訊時取消或刪除會停止子程序，且下一筆節目能完成；另核對取消會刪除已生成的音訊與所有子工作、保留原教材，以及音訊已完成時仍可取消整份節目。音訊租約使用縮短到期時間的隔離案例，驗證正常續期可跨過原到期點、失聯租約不會復活。這些測試不呼叫真實模型、不使用產品 DB，也不宣稱生成內容品質已驗收。
 
+## Podcast 影片選項、FLAC 與帳號空間
+
+`runtime/materials/test_podcast_storage.py` 使用隔離 DB 與合成音訊（含 FFmpeg 形式的 LIST 區塊），不呼叫模型：FLAC 解碼還原原 WAV、損毀拒絕；沒勾影片不建立影片工作、播放與 Range 回 `audio/flac`、MP3 匯出與收聽進度；勾選影片時 provider 收到原 WAV、刪除單集影片只移除影片 artifact 與檔案且時間軸、音訊不變、不被接續生成重建；串流 Range 只在首次整檔核對、檔案改寫後重新核對並拒絕；帳號空間計入 artifacts／分析目錄／分段上傳，上傳、分段上傳、建立 Podcast、生成與重試影片超過上限時回 `STORAGE_QUOTA_EXCEEDED`，閱讀、播放與刪除照常；WAV→FLAC 維護腳本的 dry-run 不改任何資料、正式轉換備份與逐位元核對、損毀檔保留原狀並回報、DB 更新失敗還原 WAV、中斷後下次執行收尾，且影片、分鏡對齊、時間軸與進度前後相同。`test_podcast_storage_migration.py` 在 0018 資料上套用 0019，核對既有列不變、既有節目 `video_enabled=true` 與 FLAC 約束。`e2e/mock/podcasts.spec.ts` 覆蓋建立表單的影片選項、純音訊播放與刪除單集影片；`e2e/api/podcast-interaction.spec.ts` 由真 API 確認 Chromium 載入 FLAC。
+
 ## 媒體來源
 
 `test_media_sources.py` 不連網，驗證 YouTube 網址（Shorts、帶清單參數的單支影片、純播放清單拒絕）、直播／會員／私人／年齡限制／超過 2 小時的拒絕原因、上傳者字幕的語言順序與不用自動字幕、WebVTT 解析、2 分鐘時間段分頁、長度上限、圖片組順序與格式檢查、EXIF 轉正與嵌入壓縮影像（不以未壓縮像素嵌入），以及逐字稿 PDF 一段一頁與時間 mapping。`runtime/sources/test_media_source_flow.py` 使用隔離 DB 與真實沙箱，語音辨識及 YouTube 讀取以替身取代：分段上傳的位移檢查、最後一段重送不重複建立、音訊轉成時間段頁面並由媒體端點以 Range 播放、影片只保存音軌、圖片組一張一頁、YouTube 只保存參照與逐字稿、無字幕時辨識後刪除音軌、拒絕原因不建立來源、辨識失敗可重試、過期的分段上傳與中斷轉換暫存清除，以及 0016 的 artifact 型別與大小限制；音訊與 YouTube 另沿正式分析流程發布後核對來源回查的時間標籤與播放位置。`e2e/mock/media-sources.spec.ts` 驗證圖片組排序與打包順序、音訊分段上傳、YouTube 輸入與播放清單提示，以及來源視窗從引用時間播放原音或 YouTube。這些替身測試不代表真實辨識、字幕或 YouTube 可用性；真實驗收另以公開素材執行。

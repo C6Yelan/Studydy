@@ -61,6 +61,7 @@ export type KnownApiReasonCode =
   | "ASSESSMENT_SET_CONFLICT"
   | "ASSESSMENT_SET_ACTIVE"
   | "MATERIAL_TOO_LARGE"
+  | "STORAGE_QUOTA_EXCEEDED"
   | "UNSUPPORTED_MEDIA_TYPE"
   | "UPLOAD_OFFSET_MISMATCH"
   | "MEDIA_TOO_LONG"
@@ -84,11 +85,15 @@ export type ApiErrorView = {
   reason_code: string;
   retryable: boolean;
   message: "Request could not be completed.";
+  /** 只有 STORAGE_QUOTA_EXCEEDED 附帶。 */
+  storage?: { used_bytes: number; limit_bytes: number };
 };
 
 export type LearnerIdentity = { schema: "learner-identity/v1"; learner_id: string };
 // 個人顯示名稱；未設定為 null，畫面沿用不含名字的問候。
 export type LearnerProfile = { schema: "learner-profile/v1"; display_name: string | null };
+/** 帳號已用空間：教材原檔與轉換檔、Podcast 音訊與影片、分析檔及未收齊的分段上傳。 */
+export type AccountStorage = { schema: "account-storage/v1"; used_bytes: number; limit_bytes: number; remaining_bytes: number };
 // 本人一個仍有效的登入；device_label 為 null 表示未知裝置（舊登入或無法辨識的瀏覽器）。
 export type AccountSession = {
   session_id: string; device_label: string | null; created_at: string; last_used_at: string; current: boolean;
@@ -862,6 +867,8 @@ export type PodcastSummary = {
   podcast_id: string; material_id: string; material_name: string;
   knowledge_structure_revision: string; name: string;
   delivery: "solo" | "dialogue";
+  /** 建立時是否勾選生成影片。 */
+  video_enabled: boolean;
   concept_ids: string[]; status: "pending" | "running" | "ready" | "failed" | "cancelled";
   error_code: string | null; version: number; created_at: string;
   episode_count: number; completed_episodes: number; is_current_revision: boolean;
@@ -899,7 +906,7 @@ export type PodcastView = PodcastSummary & {
 };
 export type PodcastCreate = {
   schema: "podcast-create/v1"; knowledge_structure_revision: string;
-  name: string; concept_ids: string[]; delivery: "solo" | "dialogue";
+  name: string; concept_ids: string[]; delivery: "solo" | "dialogue"; video: boolean;
 };
 export type PodcastAction = {
   schema: "podcast-action/v1"; action: "rename" | "retry" | "cancel"; expected_version: number; name?: string;

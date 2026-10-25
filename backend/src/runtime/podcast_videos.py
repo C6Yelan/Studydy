@@ -1,4 +1,4 @@
-"""每集音訊完成後自動排隊影片；來源失效、取消或刪除後，晚到結果不得發布。"""
+"""建立時勾選影片的 Podcast 在每集音訊完成後自動排隊影片；來源失效、取消或刪除後，晚到結果不得發布。"""
 
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -23,15 +23,16 @@ from .podcast_video_plan import (
 )
 from .errors import SourceError
 from .generation_jobs import WORKER_LEASE_TTL, cancellable_job, lease_is_current
-from .audio import validate_audio
+from .audio import episode_wav
 from .podcast_sources import source_context
 from .podcast_script import digest
 from .provider_http import generation_response, provider_request, provider_error_code
 from .storage.artifacts import (
     quarantine_artifact,
-    open_verified_artifact,
+    reconcile_discarded_artifacts,
     write_blob,
 )
+from .storage_usage import require_room
 from .storage.tables import Artifact, Material, Podcast, PodcastVideo as Video
 from .storage.database import database_session
 
@@ -149,6 +150,9 @@ def read(owner, podcast_id, index, *, dsn=None):
 def prepare(owner, podcast_id, index, *, dsn=None):
     with database_session(dsn) as db:
         podcast, _ = _locked(db, owner, podcast_id)
+        row = _row(db, podcast_id, index)
+        if not row or row.status == "cancelled":
+            require_room(owner, dsn=dsn)
         return _view(podcast, index, enqueue(db, podcast, index))
 
 
@@ -167,6 +171,7 @@ def action(owner, podcast_id, index, action, version, *, dsn=None):
             and episode["audio"]
             and row.source_sha256 == identity(podcast, episode)
         ):
+            require_room(owner, dsn=dsn)
             row.status = "pending"
             row.error_code = None
         else:
@@ -188,6 +193,48 @@ def ready_manifest(owner, podcast_id, index, *, dsn=None):
         if view["status"] != "ready":
             return None
         return {"artifact_id": row.artifact_id, **deepcopy(row.manifest)}
+
+
+def remove(owner, podcast_id, index, *, dsn=None):
+    """只刪除本集已完成的影片 artifact 與檔案；音訊、分鏡對齊與收聽進度不受影響。
+
+    manifest 保留為 removed：舊版講稿的逐字稿時間軸只存在影片 manifest，刪影片不能讓它失效。
+    removed 不會被接續生成或自動排隊重建。
+    """
+    artifact_id = None
+    try:
+        with database_session(dsn) as db:
+            podcast, _ = _locked(db, owner, podcast_id)
+            _episode(podcast, index)
+            row = _row(db, podcast_id, index)
+            if not row or row.status != "ready":
+                raise SourceError("VIDEO_CONFLICT")
+            artifact_id = row.artifact_id
+            row.status = "removed"
+            row.artifact_id = None
+            row.version += 1
+            db.flush()
+            quarantine_artifact(db, artifact_id)
+            db.delete(db.get(Artifact, artifact_id))
+            db.flush()
+            return _view(podcast, index, row)
+    finally:
+        if artifact_id is not None:
+            reconcile_discarded_artifacts(dsn=dsn, artifact_id=artifact_id)
+
+
+def timeline_manifest(owner, podcast_id, index, *, dsn=None):
+    """時間軸可沿用已完成或已刪除影片的 manifest（與目前音訊、講稿一致時）。"""
+    with database_session(dsn) as db:
+        podcast, _ = _locked(db, owner, podcast_id, read=True)
+        row = db.scalar(
+            select(Video).where(
+                Video.podcast_id == podcast_id, Video.episode_index == index
+            )
+        )
+        if _view(podcast, index, row)["status"] not in ("ready", "removed"):
+            return None
+        return deepcopy(row.manifest)
 
 
 def discard(db, podcast_id):
@@ -424,13 +471,7 @@ def step(*, dsn=None):
     saving = False
     try:
         with cancellable_job(Video, state["video_id"], state["token"], dsn=dsn):
-            from uuid import UUID
-
-            with open_verified_artifact(
-                state["owner"], UUID(state["episode"]["audio"]["artifact_id"]), dsn=dsn
-            ) as source:
-                audio = source.file.read(100 * 1024 * 1024 + 1)
-            validate_audio(audio)
+            audio = episode_wav(state["owner"], state["episode"], dsn=dsn)
             bundle = provider(state, audio)
             saving = True
             finish(state, bundle=bundle, dsn=dsn)

@@ -13,9 +13,8 @@ import { EmptyState } from "../../ui/EmptyState";
 
 export const podcastPreviewReady = (item: PodcastSummary) => item.status === 'ready' && item.generation?.preview_ready === true;
 
-// 音訊與影片都已完成、沒有進行中或失敗的影片。
-const podcastComplete = (item: PodcastSummary) => item.status === "ready" && !!item.generation && !item.generation.active
-  && !item.generation.failed_videos && item.generation.completed_videos >= item.episode_count;
+// 可播放且沒有進行中或失敗的影片（沒勾影片或已刪除影片的分集只播音訊）。
+const podcastComplete = (item: PodcastSummary) => podcastPreviewReady(item) && !item.generation!.active;
 
 export const podcastStatus = { pending: "等待生成", running: "正在生成", ready: "可以播放", failed: "生成中斷", cancelled: "已取消" };
 
@@ -85,7 +84,7 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
           }} />
           {!material && <p className="podcast-material-name" title={item.material_name}>{item.material_name}</p>}
           {/* 全部完成時不顯示狀態（按鈕已是「開啟播放」）；生成中、中斷或部分影片失敗時才顯示進度。 */}
-          {item.generation ? !podcastComplete(item) && <p className="library-state">{item.generation.active ? (item.status === 'ready' ? '影片／字幕生成中' : podcastStatus[item.status]) : item.generation.failed_videos ? '部分影片生成失敗' : podcastStatus[item.status]} · 音訊 {item.completed_episodes} / {item.episode_count} 集 · 影片 {item.generation.completed_videos} / {item.episode_count} 集</p>
+          {item.generation ? !podcastComplete(item) && <p className="library-state">{item.generation.active ? (item.status === 'ready' ? (item.video_enabled ? '影片／字幕生成中' : '字幕生成中') : podcastStatus[item.status]) : item.generation.failed_videos ? '部分影片生成失敗' : podcastStatus[item.status]} · 音訊 {item.completed_episodes} / {item.episode_count} 集{item.video_enabled ? ` · 影片 ${item.generation.completed_videos} / ${item.episode_count} 集` : ''}</p>
             : item.status !== "ready" && <p className="library-state">{podcastStatus[item.status]} · 音訊已完成 {item.completed_episodes} / {item.episode_count} 集</p>}
           {(item.generation?.active || ['pending','running'].includes(item.status)) && <PodcastCancelControl busy={deletingId!==null} onConfirm={()=>void cancelAndDelete(item.podcast_id)}/>}
           <button type="button" className="primary-button" onClick={() => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>{podcastPreviewReady(item) ? "開啟播放" : "查看進度"}</button>

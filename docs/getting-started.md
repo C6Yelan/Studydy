@@ -109,7 +109,7 @@ docker compose exec backend /app/backend/.venv/bin/python -m runtime.local_runti
 
 ## 本機 Podcast provider
 
-Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集 WAV，音訊沿用私人 artifact store。建立後自動生成，只選擇單人解說或雙人對談，分集保留全部所選重點，每集講稿須由正文段落引用並講解該集全部重點（逐段核對判定），內容較多自動拆集。失敗可接續已保存進度；取消會刪除整份 Podcast。分集沿用所選概念順序，在每集最多 32 個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
+Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集音訊；provider 交回的 24 kHz PCM WAV 由 backend 無損壓成 FLAC（WAV 標頭以 `riff` foreign metadata 保存，可逐位元還原）後存入私人 artifact store，分集 `audio.sha256` 仍是該 WAV 的雜湊。建立後自動生成，選擇單人解說或雙人對談，以及是否同時生成影片（預設不勾），分集保留全部所選重點，每集講稿須由正文段落引用並講解該集全部重點（逐段核對判定），內容較多自動拆集。失敗可接續已保存進度；取消會刪除整份 Podcast。分集沿用所選概念順序，在每集最多 32 個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
 
 文字 provider 沿用 `codex exec -m gpt-5.6-luna`。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。模型每句只輸出 `speaker`、`text` 與 `source_indices`；程式核對編號範圍，依重點帶入該 claim 全部的 `evidence_ids`，保存的 turn 文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須由正文段落引用並經逐段核對判定已講解，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。
 
@@ -181,7 +181,7 @@ Luna 的後端總額度為 65,536 tokens，包含輸入與輸出，使用與 pro
 每個新片段以 `source_refs` 保留原 beat／發言索引與 Unicode 字元範圍（start 含、end 不含），從文字交集推導 claim／Evidence，不把整個 beat 的來源塞給每個 cue；既有單發言片段仍有 `source_segment_index/source_turn_index`。拼回各發言須逐字等於原稿。短提問與回答可共用一個 cue，但仍分別保存 speaker，不額外推算逐角色切換時間。音訊或講稿 hash 改變、時間不符語音錨點均拒絕讀取，不沿用過期切分。
 同一路徑的 `/subtitles` 提供 WebVTT，兩個端點都沿用原 Podcast 權限與私人快取政策。新對齊另保存 `caption_alignment`：以原 turn、標點和同一次 Whisper 的詞時間產生較短讀句，逐字拼回仍等於原稿；多個片段共用 ASR 時間時合併，不在詞內插值。timeline 的 `segments` 繼續負責來源、seek 和「問這一段」，字幕使用獨立的 `captions`，不切碎 teaching scope。未保存細字幕錨點的舊產物沿用原 VTT，不自動重跑模型或改寫 manifest。時間軸使用已保存的對齊資料，不改寫原講稿；完成影片時優先讀取影片綁定的時間軸。
 
-每集新音訊完成後自動排入影片佇列；v2 腳本另自動排入既有 beat alignment 工作，先提供基本 timeline，不必等 MP4；既有集數可在播放器補產生，失敗可重試，處理中可取消並刪除整份 Podcast。影片失敗時仍保留原音訊。
+建立時勾選影片的 Podcast，每集新音訊完成後自動排入影片佇列；沒勾選就只有音訊。v2 腳本不論是否勾選，都自動排入 beat alignment 工作提供 timeline／字幕，不必等 MP4。影片失敗可重試，處理中可取消並刪除整份 Podcast；影片失敗時仍保留原音訊。每集已完成的影片可單獨刪除（`DELETE /v1/podcasts/{id}/episodes/{i}/video`）：只刪影片 artifact 與檔案，影片列改為 `removed` 並保留 manifest（舊版講稿的時間軸只存在影片 manifest），音訊、時間軸與收聽進度不變，也不會被接續生成重建。provider 的影片與對齊請求仍收到解碼還原的原 WAV。
 正式播放器提供影片／音訊切換、投影片跳轉、同步講稿及 JSON／WebVTT 下載，延續原 Podcast 的帳號權限。
 
 `0005_cards_and_media.sql` 建立影片工作、來源指紋及 artifact 關係。影片只在來源仍一致、版面及來源核對通過且 artifact 寫入成功後標記完成；取消、刪除或過期工作的晚到結果不會發布。

@@ -47,6 +47,8 @@ def test_upload_limit_capability_stream_and_rejected_state(limit, tmp_path, monk
     application = app(tmp_path, monkeypatch, limit=limit)
     monkeypatch.setattr(request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=uuid4()))
     monkeypatch.setattr(api, 'normalizer_available', lambda: False)
+    # 這裡只驗證單次請求大小與串流邊界；帳號空間另由 test_podcast_storage.py 以真 DB 驗證。
+    monkeypatch.setattr(api, 'require_room', lambda *_args, **_kwargs: None)
     accepted = []
     # Storage sentinel proves oversize is rejected before any source write.
     def store(*args, **kwargs):

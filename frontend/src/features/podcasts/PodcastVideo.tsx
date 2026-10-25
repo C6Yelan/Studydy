@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { errorMessage, type StudydyApiClient } from '../../api/client';
+import { InlineConfirm } from '../../ui/InlineConfirm';
 
 export type VideoView = {
   schema: 'podcast-video/v1'; podcast_id: string; episode_index: number;
-  status: 'waiting_audio' | 'unprepared' | 'pending' | 'running' | 'ready' | 'failed' | 'cancelled';
+  // removed：使用者刪除了影片，本集改播音訊，逐字稿時間軸保留。
+  status: 'waiting_audio' | 'unprepared' | 'pending' | 'running' | 'ready' | 'failed' | 'cancelled' | 'removed';
   version: number; error_code: string | null;
   video: null | { audio_sha256: string; script_sha256: string; artifact_id: string; sha256: string;
     width: number; height: number; fps: number; duration: number; pages: { title: string; start: number; end: number }[] };
@@ -40,4 +42,21 @@ export function usePodcastVideo(api: StudydyApiClient, podcastId: string, index:
     finally{if(alive.current)setBusy(false);}
   };
   return {state:current,error,busy,act,reload:()=>setReload(n=>n+1)};
+}
+
+// 每集的「刪除影片」：只刪影片檔，音訊、逐字稿、時間軸與收聽進度保留，之後本集改播音訊。
+export function DeleteVideoControl({ api, podcastId, index, onDeleted }: {
+  api: StudydyApiClient; podcastId: string; index: number; onDeleted: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  if (!confirming) return <button type="button" className="secondary-button" data-inline-confirm-trigger onClick={() => { setError(null); setConfirming(true); }}>刪除本集影片</button>;
+  return <InlineConfirm message={`刪除第 ${index + 1} 集的影片？`} label="刪除影片確認"
+    detail="只刪除影片檔、釋出空間；音訊、逐字稿與收聽進度都會保留，本集之後改播音訊。刪除後不會自動重新生成。"
+    cancelLabel="保留影片" confirmLabel="刪除影片" busyLabel="正在刪除…" busy={busy} error={error}
+    onCancel={() => setConfirming(false)} onConfirm={() => {
+      setBusy(true); setError(null);
+      void api.studyTools(`/v1/podcasts/${podcastId}/episodes/${index}/video`, undefined, undefined, 'DELETE').then(
+        () => { setBusy(false); setConfirming(false); onDeleted(); },
+        (e) => { setBusy(false); setError(errorMessage(e)); });
+    }} />;
 }

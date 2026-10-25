@@ -11,7 +11,6 @@ from browser_e2e_runner import PORT, local_api, main as run_browser
 from product_fixtures import closed_loop
 from materials.test_podcasts import wav
 from materials.test_podcast_interaction import beats, new_head
-from materials.test_podcast_videos import bundle
 from qa_fixtures import qa_model
 
 
@@ -28,12 +27,8 @@ def test_podcast_voice_assessment_browser_uses_original_revision(closed_loop,mon
         'boundary_script_offset':0,'boundary_text':quote,'boundary_audio_start':0}],
         'duration':1,'method':'synthetic','producer':'fixture',
         'caption_alignment':align_captions(turns, words, 1)},dsn=dsn)
-    # 現行介面在整份影音完成後才開啟逐字稿預覽；本案例使用合成影片，只驗證契約。
-    video = videos.claim(dsn=dsn)
-    assert video
-    video_bundle = bundle(video)
-    video_bundle['alignment']['caption_alignment'] = align_captions(turns, words, 1)
-    assert videos.finish(video, bundle=video_bundle, dsn=dsn)
+    # 建立時沒勾影片：音訊完成即開啟預覽，逐字稿與字幕來自分鏡對齊，播放器直接播 FLAC 音訊。
+    assert videos.claim(dsn=dsn) is None
     new_head(closed_loop)
     requests=[]
     def provider(path,body):

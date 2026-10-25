@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -7,6 +8,7 @@ from hashlib import sha256
 import os
 from pathlib import Path
 import stat
+import threading
 from typing import BinaryIO
 from uuid import UUID, uuid4
 
@@ -31,6 +33,7 @@ class VerifiedArtifact:
     sha256: str
     size_bytes: int
     file: BinaryIO = field(repr=False, compare=False)
+    media_type: str = ""
 
 
 def _root() -> Path:
@@ -156,7 +159,28 @@ def reconcile_discarded_artifacts(
         raise ArtifactError("ARTIFACT_STORAGE_FAILED") from None
 
 
-def _verify_file(path: Path, expected_digest: bytes, expected_size: int) -> BinaryIO:
+# 媒體 Range 串流：同一程序內，檔案身分（裝置、inode、大小、mtime、ctime）未變且已整檔
+# 核對過已保存雜湊，就不再重讀整檔。物件寫入後為 0400 且只會整檔替換（換 inode／ctime），
+# 因此任何改寫都會讓快取失效並重新整檔核對。
+_STREAM_VERIFIED: OrderedDict[tuple, bool] = OrderedDict()
+_STREAM_VERIFIED_LIMIT = 4096
+_STREAM_VERIFIED_LOCK = threading.Lock()
+
+
+def _file_identity(details: os.stat_result, expected_digest: bytes) -> tuple:
+    return (
+        details.st_dev,
+        details.st_ino,
+        details.st_size,
+        details.st_mtime_ns,
+        details.st_ctime_ns,
+        expected_digest,
+    )
+
+
+def _verify_file(
+    path: Path, expected_digest: bytes, expected_size: int, *, reuse: bool = False
+) -> BinaryIO:
     descriptor = None
     try:
         descriptor = os.open(
@@ -166,6 +190,14 @@ def _verify_file(path: Path, expected_digest: bytes, expected_size: int) -> Bina
         details = os.fstat(descriptor)
         if not stat.S_ISREG(details.st_mode) or details.st_size != expected_size:
             raise OSError
+        identity = _file_identity(details, expected_digest)
+        if reuse:
+            with _STREAM_VERIFIED_LOCK:
+                if identity in _STREAM_VERIFIED:
+                    _STREAM_VERIFIED.move_to_end(identity)
+                    opened = os.fdopen(descriptor, "rb", closefd=True)
+                    descriptor = None
+                    return opened
         digest = sha256()
         while True:
             chunk = os.read(descriptor, _CHUNK)
@@ -174,6 +206,11 @@ def _verify_file(path: Path, expected_digest: bytes, expected_size: int) -> Bina
             digest.update(chunk)
         if digest.digest() != expected_digest:
             raise OSError
+        if reuse:
+            with _STREAM_VERIFIED_LOCK:
+                _STREAM_VERIFIED[identity] = True
+                while len(_STREAM_VERIFIED) > _STREAM_VERIFIED_LIMIT:
+                    _STREAM_VERIFIED.popitem(last=False)
         os.lseek(descriptor, 0, os.SEEK_SET)
         opened = os.fdopen(descriptor, "rb", closefd=True)
         descriptor = None
@@ -241,12 +278,22 @@ def reconcile_new_artifacts(*, dsn=None):
 
 
 @contextmanager
-def open_verified_artifact(learner_id, artifact_id, *, dsn=None, session=None, kind=None):
-    """核對 owner、用途與實體 bytes；發布可沿用已鎖住父資料的交易。"""
+def open_verified_artifact(
+    learner_id, artifact_id, *, dsn=None, session=None, kind=None, stream=False
+):
+    """核對 owner、用途與實體 bytes；發布可沿用已鎖住父資料的交易。
+
+    stream=True 供媒體 Range 串流：已在本程序整檔核對過且檔案身分未變時，只核對大小與檔案身分。
+    """
     if not isinstance(learner_id, UUID) or not isinstance(artifact_id, UUID):
         raise ArtifactError("ARTIFACT_NOT_AVAILABLE")
     try:
-        query = select(Artifact.material_id, Artifact.sha256, Artifact.size_bytes).where(
+        query = select(
+            Artifact.material_id,
+            Artifact.sha256,
+            Artifact.size_bytes,
+            Artifact.media_type,
+        ).where(
             Artifact.learner_id == learner_id,
             Artifact.artifact_id == artifact_id,
         )
@@ -258,12 +305,24 @@ def open_verified_artifact(learner_id, artifact_id, *, dsn=None, session=None, k
         if row is None:
             raise ArtifactError("ARTIFACT_NOT_AVAILABLE")
         digest = bytes(row.sha256)
-        opened = _verify_file(_object_path(_root(), artifact_id), digest, row.size_bytes)
+        path = _object_path(_root(), artifact_id)
+        opened = (
+            _verify_file(path, digest, row.size_bytes, reuse=True)
+            if stream
+            else _verify_file(path, digest, row.size_bytes)
+        )
     except ArtifactError:
         raise
     except Exception:
         raise ArtifactError("ARTIFACT_NOT_AVAILABLE") from None
     try:
-        yield VerifiedArtifact(row.material_id, artifact_id, digest.hex(), row.size_bytes, opened)
+        yield VerifiedArtifact(
+            row.material_id,
+            artifact_id,
+            digest.hex(),
+            row.size_bytes,
+            opened,
+            row.media_type,
+        )
     finally:
         opened.close()

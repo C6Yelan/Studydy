@@ -39,6 +39,7 @@ def install(app, settings):
             body.concept_ids,
             request_context.idempotency_key(request),
             delivery=body.delivery,
+            video=body.video,
             dsn=settings.dsn,
         )
 
@@ -134,6 +135,7 @@ def install(app, settings):
         artifact_id = UUID(view["episodes"][episode_index]["audio"]["artifact_id"])
         return artifact_response(
             request,
-            open_verified_artifact(owner, artifact_id, dsn=settings.dsn),
-            "audio/wav",
+            open_verified_artifact(
+                owner, artifact_id, dsn=settings.dsn, kind="podcast_audio", stream=True
+            ),
         )

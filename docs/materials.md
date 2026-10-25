@@ -21,6 +21,10 @@
 
 原檔、PDF 與 mapping 各自保存 hash。下載使用原 MIME 與 attachment，PDF 預覽使用獨立入口。解析在 Bubblewrap 子程序內執行，唯讀掛載 runtime 及輸入，僅輸出／暫存可寫。只有 DOCX／PPTX 的受控圖片準備階段可連線，實際 Office 與 PDF 解析始終在斷網沙箱；超連結保留，其他 HTTP(S) 外部素材在轉檔副本內盡力取得並內嵌，失敗或超出下載限額就略過，不因此拒絕整份文件。原檔不改寫；其餘格式仍不連線。資源限制、版本檢查與禁止的主動內容見 [converter.py](../backend/src/document_normalization/converter.py) 及 [renderer.py](../backend/src/document_normalization/renderer.py)。失敗來源按「重試轉換」時使用現行轉檔政策，已完成來源的快照保持不變。
 
+## 帳號空間
+
+每個帳號總空間上限 5 GiB（介面標示 5 GB；`storage_usage.ACCOUNT_STORAGE_LIMIT_BYTES`），計入該帳號全部 artifacts（原檔、normalized_pdf、source_mapping、Podcast 音訊與影片）、`analysis/<learner>/` 分析檔目錄，以及尚未收齊的分段上傳暫存。上傳教材以「已用＋本次大小 > 上限」判斷（分段上傳在第一段以整檔大小判斷），加入 YouTube、建立 Podcast、生成或重試影片在空間已滿時拒絕；錯誤原因碼為 `STORAGE_QUOTA_EXCEEDED`（HTTP 409），回應附 `storage.used_bytes／limit_bytes`。已有內容照常閱讀、播放、匯出與刪除；已接受的工作（例如已建立 Podcast 後續各集的音訊與影片）不再中途檢查，最後可能略超過上限。卡組匯出暫存由維護程序清除、Podcast MP3／Markdown 匯出在記憶體產生，不計入。`GET /v1/account/storage`（`account-storage/v1`）回傳已用、上限與剩餘，個人檔案頁顯示。同一帳號同時送出多個請求時，檢查不加鎖，可能各自通過而略超過上限。
+
 ## 圖片、音訊、影片與 YouTube
 
 圖片組在瀏覽器依目前順序打包成不壓縮的 ZIP（`0001.png`、`0002.jpg`…），原檔即此壓縮檔。沙箱以 PyMuPDF／PyAV 將每張圖排成一頁（長邊 842 pt，JPEG 依 EXIF 轉正），mapping 記錄 `image_number`；之後與掃描 PDF 相同，由 Unlimited-OCR 建立 Evidence。嵌入 PDF 的一律是壓縮影像：不超過 1.5 MiB 且長邊不超過 2,500 px 的 JPEG 原樣嵌入，其餘縮到長邊 2,500 px（OCR 繪製約 2,340 px 已足夠）後以 PNG 或 JPEG 嵌入；50 張 1,200 萬畫素手機照片（合計 88 MiB）轉成約 30 MB 的 PDF。HEIC 不支援：PyAV 無法組合 iPhone 照片常用的圖塊格式。

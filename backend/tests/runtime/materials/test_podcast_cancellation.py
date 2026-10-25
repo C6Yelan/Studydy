@@ -152,7 +152,7 @@ def test_child_lease_renews_and_delete_still_cancels(closed_loop, provider_serve
     from materials.test_podcasts import complete
     from uuid import UUID, uuid4
     owner, _, _, _, dsn, _ = closed_loop
-    identity = create(closed_loop)['podcast_id']
+    identity = create(closed_loop, video=True)['podcast_id']
     complete(dsn)
     token = uuid4()
     old_expiry = datetime.now(UTC) + timedelta(seconds=3)
@@ -180,7 +180,7 @@ def test_child_lease_renews_and_delete_still_cancels(closed_loop, provider_serve
 def test_preview_requires_all_media_and_retry_preserves_ready_episodes(closed_loop):
     from materials.test_podcasts import complete
     owner, _, _, _, dsn, _ = closed_loop
-    identity = create(closed_loop)['podcast_id']
+    identity = create(closed_loop, video=True)['podcast_id']
     with database_session(dsn) as db:
         row = db.get(Podcast, identity)
         row.episodes = [deepcopy(row.episodes[0]) for _ in range(3)]
@@ -195,7 +195,7 @@ def test_preview_requires_all_media_and_retry_preserves_ready_episodes(closed_lo
         rows[0].artifact_id = UUID(original_audio[0]['artifact_id'])
         rows[0].manifest = {'synthetic': True}
         rows[1].status = 'failed'; rows[1].error_code = 'LUNA_GENERATION_TIMEOUT'
-        db.delete(rows[2])  # 既有音訊缺少影片工作的情況。
+        db.delete(rows[2])  # 沒有影片工作的分集只播音訊，接續生成只重試失敗／取消的影片。
         ready_version = rows[0].version
     view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
     assert view['generation']['completed_videos'] == 1
@@ -203,7 +203,7 @@ def test_preview_requires_all_media_and_retry_preserves_ready_episodes(closed_lo
     podcasts.change_podcast(owner.learner_id, identity, 'retry', view['version'], dsn=dsn)
     with database_session(dsn) as db:
         rows = list(db.scalars(select(PodcastVideo).where(PodcastVideo.podcast_id == identity).order_by(PodcastVideo.episode_index)))
-        assert [r.status for r in rows] == ['ready', 'pending', 'pending']
+        assert [r.status for r in rows] == ['ready', 'pending']
         assert rows[0].version == ready_version
         assert [e['audio'] for e in db.get(Podcast, identity).episodes] == original_audio
         for row in rows:
