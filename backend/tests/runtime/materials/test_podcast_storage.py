@@ -701,9 +701,11 @@ def test_reservation_is_bound_to_the_request_intent(closed_loop, monkeypatch):
     monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", base + 10_000)
     intent = media_sources.upload_intent("sources", "note.txt", "text/plain", 5, "0" * 64)
     media_sources.accept_upload("sources", owner.learner_id, podcasts.UUID(draft), "S", 5, intent, dsn=dsn)
+    reserved_before_conflict = storage(client)
     conflict = client.post(f"/v1/materials/{draft}/sources", content=b"bbbbb", headers={
         "Origin": ORIGIN, "Content-Type": "text/plain", "X-Material-Name": "note.txt", "Idempotency-Key": "S"})
     assert conflict.status_code == 409 and conflict.json()["reason_code"] == "IDEMPOTENCY_CONFLICT"
+    assert storage(client) == reserved_before_conflict
 
 
 def test_rejected_chunked_restart_keeps_the_previous_upload(closed_loop, monkeypatch):
@@ -811,3 +813,101 @@ def test_requeue_and_prepare_only_reserve_jobs_that_are_really_queued(closed_loo
     assert videos.prepare(owner.learner_id, identity, 0, dsn=dsn)["status"] == "cancelled"
     assert video_reservations() == [1]
     assert storage_usage.account_usage(owner.learner_id, dsn=dsn)["used_bytes"] == before
+
+
+@pytest.mark.parametrize("old_fails", [True, False])
+def test_expired_upload_cannot_publish_or_release_successor(closed_loop, monkeypatch, old_fails):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    owner, _, _, _, dsn, _ = closed_loop
+    client = client_for(closed_loop)
+    draft = draft_for(client, "lease-takeover")
+    content = b"lease takeover content"
+    base = storage(client)["used_bytes"]
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", base + len(content))
+    real = api.upload_source
+    entered = [Event(), Event()]
+    resume = [Event(), Event()]
+    calls = []
+
+    def delayed(*args, **kwargs):
+        index = len(calls)
+        calls.append(kwargs["upload_lease"])
+        entered[index].set()
+        assert resume[index].wait(15)
+        if index == 0 and old_fails:
+            raise media_sources.SourceError("REQUEST_INVALID")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(api, "upload_source", delayed)
+    headers = {"Origin": ORIGIN, "Content-Type": "text/plain", "X-Material-Name": "note.txt", "Idempotency-Key": "lease"}
+    def send():
+        return client_for(closed_loop).post(f"/v1/materials/{draft}/sources", content=content, headers=headers)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        try:
+            first = pool.submit(send)
+            assert entered[0].wait(10)
+            with psycopg.connect(dsn) as db:
+                db.execute("UPDATE storage_reservations SET expires_at = now() - interval '1 second' WHERE reservation_id = %s",
+                           (calls[0].reservation_id,))
+            second = pool.submit(send)
+            assert entered[1].wait(10)
+            assert calls[0].writer_id != calls[1].writer_id
+            resume[0].set()
+            rejected = first.result(timeout=10)
+            assert rejected.status_code == (400 if old_fails else 503), rejected.text
+            assert storage(client)["used_bytes"] == base + len(content)
+            assert storage(client)["reserved_bytes"] == len(content)
+            # A 的遲到失敗／發布不得釋放 B 的額度，C 仍不能新增。
+            blocked = client.post(f"/v1/materials/{draft}/sources", content=b"another", headers={**headers, "Idempotency-Key": "C"})
+            assert blocked.status_code == 409 and blocked.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
+            resume[1].set()
+            completed = second.result(timeout=10)
+            assert completed.status_code == 202 and len(completed.json()["sources"]) == 1
+        finally:
+            for event in resume:
+                event.set()
+    assert storage(client)["reserved_bytes"] == 0
+    assert storage(client)["used_bytes"] == base + len(content)
+
+
+def test_maintenance_expired_upload_cannot_publish_without_reservation(closed_loop):
+    owner, _, _, _, dsn, _ = closed_loop
+    client = client_for(closed_loop)
+    draft = draft_for(client, "lease-cleanup")
+    content = b"expired upload"
+    lease = media_sources.accept_upload("sources", owner.learner_id, draft, "expired", len(content),
+        media_sources.upload_intent("sources", "note.txt", "text/plain", len(content), sha256(content).hexdigest()), dsn=dsn)
+    with psycopg.connect(dsn) as db:
+        db.execute("UPDATE storage_reservations SET expires_at = now() - interval '1 second' WHERE reservation_id = %s",
+                   (lease.reservation_id,))
+    storage_usage.release_stale_upload_reservations(dsn=dsn)
+    with pytest.raises(storage_usage.StorageBusyError):
+        api.upload_source(owner.learner_id, draft, content, "note.txt", "text/plain", "expired", dsn=dsn, upload_lease=lease)
+    assert client.get(f"/v1/materials/{draft}/sources").json()["sources"] == []
+
+
+@pytest.mark.parametrize("legacy_metadata", [False, True])
+def test_chunk_after_reservation_cleanup_requires_restart(closed_loop, legacy_metadata):
+    import json
+
+    owner, _, _, _, dsn, _ = closed_loop
+    client = client_for(closed_loop)
+    draft = draft_for(client, "chunk-lease-cleanup")
+    content = ffmpeg_wav()
+    assert upload_part(client, draft, "chunk", 0, content[:1], len(content)).status_code == 202
+    with psycopg.connect(dsn) as db:
+        db.execute("UPDATE storage_reservations SET expires_at = now() - interval '1 second' WHERE material_id = %s", (draft,))
+    storage_usage.release_stale_upload_reservations(dsn=dsn)
+    if legacy_metadata:
+        _, meta = media_sources._upload_paths(owner.learner_id, podcasts.UUID(draft), "chunk")
+        metadata = json.loads(meta.read_text())
+        del metadata["writer_id"]
+        meta.write_text(json.dumps(metadata))
+    rejected = upload_part(client, draft, "chunk", 1, content[1:], len(content))
+    assert rejected.status_code == (409 if legacy_metadata else 503)
+    assert rejected.json()["reason_code"] == ("UPLOAD_OFFSET_MISMATCH" if legacy_metadata else "STORAGE_BUSY")
+    assert upload_part(client, draft, "chunk", 0, content, len(content)).status_code == 202
+    assert storage(client)["reserved_bytes"] == 0

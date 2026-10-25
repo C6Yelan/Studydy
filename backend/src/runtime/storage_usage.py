@@ -6,7 +6,7 @@ artifacts 與保留在同一個 SQL 敘述（同一快照）加總。已接受�
 
 保留在接受工作時固定大小，生命週期（另見 docs/materials.md「帳號空間」）：
 - upload：一個上傳意圖（入口＋Idempotency-Key）只有一個寫入者。寫入來源的同一交易刪除；寫入失敗時釋放；
-  寫入者租約（單次上傳 10 分鐘、分段上傳最後一段後 1 天）過期後由維護 worker 釋放或由同意圖請求接手。
+  寫入者租約（單次上傳 10 分鐘、分段上傳每段延長 1 天）過期後由維護 worker 釋放或由同意圖請求接手。每次接手換 writer_id，發布／清理只認本次寫入者。
 - podcast_audio：建立 Podcast 時每集一筆；該集音訊寫入的同一交易刪除。講稿或音訊失敗時保留到
   接續完成或刪除 Podcast，因為接續生成不再核對額度。
 - podcast_video：勾選影片的 Podcast 建立時每集一筆，或重試／補建／手動生成真正排入佇列時建立；
@@ -19,6 +19,7 @@ STORAGE_BUSY。卡片匯出暫存與 Podcast 匯出不落地或由維護程序�
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import os
@@ -40,6 +41,12 @@ DEFAULT_EPISODE_VIDEO_BYTES = 64 * 1024 * 1024
 # 上傳寫入者租約：單次上傳在一個請求內落盤；分段上傳每收到一段就延長，與暫存清除期限相同。
 SINGLE_UPLOAD_LEASE = timedelta(minutes=10)
 CHUNKED_UPLOAD_LEASE = timedelta(days=1)
+
+
+@dataclass(frozen=True)
+class UploadLease:
+    reservation_id: UUID
+    writer_id: UUID
 
 
 class StorageQuotaError(RuntimeError):
@@ -161,6 +168,7 @@ def reserve(
     episode_index=None,
     intent=None,
     lease=None,
+    writer_id=None,
 ):
     """建立保留；同一工作已有保留時沿用原值（不重新定價）。呼叫端已持有帳號鎖。"""
     now = datetime.now(UTC)
@@ -169,8 +177,8 @@ def reserve(
             """
             INSERT INTO storage_reservations
               (reservation_id, learner_id, material_id, kind, podcast_id, episode_index,
-               intent_sha256, expires_at, bytes, created_at)
-            VALUES (:id, :owner, :material, :kind, :podcast, :episode, :intent, :expires, :bytes, :now)
+               intent_sha256, expires_at, writer_id, bytes, created_at)
+            VALUES (:id, :owner, :material, :kind, :podcast, :episode, :intent, :expires, :writer, :bytes, :now)
             ON CONFLICT DO NOTHING
             """
         ),
@@ -182,6 +190,7 @@ def reserve(
             "podcast": podcast_id,
             "episode": episode_index,
             "intent": intent,
+            "writer": writer_id,
             "expires": now + lease if lease else None,
             "bytes": max(1, int(size)),
             "now": now,
@@ -218,10 +227,30 @@ def upload_reservation(db, reservation_id):
     return (bytes(row.intent_sha256), row.expires_at) if row else None
 
 
-def extend_upload(db, reservation_id, lease) -> None:
+def require_upload_lease(db, lease):
+    """發布前鎖住保留列；接手或維護清除後，舊寫入者不能再發布。發布先鎖教材；續期只鎖保留。"""
+    row = db.execute(
+        text("SELECT writer_id, expires_at FROM storage_reservations "
+             "WHERE reservation_id = :id FOR UPDATE"),
+        {"id": lease.reservation_id},
+    ).first()
+    if row is None or row.writer_id != lease.writer_id or row.expires_at <= datetime.now(UTC):
+        raise StorageBusyError()
+
+
+def settle_upload(db, lease):
+    """只釋放本次寫入者的保留；遲到的失敗清理不影響接手者。"""
+    db.execute(
+        text("DELETE FROM storage_reservations WHERE reservation_id = :id AND writer_id = :writer"),
+        {"id": lease.reservation_id, "writer": lease.writer_id},
+    )
+
+
+def extend_upload(db, lease, duration) -> None:
+    require_upload_lease(db, lease)
     db.execute(
         text("UPDATE storage_reservations SET expires_at = :expires WHERE reservation_id = :id"),
-        {"id": reservation_id, "expires": datetime.now(UTC) + lease},
+        {"id": lease.reservation_id, "expires": datetime.now(UTC) + duration},
     )
 
 
@@ -255,9 +284,9 @@ def reserve_videos(db, podcast, indexes) -> None:
         )
 
 
-def release_upload(reservation_id, *, dsn=None) -> None:
+def release_upload(lease, *, dsn=None) -> None:
     with database_session(dsn) as db:
-        release(db, reservation_id=reservation_id)
+        settle_upload(db, lease)
 
 
 def release_stale_upload_reservations(*, dsn=None, now=None) -> None:

@@ -1070,7 +1070,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
                 dsn=settings.dsn,
             )
             try:
-                return store(*arguments, dsn=settings.dsn, reservation_id=reservation)
+                return store(*arguments, dsn=settings.dsn, upload_lease=reservation)
             except Exception:
                 if reservation is not None:
                     release_upload(reservation, dsn=settings.dsn)

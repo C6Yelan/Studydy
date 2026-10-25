@@ -35,7 +35,7 @@ ALTER TABLE public.podcast_videos ADD CONSTRAINT podcast_videos_check1 CHECK (
 );
 -- 帳號空間保留額度：接受新增工作時固定的大小；生命週期見 docs/materials.md「帳號空間」。
 -- upload：一個上傳意圖（入口、Idempotency-Key）一筆，綁定意圖雜湊（入口、檔名、媒體、大小，單次上傳另含內容雜湊）
---   與寫入者租約 expires_at；podcast_audio／podcast_video：每集一筆，建立或排隊當時的估值。
+--   與寫入者識別 writer_id、租約 expires_at；podcast_audio／podcast_video：每集一筆，建立或排隊當時的估值。
 CREATE TABLE public.storage_reservations (
     reservation_id uuid PRIMARY KEY,
     learner_id uuid NOT NULL,
@@ -45,12 +45,13 @@ CREATE TABLE public.storage_reservations (
     episode_index integer CHECK (episode_index >= 0),
     intent_sha256 bytea,
     expires_at timestamp with time zone,
+    writer_id uuid,
     bytes bigint NOT NULL CHECK (bytes >= 1),
     created_at timestamp with time zone NOT NULL,
     FOREIGN KEY (learner_id, material_id) REFERENCES public.materials(learner_id, material_id) ON DELETE CASCADE,
     CHECK ((kind = 'upload') = (podcast_id IS NULL)),
     CHECK ((kind = 'upload') = (episode_index IS NULL)),
-    CHECK ((kind = 'upload') = (intent_sha256 IS NOT NULL AND expires_at IS NOT NULL)),
+    CHECK ((kind = 'upload') = (intent_sha256 IS NOT NULL AND expires_at IS NOT NULL AND writer_id IS NOT NULL)),
     UNIQUE (podcast_id, kind, episode_index)
 );
 CREATE INDEX storage_reservations_learner ON public.storage_reservations (learner_id);
