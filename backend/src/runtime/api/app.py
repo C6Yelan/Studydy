@@ -302,6 +302,10 @@ def _normalized_origin(value: Any) -> str | None:
 
 _ERROR_STATUS.update(
     {
+        "EXPORT_SIZE_LIMIT": (413, False),
+        "EXPORT_ACTIVE_LIMIT": (409, True),
+        "EXPORT_IN_PROGRESS": (409, True),
+        "EXPORT_PAGE_LIMIT": (413, False),
         "VIDEO_CONFLICT": (409, True),
         "VIDEO_SOURCE_CHANGED": (409, False),
         "SCENE_CONFLICT": (409, True),

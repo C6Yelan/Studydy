@@ -1631,3 +1631,18 @@ test("export downloads reject HTML responses and cannot finish after account inv
   await assert.rejects(pending, error => error.reasonCode === "SESSION_REQUIRED");
   finish(new Blob(["pdf"]));
 });
+
+
+test("card export limits explain size, active jobs, page limits and busy downloads", async () => {
+  for (const [reason, status, message] of [
+    ["EXPORT_SIZE_LIMIT", 413, "512 MiB"],
+    ["EXPORT_ACTIVE_LIMIT", 409, "2 份"],
+    ["EXPORT_IN_PROGRESS", 409, "仍在處理或下載"],
+    ["EXPORT_PAGE_LIMIT", 413, "每個概念最多 16 張"],
+  ]) {
+    const client = new StudydyApiClient(async () => Response.json({ schema: "api-error/v1", request_id: sessionId,
+      reason_code: reason, retryable: false, message: "Request could not be completed." }, { status }));
+    await assert.rejects(client.studyTools(`/v1/card-sets/${setId}/exports`, {}),
+      error => error.reasonCode === reason && error.status === status && error.message.includes(message));
+  }
+});

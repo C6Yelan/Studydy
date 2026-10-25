@@ -19,6 +19,10 @@ from .export_documents import source_text, decode_png
 from .storage.artifacts import _root
 
 UPLOAD_TTL = 30 * 60
+MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+MAX_OWNER_UPLOADS = 2
+MAX_CONCEPT_PAGES = 16
+MAX_IMAGES = 2000
 
 
 def work_root():
@@ -30,6 +34,8 @@ def work_root():
 def cleanup_stale_uploads():
     cutoff = time.time() - UPLOAD_TTL
     for directory in work_root().iterdir():
+        if not directory.is_dir():
+            continue
         try:
             with (directory / 'state.json').open('r+') as stream:
                 # 正在上傳、組檔或下載的工作不能被維護程序移除。
@@ -51,24 +57,35 @@ def create(owner, identity, version, format, *, dsn=None):
     if view['version'] != version or view['batch'] is None:
         raise SourceError('CARD_SET_CONFLICT')
     cleanup_stale_uploads()
-    upload_id = uuid4()
-    directory = work_root() / str(upload_id)
-    directory.mkdir(mode=0o700)
-    state = {'owner': str(owner), 'identity': str(identity), 'version': version, 'format': format,
-             'concept_ids': [c['concept_id'] for c in view['navigation']], 'images': []}
-    (directory / 'state.json').write_text(json.dumps(state))
+    root = work_root()
+    # 以磁碟鎖原子檢查名額並建立工作；並行請求／不同程序不能超收同一 owner。
+    with (root / '.quota.lock').open('a') as quota:
+        fcntl.flock(quota, fcntl.LOCK_EX)
+        active = sum(path.is_dir() for path in root.glob(f'{owner}_*'))
+        if active >= MAX_OWNER_UPLOADS:
+            raise SourceError('EXPORT_ACTIVE_LIMIT')
+        upload_id = uuid4()
+        directory = root / f'{owner}_{upload_id}'
+        directory.mkdir(mode=0o700)
+        state = {'owner': str(owner), 'identity': str(identity), 'version': version, 'format': format,
+                 'concept_ids': [c['concept_id'] for c in view['navigation']], 'images': []}
+        (directory / 'state.json').write_text(json.dumps(state))
     return {'upload_id': str(upload_id)}
 
 
 @contextmanager
 def upload(owner, identity, upload_id):
-    directory = work_root() / str(upload_id)
+    directory = work_root() / f'{owner}_{upload_id}'
     try:
         stream = (directory / 'state.json').open('r+')
     except FileNotFoundError:
         raise SourceError('RESOURCE_NOT_FOUND') from None
     with stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
+        # 同一工作仍在串流時立即回覆忙碌，不占產檔名額等慢速下載釋鎖。
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SourceError('EXPORT_IN_PROGRESS') from None
         if not directory.exists():
             raise SourceError('RESOURCE_NOT_FOUND')
         state = json.load(stream)
@@ -80,19 +97,27 @@ def upload(owner, identity, upload_id):
 def append(owner, identity, upload_id, offset, images, *, dsn=None):
     with upload(owner, identity, upload_id) as (directory, state, stream):
         card_sets.read_card_study(owner, identity, expected_version=state['version'], dsn=dsn)
-        if offset != len(state['images']) or offset + len(images) > 2000:
+        if offset != len(state['images']):
             raise SourceError('CARD_SET_CONFLICT')
+        if offset + len(images) > MAX_IMAGES:
+            raise SourceError('EXPORT_PAGE_LIMIT')
         entries = list(state['images'])
         decoded = []
         deck_key = hashlib.sha256(str(identity).encode()).hexdigest()[:12]
         for image in images:
             if image.concept_id not in state['concept_ids'] or image.page != sum(e['concept_id'] == image.concept_id for e in entries):
                 raise SourceError('REQUEST_INVALID')
+            if image.page >= MAX_CONCEPT_PAGES:
+                raise SourceError('EXPORT_PAGE_LIMIT')
             data = decode_png(image.png)
             position = state['concept_ids'].index(image.concept_id) + 1
             name = f'card-{deck_key}-{position:04}-{image.page + 1:03}-{hashlib.sha256(data).hexdigest()[:8]}.png'
             entries.append({'concept_id': image.concept_id, 'page': image.page, 'name': name})
             decoded.append((name, data))
+        # 計入實際 PNG（包括中斷寫入留下的檔案），不信任可能落後的記帳值。
+        stored = sum(path.stat().st_size for path in directory.glob('*.png'))
+        if stored + sum(len(data) for _, data in decoded) > MAX_UPLOAD_BYTES:
+            raise SourceError('EXPORT_SIZE_LIMIT')
         for name, data in decoded:
             (directory / name).write_bytes(data)
         state['images'] = entries

@@ -1675,3 +1675,29 @@ test("whole deck export sends bounded batches for 148 concepts and preserves eve
   expect(Math.max(...sizes)).toBeLessThan(16 * 1024 * 1024);
   await test.info().attach("large-export-metrics", { contentType: "application/json", body: JSON.stringify({ concepts: 148, faces: images.length, requests: sizes.length, max_request_bytes: Math.max(...sizes), total_request_bytes: sizes.reduce((a, b) => a + b, 0) }) });
 });
+
+for (const [reason, status, message] of [
+  ["EXPORT_ACTIVE_LIMIT", 409, "2 份"],
+  ["EXPORT_SIZE_LIMIT", 413, "512 MiB"],
+  ["EXPORT_PAGE_LIMIT", 413, "每個概念最多 16 張"],
+] as const) {
+  test(`card export quota ${reason} shows the limit and cleans a started upload`, async ({ page }) => {
+    await mockCards(page, { saved: true });
+    const uid = "66666666-6666-4666-8666-666666666666";
+    let cancelled = 0;
+    const failure = (route: Parameters<typeof json>[0]) => json(route, { schema: "api-error/v1", request_id: sessionId,
+      reason_code: reason, retryable: false, message: "Request could not be completed." }, status);
+    await page.route(`**/v1/card-sets/${cardSetId}/exports`, route => reason === "EXPORT_ACTIVE_LIMIT"
+      ? failure(route) : json(route, { upload_id: uid }));
+    await page.route(`**/v1/card-sets/${cardSetId}/exports/${uid}`, route => {
+      if (route.request().method() === "DELETE") { cancelled++; return json(route, { cancelled: true }); }
+      return failure(route);
+    });
+    await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+    const controls = page.getByRole("group", { name: "匯出整組概念卡" });
+    await controls.getByRole("button", { name: "匯出", exact: true }).click();
+    await expect(controls.getByRole("alert")).toContainText(message);
+    expect(cancelled).toBe(reason === "EXPORT_ACTIVE_LIMIT" ? 0 : 1);
+    await expect(controls.getByRole("button", { name: "匯出", exact: true })).toBeEnabled();
+  });
+}

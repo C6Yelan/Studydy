@@ -270,4 +270,7 @@ exports 不需 migration。後端新增 `genanki`、`python-docx` 與 `fonttools
 
 輕量後端更新須以 `docker inspect studydy-backend-1` 當下映像為基底，保留 UID 20001 的 passwd 項目及原 OCR 環境。部署前核對中文字型標準／粗體、libmp3lame 與新增依賴可用。前端增加 `html-to-image`，完整渲染既有島嶼元件後產生 PNG；後端核對 owner、版本與完整概念集合後打包；匯出內容不寫入一般 log。
 
-匯出以非同步 semaphore 同時最多處理兩個請求，含檔案串流期間；等待不佔用工作執行緒。卡組透過建立暫存、每批至多兩張 PNG 的 PUT、最後下載三個步驟傳輸，不把整組 base64 放進同一個請求。卡面、Anki SQLite 與輸出檔放在 artifact root 的私有 `.export-work/`，不使用只有 1 GiB 的 `/tmp`，不新增 DB migration。完成／取消／組檔失敗會清除該工作；維護 worker 清理超過 30 分鐘未更新且未鎖定的暫存。匯出與清理共用檔案鎖，下載尚未結束時不會被刪除。
+匯出以非同步 semaphore 同時最多處理兩份產檔；名額在 endpoint 函式結束時釋放，不延長到回應串流。既有 MP4 直接串流，不取得產檔名額。等待名額不佔用工作執行緒。卡組透過建立暫存、每批至多兩張 PNG 的 PUT、最後下載三個步驟傳輸，不把整組 base64 放進同一個請求。卡面、Anki SQLite 與輸出檔放在 artifact root 的私有 `.export-work/`，不使用只有 1 GiB 的 `/tmp`，不新增 DB migration。完成／取消／組檔失敗會清除該工作；維護 worker 清理超過 30 分鐘未更新且未鎖定的暫存。匯出與清理共用檔案鎖，下載尚未結束時不會被刪除。
+
+
+卡組每份接受的 PNG 合計上限 512 MiB（按實際暫存 PNG 大小計算），每個概念最多 16 張、整份最多 2000 張；每個帳號最多同時保留兩份卡組匯出，包含正在下載、尚未清理的工作。建立工作以檔案鎖原子檢查帳號名額，暫存目錄名稱綁定 owner；超限分別回 `EXPORT_SIZE_LIMIT`（413）、`EXPORT_PAGE_LIMIT`（413）與 `EXPORT_ACTIVE_LIMIT`（409），前端顯示對應限制。打包成品另占磁碟空間，與 PNG／Anki SQLite 在下載結束後一起清理；卡組檔案 lease 保持到串流結束，不隨產檔名額提前釋放。同一工作正在上傳或下載時，重複操作回 `EXPORT_IN_PROGRESS`（409），不占用產檔名額等待檔案鎖。

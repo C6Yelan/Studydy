@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from assessment_fixtures import concept_fixture
 from product_fixtures import ORIGIN, _app, closed_loop
-from runtime import material_notes, podcasts, card_sets
+from runtime import material_notes, podcasts, card_sets, export_cards
 from runtime.learner_session import register_account
 from test_note_queue import answer as note_answer
 from test_card_generation import create as create_cards, finish as finish_cards, response as card_response
@@ -71,6 +71,10 @@ def test_card_exports_enforce_owner_version_origin_and_complete_selection(closed
     assert client.post(base, json={**body, 'version': study['version'] + 1}, headers=headers).status_code == 409
     uid = client.post(base, json=body, headers=headers).json()['upload_id']
     path = f'{base}/{uid}'
+    second = client.post(base, json=body, headers=headers).json()['upload_id']
+    limited = client.post(base, json=body, headers=headers)
+    assert limited.status_code == 409 and limited.json()['reason_code'] == 'EXPORT_ACTIVE_LIMIT'
+    assert client.delete(f'{base}/{second}', headers=headers).status_code == 200
     foreign = register_account('card_export_foreign@example.com', 'Synthetic test password 42', dsn=dsn)
     client.cookies.set('studydy_session', foreign.raw_token)
     assert client.post(base, json=body, headers=headers).status_code == 404
@@ -79,6 +83,14 @@ def test_card_exports_enforce_owner_version_origin_and_complete_selection(closed
     assert client.delete(path, headers=headers).status_code == 404
     client.cookies.set('studydy_session', token)
     assert client.put(path, json={'offset': 1, 'images': images}, headers=headers).status_code == 409
+    with monkeypatch.context() as limits:
+        limits.setattr(export_cards, 'MAX_UPLOAD_BYTES', len(png) - 1)
+        limited = client.put(path, json={'offset': 0, 'images': images}, headers=headers)
+        assert limited.status_code == 413 and limited.json()['reason_code'] == 'EXPORT_SIZE_LIMIT'
+    with monkeypatch.context() as limits:
+        limits.setattr(export_cards, 'MAX_CONCEPT_PAGES', 0)
+        limited = client.put(path, json={'offset': 0, 'images': images}, headers=headers)
+        assert limited.status_code == 413 and limited.json()['reason_code'] == 'EXPORT_PAGE_LIMIT'
     assert client.put(path, json={'offset': 0, 'images': images}, headers=headers).status_code == 200
     response = client.post(path + '/download', headers=headers)
     assert response.status_code == 200, response.text[:100]

@@ -70,7 +70,7 @@ HTTP 層處理請求邊界，runtime 用例協調流程，learning_adaptation／
 
 [provider_http.py](../backend/src/runtime/provider_http.py) 管理既有 provider 傳輸，工作續租與取消仍屬各執行流程。內容序列化使用 `content_identity.py`；講稿沿用 `podcast_script.py` 的獨立雜湊規則，避免改變已保存的身分。
 
-匯出入口位於 `runtime/api/export_routes.py`，文件格式由 `export_documents`、`export_cards`、`export_map`、`export_podcast` 處理。各入口沿用既有授權讀取；卡片與地圖圖片由前端現行視覺元件產生，後端核對完整範圍並產生 PDF／Anki／ZIP。所有 PDF 在後端生成，臨時匯出不建立新的持久 artifact 或模型工作。卡組用私有磁碟暫存承接分批卡面，檔案鎖維持上傳／下載／清理互斥；生成完成後直接串流檔案，避免把整組 PNG 與輸出副本同時放在記憶體。
+匯出入口位於 `runtime/api/export_routes.py`，文件格式由 `export_documents`、`export_cards`、`export_map`、`export_podcast` 處理。各入口沿用既有授權讀取；卡片與地圖圖片由前端現行視覺元件產生，後端核對完整範圍並產生 PDF／Anki／ZIP。所有 PDF 在後端生成，臨時匯出不建立新的持久 artifact 或模型工作。卡組用私有磁碟暫存承接分批卡面，每份卡面容量、每概念頁數與每人進行中工作數均有上限；檔案鎖維持上傳／下載／清理互斥；生成完成後直接串流檔案，避免把整組 PNG 與輸出副本同時放在記憶體。
 
 ## 模型與驗證
 

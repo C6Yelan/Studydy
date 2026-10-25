@@ -36,7 +36,7 @@ def test_export_semaphore_queues_without_starving_file_response_threads(tmp_path
             active += 1; peak = max(peak, active)
             try: yield
             finally: active -= 1
-    @app.get('/download', dependencies=[Depends(tracked_slot)])
+    @app.get('/download', dependencies=[Depends(tracked_slot, scope="function")])
     def download():
         return FileResponse(file)
     async def run():
@@ -84,7 +84,7 @@ def test_148_concept_export_exceeds_old_request_limit_but_downloads_as_one_zip(m
             assert len(archive.namelist()) == 148
             assert archive.testzip() is None
             assert all(archive.read(name) == png for name in archive.namelist())
-        assert not (export_cards.work_root() / uid).exists()
+        assert not (export_cards.work_root() / f'{owner}_{uid}').exists()
     print(json.dumps({'concepts': 148, 'batches': len(sizes), 'total_request_bytes': sum(sizes),
         'max_request_bytes': max(sizes), 'download_bytes': len(response.content), 'seconds': round(time.monotonic() - start, 2)}))
 
@@ -93,7 +93,7 @@ def test_upload_cleanup_excludes_locked_download_and_removes_abandoned_session(m
     monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
     monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, **_kwargs: {'version': 1, 'batch': {}, 'navigation': [{'concept_id': 'a'}]})
     uid = export_cards.create('owner', 'cards', 1, 'zip')['upload_id']
-    path = export_cards.work_root() / uid
+    path = export_cards.work_root() / f'owner_{uid}'
     os.utime(path / 'state.json', (0, 0))
     with export_cards.upload('owner', 'cards', uid):
         export_cards.cleanup_stale_uploads()
@@ -102,3 +102,134 @@ def test_upload_cleanup_excludes_locked_download_and_removes_abandoned_session(m
     assert not path.exists()
     with pytest.raises(SourceError, match='RESOURCE_NOT_FOUND'):
         with export_cards.upload('owner', 'cards', uid): pass
+
+
+def test_owner_quota_is_atomic_and_cancel_releases_it(monkeypatch, tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
+    monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, **_kwargs: {'version': 1, 'batch': {}, 'navigation': [{'concept_id': 'a'}]})
+    def create():
+        try:
+            return export_cards.create('owner', 'cards', 1, 'zip')['upload_id']
+        except SourceError as error:
+            assert str(error) == 'EXPORT_ACTIVE_LIMIT'
+            return None
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: create(), range(8)))
+    created = [uid for uid in results if uid]
+    assert len(created) == export_cards.MAX_OWNER_UPLOADS == 2
+    other = export_cards.create('other-owner', 'cards', 1, 'zip')['upload_id']
+    export_cards.cancel('owner', 'cards', created[0])
+    replacement = create()
+    assert replacement is not None
+    for owner, uid in [('owner', created[1]), ('owner', replacement), ('other-owner', other)]:
+        export_cards.cancel(owner, 'cards', uid)
+
+
+def test_byte_and_concept_page_limits_reject_before_writing_batch(monkeypatch, tmp_path):
+    monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
+    monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, **_kwargs: {'version': 1, 'batch': {}, 'navigation': [{'concept_id': 'a'}]})
+    output = BytesIO(); Image.new('RGB', (8, 8)).save(output, format='PNG')
+    png = output.getvalue()
+    def image(page):
+        return export_routes.CardImage(concept_id='a', page=page, png=b64encode(png).decode())
+    monkeypatch.setattr(export_cards, 'MAX_UPLOAD_BYTES', len(png) * 2)
+    uid = export_cards.create('owner', 'cards', 1, 'zip')['upload_id']
+    directory = export_cards.work_root() / f'owner_{uid}'
+    export_cards.append('owner', 'cards', uid, 0, [image(0)])
+    with pytest.raises(SourceError, match='EXPORT_SIZE_LIMIT'):
+        export_cards.append('owner', 'cards', uid, 1, [image(1), image(2)])
+    assert len(list(directory.glob('*.png'))) == 1
+    assert len(json.loads((directory / 'state.json').read_text())['images']) == 1
+    export_cards.append('owner', 'cards', uid, 1, [image(1)])
+    assert sum(p.stat().st_size for p in directory.glob('*.png')) == export_cards.MAX_UPLOAD_BYTES
+    monkeypatch.setattr(export_cards, 'MAX_CONCEPT_PAGES', 2)
+    with pytest.raises(SourceError, match='EXPORT_PAGE_LIMIT'):
+        export_cards.append('owner', 'cards', uid, 2, [image(2)])
+    assert len(list(directory.glob('*.png'))) == 2
+    export_cards.cancel('owner', 'cards', uid)
+
+
+async def asgi_request(app, path, *, method='GET', send_body=None):
+    messages = []
+    scope = {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'},
+             'http_version': '1.1', 'scheme': 'http', 'method': method, 'path': path,
+             'raw_path': path.encode(), 'root_path': '', 'query_string': b'', 'headers': [],
+             'client': ('127.0.0.1', 1), 'server': ('test', 80)}
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+    async def send(message):
+        messages.append(message)
+        if send_body and message['type'] == 'http.response.body' and message.get('body'):
+            await send_body()
+    await app(scope, receive, send)
+    assert messages[0]['status'] == 200
+    return b''.join(m.get('body', b'') for m in messages)
+
+
+def test_card_stream_releases_generation_slot_but_keeps_temporary_files_locked(monkeypatch, tmp_path):
+    import fcntl
+    owner, identity = uuid4(), uuid4()
+    card = {'concept_id': 'a', 'label': '合成', 'claims': []}
+    monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
+    monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, expected_version=None, **_kwargs:
+        {'cards': [card]} if expected_version else {'version': 1, 'batch': {}, 'name': '合成', 'navigation': [card]})
+    monkeypatch.setattr(export_routes.request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=owner))
+    monkeypatch.setattr(export_routes.material_notes, 'read', lambda *_args, **_kwargs: {'paragraphs': [{}]})
+    monkeypatch.setattr(export_routes.export_documents, 'note_markdown', lambda _: '# note')
+    app = FastAPI(); export_routes.install(app, SimpleNamespace(dsn=None))
+    original = export_cards.render
+    def render(*args, **kwargs):
+        assert app.state.export_slots._value == 1
+        return original(*args, **kwargs)
+    monkeypatch.setattr(export_cards, 'render', render)
+    uid = export_cards.create(owner, identity, 1, 'zip')['upload_id']
+    output = BytesIO(); Image.new('RGB', (8, 8)).save(output, format='PNG')
+    export_cards.append(owner, identity, uid, 0, [export_routes.CardImage(concept_id='a', page=0, png=b64encode(output.getvalue()).decode())])
+    directory = export_cards.work_root() / f'{owner}_{uid}'
+    async def run():
+        sending, release = asyncio.Event(), asyncio.Event()
+        async def slow():
+            sending.set(); await release.wait()
+        task = asyncio.create_task(asgi_request(app, f'/v1/card-sets/{identity}/exports/{uid}/download', method='POST', send_body=slow))
+        try:
+            await asyncio.wait_for(sending.wait(), 3)
+            assert app.state.export_slots._value == 2
+            assert directory.exists()
+            with (directory / 'state.json').open() as stream:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            for method, path in [('POST', f'/v1/card-sets/{identity}/exports/{uid}/download'),
+                                 ('DELETE', f'/v1/card-sets/{identity}/exports/{uid}')]:
+                with pytest.raises(SourceError, match='EXPORT_IN_PROGRESS'):
+                    await asyncio.wait_for(asgi_request(app, path, method=method), 1)
+            assert app.state.export_slots._value == 2
+            assert await asyncio.wait_for(asgi_request(app, f'/v1/materials/{uuid4()}/knowledge-structures/r/notes/summary/export/md'), 2) == b'# note'
+        finally:
+            release.set()
+            await task
+        assert not directory.exists()
+    asyncio.run(run())
+
+
+def test_mp4_stream_bypasses_even_a_full_generation_queue(monkeypatch):
+    from contextlib import contextmanager
+    from runtime import podcasts, podcast_videos
+    from runtime.storage import artifacts
+    owner, identity, artifact = uuid4(), uuid4(), uuid4()
+    monkeypatch.setattr(export_routes.request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=owner))
+    monkeypatch.setattr(podcasts, 'read_podcast', lambda *_args, **_kwargs: {'status': 'ready', 'name': '合成', 'episodes': [{}]})
+    monkeypatch.setattr(podcast_videos, 'ready_manifest', lambda *_args, **_kwargs: {'artifact_id': artifact})
+    @contextmanager
+    def opened(*_args, **_kwargs):
+        yield SimpleNamespace(file=BytesIO(b'video'), size_bytes=5)
+    monkeypatch.setattr(artifacts, 'open_verified_artifact', opened)
+    app = FastAPI(); export_routes.install(app, SimpleNamespace(dsn=None))
+    async def run():
+        await app.state.export_slots.acquire(); await app.state.export_slots.acquire()
+        try:
+            assert await asyncio.wait_for(asgi_request(app, f'/v1/podcasts/{identity}/episodes/0/export/mp4'), 2) == b'video'
+            assert app.state.export_slots._value == 0
+        finally:
+            app.state.export_slots.release(); app.state.export_slots.release()
+    asyncio.run(run())

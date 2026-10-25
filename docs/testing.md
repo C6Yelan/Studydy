@@ -314,4 +314,7 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 受影響的 notes、concept-cards、knowledge-map-viewport、learning-diagnosis、podcasts mock specs 驗證下載格式、整組分批、地圖渲染、失敗訊息與原介面；notes 真 API browser 同時驗證筆記三種下載。共用 client 的二進位下載沿用帳號失效／請求取消，因此仍需完整 mock 套件與 global-layout／shell-layout。這些驗證不宣稱重新驗收生成內容；匯出本身不呼叫模型。
 
-`test_export_uploads.py` 以 148 個合成概念、1200×760 PNG 實際分批送 HTTP，累計 payload 超過舊 90 MiB 上限，核對單批大小、整組 ZIP、下載後清理、逾時清理與鎖定中的工作保留。另以 44 個並行檔案回應、僅 4 個工作執行緒驗證非同步排隊不會死鎖，同時最多佔兩個匯出槽位；Anki 測試禁止在工作目錄外建立 SQLite 暫存。concept-cards browser 案例用實際 Canvas 繪製 148 個概念，核對每批最多兩張與完整下載。
+`test_export_uploads.py` 以 148 個合成概念、1200×760 PNG 實際分批送 HTTP，累計 payload 超過舊 90 MiB 上限，核對單批大小、整組 ZIP、下載後清理、逾時清理與鎖定中的工作保留。另以 44 個並行檔案回應、僅 4 個工作執行緒驗證非同步排隊不會死鎖，同時最多佔兩個產檔槽位；Anki 測試禁止在工作目錄外建立 SQLite 暫存。concept-cards browser 案例用實際 Canvas 繪製 148 個概念，核對每批最多兩張與完整下載。
+
+
+卡組暫存上限測試涵蓋並行建立時每人最多兩份、另一位 owner 不受影響、取消後釋放名額，以及總位元組／每概念頁數超限整批不寫入。真 API 與 client 測試核對三種明確錯誤。慢速卡組下載測試確認產檔名額已釋放，暫存仍存在且持鎖，其他匯出可完成，對同一下載的重複下載／取消會立即回忙碌且不占名額；MP4 在兩個產檔名額都被占用時仍可直接下載。

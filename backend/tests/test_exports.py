@@ -98,7 +98,7 @@ def test_card_package_has_all_images_full_text_sources_and_stable_ids(monkeypatc
             if format == 'apkg':
                 assert (path.parent / 'collection.anki2').is_file()
             content = path.read_bytes()
-        assert not (export_cards.work_root() / upload_id).exists()
+        assert not (export_cards.work_root() / f'owner_{upload_id}').exists()
         return content
     with monkeypatch.context() as guard:
         def outside_temp(*args, **kwargs):
