@@ -331,22 +331,47 @@ def test_self_naming_with_unsupported_facts_after_rewrite_still_fails(monkeypatc
 
 
 @pytest.mark.parametrize('name,text',[
+    # 名字前面緊接非指人的中文字：只是詞語的一部分。
     ('小安','先把大小安排好，再看連接埠。'),
     ('小安','最小安全距離要先確認。'),
+    # 名字末字與後一字組成原文用到的詞（原文寫「小型語言模型」「低資源語種」）。
     ('小語','小語種的資料比較少。'),
     ('小語','小語言模型也能用。'),
     ('小語','這裡指的就是小語言模型。'),
+    # 自我介紹與節目介紹：說的是節目名稱或自己是誰，不是用名字當主詞。
     ('小安','這裡是小安和阿哲的學習時間。'),
+    ('小安','謝謝收聽小安和阿哲的節目。'),
     ('小安','謝謝收聽，我是小安。'),
 ])
 def test_words_containing_a_host_name_and_show_introductions_are_not_self_naming(monkeypatch,name,text):
     request,script=show()
     request['hosts']={'host':name,'guest':'阿哲'}
+    request['claims'][0]['text']='小型語言模型在低資源語種上也要先確認非空。'
     script['segments'][0]['turns'][0]['text']=text
     model,calls=fake_model(script)
     monkeypatch.setattr(provider,'luna',model)
     provider.script(request)
     assert 'rewrite' not in [kind for kind,_ in calls]
+
+
+@pytest.mark.parametrize('text',[
+    '小安我來補充一下。','小安建議先看表頭。','小安發現一個重點。','小安以前也搞錯過。','小安喜歡這個例子。',
+    '小安知道大家會問。','小安特別想強調這點。','跟著小安一起看。','陪你的小安今天要講非空檢查。','這集由小安陪大家。',
+    # 道別時用名字當主詞，不是「我是／我們是」的自我介紹，也不是節目名稱。
+    '我們小安和阿哲下次見。',
+    # 「這是」後面不是「某某和某某的節目」，名字是「覺得」的主詞。
+    '這是小安覺得最重要的一點。',
+])
+def test_host_name_used_as_own_subject_is_sent_to_rewrite(monkeypatch,text):
+    request,script=show()
+    request['hosts']={'host':'小安','guest':'阿哲'}
+    script['segments'][0]['turns'][0]['text']=text
+    fixed=deepcopy(script['segments'][0]);fixed['turns'][0]['text']='歡迎收聽，我是小安。'
+    model,calls=fake_model(script,rewrites=[fixed])
+    monkeypatch.setattr(provider,'luna',model)
+    diagnostics={}
+    provider.script(request,diagnostics=diagnostics)
+    assert diagnostics['rewrites'][0]=={'segment':0,'rejected':['turn.0']}
 
 
 @pytest.mark.parametrize('broken',[

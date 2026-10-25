@@ -218,30 +218,60 @@ def issues(request, response):
     return [{"part": c["part"], "reason": c["reason"]} for c in checks if not c["supported"]] + missing
 
 
-# 自我介紹與節目介紹（「我是小葵」「我們是小葵和阿峰」「這裡是小安和阿哲的學習時間」）可以說出自己的名字。
-_INTRODUCTION = re.compile(r"(?:我們?(?:是|叫)|這裡是|這是|歡迎(?:收聽|來到)?)[^，。！？；：、,.!?;:「」『』\n]{0,10}$")
-# 名字前面是這些字時仍是在指人（「我小安」「由小安來」「是小安說的」）；其他中文字表示名字只是詞語的一部分（「大小安排」）。
-_SELF_CONTEXT = set("我由是讓換請")
-# 名字當主詞時常接的虛詞、副詞與說話動作；後面接其他中文字通常是一般詞語（「小語言」「小語種」「小安全」）。
-_AFTER_NAME = set("來幫替給先再也就會要想覺認說講剛常在跟和與的這今自都還是有已補整提帶最很")
+_STOP = "，。！？；：、,.!?;:「」『』\n"
+# 自我介紹與節目介紹（「我是小葵」「我們是小葵和阿峰」「這裡是小安和阿哲的學習時間」「歡迎收聽…」）可以說出自己的名字。
+_INTRODUCTION = re.compile(rf"(?:我們?(?:是|叫)|這裡是|歡迎(?:收聽|來到)?)[^{_STOP}]{{0,10}}$")
+# 「這是／謝謝收聽」只在接著節目名稱（「這是小安和阿哲的節目」）時算介紹；「這是小安覺得…」仍是自稱。
+_SHOW_LEAD = re.compile(rf"(?:這是|謝謝(?:大家)?收聽)(?:[^{_STOP}]{{1,8}}(?:和|與|跟))?$")
+_SHOW_NAME = re.compile(rf"(?:(?:和|與|跟)[^{_STOP}]{{1,8}})?的")
+# 名字前面是這些語境時是在指人（「我們小安」「由小安陪大家」「跟著小安」「陪你的小安」）；
+# 其他中文字緊接在前表示名字只是詞語的一部分（「大小安排」「最小安全」）。
+_PERSON_BEFORE = re.compile(r"(?:我們?|由|是|讓|請|換|和|與|跟著?|陪(?:你|妳|大家)?的?|謝謝(?:大家)?(?:收聽)?|收聽)$")
 
 
 def _cjk(char):
     return "\u3400" <= char <= "\u9fff" or "\uf900" <= char <= "\ufaff"
 
 
-def _names_person(text, start, end):
-    """名字前後是句首、標點、空白或指人的語境時才是稱呼人，不是詞語的一部分。"""
+def _show_introduction(text, start, end):
+    before, after = text[:start], text[end:]
+    lead = _SHOW_LEAD.search(before)
+    if not lead:
+        return False
+    # 名字在「和」之後時要緊接「的」；在前面時要接「和某某的」。
+    return after.startswith("的") if lead.group().endswith(("和", "與", "跟")) else bool(
+        re.match(rf"(?:和|與|跟)[^{_STOP}]{{1,8}}的", after))
+
+
+def _part_of_word(text, start, end, name, material, corpus):
+    """名字只是詞語的一部分：前面緊接非指人的中文字，或名字末字與後一字組成本集其他地方也用到的詞。
+
+    「小語言模型」「小語種」：「語言」「語種」在原文或講稿別處（不接在「小」後面）出現過，就當一般詞語。
+    """
     before = text[start - 1] if start else ""
+    if _cjk(before) and not _PERSON_BEFORE.search(text[:start]):
+        return True
     after = text[end] if end < len(text) else ""
-    return (not _cjk(before) or before in _SELF_CONTEXT) and (not _cjk(after) or after in _AFTER_NAME)
+    if not _cjk(after):
+        return False
+    if text[start:end + 1] in material:
+        return True
+    word, lead = name[-1] + after, name[:-1]
+    position = corpus.find(word)
+    while position != -1:
+        if corpus[max(position - len(lead), 0):position] != lead:
+            return True
+        position = corpus.find(word, position + 1)
+    return False
 
 
-def self_naming(segment, hosts, material):
+def self_naming(segment, hosts, material, script):
     """主持人在自我介紹以外用自己的名字稱呼自己（含第三人稱），回傳該句位置與重寫說明。
 
-    名字只是一般詞語或教材詞語的一部分（例如「大小安排」「小語言模型」）不算；material 是本集原文與重點文字。
+    寬鬆偵測：說話者台詞裡出現自己的名字就算，只排除自我介紹、節目介紹與名字只是詞語一部分的情況。
+    重寫後只剩自稱不會讓整集失敗，誤判的代價是一次重寫。material 是本集原文與重點文字。
     """
+    corpus = "\n".join([material, *(t["text"] for b in script["segments"] for t in b["turns"])])
     found = []
     for n, turn in enumerate(segment["turns"]):
         name, text = hosts[turn["speaker"]], turn["text"]
@@ -249,11 +279,8 @@ def self_naming(segment, hosts, material):
             start, end = match.span()
             if (
                 _INTRODUCTION.search(text[:start])
-                or not _names_person(text, start, end)
-                or any(
-                    len(word) > len(name) and word in material
-                    for word in (text[max(start - 1, 0):end], text[start:end + 1])
-                )
+                or _show_introduction(text, start, end)
+                or _part_of_word(text, start, end, name, material, corpus)
             ):
                 continue
             excerpt = text[max(start - 12, 0):end + 12]
@@ -292,7 +319,7 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
         related = range(index)
         request = segment_request(script, index, claims, pages, hosts=hosts, series=series, related_indices=related)
         # 自稱名字由程式檢查，與原文核對的不符項目合併成同一次重寫。
-        found = issues(request, review(request)) + self_naming(script["segments"][index], hosts, material)
+        found = issues(request, review(request)) + self_naming(script["segments"][index], hosts, material, script)
         # 沒被正文引用的重點由程式判定缺漏，沿用同一段的重寫與重核；全部有引用時不增加呼叫。
         assigned = unassigned(script, claims).get(index, [])
         if not found and not assigned:
@@ -315,7 +342,7 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
             diagnostics.append({"segment": index, "rejected_after_rewrite": [i["part"] for i in found]})
             raise RuntimeError("PODCAST_SCRIPT_NEEDS_REVIEW")
         # 自稱是風格問題：重寫後仍有就照常發布，只記位置，不記台詞。
-        kept = self_naming(script["segments"][index], hosts, material)
+        kept = self_naming(script["segments"][index], hosts, material, script)
         if kept:
             diagnostics.append({"segment": index, "self_naming_after_rewrite": [i["part"] for i in kept]})
     return script
