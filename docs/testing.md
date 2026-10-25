@@ -52,7 +52,7 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 Migration 驗證先在 0013 建立原題組、補強及答案，再升級至 0014，核對既有資料與 API 投影不變、單概念成員約束仍有效。這些驗證使用受控出題替身，不呼叫真實模型或寫入產品資料。前端涵蓋首次選擇、初學閱讀、直接作答、跨概念題組、深連結與原版本恢復，並依 TASK 核對 global-layout／shell-layout。
 
-`runtime/study/test_learning_insights.py` 使用隔離資料庫驗證教材／題組的即時診斷、交卷時間邊界、補強完成規則、真實統計與來源、版本授權，以及個人難點的 3 題／50% 門檻。`test_learning_insights.py` 驗證短標題與結構難度門檻、複習候選排序及最多 3 個的上限。
+`runtime/study/test_learning_insights.py` 使用隔離資料庫驗證教材／題組的即時診斷、交卷時間邊界、補強完成規則、真實統計與來源、版本授權，以及個人難點的 3 題／50% 門檻。`test_learning_insights_rules.py` 驗證短標題與結構難度門檻、複習候選排序及最多 3 個的上限。
 
 前端以 `learning-diagnosis.spec.ts` 驗證直接讀取、空區塊省略、精簡建議與結構標記；`concept-cards.spec.ts` 核對卡組原版本。相關版面檢查沿用 `global-layout` 與 `shell-layout`。這些功能不呼叫模型，也不以合成測試宣稱學習完成。
 
@@ -193,7 +193,7 @@ Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_
 - `test_podcast_beats.py` 核對多來源 beat、重複 claim ID 的來源位置、逐 part 引用與 claim 跨 beat；`test_podcast_cues.py` 核對字幕錨點與教學段落的對應。
 - `test_podcast_audio.py` 核對首尾 trim、內部停頓與保護區、語境停頓、非有限值及無聲拒絕，以及真 FFmpeg 音量正規化、AAC 解碼、1080p60 編碼與 bundle 驗證。
 - `test_podcast_timeline.py` 核對原文字元範圍、VTT escaping、舊影片與 refined scene 的唯讀 locator 投影；stored manifest、script hash 與 VTT 不變。
-- `runtime/materials/test_podcast_interaction.py` 核對教材從 A revision 更新至 B 後，既有 Podcast 的 Voice、來源與 Assessment 仍使用 A；涵蓋偽造 locator、錄音 context、冪等、取消／刪除晚到結果，以及播放／提問不產生作答事件。
+- `runtime/materials/test_podcast_interaction.py` 核對教材從 A revision 更新至 B 後，既有 Podcast 的 Voice、來源與 Assessment 仍使用 A；涵蓋偽造 locator、錄音 context、冪等、取消／刪除晚到結果，以及播放／提問不產生作答事件。另經正式 API 錯誤邊界核對：音訊完成、對齊尚未寫入時，時間軸與字幕回可重試的 409 `PODCAST_TIMELINE_NOT_READY`（逐字稿 Markdown 匯出為 `SCENE_CONFLICT`），對齊與音訊不一致回不可重試的 `PODCAST_TIMELINE_SOURCE_MISMATCH`；`e2e/mock/podcasts.spec.ts` 驗證前端只對前者輪詢。
 - `runtime/materials/test_podcast_interaction_browser.py` 與 `e2e/api/podcast-interaction.spec.ts` 使用真 API／DB，驗證來源開啟、Voice 問答與語音、VTT、末集入口及原 revision Assessment handoff。字幕可以比教學單位細，Voice 仍收到完整原段落。
 - `e2e/mock/podcasts.spec.ts` 與 `material-tools.spec.ts` 覆蓋 seek、倍速、音訊切換影片、字幕開關、無 alignment 時手動選段、固定提問 context、已完成 session 不重開、過期 cue 拒絕及手機版面。
 

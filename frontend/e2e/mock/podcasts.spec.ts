@@ -30,7 +30,7 @@ async function mockPodcasts(page: Page) {
   let deletes = 0;
   const summary = () => { const { schema, episodes, source_resolver, source_status, excluded_pages, ...rest } = view; return rest; };
   await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video`, route=>json(route,{schema:'podcast-video/v1',podcast_id:podcastId,episode_index:Number(new URL(route.request().url()).pathname.split('/').at(-2)),status:'unprepared',version:0,error_code:null,video:null}));
-  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,route=>json(route,{schema:'api-error/v1',request_id:sessionId,reason_code:'SOURCE_NOT_READY',retryable:true,message:'Synthetic timeline pending'},409));
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,route=>json(route,{schema:'api-error/v1',request_id:sessionId,reason_code:'PODCAST_TIMELINE_NOT_READY',retryable:true,message:'Request could not be completed.'},409));
   await page.route("**/v1/podcasts", route => json(route, { schema: "podcast-list/v1", podcasts: exists ? [summary()] : [] }));
   await page.route(`**/v1/podcasts/${podcastId}`, route => {
     if (route.request().method() === "DELETE") { deletes++; exists = false; return json(route, { schema: "podcast-deleted/v1", podcast_id: podcastId }); }
@@ -253,7 +253,7 @@ test('desktop podcast creation fills the workspace while long lists and previews
 
 test("saved dialogue transcripts keep roles and switch with the selected episode", async ({ page }) => {
   const {fixture} = await mockEpisodeVideo(page);
-  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,r=>json(r,{reason_code:"SOURCE_NOT_READY"},409));
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,r=>json(r,{schema:'api-error/v1',request_id:sessionId,reason_code:'PODCAST_TIMELINE_NOT_READY',retryable:true,message:'Request could not be completed.'},409));
   fixture.view.delivery = 'dialogue';
   for (const episode of fixture.view.episodes) episode.delivery = 'dialogue';
   const claims = fixture.view.episodes[0].claims;
@@ -330,6 +330,31 @@ async function mockEpisodeVideo(page:Page, initial:'ready'|'pending'|'failed'='r
   await page.route(`**/v1/podcasts/${podcastId}/episodes/*/subtitles`,r=>r.fulfill({contentType:'text/vtt',body:'WEBVTT\n\n00:00:00.000 --> 00:00:06.000\n前半段\n\n00:00:06.000 --> 00:00:12.000\n後半段\n'}));
   return {fixture,actions,ready:()=>{status='ready';version++;setGeneration(true)}};
 }
+
+test('timeline still aligning after audio completes keeps waiting, then shows timed transcript',async({page})=>{
+  await mockEpisodeVideo(page);
+  let aligned=false;
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,r=>aligned
+    ?r.fallback()
+    :json(r,{schema:'api-error/v1',request_id:sessionId,reason_code:'PODCAST_TIMELINE_NOT_READY',retryable:true,message:'Request could not be completed.'},409));
+  await page.goto(`/podcasts/${podcastId}`);
+  const transcript=page.getByRole('tabpanel',{name:'逐字稿',exact:true});
+  await expect(transcript).toContainText('時間軸尚未準備完成');
+  await expect(transcript.getByRole('alert')).toHaveCount(0);
+  aligned=true;
+  await expect(transcript.getByRole('button',{name:/前半段/})).toBeVisible();
+  await expect(transcript.getByRole('alert')).toHaveCount(0);
+});
+
+test('timeline that no longer matches the episode shows an error instead of polling',async({page})=>{
+  await mockEpisodeVideo(page);
+  let reads=0;
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,r=>{reads++;return json(r,{schema:'api-error/v1',request_id:sessionId,reason_code:'PODCAST_TIMELINE_SOURCE_MISMATCH',retryable:false,message:'Request could not be completed.'},409)});
+  await page.goto(`/podcasts/${podcastId}`);
+  await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByRole('alert')).toHaveText('時間軸與本集原稿、音訊或來源不一致。');
+  const settled=reads;await page.waitForTimeout(2500);
+  expect(reads).toBe(settled);
+});
 
 test('formal video player shares controls, transcript seek, pages and logout boundary',async({page})=>{
   await mockEpisodeVideo(page);

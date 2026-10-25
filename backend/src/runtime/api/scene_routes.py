@@ -18,7 +18,7 @@ def load_timeline(learner, identity, index, *, dsn=None):
         try:
             return with_source_ranges(video["timeline"], podcast["episodes"][index])
         except (ValueError, IndexError):
-            raise HTTPException(409, detail="PODCAST_TIMELINE_SOURCE_MISMATCH") from None
+            raise request_context.ApiFailure("PODCAST_TIMELINE_SOURCE_MISMATCH") from None
     podcast = podcasts.read_podcast(learner, identity, dsn=dsn)
     if not 0 <= index < len(podcast["episodes"]):
         raise HTTPException(404)
@@ -26,14 +26,15 @@ def load_timeline(learner, identity, index, *, dsn=None):
         index
     ]
     if scene["status"] != "ready":
-        raise HTTPException(409, detail="PODCAST_TIMELINE_NOT_READY")
+        # 音訊完成後仍要等場景對齊寫入；這段期間是可重試的處理中狀態。
+        raise request_context.ApiFailure("PODCAST_TIMELINE_NOT_READY")
     try:
         episode = podcast["episodes"][index]
         return with_source_ranges(
             build_timeline(identity, index, episode, scene["manifest"]), episode
         )
     except ValueError:
-        raise HTTPException(409, detail="PODCAST_TIMELINE_SOURCE_MISMATCH") from None
+        raise request_context.ApiFailure("PODCAST_TIMELINE_SOURCE_MISMATCH") from None
 
 
 class Prepare(BaseModel):

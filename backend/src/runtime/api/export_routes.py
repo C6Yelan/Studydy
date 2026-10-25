@@ -3,7 +3,7 @@ from typing import Literal
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Request, Response
+from fastapi import Depends, Request, Response
 from fastapi.responses import FileResponse
 import asyncio
 from pydantic import Field
@@ -151,8 +151,8 @@ def install(app, settings):
         if format == 'md':
             try:
                 timeline = load_timeline(learner, identity, index, dsn=settings.dsn)
-            except HTTPException as error:
-                if error.status_code == 409:
+            except request_context.ApiFailure as error:
+                if error.reason_code.startswith('PODCAST_TIMELINE_'):
                     raise request_context.ApiFailure('SCENE_CONFLICT') from None
                 raise
             return download(export_podcast.transcript(view, index, timeline), filename, format)

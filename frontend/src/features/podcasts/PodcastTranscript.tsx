@@ -56,7 +56,7 @@ export function PodcastTranscript({api,view,index,media,active,videoVersion}:{
       if(cancelled)return;
       if(!validTimeline(value,view,index)){setError('時間軸與本集原稿、音訊或來源不一致。');return}
       setTimeline(value);
-    },e=>{if(cancelled)return;if(e instanceof ApiClientError&&e.status===409)timer=setTimeout(read,2000);else setError(errorMessage(e))});
+    },e=>{if(cancelled)return;if(e instanceof ApiClientError&&e.reasonCode==='PODCAST_TIMELINE_NOT_READY')timer=setTimeout(read,2000);else setError(errorMessage(e))});
     read();return()=>{cancelled=true;clearTimeout(timer)};
   },[api,view.podcast_id,index,episode.audio?.sha256,episode.script_sha256,view.source_resolver,videoVersion]);
   useEffect(() => { const panel = list.current?.closest<HTMLElement>(".podcast-transcript"); if (panel) panel.scrollTop = 0; }, [index]);

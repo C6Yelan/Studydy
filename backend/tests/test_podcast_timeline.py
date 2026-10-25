@@ -61,7 +61,13 @@ def test_timeline_api_authorization_and_unprepared_state(monkeypatch):
     monkeypatch.setattr(scene_routes.podcast_videos, 'ready_manifest', lambda *a, **kw: None)
     monkeypatch.setattr(scene_routes.podcast_scenes, 'read', lambda *a, **kw: {'episodes': [state]})
     monkeypatch.setattr(scene_routes.request_context, 'trusted_learner', trusted)
+    from runtime.api.app import _error_response
     app = FastAPI()
+    # 與正式 app 相同：路由的原因碼經固定錯誤表轉成狀態碼，未登記的會變成 500。
+    app.add_exception_handler(
+        scene_routes.request_context.ApiFailure,
+        lambda _, error: _error_response(error.reason_code),
+    )
     scene_routes.install(app, SimpleNamespace(dsn=None))
     url = f'/v1/podcasts/{uuid4()}/episodes/0'
     with TestClient(app) as client:
@@ -72,7 +78,9 @@ def test_timeline_api_authorization_and_unprepared_state(monkeypatch):
         assert client.get(url + '/timeline').json()['segments'][0]['end'] == 2.5
         assert client.get(url + '/subtitles').text.startswith('WEBVTT')
         state['status'] = 'unprepared'
-        assert client.get(url + '/timeline').status_code == 409
+        response = client.get(url + '/timeline')
+        assert response.status_code == 409
+        assert response.json()['reason_code'] == 'PODCAST_TIMELINE_NOT_READY'
 
 
 def refined_example():
