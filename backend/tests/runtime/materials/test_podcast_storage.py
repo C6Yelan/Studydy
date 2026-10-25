@@ -911,3 +911,55 @@ def test_chunk_after_reservation_cleanup_requires_restart(closed_loop, legacy_me
     assert rejected.json()["reason_code"] == ("UPLOAD_OFFSET_MISMATCH" if legacy_metadata else "STORAGE_BUSY")
     assert upload_part(client, draft, "chunk", 0, content, len(content)).status_code == 202
     assert storage(client)["reserved_bytes"] == 0
+
+
+def test_rejected_parallel_chunk_start_preserves_accepted_upload(closed_loop, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event, local
+
+    owner, _, _, _, dsn, _ = closed_loop
+    client = client_for(closed_loop)
+    draft = podcasts.UUID(draft_for(client, "parallel-restart"))
+    base = storage(client)["used_bytes"]
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", base + 1000)
+    opened, resume = Event(), Event()
+    request = local()
+    real_flock = media_sources.fcntl.flock
+
+    def delayed_lock(descriptor, operation):
+        if getattr(request, "pause", False):
+            request.pause = False
+            opened.set()
+            assert resume.wait(10)
+        return real_flock(descriptor, operation)
+
+    monkeypatch.setattr(media_sources.fcntl, "flock", delayed_lock)
+
+    def send(total, offset=0, chunk=b"x"):
+        return media_sources.receive_chunk(owner.learner_id, draft, "K", "lecture.wav", "audio/wav",
+                                           total, offset, chunk, dsn=dsn)
+
+    def oversized():
+        request.pause = True
+        return send(1100)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        rejected = pool.submit(oversized)
+        try:
+            # A 已建立空 metadata、尚未取得鎖；B 先接受並寫入 800-byte 宣告的第一段。
+            assert opened.wait(10)
+            assert send(800)["received_bytes"] == 1
+            part, meta = media_sources._upload_paths(owner.learner_id, draft, "K")
+            accepted_metadata = meta.read_bytes()
+            resume.set()
+            with pytest.raises(storage_usage.StorageQuotaError):
+                rejected.result(timeout=10)
+        finally:
+            resume.set()
+    assert meta.read_bytes() == accepted_metadata
+    assert part.read_bytes() == b"x"
+    assert storage(client)["reserved_bytes"] == 800
+    # 被接受的 B 仍可從原 offset 續傳，不能留下有保留卻無法恢復的上傳。
+    assert send(800, 1, b"yz")["received_bytes"] == 3
+    assert part.read_bytes() == b"xyz"
+    assert storage(client)["reserved_bytes"] == 800

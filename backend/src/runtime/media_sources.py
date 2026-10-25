@@ -212,7 +212,6 @@ def receive_chunk(owner, material_id, key, name, media, total, offset, chunk, *,
         return {"received_bytes": total, "source_id": existing}
     part, meta = _upload_paths(owner, material_id, key)
     intent = {"name": name, "media_type": media, "total_bytes": total}
-    created = not meta.exists()
     descriptor = os.open(meta, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
@@ -229,15 +228,12 @@ def receive_chunk(owner, material_id, key, name, media, total, offset, chunk, *,
             stored = None
         if offset == 0:
             # 先核准新的宣告與保留，成功後才移除舊的暫存；核准失敗時舊的分段、意圖與保留都不變。
-            try:
-                accepted = accept_upload(
-                    "parts", owner, material_id, key, total,
-                    upload_intent("parts", name, media, total), dsn=dsn,
-                )
-            except Exception:
-                if created:
-                    meta.unlink(missing_ok=True)
-                raise
+            # 拒絕時也不 unlink metadata：其他請求可能已寫入，或正等同一個 inode 的鎖。
+            # 尚無內容的空檔沿用過期暫存清理，不讓拒絕請求破壞已接受的續傳狀態。
+            accepted = accept_upload(
+                "parts", owner, material_id, key, total,
+                upload_intent("parts", name, media, total), dsn=dsn,
+            )
             if accepted is None:
                 part.unlink(missing_ok=True)
                 meta.unlink(missing_ok=True)
