@@ -498,3 +498,38 @@ def test_mixed_claim_keeps_short_pdf_evidence_through_projection_review_and_cons
     speech_only['input_binding']['manifest']['items'][1]['transcript'] = deepcopy(TRANSCRIPT)
     speech_only['revision'] = _revision(speech_only)
     assert not validate_knowledge_structure(speech_only)
+
+
+@pytest.mark.parametrize('quote,reason', [
+    ('重試上限為 8 次', 'QUOTE_CLAUSE_BOUNDARY'),
+    ('重試上限為 8 次 接著須等待 5 秒才可繼續操作', 'QUOTE_NOT_EXACT'),
+])
+@pytest.mark.parametrize('corrected', [True, False])
+def test_unpunctuated_asr_correction_receives_actual_rejection_and_keeps_full_source(quote, reason, corrected):
+    from test_independent_blocks import Archive as BlockArchive, run
+    text = '重試上限為 8 次\n接著須等待 5 秒才可繼續操作'
+    context, bundle, response = prepared(text, [('重試上限為 8 次。', quote)])
+    before = deepcopy(context)
+    calls = []
+    def model(client, **kwargs):
+        request = kwargs['request']; calls.append(request)
+        if 'localization' in request:
+            return {key: item['text'] for key, item in request['localization'].items()}
+        if 'quote_corrections' in request:
+            correction = request['quote_corrections']['claim_0_0']
+            assert correction['source_errors'] == [{'source_index': 0, 'reason': reason}]
+            assert correction['meaning'] == response['concepts'][0]['c'][0]['m']
+            return {'claim_0_0': [{'e': 0, 'q': text if corrected else quote}]}
+        return deepcopy(response)
+    state = SemanticState(); progress = {'cursor': 0, 'ranges': [], 'semantic_calls': 0}
+    run(context, state, progress, BlockArchive(), model)
+    assert len(calls) == progress['semantic_calls'] == (3 if corrected else 2)
+    assert context == before
+    claims = [q for concept in state.concepts.values() for q in concept['claims']]
+    if corrected:
+        assert state.rejected_claims == 0 and len(claims) == 1
+        # 整段回退仍保留原換行及全部數字；不能為了短主張放寬字面值保護。
+        assert claims[0]['source_spans'][0]['quote'] == text
+        assert ' '.join(claims[0]['text'].split()) == ' '.join(text.split())
+    else:
+        assert not claims and state.rejected_claims == 1

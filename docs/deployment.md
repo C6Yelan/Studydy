@@ -306,3 +306,5 @@ exports 不需 migration。後端新增 `genanki`、`python-docx` 與 `fonttools
 口語分析的 `material-block-request/v2`／`material-block-response/v2` 與 `source-excerpts/v1` 必須與支援 `spoken_excerpt_meaning/v1`／`spoken_excerpt_literal_repair/v1` 的後端一同部署。只套用新分析；舊來源、已發布 Claim／Revision、runtime lock hash 不改寫。舊工作不能因新提示而直接重用 checkpoint；回復版本須能讀取新投影，不能以改寫舊 hash 偽裝相容。
 
 部署前要先清空舊 lock 的教材分析佇列，再切換後端與新 lock。
+
+GEN-01 的引用補正新增逐項拒收診斷，並更新 material_semantics 提示；需一起更新後端與 runtime lock，不需 migration 或改動 provider。即使 schema 版本未變，提示變更仍會改變 lock hash，不能沿用不相容的舊分析 checkpoint；依上述規則先清空舊 lock 的分析佇列，不改寫已封存 hash。
