@@ -17,6 +17,7 @@ from product_fixtures import closed_loop  # noqa: F401
 from materials.test_podcasts import create, complete, script
 from materials.test_podcast_videos import bundle
 from runtime import (
+    media_sources,
     podcast_audio_flac,
     podcast_progress,
     podcast_scenes as scenes,
@@ -543,7 +544,7 @@ def test_slow_upload_does_not_hold_the_account_lock_and_lock_timeout_is_retryabl
     assert busy.json()["reason_code"] == "STORAGE_BUSY" and busy.json()["retryable"] is True
 
 
-def test_same_key_sent_twice_at_once_returns_one_source_even_when_it_fills_the_account(closed_loop, monkeypatch):
+def test_same_key_sent_twice_at_once_has_one_writer_and_replays_the_result(closed_loop, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     import time
 
@@ -568,9 +569,15 @@ def test_same_key_sent_twice_at_once_returns_one_source_even_when_it_fills_the_a
         time.sleep(0.5)
         second = pool.submit(send)
         results = [first.result(timeout=30), second.result(timeout=30)]
-    assert [r.status_code for r in results] == [202, 202], [r.text for r in results]
-    assert results[0].json() == results[1].json() and len(results[0].json()["sources"]) == 1
-    assert storage(client)["reserved_bytes"] == 0
+    # 同 key 同意圖只有一個寫入者：第二個請求不落盤，回可重試的處理中；重試即取得原結果。
+    assert [r.status_code for r in results] == [202, 503], [r.text for r in results]
+    assert results[1].json()["reason_code"] == "STORAGE_BUSY" and results[1].json()["retryable"] is True
+    assert len(calls) == 1
+    retried = send()
+    assert retried.status_code == 202 and retried.json() == results[0].json()
+    assert len(results[0].json()["sources"]) == 1
+    usage = storage(client)
+    assert usage["reserved_bytes"] == 0 and usage["remaining_bytes"] == 0
 
 
 def test_reservations_are_fixed_at_acceptance_and_settled_with_the_artifact(closed_loop):
@@ -610,7 +617,7 @@ def test_resuming_failed_or_cancelled_podcast_backfills_and_reserves_videos(clos
     with database_session(dsn) as db:
         row = db.get(Podcast, identity)
         row.episodes = [deepcopy(row.episodes[0]) for _ in range(2)]
-    # 第一集完成後失敗；模擬 0019 前缺少影片工作與保留的舊分集。
+    # 第一集完成後失敗；模擬 0020 前缺少影片工作與保留的舊分集。
     complete(dsn)
     with database_session(dsn) as db:
         db.execute(text("DELETE FROM podcast_videos WHERE podcast_id = :p"), {"p": identity})
@@ -676,3 +683,131 @@ def test_conversion_stops_before_a_flac_that_no_longer_fits(closed_loop, monkeyp
     with database_session(dsn) as db:
         assert db.get(Artifact, podcasts.UUID(ids[1])).media_type == "audio/wav"
     assert not [p for p in staging.iterdir() if not p.name.endswith(".pending")]
+
+
+def test_reservation_is_bound_to_the_request_intent(closed_loop, monkeypatch):
+    owner, _, _, _, dsn, _ = closed_loop
+    client = client_for(closed_loop)
+    draft = draft_for(client, "intent")
+    base = storage(client)["used_bytes"]
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", base + 2)
+    # Codex 反例：同 key 先開 2 bytes 的分段上傳，再用普通上傳送另一份 1000 bytes，不能被當成重送。
+    assert upload_part(client, draft, "K", 0, b"x", 2).status_code == 202
+    other = client.post(f"/v1/materials/{draft}/sources", content=b"a" * 1000, headers={
+        "Origin": ORIGIN, "Content-Type": "text/plain", "X-Material-Name": "note.txt", "Idempotency-Key": "K"})
+    assert other.status_code == 409 and other.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
+    assert storage(client)["used_bytes"] == base + 2
+    # 同入口同 key 但內容不同、原寫入者仍在進行：依冪等規則回衝突，不重新核對或落盤。
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", base + 10_000)
+    intent = media_sources.upload_intent("sources", "note.txt", "text/plain", 5, "0" * 64)
+    media_sources.accept_upload("sources", owner.learner_id, podcasts.UUID(draft), "S", 5, intent, dsn=dsn)
+    conflict = client.post(f"/v1/materials/{draft}/sources", content=b"bbbbb", headers={
+        "Origin": ORIGIN, "Content-Type": "text/plain", "X-Material-Name": "note.txt", "Idempotency-Key": "S"})
+    assert conflict.status_code == 409 and conflict.json()["reason_code"] == "IDEMPOTENCY_CONFLICT"
+
+
+def test_rejected_chunked_restart_keeps_the_previous_upload(closed_loop, monkeypatch):
+    client = client_for(closed_loop)
+    draft = draft_for(client, "restart")
+    base = storage(client)["used_bytes"]
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", base + 1000)
+    assert upload_part(client, draft, "K", 0, b"x", 800).status_code == 202
+    rejected = upload_part(client, draft, "K", 0, b"y", 1100)
+    assert rejected.status_code == 409 and rejected.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
+    # 先核准再破壞：舊的分段、意圖與 800 bytes 保留都還在，可以接著上傳。
+    usage = storage(client)
+    assert usage["reserved_bytes"] == 800
+    uploads = artifacts._root() / ".media-work" / "uploads"
+    assert sorted(p.suffix for p in uploads.iterdir()) == [".json", ".part"]
+    assert upload_part(client, draft, "K", 1, b"x" * 10, 800).json()["received_bytes"] == 11
+    # 核准後的重新開始才移除舊暫存並換成新的宣告。
+    restarted = upload_part(client, draft, "K", 0, b"z", 900)
+    assert restarted.status_code == 202 and restarted.json()["received_bytes"] == 1
+    assert storage(client)["reserved_bytes"] == 900
+
+
+def test_uploads_to_missing_material_are_not_found_before_any_reservation(closed_loop):
+    from uuid import uuid4
+
+    client = client_for(closed_loop)
+    missing = uuid4()
+    single = client.post(f"/v1/materials/{missing}/sources", content=b"abc", headers={
+        "Origin": ORIGIN, "Content-Type": "text/plain", "X-Material-Name": "note.txt", "Idempotency-Key": "m"})
+    parts = upload_part(client, missing, "p", 0, b"x", 10)
+    assert single.status_code == parts.status_code == 404
+    assert single.json()["reason_code"] == parts.json()["reason_code"] == "RESOURCE_NOT_FOUND"
+    assert storage(client)["reserved_bytes"] == 0
+
+
+def test_account_then_material_lock_order_has_no_deadlock(closed_loop, monkeypatch):
+    """Codex 反例：上傳保留（帳號鎖→教材 KEY SHARE）與建立 Podcast／手動生成影片（原為教材鎖→帳號鎖）
+    同時進行。兩個真實交易交錯，統一順序後都完成，不出現 40P01。"""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    import time
+
+    owner, source, _, document, dsn, _ = closed_loop
+    identity = create(closed_loop, video=False, key="lock-order")["podcast_id"]
+    complete(dsn)
+    inside, real = Event(), storage_usage.require_room
+
+    def paused(db, *args, **kwargs):
+        if not inside.is_set():
+            inside.set()
+            time.sleep(1.5)
+        return real(db, *args, **kwargs)
+
+    monkeypatch.setattr(storage_usage, "require_room", paused)
+    intent = media_sources.upload_intent("sources", "note.txt", "text/plain", 3, "1" * 64)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        upload = pool.submit(media_sources.accept_upload, "sources", owner.learner_id, source.material_id,
+                             "lock", 3, intent, dsn=dsn)
+        assert inside.wait(5)
+        podcast = pool.submit(podcasts.create_podcast, owner.learner_id, source.material_id, document["revision"],
+                              "鎖順序", [c["concept_id"] for c in document["concepts"]], "lock-podcast",
+                              delivery="solo", video=True, dsn=dsn)
+        video = pool.submit(videos.prepare, owner.learner_id, identity, 0, dsn=dsn)
+        assert upload.result(timeout=30) is not None
+        assert podcast.result(timeout=30)["video_enabled"] is True
+        assert video.result(timeout=30)["status"] == "pending"
+
+
+def test_requeue_and_prepare_only_reserve_jobs_that_are_really_queued(closed_loop, monkeypatch):
+    from sqlalchemy import text
+
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop, video=True, key="requeue")["podcast_id"]
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        row.episodes = [deepcopy(row.episodes[0]) for _ in range(2)]
+        # 合成兩集節目：補上建立時第二集應有的保留。
+        for kind in ("podcast_audio", "podcast_video"):
+            storage_usage.reserve(db, owner.learner_id, row.material_id, kind, 10, podcast_id=identity, episode_index=1)
+    complete(dsn)
+
+    def video_reservations():
+        with database_session(dsn) as db:
+            return db.scalars(text("SELECT episode_index FROM storage_reservations "
+                                   "WHERE podcast_id = :p AND kind = 'podcast_video' ORDER BY episode_index"), {"p": identity}).all()
+
+    # 第一集影片失敗（同交易釋放影片保留），之後第二集音訊也失敗：整份節目 failed。
+    state = videos.claim(dsn=dsn)
+    assert videos.finish(state, error="VIDEO_RENDER_FAILED", dsn=dsn)
+    claim = podcasts.claim_step(dsn=dsn)
+    podcasts.finish_step(claim, script=script(claim), dsn=dsn)
+    claim = podcasts.claim_step(dsn=dsn)
+    podcasts.finish_step(claim, error="PODCAST_PROVIDER_FAILED", dsn=dsn)
+    view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+    assert view["status"] == "failed" and video_reservations() == [1]
+    # Codex 反例：接續生成同時恢復 failed 影片並重新保留，不必再按一次。
+    podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
+    assert videos.read(owner.learner_id, identity, 0, dsn=dsn)["status"] == "pending"
+    assert video_reservations() == [0, 1]
+    # 取消後同來源的 prepare 不會排隊，也不占額度。
+    state = videos.read(owner.learner_id, identity, 0, dsn=dsn)
+    videos.action(owner.learner_id, identity, 0, "cancel", state["version"], dsn=dsn)
+    assert video_reservations() == [1]
+    before = storage_usage.account_usage(owner.learner_id, dsn=dsn)["used_bytes"]
+    assert videos.prepare(owner.learner_id, identity, 0, dsn=dsn)["status"] == "cancelled"
+    assert video_reservations() == [1]
+    assert storage_usage.account_usage(owner.learner_id, dsn=dsn)["used_bytes"] == before

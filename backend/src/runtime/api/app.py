@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
+import hashlib
 import ipaddress
 import json
 from typing import Any, Callable, Iterator
@@ -66,7 +67,9 @@ from ..material_processing import (
 from ..material_runtime import MaterialRuntimeError, runtime_binding
 from ..media_sources import (
     add_youtube_source,
+    accept_reference,
     accept_upload,
+    upload_intent,
     receive_chunk,
     store_upload_bytes,
 )
@@ -1059,9 +1062,13 @@ def create_app(settings: ApiSettings) -> FastAPI:
 
         def save():
             arguments = (owner, material_id, bytes(data), name, media, key)
-            # 短交易內辨識重送、核對並保留額度；落盤在帳號鎖外，來源寫入的交易內刪除保留。
-            accepted = accept_upload(owner, material_id, key, len(data), dsn=settings.dsn)
-            reservation = accepted[0] if accepted and accepted[1] else None
+            # 短交易內驗證教材、辨識重送、核對並保留額度；本請求是該意圖唯一的寫入者，
+            # 落盤在帳號鎖外，寫入來源的同一交易刪除保留。
+            reservation = accept_upload(
+                "sources", owner, material_id, key, len(data),
+                upload_intent("sources", name, media, len(data), hashlib.sha256(data).hexdigest()),
+                dsn=settings.dsn,
+            )
             try:
                 return store(*arguments, dsn=settings.dsn, reservation_id=reservation)
             except Exception:
@@ -1137,7 +1144,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
             raise request_context.ApiFailure("NORMALIZER_UNAVAILABLE")
         key = request_context.idempotency_key(request)
         # 參照本身很小：重送直接交給冪等判斷，新增則在空間已滿時拒絕，不另保留。
-        accept_upload(owner, material_id, key, 0, dsn=settings.dsn, hold=False)
+        accept_reference(owner, material_id, key, dsn=settings.dsn)
         add_youtube_source(owner, material_id, body.url, key, dsn=settings.dsn)
         return read_sources(owner, material_id, dsn=settings.dsn)
 

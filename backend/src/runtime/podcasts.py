@@ -88,7 +88,7 @@ def _summary(row, material, child_statuses):
             len(row.episodes) if row.video_enabled else len(videos)
         )
         - videos.count("removed"),
-        # 沒勾影片或影片已刪除的分集只播音訊；勾選影片的節目缺少影片工作（0019 前的舊分集）
+        # 沒勾影片或影片已刪除的分集只播音訊；勾選影片的節目缺少影片工作（0020 前的舊分集）
         # 時不開放預覽，由使用者按「接續生成」補建。
         "preview_ready": row.status == "ready"
         and all(e.get("audio") for e in row.episodes)
@@ -148,26 +148,26 @@ def create_podcast(
         "video": video,
     }
     fingerprint = bytes.fromhex(canonical_sha256(selection))
-    with database_session(dsn) as db:
-        material = require_material(db, owner, material_id)
-
-        def replay():
-            row = db.scalar(
-                select(Podcast).where(
-                    Podcast.learner_id == owner,
-                    Podcast.material_id == material_id,
-                    Podcast.idempotency_key_sha256 == digest,
-                )
+    def replay(db, material):
+        row = db.scalar(
+            select(Podcast).where(
+                Podcast.learner_id == owner,
+                Podcast.material_id == material_id,
+                Podcast.idempotency_key_sha256 == digest,
             )
-            if row:
-                if bytes(row.request_fingerprint) != fingerprint:
-                    raise PodcastError("IDEMPOTENCY_CONFLICT")
-                if row.status == "deleted":
-                    raise PodcastError("RESOURCE_NOT_FOUND")
-                return _summary(row, material, _child_statuses(db, [row.podcast_id]))
-            return None
+        )
+        if row:
+            if bytes(row.request_fingerprint) != fingerprint:
+                raise PodcastError("IDEMPOTENCY_CONFLICT")
+            if row.status == "deleted":
+                raise PodcastError("RESOURCE_NOT_FOUND")
+            return _summary(row, material, _child_statuses(db, [row.podcast_id]))
+        return None
 
-        if (existing := replay()) is not None:
+    # 第一段：驗證教材與版本、規劃分集（不取帳號鎖，耗時的讀取不擋同帳號的其他新增）。
+    with database_session(dsn) as db:
+        material = require_material(db, owner, material_id, read=True)
+        if (existing := replay(db, material)) is not None:
             return existing
         document = _read_verified_document(db, owner, material_id, revision=revision)
         retrieval._scope(db, owner, material_id, revision)
@@ -183,15 +183,18 @@ def create_podcast(
         passages = retrieval.evidence_context(db, owner, material_id, revision, ids)
         pages = _context_pages([p for p in passages if p["evidence_id"] in ids])
         episodes = plan_episodes(view, concept_ids, pages)
-        # 每個 Podcast 抽一組主持人，同系列各集沿用。
-        hosts = _pick_hosts(delivery)
-        for episode in episodes:
-            episode["delivery"] = delivery
-            episode["hosts"] = dict(hosts)
-        # 短交易尾段才取帳號鎖（教材鎖在前）：再次辨識重送後，依集數與當下全站平均固定每集保留額度。
+    # 每個 Podcast 抽一組主持人，同系列各集沿用。
+    hosts = _pick_hosts(delivery)
+    for episode in episodes:
+        episode["delivery"] = delivery
+        episode["hosts"] = dict(hosts)
+    # 第二段短交易：帳號鎖 → 教材鎖，再次辨識重送與版本，核對額度後建立節目與每集固定保留。
+    with database_session(dsn) as db:
         lock_account(db, owner)
-        if (existing := replay()) is not None:
+        material = require_material(db, owner, material_id)
+        if (existing := replay(db, material)) is not None:
             return existing
+        retrieval._scope(db, owner, material_id, revision)
         estimate = episode_estimates(db)
         require_room(
             db,
@@ -281,9 +284,11 @@ def read_podcast(owner, identity, *, dsn=None):
         }
 
 
-def _requeue_videos(db, row, statuses):
-    """接續生成：恢復指定狀態的影片，並為勾選影片的節目補建已有音訊卻缺少的影片工作
-    （0019 前的舊分集；已刪除的 removed 與沒勾選的節目不補）。先在帳號鎖內核對並保留影片額度。"""
+def _requeue_videos(db, row):
+    """接續生成（不論節目是 ready、failed 或 cancelled，規則相同）：失敗或取消的影片恢復成 pending，
+    勾選影片的節目另補建已有音訊卻缺少的影片工作（0020 前的舊分集；已刪除的 removed 與沒勾選的
+    節目不補）。只為這些真正排隊的工作核對並保留影片額度；呼叫端已持有帳號鎖。"""
+    statuses = ("failed", "cancelled")
     from .podcast_videos import enqueue
 
     rows = db.scalars(
@@ -321,6 +326,9 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
             owner, identity, expected_version=expected_version, dsn=dsn
         )
     with database_session(dsn) as db:
+        if action == "retry":
+            # 鎖順序：帳號鎖 → 教材／Podcast。
+            lock_account(db, owner)
         row, material = _locked(db, owner, identity)
         if row.version != expected_version:
             raise PodcastError("PODCAST_CONFLICT")
@@ -334,9 +342,9 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
             summary = _summary(row, material, _child_statuses(db, [row.podcast_id]))
             if not summary["generation"]["retryable_videos"]:
                 raise PodcastError("PODCAST_CONFLICT")
-            _requeue_videos(db, row, ("failed", "cancelled"))
+            _requeue_videos(db, row)
         elif action == "retry" and row.status in {"failed", "cancelled"}:
-            _requeue_videos(db, row, ("cancelled",))
+            _requeue_videos(db, row)
             if row.status == "cancelled":
                 db.execute(
                     update(PodcastScenes)

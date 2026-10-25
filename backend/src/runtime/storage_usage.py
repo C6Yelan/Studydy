@@ -1,16 +1,20 @@
 """帳號空間：5 GiB 是「接受新增工作」的門檻。
 
-已用＝該帳號全部 artifacts 的 size_bytes＋`analysis/<learner>/` 目錄＋`storage_reservations` 的保留額度，
-artifacts 與保留在同一個 SQL 敘述（同一快照）加總。保留額度在接受工作時固定寫入：
-- upload：分段上傳以第一段宣告的整檔大小、單次上傳以本次大小；
-- podcast_audio／podcast_video：建立 Podcast（或重試／補建影片）當時每集的估值，取全站既有同類成品
-  的平均大小，尚無成品時用下方預設值。之後全站平均變動不影響已保留的額度。
-成品寫入的同一交易內刪除對應保留，改計實際大小；失敗、取消或刪除時釋放。
+已用＝該帳號全部 artifacts 的 size_bytes＋`analysis/<learner>/` 目錄＋`storage_reservations` 的保留額度；
+artifacts 與保留在同一個 SQL 敘述（同一快照）加總。已接受工作的實際成品（可能大於估值）、衍生檔與
+補充學習匯入照常完成，計入已用並擋住之後的新增，不會中途中斷。
 
-會新增檔案的入口在帳號層級 advisory lock 內，以短交易完成「再次辨識冪等 key＋核對額度＋建立保留」，
-檔案落盤在鎖外。鎖等待逾時回可重試的 STORAGE_BUSY。同一交易若也鎖教材／Podcast，教材鎖在前。
-已接受的工作產生的檔案（成品比預估大、normalized_pdf／mapping／分析檔、補充學習匯入）照常完成，
-計入已用並擋住之後的新增，不會中途中斷。卡片匯出暫存與 Podcast 匯出不落地或由維護程序清除，不計入。
+保留在接受工作時固定大小，生命週期（另見 docs/materials.md「帳號空間」）：
+- upload：一個上傳意圖（入口＋Idempotency-Key）只有一個寫入者。寫入來源的同一交易刪除；寫入失敗時釋放；
+  寫入者租約（單次上傳 10 分鐘、分段上傳最後一段後 1 天）過期後由維護 worker 釋放或由同意圖請求接手。
+- podcast_audio：建立 Podcast 時每集一筆；該集音訊寫入的同一交易刪除。講稿或音訊失敗時保留到
+  接續完成或刪除 Podcast，因為接續生成不再核對額度。
+- podcast_video：勾選影片的 Podcast 建立時每集一筆，或重試／補建／手動生成真正排入佇列時建立；
+  影片寫入、失敗、中斷或取消的同一交易刪除（之後要再生成須重新核對並保留），刪除 Podcast 時一併刪除。
+
+同時需要帳號鎖與教材鎖的交易，一律先取帳號鎖、再鎖教材（含保留外鍵需要的教材 KEY SHARE）；
+只需教材鎖的背景工作（成品寫入、刪除）不取帳號鎖，因此不會形成循環等待。帳號鎖等待逾時回可重試的
+STORAGE_BUSY。卡片匯出暫存與 Podcast 匯出不落地或由維護程序清除，不計入。
 """
 
 from __future__ import annotations
@@ -33,8 +37,9 @@ ACCOUNT_STORAGE_LIMIT_BYTES = 5 * 1024 * 1024 * 1024
 # 全站還沒有同類成品可平均時的每集預估。
 DEFAULT_EPISODE_AUDIO_BYTES = 20 * 1024 * 1024
 DEFAULT_EPISODE_VIDEO_BYTES = 64 * 1024 * 1024
-# 單次上傳或中斷的分段上傳在這段時間後視為失效，由維護 worker 釋放保留。
-UPLOAD_RESERVATION_TTL = timedelta(days=1)
+# 上傳寫入者租約：單次上傳在一個請求內落盤；分段上傳每收到一段就延長，與暫存清除期限相同。
+SINGLE_UPLOAD_LEASE = timedelta(minutes=10)
+CHUNKED_UPLOAD_LEASE = timedelta(days=1)
 
 
 class StorageQuotaError(RuntimeError):
@@ -85,9 +90,9 @@ def lock_account(db, owner: UUID) -> None:
         raise
 
 
-def upload_reservation_id(owner, material_id, key) -> UUID:
-    """同一上傳意圖（帳號、教材、Idempotency-Key）固定的保留 ID。"""
-    return UUID(bytes=sha256(f"upload:{owner}:{material_id}:{key}".encode()).digest()[:16])
+def upload_reservation_id(entry, owner, material_id, key) -> UUID:
+    """同一上傳意圖（入口、帳號、教材、Idempotency-Key）固定的保留 ID；不同入口互不視為重送。"""
+    return UUID(bytes=sha256(f"upload:{entry}:{owner}:{material_id}:{key}".encode()).digest()[:16])
 
 
 def episode_estimates(db) -> dict:
@@ -144,14 +149,28 @@ def require_room(db, owner: UUID, incoming_bytes: int, *, exclude=None) -> None:
         raise StorageQuotaError(used, ACCOUNT_STORAGE_LIMIT_BYTES)
 
 
-def reserve(db, owner, material_id, kind, size, *, reservation_id=None, podcast_id=None, episode_index=None):
-    """建立保留；同一工作已有保留時沿用原值（不重新定價）。"""
+def reserve(
+    db,
+    owner,
+    material_id,
+    kind,
+    size,
+    *,
+    reservation_id=None,
+    podcast_id=None,
+    episode_index=None,
+    intent=None,
+    lease=None,
+):
+    """建立保留；同一工作已有保留時沿用原值（不重新定價）。呼叫端已持有帳號鎖。"""
+    now = datetime.now(UTC)
     db.execute(
         text(
             """
             INSERT INTO storage_reservations
-              (reservation_id, learner_id, material_id, kind, podcast_id, episode_index, bytes, created_at)
-            VALUES (:id, :owner, :material, :kind, :podcast, :episode, :bytes, :now)
+              (reservation_id, learner_id, material_id, kind, podcast_id, episode_index,
+               intent_sha256, expires_at, bytes, created_at)
+            VALUES (:id, :owner, :material, :kind, :podcast, :episode, :intent, :expires, :bytes, :now)
             ON CONFLICT DO NOTHING
             """
         ),
@@ -162,8 +181,10 @@ def reserve(db, owner, material_id, kind, size, *, reservation_id=None, podcast_
             "kind": kind,
             "podcast": podcast_id,
             "episode": episode_index,
+            "intent": intent,
+            "expires": now + lease if lease else None,
             "bytes": max(1, int(size)),
-            "now": datetime.now(UTC),
+            "now": now,
         },
     )
 
@@ -185,20 +206,29 @@ def release(db, *, reservation_id=None, podcast_id=None, kind=None, episode_inde
     )
 
 
-def reservation_exists(db, reservation_id) -> bool:
-    return bool(
-        db.scalar(
-            text("SELECT 1 FROM storage_reservations WHERE reservation_id = :id"),
-            {"id": reservation_id},
-        )
+def upload_reservation(db, reservation_id):
+    """回傳 (intent_sha256, expires_at) 並鎖住該列；沒有時為 None。"""
+    row = db.execute(
+        text(
+            "SELECT intent_sha256, expires_at FROM storage_reservations "
+            "WHERE reservation_id = :id FOR UPDATE"
+        ),
+        {"id": reservation_id},
+    ).first()
+    return (bytes(row.intent_sha256), row.expires_at) if row else None
+
+
+def extend_upload(db, reservation_id, lease) -> None:
+    db.execute(
+        text("UPDATE storage_reservations SET expires_at = :expires WHERE reservation_id = :id"),
+        {"id": reservation_id, "expires": datetime.now(UTC) + lease},
     )
 
 
 def reserve_videos(db, podcast, indexes) -> None:
-    """重試、補建或手動生成影片：呼叫端已鎖 Podcast；在帳號鎖內為尚無保留的分集核對並保留影片額度。"""
+    """只為真正要排入佇列的影片工作核對並保留額度。呼叫端已依序取得帳號鎖與 Podcast／教材鎖。"""
     if not indexes:
         return
-    lock_account(db, podcast.learner_id)
     reserved = set(
         db.scalars(
             text(
@@ -231,9 +261,9 @@ def release_upload(reservation_id, *, dsn=None) -> None:
 
 
 def release_stale_upload_reservations(*, dsn=None, now=None) -> None:
-    """程序中斷留下的上傳保留：超過一天的釋放（與分段上傳暫存的清除期限相同）。"""
+    """寫入者租約已過期的上傳保留（程序中斷、分段上傳一天沒有新段）由維護 worker 釋放。"""
     with database_session(dsn) as db:
         db.execute(
-            text("DELETE FROM storage_reservations WHERE kind = 'upload' AND created_at < :limit"),
-            {"limit": (now or datetime.now(UTC)) - UPLOAD_RESERVATION_TTL},
+            text("DELETE FROM storage_reservations WHERE kind = 'upload' AND expires_at < :now"),
+            {"now": now or datetime.now(UTC)},
         )

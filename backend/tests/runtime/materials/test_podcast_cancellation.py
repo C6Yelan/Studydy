@@ -196,7 +196,7 @@ def test_preview_requires_all_media_and_retry_preserves_ready_episodes(closed_lo
         rows[0].artifact_id = UUID(original_audio[0]['artifact_id'])
         rows[0].manifest = {'synthetic': True}
         rows[1].status = 'failed'; rows[1].error_code = 'LUNA_GENERATION_TIMEOUT'
-        db.delete(rows[2])  # 0019 前缺少影片工作的舊分集：勾選影片的節目由使用者按接續生成補建。
+        db.delete(rows[2])  # 0020 前缺少影片工作的舊分集：勾選影片的節目由使用者按接續生成補建。
         ready_version = rows[0].version
     view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
     assert view['generation']['completed_videos'] == 1

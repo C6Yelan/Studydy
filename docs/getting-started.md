@@ -181,7 +181,7 @@ Luna 的後端總額度為 65,536 tokens，包含輸入與輸出，使用與 pro
 每個新片段以 `source_refs` 保留原 beat／發言索引與 Unicode 字元範圍（start 含、end 不含），從文字交集推導 claim／Evidence，不把整個 beat 的來源塞給每個 cue；既有單發言片段仍有 `source_segment_index/source_turn_index`。拼回各發言須逐字等於原稿。短提問與回答可共用一個 cue，但仍分別保存 speaker，不額外推算逐角色切換時間。音訊或講稿 hash 改變、時間不符語音錨點均拒絕讀取，不沿用過期切分。
 同一路徑的 `/subtitles` 提供 WebVTT，兩個端點都沿用原 Podcast 權限與私人快取政策。新對齊另保存 `caption_alignment`：以原 turn、標點和同一次 Whisper 的詞時間產生較短讀句，逐字拼回仍等於原稿；多個片段共用 ASR 時間時合併，不在詞內插值。timeline 的 `segments` 繼續負責來源、seek 和「問這一段」，字幕使用獨立的 `captions`，不切碎 teaching scope。未保存細字幕錨點的舊產物沿用原 VTT，不自動重跑模型或改寫 manifest。時間軸使用已保存的對齊資料，不改寫原講稿；完成影片時優先讀取影片綁定的時間軸。
 
-建立時勾選影片的 Podcast（0019 前建立的節目都視為勾選），每集新音訊完成後自動排入影片佇列；沒勾選就只有音訊。勾選影片的節目若有分集缺少影片工作（0019 前的舊分集），不會自動補產，播放頁顯示待補的影片集數，由使用者按「接續生成」補建；沒勾選的節目不補。v2 腳本不論是否勾選，都自動排入 beat alignment 工作提供 timeline／字幕，不必等 MP4。影片失敗可重試，處理中可取消並刪除整份 Podcast；影片失敗時仍保留原音訊。每集已完成的影片可單獨刪除（`DELETE /v1/podcasts/{id}/episodes/{i}/video`）：只刪影片 artifact 與檔案，影片列改為 `removed` 並保留 manifest（舊版講稿的時間軸只存在影片 manifest），音訊、時間軸與收聽進度不變，也不會被接續生成重建。provider 的影片與對齊請求仍收到解碼還原的原 WAV。
+建立時勾選影片的 Podcast（0020 前建立的節目都視為勾選），每集新音訊完成後自動排入影片佇列；沒勾選就只有音訊。勾選影片的節目若有分集缺少影片工作（0020 前的舊分集），不會自動補產，播放頁顯示待補的影片集數，由使用者按「接續生成」補建；沒勾選的節目不補。v2 腳本不論是否勾選，都自動排入 beat alignment 工作提供 timeline／字幕，不必等 MP4。影片失敗可重試，處理中可取消並刪除整份 Podcast；影片失敗時仍保留原音訊。每集已完成的影片可單獨刪除（`DELETE /v1/podcasts/{id}/episodes/{i}/video`）：只刪影片 artifact 與檔案，影片列改為 `removed` 並保留 manifest（舊版講稿的時間軸只存在影片 manifest），音訊、時間軸與收聽進度不變，也不會被接續生成重建。provider 的影片與對齊請求仍收到解碼還原的原 WAV。
 正式播放器提供影片／音訊切換、投影片跳轉、同步講稿及 JSON／WebVTT 下載，延續原 Podcast 的帳號權限。
 
 `0005_cards_and_media.sql` 建立影片工作、來源指紋及 artifact 關係。影片只在來源仍一致、版面及來源核對通過且 artifact 寫入成功後標記完成；取消、刪除或過期工作的晚到結果不會發布。

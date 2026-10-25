@@ -1,4 +1,4 @@
-"""0018 既有資料升級 0019：既有節目標為已啟用影片，其餘列與 WAV artifact 不變，Podcast 音訊可存 FLAC。"""
+"""前一版資料升級到本 migration：既有節目標為已啟用影片，其餘列與 WAV artifact 不變，Podcast 音訊可存 FLAC。"""
 import json
 
 import psycopg
@@ -10,14 +10,22 @@ from runtime.storage.database import database_session
 from runtime.storage.migrations import DEFAULT_MIGRATIONS_DIR, run_migrations
 
 
-@pytest.fixture
-def migrations_dir(tmp_path):
-    target = tmp_path / "migrations-0018"
-    target.mkdir()
+# 版本號取自檔名，合併時改號不必改測試。
+VERSION = int(next(DEFAULT_MIGRATIONS_DIR.glob("*_podcast_audio_storage.sql")).name[:4])
+
+
+def upto(tmp_path, last):
+    target = tmp_path / f"migrations-{last:04d}"
+    target.mkdir(exist_ok=True)
     for source in DEFAULT_MIGRATIONS_DIR.glob("*.sql"):
-        if int(source.name[:4]) <= 18:
+        if int(source.name[:4]) <= last:
             (target / source.name).write_bytes(source.read_bytes())
     return target
+
+
+@pytest.fixture
+def migrations_dir(tmp_path):
+    return upto(tmp_path, VERSION - 1)
 
 
 def rows(dsn):
@@ -29,7 +37,7 @@ def rows(dsn):
                 for name in names}
 
 
-def test_0019_keeps_existing_podcasts_on_video_and_allows_flac(closed_loop):
+def test_upgrade_keeps_existing_podcasts_on_video_and_allows_flac(closed_loop, tmp_path):
     owner, source, _, document, dsn, _ = closed_loop
     insert = ("INSERT INTO artifacts (artifact_id,learner_id,material_id,kind,media_type,sha256,size_bytes,created_at) "
               "VALUES (gen_random_uuid(),%s,%s,'podcast_audio',%s,%s,10,now())")
@@ -45,7 +53,7 @@ def test_0019_keeps_existing_podcasts_on_video_and_allows_flac(closed_loop):
             (owner.learner_id, source.material_id, document["revision"],
              [c["concept_id"] for c in document["concepts"]], b"k" * 32, b"f" * 32))
     before = rows(dsn)
-    assert run_migrations(dsn) == (19,)
+    assert run_migrations(dsn, migrations_dir=upto(tmp_path, VERSION)) == (VERSION,)
     assert rows(dsn) == before
     with psycopg.connect(dsn) as connection:
         assert connection.execute("SELECT video_enabled FROM podcasts").fetchall() == [(True,)]
@@ -57,4 +65,4 @@ def test_0019_keeps_existing_podcasts_on_video_and_allows_flac(closed_loop):
     with psycopg.connect(dsn) as connection:
         # 新增的保留表為空；既有節目在部署前已接受，不補建保留。
         assert connection.execute("SELECT count(*) FROM storage_reservations").fetchone() == (0,)
-    assert run_migrations(dsn) == ()
+    assert run_migrations(dsn, migrations_dir=upto(tmp_path, VERSION)) == ()

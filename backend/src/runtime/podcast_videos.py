@@ -32,7 +32,7 @@ from .storage.artifacts import (
     reconcile_discarded_artifacts,
     write_blob,
 )
-from .storage_usage import release, reserve_videos
+from .storage_usage import lock_account, release, reserve_videos
 from .storage.tables import Artifact, Material, Podcast, PodcastVideo as Video
 from .storage.database import database_session
 
@@ -149,16 +149,26 @@ def read(owner, podcast_id, index, *, dsn=None):
 
 def prepare(owner, podcast_id, index, *, dsn=None):
     with database_session(dsn) as db:
+        # 鎖順序：帳號鎖 → 教材／Podcast。
+        lock_account(db, owner)
         podcast, _ = _locked(db, owner, podcast_id)
-        _episode(podcast, index)
+        episode = _episode(podcast, index)
         row = _row(db, podcast_id, index)
-        if not row or row.status == "cancelled":
+        # 只有會真正排入佇列的情況才保留：新建工作，或來源已變的取消工作被重建。
+        # 同來源的 cancelled／failed 不會因 prepare 排隊（要用重試），不占額度。
+        if episode["audio"] and episode["script"] and (
+            row is None
+            or (row.status == "cancelled" and row.source_sha256 != identity(podcast, episode))
+        ):
             reserve_videos(db, podcast, [index])
         return _view(podcast, index, enqueue(db, podcast, index))
 
 
 def action(owner, podcast_id, index, action, version, *, dsn=None):
     with database_session(dsn) as db:
+        if action == "retry":
+            # 鎖順序：帳號鎖 → 教材／Podcast。
+            lock_account(db, owner)
         podcast, _ = _locked(db, owner, podcast_id)
         episode = _episode(podcast, index)
         row = _row(db, podcast_id, index)

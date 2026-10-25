@@ -266,9 +266,9 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 新後端寫入新表與新欄位，必須先套用 0019 才能啟動，且前端要同時更新到接受 `xp-rules/v4`／`badge-rules/v7` 的版本。只改 Python 與前端，不需新增套件、不改 runtime lock，可用輕量後端更新（以 `docker inspect studydy-backend-1` 當下映像為基底）與前端輕量部署。已套用後回復版本須識別 0019，採前向修復，不還原 DB 丟棄新紀錄。部署後關卡、準時達成目標與匯出才開始累計，不補跑也不推測過去的紀錄。
 
-## 0019 Podcast 影片選項、FLAC 音訊與帳號空間
+## 0020 Podcast 影片選項、FLAC 音訊與帳號空間
 
-`0019_podcast_audio_storage.sql`：`podcasts` 新增 `video_enabled`（既有列設為 true，維持原本自動生成影片；之後新建由程式明確寫入，沒有預設值）；`artifacts` 的 `podcast_audio` 允許 `audio/wav` 與 `audio/flac`；`podcast_videos` 新增 `removed` 狀態（刪除影片後保留 manifest、artifact 為 NULL）；新增空的 `storage_reservations`（帳號空間保留額度，見 [教材處理](materials.md#帳號空間)）。不搬資料；部署前已接受的工作沒有保留，照常完成。
+`0020_podcast_audio_storage.sql`：`podcasts` 新增 `video_enabled`（既有列設為 true，維持原本自動生成影片；之後新建由程式明確寫入，沒有預設值）；`artifacts` 的 `podcast_audio` 允許 `audio/wav` 與 `audio/flac`；`podcast_videos` 新增 `removed` 狀態（刪除影片後保留 manifest、artifact 為 NULL）；新增空的 `storage_reservations`（帳號空間保留額度，見 [教材處理](materials.md#帳號空間)）。不搬資料；部署前已接受的工作沒有保留，照常完成。
 
 - 只需 backend 輕量更新（映像沿用當下正式映像為底圖，FLAC 用既有 PyAV 編解碼，沒有新依賴或系統套件），再重建前端靜態檔；provider 不需更新或重啟（影片與對齊仍收到原 WAV）。backend 啟動時套用 migration，舊 backend 不認得 `removed` 與 `audio/flac`，因此不要回退到舊映像而保留新資料；回退前先確認沒有新建 FLAC 分集與已刪除的影片。
 - 部署時進行中的分段上傳會因暫存檔改為帳號前綴而回報「上傳中斷」，重新上傳即可；舊暫存一天後由維護 worker 清除。

@@ -32,7 +32,7 @@ def upto(tmp_path, last):
 
 def snapshot(dsn):
     with database_session(dsn) as db:
-        names = db.scalars(text("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('schema_migrations','material_notes','note_annotations','storage_reservations') ORDER BY tablename")).all()
+        names = db.scalars(text("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('schema_migrations','material_notes','note_annotations') ORDER BY tablename")).all()
         return {name: db.scalars(text(f'SELECT row_to_json(t)::text FROM "{name}" t ORDER BY row_to_json(t)::text')).all() for name in names}
 
 
@@ -63,8 +63,7 @@ def test_0018_adds_empty_diagnostics_without_changing_existing_rows(closed_loop,
 
     def rows(dsn):
         with database_session(dsn) as db:
-            # 0019 新增的空表不在升級前的快照內。
-            names = db.scalars(text("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('schema_migrations','storage_reservations') ORDER BY tablename")).all()
+            names = db.scalars(text("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename <> 'schema_migrations' ORDER BY tablename")).all()
             return {name: sorted(json.dumps({k: v for k, v in row.items() if k != "generation_diagnostics"}, sort_keys=True, default=str)
                 for row in db.execute(text(f'SELECT row_to_json(t) AS r FROM "{name}" t')).scalars())
                 for name in names}
