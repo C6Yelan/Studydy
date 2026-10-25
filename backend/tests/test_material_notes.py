@@ -1,6 +1,5 @@
-"""來源、全份涵蓋、A4 正文與註記精確對應的回歸。"""
+"""來源、全份涵蓋、重點整理的概念涵蓋與註記精確對應的回歸。"""
 from copy import deepcopy
-import pymupdf
 import pytest
 from runtime import note_content as nc, material_notes as mn
 
@@ -85,20 +84,6 @@ def test_invalid_model_output_is_not_published(failure):
     with pytest.raises(ValueError): nc.validate(value, concepts(), "full")
 
 
-def test_summary_body_has_one_a4_page_with_readable_chinese_and_table():
-    paragraph = {"heading": "複習筆記", "text": "保留來源中的條件與例外。", "formula": "速度 = 距離 ÷ 時間",
-                 "table": {"headers": ["條件", "結果"], "rows": [["固定時間", "距離增加"]]}}
-    raw = nc.summary_pdf([paragraph])
-    with pymupdf.open(stream=raw) as doc:
-        assert len(doc) == 1 and doc[0].rect == pymupdf.paper_rect("a4")
-        text = doc[0].get_text()
-        assert "複習筆記" in text and "距離增加" in text
-        spans = [s for b in doc[0].get_text("dict")["blocks"] for line in b.get("lines", []) for s in line["spans"]]
-        assert min(s["size"] for s in spans) >= 12
-    with pytest.raises(ValueError, match="NOTE_SUMMARY_TOO_LONG"):
-        nc.summary_pdf([{**paragraph, "text": "超長正文不可以靠縮字或裁切發布。" * 200}])
-
-
 def test_regeneration_matches_only_identical_points_and_sources_and_never_duplicates_annotation():
     original = full(concepts(), response)
     annotations = [{"anchor": original[0]["anchor"], "body": "我的想法", "original_paragraph": deepcopy(original[0])}]
@@ -162,50 +147,6 @@ def test_shared_claim_is_explained_once_with_all_its_concept_links():
     assert len(request["evidence"]) == 3
     assert len(identities["claims"]) == 3
     assert len(request["concepts"]) == 2
-
-
-def test_large_summary_selects_points_then_writes_with_complete_original_evidence():
-    values=concepts()
-    for i,q in enumerate(values[0]['claims']):
-        q['evidence'][0].update(quote='保留完整條件與數字，不能裁切來源。'*450,source_name=f'章節{i}.pdf')
-    calls=[]
-    def model(request):
-        calls.append(request)
-        if request.get('phase')=='select_summary':
-            return {'claim_ids':[request['candidates'][0]['ref']]}
-        return response(request)
-    result=mn.compute_summary(values,model,input_budget=mn.BATCH_TOKENS)
-    assert len(calls)==4 and calls[0]['phase']=='select_summary'
-    assert calls[0]['candidates'][0]['sources']==['章節0.pdf']
-    assert calls[1]['evidence'][0]['quotes']==[values[0]['claims'][0]['evidence'][0]['quote']]
-    assert result[0]['claim_ids']==['q0']
-
-
-def test_summary_selection_cannot_invent_ids_or_skip_validation():
-    values=concepts()
-    for q in values[0]['claims']:
-        q['evidence'][0]['quote']='保留完整來源。'*1200
-    calls=[]
-    def model(request):
-        calls.append(request)
-        return {'claim_ids':['not-in-input']}
-    with pytest.raises(ValueError,match='NOTE_SELECTION_INVALID'):
-        mn.compute_summary(values,model,input_budget=mn.BATCH_TOKENS)
-    assert len(calls)==2
-
-
-def test_summary_overflow_correction_keeps_font_and_makes_a_shorter_body():
-    calls=[]
-    def model(request):
-        calls.append(request)
-        value=response(request)
-        if len(calls)==1:
-            value['paragraphs'][0]['text']='太長的摘要正文。'*500
-        return value
-    result=mn.compute_summary(concepts(),model,input_budget=mn.BATCH_TOKENS)
-    assert len(calls)==6 and calls[1]['correction']['problem']=='NOTE_SUMMARY_TOO_LONG'
-    assert calls[2]['correction']['problem']=='NOTE_SUMMARY_ROOM'
-    assert len(pymupdf.open(stream=nc.summary_pdf(result)))==1
 
 
 def test_same_evidence_distinct_quotes_stay_complete_and_anchor_survives_order_ids_and_restart():
@@ -380,39 +321,6 @@ def test_writer_and_checker_keep_source_page_block_order_and_geometry():
     assert e==original and paragraph['evidence'][0]==original
 
 
-def test_summary_overflow_feedback_uses_measured_page_ratio():
-    p={'heading':'合成稿','text':'合成測試文字。'*400,'formula':None,'table':None}
-    layout=nc.summary_layout([p])
-    assert not layout['fits'] and layout['used_height_pt']>layout['available_height_pt']
-    target=(layout['available_height_pt']-12*1.4)/layout['used_height_pt']
-    assert layout['target_height_ratio']==pytest.approx(target,abs=.0001)
-    assert layout['suggested_characters']==pytest.approx(layout['current_characters']*target,abs=1)
-    assert 450<layout['suggested_characters']<layout['current_characters']
-    with pytest.raises(nc.SummaryTooLong) as error:nc.summary_pdf([p])
-    assert error.value.layout==layout
-    request=mn._layout_request({'kind':'summary'},[p],layout)
-    assert request['correction']['layout']==layout
-    assert request['correction']['previous_body'][0]['text']==p['text']
-    slight_overflow={**layout,'target_height_ratio':.98}
-    assert mn._layout_request({'kind':'summary'},[p,p,p],slight_overflow)['correction']['max_paragraphs']==3
-
-
-@pytest.mark.parametrize('all_ids_present',[False,True])
-def test_summary_with_room_tries_to_cover_more_available_points(all_ids_present):
-    writers=[]
-    def model(request):
-        if request.get('phase')=='review_paragraph':return response(request)
-        writers.append(request)
-        result=response(request)
-        if len(writers)==1 and not all_ids_present:result['paragraphs']=result['paragraphs'][:1]
-        return result
-    result=mn.compute_summary(concepts(),model,input_budget=mn.BATCH_TOKENS)
-    assert len(writers)==2
-    assert writers[1]['correction']['problem']=='NOTE_SUMMARY_ROOM'
-    assert writers[1]['correction']['layout']['target_height_ratio']>1
-    assert {q for p in result for q in p['claim_ids']}=={'q0','q1','q2'}
-
-
 def test_reference_repair_receives_exact_missing_and_extra_compact_ids():
     writers=[]
     def model(request):
@@ -448,42 +356,6 @@ def test_reference_repair_missing_target_paragraph_has_explicit_error():
     with pytest.raises(ValueError,match='^NOTE_FORMAT_INVALID$'):
         mn.generate_part(concepts(),'full',model)
     assert len(writers)==2
-
-
-def test_summary_reflows_content_repair_that_exceeds_one_page_then_rechecks():
-    values=concepts();values[0]['claims']=values[0]['claims'][:1]
-    writers=[];reviews=[]
-    def model(request):
-        if request.get('phase')=='review_paragraph':
-            reviews.append(request)
-            bad=len(reviews)==1
-            return {**response(request),'checks':[{'part':p,'supported':not (bad and p=='text'),'reason':'修正來源條件。' if bad and p=='text' else ''} for p in request['parts']]}
-        writers.append(request)
-        result=response(request)
-        if request.get('correction',{}).get('problem')=='NOTE_CONTENT_UNSUPPORTED':
-            result['paragraphs'][0]['text']='合成長稿。'*700
-        return result
-    result=mn.compute_summary(values,model,input_budget=mn.BATCH_TOKENS)
-    assert len(writers)==4 and len(reviews)==3
-    assert writers[3]['correction']['problem']=='NOTE_SUMMARY_TOO_LONG'
-    assert writers[3]['correction']['layout']['height_ratio']>1
-    assert nc.summary_layout(result)['fits']
-
-
-def test_summary_uses_available_context_instead_of_full_note_batch_limit():
-    values=concepts()
-    for q in values[0]['claims']:q['evidence'][0]['quote']='合成來源完整條件。'*900
-    request,_=mn.model_request(values,'summary')
-    size=mn.estimate_prompt_tokens(nc.PROMPT,request)
-    assert size>mn.BATCH_TOKENS
-    calls=[]
-    def model(request):
-        calls.append(request)
-        return response(request)
-    result=mn.compute_summary(values,model,input_budget=size+100)
-    assert len(result)==3
-    assert all(r.get('phase')!='select_summary' for r in calls)
-    assert len(calls[0]['concepts'][0]['claims'])==3
 
 
 def reviewer(unexplained=(), unsupported=(), reviews=None):
@@ -533,8 +405,7 @@ def test_summary_removes_unexplained_claims_from_several_paragraphs_and_rechecks
     assert [[e['evidence_id'] for e in p['evidence']] for p in result]==[['e0'],['e2']]
     # 第三段只有被移除的重點而整段刪除；只重核引用改變的段落，未變的沿用結果。
     assert [r['paragraph']['text'] for r in reviews]==['第一段正文。','第二段正文。','第二段正文。','第三段正文。','第一段正文。']
-    assert all(r.get('correction',{}).get('problem')!='NOTE_CONTENT_UNSUPPORTED' for r in writers)
-    assert len(writers)==2 and writers[1]['correction']['problem']=='NOTE_SUMMARY_ROOM'
+    assert len(writers)==1
     removed=[d for d in diagnostics if d['event']=='claims_removed']
     assert [set(d['claims']) for d in removed]==[{'q3'},{'q1'}]
     assert {'event':'paragraph_dropped','reason':'no_claims','claims':['q1']} in diagnostics
@@ -551,11 +422,15 @@ def test_summary_keeps_sources_shared_with_remaining_claims():
     assert result[0]['claim_ids']==['q0'] and [e['evidence_id'] for e in result[0]['evidence']]==['e0']
 
 
-def test_summary_fails_only_when_every_paragraph_is_removed():
+def test_summary_fails_when_a_concept_is_still_unexplained_after_one_local_cover():
     values=concepts()
-    model,_,_=summary_model([('甲','正文。',[0]),('乙','正文二。',[1])],unexplained={'第 0 個重點','第 1 個重點'})
+    model,writers,_=summary_model([('甲','正文。',[0]),('乙','正文二。',[1])],unexplained={'第 0 個重點','第 1 個重點'})
+    diagnostics=[]
     with pytest.raises(ValueError,match='^NOTE_COVERAGE_INCOMPLETE$'):
-        mn.generate_part(values,'summary',model)
+        mn.generate_part(values,'summary',model,diagnostics)
+    # 全稿刪光表示概念沒有被解說：只補寫一次，補不出來就失敗，不發布空稿。
+    assert len(writers)==2 and writers[1]['correction']['problem']=='NOTE_CONCEPT_UNEXPLAINED'
+    assert [d['after_repair'] for d in diagnostics if d['event']=='concepts_unexplained']==[False,True]
 
 
 def test_summary_removes_unexplained_claim_before_local_fact_repair():
@@ -607,7 +482,7 @@ def test_summary_references_are_normalized_by_program_then_fact_checked():
     assert [[e['evidence_id'] for e in p['evidence']] for p in result]==[['e0'],['e1'],['e2']]
     assert len(reviews)==3 and reviews[1]['claims']==[{'ref':'C1','text':'第 1 個重點','evidence_ids':['E1']}]
     trimmed=[d for d in diagnostics if d['event']=='references_trimmed']
-    assert [(d['paragraph'],d['claims_removed'],d['evidence_removed']) for d in trimmed]==[(0,1,0),(1,0,2)]*2
+    assert [(d['paragraph'],d['claims_removed'],d['evidence_removed']) for d in trimmed]==[(0,1,0),(1,0,2)]
 
 
 def test_summary_local_repair_references_are_normalized_too():
@@ -660,24 +535,167 @@ def test_full_notes_never_drop_unexplained_claims():
         nc.validate(response({'concepts':[{**values[0],'claims':values[0]['claims'][:2]}]}),values,'full')
 
 
-def test_summary_overflow_after_four_reflows_drops_whole_trailing_paragraphs():
-    values=concepts()
-    long_text='合成長段落，不能裁切或縮字。'*60
-    model,writers,reviews=summary_model([('甲',long_text,[0]),('乙',long_text,[1]),('丙',long_text,[2])])
+def three_concepts():
+    return [{"concept_id": f"k{i}", "label": f"概念{i}", "claims": [
+        {"claim_id": f"q{i}{j}", "text": f"概念{i}的第 {j} 點", "evidence": [{"evidence_id": f"e{i}{j}", "quote": f"原文 {i}{j}", "page": i + 1}]}
+        for j in range(2)]} for i in range(3)]
+
+
+def summary(values, call, budget, diagnostics=None):
+    plan = mn.summary_plan(values, call, input_budget=budget)
+    return mn.complete_sections(values, plan, call, [], lambda *args: None, diagnostics, "summary")
+
+
+def test_summary_covers_every_concept_by_locally_writing_the_missing_one_in_learning_order():
+    values=three_concepts()
+    writers,reviews=[],[]
+    def model(request):
+        if request.get('phase')=='review_paragraph':
+            reviews.append(request)
+            return response(request)
+        writers.append(request)
+        result=response(request)
+        if 'correction' not in request:
+            # 首稿漏寫概念1，其餘每個概念只寫第一點。
+            result['paragraphs']=[p for p in result['paragraphs'] if p['claim_ids'] in (['C1'],['C5'])]
+        return result
     diagnostics=[]
-    result=mn.generate_part(values,'summary',model,diagnostics)
-    assert len(writers)==5 and all(w['correction']['problem']=='NOTE_SUMMARY_TOO_LONG' for w in writers[1:])
-    assert nc.summary_layout(result)['fits'] and 0<len(result)<3
-    assert all(p['text']==long_text for p in result)
-    assert [p['claim_ids'] for p in result]==[['q0'],['q1']][:len(result)]
-    assert len(reviews)==len(result)
-    assert [d['reason'] for d in diagnostics if d['event']=='paragraph_dropped']==['page_overflow']*(3-len(result))
-    pdf=nc.summary_pdf(result)
-    with pymupdf.open(stream=pdf) as doc:
-        assert len(doc)==1
+    result=summary(values,model,10**6,diagnostics)
+    assert len(writers)==2 and writers[1]['correction']['problem']=='NOTE_CONCEPT_UNEXPLAINED'
+    assert [c['label'] for c in writers[1]['concepts']]==['概念1']
+    assert [p['claim_ids'] for p in result]==[['q00'],['q10'],['q11'],['q20']]
+    assert [p['id'] for p in result]==['0','1','2','3']
+    assert {'event':'concepts_unexplained','concepts':['k1'],'after_repair':False} in diagnostics
+    assert len(reviews)==4
 
 
-def test_summary_single_paragraph_too_long_still_fails():
-    model,_,_=summary_model([('甲','單段超頁正文。'*800,[0])])
-    with pytest.raises(nc.SummaryTooLong):
-        mn.generate_part(concepts(),'summary',model)
+def test_summary_without_selection_sends_every_point_and_has_no_page_limit():
+    values=three_concepts()
+    for c in values:
+        for q in c['claims']:
+            q['evidence'][0]['quote']='保留完整條件與數字，不能裁切來源。'*300
+    calls=[]
+    def model(request):
+        calls.append(request)
+        return response(request)
+    request,_=mn.model_request(values,'summary')
+    size=mn.estimate_prompt_tokens(nc.PROMPT,request)
+    result=summary(values,model,size)
+    assert all(r.get('phase')!='select_summary' for r in calls)
+    assert len([r for r in calls if r.get('phase') is None])==1
+    assert len(result)==6
+    assert calls[0]['evidence'][0]['quotes']==[values[0]['claims'][0]['evidence'][0]['quote']]
+
+
+def test_large_summary_selects_core_points_per_concept_without_counting_page_context():
+    values=three_concepts()
+    values[0]['claims']=values[0]['claims'][:1]  # 只有一個候選的概念不必請模型挑。
+    for c in values:
+        for q in c['claims']:
+            q['evidence'][0]['source_name']=f"{c['label']}.pdf"
+            q['context_evidence']=[{**q['evidence'][0],'evidence_id':'ctx'+q['claim_id'],'quote':'同頁補充原文。'*400}]
+    calls=[]
+    def model(request):
+        calls.append(request)
+        if request.get('phase')=='select_summary':
+            return {'concepts':[{'concept':k['ref'],'claim_ids':[k['claims'][-1]['ref']]} for k in request['concepts']]}
+        return response(request)
+    budget=mn.estimate_prompt_tokens(nc.PROMPT,mn.model_request(values,'summary')[0])-1
+    result=summary(values,model,budget)
+    selections=[r for r in calls if r.get('phase')=='select_summary']
+    assert len(selections)==1
+    assert [k['label'] for k in selections[0]['concepts']]==['概念1','概念2']
+    assert selections[0]['concepts'][0]['claims'][0]=={'ref':'C1','text':'概念1的第 0 點','sources':['概念1.pdf']}
+    assert '同頁補充原文' not in str(selections[0])
+    assert {q for p in result for q in p['claim_ids']}=={'q00','q11','q21'}
+    writer=next(r for r in calls if r.get('phase') is None)
+    assert any('同頁補充原文' in q for e in writer['evidence'] for q in e['quotes'])
+
+
+def test_selection_batches_offer_each_point_once_within_budget():
+    values=three_concepts()
+    for c in values:
+        c['claims'].append({'claim_id':c['concept_id']+'x','text':c['label']+'的補充點','evidence':[
+            {'evidence_id':'e'+c['concept_id']+'x','quote':'原文','page':9}]})
+    budget=mn.estimate_prompt_tokens(nc.SELECTION_PROMPT,mn._selection_request([(values[0],values[0]['claims'])])[0])+20
+    calls=[]
+    def model(request):
+        calls.append(request)
+        return {'concepts':[{'concept':k['ref'],'claim_ids':[k['claims'][0]['ref']]} for k in request['concepts']]}
+    selected=mn.select_summary(values,model,input_budget=budget)
+    assert len(calls)==3
+    sent=[q['text'] for r in calls for k in r['concepts'] for q in k['claims']]
+    assert len(sent)==len(set(sent))==9
+    assert all(mn.estimate_prompt_tokens(nc.SELECTION_PROMPT,r)<=budget for r in calls)
+    assert [[q['claim_id'] for q in c['claims']] for c in selected]==[['q00'],['q10'],['q20']]
+
+
+def test_selected_summary_too_large_for_one_request_is_written_in_parts_like_full_notes():
+    values=three_concepts()
+    for c in values:
+        for q in c['claims']:
+            q['evidence'][0]['quote']='較長原文，寫作時完整帶入。'*80
+    unit={**values[0],'claims':values[0]['claims'][:1]}
+    budget=mn.estimate_prompt_tokens(nc.PROMPT,mn.model_request([unit],'summary')[0])+50
+    calls=[]
+    def model(request):
+        calls.append(request)
+        if request.get('phase')=='select_summary':
+            return {'concepts':[{'concept':k['ref'],'claim_ids':[k['claims'][0]['ref']]} for k in request['concepts']]}
+        return response(request)
+    plan=mn.summary_plan(values,model,input_budget=budget)
+    assert len([r for r in calls if r.get('phase')=='select_summary'])==1
+    parts=[part for section in plan for part in section['parts']]
+    assert [[c['claim_ids'] for c in part] for part in parts]==[[['q00']],[['q10']],[['q20']]]
+    result=mn.complete_sections(values,plan,model,[],lambda *args:None,None,'summary')
+    assert [p['claim_ids'] for p in result]==[['q00'],['q10'],['q20']]
+    writers=[r for r in calls if r.get('phase') is None]
+    assert len(writers)==3 and all(e['quotes']==['較長原文，寫作時完整帶入。'*80] for w in writers for e in w['evidence'])
+
+
+def test_shared_points_are_offered_once_and_every_concept_still_gets_a_point():
+    values=three_concepts()
+    shared=deepcopy(values[0]['claims'][1])
+    values[1]['claims']=[shared]
+    values[2]['claims']=[deepcopy(values[0]['claims'][1]),deepcopy(values[0]['claims'][0])]
+    calls=[]
+    def model(request):
+        calls.append(request)
+        return {'concepts':[{'concept':k['ref'],'claim_ids':[k['claims'][0]['ref']]} for k in request['concepts']]}
+    selected=mn.select_summary(values,model,input_budget=10**6)
+    assert len(calls)==1 and [k['label'] for k in calls[0]['concepts']]==['概念0']
+    # 概念1、2 只有與概念0 共用的重點；概念1 的共用點沒被挑中時取它的第一點，概念2 因此也涵蓋到。
+    assert [[q['claim_id'] for q in c['claims']] for c in selected]==[['q00'],['q01'],['q01','q00']]
+
+
+@pytest.mark.parametrize('bad',['missing_concept','foreign_claim','empty'])
+def test_summary_selection_rejects_invalid_picks_after_one_correction(bad):
+    values=three_concepts()
+    calls=[]
+    def model(request):
+        calls.append(request)
+        picks=[{'concept':k['ref'],'claim_ids':[k['claims'][0]['ref']]} for k in request['concepts']]
+        if bad=='missing_concept':picks.pop()
+        if bad=='foreign_claim':picks[0]['claim_ids']=[request['concepts'][1]['claims'][0]['ref']]
+        if bad=='empty':picks[0]['claim_ids']=[]
+        return {'concepts':picks}
+    with pytest.raises(ValueError,match='^NOTE_SELECTION_INVALID$'):
+        mn.select_summary(values,model,input_budget=10**6)
+    assert len(calls)==2 and 'correction' in calls[1]
+
+
+def test_point_too_large_only_because_of_page_context_keeps_its_own_evidence():
+    values=three_concepts()
+    big=values[1]['claims'][0]
+    big['context_evidence']=[{**big['evidence'][0],'evidence_id':f'ctx{i}','quote':f'同頁其他區塊 {i}。'*40} for i in range(60)]
+    small=values[2]['claims'][0]
+    small['context_evidence']=[{**small['evidence'][0],'evidence_id':'header','quote':'欄名'}]
+    budget=mn.estimate_prompt_tokens(nc.PROMPT,mn.model_request([{**values[1],'claims':[big]}],'summary')[0])-1
+    diagnostics=[]
+    prepared=mn.summary_sources(values,budget,diagnostics)
+    assert prepared[1]['claims'][0]['context_evidence']==[] and prepared[1]['claims'][0]['evidence']==big['evidence']
+    assert prepared[2]['claims'][0]['context_evidence']==small['context_evidence']
+    assert len(values[1]['claims'][0]['context_evidence'])==60
+    assert diagnostics==[{'event':'context_omitted','claims':['q10']}]
+    result=summary(prepared,response,budget)
+    assert {q for p in result for q in p['claim_ids']}>={'q00','q10','q20'}

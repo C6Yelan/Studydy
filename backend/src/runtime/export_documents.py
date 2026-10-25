@@ -40,25 +40,6 @@ def font_archive():
     return archive
 
 
-def summary_with_bold_headings(paragraphs):
-    from .note_content import summary_pdf
-    # 先使用生成時的一頁排版；只替換 h2 的中文後備字形，不重新換行或移動正文。
-    with pymupdf.open(stream=summary_pdf(paragraphs), filetype='pdf') as doc:
-        page = doc[0]
-        headings = [span for block in page.get_text('dict')['blocks']
-                    for line in block.get('lines', []) for span in line['spans']
-                    if span['size'] == 14 and span['font'].startswith('Droid Sans Fallback')]
-        if headings:
-            for span in headings:
-                # 向內留微小邊界，避免移除緊鄰的西文字元；圖形、表格和正文全部保留。
-                page.add_redact_annot(pymupdf.Rect(span['bbox']) + (.01, .01, -.01, -.01), fill=None)
-            page.apply_redactions(images=0, graphics=0)
-            page.insert_font(fontname='SummaryCJKHeading', fontbuffer=font_bytes('Bold'))
-            for span in headings:
-                page.insert_text(span['origin'], span['text'], fontsize=span['size'], fontname='SummaryCJKHeading')
-        return doc.tobytes(garbage=4, deflate=True)
-
-
 def pdf(html):
     story = pymupdf.Story(html=html, user_css=CSS, archive=font_archive())
     stream = BytesIO()
@@ -121,8 +102,8 @@ def note_markdown(view):
 
 def note_pdf(view):
     from .note_content import body_html
-    # 正文與來源／註記分開，摘要不因附錄增加而縮小字體。
-    body = summary_with_bold_headings(view['paragraphs']) if view['kind'] == 'summary' else pdf(body_html(view['paragraphs']))
+    # 正文與來源／註記分開；兩種筆記的正文都依內容自然分頁，不縮小字體。
+    body = pdf(body_html(view['paragraphs']))
     appendix = [f'<h1>{"重點整理" if view["kind"] == "summary" else "完整筆記"}：來源與個人註記</h1>',
                 f'<p>教材：{escape(view["material_id"])}\n版本：{escape(view["knowledge_structure_revision"])}</p>']
     status = view['source_status']
