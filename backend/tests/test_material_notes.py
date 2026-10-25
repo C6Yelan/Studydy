@@ -114,13 +114,21 @@ def test_full_notes_batch_without_omitting_points(monkeypatch):
     assert {v for p in result for v in p["claim_ids"]} == {"q0", "q1", "q2"}
 
 
-def test_invalid_response_gets_one_correction_and_no_fallback():
-    calls = []
+@pytest.mark.parametrize("kind", ["summary", "full"])
+def test_invalid_response_exhausts_three_batches_with_one_correction_each(kind):
+    calls, diagnostics, saved, results = [], [], [], []
+    values = concepts()
+    plan = mn.plan_sections(values, [{"label": "區域", "concept_ids": ["c1"]}], kind)
     def answer(request):
         calls.append(request)
         return {"paragraphs": []}
-    with pytest.raises(ValueError): full(concepts(), answer)
-    assert len(calls) == 2 and "correction" in calls[1]
+    with pytest.raises(ValueError, match="^NOTE_FORMAT_INVALID$"):
+        mn.complete_sections(values, plan, answer, results, lambda *args: saved.append(args), diagnostics, kind)
+    assert len(calls) == 6
+    assert ["correction" in request for request in calls] == [False, True] * 3
+    assert diagnostics[-1] == {"event": "part_attempts", "part": 0, "attempts": 3,
+        "failed": ["NOTE_FORMAT_INVALID"] * 3, "succeeded": False}
+    assert saved == results == []
 
 
 def test_notes_contract_preserves_old_runtime_snapshots():
@@ -135,6 +143,32 @@ def test_notes_contract_preserves_old_runtime_snapshots():
     assert canonical_sha256(old) == old_hash
     assert validate_runtime_lock(current) == current
     assert current["material_notes"]["prompt"] == nc.PROMPT
+
+
+@pytest.mark.parametrize("change", [
+    {"version": "material-notes/v10"},
+    {"version": "material-notes/v10", "summary_layout": "invalid"},
+    {"version": "material-notes/v12"},
+])
+def test_invalid_historical_notes_contract_is_rejected(change):
+    from runtime.local_ai_config import configured_lock
+    from runtime.material_runtime import validate_runtime_lock
+    from runtime.material_runtime import MaterialAnalysisError
+    lock = deepcopy(configured_lock())
+    lock["material_notes"].update(change)
+    with pytest.raises(MaterialAnalysisError, match="RUNTIME_LOCK_INVALID"):
+        validate_runtime_lock(lock)
+
+
+def test_notes_generation_rejects_historical_policy(monkeypatch):
+    lock = deepcopy(mn.configured_lock())
+    lock["material_notes"].update(version="material-notes/v10", summary_layout="a4-12pt-18mm/v1")
+    claim = {"lock": lock, "key": (None, None, None, "summary")}
+    saved = []
+    monkeypatch.setattr(mn, "_claim", lambda *args, **kwargs: claim)
+    monkeypatch.setattr(mn, "_save", lambda *args, **kwargs: saved.append(kwargs))
+    assert mn.step(call=lambda _: pytest.fail("歷史筆記契約不可呼叫模型"))
+    assert saved[0]["error"] == "NOTE_CONTRACT_INVALID"
 
 
 def test_shared_claim_is_explained_once_with_all_its_concept_links():
