@@ -43,6 +43,28 @@ def test_notes_preserve_body_table_formula_sources_and_orphaned_annotations():
         assert not any('Droid' in s['font'] and s['size'] == 14 for s in spans)
 
 
+@pytest.mark.parametrize('kind', ['summary', 'full'])
+def test_note_pdf_keeps_heading_with_body_start_and_preserves_long_body(kind):
+    view = note()
+    view['kind'] = kind
+    first = view['paragraphs'][0]
+    lines = [f'長正文第{i:03d}行' for i in range(100)]
+    view['paragraphs'] = [
+        {**first, 'id': 'lead', 'heading': '前文', 'text': '填充行\n' * 40, 'formula': None, 'table': None},
+        {**first, 'id': 'target', 'heading': '目標標題 TARGET',
+         'text': '首段正文 BODY\n' + '\n'.join(lines), 'formula': None, 'table': None},
+    ]
+    view['annotations'] = []
+    with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
+        pages = [unicodedata.normalize('NFKC', page.get_text()) for page in pdf]
+        heading_page = next(i for i, text in enumerate(pages) if '目標標題 TARGET' in text)
+        body_page = next(i for i, text in enumerate(pages) if '首段正文 BODY' in text)
+        assert heading_page == body_page
+        assert body_page > 0
+        assert next(i for i, text in enumerate(pages) if lines[-1] in text) > body_page
+        assert all(''.join(pages).count(line) == 1 for line in lines)
+
+
 def test_diagnosis_overflow_is_explicit_and_stays_one_page():
     point = {'title': '需要複習的內容' * 8, 'correct_count': 1, 'answer_count': 3, 'evidence': [{'page': 2, 'source_name': '課程.youtube'}]}
     view = {'scope': 'material', 'strengths': [], 'weaknesses': [{'label': '概念', 'points': [point] * 80}],

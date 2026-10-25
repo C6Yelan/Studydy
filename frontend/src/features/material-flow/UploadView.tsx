@@ -67,11 +67,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
     };
   }, []);
   const chooseFiles = async (files: FileList | null) => {
-    if (submitting.current || !files?.length) return;
-    if (!capabilities) {
-      setSelectionError("請待支援格式載入後重新選擇教材。");
-      return;
-    }
+    if (submitting.current || !files?.length || !capabilities) return;
     const { queue: next, rejected } = await queueFiles(Array.from(files), capabilities, queue);
     // 拒絕的檔案不入列，也不覆蓋合法候選既有的上傳失敗資訊。
     setSelectionError(rejected.join(" "));
@@ -174,7 +170,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
           className={`file-drop${queue.length ? " has-file" : ""}${busy || !formatsReady ? " is-disabled" : ""}${isDragging ? " is-dragging" : ""}`}
           onDragEnter={(event) => {
             event.preventDefault();
-            if (!submitting.current && event.dataTransfer.types.includes("Files")) {
+            if (!submitting.current && formatsReady && event.dataTransfer.types.includes("Files")) {
               dragDepth.current++;
               setIsDragging(true);
             }
@@ -182,7 +178,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
           onDragOver={(event) => {
             event.preventDefault();
             event.dataTransfer.dropEffect =
-              !submitting.current && event.dataTransfer.types.includes("Files") ? "copy" : "none";
+              !submitting.current && formatsReady && event.dataTransfer.types.includes("Files") ? "copy" : "none";
           }}
           onDragLeave={() => {
             dragDepth.current = Math.max(0, dragDepth.current - 1);
@@ -191,7 +187,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
           onDrop={(event) => {
             event.preventDefault();
             clearDrag();
-            if (submitting.current) return;
+            if (submitting.current || !formatsReady) return;
             const folder = Array.from(event.dataTransfer.items).some(
               (item) => item.webkitGetAsEntry?.()?.isDirectory,
             );
@@ -210,10 +206,11 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             aria-label="選擇教材檔案"
             aria-describedby={selectionError ? "upload-selection-error" : undefined}
             disabled={busy || !formatsReady}
-            onClick={(event) => {
+            onChange={(event) => {
+              void chooseFiles(event.currentTarget.files);
+              // 選取已同步複製到待處理陣列；清空原生值，移除後重選同檔也會觸發 change。
               event.currentTarget.value = "";
             }}
-            onChange={(event) => void chooseFiles(event.currentTarget.files)}
           />
           <span className="file-drop-icon">
             <Icon name="upload" size={26} />

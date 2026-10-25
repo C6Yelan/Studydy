@@ -212,6 +212,11 @@ for (const width of [1536, 390]) {
     expect(error.y + error.height).toBeLessThanOrEqual(card.y);
     await page.getByRole("button", { name: "移除 A.pdf", exact: true }).click();
     await expect(page.locator(".chosen-file")).toHaveCount(0);
+    // 原生檔案輸入不保留前次值，移除後選同一檔仍能加入。
+    await expect(input).toHaveValue("");
+    await input.setInputFiles(pdf);
+    await expect(page.locator(".chosen-file strong")).toHaveText(["A.pdf"]);
+    await page.getByRole("button", { name: "移除 A.pdf", exact: true }).click();
     await input.setInputFiles([
       pdf,
       txt,
@@ -347,7 +352,7 @@ test("capability failure blocks upload until the configured limit is known", asy
   await expect(page.getByRole("button", { name: "上傳並確認來源", exact: true })).toBeDisabled();
 });
 
-test("selection waits for capabilities instead of rejecting a supported non-PDF format", async ({
+test("file selection and dropping stay disabled until capabilities are loaded", async ({
   page,
 }) => {
   await setup(page);
@@ -363,9 +368,12 @@ test("selection waits for capabilities instead of rejecting a supported non-PDF 
   const input = page.getByLabel("選擇教材檔案", { exact: true });
   await expect(input).toBeDisabled();
   const data = await fileTransfer(page, "B.txt", "text/plain");
+  await page.locator(".file-drop").dispatchEvent("dragenter", { dataTransfer: data });
+  await expect(page.locator(".file-drop")).not.toHaveClass(/is-dragging/);
   await page.locator(".file-drop").dispatchEvent("drop", { dataTransfer: data });
   await data.dispose();
-  await expect(page.getByRole("alert")).toContainText("支援格式載入");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("正在載入上傳限制", { exact: true })).toBeVisible();
   await expect(page.locator(".chosen-file")).toHaveCount(0);
   release();
   await expect(input).toBeEnabled();

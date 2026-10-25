@@ -38,10 +38,11 @@ function ControlIcon({ name }: { name: "play" | "pause" | "previous" | "next" | 
 const SYNC_INTERVAL_MS = 15_000;
 export type ProgressSync = (body: PodcastProgressUpdate, keepalive: boolean) => Promise<unknown>;
 
-export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsKey, rememberPosition, autoPlay, onEnded, onPrevious, onNext, mediaRef, videoState, resumeAt, onSync }: {
+export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsKey, rememberPosition, autoPlay, onEnded, onPrevious, onNext, mediaRef, videoState, timelineReady, resumeAt, onSync }: {
   view: PodcastView; index: number; episodeLabel?: string; storageKey: string; settingsKey: string; rememberPosition: { current: boolean };
   mediaRef?: {current: HTMLMediaElement | null};
   videoState: ReturnType<typeof usePodcastVideo>;
+  timelineReady: boolean;
   autoPlay: boolean; onEnded: (autoAdvance:boolean) => void; onPrevious: () => void; onNext: () => void;
   // 伺服器保存的本集位置（跨裝置接續）；沒有時改用此瀏覽器保存的位置。
   resumeAt?: number | null; onSync?: ProgressSync;
@@ -146,7 +147,7 @@ export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsK
       for (const track of tracks) track.removeEventListener("cuechange", syncSubtitles);
       element?.removeEventListener("seeked", syncSubtitles);
     };
-  }, [syncSubtitles, mediaSrc, ready]);
+  }, [syncSubtitles, mediaSrc, ready, timelineReady]);
   useEffect(() => {
     if (!menuOpen) return;
     const close = (e: PointerEvent) => { if (!menu.current?.contains(e.target as Node)) setMenuOpen(false); };
@@ -261,7 +262,8 @@ export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsK
       tabIndex={0} aria-label={video ? '影片播放區；按空白鍵播放或暫停' : '音訊播放區；按空白鍵播放或暫停'}>
       <div className="media-display" role="region" aria-label={video ? "教學影片" : "Podcast 音訊"} onClick={e => { if (!(e.target as HTMLElement).closest("button, a, input, select")) { toggle(); showControls(); } }}>
         <video ref={attachMedia} {...mediaEvents} playsInline className="podcast-video-element" aria-label={video ? `第 ${index+1} 集影片` : `第 ${index+1} 集音訊`}>
-          <track kind="subtitles" src={`/v1/podcasts/${view.podcast_id}/episodes/${index}/subtitles`} srcLang="zh-TW" label="繁體中文"
+          {/* 對齊完成時重建失敗的字幕 track；保留同一播放器及播放位置。 */}
+          <track key={timelineReady ? 'aligned' : 'pending'} kind="subtitles" src={`/v1/podcasts/${view.podcast_id}/episodes/${index}/subtitles`} srcLang="zh-TW" label="繁體中文"
             onLoad={syncSubtitles} />
         </video>
         {/* 尚未開始播放時顯示封面，避免整片深色空白。 */}
