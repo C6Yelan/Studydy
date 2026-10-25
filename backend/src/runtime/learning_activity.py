@@ -7,11 +7,14 @@ XP、等級、連續天數、今日任務與徽章都從既有紀錄推導，不
 """
 
 from collections import OrderedDict
+import logging
 from datetime import date, datetime, time, timedelta
 from threading import Lock
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text
+
+from .podcasts import HOST_PAIRS
 
 TIMEZONE = "Asia/Taipei"
 RULE_VERSION = "xp-rules/v4"
@@ -116,9 +119,9 @@ BADGES = (
     # 匯出：任一種第一次匯出；筆記、概念卡組、Podcast、知識地圖四種都匯出過。
     ("first_export", "exports", 1),
     ("export_kinds_4", "export_kinds", 4),
-    # Podcast 節目：聽完多集節目的每一集；聽完 6 位不同主持人（每對主持人的主持）的節目。
+    # Podcast 節目：聽完多集節目的每一集；聽完每一組主持人（建立節目時從 HOST_PAIRS 隨機指派）的節目。
     ("podcast_series", "finished_series", 1),
-    ("podcast_hosts_6", "host_pairs", 6),
+    ("podcast_hosts_all", "host_pairs", len(HOST_PAIRS)),
     # 組合成就（公開條件）。
     ("all_tools_material", "all_tools", 1),         # 同一份教材：完成題組、標記概念卡、聽完一集 Podcast、寫筆記註記
     ("diagnosed_mastery", "diagnosed_mastery", 1),  # 做過起始程度診斷的教材，之後完成全部學習
@@ -260,14 +263,17 @@ def is_difficulty(attempts, wrong):
 def overcome_difficulties(events):
     """依時間重播作答，回傳克服難點的 [(台灣日期, 是否為宿敵)]，同一教材同一概念只算第一次。
 
-    events 為依時間排序的 (台灣時間, 是否答對, 教材, 概念)。某概念累計作答成為「你的難點」後，
-    之後累計錯誤率降到 50% 以下的那一筆作答即為克服；曾在至少 5 題時錯誤率達 70% 的為宿敵。
+    events 為依時間排序的 (台灣時間, 是否答對, 教材, 概念, 題目身分)。與作答 XP 相同，同一教材的同一題
+    （semantic identity）只採計第一次作答，在再次練習的重複題故意答錯再答對不會製造或克服難點。
+    某概念累計作答成為「你的難點」後，之後累計錯誤率降到 50% 以下的那一筆作答即為克服；
+    曾在至少 5 題時錯誤率達 70% 的為宿敵。
     """
-    stats, flagged, nemesis, done, result = {}, set(), set(), set(), []
-    for at, correct, material, concept in events:
+    stats, flagged, nemesis, done, seen, result = {}, set(), set(), set(), set(), []
+    for at, correct, material, concept, identity in events:
         key = (material, concept)
-        if concept is None or key in done:
+        if concept is None or key in done or (material, identity) in seen:
             continue
+        seen.add((material, identity))
         attempts, wrong = stats.get(key, (0, 0))
         attempts, wrong = attempts + 1, wrong + (not correct)
         stats[key] = (attempts, wrong)
@@ -594,16 +600,22 @@ def _concept_completions(session, owner):
 
 
 def record_export(owner, kind, *, dsn=None):
-    """匯出成功時記錄該種類第一次匯出的時間（成就「匯出與整理」）；只記種類與時間。"""
+    """匯出成功時記錄該種類第一次匯出的時間（成就「匯出與整理」）；只記種類與時間。
+
+    紀錄寫入失敗不影響匯出：只記錄錯誤類型，不讓下載失敗。
+    """
     from .storage.database import database_session
 
-    with database_session(dsn) as db:
-        db.execute(text(
-            """
-            INSERT INTO learner_exports (learner_id, kind, first_exported_at)
-            VALUES (:owner, :kind, now()) ON CONFLICT DO NOTHING
-            """
-        ), {"owner": owner, "kind": kind})
+    try:
+        with database_session(dsn) as db:
+            db.execute(text(
+                """
+                INSERT INTO learner_exports (learner_id, kind, first_exported_at)
+                VALUES (:owner, :kind, now()) ON CONFLICT DO NOTHING
+                """
+            ), {"owner": owner, "kind": kind})
+    except Exception as error:
+        logging.getLogger(__name__).warning("EXPORT_RECORD_FAILED kind=%s error=%s", kind, type(error).__name__)
 
 
 def _per_day(days):
@@ -619,9 +631,10 @@ MEDIA_KINDS = {
     "video/mp4": "video", "application/vnd.studydy.youtube+json": "youtube",
 }
 EXPORT_KINDS = ("notes", "cards", "podcast", "map")
+CURRENT_HOSTS = {host for host, _ in HOST_PAIRS}
 
 
-def _feature_records(session, owner, zone, today, *, events, concept_times, completed, reviews):
+def _feature_records(session, owner, zone, today, *, answer_events, concept_times, completed, reviews):
     """目標、難點、診斷、筆記、上傳、匯出與 Podcast 節目的真實紀錄 → XP 與徽章計量。
 
     只計入未刪除的教材；晚於 today 的紀錄不列入。回傳 (每日 XP 來源, 系列計量, 關卡日期, 特殊成就日期)。
@@ -646,7 +659,7 @@ def _feature_records(session, owner, zone, today, *, events, concept_times, comp
             stages[day] = stages.get(day, 0) + 1
         else:
             achieved.append((day, target))
-    overcome = overcome_difficulties(events)
+    overcome = overcome_difficulties(answer_events)
     diagnosed = {
         material: local(at).date() for material, at in rows(f"""
             SELECT a.material_id, min(a.completed_at) FROM assessment_sets a {alive.format('a')}
@@ -699,7 +712,8 @@ def _feature_records(session, owner, zone, today, *, events, concept_times, comp
             day = at.date()
             listened[material] = min(listened.get(material, day), day)
             host = (episodes[index].get("hosts") or {}).get("host")
-            if host:
+            # 只計目前名字庫的主持人；名字庫日後更換時，舊名字不計入，進度只反映目前的每一組。
+            if host in CURRENT_HOSTS:
                 hosts[host] = min(hosts.get(host, day), day)
             if at.hour < 5:
                 night.append(day)
@@ -1006,20 +1020,22 @@ def learning_activity(session, owner, *, now=None):
     ), values).all():
         if day <= today:
             reviews.setdefault(material, []).append(day)
-    events = [
-        (at, correct, material, concept) for at, correct, material, concept in session.execute(text(
+    answer_events = [
+        tuple(row) for row in session.execute(text(
             """
-            SELECT e.created_at AT TIME ZONE :zone, e.is_correct, e.material_id, e.target_concept_id
+            SELECT e.created_at AT TIME ZONE :zone, e.is_correct, e.material_id, e.target_concept_id, e.semantic_identity
             FROM answer_events e
             JOIN study_sessions s ON s.study_session_id = e.study_session_id
             WHERE s.learner_id = :owner
             ORDER BY e.created_at, e.event_number
             """
         ), values).all()
-        if at.date() <= today
+        if row[0].date() <= today
     ]
+    events = [row[:4] for row in answer_events]
     feature_xp, feature_metrics, stage_days, feature_specials = _feature_records(
-        session, owner, zone, today, events=events, concept_times=concept_times, completed=completed, reviews=reviews,
+        session, owner, zone, today, answer_events=answer_events, concept_times=concept_times, completed=completed,
+        reviews=reviews,
     )
     xp_by_source = {
         "answers": answer_xp,

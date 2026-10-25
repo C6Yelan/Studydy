@@ -32,7 +32,7 @@ const v7Series: [string, number][] = [
   ["first_difficulty", 1], ["difficulties_5", 5], ["difficulties_20", 20], ["first_diagnostic", 1], ["diagnostics_5", 5],
   ["first_note", 1], ["first_annotation", 1], ["annotations_10", 10], ["annotations_50", 50],
   ["upload_image", 1], ["upload_audio", 1], ["upload_video", 1], ["upload_youtube", 1], ["first_export", 1], ["export_kinds_4", 4],
-  ["podcast_series", 1], ["podcast_hosts_6", 6],
+  ["podcast_series", 1], ["podcast_hosts_all", 6],
   ["all_tools_material", 1], ["diagnosed_mastery", 1], ["media_concepts_5", 5], ["stage_streak_7", 7],
 ];
 const v7Specials: [string, number][] = [

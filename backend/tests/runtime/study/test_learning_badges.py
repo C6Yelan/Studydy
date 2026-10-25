@@ -153,7 +153,7 @@ def test_existing_records_are_derived_retroactively(closed_loop, tmp_path, monke
     } <= earned
     assert all(badges[badge_id]["earned_on"] == today for badge_id in ("first_diagnostic", "upload_video", "all_media"))
     assert badges["annotations_10"]["progress"] == 2
-    assert badges["podcast_hosts_6"]["progress"] == 1 and host
+    assert badges["podcast_hosts_all"]["progress"] == 1 and host
     assert badges["diagnostics_5"]["progress"] == 1
     assert view["xp"]["sources"]["diagnostics"] == 20
     # 有完成題組、筆記註記與聽完 Podcast，但沒有標記概念卡：全能島主未取得。
@@ -213,3 +213,35 @@ def test_migration_backfills_goal_created_at_without_changing_rows(skip_goal_reb
     _, badges = activity(f)
     assert badges["first_goal"]["earned_on"] == baseline.date()
     assert run_migrations(f["dsn"]) == ()
+
+
+def test_milestone_failure_rolls_back_only_its_savepoint_and_submit_succeeds(closed_loop, monkeypatch, caplog):
+    f = concept_fixture(closed_loop, 2)
+    learning_goals.set_goal(f["learner"], f["source"].material_id, datetime.now(TAIPEI).date(), 60, dsn=f["dsn"])
+
+    def broken(db, owner, material_id):
+        # 先寫入一筆再失敗：savepoint 必須把這筆一起回滾。
+        db.execute(text(
+            "INSERT INTO goal_milestones (learner_id, material_id, kind, day, created_at) "
+            "VALUES (:owner, :material, 'stage', current_date, now())"
+        ), {"owner": owner, "material": material_id})
+        raise RuntimeError("synthetic failure")
+
+    monkeypatch.setattr(learning_goals, "record_goal_milestones", broken)
+    root = create(f)
+    finish(f)
+    answer(f, root)
+    with database_session(f["dsn"]) as db:
+        assert db.execute(text("SELECT status FROM assessment_sets WHERE set_id = :id"), {"id": root}).scalar() == "completed"
+        assert db.execute(text("SELECT count(*) FROM answer_events")).scalar() > 0
+    assert milestones(f) == []
+    assert "GOAL_MILESTONE_RECORD_FAILED" in caplog.text and "synthetic failure" not in caplog.text
+
+
+def test_export_record_failure_does_not_raise(closed_loop, caplog):
+    owner, dsn = closed_loop[0].learner_id, closed_loop[4]
+    # 不合法的種類違反 CHECK：寫入失敗只記錄錯誤類型，不往外丟。
+    record_export(owner, "unknown", dsn=dsn)
+    with database_session(dsn) as db:
+        assert db.execute(text("SELECT count(*) FROM learner_exports")).scalar() == 0
+    assert "EXPORT_RECORD_FAILED kind=unknown" in caplog.text

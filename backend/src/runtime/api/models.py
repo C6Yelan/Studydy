@@ -438,7 +438,7 @@ class LearningBadgeView(_Closed):
         "first_difficulty", "difficulties_5", "difficulties_20", "first_diagnostic", "diagnostics_5",
         "first_note", "first_annotation", "annotations_10", "annotations_50",
         "upload_image", "upload_audio", "upload_video", "upload_youtube", "first_export", "export_kinds_4",
-        "podcast_series", "podcast_hosts_6",
+        "podcast_series", "podcast_hosts_all",
         "all_tools_material", "diagnosed_mastery", "media_concepts_5", "stage_streak_7",
         "goal_on_time", "all_media", "last_minute", "night_listener", "nemesis", "same_day_learner",
     ]

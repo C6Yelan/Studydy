@@ -345,27 +345,45 @@ def at(day, minute=0):
     return datetime(2026, 10, day, 10, minute)
 
 
+def ask(day, minute, correct, question, material="m", concept="c"):
+    """一筆作答：(台灣時間, 是否答對, 教材, 概念, 題目身分)。"""
+    return (at(day, minute), correct, material, concept, question)
+
+
 def test_difficulty_is_overcome_once_when_error_rate_drops_below_half():
     # 2 錯 1 對 → 難點（3 題、67%）；再對 1 題 2/4 仍是 50%；再對 1 題 2/5 → 克服。
-    events = [(at(16, 0), False, "m", "c"), (at(16, 1), False, "m", "c"), (at(16, 2), True, "m", "c"),
-              (at(17, 0), True, "m", "c"), (at(18, 0), True, "m", "c"),
+    events = [ask(16, 0, False, "q1"), ask(16, 1, False, "q2"), ask(16, 2, True, "q3"),
+              ask(17, 0, True, "q4"), ask(18, 0, True, "q5"),
               # 克服後再錯、再對都不重算。
-              (at(19, 0), False, "m", "c"), (at(19, 1), False, "m", "c"), (at(20, 0), True, "m", "c")]
+              ask(19, 0, False, "q6"), ask(19, 1, False, "q7"), ask(20, 0, True, "q8")]
     assert overcome_difficulties(events) == [(date(2026, 10, 18), False)]
     # 少於 3 題時錯誤率再高也不是難點；從未成為難點的概念不算克服。
-    assert overcome_difficulties([(at(16), False, "m", "c"), (at(16, 1), True, "m", "c"), (at(16, 2), True, "m", "c")]) == []
+    assert overcome_difficulties([ask(16, 0, False, "q1"), ask(16, 1, True, "q2"), ask(16, 2, True, "q3")]) == []
     # 同名概念在不同教材分開計算；沒有概念的作答忽略。
-    other = [(t, ok, "m2", c) for t, ok, _, c in events]
+    other = [(t, ok, "m2", c, q) for t, ok, _, c, q in events]
     assert len(overcome_difficulties(sorted(events + other))) == 2
-    assert overcome_difficulties([(at(16), False, "m", None)] * 4) == []
+    assert overcome_difficulties([ask(16, i, False, f"q{i}", concept=None) for i in range(4)]) == []
+
+
+def test_repeated_practice_of_the_same_question_cannot_farm_difficulties():
+    # 先答對 3 題；再次練習同一題（題目身分相同）故意答錯 3 次再答對：只採計每題第一次作答，不成為難點。
+    honest = [ask(16, 0, True, "q1"), ask(16, 1, True, "q2"), ask(16, 2, True, "q3")]
+    farmed = [ask(17, i, False, "q1") for i in range(3)] + [ask(17, i + 3, True, "q2") for i in range(3)]
+    assert overcome_difficulties(honest + farmed) == []
+    # 重複題同樣不能用來「克服」：真正成為難點後，只答對重複題不算克服。
+    hard = [ask(16, 0, False, "q1"), ask(16, 1, False, "q2"), ask(16, 2, True, "q3")]
+    assert overcome_difficulties(hard + [ask(17, i, True, "q3") for i in range(5)]) == []
+    # 宿敵也只看第一次作答：同一題錯 5 次不構成宿敵。
+    repeated_wrong = [ask(16, i, False, "q1") for i in range(5)]
+    assert overcome_difficulties(repeated_wrong + [ask(17, i, True, f"r{i}") for i in range(3)]) == []
 
 
 def test_nemesis_requires_seventy_percent_errors_on_at_least_five_answers():
-    wrong4_right1 = [(at(16, i), i == 4, "m", "c") for i in range(5)]  # 5 題錯 4（80%）
-    recovery = [(at(17, i), True, "m", "c") for i in range(4)]       # 4/9 → 克服
+    wrong4_right1 = [ask(16, i, i == 4, f"w{i}") for i in range(5)]  # 5 題錯 4（80%）
+    recovery = [ask(17, i, True, f"r{i}") for i in range(4)]         # 4/9 → 克服
     assert overcome_difficulties(wrong4_right1 + recovery) == [(date(2026, 10, 17), True)]
     # 4 題錯 3（75%）但未滿 5 題：克服但不是宿敵。
-    short = [(at(16, i), i == 3, "m", "c") for i in range(4)] + [(at(17, i), True, "m", "c") for i in range(3)]
+    short = [ask(16, i, i == 3, f"w{i}") for i in range(4)] + [ask(17, i, True, f"r{i}") for i in range(3)]
     assert overcome_difficulties(short) == [(date(2026, 10, 17), False)]
 
 

@@ -243,3 +243,21 @@ def test_mp4_stream_bypasses_even_a_full_generation_queue(monkeypatch):
         finally:
             app.state.export_slots.release(); app.state.export_slots.release()
     asyncio.run(run())
+
+
+def test_export_record_failure_does_not_fail_the_download(monkeypatch, caplog):
+    """成就用的匯出紀錄寫不進 DB（這裡沒有 DB）時，下載照常完成。"""
+    from contextlib import contextmanager
+    from runtime import podcasts, podcast_videos
+    from runtime.storage import artifacts
+    owner, identity = uuid4(), uuid4()
+    monkeypatch.setattr(export_routes.request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=owner))
+    monkeypatch.setattr(podcasts, 'read_podcast', lambda *_args, **_kwargs: {'status': 'ready', 'name': '合成', 'episodes': [{}]})
+    monkeypatch.setattr(podcast_videos, 'ready_manifest', lambda *_args, **_kwargs: {'artifact_id': uuid4()})
+    @contextmanager
+    def opened(*_args, **_kwargs):
+        yield SimpleNamespace(file=BytesIO(b'video'), size_bytes=5)
+    monkeypatch.setattr(artifacts, 'open_verified_artifact', opened)
+    app = FastAPI(); export_routes.install(app, SimpleNamespace(dsn=None))
+    assert asyncio.run(asgi_request(app, f'/v1/podcasts/{identity}/episodes/0/export/mp4')) == b'video'
+    assert 'EXPORT_RECORD_FAILED kind=podcast' in caplog.text
