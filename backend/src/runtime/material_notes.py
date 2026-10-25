@@ -3,10 +3,13 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from math import ceil
 from uuid import uuid4
+import json
 import logging
 
 from sqlalchemy import select, or_, text
 from sqlalchemy.dialects.postgresql import insert
+
+from content_identity import canonical_sha256
 
 from . import note_content
 from .errors import SourceError
@@ -288,40 +291,10 @@ def _layout_request(request, paragraphs, layout, *, expand=False):
     return {**request, "correction": correction}
 
 
-class SummaryClaimsUnexplained(ValueError):
-    def __init__(self, paragraphs, index, issues):
-        super().__init__("NOTE_COVERAGE_INCOMPLETE")
-        self.paragraphs, self.index, self.issues = paragraphs, index, issues
-
-
-def _summary_coverage_request(request, error, identities):
-    claims = {original: ref for ref, original in identities["claims"].items()}
-    evidence = {original: ref for ref, original in identities["evidence"].items()}
-    previous = [{**{k: p[k] for k in ("heading", "text", "formula", "table")},
-        "claim_ids": [claims[cid] for cid in p["claim_ids"]],
-        "evidence_ids": [evidence[eid] for eid in p["evidence_ids"]]} for p in error.paragraphs]
-    refs = {f"claim.C{i+1}": f"claim.{claims[cid]}"
-        for i, cid in enumerate(error.paragraphs[error.index]["claim_ids"])}
-    missing = {refs[i["part"]].removeprefix("claim.") for i in error.issues if i["part"] in refs}
-    used = {cid for p in previous for cid in p["claim_ids"]}
-    allowed = [ref for ref in identities["claims"] if ref in used - missing]
-    correction = {
-        "problem": "NOTE_SUMMARY_CLAIMS_UNEXPLAINED",
-        "instruction": "這是摘要，不要求補入所有來源細節。移除未實際解說的重點引用，不要為保留錯列的 ID 硬塞例子；檢查全稿同一 ID 的所有出現處。保留已正確解說的正文與必要條件，引用須支持保留的內容。若另有事實錯誤仍須修正文，不能只刪 ID 掩蓋錯誤。正文仍限 A4 一頁，有空間可補充有來源支持的重要內容。",
-        "previous_body": previous,
-        "content_review": {"paragraph_index": error.index,
-            "issues": [{**issue, "part": refs.get(issue["part"], issue["part"])} for issue in error.issues]},
-    }
-    if allowed:
-        # 這次只更正已列引用，避免模型又掛回同一未解說 ID；有新正文的增補仍走一般生成。
-        correction["allowed_claim_ids"] = allowed
-    return {**request, "correction": correction}
-
-
-def generate_part(part, mode, call):
-    request, identities = model_request(part, mode)
-    format_retried, expanded, reflows = False, False, 0
-    coverage_retried = False
+def _write(request, identities, part, mode, call, diagnostics):
+    """取得一份可用的寫作回應：格式錯誤補正一次；完整筆記的引用錯誤逐段請模型補正一次，
+    重點整理的引用由程式整理後交給內容核對。"""
+    format_retried = False
     reference_repair = None
     repaired_references = set()
     while True:
@@ -337,14 +310,18 @@ def generate_part(part, mode, call):
                 for field in ("claim_ids", "evidence_ids"):
                     original["paragraphs"][index][field] = repaired[field]
                 response = original
-            result = note_content.validate(canonical_response(response, identities), part, mode)
+            if mode == "summary":
+                return _summary_references(response, identities, part, diagnostics)
+            return note_content.validate(canonical_response(response, identities), part, mode)
         except (ValueError, TypeError, KeyError) as error:
             reference_error = isinstance(error, note_content.ReferenceInvalid)
+            code = str(error) if str(error).startswith("NOTE_") else "NOTE_FORMAT_INVALID"
+            diagnostics.append({"event": "response_invalid", "code": code,
+                **({"paragraph": error.paragraph_index} if reference_error else {})})
             if (reference_error and error.paragraph_index in repaired_references
                 or not reference_error and format_retried):
                 raise
             format_retried = True
-            code = str(error) if str(error).startswith("NOTE_") else "NOTE_FORMAT_INVALID"
             instruction = ("只修正 previous_response 的 claim_ids／evidence_ids，標題、正文、公式與表格保持不變。每個 claim_ids 都須有其對應的 evidence_ids；刪掉不屬於本段 claim_ids 的 evidence_ids，兩種編號都不可重複。"
                 if code == "NOTE_REFERENCE_INVALID" else "修正前次回應的格式或重點涵蓋問題，並遵守已有的排版限制。")
             request = {**request, "correction": {**request.get("correction", {}),
@@ -364,19 +341,53 @@ def generate_part(part, mode, call):
                         if q["claim_id"] in {claims[cid] for cid in error.missing_claims}},
                     "evidence_not_in_paragraph_claims": [evidence[e] for e in error.extra_evidence],
                 }
-            continue
-        # 每份重排新稿各可修正一次格式；較早稿件用過的補正不應阻止新稿修正引用。
-        format_retried = False
-        reference_repair = None
-        repaired_references.clear()
-        if mode == "summary":
-            layout = note_content.summary_layout(result)
-            if not layout["fits"]:
-                if reflows >= 4:
-                    raise note_content.SummaryTooLong(layout)
+
+
+def _claim_sources(claim):
+    return {e["evidence_id"] for e in [*claim["evidence"], *claim.get("context_evidence", [])]}
+
+
+def _summary_references(response, identities, part, diagnostics):
+    """重點整理的引用由程式整理：重點沒引用自己的來源就移除該重點，
+    來源不屬於本段保留的重點就移除該來源；失去來源支持的文字交給後續核對。"""
+    claims = {q["claim_id"]: q for c in part for q in c["claims"]}
+    kept = []
+    for index, p in enumerate(note_content.Response.model_validate(response).model_dump()["paragraphs"]):
+        claim_ids = list(dict.fromkeys(identities["claims"][r] for r in p["claim_ids"] if r in identities["claims"]))
+        evidence_ids = list(dict.fromkeys(identities["evidence"][r] for r in p["evidence_ids"] if r in identities["evidence"]))
+        claim_ids = [cid for cid in claim_ids
+            if set(evidence_ids).intersection(e["evidence_id"] for e in claims[cid]["evidence"])]
+        allowed = set().union(*(_claim_sources(claims[cid]) for cid in claim_ids))
+        evidence_ids = [eid for eid in evidence_ids if eid in allowed]
+        if len(claim_ids) != len(p["claim_ids"]) or len(evidence_ids) != len(p["evidence_ids"]):
+            diagnostics.append({"event": "references_trimmed", "paragraph": index,
+                "claims_removed": len(p["claim_ids"]) - len(claim_ids),
+                "evidence_removed": len(p["evidence_ids"]) - len(evidence_ids),
+                "paragraph_dropped": not claim_ids})
+        if claim_ids:
+            kept.append({**p, "claim_ids": claim_ids, "evidence_ids": evidence_ids})
+    if not kept:
+        raise ValueError("NOTE_REFERENCE_INVALID")
+    return note_content.validate({"paragraphs": kept}, part, "summary")
+
+
+def generate_part(part, mode, call, diagnostics=None):
+    diagnostics = [] if diagnostics is None else diagnostics
+    request, identities = model_request(part, mode)
+    expanded, reflows = False, 0
+    while True:
+        result = _write(request, identities, part, mode, call, diagnostics)
+        if mode == "full":
+            return _check_paragraphs(result, part, call, diagnostics)
+        layout = note_content.summary_layout(result)
+        if not layout["fits"]:
+            if reflows < 4:
                 reflows += 1
+                diagnostics.append({"event": "reflow", "height_ratio": layout["height_ratio"]})
                 request = _layout_request(request, result, layout)
                 continue
+            items = _trim_to_page([(p, False) for p in result], part, diagnostics)
+        else:
             if not expanded:
                 smallest = min(note_content.summary_layout([p])["used_height_pt"] for p in result)
                 room = layout["available_height_pt"] - layout["used_height_pt"]
@@ -385,72 +396,168 @@ def generate_part(part, mode, call):
                     expanded = True
                     request = _layout_request(request, result, layout, expand=True)
                     continue
-        try:
-            checked, changed = _check_paragraphs(result, part, mode, call)
-        except SummaryClaimsUnexplained as error:
-            if coverage_retried:
-                raise
-            coverage_retried = True
-            request = _summary_coverage_request(request, error, identities)
-            continue
-        if mode == "summary" and changed:
+            items = [(p, False) for p in result]
+        # 每份新稿各自核對；同一稿內引用或段落刪減後，請求完全相同的段落沿用已核對結果。
+        review = _remembered_review(call)
+        while True:
+            items = _check_summary(items, part, call, review, diagnostics)
+            checked = [p for p, _ in items]
             layout = note_content.summary_layout(checked)
-            if not layout["fits"]:
-                if reflows >= 4:
-                    raise note_content.SummaryTooLong(layout)
-                reflows += 1
-                request = _layout_request(request, checked, layout)
-                continue  # 重排改動正文後，全部新段落仍須重新核對。
-        return checked
+            if layout["fits"]:
+                return checked
+            if reflows < 4:
+                break
+            # 重排次數用盡：從最後一段整段刪除，刪段可能改變跨段重點的涵蓋位置，須再核對。
+            items = _trim_to_page(items, part, diagnostics)
+        reflows += 1
+        diagnostics.append({"event": "reflow", "height_ratio": layout["height_ratio"]})
+        request = _layout_request(request, checked, layout)  # 重排改動正文後，全部新段落仍須重新核對。
 
 
-def _check_paragraphs(result, part, mode, call):
+def _remembered_review(call):
+    """同一份候選稿中，核對請求完全相同就沿用已核對結果，不重送模型。"""
+    responses = {}
+
+    def remember(payload):
+        key = canonical_sha256(payload)
+        if key not in responses:
+            responses[key] = call(payload)
+        return responses[key]
+
+    def review(paragraph, claims, coverage_ids, related):
+        return note_content.review_paragraph(paragraph, remember, claims=claims, kind="summary",
+            coverage_claim_ids=coverage_ids, related_paragraphs=related)
+    return review
+
+
+def _summary_items(items, part):
+    """移除引用或段落後重新驗證，重建段落編號、錨點與來源節錄。"""
+    paragraphs = note_content.validate({"paragraphs": [{k: p[k] for k in note_content.Paragraph.model_fields}
+        for p, _ in items]}, part, "summary")
+    return [(p, repaired) for p, (_, repaired) in zip(paragraphs, items)]
+
+
+def _trim_to_page(items, part, diagnostics):
+    """不裁切文字、不縮字級：從最後一段整段刪到放進一頁。"""
+    items = list(items)
+    layout = note_content.summary_layout([p for p, _ in items])
+    while not layout["fits"]:
+        removed, _ = items.pop()
+        diagnostics.append({"event": "paragraph_dropped", "reason": "page_overflow",
+            "claims": removed["claim_ids"]})
+        if not items:
+            raise note_content.SummaryTooLong(layout)
+        layout = note_content.summary_layout([p for p, _ in items])
+    return _summary_items(items, part)
+
+
+def _reason_digest(issues):
+    # 只保存核對理由的摘要碼與位置，不保存可能含教材內容的理由全文。
+    return [{"part": i["part"], "reason_sha256": canonical_sha256(i["reason"])[:12]} for i in issues]
+
+
+def _check_summary(items, part, call, review, diagnostics):
+    """重點整理逐段核對。items 為（段落, 是否已局部重寫）；未解說的重點由程式移除，
+    局部重寫一次仍不符的段落整段刪除，全稿刪光才失敗。"""
+    claims = {q["claim_id"]: q for c in part for q in c["claims"]}
+    while True:
+        for index, (paragraph, repaired) in enumerate(items):
+            later = {cid for p, _ in items[index+1:] for cid in p["claim_ids"]}
+            # 同一重點可跨段；在最後一段檢查合併涵蓋，前文皆已完成事實核對。
+            coverage_ids = [cid for cid in paragraph["claim_ids"] if cid not in later]
+            issues = review(paragraph, claims, coverage_ids, [p for p, _ in items[:index]])
+            if issues:
+                break
+        else:
+            return items
+        refs = {f"claim.C{i+1}": cid for i, cid in enumerate(paragraph["claim_ids"])}
+        unexplained = {refs[i["part"]] for i in issues if i["part"] in refs}
+        diagnostics.append({"event": "review_rejected", "paragraph": index, "repaired": repaired,
+            "issues": _reason_digest(issues)})
+        if unexplained:
+            # 未解說表示全稿都沒說明：移除全稿所有出現處及只屬於它的來源，引用改變的段落重新核對。
+            cause = "NOTE_COVERAGE_INCOMPLETE"
+            diagnostics.append({"event": "claims_removed", "claims": sorted(unexplained)})
+            remaining = []
+            for p, flag in items:
+                ids = [cid for cid in p["claim_ids"] if cid not in unexplained]
+                if not ids:
+                    diagnostics.append({"event": "paragraph_dropped", "reason": "no_claims", "claims": p["claim_ids"]})
+                    continue
+                allowed = set().union(*(_claim_sources(claims[cid]) for cid in ids))
+                remaining.append(({**p, "claim_ids": ids,
+                    "evidence_ids": [eid for eid in p["evidence_ids"] if eid in allowed]}, flag))
+        elif repaired:
+            cause = "NOTE_CONTENT_UNSUPPORTED"
+            diagnostics.append({"event": "paragraph_dropped", "reason": "content_unsupported",
+                "claims": paragraph["claim_ids"]})
+            remaining = [*items[:index], *items[index+1:]]
+        else:
+            cause = "NOTE_CONTENT_UNSUPPORTED"
+            try:
+                replacement = _repair_paragraph(paragraph, index, issues, [p for p, _ in items[:index]],
+                    part, "summary", call, diagnostics)
+            except (ValueError, TypeError, KeyError) as error:
+                # 局部重寫沒有產生可用段落，等同重寫後仍不符：刪掉這一段。
+                diagnostics.append({"event": "paragraph_dropped", "reason": "repair_invalid",
+                    "code": str(error) if str(error).startswith("NOTE_") else "NOTE_FORMAT_INVALID",
+                    "claims": paragraph["claim_ids"]})
+                replacement = []
+            remaining = [*items[:index], *((p, True) for p in replacement), *items[index+1:]]
+        if not remaining:
+            raise ValueError(cause)
+        items = _summary_items(remaining, part)
+
+
+def _repair_paragraph(paragraph, index, issues, previous, part, mode, call, diagnostics):
+    """只重生不符段落，避免把已核對的其他段落重新改寫並引入新錯誤。"""
+    ids = set(paragraph["claim_ids"])
+    scope = [{**c, "claims": [q for q in c["claims"] if q["claim_id"] in ids]} for c in part]
+    scope = [c for c in scope if c["claims"]]
+    repair, mapping = model_request(scope, mode)
+    repair["correction"] = {
+        "problem": "NOTE_CONTENT_UNSUPPORTED",
+        "instruction": "只修正這個段落中核對指出的不符字句或缺漏；其他已有來源支持的敘述保持不變。先查本次 context_evidence_ids 的實際表頭、規範詞與條件，若能補足數值或片語的意義，須明確解說並把那些區塊列入 evidence_ids，不要只重複缺少對象的原片語。related_paragraphs 已說明的部分不必重複，只補本段缺漏，仍保留本次提供的所有重點編號。保持原有大致篇幅，只依原文修正，不把核對理由或其他筆記當作新來源。",
+        "content_review": {"paragraph_index": index,
+            "paragraph": {k: paragraph[k] for k in ("heading", "text", "formula", "table")},
+            "issues": issues, "related_paragraphs": [
+                {k: p[k] for k in ("heading", "text", "formula", "table")}
+                for p in previous if ids.intersection(p["claim_ids"])]},
+    }
+    # 完整筆記的修正須保留本段所有重點；重點整理沿用程式整理引用，交給後續核對。
+    return _write(repair, mapping, scope, "full" if mode == "full" else "summary", call, diagnostics)
+
+
+def _check_paragraphs(result, part, call, diagnostics):
+    """完整筆記逐段核對；不符只重生該段一次，仍不符就不發布。"""
     checked = []
-    repaired_any = False
     claims = {q["claim_id"]: q for c in part for q in c["claims"]}
     for index, paragraph in enumerate(result):
         later = {cid for p in result[index+1:] for cid in p["claim_ids"]}
         coverage_ids = [cid for cid in paragraph["claim_ids"] if cid not in later]
         # 同一重點可跨段；在最後一段檢查合併涵蓋，前文皆已完成事實核對。
-        issues = note_content.review_paragraph(paragraph, call, claims=claims, kind=mode,
+        issues = note_content.review_paragraph(paragraph, call, claims=claims, kind="full",
             coverage_claim_ids=coverage_ids, related_paragraphs=checked)
         if not issues:
             checked.append(paragraph)
             continue
-        if mode == "summary" and any(i["part"].startswith("claim.") for i in issues):
-            # 重點可能跨段；整份摘要一併修正引用，避免留下已失去涵蓋檢查的前段 ID。
-            raise SummaryClaimsUnexplained([*checked, paragraph, *result[index+1:]], len(checked), issues)
-        # 只重生不符段落，避免把已核對的其他段落重新改寫並引入新錯誤。
-        repaired_any = True
-        ids = set(paragraph["claim_ids"])
-        scope = [{**c, "claims": [q for q in c["claims"] if q["claim_id"] in ids]} for c in part]
-        scope = [c for c in scope if c["claims"]]
-        repair, mapping = model_request(scope, mode)
-        repair["correction"] = {
-            "problem": "NOTE_CONTENT_UNSUPPORTED",
-            "instruction": "只修正這個段落中核對指出的不符字句或缺漏；其他已有來源支持的敘述保持不變。先查本次 context_evidence_ids 的實際表頭、規範詞與條件，若能補足數值或片語的意義，須明確解說並把那些區塊列入 evidence_ids，不要只重複缺少對象的原片語。related_paragraphs 已說明的部分不必重複，只補本段缺漏，仍保留本次提供的所有重點編號。保持原有大致篇幅，只依原文修正，不把核對理由或其他筆記當作新來源。",
-            "content_review": {"paragraph_index": index,
-                "paragraph": {k: paragraph[k] for k in ("heading", "text", "formula", "table")},
-                "issues": issues, "related_paragraphs": [
-                    {k: p[k] for k in ("heading", "text", "formula", "table")}
-                    for p in checked if ids.intersection(p["claim_ids"])]},
-        }
-        # 事實補正保留本段重點；摘要移除未解說的引用走上方整稿補正，不偷偷丟掉已說明的點。
-        repaired = note_content.validate(canonical_response(call(repair), mapping), scope, "full")
+        diagnostics.append({"event": "review_rejected", "paragraph": index, "repaired": False,
+            "issues": _reason_digest(issues)})
+        repaired = _repair_paragraph(paragraph, index, issues, checked, part, "full", call, diagnostics)
         for position, replacement in enumerate(repaired):
             remaining = {cid for p in repaired[position+1:] for cid in p["claim_ids"]}
             final_ids = [cid for cid in replacement["claim_ids"] if cid in coverage_ids and cid not in remaining]
-            issues = note_content.review_paragraph(replacement, call, claims=claims, kind=mode,
+            issues = note_content.review_paragraph(replacement, call, claims=claims, kind="full",
                 coverage_claim_ids=final_ids, related_paragraphs=[*checked, *repaired[:position]])
-            if mode == "summary" and any(i["part"].startswith("claim.") for i in issues):
-                raise SummaryClaimsUnexplained([*checked, *repaired, *result[index+1:]], len(checked)+position, issues)
             if issues:
+                diagnostics.append({"event": "review_rejected", "paragraph": len(checked) + position,
+                    "repaired": True, "issues": _reason_digest(issues)})
                 raise ValueError("NOTE_CONTENT_UNSUPPORTED")
         checked.extend(repaired)
-    return checked, repaired_any
+    return checked
 
 
-def compute_summary(concepts, call, *, input_budget):
+def compute_summary(concepts, call, *, input_budget, diagnostics=None):
     if not concepts or not any(c["claims"] for c in concepts):
         raise ValueError("NOTE_SOURCE_EMPTY")
     selected = concepts
@@ -501,7 +608,7 @@ def compute_summary(concepts, call, *, input_budget):
             raise ValueError("NOTE_INPUT_TOO_LARGE")
         selected = [{**c, "claims": [q for q in c["claims"] if q["claim_id"] in ids]} for c in selected]
         selected = [c for c in selected if c["claims"]]
-    return finalize(generate_part(selected, "summary", call), concepts, "summary")
+    return finalize(generate_part(selected, "summary", call, diagnostics), concepts, "summary")
 
 
 def finalize(paragraphs, concepts, kind):
@@ -520,13 +627,13 @@ def plan_sections(concepts, regions):
         for part in batches([by_id[c] for c in region["concept_ids"]])]} for region in regions]
 
 
-def complete_sections(concepts, plan, call, results, on_part):
+def complete_sections(concepts, plan, call, results, on_part, diagnostics=None):
     by_id = {c["concept_id"]: c for c in concepts}
     parts = [part for section in plan for part in section["parts"]]
     for index in range(len(results), len(parts)):
         selected = [{**by_id[c["concept_id"]], "claims": [q for q in by_id[c["concept_id"]]["claims"]
             if q["claim_id"] in c["claim_ids"]]} for c in parts[index]]
-        generated = generate_part(selected, "full", call)
+        generated = generate_part(selected, "full", call, diagnostics)
         on_part(index, generated)
         results.append(generated)
     return finalize([p for part in results for p in part], concepts, "full")
@@ -566,7 +673,7 @@ def _progress(claim, dsn, *, plan=None, part=None, stage="generating"):
         row.updated_at = datetime.now(UTC)
 
 
-def _complete_full(claim, concepts, call, dsn):
+def _complete_full(claim, concepts, call, dsn, diagnostics):
     plan = claim["plan"]
     if plan is None:
         with database_session(dsn) as db:
@@ -574,7 +681,7 @@ def _complete_full(claim, concepts, call, dsn):
         plan = plan_sections(concepts, regions)
         _progress(claim, dsn, plan=plan)
     result = complete_sections(concepts, plan, call, claim["results"],
-        lambda index, paragraphs: _progress(claim, dsn, part=(index, paragraphs)))
+        lambda index, paragraphs: _progress(claim, dsn, part=(index, paragraphs)), diagnostics)
     _progress(claim, dsn, stage="validating")
     return result
 
@@ -586,6 +693,7 @@ def step(*, dsn=None, call=None, stop=None):
         return False
     if claim.get("skipped"):
         return True
+    diagnostics = []
     try:
         lock = deepcopy(claim["lock"])
         policy = lock["material_notes"]
@@ -621,8 +729,6 @@ def step(*, dsn=None, call=None, stop=None):
                 response_schema["properties"]["claim_ids"]["maxItems"] = payload["max_claims"]
             elif phase != "review_paragraph" and "max_paragraphs" in payload.get("correction", {}):
                 response_schema["properties"]["paragraphs"]["maxItems"] = payload["correction"]["max_paragraphs"]
-            if phase not in ("review_paragraph", "select_summary") and "allowed_claim_ids" in payload.get("correction", {}):
-                response_schema["$defs"]["Paragraph"]["properties"]["claim_ids"]["items"]["enum"] = payload["correction"]["allowed_claim_ids"]
             task_lock = {**lock["material_review"], "prompt": prompt}
             with semantic_client() as client:
                 return request_semantics(client, runtime_lock={**lock, "material_review": task_lock}, task="material_review",
@@ -630,10 +736,15 @@ def step(*, dsn=None, call=None, stop=None):
                     cancellation_check=lambda: _check(claim, dsn, stop))
 
         concepts = _concepts(claim, dsn)
-        result = (_complete_full(claim, concepts, request, dsn) if claim["key"][3] == "full"
+        result = (_complete_full(claim, concepts, request, dsn, diagnostics) if claim["key"][3] == "full"
                   else compute_summary(concepts, request,
-                      input_budget=lock["semantic_service"]["max_model_len"] - policy["max_tokens"]))
+                      input_budget=lock["semantic_service"]["max_model_len"] - policy["max_tokens"],
+                      diagnostics=diagnostics))
         _check(claim, dsn, stop)
+        if diagnostics:
+            # 發布前刪掉的重點／段落只記編號、位置與理由摘要碼，供日後診斷。
+            logging.getLogger(__name__).warning("NOTE_GENERATION_ADJUSTED kind=%s diagnostics=%s",
+                claim["key"][3], json.dumps(diagnostics, ensure_ascii=False))
         _save(claim, dsn, paragraphs=result)
     except WorkerStopping:
         _save(claim, dsn, stopping=True)
@@ -644,6 +755,7 @@ def step(*, dsn=None, call=None, stop=None):
         if code not in {"NOTE_FORMAT_INVALID", "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_COVERAGE_INCOMPLETE",
             "NOTE_SUMMARY_TOO_LONG", "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID", "NOTE_CONTENT_UNSUPPORTED", "NOTE_REVIEW_INVALID"} and not isinstance(error, SemanticServiceError):
             code = "NOTE_GENERATION_FAILED"
-        logging.getLogger(__name__).warning("NOTE_GENERATION_FAILED error_type=%s", type(error).__name__)
+        logging.getLogger(__name__).warning("NOTE_GENERATION_FAILED error_type=%s code=%s kind=%s diagnostics=%s",
+            type(error).__name__, code, claim["key"][3], json.dumps(diagnostics, ensure_ascii=False))
         _save(claim, dsn, error=code)
     return True

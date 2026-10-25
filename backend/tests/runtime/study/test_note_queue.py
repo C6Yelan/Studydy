@@ -295,7 +295,8 @@ def test_content_rejection_keeps_published_notes_and_does_not_checkpoint_uncheck
     failed=client.get(path+'/summary').json()
     assert failed['status']=='failed' and failed['error_code']=='NOTE_CONTENT_UNSUPPORTED'
     assert failed['paragraphs']==old['paragraphs'] and failed['generation']==1
-    assert [r.get('phase','generate') for r in calls]==['generate']+['generate','review_paragraph']*2
+    # 重點整理每段局部重寫一次仍不符就刪段；三段全被刪除才失敗。重寫內容未變時沿用同一核對結果。
+    assert [r.get('phase','generate') for r in calls]==['generate']*2+['review_paragraph','generate']*3
     assert calls[1]['correction']['problem']=='NOTE_SUMMARY_ROOM'
     assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
     drain(f,reject)

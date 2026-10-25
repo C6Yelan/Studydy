@@ -317,41 +317,6 @@ def test_coverage_uses_already_checked_related_paragraphs_without_extra_review_c
         'table':{'headers':['條件'],'rows':[['示例']]}}]
 
 
-@pytest.mark.parametrize('kind',['summary','full'])
-@pytest.mark.parametrize('shared',[False,True])
-def test_summary_can_remove_unexplained_refs_across_paragraphs_but_full_cannot(kind,shared):
-    values=concepts()
-    if not shared:values[0]['claims']=values[0]['claims'][:2]
-    writers=[]
-    def model(request):
-        if request.get('phase')=='review_paragraph':
-            verdict=response(request)
-            missing={c['ref'] for c in request['claims'] if c['text']=='第 1 個重點'}
-            for item in verdict['coverage']:
-                if item['claim'] in missing:item.update(explained=False,note_parts=[],reason='正文沒有說明這個重點。')
-            return verdict
-        writers.append(request)
-        raw=response(request)
-        if request.get('correction',{}).get('problem') in ('NOTE_SUMMARY_CLAIMS_UNEXPLAINED','NOTE_CONTENT_UNSUPPORTED'):
-            raw['paragraphs']=[p for p in raw['paragraphs'] if p['text']!='第 1 個重點']
-            return raw
-        missing=raw['paragraphs'][1]
-        kept=[raw['paragraphs'][0],*raw['paragraphs'][2:]]
-        for p in kept:
-            p['claim_ids']=[*p['claim_ids'],*missing['claim_ids']]
-            p['evidence_ids']=[*p['evidence_ids'],*missing['evidence_ids']]
-        return {'paragraphs':kept}
-    if kind=='full':
-        with pytest.raises(ValueError,match='NOTE_COVERAGE_INCOMPLETE'):mn.generate_part(values,kind,model)
-    else:
-        result=mn.generate_part(values,kind,model)
-        assert {cid for p in result for cid in p['claim_ids']}==({'q0','q2'} if shared else {'q0'})
-        correction=next(r['correction'] for r in writers if r.get('correction',{}).get('problem')=='NOTE_SUMMARY_CLAIMS_UNEXPLAINED')
-        assert correction['content_review']['issues'][0]['part']=='claim.C2'
-        assert len(correction['previous_body'])==(2 if shared else 1)
-        assert correction['allowed_claim_ids']==(['C1','C3'] if shared else ['C1'])
-
-
 @pytest.mark.parametrize('failure',['missing','duplicate','source_location','missing_location','empty_location','header_only','string_boolean'])
 def test_coverage_requires_each_claim_and_actual_note_locations(failure):
     values=concepts();raw=response({'concepts':values})
@@ -448,24 +413,6 @@ def test_summary_with_room_tries_to_cover_more_available_points(all_ids_present)
     assert {q for p in result for q in p['claim_ids']}=={'q0','q1','q2'}
 
 
-def test_reflowed_summary_can_repair_its_own_references_after_earlier_repair():
-    writers=[]
-    def model(request):
-        if request.get('phase')=='review_paragraph':return response(request)
-        writers.append(request)
-        result=response(request)
-        if len(writers) in (1,3):result['paragraphs'][0]['evidence_ids']=['unknown']
-        if len(writers)==2:result['paragraphs'][0]['text']='合成超頁正文。'*500
-        return result
-    result=mn.compute_summary(concepts(),model,input_budget=mn.BATCH_TOKENS)
-    assert len(writers)==5
-    assert writers[3]['correction']['problem']=='NOTE_REFERENCE_INVALID'
-    assert writers[3]['correction']['layout']['height_ratio']>1
-    assert writers[3]['correction']['previous_response']['paragraphs'][0]['evidence_ids']==['unknown']
-    assert writers[4]['correction']['problem']=='NOTE_SUMMARY_ROOM'
-    assert nc.summary_layout(result)['fits']
-
-
 def test_reference_repair_receives_exact_missing_and_extra_compact_ids():
     writers=[]
     def model(request):
@@ -537,3 +484,200 @@ def test_summary_uses_available_context_instead_of_full_note_batch_limit():
     assert len(result)==3
     assert all(r.get('phase')!='select_summary' for r in calls)
     assert len(calls[0]['concepts'][0]['claims'])==3
+
+
+def reviewer(unexplained=(), unsupported=(), reviews=None):
+    """依重點文字判定涵蓋、依正文判定事實；記錄實際送出的核對請求。"""
+    def review(request):
+        if reviews is not None:reviews.append(request)
+        verdict=response(request)
+        texts={c['ref']:c['text'] for c in request['claims']}
+        for item in verdict['coverage']:
+            if texts[item['claim']] in unexplained:item.update(explained=False,note_parts=[],reason='正文沒有說明這個重點。')
+        if request['paragraph']['text'] in unsupported:
+            verdict['checks']=[{'part':p,'supported':p!='text','reason':'來源沒有此條件。' if p=='text' else ''} for p in request['parts']]
+        return verdict
+    return review
+
+
+def summary_model(draft, unexplained=(), unsupported=(), repair=None):
+    """draft 以原始重點編號描述段落，寫作請求依本次短編號轉換。"""
+    writers,reviews=[],[]
+    review=reviewer(unexplained,unsupported,reviews)
+    def model(request):
+        if request.get('phase')=='review_paragraph':return review(request)
+        writers.append(request)
+        claims={q['text']:q for c in request['concepts'] for q in c['claims']}
+        if request.get('correction',{}).get('problem')=='NOTE_CONTENT_UNSUPPORTED':
+            return repair(request) if repair else response(request)
+        return {'paragraphs':[{'heading':heading,'text':text,'table':None,'formula':None,
+            'claim_ids':[claims[f'第 {i} 個重點']['claim_id'] for i in ids],
+            'evidence_ids':[e for i in ids for e in claims[f'第 {i} 個重點']['evidence_ids']]}
+            for heading,text,ids in draft]}
+    return model,writers,reviews
+
+
+def four_claims():
+    values=concepts()
+    values[0]['claims'].append({'claim_id':'q3','text':'第 3 個重點','evidence':[{'evidence_id':'e3','quote':'原文 3','page':4}]})
+    return values
+
+
+def test_summary_removes_unexplained_claims_from_several_paragraphs_and_rechecks_only_changed_ones():
+    values=four_claims()
+    draft=[('甲','第一段正文。',[0,1]),('乙','第二段正文。',[2,3]),('丙','第三段正文。',[1])]
+    model,writers,reviews=summary_model(draft,unexplained={'第 1 個重點','第 3 個重點'})
+    diagnostics=[]
+    result=mn.generate_part(values,'summary',model,diagnostics)
+    assert [p['claim_ids'] for p in result]==[['q0'],['q2']]
+    assert [[e['evidence_id'] for e in p['evidence']] for p in result]==[['e0'],['e2']]
+    # 第三段只有被移除的重點而整段刪除；只重核引用改變的段落，未變的沿用結果。
+    assert [r['paragraph']['text'] for r in reviews]==['第一段正文。','第二段正文。','第二段正文。','第三段正文。','第一段正文。']
+    assert all(r.get('correction',{}).get('problem')!='NOTE_CONTENT_UNSUPPORTED' for r in writers)
+    assert len(writers)==2 and writers[1]['correction']['problem']=='NOTE_SUMMARY_ROOM'
+    removed=[d for d in diagnostics if d['event']=='claims_removed']
+    assert [set(d['claims']) for d in removed]==[{'q3'},{'q1'}]
+    assert {'event':'paragraph_dropped','reason':'no_claims','claims':['q1']} in diagnostics
+    rejected=next(d for d in diagnostics if d['event']=='review_rejected')
+    assert rejected['issues'][0]['part']=='claim.C2' and len(rejected['issues'][0]['reason_sha256'])==12
+    assert '正文沒有說明' not in str(diagnostics)
+
+
+def test_summary_keeps_sources_shared_with_remaining_claims():
+    values=concepts()
+    values[0]['claims'][1]['evidence'].append(deepcopy(values[0]['claims'][0]['evidence'][0]))
+    model,_,_=summary_model([('甲','正文。',[0,1])],unexplained={'第 1 個重點'})
+    result=mn.generate_part(values,'summary',model)
+    assert result[0]['claim_ids']==['q0'] and [e['evidence_id'] for e in result[0]['evidence']]==['e0']
+
+
+def test_summary_fails_only_when_every_paragraph_is_removed():
+    values=concepts()
+    model,_,_=summary_model([('甲','正文。',[0]),('乙','正文二。',[1])],unexplained={'第 0 個重點','第 1 個重點'})
+    with pytest.raises(ValueError,match='^NOTE_COVERAGE_INCOMPLETE$'):
+        mn.generate_part(values,'summary',model)
+
+
+def test_summary_removes_unexplained_claim_before_local_fact_repair():
+    values=concepts()
+    def repair(request):
+        assert [q['text'] for c in request['concepts'] for q in c['claims']]==['第 0 個重點']
+        return {'paragraphs':[{**response(request)['paragraphs'][0],'text':'修正後正文。'}]}
+    model,writers,reviews=summary_model([('甲','有誤正文。',[0,1]),('乙','第二段。',[2])],
+        unexplained={'第 1 個重點'},unsupported={'有誤正文。'},repair=repair)
+    result=mn.generate_part(values,'summary',model)
+    assert [p['text'] for p in result]==['修正後正文。','第二段。']
+    assert [p['claim_ids'] for p in result]==[['q0'],['q2']]
+    fixes=[w for w in writers if w.get('correction',{}).get('problem')=='NOTE_CONTENT_UNSUPPORTED']
+    assert len(fixes)==1
+    assert [r['paragraph']['text'] for r in reviews]==['有誤正文。','有誤正文。','修正後正文。','第二段。']
+
+
+def test_summary_drops_paragraph_still_unsupported_after_one_repair_and_publishes_the_rest():
+    values=concepts()
+    def repair(request):
+        return {'paragraphs':[{**response(request)['paragraphs'][0],'text':'仍有誤正文。'}]}
+    model,writers,_=summary_model([('甲','第一段。',[0]),('乙','有誤正文。',[1]),('丙','第三段。',[2])],
+        unsupported={'有誤正文。','仍有誤正文。'},repair=repair)
+    diagnostics=[]
+    result=mn.generate_part(values,'summary',model,diagnostics)
+    assert [p['text'] for p in result]==['第一段。','第三段。']
+    assert [p['id'] for p in result]==['0','1']
+    assert len([w for w in writers if w.get('correction',{}).get('problem')=='NOTE_CONTENT_UNSUPPORTED'])==1
+    assert {'event':'paragraph_dropped','reason':'content_unsupported','claims':['q1']} in diagnostics
+
+
+def test_summary_references_are_normalized_by_program_then_fact_checked():
+    values=concepts()
+    writers,reviews=[],[]
+    def model(request):
+        if request.get('phase')=='review_paragraph':
+            reviews.append(request)
+            return response(request)
+        writers.append(request)
+        raw=response(request)
+        # 第一段的 C2 沒引用自己的來源；第二段引用了不屬於本段重點的 E1 與不存在的 E9。
+        raw['paragraphs'][0]['claim_ids'].append('C2')
+        raw['paragraphs'][1]['evidence_ids']=[*raw['paragraphs'][1]['evidence_ids'],'E1','E9']
+        return raw
+    diagnostics=[]
+    result=mn.generate_part(values,'summary',model,diagnostics)
+    assert all('reference_error' not in w.get('correction',{}) for w in writers)
+    assert [p['claim_ids'] for p in result]==[['q0'],['q1'],['q2']]
+    assert [[e['evidence_id'] for e in p['evidence']] for p in result]==[['e0'],['e1'],['e2']]
+    assert len(reviews)==3 and reviews[1]['claims']==[{'ref':'C1','text':'第 1 個重點','evidence_ids':['E1']}]
+    trimmed=[d for d in diagnostics if d['event']=='references_trimmed']
+    assert [(d['paragraph'],d['claims_removed'],d['evidence_removed']) for d in trimmed]==[(0,1,0),(1,0,2)]*2
+
+
+def test_summary_local_repair_references_are_normalized_too():
+    values=concepts()
+    def repair(request):
+        raw=response(request)
+        raw['paragraphs'][0].update(text='修正後正文。',evidence_ids=[*raw['paragraphs'][0]['evidence_ids'],'E7'])
+        return raw
+    model,writers,_=summary_model([('甲','有誤正文。',[0]),('乙','第二段。',[1])],unsupported={'有誤正文。'},repair=repair)
+    result=mn.generate_part(values,'summary',model)
+    assert [p['text'] for p in result]==['修正後正文。','第二段。']
+    assert [e['evidence_id'] for e in result[0]['evidence']]==['e0']
+
+
+def test_full_local_repair_gets_reference_correction_and_still_requires_every_claim():
+    values=concepts()
+    writers=[]
+    rejected=[]
+    def model(request):
+        if request.get('phase')=='review_paragraph':
+            verdict=response(request)
+            if not rejected:
+                rejected.append(request)
+                verdict['checks']=[{'part':p,'supported':p!='text','reason':'需修正。' if p=='text' else ''} for p in request['parts']]
+            return verdict
+        writers.append(request)
+        joined={'heading':'合併','text':'合併正文。','table':None,'formula':None}
+        correction=request.get('correction',{})
+        if not correction:
+            return {'paragraphs':[{**joined,'claim_ids':['C1','C2'],'evidence_ids':['E1','E2']},
+                {**joined,'text':'第三點。','claim_ids':['C3'],'evidence_ids':['E3']}]}
+        if 'reference_error' in correction:
+            return {'paragraphs':[{**joined,'text':'不得採用的改寫。','claim_ids':['C1','C2'],'evidence_ids':['E1','E2']}]}
+        # 局部修正回應漏列 C2 的來源。
+        return {'paragraphs':[{**joined,'text':'修正正文。','claim_ids':['C1','C2'],'evidence_ids':['E1']}]}
+    result=full(values,model)
+    assert len(writers)==3
+    assert writers[2]['correction']['problem']=='NOTE_REFERENCE_INVALID'
+    assert writers[2]['correction']['reference_error']['claims_missing_evidence']==['C2']
+    assert [p['text'] for p in result]==['修正正文。','第三點。']
+    assert [p['claim_ids'] for p in result]==[['q0','q1'],['q2']]
+
+
+def test_full_notes_never_drop_unexplained_claims():
+    values=concepts()
+    review=reviewer(unexplained={'第 1 個重點'})
+    with pytest.raises(ValueError,match='^NOTE_CONTENT_UNSUPPORTED$'):
+        full(values,lambda r:review(r) if r.get('phase')=='review_paragraph' else response(r))
+    with pytest.raises(ValueError,match='NOTE_COVERAGE_INCOMPLETE'):
+        nc.validate(response({'concepts':[{**values[0],'claims':values[0]['claims'][:2]}]}),values,'full')
+
+
+def test_summary_overflow_after_four_reflows_drops_whole_trailing_paragraphs():
+    values=concepts()
+    long_text='合成長段落，不能裁切或縮字。'*60
+    model,writers,reviews=summary_model([('甲',long_text,[0]),('乙',long_text,[1]),('丙',long_text,[2])])
+    diagnostics=[]
+    result=mn.generate_part(values,'summary',model,diagnostics)
+    assert len(writers)==5 and all(w['correction']['problem']=='NOTE_SUMMARY_TOO_LONG' for w in writers[1:])
+    assert nc.summary_layout(result)['fits'] and 0<len(result)<3
+    assert all(p['text']==long_text for p in result)
+    assert [p['claim_ids'] for p in result]==[['q0'],['q1']][:len(result)]
+    assert len(reviews)==len(result)
+    assert [d['reason'] for d in diagnostics if d['event']=='paragraph_dropped']==['page_overflow']*(3-len(result))
+    pdf=nc.summary_pdf(result)
+    with pymupdf.open(stream=pdf) as doc:
+        assert len(doc)==1
+
+
+def test_summary_single_paragraph_too_long_still_fails():
+    model,_,_=summary_model([('甲','單段超頁正文。'*800,[0])])
+    with pytest.raises(nc.SummaryTooLong):
+        mn.generate_part(concepts(),'summary',model)
