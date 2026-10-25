@@ -346,12 +346,15 @@ test('timeline still aligning after audio completes keeps waiting, then shows ti
   await expect(transcript.getByRole('alert')).toHaveCount(0);
 });
 
-test('timeline that no longer matches the episode shows an error instead of polling',async({page})=>{
+for (const [reason,message] of [
+  ['PODCAST_TIMELINE_UNAVAILABLE','這一集的時間軸無法使用。'],
+  ['PODCAST_TIMELINE_SOURCE_MISMATCH','時間軸與本集原稿、音訊或來源不一致。'],
+] as const) test(`timeline ${reason} shows an error instead of polling`,async({page})=>{
   await mockEpisodeVideo(page);
   let reads=0;
-  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,r=>{reads++;return json(r,{schema:'api-error/v1',request_id:sessionId,reason_code:'PODCAST_TIMELINE_SOURCE_MISMATCH',retryable:false,message:'Request could not be completed.'},409)});
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,r=>{reads++;return json(r,{schema:'api-error/v1',request_id:sessionId,reason_code:reason,retryable:false,message:'Request could not be completed.'},409)});
   await page.goto(`/podcasts/${podcastId}`);
-  await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByRole('alert')).toHaveText('時間軸與本集原稿、音訊或來源不一致。');
+  await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByRole('alert')).toHaveText(message);
   const settled=reads;await page.waitForTimeout(2500);
   expect(reads).toBe(settled);
 });

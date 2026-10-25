@@ -152,7 +152,7 @@ def install(app, settings):
             try:
                 timeline = load_timeline(learner, identity, index, dsn=settings.dsn)
             except request_context.ApiFailure as error:
-                if error.reason_code.startswith('PODCAST_TIMELINE_'):
+                if error.reason_code in ('PODCAST_TIMELINE_NOT_READY', 'PODCAST_TIMELINE_UNAVAILABLE', 'PODCAST_TIMELINE_SOURCE_MISMATCH'):
                     raise request_context.ApiFailure('SCENE_CONFLICT') from None
                 raise
             return download(export_podcast.transcript(view, index, timeline), filename, format)

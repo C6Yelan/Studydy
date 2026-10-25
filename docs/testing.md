@@ -193,7 +193,7 @@ Podcast 影片另由 `backend/tests/test_podcast_video_plan.py`、`test_podcast_
 - `test_podcast_beats.py` 核對多來源 beat、重複 claim ID 的來源位置、逐 part 引用與 claim 跨 beat；`test_podcast_cues.py` 核對字幕錨點與教學段落的對應。
 - `test_podcast_audio.py` 核對首尾 trim、內部停頓與保護區、語境停頓、非有限值及無聲拒絕，以及真 FFmpeg 音量正規化、AAC 解碼、1080p60 編碼與 bundle 驗證。
 - `test_podcast_timeline.py` 核對原文字元範圍、VTT escaping、舊影片與 refined scene 的唯讀 locator 投影；stored manifest、script hash 與 VTT 不變。
-- `runtime/materials/test_podcast_interaction.py` 核對教材從 A revision 更新至 B 後，既有 Podcast 的 Voice、來源與 Assessment 仍使用 A；涵蓋偽造 locator、錄音 context、冪等、取消／刪除晚到結果，以及播放／提問不產生作答事件。另經正式 API 錯誤邊界核對：音訊完成、對齊尚未寫入時，時間軸與字幕回可重試的 409 `PODCAST_TIMELINE_NOT_READY`（逐字稿 Markdown 匯出為 `SCENE_CONFLICT`），對齊與音訊不一致回不可重試的 `PODCAST_TIMELINE_SOURCE_MISMATCH`；`e2e/mock/podcasts.spec.ts` 驗證前端只對前者輪詢。
+- `runtime/materials/test_podcast_interaction.py` 核對教材從 A revision 更新至 B 後，既有 Podcast 的 Voice、來源與 Assessment 仍使用 A；涵蓋偽造 locator、錄音 context、冪等、取消／刪除晚到結果，以及播放／提問不產生作答事件。另經正式 API 錯誤邊界核對：音訊完成、對齊尚未寫入時，時間軸與字幕回可重試的 409 `PODCAST_TIMELINE_NOT_READY`（逐字稿 Markdown 匯出為 `SCENE_CONFLICT`），對齊失敗、取消或沒有對齊工作（舊版講稿）回不可重試的 `PODCAST_TIMELINE_UNAVAILABLE`，對齊與音訊不一致回不可重試的 `PODCAST_TIMELINE_SOURCE_MISMATCH`；`e2e/mock/podcasts.spec.ts` 驗證前端只對 `PODCAST_TIMELINE_NOT_READY` 輪詢，其餘直接顯示錯誤。
 - `runtime/materials/test_podcast_interaction_browser.py` 與 `e2e/api/podcast-interaction.spec.ts` 使用真 API／DB，驗證來源開啟、Voice 問答與語音、VTT、末集入口及原 revision Assessment handoff。字幕可以比教學單位細，Voice 仍收到完整原段落。
 - `e2e/mock/podcasts.spec.ts` 與 `material-tools.spec.ts` 覆蓋 seek、倍速、音訊切換影片、字幕開關、無 alignment 時手動選段、固定提問 context、已完成 session 不重開、過期 cue 拒絕及手機版面。
 

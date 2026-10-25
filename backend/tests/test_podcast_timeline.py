@@ -80,7 +80,9 @@ def test_timeline_api_authorization_and_unprepared_state(monkeypatch):
         state['status'] = 'unprepared'
         response = client.get(url + '/timeline')
         assert response.status_code == 409
-        assert response.json()['reason_code'] == 'PODCAST_TIMELINE_NOT_READY'
+        assert response.json()['reason_code'] == 'PODCAST_TIMELINE_UNAVAILABLE'
+        state['status'] = 'running'
+        assert client.get(url + '/timeline').json()['reason_code'] == 'PODCAST_TIMELINE_NOT_READY'
 
 
 def refined_example():

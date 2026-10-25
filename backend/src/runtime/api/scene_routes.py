@@ -25,9 +25,12 @@ def load_timeline(learner, identity, index, *, dsn=None):
     scene = podcast_scenes.read(learner, identity, dsn=dsn)["episodes"][
         index
     ]
-    if scene["status"] != "ready":
+    if scene["status"] in ("pending", "running"):
         # 音訊完成後仍要等場景對齊寫入；這段期間是可重試的處理中狀態。
         raise request_context.ApiFailure("PODCAST_TIMELINE_NOT_READY")
+    if scene["status"] != "ready":
+        # failed／cancelled／unprepared（含舊版講稿不建對齊工作）不會自行完成。
+        raise request_context.ApiFailure("PODCAST_TIMELINE_UNAVAILABLE")
     try:
         episode = podcast["episodes"][index]
         return with_source_ranges(

@@ -313,6 +313,7 @@ _ERROR_STATUS.update(
         "SCENE_ALIGNMENT_FAILED": (422, True),
         "SCENE_SOURCE_CHANGED": (409, False),
         "PODCAST_TIMELINE_NOT_READY": (409, True),
+        "PODCAST_TIMELINE_UNAVAILABLE": (409, False),
         "PODCAST_TIMELINE_SOURCE_MISMATCH": (409, False),
         "TOPIC_CONFLICT": (409, True),
         "TOPIC_PROVIDER_FAILED": (502, True),
