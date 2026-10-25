@@ -51,7 +51,6 @@ const failureMessages: Record<string, string> = {
   NOTE_CONTENT_UNSUPPORTED: "筆記內容與引用原文不符，重新生成後仍未通過核對，尚未發布。",
   NOTE_REVIEW_INVALID: "筆記內容核對未完成，尚未發布。請稍後重試。",
   NOTE_CONTRACT_INVALID: "筆記生成規則已更新，請重新生成。已完成的筆記與註記仍保留。",
-  NOTE_SUMMARY_TOO_LONG: "重點整理超過 A4 一頁，尚未發布。可重新生成。",
   NOTE_COVERAGE_INCOMPLETE: "筆記仍有遺漏或未說明的重點，尚未發布。可重新生成。",
   NOTE_INPUT_TOO_LARGE: "教材內容超出這次筆記生成容量，尚未發布。",
   NOTE_REFERENCE_INVALID: "筆記的來源引用未通過驗證，尚未發布。可重新生成。",
@@ -143,7 +142,7 @@ export function Notes({ api, materialId, revision }: { api: StudydyApiClient; ma
   return <div className="notes-page"><header><h1>筆記</h1><p>依教材整理的閱讀筆記，每段都能回查原文。</p></header>
     <div className="note-kinds" role="group" aria-label="筆記種類">{(["summary", "full"] as const).map(k => <button key={k} type="button" aria-pressed={kind === k}
       className={kind === k ? "primary-button" : "secondary-button"} onClick={() => setKind(k)}>{k === "summary" ? "重點整理" : "完整筆記"}</button>)}</div>
-    <p className="note-caption">{kind === "summary" ? "正文以 A4 一頁為限；來源與個人註記另列。" : "涵蓋教材所有重點，依學習順序閱讀。"}內文不可編輯，可在段落旁加上自己的註記。</p>
+    <p className="note-caption">{kind === "summary" ? "每個概念只整理最核心的重點，細節見完整筆記；長度隨教材大小而定。" : "涵蓋教材所有重點，依學習順序閱讀。"}內文不可編輯，可在段落旁加上自己的註記。</p>
     <NotesContent key={`${materialId}:${revision}:${kind}`} api={api} materialId={materialId} revision={revision} kind={kind}/>
   </div>;
 }

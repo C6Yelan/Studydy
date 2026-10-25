@@ -312,14 +312,13 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             _validate_review_contract(lock)
         if "material_notes" in lock:
             notes = lock["material_notes"]
-            if (set(notes) != {"version", "prompt", "selection_prompt", "review_prompt", "max_tokens", "summary_layout"}
-                or notes["version"] != "material-notes/v10"
+            if (set(notes) != {"version", "prompt", "selection_prompt", "review_prompt", "max_tokens"}
+                or notes["version"] != "material-notes/v11"
                 or not isinstance(notes["prompt"], str) or not notes["prompt"].strip()
                 or not isinstance(notes["selection_prompt"], str) or not notes["selection_prompt"].strip()
                 or not isinstance(notes["review_prompt"], str) or not notes["review_prompt"].strip()
                 or type(notes["max_tokens"]) is not int
-                or not 1 <= notes["max_tokens"] <= lock["semantic_service"]["max_model_len"]
-                or notes["summary_layout"] != "a4-12pt-18mm/v1"):
+                or not 1 <= notes["max_tokens"] <= lock["semantic_service"]["max_model_len"]):
                 raise ValueError
         if "podcast_script_review" in lock:
             review = lock["podcast_script_review"]

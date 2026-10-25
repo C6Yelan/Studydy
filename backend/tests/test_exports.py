@@ -119,26 +119,20 @@ def test_card_package_has_all_images_full_text_sources_and_stable_ids(monkeypatc
         assert all(len(page.get_images()) == 2 for page in pdf)
 
 
-def test_summary_bold_chinese_headings_preserve_the_published_one_page_body_layout():
-    from runtime.note_content import summary_pdf, summary_layout
-    paragraphs = [{'heading': '繁體中文標題 English 123',
-                   'text': 'important physiological phenomenon in learning ' * 62,
-                   'formula': None, 'table': None}]
-    assert summary_layout(paragraphs)['fits']
-    with pymupdf.open(stream=summary_pdf(paragraphs), filetype='pdf') as before, pymupdf.open(
-            stream=documents.summary_with_bold_headings(paragraphs), filetype='pdf') as after:
-        assert len(after) == 1 and after[0].rect == pymupdf.paper_rect('a4')
-        def spans(page):
-            return [s for b in page.get_text('dict')['blocks'] for line in b.get('lines', []) for s in line['spans']]
-        original = [s for s in spans(before[0]) if s['size'] == 12]
-        result = [s for s in spans(after[0]) if s['size'] == 12]
-        assert [(s['text'], s['font']) for s in result] == [(s['text'], s['font']) for s in original]
-        for old, new in zip(original, result):
-            # PDF 重寫座標的浮點序列化誤差，不容許重新換行或可見的位置移動。
-            assert new['origin'] == pytest.approx(old['origin'], abs=.001)
-        assert unicodedata.normalize('NFKC', after[0].get_text(sort=True)) == unicodedata.normalize('NFKC', before[0].get_text(sort=True))
-        assert any('Bold' in s['font'] and '繁體中文' in s['text'] for s in spans(after[0]))
-        assert any(s['font'] == 'NimbusSans-Bold' and 'English 123' in s['text'] for s in spans(after[0]))
+def test_long_summary_pdf_flows_onto_more_pages_without_shrinking_or_dropping_text():
+    view = note()
+    first = view['paragraphs'][0]
+    view['paragraphs'] = [{**first, 'id': str(i), 'heading': f'繁體中文標題 {i}',
+                           'text': f'第 {i} 段完整正文，不裁切也不縮字。' * 40} for i in range(12)]
+    view['annotations'] = []
+    with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
+        body = [page for page in pdf if '來源與個人註記' not in page.get_text()]
+        assert len(body) >= 3 and all(page.rect == pymupdf.paper_rect('a4') for page in body)
+        text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
+        assert all(f'繁體中文標題 {i}' in text and f'第 {i} 段完整正文' in text for i in range(12))
+        spans = [s for page in body for b in page.get_text('dict')['blocks'] for l in b.get('lines', []) for s in l['spans']]
+        assert min(s['size'] for s in spans) >= 12
+        assert any('Bold' in s['font'] and '繁體中文' in s['text'] for s in spans)
 
 
 @pytest.mark.parametrize('name', ['來源.mp3', '來源.M4A', '來源.wav', '來源.mp4', '來源.youtube'])
