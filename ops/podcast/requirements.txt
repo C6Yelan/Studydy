@@ -1,7 +1,7 @@
 # CosyVoice 本機已驗證的推論環境；依此鎖定集合以 uv pip install --no-deps 安裝。
 antlr4-python3-runtime==4.9.3
 beautifulsoup4==4.15.0
-certifi==2026.7.22
+certifi==2026.10.19
 cffi==2.1.1
 charset-normalizer==3.5.2
 cloudpickle==3.1.2
