@@ -45,6 +45,8 @@ def failure_code(error):
         "MEDIA_TRANSCRIPT_FAILED",
         "PODCAST_SCRIPT_INVALID",
         "PODCAST_SCRIPT_NEEDS_REVIEW",
+        # bundle 內程式與 lock 不一致；backend 仍對應成 PODCAST_PROVIDER_FAILED。
+        "PODCAST_REVIEW_CONTRACT_INVALID",
         "PODCAST_AUDIO_INVALID",
         "LUNA_GENERATION_FAILED",
         "PODCAST_CANCELLED",

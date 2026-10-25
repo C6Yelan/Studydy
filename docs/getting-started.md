@@ -109,19 +109,17 @@ docker compose exec backend /app/backend/.venv/bin/python -m runtime.local_runti
 
 ## 本機 Podcast provider
 
-Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集 WAV，音訊沿用私人 artifact store。建立後自動生成，只選擇單人解說或雙人對談，兩者均保留全部所選重點，內容較多自動拆集。失敗可接續已保存進度；取消會刪除整份 Podcast。分集沿用所選概念順序，在每集最多 32 個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
+Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集 WAV，音訊沿用私人 artifact store。建立後自動生成，只選擇單人解說或雙人對談，分集保留全部所選重點，每集講稿須由正文段落引用並講解該集全部重點（逐段核對判定），內容較多自動拆集。失敗可接續已保存進度；取消會刪除整份 Podcast。分集沿用所選概念順序，在每集最多 32 個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
 
-文字 provider 沿用 `codex exec -m gpt-5.6-luna`。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。模型只選 `source_index` 與該來源內的 `evidence_indices`；程式核對範圍並回填原 ID，保存的 turn 文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須實質涵蓋，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。
+文字 provider 沿用 `codex exec -m gpt-5.6-luna`。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。模型只選 `source_index` 與該來源內的 `evidence_indices`；程式核對範圍並回填原 ID，保存的 turn 文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須由正文段落引用並經逐段核對判定已講解，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。
 
-新稿依來源內容量使用同一套整集字數與 beat 上限；雙人只增加交接所需的 turn 空間，不額外放大字數。英文依詞而非逐字母估量，同一長段被多個 claim 引用時不重複增加預算；這只影響容量，全部來源仍須實質涵蓋。篇幅容量包含具體推演、例子與自然問答，不再以接近來源摘要的長度壓縮講解。生成提示提供完整教學的參考字數／時長，驗收不以湊滿字數為準，上限也不是最低篇幅。新稿保存前由 backend 再檢查統一預算，已保存的 v2／legacy 講稿不重新套用。新生成標示 `teaching-beats/v10`；產稿與 correctness 審查另核對跨句指代及階段，來源混有不同流程時以明確動作取代可能誤接條件的「這個步驟」，且不以刪除另一階段的已選命題迴避歧義。建立 API 不再接收 `mode`，列表與詳情也不回傳 Quick／Full；DB 的舊欄位只保留歷史資料，新建固定儲存值，不參與生成或審查決策，沒有資料搬移或重製既有產物。
+新稿依來源內容量使用同一套整集字數與 beat 上限；雙人只增加交接所需的 turn 空間，不額外放大字數。英文依詞而非逐字母估量，同一長段被多個 claim 引用時不重複增加預算；這只影響容量，全部來源仍須由正文段落講解。篇幅容量包含具體推演、例子與自然問答，不再以接近來源摘要的長度壓縮講解。生成提示提供完整教學的參考字數／時長，驗收不以湊滿字數為準，上限也不是最低篇幅。新稿保存前由 backend 再檢查統一預算，已保存的 v2／legacy 講稿不重新套用。建立 API 不再接收 `mode`，列表與詳情也不回傳 Quick／Full；DB 的舊欄位只保留歷史資料，新建固定儲存值，不參與生成或審查決策，沒有資料搬移或重製既有產物。
 
-超出容量仍直接要求修稿；短附和、字面重述、確認問句、規律輪替及 recap 都只作為可定位的風格訊號，交給獨立教學審查結合上下文判斷，不再自動拒絕。重述可用於預測、修正理解、對照及應用整理；不要求每句都新增事實。若實際缺乏教學作用，審查須指出具體 turn 與原因，不能以文風偏好擋稿。
+超出容量直接判定講稿無效；短附和、重述、確認問句與輪替不做風格否決。
 
-寫稿與審查只取得已引用的原始區塊；孤立數值另帶入同欄、上方緊鄰的短標題，供欄位消歧義。不能因能讀到同頁其他段落，就擴寫未選的機制。表格標題、合理同義改述與直接整合可以使用；新增技術條件、保證或錯誤數值仍由 correctness 拒絕。
+寫稿與核對只取得已引用的原始區塊、必要符號定義及孤立數值同欄上方的短標題，供欄位消歧義；不能因能讀到同頁其他段落，就擴寫未選的機制。表格標題、合理同義改述與直接整合可以使用；新增技術條件、保證或錯誤數值由逐段核對退回。
 
-不帶來源斷言的純提問 beat 會在容量允許時，與緊接的解答合併為同一教學單位；不改任何發言或 part 引用。審查須區分「重用同一 claim」與「重述同一命題」，不能拒絕該來源尚未說過的新細節。
-
-符合上述檢查的候選稿經獨立 review inference 回傳 `correctness` 與 `teaching_quality` 兩個 blocking verdict；任一失敗不得發布，最多重寫一次，重寫後兩者都重新核對。每集單次生成／重試最多四次文字請求，每次至多 120 秒。CLI 使用既有登入、ephemeral、唯讀空目錄並停用工具，不改寫原教材 Gemma binding；真實模型呼叫仍須有當次素材及費用授權。來源不足、provider／儲存失敗不視為成功。舊 turns 腳本保留原 bytes／hash，由唯讀來源投影相容，不批次改寫舊 JSON。
+講稿生成後由同一個 Luna 逐段核對（見[測試](testing.md#podcast-現行驗證範圍)），不做獨立教學品質評分；不符只重生該段並重核一次，仍不符不得發布。文字請求不設固定期限，可由取消中止。CLI 使用既有登入、ephemeral、唯讀空目錄並停用工具，不改寫原教材 Gemma binding；真實模型呼叫仍須有當次素材及費用授權。來源不足、provider／儲存失敗不視為成功。舊 turns 腳本保留原 bytes／hash，由唯讀來源投影相容，不批次改寫舊 JSON。
 
 語音在本機執行 CosyVoice 3（`FunAudioLLM/Fun-CosyVoice3-0.5B-2512`）官方 RL 權重，輸出 24 kHz PCM WAV。Podcast 沿用原 host／guest 參考錄音與固定角色 seed，採用已選定的 V／W `inference_instruct2` 台灣華語指令。`spoken-input/v13` 把同一句的中文、英文與縮寫一起合成，不再因語言切換而改用另一種聲音生成模式；英文冠詞 a 保留，縮寫依通用字母名稱處理，千分位與毫秒先正規化。MB／Mb 仍區分 megabytes／megabits，速率讀 per second。原講稿、來源與引用不改；未知識別符、byte／bit 與其他術語仍須真實聽評。Podcast 與語音問答共用的文字前處理會把可辨識的英文複合詞連字號當作詞間分隔，不再插入 hyphen；代碼、縮寫與數值的符號仍保留。此規則不依特定教材或術語。
 
@@ -133,7 +131,7 @@ Podcast 在 `synthesize.py` 接收模型的已知句子邊界，交給 `dialogue
 
 最終 WAV 仍由 `audio_mastering.py` two-pass FFmpeg loudnorm 處理，目標 −19 LUFS／−2 dBTP，成品容許 ±1 LU、true peak ≤ −1.9 dBTP。mastering schema／policy 不變；音訊 provider 身分包含 `rl-reference-vw;spoken-input/v13;dialogue-audio/v1`。失敗不發布部分檔案，所有字幕與畫面對齊仍以最終 WAV 為準。原音訊不批次改寫；需新建 Podcast 才會採用新版。
 
-Podcast 的額外 AI 講稿／分鏡審查與自動重寫已移除，現行驗證範圍見 [測試文件](testing.md#podcast-現行驗證範圍)。音量正規化保留，量測偏差不再阻擋成品。
+講稿經逐段原文核對與單段重寫；分鏡仍是一次生成，不另做 AI 審查或自動重寫。現行驗證範圍見 [測試文件](testing.md#podcast-現行驗證範圍)。音量正規化保留，量測偏差不再阻擋成品。
 
 FFmpeg 優先使用本機 executable 或 imageio-ffmpeg，否則由既有 `STUDYDY_VIDEO_PYTHON` 找到 renderer 的 FFmpeg；不需更換 TTS 模型或修改共用 venv。
 
@@ -145,7 +143,7 @@ provider 使用 `data/podcast/runtime/`；語音使用 `data/podcast/cosyvoice-b
 
 Podcast 的講稿、音訊、字幕與影片工作會將工作 ID／本次 lease 傳給 provider。介面的「取消並刪除」與刪除使用相同流程：停止整份 Podcast，刪除所有分集的講稿、音訊與影片，原教材保留，不留下暫停項目。worker 會通知 `/jobs/cancel`，provider 會中斷等候資源鎖的請求並終止整個子程序群組。清單與播放器另外呈現影片／字幕工作，避免音訊已完成時隱藏尚在生成的工作。失敗重試使用新 lease，舊取消訊號不會停止新工作。Podcast 音訊連線建立後不設固定等待期限，工作租約在 worker 存活時續期；15 分鐘租約只用來回收失聯 worker，不是生成時間上限。更新此協定時先更新 provider，再更新 backend；部署前取消進行中的工作並確認舊服務沒有殘留程序。這不代表遠端模型服務已受理的請求一定能撤銷計費。
 
-Provider 將工作 ID、分集索引、操作、耗時、固定原因碼與例外類型寫入本機 `data/podcast/job-events.jsonl`，每份最多 1 MiB，輪替保留兩份備份。不記錄教材、講稿、工作 token、憑證或例外原文。
+Provider 將工作 ID、分集索引、操作、耗時、固定原因碼、例外類型，以及講稿工作的 `script_review`（模型呼叫次數、被退回的台詞位置或來源編號）寫入本機 `data/podcast/job-events.jsonl`，每份最多 1 MiB，輪替保留兩份備份。不記錄教材、講稿台詞、核對理由、工作 token、憑證或例外原文。
 
 
 

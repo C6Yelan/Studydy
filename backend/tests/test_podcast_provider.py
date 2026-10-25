@@ -54,7 +54,7 @@ def fake_model(script, *, reviews=None, rewrites=()):
 
 
 def test_passing_script_uses_one_generation_and_one_review_per_segment(monkeypatch):
-    request=body();request['claims'].append(deepcopy(request['claims'][0]))
+    request=body()
     value=candidate('必要條件保留。'*80, [0,0])
     model,calls=fake_model(value)
     monkeypatch.setattr(provider,'luna',model)
@@ -155,16 +155,55 @@ def test_each_segment_is_checked_against_its_cited_original_and_same_page_header
 def test_claim_explained_across_segments_is_judged_at_its_last_teaching_segment(monkeypatch):
     request,script=show()
     script['segments'][2]['turns'][1]['source_indices']=[0]
-    script['segments'][3]['turns'][0]['source_indices']=[1]
-    script['segments'][2]['turns'][0]['source_indices']=[]
     model,calls=fake_model(script)
     monkeypatch.setattr(provider,'luna',model)
     provider.script(request)
     reviews=[r for kind,r in calls if kind=='review']
-    # 非空檢查跨第 1、2 段，合併前段判斷；學習率只在回顧出現，就在回顧段判斷。
-    assert reviews[1]['coverage_claims']==[] and reviews[2]['coverage_claims']==['C1']
-    assert reviews[2]['coverage_locations']['C1']==['turn.0','turn.1','related.0.turn.0']
-    assert reviews[3]['coverage_claims']==['C1'] and reviews[3]['claims'][0]['concept']=='學習率'
+    # 非空檢查跨第 1、2 段，在第 2 段合併前段判斷；收尾回顧不判斷涵蓋。
+    assert reviews[1]['coverage_claims']==[] and reviews[2]['coverage_claims']==['C1','C2']
+    assert reviews[2]['coverage_locations']['C2']==['turn.0','turn.1','related.0.turn.0']
+    assert reviews[3]['coverage_claims']==[]
+
+
+def test_claim_only_recapped_is_assigned_to_a_body_segment_and_must_be_cited(monkeypatch):
+    request,script=show()
+    script['segments'][2]['turns'][0]['source_indices']=[]
+    fixed=deepcopy(script['segments'][2]);fixed['turns'][0]['source_indices']=[1]
+    model,calls=fake_model(script,rewrites=[fixed])
+    monkeypatch.setattr(provider,'luna',model)
+    diagnostics={}
+    result=provider.script(request,diagnostics=diagnostics)
+    # 學習率只在收尾一句帶過：沒有同概念的正文段落，分到最後一個正文段落重寫。
+    assert [kind for kind,_ in calls]==['script','review','review','review','rewrite','review','review']
+    correction=json.loads(calls[4][1][calls[4][1].index('{"series"'):])['correction']
+    assert correction['segment_index']==2 and correction['required_source_indices']==[1]
+    assert correction['issues']==[{'part':'source.1','reason':'本集應講解這個重點，但沒有任何正文段落引用並講解它'}]
+    assert [r for kind,r in calls if kind=='review'][3]['coverage_claims']==['C1']
+    assert result['segments'][2]['turns'][0]['parts'][0]['source_refs'][0]['source_index']==1
+    assert diagnostics['rewrites']==[{'segment':2,'rejected':['source.1']}]
+
+
+def test_uncited_claim_goes_to_the_last_body_segment_of_its_concept(monkeypatch):
+    request,script=show()
+    request['claims'].append({'concept_id':'c0','claim_id':'empty-check','label':'非空檢查',
+        'text':'pop 前先確認非空。','evidence':[{'evidence_id':'e2','page_ref':'p0','quote':'pop 前先確認非空。'}]})
+    fixed=deepcopy(script['segments'][1]);fixed['turns'].append({'speaker':'guest','text':'pop 前先確認非空。','source_indices':[2]})
+    model,calls=fake_model(script,rewrites=[fixed])
+    monkeypatch.setattr(provider,'luna',model)
+    result=provider.script(request)
+    assert [kind for kind,_ in calls]==['script','review','review','rewrite','review','review','review']
+    correction=json.loads(calls[3][1][calls[3][1].index('{"series"'):])['correction']
+    assert correction['segment_index']==1 and correction['required_source_indices']==[0,2]
+    assert result['segments'][1]['turns'][-1]['text']=='pop 前先確認非空。'
+
+
+def test_rewrite_that_still_leaves_the_assigned_claim_uncited_fails(monkeypatch):
+    request,script=show()
+    script['segments'][2]['turns'][0]['source_indices']=[]
+    model,calls=fake_model(script,rewrites=[script['segments'][2]])
+    monkeypatch.setattr(provider,'luna',model)
+    with pytest.raises(RuntimeError,match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):provider.script(request)
+    assert [kind for kind,_ in calls]==['script','review','review','review','rewrite']
 
 
 def test_unsupported_segment_is_rewritten_alone_and_checked_again(monkeypatch):
@@ -268,7 +307,7 @@ def test_review_contract_must_match_the_runtime_lock_before_any_model_call(monke
     lock=local_ai_config.configured_lock()
     monkeypatch.setattr(local_ai_config,'configured_lock',lambda:{**lock,'podcast_script_review':{**lock['podcast_script_review'],'prompt':'舊提示'}})
     with pytest.raises(RuntimeError) as error:provider.script(body())
-    assert provider.failure_code(error.value)=='PODCAST_PROVIDER_FAILED' and calls==[]
+    assert provider.failure_code(error.value)=='PODCAST_REVIEW_CONTRACT_INVALID' and calls==[]
 
 
 def test_review_contract_is_added_without_invalidating_old_runtime_snapshots():

@@ -23,7 +23,7 @@ false 的 reason 簡短指出哪一句與原文不符或漏了什麼，供重新
 
 REWRITE_INSTRUCTION = """這次只重寫 correction.segment_index 指定的那一段，輸出單一段（title 與 turns）。
 correction.segment 是待修正的候選，不是事實來源；correction.issues 是核對指出的不符字句或缺漏。只修正這些問題，其餘已有來源支持的台詞保持原意。
-維持該段在節目中的位置與角色（開場、主體或收尾）、原有主題、說話者分配與大致篇幅；correction.previous_segment／next_segment 只用來銜接前後段，不重複它們的內容。correction.required_source_indices 是須在本段講解完整的重點，重寫後必須仍有台詞實際講解並引用它們。
+維持該段在節目中的位置與角色（開場、主體或收尾）、原有主題、說話者分配與大致篇幅；correction.previous_segment／next_segment 只用來銜接前後段，不重複它們的內容。correction.required_source_indices 是須在本段講解完整的重點（包括本集原本沒有任何正文段落引用的重點），重寫後必須有台詞實際講解並引用它們。
 仍遵守上方所有內容與節目規則；source_indices 只填真正支持台詞的來源編號，沒有來源支持的技術內容就刪掉，不要用其他重點補湊。"""
 
 
@@ -48,14 +48,33 @@ def _region(block):
     return [round(v, 2) for v in region] if region is not None else None
 
 
+def body(script):
+    """講解重點的正文段落；收尾段只是回顧，一句帶過不算講解（只有一段時就是正文）。"""
+    count = len(script["segments"])
+    return range(count - 1 if count > 1 else 1)
+
+
 def coverage_sources(script, index):
-    """重點在最後講解它的段落判斷涵蓋；收尾段只是回顧，前面講過的重點不在收尾判斷。"""
+    """重點在最後講解它的正文段落合併前段判斷涵蓋；收尾段不判斷涵蓋。"""
     beats = script["segments"]
-    if index == len(beats) - 1:
-        taught = {s for beat in beats[:-1] for s in cited(beat)}
-        return [s for s in cited(beats[index]) if s not in taught]
-    later = {s for beat in beats[index + 1 : -1] for s in cited(beat)}
+    if index not in body(script):
+        return []
+    later = {s for i in body(script) if i > index for s in cited(beats[i])}
     return [s for s in cited(beats[index]) if s not in later]
+
+
+def unassigned(script, claims):
+    """本集應講但沒有任何正文段落引用的重點，分到最後講同一概念的正文段落；概念都沒講到就分到最後一個正文段落。"""
+    beats, positions = script["segments"], body(script)
+    taught = {s for i in positions for s in cited(beats[i])}
+    result = {}
+    for source, claim in enumerate(claims):
+        if source in taught:
+            continue
+        same = [i for i in positions if any(
+            claims[s].get("concept_id") == claim.get("concept_id") for s in cited(beats[i]))]
+        result.setdefault(same[-1] if same else positions[-1], []).append(source)
+    return result
 
 
 def segment_request(script, index, claims, pages, *, hosts, series, related_indices):
@@ -214,14 +233,19 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
         related = range(index)
         request = segment_request(script, index, claims, pages, hosts=hosts, series=series, related_indices=related)
         found = issues(request, review(request))
-        if not found:
+        # 沒被正文引用的重點由程式判定缺漏，沿用同一段的重寫與重核；全部有引用時不增加呼叫。
+        assigned = unassigned(script, claims).get(index, [])
+        if not found and not assigned:
             continue
         # 核對用的 C 編號只在單次請求內有效；交給重寫的回饋改用講稿的來源編號。
         refs = {f"claim.C{n + 1}": f"source.{s}" for n, s in enumerate(cited(script["segments"][index]))}
-        found = [{**i, "part": refs.get(i["part"], i["part"])} for i in found]
+        found = [{**i, "part": refs.get(i["part"], i["part"])} for i in found] + [
+            {"part": f"source.{s}", "reason": "本集應講解這個重點，但沒有任何正文段落引用並講解它"}
+            for s in assigned
+        ]
         diagnostics.append({"segment": index, "rejected": [i["part"] for i in found]})
         # 在本段判斷涵蓋的重點不能靠重寫刪掉引用來躲過涵蓋核對。
-        required = coverage_sources(script, index)
+        required = coverage_sources(script, index) + assigned
         script = rewrite(script, index, found, required)
         missing = set(required) - set(cited(script["segments"][index]))
         request = segment_request(script, index, claims, pages, hosts=hosts, series=series, related_indices=related)
