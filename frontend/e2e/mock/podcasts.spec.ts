@@ -1081,6 +1081,13 @@ for (const reason of ["PODCAST_TIMELINE_UNAVAILABLE", "PODCAST_TIMELINE_SOURCE_M
     const { fixture } = await mockEpisodeVideo(page, "failed");
     fixture.view.generation!.active = false;
     let reads = 0;
+    let releaseVideo!: () => void;
+    const videoGate = new Promise<void>(resolve => { releaseVideo = resolve; });
+    await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video`, async route => {
+      await videoGate;
+      await route.fallback();
+    });
+    const firstTimeline = page.waitForResponse(response => response.url().endsWith('/episodes/0/timeline'));
     await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`, route => {
       reads++;
       return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: reason,
@@ -1089,7 +1096,10 @@ for (const reason of ["PODCAST_TIMELINE_UNAVAILABLE", "PODCAST_TIMELINE_SOURCE_M
     await page.goto(`/podcasts/${podcastId}`);
     const controls = page.getByRole("group", { name: "匯出本集" });
     await expect(controls.getByRole("combobox")).toHaveValue("mp3");
-    await expect.poll(() => reads).toBeGreaterThan(0);
+    await (await firstTimeline).finished();
+    // 先完成版本 0 的初讀，再讓影片版本 1 到達；這次正常重讀不算錯誤輪詢。
+    releaseVideo();
+    await expect.poll(() => reads).toBe(2);
     const settled = reads;
     await page.waitForTimeout(2500);
     expect(reads).toBe(settled);
