@@ -307,22 +307,42 @@ def test_host_calling_themself_by_name_is_rewritten_while_introductions_and_part
     assert diagnostics['rewrites']==[{'segment':2,'rejected':['turn.1']}]
 
 
-def test_host_still_calling_themself_by_name_after_rewrite_fails_without_another_review(monkeypatch):
+def test_self_naming_left_after_rewrite_is_published_and_only_its_position_logged(monkeypatch):
     request,script=show()
     script['segments'][1]['turns'][0]['text']='阿哲覺得：空堆疊不可 pop。'
     model,calls=fake_model(script,rewrites=[script['segments'][1]])
     monkeypatch.setattr(provider,'luna',model)
     diagnostics={}
+    result=provider.script(request,diagnostics=diagnostics)
+    # 只剩自稱時仍重核事實，通過就照常發布；診斷只記位置，不記台詞。
+    assert [kind for kind,_ in calls]==['script','review','review','rewrite','review','review','review']
+    assert result['segments'][1]['turns'][0]['text']=='阿哲覺得：空堆疊不可 pop。'
+    assert diagnostics['rewrites']==[{'segment':1,'rejected':['turn.0']},{'segment':1,'self_naming_after_rewrite':['turn.0']}]
+
+
+def test_self_naming_with_unsupported_facts_after_rewrite_still_fails(monkeypatch):
+    request,script=show()
+    script['segments'][1]['turns'][0]['text']='阿哲覺得：空堆疊不可 pop。'
+    model,calls=fake_model(script,reviews=[None,None,lambda r:verdict(r,{'turn.0'})],rewrites=[script['segments'][1]])
+    monkeypatch.setattr(provider,'luna',model)
+    diagnostics={}
     with pytest.raises(RuntimeError,match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):provider.script(request,diagnostics=diagnostics)
-    assert [kind for kind,_ in calls]==['script','review','review','rewrite']
     assert diagnostics['rewrites'][-1]=={'segment':1,'rejected_after_rewrite':['turn.0']}
 
 
-def test_host_name_inside_a_term_from_the_material_is_not_self_naming(monkeypatch):
+@pytest.mark.parametrize('name,text',[
+    ('小安','先把大小安排好，再看連接埠。'),
+    ('小安','最小安全距離要先確認。'),
+    ('小語','小語種的資料比較少。'),
+    ('小語','小語言模型也能用。'),
+    ('小語','這裡指的就是小語言模型。'),
+    ('小安','這裡是小安和阿哲的學習時間。'),
+    ('小安','謝謝收聽，我是小安。'),
+])
+def test_words_containing_a_host_name_and_show_introductions_are_not_self_naming(monkeypatch,name,text):
     request,script=show()
-    request['hosts']={'host':'小語','guest':'阿誠'}
-    request['claims'][0]['text']='小語言模型也要先確認非空。'
-    script['segments'][0]['turns'][0]['text']='歡迎收聽，我是小語，今天也會提到小語言模型。'
+    request['hosts']={'host':name,'guest':'阿哲'}
+    script['segments'][0]['turns'][0]['text']=text
     model,calls=fake_model(script)
     monkeypatch.setattr(provider,'luna',model)
     provider.script(request)

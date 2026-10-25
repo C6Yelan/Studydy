@@ -218,23 +218,42 @@ def issues(request, response):
     return [{"part": c["part"], "reason": c["reason"]} for c in checks if not c["supported"]] + missing
 
 
-# 自我介紹（「我是小葵」「我們是小葵和阿峰」「我是今天的主持人小葵」）可以說出自己的名字。
-_INTRODUCTION = re.compile(r"我們?(?:是|叫)[^，。！？；：、,.!?;:「」『』\n]{0,10}$")
+# 自我介紹與節目介紹（「我是小葵」「我們是小葵和阿峰」「這裡是小安和阿哲的學習時間」）可以說出自己的名字。
+_INTRODUCTION = re.compile(r"(?:我們?(?:是|叫)|這裡是|這是|歡迎(?:收聽|來到)?)[^，。！？；：、,.!?;:「」『』\n]{0,10}$")
+# 名字前面是這些字時仍是在指人（「我小安」「由小安來」「是小安說的」）；其他中文字表示名字只是詞語的一部分（「大小安排」）。
+_SELF_CONTEXT = set("我由是讓換請")
+# 名字當主詞時常接的虛詞、副詞與說話動作；後面接其他中文字通常是一般詞語（「小語言」「小語種」「小安全」）。
+_AFTER_NAME = set("來幫替給先再也就會要想覺認說講剛常在跟和與的這今自都還是有已補整提帶最很")
+
+
+def _cjk(char):
+    return "\u3400" <= char <= "\u9fff" or "\uf900" <= char <= "\ufaff"
+
+
+def _names_person(text, start, end):
+    """名字前後是句首、標點、空白或指人的語境時才是稱呼人，不是詞語的一部分。"""
+    before = text[start - 1] if start else ""
+    after = text[end] if end < len(text) else ""
+    return (not _cjk(before) or before in _SELF_CONTEXT) and (not _cjk(after) or after in _AFTER_NAME)
 
 
 def self_naming(segment, hosts, material):
-    """主持人在自我介紹以外用自己的名字稱呼自己（含第三人稱），列為該句不符交給重寫。
+    """主持人在自我介紹以外用自己的名字稱呼自己（含第三人稱），回傳該句位置與重寫說明。
 
-    名字只是教材詞語的一部分（例如原文有「小語言模型」）不算；material 是本集原文與重點文字。
+    名字只是一般詞語或教材詞語的一部分（例如「大小安排」「小語言模型」）不算；material 是本集原文與重點文字。
     """
     found = []
     for n, turn in enumerate(segment["turns"]):
         name, text = hosts[turn["speaker"]], turn["text"]
         for match in re.finditer(re.escape(name), text):
             start, end = match.span()
-            if _INTRODUCTION.search(text[:start]) or any(
-                len(word) > len(name) and word in material
-                for word in (text[max(start - 1, 0):end], text[start:end + 1])
+            if (
+                _INTRODUCTION.search(text[:start])
+                or not _names_person(text, start, end)
+                or any(
+                    len(word) > len(name) and word in material
+                    for word in (text[max(start - 1, 0):end], text[start:end + 1])
+                )
             ):
                 continue
             excerpt = text[max(start - 12, 0):end + 12]
@@ -291,9 +310,12 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
         missing = set(required) - set(cited(script["segments"][index]))
         request = segment_request(script, index, claims, pages, hosts=hosts, series=series, related_indices=related)
         found = [{"part": f"source.{s}", "reason": "重寫後刪掉了本段必須講解的重點"} for s in sorted(missing)]
-        found += self_naming(script["segments"][index], hosts, material)
         found = found or issues(request, review(request))
         if found:
             diagnostics.append({"segment": index, "rejected_after_rewrite": [i["part"] for i in found]})
             raise RuntimeError("PODCAST_SCRIPT_NEEDS_REVIEW")
+        # 自稱是風格問題：重寫後仍有就照常發布，只記位置，不記台詞。
+        kept = self_naming(script["segments"][index], hosts, material)
+        if kept:
+            diagnostics.append({"segment": index, "self_naming_after_rewrite": [i["part"] for i in kept]})
     return script
