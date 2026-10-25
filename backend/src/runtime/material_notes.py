@@ -153,6 +153,8 @@ def _claim(dsn):
         if row.attempts >= 2:
             row.status, row.error_code = "failed", "NOTE_JOB_INTERRUPTED"
             row.generation_diagnostics = {"code": "NOTE_JOB_INTERRUPTED", "events": []}
+            logging.getLogger(__name__).warning("NOTE_GENERATION_FAILED kind=%s diagnostics=%s",
+                row.kind, json.dumps(row.generation_diagnostics, ensure_ascii=False))
             row.lease_token = row.lease_expires_at = None
             return {"skipped": True}
         row.status, row.lease_token = "running", uuid4()

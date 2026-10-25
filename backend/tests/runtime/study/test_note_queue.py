@@ -424,3 +424,19 @@ def test_dropped_paragraph_and_failure_save_summary_codes_without_material_text(
     drain(f)
     assert client.get(path + '/full').json()['status'] == 'ready'
     assert _diagnostics(f, 'full') is None
+
+
+def test_interrupted_job_saves_same_summary_code_in_db_and_log(closed_loop, tmp_path, monkeypatch, caplog):
+    f, client, path = setup(closed_loop, tmp_path, monkeypatch)
+    drain(f)
+    assert client.post(path + '/full', headers=HEADERS, json={'expected_generation': 0}).status_code == 202
+    with database_session(f['dsn']) as db:
+        key = (f['learner'].learner_id, f['source'].material_id, f['document']['revision'], 'full')
+        db.get(MaterialNotes, key).attempts = 2
+    assert mn.step(dsn=f['dsn'], call=answer)
+    full = client.get(path + '/full').json()
+    assert full['status'] == 'failed' and full['error_code'] == 'NOTE_JOB_INTERRUPTED'
+    saved = _diagnostics(f, 'full')
+    assert saved == {'code': 'NOTE_JOB_INTERRUPTED', 'events': []}
+    logged = [r.getMessage() for r in caplog.records if 'NOTE_GENERATION_FAILED kind=full' in r.getMessage()]
+    assert json.loads(logged[-1].split('diagnostics=', 1)[1]) == saved

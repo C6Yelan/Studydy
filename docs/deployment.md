@@ -254,7 +254,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 ## 0018 筆記生成診斷摘要碼
 
-`0018_material_note_diagnostics.sql` 只在 `material_notes` 新增可為 NULL 的 `generation_diagnostics jsonb`，既有列保持 NULL，不改其他欄位或資料表；隔離環境由 0017 升級並逐表核對既有列不變。套用前備份產品 DB。只需更新後端（不需前端、不需重建映像或改 runtime lock）；新後端讀寫此欄位，必須先套用 0018 才能啟動。已套用後回復版本須識別 0018（舊程式不讀此欄位，可相容），不還原 DB。欄位內容與日誌 `NOTE_GENERATION_ADJUSTED`／`NOTE_GENERATION_FAILED` 的 `diagnostics=` 相同，只含錯誤碼、事件、段落位置、重點編號、核對理由 SHA-256 前 12 碼與頁高比例；查詢時直接讀 DB，API 不回傳。
+`0018_material_note_diagnostics.sql` 只在 `material_notes` 新增可為 NULL 的 `generation_diagnostics jsonb`，既有列保持 NULL，不改其他欄位或資料表；隔離環境由 0017 升級並逐表核對既有列不變。套用前備份產品 DB。只需更新後端（不需前端；可用輕量更新，不需完整重建 OCR 映像，也不改 runtime lock）；新後端讀寫此欄位，必須先套用 0018 才能啟動。已套用後回復版本須識別 0018（舊程式不讀此欄位，可相容），不還原 DB。欄位內容與日誌 `NOTE_GENERATION_ADJUSTED`／`NOTE_GENERATION_FAILED` 的 `diagnostics=` 相同，只含錯誤碼、事件、段落位置、重點編號、核對理由 SHA-256 前 12 碼與頁高比例；查詢時直接讀 DB，API 不回傳。
 
 ## 後端身分與既有資料
 
