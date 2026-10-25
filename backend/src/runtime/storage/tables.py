@@ -1000,6 +1000,7 @@ class MaterialNotes(Base):
     section_plan: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
     section_results: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
     progress_stage: Mapped[str | None] = mapped_column(Text)
+    generation_diagnostics: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

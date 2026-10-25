@@ -252,6 +252,10 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 部署後由維護程序呼叫 `runtime.material_notes.queue_existing(owner=<已授權 learner UUID>)`，僅為本人目前版本缺少的重點整理排工作；重跑不重新生成已有結果，也不建立完整筆記。回報教材份數與實際 provider 呼叫次數，不能把工作嘗試數當成模型請求數。程式失敗或容量不足時如實保留 failed，學生可手動重試。`queue_existing` 會跳過已有紀錄（包含 failed）的教材；只重跑指定的失敗列時，逐份對 `status='failed'` 的列呼叫 `runtime.material_notes.generate(owner, material_id, revision, "summary", expected_generation=<該列 generation>)`（與 API 重新生成相同），契約不同時會換用目前 lock，已發布筆記與註記保留。
 
+## 0018 筆記生成診斷摘要碼
+
+`0018_material_note_diagnostics.sql` 只在 `material_notes` 新增可為 NULL 的 `generation_diagnostics jsonb`，既有列保持 NULL，不改其他欄位或資料表；隔離環境由 0017 升級並逐表核對既有列不變。套用前備份產品 DB。只需更新後端（不需前端、不需重建映像或改 runtime lock）；新後端讀寫此欄位，必須先套用 0018 才能啟動。已套用後回復版本須識別 0018（舊程式不讀此欄位，可相容），不還原 DB。欄位內容與日誌 `NOTE_GENERATION_ADJUSTED`／`NOTE_GENERATION_FAILED` 的 `diagnostics=` 相同，只含錯誤碼、事件、段落位置、重點編號、核對理由 SHA-256 前 12 碼與頁高比例；查詢時直接讀 DB，API 不回傳。
+
 ## 後端身分與既有資料
 
 `STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。完整建置時 Compose 以同名建置參數在 backend 階段建立 `studydy-backend` passwd 項目（HOME=/tmp tmpfs）；torch／transformers 以 `getpass`、`~` 決定身分與 cache，缺少此項目時 OCR 子程序會 CHILD_EXITED。改 UID 須完整重建 backend 映像，輕量更新沿用 runtime 映像內的項目。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。

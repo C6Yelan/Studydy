@@ -1,5 +1,6 @@
 """隔離 DB 與真 API，模型使用受控替身，不動產品資料。"""
 from copy import deepcopy
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -352,3 +353,74 @@ def test_step_dispatches_content_checks_with_the_saved_review_contract(closed_lo
     assert result['status']=='ready'
     assert seen.count('review_paragraph')==4  # fixture 的一段教材，加上本教材三段
     assert seen.count('generate')==4  # 兩份短稿各檢查一次可補充的來源內容。
+
+
+def _diagnostics(f, kind):
+    with database_session(f['dsn']) as db:
+        key = (f['learner'].learner_id, f['source'].material_id, f['document']['revision'], kind)
+        return db.get(MaterialNotes, key).generation_diagnostics
+
+
+def _material_texts(requests):
+    return {t for r in requests for c in r.get('concepts', [])
+        for t in [c['label'], *(q['text'] for q in c['claims'])]}
+
+
+def test_dropped_paragraph_and_failure_save_summary_codes_without_material_text(closed_loop, tmp_path, monkeypatch, caplog):
+    f, client, path = setup(closed_loop, tmp_path, monkeypatch)
+    reason = '原文寫的是另一個條件 SECRET-REASON'
+    requests = []
+
+    def drop_first(request):
+        requests.append(request)
+        if request.get('phase') != 'review_paragraph':
+            return answer(request)
+        rejected = request['paragraph']['text'] == 'Signal 0 uses code0.'
+        return {**answer(request), 'checks': [{'part': p, 'supported': not (rejected and p == 'text'),
+            'reason': reason if rejected and p == 'text' else ''} for p in request['parts']]}
+    drain(f, drop_first)
+    summary = client.get(path + '/summary').json()
+    assert summary['status'] == 'ready' and summary['paragraphs']
+    assert 'generation_diagnostics' not in summary and 'diagnostics' not in summary
+    saved = _diagnostics(f, 'summary')
+    assert set(saved) == {'events'}
+    dropped = [e for e in saved['events'] if e['event'] == 'paragraph_dropped']
+    assert [e['reason'] for e in dropped] == ['content_unsupported']
+    assert len(dropped[0]['claims']) == 1
+    rejected = [e for e in saved['events'] if e['event'] == 'review_rejected']
+    assert [e['repaired'] for e in rejected] == [False, True]
+    assert all(len(i['reason_sha256']) == 12 for e in rejected for i in e['issues'])
+    stored = json.dumps(saved, ensure_ascii=False)
+    assert 'SECRET-REASON' not in stored
+    assert not any(t in stored for t in _material_texts(requests))
+    # 日誌與 DB 為同一份摘要。
+    logged = [r.getMessage() for r in caplog.records if 'NOTE_GENERATION_ADJUSTED' in r.getMessage()]
+    assert json.loads(logged[-1].split('diagnostics=', 1)[1]) == saved
+
+    # 失敗：寫入錯誤碼與事件；不回傳給 API，他人讀不到。
+    assert client.post(path + '/full', headers=HEADERS, json={'expected_generation': 0}).status_code == 202
+    def reject(request):
+        requests.append(request)
+        if request.get('phase') == 'review_paragraph':
+            return {**answer(request), 'checks': [{'part': p, 'supported': p != 'text',
+                'reason': reason if p == 'text' else ''} for p in request['parts']]}
+        return answer(request)
+    drain(f, reject)
+    full = client.get(path + '/full').json()
+    assert full['status'] == 'failed' and 'generation_diagnostics' not in full
+    failed = _diagnostics(f, 'full')
+    assert failed['code'] == full['error_code'] == 'NOTE_CONTENT_UNSUPPORTED'
+    assert failed['error_type'] == 'ValueError'
+    assert [e['repaired'] for e in failed['events'] if e['event'] == 'review_rejected'] == [False, True]
+    stored = json.dumps(failed, ensure_ascii=False)
+    assert 'SECRET-REASON' not in stored and not any(t in stored for t in _material_texts(requests))
+    foreign = register_account('note_diag_foreign@example.com', 'Synthetic test password 42', dsn=f['dsn'])
+    client.cookies.set('studydy_session', foreign.raw_token)
+    assert client.get(path + '/full').status_code == 404
+
+    # 重新生成覆寫：這次沒有刪減就清為 NULL。
+    client.cookies.set('studydy_session', f['token'])
+    assert client.post(path + '/full', headers=HEADERS, json={'expected_generation': 0}).status_code == 202
+    drain(f)
+    assert client.get(path + '/full').json()['status'] == 'ready'
+    assert _diagnostics(f, 'full') is None

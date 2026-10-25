@@ -152,6 +152,7 @@ def _claim(dsn):
             return None
         if row.attempts >= 2:
             row.status, row.error_code = "failed", "NOTE_JOB_INTERRUPTED"
+            row.generation_diagnostics = {"code": "NOTE_JOB_INTERRUPTED", "events": []}
             row.lease_token = row.lease_expires_at = None
             return {"skipped": True}
         row.status, row.lease_token = "running", uuid4()
@@ -183,7 +184,7 @@ def _check(claim, dsn, stop=None, *, count_call=False):
             row.calls += 1
 
 
-def _save(claim, dsn, *, paragraphs=None, error=None, stopping=False):
+def _save(claim, dsn, *, paragraphs=None, error=None, stopping=False, diagnostics=None):
     with database_session(dsn) as db:
         material = db.scalar(select(Material).where(Material.material_id == claim["key"][1],
             Material.learner_id == claim["key"][0]).with_for_update())
@@ -199,6 +200,9 @@ def _save(claim, dsn, *, paragraphs=None, error=None, stopping=False):
         row.error_code = error
         if stopping:
             row.attempts -= 1
+        else:
+            # 只保存最近一次有結果（發布或失敗）的摘要碼；重新生成時覆寫，沒有刪減的成功清為 NULL。
+            row.generation_diagnostics = diagnostics
         row.lease_token = row.lease_expires_at = None
         row.updated_at = datetime.now(UTC)
 
@@ -741,11 +745,12 @@ def step(*, dsn=None, call=None, stop=None):
                       input_budget=lock["semantic_service"]["max_model_len"] - policy["max_tokens"],
                       diagnostics=diagnostics))
         _check(claim, dsn, stop)
-        if diagnostics:
-            # 發布前刪掉的重點／段落只記編號、位置與理由摘要碼，供日後診斷。
+        summary = {"events": diagnostics} if diagnostics else None
+        if summary:
+            # 發布前刪掉的重點／段落只記編號、位置與理由摘要碼；日誌與 DB 存同一份。
             logging.getLogger(__name__).warning("NOTE_GENERATION_ADJUSTED kind=%s diagnostics=%s",
-                claim["key"][3], json.dumps(diagnostics, ensure_ascii=False))
-        _save(claim, dsn, paragraphs=result)
+                claim["key"][3], json.dumps(summary, ensure_ascii=False))
+        _save(claim, dsn, paragraphs=result, diagnostics=summary)
     except WorkerStopping:
         _save(claim, dsn, stopping=True)
     except JobCancelled:
@@ -755,7 +760,8 @@ def step(*, dsn=None, call=None, stop=None):
         if code not in {"NOTE_FORMAT_INVALID", "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_COVERAGE_INCOMPLETE",
             "NOTE_SUMMARY_TOO_LONG", "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID", "NOTE_CONTENT_UNSUPPORTED", "NOTE_REVIEW_INVALID"} and not isinstance(error, SemanticServiceError):
             code = "NOTE_GENERATION_FAILED"
-        logging.getLogger(__name__).warning("NOTE_GENERATION_FAILED error_type=%s code=%s kind=%s diagnostics=%s",
-            type(error).__name__, code, claim["key"][3], json.dumps(diagnostics, ensure_ascii=False))
-        _save(claim, dsn, error=code)
+        summary = {"code": code, "error_type": type(error).__name__, "events": diagnostics}
+        logging.getLogger(__name__).warning("NOTE_GENERATION_FAILED kind=%s diagnostics=%s",
+            claim["key"][3], json.dumps(summary, ensure_ascii=False))
+        _save(claim, dsn, error=code, diagnostics=summary)
     return True
