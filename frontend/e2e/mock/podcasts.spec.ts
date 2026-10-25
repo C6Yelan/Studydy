@@ -1045,3 +1045,64 @@ test("ready Podcast exports each available format for the selected episode", asy
   }
   expect(requests.every(path => path.includes("/episodes/0/export/"))).toBe(true);
 });
+
+
+test("transcript export appears after alignment without reloading the page", async ({ page }) => {
+  const { fixture } = await mockEpisodeVideo(page, "failed");
+  fixture.view.generation!.active = false;
+  let aligned = false, reads = 0;
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`, route => {
+    reads++;
+    return aligned ? route.fallback() : json(route, { schema: "api-error/v1", request_id: sessionId,
+      reason_code: "PODCAST_TIMELINE_NOT_READY", retryable: true, message: "Request could not be completed." }, 409);
+  });
+  await page.route("**/episodes/0/export/md", route => route.fulfill({ status: 200, contentType: "text/markdown",
+    headers: { "Content-Disposition": "attachment; filename*=UTF-8''episode.md" }, body: "saved transcript" }));
+  await page.goto(`/podcasts/${podcastId}`);
+  const controls = page.getByRole("group", { name: "匯出本集" });
+  await expect(controls.getByRole("combobox")).toHaveValue("mp3");
+  await expect.poll(() => reads).toBeGreaterThan(0);
+  await expect(controls.locator('option[value="md"]')).toHaveCount(0);
+  // 初次影片狀態讀取已結束，後續更新只能來自時間軸輪詢。
+  await page.waitForTimeout(2500);
+  aligned = true;
+  await expect(controls.locator('option[value="md"]')).toHaveCount(1);
+  await controls.getByRole("combobox").selectOption("md");
+  const download = page.waitForEvent("download");
+  await controls.getByRole("button", { name: "匯出", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("episode.md");
+  const settled = reads;
+  await page.waitForTimeout(2500);
+  expect(reads).toBe(settled);
+});
+
+for (const reason of ["PODCAST_TIMELINE_UNAVAILABLE", "PODCAST_TIMELINE_SOURCE_MISMATCH"]) {
+  test(`transcript export stops polling on ${reason}`, async ({ page }) => {
+    const { fixture } = await mockEpisodeVideo(page, "failed");
+    fixture.view.generation!.active = false;
+    let reads = 0;
+    let releaseVideo!: () => void;
+    const videoGate = new Promise<void>(resolve => { releaseVideo = resolve; });
+    await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video`, async route => {
+      await videoGate;
+      await route.fallback();
+    });
+    const firstTimeline = page.waitForResponse(response => response.url().endsWith('/episodes/0/timeline'));
+    await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`, route => {
+      reads++;
+      return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: reason,
+        retryable: false, message: "Request could not be completed." }, 409);
+    });
+    await page.goto(`/podcasts/${podcastId}`);
+    const controls = page.getByRole("group", { name: "匯出本集" });
+    await expect(controls.getByRole("combobox")).toHaveValue("mp3");
+    await (await firstTimeline).finished();
+    // 先完成版本 0 的初讀，再讓影片版本 1 到達；這次正常重讀不算錯誤輪詢。
+    releaseVideo();
+    await expect.poll(() => reads).toBe(2);
+    const settled = reads;
+    await page.waitForTimeout(2500);
+    expect(reads).toBe(settled);
+    await expect(controls.locator('option[value="md"]')).toHaveCount(0);
+  });
+}
