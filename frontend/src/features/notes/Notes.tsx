@@ -1,3 +1,4 @@
+import { ExportControls } from "../exports/ExportControls";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { MaterialNotesView, NoteAnnotation, NoteKind, NoteParagraph } from "../../api/contracts";
@@ -107,6 +108,9 @@ function NotesContent({ api, materialId, revision, kind }: { api: StudydyApiClie
           {busy ? "正在送出…" : pending ? "生成中" : view.paragraphs.length ? "重新生成" : view.status === "failed" ? "重試生成" : kind === "full" ? "生成完整筆記" : "生成重點整理"}
         </button>
       </div>
+      {view.paragraphs.length > 0 && <ExportControls label="匯出筆記" options={[
+        { value: "pdf", label: "PDF" }, { value: "md", label: "Markdown" }, { value: "docx", label: "Word（.docx）" },
+      ]} download={format => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${revision}/notes/${kind}/export/${format}`)} />}
       {view.progress && <section className="note-progress" aria-label="完整筆記分區進度">
         <p>{view.progress.stage === "validating" ? "正在核對完整筆記…" : view.progress.stage === "completed" ? "分區生成完成" : `正在整理：${view.progress.current_section ?? "教材"}`}</p>
         <progress aria-label="已完成分區" value={view.progress.completed_sections} max={Math.max(1, view.progress.total_sections)}/>

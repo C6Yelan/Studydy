@@ -1,0 +1,10 @@
+.export-controls { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-3, 12px); margin-block:12px; max-width:100%; }
+.export-controls label { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.export-controls select { max-width:100%; min-height:44px; padding:8px; color:var(--text-primary); background:var(--surface); border:1px solid var(--border); border-radius:8px; font:inherit; }
+.export-controls [role="alert"], .export-controls [role="status"] { flex-basis:100%; margin:0; }
+.map-export-menu { position:relative; }
+.map-export-menu > summary { list-style:none; cursor:pointer; white-space:nowrap; }
+.map-export-menu > summary::-webkit-details-marker { display:none; }
+.map-export-menu > .export-controls { position:absolute; z-index:5; right:0; top:100%; width:min(340px, calc(100vw - 48px)); padding:16px; border:1px solid var(--border); border-radius:var(--radius-card); background:var(--surface); box-shadow:var(--shadow); }
+.map-export-menu .export-controls label { min-width:0; }
+.map-export-menu .export-controls select { width:100%; }

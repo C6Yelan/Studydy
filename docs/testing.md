@@ -306,3 +306,10 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控命令驗證讀取，不放寬0700／0400斷言。沿用原NPROC1024、容器pids512及所有隔離參數；最小namespace探針不增加UID1000負載，也不調高限制。現有單元與runtime套件仍按原範圍執行。
 
 完整重建後端映像後，以 `python3 -B ops/tests/backend_identity.py <映像>` 核對執行 UID 有 passwd 身分、HOME 為 /tmp，且比照 OCR 子程序的清空環境仍可匯入 transformers、torch inductor cache 與 matplotlib 設定落在 /tmp。腳本以唯讀 rootfs、無網路執行，不 build／pull、不掛產品資料、不載入模型；UID 依 `STUDYDY_BACKEND_UID`（預設20001）。
+
+
+## 學習資料匯出
+
+`test_exports.py` 檢查筆記三種格式的表格、公式、來源、註記快照與中文字型粗體，原本一頁的長英文摘要在中文標題換粗體後仍為 A4 一頁且正文位置不變，診斷摘要的頁數與省略數量、MP3 實際解碼、逐字稿名字／時間，以及 Anki 資料庫與全部 PNG。`runtime/study/test_export_routes.py` 在一次性 DB 驗證 owner、固定版本、Origin、私人快取、未發布筆記、缺少影片／時間軸與偽造地圖選取。
+
+受影響的 notes、concept-cards、knowledge-map-viewport、learning-diagnosis、podcasts mock specs 驗證下載格式、整組分批、地圖渲染、失敗訊息與原介面；notes 真 API browser 同時驗證筆記三種下載。共用 client 的二進位下載沿用帳號失效／請求取消，因此仍需完整 mock 套件與 global-layout／shell-layout。這些驗證不宣稱重新驗收生成內容；匯出本身不呼叫模型。

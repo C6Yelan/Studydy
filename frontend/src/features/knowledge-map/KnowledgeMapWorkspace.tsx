@@ -1,3 +1,5 @@
+import { MapExports } from "../exports/MapExports";
+import { relationStyles } from "./map-appearance";
 import { DifficultyBadge, DifficultyList, LearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { StartingLevelControl } from "../study-session/StartingLevel";
 import { LearningGoalPanel } from "../learning-goals/LearningGoalPanel";
@@ -27,7 +29,6 @@ import type { StudydyApiClient } from "../../api/client";
 import type {
   KnowledgeOutlineView,
   KnowledgeRegionsView,
-  RelationType,
   MapProgressView,
   ConceptDifficultyView,
   StudySessionView,
@@ -46,13 +47,7 @@ type Mode = "focus" | "review";
 type RestoreFocus = () => void;
 
 // 五種關係畫成不同的橋：先備＝石橋、組成＝木橋、應用＝航線、例子＝踏石、對照＝對岸。
-const relationStyles: Record<RelationType, { label: string; bridge: string; color: string }> = {
-  prerequisite: { label: "先備", bridge: "石橋", color: "#2f6bff" },
-  part_of: { label: "組成", bridge: "木橋", color: "#22a865" },
-  application: { label: "應用", bridge: "航線", color: "#f08a00" },
-  example: { label: "例子", bridge: "踏石", color: "#1aa3b8" },
-  contrast: { label: "對照", bridge: "對岸", color: "#e0569a" },
-};
+
 
 const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
 
@@ -1300,6 +1295,7 @@ export function KnowledgeMapWorkspace({
               </span>
             )}
           </div>
+      <MapExports api={apiClient} view={view} />
     </>
   );
   return (

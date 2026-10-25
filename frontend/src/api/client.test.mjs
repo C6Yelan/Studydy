@@ -1613,3 +1613,21 @@ test("moving to a new version sends the confirmation key and checks the target",
   await assert.rejects(new StudydyApiClient(reply({ ...result, to_revision: `knowledge-structure:sha256:${"1".repeat(64)}` })).moveToNewVersion(materialId, body, "k"), ApiClientError);
   await assert.rejects(new StudydyApiClient(reply({ ...result, card_sets: [{ ...result.card_sets[0], status: "failed" }] })).moveToNewVersion(materialId, body, "k"), ApiClientError);
 });
+
+test("export downloads reject HTML responses and cannot finish after account invalidation", async () => {
+  const html = new StudydyApiClient(async () => new Response("<html>login</html>", { headers: { "Content-Type": "text/html" } }));
+  await assert.rejects(html.downloadExport("/v1/export"), error => error.kind === "schema");
+  let finish;
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  const client = new StudydyApiClient(async () => {
+    const response = new Response("pdf", { headers: { "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename*=UTF-8''report.pdf" } });
+    response.blob = () => { entered(); return new Promise(resolve => { finish = resolve; }); };
+    return response;
+  });
+  const pending = client.downloadExport("/v1/export");
+  await started;
+  client.invalidate();
+  await assert.rejects(pending, error => error.reasonCode === "SESSION_REQUIRED");
+  finish(new Blob(["pdf"]));
+});

@@ -17,6 +17,15 @@ test("real notes save an annotation, reopen its source and generate full notes o
   await expect(page.getByRole("dialog")).toBeHidden();
   await page.reload();
   await expect(page.getByText("真 API 保存我的複習想法", { exact: true })).toBeVisible();
+  const controls = page.getByRole("group", { name: "匯出筆記" });
+  for (const format of ["md", "pdf", "docx"]) {
+    await controls.getByRole("combobox").selectOption(format);
+    const download = page.waitForEvent("download");
+    await controls.getByRole("button", { name: "匯出", exact: true }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toBe(`重點整理.${format}`);
+    expect(await file.failure()).toBeNull();
+  }
   await page.locator(".note-sources button").first().click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
   await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", /page=1/);

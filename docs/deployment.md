@@ -262,3 +262,10 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 既有artifacts需由核准部署程序先遷移owner，保留0700目錄及原0600／0400檔案契約。不得遞迴chown整個data；data根、data/podcast、PostgreSQL、模型內容及jerry分析資料保持原狀。模型僅授新後端UID只讀ACL。部署／回滾前應在停止該版backend寫入後重新盤點範圍，具體路徑、數量、操作順序與回滾命令由本次部署狀態檔提供，不在產品初始化時自動遷移。
 
+
+
+## 學習資料匯出
+
+exports 不需 migration。後端新增 `genanki`、`python-docx` 與 `fonttools`，依 `uv.lock` 安裝；沿用現有 PyMuPDF、PyAV 與映像內 `fonts-noto-cjk`。PDF 從 Noto 字型集合選取繁體中文標準／粗體並嵌入，不依賴瀏覽器列印；MP3 使用 PyAV 的 libmp3lame，不另起模型或轉檔服務。
+
+輕量後端更新須以 `docker inspect studydy-backend-1` 當下映像為基底，保留 UID 20001 的 passwd 項目及原 OCR 環境。部署前核對中文字型標準／粗體、libmp3lame 與新增依賴可用。前端增加 `html-to-image`，完整渲染既有島嶼元件後產生 PNG；後端核對 owner、版本與完整概念集合後打包，不保存匯出內容或輸出至一般 log。

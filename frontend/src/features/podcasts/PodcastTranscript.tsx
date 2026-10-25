@@ -6,7 +6,7 @@ import { formatTime } from './PodcastPlayer';
 export type Timeline={schema:'podcast-transcript-timeline/v1';podcast_id:string;episode_index:number;audio_sha256:string;script_sha256:string;source_resolver:string;
   segments:{id:string;start:number;end:number;text:string;title:string;evidence:EvidenceView[];source_refs?:PodcastContext['source_refs'];turns:{speaker:'host'|'guest';text:string}[]}[]};
 
-function validTimeline(value:Timeline,view:PodcastView,index:number):boolean {
+export function validTimeline(value:Timeline,view:PodcastView,index:number):boolean {
   const episode=view.episodes[index];
   if(value.schema!=='podcast-transcript-timeline/v1'||value.podcast_id!==view.podcast_id||value.episode_index!==index
     ||value.audio_sha256!==episode.audio?.sha256||(episode.script_sha256&&value.script_sha256!==episode.script_sha256)

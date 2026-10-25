@@ -122,3 +122,28 @@ test("content verification failure retains the last published notes", async ({ p
   await expect(page.getByRole("heading", { name: "堆疊的順序" })).toBeVisible();
   await expect(page.getByRole("button", { name: "重新生成", exact: true })).toBeEnabled();
 });
+
+test("notes export each format and report download failure without regenerating", async ({ page }) => {
+  const state = await setup(page);
+  let fail = false;
+  const formats: string[] = [];
+  await page.route("**/notes/summary/export/*", route => {
+    const format = route.request().url().split("/").pop()!;
+    formats.push(format);
+    if (fail) return json(route, { schema: "api-error/v1", request_id: "55555555-5555-4555-8555-555555555555", reason_code: "RESOURCE_NOT_FOUND", retryable: false, message: "Request could not be completed." }, 404);
+    return route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "Content-Disposition": `attachment; filename*=UTF-8''notes.${format}` }, body: "export" });
+  });
+  await page.goto(`/materials/${materialId}/notes`);
+  const controls = page.getByRole("group", { name: "匯出筆記" });
+  for (const format of ["md", "pdf", "docx"]) {
+    await controls.getByRole("combobox").selectOption(format);
+    const downloaded = page.waitForEvent("download");
+    await controls.getByRole("button", { name: "匯出", exact: true }).click();
+    expect((await downloaded).suggestedFilename()).toBe(`notes.${format}`);
+  }
+  fail = true;
+  await controls.getByRole("button", { name: "匯出", exact: true }).click();
+  await expect(controls.getByRole("alert")).toContainText("找不到");
+  expect(formats).toEqual(["md", "pdf", "docx", "docx"]);
+  expect(state.writes).toEqual([]);
+});

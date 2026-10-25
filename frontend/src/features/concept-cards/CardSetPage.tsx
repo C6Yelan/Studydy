@@ -1,3 +1,4 @@
+import { CardExports } from "../exports/CardExports";
 import { useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { BackLink } from "../../ui/BackLink";
@@ -64,6 +65,7 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
       void apiClient.retryCardGeneration(cardSetId).then(() => setReload(n => n + 1)).catch(failure => setError(errorMessage(failure)));
     }} /> : error || !view?.batch ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入第一批卡片。"} tone={error ? "failure" : "loading"} live={!error} skeleton="deck" action={error ? <button className="primary-button" onClick={() => setReload(n => n + 1)}>重新讀取</button> : undefined} />
       : <>
+        <CardExports api={apiClient} view={view} />
         {/* 已移到新版或尚未列入的卡組不提供標記與需要加強（標記由新版卡組沿用）。 */}
         <CardStudy key={`${cardSetId}:${view.version}`} view={view} apiClient={apiClient} materialId={materialId} onReload={() => setReload(n => n + 1)}
           marks={markable ? summary?.marks : undefined} onMarked={refreshSummary}

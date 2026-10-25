@@ -262,6 +262,7 @@ export class StudydyApiClient {
     path: string,
     init: RequestInit,
     timeoutMs?: number,
+    download = false,
   ): Promise<{ status: number; value: unknown }> {
     this.requireActive();
     const controller = new AbortController();
@@ -309,6 +310,20 @@ export class StudydyApiClient {
         });
       }
       checkActive();
+      if (download && response.ok && !response.redirected) {
+        const disposition = response.headers.get("Content-Disposition") ?? "";
+        const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+        const mediaType = (response.headers.get("Content-Type") ?? "").split(";")[0].trim();
+        if (!/^attachment;/i.test(disposition) || !encoded || ![
+          "application/pdf", "application/zip", "application/octet-stream", "text/markdown",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "image/png", "audio/mpeg", "video/mp4",
+        ].includes(mediaType)) throw schemaMismatch("下載回應格式無法辨識。");
+        let filename: string;
+        try { filename = decodeURIComponent(encoded); } catch { throw schemaMismatch("下載檔名無法辨識。"); }
+        const blob = await response.blob();
+        checkActive();
+        return { status: response.status, value: { blob, filename } };
+      }
       let value: unknown = null;
       if (response.status !== 204) {
         try {
@@ -362,6 +377,21 @@ export class StudydyApiClient {
       controller.signal.removeEventListener("abort", onAbort);
       this.pending.delete(controller);
     }
+  }
+
+  async downloadExport(path: string, body?: unknown): Promise<void> {
+    const result = await this.request(path, {
+      method: body === undefined ? "GET" : "POST",
+      ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+    }, undefined, true);
+    this.requireActive();
+    const { blob, filename } = result.value as { blob: Blob; filename: string };
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_");
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   async studyTools<T>(path: string, body?: unknown, key?: string, method?: string): Promise<T> {

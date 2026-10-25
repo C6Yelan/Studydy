@@ -1,0 +1,9 @@
+.map-export-sheet { width:1400px; padding:40px; background:var(--page-cool); color:var(--text-primary); box-sizing:border-box; }
+.map-export-sheet h1 { font-size:28px; margin:0 0 12px; }
+.map-export-graph { position:relative; }
+.map-export-grid { display:grid; grid-template-columns:repeat(3, 300px); column-gap:160px; row-gap:110px; padding:60px 40px; }
+.map-export-node.react-flow__node { position:relative; width:300px; align-self:start; }
+.map-export-node strong { display:block; overflow:visible; -webkit-line-clamp:unset; }
+.map-export-edges { position:absolute; inset:0; overflow:visible; }
+.map-export-relations { margin-top:30px; background:var(--surface); padding:24px; border-radius:16px; }
+.map-export-relations li { margin:8px 0; overflow-wrap:anywhere; }

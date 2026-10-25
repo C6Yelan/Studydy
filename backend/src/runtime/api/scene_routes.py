@@ -9,6 +9,33 @@ from .. import podcast_videos
 from ..podcast_timeline import build_timeline, webvtt, with_source_ranges
 
 
+def load_timeline(learner, identity, index, *, dsn=None):
+    video = podcast_videos.ready_manifest(
+        learner, identity, index, dsn=dsn
+    )
+    if video is not None:
+        podcast = podcasts.read_podcast(learner, identity, dsn=dsn)
+        try:
+            return with_source_ranges(video["timeline"], podcast["episodes"][index])
+        except (ValueError, IndexError):
+            raise HTTPException(409, detail="PODCAST_TIMELINE_SOURCE_MISMATCH") from None
+    podcast = podcasts.read_podcast(learner, identity, dsn=dsn)
+    if not 0 <= index < len(podcast["episodes"]):
+        raise HTTPException(404)
+    scene = podcast_scenes.read(learner, identity, dsn=dsn)["episodes"][
+        index
+    ]
+    if scene["status"] != "ready":
+        raise HTTPException(409, detail="PODCAST_TIMELINE_NOT_READY")
+    try:
+        episode = podcast["episodes"][index]
+        return with_source_ranges(
+            build_timeline(identity, index, episode, scene["manifest"]), episode
+        )
+    except ValueError:
+        raise HTTPException(409, detail="PODCAST_TIMELINE_SOURCE_MISMATCH") from None
+
+
 class Prepare(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -25,35 +52,7 @@ def install(app, settings):
         return request_context.trusted_learner(request, settings).learner_id
 
     def timeline(request, identity, index):
-        learner = owner(request)
-        video = podcast_videos.ready_manifest(
-            learner, identity, index, dsn=settings.dsn
-        )
-        if video is not None:
-            podcast = podcasts.read_podcast(learner, identity, dsn=settings.dsn)
-            try:
-                return with_source_ranges(video["timeline"], podcast["episodes"][index])
-            except (ValueError, IndexError):
-                raise HTTPException(
-                    409, detail="PODCAST_TIMELINE_SOURCE_MISMATCH"
-                ) from None
-        podcast = podcasts.read_podcast(learner, identity, dsn=settings.dsn)
-        if not 0 <= index < len(podcast["episodes"]):
-            raise HTTPException(404)
-        scene = podcast_scenes.read(learner, identity, dsn=settings.dsn)["episodes"][
-            index
-        ]
-        if scene["status"] != "ready":
-            raise HTTPException(409, detail="PODCAST_TIMELINE_NOT_READY")
-        try:
-            episode = podcast["episodes"][index]
-            return with_source_ranges(
-                build_timeline(identity, index, episode, scene["manifest"]), episode
-            )
-        except ValueError:
-            raise HTTPException(
-                409, detail="PODCAST_TIMELINE_SOURCE_MISMATCH"
-            ) from None
+        return load_timeline(owner(request), identity, index, dsn=settings.dsn)
 
     @app.get("/v1/podcasts/{identity}/episodes/{index}/timeline")
     def read_timeline(request: Request, identity: UUID, index: int):

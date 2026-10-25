@@ -422,3 +422,44 @@ for (const width of [1536, 390])
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     assertReadOnly();
   });
+
+test("map export renders complete island artwork without changing the viewport", async ({ page }) => {
+  const view = structureView();
+  await mockKnowledgeMapApi(page, view);
+  await page.route("**/regions", route => json(route, { schema: "knowledge-regions/v1", material_id: materialId,
+    knowledge_structure_revision: structureRevision, basis: "learning_order", groups: [], partial: false,
+    regions: [{ region_id: "region-1", label: "完整區域", source_id: null, concept_ids: view.concepts.map(c => c.concept_id) }] }));
+  let exported: { images: { concept_ids: string[]; png: string }[] } | null = null;
+  await page.route("**/map/export/png", async route => {
+    exported = route.request().postDataJSON();
+    const bridgePixels = await page.evaluate(async png => {
+      const blob = await fetch(`data:image/png;base64,${png}`).then(r => r.blob());
+      const bitmap = await createImageBitmap(blob);
+      const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const ctx = canvas.getContext("2d")!; ctx.drawImage(bitmap, 0, 0);
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let count = 0;
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i] === 201 && pixels[i + 1] === 183 && pixels[i + 2] === 156) count++;
+      bitmap.close(); return count;
+    }, exported!.images[0].png);
+    expect(bridgePixels).toBeGreaterThan(200);
+    const content = Buffer.from(exported!.images[0].png, "base64");
+    await route.fulfill({ status: 200, contentType: "image/png", headers: { "Content-Disposition": "attachment; filename*=UTF-8''map.png" }, body: content });
+  });
+  await page.goto(mapPath);
+  await expect(page.locator(".react-flow__node").first()).toBeVisible();
+  const before = await readViewport(page);
+  await page.getByText("匯出地圖", { exact: true }).click();
+  const controls = page.getByRole("group", { name: "匯出知識地圖" });
+  const download = page.waitForEvent("download");
+  await controls.getByRole("button", { name: "匯出", exact: true }).click();
+  const result = await download;
+  expect(result.suggestedFilename()).toBe("map.png");
+  expect(exported!.images.flatMap(i => i.concept_ids).sort()).toEqual(view.concepts.map(c => c.concept_id).sort());
+  await result.saveAs(test.info().outputPath("export-map.png"));
+  await expectViewportUnchanged(page, before);
+  await expect(page.locator(".map-export-sheet")).toHaveCount(0);
+  await controls.getByRole("combobox").focus();
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("匯出地圖", { exact: true })).toBeFocused();
+});

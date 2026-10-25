@@ -122,3 +122,20 @@ test("a failed diagnosis read preserves the score and can be retried", async ({ 
   await page.locator(".assessment-answer-review summary").click();
   await expect(page.locator(".assessment-answer-review .feedback-card")).toHaveCount(4);
 });
+
+test("diagnosis exports a PDF summary for the current material revision", async ({ page }) => {
+  await mockKnowledgeMapApi(page);
+  await page.route("**/learning-diagnosis", route => json(route, { ...diagnosisView(materialId, structureRevision),
+    recommendations: [{ concept_id: firstConcept, label: "Stack", reason: "先複習最近答錯的重點。" }] }));
+  let path = "";
+  await page.route("**/learning-diagnosis/export/pdf", route => {
+    path = decodeURIComponent(new URL(route.request().url()).pathname);
+    return route.fulfill({ status: 200, contentType: "application/pdf", headers: { "Content-Disposition": "attachment; filename*=UTF-8''diagnosis.pdf" }, body: "%PDF" });
+  });
+  await page.goto(mapPath);
+  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  const download = page.waitForEvent("download");
+  await page.getByRole("group", { name: "匯出學習診斷" }).getByRole("button", { name: "匯出", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("diagnosis.pdf");
+  expect(path).toBe(`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/learning-diagnosis/export/pdf`);
+});

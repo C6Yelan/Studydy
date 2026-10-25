@@ -40,6 +40,7 @@ from .. import card_sets, learner_profile
 from .research_routes import install as install_research
 from .topic_routes import install as install_topics
 from .note_routes import install as install_notes
+from .export_routes import install as install_exports
 from .scene_routes import install as install_scenes
 from .video_routes import install as install_videos
 from .voice_routes import install as install_voice
@@ -1386,6 +1387,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
     install_videos(app, settings)
     install_topics(app, settings)
     install_notes(app, settings)
+    install_exports(app, settings)
     install_research(app, settings)
     install_voice(app, settings)
     _install_openapi(app)

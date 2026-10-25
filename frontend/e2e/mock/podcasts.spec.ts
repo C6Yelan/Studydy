@@ -908,3 +908,22 @@ test("podcast tiles show status only while work remains and leave version notes 
   await expect(pending.locator(".podcast-cover i")).toHaveText("3 集");
   await expect(pending.locator(".library-state")).toHaveText("正在生成 · 音訊 2 / 3 集 · 影片 1 / 3 集");
 });
+
+test("ready Podcast exports each available format for the selected episode", async ({ page }) => {
+  await mockEpisodeVideo(page);
+  const requests: string[] = [];
+  await page.route("**/episodes/*/export/*", route => {
+    requests.push(new URL(route.request().url()).pathname);
+    const format = route.request().url().split("/").pop();
+    return route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "Content-Disposition": `attachment; filename*=UTF-8''episode.${format}` }, body: "saved export" });
+  });
+  await page.goto(`/podcasts/${podcastId}`);
+  const controls = page.getByRole("group", { name: "匯出本集" });
+  for (const format of ["mp3", "md", "mp4"]) {
+    await controls.getByRole("combobox").selectOption(format);
+    const download = page.waitForEvent("download");
+    await controls.getByRole("button", { name: "匯出", exact: true }).click();
+    expect((await download).suggestedFilename()).toBe(`episode.${format}`);
+  }
+  expect(requests.every(path => path.includes("/episodes/0/export/"))).toBe(true);
+});

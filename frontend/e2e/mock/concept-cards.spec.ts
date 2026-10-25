@@ -1641,3 +1641,22 @@ test("a card set left out of the marks summary (moved to a new version) offers n
   await expect(page.locator(".cards-weak-link")).toHaveCount(0);
   expect(posts).toEqual([]);
 });
+
+test("whole deck export includes every batch and all rendered card faces", async ({ page }) => {
+  await mockCards(page, { saved: true, many: true });
+  let exported: { version: number; images: { concept_id: string; page: number; png: string }[] } | null = null;
+  await page.route(`**/v1/card-sets/${cardSetId}/export/zip`, route => {
+    exported = route.request().postDataJSON();
+    return route.fulfill({ status: 200, contentType: "application/zip", headers: { "Content-Disposition": "attachment; filename*=UTF-8''cards.zip" }, body: "zip" });
+  });
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  const controls = page.getByRole("group", { name: "匯出整組概念卡" });
+  await controls.getByRole("combobox").selectOption("zip");
+  const download = page.waitForEvent("download");
+  await controls.getByRole("button", { name: "匯出", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("cards.zip");
+  expect(exported).not.toBeNull();
+  const images = exported!.images;
+  expect(new Set(images.map(i => i.concept_id)).size).toBe(31);
+  expect(images.every(i => i.png.startsWith("iVBOR"))).toBe(true);
+});

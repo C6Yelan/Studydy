@@ -1,3 +1,4 @@
+import { PodcastExports } from "../exports/PodcastExports";
 import { usePodcastVideo } from "./PodcastVideo";
 import { BackLink } from "../../ui/BackLink";
 import { PodcastTranscript } from "./PodcastTranscript";
@@ -37,7 +38,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const rememberPosition = useRef(true);
   const autoPlayNext = useRef(false);
   const episodeList = useRef<HTMLElement>(null);
-  const videoState = usePodcastVideo(apiClient,podcastId,index,view && podcastPreviewReady(view) ? view.episodes[index]?.audio?.sha256 : undefined,view?.episodes[index]?.script_sha256??undefined);
+  const videoState = usePodcastVideo(apiClient,podcastId,index,view?.status === "ready" ? view.episodes[index]?.audio?.sha256 : undefined,view?.episodes[index]?.script_sha256??undefined);
   useLayoutEffect(() => {
     const layout = workspace.current;
     if (!layout) return;
@@ -179,6 +180,13 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     {actionError && <p className="form-error" role="alert">{actionError}</p>}
     {!view.is_current_revision && <p className="podcast-meta-note">依建立時的教材版本保存</p>}
     {!previewReady && <PodcastProgress view={view} busy={busy} onAction={action => void act(action)} />}
+    {view.status === "ready" && <>
+      {!previewReady && <label>匯出集數<select aria-label="匯出集數" value={index} onChange={e => setIndex(Number(e.target.value))}>
+        {view.episodes.map((e, i) => <option key={i} value={i}>第 {i + 1} 集 · {e.title ?? ""}</option>)}
+      </select></label>}
+      <PodcastExports key={`export-${podcastId}-${index}`} api={apiClient} view={view} index={index}
+        videoReady={videoState.state?.status === "ready"} videoVersion={videoState.state?.version ?? 0} />
+    </>}
     {previewReady && videoState.state?.status !== "ready" && <StateView title={videoState.error ? "無法載入影片" : "正在載入影片"} description={videoState.error || "正在確認本集影片。"} tone={videoState.error ? "failure" : "loading"} action={<button type="button" className="secondary-button" onClick={videoState.reload}>重新讀取</button>} />}
     {previewReady && videoState.state?.status === "ready" && progress !== undefined && <div ref={workspace} className="podcast-listening-layout">
         <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} episodeLabel={episode.title || episodeTitle(episode.claims.map(c => c.label))} videoState={videoState} mediaRef={media} storageKey={storageKey}
