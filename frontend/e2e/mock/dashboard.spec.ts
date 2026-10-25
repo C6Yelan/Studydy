@@ -490,7 +490,7 @@ test("achievements level card, XP rules and profile overview show real numbers w
   await mockLibrary(page, () => [withStudy(), { ...material, material_id: uuid(7) }]);
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
     streak: 4, total: 245, todayXp: 32, level: [2, 145, 200],
-    sources: { answers: 180, concepts: 30, cards: 20, podcast: 15 },
+    sources: { answers: 145, concepts: 30, cards: 20, podcast: 15, goals: 15, difficulties: 20, diagnostics: 0 },
   }) }));
   await page.goto("/");
   const pill = page.getByRole("button", { name: "第 2 級，本級 145 / 200 XP，連續學習 4 天，查看成就" });
@@ -503,12 +503,14 @@ test("achievements level card, XP rules and profile overview show real numbers w
   // 經驗值說明列出每種來源的規則與已獲得的 XP。
   const rules = page.getByRole("region", { name: "經驗值怎麼算" });
   const sources = rules.locator(".xp-sources > li");
-  await expect(sources).toHaveCount(4);
-  await expect(sources.filter({ hasText: "作答" })).toContainText(/\+10答對\+3答錯180已獲得/);
+  await expect(sources).toHaveCount(7);
+  await expect(sources.filter({ hasText: "作答" })).toContainText(/\+10答對\+3答錯145已獲得/);
   await expect(sources.filter({ hasText: "收聽 Podcast" })).toContainText("每天最多 +60");
+  await expect(sources.filter({ hasText: "目標與關卡" })).toContainText(/\+15每關\+50準時達標15已獲得/);
+  await expect(sources.filter({ hasText: "起始程度診斷" })).toContainText(/\+20每份教材0已獲得/);
   // 來源比例長條依實際 XP 分段，沒有 XP 的來源不畫。
-  await expect(rules.getByRole("img")).toHaveAttribute("aria-label", "作答 180 XP、完成概念 30 XP、標記概念卡 20 XP、收聽 Podcast 15 XP");
-  await expect(rules.locator(".xp-mix-bar > i")).toHaveCount(4);
+  await expect(rules.getByRole("img")).toHaveAttribute("aria-label", "作答 145 XP、完成概念 30 XP、標記概念卡 20 XP、收聽 Podcast 15 XP、目標與關卡 15 XP、克服難點 20 XP、起始程度診斷 0 XP");
+  await expect(rules.locator(".xp-mix-bar > i")).toHaveCount(6);
   await page.getByRole("button", { name: /^個人檔案：/ }).click();
   await expect(page).toHaveURL(/\/profile$/);
   await expect(page.getByRole("region", { name: "第 2 級" })).toHaveCount(0);
@@ -598,8 +600,8 @@ test("achievements list earned badges above unearned ones, one cell per badge", 
   }) }));
   await page.goto("/achievements");
   const wall = page.getByRole("region", { name: "成就總覽" });
-  // 已取得：作答 2 層、連續 1 層與第 6 級的等級 I；分母是 75 個成就扣掉成就鏈尚未揭曉的 5 步。
-  await expect(wall.locator(":scope > header .badge-count")).toHaveText("4 / 70");
+  // 已取得：作答 2 層、連續 1 層與第 6 級的等級 I；分母是 106 個成就扣掉成就鏈尚未揭曉的 5 步。
+  await expect(wall.locator(":scope > header .badge-count")).toHaveText("4 / 101");
   await expect(wall).not.toContainText("future_badge");
   const earned = page.getByRole("region", { name: "已取得" }).locator(".badge-cell");
   await expect(earned).toHaveCount(4);
@@ -608,7 +610,7 @@ test("achievements list earned badges above unearned ones, one cell per badge", 
   await expect(earned.filter({ hasText: "百題挑戰" })).toContainText(/作答 · 銀・II.*累計作答 100 題.*2026\/10\/18 取得/);
   await expect(earned.filter({ hasText: "三日不間斷" })).toContainText("已取得");
   const locked = page.getByRole("region", { name: "未取得" });
-  await expect(locked.locator(":scope > header .badge-count")).toHaveText("66");
+  await expect(locked.locator(":scope > header .badge-count")).toHaveText("97");
   const next = locked.locator(".badge-cell").filter({ hasText: "題海航行者" });
   await expect(next).toContainText(/作答 · 金・III.*累計作答 300 題/);
   await expect(next.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "124 / 300 題");
@@ -649,6 +651,30 @@ test("hidden achievements show only hints and achievement chains reveal one step
   await expect(locked.locator(".badge-cell").filter({ hasText: "十題只是開始。" })).toContainText(/成就鏈 · 第 2 步.*？？？/);
   await expect(locked).not.toContainText("連對達人");
   await expect(locked).not.toContainText("再遠一點");
+});
+
+test("v7 goal, difficulty, media, combo and easter-egg achievements reuse the series and hidden cells", async ({ page }) => {
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ badges: {
+    first_stage: { earned_on: "2026-10-20" }, stages_10: { progress: 1 }, difficulties_5: { progress: 2 },
+    upload_youtube: { earned_on: "2026-10-19" }, export_kinds_4: { progress: 3 }, stage_streak_7: { progress: 4 },
+    nemesis: { earned_on: "2026-10-21" },
+  } }) }));
+  await page.goto("/achievements");
+  const earned = page.getByRole("region", { name: "已取得" }).locator(".badge-cell");
+  const locked = page.getByRole("region", { name: "未取得" }).locator(".badge-cell");
+  // 多層系列沿用層級小字；單一成就只顯示系列名稱。
+  await expect(earned.filter({ hasText: "第一關" })).toContainText(/目標與關卡 · 銅・I.*第一次完成分天關卡.*2026\/10\/20 取得/);
+  await expect(earned.filter({ hasText: "YouTube 教材" })).toContainText(/多元教材.*第一次用 YouTube 連結建立教材/);
+  await expect(locked.filter({ hasText: "十關闖將" }).getByRole("progressbar")).toHaveAttribute("aria-valuetext", "1 / 10 關");
+  await expect(locked.filter({ hasText: "難點剋星" }).getByRole("progressbar")).toHaveAttribute("aria-valuetext", "2 / 5 個");
+  await expect(locked.filter({ hasText: "整理收藏家" }).getByRole("progressbar")).toHaveAttribute("aria-valuetext", "3 / 4 種");
+  await expect(locked.filter({ hasText: "一週闖關" })).toContainText(/組合成就.*連續 7 天都完成分天關卡/);
+  // 彩蛋：取得後才揭曉；未取得只有提示。
+  await expect(earned.filter({ hasText: "宿敵" })).toContainText(/特殊成就.*錯誤率曾達 70%/);
+  const onTime = locked.filter({ hasText: "說到做到。" });
+  await expect(onTime).toContainText("？？？");
+  await expect(onTime).not.toContainText("準時達陣");
+  await expect(onTime.getByRole("progressbar")).toHaveCount(0);
 });
 
 test("new badge notice shows once per badge after the first visit in this browser", async ({ page }) => {

@@ -982,6 +982,8 @@ class LearningGoal(Base):
     daily_unavailable_claim_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
     daily_completed_points: Mapped[int] = mapped_column(Integer, nullable=False)
     daily_quota_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 第一次設定目標的時間，修改目標不變（成就「立下目標」）。
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class MaterialNotes(Base):

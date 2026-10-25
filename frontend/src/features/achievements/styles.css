@@ -16,7 +16,7 @@
 .level-xp { display: grid; align-content: start; gap: 4px; }
 .level-xp .level-next { margin-bottom: 8px; }
 
-/* 經驗值圖解：來源比例長條、四種來源（精簡列） */
+/* 經驗值圖解：來源比例長條、各來源（精簡列） */
 .xp-rules {
   display: grid;
   gap: 14px;
@@ -28,6 +28,9 @@
 .xp-rules .is-concepts { --xp: var(--success); --xp-soft: var(--success-soft); }
 .xp-rules .is-cards { --xp: var(--violet); --xp-soft: var(--violet-soft); }
 .xp-rules .is-podcast { --xp: #1f9fd6; --xp-soft: #e2f5fd; }
+.xp-rules .is-goals { --xp: var(--studydy-blue); --xp-soft: var(--studydy-blue-soft); }
+.xp-rules .is-difficulties { --xp: var(--coral); --xp-soft: #ffe9e6; }
+.xp-rules .is-diagnostics { --xp: var(--amber-deep); --xp-soft: #fdeedd; }
 .xp-mix p { margin: 0 0 6px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
 .xp-mix p b { color: var(--text-primary); font-size: 15px; }
 .xp-mix-bar {

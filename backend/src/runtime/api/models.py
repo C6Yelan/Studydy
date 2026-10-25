@@ -388,6 +388,10 @@ class LearningXpSources(_Closed):
     concepts: int
     cards: int
     podcast: int
+    # xp-rules/v4：分天關卡與準時達成目標、克服難點、完成起始程度診斷。
+    goals: int
+    difficulties: int
+    diagnostics: int
 
 
 class LearningXpView(_Closed):
@@ -429,6 +433,14 @@ class LearningBadgeView(_Closed):
         "weekend", "return", "curious_10", "curious_50", "researcher", "creator", "corrected_5",
         "first_try_material", "perfect_day", "all_round_day", "thousand_pages", "revisit",
         "xp_day_300", "never_give_up", "binge_3", "three_islands", "new_year",
+        # badge-rules/v7
+        "first_goal", "first_stage", "stages_10", "stages_50",
+        "first_difficulty", "difficulties_5", "difficulties_20", "first_diagnostic", "diagnostics_5",
+        "first_note", "first_annotation", "annotations_10", "annotations_50",
+        "upload_image", "upload_audio", "upload_video", "upload_youtube", "first_export", "export_kinds_4",
+        "podcast_series", "podcast_hosts_6",
+        "all_tools_material", "diagnosed_mastery", "media_concepts_5", "stage_streak_7",
+        "goal_on_time", "all_media", "last_minute", "night_listener", "nemesis", "same_day_learner",
     ]
     earned: bool
     # 取得日期（台灣日期）；推導不出日期時為 null。
@@ -438,14 +450,14 @@ class LearningBadgeView(_Closed):
 
 
 class LearningBadgesView(_Closed):
-    rule_version: Literal["badge-rules/v6"]
+    rule_version: Literal["badge-rules/v7"]
     items: list[LearningBadgeView]
 
 
 class LearningActivityView(_Closed):
     schema_: Literal["learning-activity/v3"] = Field(alias="schema")
     timezone: Literal["Asia/Taipei"]
-    rule_version: Literal["xp-rules/v3"]
+    rule_version: Literal["xp-rules/v4"]
     today: date_type
     streak_days: int
     active_today: bool

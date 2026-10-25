@@ -10,6 +10,7 @@ from pydantic import Field
 from .models import _Closed
 from . import request_context
 from .. import material_notes, export_documents, export_cards
+from ..learning_activity import record_export
 
 async def export_slot(request: Request):
     # MP4 只傳既有檔案，不進產檔佇列。
@@ -70,11 +71,14 @@ def install(app, settings):
     @app.get('/v1/materials/{material_id}/knowledge-structures/{revision}/notes/{kind}/export/{format}', tags=['exports'], dependencies=[Depends(export_slot, scope="function")])
     def note(request: Request, material_id: UUID, revision: str,
              kind: Literal['summary', 'full'], format: Literal['md', 'pdf', 'docx']):
-        view = material_notes.read(owner(request), material_id, revision, kind, dsn=settings.dsn)
+        learner = owner(request)
+        view = material_notes.read(learner, material_id, revision, kind, dsn=settings.dsn)
         if not view['paragraphs']:
             raise request_context.ApiFailure('RESOURCE_NOT_FOUND')
         render = {'md': export_documents.note_markdown, 'pdf': export_documents.note_pdf, 'docx': export_documents.note_docx}[format]
-        return download(render(view), f'{"重點整理" if kind == "summary" else "完整筆記"}.{format}', format)
+        response = download(render(view), f'{"重點整理" if kind == "summary" else "完整筆記"}.{format}', format)
+        record_export(learner, 'notes', dsn=settings.dsn)
+        return response
 
     @app.post('/v1/card-sets/{identity}/exports', tags=['exports'], dependencies=[Depends(export_slot, scope="function")])
     def start_cards(request: Request, identity: UUID, body: CardExportCreate):
@@ -89,7 +93,9 @@ def install(app, settings):
         return export_cards.cancel(owner(request), identity, upload_id)
 
     def card_download_file(request: Request, identity: UUID, upload_id: UUID):
-        with export_cards.finish(owner(request), identity, upload_id, dsn=settings.dsn) as result:
+        learner = owner(request)
+        with export_cards.finish(learner, identity, upload_id, dsn=settings.dsn) as result:
+            record_export(learner, 'cards', dsn=settings.dsn)
             yield result
 
     @app.post('/v1/card-sets/{identity}/exports/{upload_id}/download', tags=['exports'], dependencies=[Depends(export_slot, scope="function")])
@@ -109,7 +115,9 @@ def install(app, settings):
             db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
             view = knowledge_reads.outline(db, learner, material_id, revision)
             regions = knowledge_reads.regions(db, learner, material_id, revision)
-        return download(export_map.markdown(view, regions), '概念大綱.md', 'md')
+        response = download(export_map.markdown(view, regions), '概念大綱.md', 'md')
+        record_export(learner, 'map', dsn=settings.dsn)
+        return response
 
     @app.post('/v1/materials/{material_id}/knowledge-structures/{revision}/map/export/png', tags=['exports'], dependencies=[Depends(export_slot, scope="function")])
     def map_images(request: Request, material_id: UUID, revision: str, body: MapExport):
@@ -123,7 +131,9 @@ def install(app, settings):
             raise request_context.ApiFailure('REQUEST_INVALID')
         files = [(f'地圖-{i + 1:03}.png', export_documents.decode_png(image.png)) for i, image in enumerate(body.images)]
         data, extension = (files[0][1], 'png') if len(files) == 1 else (export_documents.zip_files(files), 'zip')
-        return download(data, f'知識地圖.{extension}', extension)
+        response = download(data, f'知識地圖.{extension}', extension)
+        record_export(learner, 'map', dsn=settings.dsn)
+        return response
 
     @app.get('/v1/materials/{material_id}/knowledge-structures/{revision}/learning-diagnosis/export/pdf', tags=['exports'], dependencies=[Depends(export_slot, scope="function")])
     def diagnosis(request: Request, material_id: UUID, revision: str, set_id: UUID | None = None):
@@ -134,7 +144,9 @@ def install(app, settings):
         with database_session(settings.dsn) as db:
             db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
             view = read_diagnosis(db, learner, material_id, revision, set_id)
-        return download(export_documents.diagnosis_pdf(view), '學習診斷.pdf', 'pdf')
+        response = download(export_documents.diagnosis_pdf(view), '學習診斷.pdf', 'pdf')
+        record_export(learner, 'diagnosis', dsn=settings.dsn)
+        return response
 
     @app.get('/v1/podcasts/{identity}/episodes/{index}/export/{format}', tags=['exports'], dependencies=[Depends(export_slot, scope="function")])
     def podcast(request: Request, identity: UUID, index: int, format: Literal['md', 'mp3', 'mp4']):
@@ -155,14 +167,19 @@ def install(app, settings):
                 if error.reason_code in ('PODCAST_TIMELINE_NOT_READY', 'PODCAST_TIMELINE_UNAVAILABLE', 'PODCAST_TIMELINE_SOURCE_MISMATCH'):
                     raise request_context.ApiFailure('SCENE_CONFLICT') from None
                 raise
-            return download(export_podcast.transcript(view, index, timeline), filename, format)
+            response = download(export_podcast.transcript(view, index, timeline), filename, format)
+            record_export(learner, 'podcast', dsn=settings.dsn)
+            return response
         if format == 'mp4':
             manifest = podcast_videos.ready_manifest(learner, identity, index, dsn=settings.dsn)
             if manifest is None:
                 raise request_context.ApiFailure('RESOURCE_NOT_FOUND')
             response = artifact_response(request, open_verified_artifact(learner, manifest['artifact_id'], dsn=settings.dsn), MIME[format])
             response.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
+            record_export(learner, 'podcast', dsn=settings.dsn)
             return response
         with open_verified_artifact(learner, UUID(episode['audio']['artifact_id']), dsn=settings.dsn) as source:
             data = export_podcast.mp3(source.file)
-        return download(data, filename, format)
+        response = download(data, filename, format)
+        record_export(learner, 'podcast', dsn=settings.dsn)
+        return response

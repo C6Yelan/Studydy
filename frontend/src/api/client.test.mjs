@@ -1455,11 +1455,11 @@ test("card review sends the intent key and requires the next review count", asyn
 
 function activityView(change = () => undefined) {
   const value = {
-    schema: "learning-activity/v3", timezone: "Asia/Taipei", rule_version: "xp-rules/v3", today: "2026-10-21",
+    schema: "learning-activity/v3", timezone: "Asia/Taipei", rule_version: "xp-rules/v4", today: "2026-10-21",
     streak_days: 1, active_today: true, total_answers: 4, total_correct: 3,
-    xp: { total: 120, today: 40, level: 2, level_xp: 20, level_target: 150, sources: { answers: 33, concepts: 30, cards: 4, podcast: 5 } },
+    xp: { total: 120, today: 40, level: 2, level_xp: 20, level_target: 150, sources: { answers: 46, concepts: 30, cards: 4, podcast: 5, goals: 15, difficulties: 20, diagnostics: 0 } },
     quests: [{ kind: "continue_study", progress: 1, target: 1, done: true, material_id: materialId, study_session_id: sessionId, podcast_id: null, episode_index: null }],
-    badges: { rule_version: "badge-rules/v6", items: [
+    badges: { rule_version: "badge-rules/v7", items: [
       { badge_id: "first_answer", earned: true, earned_on: "2026-10-16", progress: 1, target: 1 },
       { badge_id: "answers_100", earned: false, earned_on: null, progress: 4, target: 100 },
     ] },
@@ -1473,15 +1473,16 @@ test("learning activity requires XP, level, quests and badges from the v3 rules"
   assert.equal((await read(activityView())).xp.level, 2);
   for (const change of [
     (value) => { value.schema = "learning-activity/v2"; },
-    (value) => { value.rule_version = "xp-rules/v2"; },
+    (value) => { value.rule_version = "xp-rules/v3"; },
     (value) => { value.xp.level_xp = 150; },
     (value) => { value.xp.today = 121; },
     (value) => { value.xp.sources.cards = -2; },
+    (value) => { delete value.xp.sources.goals; },
     (value) => { value.quests[0].kind = "badge"; },
     (value) => { value.quests[0].progress = 2; },
     (value) => { value.quests[0].study_session_id = "x"; },
     (value) => { delete value.badges; },
-    (value) => { value.badges.rule_version = "badge-rules/v5"; },
+    (value) => { value.badges.rule_version = "badge-rules/v6"; },
     (value) => { value.badges.items[1].progress = 101; },
     // 取得與進度不一致、未取得卻有日期、日期格式錯誤都不採用。
     (value) => { value.badges.items[1].earned = true; },

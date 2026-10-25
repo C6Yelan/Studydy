@@ -14,6 +14,14 @@ from runtime.learner_session import register_account
 from test_note_queue import answer as note_answer
 from test_card_generation import create as create_cards, finish as finish_cards, response as card_response
 from test_podcasts import create as create_podcast, complete as finish_podcast
+from sqlalchemy import text
+from runtime.storage.database import database_session
+
+
+def exported(dsn):
+    """成就用的匯出紀錄：{(learner, 種類)}，只在匯出成功時寫入。"""
+    with database_session(dsn) as db:
+        return set(db.execute(text("SELECT learner_id, kind FROM learner_exports")).all())
 
 
 def test_notes_maps_and_diagnosis_export_owner_and_revision(closed_loop, tmp_path, monkeypatch):
@@ -45,6 +53,8 @@ def test_notes_maps_and_diagnosis_export_owner_and_revision(closed_loop, tmp_pat
     map_body = {'images': [{'concept_ids': ids, 'png': png}]}
     assert client.post(base + '/map/export/png', json=map_body, headers={'Origin': ORIGIN}).status_code == 200
     assert client.post(base + '/map/export/png', json={'images': [{'concept_ids': ['fake'], 'png': png}]}, headers={'Origin': ORIGIN}).status_code == 400
+    learner = f['learner'].learner_id
+    assert exported(f['dsn']) == {(learner, 'notes'), (learner, 'map'), (learner, 'diagnosis')}
     foreign = register_account('exports_foreign@example.com', 'Synthetic test password 42', dsn=f['dsn'])
     client.cookies.set('studydy_session', foreign.raw_token)
     for path in paths:
@@ -52,6 +62,7 @@ def test_notes_maps_and_diagnosis_export_owner_and_revision(closed_loop, tmp_pat
     assert client.post(base + '/map/export/png', json=map_body, headers={'Origin': ORIGIN}).status_code == 404
     client.cookies.clear()
     assert client.get(paths[0]).status_code == 401
+    assert {kind for _, kind in exported(f['dsn'])} == {'notes', 'map', 'diagnosis'} and len(exported(f['dsn'])) == 3
 
 
 def test_card_exports_enforce_owner_version_origin_and_complete_selection(closed_loop, tmp_path, monkeypatch):
@@ -96,6 +107,7 @@ def test_card_exports_enforce_owner_version_origin_and_complete_selection(closed
     assert response.status_code == 200, response.text[:100]
     with zipfile.ZipFile(BytesIO(response.content)) as archive:
         assert 'collection.anki2' in archive.namelist()
+    assert exported(dsn) == {(owner.learner_id, 'cards')}
     assert client.post(path + '/download', headers=headers).status_code == 404
     uid = client.post(base, json=body, headers=headers).json()['upload_id']
     assert client.post(f'{base}/{uid}/download', headers=headers).status_code == 400
@@ -116,9 +128,11 @@ def test_podcast_mp3_owner_and_missing_video_never_generates(closed_loop, tmp_pa
     client = TestClient(_app(dsn, tmp_path, monkeypatch), base_url=ORIGIN)
     client.cookies.set('studydy_session', token)
     path = f'/v1/podcasts/{identity}/episodes/0/export/'
-    assert client.get(path + 'mp3').status_code == 200
     assert client.get(path + 'mp4').status_code == 404
     assert client.get(path + 'md').status_code == 409
+    assert exported(dsn) == set()
+    assert client.get(path + 'mp3').status_code == 200
+    assert exported(dsn) == {(owner.learner_id, 'podcast')}
     assert client.get(f'/v1/podcasts/{identity}/episodes/999/export/mp3').status_code == 404
     foreign = register_account('podcast_export_foreign@example.com', 'Synthetic test password 42', dsn=dsn)
     client.cookies.set('studydy_session', foreign.raw_token)

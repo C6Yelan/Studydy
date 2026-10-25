@@ -360,6 +360,8 @@ def submit_set_answers(
         group.action_receipts = {**group.action_receipts, key: fingerprint}
         _touch_diagnostic(session, group)
         session.flush()
+        from .learning_goals import record_goal_milestones
+        record_goal_milestones(session, study.learner_id, study.material_id)
 
 
 def change_set(

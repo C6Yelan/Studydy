@@ -230,7 +230,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 ## 學習活動 v3 與成就規則
 
-後端使用 `learning-activity/v3`（經驗值 `xp-rules/v3`、徽章 `badge-rules/v6`）並提供 `/v1/learning-activity/rhythm`；前端只接受這組版本，前後端必須一起上線，不可只更新其中一邊（任一邊是舊版時，頁首等級、成就與個人檔案的學習進度都會因版本不符而讀不到）。不需 migration，退回時前後端一起退回。
+後端使用 `learning-activity/v3`（經驗值 `xp-rules/v4`、徽章 `badge-rules/v7`）並提供 `/v1/learning-activity/rhythm`；前端只接受這組版本，前後端必須一起上線，不可只更新其中一邊（任一邊是舊版時，頁首等級、成就與個人檔案的學習進度都會因版本不符而讀不到）。v4／v7 需要 0021（見下節）；退回時前後端一起退回。
 
 ## 0013 登入裝置清單
 
@@ -259,6 +259,12 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 ## 0018 筆記生成診斷摘要碼
 
 `0018_material_note_diagnostics.sql` 只在 `material_notes` 新增可為 NULL 的 `generation_diagnostics jsonb`，既有列保持 NULL，不改其他欄位或資料表；隔離環境由 0017 升級並逐表核對既有列不變。套用前備份產品 DB。只需更新後端（不需前端；可用輕量更新，不需完整重建 OCR 映像，也不改 runtime lock）；新後端讀寫此欄位，必須先套用 0018 才能啟動。已套用後回復版本須識別 0018（舊程式不讀此欄位，可相容），不還原 DB。欄位內容與日誌 `NOTE_GENERATION_ADJUSTED`／`NOTE_GENERATION_FAILED` 的 `diagnostics=` 相同，只含錯誤碼、事件、段落位置、重點編號、核對理由 SHA-256 前 12 碼與頁高比例；查詢時直接讀 DB，API 不回傳。
+
+## 0021 成就紀錄（目標關卡與匯出）
+
+`0021_badge_records.sql` 在 `learning_goals` 新增 `created_at`（既有列回填為目前的 `baseline_at` 後設為 NOT NULL，其他欄位不變），並新增 `goal_milestones`（分天關卡與準時達成目標，對教材 ON DELETE CASCADE）與 `learner_exports`（每種匯出第一次成功的時間，只記種類與時間）。套用前備份產品 DB；隔離環境由前一版升級並核對目標列除新欄位外不變。合併時依實際順序改號（檔名與 `test_learning_badges.py` 的 `BADGE_MIGRATION`）。
+
+新後端寫入新表與新欄位，必須先套用 0021 才能啟動，且前端要同時更新到接受 `xp-rules/v4`／`badge-rules/v7` 的版本。只改 Python 與前端，不需新增套件、不改 runtime lock，可用輕量後端更新（以 `docker inspect studydy-backend-1` 當下映像為基底）與前端輕量部署。已套用後回復版本須識別 0021，採前向修復，不還原 DB 丟棄新紀錄。部署後關卡、準時達成目標與匯出才開始累計，不補跑也不推測過去的紀錄。
 
 ## 後端身分與既有資料
 
