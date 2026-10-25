@@ -74,7 +74,8 @@ def pdf(html):
 
 
 def source_text(e):
-    position = f'第 {e.get("normalized_page") or e["page"]} 頁'
+    unit = '段' if re.search(r'\.(mp3|m4a|wav|mp4|youtube)$', e.get('source_name') or '', re.I) else '頁'
+    position = f'第 {e.get("normalized_page") or e["page"]} {unit}'
     return f'{e.get("source_name") or e.get("source_id") or "來源"} · {position}' + (
         f' · 區塊 {e["block_order"]}' if 'block_order' in e else '')
 
@@ -143,11 +144,19 @@ def note_pdf(view):
         return doc.tobytes(garbage=4, deflate=True)
 
 
+def xml_text(value):
+    # XML 1.0 允許 tab／換行；移除 Office 無法保存的控制字元與孤立 surrogate。
+    return re.sub('[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]', '', value)
+
+
 def note_docx(view):
     from docx import Document
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     doc = Document()
+    doc.core_properties.author = 'Studydy'
+    doc.core_properties.last_modified_by = 'Studydy'
+    doc.core_properties.comments = ''
     for name in ('Normal', 'Title', 'Heading 1', 'Heading 2'):
         style = doc.styles[name]
         style.font.name = 'Noto Sans CJK TC'
@@ -163,36 +172,36 @@ def note_docx(view):
         doc.add_paragraph('教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。')
 
     def paragraph(p):
-        doc.add_heading(p['heading'], 1)
-        doc.add_paragraph(p['text'])
+        doc.add_heading(xml_text(p['heading']), 1)
+        doc.add_paragraph(xml_text(p['text']))
         if p.get('formula'):
-            doc.add_paragraph(p['formula'])
+            doc.add_paragraph(xml_text(p['formula']))
         if p.get('table'):
             t = p['table']
             table = doc.add_table(rows=1, cols=len(t['headers']))
             table.style = 'Table Grid'
             for cell, value in zip(table.rows[0].cells, t['headers']):
-                cell.text = value
+                cell.text = xml_text(value)
             for row in t['rows']:
                 for cell, value in zip(table.add_row().cells, row):
-                    cell.text = value
+                    cell.text = xml_text(value)
         for e in p['evidence']:
-            doc.add_paragraph('來源：' + source_text(e))
+            doc.add_paragraph(xml_text('來源：' + source_text(e)))
 
     for p in view['paragraphs']:
         paragraph(p)
         for a in view['annotations']:
             if a['paragraph_id'] == p['id']:
                 doc.add_heading('個人註記', 2)
-                doc.add_paragraph(a['body'])
+                doc.add_paragraph(xml_text(a['body']))
     orphaned = [a for a in view['annotations'] if a['paragraph_id'] is None]
     if orphaned:
         doc.add_heading('先前段落的註記', 1)
         for a in orphaned:
-            doc.add_paragraph('原版本：' + a['original_revision'])
+            doc.add_paragraph(xml_text('原版本：' + a['original_revision']))
             paragraph(a['original_paragraph'])
             doc.add_heading('個人註記', 2)
-            doc.add_paragraph(a['body'])
+            doc.add_paragraph(xml_text(a['body']))
     stream = BytesIO()
     doc.save(stream)
     return stream.getvalue()
@@ -215,8 +224,14 @@ def diagnosis_pdf(view):
     selected_recommendations, selected = [], []
 
     def render():
-        footer = f'<p>另有 {len(points) - len(selected)} 個診斷重點、{len(recommendations) - len(selected_recommendations)} 項複習建議未列於摘要；完整內容請回到 Studydy 查看。</p>'
-        return pdf(head + '<h2>建議先複習</h2>' + ''.join(selected_recommendations) + ''.join(selected) + footer)
+        omitted = []
+        if len(points) > len(selected):
+            omitted.append(f'{len(points) - len(selected)} 個診斷重點')
+        if len(recommendations) > len(selected_recommendations):
+            omitted.append(f'{len(recommendations) - len(selected_recommendations)} 項複習建議')
+        footer = f'<p>另有 {"、".join(omitted)}未列於摘要；完整內容請回到 Studydy 查看。</p>' if omitted else ''
+        title = '<h2>建議先複習</h2>' if selected_recommendations else ''
+        return pdf(head + title + ''.join(selected_recommendations) + ''.join(selected) + footer)
 
     def fits():
         with pymupdf.open(stream=render(), filetype='pdf') as doc:

@@ -268,4 +268,6 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 exports 不需 migration。後端新增 `genanki`、`python-docx` 與 `fonttools`，依 `uv.lock` 安裝；沿用現有 PyMuPDF、PyAV 與映像內 `fonts-noto-cjk`。PDF 從 Noto 字型集合選取繁體中文標準／粗體並嵌入，不依賴瀏覽器列印；MP3 使用 PyAV 的 libmp3lame，不另起模型或轉檔服務。
 
-輕量後端更新須以 `docker inspect studydy-backend-1` 當下映像為基底，保留 UID 20001 的 passwd 項目及原 OCR 環境。部署前核對中文字型標準／粗體、libmp3lame 與新增依賴可用。前端增加 `html-to-image`，完整渲染既有島嶼元件後產生 PNG；後端核對 owner、版本與完整概念集合後打包，不保存匯出內容或輸出至一般 log。
+輕量後端更新須以 `docker inspect studydy-backend-1` 當下映像為基底，保留 UID 20001 的 passwd 項目及原 OCR 環境。部署前核對中文字型標準／粗體、libmp3lame 與新增依賴可用。前端增加 `html-to-image`，完整渲染既有島嶼元件後產生 PNG；後端核對 owner、版本與完整概念集合後打包；匯出內容不寫入一般 log。
+
+匯出以非同步 semaphore 同時最多處理兩個請求，含檔案串流期間；等待不佔用工作執行緒。卡組透過建立暫存、每批至多兩張 PNG 的 PUT、最後下載三個步驟傳輸，不把整組 base64 放進同一個請求。卡面、Anki SQLite 與輸出檔放在 artifact root 的私有 `.export-work/`，不使用只有 1 GiB 的 `/tmp`，不新增 DB migration。完成／取消／組檔失敗會清除該工作；維護 worker 清理超過 30 分鐘未更新且未鎖定的暫存。匯出與清理共用檔案鎖，下載尚未結束時不會被刪除。

@@ -1,54 +1,153 @@
-"""整組卡面打包；文字與來源由授權的卡組重新讀取。"""
+"""整組卡面分批暫存與磁碟打包；不佔用容器的 1 GiB /tmp。"""
+from contextlib import closing, contextmanager
+from itertools import count
 from html import escape
-from io import BytesIO
-from pathlib import Path
-from tempfile import TemporaryDirectory
+from uuid import uuid4
+import fcntl
 import hashlib
+import json
+import shutil
+import sqlite3
+import time
+import zipfile
 
 import genanki
 import pymupdf
 from . import card_sets
 from .errors import SourceError
-from .export_documents import source_text, zip_files, decode_png
+from .export_documents import source_text, decode_png
+from .storage.artifacts import _root
+
+UPLOAD_TTL = 30 * 60
 
 
-def export(owner, identity, version, images, format, *, dsn=None):
+def work_root():
+    path = _root() / '.export-work'
+    path.mkdir(mode=0o700, exist_ok=True)
+    return path
+
+
+def cleanup_stale_uploads():
+    cutoff = time.time() - UPLOAD_TTL
+    for directory in work_root().iterdir():
+        try:
+            with (directory / 'state.json').open('r+') as stream:
+                # 正在上傳、組檔或下載的工作不能被維護程序移除。
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if (directory / 'state.json').stat().st_mtime < cutoff:
+                    shutil.rmtree(directory)
+        except BlockingIOError:
+            continue
+        except FileNotFoundError:
+            try:
+                if directory.stat().st_mtime < cutoff:
+                    shutil.rmtree(directory)
+            except FileNotFoundError:
+                pass
+
+
+def create(owner, identity, version, format, *, dsn=None):
+    view = card_sets.read_card_study(owner, identity, dsn=dsn)
+    if view['version'] != version or view['batch'] is None:
+        raise SourceError('CARD_SET_CONFLICT')
+    cleanup_stale_uploads()
+    upload_id = uuid4()
+    directory = work_root() / str(upload_id)
+    directory.mkdir(mode=0o700)
+    state = {'owner': str(owner), 'identity': str(identity), 'version': version, 'format': format,
+             'concept_ids': [c['concept_id'] for c in view['navigation']], 'images': []}
+    (directory / 'state.json').write_text(json.dumps(state))
+    return {'upload_id': str(upload_id)}
+
+
+@contextmanager
+def upload(owner, identity, upload_id):
+    directory = work_root() / str(upload_id)
+    try:
+        stream = (directory / 'state.json').open('r+')
+    except FileNotFoundError:
+        raise SourceError('RESOURCE_NOT_FOUND') from None
+    with stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        if not directory.exists():
+            raise SourceError('RESOURCE_NOT_FOUND')
+        state = json.load(stream)
+        if state['owner'] != str(owner) or state['identity'] != str(identity):
+            raise SourceError('RESOURCE_NOT_FOUND')
+        yield directory, state, stream
+
+
+def append(owner, identity, upload_id, offset, images, *, dsn=None):
+    with upload(owner, identity, upload_id) as (directory, state, stream):
+        card_sets.read_card_study(owner, identity, expected_version=state['version'], dsn=dsn)
+        if offset != len(state['images']) or offset + len(images) > 2000:
+            raise SourceError('CARD_SET_CONFLICT')
+        entries = list(state['images'])
+        decoded = []
+        deck_key = hashlib.sha256(str(identity).encode()).hexdigest()[:12]
+        for image in images:
+            if image.concept_id not in state['concept_ids'] or image.page != sum(e['concept_id'] == image.concept_id for e in entries):
+                raise SourceError('REQUEST_INVALID')
+            data = decode_png(image.png)
+            position = state['concept_ids'].index(image.concept_id) + 1
+            name = f'card-{deck_key}-{position:04}-{image.page + 1:03}-{hashlib.sha256(data).hexdigest()[:8]}.png'
+            entries.append({'concept_id': image.concept_id, 'page': image.page, 'name': name})
+            decoded.append((name, data))
+        for name, data in decoded:
+            (directory / name).write_bytes(data)
+        state['images'] = entries
+        stream.seek(0)
+        json.dump(state, stream)
+        stream.truncate()
+        return {'received': len(entries)}
+
+
+def cancel(owner, identity, upload_id):
+    with upload(owner, identity, upload_id) as (directory, _, __):
+        shutil.rmtree(directory)
+    return {'cancelled': True}
+
+
+@contextmanager
+def finish(owner, identity, upload_id, *, dsn=None):
+    with upload(owner, identity, upload_id) as (directory, state, _):
+        try:
+            result = render(owner, identity, state, directory, dsn=dsn)
+            # HTTP dependency 保持此 lease 到串流結束，取消連線與例外也會清理。
+            yield result, state['format']
+        finally:
+            shutil.rmtree(directory)
+
+
+def render(owner, identity, state, directory, *, dsn=None):
+    version, format = state['version'], state['format']
     view = card_sets.read_card_study(owner, identity, dsn=dsn)
     if view['version'] != version or view['batch'] is None:
         raise SourceError('CARD_SET_CONFLICT')
     cards = []
     for offset in range(0, len(view['navigation']), 8):
-        batch = card_sets.read_card_study(owner, identity, offset=offset, expected_version=version, dsn=dsn)
-        cards.extend(batch['cards'])
-    by_id = {c['concept_id']: c for c in cards}
+        cards.extend(card_sets.read_card_study(owner, identity, offset=offset, expected_version=version, dsn=dsn)['cards'])
     grouped = {c['concept_id']: [] for c in cards}
-    files = []
-    deck_key = hashlib.sha256(str(identity).encode()).hexdigest()[:12]
-    for image in images:
-        if image.concept_id not in grouped or image.page != len(grouped[image.concept_id]):
-            raise SourceError('REQUEST_INVALID')
-        data = decode_png(image.png)
-        name = f'card-{deck_key}-{list(by_id).index(image.concept_id) + 1:04}-{image.page + 1:03}-{hashlib.sha256(data).hexdigest()[:8]}.png'
-        grouped[image.concept_id].append((name, data))
-        files.append((name, data))
+    for item in state['images']:
+        grouped[item['concept_id']].append(item['name'])
     if any(not pages for pages in grouped.values()):
         raise SourceError('REQUEST_INVALID')
-    # 再核對版本，避免跨批讀取期間卡組被編輯。
     card_sets.read_card_study(owner, identity, expected_version=version, dsn=dsn)
+    files = [directory / name for card in cards for name in grouped[card['concept_id']]]
+    result = directory / f'export.{format}'
     if format == 'zip':
-        return zip_files(files)
-    if format == 'pdf':
-        doc = pymupdf.open()
-        # A4 每頁兩張；保持卡面原比例與完整續頁。
-        for index, (_, data) in enumerate(files):
-            if index % 2 == 0:
-                page = doc.new_page(width=595.28, height=841.89)
-            y = 28 + (index % 2) * 393
-            page.insert_image(pymupdf.Rect(28, y, 567, y + 365), stream=data, keep_proportion=True)
-        content = doc.tobytes(garbage=4, deflate=True)
-        doc.close()
-        return content
-    with TemporaryDirectory(prefix='studydy-anki-') as directory:
+        with zipfile.ZipFile(result, 'w', zipfile.ZIP_STORED) as archive:
+            for path in files:
+                archive.write(path, path.name)
+    elif format == 'pdf':
+        with pymupdf.open() as doc:
+            for index, path in enumerate(files):
+                if index % 2 == 0:
+                    page = doc.new_page(width=595.28, height=841.89)
+                y = 28 + (index % 2) * 393
+                page.insert_image(pymupdf.Rect(28, y, 567, y + 365), filename=str(path), keep_proportion=True)
+            doc.save(result, garbage=4, deflate=True)
+    else:
         model = genanki.Model(1738150123, 'Studydy 概念卡',
             fields=[{'name': n} for n in ('正面', '背面', '卡面', '來源')],
             templates=[{'name': '概念', 'qfmt': '{{正面}}',
@@ -58,16 +157,19 @@ def export(owner, identity, version, images, format, *, dsn=None):
         deck = genanki.Deck(deck_id, view['name'])
         for card in cards:
             sources = list(dict.fromkeys(source_text(e) for c in card['claims'] for e in c['evidence']))
-            note = genanki.Note(model=model, guid=genanki.guid_for(str(identity), card['concept_id']), fields=[
+            deck.add_note(genanki.Note(model=model, guid=genanki.guid_for(str(identity), card['concept_id']), fields=[
                 escape(card['label']), '<br><br>'.join(escape(c['text']).replace('\n', '<br>') for c in card['claims']),
-                ''.join(f'<img src="{name}">' for name, _ in grouped[card['concept_id']]),
-                '<br>'.join(escape(s) for s in sources)])
-            deck.add_note(note)
-        package = genanki.Package(deck)
-        for name, data in files:
-            path = Path(directory) / name
-            path.write_bytes(data)
-            package.media_files.append(str(path))
-        output = BytesIO()
-        package.write_to_file(output)
-        return output.getvalue()
+                ''.join(f'<img src="{name}">' for name in grouped[card['concept_id']]),
+                '<br>'.join(escape(s) for s in sources)]))
+        # genanki.write_to_file 會留下 /tmp SQLite；使用它的 DB writer，讓全部副本同生共滅。
+        database = directory / 'collection.anki2'
+        timestamp = time.time()
+        with closing(sqlite3.connect(database)) as connection:
+            genanki.Package(deck).write_to_db(connection.cursor(), timestamp, count(int(timestamp * 1000)))
+            connection.commit()
+        with zipfile.ZipFile(result, 'w', zipfile.ZIP_STORED) as archive:
+            archive.write(database, 'collection.anki2')
+            archive.writestr('media', json.dumps({i: path.name for i, path in enumerate(files)}))
+            for i, path in enumerate(files):
+                archive.write(path, str(i))
+    return result

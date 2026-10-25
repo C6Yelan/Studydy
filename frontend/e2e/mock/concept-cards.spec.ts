@@ -32,7 +32,7 @@ test("card difficulty stays bound to the saved card revision", async ({ page }) 
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("答錯率 67%（2 / 3 題）");
 });
 
-async function mockCards(page: Page, { saved = false, long = false, many = false, withProgress = false, title = "資料結構 · 核心概念", savedCount = null as number | null } = {}) {
+async function mockCards(page: Page, { saved = false, long = false, many = false, count = 31, withProgress = false, title = "資料結構 · 核心概念", savedCount = null as number | null } = {}) {
   await recordCardDrawing(page);
   const view = structureView();
   view.concepts[0].label = "堆疊（Stack）";
@@ -40,7 +40,7 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
   view.concepts[1].label = "陣列（Array）";
   view.concepts[1].claims[0].text = "陣列將元素保存在連續的記憶體位置，可使用索引存取特定元素。";
   if (many) {
-    for (let index = 2; index < 31; index++) {
+    for (let index = 2; index < count; index++) {
       const concept = structuredClone(view.concepts[0]);
       concept.concept_id = `concept:sha256:${(index + 100).toString(16).padStart(64, "0")}`;
       concept.claims[0].claim_id = `claim:sha256:${(index + 100).toString(16).padStart(64, "0")}`;
@@ -1642,21 +1642,36 @@ test("a card set left out of the marks summary (moved to a new version) offers n
   expect(posts).toEqual([]);
 });
 
-test("whole deck export includes every batch and all rendered card faces", async ({ page }) => {
-  await mockCards(page, { saved: true, many: true });
-  let exported: { version: number; images: { concept_id: string; page: number; png: string }[] } | null = null;
-  await page.route(`**/v1/card-sets/${cardSetId}/export/zip`, route => {
-    exported = route.request().postDataJSON();
-    return route.fulfill({ status: 200, contentType: "application/zip", headers: { "Content-Disposition": "attachment; filename*=UTF-8''cards.zip" }, body: "zip" });
+test("whole deck export sends bounded batches for 148 concepts and preserves every card face", async ({ page }) => {
+  test.setTimeout(90000);
+  await mockCards(page, { saved: true, many: true, count: 148 });
+  const uid = "66666666-6666-4666-8666-666666666666";
+  const images: { concept_id: string; page: number; png: string }[] = [];
+  const sizes: number[] = [];
+  await page.route(`**/v1/card-sets/${cardSetId}/exports`, route => {
+    expect(route.request().postDataJSON()).toEqual({ version: 1, format: "zip" });
+    return json(route, { upload_id: uid });
   });
+  await page.route(`**/v1/card-sets/${cardSetId}/exports/${uid}`, route => {
+    const body = route.request().postDataJSON();
+    expect(route.request().method()).toBe("PUT");
+    expect(body.offset).toBe(images.length);
+    expect(body.images.length).toBeLessThanOrEqual(2);
+    sizes.push(Buffer.byteLength(route.request().postData()!));
+    images.push(...body.images);
+    return json(route, { received: images.length });
+  });
+  await page.route(`**/v1/card-sets/${cardSetId}/exports/${uid}/download`, route =>
+    route.fulfill({ status: 200, contentType: "application/zip", headers: { "Content-Disposition": "attachment; filename*=UTF-8''cards.zip" }, body: "zip" }));
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   const controls = page.getByRole("group", { name: "匯出整組概念卡" });
   await controls.getByRole("combobox").selectOption("zip");
   const download = page.waitForEvent("download");
   await controls.getByRole("button", { name: "匯出", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("cards.zip");
-  expect(exported).not.toBeNull();
-  const images = exported!.images;
-  expect(new Set(images.map(i => i.concept_id)).size).toBe(31);
+  expect(new Set(images.map(i => i.concept_id)).size).toBe(148);
   expect(images.every(i => i.png.startsWith("iVBOR"))).toBe(true);
+  expect(sizes.length).toBeGreaterThanOrEqual(74);
+  expect(Math.max(...sizes)).toBeLessThan(16 * 1024 * 1024);
+  await test.info().attach("large-export-metrics", { contentType: "application/json", body: JSON.stringify({ concepts: 148, faces: images.length, requests: sizes.length, max_request_bytes: Math.max(...sizes), total_request_bytes: sizes.reduce((a, b) => a + b, 0) }) });
 });

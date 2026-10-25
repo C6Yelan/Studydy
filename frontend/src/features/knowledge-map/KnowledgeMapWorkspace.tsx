@@ -46,9 +46,6 @@ type Concept = KnowledgeOutlineView["concepts"][number];
 type Mode = "focus" | "review";
 type RestoreFocus = () => void;
 
-// 五種關係畫成不同的橋：先備＝石橋、組成＝木橋、應用＝航線、例子＝踏石、對照＝對岸。
-
-
 const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
 
 const learningLabels = {

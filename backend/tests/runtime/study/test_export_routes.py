@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from assessment_fixtures import concept_fixture
 from product_fixtures import ORIGIN, _app, closed_loop
-from runtime import material_notes, podcasts
+from runtime import material_notes, podcasts, card_sets
 from runtime.learner_session import register_account
 from test_note_queue import answer as note_answer
 from test_card_generation import create as create_cards, finish as finish_cards, response as card_response
@@ -63,17 +63,38 @@ def test_card_exports_enforce_owner_version_origin_and_complete_selection(closed
     study = client.get(f'/v1/card-sets/{identity}/study').json()
     doc = pymupdf.open(); doc.new_page(width=120, height=76)
     png = doc[0].get_pixmap().tobytes('png'); doc.close()
-    body = {'version': study['version'], 'images': [{'concept_id': c['concept_id'], 'page': 0, 'png': b64encode(png).decode()} for c in study['navigation']]}
-    path = f'/v1/card-sets/{identity}/export/apkg'
-    assert client.post(path, json=body).status_code == 403
-    response = client.post(path, json=body, headers={'Origin': ORIGIN})
+    images = [{'concept_id': c['concept_id'], 'page': 0, 'png': b64encode(png).decode()} for c in study['navigation']]
+    base = f'/v1/card-sets/{identity}/exports'
+    body = {'version': study['version'], 'format': 'apkg'}
+    headers = {'Origin': ORIGIN}
+    assert client.post(base, json=body).status_code == 403
+    assert client.post(base, json={**body, 'version': study['version'] + 1}, headers=headers).status_code == 409
+    uid = client.post(base, json=body, headers=headers).json()['upload_id']
+    path = f'{base}/{uid}'
+    foreign = register_account('card_export_foreign@example.com', 'Synthetic test password 42', dsn=dsn)
+    client.cookies.set('studydy_session', foreign.raw_token)
+    assert client.post(base, json=body, headers=headers).status_code == 404
+    assert client.put(path, json={'offset': 0, 'images': images}, headers=headers).status_code == 404
+    assert client.post(path + '/download', headers=headers).status_code == 404
+    assert client.delete(path, headers=headers).status_code == 404
+    client.cookies.set('studydy_session', token)
+    assert client.put(path, json={'offset': 1, 'images': images}, headers=headers).status_code == 409
+    assert client.put(path, json={'offset': 0, 'images': images}, headers=headers).status_code == 200
+    response = client.post(path + '/download', headers=headers)
     assert response.status_code == 200, response.text[:100]
     with zipfile.ZipFile(BytesIO(response.content)) as archive:
         assert 'collection.anki2' in archive.namelist()
-    assert client.post(path, json={**body, 'version': study['version'] + 1}, headers={'Origin': ORIGIN}).status_code == 409
-    foreign = register_account('card_export_foreign@example.com', 'Synthetic test password 42', dsn=dsn)
-    client.cookies.set('studydy_session', foreign.raw_token)
-    assert client.post(path, json=body, headers={'Origin': ORIGIN}).status_code == 404
+    assert client.post(path + '/download', headers=headers).status_code == 404
+    uid = client.post(base, json=body, headers=headers).json()['upload_id']
+    assert client.post(f'{base}/{uid}/download', headers=headers).status_code == 400
+    uid = client.post(base, json=body, headers=headers).json()['upload_id']
+    assert client.delete(f'{base}/{uid}', headers=headers).status_code == 200
+    uid = client.post(base, json=body, headers=headers).json()['upload_id']
+    assert client.put(f'{base}/{uid}', json={'offset': 0, 'images': images}, headers=headers).status_code == 200
+    card_sets.update_card_set(owner.learner_id, identity, '編輯後的卡組', study['version'], dsn=dsn)
+    assert client.post(f'{base}/{uid}/download', headers=headers).status_code == 409
+    assert client.post(f'{base}/{uid}/download', headers=headers).status_code == 404
+
 
 
 def test_podcast_mp3_owner_and_missing_video_never_generates(closed_loop, tmp_path, monkeypatch):

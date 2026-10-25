@@ -16,6 +16,7 @@ from .material_processing import (
 from . import knowledge_chapters
 from .material_discard import finish_material_discards
 from .media_sources import cleanup_stale_uploads
+from .export_cards import cleanup_stale_uploads as cleanup_exports
 
 from . import material_notes
 from .source_normalization import normalize_next
@@ -209,6 +210,7 @@ class RuntimeWorkers:
                     try:
                         # 暫存清理失敗不能擋住其他維護工作。
                         cleanup_stale_uploads()
+                        cleanup_exports()
                     except Exception as error:
                         logging.getLogger(__name__).warning(
                             "UPLOAD_CLEANUP_FAILED error_type=%s", type(error).__name__
