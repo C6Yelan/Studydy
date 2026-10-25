@@ -692,10 +692,73 @@ def test_point_too_large_only_because_of_page_context_keeps_its_own_evidence():
     small['context_evidence']=[{**small['evidence'][0],'evidence_id':'header','quote':'欄名'}]
     budget=mn.estimate_prompt_tokens(nc.PROMPT,mn.model_request([{**values[1],'claims':[big]}],'summary')[0])-1
     diagnostics=[]
-    prepared=mn.summary_sources(values,budget,diagnostics)
+    prepared=mn.fit_page_context(values,'summary',budget,diagnostics)
     assert prepared[1]['claims'][0]['context_evidence']==[] and prepared[1]['claims'][0]['evidence']==big['evidence']
     assert prepared[2]['claims'][0]['context_evidence']==small['context_evidence']
     assert len(values[1]['claims'][0]['context_evidence'])==60
     assert diagnostics==[{'event':'context_omitted','claims':['q10']}]
     result=summary(prepared,response,budget)
     assert {q for p in result for q in p['claim_ids']}>={'q00','q10','q20'}
+
+
+def test_failed_part_is_retried_up_to_three_attempts_without_rerunning_passed_parts():
+    values=three_concepts()
+    for c in values:c['claims']=c['claims'][:1]
+    plan=[{'label':'區域','parts':[[{'concept_id':c['concept_id'],'claim_ids':[c['claims'][0]['claim_id']]}] for c in values]}]
+    writers=[]
+    def model(request,fail_times):
+        if request.get('phase')=='review_paragraph':
+            first=request['claims'][0]['text']
+            rejected=first=='概念1的第 0 點' and sum(1 for w in writers if w['concepts'][0]['label']=='概念1')<=fail_times
+            return {**response(request),'checks':[{'part':p,'supported':not (rejected and p=='text'),
+                'reason':'來源沒有此條件。' if rejected and p=='text' else ''} for p in request['parts']]}
+        writers.append(request)
+        return response(request)
+    saved=[]
+    diagnostics=[]
+    # 第二批的前兩次嘗試（各含局部重寫與概念補寫）都被擋，第三次通過；其他批次只寫一次。
+    result=mn.complete_sections(values,plan,lambda r:model(r,6),[],lambda i,p:saved.append(i),diagnostics,'summary')
+    assert [p['claim_ids'] for p in result]==[['q00'],['q10'],['q20']] and saved==[0,1,2]
+    assert [w['concepts'][0]['label'] for w in writers if 'correction' not in w]==['概念0','概念1','概念1','概念1','概念2']
+    assert {'event':'part_attempts','part':1,'attempts':3,'failed':['NOTE_COVERAGE_INCOMPLETE']*2,'succeeded':True} in diagnostics
+    writers.clear();saved.clear();diagnostics.clear()
+    with pytest.raises(ValueError,match='^NOTE_CONTENT_UNSUPPORTED$'):
+        mn.complete_sections(values,plan,lambda r:model(r,99),[],lambda i,p:saved.append(i),diagnostics,'full')
+    assert saved==[0] and len([w for w in writers if 'correction' not in w])==1+3
+    assert diagnostics[-1]=={'event':'part_attempts','part':1,'attempts':3,'failed':['NOTE_CONTENT_UNSUPPORTED']*3,'succeeded':False}
+
+
+@pytest.mark.parametrize('error',[ValueError('NOTE_INPUT_TOO_LARGE'),ValueError('NOTE_CONTRACT_INVALID'),RuntimeError('SEMANTIC_SERVICE_CONFIG_INVALID')])
+def test_errors_that_retry_cannot_fix_are_not_retried(error):
+    values=three_concepts()
+    plan=mn.plan_sections(values,[{'label':'區域','concept_ids':[c['concept_id'] for c in values]}])
+    calls=[]
+    def model(request):
+        calls.append(request)
+        raise error
+    with pytest.raises(type(error),match=str(error)):
+        mn.complete_sections(values,plan,model,[],lambda *args:None,None,'full')
+    assert len(calls)==1
+
+
+def test_full_notes_omit_only_oversized_page_context_and_still_fail_when_own_evidence_is_too_large(monkeypatch):
+    values=three_concepts()
+    big=values[1]['claims'][0]
+    big['context_evidence']=[{**big['evidence'][0],'evidence_id':f'ctx{i}','quote':f'同頁其他區塊 {i}。'*40} for i in range(60)]
+    small=values[2]['claims'][0]
+    small['context_evidence']=[{**small['evidence'][0],'evidence_id':'header','quote':'欄名'}]
+    monkeypatch.setattr(mn,'BATCH_TOKENS',mn.estimate_prompt_tokens(nc.PROMPT,mn.model_request([{**values[1],'claims':[big]}],'full')[0])-1)
+    diagnostics=[]
+    prepared=mn.fit_page_context(values,'full',mn.BATCH_TOKENS,diagnostics)
+    assert prepared[1]['claims'][0]['context_evidence']==[] and prepared[1]['claims'][0]['evidence']==big['evidence']
+    assert prepared[2]['claims'][0]['context_evidence']==small['context_evidence']
+    assert diagnostics==[{'event':'context_omitted','claims':['q10']}]
+    result=full(prepared,response)
+    assert {q for p in result for q in p['claim_ids']}=={q['claim_id'] for c in values for q in c['claims']}
+    with pytest.raises(ValueError,match='NOTE_INPUT_TOO_LARGE'):
+        mn.plan_sections(values,[{'label':'區域','concept_ids':[c['concept_id'] for c in values]}])
+    huge=deepcopy(prepared)
+    huge[0]['claims'][0]['evidence'][0]['quote']='自身原文很長。'*12000
+    assert mn.fit_page_context(huge,'full',mn.BATCH_TOKENS,[])[0]['claims'][0]['evidence']==huge[0]['claims'][0]['evidence']
+    with pytest.raises(ValueError,match='NOTE_INPUT_TOO_LARGE'):
+        mn.plan_sections(mn.fit_page_context(huge,'full',mn.BATCH_TOKENS,[]),[{'label':'區域','concept_ids':[c['concept_id'] for c in huge]}])

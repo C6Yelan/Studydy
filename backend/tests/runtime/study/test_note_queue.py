@@ -297,8 +297,9 @@ def test_content_rejection_keeps_published_notes_and_does_not_checkpoint_uncheck
     assert failed['status']=='failed' and failed['error_code']=='NOTE_COVERAGE_INCOMPLETE'
     assert failed['paragraphs']==old['paragraphs'] and failed['generation']==1
     # 重點整理每段局部重寫一次仍不符就刪段；刪光後概念沒有被解說，只為這些概念補寫一次，
-    # 補寫段落仍不符就刪段並失敗。內容未變的段落沿用同一核對結果。
-    assert [r.get('phase','generate') for r in calls]==['generate']+['review_paragraph','generate']*3+['generate']
+    # 補寫段落仍不符就這一批失敗；同一工作內整批再試兩次，三次都失敗才不發布。內容未變的段落沿用同一核對結果。
+    attempt=['generate']+['review_paragraph','generate']*3+['generate']
+    assert [r.get('phase','generate') for r in calls]==attempt*3
     assert calls[-1]['correction']['problem']=='NOTE_CONCEPT_UNEXPLAINED'
     assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
     drain(f,reject)
@@ -318,7 +319,7 @@ def test_reference_repair_missing_paragraph_preserves_explicit_worker_error(clos
     def malformed_repair(request):
         calls.append(request)
         result=answer(request)
-        if len(calls)==1:
+        if len(calls)%2==1:
             result['paragraphs'][-1]['evidence_ids']=result['paragraphs'][0]['evidence_ids'][:]
         else:
             result['paragraphs']=result['paragraphs'][:1]
@@ -327,7 +328,7 @@ def test_reference_repair_missing_paragraph_preserves_explicit_worker_error(clos
     failed=client.get(path+'/full').json()
     assert failed['status']=='failed' and failed['error_code']=='NOTE_FORMAT_INVALID'
     assert failed['paragraphs']==[] and failed['progress']['completed_parts']==0
-    assert len(calls)==2
+    assert len(calls)==6  # 格式錯誤可因重寫改變：同一批共三次嘗試，每次一份稿加一次引用補正。
 
 
 def test_step_dispatches_content_checks_with_the_saved_review_contract(closed_loop,tmp_path,monkeypatch):
@@ -412,7 +413,9 @@ def test_dropped_paragraph_and_failure_save_summary_codes_without_material_text(
     failed = _diagnostics(f, 'full')
     assert failed['code'] == full['error_code'] == 'NOTE_CONTENT_UNSUPPORTED'
     assert failed['error_type'] == 'ValueError'
-    assert [e['repaired'] for e in failed['events'] if e['event'] == 'review_rejected'] == [False, True]
+    assert [e['repaired'] for e in failed['events'] if e['event'] == 'review_rejected'] == [False, True] * 3
+    assert failed['events'][-1] == {'event': 'part_attempts', 'part': 0, 'attempts': 3,
+        'failed': ['NOTE_CONTENT_UNSUPPORTED'] * 3, 'succeeded': False}
     stored = json.dumps(failed, ensure_ascii=False)
     assert 'SECRET-REASON' not in stored and not any(t in stored for t in _material_texts(requests))
     foreign = register_account('note_diag_foreign@example.com', 'Synthetic test password 42', dsn=f['dsn'])
