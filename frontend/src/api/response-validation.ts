@@ -913,16 +913,16 @@ export function learningActivity(value: unknown): value is LearningActivityView 
   const sources = object(xp?.sources);
   const badges = object(item?.badges);
   return !!item && item.schema === "learning-activity/v3" && item.timezone === "Asia/Taipei"
-    && item.rule_version === "xp-rules/v3"
+    && item.rule_version === "xp-rules/v4"
     && typeof item.today === "string" && isoDate.test(item.today)
     && count(item.streak_days) && typeof item.active_today === "boolean"
     && count(item.total_answers) && count(item.total_correct) && item.total_correct <= item.total_answers
     && !!xp && !!sources && [xp.total, xp.today, xp.level_xp, xp.level_target].every(count)
     && Number.isInteger(xp.level) && Number(xp.level) >= 1 && Number(xp.level_xp) < Number(xp.level_target)
     && Number(xp.today) <= Number(xp.total)
-    && ["answers", "concepts", "cards", "podcast"].every(key => count(sources[key]))
+    && ["answers", "concepts", "cards", "podcast", "goals", "difficulties", "diagnostics"].every(key => count(sources[key]))
     && Array.isArray(item.quests) && item.quests.every(learningQuest)
-    && !!badges && badges.rule_version === "badge-rules/v6" && Array.isArray(badges.items) && badges.items.every(learningBadge);
+    && !!badges && badges.rule_version === "badge-rules/v7" && Array.isArray(badges.items) && badges.items.every(learningBadge);
 }
 
 const rhythmPeriods = ["week", "month", "quarter", "year"];

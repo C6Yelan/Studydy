@@ -360,6 +360,14 @@ def submit_set_answers(
         group.action_receipts = {**group.action_receipts, key: fingerprint}
         _touch_diagnostic(session, group)
         session.flush()
+        from .learning_goals import record_goal_milestones
+        # 成就用的關卡／達標紀錄失敗不影響交卷：只回滾這個 savepoint 並記錄錯誤類型。
+        try:
+            with session.begin_nested():
+                record_goal_milestones(session, study.learner_id, study.material_id)
+        except Exception as error:
+            logging.getLogger(__name__).warning(
+                "GOAL_MILESTONE_RECORD_FAILED set_id=%s error=%s", set_id, type(error).__name__)
 
 
 def change_set(

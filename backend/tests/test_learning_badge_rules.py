@@ -1,10 +1,11 @@
-"""徽章規則 badge-rules/v6：系列徽章的每一層與特殊成就的未達、剛好達標與取得日期。"""
+"""徽章規則 badge-rules/v7：系列徽章的每一層與特殊成就的未達、剛好達標與取得日期。"""
 from datetime import date, datetime, timedelta
 
 import pytest
 
 from runtime.learning_activity import (
-    BADGES, SPECIAL_BADGES, derive_badges, derive_special_badges, level_for, reached_on, run_reached_on, xp_threshold,
+    BADGES, SPECIAL_BADGES, derive_badges, derive_special_badges, level_for, overcome_difficulties, reached_on,
+    run_reached_on, stage_xp, xp_threshold,
 )
 
 D1, D2, D3 = date(2026, 10, 16), date(2026, 10, 17), date(2026, 10, 20)
@@ -16,7 +17,7 @@ def badges(**records):
         "xp": {}, "active": set(), "streak": 0, "level": 1, **records,
     }
     view = derive_badges(**values)
-    assert view["rule_version"] == "badge-rules/v6"
+    assert view["rule_version"] == "badge-rules/v7"
     assert [item["badge_id"] for item in view["items"]] == [badge_id for badge_id, _, _ in BADGES]
     return {item["badge_id"]: item for item in view["items"]}
 
@@ -313,3 +314,89 @@ def test_three_islands_needs_three_materials_answered_on_one_day():
 def test_new_year_needs_activity_on_january_first():
     assert special(active={date(2026, 1, 2), date(2025, 12, 31)})["new_year"]["earned"] is False
     assert state(special(active={date(2026, 1, 1), date(2027, 1, 1)})["new_year"]) == (True, date(2026, 1, 1), 1, 1)
+
+
+@pytest.mark.parametrize(("badge_id", "metric", "target"), [
+    (badge_id, metric, target) for badge_id, metric, target in BADGES
+    if metric in {
+        "goals", "stages", "difficulties", "diagnostics", "notes", "annotations",
+        "image_uploads", "audio_uploads", "video_uploads", "youtube_uploads", "exports", "export_kinds",
+        "finished_series", "host_pairs", "all_tools", "diagnosed_mastery", "media_concepts",
+    }
+])
+def test_v7_cumulative_badges_count_real_records_and_date_the_threshold_day(badge_id, metric, target):
+    assert state(badges()[badge_id]) == (False, None, 0, target)
+    if target > 1:
+        assert state(badges(extra={metric: {D1: target - 1}})[badge_id]) == (False, None, target - 1, target)
+    view = badges(extra={metric: {D1: target - 1, D2: 1, D3: 5}})
+    assert state(view[badge_id]) == (True, D2, target, target)
+
+
+def test_stage_streak_needs_seven_consecutive_stage_days_and_keeps_the_longest_run():
+    days = {D1 + timedelta(days=offset) for offset in range(6)}
+    assert state(badges(stage_days=days)["stage_streak_7"]) == (False, None, 6, 7)
+    # 中斷後重新開始：進度是歷史最長連續天數。
+    assert state(badges(stage_days=days | {D1 + timedelta(days=9)})["stage_streak_7"]) == (False, None, 6, 7)
+    full = days | {D1 + timedelta(days=6)}
+    assert state(badges(stage_days=full)["stage_streak_7"]) == (True, D1 + timedelta(days=6), 7, 7)
+
+
+def at(day, minute=0):
+    return datetime(2026, 10, day, 10, minute)
+
+
+def ask(day, minute, correct, question, material="m", concept="c"):
+    """一筆作答：(台灣時間, 是否答對, 教材, 概念, 題目身分)。"""
+    return (at(day, minute), correct, material, concept, question)
+
+
+def test_difficulty_is_overcome_once_when_error_rate_drops_below_half():
+    # 2 錯 1 對 → 難點（3 題、67%）；再對 1 題 2/4 仍是 50%；再對 1 題 2/5 → 克服。
+    events = [ask(16, 0, False, "q1"), ask(16, 1, False, "q2"), ask(16, 2, True, "q3"),
+              ask(17, 0, True, "q4"), ask(18, 0, True, "q5"),
+              # 克服後再錯、再對都不重算。
+              ask(19, 0, False, "q6"), ask(19, 1, False, "q7"), ask(20, 0, True, "q8")]
+    assert overcome_difficulties(events) == [(date(2026, 10, 18), False)]
+    # 少於 3 題時錯誤率再高也不是難點；從未成為難點的概念不算克服。
+    assert overcome_difficulties([ask(16, 0, False, "q1"), ask(16, 1, True, "q2"), ask(16, 2, True, "q3")]) == []
+    # 同名概念在不同教材分開計算；沒有概念的作答忽略。
+    other = [(t, ok, "m2", c, q) for t, ok, _, c, q in events]
+    assert len(overcome_difficulties(sorted(events + other))) == 2
+    assert overcome_difficulties([ask(16, i, False, f"q{i}", concept=None) for i in range(4)]) == []
+
+
+def test_repeated_practice_of_the_same_question_cannot_farm_difficulties():
+    # 先答對 3 題；再次練習同一題（題目身分相同）故意答錯 3 次再答對：只採計每題第一次作答，不成為難點。
+    honest = [ask(16, 0, True, "q1"), ask(16, 1, True, "q2"), ask(16, 2, True, "q3")]
+    farmed = [ask(17, i, False, "q1") for i in range(3)] + [ask(17, i + 3, True, "q2") for i in range(3)]
+    assert overcome_difficulties(honest + farmed) == []
+    # 重複題同樣不能用來「克服」：真正成為難點後，只答對重複題不算克服。
+    hard = [ask(16, 0, False, "q1"), ask(16, 1, False, "q2"), ask(16, 2, True, "q3")]
+    assert overcome_difficulties(hard + [ask(17, i, True, "q3") for i in range(5)]) == []
+    # 宿敵也只看第一次作答：同一題錯 5 次不構成宿敵。
+    repeated_wrong = [ask(16, i, False, "q1") for i in range(5)]
+    assert overcome_difficulties(repeated_wrong + [ask(17, i, True, f"r{i}") for i in range(3)]) == []
+
+
+def test_nemesis_requires_seventy_percent_errors_on_at_least_five_answers():
+    wrong4_right1 = [ask(16, i, i == 4, f"w{i}") for i in range(5)]  # 5 題錯 4（80%）
+    recovery = [ask(17, i, True, f"r{i}") for i in range(4)]         # 4/9 → 克服
+    assert overcome_difficulties(wrong4_right1 + recovery) == [(date(2026, 10, 17), True)]
+    # 4 題錯 3（75%）但未滿 5 題：克服但不是宿敵。
+    short = [ask(16, i, i == 3, f"w{i}") for i in range(4)] + [ask(17, i, True, f"r{i}") for i in range(3)]
+    assert overcome_difficulties(short) == [(date(2026, 10, 17), False)]
+
+
+def test_stage_xp_has_a_daily_cap():
+    assert [stage_xp(n) for n in (0, 1, 3, 10)] == [0, 15, 45, 45]
+
+
+def test_v7_special_badges_use_feature_dates():
+    view = special(features={"goal_on_time": [D2, D1], "all_media": [D1, D2, D3], "nemesis": [D3]})
+    assert state(view["goal_on_time"]) == (True, D1, 1, 1)
+    assert state(view["all_media"]) == (False, None, 3, 4)
+    assert state(view["nemesis"]) == (True, D3, 1, 1)
+    full = special(features={"all_media": [D3, D1, D2, D2]})
+    assert state(full["all_media"]) == (True, D3, 4, 4)
+    for badge_id in ("last_minute", "night_listener", "same_day_learner"):
+        assert state(view[badge_id]) == (False, None, 0, 1)

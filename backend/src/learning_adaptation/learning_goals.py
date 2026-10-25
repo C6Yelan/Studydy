@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from runtime.errors import SourceError
 from runtime.learner_session import TrustedLearner
 from runtime.storage.database import database_session
 from runtime.storage.tables import LearningGoal, Material, KnowledgeStructure
 from .goal_metrics import load_goal_evidence, measure_targets, read_goal_metrics
-from .goal_planning import daily_quota, build_plan
+from .goal_planning import daily_quota, build_plan, _target
 from .starting_levels import route_order, diagnostic_correct_concepts
 
 TIMEZONE = ZoneInfo("Asia/Taipei")
@@ -144,6 +144,46 @@ def _project(db, material, goal, now, *, preview_offset=0, preview_days=7):
     return result
 
 
+def record_goal_milestones(db, owner, material_id):
+    """交卷後在同一交易記錄今天的分天關卡完成與準時達成目標（成就與 XP 使用）。
+
+    今日配額大於 0 且今天真實完成的重點達到配額才算過關，目標已先達成而配額為 0 的日子不算；
+    目標設定（或最近一次修改）那一刻已達標的不算準時達成。每份教材每天一關、準時達成只記一次。
+    呼叫者已持有 Material 鎖；目標不存在或尚未跟上最新版本時不記錄。
+    """
+    goal = db.scalar(select(LearningGoal).where(LearningGoal.material_id == material_id,
+                                              LearningGoal.learner_id == owner))
+    material = db.get(Material, material_id)
+    if goal is None or material is None or goal.baseline_revision != material.head_revision:
+        return
+    now = _now()
+    today = now.astimezone(TIMEZONE).date()
+    view = _project(db, material, goal, now, preview_days=0)["goal"]
+    stage = view["today_stage"]
+    values = {"owner": owner, "material": material_id, "today": today, "now": now, "target": goal.target_date}
+    if stage["quota_points"] > 0 and stage["completed_points"] >= stage["quota_points"]:
+        db.execute(text(
+            """
+            INSERT INTO goal_milestones (learner_id, material_id, kind, day, created_at)
+            VALUES (:owner, :material, 'stage', :today, :now) ON CONFLICT DO NOTHING
+            """
+        ), values)
+    if not view["achieved"] or today > goal.target_date or db.scalar(text(
+        "SELECT 1 FROM goal_milestones WHERE material_id = :material AND kind = 'achieved'"
+    ), values):
+        return
+    # 以設定／修改目標那一刻的真實完成量判斷（含當天稍早的成果），先完成再設目標不算。
+    before = read_goal_metrics(db, TrustedLearner(owner), material_id, goal.baseline_revision, through=goal.baseline_at)
+    if before["assessable_points"] and before["completed_points"] >= _target(before["assessable_points"], goal.target_percent):
+        return
+    db.execute(text(
+        """
+        INSERT INTO goal_milestones (learner_id, material_id, kind, day, target_date, created_at)
+        VALUES (:owner, :material, 'achieved', :today, :target, :now) ON CONFLICT DO NOTHING
+        """
+    ), values)
+
+
 def read_goal(db, owner, material_id, *, now=None, preview_offset=0, preview_days=7):
     material = _material(db, owner, material_id)
     goal = db.get(LearningGoal, material_id)
@@ -163,7 +203,7 @@ def set_goal(learner, material_id, target_date, target_percent, *, dsn=None):
             raise SourceError("REQUEST_INVALID")
         if goal is None:
             goal = LearningGoal(material_id=material_id, learner_id=learner.learner_id,
-                                target_date=target_date, target_percent=target_percent)
+                                target_date=target_date, target_percent=target_percent, created_at=now)
             metrics = _rebase(db, goal, material.head_revision, now)
             goal.notice_revision, goal.notice_points = material.head_revision, metrics["assessable_points"]
             db.add(goal)

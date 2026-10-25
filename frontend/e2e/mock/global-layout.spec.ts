@@ -30,7 +30,7 @@ const responses: Record<string, unknown> = {
   }),
   "/v1/learning-activity": learningActivity({
     streak: 128, total: 12450, todayXp: 85, level: [15, 1450, 1500],
-    sources: { answers: 9000, concepts: 2400, cards: 650, podcast: 400 },
+    sources: { answers: 8595, concepts: 2400, cards: 650, podcast: 400, goals: 165, difficulties: 140, diagnostics: 100 },
     answers: [155, 124],
     quests: [
       { kind: "mark_cards", progress: 3, target: 5, done: false },
@@ -81,7 +81,7 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1366, 1281, 1100, 1024, 910, 
       }
       if (path === "/achievements") {
         // 8 個指定的層級加上第 15 級已達的等級 I～III 層；分母不含成就鏈中尚未揭曉的 5 步。
-        await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText("11 / 70");
+        await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText("11 / 101");
         await expect(page.getByRole("region", { name: "經驗值怎麼算" })).toBeVisible();
       }
       if (path === "/") {

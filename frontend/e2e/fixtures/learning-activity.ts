@@ -7,7 +7,7 @@ type Quest = {
 };
 
 type Badge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
-// badge-rules/v6 的代號與門檻（各系列由低到高，最後是特殊成就）；預設全部未取得，等級徽章進度為目前等級。
+// badge-rules/v7 的代號與門檻（各系列由低到高，最後是特殊成就）；預設全部未取得，等級徽章進度為目前等級。
 const badgeTargets: [string, number][] = [
   ["first_answer", 1], ["answers_100", 100], ["answers_300", 300], ["answers_1000", 1000], ["answers_5000", 5000],
   ["first_concept", 1], ["concepts_25", 25], ["concepts_100", 100], ["concepts_300", 300], ["concepts_1000", 1000],
@@ -26,26 +26,40 @@ const badgeTargets: [string, number][] = [
   ["first_try_material", 1], ["perfect_day", 1], ["all_round_day", 1], ["thousand_pages", 1], ["revisit", 1],
   ["xp_day_300", 300], ["never_give_up", 1], ["binge_3", 3], ["three_islands", 3], ["new_year", 1],
 ];
+// v7 新增：系列（後端 BADGES 尾端）與特殊成就（SPECIAL_BADGES 尾端），依後端順序插入。
+const v7Series: [string, number][] = [
+  ["first_goal", 1], ["first_stage", 1], ["stages_10", 10], ["stages_50", 50],
+  ["first_difficulty", 1], ["difficulties_5", 5], ["difficulties_20", 20], ["first_diagnostic", 1], ["diagnostics_5", 5],
+  ["first_note", 1], ["first_annotation", 1], ["annotations_10", 10], ["annotations_50", 50],
+  ["upload_image", 1], ["upload_audio", 1], ["upload_video", 1], ["upload_youtube", 1], ["first_export", 1], ["export_kinds_4", 4],
+  ["podcast_series", 1], ["podcast_hosts_all", 6],
+  ["all_tools_material", 1], ["diagnosed_mastery", 1], ["media_concepts_5", 5], ["stage_streak_7", 7],
+];
+const v7Specials: [string, number][] = [
+  ["goal_on_time", 1], ["all_media", 4], ["last_minute", 1], ["night_listener", 1], ["nemesis", 1], ["same_day_learner", 1],
+];
+badgeTargets.splice(badgeTargets.findIndex(([id]) => id === "combo_10"), 0, ...v7Series);
+badgeTargets.push(...v7Specials);
 
 export function learningActivity(options: {
   today?: string; streak?: number; activeToday?: boolean; answers?: [number, number]; total?: number; todayXp?: number; level?: [number, number, number];
-  sources?: { answers: number; concepts: number; cards: number; podcast: number }; quests?: Quest[];
+  sources?: { answers: number; concepts: number; cards: number; podcast: number; goals?: number; difficulties?: number; diagnostics?: number }; quests?: Quest[];
   // 指定徽章的進度；有 earned_on 即視為已取得（進度等於門檻）。
   badges?: Record<string, { progress?: number; earned_on?: string | null; earned?: boolean }>;
 } = {}) {
   const today = options.today ?? "2026-10-21";
   const [level, levelXp, levelTarget] = options.level ?? [1, options.total ?? 0, 100];
   return {
-    schema: "learning-activity/v3", timezone: "Asia/Taipei", rule_version: "xp-rules/v3", today,
+    schema: "learning-activity/v3", timezone: "Asia/Taipei", rule_version: "xp-rules/v4", today,
     streak_days: options.streak ?? 0, active_today: options.activeToday ?? false,
     total_answers: options.answers?.[0] ?? 0,
     total_correct: options.answers?.[1] ?? 0,
     xp: {
       total: options.total ?? 0, today: options.todayXp ?? 0, level, level_xp: levelXp, level_target: levelTarget,
-      sources: options.sources ?? { answers: options.total ?? 0, concepts: 0, cards: 0, podcast: 0 },
+      sources: { goals: 0, difficulties: 0, diagnostics: 0, ...(options.sources ?? { answers: options.total ?? 0, concepts: 0, cards: 0, podcast: 0 }) },
     },
     badges: {
-      rule_version: "badge-rules/v6",
+      rule_version: "badge-rules/v7",
       // 指定了不在規則表的代號時照樣回傳（門檻 1），用來驗證畫面忽略不認得的徽章。
       items: [...badgeTargets, ...Object.keys(options.badges ?? {}).filter((id) => !badgeTargets.some(([known]) => known === id)).map((id): [string, number] => [id, 1])]
         .map(([badge_id, target]): Badge => {

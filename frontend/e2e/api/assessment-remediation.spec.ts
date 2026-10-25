@@ -86,6 +86,8 @@ test("wrong points directly form groups and survive lost create responses", asyn
   await page.getByRole("button",{name:"交卷並查看結果",exact:true}).click();
   await page.getByRole("button",{name:"開始補強 1 題",exact:true}).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
+  // 上一次交卷讓 Signals 的錯誤率降到一半以下，進入補強題組時讀到新徽章（突破難點），先關閉提示。
+  await page.getByRole("dialog", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
   const childUrl=page.url();
   await card(page,1).getByRole("radio",{name:/\bcode2\b/}).check();
   await page.getByRole("button",{name:"交卷並查看結果",exact:true}).click();

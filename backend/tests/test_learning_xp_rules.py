@@ -1,4 +1,4 @@
-"""學習活動規則 xp-rules/v3：分段等級曲線、收聽與概念卡 XP、連續天數、概念首次完成與收聽採計上限。"""
+"""學習活動規則 xp-rules/v4：分段等級曲線、收聽與概念卡 XP、連續天數、概念首次完成與收聽採計上限。"""
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo

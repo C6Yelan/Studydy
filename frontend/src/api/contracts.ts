@@ -319,9 +319,9 @@ export type LearningQuest = {
 };
 export type LearningXp = {
   total: number; today: number; level: number; level_xp: number; level_target: number;
-  sources: { answers: number; concepts: number; cards: number; podcast: number };
+  sources: { answers: number; concepts: number; cards: number; podcast: number; goals: number; difficulties: number; diagnostics: number };
 };
-// 徽章（規則 badge-rules/v6）只由真實紀錄推導；同一計量的多個門檻是同一系列的層級，另有隱藏條件的特殊成就與逐步揭曉的成就鏈。未知代號由畫面忽略。
+// 徽章（規則 badge-rules/v7）只由真實紀錄推導；同一計量的多個門檻是同一系列的層級，另有隱藏條件的特殊成就與逐步揭曉的成就鏈。未知代號由畫面忽略。
 export type LearningBadgeId =
   | "first_answer" | "answers_100" | "answers_300" | "answers_1000" | "answers_5000"
   | "first_concept" | "concepts_25" | "concepts_100" | "concepts_300" | "concepts_1000"
@@ -338,15 +338,22 @@ export type LearningBadgeId =
   | "explorer_5" | "explorer_10" | "night_owl" | "early_bird"
   | "weekend" | "return" | "curious_10" | "curious_50" | "researcher" | "creator" | "corrected_5"
   | "first_try_material" | "perfect_day" | "all_round_day" | "thousand_pages" | "revisit"
-  | "xp_day_300" | "never_give_up" | "binge_3" | "three_islands" | "new_year";
+  | "xp_day_300" | "never_give_up" | "binge_3" | "three_islands" | "new_year"
+  | "first_goal" | "first_stage" | "stages_10" | "stages_50"
+  | "first_difficulty" | "difficulties_5" | "difficulties_20" | "first_diagnostic" | "diagnostics_5"
+  | "first_note" | "first_annotation" | "annotations_10" | "annotations_50"
+  | "upload_image" | "upload_audio" | "upload_video" | "upload_youtube" | "first_export" | "export_kinds_4"
+  | "podcast_series" | "podcast_hosts_all"
+  | "all_tools_material" | "diagnosed_mastery" | "media_concepts_5" | "stage_streak_7"
+  | "goal_on_time" | "all_media" | "last_minute" | "night_listener" | "nemesis" | "same_day_learner";
 export type LearningBadge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
 export type LearningActivityView = {
-  schema: "learning-activity/v3"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v3"; today: string;
+  schema: "learning-activity/v3"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v4"; today: string;
   streak_days: number; active_today: boolean;
   total_answers: number; total_correct: number;
   xp: LearningXp;
   quests: LearningQuest[];
-  badges: { rule_version: "badge-rules/v6"; items: LearningBadge[] };
+  badges: { rule_version: "badge-rules/v7"; items: LearningBadge[] };
 };
 // 學習節奏：週（週一到週日）、月（自然月）、近 3 個月（13 週）、近一年（52 週）；offset 為往前翻的頁數。
 export type LearningRhythmPeriod = "week" | "month" | "quarter" | "year";

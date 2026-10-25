@@ -56,6 +56,8 @@ Migration 驗證先在 0013 建立原題組、補強及答案，再升級至 001
 
 前端以 `learning-diagnosis.spec.ts` 驗證直接讀取、空區塊省略、精簡建議與結構標記；`concept-cards.spec.ts` 核對卡組原版本。相關版面檢查沿用 `global-layout` 與 `shell-layout`。這些功能不呼叫模型，也不以合成測試宣稱學習完成。
 
+成就與經驗值：`test_learning_badge_rules.py`／`test_learning_xp_rules.py` 驗證各系列層級、特殊成就、克服難點與宿敵的重播門檻（重複題只採計第一次作答，不能刷）、關卡每日上限與一週闖關。`runtime/study/test_learning_badges.py` 使用隔離 DB：交卷時記錄分天關卡與準時達成目標（同日不重複、設定目標時已達標不算）、由既有診斷／筆記／註記／上傳／Podcast 收聽紀錄回溯推導、刪除教材後重新判定，0019 升級回填目標建立時間且不改其他欄位，以及關卡紀錄失敗只回滾自己的 savepoint、交卷仍成功；`test_export_routes.py` 核對只有匯出成功才寫入 `learner_exports`，`test_export_uploads.py` 與 `test_learning_badges.py` 核對紀錄寫入失敗不影響下載。前端以 `dashboard.spec.ts` 驗證經驗值來源列、成就格與隱藏彩蛋，版面沿用 `global-layout`／`shell-layout`。
+
 | 變更 | 驗證入口 |
 | --- | --- |
 | Evidence、知識結構、題目與純邏輯 | backend/tests 對應單元測試 |

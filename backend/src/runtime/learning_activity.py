@@ -1,19 +1,23 @@
-"""學習活動：由作答、概念卡標記與 Podcast 收聽紀錄即時彙總，以台灣日期為界。
+"""學習活動：由作答、概念卡標記、Podcast 收聽與各功能的真實紀錄即時彙總，以台灣日期為界。
 
 XP、等級、連續天數、今日任務與徽章都從既有紀錄推導，不另存累計點數、任務或
-徽章狀態（規則 xp-rules/v3 與 badge-rules/v6，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
-推導結果隨之改變；沒有紀錄的過去活動不補算。
+徽章狀態（規則 xp-rules/v4 與 badge-rules/v7，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
+推導結果隨之改變；沒有紀錄的過去活動不補算。無法由既有資料推導的分天關卡、準時達成目標與匯出，
+分別在交卷與匯出成功時記錄（goal_milestones、learner_exports）。
 """
 
 from collections import OrderedDict
+import logging
 from datetime import date, datetime, time, timedelta
 from threading import Lock
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text
 
+from .podcasts import HOST_PAIRS
+
 TIMEZONE = "Asia/Taipei"
-RULE_VERSION = "xp-rules/v3"
+RULE_VERSION = "xp-rules/v4"
 XP_CORRECT, XP_WRONG = 10, 3
 XP_CONCEPT = 30
 # 概念卡標記：同一張卡每天第一次標記 +2，單日上限 40；距上一次標記不到 3 秒的不計（連續狂點不加分）。
@@ -21,6 +25,12 @@ XP_CARD, XP_CARD_DAILY_CAP = 2, 40
 MARK_MIN_GAP = timedelta(seconds=3)
 # 每天實際收聽每滿 5 分鐘 +5，單日上限 60。
 XP_LISTEN_STEP, XP_LISTEN_SECONDS, XP_LISTEN_DAILY_CAP = 5, 300, 60
+# 分天關卡：每份教材每天第一次達到今日配額 +15，單日上限 45（3 關）；在目標日以前達成目標每份教材 +50。
+XP_STAGE, XP_STAGE_DAILY_CAP = 15, 45
+XP_GOAL_ON_TIME = 50
+# 克服難點：每份教材的每個概念只算一次。完成起始程度診斷：每份教材只算第一次。
+XP_DIFFICULTY = 20
+XP_DIAGNOSTIC = 20
 # 當天實際收聽滿 1 分鐘才算當天有學習活動。
 ACTIVE_LISTEN_SECONDS = 60
 MARK_QUEST = 5
@@ -28,7 +38,7 @@ MARK_QUEST = 5
 # 第 n 級升到 n+1 所需 XP＝所在段的基數＋增量×(n−起始等級)；每進入新的一段需求明顯跳一階。
 LEVEL_SEGMENTS = ((1, 100, 50), (5, 500, 100), (10, 1400, 150), (15, 2600, 200), (20, 4500, 300), (30, 9000, 500))
 
-BADGE_RULE_VERSION = "badge-rules/v6"
+BADGE_RULE_VERSION = "badge-rules/v7"
 # 徽章依顯示順序列出：(代號, 計量, 門檻)。同一計量的多個門檻是同一系列的不同層級（由低到高），
 # 計量見 derive_badges；修改時一併更新版本字串、API 模型、前端名稱與文件。
 BADGES = (
@@ -84,6 +94,39 @@ BADGES = (
     ("first_episode", "episodes", 1),
     ("episodes_10", "episodes", 10),
     ("episodes_50", "episodes", 50),
+    # 目標與分天關卡：第一次設定目標；完成分天關卡（每份教材每天一關）。
+    ("first_goal", "goals", 1),
+    ("first_stage", "stages", 1),
+    ("stages_10", "stages", 10),
+    ("stages_50", "stages", 50),
+    # 克服難點：曾是「你的難點」（作答 ≥3 題且錯誤率 ≥50%）的概念，之後錯誤率降到 50% 以下。
+    ("first_difficulty", "difficulties", 1),
+    ("difficulties_5", "difficulties", 5),
+    ("difficulties_20", "difficulties", 20),
+    # 完成起始程度診斷題組（material_diagnostic）的教材份數。
+    ("first_diagnostic", "diagnostics", 1),
+    ("diagnostics_5", "diagnostics", 5),
+    # 筆記：第一份完整筆記；寫個人註記的段落數（同一段落多則註記只算一次）。
+    ("first_note", "notes", 1),
+    ("first_annotation", "annotations", 1),
+    ("annotations_10", "annotations", 10),
+    ("annotations_50", "annotations", 50),
+    # 多元教材：各種媒體來源第一次上傳。
+    ("upload_image", "image_uploads", 1),
+    ("upload_audio", "audio_uploads", 1),
+    ("upload_video", "video_uploads", 1),
+    ("upload_youtube", "youtube_uploads", 1),
+    # 匯出：任一種第一次匯出；筆記、概念卡組、Podcast、知識地圖四種都匯出過。
+    ("first_export", "exports", 1),
+    ("export_kinds_4", "export_kinds", 4),
+    # Podcast 節目：聽完多集節目的每一集；聽完每一組主持人（建立節目時從 HOST_PAIRS 隨機指派）的節目。
+    ("podcast_series", "finished_series", 1),
+    ("podcast_hosts_all", "host_pairs", len(HOST_PAIRS)),
+    # 組合成就（公開條件）。
+    ("all_tools_material", "all_tools", 1),         # 同一份教材：完成題組、標記概念卡、聽完一集 Podcast、寫筆記註記
+    ("diagnosed_mastery", "diagnosed_mastery", 1),  # 做過起始程度診斷的教材，之後完成全部學習
+    ("media_concepts_5", "media_concepts", 5),      # 在含圖片／音訊／影片／YouTube 來源的教材完成 5 個概念
+    ("stage_streak_7", "stage_streak", 7),          # 連續 7 天都完成分天關卡
 )
 # 特殊成就（畫面上未取得前隱藏條件）：(代號, 門檻)。判定方式見 derive_special_badges。
 # 成就鏈（同一條件的更高門檻，例如 combo_10 → combo_25 → combo_50）由畫面依序揭曉；高門檻必然晚於低門檻取得。
@@ -115,7 +158,20 @@ SPECIAL_BADGES = (
     ("binge_3", 3),          # 同一天聽完 3 集 Podcast
     ("three_islands", 3),    # 同一天在 3 份不同教材作答
     ("new_year", 1),         # 1 月 1 日有學習活動
+    ("goal_on_time", 1),     # 在目標日以前達成目標（設定目標那一刻尚未達標）
+    ("all_media", 4),        # 圖片、音訊、影片、YouTube 四種來源都上傳過
+    # 彩蛋：
+    ("last_minute", 1),      # 在目標日當天才達成目標
+    ("night_listener", 1),   # 台灣時間 0:00–4:59 聽完一集 Podcast
+    ("nemesis", 1),          # 克服一個錯誤率曾達 70%（至少 5 題）的難點
+    ("same_day_learner", 1), # 建立教材的同一天就完成它的一個概念
 )
+# 新增的特殊成就只需要日期清單：{代號: 依序達成的日期}，見 derive_special_badges 的 features。
+FEATURE_SPECIALS = ("goal_on_time", "all_media", "last_minute", "night_listener", "nemesis", "same_day_learner")
+# 「你的難點」與 learning_adaptation.learning_insights.is_personal_difficulty 相同：作答 ≥3 題且錯誤率 ≥50%。
+DIFFICULTY_MIN_ANSWERS = 3
+# 彩蛋「宿敵」：錯誤率曾達 70% 且當時至少作答 5 題。
+NEMESIS_MIN_ANSWERS, NEMESIS_PERCENT = 5, 70
 
 
 def level_requirement(level):
@@ -189,20 +245,69 @@ def run_reached_on(active, length):
     return None
 
 
+def longest_run(days):
+    """日期集合中最長的連續天數。"""
+    best = run = 0
+    previous = None
+    for day in sorted(days):
+        run = run + 1 if previous is not None and day - previous == timedelta(days=1) else 1
+        previous = day
+        best = max(best, run)
+    return best
+
+
+def is_difficulty(attempts, wrong):
+    return attempts >= DIFFICULTY_MIN_ANSWERS and wrong * 2 >= attempts
+
+
+def overcome_difficulties(events):
+    """依時間重播作答，回傳克服難點的 [(台灣日期, 是否為宿敵)]，同一教材同一概念只算第一次。
+
+    events 為依時間排序的 (台灣時間, 是否答對, 教材, 概念, 題目身分)。與作答 XP 相同，同一教材的同一題
+    （semantic identity）只採計第一次作答，在再次練習的重複題故意答錯再答對不會製造或克服難點。
+    某概念累計作答成為「你的難點」後，之後累計錯誤率降到 50% 以下的那一筆作答即為克服；
+    曾在至少 5 題時錯誤率達 70% 的為宿敵。
+    """
+    stats, flagged, nemesis, done, seen, result = {}, set(), set(), set(), set(), []
+    for at, correct, material, concept, identity in events:
+        key = (material, concept)
+        if concept is None or key in done or (material, identity) in seen:
+            continue
+        seen.add((material, identity))
+        attempts, wrong = stats.get(key, (0, 0))
+        attempts, wrong = attempts + 1, wrong + (not correct)
+        stats[key] = (attempts, wrong)
+        if is_difficulty(attempts, wrong):
+            flagged.add(key)
+            if attempts >= NEMESIS_MIN_ANSWERS and wrong * 100 >= attempts * NEMESIS_PERCENT:
+                nemesis.add(key)
+        elif key in flagged:
+            done.add(key)
+            result.append((at.date(), key in nemesis))
+    return result
+
+
+def stage_xp(count):
+    return min(XP_STAGE_DAILY_CAP, count * XP_STAGE)
+
+
 def xp_threshold(level):
     """到達第 level 級所需的總 XP。"""
     return sum(level_requirement(n) for n in range(1, level))
 
 
 def derive_badges(*, answers, concepts, materials, card_marks, listening, xp, active, streak, level,
-                  perfect_sets=None, sets=None, episodes=None):
-    """由每日紀錄推導系列徽章（規則 badge-rules/v6）。
+                  perfect_sets=None, sets=None, episodes=None, extra=None, stage_days=()):
+    """由每日紀錄推導系列徽章（規則 badge-rules/v7）。
 
     answers／concepts／materials／card_marks（計分的標記張數）／listening（秒）／xp／sets（完成題組）／
     episodes（聽完的集數）皆為 {台灣日期: 當天數量}；
     active 為有學習活動的日期集合。進度一律來自這些紀錄：累計型徽章的取得日期是累計
     第一次達標的那天，連續天數是第一次連續達標的那天，等級是累計 XP 第一次達到門檻的
     那天；未取得的連續天數徽章以目前連續天數作為進度。
+    extra 為其他累計型計量 {計量: {台灣日期: 當天數量}}（目標、關卡、難點、診斷、筆記、上傳、匯出、
+    Podcast 節目與組合成就），沒有紀錄的計量進度為 0；stage_days 為完成分天關卡的日期，
+    stage_streak 的進度為歷史最長連續天數。
     """
     listened = sum(listening.values())
     metrics = {
@@ -216,7 +321,11 @@ def derive_badges(*, answers, concepts, materials, card_marks, listening, xp, ac
         "active_days": (len(active), lambda target: reached_on(dict.fromkeys(active, 1), target)),
         "sets": (sum((sets or {}).values()), lambda target: reached_on(sets or {}, target)),
         "episodes": (sum((episodes or {}).values()), lambda target: reached_on(episodes or {}, target)),
+        "stage_streak": (longest_run(stage_days), lambda target: run_reached_on(set(stage_days), target)),
     }
+    for metric in {metric for _, metric, _ in BADGES} - set(metrics) - {"streak"}:
+        per_day = (extra or {}).get(metric, {})
+        metrics[metric] = (sum(per_day.values()), lambda target, per_day=per_day: reached_on(per_day, target))
     items = []
     for badge_id, metric, target in BADGES:
         if metric == "streak":
@@ -241,14 +350,15 @@ def _reached(dates, target):
 
 def derive_special_badges(*, events, answers, active, questions, research, card_sets, podcasts,
                           correct=None, card_days=(), listening=None, completed=None, pages=None, reviews=None,
-                          daily_xp=None, episodes=()):
-    """特殊與挑戰成就（規則 badge-rules/v6）。
+                          daily_xp=None, episodes=(), features=None):
+    """特殊與挑戰成就（規則 badge-rules/v7）。
 
     events 為依時間排序的作答 (台灣時間 datetime, 是否答對, 教材, 目標概念)；answers 為 {日期: 作答數}；
     active 為有學習活動的日期；questions、research 為 {日期: 次數}；card_sets、podcasts 為完成日期清單。
     挑戰成就另用：correct {日期: 答對數}、card_days 有標記卡片的日期、listening {日期: 收聽秒數}、
     completed {教材: 完成日期}、pages {教材: 頁數}、reviews {教材: 標記該教材卡片的日期清單}、
-    daily_xp {日期: 當天 XP}、episodes 每集第一次聽完的日期清單。
+    daily_xp {日期: 當天 XP}、episodes 每集第一次聽完的日期清單；
+    features 為 FEATURE_SPECIALS 各自依序達成的日期清單（all_media 是各種來源第一次上傳的日期）。
     取得日期是第一次達到門檻的那天；進度不超過門檻。
     """
     correct, listening = correct or {}, listening or {}
@@ -359,6 +469,8 @@ def derive_special_badges(*, events, answers, active, questions, research, card_
         "binge_3": (min(max(finished_per_day.values(), default=0), 3), binges[0] if binges else None),
         "three_islands": (min(max((len(m) for m in islands.values()), default=0), 3), hopping[0] if hopping else None),
         "new_year": _reached(new_years, 1),
+        **{badge_id: _reached(sorted((features or {}).get(badge_id, ())), target)
+           for badge_id, target in SPECIAL_BADGES if badge_id in FEATURE_SPECIALS},
     }
     items = []
     for badge_id, target in SPECIAL_BADGES:
@@ -447,8 +559,8 @@ def _completion_plan(session, owner, material_id, revision):
     return compact
 
 
-def _concept_completions(session, owner, zone):
-    """每份未刪除教材的每個概念只算一次，取各學習版本中最早的完成時間。"""
+def _concept_completions(session, owner):
+    """每份未刪除教材的每個概念只算一次，取各學習版本中最早的完成時間：{(教材, 概念): 時間}。"""
     from learning_adaptation.assessment_state import unavailable_claims
     from .storage.tables import StudySession
 
@@ -484,11 +596,183 @@ def _concept_completions(session, owner, zone):
             key = (study.material_id, concept)
             if key not in earliest or at < earliest[key]:
                 earliest[key] = at
-    days = {}
-    for at in earliest.values():
-        day = at.astimezone(zone).date()
-        days[day] = days.get(day, 0) + 1
-    return days
+    return earliest
+
+
+def record_export(owner, kind, *, dsn=None):
+    """匯出成功時記錄該種類第一次匯出的時間（成就「匯出與整理」）；只記種類與時間。
+
+    紀錄寫入失敗不影響匯出：只記錄錯誤類型，不讓下載失敗。
+    """
+    from .storage.database import database_session
+
+    try:
+        with database_session(dsn) as db:
+            db.execute(text(
+                """
+                INSERT INTO learner_exports (learner_id, kind, first_exported_at)
+                VALUES (:owner, :kind, now()) ON CONFLICT DO NOTHING
+                """
+            ), {"owner": owner, "kind": kind})
+    except Exception as error:
+        logging.getLogger(__name__).warning("EXPORT_RECORD_FAILED kind=%s error=%s", kind, type(error).__name__)
+
+
+def _per_day(days):
+    counts = {}
+    for day in days:
+        counts[day] = counts.get(day, 0) + 1
+    return counts
+
+
+# 媒體來源種類：material_sources.media_type（影片保存抽出的音軌，但來源仍記為 video/mp4）。
+MEDIA_KINDS = {
+    "application/zip": "image", "audio/mpeg": "audio", "audio/mp4": "audio", "audio/wav": "audio",
+    "video/mp4": "video", "application/vnd.studydy.youtube+json": "youtube",
+}
+EXPORT_KINDS = ("notes", "cards", "podcast", "map")
+CURRENT_HOSTS = {host for host, _ in HOST_PAIRS}
+
+
+def _feature_records(session, owner, zone, today, *, answer_events, concept_times, completed, reviews):
+    """目標、難點、診斷、筆記、上傳、匯出與 Podcast 節目的真實紀錄 → XP 與徽章計量。
+
+    只計入未刪除的教材；晚於 today 的紀錄不列入。回傳 (每日 XP 來源, 系列計量, 關卡日期, 特殊成就日期)。
+    """
+    values = {"owner": owner, "zone": zone.key}
+    alive = "JOIN materials m ON m.material_id = {0}.material_id AND m.learner_id = {0}.learner_id AND m.discard_requested_at IS NULL"
+
+    def rows(sql):
+        return session.execute(text(sql), values).all()
+
+    def local(at):
+        return at.astimezone(zone)
+
+    goals = [local(at).date() for (at,) in rows(f"SELECT g.created_at FROM learning_goals g {alive.format('g')} WHERE g.learner_id = :owner")]
+    stages, achieved = {}, []
+    for kind, day, target in rows(f"""
+        SELECT g.kind, g.day, g.target_date FROM goal_milestones g {alive.format('g')} WHERE g.learner_id = :owner
+    """):
+        if day > today:
+            continue
+        if kind == "stage":
+            stages[day] = stages.get(day, 0) + 1
+        else:
+            achieved.append((day, target))
+    overcome = overcome_difficulties(answer_events)
+    diagnosed = {
+        material: local(at).date() for material, at in rows(f"""
+            SELECT a.material_id, min(a.completed_at) FROM assessment_sets a {alive.format('a')}
+            WHERE a.learner_id = :owner AND a.kind = 'material_diagnostic' AND a.status = 'completed'
+            GROUP BY a.material_id
+        """)
+    }
+    diagnosed = {material: day for material, day in diagnosed.items() if day <= today}
+    # 完整筆記由使用者按下才生成（重點整理是教材分析後自動生成），以請求生成的日期計。
+    notes = [local(at).date() for (at,) in rows(f"""
+        SELECT n.created_at FROM material_notes n {alive.format('n')}
+        WHERE n.learner_id = :owner AND n.kind = 'full' AND n.status = 'ready'
+    """)]
+    annotated = {}
+    for material, at in rows(f"""
+        SELECT a.material_id, min(a.created_at) FROM note_annotations a {alive.format('a')}
+        WHERE a.learner_id = :owner GROUP BY a.material_id, a.kind, a.anchor
+    """):
+        annotated.setdefault(material, []).append(local(at).date())
+    uploads, media_materials = {}, set()
+    for material, media, at in rows(f"""
+        SELECT s.material_id, s.media_type, s.created_at FROM material_sources s {alive.format('s')}
+        WHERE s.learner_id = :owner AND s.removed_at IS NULL
+    """):
+        kind = MEDIA_KINDS.get(media)
+        if kind is None:
+            continue
+        media_materials.add(material)
+        day = local(at).date()
+        uploads[kind] = min(uploads.get(kind, day), day)
+    exported = {kind: local(at).date() for kind, at in rows(
+        "SELECT kind, first_exported_at FROM learner_exports WHERE learner_id = :owner")}
+    # Podcast：每集第一次聽完的時間與主持人（同一節目各集同一組主持人）。
+    listened, hosts, finished_series, night = {}, {}, [], []
+    podcast_rows = rows(f"""
+        SELECT p.podcast_id, p.material_id, p.episodes,
+               coalesce(jsonb_object_agg(g.episode_index, g.completed_at)
+                        FILTER (WHERE g.completed_at IS NOT NULL), '{{}}') AS done
+        FROM podcasts p {alive.format('p')}
+        LEFT JOIN podcast_episode_progress g ON g.podcast_id = p.podcast_id
+        WHERE p.learner_id = :owner AND p.status = 'ready'
+        GROUP BY p.podcast_id
+    """)
+    for _, material, episodes, done in podcast_rows:
+        # 含 U+0000 的清單以 {"items": [...]} 保存（storage.evidence_json）。
+        episodes = episodes["items"] if isinstance(episodes, dict) else episodes
+        times = {int(index): local(datetime.fromisoformat(at)) for index, at in done.items()}
+        times = {index: at for index, at in times.items() if at.date() <= today and index < len(episodes)}
+        for index, at in times.items():
+            day = at.date()
+            listened[material] = min(listened.get(material, day), day)
+            host = (episodes[index].get("hosts") or {}).get("host")
+            # 只計目前名字庫的主持人；名字庫日後更換時，舊名字不計入，進度只反映目前的每一組。
+            if host in CURRENT_HOSTS:
+                hosts[host] = min(hosts.get(host, day), day)
+            if at.hour < 5:
+                night.append(day)
+        if len(episodes) >= 2 and len(times) == len(episodes):
+            finished_series.append(max(at.date() for at in times.values()))
+    first_sets = {
+        material: local(at).date() for material, at in rows("""
+            SELECT material_id, min(completed_at) FROM assessment_sets
+            WHERE learner_id = :owner AND status = 'completed' GROUP BY material_id
+        """)
+    }
+    all_tools = []
+    for material, day in first_sets.items():
+        parts = [day, min(reviews.get(material, ()), default=None), listened.get(material),
+                 min(annotated.get(material, ()), default=None)]
+        if None not in parts and max(parts) <= today:
+            all_tools.append(max(parts))
+    created = {material: local(at).date() for material, at in rows(
+        "SELECT material_id, created_at FROM materials WHERE learner_id = :owner AND discard_requested_at IS NULL")}
+    completions = [(material, local(at).date()) for (material, _), at in concept_times.items()]
+    completions = [(material, day) for material, day in completions if day <= today]
+    daily = {
+        "goals": {}, "difficulties": _per_day(day for day, _ in overcome),
+        "diagnostics": _per_day(diagnosed.values()),
+    }
+    for day, count in stages.items():
+        daily["goals"][day] = daily["goals"].get(day, 0) + stage_xp(count)
+    for day, _ in achieved:
+        daily["goals"][day] = daily["goals"].get(day, 0) + XP_GOAL_ON_TIME
+    daily["difficulties"] = {day: count * XP_DIFFICULTY for day, count in daily["difficulties"].items()}
+    daily["diagnostics"] = {day: count * XP_DIAGNOSTIC for day, count in daily["diagnostics"].items()}
+    metrics = {
+        "goals": _per_day(day for day in goals if day <= today),
+        "stages": stages,
+        "difficulties": _per_day(day for day, _ in overcome),
+        "diagnostics": _per_day(diagnosed.values()),
+        "notes": _per_day(day for day in notes if day <= today),
+        "annotations": _per_day(day for days in annotated.values() for day in days if day <= today),
+        **{f"{kind}_uploads": _per_day([day] if day <= today else []) for kind, day in
+           ((kind, uploads[kind]) for kind in ("image", "audio", "video", "youtube") if kind in uploads)},
+        "exports": _per_day(day for day in exported.values() if day <= today),
+        "export_kinds": _per_day(exported[kind] for kind in EXPORT_KINDS if kind in exported and exported[kind] <= today),
+        "finished_series": _per_day(finished_series),
+        "host_pairs": _per_day(hosts.values()),
+        "all_tools": _per_day(all_tools),
+        "diagnosed_mastery": _per_day(
+            completed[material] for material, day in diagnosed.items()
+            if material in completed and completed[material] >= day),
+        "media_concepts": _per_day(day for material, day in completions if material in media_materials),
+    }
+    specials = {
+        "goal_on_time": [day for day, _ in achieved],
+        "all_media": [day for day in uploads.values() if day <= today],
+        "last_minute": [day for day, target in achieved if day == target],
+        "night_listener": night,
+        "nemesis": [day for day, hard in overcome if hard],
+        "same_day_learner": [day for material, day in completions if created.get(material) == day],
+    }
+    return daily, metrics, set(stages), specials
 
 
 def _material_completions(session, owner, zone):
@@ -669,27 +953,11 @@ def learning_activity(session, owner, *, now=None):
     ), values).all():
         if day <= today:
             answer_xp[day] = answer_xp.get(day, 0) + (XP_CORRECT if correct else XP_WRONG)
-    concepts = {day: count for day, count in _concept_completions(session, owner, zone).items() if day <= today}
-    sources = {
-        "answers": sum(answer_xp.values()),
-        "concepts": sum(concepts.values()) * XP_CONCEPT,
-        "cards": sum(card_xp(credited) for _, credited in cards.values()),
-        "podcast": sum(listening_xp(seconds) for seconds in listening.values()),
+    concept_times = _concept_completions(session, owner)
+    concepts = {
+        day: count for day, count in _per_day(at.astimezone(zone).date() for at in concept_times.values()).items()
+        if day <= today
     }
-    total = sum(sources.values())
-    today_xp = (
-        answer_xp.get(today, 0) + concepts.get(today, 0) * XP_CONCEPT
-        + card_xp(cards.get(today, (0, 0))[1]) + listening_xp(listening.get(today, 0))
-    )
-    level, level_xp, level_target = level_for(total)
-    daily_xp = {}
-    for day, value in (
-        list(answer_xp.items())
-        + [(day, count * XP_CONCEPT) for day, count in concepts.items()]
-        + [(day, card_xp(credited)) for day, (_, credited) in cards.items()]
-        + [(day, listening_xp(seconds)) for day, seconds in listening.items()]
-    ):
-        daily_xp[day] = daily_xp.get(day, 0) + value
     completed = {material: day for material, day in _material_completions(session, owner, zone).items() if day <= today}
     materials = {}
     for day in completed.values():
@@ -752,18 +1020,38 @@ def learning_activity(session, owner, *, now=None):
     ), values).all():
         if day <= today:
             reviews.setdefault(material, []).append(day)
-    events = [
-        (at, correct, material, concept) for at, correct, material, concept in session.execute(text(
+    answer_events = [
+        tuple(row) for row in session.execute(text(
             """
-            SELECT e.created_at AT TIME ZONE :zone, e.is_correct, e.material_id, e.target_concept_id
+            SELECT e.created_at AT TIME ZONE :zone, e.is_correct, e.material_id, e.target_concept_id, e.semantic_identity
             FROM answer_events e
             JOIN study_sessions s ON s.study_session_id = e.study_session_id
             WHERE s.learner_id = :owner
             ORDER BY e.created_at, e.event_number
             """
         ), values).all()
-        if at.date() <= today
+        if row[0].date() <= today
     ]
+    events = [row[:4] for row in answer_events]
+    feature_xp, feature_metrics, stage_days, feature_specials = _feature_records(
+        session, owner, zone, today, answer_events=answer_events, concept_times=concept_times, completed=completed,
+        reviews=reviews,
+    )
+    xp_by_source = {
+        "answers": answer_xp,
+        "concepts": {day: count * XP_CONCEPT for day, count in concepts.items()},
+        "cards": {day: card_xp(credited) for day, (_, credited) in cards.items()},
+        "podcast": {day: listening_xp(seconds) for day, seconds in listening.items()},
+        **feature_xp,
+    }
+    sources = {source: sum(per_day.values()) for source, per_day in xp_by_source.items()}
+    total = sum(sources.values())
+    daily_xp = {}
+    for per_day in xp_by_source.values():
+        for day, value in per_day.items():
+            daily_xp[day] = daily_xp.get(day, 0) + value
+    today_xp = daily_xp.get(today, 0)
+    level, level_xp, level_target = level_for(total)
     questions = dict(session.execute(text(
         """
         SELECT (t.created_at AT TIME ZONE :zone)::date AS day, count(*)
@@ -798,6 +1086,7 @@ def learning_activity(session, owner, *, now=None):
         card_marks={day: credited for day, (_, credited) in cards.items()},
         listening=listening, xp=daily_xp, active=active,
         streak=streak, level=level, sets=sets, episodes=episodes_per_day,
+        extra=feature_metrics, stage_days=stage_days,
     )
     badges["items"] += derive_special_badges(
         events=events, answers={day: count for day, (count, _) in answers.items()}, active=active,
@@ -806,7 +1095,7 @@ def learning_activity(session, owner, *, now=None):
         card_sets=[day for day in card_sets if day <= today], podcasts=[day for day in podcasts if day <= today],
         correct={day: right for day, (_, right) in answers.items()}, card_days=set(cards),
         listening=listening, completed=completed, pages=pages, reviews=reviews,
-        daily_xp=daily_xp, episodes=episodes,
+        daily_xp=daily_xp, episodes=episodes, features=feature_specials,
     )
     quests = [
         quest for quest in (

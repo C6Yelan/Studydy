@@ -59,6 +59,9 @@ def test_148_concept_export_exceeds_old_request_limit_but_downloads_as_one_zip(m
     monkeypatch.setattr(export_cards.card_sets, 'read_card_study', read)
     monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
     monkeypatch.setattr(export_routes.request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=owner))
+    # 成就用的匯出紀錄寫在 DB；這些案例沒有 DB，只記下呼叫。
+    exported = []
+    monkeypatch.setattr(export_routes, 'record_export', lambda learner, kind, **_: exported.append((learner, kind)))
     app = FastAPI(); export_routes.install(app, SimpleNamespace(dsn=None))
     # 保持正式卡面尺寸；高細節區域使總 payload 超過舊 nginx 上限，不只測小白圖。
     canvas = Image.new('RGB', (1200, 760), 'white')
@@ -85,6 +88,7 @@ def test_148_concept_export_exceeds_old_request_limit_but_downloads_as_one_zip(m
             assert archive.testzip() is None
             assert all(archive.read(name) == png for name in archive.namelist())
         assert not (export_cards.work_root() / f'{owner}_{uid}').exists()
+        assert exported == [(owner, 'cards')]
     print(json.dumps({'concepts': 148, 'batches': len(sizes), 'total_request_bytes': sum(sizes),
         'max_request_bytes': max(sizes), 'download_bytes': len(response.content), 'seconds': round(time.monotonic() - start, 2)}))
 
@@ -175,6 +179,9 @@ def test_card_stream_releases_generation_slot_but_keeps_temporary_files_locked(m
     monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, expected_version=None, **_kwargs:
         {'cards': [card]} if expected_version else {'version': 1, 'batch': {}, 'name': '合成', 'navigation': [card]})
     monkeypatch.setattr(export_routes.request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=owner))
+    # 成就用的匯出紀錄寫在 DB；這些案例沒有 DB，只記下呼叫。
+    exported = []
+    monkeypatch.setattr(export_routes, 'record_export', lambda learner, kind, **_: exported.append((learner, kind)))
     monkeypatch.setattr(export_routes.material_notes, 'read', lambda *_args, **_kwargs: {'paragraphs': [{}]})
     monkeypatch.setattr(export_routes.export_documents, 'note_markdown', lambda _: '# note')
     app = FastAPI(); export_routes.install(app, SimpleNamespace(dsn=None))
@@ -218,6 +225,9 @@ def test_mp4_stream_bypasses_even_a_full_generation_queue(monkeypatch):
     from runtime.storage import artifacts
     owner, identity, artifact = uuid4(), uuid4(), uuid4()
     monkeypatch.setattr(export_routes.request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=owner))
+    # 成就用的匯出紀錄寫在 DB；這些案例沒有 DB，只記下呼叫。
+    exported = []
+    monkeypatch.setattr(export_routes, 'record_export', lambda learner, kind, **_: exported.append((learner, kind)))
     monkeypatch.setattr(podcasts, 'read_podcast', lambda *_args, **_kwargs: {'status': 'ready', 'name': '合成', 'episodes': [{}]})
     monkeypatch.setattr(podcast_videos, 'ready_manifest', lambda *_args, **_kwargs: {'artifact_id': artifact})
     @contextmanager
@@ -233,3 +243,21 @@ def test_mp4_stream_bypasses_even_a_full_generation_queue(monkeypatch):
         finally:
             app.state.export_slots.release(); app.state.export_slots.release()
     asyncio.run(run())
+
+
+def test_export_record_failure_does_not_fail_the_download(monkeypatch, caplog):
+    """成就用的匯出紀錄寫不進 DB（這裡沒有 DB）時，下載照常完成。"""
+    from contextlib import contextmanager
+    from runtime import podcasts, podcast_videos
+    from runtime.storage import artifacts
+    owner, identity = uuid4(), uuid4()
+    monkeypatch.setattr(export_routes.request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=owner))
+    monkeypatch.setattr(podcasts, 'read_podcast', lambda *_args, **_kwargs: {'status': 'ready', 'name': '合成', 'episodes': [{}]})
+    monkeypatch.setattr(podcast_videos, 'ready_manifest', lambda *_args, **_kwargs: {'artifact_id': uuid4()})
+    @contextmanager
+    def opened(*_args, **_kwargs):
+        yield SimpleNamespace(file=BytesIO(b'video'), size_bytes=5)
+    monkeypatch.setattr(artifacts, 'open_verified_artifact', opened)
+    app = FastAPI(); export_routes.install(app, SimpleNamespace(dsn=None))
+    assert asyncio.run(asgi_request(app, f'/v1/podcasts/{identity}/episodes/0/export/mp4')) == b'video'
+    assert 'EXPORT_RECORD_FAILED kind=podcast' in caplog.text
