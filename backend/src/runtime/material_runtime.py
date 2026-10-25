@@ -312,8 +312,14 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
             _validate_review_contract(lock)
         if "material_notes" in lock:
             notes = lock["material_notes"]
-            if (set(notes) != {"version", "prompt", "selection_prompt", "review_prompt", "max_tokens"}
-                or notes["version"] != "material-notes/v11"
+            # 歷史契約只供教材分析續接；筆記生成仍由 material_notes.step 限定現行版本。
+            fields = {"version", "prompt", "selection_prompt", "review_prompt", "max_tokens"}
+            if notes["version"] == "material-notes/v10":
+                fields.add("summary_layout")
+                if notes["summary_layout"] != "a4-12pt-18mm/v1":
+                    raise ValueError
+            if (set(notes) != fields
+                or notes["version"] not in {"material-notes/v10", "material-notes/v11"}
                 or not isinstance(notes["prompt"], str) or not notes["prompt"].strip()
                 or not isinstance(notes["selection_prompt"], str) or not notes["selection_prompt"].strip()
                 or not isinstance(notes["review_prompt"], str) or not notes["review_prompt"].strip()

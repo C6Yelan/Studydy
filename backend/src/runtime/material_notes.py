@@ -5,6 +5,7 @@ from uuid import uuid4
 import json
 import logging
 
+from pydantic import ValidationError
 from sqlalchemy import select, or_, text
 from sqlalchemy.dialects.postgresql import insert
 
@@ -301,6 +302,9 @@ def _write(request, identities, part, mode, call, diagnostics):
                 **({"paragraph": error.paragraph_index} if reference_error else {})})
             if (reference_error and error.paragraph_index in repaired_references
                 or not reference_error and format_retried):
+                # 僅正規化模型 schema 驗證失敗；程式與 provider 例外不交給批次重試。
+                if isinstance(error, ValidationError):
+                    raise ValueError("NOTE_FORMAT_INVALID") from error
                 raise
             format_retried = True
             instruction = ("只修正 previous_response 的 claim_ids／evidence_ids，標題、正文、公式與表格保持不變。每個 claim_ids 都須有其對應的 evidence_ids；刪掉不屬於本段 claim_ids 的 evidence_ids，兩種編號都不可重複。"
