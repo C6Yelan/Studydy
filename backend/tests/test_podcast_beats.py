@@ -100,3 +100,13 @@ def test_script_does_not_require_review_or_exhaustive_coverage():
     assert validate_script(script,episode)==script
     script['review']={'teaching_quality':{'passed':False,'reason':'舊評分保留，不阻擋讀取'}}
     assert validate_script(script,episode)==script
+
+
+@pytest.mark.parametrize('version',['source-script/v12','source-script/v13'])
+def test_scripts_saved_before_segment_review_still_load_unchanged(version):
+    # 逐段核對只套用在新生成的 v14；已保存的舊稿原文與 hash 不變，照常供音訊與播放使用。
+    from runtime.podcast_script import validate_script
+    episode,_,_=sample();script=episode['script']
+    script.pop('review');script['provider']=f'codex-cli/gpt-5.6-luna;{version}'
+    before=digest(script)
+    assert validate_script(script,episode)==script and digest(script)==before

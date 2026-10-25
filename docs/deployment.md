@@ -56,6 +56,10 @@ PyMuPDF 維持 1.28.0，renderer 的嚴格版本契約不變。此批不修改 O
 
 跨語言教材更新需一起部署後端與 runtime lock。新分析寫入 `localized_meaning_v2`，以完整數量 token 保護短數值；既有 `localized_meaning`／`semantic_meaning` 仍依各自已保存的規則讀取。寫入 v2 後，回復版本必須能讀取 v2；需經驗證的相容映像或前向修復。原有知識結構與來源不搬移、不改 hash；舊分析提示的 checkpoint 不與新的翻譯政策混用。
 
+## Podcast 講稿逐段核對
+
+`ops/podcast/provider.py` 的 `/script` 改為生成後逐段核對（`source-script/v14`），核對提示存於 runtime lock 新增的 `podcast_script_review`（`podcast-script-review/v1`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash，部署 backend 時須確認沒有進行中的教材分析工作。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊 backend 可接收 v14 講稿，新 backend 也可接收舊 provider 的 v13 講稿，兩者部署順序不互相依賴，backend 隨下次映像更新帶入新 lock 即可。重啟前照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。每集產稿時間隨段數增加（每段多一次 Luna 呼叫），工作日誌 `script_review` 記實際呼叫次數。
+
 ## 媒體來源（圖片、音訊、影片、YouTube）
 
 - 後端新增 Python 依賴 `av==19.0.1`（PyAV，wheel 內含 FFmpeg，其中包括 GPL 授權的 libx264／libx265 編碼器；本站以網站服務提供，不散布映像或執行檔，轉檔只用解碼與 AAC／Opus 編碼）與 `yt-dlp==2026.10.21`（Unlicense），記在 `backend/pyproject.toml`／`uv.lock`。沒有新系統套件，輕量更新的 `uv sync` 即會安裝，不需完整重建 OCR 映像；部署後在容器內核對 `import av, yt_dlp` 與版本。

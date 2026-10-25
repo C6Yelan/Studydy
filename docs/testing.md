@@ -18,13 +18,13 @@
 
 ## Podcast 現行驗證範圍
 
-講稿與分鏡各生成一次，不執行獨立 AI correctness／teaching_quality 評分、逐點全覆蓋硬門檻、風格相似度／輪替／附和檢查、動態字數預算或自動重寫迴圈。
+講稿（`source-script/v14`）生成後、發布前逐段（beat）對照引用原文核對，沿用筆記逐段核對的請求形式：每段只送本段台詞、引用重點的原文區塊（含原檔、頁碼、區塊順序與位置）及同頁補充區塊（只供讀表頭、欄名與符號定義），核對數值、條件、否定、等號邊界、標籤、方法與結果；重點在最後講解它的段落合併前段判斷是否實際講解（只提名稱或只念數字不算；表格只需講支持結論的關鍵數字）；收尾回顧不作為前面已講重點的涵蓋判斷點，只在收尾出現的重點才在收尾判斷。沒有引用的開場、串場與收尾只能有打招呼、路線、串場、提問與下集主題名稱，出現教材事實即不符。不符只重生該段並重核一次，重寫不得刪掉只在本段講解的重點引用；仍不符整集以 `PODCAST_SCRIPT_NEEDS_REVIEW` 失敗、不發布，使用者可接續生成重試。核對回應缺項或位置不合法時以 `LUNA_GENERATION_FAILED` 失敗，不當成通過。核對提示由 runtime lock 的 `podcast_script_review`（`podcast-script-review/v1`）封存，provider 程式與 lock 不一致時不生成。完全沒被任何段落引用的重點不在逐段核對範圍內。分鏡仍生成一次，不執行獨立品質評分、風格相似度／輪替／附和檢查或動態字數預算。
 
-模型講稿只輸出角色、台詞與來源編號；程式將合法編號連回原 claim 的 Evidence，保存格式沿用 v2。新稿不捏造 review 通過欄位，舊稿原文與 hash 保留。基本格式、來源索引／Evidence 不越界、實際語音容量、媒體完整性與時序身分仍檢查。音量正規化照常執行，量測值僅記錄，不因偏離目標的小幅差異否決整集。
+模型講稿只輸出角色、台詞與來源編號；程式將合法編號連回原 claim 的 Evidence，保存格式沿用 v2。核對結果不寫入講稿（不加 review 欄位），只在 provider 工作日誌記模型呼叫次數與被退回的台詞位置／來源編號，不記台詞或理由；v12／v13 等舊稿原文與 hash 保留，照常播放。基本格式、來源索引／Evidence 不越界、實際語音容量、媒體完整性與時序身分仍檢查。音量正規化照常執行，量測值僅記錄，不因偏離目標的小幅差異否決整集。
 
 分鏡模型只輸出每頁標題、圖解類型、節點文字與訊息方向，以及每個節點逐字取自講稿的 `anchor` 與 0～2 個逐字取自節點文字的 `key_terms`，仍是一次呼叫。每段講稿可拆成 1～3 頁（全集最多 24 頁），第 2 頁起由逐字頁 anchor 決定換頁，對不到時改用前後換頁點之間居中的實測起點；實測起點不足時多出的頁併入前一頁，不丟內容。exchange 至少兩則訊息。分頁依原稿段落與 ASR cue 歸屬建立；秒數、cue／字幕索引由程式以逐字 anchor 換算成實測起點，對不到就退回頁首或下一個實測起點，不整份失敗；不符的重點詞直接丟掉。concept／flow 以聚焦版面一次只亮正在講的那張卡，comparison 點亮正在講的那欄，exchange 依 anchor 出現訊息；內容停在底部字幕帶之上。沒有依特定教材、標題或句子設例外，也不以截字或補造內容修復結果。
 
-對應測試：`test_podcast_provider.py`、`test_podcast_beats.py`、`test_podcast_episode_plan.py`、`test_podcast_audio.py`、`test_podcast_video_service.py` 及 runtime 的 Podcast／video 案例。這些程式檢查不宣稱模型內容已經過獨立教學審查；實際品質以生成結果與播放檢查回報。
+對應測試：`test_podcast_provider.py`、`test_podcast_beats.py`、`test_podcast_episode_plan.py`、`test_podcast_audio.py`、`test_podcast_video_service.py` 及 runtime 的 Podcast／video 案例。測試以受控模型回應覆蓋核對通過、不符只重生該段、仍不符不發布、無引用段落含事實主張、核對回應不完整及 lock 不一致；這些不代表核對模型的判斷正確，實際品質以真實生成與審稿回報。
 
 Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs_review` 改成已驗收。影片驗證失敗時不得發布成品，也不能因此抹去已保存且可播放的原音訊。
 
@@ -177,7 +177,7 @@ PYTEST
 
 `runtime/materials/test_generation_fencing.py` 使用隔離 DB，驗證研究、主題及分鏡在 token 未變但租約已到期時，不得保存中間結果、成功或失敗，也不得建立來源 Artifact 或交接新的 Revision 工作。有效租約與被重新領取的租約分別作為正反對照；各功能仍在自己的交易核對狀態與父資料，續租 watcher 不能代替保存前的檢查。
 
-Podcast 的可重跑入口為 `backend/tests/runtime/materials/test_podcasts.py`（隔離 DB／API／音訊保存與取消）及 `backend/tests/test_podcast_provider.py`（無模型的單次生成、格式與合法來源綁定）。前端 client 測試包含錯來源腳本與不完整音訊 manifest 的拒絕。provider 的容器測試使用 `compose.test.yaml`，不需安裝 TTS 或呼叫模型。
+Podcast 的可重跑入口為 `backend/tests/runtime/materials/test_podcasts.py`（隔離 DB／API／音訊保存與取消）及 `backend/tests/test_podcast_provider.py`（無模型的生成、逐段核對與單段重生、格式與合法來源綁定）。前端 client 測試包含錯來源腳本與不完整音訊 manifest 的拒絕。provider 的容器測試使用 `compose.test.yaml`，不需安裝 TTS 或呼叫模型。
 
 語音問答與研究：`backend/tests/runtime/materials/test_voice.py`、`test_research.py` 驗證真 DB、權限、重送、取消晚到結果、來源追加與版本衝突；`backend/tests/test_research_sources.py` 驗證下載目標與授權邊界；`test_luna_test_provider.py` 確認替代身分及不呼叫 Gemma。介面入口為 `frontend/e2e/mock/material-tools.spec.ts`，涵蓋文字問答、回查來源、錄音權限晚到取消，以及超過三份來源的選取與不可逆確認。這些合成測試不代表實體麥克風、跨瀏覽器或教材回答品質已驗收。
 
