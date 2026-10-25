@@ -30,7 +30,15 @@ from .podcast_access import _locked
 from .podcast_sources import plan_episodes, source_context, _context_pages
 from . import retrieval
 from .errors import SourceError, PodcastError
-from .audio import validate_audio
+from .audio import FLAC_MEDIA_TYPE, validate_audio, wav_to_flac
+from .storage_usage import (
+    episode_estimates,
+    lock_account,
+    release,
+    require_room,
+    reserve,
+    reserve_videos,
+)
 
 
 from .generation_jobs import WORKER_LEASE_TTL, lease_is_current
@@ -74,13 +82,22 @@ def _summary(row, material, child_statuses):
         or any(status in ("pending", "running") for status in active_children),
         "completed_videos": videos.count("ready"),
         "failed_videos": videos.count("failed"),
+        # 預期會有影片的集數：勾選影片的節目是全部分集扣掉已刪除影片的；
+        # 沒勾選的只有實際存在的影片工作（通常為 0）。
+        "expected_videos": (
+            len(row.episodes) if row.video_enabled else len(videos)
+        )
+        - videos.count("removed"),
+        # 沒勾影片或影片已刪除的分集只播音訊；勾選影片的節目缺少影片工作（0020 前的舊分集）
+        # 時不開放預覽，由使用者按「接續生成」補建。
         "preview_ready": row.status == "ready"
         and all(e.get("audio") for e in row.episodes)
-        and videos.count("ready") == len(row.episodes),
+        and all(status in ("ready", "removed") for status in videos)
+        and (not row.video_enabled or len(videos) >= len(row.episodes)),
         "retryable_videos": row.status == "ready"
         and (
-            len(videos) < len(row.episodes)
-            or any(s in ("failed", "cancelled") for s in videos)
+            any(s in ("failed", "cancelled") for s in videos)
+            or (row.video_enabled and len(videos) < len(row.episodes))
         ),
     }
     return {
@@ -89,6 +106,7 @@ def _summary(row, material, child_statuses):
         "material_name": material.display_name,
         "name": row.name,
         "delivery": row.episodes[0]["delivery"],
+        "video_enabled": row.video_enabled,
         "knowledge_structure_revision": row.knowledge_structure_revision,
         "concept_ids": row.concept_ids,
         "status": row.status,
@@ -107,10 +125,19 @@ def _summary(row, material, child_statuses):
 
 
 def create_podcast(
-    owner, material_id, revision, name, concept_ids, key, *, delivery, dsn=None
+    owner,
+    material_id,
+    revision,
+    name,
+    concept_ids,
+    key,
+    *,
+    delivery,
+    video=False,
+    dsn=None,
 ):
     name = validate_concept_selection(name, concept_ids)
-    if delivery not in {"solo", "dialogue"}:
+    if delivery not in {"solo", "dialogue"} or type(video) is not bool:
         raise PodcastError("REQUEST_INVALID")
     digest = _key_digest(key)
     selection = {
@@ -118,10 +145,10 @@ def create_podcast(
         "name": name,
         "concept_ids": concept_ids,
         "delivery": delivery,
+        "video": video,
     }
     fingerprint = bytes.fromhex(canonical_sha256(selection))
-    with database_session(dsn) as db:
-        material = require_material(db, owner, material_id)
+    def replay(db, material):
         row = db.scalar(
             select(Podcast).where(
                 Podcast.learner_id == owner,
@@ -135,6 +162,13 @@ def create_podcast(
             if row.status == "deleted":
                 raise PodcastError("RESOURCE_NOT_FOUND")
             return _summary(row, material, _child_statuses(db, [row.podcast_id]))
+        return None
+
+    # 第一段：驗證教材與版本、規劃分集（不取帳號鎖，耗時的讀取不擋同帳號的其他新增）。
+    with database_session(dsn) as db:
+        material = require_material(db, owner, material_id, read=True)
+        if (existing := replay(db, material)) is not None:
+            return existing
         document = _read_verified_document(db, owner, material_id, revision=revision)
         retrieval._scope(db, owner, material_id, revision)
         view = _view(document, material_id)
@@ -149,11 +183,24 @@ def create_podcast(
         passages = retrieval.evidence_context(db, owner, material_id, revision, ids)
         pages = _context_pages([p for p in passages if p["evidence_id"] in ids])
         episodes = plan_episodes(view, concept_ids, pages)
-        # 每個 Podcast 抽一組主持人，同系列各集沿用。
-        hosts = _pick_hosts(delivery)
-        for episode in episodes:
-            episode["delivery"] = delivery
-            episode["hosts"] = dict(hosts)
+    # 每個 Podcast 抽一組主持人，同系列各集沿用。
+    hosts = _pick_hosts(delivery)
+    for episode in episodes:
+        episode["delivery"] = delivery
+        episode["hosts"] = dict(hosts)
+    # 第二段短交易：帳號鎖 → 教材鎖，再次辨識重送與版本，核對額度後建立節目與每集固定保留。
+    with database_session(dsn) as db:
+        lock_account(db, owner)
+        material = require_material(db, owner, material_id)
+        if (existing := replay(db, material)) is not None:
+            return existing
+        retrieval._scope(db, owner, material_id, revision)
+        estimate = episode_estimates(db)
+        require_room(
+            db,
+            owner,
+            len(episodes) * (estimate["audio"] + (estimate["video"] if video else 0)),
+        )
         # 舊模式欄位保留歷史資料；新建固定儲存值，不再參與 API 或生成決策。
         row = Podcast(
             podcast_id=uuid4(),
@@ -169,9 +216,21 @@ def create_podcast(
             created_at=datetime.now(UTC),
             idempotency_key_sha256=digest,
             request_fingerprint=fingerprint,
+            video_enabled=video,
         )
         db.add(row)
         db.flush()
+        for index in range(len(episodes)):
+            for kind in ("podcast_audio", "podcast_video") if video else ("podcast_audio",):
+                reserve(
+                    db,
+                    owner,
+                    material_id,
+                    kind,
+                    estimate["audio" if kind == "podcast_audio" else "video"],
+                    podcast_id=row.podcast_id,
+                    episode_index=index,
+                )
         return _summary(row, material, _child_statuses(db, [row.podcast_id]))
 
 
@@ -225,6 +284,41 @@ def read_podcast(owner, identity, *, dsn=None):
         }
 
 
+def _requeue_videos(db, row):
+    """接續生成（不論節目是 ready、failed 或 cancelled，規則相同）：失敗或取消的影片恢復成 pending，
+    勾選影片的節目另補建已有音訊卻缺少的影片工作（0020 前的舊分集；已刪除的 removed 與沒勾選的
+    節目不補）。只為這些真正排隊的工作核對並保留影片額度；呼叫端已持有帳號鎖。"""
+    statuses = ("failed", "cancelled")
+    from .podcast_videos import enqueue
+
+    rows = db.scalars(
+        select(PodcastVideo)
+        .where(PodcastVideo.podcast_id == row.podcast_id)
+        .with_for_update()
+    ).all()
+    retry = [video for video in rows if video.status in statuses]
+    existing = {video.episode_index for video in rows}
+    missing = (
+        [
+            index
+            for index, episode in enumerate(row.episodes)
+            if index not in existing and episode.get("audio") and episode.get("script")
+        ]
+        if row.video_enabled
+        else []
+    )
+    reserve_videos(db, row, [video.episode_index for video in retry] + missing)
+    for index in missing:
+        enqueue(db, row, index)
+    for video in retry:
+        video = enqueue(db, row, video.episode_index)
+        if video.status in statuses:
+            video.status = "pending"
+            video.error_code = None
+            video.lease_token = video.lease_expires_at = None
+            video.version += 1
+
+
 def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=None):
     if action == "cancel":
         # 與教材一致：取消整份生成即刪除，不留下可接續的暫停項目。
@@ -232,6 +326,9 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
             owner, identity, expected_version=expected_version, dsn=dsn
         )
     with database_session(dsn) as db:
+        if action == "retry":
+            # 鎖順序：帳號鎖 → 教材／Podcast。
+            lock_account(db, owner)
         row, material = _locked(db, owner, identity)
         if row.version != expected_version:
             raise PodcastError("PODCAST_CONFLICT")
@@ -242,30 +339,25 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
         if action == "rename":
             row.name = validate_concept_selection(name, row.concept_ids)
         elif action == "retry" and row.status == "ready":
-            from .podcast_videos import enqueue
-
             summary = _summary(row, material, _child_statuses(db, [row.podcast_id]))
             if not summary["generation"]["retryable_videos"]:
                 raise PodcastError("PODCAST_CONFLICT")
-            for index in range(len(row.episodes)):
-                video = enqueue(db, row, index)
-                if video.status in ("failed", "cancelled"):
-                    video.status = "pending"
-                    video.error_code = None
-                    video.lease_token = video.lease_expires_at = None
-                    video.version += 1
+            _requeue_videos(db, row)
         elif action == "retry" and row.status in {"failed", "cancelled"}:
+            _requeue_videos(db, row)
             if row.status == "cancelled":
-                for child in (PodcastVideo, PodcastScenes):
-                    db.execute(
-                        update(child)
-                        .where(
-                            child.podcast_id == identity, child.status == "cancelled"
-                        )
-                        .values(
-                            status="pending", error_code=None, version=child.version + 1
-                        )
+                db.execute(
+                    update(PodcastScenes)
+                    .where(
+                        PodcastScenes.podcast_id == identity,
+                        PodcastScenes.status == "cancelled",
                     )
+                    .values(
+                        status="pending",
+                        error_code=None,
+                        version=PodcastScenes.version + 1,
+                    )
+                )
             row.status = "pending"
             row.error_code = None
         else:
@@ -288,6 +380,7 @@ def delete_podcast(owner, identity, *, expected_version=None, dsn=None):
 
                 artifacts.extend(discard(db, identity))
                 forget_positions(db, identity)
+                release(db, podcast_id=identity)
                 db.execute(
                     delete(PodcastScenes).where(PodcastScenes.podcast_id == identity)
                 )
@@ -457,13 +550,21 @@ def finish_step(
                     except (ValueError, KeyError, TypeError):
                         raise PodcastError("PODCAST_AUDIO_INVALID") from None
                 duration = validate_audio(audio)
+                # 無損 FLAC 保存；sha256 仍記發布時的 WAV，影片與對齊的音訊身分不變。
                 artifact = write_blob(
                     db,
                     row.learner_id,
                     row.material_id,
-                    audio,
+                    wav_to_flac(audio),
                     "podcast_audio",
-                    "audio/wav",
+                    FLAC_MEDIA_TYPE,
+                )
+                # 成品與釋放保留在同一交易：改計實際大小。
+                release(
+                    db,
+                    podcast_id=row.podcast_id,
+                    kind="podcast_audio",
+                    episode_index=claim["index"],
                 )
                 episode["audio"] = {
                     "artifact_id": str(artifact.artifact_id),
@@ -481,9 +582,10 @@ def finish_step(
                 raise PodcastError("PODCAST_SCRIPT_INVALID")
             row.episodes = episodes
             if audio is not None:
-                from .podcast_videos import enqueue
+                if row.video_enabled:
+                    from .podcast_videos import enqueue
 
-                enqueue(db, row, claim["index"])
+                    enqueue(db, row, claim["index"])
                 from .podcast_scenes import enqueue as enqueue_alignment
 
                 enqueue_alignment(db, row, claim["index"])

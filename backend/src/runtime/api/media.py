@@ -48,8 +48,10 @@ def bytes_response(request, data, media_type):
     )
 
 
-def artifact_response(request, context, media_type):
+def artifact_response(request, context, media_type=None):
+    """media_type 省略時沿用 artifact 保存的型別（例如 Podcast 音訊的 WAV／FLAC）。"""
     source = context.__enter__()
+    media_type = media_type or source.media_type
     start, end, status, headers = _range_headers(request, source.size_bytes)
     if status == 416:
         context.__exit__(None, None, None)

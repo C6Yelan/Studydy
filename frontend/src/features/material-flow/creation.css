@@ -90,6 +90,12 @@
 .podcast-delivery input { margin:3px 0 0; accent-color:var(--studydy-blue); }
 .podcast-delivery strong { display:block; font-size:14px; }
 .podcast-delivery small { display:block; margin-top:2px; color:var(--text-secondary); font-size:12px; }
+/* 影片選項沿用講解形式的卡片樣式。 */
+.podcast-video-option { display:flex; align-items:flex-start; gap:10px; margin-top:12px; padding:12px 14px; border:1.5px solid transparent; border-radius:16px; background:var(--surface); cursor:pointer; }
+.podcast-video-option.is-selected { border-color:var(--studydy-blue); background:var(--studydy-blue-soft-2); }
+.podcast-video-option input { margin:3px 0 0; accent-color:var(--studydy-blue); }
+.podcast-video-option strong { display:block; font-size:14px; }
+.podcast-video-option small { display:block; margin-top:2px; color:var(--text-secondary); font-size:12px; }
 .podcast-config-nav { display:none; }
 
 /* 桌面：填滿教材外框，長清單與預覽在各自區域內捲動，主要按鈕固定在卡片頁尾。 */

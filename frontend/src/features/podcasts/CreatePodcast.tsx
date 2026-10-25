@@ -15,6 +15,8 @@ export function CreatePodcast({ apiClient, route }: {
   const [view, setView] = useState<KnowledgeOutlineView | null>(null);
   const [name, setName] = useState("");
   const [delivery, setDelivery] = useState<"solo" | "dialogue">("dialogue");
+  // 影片較佔空間，預設只生成音訊。
+  const [video, setVideo] = useState(false);
   const [selected, setSelected] = useState(new Set<string>());
   const [activePanel, setActivePanel] = useState<"selection" | "settings">("selection");
   const [onlySelected, setOnlySelected] = useState(false);
@@ -50,7 +52,7 @@ export function CreatePodcast({ apiClient, route }: {
   const save = async () => {
     if (!view || !selected.size || !validName || saving.current) return;
     saving.current = true; setBusy(true); setSaveError(null);
-    const body = { schema: "podcast-create/v1" as const, name: name.trim(), delivery,
+    const body = { schema: "podcast-create/v1" as const, name: name.trim(), delivery, video,
       knowledge_structure_revision: view.knowledge_structure_revision, concept_ids: [...selected] };
     const fingerprint = JSON.stringify(body);
     if (intent.current?.fingerprint !== fingerprint) intent.current = { fingerprint, key: crypto.randomUUID() };
@@ -77,7 +79,7 @@ export function CreatePodcast({ apiClient, route }: {
     description="依所選重點生成，內容較多時自動拆成多集。"
     aside={<label className="creation-name">Podcast 名稱<input value={name} maxLength={200} disabled={busy} onChange={e => setName(e.target.value)} /></label>}
     footer={<FlowFooter
-      secondary={<div className="cards-create-summary"><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · 生成需要幾分鐘，可先離開頁面。</span></div>}
+      secondary={<div className="cards-create-summary"><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · {video ? "音訊＋影片" : "只有音訊"} · 生成需要幾分鐘，可先離開頁面。</span></div>}
       primary={<button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始生成 Podcast"}<Icon name="chevron-right" size={18} /></button>} />}>
     {saveError && <p className="form-error" role="alert">{saveError}</p>}
     <nav className="podcast-config-nav" aria-label="Podcast 設定區域">{([
@@ -106,6 +108,8 @@ export function CreatePodcast({ apiClient, route }: {
           <label className={delivery === "dialogue" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "dialogue"} disabled={busy} onChange={() => setDelivery("dialogue")} /><span><strong>雙人對談</strong><small>兩位主持人以節目形式帶你走過教材重點。</small></span></label>
           <label className={delivery === "solo" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "solo"} disabled={busy} onChange={() => setDelivery("solo")} /><span><strong>單人解說</strong><small>以自然口語說明重點。</small></span></label>
         </fieldset>
+        <label className={`podcast-video-option${video ? " is-selected" : ""}`}><input type="checkbox" checked={video} disabled={busy} onChange={e => setVideo(e.target.checked)} />
+          <span><strong>同時生成教學影片</strong><small>較佔帳號空間；不勾選只有音訊，逐字稿照常。</small></span></label>
       </section>
     </div>
   </FlowStage>;

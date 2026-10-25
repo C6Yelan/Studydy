@@ -30,6 +30,7 @@ import type {
   KnownApiReasonCode,
   LearnerIdentity,
   LearnerProfile,
+  AccountStorage,
   AccountSessions,
   LibrarySearchView,
   LearnerProgressView,
@@ -108,6 +109,8 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   ASSESSMENT_SET_CONFLICT: "題組狀態已更新，請重新讀取後繼續。",
   ASSESSMENT_SET_ACTIVE: "已有尚未完成的題組，可從題組紀錄接續。",
   MATERIAL_TOO_LARGE: "檔案超過目前上傳上限，請依選檔區顯示的限制縮小檔案。",
+  STORAGE_QUOTA_EXCEEDED: "帳號空間不足，請先刪除不需要的教材、Podcast 或影片。",
+  STORAGE_BUSY: "同一帳號的其他新增正在處理，請稍後再試。",
   MATERIAL_NOT_DISCARDABLE: "這份教材正在刪除，無法進行這項操作。",
   SOURCE_NOT_READY: "教材尚未完成轉換，請稍後再開始分析。",
   NORMALIZER_UNAVAILABLE: "轉換工具目前不可用，仍可使用 PDF 上傳。",
@@ -138,6 +141,14 @@ const activityReuseMs = 30_000;
 
 function origin(): string {
   return globalThis.location?.origin ?? "http://127.0.0.1:4173";
+}
+
+/** 以 1024 進位顯示容量（介面標示 MB／GB）。 */
+export function formatBytes(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes, unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return `${unit === 0 ? value : value.toFixed(value >= 100 ? 0 : 1).replace(/\.0$/, "")} ${units[unit]}`;
 }
 
 function safeMessage(reason: ApiReasonCode): string {
@@ -370,7 +381,9 @@ export class StudydyApiClient {
       const reason = Object.hasOwn(apiErrorMessages, value.reason_code)
         ? (value.reason_code as KnownApiReasonCode)
         : "UNKNOWN_API_ERROR";
-      throw new ApiClientError("api", safeMessage(reason), {
+      throw new ApiClientError("api", reason === "STORAGE_QUOTA_EXCEEDED" && value.storage
+        ? `帳號空間不足（已用 ${formatBytes(value.storage.used_bytes)}／上限 ${formatBytes(value.storage.limit_bytes)}），這次會新增檔案而超過上限。請先刪除不需要的教材、Podcast 或影片。`
+        : safeMessage(reason), {
         status: response.status,
         reasonCode: reason,
         requestId: value.request_id,
@@ -876,6 +889,10 @@ export class StudydyApiClient {
     return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/regions`,
       { method: "GET" }, (value): value is KnowledgeRegionsView => validate.knowledgeRegions(value)
         && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
+  }
+
+  getAccountStorage(): Promise<AccountStorage> {
+    return this.json("/v1/account/storage", { method: "GET" }, validate.accountStorage);
   }
 
   getProfile(): Promise<LearnerProfile> {

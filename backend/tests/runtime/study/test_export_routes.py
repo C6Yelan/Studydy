@@ -145,7 +145,7 @@ def test_podcast_existing_video_and_transcript_export_exact_saved_content(closed
     from runtime import podcast_videos
     from test_podcast_videos import bundle
     owner, _, _, _, dsn, token = closed_loop
-    identity = create_podcast(closed_loop)['podcast_id']
+    identity = create_podcast(closed_loop, video=True)['podcast_id']
     finish_podcast(dsn)
     claim = podcast_videos.claim(dsn=dsn)
     payload = bundle(claim)

@@ -4,7 +4,7 @@ import type {
   StartingLevel, StartingLevelView, StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
   KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, LearningRhythmView, MapProgressView, ProgressSummaryView, PodcastProgressView, StudyWorkspaceView,
-  PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView,
+  PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView, AccountStorage,
   AnswerFeedbackView,
   CardSetSummary,
   CardSetView, CardStudyView, CardBatch,
@@ -817,6 +817,21 @@ export function knowledgeSearch(value: unknown): value is KnowledgeSearchView {
     && item.concept_ids.every(id => revision(id, "concept")) && new Set(item.concept_ids).size === item.concept_ids.length;
 }
 
+function storageBytes(value: unknown): boolean {
+  const item = object(value);
+  return !!item && Number.isSafeInteger(item.used_bytes) && Number(item.used_bytes) >= 0
+    && Number.isSafeInteger(item.limit_bytes) && Number(item.limit_bytes) > 0;
+}
+
+export function accountStorage(value: unknown): value is AccountStorage {
+  const item = object(value);
+  return !!item && item.schema === "account-storage/v1" && storageBytes(item)
+    && Number.isSafeInteger(item.reserved_bytes) && Number(item.reserved_bytes) >= 0
+    && Number(item.reserved_bytes) <= Number(item.used_bytes)
+    && Number.isSafeInteger(item.remaining_bytes)
+    && item.remaining_bytes === Math.max(0, Number(item.limit_bytes) - Number(item.used_bytes));
+}
+
 export function learnerProfile(value: unknown): value is LearnerProfile {
   const item = object(value);
   return !!item && item.schema === "learner-profile/v1"
@@ -1491,7 +1506,8 @@ export function apiError(value: unknown): value is ApiErrorView {
     isUuid(item.request_id) &&
     typeof item.reason_code === "string" &&
     typeof item.retryable === "boolean" &&
-    item.message === "Request could not be completed."
+    item.message === "Request could not be completed." &&
+    (item.storage === undefined || storageBytes(item.storage))
   );
 }
 
@@ -1514,12 +1530,15 @@ export function podcastSummary(value: unknown): value is PodcastSummary {
     if (!generation || typeof generation.active !== 'boolean'
       || ['preview_ready','retryable_videos'].some(key => generation[key] !== undefined && typeof generation[key] !== 'boolean')
       || !['completed_videos','failed_videos'].every(key => Number.isInteger(generation[key]) && Number(generation[key]) >= 0)
-      || Number(generation.completed_videos) + Number(generation.failed_videos) > Number(item.episode_count)) return false;
+      || Number(generation.completed_videos) + Number(generation.failed_videos) > Number(item.episode_count)
+      || (generation.expected_videos !== undefined && (!Number.isInteger(generation.expected_videos)
+        || Number(generation.expected_videos) < 0 || Number(generation.expected_videos) > Number(item.episode_count)))) return false;
   }
   return !!item && isUuid(item.podcast_id) && isUuid(item.material_id)
     && revision(item.knowledge_structure_revision, "knowledge-structure")
     && typeof item.name === "string" && !!item.name.trim() && typeof item.material_name === "string"
     && ["solo", "dialogue"].includes(String(item.delivery))
+    && typeof item.video_enabled === "boolean"
     && strings(item.concept_ids) && item.concept_ids.length > 0
     && item.concept_ids.every((id) => revision(id, "concept"))
     && new Set(item.concept_ids).size === item.concept_ids.length

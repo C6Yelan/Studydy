@@ -22,6 +22,7 @@ const responses: Record<string, unknown> = {
   ] },
   // 較長名稱，檢查頁首在各寬度不溢出。
   "/v1/profile": { schema: "learner-profile/v1", display_name: "林以安同學的學習帳號" },
+  "/v1/account/storage": { schema: "account-storage/v1", used_bytes: 4831838208, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 536870912 },
   // 有學習紀錄的頁首進度、等級、今日任務與學習節奏，讓各寬度一併檢查頁首、首頁右欄與個人檔案不溢出。
   "/v1/learning-activity/rhythm": learningRhythm({
     streak: 128,
@@ -75,6 +76,7 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1366, 1281, 1100, 1024, 910, 
         await expect(page.locator(".profile-stat-list")).toHaveAttribute("aria-busy", "false");
         await expect(page.getByRole("region", { name: "學習節奏" })).toBeVisible();
         await expect(page.getByRole("region", { name: "登入裝置" })).toBeVisible();
+        await expect(page.getByRole("region", { name: "帳號空間" })).toContainText("已用 4.5 GB／上限 5 GB · 剩餘 512 MB");
         // 平板寬度的五個統計說明不被擠成「…」。
         expect(await page.locator(".profile-stat small").evaluateAll((nodes) =>
           nodes.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent))).toEqual([]);

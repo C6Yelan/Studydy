@@ -39,7 +39,8 @@ def test_cancel_or_delete_running_job_kills_child_and_unblocks_next(closed_loop,
                 'import os,time,pathlib,sys;pathlib.Path(sys.argv[1]).write_text(str(os.getpid()));time.sleep(60)', str(marker)],
                 timeout=65, cancelled=cancelled)
 
-    def generate_script(body, *, cancelled=None):
+    def generate_script(body, *, cancelled=None, diagnostics=None):
+        # provider 以 diagnostics 收集逐段核對次數；替身不核對，只接受同一個呼叫介面。
         # worker 必須送出主持人名字與系列位置，provider 才能寫開場與預告。
         assert set(body['hosts']) == {'host'} and body['series']['episode_number'] == 1
         wait_first('script', cancelled)
@@ -152,7 +153,7 @@ def test_child_lease_renews_and_delete_still_cancels(closed_loop, provider_serve
     from materials.test_podcasts import complete
     from uuid import UUID, uuid4
     owner, _, _, _, dsn, _ = closed_loop
-    identity = create(closed_loop)['podcast_id']
+    identity = create(closed_loop, video=True)['podcast_id']
     complete(dsn)
     token = uuid4()
     old_expiry = datetime.now(UTC) + timedelta(seconds=3)
@@ -180,7 +181,7 @@ def test_child_lease_renews_and_delete_still_cancels(closed_loop, provider_serve
 def test_preview_requires_all_media_and_retry_preserves_ready_episodes(closed_loop):
     from materials.test_podcasts import complete
     owner, _, _, _, dsn, _ = closed_loop
-    identity = create(closed_loop)['podcast_id']
+    identity = create(closed_loop, video=True)['podcast_id']
     with database_session(dsn) as db:
         row = db.get(Podcast, identity)
         row.episodes = [deepcopy(row.episodes[0]) for _ in range(3)]
@@ -195,7 +196,7 @@ def test_preview_requires_all_media_and_retry_preserves_ready_episodes(closed_lo
         rows[0].artifact_id = UUID(original_audio[0]['artifact_id'])
         rows[0].manifest = {'synthetic': True}
         rows[1].status = 'failed'; rows[1].error_code = 'LUNA_GENERATION_TIMEOUT'
-        db.delete(rows[2])  # 既有音訊缺少影片工作的情況。
+        db.delete(rows[2])  # 0020 前缺少影片工作的舊分集：勾選影片的節目由使用者按接續生成補建。
         ready_version = rows[0].version
     view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
     assert view['generation']['completed_videos'] == 1

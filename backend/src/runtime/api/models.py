@@ -11,12 +11,19 @@ class _Closed(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
+class StorageQuotaDetail(_Closed):
+    used_bytes: int = Field(ge=0)
+    limit_bytes: int = Field(ge=1)
+
+
 class ApiErrorView(_Closed):
     schema_: Literal["api-error/v1"] = Field(alias="schema")
     request_id: UUID
     reason_code: str
     retryable: bool
     message: Literal["Request could not be completed."]
+    # 只有 STORAGE_QUOTA_EXCEEDED 附帶已用與上限，畫面據此說明原因。
+    storage: StorageQuotaDetail | None = None
 
 
 class AccountCredentials(_Closed):
@@ -34,6 +41,15 @@ class LearnerIdentityView(_Closed):
 class LearnerProfileView(_Closed):
     schema_: Literal["learner-profile/v1"] = Field(alias="schema")
     display_name: str | None
+
+
+class AccountStorageView(_Closed):
+    schema_: Literal["account-storage/v1"] = Field(alias="schema")
+    # 已用含 reserved_bytes：未收齊的分段上傳（宣告大小）與生成中 Podcast／影片的預估額度。
+    used_bytes: int = Field(ge=0)
+    reserved_bytes: int = Field(ge=0)
+    limit_bytes: int = Field(ge=1)
+    remaining_bytes: int = Field(ge=0)
 
 
 class LearnerProfileUpdate(_Closed):
@@ -1364,6 +1380,8 @@ class PodcastCreate(_Closed):
     name: str = Field(min_length=1, max_length=200)
     concept_ids: list[str] = Field(min_length=1)
     delivery: Literal["solo", "dialogue"]
+    # 勾選才在每集音訊完成後生成影片；預設只有音訊。
+    video: bool = Field(default=False, strict=True)
 
 
 class PodcastAction(_Closed):
@@ -1379,6 +1397,8 @@ class PodcastGeneration(_Closed):
     retryable_videos: bool
     completed_videos: int = Field(ge=0)
     failed_videos: int = Field(ge=0)
+    # 預期會有影片的集數（勾選影片的全部分集扣掉已刪除的；沒勾選時為實際影片工作數）。
+    expected_videos: int = Field(ge=0)
 
 
 class PodcastSummary(_Closed):
@@ -1388,6 +1408,7 @@ class PodcastSummary(_Closed):
     knowledge_structure_revision: str
     name: str
     delivery: Literal["solo", "dialogue"]
+    video_enabled: bool
     concept_ids: list[str]
     status: Literal["pending", "running", "ready", "failed", "cancelled"]
     error_code: str | None

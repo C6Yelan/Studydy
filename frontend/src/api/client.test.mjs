@@ -1084,7 +1084,7 @@ function podcastView() {
   return {
     schema: "podcast/v1", podcast_id: setId, material_id: materialId,
     material_name: view.material_name, knowledge_structure_revision: structureRevision,
-    name: "聽重點", delivery: "solo", concept_ids: [conceptId], status: "ready", error_code: null,
+    name: "聽重點", delivery: "solo", video_enabled: false, concept_ids: [conceptId], status: "ready", error_code: null,
     version: 3, created_at: view.created_at, episode_count: 1, completed_episodes: 1, duration_seconds: 12,
     is_current_revision: true, source_resolver: view.source_resolver, source_status: view.status,
     excluded_pages: [], episodes: [{ delivery: "solo", claims: [{ ...view.cards[0].claims[0], concept_id: conceptId, label: "Stack" }],
@@ -1645,5 +1645,38 @@ test("card export limits explain size, active jobs, page limits and busy downloa
       reason_code: reason, retryable: false, message: "Request could not be completed." }, { status }));
     await assert.rejects(client.studyTools(`/v1/card-sets/${setId}/exports`, {}),
       error => error.reasonCode === reason && error.status === status && error.message.includes(message));
+  }
+});
+
+test("account storage quota errors show used and limit, storage view must be consistent", async () => {
+  const gib = 1024 ** 3;
+  const full = new StudydyApiClient(async () => Response.json(
+    { schema: "api-error/v1", request_id: materialId, reason_code: "STORAGE_QUOTA_EXCEEDED", retryable: false,
+      message: "Request could not be completed.", storage: { used_bytes: 4.5 * gib, limit_bytes: 5 * gib } },
+    { status: 409 }));
+  await assert.rejects(full.getAccountStorage(), (error) => error.reasonCode === "STORAGE_QUOTA_EXCEEDED"
+    && error.message.includes("已用 4.5 GB") && error.message.includes("上限 5 GB"));
+  const busy = new StudydyApiClient(async () => Response.json(
+    { schema: "api-error/v1", request_id: materialId, reason_code: "STORAGE_BUSY", retryable: true, message: "Request could not be completed." },
+    { status: 503 }));
+  await assert.rejects(busy.getAccountStorage(), (error) => error.reasonCode === "STORAGE_BUSY" && error.retryable
+    && error.message === "同一帳號的其他新增正在處理，請稍後再試。");
+  const storage = { schema: "account-storage/v1", used_bytes: gib, reserved_bytes: 0, limit_bytes: 5 * gib, remaining_bytes: 4 * gib };
+  assert.deepEqual(await new StudydyApiClient(async () => Response.json(storage)).getAccountStorage(), storage);
+  for (const body of [{ ...storage, remaining_bytes: 5 * gib }, { ...storage, used_bytes: -1 }, { ...storage, schema: "account-storage/v2" },
+    { ...storage, reserved_bytes: 2 * gib }, { ...storage, reserved_bytes: undefined }]) {
+    await assert.rejects(new StudydyApiClient(async () => Response.json(body)).getAccountStorage(), ApiClientError);
+  }
+});
+
+test("podcast summaries must say whether video was requested", async () => {
+  const { video_enabled: _, ...missing } = podcastView();
+  await assert.rejects(new StudydyApiClient(async () => Response.json(missing)).getPodcast(setId), ApiClientError);
+  assert.equal((await new StudydyApiClient(async () => Response.json(podcastView())).getPodcast(setId)).video_enabled, false);
+  const counted = { ...podcastView(), generation: { active: false, completed_videos: 0, failed_videos: 0, expected_videos: 0 } };
+  assert.equal((await new StudydyApiClient(async () => Response.json(counted)).getPodcast(setId)).generation.expected_videos, 0);
+  for (const expected_videos of [-1, 2, 0.5]) {
+    const broken = { ...counted, generation: { ...counted.generation, expected_videos } };
+    await assert.rejects(new StudydyApiClient(async () => Response.json(broken)).getPodcast(setId), ApiClientError);
   }
 });

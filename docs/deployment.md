@@ -266,6 +266,24 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 新後端寫入新表與新欄位，必須先套用 0019 才能啟動，且前端要同時更新到接受 `xp-rules/v4`／`badge-rules/v7` 的版本。只改 Python 與前端，不需新增套件、不改 runtime lock，可用輕量後端更新（以 `docker inspect studydy-backend-1` 當下映像為基底）與前端輕量部署。已套用後回復版本須識別 0019，採前向修復，不還原 DB 丟棄新紀錄。部署後關卡、準時達成目標與匯出才開始累計，不補跑也不推測過去的紀錄。
 
+## 0020 Podcast 影片選項、FLAC 音訊與帳號空間
+
+`0020_podcast_audio_storage.sql`：`podcasts` 新增 `video_enabled`（既有列設為 true，維持原本自動生成影片；之後新建由程式明確寫入，沒有預設值）；`artifacts` 的 `podcast_audio` 允許 `audio/wav` 與 `audio/flac`；`podcast_videos` 新增 `removed` 狀態（刪除影片後保留 manifest、artifact 為 NULL）；新增空的 `storage_reservations`（帳號空間保留額度，見 [教材處理](materials.md#帳號空間)）。不搬資料；部署前已接受的工作沒有保留，照常完成。
+
+- 只需 backend 輕量更新（映像沿用當下正式映像為底圖，FLAC 用既有 PyAV 編解碼，沒有新依賴或系統套件），再重建前端靜態檔；provider 不需更新或重啟（影片與對齊仍收到原 WAV）。backend 啟動時套用 migration，舊 backend 不認得 `removed` 與 `audio/flac`，因此不要回退到舊映像而保留新資料；回退前先確認沒有新建 FLAC 分集與已刪除的影片。
+- 部署時進行中的分段上傳會因暫存檔改為帳號前綴而回報「上傳中斷」，重新上傳即可；舊暫存一天後由維護 worker 清除。
+- 帳號空間上限 5 GiB 為程式常數 `runtime/storage_usage.py` 的 `ACCOUNT_STORAGE_LIMIT_BYTES`（每集預估的預設值也在同一處），調整後需重建 backend。部署後既有帳號若已超過上限，只會擋下新增，不刪除任何內容。
+
+既有 WAV 轉 FLAC 使用維護腳本 `python -m runtime.podcast_audio_flac`，部署本身不會執行。建議在沒有 Podcast 生成、使用者較少的時段執行（替換瞬間正在讀同一檔的請求可能失敗一次，重試即可）：
+
+~~~bash
+docker compose exec backend /app/backend/.venv/bin/python -m runtime.podcast_audio_flac --dry-run
+docker compose exec backend /app/backend/.venv/bin/python -m runtime.podcast_audio_flac --backup-dir /data/artifacts/.podcast-wav-backup --limit 1
+docker compose exec backend /app/backend/.venv/bin/python -m runtime.podcast_audio_flac --backup-dir /data/artifacts/.podcast-wav-backup
+~~~
+
+dry-run 只讀取並在記憶體試轉，逐檔輸出 JSON 與合計（`wav_bytes`、`flac_bytes`、`saved_bytes`），不寫檔也不改 DB。正式執行全程持有一個執行層級的 advisory lock：另一個轉檔程序正在跑時直接以 `ANOTHER_CONVERSION_RUNNING` 結束；上次中斷的收尾（依 DB 狀態還原或刪除 `.staging` 中的舊 WAV，清掉 `*.flac-new`、`*.flac-new.*.tmp` 與備份目錄的 `*.wav.*.tmp`）、暫存寫入、提交與提交後刪除 WAV 都在鎖內，暫存檔名含每次執行的 ID，寫入或 fsync 失敗會刪除該次暫存。開始前核對轉換峰值空間：備份位置要放下全部待轉 WAV，artifact 磁碟要放下最大一檔的 FLAC 暫存（提交前舊 WAV 仍在）；兩者同一個檔案系統時合併計算。無損 FLAC 不保證比 WAV 小，因此每檔寫入備份與 FLAC 暫存前，再依實際大小核對當下剩餘空間；不足時該檔保留原狀、輸出 `stopped`，停止處理後續檔案，已完成的轉換不受影響。每檔先整檔核對 DB 雜湊並備份、讀回核對，再轉 FLAC，以獨立解碼比對 PCM 與還原後的整份 WAV，皆一致才在同一 artifact ID 換成 FLAC 並更新 `media_type／sha256／size_bytes`，最後刪除 WAV。任何一檔失敗都保留原狀並在輸出標 `failed`（結束碼 1），其他檔照常處理。分集 JSON（artifact ID 與原 WAV 的 `audio.sha256`）不變，所以既有影片、對齊、時間軸與收聽進度維持有效。備份位於主機 `data/artifacts/.podcast-wav-backup/<artifact>.wav`（容器身分 20001 可寫），抽查播放與影片無誤後由管理者刪除；它不計入帳號空間。
+
 ## 後端身分與既有資料
 
 `STUDYDY_BACKEND_UID` 預設20001，GID沿用1000；它只控制 backend（含OCR）及其 runtime tmpfs，image 的 backend／OCR／test 預設身分也一致。完整建置時 Compose 以同名建置參數在 backend 階段建立 `studydy-backend` passwd 項目（HOME=/tmp tmpfs）；torch／transformers 以 `getpass`、`~` 決定身分與 cache，缺少此項目時 OCR 子程序會 CHILD_EXITED。改 UID 須完整重建 backend 映像，輕量更新沿用 runtime 映像內的項目。init 仍由0執行，bridge、cloudflared、download-ocr與主機Podcast維持原1000管理身分。SSH key與tunnel token不隨後端UID搬移或放寬權限。

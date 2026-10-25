@@ -66,7 +66,7 @@ HTTP 層處理請求邊界，runtime 用例協調流程，learning_adaptation／
 
 功能路由直接共用 [request_context.py](../backend/src/runtime/api/request_context.py) 的 session、query 與冪等鍵檢查；[study_workspace.py](../backend/src/runtime/study_workspace.py) 組合學習查詢，HTTP 層只投影公開資料。題組的查詢與完成判定位於 [assessment_state.py](../backend/src/learning_adaptation/assessment_state.py)，建立、交卷及生成工作由 `assessment_sets.py` 負責。
 
-[database.py](../backend/src/runtime/storage/database.py) 管理連線池與每次交易，`tables.py` 只做 ORM 映射。[artifacts.py](../backend/src/runtime/storage/artifacts.py) 統一原檔、轉檔及媒體的保存、完整性檢查與清理；PDF 預覽仍保留自己的型別限制。發布流程由 `knowledge_publication.py` 協調，`knowledge_structures.py` 保留讀取與清理。讀取索引的建立與補建由 `knowledge_publication.py` 負責；`knowledge_reads.py` 保留概念索引建立與讀取投影，`card_sources.py` 處理卡組導覽與分批顯示。
+[database.py](../backend/src/runtime/storage/database.py) 管理連線池與每次交易，`tables.py` 只做 ORM 映射。[artifacts.py](../backend/src/runtime/storage/artifacts.py) 統一原檔、轉檔及媒體的保存、完整性檢查與清理；PDF 預覽仍保留自己的型別限制。一般讀取每次整檔核對 DB 雜湊；媒體 Range 串流（Podcast 音訊／影片、來源原音、MP4 匯出）在同一程序內，對裝置／inode／大小／mtime／ctime 與 DB 雜湊皆未變、且已整檔核對過的檔案只核對身分與大小，不每次重讀；物件寫入後為 0400 且只整檔替換，任何改寫都會使快取失效。交給 provider 的音訊（影片、對齊）與下載仍每次整檔核對。帳號空間由 [storage_usage.py](../backend/src/runtime/storage_usage.py) 計算：該帳號全部 artifacts 的 `size_bytes`、`analysis/<learner>/` 目錄與尚未收齊的分段上傳；會新增檔案的入口在接受請求時檢查一次。發布流程由 `knowledge_publication.py` 協調，`knowledge_structures.py` 保留讀取與清理。讀取索引的建立與補建由 `knowledge_publication.py` 負責；`knowledge_reads.py` 保留概念索引建立與讀取投影，`card_sources.py` 處理卡組導覽與分批顯示。
 
 [provider_http.py](../backend/src/runtime/provider_http.py) 管理既有 provider 傳輸，工作續租與取消仍屬各執行流程。內容序列化使用 `content_identity.py`；講稿沿用 `podcast_script.py` 的獨立雜湊規則，避免改變已保存的身分。
 

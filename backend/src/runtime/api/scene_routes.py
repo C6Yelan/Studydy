@@ -10,7 +10,7 @@ from ..podcast_timeline import build_timeline, webvtt, with_source_ranges
 
 
 def load_timeline(learner, identity, index, *, dsn=None):
-    video = podcast_videos.ready_manifest(
+    video = podcast_videos.timeline_manifest(
         learner, identity, index, dsn=dsn
     )
     if video is not None:

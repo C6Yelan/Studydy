@@ -102,7 +102,9 @@ def upload_source(
     dsn=None,
     research_attempt=None,
     analysis_scope=None,
+    upload_lease=None,
 ):
+    """upload_lease：發布前核對寫入者，來源與保留在同一交易結算。"""
     from .media_sources import upload_limit
 
     name = _name(name)
@@ -136,6 +138,10 @@ def upload_source(
     try:
         with database_session(dsn) as session:
             material = require_source_material(session, owner, material_id)
+            if upload_lease is not None:
+                from .storage_usage import require_upload_lease
+
+                require_upload_lease(session, upload_lease)
             if research_attempt is not None:
                 from .storage.tables import MaterialResearch
 
@@ -166,6 +172,10 @@ def upload_source(
                     raise SourceError("RESOURCE_NOT_FOUND")
                 if bytes(existing.request_fingerprint) != fingerprint:
                     raise SourceError("IDEMPOTENCY_CONFLICT")
+                if upload_lease is not None:
+                    from .storage_usage import settle_upload
+
+                    settle_upload(session, upload_lease)
                 return existing.source_id
             duplicate = session.scalar(
                 select(MaterialSource)
@@ -248,6 +258,10 @@ def upload_source(
                     updated_at=now,
                 )
             )
+            if upload_lease is not None:
+                from .storage_usage import settle_upload
+
+                settle_upload(session, upload_lease)
             session.flush()
         return identity
     finally:

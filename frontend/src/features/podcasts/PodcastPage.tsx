@@ -1,5 +1,5 @@
 import { PodcastExports } from "../exports/PodcastExports";
-import { usePodcastVideo } from "./PodcastVideo";
+import { DeleteVideoControl, usePodcastVideo } from "./PodcastVideo";
 import { BackLink } from "../../ui/BackLink";
 import { PodcastTranscript } from "./PodcastTranscript";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -186,9 +186,10 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
       </select></label>}
       <PodcastExports key={`export-${podcastId}-${index}`} api={apiClient} view={view} index={index}
         videoReady={videoState.state?.status === "ready"} videoVersion={videoState.state?.version ?? 0} />
+      {videoState.state?.status === "ready" && <DeleteVideoControl key={`delete-video-${podcastId}-${index}`} api={apiClient} podcastId={podcastId} index={index} onDeleted={() => { videoState.reload(); setReload((v) => v + 1); }} />}
     </>}
-    {previewReady && videoState.state?.status !== "ready" && <StateView title={videoState.error ? "無法載入影片" : "正在載入影片"} description={videoState.error || "正在確認本集影片。"} tone={videoState.error ? "failure" : "loading"} action={<button type="button" className="secondary-button" onClick={videoState.reload}>重新讀取</button>} />}
-    {previewReady && videoState.state?.status === "ready" && progress !== undefined && <div ref={workspace} className="podcast-listening-layout">
+    {previewReady && !videoState.state && <StateView title={videoState.error ? "無法載入影片" : "正在載入影片"} description={videoState.error || "正在確認本集影片。"} tone={videoState.error ? "failure" : "loading"} action={<button type="button" className="secondary-button" onClick={videoState.reload}>重新讀取</button>} />}
+    {previewReady && !!videoState.state && progress !== undefined && <div ref={workspace} className="podcast-listening-layout">
         <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} episodeLabel={episode.title || episodeTitle(episode.claims.map(c => c.label))} videoState={videoState} mediaRef={media} storageKey={storageKey}
           resumeAt={progress?.episodes.find((item) => item.episode_index === index)?.position_seconds ?? null} onSync={syncProgress} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = view.status === "ready"; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = view.status === "ready"; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={(autoAdvance) => {
           if (autoAdvance && index + 1 < view.episodes.length) { autoPlayNext.current = true; setIndex(index + 1); }

@@ -425,6 +425,8 @@ class Podcast(Base):
     error_code: Mapped[str | None] = mapped_column(Text)
     lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 建立時勾選才在每集音訊完成後自動生成影片（0020）。
+    video_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
 
 class StudySession(Base):

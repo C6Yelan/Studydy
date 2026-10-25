@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import io
 import wave
+from hashlib import sha256
 from uuid import uuid4
 
 import psycopg
@@ -15,6 +16,7 @@ from sqlalchemy import select
 import runtime.api.app as api
 from product_fixtures import closed_loop, seed_run, _structure, publish_fixture_structure
 from runtime import podcasts, podcast_script
+from runtime.audio import flac_to_wav
 from runtime.learner_session import register_account
 from runtime.material_discard import request_material_discard
 from runtime.material_processing import claim_next_material_processing_run, _record_progress
@@ -23,10 +25,11 @@ from runtime.storage.tables import Material, Podcast, Artifact
 from runtime.storage.database import database_session
 
 
-def create(fixture, *, delivery="solo", key="podcast"):
+def create(fixture, *, delivery="solo", key="podcast", video=False):
     owner, source, _, document, dsn, _ = fixture
     return podcasts.create_podcast(owner.learner_id, source.material_id, document["revision"],
-        "合成教學", [c["concept_id"] for c in document["concepts"]], key, delivery=delivery, dsn=dsn)
+        "合成教學", [c["concept_id"] for c in document["concepts"]], key, delivery=delivery,
+        video=video, dsn=dsn)
 
 
 def wav():
@@ -196,14 +199,19 @@ def test_api_owner_audio_ranges_and_origin_boundary(closed_loop, monkeypatch):
     view = client.get(detail)
     assert view.status_code == 200, view.text
     assert view.headers["cache-control"] == "private, no-store"
-    assert client.get(audio_url).content == wav()
+    played = client.get(audio_url)
+    # 新的一集以無損 FLAC 保存與播放，解碼後與 provider 交回的 WAV 逐位元相同。
+    assert played.headers["content-type"] == "audio/flac"
+    assert played.content[:4] == b"fLaC" and flac_to_wav(played.content) == wav()
+    flac = played.content
+    assert view.json()["episodes"][0]["audio"]["sha256"] == sha256(wav()).hexdigest()
     # 舊欄位與已保存內容仍可讀取，歷史模式不會觸發重寫或重新生成。
     with database_session(dsn) as db:
         legacy = db.get(Podcast, identity)
         legacy.mode = 'full'
         stored_episodes = deepcopy(legacy.episodes)
     assert client.get(detail).json() == view.json()
-    assert client.get(audio_url).content == wav()
+    assert client.get(audio_url).content == flac
     with database_session(dsn) as db:
         legacy = db.get(Podcast, identity)
         assert legacy.mode == 'full' and legacy.episodes == stored_episodes
@@ -212,11 +220,11 @@ def test_api_owner_audio_ranges_and_origin_boundary(closed_loop, monkeypatch):
         secure_cookie=False, local_config=settings, dsn=dsn)), base_url=origin)
     reopened.cookies.set("studydy_session", token)
     assert reopened.get(detail).json() == view.json()
-    assert reopened.get(audio_url).content == wav()
-    for value, expected in [("bytes=0-43", wav()[:44]), ("bytes=44-", wav()[44:]), ("bytes=-20", wav()[-20:])]:
+    assert reopened.get(audio_url).content == flac
+    for value, expected in [("bytes=0-43", flac[:44]), ("bytes=44-", flac[44:]), ("bytes=-20", flac[-20:])]:
         response = client.get(audio_url, headers={"Range": value})
         assert response.status_code == 206 and response.content == expected
-        assert response.headers["content-range"].endswith(f"/{len(wav())}")
+        assert response.headers["content-range"].endswith(f"/{len(flac)}")
         assert int(response.headers["content-length"]) == len(expected)
     for value in ("bytes=999999-", "bytes=-0", "bytes=20-1", "bytes=1-2,5-6", "invalid"):
         assert client.get(audio_url, headers={"Range": value}).status_code == 416
@@ -226,7 +234,9 @@ def test_api_owner_audio_ranges_and_origin_boundary(closed_loop, monkeypatch):
     assert client.get(detail).status_code == client.get(audio_url).status_code == 404
     assert client.delete(detail, headers={"Origin": origin}).status_code == 404
     client.cookies.set("studydy_session", token)
-    assert view.json()['generation'] == {'active':True,'completed_videos':0,'failed_videos':0,'preview_ready':False,'retryable_videos':False}
+    # 沒勾影片：不建立影片工作，只有音訊即可開啟播放。
+    assert view.json()['video_enabled'] is False
+    assert view.json()['generation'] == {'active':False,'completed_videos':0,'failed_videos':0,'preview_ready':True,'retryable_videos':False,'expected_videos':0}
     cancelled = client.post(detail + '/actions', headers={'Origin':origin}, json={
         'schema':'podcast-action/v1','action':'cancel','expected_version':view.json()['version']})
     assert cancelled.status_code == 200 and cancelled.json() == {'schema':'podcast-deleted/v1','podcast_id':identity}
@@ -448,17 +458,18 @@ def test_podcast_list_batches_child_states_without_changing_summaries(closed_loo
         db.query(PodcastScenes).filter(PodcastScenes.podcast_id == identity).delete()
         db.query(PodcastVideo).filter(PodcastVideo.podcast_id == identity).delete()
     base = podcasts.list_podcasts(owner.learner_id, dsn=dsn)['podcasts'][0]
-    # Podcast、影片、分鏡狀態，以及既有五個 generation 欄位的預期值。
+    # Podcast、影片、分鏡狀態，以及六個 generation 欄位的預期值（預期影片數只算實際影片工作）。
     cases = [
-        ('ready', None, None, (False, 0, 0, False, True)),
-        ('pending', None, None, (True, 0, 0, False, False)),
-        ('ready', 'ready', None, (False, 1, 0, True, False)),
-        ('ready', 'failed', None, (False, 0, 1, False, True)),
-        ('ready', 'cancelled', None, (False, 0, 0, False, True)),
-        ('ready', 'pending', None, (True, 0, 0, False, False)),
-        ('failed', None, 'pending', (False, 0, 0, False, False)),
-        ('ready', None, 'pending', (True, 0, 0, False, True)),
-        ('cancelled', 'running', None, (True, 0, 0, False, False)),
+        # 沒勾影片的節目：沒有影片工作即只播音訊，可預覽，也沒有可重試或補建的影片。
+        ('ready', None, None, (False, 0, 0, True, False, 0)),
+        ('pending', None, None, (True, 0, 0, False, False, 0)),
+        ('ready', 'ready', None, (False, 1, 0, True, False, 1)),
+        ('ready', 'failed', None, (False, 0, 1, False, True, 1)),
+        ('ready', 'cancelled', None, (False, 0, 0, False, True, 1)),
+        ('ready', 'pending', None, (True, 0, 0, False, False, 1)),
+        ('failed', None, 'pending', (False, 0, 0, False, False, 0)),
+        ('ready', None, 'pending', (True, 0, 0, True, False, 0)),
+        ('cancelled', 'running', None, (True, 0, 0, False, False, 1)),
     ]
     expected = [base]
     counts = []
@@ -493,7 +504,7 @@ def test_podcast_list_batches_child_states_without_changing_summaries(closed_loo
                                  # 總時長只在節目 ready（音訊全部完成）時提供。
                                  'duration_seconds': base['duration_seconds'] if status == 'ready' else None,
                                  'generation': dict(zip(('active', 'completed_videos', 'failed_videos',
-                                                        'preview_ready', 'retryable_videos'), generation))})
+                                                        'preview_ready', 'retryable_videos', 'expected_videos'), generation))})
         statements = []
 
         def count_query(connection, cursor, statement, parameters, context, executemany):
