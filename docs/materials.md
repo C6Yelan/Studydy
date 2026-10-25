@@ -23,11 +23,11 @@
 
 ## 帳號空間
 
-每個帳號總空間上限 5 GiB（介面標示 5 GB；`storage_usage.ACCOUNT_STORAGE_LIMIT_BYTES`）。已用＝該帳號全部 artifacts（原檔、normalized_pdf、source_mapping、Podcast 音訊與影片）＋`analysis/<learner>/` 分析檔目錄＋保留額度。保留額度包括：尚未收齊的分段上傳，以第一段宣告的整檔大小計（不是已收到的位元組，之後各段不得超過宣告大小）；未刪除 Podcast 中還沒有音訊的分集（含失敗／取消後可接續的），每集預估音訊大小，建立時勾選影片的另加每集預估影片大小；排隊或生成中的影片工作，每集預估影片大小。每集預估取全站既有同類成品（`podcast_audio`／`podcast_video`）的平均大小，還沒有成品時用預設 20 MiB／64 MiB。成品寫入後改計實際大小，保留額度隨之消失，產檔時不再檢查。
+每個帳號總空間上限 5 GiB（介面標示 5 GB；`storage_usage.ACCOUNT_STORAGE_LIMIT_BYTES`）。上限是「接受新增工作」的門檻：已接受的工作產生的檔案（成品比預估大、normalized_pdf／mapping／分析檔、補充學習匯入）照常完成、不會中途中斷，但都計入已用並擋住之後的新增。
 
-會新增檔案的入口在同一個帳號層級的 PostgreSQL advisory lock 內「查額度＋寫入或保留」，同帳號的並行請求依序判斷：上傳教材以「已用＋本次大小 > 上限」判斷；分段上傳在第一段以「已用＋宣告大小」判斷並寫入保留；加入 YouTube 在空間已滿時拒絕；建立 Podcast 以「已用＋集數 ×（音訊預估＋勾選影片時的影片預估）」判斷；生成、重試或補建影片以「已用＋影片集數 × 影片預估」判斷。同一 Idempotency-Key 的重送先回傳原結果，不因帳號之後額滿而失敗。超過時錯誤原因碼為 `STORAGE_QUOTA_EXCEEDED`（HTTP 409），回應附 `storage.used_bytes／limit_bytes`。已有內容照常閱讀、播放、匯出與刪除。卡組匯出暫存由維護程序清除、Podcast MP3／Markdown 匯出在記憶體產生，不計入。`GET /v1/account/storage`（`account-storage/v1`）回傳已用（含保留）、保留、上限與剩餘，個人檔案頁顯示。
+已用＝該帳號全部 artifacts（原檔、normalized_pdf、source_mapping、Podcast 音訊與影片）＋`analysis/<learner>/` 分析檔目錄＋保留額度（`storage_reservations`，0019）。artifacts 與保留在同一個 SQL 敘述加總，背景同時提交成品時不會漏算。保留額度在接受工作時固定：上傳以本次大小、分段上傳以第一段宣告的整檔大小（之後各段不得超過）；建立 Podcast 時每集保留音訊估值，勾選影片的另保留影片估值；重試、補建或手動生成影片時每集保留影片估值。估值取當下全站既有同類成品（`podcast_audio`／`podcast_video`）的平均大小，尚無成品時用 20 MiB／64 MiB，之後全站平均變動不影響已保留的額度。成品寫入的同一交易刪除該工作的保留、改計實際大小；影片失敗或取消、Podcast 刪除、上傳失敗時釋放；程序中斷留下超過一天的上傳保留由維護 worker 釋放。
 
-不在預估內的是已接受上傳後續產生的衍生檔（normalized_pdf、mapping、分析檔）與補充學習匯入的公開來源：它們計入已用、會讓之後的新增被擋下，但產生當下不檢查；實際成品比預估大時也一樣。
+會新增檔案的入口在帳號層級的 PostgreSQL advisory lock 內以短交易完成「再次辨識冪等 key＋核對額度＋建立保留」，檔案落盤在鎖外：上傳教材以「已用＋本次大小 > 上限」判斷；分段上傳在第一段以「已用＋宣告大小」判斷；加入 YouTube 在空間已滿時拒絕（參照很小，不另保留）；建立 Podcast 以「已用＋集數 ×（音訊估值＋勾選影片時的影片估值）」判斷；生成、重試或補建影片以「已用＋待保留集數 × 影片估值」判斷（已有保留的分集不重複計）。同一 Idempotency-Key 的重送（含同時送出的兩個請求）回傳同一份結果，不因額滿失敗。超過上限回 `STORAGE_QUOTA_EXCEEDED`（HTTP 409），回應附 `storage.used_bytes／limit_bytes`；帳號鎖等待超過 5 秒回可重試的 `STORAGE_BUSY`（HTTP 503）。已有內容照常閱讀、播放、匯出與刪除。卡組匯出暫存由維護程序清除、Podcast MP3／Markdown 匯出在記憶體產生，不計入。`GET /v1/account/storage`（`account-storage/v1`）回傳已用（含保留）、保留、上限與剩餘，個人檔案頁顯示。
 
 ## 圖片、音訊、影片與 YouTube
 

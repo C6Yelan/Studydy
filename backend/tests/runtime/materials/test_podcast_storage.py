@@ -233,41 +233,6 @@ def test_usage_counts_files_and_chunked_uploads_reserve_declared_size(closed_loo
                        headers={**single, "Idempotency-Key": "over"}).json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
 
 
-def test_quota_check_and_write_are_serialized_per_account(closed_loop, monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
-    import json
-    import time
-    from runtime import media_sources
-
-    owner, _, _, _, dsn, _ = closed_loop
-    used = storage_usage.account_usage(owner.learner_id, dsn=dsn)["used_bytes"]
-    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", used + 1000)
-    inside, done = Event(), {}
-
-    def first():
-        with storage_usage.reserved_room(owner.learner_id, 600, dsn=dsn):
-            inside.set()
-            time.sleep(0.5)
-            meta = media_sources._upload_folder() / f"{owner.learner_id.hex}-race.json"
-            meta.write_text(json.dumps({"total_bytes": 600}))
-        done["first"] = time.monotonic()
-
-    def second():
-        inside.wait(5)
-        try:
-            with storage_usage.reserved_room(owner.learner_id, 600, dsn=dsn):
-                return "accepted", time.monotonic()
-        except storage_usage.StorageQuotaError:
-            return "rejected", time.monotonic()
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        a, b = pool.submit(first), pool.submit(second)
-        a.result(timeout=20)
-        outcome, finished = b.result(timeout=20)
-    assert outcome == "rejected" and finished >= done["first"]
-
-
 def test_full_account_blocks_new_files_but_replays_reading_and_deletion_continue(closed_loop, monkeypatch):
     owner, source, _, document, dsn, _ = closed_loop
     client = client_for(closed_loop)
@@ -538,3 +503,176 @@ def test_conversion_run_lock_cleans_temporaries_and_checks_peak_space(closed_loo
     assert summary["converted"] == 1 and flac_to_wav(path.read_bytes()) == wav
     assert not any(leftover.exists() for leftover in leftovers)
     assert not list(backup.glob("*.tmp")) and not [p for p in staging.iterdir() if not p.name.endswith(".pending")]
+
+
+def test_slow_upload_does_not_hold_the_account_lock_and_lock_timeout_is_retryable(closed_loop, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+    from sqlalchemy import text
+
+    owner, _, _, _, dsn, _ = closed_loop
+    client = client_for(closed_loop)
+    first_draft, second_draft = draft_for(client, "slow"), draft_for(client, "fast")
+    real = api.upload_source
+
+    def slow(*args, **kwargs):
+        if args[1] == first_draft:
+            time.sleep(6)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(api, "upload_source", slow)
+    headers = {"Origin": ORIGIN, "Content-Type": "text/plain", "X-Material-Name": "note.txt"}
+
+    def send(draft, key, content):
+        started = time.monotonic()
+        response = client_for(closed_loop).post(f"/v1/materials/{draft}/sources", content=content,
+                                                headers={**headers, "Idempotency-Key": key})
+        return response, time.monotonic() - started
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        slow_upload = pool.submit(send, first_draft, "slow", "慢速寫入".encode())
+        time.sleep(1)
+        fast, elapsed = pool.submit(send, second_draft, "fast", "另一份教材".encode()).result(timeout=30)
+        assert fast.status_code == 202 and elapsed < 4
+        assert slow_upload.result(timeout=30)[0].status_code == 202
+    # 帳號鎖被長時間占用（例如另一個程序卡住）時，回可重試的 STORAGE_BUSY，不是 500。
+    with database_session(dsn) as holder:
+        storage_usage.lock_account(holder, owner.learner_id)
+        busy, elapsed = send(second_draft, "busy", "等待帳號鎖".encode())
+    assert busy.status_code == 503 and elapsed >= 4.5
+    assert busy.json()["reason_code"] == "STORAGE_BUSY" and busy.json()["retryable"] is True
+
+
+def test_same_key_sent_twice_at_once_returns_one_source_even_when_it_fills_the_account(closed_loop, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+
+    owner, _, _, _, dsn, _ = closed_loop
+    client = client_for(closed_loop)
+    draft = draft_for(client, "twice")
+    content = "同一份上傳".encode()
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", storage(client)["used_bytes"] + len(content))
+    real, calls = api.upload_source, []
+
+    def delayed(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            time.sleep(1.5)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(api, "upload_source", delayed)
+    headers = {"Origin": ORIGIN, "Content-Type": "text/plain", "X-Material-Name": "note.txt", "Idempotency-Key": "same"}
+    send = lambda: client_for(closed_loop).post(f"/v1/materials/{draft}/sources", content=content, headers=headers)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(send)
+        time.sleep(0.5)
+        second = pool.submit(send)
+        results = [first.result(timeout=30), second.result(timeout=30)]
+    assert [r.status_code for r in results] == [202, 202], [r.text for r in results]
+    assert results[0].json() == results[1].json() and len(results[0].json()["sources"]) == 1
+    assert storage(client)["reserved_bytes"] == 0
+
+
+def test_reservations_are_fixed_at_acceptance_and_settled_with_the_artifact(closed_loop):
+    from sqlalchemy import text
+
+    owner, source, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop, video=True)["podcast_id"]
+    estimate = storage_usage.DEFAULT_EPISODE_AUDIO_BYTES + storage_usage.DEFAULT_EPISODE_VIDEO_BYTES
+    assert storage_usage.account_usage(owner.learner_id, dsn=dsn)["reserved_bytes"] == estimate
+    # 其他帳號的成品改變全站平均，不重新定價已接受的工作。
+    with psycopg.connect(dsn) as connection:
+        connection.execute(
+            "INSERT INTO artifacts (artifact_id,learner_id,material_id,kind,media_type,sha256,size_bytes,created_at) "
+            "VALUES (gen_random_uuid(),%s,%s,'podcast_audio','audio/flac',%s,%s,now())",
+            (owner.learner_id, source.material_id, b"9" * 32, 7))
+    usage = storage_usage.account_usage(owner.learner_id, dsn=dsn)
+    assert usage["reserved_bytes"] == estimate
+    # 成品寫入的同一交易刪除該集音訊保留，改計實際大小；影片保留仍在。
+    complete(dsn)
+    after = storage_usage.account_usage(owner.learner_id, dsn=dsn)
+    with database_session(dsn) as db:
+        kinds = db.scalars(text("SELECT kind FROM storage_reservations WHERE podcast_id = :p"), {"p": identity}).all()
+    assert kinds == ["podcast_video"] and after["reserved_bytes"] == storage_usage.DEFAULT_EPISODE_VIDEO_BYTES
+    monkey_bundle = videos.claim(dsn=dsn)
+    assert videos.finish(monkey_bundle, bundle=bundle(monkey_bundle), dsn=dsn)
+    assert storage_usage.account_usage(owner.learner_id, dsn=dsn)["reserved_bytes"] == 0
+    podcasts.delete_podcast(owner.learner_id, identity, dsn=dsn)
+    with database_session(dsn) as db:
+        assert not db.scalar(text("SELECT count(*) FROM storage_reservations WHERE podcast_id = :p"), {"p": identity})
+
+
+def test_resuming_failed_or_cancelled_podcast_backfills_and_reserves_videos(closed_loop, monkeypatch):
+    from sqlalchemy import text
+
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop, video=True)["podcast_id"]
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        row.episodes = [deepcopy(row.episodes[0]) for _ in range(2)]
+    # 第一集完成後失敗；模擬 0019 前缺少影片工作與保留的舊分集。
+    complete(dsn)
+    with database_session(dsn) as db:
+        db.execute(text("DELETE FROM podcast_videos WHERE podcast_id = :p"), {"p": identity})
+        db.execute(text("DELETE FROM storage_reservations WHERE podcast_id = :p AND kind = 'podcast_video'"), {"p": identity})
+        row = db.get(Podcast, identity)
+        row.status, row.error_code = "failed", "PODCAST_PROVIDER_FAILED"
+    view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+    # 空間不足一集影片預估時，接續生成被拒絕且不新增保留。
+    files = storage_usage.account_usage(owner.learner_id, dsn=dsn)["used_bytes"]
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", files + storage_usage.DEFAULT_EPISODE_VIDEO_BYTES - 1)
+    with pytest.raises(storage_usage.StorageQuotaError):
+        podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
+    assert storage_usage.account_usage(owner.learner_id, dsn=dsn)["used_bytes"] == files
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", files + storage_usage.DEFAULT_EPISODE_VIDEO_BYTES)
+    podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
+    with database_session(dsn) as db:
+        jobs = db.execute(text("SELECT episode_index, status FROM podcast_videos WHERE podcast_id = :p"), {"p": identity}).all()
+        reserved = db.scalars(text("SELECT episode_index FROM storage_reservations WHERE podcast_id = :p AND kind = 'podcast_video'"), {"p": identity}).all()
+    assert [tuple(j) for j in jobs] == [(0, "pending")] and reserved == [0]
+    # cancelled 的影片恢復成 pending 前也要核對並保留；已滿時拒絕，不會讓已用＋保留超過上限。
+    view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+    state = videos.read(owner.learner_id, identity, 0, dsn=dsn)
+    videos.action(owner.learner_id, identity, 0, "cancel", state["version"], dsn=dsn)
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        row.status, row.error_code = "cancelled", None
+    files = storage_usage.account_usage(owner.learner_id, dsn=dsn)["used_bytes"]
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", files)
+    view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+    with pytest.raises(storage_usage.StorageQuotaError):
+        podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
+    assert storage_usage.account_usage(owner.learner_id, dsn=dsn)["used_bytes"] == files
+    assert videos.read(owner.learner_id, identity, 0, dsn=dsn)["status"] == "cancelled"
+
+
+def test_conversion_stops_before_a_flac_that_no_longer_fits(closed_loop, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    owner, _, _, _, dsn, _ = closed_loop
+    first, wav = legacy_wav_podcast(closed_loop, monkeypatch, key="grow-1")
+    second, _ = legacy_wav_podcast(closed_loop, monkeypatch, key="grow-2")
+    ids = [podcasts.read_podcast(owner.learner_id, p, dsn=dsn)["episodes"][0]["audio"]["artifact_id"].replace("-", "")
+           for p in (first, second)]
+    root = artifacts._root()
+    staging = root / ".staging"
+    checks = []
+    real = podcast_audio_flac.shutil.disk_usage
+
+    def usage(path):
+        # 第二檔落地前，artifact 盤只剩不到一份 FLAC 的空間（多檔累積膨脹）。
+        if str(path) == str(staging):
+            checks.append(path)
+            if len(checks) >= 2:
+                return SimpleNamespace(free=10)
+        return real(path)
+
+    monkeypatch.setattr(podcast_audio_flac.shutil, "disk_usage", usage)
+    summary = podcast_audio_flac.convert(backup_dir=tmp_path / "backup", dsn=dsn, report=lambda _: None)
+    assert summary["converted"] == 1 and summary["failed"] == 1
+    assert summary["stopped"] == "ARTIFACT_SPACE_INSUFFICIENT"
+    assert (root / "objects" / ids[0]).read_bytes()[:4] == b"fLaC"
+    assert (root / "objects" / ids[1]).read_bytes() == wav
+    with database_session(dsn) as db:
+        assert db.get(Artifact, podcasts.UUID(ids[1])).media_type == "audio/wav"
+    assert not [p for p in staging.iterdir() if not p.name.endswith(".pending")]

@@ -99,22 +99,34 @@ def _upload_paths(owner, material_id, key):
     return folder / f"{owner.hex}-{digest}.part", folder / f"{owner.hex}-{digest}.json"
 
 
-def pending_upload_bytes(owner):
-    """此帳號尚未收齊的分段上傳：以第一段宣告的整檔大小保留，不以已收到的位元組計。"""
-    total = 0
-    for meta in _upload_folder().glob(f"{owner.hex}-*.json"):
-        try:
-            declared = json.loads(meta.read_bytes())["total_bytes"]
-            if type(declared) is not int or declared < 0:
-                raise ValueError
-        except (FileNotFoundError, ValueError, KeyError, TypeError):
-            # 意圖尚未寫入或已損毀：至少計入已收到的部分。
-            try:
-                declared = meta.with_suffix(".part").stat().st_size
-            except FileNotFoundError:
-                declared = 0
-        total += declared
-    return total
+def accept_upload(owner, material_id, key, size, *, dsn=None, hold=True, replace=False):
+    """帳號鎖內的短交易：再次辨識冪等 key、核對額度並保留，檔案在鎖外落盤。
+
+    回傳 None 表示同一意圖已建立來源（重送）；否則回傳 (保留 ID, 是否由本次建立)。
+    hold=False 只核對不保留（YouTube 參照）；replace=True 以新的宣告大小取代同一意圖的保留（分段上傳重新開始）。
+    """
+    from .storage_usage import (
+        lock_account,
+        release,
+        require_room,
+        reservation_exists,
+        reserve,
+        upload_reservation_id,
+    )
+
+    identity = upload_reservation_id(owner, material_id, key)
+    with database_session(dsn) as db:
+        lock_account(db, owner)
+        if existing_source(owner, material_id, key, dsn=dsn) is not None:
+            return None
+        if not replace and reservation_exists(db, identity):
+            # 同一意圖的另一個請求已保留且仍在寫入：交給來源的冪等判斷，不重複保留。
+            return identity, False
+        require_room(db, owner, size, exclude=identity)
+        if hold:
+            release(db, reservation_id=identity)
+            reserve(db, owner, material_id, "upload", size, reservation_id=identity)
+        return identity, hold
 
 
 def existing_source(owner, material_id, key, *, dsn):
@@ -173,18 +185,19 @@ def receive_chunk(owner, material_id, key, name, media, total, offset, chunk, *,
         if offset == 0:
             part.unlink(missing_ok=True)
             os.ftruncate(descriptor, 0)
-            # 第一段宣告整檔大小：在帳號鎖內以「已用＋整檔大小」判斷，通過才寫入意圖保留額度；
-            # 之後各段不得超過宣告大小。超過上限就不留暫存。
-            from .storage_usage import reserved_room
-
+            # 第一段宣告整檔大小：短交易內以「已用＋宣告大小」核對並保留；之後各段不得超過宣告大小。
+            # 超過上限就不留暫存。
             try:
-                with reserved_room(owner, total, dsn=dsn):
-                    os.lseek(descriptor, 0, os.SEEK_SET)
-                    os.write(descriptor, json.dumps(intent).encode())
-                    os.fsync(descriptor)
+                accepted = accept_upload(owner, material_id, key, total, dsn=dsn, replace=True)
             except Exception:
                 meta.unlink(missing_ok=True)
                 raise
+            if accepted is None:
+                meta.unlink(missing_ok=True)
+                return {"received_bytes": total, "source_id": existing_source(owner, material_id, key, dsn=dsn)}
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            os.write(descriptor, json.dumps(intent).encode())
+            os.fsync(descriptor)
         elif stored != intent:
             raise SourceError("UPLOAD_OFFSET_MISMATCH")
         received = part.stat().st_size if part.exists() else 0
@@ -197,8 +210,17 @@ def receive_chunk(owner, material_id, key, name, media, total, offset, chunk, *,
         received += len(chunk)
         if received < total:
             return {"received_bytes": received, "source_id": None}
+        from .storage_usage import release_upload, upload_reservation_id
+
+        reservation = upload_reservation_id(owner, material_id, key)
         try:
-            source_id = store_upload(owner, material_id, part, name, media, key, dsn=dsn)
+            # 來源寫入的同一交易刪除保留；失敗時釋放，重新上傳會再保留。
+            source_id = store_upload(
+                owner, material_id, part, name, media, key, dsn=dsn, reservation_id=reservation
+            )
+        except Exception:
+            release_upload(reservation, dsn=dsn)
+            raise
         finally:
             part.unlink(missing_ok=True)
             meta.unlink(missing_ok=True)
@@ -207,17 +229,20 @@ def receive_chunk(owner, material_id, key, name, media, total, offset, chunk, *,
         os.close(descriptor)
 
 
-def store_upload_bytes(owner, material_id, data, name, media, key, *, dsn=None):
+def store_upload_bytes(owner, material_id, data, name, media, key, *, dsn=None, reservation_id=None):
     """單次上傳的音訊／影片同樣先檢查長度或抽音軌。"""
     with tempfile.NamedTemporaryFile(
         dir=work_root(), suffix=PurePath(name).suffix.lower()
     ) as stream:
         stream.write(data)
         stream.flush()
-        return store_upload(owner, material_id, Path(stream.name), name, media, key, dsn=dsn)
+        return store_upload(
+            owner, material_id, Path(stream.name), name, media, key,
+            dsn=dsn, reservation_id=reservation_id,
+        )
 
 
-def store_upload(owner, material_id, path, name, media, key, *, dsn=None):
+def store_upload(owner, material_id, path, name, media, key, *, dsn=None, reservation_id=None):
     from .source_normalization import upload_source
 
     if path.stat().st_size > upload_limit(name, media):
@@ -237,7 +262,9 @@ def store_upload(owner, material_id, path, name, media, key, *, dsn=None):
         raise SourceError(str(error)) from None
     if len(data) > MAX_AUDIO_BYTES:
         raise SourceError("MATERIAL_TOO_LARGE")
-    return upload_source(owner, material_id, data, name, media, key, dsn=dsn)
+    return upload_source(
+        owner, material_id, data, name, media, key, dsn=dsn, reservation_id=reservation_id
+    )
 
 
 def cleanup_stale_uploads(*, now=None):

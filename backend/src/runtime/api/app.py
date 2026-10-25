@@ -66,7 +66,7 @@ from ..material_processing import (
 from ..material_runtime import MaterialRuntimeError, runtime_binding
 from ..media_sources import (
     add_youtube_source,
-    existing_source,
+    accept_upload,
     receive_chunk,
     store_upload_bytes,
 )
@@ -78,7 +78,12 @@ from ..source_normalization import (
     upload_source,
 )
 from ..errors import PodcastError, SourceError
-from ..storage_usage import StorageQuotaError, account_usage, reserved_room
+from ..storage_usage import (
+    StorageBusyError,
+    StorageQuotaError,
+    account_usage,
+    release_upload,
+)
 from . import request_context
 from .media import artifact_response
 from .study_routes import install as install_study_routes
@@ -131,6 +136,7 @@ from .models import (
 _ERROR_MESSAGE = "Request could not be completed."
 _ERROR_STATUS = {
     "STORAGE_QUOTA_EXCEEDED": (409, False),
+    "STORAGE_BUSY": (503, True),
     "PODCAST_CONFLICT": (409, False),
     "PODCAST_SOURCE_INSUFFICIENT": (422, False),
     "PODCAST_SOURCE_TOO_LARGE": (422, False),
@@ -674,6 +680,8 @@ def create_app(settings: ApiSettings) -> FastAPI:
             return await call_next(request)
         except request_context.ApiFailure as error:
             return _error_response(error.reason_code)
+        except StorageBusyError:
+            return _error_response("STORAGE_BUSY")
         except StorageQuotaError as error:
             return _error_response(
                 "STORAGE_QUOTA_EXCEEDED",
@@ -1051,11 +1059,15 @@ def create_app(settings: ApiSettings) -> FastAPI:
 
         def save():
             arguments = (owner, material_id, bytes(data), name, media, key)
-            # 同一意圖的重送先交給既有冪等判斷，不因帳號隨後額滿而失敗。
-            if existing_source(owner, material_id, key, dsn=settings.dsn) is not None:
-                return store(*arguments, dsn=settings.dsn)
-            with reserved_room(owner, len(data), dsn=settings.dsn):
-                return store(*arguments, dsn=settings.dsn)
+            # 短交易內辨識重送、核對並保留額度；落盤在帳號鎖外，來源寫入的交易內刪除保留。
+            accepted = accept_upload(owner, material_id, key, len(data), dsn=settings.dsn)
+            reservation = accepted[0] if accepted and accepted[1] else None
+            try:
+                return store(*arguments, dsn=settings.dsn, reservation_id=reservation)
+            except Exception:
+                if reservation is not None:
+                    release_upload(reservation, dsn=settings.dsn)
+                raise
 
         await run_in_threadpool(save)
         return await run_in_threadpool(read_sources, owner, material_id, dsn=settings.dsn)
@@ -1124,12 +1136,9 @@ def create_app(settings: ApiSettings) -> FastAPI:
         if not media_available():
             raise request_context.ApiFailure("NORMALIZER_UNAVAILABLE")
         key = request_context.idempotency_key(request)
-        if existing_source(owner, material_id, key, dsn=settings.dsn) is not None:
-            add_youtube_source(owner, material_id, body.url, key, dsn=settings.dsn)
-        else:
-            # 參照本身很小；額滿時拒絕新增，鎖住到來源寫入完成。
-            with reserved_room(owner, 0, dsn=settings.dsn):
-                add_youtube_source(owner, material_id, body.url, key, dsn=settings.dsn)
+        # 參照本身很小：重送直接交給冪等判斷，新增則在空間已滿時拒絕，不另保留。
+        accept_upload(owner, material_id, key, 0, dsn=settings.dsn, hold=False)
+        add_youtube_source(owner, material_id, body.url, key, dsn=settings.dsn)
         return read_sources(owner, material_id, dsn=settings.dsn)
 
     @app.get("/v1/materials/{material_id}/sources", response_model=SourceListView)

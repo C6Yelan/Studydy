@@ -31,7 +31,14 @@ from .podcast_sources import plan_episodes, source_context, _context_pages
 from . import retrieval
 from .errors import SourceError, PodcastError
 from .audio import FLAC_MEDIA_TYPE, validate_audio, wav_to_flac
-from .storage_usage import episode_estimates, lock_account, require_room
+from .storage_usage import (
+    episode_estimates,
+    lock_account,
+    release,
+    require_room,
+    reserve,
+    reserve_videos,
+)
 
 
 from .generation_jobs import WORKER_LEASE_TTL, lease_is_current
@@ -142,22 +149,26 @@ def create_podcast(
     }
     fingerprint = bytes.fromhex(canonical_sha256(selection))
     with database_session(dsn) as db:
-        # 帳號空間鎖在教材鎖之前；同一 key 的重送仍先回傳既有結果才檢查額度。
-        lock_account(db, owner)
         material = require_material(db, owner, material_id)
-        row = db.scalar(
-            select(Podcast).where(
-                Podcast.learner_id == owner,
-                Podcast.material_id == material_id,
-                Podcast.idempotency_key_sha256 == digest,
+
+        def replay():
+            row = db.scalar(
+                select(Podcast).where(
+                    Podcast.learner_id == owner,
+                    Podcast.material_id == material_id,
+                    Podcast.idempotency_key_sha256 == digest,
+                )
             )
-        )
-        if row:
-            if bytes(row.request_fingerprint) != fingerprint:
-                raise PodcastError("IDEMPOTENCY_CONFLICT")
-            if row.status == "deleted":
-                raise PodcastError("RESOURCE_NOT_FOUND")
-            return _summary(row, material, _child_statuses(db, [row.podcast_id]))
+            if row:
+                if bytes(row.request_fingerprint) != fingerprint:
+                    raise PodcastError("IDEMPOTENCY_CONFLICT")
+                if row.status == "deleted":
+                    raise PodcastError("RESOURCE_NOT_FOUND")
+                return _summary(row, material, _child_statuses(db, [row.podcast_id]))
+            return None
+
+        if (existing := replay()) is not None:
+            return existing
         document = _read_verified_document(db, owner, material_id, revision=revision)
         retrieval._scope(db, owner, material_id, revision)
         view = _view(document, material_id)
@@ -177,7 +188,10 @@ def create_podcast(
         for episode in episodes:
             episode["delivery"] = delivery
             episode["hosts"] = dict(hosts)
-        # 依集數與全站既有成品平均大小預估；寫入節目後即以未完成分集保留這些額度。
+        # 短交易尾段才取帳號鎖（教材鎖在前）：再次辨識重送後，依集數與當下全站平均固定每集保留額度。
+        lock_account(db, owner)
+        if (existing := replay()) is not None:
+            return existing
         estimate = episode_estimates(db)
         require_room(
             db,
@@ -203,6 +217,17 @@ def create_podcast(
         )
         db.add(row)
         db.flush()
+        for index in range(len(episodes)):
+            for kind in ("podcast_audio", "podcast_video") if video else ("podcast_audio",):
+                reserve(
+                    db,
+                    owner,
+                    material_id,
+                    kind,
+                    estimate["audio" if kind == "podcast_audio" else "video"],
+                    podcast_id=row.podcast_id,
+                    episode_index=index,
+                )
         return _summary(row, material, _child_statuses(db, [row.podcast_id]))
 
 
@@ -256,6 +281,39 @@ def read_podcast(owner, identity, *, dsn=None):
         }
 
 
+def _requeue_videos(db, row, statuses):
+    """接續生成：恢復指定狀態的影片，並為勾選影片的節目補建已有音訊卻缺少的影片工作
+    （0019 前的舊分集；已刪除的 removed 與沒勾選的節目不補）。先在帳號鎖內核對並保留影片額度。"""
+    from .podcast_videos import enqueue
+
+    rows = db.scalars(
+        select(PodcastVideo)
+        .where(PodcastVideo.podcast_id == row.podcast_id)
+        .with_for_update()
+    ).all()
+    retry = [video for video in rows if video.status in statuses]
+    existing = {video.episode_index for video in rows}
+    missing = (
+        [
+            index
+            for index, episode in enumerate(row.episodes)
+            if index not in existing and episode.get("audio") and episode.get("script")
+        ]
+        if row.video_enabled
+        else []
+    )
+    reserve_videos(db, row, [video.episode_index for video in retry] + missing)
+    for index in missing:
+        enqueue(db, row, index)
+    for video in retry:
+        video = enqueue(db, row, video.episode_index)
+        if video.status in statuses:
+            video.status = "pending"
+            video.error_code = None
+            video.lease_token = video.lease_expires_at = None
+            video.version += 1
+
+
 def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=None):
     if action == "cancel":
         # 與教材一致：取消整份生成即刪除，不留下可接續的暫停項目。
@@ -263,8 +321,6 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
             owner, identity, expected_version=expected_version, dsn=dsn
         )
     with database_session(dsn) as db:
-        if action == "retry":
-            lock_account(db, owner)
         row, material = _locked(db, owner, identity)
         if row.version != expected_version:
             raise PodcastError("PODCAST_CONFLICT")
@@ -278,48 +334,22 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
             summary = _summary(row, material, _child_statuses(db, [row.podcast_id]))
             if not summary["generation"]["retryable_videos"]:
                 raise PodcastError("PODCAST_CONFLICT")
-            from .podcast_videos import enqueue
-
-            rows = db.scalars(
-                select(PodcastVideo)
-                .where(PodcastVideo.podcast_id == identity)
-                .with_for_update()
-            ).all()
-            retry = [v for v in rows if v.status in ("failed", "cancelled")]
-            # 勾選影片的節目由使用者按下時補建缺少的影片工作（0019 前的舊分集）；
-            # 已刪除的影片（removed）與沒勾選的節目不補。
-            existing = {v.episode_index for v in rows}
-            missing = (
-                [i for i in range(len(row.episodes)) if i not in existing]
-                if row.video_enabled
-                else []
-            )
-            require_room(
-                db,
-                owner,
-                (len(retry) + len(missing)) * episode_estimates(db)["video"],
-            )
-            for index in missing:
-                enqueue(db, row, index)
-            for video in retry:
-                video = enqueue(db, row, video.episode_index)
-                if video.status in ("failed", "cancelled"):
-                    video.status = "pending"
-                    video.error_code = None
-                    video.lease_token = video.lease_expires_at = None
-                    video.version += 1
+            _requeue_videos(db, row, ("failed", "cancelled"))
         elif action == "retry" and row.status in {"failed", "cancelled"}:
+            _requeue_videos(db, row, ("cancelled",))
             if row.status == "cancelled":
-                for child in (PodcastVideo, PodcastScenes):
-                    db.execute(
-                        update(child)
-                        .where(
-                            child.podcast_id == identity, child.status == "cancelled"
-                        )
-                        .values(
-                            status="pending", error_code=None, version=child.version + 1
-                        )
+                db.execute(
+                    update(PodcastScenes)
+                    .where(
+                        PodcastScenes.podcast_id == identity,
+                        PodcastScenes.status == "cancelled",
                     )
+                    .values(
+                        status="pending",
+                        error_code=None,
+                        version=PodcastScenes.version + 1,
+                    )
+                )
             row.status = "pending"
             row.error_code = None
         else:
@@ -342,6 +372,7 @@ def delete_podcast(owner, identity, *, expected_version=None, dsn=None):
 
                 artifacts.extend(discard(db, identity))
                 forget_positions(db, identity)
+                release(db, podcast_id=identity)
                 db.execute(
                     delete(PodcastScenes).where(PodcastScenes.podcast_id == identity)
                 )
@@ -519,6 +550,13 @@ def finish_step(
                     wav_to_flac(audio),
                     "podcast_audio",
                     FLAC_MEDIA_TYPE,
+                )
+                # 成品與釋放保留在同一交易：改計實際大小。
+                release(
+                    db,
+                    podcast_id=row.podcast_id,
+                    kind="podcast_audio",
+                    episode_index=claim["index"],
                 )
                 episode["audio"] = {
                     "artifact_id": str(artifact.artifact_id),

@@ -48,6 +48,15 @@ class ConversionError(RuntimeError):
     pass
 
 
+class SpaceError(ConversionError):
+    """落地前剩餘空間不足：該檔保留原狀，停止處理後續檔案。"""
+
+
+def _require_free(directory, size, code):
+    if shutil.disk_usage(directory).free < size:
+        raise SpaceError(code)
+
+
 def _candidates(dsn, limit):
     with database_session(dsn) as db:
         query = (
@@ -87,6 +96,7 @@ def _backup(backup_dir, artifact_id, wav, run):
     target = backup_dir / f"{artifact_id.hex}.wav"
     if not (target.exists() and sha256(target.read_bytes()).digest() == sha256(wav).digest()):
         target.unlink(missing_ok=True)
+        _require_free(backup_dir, len(wav), "BACKUP_SPACE_INSUFFICIENT")
         _write_synced(target, wav, 0o400, run)
     if target.read_bytes() != wav:
         raise ConversionError("BACKUP_MISMATCH")
@@ -153,6 +163,8 @@ def _replace(root, artifact_id, expected_digest, expected_size, flac, dsn, run):
     old = staging / f"{artifact_id.hex}.{run}{_OLD_SUFFIX}"
     destination = _object_path(root, artifact_id)
     replaced = False
+    # 無損 FLAC 不保證比 WAV 小：每檔落地前依實際大小核對當下剩餘空間。
+    _require_free(staging, len(flac), "ARTIFACT_SPACE_INSUFFICIENT")
     try:
         _write_synced(new, flac, 0o400, run)
         with database_session(dsn) as db:
@@ -238,6 +250,10 @@ def _convert(root, backup_dir, dry_run, limit, dsn, report, recovered):
             item["status"] = "failed"
             item["error"] = str(error) or type(error).__name__
             summary["failed"] += 1
+            if isinstance(error, SpaceError):
+                summary["stopped"] = item["error"]
+                report(json.dumps(item, ensure_ascii=False))
+                break
         report(json.dumps(item, ensure_ascii=False))
     summary["saved_bytes"] = summary["wav_bytes"] - summary["flac_bytes"]
     report(json.dumps({"summary": summary}, ensure_ascii=False))

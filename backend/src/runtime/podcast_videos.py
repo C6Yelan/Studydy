@@ -32,7 +32,7 @@ from .storage.artifacts import (
     reconcile_discarded_artifacts,
     write_blob,
 )
-from .storage_usage import episode_estimates, lock_account, require_room
+from .storage_usage import release, reserve_videos
 from .storage.tables import Artifact, Material, Podcast, PodcastVideo as Video
 from .storage.database import database_session
 
@@ -149,18 +149,16 @@ def read(owner, podcast_id, index, *, dsn=None):
 
 def prepare(owner, podcast_id, index, *, dsn=None):
     with database_session(dsn) as db:
-        lock_account(db, owner)
         podcast, _ = _locked(db, owner, podcast_id)
+        _episode(podcast, index)
         row = _row(db, podcast_id, index)
         if not row or row.status == "cancelled":
-            require_room(db, owner, episode_estimates(db)["video"])
+            reserve_videos(db, podcast, [index])
         return _view(podcast, index, enqueue(db, podcast, index))
 
 
 def action(owner, podcast_id, index, action, version, *, dsn=None):
     with database_session(dsn) as db:
-        if action == "retry":
-            lock_account(db, owner)
         podcast, _ = _locked(db, owner, podcast_id)
         episode = _episode(podcast, index)
         row = _row(db, podcast_id, index)
@@ -168,13 +166,14 @@ def action(owner, podcast_id, index, action, version, *, dsn=None):
             raise SourceError("VIDEO_CONFLICT")
         if action == "cancel" and row.status in ("pending", "running"):
             row.status = "cancelled"
+            release(db, podcast_id=podcast_id, kind="podcast_video", episode_index=index)
         elif (
             action == "retry"
             and row.status in ("failed", "cancelled")
             and episode["audio"]
             and row.source_sha256 == identity(podcast, episode)
         ):
-            require_room(db, owner, episode_estimates(db)["video"])
+            reserve_videos(db, podcast, [index])
             row.status = "pending"
             row.error_code = None
         else:
@@ -296,12 +295,14 @@ def claim(*, dsn=None):
             row.error_code = "VIDEO_INTERRUPTED"
             row.lease_token = row.lease_expires_at = None
             row.version += 1
+            release(db, podcast_id=row.podcast_id, kind="podcast_video", episode_index=row.episode_index)
             return None
         episode = deepcopy(_episode(podcast, row.episode_index))
         if row.source_sha256 != identity(podcast, episode):
             row.status = "failed"
             row.error_code = "VIDEO_SOURCE_CHANGED"
             row.version += 1
+            release(db, podcast_id=row.podcast_id, kind="podcast_video", episode_index=row.episode_index)
             return None
         row.status = "running"
         row.lease_token = uuid4()
@@ -420,6 +421,8 @@ def finish(state, *, bundle=None, error=None, dsn=None):
             row.manifest = manifest
             row.status = "ready"
             row.error_code = None
+        # 成品寫入或失敗都在同一交易釋放保留；重試時重新核對並保留。
+        release(db, podcast_id=row.podcast_id, kind="podcast_video", episode_index=row.episode_index)
         row.lease_token = row.lease_expires_at = None
         row.version += 1
         return True

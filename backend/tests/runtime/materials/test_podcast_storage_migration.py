@@ -23,7 +23,7 @@ def migrations_dir(tmp_path):
 def rows(dsn):
     with database_session(dsn) as db:
         names = db.scalars(text("SELECT tablename FROM pg_tables WHERE schemaname='public' "
-                                "AND tablename <> 'schema_migrations' ORDER BY tablename")).all()
+                                "AND tablename NOT IN ('schema_migrations','storage_reservations') ORDER BY tablename")).all()
         return {name: sorted(json.dumps({k: v for k, v in row.items() if k != "video_enabled"}, sort_keys=True, default=str)
                 for row in db.execute(text(f'SELECT row_to_json(t) AS r FROM "{name}" t')).scalars())
                 for name in names}
@@ -54,4 +54,7 @@ def test_0019_keeps_existing_podcasts_on_video_and_allows_flac(closed_loop):
             "SELECT column_default FROM information_schema.columns "
             "WHERE table_name='podcasts' AND column_name='video_enabled'").fetchone() == (None,)
         connection.execute(insert, (owner.learner_id, source.material_id, "audio/flac", b"2" * 32))
+    with psycopg.connect(dsn) as connection:
+        # 新增的保留表為空；既有節目在部署前已接受，不補建保留。
+        assert connection.execute("SELECT count(*) FROM storage_reservations").fetchone() == (0,)
     assert run_migrations(dsn) == ()

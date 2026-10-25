@@ -102,7 +102,9 @@ def upload_source(
     dsn=None,
     research_attempt=None,
     analysis_scope=None,
+    reservation_id=None,
 ):
+    """reservation_id：帳號空間在接受上傳時建立的保留，在寫入來源的同一交易內刪除。"""
     from .media_sources import upload_limit
 
     name = _name(name)
@@ -166,6 +168,10 @@ def upload_source(
                     raise SourceError("RESOURCE_NOT_FOUND")
                 if bytes(existing.request_fingerprint) != fingerprint:
                     raise SourceError("IDEMPOTENCY_CONFLICT")
+                if reservation_id is not None:
+                    from .storage_usage import release
+
+                    release(session, reservation_id=reservation_id)
                 return existing.source_id
             duplicate = session.scalar(
                 select(MaterialSource)
@@ -248,6 +254,10 @@ def upload_source(
                     updated_at=now,
                 )
             )
+            if reservation_id is not None:
+                from .storage_usage import release
+
+                release(session, reservation_id=reservation_id)
             session.flush()
         return identity
     finally:

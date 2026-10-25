@@ -33,3 +33,20 @@ ALTER TABLE public.podcast_videos ADD CONSTRAINT podcast_videos_check1 CHECK (
     ((status = 'ready') = (artifact_id IS NOT NULL))
     AND ((status = ANY (ARRAY['ready', 'removed'])) = (manifest IS NOT NULL))
 );
+-- 帳號空間保留額度：接受新增工作時固定的預估大小，成品寫入的同一交易內刪除，失敗或取消時釋放。
+-- upload：分段上傳以宣告大小、單次上傳以本次大小；podcast_audio／podcast_video：每集建立當時的估值。
+CREATE TABLE public.storage_reservations (
+    reservation_id uuid PRIMARY KEY,
+    learner_id uuid NOT NULL,
+    material_id uuid NOT NULL,
+    kind text NOT NULL CHECK (kind = ANY (ARRAY['upload', 'podcast_audio', 'podcast_video'])),
+    podcast_id uuid REFERENCES public.podcasts(podcast_id) ON DELETE CASCADE,
+    episode_index integer CHECK (episode_index >= 0),
+    bytes bigint NOT NULL CHECK (bytes >= 1),
+    created_at timestamp with time zone NOT NULL,
+    FOREIGN KEY (learner_id, material_id) REFERENCES public.materials(learner_id, material_id) ON DELETE CASCADE,
+    CHECK ((kind = 'upload') = (podcast_id IS NULL)),
+    CHECK ((kind = 'upload') = (episode_index IS NULL)),
+    UNIQUE (podcast_id, kind, episode_index)
+);
+CREATE INDEX storage_reservations_learner ON public.storage_reservations (learner_id);

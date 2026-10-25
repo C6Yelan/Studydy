@@ -478,6 +478,10 @@ test('video progress counts only episodes that will have a video',async({page})=
   await expect(page.getByRole('button',{name:'接續生成'})).toBeVisible();
   await page.goto('/podcasts');
   await expect(page.getByText(/影片 1 \/ 2 集/)).toBeVisible();
+  // 等待手動接續影片的舊節目不顯示「可以播放」，要明示按「接續生成」。
+  await expect(page.getByText('影片待補，請按「接續生成」',{exact:false})).toBeVisible();
+  await expect(page.getByText('可以播放',{exact:false})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'查看進度'})).toBeVisible();
 });
 
 test('cancelling video preparation confirms deletion of the whole podcast',async({page})=>{

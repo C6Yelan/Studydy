@@ -110,6 +110,7 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   ASSESSMENT_SET_ACTIVE: "已有尚未完成的題組，可從題組紀錄接續。",
   MATERIAL_TOO_LARGE: "檔案超過目前上傳上限，請依選檔區顯示的限制縮小檔案。",
   STORAGE_QUOTA_EXCEEDED: "帳號空間不足，請先刪除不需要的教材、Podcast 或影片。",
+  STORAGE_BUSY: "同一帳號的其他新增正在處理，請稍後再試。",
   MATERIAL_NOT_DISCARDABLE: "這份教材正在刪除，無法進行這項操作。",
   SOURCE_NOT_READY: "教材尚未完成轉換，請稍後再開始分析。",
   NORMALIZER_UNAVAILABLE: "轉換工具目前不可用，仍可使用 PDF 上傳。",

@@ -1656,6 +1656,11 @@ test("account storage quota errors show used and limit, storage view must be con
     { status: 409 }));
   await assert.rejects(full.getAccountStorage(), (error) => error.reasonCode === "STORAGE_QUOTA_EXCEEDED"
     && error.message.includes("已用 4.5 GB") && error.message.includes("上限 5 GB"));
+  const busy = new StudydyApiClient(async () => Response.json(
+    { schema: "api-error/v1", request_id: materialId, reason_code: "STORAGE_BUSY", retryable: true, message: "Request could not be completed." },
+    { status: 503 }));
+  await assert.rejects(busy.getAccountStorage(), (error) => error.reasonCode === "STORAGE_BUSY" && error.retryable
+    && error.message === "同一帳號的其他新增正在處理，請稍後再試。");
   const storage = { schema: "account-storage/v1", used_bytes: gib, reserved_bytes: 0, limit_bytes: 5 * gib, remaining_bytes: 4 * gib };
   assert.deepEqual(await new StudydyApiClient(async () => Response.json(storage)).getAccountStorage(), storage);
   for (const body of [{ ...storage, remaining_bytes: 5 * gib }, { ...storage, used_bytes: -1 }, { ...storage, schema: "account-storage/v2" },
