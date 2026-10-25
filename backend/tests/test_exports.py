@@ -214,3 +214,19 @@ def test_empty_diagnosis_has_no_empty_recommendations_or_zero_omissions():
         text = unicodedata.normalize('NFKC', doc[0].get_text())
         assert '建議先複習' not in text and '另有' not in text
         assert len(doc) == 1
+
+
+def test_readable_math_in_bullets_and_cells_survives_all_exports():
+    view = structured_note()
+    view['paragraphs'][0]['blocks'][0]['items'][0]['text'] = '平方根 √4 = 2'
+    view['paragraphs'][1]['blocks'][1]['rows'] = [['甲', '≈ 50']]
+    markdown = documents.note_markdown(view)
+    assert '平方根 √4 = 2' in markdown and '| 甲 | ≈ 50 |' in markdown
+    word = Document(BytesIO(documents.note_docx(view)))
+    assert '平方根 √4 = 2' in [p.text for p in word.paragraphs]
+    assert word.tables[0].cell(1, 1).text == '≈ 50'
+    assert len(word.inline_shapes) == 1
+    with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
+        text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
+        assert '√4 = 2' in text and '≈ 50' in text
+        assert sum(len(page.get_images()) for page in pdf) >= 1

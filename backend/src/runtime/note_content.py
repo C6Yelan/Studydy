@@ -1,6 +1,7 @@
 """筆記引用／涵蓋驗證與匯出共用的正文 HTML。"""
 from html import escape
 from collections import Counter
+import re
 
 from typing import Literal
 
@@ -32,7 +33,7 @@ formula 只放原文已有的公式或算式，latex 是單一行 LaTeX 數學�
 雙豎線範數寫成 \\left\\| ... \\right\\| 或 \\lVert ... \\rVert；不能用 \\left\\mid，\\mid 是關係符號，不是定界符，也不可把雙豎線改成單豎線。
 JSON 字串中的 LaTeX 反斜線須依 JSON 規則跳脫，不得輸出退格、NUL 等控制字元。
 多字母命名變數與文字下標用 \\mathrm{}；多字元上下標必須加大括號，例如 \\mathrm{eps}_{\\mathrm{hat}}，不要寫成 eps_hat 而讓下標只剩一個字母。
-普通文字與條列不放需要排版的 LaTeX 指令；完整數學式用 formula，句中簡單式子用可直接閱讀的字元。教材若是在介紹 LaTeX 指令本身，才保留其技術字面值。
+標題、普通文字、條列與表格所有儲存格都不放需要排版的 LaTeX 指令或數學定界符；完整數學式用 formula，句中與表格內的簡單式子用可直接閱讀的字元（例如 √、≈）。教材若是在介紹 LaTeX 指令本身，才以反引號圈住原文已有的單一指令；不能用反引號包住算式來略過排版。
 只可用這些指令：\\frac \\dfrac \\sqrt \\sum \\prod \\int \\lim \\log \\ln \\exp \\max \\min \\operatorname \\text \\mathrm \\mathbf
 \\times \\cdot \\div \\pm \\leq \\geq \\neq \\approx \\equiv \\sim \\propto \\infty \\partial \\nabla \\to \\rightarrow \\Rightarrow
 \\in \\subset \\cup \\cap \\ldots \\cdots \\left \\right \\lVert \\rVert \\mid \\hat \\bar \\vec \\overline、希臘字母，以及上下標 ^ _；不可用 \\le、\\ge、\\tfrac。
@@ -88,7 +89,7 @@ source_id、page、block_order、region=[左,上,右,下] 是原檔、頁碼、�
 paragraph.content 依閱讀順序列出候選小節的每個位置（part）：bullet 是條列項，depth 為層級，子項須連同上層項目理解，callout 欄表示位於醒目區塊內；
 text 是短文字；table_caption、table_headers、table_row 是表格標題、表頭與各列；formula 是 LaTeX 公式；callout 是醒目區塊的類型標籤與標題。
 formula 須逐一核對 LaTeX 中的數字、變數、運算子、等號／不等號、上下標與分式結構都與原文同一公式一致；原文沒有的係數、常數、單位或換算一律拒絕。
-若普通文字／條列用 LaTeX 指令表達數學式而無法直接閱讀，該位置須拒絕並要求改用 formula；教材介紹指令本身時保留字面值。完整筆記若只報計算結果而省去原文用來解說重點的關鍵計算關係，涵蓋應判未解說，不能把公式或結果數值當作已交代前提與取捨。
+若標題、普通文字、條列或表格儲存格用 LaTeX 指令表達數學式而無法直接閱讀，該位置須拒絕並要求改用可讀符號或 formula；教材介紹指令本身時保留字面值，不能把公式中的指令包進反引號就當作介紹。完整筆記若只報計算結果而省去原文用來解說重點的關鍵計算關係，涵蓋應判未解說，不能把公式或結果數值當作已交代前提與取捨。
 callout 位置核對區塊類型是否有原文依據：案例研究須是原文給的案例或實例，討論問題須是原文列出的問題，重要提醒／重要教訓須是原文明示的提醒、注意事項或教訓；
 候選自行設計的案例、問題或歸納的教訓必須拒絕。區塊內的條列仍逐項核對事實。
 可利用同一原檔同一頁中對齊的表格行／欄閱讀既有對應，不要求每格都重複完整主詞；不同原檔的相同頁碼不能混用。
@@ -226,9 +227,89 @@ def formula_literal_issues(paragraph):
     return issues
 
 
+def text_formula_issues(paragraph):
+    """非公式欄位不會排版 LaTeX；在來源核對入口攔下，交既有局部重寫。"""
+    issues = []
+    for item in [{"part": "heading", "text": paragraph["heading"]}, *content_parts(paragraph)]:
+        if item.get("type") == "formula":
+            continue
+        texts = [item.get(k) for k in ("text", "title")] + item.get("cells", [])
+        for text in filter(None, texts):
+            # 原文與候選都明示在介紹指令，才容許單一指令的字面值；公式使用不算介紹。
+            instruction = r"指令|命令|語法|command|syntax|LaTeX"
+            literal_commands = re.findall(r"`(\\[A-Za-z]+)`(?![{}_0-9^])", text)
+            for command in literal_commands:
+                if (re.search(instruction, text, re.I) and any(command in e["quote"]
+                    and re.search(instruction, e["quote"], re.I) for e in paragraph["evidence"])):
+                    text = text.replace(f"`{command}`", "")
+            # 包含常見未支援數學指令與帶參數的巨集；程式 escape（如 \\n）不當成公式。
+            commands = note_latex.COMMANDS | {"tfrac", "cfrac", "le", "ge", "begin", "end",
+                "displaystyle", "textstyle", "scriptstyle", "scriptscriptstyle", "overset", "underset",
+                "underbrace", "overbrace", "substack", "mathbb", "mathscr", "mathfrak"}
+            # 結尾 $ 後緊接數字屬於下一個價格，不是數學定界符。
+            if re.search(r"\\(?:" + "|".join(sorted(commands)) + r")(?![A-Za-z])|\\[A-Za-z]+\s*\{|\\[()[\]]|\$[^$\n]+\$(?![0-9])", text):
+                issues.append({"part": item["part"], "supported": False,
+                    "reason": "此文字位置不排版 LaTeX。依原文改成可直接閱讀的符號，或將完整算式移至 formula 區塊；不得刪去條件或數值。介紹指令本身時，僅將原文明示的單一指令以反引號標示，不能用反引號包住算式。"})
+                break
+    return issues
+
+
+def missing_label_issues(paragraph, context):
+    """候選明示的欄標籤若來自未引的同欄上方原文，不接受模型的全數通過。
+
+    只以標籤文字及來源位置共同定位；不把任意上方區塊或整頁當作表頭。
+    翻譯／隱含欄意義仍須由逐元素語意核對判定。
+    """
+    issues = []
+    cited = paragraph["evidence"]
+    sources = dict(context)
+    for e in cited:
+        source = sources.setdefault(e["evidence_id"], {**evidence_location(e), "quotes": []})
+        if e["quote"] not in source["quotes"]:
+            source["quotes"].append(e["quote"])
+    cited_ids = {e["evidence_id"] for e in cited}
+    for item in content_parts(paragraph):
+        labels = item.get("cells", []) if item["type"] == "table_headers" else []
+        if item["type"] in {"text", "bullet"}:
+            match = re.match(r"^([^：:\n]+)[：:]", item["text"])
+            labels = [match[1].strip()] if match else []
+        needed = []
+        for label in labels:
+            label = label.strip()
+            if len(label) < 2:
+                continue
+            nearest_by_cell = {}
+            for e in cited:
+                cell = evidence_location(e)
+                box = cell["region"]
+                if not box:
+                    continue
+                candidates = []
+                for eid, source in sources.items():
+                    region = source["region"]
+                    if (region and cell["source_id"] == source["source_id"] and cell["page"] == source["page"]
+                        and any(q.strip().startswith(label) for q in source["quotes"])
+                        and region[3] <= box[1] and abs(region[0] - box[0]) <= 1
+                        and min(region[2], box[2]) > max(region[0], box[0])):
+                        candidates.append((region[3], eid))
+                if candidates:
+                    # 同頁上下多張表可能同名；只取本格最近的匹配，不能連較遠表頭一起補入。
+                    nearest = max(top for top, _ in candidates)
+                    nearest_by_cell[e["evidence_id"]] = [eid for top, eid in candidates if top == nearest]
+            # 已被下方引用格子選為表頭的來源不是另一個資料格；不再替它找更舊的同名表頭。
+            headers = {eid for matches in nearest_by_cell.values() for eid in matches}
+            needed.extend(eid for cell_id, matches in nearest_by_cell.items() if cell_id not in headers
+                for eid in matches if eid not in cited_ids)
+        if needed:
+            issues.append({"part": item["part"], "supported": False,
+                "missing_evidence_ids": list(dict.fromkeys(needed)),
+                "reason": "候選明示的欄標籤只出現在同欄上方未引用的原文；須補入該來源後重新核對欄位對應與正文。"})
+    return issues
+
+
 def review_paragraph(paragraph, call, *, claims, kind, coverage_claim_ids=None, related_paragraphs=()):
     """逐節查事實；重點最後出現時，合併已核對前文查實質涵蓋。"""
-    literal = formula_literal_issues(paragraph)
+    literal = text_formula_issues(paragraph) + formula_literal_issues(paragraph)
     if literal:
         return literal
     view = located(paragraph)
@@ -253,6 +334,9 @@ def review_paragraph(paragraph, call, *, claims, kind, coverage_claim_ids=None, 
                 **evidence_location(e), "quotes": []})
             if e["quote"] not in source["quotes"]:
                 source["quotes"].append(e["quote"])
+    missing_labels = missing_label_issues(paragraph, context)
+    if missing_labels:
+        return missing_labels
     expected = []
     for cid in paragraph["claim_ids"]:
         claim = claims[cid]

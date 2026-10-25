@@ -192,3 +192,18 @@ test("structured notes show outline, numbered levels, nested bullets, tables, fo
   await expect(page.locator("#note-section-1")).toBeFocused();
   expect(errors).toEqual([]);
 });
+
+test("readable math remains visible in nested bullets and table cells alongside rendered formulas", async ({ page }) => {
+  const view = notes();
+  const first = view.paragraphs[0];
+  const second = view.paragraphs[1];
+  if (!("blocks" in first) || !("blocks" in second)) throw new Error("structured fixture required");
+  first.blocks.push({ type: "bullets", items: [{ text: "平方根", children: [{ text: "√4 = 2" }] }] });
+  second.blocks.push({ type: "table", caption: "近似值", headers: ["項目", "機率"], rows: [["甲", "≈ 0.5"]] });
+  await setup(page, view);
+  await page.goto(`/materials/${materialId}/notes`);
+  await expect(page.getByText("√4 = 2", { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "≈ 0.5", exact: true })).toBeVisible();
+  await expect(page.locator(".note-formula .katex-display")).toBeVisible();
+  await expect(page.locator(".note-formula .katex-error")).toHaveCount(0);
+});

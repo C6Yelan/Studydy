@@ -1154,3 +1154,174 @@ def test_structured_output_schema_uses_enum_instead_of_const():
     assert '"const"' not in str(schema).replace("'",'"')
     blocks=schema['$defs']['Paragraph']['properties']['blocks']['items']['anyOf']
     assert len(blocks)==5
+
+
+@pytest.mark.parametrize('kind', ['full', 'summary'])
+@pytest.mark.parametrize('location', ['nested_bullet', 'cell', 'header', 'caption', 'heading', 'callout'])
+def test_plain_text_latex_is_locally_repaired_and_source_reviewed(kind, location):
+    values = concepts()
+    values[0]['claims'] = values[0]['claims'][:1]
+    values[0]['claims'][0]['evidence'][0]['quote'] = '數值約為 1，平方根為 √1'
+    raw = para('數值', '原文說明', ['C1'], ['E1'])
+    if location == 'nested_bullet':
+        raw['blocks'] = [{'type': 'bullets', 'items': [{'text': '平方根', 'children': [{'text': r'\sqrt{1}', 'children': []}]}]}]
+    elif location in {'cell', 'header', 'caption'}:
+        raw['blocks'] = [{'type': 'table', 'caption': r'\approx' if location == 'caption' else None,
+            'headers': [r'\approx' if location == 'header' else '數值'],
+            'rows': [[r'\approx 1' if location == 'cell' else '1']]}]
+    elif location == 'heading':
+        raw['heading'] = r'\sqrt{1}'
+    else:
+        raw['blocks'] = [{'type': 'callout', 'style': 'reminder', 'title': r'\sqrt{1}',
+            'items': [{'text': '數值', 'children': []}]}]
+    calls = []
+    def model(request):
+        calls.append(request)
+        if request.get('phase') == 'review_paragraph':
+            assert all('\\' not in str(item) for item in request['paragraph']['content'])
+            return response(request)
+        if 'correction' in request:
+            return {'paragraphs': [para('數值', '數值 ≈ 1', ['C1'], ['E1'])]}
+        return {'paragraphs': [deepcopy(raw)]}
+    result = mn.generate_part(values, kind, model)
+    assert text_of(result[0]) == '數值 ≈ 1'
+    assert [r.get('phase', 'write') for r in calls] == ['write', 'write', 'review_paragraph']
+
+
+def test_math_cannot_be_disguised_as_code_but_original_command_instruction_is_readable():
+    p = {'heading': '指令說明', 'evidence': [{'quote': r'以 \sqrt 指令表示平方根'}],
+        'blocks': [{'type': 'text', 'text': r'`\sqrt` 指令表示平方根'}]}
+    assert nc.text_formula_issues(p) == []
+    p['blocks'][0]['text'] = r'平方根為 `\sqrt{1}`'
+    assert nc.text_formula_issues(p)[0]['part'] == 'blocks.0'
+    p['blocks'][0]['text'] = r'平方根為 $x^2$'
+    assert nc.text_formula_issues(p)
+
+
+def labeled_sources():
+    values = concepts()
+    values[0]['claims'] = values[0]['claims'][:1]
+    claim = values[0]['claims'][0]
+    base = {**claim['evidence'][0], 'source_id': 'source-a', 'normalized_page': 1,
+        'source_locator': {'region': [20, 40, 70, 50]}, 'quote': '低成本', 'block_order': 4}
+    claim['evidence'] = [base, {**base, 'evidence_id': 'right', 'quote': '高品質',
+        'block_order': 5, 'source_locator': {'region': [100, 40, 150, 50]}}]
+    claim['context_evidence'] = [
+        {**base, 'evidence_id': 'left-header', 'quote': '投入成本', 'block_order': 1,
+            'source_locator': {'region': [20, 10, 70, 20]}},
+        {**base, 'evidence_id': 'right-header', 'quote': '產出品質', 'block_order': 2,
+            'source_locator': {'region': [100, 10, 150, 20]}}]
+    return values
+
+
+@pytest.mark.parametrize('kind', ['full', 'summary'])
+@pytest.mark.parametrize('table', [False, True])
+def test_omitted_column_labels_override_all_supported_and_recheck_after_precise_citation(kind, table):
+    values = labeled_sources()
+    raw = para('比較', '投入：低成本', ['C1'], ['E1', 'E2'])
+    raw['blocks'] = ([{'type': 'table', 'caption': None, 'headers': ['投入', '產出'], 'rows': [['低成本', '高品質']]}]
+        if table else [{'type': 'bullets', 'items': [{'text': '投入：低成本', 'children': []},
+            {'text': '產出：高品質', 'children': []}]}])
+    reviews = []
+    def model(request):
+        if request.get('phase') == 'review_paragraph':
+            reviews.append(request)
+            result = response(request)
+            result['coverage'][0]['note_parts'] = ['blocks.0.row.0' if table else 'blocks.0.item.0']
+            return result  # 即使核對模型永遠全數通過，程式仍須先補引。
+        return {'paragraphs': [raw]}
+    diagnostics = []
+    result = mn.generate_part(values, kind, model, diagnostics)
+    assert result[0]['blocks'] == raw['blocks']
+    assert set(result[0]['evidence_ids']) == {'e0', 'right', 'left-header', 'right-header'}
+    assert len(reviews) == 1 and len(reviews[0]['evidence']) == 4
+    assert diagnostics[0]['event'] == 'references_completed'
+
+
+@pytest.mark.parametrize('difference', ['source', 'page', 'column', 'below', 'unrelated', 'already_cited'])
+def test_column_label_guard_does_not_cite_unrelated_context(difference):
+    values = labeled_sources()
+    claim = values[0]['claims'][0]
+    header = claim['context_evidence'][0]
+    if difference == 'source': header['source_id'] = 'source-b'
+    if difference == 'page': header['normalized_page'] = 2
+    if difference == 'column': header['source_locator']['region'] = [200, 10, 250, 20]
+    if difference == 'below': header['source_locator']['region'] = [20, 60, 70, 70]
+    if difference == 'unrelated': header['quote'] = '別的欄名'
+    raw = para('比較', '投入：低成本', ['q0'], ['e0'])
+    if difference == 'already_cited': raw['evidence_ids'].append('left-header')
+    paragraph = nc.validate({'paragraphs': [raw]}, values, 'summary')[0]
+    assert nc.review_paragraph(paragraph, response, claims={'q0': claim}, kind='summary') == []
+
+
+def test_completed_column_citation_does_not_bypass_body_repair():
+    values = labeled_sources()
+    calls = []
+    def model(request):
+        calls.append(request)
+        if request.get('phase') == 'review_paragraph':
+            result = response(request)
+            assert len(request['evidence']) == 2
+            if '高成本' in text_of(request['paragraph']):
+                result['checks'][1].update(supported=False, reason='原文是低成本，不是高成本')
+            return result
+        return {'paragraphs': [para('比較', '投入：低成本' if 'correction' in request else '投入：高成本',
+            ['C1'], ['E1', 'E3'] if 'correction' in request else ['E1'])]}
+    result = mn.generate_part(values, 'full', model)
+    assert text_of(result[0]) == '投入：低成本'
+    assert [r.get('phase', 'write') for r in calls] == ['write', 'review_paragraph', 'write', 'review_paragraph']
+
+
+def test_column_label_uses_nearest_matching_header_not_an_earlier_table():
+    values = labeled_sources()
+    claim = values[0]['claims'][0]
+    current = claim['context_evidence'][0]
+    claim['context_evidence'].append({**current, 'evidence_id': 'previous-table',
+        'source_locator': {'region': [20, 0, 70, 5]}})
+    paragraph = nc.validate({'paragraphs': [para('比較', '投入：低成本', ['q0'], ['e0'])]}, values, 'summary')[0]
+    issues = nc.review_paragraph(paragraph, response, claims={'q0': claim}, kind='summary')
+    assert issues[0]['missing_evidence_ids'] == ['left-header']
+    diagnostics = []
+    updated, issues = mn._review_with_references(paragraph, values,
+        lambda p: nc.review_paragraph(p, response, claims={'q0': claim}, kind='summary'), diagnostics, 0)
+    assert issues == []
+    assert updated['evidence_ids'] == ['e0', 'left-header']
+    assert len(diagnostics) == 1
+
+
+@pytest.mark.parametrize('text', [r'結果為 \tfrac{1}{2}', r'機率 `\approx` 0.5', r'語法 `\sqrt`{1}'])
+def test_unsupported_or_code_disguised_math_is_not_plain_text(text):
+    p = {'heading': '數值', 'evidence': [{'quote': r'機率 \approx 0.5，使用 \sqrt 指令'}],
+        'blocks': [{'type': 'text', 'text': text}]}
+    assert nc.text_formula_issues(p)
+
+
+def test_currency_prices_are_not_math_delimiters():
+    p = {'heading': '價格', 'evidence': [{'quote': '費用 $10 至 $20'}],
+        'blocks': [{'type': 'text', 'text': '費用 $10 至 $20'}]}
+    assert nc.text_formula_issues(p) == []
+
+
+def test_column_label_occurring_inside_cited_body_does_not_replace_header_citation():
+    values = labeled_sources()
+    claim = values[0]['claims'][0]
+    claim['evidence'][0]['quote'] = '這個投入很低'
+    paragraph = nc.validate({'paragraphs': [para('比較', '投入：很低', ['q0'], ['e0'])]}, values, 'summary')[0]
+    issues = nc.review_paragraph(paragraph, response, claims={'q0': claim}, kind='summary')
+    assert issues[0]['missing_evidence_ids'] == ['left-header']
+
+
+def test_cited_current_header_does_not_import_previous_table_header():
+    values = labeled_sources()
+    claim = values[0]['claims'][0]
+    current = claim['context_evidence'][0]
+    claim['context_evidence'].append({**current, 'evidence_id': 'previous-table',
+        'source_locator': {'region': [20, 0, 70, 5]}})
+    paragraph = nc.validate({'paragraphs': [para('比較', '投入：低成本', ['q0'], ['e0', 'left-header'])]}, values, 'summary')[0]
+    assert nc.review_paragraph(paragraph, response, claims={'q0': claim}, kind='summary') == []
+
+
+@pytest.mark.parametrize('text', [r'字串以 \n 表示換行', r'字串以 `\n` 表示換行', r'讀取 C:\Users\student\notes.txt'])
+def test_programming_escapes_and_paths_are_not_formula_markup(text):
+    p = {'heading': '程式字串', 'evidence': [{'quote': text}], 'blocks': [{'type': 'text', 'text': text}]}
+    assert nc.text_formula_issues(p) == []
