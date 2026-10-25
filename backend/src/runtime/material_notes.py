@@ -534,15 +534,15 @@ def _check_paragraphs(result, part, call, diagnostics):
     return checked
 
 
-def summary_sources(concepts, input_budget, diagnostics):
-    """單一重點連同同頁補充原文就超過一次請求時，只對這個重點省略補充原文，重點自己的 Evidence 完整保留。
-    依大小決定，計畫與接續寫作得到相同結果，不必另存。"""
+def fit_page_context(concepts, kind, budget, diagnostics):
+    """單一重點連同同頁補充原文就超過一批的容量時，只對這個重點省略補充原文，重點自己的 Evidence 完整保留；
+    省略後仍過大由切批回報 NOTE_INPUT_TOO_LARGE。依大小決定，計畫與接續寫作得到相同結果，不必另存。"""
     omitted, result = [], []
     for c in concepts:
         claims = []
         for q in c["claims"]:
             if q.get("context_evidence") and estimate_prompt_tokens(
-                    note_content.PROMPT, model_request([{**c, "claims": [q]}], "summary")[0]) > input_budget:
+                    note_content.PROMPT, model_request([{**c, "claims": [q]}], kind)[0]) > budget:
                 q = {**q, "context_evidence": []}
                 omitted.append(q["claim_id"])
             claims.append(q)
@@ -682,13 +682,37 @@ def plan_sections(concepts, regions, kind="full", budget=None):
         for part in batches([by_id[c] for c in region["concept_ids"]], kind, budget or BATCH_TOKENS)]} for region in regions]
 
 
+# 模型回應被格式、引用或內容核對擋下時，同一批換一份新稿重試；核對標準不變。
+# 契約、容量、provider 等重試也不會改變的錯誤不在此列，直接失敗。
+RETRYABLE_PART_ERRORS = {"NOTE_CONTENT_UNSUPPORTED", "NOTE_COVERAGE_INCOMPLETE", "NOTE_FORMAT_INVALID",
+    "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_REVIEW_INVALID"}
+PART_ATTEMPTS = 3
+
+
 def complete_sections(concepts, plan, call, results, on_part, diagnostics=None, kind="full"):
+    diagnostics = [] if diagnostics is None else diagnostics
     by_id = {c["concept_id"]: c for c in concepts}
     parts = [part for section in plan for part in section["parts"]]
     for index in range(len(results), len(parts)):
         selected = [{**by_id[c["concept_id"]], "claims": [q for q in by_id[c["concept_id"]]["claims"]
             if q["claim_id"] in c["claim_ids"]]} for c in parts[index]]
-        generated = generate_part(selected, kind, call, diagnostics)
+        codes = []
+        while True:
+            try:
+                generated = generate_part(selected, kind, call, diagnostics)
+                break
+            except (ValueError, note_content.ReviewInvalid) as error:
+                if str(error) not in RETRYABLE_PART_ERRORS:
+                    raise
+                codes.append(str(error))
+                if len(codes) == PART_ATTEMPTS:
+                    diagnostics.append({"event": "part_attempts", "part": index, "attempts": len(codes),
+                        "failed": codes, "succeeded": False})
+                    raise
+        if codes:
+            # 只有一次就通過的批次不另記，沒有刪減或重試的成功仍保存為 NULL。
+            diagnostics.append({"event": "part_attempts", "part": index, "attempts": len(codes) + 1,
+                "failed": codes, "succeeded": True})
         on_part(index, generated)
         results.append(generated)
     return finalize([p for part in results for p in part], concepts, kind)
@@ -730,8 +754,7 @@ def _progress(claim, dsn, *, plan=None, part=None, stage="generating"):
 
 def _complete(claim, concepts, call, dsn, diagnostics, *, input_budget):
     kind = claim["key"][3]
-    if kind == "summary":
-        concepts = summary_sources(concepts, input_budget, diagnostics)
+    concepts = fit_page_context(concepts, kind, BATCH_TOKENS if kind == "full" else input_budget, diagnostics)
     plan = claim["plan"]
     if plan is None:
         if kind == "full":
