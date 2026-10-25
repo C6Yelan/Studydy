@@ -139,6 +139,7 @@ def _validate_semantic_contract(semantic):
 
 def _validate_material_contract(material, semantic):
     independent = material.get("bundle_policy") == "independent-evidence-blocks/v1"
+    spoken = material.get("spoken_policy") == "source-excerpts/v1"
     if (
         set(material)
         != {
@@ -153,6 +154,7 @@ def _validate_material_contract(material, semantic):
         }
         | ({"max_concurrency"} if independent else set())
         | ({"localization_policy"} if "localization_policy" in material else set())
+        | ({"spoken_policy"} if spoken and independent else set())
         or (
             "localization_policy" in material
             and (
@@ -162,14 +164,14 @@ def _validate_material_contract(material, semantic):
         )
         or material["request_schema"]
         != (
-            "material-block-request/v1"
+            ("material-block-request/v2" if spoken else "material-block-request/v1")
             if independent
             else "material-semantics-request/v1"
         )
         or (
             material["response_schema"]
             != (
-                "material-block-response/v1"
+                ("material-block-response/v2" if spoken else "material-block-response/v1")
                 if independent
                 else "material-semantics-response/v1"
             )

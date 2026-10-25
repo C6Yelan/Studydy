@@ -138,7 +138,8 @@ def _check_payload(payload, proposal, changed):
 
 
 def consolidate_structure(
-    document, lock, archive, check_cancel, progress, *, wait_cancellation_check=None
+    document, lock, archive, check_cancel, progress, *, wait_cancellation_check=None,
+    preserved_concept_ids=frozenset(),
 ):
     if lock.get("material_review", {}).get("consolidation_policy") != merge.POLICY:
         return document
@@ -216,7 +217,10 @@ def consolidate_structure(
         archive.save_review(f"cache-{key}", value)
         return parsed, value
 
-    catalog = _catalog(document)
+    catalog = [
+        row for row in _catalog(document)
+        if document["concepts"][row["h"]]["concept_id"] not in preserved_concept_ids
+    ]
     candidates = _same_name_candidates(catalog)
 
     def plan(left, right=None):
@@ -260,7 +264,11 @@ def consolidate_structure(
     progress("review", 0, 1)
     if len(catalog) > 1:
         plan(catalog)
-    components = _candidate_components(len(catalog), candidates)
+    components = [
+        [h for h in component if document["concepts"][h]["concept_id"] not in preserved_concept_ids]
+        for component in _candidate_components(len(document["concepts"]), candidates)
+    ]
+    components = [component for component in components if component]
     # 候選等義群不能在一般分批時拆散；其餘概念也要檢查內部重複。
     batches, current = [], []
     for component in components:

@@ -54,7 +54,7 @@ PyMuPDF 維持 1.28.0，renderer 的嚴格版本契約不變。此批不修改 O
 
 新語音統一使用 `dynamic-pauses/v1`：短句續講 250ms、一般句尾 550ms、20 字以上長句 850ms、問句與一般換人 650ms、簡短接話前 350ms、換主題 1100ms。依原講稿的文字與數字計數，短句為 6 字以內；縮寫與數值的朗讀展開不改變分類。換段優先，符合一個條件就選定停頓，不疊加；現有片段兩端靜音計入目標。固定停頓機制與臨時試聽設定已移除，`/pause-preview` 及其資產回 404。既有影音不改時間軸，新建節目以新音訊重新對齊字幕及影片。
 
-跨語言教材更新需一起部署後端與 runtime lock。新分析寫入 `localized_meaning_v2`，以完整數量 token 保護短數值；既有 `localized_meaning`／`semantic_meaning` 仍依各自已保存的規則讀取。寫入 v2 後，回復版本必須能讀取 v2；需經驗證的相容映像或前向修復。原有知識結構與來源不搬移、不改 hash；舊分析提示的 checkpoint 不與新的翻譯政策混用。
+跨語言教材更新需一起部署後端與 runtime lock。一般來源新分析寫入 `localized_meaning_v2`，以完整數量 token 保護短數值；既有 `localized_meaning`／`semantic_meaning` 仍依各自已保存的規則讀取。寫入 v2 後，回復版本必須能讀取 v2；需經驗證的相容映像或前向修復。原有知識結構與來源不搬移、不改 hash；舊分析提示的 checkpoint 不與新的翻譯政策混用。
 
 ## Podcast 講稿逐段核對
 
@@ -284,3 +284,5 @@ exports 不需 migration。後端新增 `genanki`、`python-docx` 與 `fonttools
 
 
 卡組每份接受的 PNG 合計上限 512 MiB（按實際暫存 PNG 大小計算），每個概念最多 16 張、整份最多 2000 張；每個帳號最多同時保留兩份卡組匯出，包含正在下載、尚未清理的工作。建立工作以檔案鎖原子檢查帳號名額，暫存目錄名稱綁定 owner；超限分別回 `EXPORT_SIZE_LIMIT`（413）、`EXPORT_PAGE_LIMIT`（413）與 `EXPORT_ACTIVE_LIMIT`（409），前端顯示對應限制。打包成品另占磁碟空間，與 PNG／Anki SQLite 在下載結束後一起清理；卡組檔案 lease 保持到串流結束，不隨產檔名額提前釋放。同一工作正在上傳或下載時，重複操作回 `EXPORT_IN_PROGRESS`（409），不占用產檔名額等待檔案鎖。
+
+口語分析的 `material-block-request/v2`／`material-block-response/v2` 與 `source-excerpts/v1` 必須與支援 `spoken_excerpt_meaning/v1`／`spoken_excerpt_literal_repair/v1` 的後端一同部署。只套用新分析；舊來源、已發布 Claim／Revision、runtime lock hash 不改寫。舊工作不能因新提示而直接重用 checkpoint；回復版本須能讀取新投影，不能以改寫舊 hash 偽裝相容。

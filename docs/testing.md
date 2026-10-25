@@ -271,6 +271,8 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 
 ## 跨語言學習內容
 
+`test_spoken_analysis.py` 驗證同區塊的獨立主張切分、唯一原文節錄、失敗引用的單次重選與呼叫記帳、技術值切斷／錯字引用拒絕、翻譯／審查／概念整理保留精確引用，以及 `uncertain` 保留原文並排除去重改寫；疑義改述僅可撤回原節錄，涵蓋 PDF 詞內換行與外文保留代號的核對。新契約與舊 checkpoint 隔離，舊投影不放寬。`runtime/sources/test_media_source_flow.py` 以受控模型驗證 mapping 的字幕／ASR 身分經來源集合傳到分析，來源頁碼與時間回查不變；`runtime/study/test_knowledge_reads.py` 保護完整關係來源。這些不代表真實語音辨識品質；Luna 的授權樣本比較只報實際呼叫及觀察結論。
+
 `test_cross_language_claims.py`、`test_material_localization.py`、`test_review_language.py` 覆蓋原文引用不變、數值／單位／程式保護、跨段公式邊界、代號遺漏與重複、混入外語詞及修正後保留的完整來源。子圖語言補正失敗會阻止該批完成；Review 的局部語言修正無法核對時保留原文並標記 `needs_review`，其他合法修改仍可套用，保留代號遺漏或重複的提案則仍拒絕。獨立子圖與審查回歸另核對呼叫計數、已完成結果重用及舊工作提示不可被新政策覆蓋。
 
 語言與功能驗證不等於內容全面認可，原教材內容不足的 `SOURCE_REVIEW_SUGGESTED` 必須保留。有限語言樣本的檢查不能外推為所有語言、否定條件或專業術語均已驗收。

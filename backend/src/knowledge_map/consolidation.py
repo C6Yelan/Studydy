@@ -5,7 +5,10 @@ from collections import Counter
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .claim_literals import LITERAL_PROJECTION, literal_differences, preserves_literals
+from .claim_literals import (
+    LITERAL_PROJECTION, EXCERPT_PROJECTION, EXCERPT_PROJECTIONS,
+    literal_differences, preserves_literals, quoted_sources,
+)
 from .material_review import ReviewError
 from .semantic_projection import _project_claim
 from .structure_rules import _coalesce_relations, _id, _path, _revision
@@ -94,6 +97,10 @@ def pack(document, handles):
                 "h": i,
                 "text": q["text"],
                 "evidence": [positions[r] for r in q["evidence_refs"]],
+                **({"quotes": [
+                    {"e": positions[span["evidence_id"]], "q": span["quote"]}
+                    for span in q["source_spans"]
+                ]} if q["projection"] in EXCERPT_PROJECTIONS else {}),
             }
             for i, q in enumerate(claims)
         ],
@@ -172,31 +179,36 @@ def project(document, handles, response):
                         r for q in original_claims for r in q["evidence_refs"]
                     )
                 )
+                excerpts = any(q["projection"] in EXCERPT_PROJECTIONS for q in original_claims)
+                spans = []
+                for original in original_claims:
+                    for span in original["source_spans"]:
+                        if span not in spans:
+                            spans.append(deepcopy(span))
+                sources = quoted_sources(spans, evidence, excerpts=excerpts)
                 projected = _project_claim(
                     {
                         "meaning": edit.text,
-                        "source_spans": [
-                            {"evidence_id": ref, "quote": evidence[ref]["exact_text"]}
-                            for ref in refs
-                        ],
+                        "source_spans": spans,
                     },
                     evidence,
+                    excerpts=excerpts,
                 )
                 if (
                     projected is None
-                    or projected["projection"] != LITERAL_PROJECTION
+                    or projected["projection"] not in {LITERAL_PROJECTION, EXCERPT_PROJECTION}
                     or not preserves_literals(
                         edit.text, [{"exact_text": q["text"]} for q in original_claims]
                     )
                 ):
                     original_texts = [q["text"] for q in original_claims] + [
-                        evidence[r]["exact_text"] for r in refs
+                        source["exact_text"] for source in sources
                     ]
                     missing, _ = literal_differences(
                         edit.text, [{"exact_text": text} for text in original_texts]
                     )
                     _, unexpected = literal_differences(
-                        edit.text, [evidence[r] for r in refs]
+                        edit.text, sources
                     )
                     literal_issues.append(
                         {

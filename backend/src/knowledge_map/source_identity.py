@@ -7,6 +7,7 @@ import unicodedata
 from content_identity import canonical_sha256
 
 from .semantic_projection import SemanticState
+from .claim_literals import EXCERPT_PROJECTIONS
 
 
 def page_source(document, page):
@@ -55,6 +56,10 @@ def _claims(document):
                     "evidence": sorted(
                         evidence[span["evidence_id"]] for span in claim["source_spans"]
                     ),
+                    **({"quotes": sorted(
+                        (evidence[span["evidence_id"]], span["quote"])
+                        for span in claim["source_spans"]
+                    )} if claim["projection"] in EXCERPT_PROJECTIONS else {}),
                 }
             )
             result[identity].append((concept["concept_id"], claim["claim_id"]))

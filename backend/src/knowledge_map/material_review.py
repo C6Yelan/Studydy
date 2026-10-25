@@ -11,7 +11,7 @@ import unicodedata
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from content_identity import canonical_sha256
-from .claim_literals import LITERAL_PROJECTION
+from .claim_literals import LITERAL_PROJECTION, EXCERPT_PROJECTION, EXCERPT_PROJECTIONS
 from .semantic_projection import _project_claim
 from .structure_rules import (
     RELATION_BASIS,
@@ -87,6 +87,14 @@ def response_schema() -> dict:
 def _name(value: str) -> str:
     # 僅用於名稱比對；不改寫原始字面值、Claims 或 Evidence。
     return "".join(unicodedata.normalize("NFKC", value).split()).casefold()
+
+
+def is_spoken_concept(concept: dict) -> bool:
+    """依該概念實際引用判斷；同批其他口語來源不能改變一般文件的審查規則。"""
+    return any(
+        "transcript" in source
+        for claim in concept["claims"] for source in claim["evidence"]
+    )
 
 
 @dataclass
@@ -165,6 +173,10 @@ def _pack_review(
             {
                 "h": index,
                 "text": claim["text"],
+                **({"quotes": [
+                    {"e": evidence_handles[item["evidence_id"]], "q": item["quote"]}
+                    for item in claim["evidence"]
+                ]} if any("transcript" in item for item in claim["evidence"]) else {}),
                 "evidence": [
                     evidence_handles[item["evidence_id"]] for item in claim["evidence"]
                 ],
@@ -178,6 +190,7 @@ def _pack_review(
                 "page": item["normalized_page"],
                 "kind": item["kind"],
                 "text": item["quote"],
+                **({"transcript": item["transcript"]} if "transcript" in item else {}),
             }
             for index, item in enumerate(evidence)
         ],
@@ -204,6 +217,12 @@ def _pack_review(
             for index, relation in enumerate(relations)
         ],
     }
+    spoken_sources = {
+        item["source_id"]: item["transcript"]
+        for item in evidence if "transcript" in item
+    }
+    if spoken_sources:
+        payload["spoken_sources"] = spoken_sources
     return ReviewUnit(
         canonical_sha256(view),
         payload,
@@ -444,9 +463,21 @@ def _corrected_claim(edit: ClaimEdit, sources: list[dict]) -> str | None:
 def _claim_edit_sources(unit: ReviewUnit, edit: ClaimEdit) -> list[dict]:
     """核對套用後會保留的原引用與補正引用，不把原引用冒稱為模型新選取。"""
     evidence = {item["evidence_id"]: item for item in unit.evidence}
-    original = [item["evidence_id"] for item in unit.claims[edit.claim]["evidence"]]
+    originals = unit.claims[edit.claim]["evidence"]
+    original = {item["evidence_id"] for item in originals}
     selected = [unit.evidence[h]["evidence_id"] for h in edit.evidence]
-    return [evidence[identity] for identity in dict.fromkeys([*original, *selected])]
+    return [*originals, *(
+        evidence[identity] for identity in dict.fromkeys(selected) if identity not in original
+    )]
+
+
+def transcript_restore_text(unit: ReviewUnit, claim: int, meaning: str) -> str | None:
+    """疑字不能猜正字；只容許撤回候選改述，還原該 Claim 已保存的原文節錄。"""
+    original = " ".join(item["quote"] for item in unit.claims[claim]["evidence"])
+    # PDF 可能在詞內換行。只忽略排版空白核對還原意圖；原 quote 不動，學習文字沿用既有空白正規化。
+    if not isinstance(meaning, str) or "".join(meaning.split()) != "".join(original.split()):
+        return None
+    return original + "（逐字稿用詞待核對）"
 
 
 def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
@@ -484,6 +515,8 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
     for a in proposal.assignments:
         key = unit.concepts[a.concept]["concept_id"]
         action = a.action
+        if is_spoken_concept(unit.concepts[a.concept]) and a.issue == "uncertain":
+            action = "needs_review"
         if a.concept in parents and action in {"group", "example"}:
             blocked.append(
                 {
@@ -609,6 +642,15 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
             for concept in unit.concepts
             if any(claim["claim_id"] == claim_id for claim in concept["claims"])
         }
+        uncertain = any(
+            unit.concepts[a.concept]["concept_id"] in owners
+            and is_spoken_concept(unit.concepts[a.concept]) and a.issue == "uncertain"
+            for a in proposal.assignments
+        )
+        restored = transcript_restore_text(unit, edit.claim, edit.meaning) if uncertain else None
+        if uncertain and restored is None:
+            blocked.append({"claim_id": claim_id, "reason": "TRANSCRIPT_UNCERTAIN_PRESERVED_ORIGINAL"})
+            continue
         introduced = [
             concept["label"]
             for concept in unit.concepts
@@ -625,7 +667,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
                 }
             )
             continue
-        corrected = _corrected_claim(edit, sources)
+        corrected = restored if uncertain else _corrected_claim(edit, sources)
         if corrected is None:
             blocked.append(
                 {"claim_id": claim_id, "reason": "CLAIM_CORRECTION_NOT_SUPPORTED"}
@@ -799,18 +841,22 @@ def apply_review(
                 refs = list(
                     dict.fromkeys(claim["evidence_refs"] + edit["evidence_ids"])
                 )
-                spans = [
+                excerpts = claim["projection"] in EXCERPT_PROJECTIONS
+                spans = deepcopy(claim["source_spans"]) if excerpts else []
+                spans.extend([
                     {"evidence_id": ref, "quote": evidence[ref]["exact_text"]}
                     for ref in refs
-                ]
+                    if not excerpts or ref not in claim["evidence_refs"]
+                ])
                 projected = _project_claim(
                     {
                         "meaning": edit["proposed_text"],
                         "source_spans": spans,
                     },
                     evidence,
+                    excerpts=excerpts,
                 )
-                if projected is None or projected["projection"] != LITERAL_PROJECTION:
+                if projected is None or projected["projection"] not in {LITERAL_PROJECTION, EXCERPT_PROJECTION}:
                     rejected_claim_edits.add(original["claim_id"])
                 else:
                     claim.update(projected, evidence_refs=refs)

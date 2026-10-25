@@ -339,6 +339,12 @@ def analyze_material(
                 context["learning_scopes"] = deepcopy(
                     input_binding["bundle"]["learning_scopes"]
                 )
+            if lock["material_semantics"].get("spoken_policy") == "source-excerpts/v1":
+                context["spoken_sources"] = {
+                    item["source_id"]: deepcopy(item["transcript"])
+                    for item in input_binding["manifest"]["items"]
+                    if "transcript" in item
+                }
         except ValueError as error:
             raise MaterialAnalysisError("DOCUMENT_EVIDENCE_INVALID") from error
         state = _initial_semantic_state(base_structure, context, input_binding)

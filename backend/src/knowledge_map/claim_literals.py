@@ -6,6 +6,10 @@ import re
 
 
 LITERAL_PROJECTION = "localized_meaning_v2"
+EXCERPT_PROJECTION = "spoken_excerpt_meaning/v1"
+EXCERPT_REPAIR = "spoken_excerpt_literal_repair/v1"
+EXCERPT_PROJECTIONS = {EXCERPT_PROJECTION, EXCERPT_REPAIR}
+LITERAL_REPAIRS = {"source_literal_repair", EXCERPT_REPAIR}
 
 _NUMBER = r"[+−-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+−-]?\d+)?"
 _UNIT = (
@@ -242,3 +246,30 @@ def preserves_literals(meaning: str, sources: list[dict], *, legacy: bool = Fals
             if " ".join(declaration[0].split()) not in normalized:
                 return False
     return True
+
+
+def quoted_sources(spans, evidence, *, excerpts=False):
+    """模型輸入與保存資料的來源邊界：節錄須唯一逐字定位，不能切斷技術字面值。"""
+    sources = []
+    for span in spans:
+        if not isinstance(span, dict) or set(span) != {"evidence_id", "quote"}:
+            return None
+        source = evidence.get(span["evidence_id"])
+        quote = span["quote"]
+        if source is None or not isinstance(quote, str) or not quote.strip():
+            return None
+        text = source["exact_text"]
+        if quote != text:
+            if not excerpts:
+                return None
+            start = text.find(quote)
+            end = start + len(quote)
+            if start < 0 or text.find(quote, start + 1) >= 0:
+                return None
+            if any(
+                a < start < b or a < end < b
+                for a, b in _literal_ranges(text, source.get("kind", "paragraph"))
+            ):
+                return None
+        sources.append({**source, "exact_text": quote})
+    return sources
