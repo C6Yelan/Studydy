@@ -128,7 +128,7 @@ def test_failed_checkpoint_resumes_after_settings_update_without_repeating_model
 
 
 @pytest.mark.parametrize('changed', ['material_prompt', 'tampered_snapshot'])
-def test_unverified_or_changed_material_runtime_never_silently_restarts(revisions, monkeypatch, changed):
+def test_unusable_prior_runtime_is_skipped_and_reanalysis_preserves_its_archive(revisions, monkeypatch, changed):
     learner, material, settings, dsn, add, start, execute, _, old, calls = revisions
     second = add('B.pdf', 'A queue removes the first inserted element first.')
     run = start([second], 'keep-failed', old['revision'])
@@ -139,7 +139,7 @@ def test_unverified_or_changed_material_runtime_never_silently_restarts(revision
         patch.setattr(processing, 'publish_knowledge_structure', fail_publication)
         assert execute().status == 'failed'
     path = _material_directory(learner.learner_id, material) / run.run_id.hex / 'checkpoint.json'
-    saved = path.read_bytes()
+    saved = {p.relative_to(path.parent): p.read_bytes() for p in path.parent.rglob('*') if p.is_file()}
     if changed == 'material_prompt':
         settings['runtime_lock'] = deepcopy(settings['runtime_lock'])
         settings['runtime_lock']['material_semantics']['prompt'] += ' Changed material policy.'
@@ -147,9 +147,22 @@ def test_unverified_or_changed_material_runtime_never_silently_restarts(revision
         with database_session(dsn) as session:
             row = session.get(MaterialProcessingRun, run.run_id)
             row.runtime_lock_document = {**row.runtime_lock_document, 'schema': 'tampered'}
-    start([second], 'must-not-restart', old['revision'])
+    with database_session(dsn) as session:
+        prior = session.get(MaterialProcessingRun, run.run_id)
+        saved_lock, saved_binding = deepcopy(prior.runtime_lock_document), deepcopy(prior.runtime_binding)
+    from pdf_evidence import material_pipeline
+    actual = material_pipeline.extract_page
+    extracted = []
+    monkeypatch.setattr(material_pipeline, 'extract_page', lambda *args: (extracted.append(args[2]), actual(*args))[1])
+    retry = start([second], 'new-runtime-reanalysis', old['revision'])
     before = len(calls)
     result = execute()
-    assert result.status == 'failed' and result.error_code == 'ANALYSIS_RUNTIME_CHANGED'
-    assert len(calls) == before
-    assert path.read_bytes() == saved
+    assert result.status == 'succeeded', result.error_code
+    assert len(calls) == before + 1 and extracted == [1]
+    assert {p.relative_to(path.parent): p.read_bytes() for p in path.parent.rglob('*') if p.is_file()} == saved
+    with database_session(dsn) as session:
+        prior = session.get(MaterialProcessingRun, run.run_id)
+        assert prior.runtime_lock_document == saved_lock and prior.runtime_binding == saved_binding
+    completed = _material_directory(learner.learner_id, material) / retry.run_id.hex
+    receipt = json.loads((completed / 'completion.json').read_text())
+    assert receipt['reused_from_run'] is None and receipt['evidence_reused_from_runs'] == []

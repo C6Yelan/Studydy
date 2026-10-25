@@ -109,13 +109,12 @@ class AnalysisArchive:
             ).all()
             candidates = []
             for row in prior:
-                if not _same_analysis_inputs(row, self.run):
+                # 舊結果只在來源與 runtime 都相容時使用；不相容封存保留，新 run 從頭分析。
+                if not _can_reuse_analysis(row, self.run):
                     continue
                 path = self.directory.parent / row.run_id.hex / "checkpoint.json"
                 if not path.exists():
                     continue
-                if not _can_reuse_analysis(row, self.run):
-                    raise AnalysisArchiveError("ANALYSIS_RUNTIME_CHANGED")
                 candidates.append(
                     (row.run_id, row.error_code, _checkpoint_input_digest(row))
                 )
@@ -275,7 +274,7 @@ class AnalysisArchive:
                     .order_by(MaterialProcessingRun.created_at.desc())
                 ).all()
                 for row in prior:
-                    if not _same_analysis_inputs(row, self.run):
+                    if not _can_reuse_analysis(row, self.run):
                         continue
                     directory = self.directory.parent / row.run_id.hex / "evidence"
                     if any(
@@ -285,8 +284,6 @@ class AnalysisArchive:
                         raise AnalysisArchiveError("ANALYSIS_CHECKPOINT_INVALID")
                     if not any(directory.glob("page-*.json")):
                         continue
-                    if not _can_reuse_analysis(row, self.run):
-                        raise AnalysisArchiveError("ANALYSIS_RUNTIME_CHANGED")
                     self._evidence_candidates.append(
                         (row.run_id, _checkpoint_input_digest(row))
                     )

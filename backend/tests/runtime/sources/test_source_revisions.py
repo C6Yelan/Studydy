@@ -779,16 +779,27 @@ def test_corrupt_page_checkpoint_fails_closed_without_extraction(revisions,monke
     assert result.error_code=='ANALYSIS_CHECKPOINT_INVALID' and len(requests)==before
 
 
-def test_evidence_only_checkpoint_refuses_changed_runtime(revisions,monkeypatch):
+def test_evidence_only_checkpoint_is_skipped_after_runtime_change(revisions,monkeypatch):
+    import json
     from pdf_evidence import material_pipeline
+    from runtime.storage.analysis_archive import _material_directory
     learner,material,settings,dsn,add,start,execute,_,old,requests=revisions
     second=add('B.pdf','A queue removes the first inserted element first.')
-    start([second],'runtime-cache-failure',old['revision'])
+    failed_run=start([second],'runtime-cache-failure',old['revision'])
     with monkeypatch.context() as patch:
         patch.setattr(material_pipeline,'build_document_context',lambda *a,**k:(_ for _ in ()).throw(ValueError('invalid context')))
         assert execute().status=='failed'
+    directory=_material_directory(learner.learner_id,material)/failed_run.run_id.hex
+    assert not (directory/'checkpoint.json').exists()
+    saved={p.relative_to(directory):p.read_bytes() for p in directory.rglob('*') if p.is_file()}
     before=len(requests)
     settings['runtime_lock']['ocr']['prompt']+=' Changed OCR policy.'
-    monkeypatch.setattr(material_pipeline,'extract_page',lambda *a:pytest.fail('changed runtime must not silently redo evidence'))
-    start([second],'runtime-cache-retry',old['revision']);result=execute()
-    assert result.error_code=='ANALYSIS_RUNTIME_CHANGED' and len(requests)==before
+    actual=material_pipeline.extract_page;extracted=[]
+    monkeypatch.setattr(material_pipeline,'extract_page',lambda *args:(extracted.append(args[2]),actual(*args))[1])
+    retry=start([second],'runtime-cache-retry',old['revision']);result=execute()
+    assert result.status=='succeeded',result.error_code
+    assert len(requests)==before+1 and extracted==[1]
+    assert {p.relative_to(directory):p.read_bytes() for p in directory.rglob('*') if p.is_file()}==saved
+    completed=_material_directory(learner.learner_id,material)/retry.run_id.hex
+    receipt=json.loads((completed/'completion.json').read_text())
+    assert receipt['reused_from_run'] is None and receipt['evidence_reused_from_runs']==[]

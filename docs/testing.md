@@ -334,3 +334,5 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 `e2e/mock/upload.spec.ts` 驗證上傳限制尚未載入時，原生選檔與拖放都停用，載入失敗時仍不能送出；載入完成即可正常選檔，移除後重選同一檔案也能加入。
 
 `test_spoken_analysis.py` 另覆蓋無標點 ASR 的逐字正確但越界引用，以及換行不符：補正請求附真實拒收原因；合法整段回退可保留 Claim 與所有原數字，原樣重送錯引仍拒收。此合成測試不保證模型會遵守提示，真實素材發布結果另行驗證。
+
+`runtime/sources/test_material_runtime.py` 與 `test_source_revisions.py` 核對舊失敗工作在分析提示／OCR 設定變更後，新 run 會略過整份及逐頁 checkpoint、重新擷取與推論並發布；舊 runtime 與所有封存檔案逐位元保留，completion 記錄沒有重用。舊 runtime binding 無法核對時也不讀取其快照；相容快照仍正常接續，入選快照內容損毀仍明確失敗。
