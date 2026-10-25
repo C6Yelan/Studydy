@@ -206,7 +206,7 @@ async function mockAccount(page: Page, initialSessions = 3) {
   await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: "以安" } }));
   await page.route("**/v1/account/sessions", (route) => route.fulfill({ json: view() }));
   await page.route("**/v1/account/storage", (route) => route.fulfill({ json:
-    { schema: "account-storage/v1", used_bytes: 5368709120, limit_bytes: 5368709120, remaining_bytes: 0 } }));
+    { schema: "account-storage/v1", used_bytes: 5368709120, reserved_bytes: 104857600, limit_bytes: 5368709120, remaining_bytes: 0 } }));
   await page.route("**/v1/account/sessions/*", (route) => {
     const target = new URL(route.request().url()).pathname.split("/").at(-1)!;
     writes.push({ path: target, method: route.request().method(), origin: route.request().headers().origin, body: route.request().postData() });
@@ -237,6 +237,7 @@ test("password change validates input, reports a wrong current password and then
   const storage = page.getByRole("region", { name: "帳號空間" });
   await expect(storage).toContainText("已用 5 GB／上限 5 GB · 剩餘 0 B");
   await expect(storage).toContainText("無法上傳教材、建立 Podcast 或生成影片");
+  await expect(storage).toContainText("已用包含 100 MB 預留給上傳中的檔案與生成中的 Podcast／影片");
   // 登入裝置是帳號設定之外的獨立卡片。
   // 三個登入先顯示兩個，其餘收合。
   await expect(page.getByRole("region", { name: "登入裝置" }).getByRole("listitem")).toHaveCount(2);

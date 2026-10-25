@@ -13,6 +13,9 @@
 (d) 任何一步失敗都保留該檔原狀並回報，繼續處理下一檔，結束碼為 1。
 artifact ID 與分集保存的 `audio.sha256`（原 WAV 的雜湊）都不變，既有影片、分鏡對齊、
 時間軸與收聽進度的綁定因此維持有效；備份由管理者驗收後自行刪除。
+
+正式執行全程持有一個執行層級的 PostgreSQL advisory lock：同時只能有一個轉檔程序，
+上次中斷的收尾、暫存寫入、提交與提交後刪除 WAV 都在這個鎖內。暫存檔名含每次執行的 ID。
 """
 
 from __future__ import annotations
@@ -25,9 +28,9 @@ from pathlib import Path
 import shutil
 import stat
 import sys
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from .audio import FLAC_MEDIA_TYPE, WAV_MEDIA_TYPE, _decode_pcm, _wav_parts, flac_to_wav, wav_to_flac
 from .storage.artifacts import _lock_artifact_discard, _object_path, _root, _sync_directory
@@ -36,6 +39,9 @@ from .storage.tables import Artifact
 
 _NEW_SUFFIX = ".flac-new"
 _OLD_SUFFIX = ".wav-before-flac"
+_RUN_LOCK = 4_817_602_311_905_772_031
+# FLAC 暫存最大不超過原 WAV＋少量 metadata；預留 1 MiB。
+_FLAC_OVERHEAD = 1024 * 1024
 
 
 class ConversionError(RuntimeError):
@@ -61,23 +67,27 @@ def _read_verified(path, digest, size):
     return data
 
 
-def _write_synced(path, data, mode):
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.unlink(missing_ok=True)
-    with temporary.open("xb") as stream:
-        stream.write(data)
-        stream.flush()
-        os.fsync(stream.fileno())
-    temporary.chmod(mode)
-    os.replace(temporary, path)
-    _sync_directory(path.parent)
+def _write_synced(path, data, mode, run):
+    """先寫入 `<名稱>.<run>.tmp` 再改名；任何失敗都刪掉暫存。"""
+    temporary = path.with_name(f"{path.name}.{run}.tmp")
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.chmod(mode)
+        os.replace(temporary, path)
+        _sync_directory(path.parent)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
-def _backup(backup_dir, artifact_id, wav):
+def _backup(backup_dir, artifact_id, wav, run):
     target = backup_dir / f"{artifact_id.hex}.wav"
     if not (target.exists() and sha256(target.read_bytes()).digest() == sha256(wav).digest()):
         target.unlink(missing_ok=True)
-        _write_synced(target, wav, 0o400)
+        _write_synced(target, wav, 0o400, run)
     if target.read_bytes() != wav:
         raise ConversionError("BACKUP_MISMATCH")
     return target
@@ -91,60 +101,60 @@ def _encode_checked(wav):
     return flac
 
 
-def _settle(root, artifact_id, dsn):
-    """依 DB 實際狀態收尾中斷的替換：已提交 FLAC 就刪暫存 WAV，未提交就還原 WAV。"""
-    staging = root / ".staging"
-    old = staging / f"{artifact_id.hex}{_OLD_SUFFIX}"
-    new = staging / f"{artifact_id.hex}{_NEW_SUFFIX}"
+def _settle(root, artifact_id, old, dsn):
+    """依 DB 實際狀態收尾一次中斷的替換：已提交 FLAC 就刪暫存 WAV，未提交就還原 WAV。"""
     destination = _object_path(root, artifact_id)
     with database_session(dsn) as db:
         _lock_artifact_discard(db, artifact_id)
         row = db.get(Artifact, artifact_id)
-        if old.exists():
-            current = destination.read_bytes() if destination.exists() else None
-            if (
-                row is not None
-                and row.media_type == FLAC_MEDIA_TYPE
-                and current is not None
-                and sha256(current).digest() == bytes(row.sha256)
-            ):
-                old.unlink()
-            elif (
-                row is not None
-                and row.media_type == WAV_MEDIA_TYPE
-                and sha256(old.read_bytes()).digest() == bytes(row.sha256)
-            ):
-                os.replace(old, destination)
-                _sync_directory(destination.parent)
-            elif row is None:
-                old.unlink()
-            else:
-                raise ConversionError("MANUAL_RECOVERY_REQUIRED")
-        new.unlink(missing_ok=True)
-        _sync_directory(staging)
+        if not old.exists():
+            return
+        current = destination.read_bytes() if destination.exists() else None
+        if (
+            row is not None
+            and row.media_type == FLAC_MEDIA_TYPE
+            and current is not None
+            and sha256(current).digest() == bytes(row.sha256)
+        ):
+            old.unlink()
+        elif (
+            row is not None
+            and row.media_type == WAV_MEDIA_TYPE
+            and sha256(old.read_bytes()).digest() == bytes(row.sha256)
+        ):
+            os.replace(old, destination)
+            _sync_directory(destination.parent)
+        elif row is None:
+            old.unlink()
+        else:
+            raise ConversionError("MANUAL_RECOVERY_REQUIRED")
+        _sync_directory(old.parent)
 
 
-def recover(dsn=None):
-    """上次執行若在替換途中被中斷，先依 DB 狀態收尾。"""
+def recover(dsn=None, backup_dir=None):
+    """收尾上次中斷的執行；呼叫端須持有執行鎖。回傳收尾的替換數。"""
     root = _root()
-    names = {
-        path.name.split(".", 1)[0]
-        for suffix in (_OLD_SUFFIX, _NEW_SUFFIX)
-        for path in (root / ".staging").glob(f"*{suffix}")
-    }
-    for name in sorted(names):
-        _settle(root, UUID(hex=name), dsn)
-    return len(names)
-
-
-def _replace(root, artifact_id, expected_digest, expected_size, flac, dsn):
     staging = root / ".staging"
-    new = staging / f"{artifact_id.hex}{_NEW_SUFFIX}"
-    old = staging / f"{artifact_id.hex}{_OLD_SUFFIX}"
+    journals = sorted(staging.glob(f"*{_OLD_SUFFIX}"))
+    for old in journals:
+        _settle(root, UUID(hex=old.name.split(".", 1)[0]), old, dsn)
+    for leftover in [*staging.glob(f"*{_NEW_SUFFIX}"), *staging.glob(f"*{_NEW_SUFFIX}.*.tmp")]:
+        leftover.unlink(missing_ok=True)
+    if backup_dir is not None and Path(backup_dir).is_dir():
+        for leftover in Path(backup_dir).glob("*.wav.*.tmp"):
+            leftover.unlink(missing_ok=True)
+    _sync_directory(staging)
+    return len(journals)
+
+
+def _replace(root, artifact_id, expected_digest, expected_size, flac, dsn, run):
+    staging = root / ".staging"
+    new = staging / f"{artifact_id.hex}.{run}{_NEW_SUFFIX}"
+    old = staging / f"{artifact_id.hex}.{run}{_OLD_SUFFIX}"
     destination = _object_path(root, artifact_id)
-    _write_synced(new, flac, 0o400)
     replaced = False
     try:
+        _write_synced(new, flac, 0o400, run)
         with database_session(dsn) as db:
             # 與刪除 Podcast／教材的 quarantine 互斥；檢查期間 artifact 不能被換掉。
             _lock_artifact_discard(db, artifact_id)
@@ -170,26 +180,37 @@ def _replace(root, artifact_id, expected_digest, expected_size, flac, dsn):
             row.size_bytes = len(flac)
             db.flush()
     except Exception:
+        new.unlink(missing_ok=True)
         # 未提交就還原 WAV；提交結果不明時依 DB 實際狀態收尾。
-        if replaced or old.exists() or new.exists():
-            _settle(root, artifact_id, dsn)
+        if replaced or old.exists():
+            _settle(root, artifact_id, old, dsn)
         raise
     old.unlink()
     _sync_directory(staging)
 
 
-def convert(*, backup_dir=None, dry_run=False, limit=None, dsn=None, report=print):
-    root = _root()
-    recovered = 0 if dry_run else recover(dsn)
+def _require_space(root, backup_dir, candidates):
+    """轉換峰值：備份位置要放下全部 WAV；artifact 磁碟要放下最大一檔的 FLAC 暫存
+    （舊 WAV 在提交前仍保留）。兩者同一個檔案系統時合併計算。"""
+    if not candidates:
+        return
+    backups = sum(size for _, _, size in candidates)
+    staging = max(size for _, _, size in candidates) + _FLAC_OVERHEAD
+    if os.stat(backup_dir).st_dev == os.stat(root).st_dev:
+        if shutil.disk_usage(root).free < backups + staging:
+            raise ConversionError("DISK_SPACE_INSUFFICIENT")
+    else:
+        if shutil.disk_usage(backup_dir).free < backups:
+            raise ConversionError("BACKUP_SPACE_INSUFFICIENT")
+        if shutil.disk_usage(root).free < staging:
+            raise ConversionError("ARTIFACT_SPACE_INSUFFICIENT")
+
+
+def _convert(root, backup_dir, dry_run, limit, dsn, report, recovered):
+    run = uuid4().hex[:12]
     candidates = _candidates(dsn, limit)
     if not dry_run:
-        if backup_dir is None:
-            raise ConversionError("BACKUP_DIR_REQUIRED")
-        backup_dir = Path(backup_dir)
-        backup_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        needed = sum(size for _, _, size in candidates)
-        if shutil.disk_usage(backup_dir).free < needed:
-            raise ConversionError("BACKUP_SPACE_INSUFFICIENT")
+        _require_space(root, backup_dir, candidates)
     summary = {
         "dry_run": dry_run,
         "recovered": recovered,
@@ -204,11 +225,11 @@ def convert(*, backup_dir=None, dry_run=False, limit=None, dsn=None, report=prin
         try:
             wav = _read_verified(_object_path(root, artifact_id), digest, size)
             if not dry_run:
-                _backup(backup_dir, artifact_id, wav)
+                _backup(backup_dir, artifact_id, wav, run)
             flac = _encode_checked(wav)
             item["flac_bytes"] = len(flac)
             if not dry_run:
-                _replace(root, artifact_id, digest, size, flac, dsn)
+                _replace(root, artifact_id, digest, size, flac, dsn, run)
             item["status"] = "would_convert" if dry_run else "converted"
             summary["converted"] += 1
             summary["wav_bytes"] += size
@@ -221,6 +242,21 @@ def convert(*, backup_dir=None, dry_run=False, limit=None, dsn=None, report=prin
     summary["saved_bytes"] = summary["wav_bytes"] - summary["flac_bytes"]
     report(json.dumps({"summary": summary}, ensure_ascii=False))
     return summary
+
+
+def convert(*, backup_dir=None, dry_run=False, limit=None, dsn=None, report=print):
+    root = _root()
+    if dry_run:
+        return _convert(root, None, True, limit, dsn, report, 0)
+    if backup_dir is None:
+        raise ConversionError("BACKUP_DIR_REQUIRED")
+    backup_dir = Path(backup_dir)
+    backup_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with database_session(dsn) as guard:
+        if not guard.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": _RUN_LOCK}):
+            raise ConversionError("ANOTHER_CONVERSION_RUNNING")
+        recovered = recover(dsn, backup_dir)
+        return _convert(root, backup_dir, False, limit, dsn, report, recovered)
 
 
 def main(argv=None):

@@ -64,7 +64,12 @@ from ..material_processing import (
     read_material_processing_run,
 )
 from ..material_runtime import MaterialRuntimeError, runtime_binding
-from ..media_sources import add_youtube_source, receive_chunk, store_upload_bytes
+from ..media_sources import (
+    add_youtube_source,
+    existing_source,
+    receive_chunk,
+    store_upload_bytes,
+)
 from ..source_normalization import (
     create_draft,
     read_sources,
@@ -73,7 +78,7 @@ from ..source_normalization import (
     upload_source,
 )
 from ..errors import PodcastError, SourceError
-from ..storage_usage import StorageQuotaError, account_usage, require_room
+from ..storage_usage import StorageQuotaError, account_usage, reserved_room
 from . import request_context
 from .media import artifact_response
 from .study_routes import install as install_study_routes
@@ -1038,19 +1043,21 @@ def create_app(settings: ApiSettings) -> FastAPI:
         media = request.headers.get("content-type")
         if media == YOUTUBE_MIME:
             raise request_context.ApiFailure("UNSUPPORTED_MEDIA_TYPE")
-        await run_in_threadpool(require_room, owner, len(data), dsn=settings.dsn)
-        await run_in_threadpool(
+        store = (
             store_upload_bytes
             if media in (*AUDIO_MIME.values(), *VIDEO_MIME.values())
-            else upload_source,
-            owner,
-            material_id,
-            bytes(data),
-            name,
-            media,
-            key,
-            dsn=settings.dsn,
+            else upload_source
         )
+
+        def save():
+            arguments = (owner, material_id, bytes(data), name, media, key)
+            # 同一意圖的重送先交給既有冪等判斷，不因帳號隨後額滿而失敗。
+            if existing_source(owner, material_id, key, dsn=settings.dsn) is not None:
+                return store(*arguments, dsn=settings.dsn)
+            with reserved_room(owner, len(data), dsn=settings.dsn):
+                return store(*arguments, dsn=settings.dsn)
+
+        await run_in_threadpool(save)
         return await run_in_threadpool(read_sources, owner, material_id, dsn=settings.dsn)
 
     @app.post(
@@ -1116,14 +1123,13 @@ def create_app(settings: ApiSettings) -> FastAPI:
         owner = request_context.trusted_learner(request, settings).learner_id
         if not media_available():
             raise request_context.ApiFailure("NORMALIZER_UNAVAILABLE")
-        require_room(owner, dsn=settings.dsn)
-        add_youtube_source(
-            owner,
-            material_id,
-            body.url,
-            request_context.idempotency_key(request),
-            dsn=settings.dsn,
-        )
+        key = request_context.idempotency_key(request)
+        if existing_source(owner, material_id, key, dsn=settings.dsn) is not None:
+            add_youtube_source(owner, material_id, body.url, key, dsn=settings.dsn)
+        else:
+            # 參照本身很小；額滿時拒絕新增，鎖住到來源寫入完成。
+            with reserved_room(owner, 0, dsn=settings.dsn):
+                add_youtube_source(owner, material_id, body.url, key, dsn=settings.dsn)
         return read_sources(owner, material_id, dsn=settings.dsn)
 
     @app.get("/v1/materials/{material_id}/sources", response_model=SourceListView)

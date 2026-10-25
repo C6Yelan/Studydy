@@ -23,10 +23,11 @@ export function StorageCard({ apiClient }: { apiClient: StudydyApiClient }) {
         : <>
           <p className="profile-storage-numbers"><strong>已用 {formatBytes(storage.used_bytes)}</strong>
             <span>／上限 {formatBytes(storage.limit_bytes)} · 剩餘 {formatBytes(storage.remaining_bytes)}</span></p>
+          {storage.reserved_bytes > 0 && <p className="profile-help">已用包含 {formatBytes(storage.reserved_bytes)} 預留給上傳中的檔案與生成中的 Podcast／影片。</p>}
           <progress className="profile-storage-meter" value={Math.min(storage.used_bytes, storage.limit_bytes)} max={storage.limit_bytes} aria-label="已用帳號空間" />
           <p className={full ? "form-error" : "profile-help"}>{full
             ? "空間已滿：無法上傳教材、建立 Podcast 或生成影片；已有內容仍可閱讀、播放與刪除。"
-            : "包含教材原檔與轉換檔、Podcast 音訊與影片、分析資料，以及尚未完成的上傳。刪除教材、Podcast 或影片可釋出空間。"}</p>
+            : "包含教材原檔與轉換檔、Podcast 音訊與影片、分析資料，以及上傳中與生成中內容的預留空間。刪除教材、Podcast 或影片可釋出空間。"}</p>
         </>}
     </section>
   );

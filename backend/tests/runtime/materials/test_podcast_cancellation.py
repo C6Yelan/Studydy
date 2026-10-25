@@ -196,7 +196,7 @@ def test_preview_requires_all_media_and_retry_preserves_ready_episodes(closed_lo
         rows[0].artifact_id = UUID(original_audio[0]['artifact_id'])
         rows[0].manifest = {'synthetic': True}
         rows[1].status = 'failed'; rows[1].error_code = 'LUNA_GENERATION_TIMEOUT'
-        db.delete(rows[2])  # 沒有影片工作的分集只播音訊，接續生成只重試失敗／取消的影片。
+        db.delete(rows[2])  # 0019 前缺少影片工作的舊分集：勾選影片的節目由使用者按接續生成補建。
         ready_version = rows[0].version
     view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
     assert view['generation']['completed_videos'] == 1
@@ -204,7 +204,7 @@ def test_preview_requires_all_media_and_retry_preserves_ready_episodes(closed_lo
     podcasts.change_podcast(owner.learner_id, identity, 'retry', view['version'], dsn=dsn)
     with database_session(dsn) as db:
         rows = list(db.scalars(select(PodcastVideo).where(PodcastVideo.podcast_id == identity).order_by(PodcastVideo.episode_index)))
-        assert [r.status for r in rows] == ['ready', 'pending']
+        assert [r.status for r in rows] == ['ready', 'pending', 'pending']
         assert rows[0].version == ready_version
         assert [e['audio'] for e in db.get(Podcast, identity).episodes] == original_audio
         for row in rows:

@@ -100,19 +100,24 @@ def _upload_paths(owner, material_id, key):
 
 
 def pending_upload_bytes(owner):
-    """此帳號尚未收齊的分段上傳暫存大小。"""
+    """此帳號尚未收齊的分段上傳：以第一段宣告的整檔大小保留，不以已收到的位元組計。"""
     total = 0
-    for path in _upload_folder().glob(f"{owner.hex}-*"):
+    for meta in _upload_folder().glob(f"{owner.hex}-*.json"):
         try:
-            details = path.stat(follow_symlinks=False)
-        except FileNotFoundError:
-            continue
-        if stat.S_ISREG(details.st_mode):
-            total += details.st_size
+            declared = json.loads(meta.read_bytes())["total_bytes"]
+            if type(declared) is not int or declared < 0:
+                raise ValueError
+        except (FileNotFoundError, ValueError, KeyError, TypeError):
+            # 意圖尚未寫入或已損毀：至少計入已收到的部分。
+            try:
+                declared = meta.with_suffix(".part").stat().st_size
+            except FileNotFoundError:
+                declared = 0
+        total += declared
     return total
 
 
-def _existing_source(owner, material_id, key, *, dsn):
+def existing_source(owner, material_id, key, *, dsn):
     from .storage.artifacts import _key_digest
 
     with database_session(dsn) as session:
@@ -146,7 +151,7 @@ def receive_chunk(owner, material_id, key, name, media, total, offset, chunk, *,
         raise SourceError("MATERIAL_TOO_LARGE" if total > limit else "REQUEST_INVALID")
     with database_session(dsn) as session:
         require_source_material(session, owner, material_id)
-    existing = _existing_source(owner, material_id, key, dsn=dsn)
+    existing = existing_source(owner, material_id, key, dsn=dsn)
     if existing is not None:
         return {"received_bytes": total, "source_id": existing}
     part, meta = _upload_paths(owner, material_id, key)
@@ -155,7 +160,7 @@ def receive_chunk(owner, material_id, key, name, media, total, offset, chunk, *,
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         # 同時重送最後一段時，另一個請求可能剛建立完來源。
-        existing = _existing_source(owner, material_id, key, dsn=dsn)
+        existing = existing_source(owner, material_id, key, dsn=dsn)
         if existing is not None:
             part.unlink(missing_ok=True)
             meta.unlink(missing_ok=True)
@@ -167,17 +172,19 @@ def receive_chunk(owner, material_id, key, name, media, total, offset, chunk, *,
             stored = None
         if offset == 0:
             part.unlink(missing_ok=True)
-            # 第一段才知道整個檔案的大小：以已用＋整檔大小判斷帳號空間，超過就不留暫存。
-            from .storage_usage import require_room
+            os.ftruncate(descriptor, 0)
+            # 第一段宣告整檔大小：在帳號鎖內以「已用＋整檔大小」判斷，通過才寫入意圖保留額度；
+            # 之後各段不得超過宣告大小。超過上限就不留暫存。
+            from .storage_usage import reserved_room
 
             try:
-                require_room(owner, total, dsn=dsn)
+                with reserved_room(owner, total, dsn=dsn):
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    os.write(descriptor, json.dumps(intent).encode())
+                    os.fsync(descriptor)
             except Exception:
                 meta.unlink(missing_ok=True)
                 raise
-            os.ftruncate(descriptor, 0)
-            os.lseek(descriptor, 0, os.SEEK_SET)
-            os.write(descriptor, json.dumps(intent).encode())
         elif stored != intent:
             raise SourceError("UPLOAD_OFFSET_MISMATCH")
         received = part.stat().st_size if part.exists() else 0

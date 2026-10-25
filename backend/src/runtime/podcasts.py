@@ -31,7 +31,7 @@ from .podcast_sources import plan_episodes, source_context, _context_pages
 from . import retrieval
 from .errors import SourceError, PodcastError
 from .audio import FLAC_MEDIA_TYPE, validate_audio, wav_to_flac
-from .storage_usage import require_room
+from .storage_usage import episode_estimates, lock_account, require_room
 
 
 from .generation_jobs import WORKER_LEASE_TTL, lease_is_current
@@ -75,12 +75,23 @@ def _summary(row, material, child_statuses):
         or any(status in ("pending", "running") for status in active_children),
         "completed_videos": videos.count("ready"),
         "failed_videos": videos.count("failed"),
-        # 沒有影片工作（未勾選影片）或影片已刪除的分集只播音訊，不再等待影片。
+        # 預期會有影片的集數：勾選影片的節目是全部分集扣掉已刪除影片的；
+        # 沒勾選的只有實際存在的影片工作（通常為 0）。
+        "expected_videos": (
+            len(row.episodes) if row.video_enabled else len(videos)
+        )
+        - videos.count("removed"),
+        # 沒勾影片或影片已刪除的分集只播音訊；勾選影片的節目缺少影片工作（0019 前的舊分集）
+        # 時不開放預覽，由使用者按「接續生成」補建。
         "preview_ready": row.status == "ready"
         and all(e.get("audio") for e in row.episodes)
-        and all(status in ("ready", "removed") for status in videos),
+        and all(status in ("ready", "removed") for status in videos)
+        and (not row.video_enabled or len(videos) >= len(row.episodes)),
         "retryable_videos": row.status == "ready"
-        and any(s in ("failed", "cancelled") for s in videos),
+        and (
+            any(s in ("failed", "cancelled") for s in videos)
+            or (row.video_enabled and len(videos) < len(row.episodes))
+        ),
     }
     return {
         "podcast_id": row.podcast_id,
@@ -131,6 +142,8 @@ def create_podcast(
     }
     fingerprint = bytes.fromhex(canonical_sha256(selection))
     with database_session(dsn) as db:
+        # 帳號空間鎖在教材鎖之前；同一 key 的重送仍先回傳既有結果才檢查額度。
+        lock_account(db, owner)
         material = require_material(db, owner, material_id)
         row = db.scalar(
             select(Podcast).where(
@@ -145,7 +158,6 @@ def create_podcast(
             if row.status == "deleted":
                 raise PodcastError("RESOURCE_NOT_FOUND")
             return _summary(row, material, _child_statuses(db, [row.podcast_id]))
-        require_room(owner, dsn=dsn)
         document = _read_verified_document(db, owner, material_id, revision=revision)
         retrieval._scope(db, owner, material_id, revision)
         view = _view(document, material_id)
@@ -165,6 +177,13 @@ def create_podcast(
         for episode in episodes:
             episode["delivery"] = delivery
             episode["hosts"] = dict(hosts)
+        # 依集數與全站既有成品平均大小預估；寫入節目後即以未完成分集保留這些額度。
+        estimate = episode_estimates(db)
+        require_room(
+            db,
+            owner,
+            len(episodes) * (estimate["audio"] + (estimate["video"] if video else 0)),
+        )
         # 舊模式欄位保留歷史資料；新建固定儲存值，不再參與 API 或生成決策。
         row = Podcast(
             podcast_id=uuid4(),
@@ -244,6 +263,8 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
             owner, identity, expected_version=expected_version, dsn=dsn
         )
     with database_session(dsn) as db:
+        if action == "retry":
+            lock_account(db, owner)
         row, material = _locked(db, owner, identity)
         if row.version != expected_version:
             raise PodcastError("PODCAST_CONFLICT")
@@ -257,18 +278,30 @@ def change_podcast(owner, identity, action, expected_version, name=None, *, dsn=
             summary = _summary(row, material, _child_statuses(db, [row.podcast_id]))
             if not summary["generation"]["retryable_videos"]:
                 raise PodcastError("PODCAST_CONFLICT")
-            # 只重試失敗或取消的影片；沒有影片工作的分集維持只有音訊。
-            require_room(owner, dsn=dsn)
             from .podcast_videos import enqueue
 
-            for video in db.scalars(
+            rows = db.scalars(
                 select(PodcastVideo)
-                .where(
-                    PodcastVideo.podcast_id == identity,
-                    PodcastVideo.status.in_(("failed", "cancelled")),
-                )
+                .where(PodcastVideo.podcast_id == identity)
                 .with_for_update()
-            ).all():
+            ).all()
+            retry = [v for v in rows if v.status in ("failed", "cancelled")]
+            # 勾選影片的節目由使用者按下時補建缺少的影片工作（0019 前的舊分集）；
+            # 已刪除的影片（removed）與沒勾選的節目不補。
+            existing = {v.episode_index for v in rows}
+            missing = (
+                [i for i in range(len(row.episodes)) if i not in existing]
+                if row.video_enabled
+                else []
+            )
+            require_room(
+                db,
+                owner,
+                (len(retry) + len(missing)) * episode_estimates(db)["video"],
+            )
+            for index in missing:
+                enqueue(db, row, index)
+            for video in retry:
                 video = enqueue(db, row, video.episode_index)
                 if video.status in ("failed", "cancelled"):
                     video.status = "pending"

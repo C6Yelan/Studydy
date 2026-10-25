@@ -1656,9 +1656,10 @@ test("account storage quota errors show used and limit, storage view must be con
     { status: 409 }));
   await assert.rejects(full.getAccountStorage(), (error) => error.reasonCode === "STORAGE_QUOTA_EXCEEDED"
     && error.message.includes("已用 4.5 GB") && error.message.includes("上限 5 GB"));
-  const storage = { schema: "account-storage/v1", used_bytes: gib, limit_bytes: 5 * gib, remaining_bytes: 4 * gib };
+  const storage = { schema: "account-storage/v1", used_bytes: gib, reserved_bytes: 0, limit_bytes: 5 * gib, remaining_bytes: 4 * gib };
   assert.deepEqual(await new StudydyApiClient(async () => Response.json(storage)).getAccountStorage(), storage);
-  for (const body of [{ ...storage, remaining_bytes: 5 * gib }, { ...storage, used_bytes: -1 }, { ...storage, schema: "account-storage/v2" }]) {
+  for (const body of [{ ...storage, remaining_bytes: 5 * gib }, { ...storage, used_bytes: -1 }, { ...storage, schema: "account-storage/v2" },
+    { ...storage, reserved_bytes: 2 * gib }, { ...storage, reserved_bytes: undefined }]) {
     await assert.rejects(new StudydyApiClient(async () => Response.json(body)).getAccountStorage(), ApiClientError);
   }
 });
@@ -1667,4 +1668,10 @@ test("podcast summaries must say whether video was requested", async () => {
   const { video_enabled: _, ...missing } = podcastView();
   await assert.rejects(new StudydyApiClient(async () => Response.json(missing)).getPodcast(setId), ApiClientError);
   assert.equal((await new StudydyApiClient(async () => Response.json(podcastView())).getPodcast(setId)).video_enabled, false);
+  const counted = { ...podcastView(), generation: { active: false, completed_videos: 0, failed_videos: 0, expected_videos: 0 } };
+  assert.equal((await new StudydyApiClient(async () => Response.json(counted)).getPodcast(setId)).generation.expected_videos, 0);
+  for (const expected_videos of [-1, 2, 0.5]) {
+    const broken = { ...counted, generation: { ...counted.generation, expected_videos } };
+    await assert.rejects(new StudydyApiClient(async () => Response.json(broken)).getPodcast(setId), ApiClientError);
+  }
 });

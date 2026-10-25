@@ -446,6 +446,40 @@ test('deleting one episode video keeps its audio, transcript and other episodes'
   await expect(media).toHaveAttribute('src',/\/episodes\/1\/video\/media$/);
 });
 
+test('a ready episode video can be deleted while other episodes are still preparing',async({page})=>{
+  const {fixture}=await mockEpisodeVideo(page,'pending');
+  const deletes:number[]=[];let removed=false;
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video`,r=>{
+    const index=Number(new URL(r.request().url()).pathname.split('/').at(-2));
+    if(r.request().method()==='DELETE'){deletes.push(index);removed=true;}
+    const ready=index===0&&!removed;
+    return json(r,{schema:'podcast-video/v1',podcast_id:podcastId,episode_index:index,status:ready?'ready':index===0?'removed':'pending',version:2,error_code:null,
+      video:ready?{audio_sha256:'a'.repeat(64),script_sha256:'c'.repeat(64),artifact_id:artifactId,sha256:'d'.repeat(64),width:1920,height:1080,fps:60,duration:12,pages:[]}:null});
+  });
+  await page.goto(`/podcasts/${podcastId}`);
+  await expect(page.getByRole('region',{name:'Podcast 生成進度'})).toBeVisible();
+  await page.getByRole('button',{name:'刪除本集影片'}).click();
+  await page.getByRole('group',{name:'刪除影片確認'}).getByRole('button',{name:'刪除影片'}).click();
+  await expect(page.getByRole('button',{name:'刪除本集影片'})).toHaveCount(0);
+  expect(deletes).toEqual([0]);
+  // 其他仍在製作的分集沒有刪除入口。
+  await page.getByLabel('匯出集數').selectOption('1');
+  await expect(page.getByRole('button',{name:'刪除本集影片'})).toHaveCount(0);
+  expect(fixture.view.generation?.preview_ready).toBe(false);
+});
+
+test('video progress counts only episodes that will have a video',async({page})=>{
+  const {fixture}=await mockEpisodeVideo(page,'pending');
+  // 勾選影片的舊節目：只有 1 集缺影片工作待補，其餘已完成或已刪除。
+  fixture.view.generation={active:false,preview_ready:false,retryable_videos:true,completed_videos:1,failed_videos:0,expected_videos:2};
+  await page.goto(`/podcasts/${podcastId}`);
+  await expect(page.getByText('音訊 3 / 3 集 · 影片 1 / 2 集',{exact:false})).toBeVisible();
+  await expect(page.getByRole('progressbar',{name:'已完成影音集數'})).toHaveAttribute('max','5');
+  await expect(page.getByRole('button',{name:'接續生成'})).toBeVisible();
+  await page.goto('/podcasts');
+  await expect(page.getByText(/影片 1 \/ 2 集/)).toBeVisible();
+});
+
 test('cancelling video preparation confirms deletion of the whole podcast',async({page})=>{
   const mock=await mockEpisodeVideo(page,'failed');await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByText('1 集影片生成失敗；接續生成會保留已完成的影音。')).toBeVisible();

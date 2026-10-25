@@ -23,7 +23,11 @@
 
 ## 帳號空間
 
-每個帳號總空間上限 5 GiB（介面標示 5 GB；`storage_usage.ACCOUNT_STORAGE_LIMIT_BYTES`），計入該帳號全部 artifacts（原檔、normalized_pdf、source_mapping、Podcast 音訊與影片）、`analysis/<learner>/` 分析檔目錄，以及尚未收齊的分段上傳暫存。上傳教材以「已用＋本次大小 > 上限」判斷（分段上傳在第一段以整檔大小判斷），加入 YouTube、建立 Podcast、生成或重試影片在空間已滿時拒絕；錯誤原因碼為 `STORAGE_QUOTA_EXCEEDED`（HTTP 409），回應附 `storage.used_bytes／limit_bytes`。已有內容照常閱讀、播放、匯出與刪除；已接受的工作（例如已建立 Podcast 後續各集的音訊與影片）不再中途檢查，最後可能略超過上限。卡組匯出暫存由維護程序清除、Podcast MP3／Markdown 匯出在記憶體產生，不計入。`GET /v1/account/storage`（`account-storage/v1`）回傳已用、上限與剩餘，個人檔案頁顯示。同一帳號同時送出多個請求時，檢查不加鎖，可能各自通過而略超過上限。
+每個帳號總空間上限 5 GiB（介面標示 5 GB；`storage_usage.ACCOUNT_STORAGE_LIMIT_BYTES`）。已用＝該帳號全部 artifacts（原檔、normalized_pdf、source_mapping、Podcast 音訊與影片）＋`analysis/<learner>/` 分析檔目錄＋保留額度。保留額度包括：尚未收齊的分段上傳，以第一段宣告的整檔大小計（不是已收到的位元組，之後各段不得超過宣告大小）；未刪除 Podcast 中還沒有音訊的分集（含失敗／取消後可接續的），每集預估音訊大小，建立時勾選影片的另加每集預估影片大小；排隊或生成中的影片工作，每集預估影片大小。每集預估取全站既有同類成品（`podcast_audio`／`podcast_video`）的平均大小，還沒有成品時用預設 20 MiB／64 MiB。成品寫入後改計實際大小，保留額度隨之消失，產檔時不再檢查。
+
+會新增檔案的入口在同一個帳號層級的 PostgreSQL advisory lock 內「查額度＋寫入或保留」，同帳號的並行請求依序判斷：上傳教材以「已用＋本次大小 > 上限」判斷；分段上傳在第一段以「已用＋宣告大小」判斷並寫入保留；加入 YouTube 在空間已滿時拒絕；建立 Podcast 以「已用＋集數 ×（音訊預估＋勾選影片時的影片預估）」判斷；生成、重試或補建影片以「已用＋影片集數 × 影片預估」判斷。同一 Idempotency-Key 的重送先回傳原結果，不因帳號之後額滿而失敗。超過時錯誤原因碼為 `STORAGE_QUOTA_EXCEEDED`（HTTP 409），回應附 `storage.used_bytes／limit_bytes`。已有內容照常閱讀、播放、匯出與刪除。卡組匯出暫存由維護程序清除、Podcast MP3／Markdown 匯出在記憶體產生，不計入。`GET /v1/account/storage`（`account-storage/v1`）回傳已用（含保留）、保留、上限與剩餘，個人檔案頁顯示。
+
+不在預估內的是已接受上傳後續產生的衍生檔（normalized_pdf、mapping、分析檔）與補充學習匯入的公開來源：它們計入已用、會讓之後的新增被擋下，但產生當下不檢查；實際成品比預估大時也一樣。
 
 ## 圖片、音訊、影片與 YouTube
 

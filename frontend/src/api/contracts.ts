@@ -93,7 +93,8 @@ export type LearnerIdentity = { schema: "learner-identity/v1"; learner_id: strin
 // 個人顯示名稱；未設定為 null，畫面沿用不含名字的問候。
 export type LearnerProfile = { schema: "learner-profile/v1"; display_name: string | null };
 /** 帳號已用空間：教材原檔與轉換檔、Podcast 音訊與影片、分析檔及未收齊的分段上傳。 */
-export type AccountStorage = { schema: "account-storage/v1"; used_bytes: number; limit_bytes: number; remaining_bytes: number };
+/** used_bytes 已含 reserved_bytes（未收齊的分段上傳與生成中 Podcast／影片的預估額度）。 */
+export type AccountStorage = { schema: "account-storage/v1"; used_bytes: number; reserved_bytes: number; limit_bytes: number; remaining_bytes: number };
 // 本人一個仍有效的登入；device_label 為 null 表示未知裝置（舊登入或無法辨識的瀏覽器）。
 export type AccountSession = {
   session_id: string; device_label: string | null; created_at: string; last_used_at: string; current: boolean;
@@ -874,7 +875,8 @@ export type PodcastSummary = {
   episode_count: number; completed_episodes: number; is_current_revision: boolean;
   /** 所有分集音訊的總秒數；音訊未全部完成時為 null。 */
   duration_seconds: number | null;
-  generation?: {preview_ready?:boolean; retryable_videos?:boolean; active:boolean; completed_videos:number; failed_videos:number};
+  /** expected_videos：預期會有影片的集數（勾選影片的全部分集扣掉已刪除的；沒勾選時為實際影片工作數）。 */
+  generation?: {preview_ready?:boolean; retryable_videos?:boolean; active:boolean; completed_videos:number; failed_videos:number; expected_videos?:number};
 };
 export type PodcastClaim = ConceptCard["claims"][number] & { concept_id: string; label: string };
 export type PodcastContext = {

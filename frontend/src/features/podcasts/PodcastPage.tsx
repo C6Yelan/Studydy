@@ -186,7 +186,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
       </select></label>}
       <PodcastExports key={`export-${podcastId}-${index}`} api={apiClient} view={view} index={index}
         videoReady={videoState.state?.status === "ready"} videoVersion={videoState.state?.version ?? 0} />
-      {previewReady && videoState.state?.status === "ready" && <DeleteVideoControl key={`delete-video-${podcastId}-${index}`} api={apiClient} podcastId={podcastId} index={index} onDeleted={videoState.reload} />}
+      {videoState.state?.status === "ready" && <DeleteVideoControl key={`delete-video-${podcastId}-${index}`} api={apiClient} podcastId={podcastId} index={index} onDeleted={() => { videoState.reload(); setReload((v) => v + 1); }} />}
     </>}
     {previewReady && !videoState.state && <StateView title={videoState.error ? "無法載入影片" : "正在載入影片"} description={videoState.error || "正在確認本集影片。"} tone={videoState.error ? "failure" : "loading"} action={<button type="button" className="secondary-button" onClick={videoState.reload}>重新讀取</button>} />}
     {previewReady && !!videoState.state && progress !== undefined && <div ref={workspace} className="podcast-listening-layout">

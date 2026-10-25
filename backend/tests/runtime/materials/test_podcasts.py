@@ -236,7 +236,7 @@ def test_api_owner_audio_ranges_and_origin_boundary(closed_loop, monkeypatch):
     client.cookies.set("studydy_session", token)
     # 沒勾影片：不建立影片工作，只有音訊即可開啟播放。
     assert view.json()['video_enabled'] is False
-    assert view.json()['generation'] == {'active':False,'completed_videos':0,'failed_videos':0,'preview_ready':True,'retryable_videos':False}
+    assert view.json()['generation'] == {'active':False,'completed_videos':0,'failed_videos':0,'preview_ready':True,'retryable_videos':False,'expected_videos':0}
     cancelled = client.post(detail + '/actions', headers={'Origin':origin}, json={
         'schema':'podcast-action/v1','action':'cancel','expected_version':view.json()['version']})
     assert cancelled.status_code == 200 and cancelled.json() == {'schema':'podcast-deleted/v1','podcast_id':identity}
@@ -458,18 +458,18 @@ def test_podcast_list_batches_child_states_without_changing_summaries(closed_loo
         db.query(PodcastScenes).filter(PodcastScenes.podcast_id == identity).delete()
         db.query(PodcastVideo).filter(PodcastVideo.podcast_id == identity).delete()
     base = podcasts.list_podcasts(owner.learner_id, dsn=dsn)['podcasts'][0]
-    # Podcast、影片、分鏡狀態，以及既有五個 generation 欄位的預期值。
+    # Podcast、影片、分鏡狀態，以及六個 generation 欄位的預期值（預期影片數只算實際影片工作）。
     cases = [
-        # 沒有影片工作的分集只播音訊：可預覽，也沒有可重試的影片。
-        ('ready', None, None, (False, 0, 0, True, False)),
-        ('pending', None, None, (True, 0, 0, False, False)),
-        ('ready', 'ready', None, (False, 1, 0, True, False)),
-        ('ready', 'failed', None, (False, 0, 1, False, True)),
-        ('ready', 'cancelled', None, (False, 0, 0, False, True)),
-        ('ready', 'pending', None, (True, 0, 0, False, False)),
-        ('failed', None, 'pending', (False, 0, 0, False, False)),
-        ('ready', None, 'pending', (True, 0, 0, True, False)),
-        ('cancelled', 'running', None, (True, 0, 0, False, False)),
+        # 沒勾影片的節目：沒有影片工作即只播音訊，可預覽，也沒有可重試或補建的影片。
+        ('ready', None, None, (False, 0, 0, True, False, 0)),
+        ('pending', None, None, (True, 0, 0, False, False, 0)),
+        ('ready', 'ready', None, (False, 1, 0, True, False, 1)),
+        ('ready', 'failed', None, (False, 0, 1, False, True, 1)),
+        ('ready', 'cancelled', None, (False, 0, 0, False, True, 1)),
+        ('ready', 'pending', None, (True, 0, 0, False, False, 1)),
+        ('failed', None, 'pending', (False, 0, 0, False, False, 0)),
+        ('ready', None, 'pending', (True, 0, 0, True, False, 0)),
+        ('cancelled', 'running', None, (True, 0, 0, False, False, 1)),
     ]
     expected = [base]
     counts = []
@@ -504,7 +504,7 @@ def test_podcast_list_batches_child_states_without_changing_summaries(closed_loo
                                  # 總時長只在節目 ready（音訊全部完成）時提供。
                                  'duration_seconds': base['duration_seconds'] if status == 'ready' else None,
                                  'generation': dict(zip(('active', 'completed_videos', 'failed_videos',
-                                                        'preview_ready', 'retryable_videos'), generation))})
+                                                        'preview_ready', 'retryable_videos', 'expected_videos'), generation))})
         statements = []
 
         def count_query(connection, cursor, statement, parameters, context, executemany):

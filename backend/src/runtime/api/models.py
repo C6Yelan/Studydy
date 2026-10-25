@@ -45,7 +45,9 @@ class LearnerProfileView(_Closed):
 
 class AccountStorageView(_Closed):
     schema_: Literal["account-storage/v1"] = Field(alias="schema")
+    # 已用含 reserved_bytes：未收齊的分段上傳（宣告大小）與生成中 Podcast／影片的預估額度。
     used_bytes: int = Field(ge=0)
+    reserved_bytes: int = Field(ge=0)
     limit_bytes: int = Field(ge=1)
     remaining_bytes: int = Field(ge=0)
 
@@ -1395,6 +1397,8 @@ class PodcastGeneration(_Closed):
     retryable_videos: bool
     completed_videos: int = Field(ge=0)
     failed_videos: int = Field(ge=0)
+    # 預期會有影片的集數（勾選影片的全部分集扣掉已刪除的；沒勾選時為實際影片工作數）。
+    expected_videos: int = Field(ge=0)
 
 
 class PodcastSummary(_Closed):

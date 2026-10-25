@@ -186,57 +186,126 @@ def test_stream_ranges_reuse_saved_hash_until_file_changes(closed_loop, monkeypa
     assert hashed.count(False) == 2
 
 
-def test_account_storage_quota_blocks_new_files_but_keeps_reading(closed_loop, monkeypatch, tmp_path):
-    owner, source, _, document, dsn, _ = closed_loop
+def storage(client):
+    return client.get("/v1/account/storage").json()
+
+
+def upload_part(client, draft, key, offset, chunk, total):
+    return client.post(f"/v1/materials/{draft}/source-parts", content=chunk, headers={
+        "Origin": ORIGIN, "Idempotency-Key": key, "Content-Type": "audio/wav",
+        "X-Material-Name": "lecture.wav", "X-Upload-Offset": str(offset), "X-Upload-Total": str(total)})
+
+
+def draft_for(client, key="quota"):
+    return client.post("/v1/materials", json={"schema": "material-draft-create/v1", "display_name": key},
+                       headers={"Origin": ORIGIN, "Idempotency-Key": key + "-draft"}).json()["material_id"]
+
+
+def test_usage_counts_files_and_chunked_uploads_reserve_declared_size(closed_loop, monkeypatch):
+    owner, _, _, _, dsn, _ = closed_loop
     client = client_for(closed_loop)
-    identity = create(closed_loop, video=True)["podcast_id"]
-    complete(dsn)
     root = artifacts._root()
     analysis = root / "analysis" / owner.learner_id.hex / "material"
     analysis.mkdir(parents=True)
     (analysis / "checkpoint.json").write_bytes(b"x" * 1000)
     with database_session(dsn) as db:
         stored = sum(a.size_bytes for a in db.scalars(select(Artifact).where(Artifact.learner_id == owner.learner_id)))
-    usage = client.get("/v1/account/storage").json()
-    assert usage["used_bytes"] == stored + 1000
-    assert usage["limit_bytes"] == 5 * 1024 ** 3
-    assert usage["remaining_bytes"] == usage["limit_bytes"] - usage["used_bytes"]
+    usage = storage(client)
+    assert usage == {"schema": "account-storage/v1", "used_bytes": stored + 1000, "reserved_bytes": 0,
+                     "limit_bytes": 5 * 1024 ** 3, "remaining_bytes": 5 * 1024 ** 3 - stored - 1000}
+    # Codex 重現：上限比已用多 1000 bytes，兩份宣告 800 bytes 的分段上傳只能接受一份。
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", usage["used_bytes"] + 1000)
+    draft = draft_for(client)
+    assert upload_part(client, draft, "first", 0, b"x", 800).status_code == 202
+    after = storage(client)
+    assert after["reserved_bytes"] == 800 and after["used_bytes"] == usage["used_bytes"] + 800
+    second = upload_part(client, draft, "second", 0, b"x", 800)
+    assert second.status_code == 409 and second.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
+    assert second.json()["storage"]["used_bytes"] == usage["used_bytes"] + 800
+    # 後續各段不得超過宣告大小；補到宣告大小內照常接受，保留額度不增加。
+    assert upload_part(client, draft, "first", 1, b"x" * 800, 800).status_code == 400
+    assert upload_part(client, draft, "first", 1, b"x" * 798, 800).status_code == 202
+    assert storage(client)["used_bytes"] == usage["used_bytes"] + 800
+    assert [p.name for p in (root / ".media-work" / "uploads").iterdir() if "second" in p.name] == []
+    # 宣告大小剛好用完上限時可以；再多 1 byte 就拒絕。
+    single = {"Origin": ORIGIN, "Content-Type": "text/plain", "X-Material-Name": "note.txt"}
+    assert client.post(f"/v1/materials/{draft}/sources", content=b"a" * 201,
+                       headers={**single, "Idempotency-Key": "over"}).json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
 
-    # 上傳：已用＋本次大小 > 上限才拒絕，等於上限仍可。
-    limit = usage["used_bytes"] + 10
-    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", limit)
-    draft = client.post("/v1/materials", json={"schema": "material-draft-create/v1", "display_name": "quota"},
-                        headers={"Origin": ORIGIN, "Idempotency-Key": "quota-draft"}).json()["material_id"]
-    upload = {"Origin": ORIGIN, "Content-Type": "text/plain", "X-Material-Name": "note.txt"}
-    blocked = client.post(f"/v1/materials/{draft}/sources", content="一二三四".encode(),
-                          headers={**upload, "Idempotency-Key": "quota-text"})
-    assert blocked.status_code == 409
-    assert blocked.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
-    assert blocked.json()["storage"] == {"used_bytes": usage["used_bytes"], "limit_bytes": limit}
-    parts = client.post(f"/v1/materials/{draft}/source-parts", content=b"x" * 8, headers={
-        "Origin": ORIGIN, "Idempotency-Key": "quota-parts", "Content-Type": "audio/wav",
-        "X-Material-Name": "lecture.wav", "X-Upload-Offset": "0", "X-Upload-Total": "11"})
-    assert parts.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
-    assert not list((root / ".media-work" / "uploads").iterdir())
-    # 尚未收齊的分段上傳計入已用空間。
-    accepted = client.post(f"/v1/materials/{draft}/source-parts", content=b"x" * 4, headers={
-        "Origin": ORIGIN, "Idempotency-Key": "quota-parts-ok", "Content-Type": "audio/wav",
-        "X-Material-Name": "lecture.wav", "X-Upload-Offset": "0", "X-Upload-Total": "10"})
-    assert accepted.status_code == 202, accepted.text
-    assert client.get("/v1/account/storage").json()["used_bytes"] >= usage["used_bytes"] + 4
 
-    # 空間已滿：建立 Podcast、生成或重試影片都拒絕；閱讀、播放與刪除照常。
-    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", usage["used_bytes"])
-    body = {"schema": "podcast-create/v1", "name": "新節目", "delivery": "solo",
+def test_quota_check_and_write_are_serialized_per_account(closed_loop, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    import json
+    import time
+    from runtime import media_sources
+
+    owner, _, _, _, dsn, _ = closed_loop
+    used = storage_usage.account_usage(owner.learner_id, dsn=dsn)["used_bytes"]
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", used + 1000)
+    inside, done = Event(), {}
+
+    def first():
+        with storage_usage.reserved_room(owner.learner_id, 600, dsn=dsn):
+            inside.set()
+            time.sleep(0.5)
+            meta = media_sources._upload_folder() / f"{owner.learner_id.hex}-race.json"
+            meta.write_text(json.dumps({"total_bytes": 600}))
+        done["first"] = time.monotonic()
+
+    def second():
+        inside.wait(5)
+        try:
+            with storage_usage.reserved_room(owner.learner_id, 600, dsn=dsn):
+                return "accepted", time.monotonic()
+        except storage_usage.StorageQuotaError:
+            return "rejected", time.monotonic()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a, b = pool.submit(first), pool.submit(second)
+        a.result(timeout=20)
+        outcome, finished = b.result(timeout=20)
+    assert outcome == "rejected" and finished >= done["first"]
+
+
+def test_full_account_blocks_new_files_but_replays_reading_and_deletion_continue(closed_loop, monkeypatch):
+    owner, source, _, document, dsn, _ = closed_loop
+    client = client_for(closed_loop)
+    draft = draft_for(client, "replay")
+    single = {"Origin": ORIGIN, "Content-Type": "text/plain", "X-Material-Name": "note.txt", "Idempotency-Key": "note"}
+    first = client.post(f"/v1/materials/{draft}/sources", content="一二三四".encode(), headers=single)
+    assert first.status_code == 202, first.text
+    body = {"schema": "podcast-create/v1", "name": "節目", "delivery": "solo", "video": True,
             "knowledge_structure_revision": document["revision"],
             "concept_ids": [c["concept_id"] for c in document["concepts"]]}
-    created = client.post(f"/v1/materials/{source.material_id}/podcasts",
-                          headers={"Origin": ORIGIN, "Idempotency-Key": "quota-podcast"}, json=body)
-    assert created.status_code == 409 and created.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
+    url = f"/v1/materials/{source.material_id}/podcasts"
+    created = client.post(url, headers={"Origin": ORIGIN, "Idempotency-Key": "first-podcast"}, json=body)
+    assert created.status_code == 201
+    identity = created.json()["podcast_id"]
+    # 每集預估：全站還沒有成品時用預設值；未產生的分集以音訊＋影片預估保留。
+    assert storage(client)["reserved_bytes"] == storage_usage.DEFAULT_EPISODE_AUDIO_BYTES + storage_usage.DEFAULT_EPISODE_VIDEO_BYTES
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", storage(client)["used_bytes"])
+    # 冪等重送：先回傳原結果，不因帳號隨後額滿而失敗。
+    assert client.post(f"/v1/materials/{draft}/sources", content="一二三四".encode(), headers=single).json() == first.json()
+    assert client.post(url, headers={"Origin": ORIGIN, "Idempotency-Key": "first-podcast"}, json=body).json()["podcast_id"] == identity
+    blocked = client.post(url, headers={"Origin": ORIGIN, "Idempotency-Key": "second-podcast"}, json=body)
+    assert blocked.status_code == 409 and blocked.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
+    other = client.post(f"/v1/materials/{draft}/sources", content="五六".encode(), headers={**single, "Idempotency-Key": "other"})
+    assert other.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
+    # 已接受的節目照常產檔：實際成品取代保留額度。
+    complete(dsn)
+    usage = storage(client)
+    with database_session(dsn) as db:
+        audio = db.scalar(select(Artifact.size_bytes).where(Artifact.kind == "podcast_audio"))
+    assert usage["reserved_bytes"] == storage_usage.DEFAULT_EPISODE_VIDEO_BYTES
     video = client.get(f"/v1/podcasts/{identity}/episodes/0/video").json()
     cancelled = client.post(f"/v1/podcasts/{identity}/episodes/0/video/actions", headers={"Origin": ORIGIN},
                             json={"action": "cancel", "expected_version": video["version"]})
-    assert cancelled.status_code == 200
+    assert cancelled.status_code == 200 and storage(client)["reserved_bytes"] == 0
+    # 取消後空出預估額度；上限低於「已用＋一集影片預估」時拒絕重試、補建與手動生成。
+    files = storage(client)["used_bytes"]
+    estimate = storage_usage.DEFAULT_EPISODE_VIDEO_BYTES
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", files + estimate - 1)
     retry = client.post(f"/v1/podcasts/{identity}/episodes/0/video/actions", headers={"Origin": ORIGIN},
                         json={"action": "retry", "expected_version": cancelled.json()["version"]})
     assert retry.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
@@ -248,10 +317,29 @@ def test_account_storage_quota_blocks_new_files_but_keeps_reading(closed_loop, m
         db.query(PodcastVideo).filter(PodcastVideo.podcast_id == identity).delete()
     prepared = client.post(f"/v1/podcasts/{identity}/episodes/0/video", headers={"Origin": ORIGIN})
     assert prepared.json()["reason_code"] == "STORAGE_QUOTA_EXCEEDED"
+    # 空間足夠一集影片預估時，勾選影片節目的「接續生成」補建缺少的影片工作。
+    monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", files + estimate)
+    view = client.get(f"/v1/podcasts/{identity}").json()
+    assert view["generation"]["retryable_videos"] and not view["generation"]["preview_ready"]
+    assert view["generation"]["expected_videos"] == 1
+    assert client.post(f"/v1/podcasts/{identity}/actions", headers={"Origin": ORIGIN},
+                       json={"schema": "podcast-action/v1", "action": "retry", "expected_version": view["version"]}).status_code == 200
+    assert client.get(f"/v1/podcasts/{identity}/episodes/0/video").json()["status"] == "pending"
+    assert audio > 0
     assert client.get(f"/v1/podcasts/{identity}/episodes/0/audio").status_code == 200
     assert client.get("/v1/podcasts").status_code == 200
     assert client.delete(f"/v1/podcasts/{identity}", headers={"Origin": ORIGIN}).status_code == 200
-    assert client.get("/v1/account/storage").json()["used_bytes"] < usage["used_bytes"]
+    assert storage(client)["used_bytes"] < files
+
+
+def test_podcast_without_video_never_backfills_videos(closed_loop):
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)["podcast_id"]
+    complete(dsn)
+    view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+    assert view["generation"]["expected_videos"] == 0 and view["generation"]["preview_ready"]
+    with pytest.raises(podcasts.PodcastError, match="PODCAST_CONFLICT"):
+        podcasts.change_podcast(owner.learner_id, identity, "retry", view["version"], dsn=dsn)
 
 
 def legacy_wav_podcast(fixture, monkeypatch, *, key):
@@ -386,3 +474,67 @@ def test_flac_constraint_is_limited_to_podcast_audio(closed_loop):
                 "INSERT INTO artifacts (artifact_id,learner_id,material_id,kind,media_type,sha256,size_bytes,created_at) "
                 "VALUES (gen_random_uuid(),%s,%s,'original','audio/flac',%s,10,now())",
                 (owner.learner_id, source.material_id, b"0" * 32))
+
+
+def test_conversion_run_lock_cleans_temporaries_and_checks_peak_space(closed_loop, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from sqlalchemy import text
+
+    owner, _, _, _, dsn, _ = closed_loop
+    identity, wav = legacy_wav_podcast(closed_loop, monkeypatch, key="legacy-lock")
+    audio_id = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)["episodes"][0]["audio"]["artifact_id"]
+    root = artifacts._root()
+    path = root / "objects" / audio_id.replace("-", "")
+    backup = tmp_path / "backup"
+    quiet = lambda _: None
+    # 另一個轉檔程序持有執行鎖時不得開始，也不得收尾別人的暫存。
+    staging = root / ".staging"
+    leftovers = [staging / f"{audio_id.replace('-', '')}.old.flac-new", staging / f"{audio_id.replace('-', '')}.old.flac-new.old.tmp"]
+    for leftover in leftovers:
+        leftover.write_bytes(b"partial")
+    backup.mkdir()
+    (backup / "stale.wav.old.tmp").write_bytes(b"partial")
+    with database_session(dsn) as other:
+        other.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": podcast_audio_flac._RUN_LOCK})
+        with pytest.raises(podcast_audio_flac.ConversionError, match="ANOTHER_CONVERSION_RUNNING"):
+            podcast_audio_flac.convert(backup_dir=backup, dsn=dsn, report=quiet)
+        assert all(leftover.exists() for leftover in leftovers)
+    # 峰值空間：同一個檔案系統時備份＋FLAC 暫存合併計算；分開時兩邊各自核對。
+    candidates = [(None, None, 500), (None, None, 300)]
+    peak = 800 + 500 + podcast_audio_flac._FLAC_OVERHEAD
+    monkeypatch.setattr(podcast_audio_flac.shutil, "disk_usage", lambda _: SimpleNamespace(free=peak - 1))
+    with pytest.raises(podcast_audio_flac.ConversionError, match="DISK_SPACE_INSUFFICIENT"):
+        podcast_audio_flac._require_space(root, backup, candidates)
+    monkeypatch.setattr(podcast_audio_flac.shutil, "disk_usage", lambda _: SimpleNamespace(free=peak))
+    podcast_audio_flac._require_space(root, backup, candidates)
+    real_stat = os.stat
+    monkeypatch.setattr(podcast_audio_flac.os, "stat", lambda p, *a, **k: SimpleNamespace(st_dev=1 if str(p) == str(backup) else 2)
+                        if str(p) in (str(backup), str(root)) else real_stat(p, *a, **k))
+    free = {str(backup): 800, str(root): 500 + podcast_audio_flac._FLAC_OVERHEAD - 1}
+    monkeypatch.setattr(podcast_audio_flac.shutil, "disk_usage", lambda p: SimpleNamespace(free=free[str(p)]))
+    with pytest.raises(podcast_audio_flac.ConversionError, match="ARTIFACT_SPACE_INSUFFICIENT"):
+        podcast_audio_flac._require_space(root, backup, candidates)
+    free[str(root)] += 1
+    free[str(backup)] -= 1
+    with pytest.raises(podcast_audio_flac.ConversionError, match="BACKUP_SPACE_INSUFFICIENT"):
+        podcast_audio_flac._require_space(root, backup, candidates)
+    monkeypatch.undo()
+    monkeypatch.setenv("STUDYDY_ARTIFACT_ROOT", str(root))
+    # fsync 失敗：該檔保留原狀、不留下 .tmp；下次執行先清掉中斷的暫存再正常轉換。
+    real_fsync = os.fsync
+
+    def failing(descriptor):
+        # 只讓暫存檔（*.tmp）的 fsync 失敗，目錄同步照常。
+        if os.readlink(f"/proc/self/fd/{descriptor}").endswith(".tmp"):
+            raise OSError("synthetic fsync failure")
+        return real_fsync(descriptor)
+
+    monkeypatch.setattr(podcast_audio_flac.os, "fsync", failing)
+    summary = podcast_audio_flac.convert(backup_dir=backup, dsn=dsn, report=quiet)
+    assert summary["failed"] == 1 and path.read_bytes() == wav
+    assert not list(backup.glob("*.tmp")) and not list(staging.glob("*.tmp"))
+    monkeypatch.setattr(podcast_audio_flac.os, "fsync", real_fsync)
+    summary = podcast_audio_flac.convert(backup_dir=backup, dsn=dsn, report=quiet)
+    assert summary["converted"] == 1 and flac_to_wav(path.read_bytes()) == wav
+    assert not any(leftover.exists() for leftover in leftovers)
+    assert not list(backup.glob("*.tmp")) and not [p for p in staging.iterdir() if not p.name.endswith(".pending")]

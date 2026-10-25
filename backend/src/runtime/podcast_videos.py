@@ -32,7 +32,7 @@ from .storage.artifacts import (
     reconcile_discarded_artifacts,
     write_blob,
 )
-from .storage_usage import require_room
+from .storage_usage import episode_estimates, lock_account, require_room
 from .storage.tables import Artifact, Material, Podcast, PodcastVideo as Video
 from .storage.database import database_session
 
@@ -149,15 +149,18 @@ def read(owner, podcast_id, index, *, dsn=None):
 
 def prepare(owner, podcast_id, index, *, dsn=None):
     with database_session(dsn) as db:
+        lock_account(db, owner)
         podcast, _ = _locked(db, owner, podcast_id)
         row = _row(db, podcast_id, index)
         if not row or row.status == "cancelled":
-            require_room(owner, dsn=dsn)
+            require_room(db, owner, episode_estimates(db)["video"])
         return _view(podcast, index, enqueue(db, podcast, index))
 
 
 def action(owner, podcast_id, index, action, version, *, dsn=None):
     with database_session(dsn) as db:
+        if action == "retry":
+            lock_account(db, owner)
         podcast, _ = _locked(db, owner, podcast_id)
         episode = _episode(podcast, index)
         row = _row(db, podcast_id, index)
@@ -171,7 +174,7 @@ def action(owner, podcast_id, index, action, version, *, dsn=None):
             and episode["audio"]
             and row.source_sha256 == identity(podcast, episode)
         ):
-            require_room(owner, dsn=dsn)
+            require_room(db, owner, episode_estimates(db)["video"])
             row.status = "pending"
             row.error_code = None
         else:
