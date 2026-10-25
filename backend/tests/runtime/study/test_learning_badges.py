@@ -1,4 +1,4 @@
-"""badge-rules/v7／xp-rules/v4 的真 DB：交卷記錄分天關卡與準時達標、既有資料回溯推導，以及 0021 升級。"""
+"""badge-rules/v7／xp-rules/v4 的真 DB：交卷記錄分天關卡與準時達標、既有資料回溯推導，以及 0019 升級。"""
 import json
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -21,7 +21,7 @@ from test_starting_level import _client, _finish_cross, _preference, _start
 
 TAIPEI = ZoneInfo("Asia/Taipei")
 # 本功能的 migration 編號；合併時若改號，這裡與檔名一起改。
-BADGE_MIGRATION = 21
+BADGE_MIGRATION = 19
 
 
 def activity(f):
