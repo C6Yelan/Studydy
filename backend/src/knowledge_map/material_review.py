@@ -11,7 +11,7 @@ import unicodedata
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from content_identity import canonical_sha256
-from .claim_literals import LITERAL_PROJECTION, EXCERPT_PROJECTION, EXCERPT_PROJECTIONS
+from .claim_literals import LITERAL_PROJECTION, EXCERPT_PROJECTION, EXCERPT_PROJECTIONS, transcript_evidence_ids
 from .semantic_projection import _project_claim
 from .structure_rules import (
     RELATION_BASIS,
@@ -89,11 +89,10 @@ def _name(value: str) -> str:
     return "".join(unicodedata.normalize("NFKC", value).split()).casefold()
 
 
-def is_spoken_concept(concept: dict) -> bool:
-    """依該概念實際引用判斷；同批其他口語來源不能改變一般文件的審查規則。"""
-    return any(
-        "transcript" in source
-        for claim in concept["claims"] for source in claim["evidence"]
+def is_spoken_claim(claim: dict) -> bool:
+    """只對引用全為逐字稿的 Claim 套口語規則；同概念或同 Claim 混入 PDF 不擴張保護。"""
+    return bool(claim["evidence"]) and all(
+        "transcript" in source for source in claim["evidence"]
     )
 
 
@@ -173,6 +172,7 @@ def _pack_review(
             {
                 "h": index,
                 "text": claim["text"],
+                "transcript_only": is_spoken_claim(claim),
                 **({"quotes": [
                     {"e": evidence_handles[item["evidence_id"]], "q": item["quote"]}
                     for item in claim["evidence"]
@@ -515,8 +515,6 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
     for a in proposal.assignments:
         key = unit.concepts[a.concept]["concept_id"]
         action = a.action
-        if is_spoken_concept(unit.concepts[a.concept]) and a.issue == "uncertain":
-            action = "needs_review"
         if a.concept in parents and action in {"group", "example"}:
             blocked.append(
                 {
@@ -550,7 +548,10 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
         roles[key] = action
         if action in {"group", "example"}:
             teaching_root[key] = unit.concepts[a.target]["concept_id"]
-        if action == "needs_review":
+        if action == "needs_review" or (
+            a.issue == "uncertain"
+            and any(is_spoken_claim(claim) for claim in unit.concepts[a.concept]["claims"])
+        ):
             findings.append({"concept_id": key, "reason": a.reason})
         target = unit.concepts[a.target] if a.target is not None else None
         assignments.append(
@@ -642,9 +643,9 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
             for concept in unit.concepts
             if any(claim["claim_id"] == claim_id for claim in concept["claims"])
         }
-        uncertain = any(
+        uncertain = is_spoken_claim(unit.claims[edit.claim]) and any(
             unit.concepts[a.concept]["concept_id"] in owners
-            and is_spoken_concept(unit.concepts[a.concept]) and a.issue == "uncertain"
+            and a.issue == "uncertain"
             for a in proposal.assignments
         )
         restored = transcript_restore_text(unit, edit.claim, edit.meaning) if uncertain else None
@@ -822,6 +823,7 @@ def apply_review(
     projection = project_review(view, unit, response)
     result = deepcopy(document)
     evidence = {e["evidence_id"]: e for e in document["evidence"]}
+    excerpt_evidence_ids = transcript_evidence_ids(document)
     edits = {e["original_claim_id"]: e for e in projection["claim_changes"]}
     remap, claim_remap, concepts = {}, {}, []
     rejected_claim_edits = set()
@@ -855,6 +857,7 @@ def apply_review(
                     },
                     evidence,
                     excerpts=excerpts,
+                    excerpt_evidence_ids=excerpt_evidence_ids,
                 )
                 if projected is None or projected["projection"] not in {LITERAL_PROJECTION, EXCERPT_PROJECTION}:
                     rejected_claim_edits.add(original["claim_id"])

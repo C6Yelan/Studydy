@@ -43,18 +43,21 @@ def localize_block(response, context, bundle, call, dropped=None):
     items, targets = {}, {}
     evidence = {e["evidence_id"]: e for e in bundle["evidence"]}
     excerpt_handles = spoken_handles(context)
+    excerpt_evidence_ids = {context["evidence"][h]["evidence_id"] for h in excerpt_handles}
 
     def project(claim):
         expanded = _expand_claim(claim, context["evidence"], excerpt_handles=excerpt_handles)
         return _project_claim(
             expanded, evidence,
             excerpts=expanded is not None and any(isinstance(ref, dict) for ref in claim["s"]),
+            excerpt_evidence_ids=excerpt_evidence_ids,
         )
 
     def sources_for(projected):
         return quoted_sources(
             projected["source_spans"], evidence,
             excerpts=projected["projection"] in EXCERPT_PROJECTIONS,
+            excerpt_evidence_ids=excerpt_evidence_ids,
         )
 
     def add(key, text, target, field, *, maximum=4096, sources=None):

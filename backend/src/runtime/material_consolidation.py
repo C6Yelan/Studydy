@@ -72,6 +72,10 @@ def _response_schema(operation, payload, model):
         untouched["properties"]["claims"]["maxItems"] = 1
         rewritten = deepcopy(schema["$defs"]["Claim"])
         rewritten["properties"]["text"] = {"type": "string", "minLength": 1}
+        rewritten["properties"]["claims"]["items"]["enum"] = [
+            q["h"] for q in payload["claims"]
+            if q["h"] not in payload.get("preserved_claims", [])
+        ]
         schema["$defs"]["Claim"] = {"anyOf": [untouched, rewritten]}
     elif operation == "consolidation_check":
         schema["$defs"]["Check"]["properties"]["concept"]["enum"] = payload[
@@ -80,9 +84,16 @@ def _response_schema(operation, payload, model):
     return schema
 
 
-def _rewrite_payload(document, handles, components):
+def _rewrite_payload(document, handles, components, preserved_claim_ids):
     """去重請求保留完整 Claim 與其歸屬；目錄摘錄不可用來套用修改。"""
-    payload, _ = merge.pack(document, handles)
+    payload, claims = merge.pack(document, handles)
+    preserved = [h for h, claim in enumerate(claims) if claim["claim_id"] in preserved_claim_ids]
+    if preserved:
+        payload["preserved_claims"] = preserved
+        payload["preservation_policy"] = (
+            "preserved_claims 是待核對的逐字稿 Claim，必須各自單獨保留、text=null，"
+            "不可改寫或與其他 Claim 合併；同概念的其他 Claim 仍依一般規則整理。核對 duplicates_removed 時不要求改寫或合併這些受保護項目，只核對其餘可整理的主張。"
+        )
     payload["candidate_groups"] = [group for group in components if len(group) > 1]
     payload["editing_policy"] = (
         "這是保守去重，不是摘要、事實修正或重新翻譯。text 必須以原 Claim 文字為底稿，"
@@ -139,7 +150,7 @@ def _check_payload(payload, proposal, changed):
 
 def consolidate_structure(
     document, lock, archive, check_cancel, progress, *, wait_cancellation_check=None,
-    preserved_concept_ids=frozenset(),
+    preserved_claim_ids=frozenset(),
 ):
     if lock.get("material_review", {}).get("consolidation_policy") != merge.POLICY:
         return document
@@ -217,9 +228,14 @@ def consolidate_structure(
         archive.save_review(f"cache-{key}", value)
         return parsed, value
 
+    # 全部 Claim 都受保護時不再請模型改寫；混合概念仍整理其中的一般文件 Claim。
+    fully_preserved = {
+        concept["concept_id"] for concept in document["concepts"]
+        if all(q["claim_id"] in preserved_claim_ids for q in concept["claims"])
+    }
     catalog = [
         row for row in _catalog(document)
-        if document["concepts"][row["h"]]["concept_id"] not in preserved_concept_ids
+        if document["concepts"][row["h"]]["concept_id"] not in fully_preserved
     ]
     candidates = _same_name_candidates(catalog)
 
@@ -265,7 +281,7 @@ def consolidate_structure(
     if len(catalog) > 1:
         plan(catalog)
     components = [
-        [h for h in component if document["concepts"][h]["concept_id"] not in preserved_concept_ids]
+        [h for h in component if document["concepts"][h]["concept_id"] not in fully_preserved]
         for component in _candidate_components(len(document["concepts"]), candidates)
     ]
     components = [component for component in components if component]
@@ -284,7 +300,7 @@ def consolidate_structure(
     while batches:
         components = batches.pop(0)
         handles = [h for component in components for h in component]
-        payload = _rewrite_payload(document, handles, components)
+        payload = _rewrite_payload(document, handles, components, preserved_claim_ids)
         corrections = None
         projected = None
         rescheduled = False
@@ -299,7 +315,7 @@ def consolidate_structure(
             seen_corrections.add(correction_key)
 
             def validate_proposal(_, value):
-                merge.project(document, handles, value)
+                merge.project(document, handles, value, preserved_claim_ids=preserved_claim_ids)
 
             try:
                 _, proposal = request(
@@ -308,7 +324,7 @@ def consolidate_structure(
                     merge.Proposal,
                     validate_proposal,
                 )
-                projected = merge.project(document, handles, proposal)
+                projected = merge.project(document, handles, proposal, preserved_claim_ids=preserved_claim_ids)
                 # 未改寫也須檢查是否漏掉重複，避免全部保留便繞過去重驗收。
                 changed = list(range(len(projected)))
                 if changed:

@@ -271,7 +271,7 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 
 ## 跨語言學習內容
 
-`test_spoken_analysis.py` 驗證同區塊的獨立主張切分、唯一原文節錄、失敗引用的單次重選與呼叫記帳、技術值切斷／錯字引用拒絕、翻譯／審查／概念整理保留精確引用，以及 `uncertain` 保留原文並排除去重改寫；疑義改述僅可撤回原節錄，涵蓋 PDF 詞內換行與外文保留代號的核對。新契約與舊 checkpoint 隔離，舊投影不放寬。`runtime/sources/test_media_source_flow.py` 以受控模型驗證 mapping 的字幕／ASR 身分經來源集合傳到分析，來源頁碼與時間回查不變；`runtime/study/test_knowledge_reads.py` 保護完整關係來源。這些不代表真實語音辨識品質；Luna 的授權樣本比較只報實際呼叫及觀察結論。
+`test_spoken_analysis.py` 驗證同區塊的獨立主張切分、句／子句邊界、至少 4 個非空白／非標點字元（含整段）、單字拒收、否定不可被從句中裁掉、無標點整段回退、唯一原文節錄、失敗引用的單次重選與呼叫記帳、技術值切斷／錯字引用拒絕、翻譯／審查／概念整理保留精確引用，以及 `uncertain` 保留原文並排除去重改寫；疑義改述僅可撤回原節錄，涵蓋 PDF 詞內換行與外文保留代號的核對。同一概念內的逐字稿、PDF 與混合引用 Claim 分別核對，混合引用中的 PDF 短標題仍可發布，語言例外與去重只保護逐字稿 Claim。新契約與舊 checkpoint 隔離，舊投影不放寬。`runtime/sources/test_media_source_flow.py` 以受控模型驗證 mapping 的字幕／ASR 身分經來源集合傳到分析，來源頁碼與時間回查不變；`runtime/study/test_knowledge_reads.py` 保護完整關係來源。這些不代表真實語音辨識品質；Luna 的授權樣本比較只報實際呼叫及觀察結論。
 
 `test_cross_language_claims.py`、`test_material_localization.py`、`test_review_language.py` 覆蓋原文引用不變、數值／單位／程式保護、跨段公式邊界、代號遺漏與重複、混入外語詞及修正後保留的完整來源。子圖語言補正失敗會阻止該批完成；Review 的局部語言修正無法核對時保留原文並標記 `needs_review`，其他合法修改仍可套用，保留代號遺漏或重複的提案則仍拒絕。獨立子圖與審查回歸另核對呼叫計數、已完成結果重用及舊工作提示不可被新政策覆蓋。
 

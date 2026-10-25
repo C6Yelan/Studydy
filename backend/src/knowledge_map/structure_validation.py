@@ -11,7 +11,7 @@ from uuid import UUID
 from .semantic_projection import _unsupported_null_meaning
 from .claim_literals import (
     LITERAL_PROJECTION, EXCERPT_PROJECTION, EXCERPT_PROJECTIONS, LITERAL_REPAIRS,
-    preserves_literals, quoted_sources,
+    preserves_literals, quoted_sources, transcript_evidence_ids,
 )
 from .structure_rules import (
     STRUCTURE_SCHEMA,
@@ -236,6 +236,7 @@ def _validate_concepts(document):
     evidence_ids = [item["evidence_id"] for item in evidence]
     known_evidence = set(evidence_ids)
     evidence_by_id = {item["evidence_id"]: item for item in evidence}
+    excerpt_evidence_ids = transcript_evidence_ids(document) if "input_binding" in document else None
     evidence_order = {
         evidence_id: index for index, evidence_id in enumerate(evidence_ids)
     }
@@ -300,6 +301,13 @@ def _validate_concepts(document):
             sources = quoted_sources(
                 claim["source_spans"], evidence_by_id,
                 excerpts=claim["projection"] in EXCERPT_PROJECTIONS,
+                # 草稿尚未綁來源；完整區塊的來源類型在 finalize 時核對。
+                # 生成投影已按 context 檢查逐字稿，這裡不把 PDF 短標題誤當口語節錄。
+                excerpt_evidence_ids=excerpt_evidence_ids
+                if excerpt_evidence_ids is not None else {
+                    span["evidence_id"] for span in claim["source_spans"]
+                    if span["quote"] != evidence_by_id[span["evidence_id"]]["exact_text"]
+                },
             )
             if sources is None:
                 return False

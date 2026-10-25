@@ -286,3 +286,5 @@ exports 不需 migration。後端新增 `genanki`、`python-docx` 與 `fonttools
 卡組每份接受的 PNG 合計上限 512 MiB（按實際暫存 PNG 大小計算），每個概念最多 16 張、整份最多 2000 張；每個帳號最多同時保留兩份卡組匯出，包含正在下載、尚未清理的工作。建立工作以檔案鎖原子檢查帳號名額，暫存目錄名稱綁定 owner；超限分別回 `EXPORT_SIZE_LIMIT`（413）、`EXPORT_PAGE_LIMIT`（413）與 `EXPORT_ACTIVE_LIMIT`（409），前端顯示對應限制。打包成品另占磁碟空間，與 PNG／Anki SQLite 在下載結束後一起清理；卡組檔案 lease 保持到串流結束，不隨產檔名額提前釋放。同一工作正在上傳或下載時，重複操作回 `EXPORT_IN_PROGRESS`（409），不占用產檔名額等待檔案鎖。
 
 口語分析的 `material-block-request/v2`／`material-block-response/v2` 與 `source-excerpts/v1` 必須與支援 `spoken_excerpt_meaning/v1`／`spoken_excerpt_literal_repair/v1` 的後端一同部署。只套用新分析；舊來源、已發布 Claim／Revision、runtime lock hash 不改寫。舊工作不能因新提示而直接重用 checkpoint；回復版本須能讀取新投影，不能以改寫舊 hash 偽裝相容。
+
+部署前要先清空舊 lock 的教材分析佇列，再切換後端與新 lock。

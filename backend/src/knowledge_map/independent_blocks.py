@@ -99,6 +99,7 @@ def project_block(context, bundle, identity, response):
 def repair_excerpt_quotes(response, context, bundle, call):
     """只請模型重選無法回查的口語引用一次，不猜字、不改寫已生成的主張。"""
     handles = spoken_handles(context)
+    excerpt_evidence_ids = {context["evidence"][h]["evidence_id"] for h in handles}
     evidence = {e["evidence_id"]: e for e in bundle["evidence"]}
     pending, targets = {}, {}
     for ci, concept in enumerate(response["concepts"]):
@@ -108,7 +109,7 @@ def repair_excerpt_quotes(response, context, bundle, call):
             if not any(isinstance(ref, dict) or (type(ref) is int and ref in handles) for ref in claim["s"]):
                 continue
             expanded = _expand_claim(claim, context["evidence"], excerpt_handles=handles)
-            if _project_claim(expanded, evidence, excerpts=True) is not None:
+            if _project_claim(expanded, evidence, excerpts=True, excerpt_evidence_ids=excerpt_evidence_ids) is not None:
                 continue
             key = f"claim_{ci}_{qi}"
             pending[key] = {"meaning": claim["m"], "previous_sources": claim["s"]}

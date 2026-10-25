@@ -445,7 +445,7 @@ def _unsupported_null_meaning(text: str, source_text: str) -> bool:
 
 
 def _project_claim(
-    claim: Any, evidence: dict[str, dict[str, Any]], *, excerpts=False
+    claim: Any, evidence: dict[str, dict[str, Any]], *, excerpts=False, excerpt_evidence_ids=None
 ) -> dict[str, Any] | None:
     if not isinstance(claim, dict) or set(claim) != {"meaning", "source_spans"}:
         return None
@@ -456,7 +456,7 @@ def _project_claim(
     spans = claim["source_spans"]
     if not isinstance(spans, list) or not spans:
         return None
-    sources = quoted_sources(spans, evidence, excerpts=excerpts)
+    sources = quoted_sources(spans, evidence, excerpts=excerpts, excerpt_evidence_ids=excerpt_evidence_ids)
     if sources is None:
         return None
     projected = []
@@ -500,6 +500,7 @@ def apply_semantic_response(
         raise ValueError("SEMANTIC_OUTPUT_INVALID")
     non_content_ids = set(context.get("non_content_evidence_ids", []))
     excerpt_handles = spoken_handles(context)
+    excerpt_evidence_ids = {context["evidence"][h]["evidence_id"] for h in excerpt_handles}
     evidence = {
         item["evidence_id"]: item
         for item in bundle["evidence"]
@@ -591,6 +592,7 @@ def apply_semantic_response(
                 excerpts=expanded is not None and any(
                     isinstance(ref, dict) for ref in proposed_claim["s"]
                 ),
+                excerpt_evidence_ids=excerpt_evidence_ids,
             )
             if claim is None:
                 state.rejected_claims += 1

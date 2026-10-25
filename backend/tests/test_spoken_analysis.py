@@ -52,8 +52,6 @@ def document(text, meanings):
         runtime_lock_sha256='2' * 64, model_id='synthetic', model_revision='synthetic',
         semantic_calls=1, ocr_calls=0,
     )
-    doc['input_binding']['manifest']['items'][0]['transcript'] = deepcopy(TRANSCRIPT)
-    doc['revision'] = _revision(doc)
     return doc
 
 
@@ -218,8 +216,6 @@ def test_review_preserves_two_nonadjacent_excerpts_in_the_same_evidence():
     doc = build_knowledge_structure(context, state, source_sha256='1'*64,
         run_id=SOURCE, produced_at='2026-10-25T00:00:00+00:00',
         runtime_lock_sha256='2'*64, model_id='synthetic', model_revision='synthetic', semantic_calls=1, ocr_calls=0)
-    doc['input_binding']['manifest']['items'][0]['transcript'] = deepcopy(TRANSCRIPT)
-    doc['revision'] = _revision(doc)
     view, units = review_inputs(doc)
     result, projection = apply_review(doc, view, units[0], proposal(units[0], meaning='等待 5 秒後，重試最多 8 次。'))
     assert len(projection['claim_changes']) == 1
@@ -303,3 +299,193 @@ def test_spoken_review_rules_do_not_freeze_an_unrelated_document_concept():
     response['claim_edits'] = [{'claim': 4, 'meaning': '效率使用8個單位的資源。', 'evidence': [4], 'reason': '原文明示。'}]
     result = project_review(original, unit, response)
     assert any(edit['original_claim_id'] == unit.claims[4]['claim_id'] for edit in result['claim_changes'])
+
+
+def mixed_claim_document(*, english_pdf=False):
+    """同概念包含純逐字稿、純 PDF 與混合引用，三者不能共用疑字豁免。"""
+    pdf_source = '00000000-0000-4000-8000-000000000002'
+    speech = '這段逐字稿把這個步驟稱為聚盒。'
+    pdf = 'The operation requires waiting for 5 seconds.' if english_pdf else '操作前須等待 5 秒。'
+    context = build_document_context([
+        _page(1, [_block(1, 0, 'paragraph', speech)]),
+        _page(2, [_block(2, 0, 'paragraph', pdf)]),
+    ], page_count=2)
+    context['source_pages'] = [
+        {'page': 1, 'source_id': SOURCE, 'normalized_page': 1},
+        {'page': 2, 'source_id': pdf_source, 'normalized_page': 1},
+    ]
+    context['spoken_sources'] = {SOURCE: TRANSCRIPT}
+    quote = {'e': 0, 'q': speech}
+    response = {'concepts': [{'l': '操作設定', 'a': [], 'c': [
+        {'m': '此步驟稱為聚盒，逐字稿用詞待核對。', 's': [quote]},
+        {'m': pdf if english_pdf else '操作之前須等待 5 秒。', 's': [1]},
+        {'m': 'Wait for 5 seconds before the operation.' if english_pdf else '進行操作前須等候 5 秒。', 's': [1]},
+        {'m': '這個步驟稱為聚盒，操作前須等候 5 秒。', 's': [quote, 1]},
+    ]}], 'relations': []}
+    bundle = {'evidence': context['evidence'], 'sections': context['sections']}
+    state = project_block(context, bundle, 'mixed-claim-sources', response)
+    doc = build_knowledge_structure(context, state, source_sha256='1'*64,
+        run_id=SOURCE, produced_at='2026-10-25T00:00:00+00:00',
+        runtime_lock_sha256='2'*64, model_id='synthetic', model_revision='synthetic', semantic_calls=1, ocr_calls=0)
+    return doc
+
+
+def test_same_concept_keeps_pdf_and_mixed_source_claim_edits_on_general_rules():
+    from knowledge_map.material_review import is_spoken_claim
+    from runtime.material_review import _uncertain_claim_ids
+    doc = mixed_claim_document()
+    view, units = review_inputs(doc)
+    unit = units[0]
+    assert [is_spoken_claim(q) for q in unit.claims] == [True, False, False, False]
+    assert [q['transcript_only'] for q in unit.payload['claims']] == [True, False, False, False]
+    response = proposal(unit, issue='uncertain', meaning='這個步驟稱為聚合。')
+    response['claim_edits'] += [
+        {'claim':1, 'meaning':'操作前必須等待 5 秒。', 'evidence':[1], 'reason':'PDF 支持此敘述。'},
+        {'claim':3, 'meaning':'操作前須等候 5 秒；逐字稿把步驟稱為聚盒。', 'evidence':[0,1], 'reason':'依兩份來源整理。'},
+    ]
+    assert _uncertain_claim_ids(unit, response['assignments']) == {unit.claims[0]['claim_id']}
+    result, projection = apply_review(doc, view, unit, response)
+    claims = result['concepts'][0]['claims']
+    assert claims[0] == doc['concepts'][0]['claims'][0]
+    assert claims[1]['text'] == '操作前必須等待 5 秒。'
+    assert claims[3]['text'] == '操作前須等候 5 秒；逐字稿把步驟稱為聚盒。'
+    assert len(projection['claim_changes']) == 2 and validate_knowledge_structure(result)
+
+
+def test_same_concept_pdf_translation_cannot_use_the_transcript_restore_exception(tmp_path, monkeypatch):
+    from runtime.material_review import _checked_review
+    doc = mixed_claim_document(english_pdf=True)
+    _, units = review_inputs(doc)
+    unit = units[0]
+    response = proposal(unit, issue='uncertain')
+    response['claim_edits'] = [{'claim':1, 'meaning':unit.claims[1]['evidence'][0]['quote'],
+                                'evidence':[1], 'reason':'一般 PDF 翻譯仍須核對保留代號。'}]
+    calls = []
+    def model(*a, **kw):
+        calls.append(kw['request'])
+        assert any(c['claim'] == 1 and c['literals'] for c in kw['request']['language_corrections'])
+        return wire_proposal(response)
+    monkeypatch.setattr('runtime.material_review.request_semantics', model)
+    archive = Archive(tmp_path/'review')
+    result, count = _checked_review(unit, 1, _runtime_lock(), archive, None, archive.check)
+    assert result['claim_edits'] == [] and count == len(calls) == 2
+
+
+def test_consolidation_keeps_only_uncertain_transcript_claim_fixed_in_mixed_concept(monkeypatch):
+    from runtime.material_consolidation import consolidate_structure
+    from test_material_consolidation import Archive as MergeArchive, approved
+    from knowledge_map.material_review import ReviewError
+    doc = mixed_claim_document()
+    original = deepcopy(doc)
+    frozen = doc['concepts'][0]['claims'][0]
+    preserved = {frozen['claim_id']}
+    calls = []
+    def model(*a, **kw):
+        request = kw['request'];calls.append(request['operation'])
+        if request['operation'] == 'consolidation_check':
+            return approved(request)
+        assert request['operation'] == 'consolidation_rewrite'
+        assert request['preserved_claims'] == [0]
+        branches = kw['response_schema']['$defs']['Claim']['anyOf']
+        assert 0 not in branches[1]['properties']['claims']['items']['enum']
+        value = keep(request)
+        value['concepts'][0]['claims'] = [
+            {'claims':[0], 'text':None},
+            {'claims':[1,2], 'text':'操作前須等待 5 秒。'},
+            {'claims':[3], 'text':None},
+        ]
+        return value
+    monkeypatch.setattr('runtime.material_consolidation.request_semantics', model)
+    result = consolidate_structure(doc, _runtime_lock(), MergeArchive(), lambda:None, lambda *a:None,
+                                   preserved_claim_ids=preserved)
+    assert calls == ['consolidation_rewrite', 'consolidation_check']
+    assert len(result['concepts'][0]['claims']) == 3
+    assert result['concepts'][0]['claims'][0] == frozen and doc == original
+    assert validate_knowledge_structure(result)
+    illegal = keep(consolidation.pack(doc, [0])[0])
+    illegal['concepts'][0]['claims'][0]['text'] = '這個步驟稱為聚合。'
+    with pytest.raises(ReviewError, match='CONSOLIDATION_PROTECTED_CLAIM_CHANGED'):
+        consolidation.project(doc, [0], illegal, preserved_claim_ids=preserved)
+
+
+@pytest.mark.parametrize('text,quote,valid', [
+    ('設定時不要設為 10%。請維持原值。', '設為 10%', False),
+    ('設定時不要設為 10%。請維持原值。', '不要設為 10%', False),
+    ('設定時不要設為 10%。請維持原值。', '設定時不要設為 10%。', True),
+    ('請維持原值；設定時不要設為 10%。', '設定時不要設為 10%', True),
+    ('設定時不要設為 10%，請維持原值。', '設定時不要設為 10%', True),
+    ('設定時不要 設為10% 而應保持原本數值', '設為10% 而應保持原本數值', False),
+    ('設定時不要 設為10% 而應保持原本數值', '設定時不要 設為10% 而應保持原本數值', True),
+    ('Do not set the value to 10% keep the original value', 'set the value to 10%', False),
+    ('Do not set the value to 10% keep the original value', 'Do not set the value to 10% keep the original value', True),
+])
+def test_excerpt_uses_clause_boundaries_and_keeps_unpunctuated_transcripts_whole(text, quote, valid):
+    from knowledge_map.claim_literals import quoted_sources
+    evidence = {'e': {'exact_text':text, 'kind':'paragraph'}}
+    result = quoted_sources([{'evidence_id':'e', 'quote':quote}], evidence, excerpts=True)
+    assert (result is not None) is valid
+
+
+@pytest.mark.parametrize('text,quote,valid', [
+    ('上。請繼續閱讀下文。', '上', False),
+    ('上', '上', False),
+    ('上 ！ ，。', '上 ！ ，。', False),
+    ('不可逆。', '不可逆。', False),
+    ('不可逆轉。', '不可逆轉。', True),
+    ('a b c。', 'a b c。', False),
+    ('a b c d。', 'a b c d。', True),
+    ('設為 10%。', '設為 10%。', True),
+])
+def test_excerpt_minimum_counts_four_nonspace_nonpunctuation_characters_even_for_whole_source(text, quote, valid):
+    from knowledge_map.claim_literals import quoted_sources
+    evidence = {'e': {'exact_text':text, 'kind':'paragraph'}}
+    result = quoted_sources([{'evidence_id':'e', 'quote':quote}], evidence, excerpts=True)
+    assert (result is not None) is valid
+
+
+def test_general_document_whole_evidence_does_not_inherit_excerpt_minimum():
+    from knowledge_map.claim_literals import quoted_sources
+    evidence = {'e': {'exact_text':'上', 'kind':'heading'}}
+    assert quoted_sources([{'evidence_id':'e','quote':'上'}], evidence) is not None
+
+
+def test_mixed_claim_keeps_short_pdf_evidence_through_projection_review_and_consolidation():
+    from knowledge_map.material_review import is_spoken_claim
+    pdf_source = '00000000-0000-4000-8000-000000000002'
+    context = build_document_context([
+        _page(1, [_block(1, 0, 'paragraph', '等待時間為 5 秒。其他條件另列。')]),
+        _page(2, [_block(2, 0, 'heading', '上')]),
+    ], page_count=2)
+    context['source_pages'] = [
+        {'page':1,'source_id':SOURCE,'normalized_page':1},
+        {'page':2,'source_id':pdf_source,'normalized_page':1},
+    ]
+    context['spoken_sources'] = {SOURCE:TRANSCRIPT}
+    bundle = {'sections':context['sections'],'evidence':context['evidence']}
+    response = {'concepts':[{'l':'設定說明','a':[],'c':[{
+        'm':'等待時間為 5 秒，文件區塊標記為上。',
+        's':[{'e':0,'q':'等待時間為 5 秒。'},1],
+    }]}],'relations':[]}
+    def no_translation(*args):raise AssertionError('中文 Claim 不需翻譯')
+    response = localize_block(response,context,bundle,no_translation)
+    state = project_block(context,bundle,'mixed-short-pdf',response)
+    assert state.rejected_claims == 0
+    doc = build_knowledge_structure(context,state,source_sha256='1'*64,
+        run_id=SOURCE,produced_at='2026-10-25T00:00:00+00:00',runtime_lock_sha256='2'*64,
+        model_id='synthetic',model_revision='synthetic',semantic_calls=1,ocr_calls=0)
+    view,units = review_inputs(doc)
+    assert not is_spoken_claim(units[0].claims[0])
+    value = proposal(units[0],issue='uncertain',meaning='文件區塊標記為上；等待時間為 5 秒。')
+    value['claim_edits'][0]['evidence'] = [0,1]
+    reviewed,projection = apply_review(doc,view,units[0],value)
+    assert projection['claim_changes']
+    rewrite = keep(consolidation.pack(reviewed,[0])[0])
+    rewrite['concepts'][0]['claims'][0]['text'] = '等待時間為 5 秒；文件區塊標記為上。'
+    result,_ = consolidation.apply(reviewed,consolidation.project(reviewed,[0],rewrite))
+    assert validate_knowledge_structure(result)
+    assert [span['quote'] for span in result['concepts'][0]['claims'][0]['source_spans']] == ['等待時間為 5 秒。','上']
+    # 完整引用若真正來自逐字稿，最短門檻仍須在正式來源綁定後成立。
+    speech_only = deepcopy(result)
+    speech_only['input_binding']['manifest']['items'][1]['transcript'] = deepcopy(TRANSCRIPT)
+    speech_only['revision'] = _revision(speech_only)
+    assert not validate_knowledge_structure(speech_only)

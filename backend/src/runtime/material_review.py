@@ -15,7 +15,7 @@ from knowledge_map.material_review import (
     response_schema,
     validate_proposal,
     transcript_restore_text,
-    is_spoken_concept,
+    is_spoken_claim,
 )
 from knowledge_map.localization import POLICY as LOCALIZATION_POLICY, _needs_translation
 from knowledge_map.claim_literals import language_correction_template, restore_literals
@@ -101,8 +101,8 @@ def _uncertain_claim_ids(unit, assignments):
         and assignment.get("issue") == "uncertain"
         and type(assignment.get("concept")) is int
         and 0 <= assignment["concept"] < len(unit.concepts)
-        and is_spoken_concept(unit.concepts[assignment["concept"]])
         for claim in unit.concepts[assignment["concept"]]["claims"]
+        if is_spoken_claim(claim)
     }
 
 
@@ -893,9 +893,9 @@ def review_structure(
         consolidation_progress,
         wait_cancellation_check=wait_cancellation_check,
         # ASR 疑義維持原 Claim；後續去重不可把待人工核對的字詞再改寫。
-        preserved_concept_ids={
-            projection["concept_mapping"][unit.concepts[a["concept"]]["concept_id"]]
-            for a in proposal["assignments"]
-            if is_spoken_concept(unit.concepts[a["concept"]]) and a["issue"] == "uncertain"
+        preserved_claim_ids={
+            projection["claim_mapping"][claim_id]
+            for claim_id in uncertain_claims
+            if claim_id in projection["claim_mapping"]
         },
     )

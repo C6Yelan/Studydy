@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .claim_literals import (
     LITERAL_PROJECTION, EXCERPT_PROJECTION, EXCERPT_PROJECTIONS,
-    literal_differences, preserves_literals, quoted_sources,
+    literal_differences, preserves_literals, quoted_sources, transcript_evidence_ids,
 )
 from .material_review import ReviewError
 from .semantic_projection import _project_claim
@@ -137,7 +137,7 @@ def _partition(actual, expected, code):
         raise error
 
 
-def project(document, handles, response):
+def project(document, handles, response, *, preserved_claim_ids=frozenset()):
     """結構與字面值先檢核；等義與語意完整性另交獨立模型檢核。"""
     try:
         proposal = Proposal.model_validate(response)
@@ -152,6 +152,7 @@ def project(document, handles, response):
     )
     evidence = {e["evidence_id"]: e for e in document["evidence"]}
     changes, literal_issues = [], []
+    excerpt_evidence_ids = transcript_evidence_ids(document)
     for concept in proposal.concepts:
         if concept.title_from not in concept.concepts:
             raise ReviewError("CONSOLIDATION_TITLE_INVALID")
@@ -167,6 +168,11 @@ def project(document, handles, response):
         claims, mapping = [], {}
         for edit in concept.claims:
             original_claims = [originals[h] for h in edit.claims]
+            if any(q["claim_id"] in preserved_claim_ids for q in original_claims) and (
+                len(original_claims) != 1
+                or edit.text not in (None, original_claims[0]["text"])
+            ):
+                raise ReviewError("CONSOLIDATION_PROTECTED_CLAIM_CHANGED")
             if edit.text is None:
                 if len(original_claims) != 1:
                     raise ReviewError("CONSOLIDATION_TEXT_REQUIRED")
@@ -185,7 +191,7 @@ def project(document, handles, response):
                     for span in original["source_spans"]:
                         if span not in spans:
                             spans.append(deepcopy(span))
-                sources = quoted_sources(spans, evidence, excerpts=excerpts)
+                sources = quoted_sources(spans, evidence, excerpts=excerpts, excerpt_evidence_ids=excerpt_evidence_ids)
                 projected = _project_claim(
                     {
                         "meaning": edit.text,
@@ -193,6 +199,7 @@ def project(document, handles, response):
                     },
                     evidence,
                     excerpts=excerpts,
+                    excerpt_evidence_ids=excerpt_evidence_ids,
                 )
                 if (
                     projected is None

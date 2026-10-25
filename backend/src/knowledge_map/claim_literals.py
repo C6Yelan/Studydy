@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 
 LITERAL_PROJECTION = "localized_meaning_v2"
@@ -248,8 +249,35 @@ def preserves_literals(meaning: str, sources: list[dict], *, legacy: bool = Fals
     return True
 
 
-def quoted_sources(spans, evidence, *, excerpts=False):
-    """模型輸入與保存資料的來源邊界：節錄須唯一逐字定位，不能切斷技術字面值。"""
+_CLAUSE_PUNCTUATION = frozenset("。！？；，：.!?;,:")
+MIN_EXCERPT_CHARACTERS = 4
+
+
+def _clause_bounds(text, start, end):
+    """只依來源的句／子句標點切分；無標點時保守引用整段，空白不單獨建立邊界。"""
+    before = text[:start].rstrip()
+    after = text[end:].lstrip()
+    quote = text[start:end].rstrip()
+    return (not before or before[-1] in _CLAUSE_PUNCTUATION) and (
+        not after
+        or after[0] in _CLAUSE_PUNCTUATION
+        or (quote and quote[-1] in _CLAUSE_PUNCTUATION)
+    )
+
+
+def transcript_evidence_ids(document):
+    """從已綁定來源取得逐字稿 Evidence；不以 Claim／概念名稱猜來源。"""
+    binding = document["input_binding"]
+    sources = {item["source_id"] for item in binding["manifest"]["items"] if "transcript" in item}
+    pages = binding["bundle"]["pages"]
+    return {
+        item["evidence_id"] for item in document["evidence"]
+        if pages[item["page"] - 1]["source_id"] in sources
+    }
+
+
+def quoted_sources(spans, evidence, *, excerpts=False, excerpt_evidence_ids=None):
+    """節錄須足夠長、唯一逐字定位且位於子句邊界，不能切斷技術字面值。"""
     sources = []
     for span in spans:
         if not isinstance(span, dict) or set(span) != {"evidence_id", "quote"}:
@@ -258,13 +286,23 @@ def quoted_sources(spans, evidence, *, excerpts=False):
         quote = span["quote"]
         if source is None or not isinstance(quote, str) or not quote.strip():
             return None
+        spoken = excerpts and (
+            excerpt_evidence_ids is None or span["evidence_id"] in excerpt_evidence_ids
+        )
+        if spoken and sum(
+            not char.isspace() and not unicodedata.category(char).startswith("P")
+            for char in quote
+        ) < MIN_EXCERPT_CHARACTERS:
+            return None
         text = source["exact_text"]
         if quote != text:
-            if not excerpts:
+            if not spoken:
                 return None
             start = text.find(quote)
             end = start + len(quote)
             if start < 0 or text.find(quote, start + 1) >= 0:
+                return None
+            if not _clause_bounds(text, start, end):
                 return None
             if any(
                 a < start < b or a < end < b
