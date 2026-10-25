@@ -1,6 +1,7 @@
 """獨立來源子圖：模型只使用本地索引，全域身分及來源關係由程式維護。"""
 
 from copy import deepcopy
+from .claim_literals import quote_error
 from .semantic_projection import (
     SemanticState,
     semantic_request,
@@ -97,7 +98,7 @@ def project_block(context, bundle, identity, response):
 
 
 def repair_excerpt_quotes(response, context, bundle, call):
-    """只請模型重選無法回查的口語引用一次，不猜字、不改寫已生成的主張。"""
+    """只請模型重選未通過逐字／邊界驗證的口語引用一次，不猜字、不改寫已生成的主張。"""
     handles = spoken_handles(context)
     excerpt_evidence_ids = {context["evidence"][h]["evidence_id"] for h in handles}
     evidence = {e["evidence_id"]: e for e in bundle["evidence"]}
@@ -112,7 +113,15 @@ def repair_excerpt_quotes(response, context, bundle, call):
             if _project_claim(expanded, evidence, excerpts=True, excerpt_evidence_ids=excerpt_evidence_ids) is not None:
                 continue
             key = f"claim_{ci}_{qi}"
-            pending[key] = {"meaning": claim["m"], "previous_sources": claim["s"]}
+            failures = []
+            if expanded is not None:
+                for index, span in enumerate(expanded["source_spans"]):
+                    reason = quote_error(evidence.get(span["evidence_id"]), span["quote"],
+                                         spoken=span["evidence_id"] in excerpt_evidence_ids)
+                    if reason is not None:
+                        failures.append({"source_index": index, "reason": reason})
+            pending[key] = {"meaning": claim["m"], "previous_sources": claim["s"],
+                            "source_errors": failures}
             targets[key] = (ci, qi)
     if not pending:
         return response

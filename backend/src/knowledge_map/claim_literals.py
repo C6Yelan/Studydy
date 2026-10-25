@@ -284,6 +284,35 @@ def transcript_evidence_ids(document):
     }
 
 
+def quote_error(source, quote, *, spoken=False):
+    """投影與模型補正共用拒收原因，避免逐字正確卻越界的引用被誤報成找不到原文。"""
+    if source is None or not isinstance(quote, str) or not quote.strip():
+        return "QUOTE_SOURCE_INVALID"
+    if spoken and sum(
+        not char.isspace() and not unicodedata.category(char).startswith("P")
+        for char in quote
+    ) < MIN_EXCERPT_CHARACTERS:
+        return "QUOTE_TOO_SHORT"
+    text = source["exact_text"]
+    if quote != text:
+        if not spoken:
+            return "QUOTE_FULL_BLOCK_REQUIRED"
+        start = text.find(quote)
+        end = start + len(quote)
+        if start < 0:
+            return "QUOTE_NOT_EXACT"
+        if text.find(quote, start + 1) >= 0:
+            return "QUOTE_AMBIGUOUS"
+        if not _clause_bounds(text, start, end):
+            return "QUOTE_CLAUSE_BOUNDARY"
+        if any(
+            a < start < b or a < end < b
+            for a, b in _literal_ranges(text, source.get("kind", "paragraph"))
+        ):
+            return "QUOTE_LITERAL_BOUNDARY"
+    return None
+
+
 def quoted_sources(spans, evidence, *, excerpts=False, excerpt_evidence_ids=None):
     """節錄須足夠長、唯一逐字定位且位於子句邊界，不能切斷技術字面值。"""
     sources = []
@@ -292,30 +321,10 @@ def quoted_sources(spans, evidence, *, excerpts=False, excerpt_evidence_ids=None
             return None
         source = evidence.get(span["evidence_id"])
         quote = span["quote"]
-        if source is None or not isinstance(quote, str) or not quote.strip():
-            return None
         spoken = excerpts and (
             excerpt_evidence_ids is None or span["evidence_id"] in excerpt_evidence_ids
         )
-        if spoken and sum(
-            not char.isspace() and not unicodedata.category(char).startswith("P")
-            for char in quote
-        ) < MIN_EXCERPT_CHARACTERS:
+        if quote_error(source, quote, spoken=spoken) is not None:
             return None
-        text = source["exact_text"]
-        if quote != text:
-            if not spoken:
-                return None
-            start = text.find(quote)
-            end = start + len(quote)
-            if start < 0 or text.find(quote, start + 1) >= 0:
-                return None
-            if not _clause_bounds(text, start, end):
-                return None
-            if any(
-                a < start < b or a < end < b
-                for a, b in _literal_ranges(text, source.get("kind", "paragraph"))
-            ):
-                return None
         sources.append({**source, "exact_text": quote})
     return sources
