@@ -307,6 +307,26 @@ def test_content_rejection_keeps_published_notes_and_does_not_checkpoint_uncheck
         assert db.get(MaterialNotes,key).section_results==[]
 
 
+def test_reference_repair_missing_paragraph_preserves_explicit_worker_error(closed_loop,tmp_path,monkeypatch):
+    f,client,path=setup(closed_loop,tmp_path,monkeypatch)
+    drain(f)
+    assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
+    calls=[]
+    def malformed_repair(request):
+        calls.append(request)
+        result=answer(request)
+        if len(calls)==1:
+            result['paragraphs'][-1]['evidence_ids']=result['paragraphs'][0]['evidence_ids'][:]
+        else:
+            result['paragraphs']=result['paragraphs'][:1]
+        return result
+    assert mn.step(dsn=f['dsn'],call=malformed_repair)
+    failed=client.get(path+'/full').json()
+    assert failed['status']=='failed' and failed['error_code']=='NOTE_FORMAT_INVALID'
+    assert failed['paragraphs']==[] and failed['progress']['completed_parts']==0
+    assert len(calls)==2
+
+
 def test_step_dispatches_content_checks_with_the_saved_review_contract(closed_loop,tmp_path,monkeypatch):
     f,client,path=setup(closed_loop,tmp_path,monkeypatch)
     seen=[]

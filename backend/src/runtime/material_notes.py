@@ -1,6 +1,7 @@
 """每教材版本的兩種筆記、持久生成與不隨重生消失的個人註記。"""
 from copy import deepcopy
 from datetime import UTC, datetime
+from math import ceil
 from uuid import uuid4
 import logging
 
@@ -281,7 +282,7 @@ def _layout_request(request, paragraphs, layout, *, expand=False):
         "previous_body": [{k: p[k] for k in ("heading", "text", "formula", "table")} for p in paragraphs],
     }
     if not expand:
-        correction["max_paragraphs"] = max(1, int(len(paragraphs) * layout["target_height_ratio"]))
+        correction["max_paragraphs"] = max(1, ceil(len(paragraphs) * layout["target_height_ratio"]))
         correction["instruction"] += (
             f"依本稿超頁比例，合併相近主題為至多 {correction['max_paragraphs']} 段，減少標題及段間留白；保留不同主題的核心敘述。")
     return {**request, "correction": correction}
@@ -328,7 +329,10 @@ def generate_part(part, mode, call):
         try:
             if reference_repair is not None:
                 original, index = reference_repair
-                repaired = note_content.Response.model_validate(response).model_dump()["paragraphs"][index]
+                repaired = note_content.Response.model_validate(response).model_dump()["paragraphs"]
+                if index >= len(repaired):
+                    raise ValueError("NOTE_FORMAT_INVALID")
+                repaired = repaired[index]
                 # 引用補正只採用出錯段落的編號，正文及其他合法段落不跟著重寫。
                 for field in ("claim_ids", "evidence_ids"):
                     original["paragraphs"][index][field] = repaired[field]
@@ -373,7 +377,7 @@ def generate_part(part, mode, call):
                 reflows += 1
                 request = _layout_request(request, result, layout)
                 continue
-            if not expanded and not reflows:
+            if not expanded:
                 smallest = min(note_content.summary_layout([p])["used_height_pt"] for p in result)
                 room = layout["available_height_pt"] - layout["used_height_pt"]
                 # ID 已列出不代表其核心內容已說明；有空間就請模型檢查一次可補充的來源內容。
@@ -637,7 +641,7 @@ def step(*, dsn=None, call=None, stop=None):
         pass
     except Exception as error:
         code = error.reason_code if isinstance(error, SemanticServiceError) else str(error)
-        if code not in {"NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_COVERAGE_INCOMPLETE",
+        if code not in {"NOTE_FORMAT_INVALID", "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_COVERAGE_INCOMPLETE",
             "NOTE_SUMMARY_TOO_LONG", "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID", "NOTE_CONTENT_UNSUPPORTED", "NOTE_REVIEW_INVALID"} and not isinstance(error, SemanticServiceError):
             code = "NOTE_GENERATION_FAILED"
         logging.getLogger(__name__).warning("NOTE_GENERATION_FAILED error_type=%s", type(error).__name__)

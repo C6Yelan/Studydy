@@ -46,6 +46,7 @@ function AnnotationEditor({ api, editor, close, saved }: { api: StudydyApiClient
 }
 
 const failureMessages: Record<string, string> = {
+  NOTE_FORMAT_INVALID: "筆記回應格式不完整，尚未發布。可重新生成。",
   NOTE_CONTENT_UNSUPPORTED: "筆記內容與引用原文不符，重新生成後仍未通過核對，尚未發布。",
   NOTE_REVIEW_INVALID: "筆記內容核對未完成，尚未發布。請稍後重試。",
   NOTE_CONTRACT_INVALID: "筆記生成規則已更新，請重新生成。已完成的筆記與註記仍保留。",

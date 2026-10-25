@@ -203,7 +203,8 @@ def test_summary_overflow_correction_keeps_font_and_makes_a_shorter_body():
             value['paragraphs'][0]['text']='太長的摘要正文。'*500
         return value
     result=mn.compute_summary(concepts(),model,input_budget=mn.BATCH_TOKENS)
-    assert len(calls)==5 and calls[1]['correction']['problem']=='NOTE_SUMMARY_TOO_LONG'
+    assert len(calls)==6 and calls[1]['correction']['problem']=='NOTE_SUMMARY_TOO_LONG'
+    assert calls[2]['correction']['problem']=='NOTE_SUMMARY_ROOM'
     assert len(pymupdf.open(stream=nc.summary_pdf(result)))==1
 
 
@@ -427,6 +428,8 @@ def test_summary_overflow_feedback_uses_measured_page_ratio():
     request=mn._layout_request({'kind':'summary'},[p],layout)
     assert request['correction']['layout']==layout
     assert request['correction']['previous_body'][0]['text']==p['text']
+    slight_overflow={**layout,'target_height_ratio':.98}
+    assert mn._layout_request({'kind':'summary'},[p,p,p],slight_overflow)['correction']['max_paragraphs']==3
 
 
 @pytest.mark.parametrize('all_ids_present',[False,True])
@@ -455,10 +458,11 @@ def test_reflowed_summary_can_repair_its_own_references_after_earlier_repair():
         if len(writers)==2:result['paragraphs'][0]['text']='合成超頁正文。'*500
         return result
     result=mn.compute_summary(concepts(),model,input_budget=mn.BATCH_TOKENS)
-    assert len(writers)==4
+    assert len(writers)==5
     assert writers[3]['correction']['problem']=='NOTE_REFERENCE_INVALID'
     assert writers[3]['correction']['layout']['height_ratio']>1
     assert writers[3]['correction']['previous_response']['paragraphs'][0]['evidence_ids']==['unknown']
+    assert writers[4]['correction']['problem']=='NOTE_SUMMARY_ROOM'
     assert nc.summary_layout(result)['fits']
 
 
@@ -482,6 +486,21 @@ def test_reference_repair_receives_exact_missing_and_extra_compact_ids():
         'paragraph_index':0,'claims_missing_evidence':['C1'],
         'evidence_options':{'C1':['E1']},
         'evidence_not_in_paragraph_claims':['E2']}
+
+
+def test_reference_repair_missing_target_paragraph_has_explicit_error():
+    writers=[]
+    def model(request):
+        writers.append(request)
+        result=response(request)
+        if len(writers)==1:
+            result['paragraphs'][2]['evidence_ids']=result['paragraphs'][0]['evidence_ids'][:]
+        else:
+            result['paragraphs']=result['paragraphs'][:1]
+        return result
+    with pytest.raises(ValueError,match='^NOTE_FORMAT_INVALID$'):
+        mn.generate_part(concepts(),'full',model)
+    assert len(writers)==2
 
 
 def test_summary_reflows_content_repair_that_exceeds_one_page_then_rechecks():
