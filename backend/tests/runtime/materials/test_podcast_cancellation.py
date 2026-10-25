@@ -39,7 +39,8 @@ def test_cancel_or_delete_running_job_kills_child_and_unblocks_next(closed_loop,
                 'import os,time,pathlib,sys;pathlib.Path(sys.argv[1]).write_text(str(os.getpid()));time.sleep(60)', str(marker)],
                 timeout=65, cancelled=cancelled)
 
-    def generate_script(body, *, cancelled=None):
+    def generate_script(body, *, cancelled=None, diagnostics=None):
+        # provider 以 diagnostics 收集逐段核對次數；替身不核對，只接受同一個呼叫介面。
         # worker 必須送出主持人名字與系列位置，provider 才能寫開場與預告。
         assert set(body['hosts']) == {'host'} and body['series']['episode_number'] == 1
         wait_first('script', cancelled)
