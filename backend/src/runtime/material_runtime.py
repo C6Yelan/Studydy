@@ -309,7 +309,7 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
         if "material_notes" in lock:
             notes = lock["material_notes"]
             if (set(notes) != {"version", "prompt", "selection_prompt", "review_prompt", "max_tokens", "summary_layout"}
-                or notes["version"] != "material-notes/v5"
+                or notes["version"] != "material-notes/v9"
                 or not isinstance(notes["prompt"], str) or not notes["prompt"].strip()
                 or not isinstance(notes["selection_prompt"], str) or not notes["selection_prompt"].strip()
                 or not isinstance(notes["review_prompt"], str) or not notes["review_prompt"].strip()

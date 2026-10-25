@@ -11,13 +11,15 @@ from runtime import material_notes as mn
 from runtime.learner_session import register_account
 from runtime.storage.database import database_session
 from runtime.storage.tables import MaterialNotes, NoteAnnotation, KnowledgeStructure
+from runtime.storage import knowledge_reads
 
 HEADERS = {"Origin": ORIGIN}
 
 
 def answer(request):
     if request.get("phase") == "review_paragraph":
-        return {"checks": [{"part": part, "supported": True, "reason": ""} for part in request["parts"]]}
+        return {"checks": [{"part": part, "supported": True, "reason": ""} for part in request["parts"]],
+            "coverage": [{"claim": ref, "explained": True, "note_parts": ["text"], "reason": ""} for ref in request["coverage_claims"]]}
     return {"paragraphs": [{"heading": c["label"], "text": q["text"], "table": None, "formula": None,
         "claim_ids": [q["claim_id"]], "evidence_ids": q.get("evidence_ids") or [e["evidence_id"] for e in q["evidence"]]}
         for c in request["concepts"] for q in c["claims"]]}
@@ -57,6 +59,33 @@ def test_auto_summary_full_on_demand_and_owner_boundary(closed_loop, tmp_path, m
     client.cookies.set("studydy_session", foreign.raw_token)
     assert client.get(path + "/summary").status_code == 404
     assert client.post(path + "/full", headers=HEADERS, json={"expected_generation": 1}).status_code == 404
+
+
+def test_saved_same_page_context_is_published_as_resolvable_evidence_without_changing_source(closed_loop):
+    f=concept_fixture(closed_loop,facts=['Numeric value: 0.1.','Saved column label: rate.'])
+    key=(f['learner'].learner_id,f['source'].material_id,f['document']['revision'])
+    with database_session(f['dsn']) as db:
+        before=deepcopy(db.get(KnowledgeStructure,key).document)
+    def model(request):
+        value=answer(request)
+        if request.get('phase')!='review_paragraph':
+            headers=[e['evidence_id'] for e in request['evidence'] if e['quotes']==['Saved column label: rate.']]
+            for c in request['concepts']:
+                for q in c['claims']:
+                    if q['text']=='Numeric value: 0.1.':
+                        assert headers[0] in q['context_evidence_ids']
+                        p=next(p for p in value['paragraphs'] if p['claim_ids']==[q['claim_id']])
+                        p['evidence_ids']=[*p['evidence_ids'],headers[0]]
+        return value
+    drain(f,model)
+    result=mn.read(*key,'summary',dsn=f['dsn'])
+    assert result['status']=='ready',result['error_code']
+    paragraph=next(p for p in result['paragraphs'] if p['text']=='Numeric value: 0.1.')
+    header=next(e for e in paragraph['evidence'] if e['quote']=='Saved column label: rate.')
+    with database_session(f['dsn']) as db:
+        _,location=knowledge_reads.evidence_source(db,*key,header['evidence_id'])
+        assert location['normalized_page']==1 and location['source_locator']==header['source_locator']
+        assert db.get(KnowledgeStructure,key).document==before
 
 
 def test_annotations_keep_snapshot_and_failed_regeneration_preserves_readable_notes(closed_loop, tmp_path, monkeypatch):
@@ -260,7 +289,7 @@ def test_content_rejection_keeps_published_notes_and_does_not_checkpoint_uncheck
     def reject(request):
         calls.append(request)
         if request.get('phase')=='review_paragraph':
-            return {'checks':[{'part':p,'supported':p!='text','reason':'來源沒有此條件。' if p=='text' else ''} for p in request['parts']]}
+            return {**answer(request),'checks':[{'part':p,'supported':p!='text','reason':'來源沒有此條件。' if p=='text' else ''} for p in request['parts']]}
         return answer(request)
     drain(f,reject)
     failed=client.get(path+'/summary').json()
@@ -289,6 +318,10 @@ def test_step_dispatches_content_checks_with_the_saved_review_contract(closed_lo
         if phase=='review_paragraph':
             assert runtime_lock['material_review']['prompt']==runtime_lock['material_notes']['review_prompt']
             assert 'checks' in response_schema['properties']
+            assert response_schema['properties']['coverage']['maxItems']==len(request['coverage_claims'])
+            assert response_schema['$defs']['ContentCheck']['properties']['part']['enum']==request['parts']
+            if request['coverage_claims']:
+                assert response_schema['$defs']['ClaimCoverage']['properties']['claim']['enum']==request['coverage_claims']
         else:
             assert runtime_lock['material_review']['prompt']==runtime_lock['material_notes']['prompt']
         return answer(request)

@@ -50,7 +50,7 @@ const failureMessages: Record<string, string> = {
   NOTE_REVIEW_INVALID: "筆記內容核對未完成，尚未發布。請稍後重試。",
   NOTE_CONTRACT_INVALID: "筆記生成規則已更新，請重新生成。已完成的筆記與註記仍保留。",
   NOTE_SUMMARY_TOO_LONG: "重點整理超過 A4 一頁，尚未發布。可重新生成。",
-  NOTE_COVERAGE_INCOMPLETE: "完整筆記尚未涵蓋所有重點，尚未發布。可重新生成。",
+  NOTE_COVERAGE_INCOMPLETE: "筆記仍有遺漏或未說明的重點，尚未發布。可重新生成。",
   NOTE_INPUT_TOO_LARGE: "教材內容超出這次筆記生成容量，尚未發布。",
   NOTE_REFERENCE_INVALID: "筆記的來源引用未通過驗證，尚未發布。可重新生成。",
   NOTE_SOURCE_EMPTY: "這份教材目前沒有可用來寫筆記的重點來源。",

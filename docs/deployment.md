@@ -248,7 +248,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 `0016_material_notes.sql` 新增筆記生成／快取及個人註記兩張表，不修改既有教材、題組或答案。套用前備份產品 DB；隔離環境由 0015 升級並逐表核對既有資料不變。新後端須與支援筆記分頁的前端一起部署。已套用後只能使用識別 0016 的相容版本或前向修復，不直接啟動舊 migration runner，也不還原 DB 丟棄新註記。
 
-本批筆記使用目前正式 Luna（gpt-5.6-luna）；雲端 Pod／Gemma 切換不屬本批，沒有新增切換抽象。筆記請求使用 runtime lock 新增的 `material_notes`／`material-notes/v5` 契約；包含寫作、摘要選點及逐段內容核對提示；原教材與題組保存的舊 lock／hash 不改寫。未完成筆記重試時若契約已不同，清除未發布的分區暫存並換用目前 lock，不接續舊契約批次。沿既有文字 provider，不修改 Podcast provider 程式或重啟其服務。PyMuPDF 使用現有依賴，A4 正文排版不需新增系統套件。
+本批筆記使用目前正式 Luna（gpt-5.6-luna）；雲端 Pod／Gemma 切換不屬本批，沒有新增切換抽象。筆記請求使用 runtime lock 新增的 `material_notes`／`material-notes/v9` 契約；包含寫作、摘要選點及逐段內容核對提示；原教材與題組保存的舊 lock／hash 不改寫。未完成筆記重試時若契約已不同，清除未發布的分區暫存並換用目前 lock，不接續舊契約批次。沿既有文字 provider，不修改 Podcast provider 程式或重啟其服務。PyMuPDF 使用現有依賴，A4 正文排版不需新增系統套件。
 
 部署後由維護程序呼叫 `runtime.material_notes.queue_existing(owner=<已授權 learner UUID>)`，僅為本人目前版本缺少的重點整理排工作；重跑不重新生成已有結果，也不建立完整筆記。回報教材份數與實際 provider 呼叫次數，不能把工作嘗試數當成模型請求數。程式失敗或容量不足時如實保留 failed，學生可手動重試。
 

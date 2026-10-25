@@ -13,7 +13,7 @@ from .generation_jobs import JobCancelled, WORKER_LEASE_TTL, lease_is_current
 from .local_ai_config import configured_lock
 from .semantic_service import request_semantics, semantic_client, SemanticServiceError
 from .storage.database import database_session
-from .storage import knowledge_reads
+from .storage import knowledge_reads, knowledge_structures
 from .storage.tables import Material, MaterialNotes, NoteAnnotation, KnowledgeStructure
 from .text_budget import estimate_prompt_tokens
 
@@ -206,7 +206,8 @@ def _concepts(claim, dsn):
         path = knowledge_reads.learning_path(view)
         rows = knowledge_reads.read_concepts(db, owner, material, revision, path)
         by_id = {r.concept_id: r.payload["concept"] for r in rows}
-        return [by_id[c] for c in path]
+        document = knowledge_structures._read_verified_document(db, owner, material, revision=revision)
+        return note_content.with_page_context([by_id[c] for c in path], document)
 
 
 def model_request(concepts, kind):
@@ -216,16 +217,19 @@ def model_request(concepts, kind):
         group = groups.setdefault(concept["concept_id"], {"label": concept["label"], "claims": []})
         for claim in concept["claims"]:
             cid = claims.setdefault(claim["claim_id"], f"C{len(claims) + 1}")
-            refs = []
-            for item in claim["evidence"]:
-                source = evidence.setdefault(item["evidence_id"], {
-                    "evidence_id": f"E{len(evidence) + 1}",
-                    **note_content.evidence_location(item), "quotes": [],
-                })
-                if item["quote"] not in source["quotes"]:
-                    source["quotes"].append(item["quote"])
-                refs.append(source["evidence_id"])
-            group["claims"].append({"claim_id": cid, "text": claim["text"], "evidence_ids": refs})
+            refs, context_refs = [], []
+            for target, items in ((refs, claim["evidence"]), (context_refs, claim.get("context_evidence", []))):
+                for item in items:
+                    source = evidence.setdefault(item["evidence_id"], {
+                        "evidence_id": f"E{len(evidence) + 1}",
+                        **note_content.evidence_location(item), "quotes": [],
+                    })
+                    if item["quote"] not in source["quotes"]:
+                        source["quotes"].append(item["quote"])
+                    if source["evidence_id"] not in target:
+                        target.append(source["evidence_id"])
+            group["claims"].append({"claim_id": cid, "text": claim["text"], "evidence_ids": refs,
+                "context_evidence_ids": context_refs})
     return {"kind": kind, "concepts": list(groups.values()), "evidence": list(evidence.values())}, {
         "claims": {ref: original for original, ref in claims.items()},
         "evidence": {item["evidence_id"]: original for original, item in evidence.items()},
@@ -283,9 +287,40 @@ def _layout_request(request, paragraphs, layout, *, expand=False):
     return {**request, "correction": correction}
 
 
+class SummaryClaimsUnexplained(ValueError):
+    def __init__(self, paragraphs, index, issues):
+        super().__init__("NOTE_COVERAGE_INCOMPLETE")
+        self.paragraphs, self.index, self.issues = paragraphs, index, issues
+
+
+def _summary_coverage_request(request, error, identities):
+    claims = {original: ref for ref, original in identities["claims"].items()}
+    evidence = {original: ref for ref, original in identities["evidence"].items()}
+    previous = [{**{k: p[k] for k in ("heading", "text", "formula", "table")},
+        "claim_ids": [claims[cid] for cid in p["claim_ids"]],
+        "evidence_ids": [evidence[eid] for eid in p["evidence_ids"]]} for p in error.paragraphs]
+    refs = {f"claim.C{i+1}": f"claim.{claims[cid]}"
+        for i, cid in enumerate(error.paragraphs[error.index]["claim_ids"])}
+    missing = {refs[i["part"]].removeprefix("claim.") for i in error.issues if i["part"] in refs}
+    used = {cid for p in previous for cid in p["claim_ids"]}
+    allowed = [ref for ref in identities["claims"] if ref in used - missing]
+    correction = {
+        "problem": "NOTE_SUMMARY_CLAIMS_UNEXPLAINED",
+        "instruction": "這是摘要，不要求補入所有來源細節。移除未實際解說的重點引用，不要為保留錯列的 ID 硬塞例子；檢查全稿同一 ID 的所有出現處。保留已正確解說的正文與必要條件，引用須支持保留的內容。若另有事實錯誤仍須修正文，不能只刪 ID 掩蓋錯誤。正文仍限 A4 一頁，有空間可補充有來源支持的重要內容。",
+        "previous_body": previous,
+        "content_review": {"paragraph_index": error.index,
+            "issues": [{**issue, "part": refs.get(issue["part"], issue["part"])} for issue in error.issues]},
+    }
+    if allowed:
+        # 這次只更正已列引用，避免模型又掛回同一未解說 ID；有新正文的增補仍走一般生成。
+        correction["allowed_claim_ids"] = allowed
+    return {**request, "correction": correction}
+
+
 def generate_part(part, mode, call):
     request, identities = model_request(part, mode)
     format_retried, expanded, reflows = False, False, 0
+    coverage_retried = False
     reference_repair = None
     repaired_references = set()
     while True:
@@ -346,7 +381,14 @@ def generate_part(part, mode, call):
                     expanded = True
                     request = _layout_request(request, result, layout, expand=True)
                     continue
-        checked, changed = _check_paragraphs(result, part, mode, call)
+        try:
+            checked, changed = _check_paragraphs(result, part, mode, call)
+        except SummaryClaimsUnexplained as error:
+            if coverage_retried:
+                raise
+            coverage_retried = True
+            request = _summary_coverage_request(request, error, identities)
+            continue
         if mode == "summary" and changed:
             layout = note_content.summary_layout(checked)
             if not layout["fits"]:
@@ -361,11 +403,19 @@ def generate_part(part, mode, call):
 def _check_paragraphs(result, part, mode, call):
     checked = []
     repaired_any = False
+    claims = {q["claim_id"]: q for c in part for q in c["claims"]}
     for index, paragraph in enumerate(result):
-        issues = note_content.review_paragraph(paragraph, call)
+        later = {cid for p in result[index+1:] for cid in p["claim_ids"]}
+        coverage_ids = [cid for cid in paragraph["claim_ids"] if cid not in later]
+        # 同一重點可跨段；在最後一段檢查合併涵蓋，前文皆已完成事實核對。
+        issues = note_content.review_paragraph(paragraph, call, claims=claims, kind=mode,
+            coverage_claim_ids=coverage_ids, related_paragraphs=checked)
         if not issues:
             checked.append(paragraph)
             continue
+        if mode == "summary" and any(i["part"].startswith("claim.") for i in issues):
+            # 重點可能跨段；整份摘要一併修正引用，避免留下已失去涵蓋檢查的前段 ID。
+            raise SummaryClaimsUnexplained([*checked, paragraph, *result[index+1:]], len(checked), issues)
         # 只重生不符段落，避免把已核對的其他段落重新改寫並引入新錯誤。
         repaired_any = True
         ids = set(paragraph["claim_ids"])
@@ -374,15 +424,23 @@ def _check_paragraphs(result, part, mode, call):
         repair, mapping = model_request(scope, mode)
         repair["correction"] = {
             "problem": "NOTE_CONTENT_UNSUPPORTED",
-            "instruction": "只修正這個段落中核對指出的不符字句；其他已有來源支持的敘述保持不變，避免重寫時新增斷言。保持原有大致篇幅，保留本次提供的所有重點。只依原文修正，不把核對理由當作新來源。",
+            "instruction": "只修正這個段落中核對指出的不符字句或缺漏；其他已有來源支持的敘述保持不變。先查本次 context_evidence_ids 的實際表頭、規範詞與條件，若能補足數值或片語的意義，須明確解說並把那些區塊列入 evidence_ids，不要只重複缺少對象的原片語。related_paragraphs 已說明的部分不必重複，只補本段缺漏，仍保留本次提供的所有重點編號。保持原有大致篇幅，只依原文修正，不把核對理由或其他筆記當作新來源。",
             "content_review": {"paragraph_index": index,
                 "paragraph": {k: paragraph[k] for k in ("heading", "text", "formula", "table")},
-                "issues": issues},
+                "issues": issues, "related_paragraphs": [
+                    {k: p[k] for k in ("heading", "text", "formula", "table")}
+                    for p in checked if ids.intersection(p["claim_ids"])]},
         }
-        # 替換前後保留同一組重點；摘要亦不能在修正單段時偷偷刪掉原本涵蓋的點。
+        # 事實補正保留本段重點；摘要移除未解說的引用走上方整稿補正，不偷偷丟掉已說明的點。
         repaired = note_content.validate(canonical_response(call(repair), mapping), scope, "full")
-        for replacement in repaired:
-            if note_content.review_paragraph(replacement, call):
+        for position, replacement in enumerate(repaired):
+            remaining = {cid for p in repaired[position+1:] for cid in p["claim_ids"]}
+            final_ids = [cid for cid in replacement["claim_ids"] if cid in coverage_ids and cid not in remaining]
+            issues = note_content.review_paragraph(replacement, call, claims=claims, kind=mode,
+                coverage_claim_ids=final_ids, related_paragraphs=[*checked, *repaired[:position]])
+            if mode == "summary" and any(i["part"].startswith("claim.") for i in issues):
+                raise SummaryClaimsUnexplained([*checked, *repaired, *result[index+1:]], len(checked)+position, issues)
+            if issues:
                 raise ValueError("NOTE_CONTENT_UNSUPPORTED")
         checked.extend(repaired)
     return checked, repaired_any
@@ -397,9 +455,13 @@ def compute_summary(concepts, call, *, input_budget):
         catalog = {}
         for c in selected:
             for q in c["claims"]:
-                item = catalog.setdefault(q["claim_id"], {"ref": f"C{len(catalog)+1}", "concepts": [], "text": q["text"]})
+                item = catalog.setdefault(q["claim_id"], {"ref": f"C{len(catalog)+1}", "concepts": [], "sources": [], "text": q["text"]})
                 if c["label"] not in item["concepts"]:
                     item["concepts"].append(c["label"])
+                for evidence in q["evidence"]:
+                    name = evidence.get("source_name")
+                    if name and name not in item["sources"]:
+                        item["sources"].append(name)
         groups, group = [], []
         for item in catalog.values():
             if estimate_prompt_tokens(note_content.SELECTION_PROMPT, {"candidates": [item]}) > input_budget:
@@ -542,10 +604,21 @@ def step(*, dsn=None, call=None, stop=None):
             else:
                 prompt, schema = policy["prompt"], note_content.Response
             response_schema = schema.model_json_schema()
-            if phase == "select_summary":
+            if phase == "review_paragraph":
+                response_schema["$defs"]["ContentCheck"]["properties"]["part"]["enum"] = payload["parts"]
+                response_schema["properties"]["checks"].update(minItems=len(payload["parts"]), maxItems=len(payload["parts"]))
+                refs = payload["coverage_claims"]
+                response_schema["properties"]["coverage"].update(minItems=len(refs), maxItems=len(refs))
+                if refs:
+                    response_schema["$defs"]["ClaimCoverage"]["properties"]["claim"]["enum"] = refs
+                    response_schema["$defs"]["ClaimCoverage"]["properties"]["note_parts"]["items"]["enum"] = list(dict.fromkeys(
+                        location for values in payload["coverage_locations"].values() for location in values))
+            elif phase == "select_summary":
                 response_schema["properties"]["claim_ids"]["maxItems"] = payload["max_claims"]
             elif phase != "review_paragraph" and "max_paragraphs" in payload.get("correction", {}):
                 response_schema["properties"]["paragraphs"]["maxItems"] = payload["correction"]["max_paragraphs"]
+            if phase not in ("review_paragraph", "select_summary") and "allowed_claim_ids" in payload.get("correction", {}):
+                response_schema["$defs"]["Paragraph"]["properties"]["claim_ids"]["items"]["enum"] = payload["correction"]["allowed_claim_ids"]
             task_lock = {**lock["material_review"], "prompt": prompt}
             with semantic_client() as client:
                 return request_semantics(client, runtime_lock={**lock, "material_review": task_lock}, task="material_review",
