@@ -107,6 +107,7 @@ def test_show_prompt_uses_host_names_series_preview_and_spoken_numbers(monkeypat
     assert '"next_concepts": ["佇列"]' in prompt and '"episode_count": 2' in prompt
     assert '本集路線' in prompt and '3～5 點回顧' in prompt and '本集重點' in prompt
     assert '不要補來源沒有的邊界' in prompt and '另一個範例的數值' in prompt
+    assert '自稱一律用「我」' in prompt and '小晴不要說「小晴覺得」' in prompt and '阿哲不要說「阿哲覺得」' in prompt
     provider.script(body())
     prompts=[prompt for kind,prompt in calls if kind=='script']
     assert '單人主持：由主持人「小晴」' in prompts[1] and '雙主持' not in prompts[1]
@@ -284,6 +285,93 @@ def test_explanation_located_in_lines_about_another_claim_counts_as_missing(monk
     correction=json.loads(rewrite[rewrite.index('{"series"'):])['correction']
     assert correction['issues']==[{'part':'source.1','reason':'核對沒有指出講解這個重點的台詞'}]
     assert result['segments'][2]['title']=='重寫學習率'
+
+
+def test_host_calling_themself_by_name_is_rewritten_while_introductions_and_partner_names_stay(monkeypatch):
+    request,script=show()
+    script['segments'][0]['turns']=[
+        {'speaker':'host','text':'歡迎收聽，我是小晴，阿哲，我們開始吧。','source_indices':[]},
+        {'speaker':'guest','text':'我們是小晴和阿哲。小晴，先從非空檢查談起。','source_indices':[]}]
+    script['segments'][2]['turns'][1]['text']='小晴幫大家整理：所以步伐要合適。'
+    fixed=deepcopy(script['segments'][2]);fixed['turns'][1]['text']='我幫大家整理：所以步伐要合適。'
+    model,calls=fake_model(script,rewrites=[fixed])
+    monkeypatch.setattr(provider,'luna',model)
+    diagnostics={}
+    result=provider.script(request,diagnostics=diagnostics)
+    # 自稱由程式檢查：開場自我介紹與叫對方名字不算，只有第三人稱自稱的那句交給同一段重寫。
+    assert [kind for kind,_ in calls]==['script','review','review','review','rewrite','review','review']
+    correction=json.loads(calls[4][1][calls[4][1].index('{"series"'):])['correction']
+    assert [i['part'] for i in correction['issues']]==['turn.1']
+    assert '小晴用自己的名字稱呼自己' in correction['issues'][0]['reason']
+    assert result['segments'][2]['turns'][1]['text']=='我幫大家整理：所以步伐要合適。'
+    assert diagnostics['rewrites']==[{'segment':2,'rejected':['turn.1']}]
+
+
+def test_self_naming_left_after_rewrite_is_published_and_only_its_position_logged(monkeypatch):
+    request,script=show()
+    script['segments'][1]['turns'][0]['text']='阿哲覺得：空堆疊不可 pop。'
+    model,calls=fake_model(script,rewrites=[script['segments'][1]])
+    monkeypatch.setattr(provider,'luna',model)
+    diagnostics={}
+    result=provider.script(request,diagnostics=diagnostics)
+    # 只剩自稱時仍重核事實，通過就照常發布；診斷只記位置，不記台詞。
+    assert [kind for kind,_ in calls]==['script','review','review','rewrite','review','review','review']
+    assert result['segments'][1]['turns'][0]['text']=='阿哲覺得：空堆疊不可 pop。'
+    assert diagnostics['rewrites']==[{'segment':1,'rejected':['turn.0']},{'segment':1,'self_naming_after_rewrite':['turn.0']}]
+
+
+def test_self_naming_with_unsupported_facts_after_rewrite_still_fails(monkeypatch):
+    request,script=show()
+    script['segments'][1]['turns'][0]['text']='阿哲覺得：空堆疊不可 pop。'
+    model,calls=fake_model(script,reviews=[None,None,lambda r:verdict(r,{'turn.0'})],rewrites=[script['segments'][1]])
+    monkeypatch.setattr(provider,'luna',model)
+    diagnostics={}
+    with pytest.raises(RuntimeError,match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):provider.script(request,diagnostics=diagnostics)
+    assert diagnostics['rewrites'][-1]=={'segment':1,'rejected_after_rewrite':['turn.0']}
+
+
+@pytest.mark.parametrize('name,text',[
+    # 名字前面緊接非指人的中文字：只是詞語的一部分。
+    ('小安','先把大小安排好，再看連接埠。'),
+    ('小安','最小安全距離要先確認。'),
+    # 名字末字與後一字組成原文用到的詞（原文寫「小型語言模型」「低資源語種」）。
+    ('小語','小語種的資料比較少。'),
+    ('小語','小語言模型也能用。'),
+    ('小語','這裡指的就是小語言模型。'),
+    # 自我介紹與節目介紹：說的是節目名稱或自己是誰，不是用名字當主詞。
+    ('小安','這裡是小安和阿哲的學習時間。'),
+    ('小安','謝謝收聽小安和阿哲的節目。'),
+    ('小安','謝謝收聽，我是小安。'),
+])
+def test_words_containing_a_host_name_and_show_introductions_are_not_self_naming(monkeypatch,name,text):
+    request,script=show()
+    request['hosts']={'host':name,'guest':'阿哲'}
+    request['claims'][0]['text']='小型語言模型在低資源語種上也要先確認非空。'
+    script['segments'][0]['turns'][0]['text']=text
+    model,calls=fake_model(script)
+    monkeypatch.setattr(provider,'luna',model)
+    provider.script(request)
+    assert 'rewrite' not in [kind for kind,_ in calls]
+
+
+@pytest.mark.parametrize('text',[
+    '小安我來補充一下。','小安建議先看表頭。','小安發現一個重點。','小安以前也搞錯過。','小安喜歡這個例子。',
+    '小安知道大家會問。','小安特別想強調這點。','跟著小安一起看。','陪你的小安今天要講非空檢查。','這集由小安陪大家。',
+    # 道別時用名字當主詞，不是「我是／我們是」的自我介紹，也不是節目名稱。
+    '我們小安和阿哲下次見。',
+    # 「這是」後面不是「某某和某某的節目」，名字是「覺得」的主詞。
+    '這是小安覺得最重要的一點。',
+])
+def test_host_name_used_as_own_subject_is_sent_to_rewrite(monkeypatch,text):
+    request,script=show()
+    request['hosts']={'host':'小安','guest':'阿哲'}
+    script['segments'][0]['turns'][0]['text']=text
+    fixed=deepcopy(script['segments'][0]);fixed['turns'][0]['text']='歡迎收聽，我是小安。'
+    model,calls=fake_model(script,rewrites=[fixed])
+    monkeypatch.setattr(provider,'luna',model)
+    diagnostics={}
+    provider.script(request,diagnostics=diagnostics)
+    assert diagnostics['rewrites'][0]=={'segment':0,'rejected':['turn.0']}
 
 
 @pytest.mark.parametrize('broken',[
