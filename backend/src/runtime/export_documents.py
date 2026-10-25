@@ -232,7 +232,9 @@ def _docx_blocks(doc, blocks):
             data, width, _ = note_latex.render_png(block['latex'])
             paragraph = doc.add_paragraph()
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            paragraph.add_run().add_picture(BytesIO(data), width=Pt(width))
+            section = doc.sections[-1]
+            page_width = section.page_width - section.left_margin - section.right_margin
+            paragraph.add_run().add_picture(BytesIO(data), width=min(Pt(width), page_width))
             paragraph._p.xpath('.//wp:docPr')[0].set('descr', xml_text(block['latex']))
         else:
             box = doc.add_table(rows=1, cols=1)

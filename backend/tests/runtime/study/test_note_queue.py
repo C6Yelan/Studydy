@@ -18,8 +18,10 @@ HEADERS = {"Origin": ORIGIN}
 
 
 def answer(request):
+    if request.get("phase") == "organize_sections":
+        return {"paragraph_ids": []}
     if request.get("phase") == "review_paragraph":
-        return {"checks": [{"part": part, "supported": True, "reason": ""} for part in request["parts"]],
+        return {"checks": [{"part": part, "missing_evidence": [], "supported": True, "reason": ""} for part in request["parts"]],
             "coverage": [{"claim": ref, "explained": True, "note_parts": ["blocks.0"], "reason": ""} for ref in request["coverage_claims"]]}
     return {"paragraphs": [{"heading": c["label"], "level": 1, "blocks": [{"type": "text", "text": q["text"]}],
         "claim_ids": [q["claim_id"]], "evidence_ids": q.get("evidence_ids") or [e["evidence_id"] for e in q["evidence"]]}
@@ -274,6 +276,38 @@ def test_full_sections_report_progress_and_resume_saved_parts(closed_loop, tmp_p
         assert db.get(MaterialNotes,(owner,material,revision,'full')).section_results is None
 
 
+def test_section_organization_failure_resumes_without_regenerating_checked_parts(closed_loop, tmp_path, monkeypatch):
+    f,client,path=setup(closed_loop,tmp_path,monkeypatch)
+    drain(f)
+    assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
+    def invalid_outline(request):
+        if request.get('phase')=='organize_sections':
+            return {'paragraph_ids':['unknown']}
+        result=answer(request)
+        for paragraph in result.get('paragraphs',[]):
+            paragraph['level']=2
+        return result
+    assert mn.step(dsn=f['dsn'],call=invalid_outline)
+    failed=client.get(path+'/full').json()
+    assert failed['status']=='failed' and failed['error_code']=='NOTE_FORMAT_INVALID'
+    assert failed['progress']['completed_parts']==failed['progress']['total_parts']
+    key=(f['learner'].learner_id,f['source'].material_id,f['document']['revision'],'full')
+    with database_session(f['dsn']) as db:
+        saved=deepcopy(db.get(MaterialNotes,key).section_results)
+    assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
+    calls=[]
+    def finish_outline(request):
+        calls.append(request['phase'])
+        return {'paragraph_ids':request['candidates']}
+    assert mn.step(dsn=f['dsn'],call=finish_outline)
+    done=client.get(path+'/full').json()
+    assert done['status']=='ready' and calls==['organize_sections']
+    fields=('heading','blocks','claim_ids','evidence_ids')
+    assert [{k:p[k] for k in fields} for p in done['paragraphs']]==[
+        {k:p[k] for k in fields} for part in saved for p in part]
+    assert all(p['level']==1 for p in done['paragraphs'])
+
+
 def test_changed_contract_discards_unpublished_sections_and_retry_can_finish(closed_loop, tmp_path, monkeypatch):
     f, client, path=setup(closed_loop,tmp_path,monkeypatch)
     drain(f)
@@ -317,7 +351,7 @@ def test_content_rejection_keeps_published_notes_and_does_not_checkpoint_uncheck
     def reject(request):
         calls.append(request)
         if request.get('phase')=='review_paragraph':
-            return {**answer(request),'checks':[{'part':p,'supported':p!='blocks.0','reason':'來源沒有此條件。' if p=='blocks.0' else ''} for p in request['parts']]}
+            return {**answer(request),'checks':[{'part':p,'missing_evidence': [], 'supported':p!='blocks.0','reason':'來源沒有此條件。' if p=='blocks.0' else ''} for p in request['parts']]}
         return answer(request)
     drain(f,reject)
     failed=client.get(path+'/summary').json()
@@ -405,7 +439,7 @@ def test_dropped_paragraph_and_failure_save_summary_codes_without_material_text(
         if request.get('phase') != 'review_paragraph':
             return answer(request)
         rejected = request['paragraph']['content'][0]['text'] == 'Signal 0 uses code0.'
-        return {**answer(request), 'checks': [{'part': p, 'supported': not (rejected and p == 'blocks.0'),
+        return {**answer(request), 'checks': [{'part': p, 'missing_evidence': [], 'supported': not (rejected and p == 'blocks.0'),
             'reason': reason if rejected and p == 'blocks.0' else ''} for p in request['parts']]}
     drain(f, drop_first)
     summary = client.get(path + '/summary').json()
@@ -431,7 +465,7 @@ def test_dropped_paragraph_and_failure_save_summary_codes_without_material_text(
     def reject(request):
         requests.append(request)
         if request.get('phase') == 'review_paragraph':
-            return {**answer(request), 'checks': [{'part': p, 'supported': p != 'blocks.0',
+            return {**answer(request), 'checks': [{'part': p, 'missing_evidence': [], 'supported': p != 'blocks.0',
                 'reason': reason if p == 'blocks.0' else ''} for p in request['parts']]}
         return answer(request)
     drain(f, reject)

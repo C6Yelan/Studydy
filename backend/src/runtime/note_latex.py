@@ -7,8 +7,9 @@ from contextlib import contextmanager
 from functools import lru_cache
 from io import BytesIO
 import re
+from threading import Lock
 
-# KaTeX 與 mathtext 都支援、且教材公式常用的指令；新增前須確認兩邊都能排版。
+# KaTeX 與匯出都能排版的指令；範數左右定界符在匯出前等價轉為 mathtext 支援的雙豎線。
 COMMANDS = frozenset("""
 frac dfrac binom sqrt sum prod int oint lim log ln lg exp sin cos tan cot sec csc arcsin arccos arctan
 sinh cosh tanh max min sup inf arg det Pr operatorname text mathrm mathbf mathit mathsf mathcal boldsymbol
@@ -17,28 +18,41 @@ partial nabla to rightarrow leftarrow Rightarrow Leftarrow leftrightarrow Leftri
 mapsto uparrow downarrow in notin ni subset subseteq supset supseteq cup cap setminus emptyset varnothing
 forall exists neg wedge vee ldots cdots vdots ddots dots quad qquad left right mid parallel perp angle
 degree prime ell hbar Re Im hat bar tilde vec dot ddot overline underline widehat widetilde
-lfloor rfloor lceil rceil langle rangle
+lfloor rfloor lceil rceil langle rangle lVert rVert
 alpha beta gamma delta epsilon varepsilon zeta eta theta vartheta iota kappa lambda mu nu xi pi varpi
 rho varrho sigma varsigma tau upsilon phi varphi chi psi omega
 Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega
 """.split())
 ESCAPES = frozenset(",;! {}%_#|")
 MAX_LENGTH = 1000
+_LAYOUT_LOCK = Lock()
+
+
+def _mathtext_latex(latex):
+    return re.sub(r"\\(?:lVert|rVert)(?![A-Za-z])", lambda _: r"\|", latex)
 
 
 class FormulaInvalid(ValueError):
-    def __init__(self, latex, detail):
+    def __init__(self, latex, detail, paragraph_index, block_index):
         super().__init__("NOTE_FORMULA_INVALID")
         self.latex = latex
         self.detail = detail
+        self.paragraph_index = paragraph_index
+        self.block_index = block_index
 
 
 def problem(latex):
     """回傳公式不合格的原因；合格時回傳 None。"""
     if not latex.strip() or len(latex) > MAX_LENGTH:
         return "公式為空或過長"
-    if re.search(r"(?<!\\)[$&%#]", latex) or "\n" in latex:
-        return "不可含未跳脫的 $、&、%、# 或換行；百分號寫成 \\%"
+    if re.search(r"[\x00-\x1f\x7f]", latex):
+        return "公式不可含控制字元；JSON 中 LaTeX 的反斜線須正確跳脫"
+    if re.search(r"\\(?:left|right)\s*\\mid(?![A-Za-z])", latex):
+        return r"\mid 不是定界符；雙豎線用 \left\| ... \right\|，單豎線用 \left| ... \right|，須保留原文的豎線數量"
+    if re.search(r"(?<!\\)[$&%#]", latex):
+        return "不可含未跳脫的 $、&、%、#；百分號寫成 \\%"
+    if re.search(r"(?<!\\)[_^][A-Za-z0-9]{2,}", latex):
+        return "多字元上下標須使用大括號；命名變數與文字下標可用 \\mathrm{}"
     for match in re.finditer(r"\\([A-Za-z]+|.)", latex, re.S):
         name = match.group(1)
         if (name not in COMMANDS) if name[0].isalpha() else (name not in ESCAPES):
@@ -53,10 +67,10 @@ def problem(latex):
         return "大括號不成對"
     if len(re.findall(r"\\left(?![A-Za-z])", latex)) != len(re.findall(r"\\right(?![A-Za-z])", latex)):
         return "\\left 與 \\right 不成對"
-    parser = _parser()  # 套件或字型設定缺失是部署錯誤，不能當成模型的格式錯誤。
     with _style():
+        parser = _parser()  # 套件或字型設定缺失是部署錯誤，不能當成模型的格式錯誤。
         try:
-            parser.parse(f"${latex}$")
+            parser.parse(f"${_mathtext_latex(latex)}$")
         except Exception:  # mathtext 以多種 pyparsing／ValueError 回報語法錯誤。
             return "LaTeX 語法無法解析"
     return None
@@ -72,23 +86,24 @@ def _parser():
 
 @contextmanager
 def _style():
-    import matplotlib
-    # 中文須在 \text{} 內；用匯出 PDF 同一套 Noto CJK，數學符號缺字時退回 STIX。
-    font = "Noto Sans CJK TC"
-    with matplotlib.rc_context({"mathtext.fontset": "custom", "mathtext.rm": font,
-            "mathtext.it": font, "mathtext.bf": f"{font}:bold", "mathtext.sf": font,
-            "mathtext.cal": font, "mathtext.tt": font, "mathtext.fallback": "stix"}):
-        yield
+    # 筆記驗證與兩個匯出執行緒會共用 mathtext parser／rcParams，必須一起鎖住排版及還原。
+    with _LAYOUT_LOCK:
+        import matplotlib
+        font = "Noto Sans CJK TC"
+        with matplotlib.rc_context({"mathtext.fontset": "custom", "mathtext.rm": font,
+                "mathtext.it": font, "mathtext.bf": f"{font}:bold", "mathtext.sf": font,
+                "mathtext.cal": font, "mathtext.tt": font, "mathtext.fallback": "stix"}):
+            yield
 
 
 def render_png(latex, *, size=12, dpi=300):
     """匯出用：回傳 PNG 與以 pt 計的顯示寬高。"""
-    from matplotlib.font_manager import FontProperties
-    from matplotlib.mathtext import math_to_image
-    _parser()
     stream = BytesIO()
     with _style():
-        math_to_image(f"${latex}$", stream, prop=FontProperties(size=size), dpi=dpi, format="png")
+        _parser()
+        from matplotlib.font_manager import FontProperties
+        from matplotlib.mathtext import math_to_image
+        math_to_image(f"${_mathtext_latex(latex)}$", stream, prop=FontProperties(size=size), dpi=dpi, format="png")
     data = stream.getvalue()
     width, height = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
     return data, width * 72 / dpi, height * 72 / dpi

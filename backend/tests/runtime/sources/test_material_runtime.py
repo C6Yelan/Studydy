@@ -30,7 +30,7 @@ def test_only_material_dependencies_and_actual_model_define_resume_compatibility
     assert not same_material_runtime(config['runtime_lock'], first, changed['runtime_lock'], third)
 
 
-@pytest.mark.parametrize('version', ['material-notes/v10', 'material-notes/v11'])
+@pytest.mark.parametrize('version', ['material-notes/v10', 'material-notes/v11', 'material-notes/v12'])
 def test_historical_notes_lock_remains_valid_for_material_resume(tmp_path, version):
     from content_identity import canonical_sha256
     from runtime.material_runtime import validate_runtime_lock

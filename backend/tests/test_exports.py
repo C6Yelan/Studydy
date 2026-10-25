@@ -84,6 +84,16 @@ def test_structured_notes_keep_outline_levels_bullets_tables_formula_and_callout
         assert len(pdf[0].get_images()) == 1
 
 
+def test_docx_long_formula_fits_page_width():
+    view = structured_note()
+    latex = ' + '.join([r'x_{1}'] * 40)
+    view['paragraphs'][1]['blocks'][0]['latex'] = latex
+    word = Document(BytesIO(documents.note_docx(view)))
+    section = word.sections[-1]
+    assert word.inline_shapes[0].width <= section.page_width - section.left_margin - section.right_margin
+    assert word.inline_shapes[0]._inline.docPr.get('descr') == latex
+
+
 def test_diagnosis_overflow_is_explicit_and_stays_one_page():
     point = {'title': '需要複習的內容' * 8, 'correct_count': 1, 'answer_count': 3, 'evidence': [{'page': 2, 'source_name': '課程.youtube'}]}
     view = {'scope': 'material', 'strengths': [], 'weaknesses': [{'label': '概念', 'points': [point] * 80}],
