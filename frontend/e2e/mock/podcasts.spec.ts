@@ -80,6 +80,7 @@ test("management menu renames with conflict recovery; deletion needs confirmatio
   await page.getByRole("button", { name: "刪除 Podcast", exact: true }).click();
   await page.getByRole("button", { name: "確認刪除 Podcast" }).click();
   await expect(page.getByRole("heading", { name: "讓教材說給你聽" })).toBeVisible();
+  await expect(page.getByText("挑選概念，選擇雙人對談或單人解說，也可勾選教學影片。生成後保存在你的帳號，隨時可以再聽。")).toBeVisible();
   expect(fixture.deletes()).toBe(1);
   expect(await page.evaluate(key => localStorage.getItem(key), positionKey)).toBeNull();
 });
@@ -417,6 +418,39 @@ test('audio-only podcast plays audio in the same player without video progress',
   await page.goto('/podcasts');
   await expect(page.getByRole('button',{name:'開啟播放'})).toBeVisible();
   await expect(page.getByText(/影片 \d+ \/ \d+ 集/)).toHaveCount(0);
+});
+
+test('audio-only subtitles recover after alignment without resetting playback',async({page})=>{
+  const {fixture}=await mockEpisodeVideo(page);
+  fixture.view.video_enabled=false;
+  fixture.view.generation={active:false,preview_ready:true,retryable_videos:false,completed_videos:0,failed_videos:0};
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/video`,r=>json(r,{schema:'podcast-video/v1',podcast_id:podcastId,episode_index:0,status:'unprepared',version:0,error_code:null,video:null}));
+  let aligned=false,subtitleReads=0,timelineReads=0;
+  const pending={schema:'api-error/v1',request_id:sessionId,reason_code:'PODCAST_TIMELINE_NOT_READY',retryable:true,message:'Request could not be completed.'};
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/timeline`,route=>{
+    timelineReads++;
+    return aligned?route.fallback():json(route,pending,409);
+  });
+  await page.route(`**/v1/podcasts/${podcastId}/episodes/*/subtitles`,route=>{
+    subtitleReads++;
+    return aligned?route.fallback():json(route,pending,409);
+  });
+  await page.goto(`/podcasts/${podcastId}`);
+  const media=page.locator('video'),track=media.locator('track');
+  await expect.poll(()=>track.evaluate((value:HTMLTrackElement)=>value.readyState)).toBe(3);
+  await media.evaluate((value:HTMLVideoElement)=>{value.muted=true;return value.play()});
+  await expect.poll(()=>media.evaluate((value:HTMLVideoElement)=>value.currentTime)).toBeGreaterThan(.2);
+  const before=await media.evaluate((value:HTMLVideoElement)=>value.currentTime);
+  aligned=true;
+  await expect.poll(()=>track.evaluate((value:HTMLTrackElement)=>value.readyState)).toBe(2);
+  await expect(page.locator('.media-subtitles')).toContainText(/前半段|後半段/);
+  expect(await media.evaluate((value:HTMLVideoElement)=>value.currentTime)).toBeGreaterThan(before);
+  expect(await media.evaluate((value:HTMLVideoElement)=>value.paused)).toBe(false);
+  expect(subtitleReads).toBe(2);
+  const settled=timelineReads;
+  await page.waitForTimeout(2500);
+  expect(timelineReads).toBe(settled);
+  expect(subtitleReads).toBe(2);
 });
 
 test('deleting one episode video keeps its audio, transcript and other episodes',async({page})=>{

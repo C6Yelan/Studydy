@@ -42,29 +42,29 @@ function speakerName(episode:PodcastEpisode,speaker:'host'|'guest'):string {
   return episode.hosts?.[speaker]??(speaker==='host'?'主持人':'來賓');
 }
 
-// 逐字稿與匯出選單共用同一套時間軸驗證、輪詢及離開時清理。
-export function usePodcastTimeline(api:StudydyApiClient,view:PodcastView,index:number,videoVersion:number,enabled=true){
-  const episode=view.episodes[index];
+// 播放器字幕、逐字稿與匯出選單共用頁面上的時間軸狀態，只輪詢一次。
+export function usePodcastTimeline(api:StudydyApiClient,view:PodcastView|null,index:number,videoVersion:number,enabled=true){
+  const episode=view?.episodes[index];
   const [timeline,setTimeline]=useState<Timeline|null>(null),[error,setError]=useState('');
   useEffect(()=>{
     let cancelled=false;let timer:ReturnType<typeof setTimeout>|undefined;setTimeline(null);setError('');
-    if(!enabled||!episode.audio)return;
+    if(!enabled||!view||!episode?.audio)return;
     const read=()=>void api.studyTools<Timeline>(`/v1/podcasts/${view.podcast_id}/episodes/${index}/timeline`).then(value=>{
       if(cancelled)return;
       if(!validTimeline(value,view,index)){setError('時間軸與本集原稿、音訊或來源不一致。');return}
       setTimeline(value);
     },e=>{if(cancelled)return;if(e instanceof ApiClientError&&e.reasonCode==='PODCAST_TIMELINE_NOT_READY')timer=setTimeout(read,2000);else setError(errorMessage(e))});
     read();return()=>{cancelled=true;clearTimeout(timer)};
-  },[api,view.podcast_id,index,episode.audio?.sha256,episode.script_sha256,view.source_resolver,videoVersion,enabled]);
-  const current=enabled&&timeline?.podcast_id===view.podcast_id&&timeline.episode_index===index?timeline:null;
+  },[api,view?.podcast_id,index,episode?.audio?.sha256,episode?.script_sha256,view?.source_resolver,videoVersion,enabled]);
+  const current=enabled&&timeline&&timeline.podcast_id===view?.podcast_id&&timeline.episode_index===index?timeline:null;
   return {timeline:current,error};
 }
 
-export function PodcastTranscript({api,view,index,media,active,videoVersion}:{
-  api:StudydyApiClient;view:PodcastView;index:number;media:RefObject<HTMLMediaElement|null>;active:boolean;videoVersion:number;
+export function PodcastTranscript({view,index,media,active,timelineState}:{
+  view:PodcastView;index:number;media:RefObject<HTMLMediaElement|null>;active:boolean;timelineState:ReturnType<typeof usePodcastTimeline>;
 }){
   const episode=view.episodes[index];
-  const {timeline:current,error}=usePodcastTimeline(api,view,index,videoVersion);
+  const {timeline:current,error}=timelineState;
   const [clock,setClock]=useState({index:-1,ready:false,playing:false});
   const list=useRef<HTMLOListElement>(null);
   useEffect(() => { const panel = list.current?.closest<HTMLElement>(".podcast-transcript"); if (panel) panel.scrollTop = 0; }, [index]);

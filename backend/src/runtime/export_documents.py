@@ -40,8 +40,37 @@ def font_archive():
     return archive
 
 
-def pdf(html):
-    story = pymupdf.Story(html=html, user_css=CSS, archive=font_archive())
+def pdf(html, *, keep_headings=False):
+    forced_breaks = set()
+    while True:
+        story = pymupdf.Story(html=html, user_css=CSS, archive=font_archive())
+        if not keep_headings:
+            break
+        pairs = []
+        node = story.body.first_child
+        while node is not None:
+            following = node.next
+            if node.tagname in ('h1', 'h2') and following is not None and following.tagname == 'p':
+                index = len(pairs)
+                heading_id, body_id = f'note-heading-{index}', f'note-body-{index}'
+                node.set_id(heading_id)
+                following.set_id(body_id)
+                pairs.append((heading_id, body_id))
+                if index in forced_breaks:
+                    node.set_attribute('style', 'page-break-before:always;')
+            node = following
+        # Story 不支援 break-after:avoid；先看實際分頁，將孤立標題移到正文開頭所在頁。
+        # 只保留正文開頭，長段落與後續表格仍可自然跨頁。
+        starts = {}
+        def remember(position):
+            if position.open_close & 1:
+                starts[position.id] = position.page_num
+        story.write(None, lambda _page, _filled: (PAGE, CONTENT, None), positionfn=remember)
+        orphaned = {index for index, (heading, body) in enumerate(pairs) if starts[heading] != starts[body]}
+        if not orphaned:
+            story.reset()
+            break
+        forced_breaks.update(orphaned)
     stream = BytesIO()
     writer = pymupdf.DocumentWriter(stream)
     more = True
@@ -103,7 +132,7 @@ def note_markdown(view):
 def note_pdf(view):
     from .note_content import body_html
     # 正文與來源／註記分開；兩種筆記的正文都依內容自然分頁，不縮小字體。
-    body = pdf(body_html(view['paragraphs']))
+    body = pdf(body_html(view['paragraphs']), keep_headings=True)
     appendix = [f'<h1>{"重點整理" if view["kind"] == "summary" else "完整筆記"}：來源與個人註記</h1>',
                 f'<p>教材：{escape(view["material_id"])}\n版本：{escape(view["knowledge_structure_revision"])}</p>']
     status = view['source_status']
@@ -120,7 +149,7 @@ def note_pdf(view):
             appendix.append(f'<p>原版本：{escape(a["original_revision"])}</p>' + body_html([a['original_paragraph']]))
             appendix.extend(f'<p>{escape(source_text(e))}</p>' for e in a['original_paragraph']['evidence'])
             appendix.append(f'<p>個人註記：{escape(a["body"])}</p>')
-    with pymupdf.open(stream=body, filetype='pdf') as doc, pymupdf.open(stream=pdf(''.join(appendix)), filetype='pdf') as extra:
+    with pymupdf.open(stream=body, filetype='pdf') as doc, pymupdf.open(stream=pdf(''.join(appendix), keep_headings=True), filetype='pdf') as extra:
         doc.insert_pdf(extra)
         return doc.tobytes(garbage=4, deflate=True)
 

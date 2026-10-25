@@ -1,7 +1,7 @@
 import { PodcastExports } from "../exports/PodcastExports";
 import { DeleteVideoControl, usePodcastVideo } from "./PodcastVideo";
 import { BackLink } from "../../ui/BackLink";
-import { PodcastTranscript } from "./PodcastTranscript";
+import { PodcastTranscript, usePodcastTimeline } from "./PodcastTranscript";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView } from "../../ui/NotFoundView";
@@ -39,6 +39,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const autoPlayNext = useRef(false);
   const episodeList = useRef<HTMLElement>(null);
   const videoState = usePodcastVideo(apiClient,podcastId,index,view?.status === "ready" ? view.episodes[index]?.audio?.sha256 : undefined,view?.episodes[index]?.script_sha256??undefined);
+  const timelineState = usePodcastTimeline(apiClient,view,index,videoState.state?.version??0,view?.status === "ready");
   useLayoutEffect(() => {
     const layout = workspace.current;
     if (!layout) return;
@@ -185,12 +186,12 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
         {view.episodes.map((e, i) => <option key={i} value={i}>第 {i + 1} 集 · {e.title ?? ""}</option>)}
       </select></label>}
       <PodcastExports key={`export-${podcastId}-${index}`} api={apiClient} view={view} index={index}
-        videoReady={videoState.state?.status === "ready"} videoVersion={videoState.state?.version ?? 0} />
+        videoReady={videoState.state?.status === "ready"} timelineReady={!!timelineState.timeline} />
       {videoState.state?.status === "ready" && <DeleteVideoControl key={`delete-video-${podcastId}-${index}`} api={apiClient} podcastId={podcastId} index={index} onDeleted={() => { videoState.reload(); setReload((v) => v + 1); }} />}
     </>}
     {previewReady && !videoState.state && <StateView title={videoState.error ? "無法載入影片" : "正在載入影片"} description={videoState.error || "正在確認本集影片。"} tone={videoState.error ? "failure" : "loading"} action={<button type="button" className="secondary-button" onClick={videoState.reload}>重新讀取</button>} />}
     {previewReady && !!videoState.state && progress !== undefined && <div ref={workspace} className="podcast-listening-layout">
-        <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} episodeLabel={episode.title || episodeTitle(episode.claims.map(c => c.label))} videoState={videoState} mediaRef={media} storageKey={storageKey}
+        <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} episodeLabel={episode.title || episodeTitle(episode.claims.map(c => c.label))} videoState={videoState} timelineReady={!!timelineState.timeline} mediaRef={media} storageKey={storageKey}
           resumeAt={progress?.episodes.find((item) => item.episode_index === index)?.position_seconds ?? null} onSync={syncProgress} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = view.status === "ready"; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = view.status === "ready"; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={(autoAdvance) => {
           if (autoAdvance && index + 1 < view.episodes.length) { autoPlayNext.current = true; setIndex(index + 1); }
         }} />
@@ -213,7 +214,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
           <div id="podcast-transcript-panel" className="podcast-content-panel" role="tabpanel" aria-labelledby="podcast-transcript-tab" hidden={readingTab !== 'transcript'}>
             {!!videoState.state?.video?.pages.length && <nav className="podcast-chapters" aria-label="本集章節">{videoState.state.video.pages.map((page, i) => <button type="button" key={i} title={page.title} onClick={() => { if (media.current && media.current.readyState > 0) media.current.currentTime = page.start; }}><time>{duration(page.start)}</time><span>{page.title}</span></button>)}</nav>}
             <div className="podcast-transcript" tabIndex={0}>
-              <PodcastTranscript api={apiClient} view={view} index={index} media={media} active={readingTab === 'transcript'} videoVersion={videoState.state?.version??0} />
+              <PodcastTranscript view={view} index={index} media={media} active={readingTab === 'transcript'} timelineState={timelineState} />
             </div>
           </div>
           <div id="podcast-highlights-panel" className="podcast-content-panel" role="tabpanel" aria-labelledby="podcast-highlights-tab" hidden={readingTab !== 'highlights'}>

@@ -320,7 +320,7 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 ## 學習資料匯出
 
-`test_exports.py` 檢查筆記三種格式的表格、公式、來源、註記快照與中文字型粗體，長重點整理依內容自然分頁到多頁 A4、不縮字且全部段落保留、標題為中文粗體，診斷摘要的頁數與省略數量、MP3 實際解碼、逐字稿名字／時間，以及 Anki 資料庫與全部 PNG；也核對影音來源的「段」標示、DOCX 控制字元／作者及空診斷文案。`runtime/study/test_export_routes.py` 在一次性 DB 驗證 owner、固定版本、Origin、私人快取、未發布筆記、缺少影片／時間軸與偽造地圖選取。
+`test_exports.py` 檢查筆記三種格式的表格、公式、來源、註記快照與中文字型粗體，長重點整理依內容自然分頁到多頁 A4、不縮字且全部段落保留、標題為中文粗體，摘要／完整筆記的標題與正文開頭同頁、長正文跨頁仍逐行完整且不重複，診斷摘要的頁數與省略數量、MP3 實際解碼、逐字稿名字／時間，以及 Anki 資料庫與全部 PNG；也核對影音來源的「段」標示、DOCX 控制字元／作者及空診斷文案。`runtime/study/test_export_routes.py` 在一次性 DB 驗證 owner、固定版本、Origin、私人快取、未發布筆記、缺少影片／時間軸與偽造地圖選取。
 
 受影響的 notes、concept-cards、knowledge-map-viewport、learning-diagnosis、podcasts mock specs 驗證下載格式、整組分批、地圖渲染、失敗訊息與原介面；notes 真 API browser 同時驗證筆記三種下載。共用 client 的二進位下載沿用帳號失效／請求取消，因此仍需完整 mock 套件與 global-layout／shell-layout。這些驗證不宣稱重新驗收生成內容；匯出本身不呼叫模型。
 
@@ -329,6 +329,8 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 卡組暫存上限測試涵蓋並行建立時每人最多兩份、另一位 owner 不受影響、取消後釋放名額，以及總位元組／每概念頁數超限整批不寫入。真 API 與 client 測試核對三種明確錯誤。慢速卡組下載測試確認產檔名額已釋放，暫存仍存在且持鎖，其他匯出可完成，對同一下載的重複下載／取消會立即回忙碌且不占名額；MP4 在兩個產檔名額都被占用時仍可直接下載。
 
-Podcast 匯出選單與逐字稿共用時間軸輪詢：`e2e/mock/podcasts.spec.ts` 驗證影片尚未完成時，對齊從 `PODCAST_TIMELINE_NOT_READY` 變為可用後，不重整頁面即可匯出逐字稿 Markdown；成功、`PODCAST_TIMELINE_UNAVAILABLE` 或來源不一致後停止輪詢。
+播放器字幕、逐字稿與匯出選單共用頁面上的時間軸輪詢狀態：`e2e/mock/podcasts.spec.ts` 驗證對齊從 `PODCAST_TIMELINE_NOT_READY` 變為可用後，不重整頁面即可匯出逐字稿 Markdown；字幕首次 409 載入失敗也會重新載入，原播放位置與播放狀態保留。成功、`PODCAST_TIMELINE_UNAVAILABLE` 或來源不一致後停止輪詢。空白頁文案對應雙人對談／單人解說與可選影片。
+
+`e2e/mock/upload.spec.ts` 驗證上傳限制尚未載入時，原生選檔與拖放都停用，載入失敗時仍不能送出；載入完成即可正常選檔，移除後重選同一檔案也能加入。
 
 `test_spoken_analysis.py` 另覆蓋無標點 ASR 的逐字正確但越界引用，以及換行不符：補正請求附真實拒收原因；合法整段回退可保留 Claim 與所有原數字，原樣重送錯引仍拒收。此合成測試不保證模型會遵守提示，真實素材發布結果另行驗證。
