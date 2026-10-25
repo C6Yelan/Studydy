@@ -253,15 +253,23 @@ _CLAUSE_PUNCTUATION = frozenset("。！？；，：.!?;,:")
 MIN_EXCERPT_CHARACTERS = 4
 
 
+def _is_boundary_punctuation(text, index):
+    """半形標點須後接空白或原文結尾才算邊界，避免從 10:30、1:2、v1.2.3 中間切開；全形標點不受限。"""
+    char = text[index]
+    if char not in _CLAUSE_PUNCTUATION:
+        return False
+    return not char.isascii() or index + 1 == len(text) or text[index + 1].isspace()
+
+
 def _clause_bounds(text, start, end):
     """只依來源的句／子句標點切分；無標點時保守引用整段，空白不單獨建立邊界。"""
     before = text[:start].rstrip()
-    after = text[end:].lstrip()
-    quote = text[start:end].rstrip()
-    return (not before or before[-1] in _CLAUSE_PUNCTUATION) and (
-        not after
-        or after[0] in _CLAUSE_PUNCTUATION
-        or (quote and quote[-1] in _CLAUSE_PUNCTUATION)
+    after_index = len(text) - len(text[end:].lstrip())
+    quote_end = start + len(text[start:end].rstrip())
+    return (not before or _is_boundary_punctuation(text, len(before) - 1)) and (
+        after_index == len(text)
+        or _is_boundary_punctuation(text, after_index)
+        or (quote_end > start and _is_boundary_punctuation(text, quote_end - 1))
     )
 
 

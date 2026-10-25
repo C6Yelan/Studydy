@@ -418,6 +418,15 @@ def test_consolidation_keeps_only_uncertain_transcript_claim_fixed_in_mixed_conc
     ('設定時不要 設為10% 而應保持原本數值', '設定時不要 設為10% 而應保持原本數值', True),
     ('Do not set the value to 10% keep the original value', 'set the value to 10%', False),
     ('Do not set the value to 10% keep the original value', 'Do not set the value to 10% keep the original value', True),
+    # 半形標點在詞內（後面沒有空白）不是子句邊界，不能從數字或版本號中間切開。
+    ('會議在 10:30 開始，請準時。', '30 開始，', False),
+    ('會議在 10:30 開始，請準時。', '會議在 10:', False),
+    ('比例是 1:2 的效果最好。', '2 的效果最好。', False),
+    ('請升級到 v1.2.3 這個版本。', '3 這個版本。', False),
+    ('請升級到 v1.2.3 這個版本。', '請升級到 v1.2', False),
+    ('First step. Then do the next part.', 'Then do the next part.', True),
+    ('First step. Then do the next part.', 'First step.', True),
+    ('First step. Then do the next part.', 'First step', True),
 ])
 def test_excerpt_uses_clause_boundaries_and_keeps_unpunctuated_transcripts_whole(text, quote, valid):
     from knowledge_map.claim_literals import quoted_sources
