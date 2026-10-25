@@ -294,11 +294,13 @@ def test_content_rejection_keeps_published_notes_and_does_not_checkpoint_uncheck
         return answer(request)
     drain(f,reject)
     failed=client.get(path+'/summary').json()
-    assert failed['status']=='failed' and failed['error_code']=='NOTE_CONTENT_UNSUPPORTED'
+    assert failed['status']=='failed' and failed['error_code']=='NOTE_COVERAGE_INCOMPLETE'
     assert failed['paragraphs']==old['paragraphs'] and failed['generation']==1
-    # 重點整理每段局部重寫一次仍不符就刪段；三段全被刪除才失敗。重寫內容未變時沿用同一核對結果。
-    assert [r.get('phase','generate') for r in calls]==['generate']*2+['review_paragraph','generate']*3
-    assert calls[1]['correction']['problem']=='NOTE_SUMMARY_ROOM'
+    # 重點整理每段局部重寫一次仍不符就刪段；刪光後概念沒有被解說，只為這些概念補寫一次，
+    # 補寫段落仍不符就這一批失敗；同一工作內整批再試兩次，三次都失敗才不發布。內容未變的段落沿用同一核對結果。
+    attempt=['generate']+['review_paragraph','generate']*3+['generate']
+    assert [r.get('phase','generate') for r in calls]==attempt*3
+    assert calls[-1]['correction']['problem']=='NOTE_CONCEPT_UNEXPLAINED'
     assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
     drain(f,reject)
     full=client.get(path+'/full').json()
@@ -317,7 +319,7 @@ def test_reference_repair_missing_paragraph_preserves_explicit_worker_error(clos
     def malformed_repair(request):
         calls.append(request)
         result=answer(request)
-        if len(calls)==1:
+        if len(calls)%2==1:
             result['paragraphs'][-1]['evidence_ids']=result['paragraphs'][0]['evidence_ids'][:]
         else:
             result['paragraphs']=result['paragraphs'][:1]
@@ -326,7 +328,7 @@ def test_reference_repair_missing_paragraph_preserves_explicit_worker_error(clos
     failed=client.get(path+'/full').json()
     assert failed['status']=='failed' and failed['error_code']=='NOTE_FORMAT_INVALID'
     assert failed['paragraphs']==[] and failed['progress']['completed_parts']==0
-    assert len(calls)==2
+    assert len(calls)==6  # 格式錯誤可因重寫改變：同一批共三次嘗試，每次一份稿加一次引用補正。
 
 
 def test_step_dispatches_content_checks_with_the_saved_review_contract(closed_loop,tmp_path,monkeypatch):
@@ -352,7 +354,7 @@ def test_step_dispatches_content_checks_with_the_saved_review_contract(closed_lo
     result=client.get(path+'/summary').json()
     assert result['status']=='ready'
     assert seen.count('review_paragraph')==4  # fixture 的一段教材，加上本教材三段
-    assert seen.count('generate')==4  # 兩份短稿各檢查一次可補充的來源內容。
+    assert seen.count('generate')==2  # 兩份短稿各寫一次，沒有頁面空間的補寫輪次。
 
 
 def _diagnostics(f, kind):
@@ -411,7 +413,9 @@ def test_dropped_paragraph_and_failure_save_summary_codes_without_material_text(
     failed = _diagnostics(f, 'full')
     assert failed['code'] == full['error_code'] == 'NOTE_CONTENT_UNSUPPORTED'
     assert failed['error_type'] == 'ValueError'
-    assert [e['repaired'] for e in failed['events'] if e['event'] == 'review_rejected'] == [False, True]
+    assert [e['repaired'] for e in failed['events'] if e['event'] == 'review_rejected'] == [False, True] * 3
+    assert failed['events'][-1] == {'event': 'part_attempts', 'part': 0, 'attempts': 3,
+        'failed': ['NOTE_CONTENT_UNSUPPORTED'] * 3, 'succeeded': False}
     stored = json.dumps(failed, ensure_ascii=False)
     assert 'SECRET-REASON' not in stored and not any(t in stored for t in _material_texts(requests))
     foreign = register_account('note_diag_foreign@example.com', 'Synthetic test password 42', dsn=f['dsn'])

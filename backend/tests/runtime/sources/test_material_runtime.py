@@ -30,6 +30,28 @@ def test_only_material_dependencies_and_actual_model_define_resume_compatibility
     assert not same_material_runtime(config['runtime_lock'], first, changed['runtime_lock'], third)
 
 
+def test_historical_notes_lock_remains_valid_for_material_resume(tmp_path):
+    from content_identity import canonical_sha256
+    from runtime.material_runtime import validate_runtime_lock
+
+    config = _settings(tmp_path)
+    current = runtime_binding(config)
+    historical = deepcopy(config)
+    historical['runtime_lock']['material_notes'].update(
+        version='material-notes/v10', summary_layout='a4-12pt-18mm/v1',
+        prompt='歷史筆記提示', selection_prompt='歷史選點提示', review_prompt='歷史核對提示')
+    old = historical['runtime_lock']
+    before = deepcopy(old)
+    # 合法 binding 只更新對應的封存 hash，不依賴待測 validator 建立。
+    saved = {key: value for key, value in current.items() if key != 'runtime_binding_sha256'}
+    saved['runtime_lock_sha256'] = canonical_sha256(old)
+    saved['runtime_binding_sha256'] = canonical_sha256(saved)
+    assert same_material_runtime(old, saved, config['runtime_lock'], current)
+    assert validate_runtime_lock(old) == before
+    assert runtime_binding(historical) == saved
+    assert old == before and canonical_sha256(old) == saved['runtime_lock_sha256']
+
+
 def test_http_model_change_is_not_an_assessment_only_update(tmp_path):
     config = _settings(tmp_path)
     first = runtime_binding(config)
