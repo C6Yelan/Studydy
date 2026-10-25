@@ -59,10 +59,11 @@ def read(owner, material_id, revision, kind, *, dsn=None):
             for a in db.scalars(select(NoteAnnotation).where(NoteAnnotation.learner_id == owner,
                 NoteAnnotation.material_id == material_id, NoteAnnotation.kind == kind)
                 .order_by(NoteAnnotation.created_at, NoteAnnotation.annotation_id))]
-        return {"schema": "material-notes/v1", "material_id": str(material_id),
+        return {"schema": "material-notes/v2", "material_id": str(material_id),
             "knowledge_structure_revision": revision, "run_id": str(structure.run_id),
             "kind": kind, "source_status": meta["status"], "status": row.status if row else "not_generated",
             "generation": row.generation if row else 0, "paragraphs": paragraphs,
+            "outline": note_content.outline(paragraphs),
             "annotations": note_content.annotation_matches(paragraphs, annotations),
             "source_resolver": meta["source_resolver"], "error_code": row.error_code if row else None,
             "progress": section_progress(row) if row else None}
@@ -219,8 +220,9 @@ def _concepts(claim, dsn):
         return note_content.with_page_context([by_id[c] for c in path], document)
 
 
-def model_request(concepts, kind):
-    """請求只帶一次原文；短編號在此請求內有效，發布前還原正式身分。"""
+def model_request(concepts, kind, previous_section=None):
+    """請求只帶一次原文；短編號在此請求內有效，發布前還原正式身分。
+    previous_section 只是前文最後的章節標題，供模型決定層級，不是來源。"""
     groups, claims, evidence = {}, {}, {}
     for concept in concepts:
         group = groups.setdefault(concept["concept_id"], {"label": concept["label"], "claims": []})
@@ -239,7 +241,8 @@ def model_request(concepts, kind):
                         target.append(source["evidence_id"])
             group["claims"].append({"claim_id": cid, "text": claim["text"], "evidence_ids": refs,
                 "context_evidence_ids": context_refs})
-    return {"kind": kind, "concepts": list(groups.values()), "evidence": list(evidence.values())}, {
+    return {"kind": kind, "previous_section": previous_section,
+            "concepts": list(groups.values()), "evidence": list(evidence.values())}, {
         "claims": {ref: original for original, ref in claims.items()},
         "evidence": {item["evidence_id"]: original for original, item in evidence.items()},
     }
@@ -297,6 +300,7 @@ def _write(request, identities, part, mode, call, diagnostics):
             return note_content.validate(canonical_response(response, identities), part, mode)
         except (ValueError, TypeError, KeyError) as error:
             reference_error = isinstance(error, note_content.ReferenceInvalid)
+            formula_error = isinstance(error, note_content.note_latex.FormulaInvalid)
             code = str(error) if str(error).startswith("NOTE_") else "NOTE_FORMAT_INVALID"
             diagnostics.append({"event": "response_invalid", "code": code,
                 **({"paragraph": error.paragraph_index} if reference_error else {})})
@@ -307,8 +311,10 @@ def _write(request, identities, part, mode, call, diagnostics):
                     raise ValueError("NOTE_FORMAT_INVALID") from error
                 raise
             format_retried = True
-            instruction = ("只修正 previous_response 的 claim_ids／evidence_ids，標題、正文、公式與表格保持不變。每個 claim_ids 都須有其對應的 evidence_ids；刪掉不屬於本段 claim_ids 的 evidence_ids，兩種編號都不可重複。"
-                if code == "NOTE_REFERENCE_INVALID" else "修正前次回應的格式或重點涵蓋問題。")
+            instruction = ("只修正 previous_response 的 claim_ids／evidence_ids，標題、層級與所有 blocks 保持不變。每個 claim_ids 都須有其對應的 evidence_ids；刪掉不屬於本節 claim_ids 的 evidence_ids，兩種編號都不可重複。"
+                if code == "NOTE_REFERENCE_INVALID" else
+                f"previous_response 有公式無法排版（{error.detail}）：{error.latex}。只用允許的 LaTeX 指令改寫公式，數字與符號仍須照原文；其他內容保持不變。"
+                if formula_error else "修正前次回應的格式或重點涵蓋問題。")
             request = {**request, "correction": {**request.get("correction", {}),
                 "problem": code,
                 "instruction": instruction,
@@ -356,9 +362,9 @@ def _summary_references(response, identities, part, diagnostics):
     return note_content.validate({"paragraphs": kept}, part, "summary")
 
 
-def generate_part(part, mode, call, diagnostics=None):
+def generate_part(part, mode, call, diagnostics=None, previous_section=None):
     diagnostics = [] if diagnostics is None else diagnostics
-    request, identities = model_request(part, mode)
+    request, identities = model_request(part, mode, previous_section)
     result = _write(request, identities, part, mode, call, diagnostics)
     if mode == "full":
         return _check_paragraphs(result, part, call, diagnostics)
@@ -495,18 +501,21 @@ def _repair_paragraph(paragraph, index, issues, previous, part, mode, call, diag
     ids = set(paragraph["claim_ids"])
     scope = [{**c, "claims": [q for q in c["claims"] if q["claim_id"] in ids]} for c in part]
     scope = [c for c in scope if c["claims"]]
-    repair, mapping = model_request(scope, mode)
+    repair, mapping = model_request(scope, mode, _previous_section(previous))
     repair["correction"] = {
         "problem": "NOTE_CONTENT_UNSUPPORTED",
-        "instruction": "只修正這個段落中核對指出的不符字句或缺漏；其他已有來源支持的敘述保持不變。先查本次 context_evidence_ids 的實際表頭、規範詞與條件，若能補足數值或片語的意義，須明確解說並把那些區塊列入 evidence_ids，不要只重複缺少對象的原片語。related_paragraphs 已說明的部分不必重複，只補本段缺漏，仍保留本次提供的所有重點編號。保持原有大致篇幅，只依原文修正，不把核對理由或其他筆記當作新來源。",
+        "instruction": "只修正這個小節中核對指出的不符位置或缺漏（issues 的 part 對應 paragraph.content 的位置）；其他已有來源支持的條列、表格與公式保持不變，維持原層級。先查本次 context_evidence_ids 的實際表頭、規範詞與條件，若能補足數值或片語的意義，須明確解說並把那些區塊列入 evidence_ids，不要只重複缺少對象的原片語。related_paragraphs 已說明的部分不必重複，只補本段缺漏，仍保留本次提供的所有重點編號。保持原有大致篇幅，只依原文修正，不把核對理由或其他筆記當作新來源。",
         "content_review": {"paragraph_index": index,
-            "paragraph": {k: paragraph[k] for k in ("heading", "text", "formula", "table")},
+            "paragraph": note_content.located(paragraph),
             "issues": issues, "related_paragraphs": [
-                {k: p[k] for k in ("heading", "text", "formula", "table")}
-                for p in previous if ids.intersection(p["claim_ids"])]},
+                note_content.located(p) for p in previous if ids.intersection(p["claim_ids"])]},
     }
     # 完整筆記的修正須保留本段所有重點；重點整理沿用程式整理引用，交給後續核對。
     return _write(repair, mapping, scope, "full" if mode == "full" else "summary", call, diagnostics)
+
+
+def _previous_section(paragraphs):
+    return next((p["heading"] for p in reversed(paragraphs) if p.get("level") == 1), None)
 
 
 def _check_paragraphs(result, part, call, diagnostics):
@@ -689,7 +698,7 @@ def plan_sections(concepts, regions, kind="full", budget=None):
 # 模型回應被格式、引用或內容核對擋下時，同一批換一份新稿重試；核對標準不變。
 # 契約、容量、provider 等重試也不會改變的錯誤不在此列，直接失敗。
 RETRYABLE_PART_ERRORS = {"NOTE_CONTENT_UNSUPPORTED", "NOTE_COVERAGE_INCOMPLETE", "NOTE_FORMAT_INVALID",
-    "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_REVIEW_INVALID"}
+    "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_FORMULA_INVALID", "NOTE_REVIEW_INVALID"}
 PART_ATTEMPTS = 3
 
 
@@ -703,7 +712,8 @@ def complete_sections(concepts, plan, call, results, on_part, diagnostics=None, 
         codes = []
         while True:
             try:
-                generated = generate_part(selected, kind, call, diagnostics)
+                generated = generate_part(selected, kind, call, diagnostics,
+                    _previous_section([p for part in results for p in part]))
                 break
             except (ValueError, note_content.ReviewInvalid) as error:
                 if str(error) not in RETRYABLE_PART_ERRORS:
@@ -775,6 +785,34 @@ def _complete(claim, concepts, call, dsn, diagnostics, *, input_budget):
     return result
 
 
+def request_contract(payload, policy):
+    """依請求階段選提示與回應 schema；核對與挑選的位置／編號以 enum 限定在本次請求。"""
+    phase = payload.get("phase")
+    if phase == "review_paragraph":
+        prompt, schema = policy["review_prompt"], note_content.ContentReview
+    elif phase == "select_summary":
+        prompt, schema = policy["selection_prompt"], note_content.SummarySelection
+    else:
+        prompt, schema = policy["prompt"], note_content.Response
+    response_schema = note_content.response_schema(schema)
+    if phase == "review_paragraph":
+        response_schema["$defs"]["ContentCheck"]["properties"]["part"]["enum"] = payload["parts"]
+        response_schema["properties"]["checks"].update(minItems=len(payload["parts"]), maxItems=len(payload["parts"]))
+        refs = payload["coverage_claims"]
+        response_schema["properties"]["coverage"].update(minItems=len(refs), maxItems=len(refs))
+        if refs:
+            response_schema["$defs"]["ClaimCoverage"]["properties"]["claim"]["enum"] = refs
+            response_schema["$defs"]["ClaimCoverage"]["properties"]["note_parts"]["items"]["enum"] = list(dict.fromkeys(
+                location for values in payload["coverage_locations"].values() for location in values))
+    elif phase == "select_summary":
+        refs = [k["ref"] for k in payload["concepts"]]
+        response_schema["properties"]["concepts"].update(minItems=len(refs), maxItems=len(refs))
+        fields = response_schema["$defs"]["ConceptSelection"]["properties"]
+        fields["concept"]["enum"] = refs
+        fields["claim_ids"]["items"]["enum"] = [q["ref"] for k in payload["concepts"] for q in k["claims"]]
+    return prompt, response_schema
+
+
 def step(*, dsn=None, call=None, stop=None):
     """由教材執行緒處理一份；測試可注入受控模型。"""
     claim = _claim(dsn)
@@ -797,29 +835,7 @@ def step(*, dsn=None, call=None, stop=None):
             _check(claim, dsn, stop, count_call=True)
             if call is not None:
                 return call(payload)
-            phase = payload.get("phase")
-            if phase == "review_paragraph":
-                prompt, schema = policy["review_prompt"], note_content.ContentReview
-            elif phase == "select_summary":
-                prompt, schema = policy["selection_prompt"], note_content.SummarySelection
-            else:
-                prompt, schema = policy["prompt"], note_content.Response
-            response_schema = schema.model_json_schema()
-            if phase == "review_paragraph":
-                response_schema["$defs"]["ContentCheck"]["properties"]["part"]["enum"] = payload["parts"]
-                response_schema["properties"]["checks"].update(minItems=len(payload["parts"]), maxItems=len(payload["parts"]))
-                refs = payload["coverage_claims"]
-                response_schema["properties"]["coverage"].update(minItems=len(refs), maxItems=len(refs))
-                if refs:
-                    response_schema["$defs"]["ClaimCoverage"]["properties"]["claim"]["enum"] = refs
-                    response_schema["$defs"]["ClaimCoverage"]["properties"]["note_parts"]["items"]["enum"] = list(dict.fromkeys(
-                        location for values in payload["coverage_locations"].values() for location in values))
-            elif phase == "select_summary":
-                refs = [k["ref"] for k in payload["concepts"]]
-                response_schema["properties"]["concepts"].update(minItems=len(refs), maxItems=len(refs))
-                fields = response_schema["$defs"]["ConceptSelection"]["properties"]
-                fields["concept"]["enum"] = refs
-                fields["claim_ids"]["items"]["enum"] = [q["ref"] for k in payload["concepts"] for q in k["claims"]]
+            prompt, response_schema = request_contract(payload, policy)
             task_lock = {**lock["material_review"], "prompt": prompt}
             with semantic_client() as client:
                 return request_semantics(client, runtime_lock={**lock, "material_review": task_lock}, task="material_review",
@@ -842,7 +858,7 @@ def step(*, dsn=None, call=None, stop=None):
         pass
     except Exception as error:
         code = error.reason_code if isinstance(error, SemanticServiceError) else str(error)
-        if code not in {"NOTE_FORMAT_INVALID", "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_COVERAGE_INCOMPLETE",
+        if code not in {"NOTE_FORMAT_INVALID", "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_FORMULA_INVALID", "NOTE_COVERAGE_INCOMPLETE",
             "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID", "NOTE_CONTENT_UNSUPPORTED", "NOTE_REVIEW_INVALID"} and not isinstance(error, SemanticServiceError):
             code = "NOTE_GENERATION_FAILED"
         summary = {"code": code, "error_type": type(error).__name__, "events": diagnostics}

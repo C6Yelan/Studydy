@@ -1634,14 +1634,50 @@ export function podcastDeleted(value: unknown): value is PodcastDeletedView {
 }
 
 
+function noteItems(value: unknown, depth = 1): boolean {
+  return Array.isArray(value) && value.length > 0 && value.every(v => {
+    const item = object(v);
+    return !!item && typeof item.text === "string"
+      && (item.children === undefined || (depth < 3 && (Array.isArray(item.children) && (item.children.length === 0 || noteItems(item.children, depth + 1)))));
+  });
+}
+
+function noteTable(value: Record<string, unknown> | null): boolean {
+  return !!value && strings(value.headers) && Array.isArray(value.rows) && value.rows.every(strings);
+}
+
+function noteBlock(value: unknown): boolean {
+  const b = object(value);
+  if (!b) return false;
+  switch (b.type) {
+    case "text": return typeof b.text === "string";
+    case "bullets": return noteItems(b.items);
+    case "table": return (b.caption === null || typeof b.caption === "string") && noteTable(b);
+    case "formula": return typeof b.latex === "string";
+    case "callout": return ["case_study", "discussion", "reminder", "lesson"].includes(String(b.style))
+      && (b.title === null || typeof b.title === "string") && noteItems(b.items);
+    default: return false;
+  }
+}
+
 function noteParagraph(value: unknown): boolean {
   const p = object(value);
-  if (!p || typeof p.id !== "string" || typeof p.anchor !== "string" || typeof p.heading !== "string" || typeof p.text !== "string"
-    || !(p.formula === null || typeof p.formula === "string") || !strings(p.claim_ids) || !strings(p.evidence_ids)
+  if (!p || typeof p.id !== "string" || typeof p.anchor !== "string" || typeof p.heading !== "string"
+    || !strings(p.claim_ids) || !strings(p.evidence_ids)
     || !Array.isArray(p.concepts) || !p.concepts.every(c => { const x = object(c); return x && typeof x.concept_id === "string" && typeof x.label === "string"; })
     || !Array.isArray(p.evidence) || !p.evidence.length || !p.evidence.every(cardEvidence)) return false;
-  const t = object(p.table);
-  return p.table === null || !!t && strings(t.headers) && Array.isArray(t.rows) && t.rows.every(strings);
+  if ("blocks" in p) return (p.level === 1 || p.level === 2) && Array.isArray(p.blocks) && p.blocks.length > 0 && p.blocks.every(noteBlock);
+  // v11 以前的段落格式。
+  return typeof p.text === "string" && (p.formula === null || typeof p.formula === "string")
+    && (p.table === null || noteTable(object(p.table)));
+}
+
+function noteOutline(value: unknown): boolean {
+  return Array.isArray(value) && value.every(v => {
+    const o = object(v);
+    return !!o && typeof o.paragraph_id === "string" && (o.level === 1 || o.level === 2)
+      && typeof o.number === "string" && typeof o.heading === "string";
+  });
 }
 
 function noteProgress(value: unknown): boolean {
@@ -1655,12 +1691,13 @@ function noteProgress(value: unknown): boolean {
 
 export function materialNotes(value: unknown): value is MaterialNotesView {
   const v = object(value);
-  return !!v && v.schema === "material-notes/v1" && isUuid(v.material_id) && isUuid(v.run_id)
+  return !!v && v.schema === "material-notes/v2" && isUuid(v.material_id) && isUuid(v.run_id)
     && revision(v.knowledge_structure_revision, "knowledge-structure") && ["summary", "full"].includes(String(v.kind))
     && ["not_generated", "pending", "running", "ready", "failed"].includes(String(v.status))
     && Number.isInteger(v.generation) && Number(v.generation) >= 0 && typeof v.source_resolver === "string"
     && (v.error_code === null || typeof v.error_code === "string")
     && knowledgeStatus(v.source_status) && noteProgress(v.progress) && Array.isArray(v.paragraphs) && v.paragraphs.every(noteParagraph)
+    && noteOutline(v.outline)
     && Array.isArray(v.annotations) && v.annotations.every(a => { const x = object(a); return !!x
       && isUuid(x.annotation_id) && typeof x.anchor === "string" && typeof x.body === "string"
       && revision(x.original_revision, "knowledge-structure") && noteParagraph(x.original_paragraph)

@@ -252,9 +252,13 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 `0017_material_notes.sql` 新增筆記生成／快取及個人註記兩張表，不修改既有教材、題組或答案。套用前備份產品 DB；隔離環境由 0016 升級並逐表核對既有資料不變。新後端須與支援筆記分頁的前端一起部署。已套用後只能使用識別 0017 的相容版本或前向修復，不直接啟動舊 migration runner，也不還原 DB 丟棄新註記。
 
-本批筆記使用目前正式 Luna（gpt-5.6-luna）；雲端 Pod／Gemma 切換不屬本批，沒有新增切換抽象。筆記請求使用 runtime lock 的 `material_notes`／`material-notes/v11` 契約（v11 取消重點整理的 A4 一頁限制與重排，改為每個概念寫最核心的重點、以概念挑選並分批寫作，lock 移除 `summary_layout`，寫作與挑選提示已改；核對提示只補充重點整理的涵蓋判定：核心主張或結論有說明即算解說，完整筆記的判定文字不變）；包含寫作、摘要選點及逐段內容核對提示；原教材與題組保存的舊 lock／hash 不改寫。未完成筆記重試時若契約已不同，清除未發布的分區暫存並換用目前 lock，不接續舊契約批次。沿既有文字 provider，不修改 Podcast provider 程式或重啟其服務。
+本批筆記使用目前正式 Luna（gpt-5.6-luna）；雲端 Pod／Gemma 切換不屬本批，沒有新增切換抽象。筆記請求使用 runtime lock 的 `material_notes`／`material-notes/v12` 契約（v12 改為結構化格式：有層級的小節、巢狀條列、多表格、LaTeX 公式與醒目區塊，寫作與核對提示已改，挑選提示不變；v11 取消重點整理的 A4 一頁限制）；包含寫作、摘要選點及逐段內容核對提示；原教材與題組保存的舊 lock／hash 不改寫。未完成筆記重試時若契約已不同，清除未發布的分區暫存並換用目前 lock，不接續舊契約批次。沿既有文字 provider，不修改 Podcast provider 程式或重啟其服務。
 
 部署後由維護程序呼叫 `runtime.material_notes.queue_existing(owner=<已授權 learner UUID>)`，僅為本人目前版本缺少的重點整理排工作；重跑不重新生成已有結果，也不建立完整筆記。回報教材份數與實際 provider 呼叫次數，不能把工作嘗試數當成模型請求數。程式失敗或容量不足時如實保留 failed，學生可手動重試。`queue_existing` 會跳過已有紀錄（包含 failed 與舊契約已發布）的教材；v11 部署不需 migration，舊契約已發布的重點整理保留到重新生成為止；只重做指定的列（failed 或要換新契約的已發布列）時，逐份對該列呼叫 `runtime.material_notes.generate(owner, material_id, revision, "summary", expected_generation=<該列 generation>)`（與 API 重新生成相同），契約不同時會換用目前 lock，已發布筆記與註記保留。
+
+### 結構化筆記（material-notes/v12）
+
+不需 migration：`material_notes.paragraphs` 與註記快照仍是 jsonb，新舊段落格式並存；API 的 `schema` 改為 `material-notes/v2` 並新增 `outline`，前後端須一起部署（舊前端不認得 v2）。後端新增 `matplotlib==3.11.2`（連帶 contourpy、cycler、kiwisolver、pyparsing，numpy／Pillow 由 test extra 轉為正式依賴，版本不變），記在 `backend/pyproject.toml`／`uv.lock`；沒有新系統套件，輕量更新的 `uv sync` 即會安裝。公式排版使用映像內既有的 `fonts-noto-cjk`，matplotlib 第一次排版時在 `$HOME/.config/matplotlib`（backend 的 HOME 為 /tmp tmpfs）建立字型快取，約需數秒；部署後在容器內核對 `import matplotlib` 版本並匯出一份含公式的筆記。前端新增 `katex@0.18.11`（MIT），公式元件與 KaTeX 字型拆成獨立 chunk，只在筆記有公式時載入。runtime lock 的 `material_notes` 改為 v12；未完成的 v11 工作重試時依既有規則清除未發布批次並換用 v12。已發布的 v11 筆記保留可讀與匯出，重新生成後才換成新格式。
 
 ## 0018 筆記生成診斷摘要碼
 

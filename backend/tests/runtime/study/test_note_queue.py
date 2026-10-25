@@ -20,8 +20,8 @@ HEADERS = {"Origin": ORIGIN}
 def answer(request):
     if request.get("phase") == "review_paragraph":
         return {"checks": [{"part": part, "supported": True, "reason": ""} for part in request["parts"]],
-            "coverage": [{"claim": ref, "explained": True, "note_parts": ["text"], "reason": ""} for ref in request["coverage_claims"]]}
-    return {"paragraphs": [{"heading": c["label"], "text": q["text"], "table": None, "formula": None,
+            "coverage": [{"claim": ref, "explained": True, "note_parts": ["blocks.0"], "reason": ""} for ref in request["coverage_claims"]]}
+    return {"paragraphs": [{"heading": c["label"], "level": 1, "blocks": [{"type": "text", "text": q["text"]}],
         "claim_ids": [q["claim_id"]], "evidence_ids": q.get("evidence_ids") or [e["evidence_id"] for e in q["evidence"]]}
         for c in request["concepts"] for q in c["claims"]]}
 
@@ -81,7 +81,7 @@ def test_saved_same_page_context_is_published_as_resolvable_evidence_without_cha
     drain(f,model)
     result=mn.read(*key,'summary',dsn=f['dsn'])
     assert result['status']=='ready',result['error_code']
-    paragraph=next(p for p in result['paragraphs'] if p['text']=='Numeric value: 0.1.')
+    paragraph=next(p for p in result['paragraphs'] if p['blocks'][0]['text']=='Numeric value: 0.1.')
     header=next(e for e in paragraph['evidence'] if e['quote']=='Saved column label: rate.')
     with database_session(f['dsn']) as db:
         _,location=knowledge_reads.evidence_source(db,*key,header['evidence_id'])
@@ -111,7 +111,7 @@ def test_annotations_keep_snapshot_and_failed_regeneration_preserves_readable_no
         if request.get("phase") == "review_paragraph":
             return answer(request)
         result = answer(request)
-        result["paragraphs"][0]["text"] += "（重新整理）"
+        result["paragraphs"][0]["blocks"][0]["text"] += "（重新整理）"
         return result
     drain(f, changed_prose)
     refreshed = client.get(path + "/summary").json()
@@ -124,6 +124,33 @@ def test_annotations_keep_snapshot_and_failed_regeneration_preserves_readable_no
     removed = client.put(endpoint, headers=HEADERS, json={**value, "body": ""})
     assert removed.status_code == 200 and removed.json()["annotations"] == []
     assert client.put(endpoint, headers=HEADERS, json={**value, "body": ""}).status_code == 200
+
+
+def test_v11_paragraphs_stay_readable_with_annotations_until_regenerated(closed_loop, tmp_path, monkeypatch):
+    f, client, path = setup(closed_loop, tmp_path, monkeypatch)
+    drain(f)
+    key = (f['learner'].learner_id, f['source'].material_id, f['document']['revision'], 'summary')
+    with database_session(f['dsn']) as db:
+        row = db.get(MaterialNotes, key)
+        legacy = [{k: v for k, v in p.items() if k not in ('level', 'blocks')} | {
+            'text': p['blocks'][0]['text'], 'formula': 'a = b', 'table': {'headers': ['甲'], 'rows': [['乙']]}}
+            for p in row.paragraphs]
+        row.paragraphs = legacy
+    saved = client.put(path + '/summary/annotations/' + str(uuid4()), headers=HEADERS,
+        json={'expected_generation': 1, 'paragraph_id': '0', 'body': '舊版註記'})
+    assert saved.status_code == 200, saved.json()
+    view = client.get(path + '/summary').json()
+    assert view['schema'] == 'material-notes/v2' and view['outline'] == []
+    assert view['paragraphs'] == legacy and view['annotations'][0]['original_paragraph'] == legacy[0]
+    for format in ('md', 'pdf', 'docx'):
+        assert client.get(path + f'/summary/export/{format}').status_code == 200
+    client.post(path + '/summary', headers=HEADERS, json={'expected_generation': 1})
+    drain(f)
+    regenerated = client.get(path + '/summary').json()
+    assert regenerated['generation'] == 2 and all('blocks' in p for p in regenerated['paragraphs'])
+    assert [o['number'] for o in regenerated['outline']] == ['一、', '二、', '三、']
+    assert regenerated['annotations'][0]['paragraph_id'] == '0'
+    assert regenerated['annotations'][0]['original_paragraph'] == legacy[0]
 
 
 def test_stale_worker_cannot_publish_and_expired_lease_recovers(closed_loop, tmp_path, monkeypatch):
@@ -290,7 +317,7 @@ def test_content_rejection_keeps_published_notes_and_does_not_checkpoint_uncheck
     def reject(request):
         calls.append(request)
         if request.get('phase')=='review_paragraph':
-            return {**answer(request),'checks':[{'part':p,'supported':p!='text','reason':'來源沒有此條件。' if p=='text' else ''} for p in request['parts']]}
+            return {**answer(request),'checks':[{'part':p,'supported':p!='blocks.0','reason':'來源沒有此條件。' if p=='blocks.0' else ''} for p in request['parts']]}
         return answer(request)
     drain(f,reject)
     failed=client.get(path+'/summary').json()
@@ -377,9 +404,9 @@ def test_dropped_paragraph_and_failure_save_summary_codes_without_material_text(
         requests.append(request)
         if request.get('phase') != 'review_paragraph':
             return answer(request)
-        rejected = request['paragraph']['text'] == 'Signal 0 uses code0.'
-        return {**answer(request), 'checks': [{'part': p, 'supported': not (rejected and p == 'text'),
-            'reason': reason if rejected and p == 'text' else ''} for p in request['parts']]}
+        rejected = request['paragraph']['content'][0]['text'] == 'Signal 0 uses code0.'
+        return {**answer(request), 'checks': [{'part': p, 'supported': not (rejected and p == 'blocks.0'),
+            'reason': reason if rejected and p == 'blocks.0' else ''} for p in request['parts']]}
     drain(f, drop_first)
     summary = client.get(path + '/summary').json()
     assert summary['status'] == 'ready' and summary['paragraphs']
@@ -404,8 +431,8 @@ def test_dropped_paragraph_and_failure_save_summary_codes_without_material_text(
     def reject(request):
         requests.append(request)
         if request.get('phase') == 'review_paragraph':
-            return {**answer(request), 'checks': [{'part': p, 'supported': p != 'text',
-                'reason': reason if p == 'text' else ''} for p in request['parts']]}
+            return {**answer(request), 'checks': [{'part': p, 'supported': p != 'blocks.0',
+                'reason': reason if p == 'blocks.0' else ''} for p in request['parts']]}
         return answer(request)
     drain(f, reject)
     full = client.get(path + '/full').json()

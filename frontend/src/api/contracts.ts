@@ -957,21 +957,34 @@ export type VersionMoveResult = {
 };
 
 export type NoteKind = "summary" | "full";
-export type NoteParagraph = {
-  id: string; anchor: string; heading: string; text: string;
-  table: { headers: string[]; rows: string[][] } | null; formula: string | null;
-  claim_ids: string[]; evidence_ids: string[];
-  concepts: { concept_id: string; label: string }[]; evidence: EvidenceView[];
+export type NoteItem = { text: string; children?: NoteItem[] };
+export type NoteCalloutStyle = "case_study" | "discussion" | "reminder" | "lesson";
+export type NoteBlock =
+  | { type: "text"; text: string }
+  | { type: "bullets"; items: NoteItem[] }
+  | { type: "table"; caption: string | null; headers: string[]; rows: string[][] }
+  | { type: "formula"; latex: string }
+  | { type: "callout"; style: NoteCalloutStyle; title: string | null; items: NoteItem[] };
+type NoteSource = { id: string; anchor: string; heading: string; claim_ids: string[]; evidence_ids: string[];
+  concepts: { concept_id: string; label: string }[]; evidence: EvidenceView[] };
+/** material-notes/v12 起的小節：有層級的標題與條列、表格、公式、醒目區塊。 */
+export type NoteSection = NoteSource & { level: 1 | 2; blocks: NoteBlock[] };
+/** v11 以前的段落格式；重新生成前仍可閱讀。 */
+export type NoteLegacyParagraph = NoteSource & {
+  text: string; table: { headers: string[]; rows: string[][] } | null; formula: string | null;
 };
+export type NoteParagraph = NoteSection | NoteLegacyParagraph;
+export type NoteOutlineEntry = { paragraph_id: string; level: 1 | 2; number: string; heading: string };
 export type NoteAnnotation = {
   annotation_id: string; anchor: string; body: string;
   original_revision: string; original_paragraph: NoteParagraph;
   paragraph_id: string | null; updated_at: string;
 };
 export type MaterialNotesView = {
-  schema: "material-notes/v1"; material_id: string; knowledge_structure_revision: string;
+  schema: "material-notes/v2"; material_id: string; knowledge_structure_revision: string;
   run_id: string; kind: NoteKind; status: "not_generated" | "pending" | "running" | "ready" | "failed";
   generation: number; source_status: KnowledgeStructureView["status"]; paragraphs: NoteParagraph[]; annotations: NoteAnnotation[];
+  outline: NoteOutlineEntry[];
   source_resolver: string; error_code: string | null;
   progress: { stage: "generating" | "validating" | "completed"; completed_sections: number; total_sections: number;
     completed_parts: number; total_parts: number; current_section: string | null } | null;

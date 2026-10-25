@@ -43,6 +43,47 @@ def test_notes_preserve_body_table_formula_sources_and_orphaned_annotations():
         assert not any('Droid' in s['font'] and s['size'] == 14 for s in spans)
 
 
+def structured_note():
+    evidence = {'page': 3, 'normalized_page': 3, 'source_name': '經濟.pdf', 'block_order': 2}
+    items = [{'text': '出口占比', 'children': [{'text': '子項', 'children': [{'text': '孫項'}]}]}]
+    chapter = {'id': '0', 'heading': '國際經濟學概論', 'level': 1, 'evidence': [evidence],
+               'blocks': [{'type': 'bullets', 'items': items}]}
+    section = {'id': '1', 'heading': '開放度', 'level': 2, 'evidence': [evidence], 'blocks': [
+        {'type': 'formula', 'latex': r'\text{開放度} = \frac{\text{出口}+\text{進口}}{\text{GDP}} \times 100\%'},
+        {'type': 'table', 'caption': '各國比較', 'headers': ['國家', '值'], 'rows': [['甲', '50']]},
+        {'type': 'table', 'caption': None, 'headers': ['年', '值'], 'rows': [['2020', '1']]},
+        {'type': 'callout', 'style': 'case_study', 'title': '甲國', 'items': [{'text': '案例內容', 'children': []}]},
+        {'type': 'callout', 'style': 'lesson', 'title': None, 'items': [{'text': '教訓內容', 'children': []}]}]}
+    view = note()
+    view['paragraphs'] = [chapter, section]
+    view['annotations'] = [{'paragraph_id': '1', 'body': '我的想法'},
+        {'paragraph_id': None, 'body': '舊註記', 'original_revision': 'old', 'original_paragraph': note()['paragraphs'][0]}]
+    return view
+
+
+def test_structured_notes_keep_outline_levels_bullets_tables_formula_and_callouts_in_every_format():
+    view = structured_note()
+    markdown = documents.note_markdown(view)
+    assert '## 章節大綱\n\n- 一、國際經濟學概論\n  - 1\\.1 開放度' in markdown
+    assert '## 一、國際經濟學概論' in markdown and '### 1\\.1 開放度' in markdown
+    assert '- 出口占比\n  - 子項\n    - 孫項' in markdown
+    assert '$$\n' + view['paragraphs'][1]['blocks'][0]['latex'] + '\n$$' in markdown
+    assert '> **案例研究：甲國**' in markdown and '> **重要教訓**' in markdown and '| 2020 | 1 |' in markdown
+    assert '原段落' not in markdown and '繁體中文粗體標題' in markdown and '舊註記' in markdown
+    word = Document(BytesIO(documents.note_docx(view)))
+    texts = [p.text for p in word.paragraphs]
+    assert '一、國際經濟學概論' in texts and '1.1 開放度' in texts
+    assert [p.style.name for p in word.paragraphs if p.text in ('出口占比', '子項', '孫項')] == ['List Bullet', 'List Bullet 2', 'List Bullet 3']
+    assert len(word.inline_shapes) == 1
+    assert word.inline_shapes[0]._inline.docPr.get('descr') == view['paragraphs'][1]['blocks'][0]['latex']
+    assert [t.cell(1, 0).text for t in word.tables[:2]] == ['甲', '2020']
+    assert word.tables[2].cell(0, 0).paragraphs[0].text == '案例研究：甲國'
+    with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
+        text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
+        assert all(t in text for t in ('章節大綱', '一、國際經濟學概論', '1.1 開放度', '孫項', '各國比較', '案例研究:甲國', '重要教訓', '我的想法', '舊註記'))
+        assert len(pdf[0].get_images()) == 1
+
+
 def test_diagnosis_overflow_is_explicit_and_stays_one_page():
     point = {'title': '需要複習的內容' * 8, 'correct_count': 1, 'answer_count': 3, 'evidence': [{'page': 2, 'source_name': '課程.youtube'}]}
     view = {'scope': 'material', 'strengths': [], 'weaknesses': [{'label': '概念', 'points': [point] * 80}],
