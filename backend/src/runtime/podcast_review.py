@@ -312,6 +312,42 @@ def cited(segment):
     )
 
 
+def recap_counts(segment):
+    """有宣告點數時，引用來源的回顧逐輪編號；未編號的第四點也不能漏算。"""
+    numbers = {str(n): n for n in range(1, 13)}
+    numbers.update({word: n for n, word in enumerate(
+        ("一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"), 1
+    )})
+    numeral = "(?:十二|十一|十|[一二三四五六七八九]|1[0-2]|[1-9])"
+    declaration = re.compile(
+        r"(?<![第\d])(" + numeral + r")\s*(?:(?:個|項|大)?\s*(?:重點|要點)|件事|點(?=[，、。！？：,:!?\s]|$))"
+    )
+    ordinal = re.compile(r"第\s*(" + numeral + r")\s*(?:點|項|[，、：,:])")
+    declarations = [
+        (i, numbers[match.group(1)])
+        for i, turn in enumerate(segment["turns"])
+        for match in declaration.finditer(turn["text"])
+    ]
+    if not declarations:
+        return []
+    start, expected = declarations[0]
+    actual = []
+    malformed = False
+    for turn in segment["turns"][start:]:
+        markers = [numbers[m.group(1)] for m in ordinal.finditer(turn["text"])]
+        has_source = any(part["source_refs"] for part in turn["parts"])
+        if markers or has_source:
+            # 每輪只放一個回顧項目，避免把沒有編號的新重點藏在道別裡。
+            malformed |= len(markers) != 1 or not has_source
+            actual.extend(markers)
+    if not malformed and all(n == expected for _, n in declarations) and actual == list(range(1, expected + 1)):
+        return []
+    return [{
+        "part": f"turn.{start}",
+        "reason": "回顧宣告的點數與實際項目不一致或有未編號的來源內容。保留所有回顧內容，每個項目各用一輪有來源的台詞，依序以第一、第二等編號；宣告點數須等於項目數，道別及下集預告另用沒有來源的台詞。",
+    }]
+
+
 def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics):
     """逐段核對；不符只重生該段並重核一次，仍不符就整集不發布。"""
     material = material_text(claims, pages)
@@ -320,6 +356,8 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
         request = segment_request(script, index, claims, pages, hosts=hosts, series=series, related_indices=related)
         # 自稱名字由程式檢查，與原文核對的不符項目合併成同一次重寫。
         found = issues(request, review(request)) + self_naming(script["segments"][index], hosts, material, script)
+        if index == len(script["segments"]) - 1:
+            found += recap_counts(script["segments"][index])
         # 沒被正文引用的重點由程式判定缺漏，沿用同一段的重寫與重核；全部有引用時不增加呼叫。
         assigned = unassigned(script, claims).get(index, [])
         if not found and not assigned:
@@ -338,6 +376,8 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
         request = segment_request(script, index, claims, pages, hosts=hosts, series=series, related_indices=related)
         found = [{"part": f"source.{s}", "reason": "重寫後刪掉了本段必須講解的重點"} for s in sorted(missing)]
         found = found or issues(request, review(request))
+        if index == len(script["segments"]) - 1:
+            found += recap_counts(script["segments"][index])
         if found:
             diagnostics.append({"segment": index, "rejected_after_rewrite": [i["part"] for i in found]})
             raise RuntimeError("PODCAST_SCRIPT_NEEDS_REVIEW")

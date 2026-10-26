@@ -84,7 +84,7 @@ def retry_revision(owner, run_id, key, config, *, dsn=None):
         )
         if run is None:
             raise SourceError("RESOURCE_NOT_FOUND")
-        if run.status != "failed" or run.input_source_set_id is None:
+        if run.status != "failed" or run.input_source_set_id is None or run.maintenance:
             raise SourceError("REQUEST_INVALID")
         require_source_material(session, owner, run.material_id)
         source_set = session.get(MaterialSourceSet, run.input_source_set_id)
@@ -167,8 +167,12 @@ def create_revision(
     research_id=None,
     research_retry_of=None,
     research_token=None,
+    full_reanalysis=False,
 ):
     from .material_processing import _row
+
+    if full_reanalysis and (normalization_ids or base_revision is None):
+        raise SourceError("REQUEST_INVALID")
 
     def link_retry(session, result):
         if research_retry_of is not None:
@@ -379,6 +383,7 @@ def create_revision(
             request_fingerprint=_fingerprint(
                 material_id, normalization_ids, runtime, base_revision
             ),
+            maintenance={"mode": "demo-full-reanalysis/v1", "limit": 300, "reserved_calls": 0} if full_reanalysis else None,
             runtime_binding=runtime,
             runtime_lock_document=deepcopy(config["runtime_lock"]),
             status="pending",

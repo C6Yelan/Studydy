@@ -651,3 +651,17 @@ def test_retyped_relation_collision_preserves_all_support_or_rejects_direction_c
     assert relation['confidence'] == .6
     assert relation['learner_reason'] == '第一頁支持此例子。；第二頁的既有例子說明。'
     assert relation['relation_id'] not in {row['relation_id'] for row in original['relations']}
+
+
+
+@pytest.mark.parametrize("prefix", ["9. ", "9.1. ", "9、"])
+def test_numbered_section_topic_is_not_removed_as_layout(prefix):
+    source = view()
+    source["document_tree"]["sections"][0]["title"] = prefix + "角色分類"
+    response = proposal()
+    response["assignments"][0].update(action="metadata", issue="layout")
+    result = project_review(source, prepare(source), response)
+    assert len(result["learning_units"]) == 5
+    assert "c0" not in result["metadata_concept_ids"]
+    assert result["blocked_changes"][0]["reason"] == "PROTECTED_TOPIC_OR_PREREQUISITE"
+    assert source["document_tree"]["sections"][0]["title"] == prefix + "角色分類"

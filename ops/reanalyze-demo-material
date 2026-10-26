@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# 使用已部署容器內的程式；不把未合併 worktree source 注入正式服務。
+exec docker compose --project-directory "$repo_root" exec -T backend \
+    /app/backend/.venv/bin/python -m runtime.maintenance_reanalysis "$@"

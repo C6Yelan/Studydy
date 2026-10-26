@@ -323,11 +323,14 @@ def request_semantics(
     response_schema: dict[str, Any],
     cancellation_check: Callable[[], None] | None = None,
     usage: dict[str, int] | None = None,
+    before_request: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """透過共用 HTTP 邊界請求語意結果。"""
 
     from .luna_test import enabled
 
+    if before_request is not None and not enabled(runtime_lock):
+        raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
     if enabled(runtime_lock):
         if task not in MIN_OUTPUT_TOKENS:
             raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
@@ -346,6 +349,8 @@ def request_semantics(
             input_tokens,
             min(65536, runtime_lock["semantic_service"]["max_model_len"]),
         )
+        if before_request is not None:
+            before_request()
         try:
             from .generation_jobs import provider_job
 

@@ -321,7 +321,12 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
             and block["font_size"] - body_font_size >= max(1.5, body_font_size * 0.15)
             and 2 <= len(visible_text) <= 160
             and sum(character.isalnum() for character in visible_text) >= 2
-            and block["bbox"][3] < boundary.y0 + boundary.height * 0.9
+            # 編號章節可能落在頁底、正文接下一頁；不可一律當成頁尾。
+            # 無章節編號的大字頁尾仍沿用位置限制，避免把頁碼／出版標誌當標題。
+            and (
+                block["bbox"][3] < boundary.y0 + boundary.height * 0.9
+                or re.match(r"\s*\d+(?:\.\d+)*[.．、)]\s*[^\d\s]", block["text"])
+            )
         )
         block["type"] = "title" if is_centered_title_page or is_heading else "text"
     grouped: list[dict[str, Any]] = []

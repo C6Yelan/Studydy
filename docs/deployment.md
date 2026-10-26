@@ -1,5 +1,22 @@
 # studydy.net 的 canonical 部署流程
 
+## 指定教材的一次性重分析
+
+POST-03 的維護指令只處理數學教材 `4003f055-12f1-462e-83a1-015daffdfdce`。先依本文件完成合併、部署與 migration 0021，再從正式 `main` checkout 執行：
+
+```bash
+ops/reanalyze-demo-material --enqueue
+ops/reanalyze-demo-material
+```
+
+指令只呼叫已部署 backend 容器中的程式；預設查狀態，不建立工作。`--enqueue` 使用固定冪等鍵，重複執行仍回同一 run，不能建立第二次分析或重設預算。維護工作只允許目前已授權的 Luna provider，保留原來源、舊版、學習紀錄與新版承接流程；不修改原 runtime binding。原工作失敗或取消也不透過一般 retry 另建一筆維護工作。
+
+分析、審查、合併、新版章節與首次自動摘要共用 300 次額度，每次外送前在 DB 原子保留。`budget.reserved_calls` 是保守的已保留請求上限，連線失敗與不確定是否受理的請求不退額，不等於外部計費明細。重啟與首次摘要重試沿用同一計數；耗盡回報 `MATERIAL_MODEL_BUDGET_EXHAUSTED`，不得改上限或重建 run。首次摘要完成後的手動重生、完整筆記與其他教材不使用本次額度。
+
+查詢同時列出分析 `state`、`chapters` 與 `summary`；分析成功不等於衍生工作已完成。完成後仍須確認「正比例」、其他概念及舊版學習承接；`needs_review` 不視為內容已驗收。此指令不負責合併、部署或重啟 provider。
+
+## 正式部署入口
+
 唯一 deployment working directory 是工作區內正式版的 `main` checkout；以下命令均以該目錄為根目錄。
 日常 rebuild、Compose 管理、設定與 source-of-truth 都在這個 checkout；build context
 是本目錄 `.`，不需要先複製 source 到其他目錄。
@@ -58,7 +75,7 @@ PyMuPDF 維持 1.28.0，renderer 的嚴格版本契約不變。此批不修改 O
 
 ## Podcast 講稿逐段核對
 
-`ops/podcast/provider.py` 的 `/script` 改為生成後逐段核對（`source-script/v14`），核對提示存於 runtime lock 新增的 `podcast_script_review`（`podcast-script-review/v1`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash：新工作的 provenance 記錄新 hash，進行中的教材分析、筆記與題組工作沿用各自封存的 lock，不受影響。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊 backend 可接收 v14 講稿，新 backend 也可接收舊 provider 的 v13 講稿，兩者部署順序不互相依賴，backend 隨下次映像更新帶入新 lock 即可。重啟前照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。`/script` 從生成到核對完成都持有 provider 的文字鎖，每集約 60～140 秒（12 段都重寫的最壞情況約 37 次呼叫、4～5 分鐘）；期間教材問答、卡片、主題與研究等 `/semantics` 文字請求會排隊等待（不逾時）。工作日誌 `script_review` 記實際呼叫次數。bundle 內程式與 lock 不一致時，工作日誌記 `PODCAST_REVIEW_CONTRACT_INVALID`，backend 顯示為 `PODCAST_PROVIDER_FAILED`。
+`ops/podcast/provider.py` 的 `/script` 改為生成後逐段核對（`source-script/v15`），核對提示存於 runtime lock 新增的 `podcast_script_review`（`podcast-script-review/v1`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash：新工作的 provenance 記錄新 hash，進行中的教材分析、筆記與題組工作沿用各自封存的 lock，不受影響。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊 backend 可接收 v15 講稿，新 backend 也可接收舊 provider 的 v13 講稿，兩者部署順序不互相依賴，backend 隨下次映像更新帶入新 lock 即可。重啟前照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。`/script` 從生成到核對完成都持有 provider 的文字鎖，每集約 60～140 秒（12 段都重寫的最壞情況約 37 次呼叫、4～5 分鐘）；期間教材問答、卡片、主題與研究等 `/semantics` 文字請求會排隊等待（不逾時）。工作日誌 `script_review` 記實際呼叫次數。bundle 內程式與 lock 不一致時，工作日誌記 `PODCAST_REVIEW_CONTRACT_INVALID`，backend 顯示為 `PODCAST_PROVIDER_FAILED`。
 
 ## 媒體來源（圖片、音訊、影片、YouTube）
 

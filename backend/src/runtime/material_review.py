@@ -306,7 +306,8 @@ def _decode_review_response(value):
 
 
 def _checked_review(
-    unit, index, lock, archive, client, check_cancel, wait_cancellation_check=None
+    unit, index, lock, archive, client, check_cancel, wait_cancellation_check=None,
+    semantic_call=None,
 ):
     """可定位的提案契約錯誤最多補正一次；不套用無法驗證的提案。"""
     localized = (
@@ -393,7 +394,7 @@ def _checked_review(
         archive.prepare_review_call(index, key, request, attempt=attempt)
         calls += 1
         try:
-            value = request_semantics(
+            value = (semantic_call or request_semantics)(
                 client,
                 runtime_lock=lock,
                 task="material_review",
@@ -611,7 +612,7 @@ def _review_part(view, unit, concepts, title, *, cited_pages_only=False):
 
 def _review_units(
     view, units, lock, archive, check_cancel, progress, wait_cancellation_check=None,
-    skipped=None,
+    skipped=None, semantic_call=None,
 ):
     """協調者分派／合併；失敗後不再派送，收完在途批次以保留有效結果。
 
@@ -639,7 +640,8 @@ def _review_units(
     def generate(index, unit):
         with semantic_client() as client:
             return _checked_review(
-                unit, index, lock, archive, client, check_wait, check_wait
+                unit, index, lock, archive, client, check_wait, check_wait,
+                **({"semantic_call": semantic_call} if semantic_call else {}),
             )
 
     progress("review", 0, len(units))
@@ -752,6 +754,7 @@ def review_structure(
     *,
     wait_cancellation_check=None,
     base_structure=None,
+    semantic_call=None,
 ):
     """重用已保存的有效批次，檢核與發布仍由單一協調者完成。"""
     from .material_consolidation import consolidate_structure
@@ -799,12 +802,14 @@ def review_structure(
             check_cancel,
             progress,
             wait_cancellation_check=wait_cancellation_check,
+            **({"semantic_call": semantic_call} if semantic_call else {}),
         )
     started = time.monotonic()
     skipped = []
     reviews, calls = _review_units(
         view, units, lock, archive, check_cancel, progress, wait_cancellation_check,
         skipped=skipped,
+        **({"semantic_call": semantic_call} if semantic_call else {}),
     )
     if skipped and not reviews:
         raise SemanticServiceError("SEMANTIC_INPUT_TOO_LARGE")
@@ -892,6 +897,7 @@ def review_structure(
         check_cancel,
         consolidation_progress,
         wait_cancellation_check=wait_cancellation_check,
+        **({"semantic_call": semantic_call} if semantic_call else {}),
         # ASR 疑義維持原 Claim；後續去重不可把待人工核對的字詞再改寫。
         preserved_claim_ids={
             projection["claim_mapping"][claim_id]

@@ -87,6 +87,7 @@ def publish_knowledge_structure(
             ):
                 raise KnowledgeStructureStoreError("MATERIAL_RUN_UNAVAILABLE")
 
+            full_reanalysis = bool(locked_run.maintenance)
             review_only = False
             if locked_run.base_revision is not None:
                 if material.head_revision != locked_run.base_revision:
@@ -108,12 +109,15 @@ def publish_knowledge_structure(
                 }
                 # 追加必須有可用新 Claim；僅重用已發布內容不能算完成。
                 review_only = (
-                    document.get("source_set_sha256") is not None
+                    not full_reanalysis
+                    and document.get("source_set_sha256") is not None
                     and document.get("source_set_sha256")
                     == base.get("source_set_sha256")
                     and "material_review" in locked_run.runtime_lock_document
                 )
-                if not review_only and not any(
+                if full_reanalysis and document.get("source_set_sha256") != base.get("source_set_sha256"):
+                    raise KnowledgeStructureStoreError("SOURCE_BINDING_INVALID")
+                if not review_only and not full_reanalysis and not any(
                     added_evidence.intersection(claim["evidence_refs"])
                     for concept in document["concepts"]
                     for claim in concept["claims"]
@@ -181,7 +185,7 @@ def publish_knowledge_structure(
             # 章節分區是此版本的衍生資料，由背景佇列依序計算；失敗時地圖沿用來源檔分區。
             enqueue_chapters(session, learner_id, material_id, document["revision"])
             enqueue_notes(session, learner_id, material_id, document["revision"])
-            if locked_run.base_revision is not None and not review_only:
+            if locked_run.base_revision is not None and not review_only and not full_reanalysis:
                 _prune_unreferenced_structures(
                     session, learner_id, material_id, material.head_revision
                 )

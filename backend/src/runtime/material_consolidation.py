@@ -150,7 +150,7 @@ def _check_payload(payload, proposal, changed):
 
 def consolidate_structure(
     document, lock, archive, check_cancel, progress, *, wait_cancellation_check=None,
-    preserved_claim_ids=frozenset(),
+    preserved_claim_ids=frozenset(), semantic_call=None,
 ):
     if lock.get("material_review", {}).get("consolidation_policy") != merge.POLICY:
         return document
@@ -203,7 +203,7 @@ def consolidate_structure(
         schema = _response_schema(operation, payload, model)
         with semantic_client() as client:
             try:
-                value = request_semantics(
+                value = (semantic_call or request_semantics)(
                     client,
                     runtime_lock=lock,
                     task="material_review",
