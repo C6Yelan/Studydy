@@ -1,6 +1,6 @@
 import { LearningDiagnosis } from "../learning-diagnosis/LearningDiagnosis";
 import { useEffect, useLayoutEffect, useRef, useState, type SubmitEvent } from "react";
-import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
+import { ApiClientError, errorMessage, lunaCallLimitMessage, type StudydyApiClient } from "../../api/client";
 import type {
   AssessmentRecordView,
   AssessmentSetAction,
@@ -470,7 +470,9 @@ export function AssessmentSetPanel({
               </div>
               {intervention && (
                 <p>
-                  {ready > 0
+                  {group?.items.some(item => item.failure_reason === "LUNA_CALL_LIMIT_EXCEEDED")
+                    ? lunaCallLimitMessage
+                    : ready > 0
                     ? `目前已準備 ${ready} 題${group?.can_publish_partial ? "，可以先開始練習" : ""}${group?.can_retry ? "，也可以再試著準備其餘題目" : ""}。`
                     : "你可以稍後再試，或先回到知識地圖。"}
                 </p>

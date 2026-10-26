@@ -2,7 +2,7 @@ import { CardExports } from "../exports/CardExports";
 import { useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { BackLink } from "../../ui/BackLink";
-import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
+import { errorMessage, lunaCallLimitMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView } from "../../ui/NotFoundView";
 import type { CardStudyView, CardBatch, CardReviewRating, CardReviewsView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
@@ -98,7 +98,7 @@ function CardGenerationProgress({ view, onRetry }: { view: CardStudyView; onRetr
           <section className="processing-current"><h3>目前狀態</h3>
             <div className="progress-heading"><strong className="stage-label stage-status-label">{!paused && <span className="processing-status-indicator" aria-hidden="true" />}{stages[stage].label}</strong><strong>{activity}</strong></div>
             <p role="status">每個觀念依序整理核心重點、設計圖解並核對來源；完整原文保留在詳情。</p>
-            {paused && <p>{generation.error_code === "CARD_PROVIDER_CHANGED" ? "模型通道已變更；如需使用目前模型，請另外建立卡組。" : generation.error_code === "CARD_DESIGN_REVIEW_FAILED" ? "卡面尚未通過來源與核心內容核對，可重試未完成部分。" : generation.error_code === "CARD_DESIGN_INVALID" ? "卡面文字、版型或引用未通過檢查；重試會依已保存的候選卡面與回饋修正。" : "這一步尚未完成，可重試已保存的進度。"}</p>}
+            {paused && <p>{generation.error_code === "LUNA_CALL_LIMIT_EXCEEDED" ? lunaCallLimitMessage : generation.error_code === "CARD_PROVIDER_CHANGED" ? "模型通道已變更；如需使用目前模型，請另外建立卡組。" : generation.error_code === "CARD_DESIGN_REVIEW_FAILED" ? "卡面尚未通過來源與核心內容核對，可重試未完成部分。" : generation.error_code === "CARD_DESIGN_INVALID" ? "卡面文字、版型或引用未通過檢查；重試會依已保存的候選卡面與回饋修正。" : "這一步尚未完成，可重試已保存的進度。"}</p>}
           </section>
         </div>
         <p className="processing-leave-note">{paused ? "已完成的觀念會保留，重試不會從頭生成。" : "可以離開頁面，稍後從概念卡返回查看進度。"}</p>

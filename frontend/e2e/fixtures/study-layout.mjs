@@ -202,7 +202,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
         target_claim_id: targetClaim.claim_id,
         state: itemState,
         attempts: 1,
-        failure_reason: null,
+        failure_reason: itemState === "failed" ? scenario?.failureReason ?? null : null,
         assessment,
         feedback:
           assessment && index < answerLimit ? buildFeedback(assessment, index, historical) : null,

@@ -53,8 +53,11 @@ import type {
 
 type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+export const lunaCallLimitMessage = "這次生成用量超過上限，已停止。可以稍後重試。";
+
 const genericApiMessage = "請求無法完成，請稍後再試。";
 const apiErrorMessages: Record<KnownApiReasonCode, string> = {
+  LUNA_CALL_LIMIT_EXCEEDED: lunaCallLimitMessage,
   LEARNING_GOAL_STALE: "教材或目標已更新，請重新讀取學習目標。",
   STARTING_LEVEL_REQUIRED: "請先選擇這份教材的起始程度。",
   VOICE_PODCAST_CONTEXT_INVALID: "這段 Podcast 已不可用，請重新選段或改用教材問答。",

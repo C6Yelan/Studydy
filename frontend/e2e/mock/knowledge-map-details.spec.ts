@@ -378,3 +378,14 @@ for (const width of [1536, 390])
     await expect(page.getByRole("button", { name: "查看第 1 頁來源", exact: true })).toBeFocused();
     expect(reads).toBe(1);
   });
+
+
+test("Luna call limit for chapters keeps the saved map visible", async ({ page }) => {
+  const view = structureView();
+  await mockKnowledgeMapApi(page, view);
+  await page.route("**/regions", route => json(route, { schema: "knowledge-regions/v1", material_id: materialId, knowledge_structure_revision: structureRevision,
+    basis: "chapters", error_code: "LUNA_CALL_LIMIT_EXCEEDED", regions: [{ region_id: "saved", label: "已保存章節", source_id: null, concept_ids: view.concepts.map(c => c.concept_id) }] }));
+  await page.goto(mapPath);
+  await expect(page.getByText("這次生成用量超過上限，已停止。可以稍後重試。", { exact: true })).toBeVisible();
+  await expect(page.locator(".map-workspace")).toBeVisible();
+});

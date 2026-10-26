@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
+import { ApiClientError, errorMessage, lunaCallLimitMessage, type StudydyApiClient } from "../../api/client";
 import type { AssessmentSetAnswer, AssessmentSetView, KnowledgeConceptsView, MaterialDiagnosticSetView } from "../../api/contracts";
 import { AssessmentPanel } from "./AssessmentPanel";
 import { LearningDiagnosis } from "../learning-diagnosis/LearningDiagnosis";
@@ -96,7 +96,7 @@ export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressCh
       {group.status === "preparing" && <><p role="status">正在準備起始診斷 · {group.verified_count} / {group.requested_count} 題</p>
         <progress aria-label="診斷準備進度" value={group.verified_count} max={Math.max(1, group.requested_count)} /></>}
       {["partial_ready", "failed"].includes(group.status) && <div className="assessment-set-actions">
-        <p>部分診斷題尚未準備完成；沒有測到的概念會保留在後續學習。</p>
+        <p>{group.items.some(item => item.failure_reason === "LUNA_CALL_LIMIT_EXCEEDED") ? lunaCallLimitMessage : "部分診斷題尚未準備完成；沒有測到的概念會保留在後續學習。"}</p>
         {group.can_retry && <button className="secondary-button" disabled={busy} onClick={() => void change("retry")}>再試一次</button>}
         {group.can_publish_partial && <button className="primary-button" disabled={busy} onClick={() => void change("publish-partial")}>先做已準備的 {group.verified_count} 題</button>}
       </div>}

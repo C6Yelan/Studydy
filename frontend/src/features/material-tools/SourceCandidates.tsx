@@ -1,4 +1,5 @@
 import './research.css';
+import { lunaCallLimitMessage } from '../../api/client';
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../ui/Icon';
 
@@ -10,6 +11,7 @@ export type Candidate = {
   review?: { phase: string; relevance: string; reason: string; scope?: string };
 };
 export const sourceReasons: Record<string, string> = {
+  LUNA_CALL_LIMIT_EXCEEDED: lunaCallLimitMessage,
   RESEARCH_SOURCE_TYPE_UNCONFIRMED: '尚未核對為論文或 Wikipedia，請接續研究。',
   RESEARCH_SCOPE_REQUIRED: '請先確認要查找的觀念與細節，再開始搜尋。已保存的來源仍可查看。',
   RESEARCH_SNAPSHOT_UNAVAILABLE: '無法讀取這次研究保留的原文，請重新研究。',

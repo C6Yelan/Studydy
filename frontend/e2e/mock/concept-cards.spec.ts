@@ -1701,3 +1701,13 @@ for (const [reason, status, message] of [
     await expect(controls.getByRole("button", { name: "匯出", exact: true })).toBeEnabled();
   });
 }
+
+
+test("Luna call limit leaves card generation paused with saved progress", async ({ page }) => {
+  const fixture = await mockCards(page, { saved: true });
+  fixture.setGeneration({ status: "failed", stage: "checking", completed: 1, total: 2, error_code: "LUNA_CALL_LIMIT_EXCEEDED", retained_original: 0, cached: 0 });
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await expect(page.getByText("這次生成用量超過上限，已停止。可以稍後重試。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "概念卡生成進度" })).toHaveAttribute("value", "1");
+  await expect(page.getByRole("button", { name: "重試未完成部分" })).toBeEnabled();
+});

@@ -878,7 +878,8 @@ export function knowledgeRegions(value: unknown): value is KnowledgeRegionsView 
     || !revision(item.knowledge_structure_revision, "knowledge-structure")
     || !["chapters", "source", "learning_order"].includes(String(item.basis)) || !Array.isArray(item.regions)
     || (item.groups !== undefined && !Array.isArray(item.groups))
-    || (item.partial !== undefined && typeof item.partial !== "boolean")) return false;
+    || (item.partial !== undefined && typeof item.partial !== "boolean")
+    || (item.error_code !== undefined && item.error_code !== null && typeof item.error_code !== "string")) return false;
   const groupIds = new Set<unknown>();
   for (const value of (item.groups ?? []) as unknown[]) {
     const group = object(value);
@@ -1530,6 +1531,7 @@ export function podcastSummary(value: unknown): value is PodcastSummary {
     if (!generation || typeof generation.active !== 'boolean'
       || ['preview_ready','retryable_videos'].some(key => generation[key] !== undefined && typeof generation[key] !== 'boolean')
       || !['completed_videos','failed_videos'].every(key => Number.isInteger(generation[key]) && Number(generation[key]) >= 0)
+      || (generation.error_code !== undefined && generation.error_code !== null && typeof generation.error_code !== "string")
       || Number(generation.completed_videos) + Number(generation.failed_videos) > Number(item.episode_count)
       || (generation.expected_videos !== undefined && (!Number.isInteger(generation.expected_videos)
         || Number(generation.expected_videos) < 0 || Number(generation.expected_videos) > Number(item.episode_count)))) return false;

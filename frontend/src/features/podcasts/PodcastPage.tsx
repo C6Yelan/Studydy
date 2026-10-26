@@ -3,7 +3,7 @@ import { DeleteVideoControl, usePodcastVideo } from "./PodcastVideo";
 import { BackLink } from "../../ui/BackLink";
 import { PodcastTranscript, usePodcastTimeline } from "./PodcastTranscript";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
+import { errorMessage, lunaCallLimitMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView } from "../../ui/NotFoundView";
 import type { PodcastProgressUpdate, PodcastProgressView, PodcastView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
@@ -178,6 +178,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
       <h1>{view.name}</h1>
       {!materialId && <p className="cards-material-name"><Icon name="book" size={16} />{view.material_name}</p>}
     </div></header>
+    {previewReady && (view.generation?.error_code === "LUNA_CALL_LIMIT_EXCEEDED" || videoState.state?.error_code === "LUNA_CALL_LIMIT_EXCEEDED") && <p className="form-error" role="alert">{lunaCallLimitMessage}</p>}
     {actionError && <p className="form-error" role="alert">{actionError}</p>}
     {!view.is_current_revision && <p className="podcast-meta-note">依建立時的教材版本保存</p>}
     {!previewReady && <PodcastProgress view={view} busy={busy} onAction={action => void act(action)} />}

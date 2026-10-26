@@ -240,3 +240,12 @@ test("in-progress set offers submission without cancellation", async ({ page }) 
   await expect(page.getByRole("button", { name: /取消本組測驗|取消本輪/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "交卷並查看結果", exact: true })).toBeVisible();
 });
+
+
+test("Luna call limit keeps partially prepared questions available", async ({ page }) => {
+  const fixture = await studyLayoutFixture(page, "partial_ready", { count: 6, failureReason: "LUNA_CALL_LIMIT_EXCEEDED" });
+  await fixture.open();
+  await expect(page.getByText("這次生成用量超過上限，已停止。可以稍後重試。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "先做已準備的 4 題", exact: true })).toBeEnabled();
+  expect(fixture.requests.filter(request => request.path.endsWith("/retry"))).toHaveLength(0);
+});

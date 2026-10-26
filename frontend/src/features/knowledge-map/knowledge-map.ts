@@ -11,6 +11,7 @@ export const TWO_LEVEL_MIN_REGIONS = 24;
 export type MapRegions = {
   basis: KnowledgeRegionsView["basis"];
   partial: boolean;
+  error_code?: string | null;
   regions: { id: string; label: string; index: number; conceptIds: string[]; group: number | null }[];
   // 空陣列表示一層呈現；兩層時區域已依島群排列，同群相鄰。
   groups: { id: string; label: string; index: number; regionIndexes: number[]; conceptCount: number }[];
@@ -45,7 +46,7 @@ export function mapRegions(view: Pick<MapView, "concepts">, value: KnowledgeRegi
       })
       .filter((group) => group.regionIndexes.length > 0)
     : [];
-  return { basis: value.basis, partial: value.partial ?? false, regions, groups, byConcept };
+  return { basis: value.basis, error_code: value.error_code, partial: value.partial ?? false, regions, groups, byConcept };
 }
 
 /** 島嶼配色：兩層時同一島群同色，一層時依區域。 */

@@ -271,3 +271,12 @@ test('topics still being planned stay reachable from the library',async({page})=
  await card.getByRole('button',{name:'取消建立'}).click();await expect(card.getByRole('group',{name:'取消這個主題規劃？'})).toBeVisible();
  await card.getByRole('button',{name:'取消建立',exact:true}).click();await expect(card).toHaveCount(0);
 });
+
+
+test('Luna call limit explains a failed topic plan',async({page})=>{
+ await mockTopicApi(page);
+ await page.route(`**/v1/topics/${id}`,r=>json(r,{topic_id:id,material_id:null,request:'TCP',proposal:null,version:2,status:'failed',research_id:null,error_code:'LUNA_CALL_LIMIT_EXCEEDED'}));
+ await page.goto(`/topics/${id}`);
+ await expect(page.getByText('這次生成用量超過上限，已停止。可以稍後重試。',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'重試規劃',exact:true})).toBeEnabled();
+});

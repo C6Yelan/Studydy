@@ -1,4 +1,5 @@
 export type KnownApiReasonCode =
+  | "LUNA_CALL_LIMIT_EXCEEDED"
   | "LEARNING_GOAL_STALE"
   | "STARTING_LEVEL_REQUIRED"
   | "SCENE_CONFLICT"
@@ -313,6 +314,7 @@ export type KnowledgeRegionsView = {
   regions: { region_id: string; label: string; source_id: string | null; concept_ids: string[]; group_id?: string | null }[];
   groups?: { group_id: string; label: string; source_id: string | null }[];
   partial?: boolean;
+  error_code?: string | null;
 };
 
 // 學習統計只由作答事件推導，日期以台灣時間為界。
@@ -877,7 +879,7 @@ export type PodcastSummary = {
   /** 所有分集音訊的總秒數；音訊未全部完成時為 null。 */
   duration_seconds: number | null;
   /** expected_videos：預期會有影片的集數（勾選影片的全部分集扣掉已刪除的；沒勾選時為實際影片工作數）。 */
-  generation?: {preview_ready?:boolean; retryable_videos?:boolean; active:boolean; completed_videos:number; failed_videos:number; expected_videos?:number};
+  generation?: {error_code?:string|null; preview_ready?:boolean; retryable_videos?:boolean; active:boolean; completed_videos:number; failed_videos:number; expected_videos?:number};
 };
 export type PodcastClaim = ConceptCard["claims"][number] & { concept_id: string; label: string };
 export type PodcastContext = {
