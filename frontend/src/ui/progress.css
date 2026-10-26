@@ -1,0 +1,16 @@
+.studydy-progress, .progress-ring {
+  --progress-track: var(--page-cool-2);
+  --progress-color: var(--studydy-blue);
+}
+.studydy-progress { display:block; width:100%; min-width:0; height:var(--progress-thickness); overflow:hidden; border-radius:999px; background:var(--progress-track); }
+.studydy-progress.is-warning, .progress-ring.is-warning { --progress-color:var(--warning); }
+.studydy-progress.is-complete, .progress-ring.is-complete { --progress-color:var(--success); }
+.studydy-progress-fill { display:block; height:100%; width:var(--progress-ratio); border-radius:inherit; background:var(--progress-color); transition:width .18s ease; }
+.studydy-progress.is-indeterminate .studydy-progress-fill { width:35%; animation:studydy-progress-flow 1.5s ease-in-out infinite; }
+.progress-ring-track { stroke:var(--progress-track); }
+.progress-ring-fill { stroke:var(--progress-color); transition:stroke-dasharray .18s ease; }
+@keyframes studydy-progress-flow { from { transform:translateX(-100%); } to { transform:translateX(286%); } }
+@media (prefers-reduced-motion:reduce) {
+  .studydy-progress-fill, .progress-ring-fill { transition:none; }
+  .studydy-progress.is-indeterminate .studydy-progress-fill { animation:none; width:100%; background:repeating-linear-gradient(120deg,var(--progress-color) 0 .5rem,var(--progress-track) .5rem 1rem); }
+}

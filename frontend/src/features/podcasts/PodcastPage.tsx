@@ -1,6 +1,6 @@
+import { BackLink } from "../../ui/BackLink";
 import { PodcastExports } from "../exports/PodcastExports";
 import { DeleteVideoControl, usePodcastVideo } from "./PodcastVideo";
-import { BackLink } from "../../ui/BackLink";
 import { PodcastTranscript, usePodcastTimeline } from "./PodcastTranscript";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
@@ -31,7 +31,6 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [readingTab, setReadingTab] = useState<"transcript" | "highlights">("transcript");
-  const [fromCollection] = useState(() => !!window.history.state?.fromCollection);
   const media = useRef<HTMLMediaElement | null>(null);
   const workspace = useRef<HTMLDivElement>(null);
   const active = useRef(false), changing = useRef(false);
@@ -163,9 +162,9 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     finally { changing.current = false; if (active.current) setBusy(false); }
   };
   // 從全站 Podcast 列表進入時保留返回；其餘情況在教材內，分頁列已能回到 Podcast，不再重複。
-  const back = fromCollection ? <BackLink label="返回 Podcast" route={{ name: "podcasts" }} /> : null;
+  const back = !materialId && <BackLink label="返回我的 Podcast" route={{ name: "podcasts" }} />;
   if (notFound) return <NotFoundView title="找不到這份 Podcast" description="這份 Podcast 可能已被刪除，或不屬於目前登入的帳號。"
-    back={{ label: "回到 Podcast", route: materialId ? { name: "material-content", materialId, kind: "podcasts" } : { name: "podcasts" } }} />;
+    back={materialId ? null : { label: "回到 Podcast", route: { name: "podcasts" } }} />;
   if (error || !view) return <section className="cards-page podcast-page">{back}<StateView title={error ? "無法讀取 Podcast" : "正在讀取 Podcast"}
     description={error ?? "正在載入已保存的內容。"} tone={error ? "failure" : "loading"} live={!error} skeleton="media"
     action={error ? <button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button> : undefined} /></section>;
@@ -174,6 +173,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const groups = [...new Set(episode.claims.map(c => c.concept_id))].map(id => ({ label: episode.claims.find(c => c.concept_id === id)!.label, claims: episode.claims.filter(c => c.concept_id === id) }));
   return <section className="cards-page podcast-page">
     {back}
+
     <header className="cards-page-header"><div>
       <h1>{view.name}</h1>
       {!materialId && <p className="cards-material-name"><Icon name="book" size={16} />{view.material_name}</p>}

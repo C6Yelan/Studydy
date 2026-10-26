@@ -183,20 +183,7 @@
   color: var(--text-secondary);
   font-weight: 800;
 }
-.study-position-track {
-  display: block;
-  width: 140px;
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--page-cool-2, #e3eaf6);
-}
-.study-position-track > span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--studydy-blue), #6a5cff);
-}
+
 .study-session-page .surface {
   border-radius: var(--radius-panel);
 }
@@ -304,11 +291,6 @@
   font-size: 12px;
   font-weight: 700;
 }
-@media (max-width: 720px) {
-  .study-position-track {
-    width: 96px;
-  }
-}
 /* 作答中：交卷列黏在畫面底部，隨時看得到已選題數。 */
 .study-session-page .assessment-paper > .assessment-set-submit {
   position: sticky;
@@ -316,3 +298,5 @@
   z-index: 4;
   box-shadow: 0 18px 40px -18px rgba(29, 52, 110, 0.45);
 }
+
+.study-position-progress { width:6rem; }

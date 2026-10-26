@@ -599,25 +599,14 @@
   gap: 2px;
   width: 64px;
 }
-.header-level-bar {
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--warning-soft);
-}
-.header-level-bar i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--warning), var(--amber-deep));
-}
+
 .header-level-meter small {
   color: var(--amber-deep);
   font-size: 11px;
   font-weight: 900;
   line-height: 1.1;
 }
-.header-progress:hover .header-level-bar { background: #ffe7a8; }
+
 /* 頁首右側隨寬度收合：登出只留圖示（保留無障礙名稱）、隱藏名稱並縮短搜尋，避免與中央導覽重疊。 */
 /* 保留 1759px：完整六個導覽名稱（約 660px）置中時，右側完整帳號區（約 494px）要到約 1760px 才放得下，依內容寬度決定。 */
 @media (max-width: 1759px) {
@@ -827,18 +816,16 @@
 .header-storage-button { display:inline-flex; align-items:center; gap:6px; min-height:46px; padding:0 8px; border:0; border-radius:999px; background:var(--surface); box-shadow:var(--shadow); color:var(--text-primary); font-size:12px; font-weight:800; white-space:nowrap; }
 .header-storage-button > svg { flex:none; }
 .header-storage-wide { display:flex; align-items:center; gap:6px; }
-.header-storage-bar { width:2rem; height:5px; overflow:hidden; border-radius:999px; background:var(--border); }
-.header-storage-bar i { display:block; height:100%; background:var(--studydy-blue); }
+
 .header-storage-compact { display:none; }
 .header-storage-full .header-storage-button, .header-storage-warning { color:var(--error); }
-.header-storage-full .header-storage-bar i { background:var(--error); }
+
 .header-storage-panel { position:absolute; top:calc(100% + 10px); left:0; z-index:10; width:min(24rem, calc(100vw - 32px)); padding:20px; display:grid; gap:10px; border:1px solid var(--border); border-radius:20px; background:var(--surface); box-shadow:var(--shadow); color:var(--text-secondary); font-size:14px; }
 .header-storage-panel h2 { margin:0; color:var(--text-primary); font-size:17px; }
 .header-storage-panel p { margin:0; }
 .header-storage-numbers { display:flex; flex-wrap:wrap; gap:4px; }
 .header-storage-numbers strong { color:var(--text-primary); }
-.header-storage-meter { width:100%; height:10px; accent-color:var(--studydy-blue); }
-.header-storage-full .header-storage-meter { accent-color:var(--error); }
+
 @media (max-width:1280px) {
   .header-storage-wide { display:none; }
   .header-storage-compact { display:inline; }
@@ -881,3 +868,5 @@
   .app-header:has(.header-storage) .header-search-trigger { padding-inline:clamp(0px, calc(20vw - 64px), 10px); }
   .app-header:has(.header-storage) .header-storage-button { padding-inline:clamp(0px, calc(10vw - 32px), 6px); }
 }
+
+.header-storage-progress { width:2rem; }

@@ -71,7 +71,7 @@ test("management menu renames with conflict recovery; deletion needs confirmatio
   await expect(dialog).toHaveCount(0);
   await page.getByRole("button", { name: "查看進度" }).click();
   await expect(page.locator(".podcast-management")).toHaveCount(0);
-  await page.getByRole("button", { name: "返回 Podcast", exact: true }).click();
+  await page.getByRole("button", { name: "返回我的 Podcast", exact: true }).click();
   await page.getByRole("button", { name: "管理 Podcast「更新後的名稱」" }).click();
   await page.getByRole("button", { name: "刪除 Podcast", exact: true }).click();
   await page.getByRole("group", { name: "刪除 Podcast 確認" }).getByRole("button", { name: "取消", exact: true }).click();
@@ -142,7 +142,7 @@ test("material collections filter both products while outer navigation opens the
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
   await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
   // 教材內已有分頁列，不再顯示重複的返回；用 Podcast 分頁回到列表。
-  await expect(page.getByRole('button', { name: '返回 Podcast', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '返回Podcast 列表', exact: true })).toBeVisible();
   await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: 'Podcast', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts$`));
   await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
@@ -177,7 +177,7 @@ test("podcast creation keeps manual selection and settings without recommendatio
   const selectAll = (await selection.getByRole('button', { name: '全選', exact: true }).boundingBox())!;
   expect(Math.abs(selectAll.y + selectAll.height / 2 - (searchBox.y + searchBox.height / 2))).toBeLessThanOrEqual(4);
   await selection.locator('.podcast-concept-option').last().getByRole('checkbox').uncheck();
-  await selection.getByLabel('只看已選').check();
+  await selection.getByRole('button', { name: /^已選 / }).click();
   await expect(selection).toContainText('已選 1 / 2');
   await page.setViewportSize({ width: 390, height: 844 });
   const controls = page.getByRole('navigation', { name: 'Podcast 設定區域' });
@@ -188,7 +188,7 @@ test("podcast creation keeps manual selection and settings without recommendatio
   await expect(settings.getByRole('radio')).toHaveCount(2);
   await controls.getByRole('button', { name: '選擇概念', exact: true }).click();
   await expect(selection).toContainText('已選 1 / 2');
-  await selection.getByLabel('只看已選').uncheck();
+  await selection.getByRole('button', { name: /^已選 / }).click();
   await selection.getByRole('button', { name: '取消全選', exact: true }).click();
   await controls.getByRole('button', { name: '講解設定', exact: true }).click();
   await expect(page.getByRole('button', { name: '開始生成 Podcast' })).toBeDisabled();
@@ -512,7 +512,7 @@ test('video progress counts only episodes that will have a video',async({page})=
   fixture.view.generation={active:false,preview_ready:false,retryable_videos:true,completed_videos:1,failed_videos:0,expected_videos:2};
   await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByText('音訊 3 / 3 集 · 影片 1 / 2 集',{exact:false})).toBeVisible();
-  await expect(page.getByRole('progressbar',{name:'已完成影音集數'})).toHaveAttribute('max','5');
+  await expect(page.getByRole('progressbar',{name:'已完成影音集數'})).toHaveAttribute('aria-valuemax','5');
   await expect(page.getByRole('button',{name:'接續生成'})).toBeVisible();
   await page.goto('/podcasts');
   await expect(page.getByText(/影片 1 \/ 2 集/)).toBeVisible();

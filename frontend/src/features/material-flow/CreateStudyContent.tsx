@@ -21,8 +21,6 @@ export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApi
   const podcast = route.name.startsWith("podcast");
   const selected = "materialId" in route ? route.materialId : "";
   const needsMaterialSelection = !selected;
-  // 教材內（已有教材頁首與分頁列）不再重複返回；從全站選教材進入時保留返回全站清單。
-  const fromCollection = !!window.history.state?.fromCollection;
   const [materials, setMaterials] = useState<MaterialLibraryItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -53,7 +51,7 @@ export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApi
   </FlowStage>;
   return <section className={`cards-page creation-page creation-stacked-steps flow-page${podcast ? " podcast-creation-page" : " cards-creation-page"}`}>
     <FlowHeader
-      back={(needsMaterialSelection || fromCollection) && <BackLink label={podcast ? "返回我的 Podcast" : "返回我的概念卡"} route={{ name: podcast ? "podcasts" : "concept-cards" }} />}
+      back={needsMaterialSelection && <BackLink label={podcast ? "返回我的 Podcast" : "返回我的概念卡"} route={{ name: podcast ? "podcasts" : "concept-cards" }} />}
       title={podcast ? "建立 Podcast" : "建立概念卡組"}
       description={needsMaterialSelection ? (podcast ? "先選一份教材，再挑選想收聽的概念與講解形式。" : "先選一份教材，再挑選想複習的概念。") : podcast ? "挑選要講解的概念與形式，保存後開始生成。" : "挑選這份教材中想複習的概念。"}
       />

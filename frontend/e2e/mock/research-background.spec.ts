@@ -30,8 +30,8 @@ for (const mode of ['research', 'topic']) test(`${mode} shows a short research s
   await expect(panel).toContainText('1 / 3 份來源');
   await expect(panel.getByRole('status')).toHaveText('正在補查工具使用的具體例子。');
   await expect(panel).toContainText('研究會在背景繼續，可離開頁面');
-  await expect(panel.getByRole('progressbar')).toHaveAttribute('value', '1');
-  await expect(panel.getByRole('progressbar')).toHaveAttribute('max', '3');
+  await expect(panel.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1');
+  await expect(panel.getByRole('progressbar')).toHaveAttribute('aria-valuemax', '3');
   // 內部階段列、處理計數與研究詳情不再顯示。
   await expect(panel.locator('ol, details')).toHaveCount(0);
   await expect(page.getByText('研究詳情', { exact: true })).toHaveCount(0);

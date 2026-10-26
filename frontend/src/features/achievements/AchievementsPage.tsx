@@ -1,3 +1,4 @@
+import { Progress } from "../../ui/Progress";
 import type { StudydyApiClient } from "../../api/client";
 import type { LearningActivityView } from "../../api/contracts";
 import { useLearningActivity } from "../../app/LearningProgress";
@@ -23,7 +24,6 @@ const xpRules: { icon: IconName; source: Source; tone: string; title: string; ga
 function LevelAndXp({ activity }: { activity: LearningActivityView }) {
   const { xp } = activity;
   const total = Math.max(1, xp.total);
-  const ratio = xp.level_target ? xp.level_xp / xp.level_target : 0;
   return <section className="level-xp dashboard-level surface" aria-labelledby="level-xp-title">
     <header>
       <img src="/assets/studydy/brand-idle.png" alt="" />
@@ -32,11 +32,7 @@ function LevelAndXp({ activity }: { activity: LearningActivityView }) {
         <small>累計 {xp.total} XP{xp.today > 0 && <> · 今天 <b>+{xp.today}</b></>}</small>
       </div>
     </header>
-    <div className="level-bar" role="progressbar" aria-label={`第 ${xp.level} 級經驗值`}
-      aria-valuemin={0} aria-valuemax={xp.level_target} aria-valuenow={xp.level_xp}
-      aria-valuetext={`${xp.level_xp} / ${xp.level_target} XP`}>
-      <i style={{ width: `${Math.max(ratio > 0 ? 3 : 0, Math.min(100, ratio * 100))}%` }} />
-    </div>
+    <Progress value={xp.level_xp} max={xp.level_target} aria-label={`第 ${xp.level} 級經驗值`} aria-valuetext={`${xp.level_xp} / ${xp.level_target} XP`} />
     <p className="level-next"><span>{xp.level_xp} / {xp.level_target} XP</span><span>再 {xp.level_target - xp.level_xp} XP 升到第 {xp.level + 1} 級</span></p>
     <section className="xp-rules" aria-labelledby="xp-rules-title">
       <h3 id="xp-rules-title">經驗值怎麼算</h3>

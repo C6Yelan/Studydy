@@ -77,6 +77,8 @@ test.beforeEach(async ({ page }) => {
       // 頁首學習進度；這些案例不涉及學習紀錄。
       case "/v1/learning-activity":
         return route.fulfill({ json: emptyLearningActivity });
+      case "/v1/account/storage":
+        return route.fulfill({ json: { schema: "account-storage/v1", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120 } });
       default:
         throw new Error(`Unexpected cancellation request: ${request.method()} ${path}`);
     }

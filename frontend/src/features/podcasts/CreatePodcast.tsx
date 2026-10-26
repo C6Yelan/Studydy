@@ -1,3 +1,4 @@
+import { SelectionToggle } from "../../ui/SelectionToggle";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { KnowledgeOutlineView } from "../../api/contracts";
@@ -58,7 +59,7 @@ export function CreatePodcast({ apiClient, route }: {
     if (intent.current?.fingerprint !== fingerprint) intent.current = { fingerprint, key: crypto.randomUUID() };
     try {
       const result = await apiClient.createPodcast(route.materialId, body, intent.current.key);
-      if (active.current && window.location.pathname === path) writeRoute({ name: "podcast", podcastId: result.podcast_id, materialId: route.materialId });
+      if (active.current && window.location.pathname === path) writeRoute({ name: "podcast", podcastId: result.podcast_id, materialId: route.materialId }, false, { fromCollection: !!window.history.state?.fromCollection });
     } catch (e) { if (active.current) setSaveError(errorMessage(e)); }
     finally { saving.current = false; if (active.current) setBusy(false); }
   };
@@ -89,10 +90,8 @@ export function CreatePodcast({ apiClient, route }: {
       <section id="podcast-config-selection" className={`podcast-config-section podcast-selection${activePanel === "selection" ? " is-active" : ""}`} aria-label="選擇 Podcast 概念">
         <div className="cards-selection-heading">
           <input className="cards-concept-search" type="search" aria-label="搜尋 Podcast 概念" placeholder="搜尋概念…" value={query} onChange={e => setQuery(e.target.value)} />
-          {/* 全選與篩選和建立卡組同一列：搜尋、全選／取消全選、只看已選、已選數量。 */}
           <div className="cards-selection-actions"><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(true)}>{query.trim() ? "選取搜尋結果" : "全選"}</button><span>／</span><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(false)}>{query.trim() ? "取消搜尋結果" : "取消全選"}</button></div>
-          <label className="podcast-only-selected"><input type="checkbox" checked={onlySelected} onChange={e => setOnlySelected(e.target.checked)} />只看已選</label>
-          <span className="flow-chip" aria-live="polite">已選 {selected.size} / {view.concepts.length}</span>
+          <SelectionToggle pressed={onlySelected} onChange={setOnlySelected}>已選 {selected.size} / {view.concepts.length}</SelectionToggle>
         </div>
         <div className="podcast-concept-list">{visible.map(concept => <div className={`podcast-concept-option${selected.has(concept.concept_id) ? " is-selected" : ""}`} key={concept.concept_id}>
           <label><input type="checkbox" disabled={busy} checked={selected.has(concept.concept_id)} onChange={() => toggle(concept.concept_id)} />

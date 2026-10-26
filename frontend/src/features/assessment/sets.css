@@ -314,27 +314,7 @@ details .assessment-paper .assessment-set-item {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.preparation-progress-track {
-  height: 10px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--page-cool-2);
-}
-.preparation-progress-track > span {
-  display: block;
-  height: 100%;
-  background: var(--studydy-blue);
-  border-radius: inherit;
-}
-/* 靜態條紋代表進度未知，不使用時間推進或動畫，也適用 reduced-motion。 */
-.preparation-progress-track.is-indeterminate > span {
-  width: 100%;
-  background: repeating-linear-gradient(
-    120deg,
-    var(--studydy-blue-soft) 0 10px,
-    var(--page-cool-2) 10px 20px
-  );
-}
+
 .assessment-set-header.is-preparing .preparation-note {
   color: var(--text-secondary);
   font-size: 14px;

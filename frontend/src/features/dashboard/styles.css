@@ -260,19 +260,7 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
 .dashboard-level header small b {
   color: var(--amber-deep);
 }
-.level-bar {
-  height: 14px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--page-cool);
-}
-.level-bar i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--warning), var(--amber-deep));
-  transition: width 0.6s ease;
-}
+
 .level-next {
   display: flex;
   flex-wrap: wrap;

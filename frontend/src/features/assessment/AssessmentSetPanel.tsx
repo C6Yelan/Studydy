@@ -1,3 +1,4 @@
+import { Progress } from "../../ui/Progress";
 import { LearningDiagnosis } from "../learning-diagnosis/LearningDiagnosis";
 import { useEffect, useLayoutEffect, useRef, useState, type SubmitEvent } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
@@ -472,7 +473,7 @@ export function AssessmentSetPanel({
                 <p>
                   {ready > 0
                     ? `目前已準備 ${ready} 題${group?.can_publish_partial ? "，可以先開始練習" : ""}${group?.can_retry ? "，也可以再試著準備其餘題目" : ""}。`
-                    : "你可以稍後再試，或先回到知識地圖。"}
+                    : "你可以稍後再試，或先查看知識地圖。"}
                 </p>
               )}
               {!intervention && (
@@ -481,17 +482,7 @@ export function AssessmentSetPanel({
                     <h3>準備進度</h3>
                     <p role="status">{total > 0 ? `${ready} / ${total} 題` : progressText}</p>
                   </div>
-                  <div
-                    className={`preparation-progress-track${total > 0 ? "" : " is-indeterminate"}`}
-                    role="progressbar"
-                    aria-label="準備進度"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={total > 0 ? Math.round((ready / total) * 100) : undefined}
-                    aria-valuetext={progressText}
-                  >
-                    <span style={total > 0 ? { width: `${(ready / total) * 100}%` } : undefined} />
-                  </div>
+                  <Progress aria-label="準備進度" max={total} value={ready > 0 ? ready : undefined} aria-valuetext={progressText} />
                 </div>
               )}
               {readError}
@@ -523,7 +514,7 @@ export function AssessmentSetPanel({
               <div className="assessment-set-actions preparation-navigation">
                 <button className="text-button" onClick={onBackToMap}>
                   <Icon name="arrow-left" size={16} />
-                  回到知識地圖
+                  查看知識地圖
                 </button>
               </div>
             </>
@@ -554,7 +545,7 @@ export function AssessmentSetPanel({
               {group && (
                 <div className="assessment-set-actions">
                   <button className="text-button" onClick={onBackToMap}>
-                    回到知識地圖
+                    查看知識地圖
                   </button>
                 </div>
               )}
@@ -671,7 +662,7 @@ export function AssessmentSetPanel({
           {!cycleFinished && !conceptCompleted && (
             <div className="assessment-set-actions assessment-result-navigation">
               <button className="text-button" onClick={onBackToMap}>
-                回到知識地圖
+                查看知識地圖
               </button>
             </div>
           )}

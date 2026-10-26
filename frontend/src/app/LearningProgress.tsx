@@ -1,3 +1,4 @@
+import { Progress } from "../ui/Progress";
 import { useCallback, useEffect, useState } from "react";
 import type { StudydyApiClient } from "../api/client";
 import type { LearningActivityView } from "../api/contracts";
@@ -72,7 +73,6 @@ export function LearningProgressPill({ apiClient, learnerId }: { apiClient: Stud
   }, [key, level]);
   if (!activity) return null;
   const { streak_days: streak, xp } = activity;
-  const ratio = xp.level_target ? Math.min(1, xp.level_xp / xp.level_target) : 0;
   // 等級盾牌與本級進度在連續天數左邊；點按進入成就頁。
   return <>
     <button className={`header-progress${streak ? "" : " is-idle"}`} type="button"
@@ -84,7 +84,7 @@ export function LearningProgressPill({ apiClient, learnerId }: { apiClient: Stud
           <b>{xp.level}</b>
         </span>
         <span className="header-level-meter">
-          <span className="header-level-bar"><i style={{ width: `${Math.max(ratio > 0 ? 4 : 0, ratio * 100)}%` }} /></span>
+          <Progress size="small" value={xp.level_xp} max={xp.level_target} aria-label="本級經驗值" />
           <small>{xp.level_xp}/{xp.level_target}</small>
         </span>
       </span>

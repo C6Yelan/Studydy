@@ -120,13 +120,13 @@ test("full notes show restored section progress and retain completed work on ret
     progress: { stage: "generating", completed_sections: 1, total_sections: 3, completed_parts: 2, total_parts: 6, current_section: "排序方法" } });
   await page.goto(`/materials/${materialId}/notes`);
   await page.getByRole("button", { name: "完整筆記", exact: true }).click();
-  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("value", "1");
-  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("max", "3");
+  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("aria-valuenow", "1");
+  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("aria-valuemax", "3");
   await expect(page.getByText("已完成 1 / 3 區 · 2 / 6 批", { exact: true })).toBeVisible();
   await expect(page.getByText(/重試時會從未完成部分接續/)).toBeVisible();
   await page.getByRole("button", { name: "重試生成", exact: true }).click();
   await expect(page.getByRole("button", { name: "生成中", exact: true })).toBeDisabled();
-  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("value", "1");
+  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("aria-valuenow", "1");
 });
 
 

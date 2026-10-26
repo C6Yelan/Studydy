@@ -260,7 +260,7 @@ export function IslandMap({ materials, progress, goals }: {
             <button type="button" onClick={() => openMaterial(material)} onFocus={() => reveal(x, y)} aria-label={`${material.display_name}，${status}${goalText ? `，${goalText}` : ""}`}>
               <span className="map-island-art"><IslandArt palette={islandPalette(material.material_id)} viewBox="100 60 840 470" landmarks={state !== "building"} /></span>
               <span className="island-flag">
-                <ProgressRing ratio={value && value.total ? started / value.total : 0} color={state === "completed" ? "var(--success)" : "var(--warning)"}>
+                <ProgressRing ratio={value && value.total ? started / value.total : 0} tone={state === "completed" ? "complete" : "warning"}>
                   {state === "building" ? <Icon name="process" size={16} /> : state === "failed" ? <Icon name="warning" size={16} /> : started}
                 </ProgressRing>
                 <span className="island-flag-text"><b>{material.display_name}</b><small>{status}</small>{goalText && <small className="island-goal-summary">{goalText}</small>}</span>

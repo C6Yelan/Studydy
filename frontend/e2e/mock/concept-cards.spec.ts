@@ -194,6 +194,14 @@ test("card creation fits a desktop viewport and preserves selections across page
   await manual.getByRole("button", { name: "預覽「堆疊（Stack）」" }).click();
   await expect(page.locator('.cards-preview canvas.visual-concept-card').first()).toBeVisible();
   await expect(manual).toContainText('已選 3 / 31 個觀念');
+  const onlySelected = manual.getByRole("button", { name: "已選 3 / 31 個觀念" });
+  await onlySelected.click();
+  await expect(onlySelected).toHaveAttribute("aria-pressed", "true");
+  await expect(manual.getByRole("checkbox")).toHaveCount(3);
+  await onlySelected.press("Space");
+  await expect(onlySelected).toHaveAttribute("aria-pressed", "false");
+  await expect(manual.getByRole("checkbox").first()).toBeChecked();
+
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-point")).toContainText("最後一個條件不可遺漏");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
@@ -474,11 +482,12 @@ test("library stays aligned and card review keeps compact content and controls",
   const held = new Promise<void>(resolve => { release = resolve; });
   await page.route(`**/v1/card-sets/${cardSetId}`, async route => { await held; await route.fallback(); });
   await page.getByRole("button", { name: "開始複習", exact: true }).click();
-  const back = page.getByRole('button', {name:'返回卡組', exact:true});
+  const back = page.getByRole('button', {name:'返回我的概念卡', exact:true});
   await expect(back).toBeVisible();
   const loadingBack = (await back.boundingBox())!;
   const tabs = (await page.locator('.material-learning-toolbar').boundingBox())!;
-  expect(loadingBack.x).toBeCloseTo(tabs.x, 0);
+  expect(loadingBack.x).toBeGreaterThanOrEqual(tabs.x);
+  expect(loadingBack.x + loadingBack.width).toBeLessThanOrEqual(tabs.x + tabs.width);
   release();
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   expect((await back.boundingBox())!.x).toBeCloseTo(loadingBack.x, 0);
@@ -586,12 +595,12 @@ test("late card save and source read do not reopen a page after navigation", asy
   await page.getByRole("button", { name: "保存並開始複習" }).click();
   await saving;
   // 教材內沒有全站導覽；用教材頁首的返回鍵離開。
-  await page.getByRole("button", { name: "回到我的教材", exact: true }).click();
+  await page.getByRole("button", { name: "返回概念卡列表", exact: true }).click();
   const saved = page.waitForResponse((r) => r.url().endsWith("/card-sets") && r.request().method() === "POST");
   releaseSave();
   await saved;
-  await expect(page).toHaveURL(/\/materials$/);
-  await page.getByLabel("資料結構講義.pdf", { exact: true }).getByRole("link", { name: "概念卡", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
+  await page.reload();
   await page.getByRole("button", { name: "開始複習", exact: true }).click();
   await page.locator(".concept-card-details > summary").click();
   let releaseSource!: () => void;
@@ -1393,8 +1402,7 @@ test("card generation restores stages after reload, retries failure and keeps fu
   const state: CardGeneration = { status: "running", stage: "designing", completed: 1, total: 2, error_code: null, retained_original: 0, cached: 0 };
   controls.setGeneration(state);
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
-  await expect(page.getByRole("progressbar", { name: "概念卡生成進度" })).toHaveAttribute("value", "1");
-  await expect(page.getByRole("progressbar", { name: "概念卡生成進度" })).toHaveClass("processing-progress");
+  await expect(page.getByRole("progressbar", { name: "概念卡生成進度" })).toHaveAttribute("aria-valuenow", "1");
   await expect(page.locator(".overall-heading")).toContainText("50%");
   await expect(page.locator(".status-timeline [aria-current=step]")).toContainText("整理與設計卡面");
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1588,11 +1596,11 @@ test("material needs-work entry opens a review of only this material's card sets
   await page.getByRole("article", { name: "需要加強：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
   await page.getByRole("article", { name: "需要加強：陣列（Array）" }).getByRole("button", { name: "熟悉" }).click();
   await expect(page.getByText("這一輪加強完成！")).toBeVisible();
-  await page.getByRole("button", { name: "返回概念卡", exact: true }).click();
+  await page.getByRole("button", { name: "返回概念卡列表", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
 });
 
-test("card set page links to strengthening only that set and returns to the set", async ({ page }) => {
+test("card set strengthening preserves the collection return destination", async ({ page }) => {
   const { view } = await mockCards(page, { saved: true });
   await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" } });
   await page.goto("/concept-cards");
@@ -1604,8 +1612,9 @@ test("card set page links to strengthening only that set and returns to the set"
   await expect(page.locator(".card-review-heading")).toContainText("資料結構 · 核心概念");
   await page.getByRole("article", { name: "需要加強：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
   await expect(page.locator(".card-review-progress")).toContainText("第 2 / 2 張");
-  await page.getByRole("button", { name: "返回卡組" }).click();
-  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}$`));
+  await page.getByRole("button", { name: "返回我的概念卡" }).click();
+  await expect(page).toHaveURL(/\/concept-cards$/);
+  await page.getByRole("button", { name: "開始複習", exact: true }).click();
   await expect(page.getByRole("button", { name: /需要加強 1 張/ })).toBeVisible();
 });
 

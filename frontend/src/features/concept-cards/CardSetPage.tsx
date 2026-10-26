@@ -1,7 +1,8 @@
+import { BackLink } from "../../ui/BackLink";
+import { Progress } from "../../ui/Progress";
 import { CardExports } from "../exports/CardExports";
 import { useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { BackLink } from "../../ui/BackLink";
 import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView } from "../../ui/NotFoundView";
 import type { CardStudyView, CardBatch, CardReviewRating, CardReviewsView } from "../../api/contracts";
@@ -18,8 +19,6 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [reload, setReload] = useState(0);
-  // 從全站概念卡列表進入時保留返回；其餘情況在教材內，分頁列已能回到概念卡，不再重複。
-  const [fromCollection] = useState(() => !!window.history.state?.fromCollection);
   // 這個卡組的標記與需要加強張數；讀取失敗時只是不顯示標記，不影響瀏覽。
   const [summary, setSummary] = useState<CardReviewsView | null>(null);
   const refreshSummary = useCallback(() => {
@@ -58,9 +57,9 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
     return () => { cancelled = true; clearTimeout(timer); };
   }, [apiClient, cardSetId, materialId, reload]);
   if (notFound) return <NotFoundView title="找不到這個卡組" description="這個卡組可能已被刪除，或不屬於目前登入的帳號。"
-    back={{ label: "回到概念卡", route: materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" } }} />;
+    back={materialId ? null : { label: "回到概念卡", route: { name: "concept-cards" } }} />;
   return <section className="cards-page cards-study-page">
-    {fromCollection && <BackLink label="返回卡組" route={{ name: "concept-cards" }} />}
+    {!materialId && <BackLink label="返回我的概念卡" route={{ name: "concept-cards" }} />}
     {view && view.generation.status !== "ready" && !error ? <CardGenerationProgress view={view} onRetry={() => {
       void apiClient.retryCardGeneration(cardSetId).then(() => setReload(n => n + 1)).catch(failure => setError(errorMessage(failure)));
     }} /> : error || !view?.batch ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入第一批卡片。"} tone={error ? "failure" : "loading"} live={!error} skeleton="deck" action={error ? <button className="primary-button" onClick={() => setReload(n => n + 1)}>重新讀取</button> : undefined} />
@@ -93,7 +92,7 @@ function CardGenerationProgress({ view, onRetry }: { view: CardStudyView; onRetr
       <section className="surface processing-card">
         <div className="processing-status" aria-live="polite">
           <div className="progress-heading overall-heading"><h2>{paused ? "概念卡生成暫停" : "正在生成概念卡"}</h2><strong>{percent}%</strong></div>
-          <progress className="processing-progress" aria-label="概念卡生成進度" max={generation.total} value={generation.completed} />
+          <Progress aria-label="概念卡生成進度" max={generation.total} value={generation.completed} />
           <p className="progress-estimate-note">已完成 {generation.completed} / {generation.total} 個觀念；依完成數計算，不代表剩餘時間。</p>
           <section className="processing-current"><h3>目前狀態</h3>
             <div className="progress-heading"><strong className="stage-label stage-status-label">{!paused && <span className="processing-status-indicator" aria-hidden="true" />}{stages[stage].label}</strong><strong>{activity}</strong></div>
@@ -270,7 +269,7 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
       {!view.is_current_revision && !view.moved_to_card_set_id && <p className="cards-version-tag"><Icon name="sparkle" size={14} />教材已有新版。此卡組保留建立時的教材內容與來源。</p>}
     </div>
       {/* 需要加強在獨立頁進行，只看這個卡組標成不熟的卡片。 */}
-      {weak !== null && weak > 0 && <button className="cards-weak-link" type="button" onClick={() => writeRoute({ name: "card-review", cardSetId: view.card_set_id, materialId })}>
+      {weak !== null && weak > 0 && <button className="cards-weak-link" type="button" onClick={() => writeRoute({ name: "card-review", cardSetId: view.card_set_id, materialId }, false, { fromCollection: !!window.history.state?.fromCollection })}>
         <Icon name="refresh" size={18} /><span>需要加強 <b>{weak}</b> 張</span><strong>開始加強<Icon name="chevron-right" size={16} /></strong>
       </button>}
     </header>
@@ -281,7 +280,7 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
       {listQuery.trim() && !order.some(i => matchesList(view.navigation[i].label)) && <p className="cards-browse-empty">找不到符合的概念。</p>}
     </nav>
       <section ref={stage} tabIndex={-1} className="cards-study-stage surface" aria-label={finished ? "本輪瀏覽完成" : `第 ${absolute ?? localPage + 1} 張概念卡`}>
-        {finished ? <div className="cards-complete"><h2>已瀏覽全部卡片</h2><p>{total !== null ? `這一輪看過了 ${total} 張概念卡。想再回顧一次嗎？` : "已瀏覽全部觀念與卡片，想再回顧一次嗎？"}</p><div className="state-actions"><button className="primary-button" onClick={() => restart(false)}>再看一次</button><button className="secondary-button" onClick={() => writeRoute(materialId ? { name: "material-content", materialId, kind: "concept-cards" } : { name: "concept-cards" })}>返回卡組</button></div></div>
+        {finished ? <div className="cards-complete"><h2>已瀏覽全部卡片</h2><p>{total !== null ? `這一輪看過了 ${total} 張概念卡。想再回顧一次嗎？` : "已瀏覽全部觀念與卡片，想再回顧一次嗎？"}</p><div className="state-actions"><button className="primary-button" onClick={() => restart(false)}>再看一次</button></div></div>
           : <>{card && batch ? <Flashcard key={`${card.concept_id}:${localPage}`} card={card} difficulty={difficulty.data?.concepts.find(item => item.concept_id === card.concept_id)} pageIndex={localPage} structure={batch.context} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
             : <StateView title={error ? "無法讀取這批卡片" : "正在讀取卡片"} description={error ?? "正在取得這個觀念及來源。"} tone={error ? "failure" : "loading"} action={error ? <button className="primary-button" onClick={onReload}>重新讀取卡組</button> : undefined} />}
             {card && marks && <div className="cards-study-mark">

@@ -21,12 +21,13 @@ const dateFormat = new Intl.DateTimeFormat("zh-TW", { year: "numeric", month: "2
 const tabId = (id: Content) => id === "knowledge-map" ? "map-tab-focus" : id === "review" ? "map-tab-review" : `material-tab-${id}`;
 const panelId = (id: Content) => id === "knowledge-map" ? "map-panel-focus" : id === "review" ? "map-panel-review" : `material-panel-${id}`;
 
-export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName, assessmentDisabled = false, loadMaterial = false }: {
+export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName, assessmentDisabled = false, loadMaterial = false, back }: {
   apiClient: StudydyApiClient; materialId: string;
   mapRoute: Extract<AppRoute, { name: "knowledge-map" }> | null; current: Content;
   onMapModeChange?: (mode: Mode) => void;
   onMapTabRef?: (mode: Mode, element: HTMLButtonElement | null) => void; materialName?: string;
   assessmentDisabled?: boolean;
+  back?: { label: string; onClick: () => void };
   /** 所在頁面本身不讀教材索引時，由資訊列補讀。 */
   loadMaterial?: boolean;
 }) {
@@ -92,7 +93,7 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
   // 教材內唯一的頁首：返回、教材、分頁、問答與頭像排成一列（取代全站頁首）。
   return <><header className="material-learning-toolbar material-header" aria-label="目前教材">
     <div className="material-header-identity">
-      <button className="material-header-back" type="button" aria-label="回到我的教材" onClick={() => writeRoute({ name: "materials" })}><Icon name="arrow-left" size={20}/></button>
+      <button className="material-header-back" type="button" aria-label={back?.label ?? "回到我的教材"} title={back?.label ?? "回到我的教材"} onClick={back?.onClick ?? (() => writeRoute({ name: "materials" }))}><Icon name="arrow-left" size={20}/></button>
       <span className="material-header-thumb" aria-hidden="true"><IslandArt palette={islandPalette(materialId)} landmarks={false}/></span>
       {name && <p className="material-context" title={meta ? `${name}\n${meta}` : name}><span>{name}</span></p>}
     </div>

@@ -353,15 +353,15 @@ test('compact research workflow navigates available stages without changing the 
  const nav=page.getByRole('navigation',{name:'補充學習流程'}),search=nav.getByRole('button',{name:/搜尋資料/}),selection=nav.getByRole('button',{name:/選取來源/}),add=nav.getByRole('button',{name:/加入教材/});
  await expect(selection).toHaveAttribute('aria-current','step');await expect(add).toBeDisabled();await expect(page.locator('.research-detail .learning-steps')).toHaveCount(0);
  expect(await page.locator('.research-candidates').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(3);
- await expect(page.locator('.source-picker-filters')).not.toContainText('已選 0');
+ await expect(page.locator('.source-picker-filters').getByRole('button',{name:'已選 0 個'})).toHaveAttribute('aria-pressed','false');
  await expect(page.getByText('可加入',{exact:true})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'取消全選',exact:true})).toHaveCount(0);
  await expect(page.locator('.source-pagination')).toHaveCount(0);
  const sidebar=(await nav.boundingBox())!,body=(await page.locator('.research-detail-body').boundingBox())!;
  expect(sidebar.y+sidebar.height).toBeLessThanOrEqual(body.y);expect(sidebar.height).toBeLessThan(50);
- await page.getByRole('checkbox',{name:'選取 來源 0',exact:true}).check();await page.getByLabel('只看已選',{exact:true}).check();await expect(page.locator('.research-candidates article')).toHaveCount(1);
+ await page.getByRole('checkbox',{name:'選取 來源 0',exact:true}).check();await page.getByRole('button',{name:/^已選 /}).click();await expect(page.locator('.research-candidates article')).toHaveCount(1);
  await search.click();await expect(search).toHaveAttribute('aria-pressed','true');await expect(page.locator('.research-candidates article')).toHaveCount(4);await expect(page.getByRole('checkbox',{name:/選取 來源/})).toHaveCount(0);expect(actions).toHaveLength(0);
- await page.getByRole('button',{name:'前往選取來源',exact:true}).click();await expect(page.getByRole('checkbox',{name:'選取 來源 0',exact:true})).toBeChecked();await expect(page.locator('.research-candidates article')).toHaveCount(1);await page.getByLabel('只看已選',{exact:true}).uncheck();
+ await page.getByRole('button',{name:'前往選取來源',exact:true}).click();await expect(page.getByRole('checkbox',{name:'選取 來源 0',exact:true})).toBeChecked();await expect(page.locator('.research-candidates article')).toHaveCount(1);await page.getByRole('button',{name:/^已選 /}).click();
  await page.getByLabel('篩選來源',{exact:true}).fill('來源 0');await expect(page.locator('.research-candidates article')).toHaveCount(1);expect(actions).toHaveLength(0);
  await expect(selection).toHaveAttribute('aria-current','step');await expect(page.getByLabel('篩選來源',{exact:true})).toHaveValue('來源 0');
  await page.getByRole('button',{name:'取得選取的 1 份來源',exact:true}).click();await expect(search).toBeDisabled();await expect(add).toBeDisabled();await expect(page.getByRole('button',{name:'停止處理',exact:true})).toBeVisible();expect(actions[0]).toEqual({action:'acquire',selected:['s0']});
@@ -383,17 +383,17 @@ test('research source comparison has a single toolbar, tri-state select-all and 
  const actions:any[]=[];await page.route(`**/v1/research/${cid}`,r=>json(r,work));
  await page.route(`**/v1/research/${cid}/actions`,r=>{const body=r.request().postDataJSON();actions.push(body);work={...work,status:'acquiring',selection:body.selected};return json(r,work);});
  await page.goto(`/materials/${materialId}/research/${cid}`);
- const toolbar=page.locator('.source-picker-filters'),all=toolbar.getByRole('checkbox',{name:'全選可用來源',exact:true}),only=toolbar.getByRole('checkbox',{name:'只看已選',exact:true});
+ const toolbar=page.locator('.source-picker-filters'),all=toolbar.getByRole('checkbox',{name:'全選可用來源',exact:true}),only=toolbar.getByRole('button',{name:/^已選 /});
  await expect(all).toBeVisible();await expect(toolbar.getByLabel('來源類型')).toBeVisible();await expect(toolbar.getByLabel('篩選來源',{exact:true})).toBeVisible();
  await expect(page.getByText('可加入',{exact:true})).toHaveCount(0);await expect(page.getByText('取得失敗',{exact:true})).toBeVisible();
  await expect(page.getByRole('checkbox',{name:`選取 ${candidates[2].title}`,exact:true})).toHaveCount(0);
  const input=(await toolbar.getByLabel('篩選來源',{exact:true}).boundingBox())!;
  for(const field of [all,only,toolbar.getByLabel('來源類型')]){const box=(await field.boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(input.y);expect(box.y+box.height).toBeLessThanOrEqual(input.y+input.height+1);}
  await toolbar.getByLabel('篩選來源',{exact:true}).fill('來源 0');await all.check();await expect(page.locator('.tool-stage-footer')).toContainText('已選 3 份來源');
- await expect(toolbar).not.toContainText('已選 3');
- await toolbar.getByLabel('篩選來源',{exact:true}).clear();await toolbar.getByLabel('來源類型').selectOption('paper');await only.check();await expect(page.locator('.research-candidates article')).toHaveCount(2);
+ await expect(only).toHaveText('已選 3 個');
+ await toolbar.getByLabel('篩選來源',{exact:true}).clear();await toolbar.getByLabel('來源類型').selectOption('paper');await only.click();await expect(only).toHaveAttribute("aria-pressed","true");await expect(page.locator('.research-candidates article')).toHaveCount(2);
  await all.uncheck();await expect(page.locator('.tool-stage-footer')).toContainText('已選 0 份來源');await expect(page.locator('.research-candidates article')).toHaveCount(0);
- await only.uncheck();await toolbar.getByLabel('來源類型').selectOption('all');await page.getByRole('checkbox',{name:`選取 ${candidates[0].title}`,exact:true}).check();expect(await all.evaluate((el:HTMLInputElement)=>el.indeterminate)).toBe(true);
+ await only.click();await expect(only).toHaveAttribute("aria-pressed","false");await toolbar.getByLabel('來源類型').selectOption('all');await page.getByRole('checkbox',{name:`選取 ${candidates[0].title}`,exact:true}).check();expect(await all.evaluate((el:HTMLInputElement)=>el.indeterminate)).toBe(true);
  await all.check();expect(await all.evaluate((el:HTMLInputElement)=>el.indeterminate)).toBe(false);await expect(all).toBeChecked();
  for(const [width,columns] of [[1920,3],[1366,3],[390,1]]) {
   await page.setViewportSize({width,height:900});

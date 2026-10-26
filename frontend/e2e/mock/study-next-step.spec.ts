@@ -80,7 +80,7 @@ for (const width of [1440, 390]) test(`complete applies authority before showing
   release();
   await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(fixture.path + "$"));
-  await expect(page.getByRole("button", { name: "回到知識地圖", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "查看知識地圖", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "學習進度已保存", exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toBeVisible();

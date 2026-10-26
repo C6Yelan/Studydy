@@ -65,7 +65,7 @@ test("inside a material one material header replaces the site header and phone t
       await expect(page.getByRole("navigation", { name: "主要導覽", exact: true })).toBeHidden();
       await expect(page.getByRole("navigation", { name: "手機導覽", exact: true })).toBeHidden();
       await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeHidden();
-      await expect(header.getByRole("button", { name: "回到我的教材", exact: true })).toBeVisible();
+      await expect(header.getByRole("button", { name: path === studyPath ? "返回學習與測驗" : "回到我的教材", exact: true })).toBeVisible();
       await expect(header.getByRole("tablist", { name: "教材學習內容" })).toBeVisible();
       await expect(header.getByRole("button", { name: "教材問答", exact: true })).toBeVisible();
       await expect(header.getByRole("button", { name: /^帳號選單/ })).toBeVisible();
@@ -91,9 +91,14 @@ for (const width of [320, 1366, 1920]) {
           width / 2,
         );
       }
-      await page.getByRole("button", { name: "回到我的教材", exact: true }).click();
-      await expect(page).toHaveURL(/\/materials$/);
-      await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
+      await page.getByRole("button", { name: path === studyPath ? "返回學習與測驗" : "回到我的教材", exact: true }).click();
+      if (path === studyPath) {
+        await expect(page).toHaveURL(mapPath);
+        await expect(page.getByRole("tab", { name: "學習與測驗" })).toHaveAttribute("aria-selected", "true");
+      } else {
+        await expect(page).toHaveURL(/\/materials$/);
+        await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
+      }
     }
   });
 }

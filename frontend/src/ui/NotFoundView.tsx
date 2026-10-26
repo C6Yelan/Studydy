@@ -13,7 +13,7 @@ export function NotFoundView({
   title?: string;
   description?: string;
   /** 回到相關清單，例如「回到我的教材」。 */
-  back?: { label: string; route: AppRoute };
+  back?: { label: string; route: AppRoute } | null;
 }) {
   // 全站搜尋在頁首；頁首隱藏搜尋時（例如教材內）不顯示這個入口。
   const [search, setSearch] = useState(false);
