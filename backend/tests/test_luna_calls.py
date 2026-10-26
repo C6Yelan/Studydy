@@ -143,4 +143,3 @@ def test_parallel_semantics_preserves_tags_and_runtime_lock(provider_server, fak
     assert all(record["tags"]["stage"] == "analysis" and record["tags"]["work_id"] == "work" for record in records)
     assert lock == original
     assert all("tags" not in json.loads(line)["stdin"] and "learner" not in json.loads(line)["stdin"] for line in fake_codex.read_text().splitlines())
-
