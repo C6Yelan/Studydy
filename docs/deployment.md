@@ -108,11 +108,24 @@ docker build --label "org.opencontainers.image.revision=$STUDYDY_RELEASE_SHA" \
 
 ## 系統與 OCR 未變更的輕量更新
 
-磁碟容量有限時，先將目前已驗證的 backend／frontend image ID 分別加上 `studydy-backend-runtime:local` 與 `studydy-frontend-runtime:local` 標籤，再使用 `compose.app-update.yaml` 覆寫建置設定。這些標籤不複製映像。後端依 `backend/uv.lock` 同步應用程式 Python 套件，再替換 source、migrations 與 runtime lock，不重新安裝或複製 OCR 環境；只有語意分批／提示設定改動時可沿用此方式。系統套件、Python runtime、local_ai 套件或 OCR 模型／設定改動仍需完整建置。
+在正式版 `main` checkout、乾淨的 `dev` 執行固定指令：
 
-前端先在 checkout 使用既有 node_modules 執行 `npm test` 與 build，將輸出放入 `.studydy-runtime/frontend-static/site/`，同目錄放入 `ops/docker/nginx.conf` 及 `ops/docker/frontend-static.Dockerfile`（命名為 Dockerfile）。建置時保留 `compose.yaml`、`compose.tunnel.yaml`，最後加上 `compose.app-update.yaml`。部署使用已建好的映像及 `--no-build`，不要意外觸發完整 OCR 建置。
+```bash
+ops/deploy --sha "$(git rev-parse HEAD)" --dry-run
+ops/deploy --sha "$(git rev-parse HEAD)" --storage-state /tmp/studydy-auth/state.json
+```
 
-建置前後檢查 Linux 與宿主磁碟可用容量，保留至少 20 GiB；異常成長時停止並檢查，不反覆重建。保存來源 diff、映像 ID 與 migration 前的本機 DB 備份。工作樹有經授權的未提交變更時以實際 source snapshot／diff 記錄，不能宣稱部署內容等於 HEAD。
+`--storage-state` 是既有正式站登入瀏覽器匯出的 Playwright storage state；放在本機私有暫存目錄（0700／檔案0600），不可提交、輸出內容或外送。指令使用現有 `frontend/node_modules/@playwright/test` 與已安裝的 Chromium，確認公開首頁、`/profile` 及認證 API `/v1/session`，不建立帳號或教材。執行完由提供憑證者清除暫存。前端需已有與 lock 相符的 node_modules，沿用目前建置環境。
+
+指令核對 `dev`／完整 SHA／乾淨工作樹，以 `.studydy-runtime/thetawave-batch/DEPLOY.lock` 與既有部署程序互斥，檢查 Linux 與 E 槽至少保留20 GiB。從正式容器的實際 image ID 建立本次專用底圖與回復標籤，後端同步 `backend/uv.lock` 後替換 source、migrations、runtime lock；前端重建靜態檔並固定目錄0755／檔案0644。建置後驗證 UID 20001 passwd 與 Nginx 可讀性；不依賴歷史映像名稱。
+
+等待持久工作及有效租約清空後，停止後端寫入、再次確認佇列為空，再備份 DB、建置、套用 migration 與切換。這段期間站台 API 暫停；不取消任何工作。`--wait-timeout` 預設1800秒，逾時就停止。dump 的077 umask只作用於備份，不影響前端建置。部署一律使用已建映像及 `--no-build`，不管理 cloudflared／DNS／競賽版或主機 provider。
+
+`--dry-run` 只做前置檢查、讀正式映像、等佇列及建置／映像驗證，不備份、不停止或切換正式容器。正式執行記錄於 `data/deployments/<名稱>-<UTC>/release.json`，包含映像ID、前版映像、migration前後版號、備份位置與檢查結果；同目錄有 `compose.update.yaml`／`compose.rollback.yaml`。`--name` 預設 `app-update`。
+
+失敗立即停止並回報原因。本次沒有套用 migration 時，切換／停寫後的失敗會自動以回復檔啟動前版並重查正式站；本次有套用（包含部分提交）或帳本結果無法確認時，不啟動舊映像、不還原DB，記錄備份位置，交人工前向修復。回復本身失敗也明確回報。`--min-free-gib` 可提高容量門檻以驗證拒絕；`--check-url` 是部署後額外HTTP檢查，可用必定失敗的本機位址驗證回復，不會略過正常網站檢查。
+
+系統套件、Python runtime、local_ai 套件或 OCR 模型／設定改動仍需完整建置，沿用前後章節的人工建置、identity、切換與回復流程；輕量部署不再另寫手動 deploy.sh。SHA授權、版本相容性與變更所需測試仍由部署前審查確認。
 
 ## 記錄 identity、切換與回復
 
