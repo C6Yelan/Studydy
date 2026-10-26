@@ -1,0 +1,298 @@
+#!/usr/bin/env python3
+"""正式版輕量部署；從 main checkout 執行，系統／OCR 更新仍走人工流程。"""
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import select
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+PYTHON = '/app/backend/.venv/bin/python'
+LOCK = Path('.studydy-runtime/thetawave-batch/DEPLOY.lock')
+COMPOSE = ['docker', 'compose', '--env-file', '.env', '-p', 'studydy', '-f',
+           'compose.yaml', '-f', 'compose.tunnel.yaml', '-f', 'compose.app-update.yaml']
+JOBS = {name: ('pending', 'running') for name in (
+    'material_processing_runs', 'source_normalizations', 'material_notes',
+    'knowledge_chapters', 'card_sets', 'podcasts', 'podcast_scenes', 'podcast_videos')}
+JOBS.update(assessment_sets=('preparing',), voice_turns=('transcribing', 'pending', 'answering', 'speaking'),
+            topic_scopes=('pending',))
+BROWSER = r"""
+const {chromium}=require(process.cwd()+'/frontend/node_modules/@playwright/test');
+(async()=>{const browser=await chromium.launch({headless:true});
+try {const context=await browser.newContext({storageState:process.argv[1]});
+const page=await context.newPage(); const checks=[];
+for(const url of ['http://127.0.0.1:4173/','https://studydy.net/','https://studydy.net/profile']) {
+  const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+  checks.push({url,status:response.status()});
+  if(response.status()!==200) throw Error('HTTP_CHECK_FAILED '+url+' '+response.status());
+}
+const session=await page.evaluate(async()=> (await fetch('/v1/session')).status);
+if(session!==200) throw Error('AUTHENTICATED_SESSION_FAILED '+session);
+console.log(JSON.stringify({http:checks,session_status:session}));
+} finally {await browser.close();}})().catch(e=>{console.error(e.message);process.exitCode=1;});
+"""
+
+
+def run(args, *, input=None, timeout=None):
+    result = subprocess.run([str(x) for x in args], input=input, capture_output=True, text=True, timeout=timeout)
+    if result.returncode:
+        raise RuntimeError(f'{args[0]} failed ({result.returncode}): {result.stderr[-1500:]} {result.stdout[-500:]}')
+    return result.stdout.strip()
+
+
+def sql(statement, timeout=30):
+    return run(['docker', 'exec', '-i', '-e', f'PGOPTIONS=-c statement_timeout={max(1, int(timeout*1000))}',
+                'studydy-postgres-1', 'sh', '-c',
+                'exec psql -XAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'], input=statement, timeout=timeout)
+
+
+def schema():
+    return int(sql('SELECT coalesce(max(version),0) FROM schema_migrations;'))
+
+
+def queues(timeout=30):
+    queries = [f"SELECT '{table}', count(*) FROM {table} WHERE status IN "
+               f"({','.join(repr(s) for s in states)}) OR lease_expires_at > clock_timestamp()"
+               for table, states in JOBS.items()]
+    queries.append("SELECT 'material_research', count(*) FROM material_research r LEFT JOIN topic_scopes t "
+                   "ON t.topic_id=r.topic_id WHERE r.status IN ('searching','acquiring','normalizing') "
+                   "OR (r.status='ready' AND t.status='approved' AND t.material_id IS NULL) "
+                   "OR r.lease_expires_at > clock_timestamp()")
+    return {name: int(count) for name, count in (line.split('|') for line in sql(';'.join(queries), timeout=timeout).splitlines())}
+
+
+def drain(timeout):
+    started = time.monotonic()
+    while True:
+        remaining = timeout-(time.monotonic()-started)
+        if remaining <= 0:
+            raise RuntimeError('QUEUE_TIMEOUT')
+        try:
+            counts = queues(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError('QUEUE_TIMEOUT: DB查詢未在期限內完成') from None
+        elapsed = time.monotonic()-started
+        if elapsed >= timeout:
+            raise RuntimeError('QUEUE_TIMEOUT: '+json.dumps(counts))
+        if not any(counts.values()):
+            return {'active_jobs': 0, 'tables': counts, 'wait_seconds': round(elapsed, 2)}
+        print('等待工作完成：'+json.dumps(counts), flush=True)
+        time.sleep(min(10, timeout-elapsed))
+
+
+def disk(minimum):
+    result = {}
+    for path in (Path.cwd(), Path('/mnt/e')):
+        usage = shutil.disk_usage(path)
+        result[str(path)] = {'free_bytes': usage.free, 'used_percent': round(100*usage.used/usage.total, 1)}
+        if path == Path('/mnt/e') and usage.used/usage.total > .9:
+            print('提醒：E 槽使用率超過 90%', flush=True)
+        if usage.free < max(20, minimum)*1024**3:
+            raise RuntimeError(f'DISK_SPACE_INSUFFICIENT: {path}, free={usage.free}, required_GiB={max(20, minimum)}')
+    return result
+
+
+def override(path, images):
+    path.write_text('services:\n'+''.join(f'  {service}:\n    image: {image}\n' for service, image in images.items()))
+
+
+def wait_network_stable(timeout=30, quiet=3):
+    # Docker 的 IPv6 位址會延後發布；靜默期涵蓋實測約2秒的 Chromium 通知延遲。
+    started = last_event = time.monotonic()
+    batches = 0
+    with subprocess.Popen(['ip', 'monitor', 'link', 'address', 'route'], stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE) as monitor:
+        try:
+            while True:
+                now = time.monotonic()
+                if now-started >= timeout:
+                    raise RuntimeError('NETWORK_STABILITY_TIMEOUT')
+                if monitor.poll() is not None:
+                    raise RuntimeError('NETWORK_MONITOR_FAILED')
+                readable, _, _ = select.select([monitor.stdout], [], [], max(0, min(quiet-(now-last_event), timeout-(now-started))))
+                if time.monotonic()-started >= timeout:
+                    raise RuntimeError('NETWORK_STABILITY_TIMEOUT')
+                if readable:
+                    if not os.read(monitor.stdout.fileno(), 65536):
+                        raise RuntimeError('NETWORK_MONITOR_FAILED')
+                    last_event = time.monotonic()
+                    batches += 1
+                elif time.monotonic()-last_event >= quiet:
+                    return {'wait_seconds': round(time.monotonic()-started, 2), 'quiet_seconds': quiet, 'event_batches': batches}
+        finally:
+            monitor.terminate()
+            monitor.wait(timeout=5)
+
+
+def verify(images, storage_state):
+    actual = {s: run(['docker', 'inspect', '-f', '{{.Image}}', f'studydy-{s}-1']) for s in images}
+    if actual != images:
+        raise RuntimeError('CONTAINER_IMAGE_MISMATCH')
+    run(['docker', 'exec', 'studydy-backend-1', PYTHON, '-c',
+         "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8001/internal/ready',timeout=5); assert r.status==200"])
+    stable = wait_network_stable()
+    return {'ready': 200, 'image_ids': actual, 'network_stability': stable,
+            **json.loads(run(['node', '-e', BROWSER, storage_state]))}
+
+
+def recover(record, stopped, compose, storage_state):
+    # migration 可能逐版提交後失敗；未知結果也不可冒險啟動舊映像。
+    if record.get('schema_after') != record.get('schema_before'):
+        record['status'] = 'manual_forward_fix_required'
+        record['rollback'] = '不退回映像、不還原DB；交人工前向修復。備份：'+record.get('db_backup', '未建立')
+    elif stopped:
+        run([*compose, 'up', '-d', '--no-deps', '--no-build', '--wait', '--wait-timeout', '120', 'backend', 'frontend'])
+        record['rollback_verified'] = verify({s: v['image_id'] for s, v in record['previous'].items()}, storage_state)
+        record['status'] = 'failed_restored_previous'
+    else:
+        record['status'] = 'failed_before_switch'
+
+
+def deploy(args):
+    # 1：只接受正式 checkout 的乾淨 dev 與明確 SHA；鎖沿用既有部署程序位置。
+    if run(['git', 'status', '--porcelain']):
+        raise RuntimeError('WORKTREE_DIRTY')
+    if run(['git', 'branch', '--show-current']) != 'dev':
+        raise RuntimeError('BRANCH_NOT_DEV')
+    if run(['git', 'rev-parse', 'HEAD']) != args.sha:
+        raise RuntimeError('HEAD_SHA_MISMATCH')
+    if not args.dry_run and (not args.storage_state or not Path(args.storage_state).is_file()):
+        raise RuntimeError('AUTHENTICATED_BROWSER_STATE_REQUIRED')
+    LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with LOCK.open('x') as lock:
+        lock.write(f'{os.getpid()} {args.sha}\n')
+    record = {'name': args.name+'-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'),
+              'source_sha': args.sha, 'branch': 'dev', 'model_calls': 0, 'provider_changed': False,
+              'migration': None, 'queue': {}, 'previous': {}}
+    release = None
+    stopped = False
+    rollback_compose = None
+    try:
+        record['preflight'] = {'disk': disk(args.min_free_gib)}
+        # 2：底圖及回復標籤都固定指向目前容器的實際 ID，絕不沿用舊 local 標籤。
+        bases, images = {}, {}
+        for service in ('backend', 'frontend'):
+            image_id = run(['docker', 'inspect', '-f', '{{.Image}}', f'studydy-{service}-1'])
+            old_tag = run(['docker', 'inspect', '-f', '{{.Config.Image}}', f'studydy-{service}-1'])
+            record['previous'][service] = {'image': old_tag, 'image_id': image_id}
+            bases[service] = f'studydy-{service}-runtime:{record["name"]}'
+            run(['docker', 'tag', image_id, bases[service]])
+            images[service] = f'studydy-{service}:{record["name"]}'
+        # 3：只等工作與有效租約，不取消；備份前停 backend，再查一次避免最後瞬間入列。
+        record['queue']['preflight'] = drain(args.wait_timeout)
+        if not args.dry_run:
+            release = Path('data/deployments')/record['name']
+            release.mkdir(parents=True, mode=0o700)
+            update, rollback = release/'compose.update.yaml', release/'compose.rollback.yaml'
+            override(update, images)
+            override(rollback, bases)
+            compose, rollback_compose = [*COMPOSE, '-f', str(update)], [*COMPOSE, '-f', str(rollback)]
+            record['compose_files'] = ['compose.yaml', 'compose.tunnel.yaml', 'compose.app-update.yaml', str(update)]
+            record['rollback'] = '本次未套用migration才自動回復；有套用或結果未知則交人工前向修復，DB不還原。'
+            record['schema_before'] = record['schema_after'] = schema()
+            # 先驗證現有登入狀態，避免憑證失效造成不必要的停機。
+            verify({s: v['image_id'] for s, v in record['previous'].items()}, args.storage_state)
+            stopped = True
+            run([*compose, 'stop', 'backend'])
+            record['queue']['after_stop'] = queues()
+            if any(record['queue']['after_stop'].values()):
+                raise RuntimeError('QUEUE_CHANGED_BEFORE_BACKUP')
+            # 4：只有 dump 開檔期間使用 077，前端建置不繼承此 umask。
+            backup = Path('data/backups')/record['name']/'database.dump'
+            backup.parent.mkdir(parents=True, mode=0o700)
+            record['db_backup'] = str(backup)
+            old_umask = os.umask(0o077)
+            try:
+                with backup.open('xb') as output:
+                    subprocess.run(['docker', 'exec', 'studydy-postgres-1', 'sh', '-c',
+                                    'exec pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB"'], stdout=output, check=True)
+            finally:
+                os.umask(old_umask)
+            with backup.open('rb') as source:
+                subprocess.run(['docker', 'exec', '-i', 'studydy-postgres-1', 'pg_restore', '--list'],
+                               stdin=source, stdout=subprocess.DEVNULL, check=True)
+            record.update(db_backup_bytes=backup.stat().st_size, backup_validation='pg_restore --list passed')
+        # 5：全程輕量建置；靜態目錄／檔案明確設 0755／0644，再以 Nginx 身分驗證。
+        print('建置後端與前端輕量映像', flush=True)
+        run(['docker', 'build', '--build-arg', 'RUNTIME_IMAGE='+bases['backend'], '--label',
+             'org.opencontainers.image.revision='+args.sha, '-f', 'ops/docker/backend-app.Dockerfile', '-t', images['backend'], '.'])
+        with tempfile.TemporaryDirectory(prefix='studydy-deploy-') as temporary:
+            context = Path(temporary)
+            run(['npm', '--prefix', 'frontend', 'run', 'build', '--', '--outDir', str(context/'site')])
+            shutil.copyfile('ops/docker/nginx.conf', context/'nginx.conf')
+            shutil.copyfile('ops/docker/frontend-static.Dockerfile', context/'Dockerfile')
+            for path in [context, *context.rglob('*')]:
+                path.chmod(0o755 if path.is_dir() else 0o644)
+            run(['docker', 'build', '--build-arg', 'RUNTIME_IMAGE='+bases['frontend'], '--label',
+                 'org.opencontainers.image.revision='+args.sha, '-t', images['frontend'], str(context)])
+        run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', PYTHON, images['backend'],
+             '-c', 'import pwd; assert pwd.getpwuid(20001).pw_name'])
+        run(['docker', 'run', '--rm', '--network', 'none', '--user', '101:101', '--entrypoint', 'sh', images['frontend'],
+             '-c', 'test -r /usr/share/nginx/html/index.html && test -r /etc/nginx/studydy.conf.template && '
+             'test -z "$(find /usr/share/nginx/html -type f ! -perm 0644 -o -type d ! -perm 0755)"'])
+        built = {}
+        for service, tag in images.items():
+            built[service] = run(['docker', 'image', 'inspect', '-f', '{{.Id}}', tag])
+            record[service+'_image'], record[service+'_image_id'] = tag, built[service]
+            record[service+'_image_digests'] = json.loads(run(['docker', 'image', 'inspect', '-f', '{{json .RepoDigests}}', tag]))
+        record['runtime_lock_file_sha256'] = hashlib.sha256(Path('local_ai/runtime-lock.json').read_bytes()).hexdigest()
+        record['preflight'].update(uid=20001, frontend_readable=True, disk_after_build=disk(args.min_free_gib))
+        if args.dry_run:
+            record['status'] = 'dry_run_passed'
+        else:
+            # 6：migration 結束碼不代表有無提交；無論成功或失敗都重讀帳本。
+            record['schema_after'] = None
+            try:
+                run([*compose, 'run', '--rm', '--no-deps', '-T', 'backend', 'migrate'])
+            finally:
+                record['schema_after'] = schema()
+                record['migration'] = list(range(record['schema_before']+1, record['schema_after']+1)) or None
+            run([*compose, 'up', '-d', '--no-deps', '--no-build', '--wait', '--wait-timeout', '120', 'backend', 'frontend'])
+            record['deployed_at'] = datetime.now(timezone.utc).isoformat()
+            # 7：真實 readiness、登入頁與 session；額外檢查 URL 僅供安全模擬失敗。
+            record['verified'] = verify(built, args.storage_state)
+            if args.check_url:
+                run(['curl', '--fail', '--silent', '--show-error', '--max-time', '5', args.check_url])
+            record['status'] = 'deployed_verified'
+    except (Exception, KeyboardInterrupt) as error:
+        record['error'] = str(error) or type(error).__name__
+        try:
+            recover(record, stopped, rollback_compose, args.storage_state)
+        except Exception as recovery_error:
+            record['status'], record['rollback_error'] = 'recovery_failed_manual_action_required', str(recovery_error)
+        raise RuntimeError(json.dumps(record, ensure_ascii=False)) from None
+    finally:
+        # 8：成功／失敗都記錄已知結果，且只釋放本程序取得的鎖。
+        try:
+            if release:
+                record['completed_at'] = datetime.now(timezone.utc).isoformat()
+                (release/'release.json').write_text(json.dumps(record, ensure_ascii=False, indent=2)+'\n')
+        finally:
+            LOCK.unlink()
+    print(json.dumps(record, ensure_ascii=False, indent=2))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--sha', required=True, help='已核准的完整 dev HEAD SHA')
+    parser.add_argument('--name', default='app-update')
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--storage-state', help='已登入正式站的 Playwright storage state 私有檔案')
+    parser.add_argument('--wait-timeout', type=float, default=1800)
+    parser.add_argument('--min-free-gib', type=float, default=20, help='不得低於20；提高可模擬容量不足')
+    parser.add_argument('--check-url', help='部署後額外檢查位址；失敗時依 migration 結果處理')
+    args = parser.parse_args()
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,40}', args.name) or not re.fullmatch(r'[0-9a-f]{40}', args.sha):
+        parser.error('name 或完整 SHA 格式錯誤')
+    try:
+        deploy(args)
+    except (Exception, KeyboardInterrupt) as error:
+        print(str(error), file=sys.stderr)
+        sys.exit(1)
