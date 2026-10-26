@@ -18,7 +18,7 @@ def sentences(text):
 def test_initialism_enumeration_keeps_source_and_separate_pauses():
     text = '依序是 FIN、ACK、SYN。'
     result = sentences(text)
-    assert [x['text'] for x in result] == ['依序是 F I N 、', 'A C K 、', 'S Y N 。']
+    assert [x['text'] for x in result] == ['依序是 F I N ，', 'A C K ，', 'S Y N 。']
     assert ''.join(x['source_text'] for x in result) == text
     assert [x['ending'] for x in result] == ['、', '、', '。']
 
@@ -32,8 +32,8 @@ def test_mixed_sentence_preserves_chinese_connectors_and_punctuation():
 
 def test_compound_protocol_notation_preserves_operators():
     assert sentences('TCP/IP')[0]['text'] == 'T C P / I P'
-    assert sentences('SYN + ACK')[0]['text'] == 'S Y N + A C K'
-    assert sentences('ABC → XYZ')[0]['text'] == 'A B C ，右箭頭， X Y Z'
+    assert sentences('SYN + ACK')[0]['text'] == 'S Y N 加 A C K'
+    assert sentences('ABC → XYZ')[0]['text'] == 'A B C 到 X Y Z'
 
 
 def test_english_compound_words_do_not_read_typographic_hyphens():
@@ -79,7 +79,7 @@ def test_formulas_units_paths_and_two_part_ratio_are_not_list_separators():
     result = sentences(text)
     assert ''.join(x['source_text'] for x in result) == text
     assert result[0]['source_text'] == 'f(x,y)、'
-    assert '1/2' in result[1]['text']
+    assert '2 分之 1' in result[1]['text']
     assert result[2]['text'].count('/') == 3
     assert 'megabytes per second' in result[3]['text']
     assert '時間／距離' in result[4]['text']
@@ -98,3 +98,40 @@ def test_math_normalization_does_not_rewrite_path_or_code_literals():
     joined=''.join(x['text'] for x in result)
     assert '大於' not in joined and '小於' not in joined and 'theta' not in joined
     assert '>' in joined and '<=' in joined and 'θ' in joined
+
+
+def test_choice_formula_and_pause_conversion_keeps_display_text():
+    text = '二選一：A/B；QK^T / √d_k = 1/2。RAG（或 DDPM）：A、B。'
+    result = sentences(text)
+    rendered = ''.join(x['text'] for x in result)
+    assert ''.join(x['source_text'] for x in result) == text
+    assert 'A 或 B' in rendered
+    assert 'Q 乘以 K 的轉置' in rendered and '根號 d k' in rendered
+    assert '等於 2 分之 1' in rendered
+    assert 'R A G ，或 D D P M ，，' in rendered
+    assert 'A ，' in rendered
+
+
+def test_literal_operators_and_non_choice_slashes_keep_their_meaning():
+    result = sentences('程式 `x+y=z`，路徑 /tmp/a+b=c，TCP/IP，時間／距離，8 MB/s。')
+    rendered = ''.join(x['text'] for x in result)
+    assert '+' in rendered and '=' in rendered
+    assert 'T C P / I P' in rendered and '時間／距離' in rendered
+    assert 'megabytes per second' in rendered
+
+
+def test_position_expression_and_enumeration_used_in_attention_dialogue():
+    text = '位置 i 的表示預測位置 i+1；A、B、C。'
+    result = sentences(text)
+    assert ''.join(x['source_text'] for x in result) == text
+    assert 'i 加 1' in ''.join(x['text'] for x in result)
+    assert [x['ending'] for x in result] == ['；', '、', '、', '。']
+
+
+def test_chinese_adjacent_math_and_protocol_selection():
+    rendered = ''.join(x['text'] for x in sentences('機率為1/2，計算QK^T，再用√d_k縮放。選用 TCP/IP 協定。'))
+    assert '2 分之 1' in rendered
+    assert 'Q 乘以 K 的轉置' in rendered and '根號 d k' in rendered
+    assert 'T C P / I P' in rendered
+    assert '或' not in rendered
+    assert '除以根號' in sentences('QK^T/√d_k')[0]['text']
