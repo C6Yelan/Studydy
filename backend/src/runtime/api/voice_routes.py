@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
-from .. import voice
+from .. import voice, assessment_presence
 from ..errors import SourceError
 from .media import bytes_response
 
@@ -45,10 +45,31 @@ class Action(BaseModel):
     action: Literal["cancel", "retry"]
 
 
+class Presence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    schema_: Literal["assessment-presence/v1"] = Field(alias="schema")
+    assessment_set_id: UUID
+    active: bool = Field(strict=True)
+
+
+def browser_id(request):
+    try:
+        return UUID(request.headers.get("X-Studydy-Browser-Id", ""))
+    except ValueError:
+        raise SourceError("REQUEST_INVALID") from None
+
+
 def install(app, settings):
     def owner(request):
         request_context.require_query(request, set())
         return request_context.trusted_learner(request, settings).learner_id
+
+    @app.put("/v1/materials/{material_id}/assessment-presence")
+    def presence(request: Request, material_id: UUID, body: Presence):
+        return assessment_presence.update(
+            owner(request), material_id, browser_id(request), body.assessment_set_id,
+            body.active, dsn=settings.dsn,
+        )
 
     @app.get("/v1/materials/{material_id}/voice-conversations")
     def listing(request: Request, material_id: UUID):
@@ -74,8 +95,10 @@ def install(app, settings):
 
     @app.post("/v1/voice-conversations/{identity}/turns", status_code=202)
     def question(request: Request, identity: UUID, body: Question):
+        learner = owner(request)
+        voice.require_question_allowed(learner, identity, browser_id(request), dsn=settings.dsn)
         return voice.add_turn(
-            owner(request),
+            learner,
             identity,
             request_context.idempotency_key(request),
             body.question,
@@ -87,6 +110,8 @@ def install(app, settings):
     @app.post("/v1/voice-conversations/{identity}/recordings", status_code=202)
     async def recording(request: Request, identity: UUID):
         learner = await run_in_threadpool(owner, request)
+        browser = browser_id(request)
+        await run_in_threadpool(voice.require_question_allowed, learner, identity, browser, dsn=settings.dsn)
         request_key = request_context.idempotency_key(request)
         context = None
         raw_context = request.headers.get("X-Studydy-Podcast-Context")
@@ -118,8 +143,11 @@ def install(app, settings):
 
     @app.post("/v1/voice-conversations/{identity}/turns/{turn_id}/actions")
     def action(request: Request, identity: UUID, turn_id: UUID, body: Action):
+        learner = owner(request)
+        if body.action == "retry":
+            voice.require_question_allowed(learner, identity, browser_id(request), dsn=settings.dsn)
         return voice.action(
-            owner(request), identity, turn_id, body.action, dsn=settings.dsn
+            learner, identity, turn_id, body.action, dsn=settings.dsn
         )
 
     @app.get("/v1/voice-conversations/{identity}/turns/{turn_id}/audio")

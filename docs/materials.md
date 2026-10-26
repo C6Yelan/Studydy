@@ -255,3 +255,8 @@ run 的 added_sources／existing_source_count 依固定 SourceSet 與 base 分�
 補充研究 progress 依已確認觀念提供 topic_progress／completed_topics／total_topics／started_at，只列正文與來源類型均已核對且可用的候選；逐觀念來源數亦採同口徑，不增加模型請求。完成且找到零份仍如實顯示0。
 
 筆記小節的來源標記依原本小節綁定放在末尾，不推測逐句來源；預覽顯示檔名、位置與原文節錄，點擊在右側查看原文。舊段落註記仍使用當時的來源定位。
+
+
+### 作答中問答限制
+
+`PUT /v1/materials/{id}/assessment-presence` 接受 `assessment-presence/v1`、`assessment_set_id`、`active`。與問答文字、錄音、retry 共用必填 UUID header `X-Studydy-Browser-Id`，缺漏或不合法回 `REQUEST_INVALID`。只接受本人同教材已封題、ready/in_progress 的題組；每 20 秒回報延長至 60 秒。限制範圍為帳號＋教材＋瀏覽器，另一瀏覽器可問。活動期間三入口回 409 `ASSESSMENT_IN_PROGRESS`，不排入模型工作；取消與既有回答不受影響。交卷後題組 completed 立即使 presence 失效，離頁停止回報後到期；讀取不續期。這是介面約束，並非裝置驗證。

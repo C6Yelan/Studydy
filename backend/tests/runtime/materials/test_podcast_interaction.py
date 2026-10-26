@@ -240,7 +240,7 @@ def test_voice_context_recording_api_validates_owner_revision_and_ranges(closed_
     learner,source,settings,document,dsn,token=closed_loop;view=beats(closed_loop);locator=context(view)
     new_head(closed_loop);monkeypatch.setattr(api,'runtime_binding',lambda _: {})
     origin='http://127.0.0.1:4183';app=create_app(ApiSettings(profile='local',public_origin=origin,secure_cookie=False,local_config=settings,dsn=dsn))
-    client=TestClient(app,base_url=origin);headers={'Origin':origin,'Idempotency-Key':'api-context'}
+    client=TestClient(app,base_url=origin);headers={'Origin':origin,'Idempotency-Key':'api-context','X-Studydy-Browser-Id':str(uuid4())}
     url=f'/v1/materials/{source.material_id}/voice-conversations'
     assert client.post(url,headers=headers,json={'knowledge_structure_revision':document['revision']}).status_code==401
     client.cookies.set('studydy_session',token)
