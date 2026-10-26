@@ -28,7 +28,7 @@ from .storage.database import database_session
 from .podcast_script import digest, validate_script
 from .podcast_access import _locked
 from .podcast_sources import plan_episodes, source_context, _context_pages
-from . import retrieval
+from . import retrieval, luna_calls
 from .errors import SourceError, PodcastError
 from .audio import FLAC_MEDIA_TYPE, validate_audio, wav_to_flac
 from .storage_usage import (
@@ -465,6 +465,7 @@ def claim_step(*, dsn=None):
                 continue
             return {
                 "podcast_id": row.podcast_id,
+                "material_id": row.material_id,
                 "owner": owner,
                 "token": row.lease_token,
                 "index": index,
@@ -592,4 +593,6 @@ def finish_step(
             row.status = "ready" if all(e.get("audio") for e in episodes) else "pending"
         row.lease_token = row.lease_expires_at = None
         row.version += 1
-        return True
+    if script is not None or error:
+        luna_calls.completed("failed" if error else "succeeded", error)
+    return True

@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select, or_
 
+from runtime import luna_calls, luna_test
 from runtime.material_runtime import validate_runtime_lock
 from content_identity import canonical_sha256
 from runtime.learner_session import TrustedLearner
@@ -574,132 +575,143 @@ def _bounded_prior(prior, claim):
 
 
 def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdown=None):
-    stop = Event()
-    stale = Event()
-
-    def check_wait():
-        if stale.is_set() or (shutdown is not None and shutdown.is_set()):
-            raise AssessmentSetError("ASSESSMENT_SET_STALE_WORK")
-
-    heartbeat = Thread(target=_heartbeat, args=(work, stop, dsn, stale), daemon=True)
-    heartbeat.start()
-    prepared = None
-    reason = None
+    trace = None
     try:
-        check_wait()
-        with database_session(dsn) as session:
-            study, context, _, group = _leased(session, work)
-            item = session.get(AssessmentSetItem, (work.set_id, work.ordinal))
-            if item.state != "generating":
+        stop = Event()
+        stale = Event()
+
+        def check_wait():
+            if stale.is_set() or (shutdown is not None and shutdown.is_set()):
                 raise AssessmentSetError("ASSESSMENT_SET_STALE_WORK")
-            concept = next(
-                concept for concept in context.concepts
-                if concept.concept_id == item.target_concept_id
-            )
-            claim = next(
-                point
-                for point in concept.claims
-                if point.claim_id == item.target_claim_id
-            )
-            lock = deepcopy(group.runtime_lock_document)
-            study_data = SimpleNamespace(
-                study_session_id=study.study_session_id,
-                knowledge_structure_revision=study.knowledge_structure_revision,
-            )
-            prior = assessments._prior_questions(session, study, claim)
-            expected_provenance = assessments._provenance(group)
-            verified = [
-                row for row in _items(session, group) if row.state == "verified"
-            ]
-            staged = [
-                assessments._stored(
-                    _assessment_row(study, row, row.prepared_document),
-                    expected_provenance,
+
+        heartbeat = Thread(target=_heartbeat, args=(work, stop, dsn, stale), daemon=True)
+        heartbeat.start()
+        prepared = None
+        reason = None
+        try:
+            check_wait()
+            with database_session(dsn) as session:
+                study, context, _, group = _leased(session, work)
+                item = session.get(AssessmentSetItem, (work.set_id, work.ordinal))
+                if item.state != "generating":
+                    raise AssessmentSetError("ASSESSMENT_SET_STALE_WORK")
+                concept = next(
+                    concept for concept in context.concepts
+                    if concept.concept_id == item.target_concept_id
                 )
-                for row in verified
-            ]
-            used = set(
-                session.scalars(
-                    select(Assessment.semantic_identity).where(
-                        Assessment.study_session_id == study.study_session_id
+                claim = next(
+                    point
+                    for point in concept.claims
+                    if point.claim_id == item.target_claim_id
+                )
+                lock = deepcopy(group.runtime_lock_document)
+                trace = luna_calls.start(
+                    "assessment", (work.set_id, work.ordinal), work.token, study.material_id, work.learner_id,
+                    enabled=luna_test.enabled(lock),
+                )
+                study_data = SimpleNamespace(
+                    study_session_id=study.study_session_id,
+                    knowledge_structure_revision=study.knowledge_structure_revision,
+                )
+                prior = assessments._prior_questions(session, study, claim)
+                expected_provenance = assessments._provenance(group)
+                verified = [
+                    row for row in _items(session, group) if row.state == "verified"
+                ]
+                staged = [
+                    assessments._stored(
+                        _assessment_row(study, row, row.prepared_document),
+                        expected_provenance,
+                    )
+                    for row in verified
+                ]
+                used = set(
+                    session.scalars(
+                        select(Assessment.semantic_identity).where(
+                            Assessment.study_session_id == study.study_session_id
+                        )
                     )
                 )
-            )
-            used.update(row.semantic_identity for row in staged)
-            prior = _bounded_prior([*staged, *prior], claim)
+                used.update(row.semantic_identity for row in staged)
+                prior = _bounded_prior([*staged, *prior], claim)
 
-        def model(client, **kwargs):
-            check_wait()
-            with database_session(dsn) as session:
-                _leased(session, work)
-            result = semantic_call(client, **kwargs, cancellation_check=check_wait)
-            check_wait()
-            with database_session(dsn) as session:
-                _leased(session, work)
-            return result
+            def model(client, **kwargs):
+                check_wait()
+                with database_session(dsn) as session:
+                    _leased(session, work)
+                result = semantic_call(client, **kwargs, cancellation_check=check_wait)
+                check_wait()
+                with database_session(dsn) as session:
+                    _leased(session, work)
+                return luna_calls.capture(result) if semantic_call is not request_semantics else result
 
-        chosen = assessments.prepare_assessment(
-            study_data,
-            concept,
-            claim,
-            prior,
-            used,
-            runtime_lock=lock,
-            semantic_call=model,
-        )
-        if chosen is None:
-            reason = "NO_SAFE_ASSESSMENT"
-        else:
-            public, private, provenance = assessments._documents(
+            chosen = assessments.prepare_assessment(
                 study_data,
                 concept,
                 claim,
-                chosen,
+                prior,
+                used,
                 runtime_lock=lock,
+                semantic_call=model,
             )
-            prepared = {
-                "public": public,
-                "private": private,
-                "provenance": provenance,
-                "semantic_identity": chosen["semantic_identity"],
-            }
-    except AssessmentSetError:
-        return
-    except (
-        assessments.AssessmentError,
-        SemanticServiceError,
-    ) as error:
-        allowed = {
-            "NO_SAFE_ASSESSMENT",
-            "ASSESSMENT_OUTPUT_INVALID",
-            "ASSESSMENT_CHECK_INVALID",
-            "ASSESSMENT_CONFIGURATION_INVALID",
-            "SEMANTIC_SERVICE_UNAVAILABLE",
-            "SEMANTIC_SERVICE_TIMEOUT",
-            "SEMANTIC_RESPONSE_INVALID",
-            "SEMANTIC_INPUT_TOO_LARGE",
-            "SEMANTIC_OUTPUT_TRUNCATED",
-            "ASSESSMENT_STORE_FAILED",
-        }
-        reason = str(error) if str(error) in allowed else "ASSESSMENT_GENERATION_FAILED"
-    except Exception:
-        reason = "ASSESSMENT_GENERATION_FAILED"
-    finally:
-        stop.set()
-        heartbeat.join()
-    # commit 回應遺失時先重讀 lease／狀態；同一份已驗證結果最多補存一次，不再呼叫模型。
-    for _ in range(2):
-        try:
-            check_wait()
-            _commit_prepared(work, prepared, reason, dsn=dsn)
-            return
+            if chosen is None:
+                reason = "NO_SAFE_ASSESSMENT"
+            else:
+                public, private, provenance = assessments._documents(
+                    study_data,
+                    concept,
+                    claim,
+                    chosen,
+                    runtime_lock=lock,
+                )
+                prepared = {
+                    "public": public,
+                    "private": private,
+                    "provenance": provenance,
+                    "semantic_identity": chosen["semantic_identity"],
+                }
         except AssessmentSetError:
             return
+        except (
+            assessments.AssessmentError,
+            SemanticServiceError,
+        ) as error:
+            allowed = {
+                "NO_SAFE_ASSESSMENT",
+                "ASSESSMENT_OUTPUT_INVALID",
+                "ASSESSMENT_CHECK_INVALID",
+                "ASSESSMENT_CONFIGURATION_INVALID",
+                "SEMANTIC_SERVICE_UNAVAILABLE",
+                "SEMANTIC_SERVICE_TIMEOUT",
+                "SEMANTIC_RESPONSE_INVALID",
+                "SEMANTIC_INPUT_TOO_LARGE",
+                "SEMANTIC_OUTPUT_TRUNCATED",
+                "ASSESSMENT_STORE_FAILED",
+            }
+            luna_calls.rejected(str(error))
+            reason = str(error) if str(error) in allowed else "ASSESSMENT_GENERATION_FAILED"
         except Exception:
-            logging.getLogger(__name__).warning(
-                "ASSESSMENT_SET_STORE_FAILED",
-                extra={"set_id": str(work.set_id)},
-            )
+            reason = "ASSESSMENT_GENERATION_FAILED"
+        finally:
+            stop.set()
+            heartbeat.join()
+        # commit 回應遺失時先重讀 lease／狀態；同一份已驗證結果最多補存一次，不再呼叫模型。
+        for _ in range(2):
+            try:
+                check_wait()
+                _commit_prepared(work, prepared, reason, dsn=dsn)
+                return
+            except AssessmentSetError:
+                return
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "ASSESSMENT_SET_STORE_FAILED",
+                    extra={"set_id": str(work.set_id)},
+                )
+
+    finally:
+        if trace is not None:
+            luna_calls.close(trace)
 
 
 def _commit_prepared(work, prepared, reason, *, dsn):
@@ -731,6 +743,7 @@ def _commit_prepared(work, prepared, reason, *, dsn):
         _touch_diagnostic(session, group)
         session.flush()
         _settle(session, study, group, _items(session, group))
+    luna_calls.completed("succeeded" if prepared is not None else "failed", reason)
 
 
 def run_next_set(*, dsn=None, shutdown=None):

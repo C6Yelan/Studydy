@@ -11,6 +11,7 @@ from content_identity import canonical_sha256
 from .podcast_access import _locked
 from .errors import SourceError
 from .storage.tables import PodcastScenes as Scenes, Podcast, Material
+from . import luna_calls
 from .storage.database import database_session
 from .storage.knowledge_structures import _read_verified_document
 from .provider_http import provider
@@ -436,6 +437,8 @@ def action(owner, podcast_id, index, action, version, *, dsn=None):
             raise SourceError("SCENE_CONFLICT")
         row.version += 1
         row.lease_token = row.lease_expires_at = None
+        scene_id = row.scene_id
+    luna_calls.discard("podcast_scenes", scene_id, owner)
     return read(owner, podcast_id, dsn=dsn)
 
 
@@ -474,6 +477,7 @@ def claim(*, dsn=None):
             "index": row.episode_index,
             "lease_token": row.lease_token,
             "owner": podcast.learner_id,
+            "material_id": podcast.material_id,
             "episode": episode,
             "input_sha256": row.input_sha256,
             "alignment": deepcopy(row.alignment),
@@ -524,24 +528,21 @@ def finish(state, alignment=None, error=None, checks=None, *, dsn=None):
         ):
             return
         row.lease_token = row.lease_expires_at = None
+        episode = podcast.episodes[state["index"]]
+        if not error and (podcast.status != "ready" or row.input_sha256 != identity(podcast, episode)):
+            error = "SCENE_SOURCE_CHANGED"
         if error:
             row.status = "failed"
             row.error_code = error
-            return
-        episode = podcast.episodes[state["index"]]
-        if podcast.status != "ready" or row.input_sha256 != identity(podcast, episode):
-            row.status = "failed"
-            row.error_code = "SCENE_SOURCE_CHANGED"
-            return
-        document = _read_verified_document(
-            db,
-            state["owner"],
-            podcast.material_id,
-            revision=podcast.knowledge_structure_revision,
-        )
-        row.manifest = build_manifest(podcast, episode, document, alignment, checks)
-        row.status = "ready"
-        row.error_code = None
+        else:
+            document = _read_verified_document(
+                db, state["owner"], podcast.material_id,
+                revision=podcast.knowledge_structure_revision,
+            )
+            row.manifest = build_manifest(podcast, episode, document, alignment, checks)
+            row.status = "ready"
+            row.error_code = None
+    luna_calls.completed("failed" if error else "succeeded", error)
 
 
 def save_checks(state, checks, *, dsn=None):
@@ -566,6 +567,8 @@ def step(*, dsn=None):
     state = claim(dsn=dsn)
     if not state:
         return False
+    trace = luna_calls.start("podcast_scenes", state["scene_id"], state["lease_token"],
+        state["material_id"], state["owner"])
     try:
         with cancellable_job(
             Scenes, state["scene_id"], state["lease_token"], dsn=dsn
@@ -613,6 +616,7 @@ def step(*, dsn=None):
                     return True
             finish(state, alignment, checks=checks, dsn=dsn)
     except Exception as error:
+        luna_calls.rejected(str(error))
         code = (
             str(error) if isinstance(error, SourceError) else "SCENE_PREPARATION_FAILED"
         )
@@ -623,4 +627,6 @@ def step(*, dsn=None):
                 import logging
 
                 logging.getLogger(__name__).warning("SCENE_RESULT_SAVE_FAILED")
+    finally:
+        luna_calls.close(trace)
     return True

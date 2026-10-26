@@ -3,6 +3,7 @@
 from .storage.materials import require_material
 
 from .provider_http import provider
+from . import luna_calls
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -340,6 +341,7 @@ def action(owner, identity, turn_id, action, *, dsn=None):
         else:
             raise SourceError("REQUEST_INVALID")
         status = turn.status
+    luna_calls.discard("voice", turn_id, owner)
     return {"ok": True, "status": status}
 
 
@@ -614,8 +616,7 @@ def finish(state, result=None, error=None, *, dsn=None):
             turn.status = "failed"
             turn.error_code = error
             turn.recording = None
-            return
-        if state["status"] == "transcribing":
+        elif state["status"] == "transcribing":
             _save_transcript(db, turn, result)
         elif state["status"] == "answering":
             _save_answer(db, turn, state, result)
@@ -623,12 +624,16 @@ def finish(state, result=None, error=None, *, dsn=None):
             validate_audio(result)
             turn.audio = result
             turn.status = "ready"
+    if state["status"] == "answering":
+        luna_calls.completed("failed" if error else "succeeded", error)
 
 
 def step(*, dsn=None):
     state = claim(dsn=dsn)
     if not state:
         return False
+    trace = luna_calls.start("voice", state["turn_id"], state["lease_token"],
+        state["material_id"], state["owner"], enabled=state["status"] == "answering")
     try:
         with cancellable_job(
             Turn,
@@ -700,6 +705,9 @@ def step(*, dsn=None):
                 )
             finish(state, result, dsn=dsn)
     except Exception as error:
+        luna_calls.rejected(str(error))
         code = str(error) if isinstance(error, SourceError) else "VOICE_PROVIDER_FAILED"
         finish(state, error=code, dsn=dsn)
+    finally:
+        luna_calls.close(trace)
     return True

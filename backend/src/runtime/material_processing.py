@@ -17,6 +17,7 @@ from pdf_evidence.material_pipeline import analyze_material
 from runtime.material_runtime import MaterialAnalysisError
 from runtime.semantic_service import SemanticServiceError
 
+from . import luna_calls, luna_test
 from .storage.knowledge_structures import KnowledgeStructureStoreError
 from .knowledge_publication import publish_knowledge_structure
 from .storage.analysis_archive import (
@@ -534,13 +535,23 @@ def execute_claimed_material_processing_run(
         target=keep_lease_alive, name="studydy-material-lease", daemon=True
     )
     heartbeat.start()
+    run = claim.run
+    trace = luna_calls.start(
+        "material_analysis", run.run_id, claim.worker_token, run.material_id, run.learner_id,
+        archive=f"analysis/{run.learner_id.hex}/{run.material_id.hex}/{run.run_id.hex}",
+        enabled=luna_test.enabled(run.runtime_lock_document),
+    )
     try:
-        return _execute_claimed_material_processing_run(
+        result = _execute_claimed_material_processing_run(
             claim, local_config, dsn=dsn, check_wait=check_wait
         )
+        if result.status in {"succeeded", "partial", "failed", "cancelled"}:
+            luna_calls.completed("succeeded" if result.status == "partial" else result.status, result.error_code)
+        return result
     finally:
         stop.set()
         heartbeat.join()
+        luna_calls.close(trace)
 
 
 def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_wait):
@@ -561,6 +572,7 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
         maintenance_call = semantic_call_for_run(run.run_id, dsn=dsn)
         full_reanalysis = maintenance_call is not None
         archive = AnalysisArchive(claim, dsn=dsn)
+        luna_calls.set_archive_writer(archive.save_provider_failure)
         if not same_material_runtime(
             run.runtime_lock_document,
             run.runtime_binding,
@@ -693,6 +705,7 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
     except MaterialProcessingCancelled:
         pass
     except Exception as error:
+        luna_calls.rejected(getattr(error, "reason_code", None) or str(error))
         try:
             if archive is not None:
                 archive.save_failure(error)

@@ -28,6 +28,7 @@ from knowledge_map.structure import (
     semantic_request,
     semantic_response_schema,
 )
+from runtime import luna_calls
 from runtime.semantic_service import (
     SemanticServiceError,
     material_request_fits,
@@ -581,6 +582,7 @@ def analyze_material(
                                 http,
                                 runtime_lock=lock,
                                 task="material_semantics",
+                                tags=luna_calls.tags(feature="material_analysis", stage="analysis"),
                                 cancellation_check=check_wait,
                                 request=request_document,
                                 response_schema=semantic_response_schema(

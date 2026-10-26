@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import re
 from sqlalchemy import and_, or_, select, func, case
 from sqlalchemy.orm import object_session
-from . import research_sources
+from . import research_sources, luna_calls
 from .source_normalization import upload_source
 from .errors import SourceError
 from .source_revisions import create_revision
@@ -206,7 +206,9 @@ def delete(owner, identity, *, dsn=None):
             # 舊 worker 不得再發布；候選與 canonical source_id 留下供來源回查。
             row.lease_token = row.lease_expires_at = None
             research_documents.discard(db, row.research_id)
-        return {"research_id": row.research_id, "status": "deleted"}
+        result = {"research_id": row.research_id, "status": "deleted"}
+    luna_calls.discard("research", identity, owner)
+    return result
 
 
 def action(owner, identity, action, selected=None, *, dsn=None):
@@ -259,6 +261,7 @@ def action(owner, identity, action, selected=None, *, dsn=None):
                 row.status = "failed"
             if row.status not in ("failed", "cancelled"):
                 raise SourceError("REQUEST_INVALID")
+            row.search_state = {**row.search_state, "luna_attempt": str(uuid4())}
             if row.selection:
                 candidates = deepcopy(row.candidates)
                 for c in candidates:
@@ -298,7 +301,10 @@ def action(owner, identity, action, selected=None, *, dsn=None):
             row.candidates = candidates
         row.error_code = None
         row.lease_token = row.lease_expires_at = None
-        return _view(row)
+        result = _view(row)
+    if action in {"cancel", "retry"}:
+        luna_calls.discard("research", identity, owner)
+    return result
 
 
 def submit(owner, identity, config, *, dsn=None, attempt_token=None):
@@ -364,6 +370,7 @@ def submit(owner, identity, config, *, dsn=None, attempt_token=None):
     )
     with database_session(dsn) as db:
         research_documents.discard(db, identity, keep_sha256=keep_snapshots)
+    luna_calls.discard("research", identity, owner, outcome="succeeded")
     return read(owner, identity, dsn=dsn)
 
 
@@ -401,6 +408,8 @@ def claim(*, dsn=None):
         )
         if not row:
             return None
+        if "luna_attempt" not in row.search_state:
+            row.search_state = {**row.search_state, "luna_attempt": str(uuid4())}
         row.lease_token = uuid4()
         row.lease_expires_at = now + timedelta(minutes=30)
         return {
@@ -478,7 +487,11 @@ def save(state, mutate, *, dsn=None, release=True):
             row.lease_expires_at = (
                 datetime.fromtimestamp(waiting, UTC) if waiting else datetime.now(UTC)
             )
-        return True
+        outcome = row.status
+        error_code = row.error_code
+    if outcome in {"submitted", "failed", "cancelled"}:
+        luna_calls.completed("failed" if outcome == "failed" else "cancelled" if outcome == "cancelled" else "succeeded", error_code)
+    return True
 
 
 def _advance_search(state, job, *, dsn):
@@ -661,6 +674,10 @@ def step(*, dsn=None, config=None):
     state = claim(dsn=dsn)
     if not state:
         return False
+    trace = luna_calls.start(
+        "research", state["research_id"], state["search_state"]["luna_attempt"],
+        state["material_id"], state["owner"],
+    )
     try:
         with cancellable_job(
             Research,
@@ -689,10 +706,13 @@ def step(*, dsn=None, config=None):
         error_code = (
             str(error) if isinstance(error, SourceError) else "RESEARCH_SEARCH_FAILED"
         )
+        luna_calls.rejected(str(error))
 
         def failed(row):
             row.status = "failed"
             row.error_code = error_code
 
         save(state, failed, dsn=dsn)
+    finally:
+        luna_calls.close(trace)
     return True

@@ -1,5 +1,6 @@
 """有界並行子圖：各批獨立生成，單一協調者合併，保存亂序完成範圍。"""
 
+from contextvars import copy_context
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from threading import Event, Lock
 
@@ -12,6 +13,7 @@ from knowledge_map.independent_blocks import (
     repair_excerpt_quotes,
 )
 from knowledge_map.localization import localize_block, POLICY as LOCALIZATION_POLICY
+from runtime import luna_calls
 from runtime.semantic_service import semantic_client, SemanticServiceError
 from content_identity import canonical_sha256
 
@@ -83,6 +85,7 @@ def analyze_blocks(
                     client,
                     runtime_lock=lock,
                     task="material_semantics",
+                    tags=luna_calls.tags(feature="material_analysis", stage="analysis"),
                     request=request,
                     response_schema=schema,
                     cancellation_check=check,
@@ -226,7 +229,7 @@ def analyze_blocks(
                         cached["call_number"],
                     )
                     continue
-                pending[pool.submit(generate, job)] = job
+                pending[pool.submit(copy_context().run, generate, job)] = job
             if not pending:
                 break
             done, _ = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)

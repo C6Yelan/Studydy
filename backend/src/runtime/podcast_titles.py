@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from .storage.database import database_session
 from .storage.tables import Podcast
+from . import luna_calls
 
 MAX_TITLE_LENGTH = 18
 PROMPT = (
@@ -74,17 +75,30 @@ def semantic_call():
     return call
 
 
-def generate(episode, call=None):
+def generate(episode, call=None, *, claim=None):
     """回傳集名；模型失敗或不合格時回傳 None，不中斷 Podcast 製作。"""
     if not episode.get("script"):
         return None
+    trace = luna_calls.start(
+        "podcast_title", (claim["podcast_id"], claim["index"]), claim["token"],
+        claim["material_id"], claim["owner"], defer_to_parent=True,
+    ) if claim is not None else None
     try:
-        return validate((call or semantic_call())(build_request(episode)))
+        result = validate((call or semantic_call())(build_request(episode)))
+        if trace is not None:
+            luna_calls.completed("succeeded" if result else "failed", None if result else "PODCAST_TITLE_INVALID")
+        return result
     except Exception as error:
+        if trace is not None:
+            luna_calls.rejected(str(error))
+            luna_calls.completed("failed", "PODCAST_TITLE_FAILED")
         logging.getLogger(__name__).warning(
             "PODCAST_TITLE_FAILED error_type=%s", type(error).__name__
         )
         return None
+    finally:
+        if trace is not None:
+            luna_calls.close(trace)
 
 
 def fill_missing(*, dsn=None, call=None, limit=None):

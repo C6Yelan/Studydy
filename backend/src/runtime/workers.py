@@ -13,7 +13,7 @@ from .material_processing import (
     execute_claimed_material_processing_run,
     recover_interrupted_material_runs,
 )
-from . import knowledge_chapters
+from . import knowledge_chapters, luna_calls
 from .material_discard import finish_material_discards
 from .media_sources import cleanup_stale_uploads
 from .storage_usage import release_stale_upload_reservations
@@ -198,6 +198,7 @@ class RuntimeWorkers:
         next_recovery = monotonic() + 10
         while not self._stop.is_set():
             try:
+                luna_calls.cleanup()
                 if monotonic() >= next_recovery:
                     for recover in (
                         reconcile_new_artifacts,

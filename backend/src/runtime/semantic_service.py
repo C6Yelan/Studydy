@@ -324,6 +324,7 @@ def request_semantics(
     cancellation_check: Callable[[], None] | None = None,
     usage: dict[str, int] | None = None,
     before_request: Callable[[], None] | None = None,
+    tags: dict | None = None,
 ) -> dict[str, Any]:
     """透過共用 HTTP 邊界請求語意結果。"""
 
@@ -351,6 +352,10 @@ def request_semantics(
         )
         if before_request is not None:
             before_request()
+        from . import luna_calls
+
+        if tags is None:
+            tags = luna_calls.tags()
         try:
             from .generation_jobs import provider_job
 
@@ -359,6 +364,7 @@ def request_semantics(
                     "/semantics",
                     {
                         **job,
+                        **({"tags": tags} if tags is not None else {}),
                         "task": task,
                         "prompt": prompt,
                         "request": request,
@@ -380,6 +386,7 @@ def request_semantics(
             estimate_o200k_tokens(json.dumps(result, ensure_ascii=False))
             > output_budget
         ):
+            luna_calls.rejected("SEMANTIC_OUTPUT_TOO_LARGE", candidate=result, call_tags=tags)
             raise SemanticServiceError("SEMANTIC_OUTPUT_TOO_LARGE")
         return result
     service = _service(runtime_lock)

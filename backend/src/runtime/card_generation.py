@@ -10,7 +10,7 @@ from uuid import uuid4
 from sqlalchemy import or_, select
 
 from content_identity import canonical_sha256
-from . import card_design as design
+from . import card_design as design, luna_calls, luna_test
 from .local_ai_config import configured_lock
 from .generation_jobs import WORKER_LEASE_TTL, check_job, lease_is_current
 from .semantic_service import request_semantics, semantic_client, SemanticServiceError
@@ -55,6 +55,7 @@ def initial(results=None, previous=None):
         "policy": design.POLICY,
         "provider": provider,
         "stage": "preparing",
+        "luna_attempt": str(uuid4()),
         "results": results,
         "calls": 0,
         "estimated_input_tokens": 0,
@@ -100,6 +101,8 @@ def _claim(dsn):
         if row is None:
             return None
         row.status = "running"
+        if "luna_attempt" not in row.generation:
+            row.generation = {**row.generation, "luna_attempt": str(uuid4())}
         row.lease_token = uuid4()
         row.lease_expires_at = now + WORKER_LEASE_TTL
         return {
@@ -138,6 +141,8 @@ def _save(claim, state, status, dsn):
                 for identity in row.concept_ids
             }
             row.card_count = sum(row.page_counts.values())
+    if status in {"ready", "failed"}:
+        luna_calls.completed("failed" if status == "failed" else "succeeded", state.get("error_code"))
 
 
 def _inputs(claim, identity, dsn):
@@ -251,7 +256,7 @@ def _request(claim, state, prompt, payload, schema, dsn, call):
     state["saved_output_tokens"] += estimate_o200k_tokens(
         json.dumps(result, ensure_ascii=False)
     )
-    return result
+    return luna_calls.capture(result) if call is not None else result
 
 
 def _advance(claim, state, dsn, call):
@@ -340,7 +345,12 @@ def step(*, dsn=None, call=None):
         return False
     state = deepcopy(claim["state"])
     if state.get("policy") != design.POLICY:
-        state = initial(previous=state)
+        previous_attempt = state["luna_attempt"]
+        state = {**initial(previous=state), "luna_attempt": previous_attempt}
+    trace = luna_calls.start(
+        "cards", claim["id"], state["luna_attempt"], claim["material_id"], claim["owner"],
+        enabled=luna_test.enabled(configured_lock()),
+    )
     try:
         _advance(claim, state, dsn, call)
         _save(claim, state, "ready" if state["stage"] == "complete" else "pending", dsn)
@@ -351,6 +361,7 @@ def step(*, dsn=None, call=None):
             else "CARD_GENERATION_FAILED"
         )
         state["error_code"] = code
+        luna_calls.rejected({"reason": str(error), "current": state.get("current")})
         try:
             _save(claim, state, "failed", dsn)
         except Exception:
@@ -367,4 +378,6 @@ def step(*, dsn=None, call=None):
         logging.getLogger(__name__).warning(
             "CARD_GENERATION_FAILED type=%s", type(error).__name__
         )
+    finally:
+        luna_calls.close(trace)
     return True

@@ -109,6 +109,8 @@ docker compose exec backend /app/backend/.venv/bin/python -m runtime.local_runti
 
 ## 本機 Podcast provider
 
+Luna 呼叫標籤協定須先更新相容舊請求的 provider，再更新 backend。標籤只在請求最外層，不送入模型。呼叫紀錄預設為 provider 資料目錄的 `luna-calls.jsonl`（可由 `STUDYDY_LUNA_CALL_LOG` 指定），保留 90 天。使用 `python ops/podcast/luna_report.py --help` 查看本機報表篩選參數；報表不顯示教材或模型候選。最終失敗診斷分別保存在 provider 的 `failures/` 與 backend artifact root 的 `failures/`，30 天清理；教材只保存既有 archive 參照。
+
 Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集音訊；provider 交回的 24 kHz PCM WAV 由 backend 無損壓成 FLAC（WAV 標頭以 `riff` foreign metadata 保存，可逐位元還原）後存入私人 artifact store，分集 `audio.sha256` 仍是該 WAV 的雜湊。建立後自動生成，選擇單人解說或雙人對談，以及是否同時生成影片（預設不勾），分集保留全部所選重點，每集講稿須由正文段落引用並講解該集全部重點（逐段核對判定），內容較多自動拆集。失敗可接續已保存進度；取消會刪除整份 Podcast。分集沿用所選概念順序，在每集最多 32 個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
 
 文字 provider 沿用 `codex exec -m gpt-5.6-luna`。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。模型每句只輸出 `speaker`、`text` 與 `source_indices`；程式核對編號範圍，依重點帶入該 claim 全部的 `evidence_ids`，保存的 turn 文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須由正文段落引用並經逐段核對判定已講解，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。
@@ -141,7 +143,7 @@ provider 使用 `data/podcast/runtime/`；語音使用 `data/podcast/cosyvoice-b
 
 主機服務設定見 [studydy-podcast.service](../ops/podcast/studydy-podcast.service)，載入私有 `data/podcast/provider.env`。正式版 `.env` 的 `STUDYDY_PODCAST_PROVIDER_URL` 指向 `http://host.docker.internal:18010`，`STUDYDY_PODCAST_PROVIDER_TOKEN` 與主機服務的 token 相同；至少 32 字元。provider 只監聽 Docker gateway `172.17.0.1`，不公開 port，也不经过 Cloudflare。不同主機須核對 gateway 與 service 中的絕對路徑。
 
-Podcast 的講稿、音訊、字幕與影片工作會將工作 ID／本次 lease 傳給 provider。介面的「取消並刪除」與刪除使用相同流程：停止整份 Podcast，刪除所有分集的講稿、音訊與影片，原教材保留，不留下暫停項目。worker 會通知 `/jobs/cancel`，provider 會中斷等候資源鎖的請求並終止整個子程序群組。清單與播放器另外呈現影片／字幕工作，避免音訊已完成時隱藏尚在生成的工作。失敗重試使用新 lease，舊取消訊號不會停止新工作。Podcast 音訊連線建立後不設固定等待期限，工作租約在 worker 存活時續期；15 分鐘租約只用來回收失聯 worker，不是生成時間上限。更新此協定時先更新 provider，再更新 backend；部署前取消進行中的工作並確認舊服務沒有殘留程序。這不代表遠端模型服務已受理的請求一定能撤銷計費。
+Podcast 的講稿、音訊、字幕與影片工作會將工作 ID／本次 lease 傳給 provider。介面的「取消並刪除」與刪除使用相同流程：停止整份 Podcast，刪除所有分集的講稿、音訊與影片，原教材保留，不留下暫停項目。worker 會通知 `/jobs/cancel`，provider 會中斷等候資源鎖的請求並終止整個子程序群組。清單與播放器另外呈現影片／字幕工作，避免音訊已完成時隱藏尚在生成的工作。失敗重試使用新 lease，舊取消訊號不會停止新工作。Podcast 音訊連線建立後不設固定等待期限，工作租約在 worker 存活時續期；15 分鐘租約只用來回收失聯 worker，不是生成時間上限。更新此協定時先更新 provider，再更新 backend；部署前等待進行中的工作清空並確認舊服務沒有殘留程序；不取消使用者工作，等待超過一小時停止並詢問。這不代表遠端模型服務已受理的請求一定能撤銷計費。
 
 Provider 將工作 ID、分集索引、操作、耗時、固定原因碼、例外類型，以及講稿工作的 `script_review`（模型呼叫次數、被退回的台詞位置或來源編號）寫入本機 `data/podcast/job-events.jsonl`，每份最多 1 MiB，輪替保留兩份備份。不記錄教材、講稿台詞、核對理由、工作 token、憑證或例外原文。
 
@@ -192,7 +194,7 @@ Luna 的後端總額度為 65,536 tokens，包含輸入與輸出，使用與 pro
 
 `backend/src/runtime/podcast_video_render.py` 沿用有限圖形與 1920×1080／60fps MP4（CPU 繪圖，H.264 可選 CPU／NVENC 編碼），不執行模型程式碼。reveals 由語意目標的 cue 編譯、同 cue 合併，顯示後保留至頁尾；相關節點不晚於連線出現，單位與必要條件仍由內容審查核對。v4 聚焦頁的卡片在下一張開始時短暫交叉淡化，章節列同步改變狀態；重點詞以同字級、同斷行的卡片主色字加淡色底呈現，於所屬卡片被講到時淡入。v4 文字行距為 1.5 倍字級，v2／v3 維持原行距。comparison／exchange 與 v3 相同，由 `podcast_video_motion.py` 以 manifest、實測 timeline 與目前媒體秒數直接計算狀態：節點及文字淡入、線條／箭頭 draw-on、焦點明暗與淡底平滑轉移，已出現的次要內容仍保留。flow／exchange 指示沿既有箭頭一次性推進並移交節點焦點；不循環、不表示實際封包速度。同一 anchor 的目標同時聚焦，不編造更細的先後。v3 relation 不再疊加第二個 trace 指示。換頁後使用短 crossfade，舊頁以邊界前的確定畫格計算，底部提示與進度仍取目前時間。固定的視覺時長上限皆受實測窗口限制；seek／倍速沒有前一影格的殘留狀態。舊 underline／outline／trace 圖形契約保留可讀，標記不設必填配額。
 
-升級時先更新可接受 v4 的 backend，再更新／重啟 video provider（`video_service.py` 與 `podcast_video_*` 編譯／繪製模組同一份 checkout）。backend 在保存結果時仍接受 v2／v3 storyboard。provider 會直接載入同一份 checkout 的編譯模組，所以更新 checkout 後要立即重啟 provider；重啟前仍在執行的舊行程產生的分鏡會被新編譯器以 `VIDEO_STORYBOARD_INVALID` 拒絕，該集標為失敗、需重試，不會寫入壞資料。已完成影片的 MP4、timeline 與保存的 storyboard 讀取時不重新驗證，也不掃描、重排或重製 ready 產物。
+此 v4 格式升級順序為先更新可接受 v4 的 backend，再更新／重啟 video provider（`video_service.py` 與 `podcast_video_*` 編譯／繪製模組同一份 checkout）。backend 在保存結果時仍接受 v2／v3 storyboard。provider 會直接載入同一份 checkout 的編譯模組，所以更新 checkout 後要立即重啟 provider；重啟前仍在執行的舊行程產生的分鏡會被新編譯器以 `VIDEO_STORYBOARD_INVALID` 拒絕，該集標為失敗、需重試，不會寫入壞資料。已完成影片的 MP4、timeline 與保存的 storyboard 讀取時不重新驗證，也不掃描、重排或重製 ready 產物。
 
 新影片底部只放短焦點提示，完整字幕保留 WebVTT，由播放器設定中的字幕按鈕切換。播放器沿用瀏覽器 VTT cue 的實測時序，在可換行的字幕區呈現；字幕底緣依控制列高度與 viewport 調整，避免手機長字幕裁切或被播放控制遮住。既有 MP4、`flat-report/v3`／`v4` manifest 與原顯示方式不自動重製；來源、音訊、script hash、ownership 與晚到結果隔離仍沿用原規則。
 

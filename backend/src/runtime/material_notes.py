@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from content_identity import canonical_sha256
 
-from . import note_content
+from . import note_content, luna_calls, luna_test
 from .errors import SourceError
 from .generation_jobs import JobCancelled, WORKER_LEASE_TTL, lease_is_current
 from .local_ai_config import configured_lock
@@ -208,6 +208,8 @@ def _save(claim, dsn, *, paragraphs=None, error=None, stopping=False, diagnostic
             row.generation_diagnostics = diagnostics
         row.lease_token = row.lease_expires_at = None
         row.updated_at = datetime.now(UTC)
+    if not stopping:
+        luna_calls.completed("failed" if error else "succeeded", error)
 
 
 def _concepts(claim, dsn):
@@ -909,6 +911,10 @@ def step(*, dsn=None, call=None, stop=None):
         return False
     if claim.get("skipped"):
         return True
+    trace = luna_calls.start(
+        "note_" + claim["key"][3], claim["key"], claim["token"],
+        claim["key"][1], claim["key"][0], enabled=luna_test.enabled(claim["lock"]),
+    )
     diagnostics = []
     try:
         lock = deepcopy(claim["lock"])
@@ -928,7 +934,7 @@ def step(*, dsn=None, call=None, stop=None):
         def request(payload):
             _check(claim, dsn, stop, count_call=True)
             if call is not None:
-                return call(payload)
+                return luna_calls.capture(call(payload))
             prompt, response_schema = request_contract(payload, policy)
             task_lock = {**lock["material_review"], "prompt": prompt}
             with semantic_client() as client:
@@ -949,14 +955,17 @@ def step(*, dsn=None, call=None, stop=None):
     except WorkerStopping:
         _save(claim, dsn, stopping=True)
     except JobCancelled:
-        pass
+        luna_calls.completed("cancelled")
     except Exception as error:
         code = error.reason_code if isinstance(error, SemanticServiceError) else str(error)
         if code not in {"NOTE_FORMAT_INVALID", "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_FORMULA_INVALID", "NOTE_COVERAGE_INCOMPLETE",
             "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID", "NOTE_CONTENT_UNSUPPORTED", "NOTE_REVIEW_INVALID"} and not isinstance(error, SemanticServiceError):
             code = "NOTE_GENERATION_FAILED"
         summary = {"code": code, "error_type": type(error).__name__, "events": diagnostics}
+        luna_calls.rejected({"reason": str(error), "diagnostics": diagnostics})
         logging.getLogger(__name__).warning("NOTE_GENERATION_FAILED kind=%s diagnostics=%s",
             claim["key"][3], json.dumps(summary, ensure_ascii=False))
         _save(claim, dsn, error=code, diagnostics=summary)
+    finally:
+        luna_calls.close(trace)
     return True

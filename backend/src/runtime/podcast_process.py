@@ -113,6 +113,7 @@ def run(
     timeout,
     cancelled=None,
     cancel_code="PODCAST_CANCELLED",
+    started=None,
 ):
     check(cancelled, cancel_code)
     with subprocess.Popen(
@@ -124,6 +125,12 @@ def run(
         env=env,
         start_new_session=True,
     ) as process:
+        try:
+            if started is not None:
+                started()
+        except BaseException:
+            _stop(process)
+            raise
         # communicate 只執行一次。Python 3.12 在短 timeout 後以 input=None
         # 重入時，不會繼續寫完尚未送出的 stdin，會讓子程序永遠等不到 EOF。
         finished = Event()
