@@ -1,0 +1,2 @@
+.selection-toggle { display:inline-flex; align-items:center; justify-content:center; min-height:2.75rem; padding:.35rem .75rem; border:1px solid var(--border); border-radius:999px; background:var(--surface); color:var(--text-primary); font:inherit; cursor:pointer; }
+.selection-toggle[aria-pressed="true"] { background:var(--page-cool-2); border-color:var(--studydy-blue); box-shadow:inset 0 0 0 1px var(--studydy-blue); }

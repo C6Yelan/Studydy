@@ -1,3 +1,4 @@
+import { SelectionToggle } from "../../ui/SelectionToggle";
 import './research.css';
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../ui/Icon';
@@ -120,13 +121,13 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
           <option value="all">全部來源</option><option value="paper">學術論文</option><option value="wikipedia">Wikipedia</option>
         </select>
         {compact && !readOnly && <>
-          <label className="source-toolbar-check"><input type="checkbox" checked={onlySelected} onChange={event => setOnlySelected(event.target.checked)}/>只看已選</label>
+          <SelectionToggle pressed={onlySelected} onChange={setOnlySelected}>已選 {selected.length} 個</SelectionToggle>
           <label className="source-toolbar-check" title="全選或取消全部可用來源，包含篩選外的來源"><input ref={selectAll} type="checkbox" aria-label="全選可用來源" checked={allSelected} disabled={disabled || !eligible.length} onChange={event => onChange(event.target.checked ? eligible.map(candidate => candidate.id) : [])}/>全選</label>
         </>}
       </div>
       {!readOnly && !compact && <div className="research-selection">
         <div><button className="text-button" disabled={disabled || !eligible.length} onClick={() => onChange(eligible.map(c => c.id))}>全選可用來源</button><span>／</span><button className="text-button" disabled={disabled} onClick={() => onChange([])}>取消全選</button></div>
-        <label><input type="checkbox" checked={onlySelected} onChange={e => setOnlySelected(e.target.checked)} />只看已選</label>
+        <SelectionToggle pressed={onlySelected} onChange={setOnlySelected}>已選 {selected.length} 個</SelectionToggle>
       </div>}
     </>}
     <div ref={list} className="research-candidates" tabIndex={0} aria-label={readOnly ? '已選來源' : '來源搜尋結果'}>

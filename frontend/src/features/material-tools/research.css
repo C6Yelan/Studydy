@@ -108,11 +108,9 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 /* ── 研究進度 ── */
 .research-progress { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; min-width:0; margin:0; padding:12px 16px; border-radius:18px; background:var(--studydy-blue-soft-2); }
 .research-progress-heading { display:flex; flex:1; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; font-size:14px; }
-.research-progress > progress, .research-progress > p, .research-progress > small { flex-basis:100%; }
+.research-progress > .studydy-progress, .research-progress > p, .research-progress > small { flex-basis:100%; }
 .research-progress-heading > span { color:var(--text-secondary); font-size:12px; font-weight:700; }
-.research-progress progress { width:100%; height:10px; overflow:hidden; border:0; border-radius:999px; background:var(--surface); accent-color:var(--studydy-blue); }
-.research-progress progress::-webkit-progress-bar { border-radius:999px; background:var(--surface); }
-.research-progress progress::-webkit-progress-value { border-radius:999px; background:var(--studydy-blue); }
+
 .research-progress p { margin:4px 0; color:var(--text-secondary); font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
 .research-progress small { color:var(--text-muted); font-size:12px; }
 

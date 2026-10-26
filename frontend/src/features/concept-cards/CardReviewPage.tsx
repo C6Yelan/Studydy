@@ -1,8 +1,9 @@
+import { Progress } from "../../ui/Progress";
 import { useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardBatch, CardReviewItem, CardReviewRating, CardStudyView } from "../../api/contracts";
-import { writeRoute, type AppRoute } from "../../app/routes";
+import { type AppRoute } from "../../app/routes";
 import { BackLink } from "../../ui/BackLink";
 import { EmptyState } from "../../ui/EmptyState";
 import { Icon } from "../../ui/Icon";
@@ -21,11 +22,10 @@ type LoadedCard = { item: CardReviewItem; card: CardBatch["cards"][number]; cont
 export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient: StudydyApiClient; cardSetId?: string; materialId?: string }) {
   // 只篩教材時在教材內：教材頁首的「概念卡」分頁已能回到這份教材的卡組，頁首不再另放返回。
   const materialOnly = !cardSetId && !!materialId;
-  const back: { label: string; route: AppRoute } = cardSetId
-    ? { label: "返回卡組", route: { name: "card-set", cardSetId, materialId } }
-    : materialId ? { label: "返回概念卡", route: { name: "material-content", materialId, kind: "concept-cards" } }
+  const back: { label: string; route: AppRoute } = materialId && !window.history.state?.fromCollection
+    ? { label: "返回概念卡", route: { name: "material-content", materialId, kind: "concept-cards" } }
     : { label: "返回概念卡", route: { name: "concept-cards" } };
-  const backLink = materialOnly ? null : <BackLink {...back} />;
+  const backLink = materialId ? null : <BackLink {...back} />;
   // 這一輪的清單在開始時固定；標記後只往下一張，不重新排入同一批卡。
   const [round, setRound] = useState<CardReviewItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -66,12 +66,11 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
     {heading}
     {round.length > 0 && <div className="card-review-progress" aria-label="這一輪進度">
       <span>{done ? <>這一輪完成</> : <>第 <b>{position + 1}</b> / {round.length} 張</>}</span>
-      <progress max={round.length} value={done ? round.length : position} aria-label="已看完的張數" />
+      <Progress max={round.length} value={done ? round.length : position} aria-label="已看完的張數" />
     </div>}
     {notice && <p className="card-review-notice" role="status">{notice}</p>}
     {round.length === 0
-      ? <EmptyState label="需要加強空狀態" title="目前沒有需要加強的卡片" description="瀏覽卡組時，在卡片下方標成「不熟」，就會出現在這裡。"
-        action={<button className="primary-button" type="button" onClick={() => writeRoute(back.route)}>{back.label}</button>} />
+      ? <EmptyState label="需要加強空狀態" title="目前沒有需要加強的卡片" description="瀏覽卡組時，在卡片下方標成「不熟」，就會出現在這裡。" />
       : done
         ? <div className="card-review-done surface" role="status">
           <img src="/assets/studydy/success-jump.png" alt="" />
@@ -79,7 +78,6 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
           <p>標成熟悉 <b>{marked.remembered}</b> 張{marked.forgot > 0 && <>，仍不熟 <b>{marked.forgot}</b> 張，下次會再出現在需要加強</>}。</p>
           <div className="state-actions">
             {marked.forgot > 0 && <button className="primary-button" type="button" onClick={() => setReload((value) => value + 1)}>再加強一輪</button>}
-            <button className={marked.forgot > 0 ? "secondary-button" : "primary-button"} type="button" onClick={() => writeRoute(back.route)}>{back.label}</button>
           </div>
         </div>
         : <ReviewCard key={`${round[position].card_set_id}:${round[position].card.concept_id}`} apiClient={apiClient} item={round[position]}

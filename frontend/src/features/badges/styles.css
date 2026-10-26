@@ -84,19 +84,7 @@
   font-size: 12px;
   font-weight: 700;
 }
-.badge-progress-bar {
-  display: block;
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--border);
-}
-.badge-progress-bar i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--warning), var(--amber-deep));
-}
+
 .badge-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));

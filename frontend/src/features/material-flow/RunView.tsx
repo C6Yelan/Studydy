@@ -1,3 +1,4 @@
+import { BackLink } from "../../ui/BackLink";
 import { useStudyStart } from "../study-session/StartingLevel";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -192,10 +193,13 @@ export function RunView({
     return () => window.clearInterval(timer);
   }, [run?.run_id, run?.status]);
 
+  const back = <BackLink label={run?.base_revision || run?.output_binding ? "返回教材" : "回到我的教材"} route={run?.base_revision || run?.output_binding ? { name: "material", materialId: route.materialId } : { name: "materials" }} />;
+
   if (notFound) return <NotFoundView title="找不到這次處理" description="這筆處理紀錄可能已被刪除，或不屬於目前登入的帳號。" back={materialNotFound.back} />;
   if (message)
     return (
       <section className="flow-page processing-page task-page">
+        {back}
         <StateView
           action={
             <>
@@ -206,13 +210,6 @@ export function RunView({
               >
                 <Icon name="refresh" />
                 重新讀取
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => writeRoute({ name: "materials" })}
-              >
-                返回教材庫
               </button>
             </>
           }
@@ -227,7 +224,7 @@ export function RunView({
   if (!run)
     return (
       <section className="flow-page processing-page task-page" aria-live="polite">
-        <FlowHeader title="正在讀取處理狀態" image="/assets/studydy/processing-laptop.png" />
+        <FlowHeader back={back} title="正在讀取處理狀態" image="/assets/studydy/processing-laptop.png" />
       </section>
     );
 
@@ -248,7 +245,7 @@ export function RunView({
     const cancellationRequested = removing || run.cancel_requested_at !== null;
     return (
       <section className="flow-page processing-page task-page is-processing">
-        <FlowHeader
+        <FlowHeader back={back}
           title={cancellationRequested ? "正在取消並刪除教材" : run.status === "pending" ? "等待開始處理" : "正在分析教材"}
           description={cancellationRequested
             ? "已收到刪除要求，會在目前進行中的步驟完成後安全停止並刪除教材。"
@@ -332,6 +329,7 @@ export function RunView({
   if (run.status === "cancelled" || (removing && !activeRun(run)))
     return (
       <section className="flow-page processing-page task-page is-cancelled">
+        {back}
         {steps && <LearningSteps labels={steps} current={steps.length - 1} />}
         <StateView
           title={removing ? "正在刪除教材…" : "已取消教材處理"}
@@ -370,6 +368,7 @@ export function RunView({
   if (run.status === "failed")
     return (
       <section className="flow-page processing-page task-page terminal-failure">
+        {back}
         {steps && <LearningSteps labels={steps} current={steps.length - 1} />}
         <StateView
           action={
@@ -379,13 +378,6 @@ export function RunView({
                 materialId={run.material_id}
                 retryRun={{ runId: run.run_id, saved: !!run.analysis_saved }}
               />
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => writeRoute({ name: "materials" })}
-              >
-                返回教材庫
-              </button>
             </>
           }
           description={materialFailureMessage(run.error_code ?? "MATERIAL_ANALYSIS_FAILED")}
@@ -423,7 +415,7 @@ export function RunView({
   const partial = run.status === "partial";
   return (
     <section className="flow-page processing-page task-page is-complete">
-      <FlowHeader
+      <FlowHeader back={back}
         title="教材整理完成"
         description={partial
           ? "知識地圖已建立，可先查看已整理的內容；部分內容未完整整理。"
@@ -560,16 +552,13 @@ function RevisionRun({
       >
         查看來源與新增教材
       </button>
-      <button className="text-button" onClick={() => writeRoute({ name: "materials" })}>
-        返回教材庫
-      </button>
     </>
   );
 
   if (activeRun(run))
     return (
       <section className="flow-page processing-page task-page is-processing">
-        <FlowHeader
+        <FlowHeader back={<BackLink label="返回教材" route={{ name: "material", materialId: run.material_id }} />}
           title={title}
           description="Studydy 正在整理新增內容並更新知識地圖，期間仍可使用目前地圖與學習紀錄。"
         />
@@ -601,7 +590,7 @@ function RevisionRun({
     );
   return (
     <section className="flow-page processing-page task-page">
-      <FlowHeader
+      <FlowHeader back={<BackLink label="返回教材" route={{ name: "material", materialId: run.material_id }} />}
         title={title}
         description={completed
           ? "新版地圖已可使用；未變知識點會依原有作答證據承接進度。"

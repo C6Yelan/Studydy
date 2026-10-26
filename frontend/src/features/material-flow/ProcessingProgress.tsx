@@ -1,3 +1,4 @@
+import { Progress } from "../../ui/Progress";
 import type { MaterialProcessingRunView } from "../../api/contracts";
 import { materialCurrentStagePercent, materialOverallProgressPercent, materialProgressStageLabel,
   materialProgressStages, materialStageCountLabel, materialElapsedLabel } from "./material-flow";
@@ -22,8 +23,9 @@ export function ProcessingProgress({ run, now, showSources = true }: { run: Mate
           </strong>
           <strong>{percent === null ? (active ? "進行中" : "已停止") : `${percent}%`}</strong>
         </div>
+        {percent === null && active && <Progress aria-label="本階段進度" />}
         {percent !== null ? <>
-          <progress className="processing-progress" max={100} value={percent}
+          <Progress max={100} value={percent}
             aria-label={`本階段進度 ${percent}%，${countLabel}`} />
           <p className="stage-pages">{countLabel}</p>
         </> : <p>{run.progress_stage === "queued" ? "正在等待處理資源，開始後會自動更新進度。"

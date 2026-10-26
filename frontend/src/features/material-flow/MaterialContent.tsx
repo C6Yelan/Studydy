@@ -1,3 +1,4 @@
+import { writeRoute } from "../../app/routes";
 import { Notes } from "../notes/Notes";
 import { useEffect, useState, type ReactNode } from "react";
 import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
@@ -27,7 +28,10 @@ export function MaterialContent({ apiClient, learnerId, materialId, kind, childr
     return () => { cancelled = true; };
   }, [apiClient, materialId, reload]);
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision) ?? material?.available_structures[0];
-  const navigation = <MaterialContentNav apiClient={apiClient} materialId={materialId} current={kind} materialName={material?.display_name} mapRoute={structure ? { name: "knowledge-map", materialId, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision } : null} />;
+  const navigation = <MaterialContentNav apiClient={apiClient} materialId={materialId} current={kind} back={children != null || researchId ? {
+    label: `返回${window.history.state?.fromCollection ? kind === "podcasts" ? "我的 Podcast" : "我的概念卡" : kind === "podcasts" ? "Podcast 列表" : kind === "research" ? "補充學習" : "概念卡列表"}`,
+    onClick: () => writeRoute(window.history.state?.fromCollection && kind !== "research" && kind !== "notes" ? { name: kind } : { name: "material-content", materialId, kind }),
+  } : undefined} materialName={material?.display_name} mapRoute={structure ? { name: "knowledge-map", materialId, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision } : null} />;
   if (notFound) return <NotFoundView {...materialNotFound} />;
   return <section className="material-content">
     {error || !material ? <StateView title={error ? "無法讀取教材" : "正在讀取教材"} description={error ?? "正在載入此教材的學習內容。"} tone={error ? "failure" : "loading"} live={!error} skeleton="material"

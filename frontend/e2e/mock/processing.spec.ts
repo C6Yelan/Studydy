@@ -128,6 +128,8 @@ test.beforeEach(async ({ page }) => {
       // 頁首學習進度；這些案例不涉及學習紀錄。
       case "/v1/learning-activity":
         return route.fulfill({ json: emptyLearningActivity });
+      case "/v1/account/storage":
+        return route.fulfill({ json: { schema: "account-storage/v1", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120 } });
       default:
         throw new Error(`Unexpected processing request: ${request.method()} ${path}`);
     }
@@ -164,7 +166,8 @@ for (const [name, run, overall, current, step] of activeCases)
     const stage = processing.locator(".processing-current");
     if (current === null) {
       await expect(stage.getByRole("heading")).toHaveText("目前狀態");
-      await expect(stage.getByRole("progressbar")).toHaveCount(0);
+      await expect(stage.getByRole("progressbar")).toBeVisible();
+      await expect(stage.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
       await expect(stage).toContainText(
         "進行中",
       );
@@ -174,7 +177,7 @@ for (const [name, run, overall, current, step] of activeCases)
       await expect(processing.locator(".processing-status")).toHaveAttribute("aria-live", "polite");
     } else {
       await expect(stage.getByRole("heading")).toHaveText("本階段進度");
-      await expect(stage.getByRole("progressbar")).toHaveAttribute("value", String(current));
+      await expect(stage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(current));
       await expect(stage.getByRole("progressbar")).toHaveAttribute(
         "aria-label",
         `本階段進度 ${current}%，${materialStageCountLabel(run)}`,
@@ -282,7 +285,7 @@ test("analysis failure preserves its last progress and shows the error code", as
   await expect(processing.locator("code")).toBeVisible();
   await page.clock.runFor(5_000);
   expect(reads()).toBe(1);
-  await processing.getByRole("button", { name: "返回教材庫", exact: true }).click();
+  await processing.getByRole("button", { name: "回到我的教材", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
 });
@@ -400,17 +403,17 @@ test("polling uses backend progress, stops at terminal, and clears on unmount", 
   const reads = await mockRun(page, (route) => route.fulfill({ json: server }));
   await page.goto(runPath);
   const overall = page.getByRole("progressbar", { name: /^本階段進度/ });
-  await expect(overall).toHaveAttribute("value", "6");
+  await expect(overall).toHaveAttribute("aria-valuenow", "6");
   await page.clock.runFor(1_000);
   expect(reads()).toBe(1);
-  await expect(overall).toHaveAttribute("value", "6");
+  await expect(overall).toHaveAttribute("aria-valuenow", "6");
   await expect(page.locator(".processing-times")).toContainText("3 秒");
   await page.clock.runFor(3_000);
   await expect.poll(reads).toBeGreaterThanOrEqual(2);
-  await expect(overall).toHaveAttribute("value", "6");
+  await expect(overall).toHaveAttribute("aria-valuenow", "6");
   server = semantics;
   await page.clock.runFor(3_000);
-  await expect(overall).toHaveAttribute("value", "44");
+  await expect(overall).toHaveAttribute("aria-valuenow", "44");
   server = completed("succeeded");
   await page.clock.runFor(3_000);
   await expect(page.getByRole("heading", { name: "教材整理完成", exact: true })).toBeVisible();
@@ -419,7 +422,7 @@ test("polling uses backend progress, stops at terminal, and clears on unmount", 
   expect(reads()).toBe(terminalReads);
   server = base;
   await page.goto(runPath);
-  await expect(overall).toHaveAttribute("value", "6");
+  await expect(overall).toHaveAttribute("aria-valuenow", "6");
   await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "我的教材", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();

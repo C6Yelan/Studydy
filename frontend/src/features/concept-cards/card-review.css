@@ -70,27 +70,7 @@
   color: var(--studydy-blue);
   font-size: 17px;
 }
-.card-review-progress progress {
-  flex: 1;
-  height: 10px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 999px;
-  background: var(--page-cool);
-  appearance: none;
-}
-.card-review-progress progress::-webkit-progress-bar {
-  border-radius: 999px;
-  background: var(--page-cool);
-}
-.card-review-progress progress::-webkit-progress-value {
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--studydy-blue), #6a5cff);
-}
-.card-review-progress progress::-moz-progress-bar {
-  border-radius: 999px;
-  background: var(--studydy-blue);
-}
+
 .card-review-notice {
   margin: 0;
   color: var(--text-secondary);
@@ -183,3 +163,5 @@
     padding: 8px 14px;
   }
 }
+
+.card-review-progress .studydy-progress { flex:1; }

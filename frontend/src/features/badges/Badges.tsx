@@ -1,3 +1,4 @@
+import { Progress } from "../../ui/Progress";
 import { useCallback, useEffect, useState } from "react";
 import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../../api/contracts";
 import { CelebrationDialog } from "../../ui/CelebrationDialog";
@@ -174,10 +175,7 @@ export function BadgeMedal({ badge, size = 56 }: { badge: KnownBadge; size?: num
 
 function BadgeProgress({ badge }: { badge: KnownBadge }) {
   return <span className="badge-progress">
-    <span className="badge-progress-bar" role="progressbar" aria-label={`${nameOf(badge)}進度`}
-      aria-valuemin={0} aria-valuemax={badge.target} aria-valuenow={badge.progress} aria-valuetext={progressText(badge)}>
-      <i style={{ width: `${(badge.progress / badge.target) * 100}%` }} />
-    </span>
+    <Progress size="small" value={badge.progress} max={badge.target} aria-label={`${nameOf(badge)}進度`} aria-valuetext={progressText(badge)} />
     <span>{progressText(badge)}</span>
   </span>;
 }

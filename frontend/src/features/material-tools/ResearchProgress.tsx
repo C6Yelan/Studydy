@@ -1,5 +1,6 @@
 import './research.css';
-import type { ResearchProgress as Progress } from './research';
+import { Progress } from '../../ui/Progress';
+import type { ResearchProgress as ResearchProgressView } from './research';
 
 // 進行中只說明目前在做什麼；內部階段、計數與除錯資訊留在後端紀錄。
 const headings: Record<string, string> = {
@@ -9,14 +10,14 @@ const headings: Record<string, string> = {
 };
 
 /** 研究進度；`available` 是目前可選取的來源數。 */
-export function ResearchProgress({ progress, running, available }: { progress: Progress; running: boolean; available: number }) {
+export function ResearchProgress({ progress, running, available }: { progress: ResearchProgressView; running: boolean; available: number }) {
   if (running) {
     const countable = progress.total !== null && progress.total > 0 && progress.completed !== null;
     const waiting = progress.waiting_until && progress.waiting_until * 1000 > Date.now();
     return <section className="research-progress" aria-label="研究進度">
       <div className="research-progress-heading"><strong>{headings[progress.stage] ?? '正在找來源'}</strong>
         {countable && <span>{progress.completed!.toLocaleString()} / {progress.total!.toLocaleString()} {progress.unit === 'queries' ? '組搜尋' : '份來源'}</span>}</div>
-      {countable && <progress aria-label="研究進度" max={progress.total!} value={progress.completed!} />}
+      <Progress aria-label="研究進度" max={progress.total ?? undefined} value={countable ? progress.completed! : undefined} />
       <p role="status">{waiting
         ? `來源網站要求稍候，會在 ${new Date(progress.waiting_until! * 1000).toLocaleTimeString('zh-TW')} 後自動接續。`
         : progress.summary || '找到可用的來源後，就能選擇要加入的內容。'}</p>

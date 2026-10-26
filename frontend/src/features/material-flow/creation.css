@@ -62,8 +62,6 @@
 .cards-create-summary span { color:var(--text-secondary); font-size:12px; font-weight:700; }
 
 /* Podcast：概念清單、預覽與講解形式。 */
-.podcast-only-selected { display:inline-flex; align-items:center; gap:6px; color:var(--text-secondary); font-size:13px; font-weight:700; white-space:nowrap; cursor:pointer; }
-.podcast-only-selected input { margin:0; accent-color:var(--studydy-blue); }
 .podcast-concept-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:8px; max-height:min(44vh,420px); overflow-y:auto; overscroll-behavior:contain; align-content:start; }
 .podcast-concept-option { min-height:52px; }
 .podcast-concept-option strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

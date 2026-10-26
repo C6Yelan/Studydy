@@ -35,10 +35,10 @@ for (const mode of ['research', 'topic']) test(`${mode} paginates sources and re
   // 研究結束後只能選取現有來源，不再有手動補查的按鈕，翻頁與勾選也不送出請求。
   await expect(page.getByRole('button', { name: '依缺口繼續研究', exact: true })).toHaveCount(0);
   expect(requests).toBe(0);
-  await page.getByLabel('只看已選', { exact: true }).check();
+  await page.getByRole('button', { name: /^已選 / }).click();
   await expect(page.locator('.research-candidates article')).toHaveCount(3);
   await expect(page.locator('.research-candidates input:checked')).toHaveCount(3);
-  await page.getByLabel('只看已選', { exact: true }).uncheck();
+  await page.getByRole('button', { name: /^已選 / }).click();
   await pager.getByRole('button', { name: '第 3 頁', exact: true }).click();
   await page.getByLabel('來源類型', { exact: true }).selectOption('paper');
   await expect(pager.getByRole('button', { name: '第 1 頁', exact: true })).toHaveAttribute('aria-current', 'page');

@@ -67,9 +67,10 @@ for (const viewport of [
     await inlinePreparing(page);
     const bar = page.getByRole("progressbar", { name: "準備進度" });
     await expect(page.getByText("0 / 6 題", { exact: true })).toBeVisible();
-    await expect(bar).toHaveAttribute("aria-valuenow", "0");
+    await expect(bar).not.toHaveAttribute("aria-valuenow");
     fixture.setPreparedCount(2);
-    await expect(bar).toHaveAttribute("aria-valuenow", "33");
+    await expect(bar).toHaveAttribute("aria-valuenow", "2");
+    await expect(bar).toHaveAttribute("aria-valuemax", "6");
     await expect(bar).toHaveAttribute("aria-valuetext", "已準備 2 / 6 題");
     const card = page.locator(".assessment-set-header.is-preparing");
     await expect(card.locator(".preparation-note")).toHaveText(
@@ -79,7 +80,7 @@ for (const viewport of [
       (await page.locator(".study-workspace").boundingBox())!.width,
       0,
     );
-    await expect(card.getByRole("button", { name: "回到知識地圖", exact: true })).toBeVisible();
+    await expect(card.getByRole("button", { name: "查看知識地圖", exact: true })).toBeVisible();
     const preparingUrl = page.url();
     // 輪詢延遲時，resume 內的完整題組已可呈現進度，不閃現教材與 rail。
     let releaseRead!: () => void;
@@ -103,12 +104,14 @@ for (const viewport of [
     expect(
       await page.evaluate(() => (window as unknown as { readingFlash: boolean }).readingFlash),
     ).toBe(false);
-    await expect(bar).toHaveAttribute("aria-valuenow", "33");
+    await expect(bar).toHaveAttribute("aria-valuenow", "2");
+    await expect(bar).toHaveAttribute("aria-valuemax", "6");
     releaseRead();
-    await expect(bar).toHaveAttribute("aria-valuenow", "33");
+    await expect(bar).toHaveAttribute("aria-valuenow", "2");
+    await expect(bar).toHaveAttribute("aria-valuemax", "6");
     await expect(page).toHaveURL(preparingUrl);
     fixture.setPreparedCount(6);
-    await expect(bar).toHaveAttribute("aria-valuenow", "100");
+    await expect(bar).toHaveAttribute("aria-valuenow", "6");
     fixture.setStage("ready");
     await expect(page.locator(".assessment-set-item")).toHaveCount(6);
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-question-mode/);

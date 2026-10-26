@@ -1,3 +1,4 @@
+import { Progress } from "../ui/Progress";
 import { useEffect, useId, useRef, useState } from "react";
 import { formatBytes, type StudydyApiClient } from "../api/client";
 import type { AccountStorage } from "../api/contracts";
@@ -59,7 +60,7 @@ export function HeaderStorage({ apiClient }: { apiClient: StudydyApiClient }) {
         <ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0" />
       </svg>
       <span className="header-storage-wide" aria-hidden="true">
-        <span className="header-storage-bar"><i style={{ width: `${Math.min(100, percentage)}%` }} /></span>
+        <Progress className="header-storage-progress" size="small" tone={full ? "warning" : "default"} value={storage.used_bytes} max={storage.limit_bytes} aria-label="已用帳號空間" />
         <span>{used}／{limit}</span>
       </span>
       <span className="header-storage-compact" aria-hidden="true">{percentage > 0 && percentage < 1 ? "<1" : Math.round(percentage)}%</span>
@@ -68,7 +69,7 @@ export function HeaderStorage({ apiClient }: { apiClient: StudydyApiClient }) {
       <h2>帳號空間</h2>
       <p className="header-storage-numbers"><strong>已用 {used}</strong><span>／上限 {limit} · 剩餘 {remaining}</span></p>
       {storage.reserved_bytes > 0 && <p>已用包含 {formatBytes(storage.reserved_bytes)} 預留給上傳中的檔案與生成中的 Podcast／影片。</p>}
-      <progress className="header-storage-meter" value={Math.min(storage.used_bytes, storage.limit_bytes)} max={storage.limit_bytes} aria-label="已用帳號空間" />
+      <Progress tone={full ? "warning" : "default"} value={Math.min(storage.used_bytes, storage.limit_bytes)} max={storage.limit_bytes} aria-label="已用帳號空間" />
       <p className={full ? "header-storage-warning" : undefined}>{full
         ? "空間已滿：無法上傳教材、建立 Podcast 或生成影片；已有內容仍可閱讀、播放與刪除。"
         : "包含教材原檔與轉換檔、Podcast 音訊與影片、分析資料，以及上傳中與生成中內容的預留空間。刪除教材、Podcast 或影片可釋出空間。"}</p>

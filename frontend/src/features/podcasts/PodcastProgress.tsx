@@ -1,3 +1,4 @@
+import { Progress } from "../../ui/Progress";
 import { PodcastCancelControl } from "./PodcastCancelControl";
 import type { PodcastView } from "../../api/contracts";
 import { ProcessingTimeline } from "../material-flow/ProcessingTimeline";
@@ -27,7 +28,7 @@ export function PodcastProgress({ view, busy, onAction }: {
       <section className="surface processing-card">
         <div className="processing-status" aria-live="polite">
           <div className="progress-heading overall-heading"><h2>{withVideo ? "影音生成進度" : "音訊生成進度"}</h2><strong>{percent}%</strong></div>
-          <progress className="processing-progress" value={completed} max={total} aria-label={withVideo ? "已完成影音集數" : "已完成音訊集數"} />
+          <Progress value={completed} max={total} aria-label={withVideo ? "已完成影音集數" : "已完成音訊集數"} />
           <p className="progress-estimate-note">音訊 {view.completed_episodes} / {view.episode_count} 集{withVideo ? ` · 影片 ${completedVideos} / ${expectedVideos} 集` : ""}；依完成數計算，不代表剩餘時間。</p>
           {!!view.generation?.failed_videos && <p role="alert">{view.generation.failed_videos} 集影片生成失敗；接續生成會保留已完成的影音。</p>}
           <section className="processing-current"><h3>{paused ? podcastStatus[view.status] : "目前狀態"}</h3>

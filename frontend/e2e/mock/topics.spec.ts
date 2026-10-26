@@ -164,7 +164,7 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
  await page.goto(`/topics/${id}`);
  await expect(page.getByRole('heading',{name:'第 3 / 6 階段',exact:true})).toBeVisible();
  await expect(page.getByText('此階段尚無可計算的工作總數。')).toBeVisible();
- await expect(page.getByRole('progressbar')).toHaveCount(0);
+ await expect(page.getByRole('progressbar')).toBeVisible();await expect(page.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
  await expect(page.locator('.processing-times')).toContainText('1 分');
  await expect(page.locator('.learning-steps > li')).toHaveCount(4);await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('建立教材');
  await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('建立概念、關係與學習順序');
@@ -172,7 +172,7 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
  await expect(page.getByText('已選文件 1',{exact:true})).not.toBeVisible();
  const summary=page.locator('.topic-selected-sources > summary');await expect(summary).toHaveText('已選來源 · 23 份');await summary.focus();await page.keyboard.press('Enter');await expect(page.getByText('已選文件 1',{exact:true})).toBeVisible();await summary.click();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
- current={...current,progress_stage:'publishing',completed_pages:10};await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('組裝與發布知識地圖');await expect(page.getByRole('progressbar',{name:/本階段進度/})).toHaveCount(0);
+ current={...current,progress_stage:'publishing',completed_pages:10};await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('組裝與發布知識地圖');await expect(page.getByRole('progressbar',{name:/本階段進度/})).toBeVisible();await expect(page.getByRole('progressbar',{name:/本階段進度/})).not.toHaveAttribute('aria-valuenow');
  current={...runFixture,total_pages:10,completed_pages:10,output_binding:{...runFixture.output_binding,page_count:10}};await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();await expect(page.getByRole('progressbar')).toHaveCount(0);await expect(page.locator('.learning-steps li.is-complete')).toHaveCount(4);
 });
 
@@ -210,7 +210,7 @@ test('topic run loading failures retry and unknown progress remains indeterminat
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));let fail=true;
  await page.route(`**/v1/material-processing-runs/${runId}`,r=>fail?json(r,{schema:'api-error/v1',request_id:id,reason_code:'INTERNAL_ERROR',retryable:true,message:'Retry'},500):json(r,{...runFixture,status:'running',progress_stage:'evidence',total_pages:null,completed_pages:0,completed_at:null,output_binding:null}));
  await page.goto(`/topics/${id}`);await expect(page.getByRole('alert')).toContainText('無法讀取處理狀態');await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
- fail=false;await page.getByRole('button',{name:'重新讀取進度'}).click();await expect(page.getByRole('heading',{name:'第 2 / 6 階段',exact:true})).toBeVisible();await expect(page.getByText('此階段尚無可計算的工作總數。')).toBeVisible();await expect(page.getByRole('progressbar',{name:/本階段進度/})).toHaveCount(0);
+ fail=false;await page.getByRole('button',{name:'重新讀取進度'}).click();await expect(page.getByRole('heading',{name:'第 2 / 6 階段',exact:true})).toBeVisible();await expect(page.getByText('此階段尚無可計算的工作總數。')).toBeVisible();await expect(page.getByRole('progressbar',{name:/本階段進度/})).toBeVisible();await expect(page.getByRole('progressbar',{name:/本階段進度/})).not.toHaveAttribute('aria-valuenow');
 });
 
 

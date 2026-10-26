@@ -1,3 +1,4 @@
+import { Progress } from "../../ui/Progress";
 import { StartingLevelDialog, useStudyStart } from "./StartingLevel";
 import { MaterialDiagnosticPanel } from "../assessment/MaterialDiagnosticPanel";
 import { useEffect, useRef, useState } from "react";
@@ -135,6 +136,7 @@ export function StudySessionPage({
     writeRoute({ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }, false,
       { knowledgeMap: { revision: route.structureRevision, mode: "focus", concept: conceptId, detail: conceptId } });
   };
+  const backToReview = () => writeRoute({ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }, false, { knowledgeMap: { revision: route.structureRevision, mode: "review" } });
   const back = () => reviewConcept(data?.assessmentSets.find(item => item.set_id === data.selectedSetId)?.target_concept_id
     ?? data?.progress.current_concept_id ?? undefined);
 
@@ -155,9 +157,9 @@ export function StudySessionPage({
             <button
               className="secondary-button"
               type="button"
-              onClick={() => writeRoute({ name: "materials" })}
+              onClick={backToReview}
             >
-              返回教材庫
+              返回學習與測驗
             </button>
           </>
         }
@@ -185,9 +187,9 @@ export function StudySessionPage({
   const selectedSet = data.assessmentSets.find((group) => group.set_id === data.selectedSetId);
   if (data.startingLevel === null && data.session.status !== "completed" && data.selectedSet?.status !== "completed") return <section className="study-session-page">
     <StateView title="選擇起始程度" description="先選擇這份教材的學習方式，已保存的進度與題組會保留。" tone="empty"
-      action={<button className="secondary-button" onClick={back}>回到知識地圖</button>} />
+      action={<button className="secondary-button" onClick={backToReview}>返回學習與測驗</button>} />
     {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
-    {launch.busy ? <p role="status">正在接續學習…</p> : <StartingLevelDialog api={apiClient} materialId={route.materialId} current={null} onClose={back}
+    {launch.busy ? <p role="status">正在接續學習…</p> : <StartingLevelDialog api={apiClient} materialId={route.materialId} current={null} onClose={backToReview}
       onSaved={() => void launch.start(route)} />}
   </section>;
   const history = historySets.length > 0 && <aside className="study-rail" aria-label="學習紀錄">
@@ -220,6 +222,7 @@ export function StudySessionPage({
     return <section className="study-session-page">
     {launch.dialog}
     <MaterialContentNav apiClient={apiClient} materialId={route.materialId} current="review" loadMaterial
+      back={{ label: "返回學習與測驗", onClick: backToReview }}
       mapRoute={{ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }} />
     {(launch.error || continueError) && <p role="alert" className="form-error">{launch.error || continueError}</p>}
     <div className={`study-workspace${historySets.length ? "" : " without-rail"}`}><div className="study-main">
@@ -241,8 +244,8 @@ export function StudySessionPage({
     return (
       <StateView
         action={
-          <button className="secondary-button" type="button" onClick={back}>
-            回到知識地圖
+          <button className="secondary-button" type="button" onClick={backToReview}>
+            返回學習與測驗
           </button>
         }
         description="目前沒有可安全顯示的教材概念。"
@@ -372,6 +375,7 @@ export function StudySessionPage({
     <section className="study-session-page">
       {launch.dialog}
       <MaterialContentNav apiClient={apiClient} materialId={route.materialId} current="review" loadMaterial
+      back={{ label: "返回學習與測驗", onClick: backToReview }}
         mapRoute={{ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }}
         // 從學習頁回到地圖時，聚焦剛才學習的概念。
         onMapModeChange={(mode) => mode === "focus" ? back() : writeRoute(
@@ -383,7 +387,7 @@ export function StudySessionPage({
           <p className="study-header-meta">
             {position !== undefined && <span className="study-position">
               <b>第 {position} / {data.view.concept_count} 個概念</b>
-              <span className="study-position-track" aria-hidden="true"><span style={{ width: `${(position / data.view.concept_count) * 100}%` }} /></span>
+              <Progress className="study-position-progress" size="small" value={position} max={data.view.concept_count} aria-label="學習概念進度" />
             </span>}
             {showMaterial && <span>學習進度會自動保存。</span>}
           </p>
@@ -417,7 +421,7 @@ export function StudySessionPage({
             )}
             <div className="study-current-action" id="assessment-panel">
               {completed && !data.selectedSet ? <StateView title="學習進度已保存" description="本次學習已結束，可以回到知識地圖查看進度或選擇其他概念。" tone="empty" icon="check"
-                action={<button className="primary-button" onClick={back}>回到知識地圖</button>} /> : noAssessment && !currentCycle?.active_set_id ? (
+                action={<button className="primary-button" onClick={back}>查看知識地圖</button>} /> : noAssessment && !currentCycle?.active_set_id ? (
                 <section className="surface assessment-cycle">
                   <h2>此概念目前無法提供可靠檢測</h2>
                   <p>這是系統目前無法驗證，不代表你答錯。可以繼續學習其他概念。</p>

@@ -1,3 +1,4 @@
+import { Progress } from "../../ui/Progress";
 import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AssessmentSetAnswer, AssessmentSetView, KnowledgeConceptsView, MaterialDiagnosticSetView } from "../../api/contracts";
@@ -94,13 +95,13 @@ export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressCh
       <p>每個概念最多 1 題。答對的重點依作答規則計入完成，其餘重點仍會安排學習，不會據此替你分級。</p>
       {message && <p role="alert" className="form-error">{message}</p>}
       {group.status === "preparing" && <><p role="status">正在準備起始診斷 · {group.verified_count} / {group.requested_count} 題</p>
-        <progress aria-label="診斷準備進度" value={group.verified_count} max={Math.max(1, group.requested_count)} /></>}
+        <Progress aria-label="診斷準備進度" value={group.verified_count > 0 ? group.verified_count : undefined} max={Math.max(1, group.requested_count)} /></>}
       {["partial_ready", "failed"].includes(group.status) && <div className="assessment-set-actions">
         <p>部分診斷題尚未準備完成；沒有測到的概念會保留在後續學習。</p>
         {group.can_retry && <button className="secondary-button" disabled={busy} onClick={() => void change("retry")}>再試一次</button>}
         {group.can_publish_partial && <button className="primary-button" disabled={busy} onClick={() => void change("publish-partial")}>先做已準備的 {group.verified_count} 題</button>}
       </div>}
-      <button className="text-button" onClick={onBack}>回到知識地圖</button>
+      <button className="text-button" onClick={onBack}>查看知識地圖</button>
     </header>
     {done ? <>
       <section className="surface assessment-cycle"><div className="assessment-set-summary" aria-label="起始診斷摘要">
