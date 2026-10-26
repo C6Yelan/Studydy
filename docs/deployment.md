@@ -298,7 +298,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 ### 結構化筆記（material-notes/v12）
 
-不需 migration：`material_notes.paragraphs` 與註記快照仍是 jsonb，新舊段落格式並存；API 的 `schema` 改為 `material-notes/v2` 並新增 `outline`，前後端須一起部署（舊前端不認得 v2）。後端新增 `matplotlib==3.11.2`（連帶 contourpy、cycler、kiwisolver、pyparsing，numpy／Pillow 由 test extra 轉為正式依賴，版本不變），記在 `backend/pyproject.toml`／`uv.lock`；沒有新系統套件，輕量更新的 `uv sync` 即會安裝。公式排版使用映像內既有的 `fonts-noto-cjk`，matplotlib 第一次排版時在 `$HOME/.config/matplotlib`（backend 的 HOME 為 /tmp tmpfs）建立字型快取，約需數秒；部署後在容器內核對 `import matplotlib` 版本並匯出一份含公式的筆記。前端新增 `katex@0.18.11`（MIT），公式元件與 KaTeX 字型拆成獨立 chunk，只在筆記有公式時載入。runtime lock 的 `material_notes` 改為 v12；未完成的舊提示工作（含早期 v12）重試時依既有規則清除未發布批次並換用目前契約。章節整理在所有批次通過後執行，只調整層級；缺引用會精確補入並重核，不放寬內容檢查。已發布的 v11 筆記保留可讀與匯出，重新生成後才換成新格式。
+`material_notes.paragraphs` 與註記快照仍是 jsonb，新舊段落格式並存；API 使用 `material-notes/v3`，提供舊稿revision與生成時間，前後端須配合升版。後端新增 `matplotlib==3.11.2`（連帶 contourpy、cycler、kiwisolver、pyparsing，numpy／Pillow 由 test extra 轉為正式依賴，版本不變），記在 `backend/pyproject.toml`／`uv.lock`；沒有新系統套件，輕量更新的 `uv sync` 即會安裝。公式排版使用映像內既有的 `fonts-noto-cjk`，matplotlib 第一次排版時在 `$HOME/.config/matplotlib`（backend 的 HOME 為 /tmp tmpfs）建立字型快取，約需數秒；部署後在容器內核對 `import matplotlib` 版本並匯出一份含公式的筆記。前端新增 `katex@0.18.11`（MIT），公式元件與 KaTeX 字型拆成獨立 chunk，只在筆記有公式時載入。runtime lock 的 `material_notes` 改為 v12；未完成的舊提示工作（含早期 v12）重試時依既有規則清除未發布批次並換用目前契約。章節整理在所有批次通過後執行，只調整層級；缺引用會精確補入並重核，不放寬內容檢查。已發布的 v11 筆記保留可讀與匯出，重新生成後才換成新格式。
 
 ## 0018 筆記生成診斷摘要碼
 
@@ -364,3 +364,10 @@ STUDYDY_MATERIAL_WORKERS 預設 1，需多教材時由管理者在本機 .env �
 新增 learning_retained_days、learning_awards、learning_celebrations，原教材／作答／標記的資料格式不變。刪除先在同一交易保留每日統計與去重身分，再依原流程清內容；部署前已刪除而沒有紀錄的活動不能回補。既有帳號首次計算時保存目前已得徽章並將等級／徽章標記已看過，新帳號按原子領取端點取得新事件。
 
 上線後若已有內容刪除，不可回退到不讀保留紀錄的舊後端，否則 XP 會暫時少算；需前向修復或相容映像。隔離 DB 驗證 migration 套用及交易回滾，不在產品資料庫刪除保留表回復。前端 G5 接線由前端批次交付。
+## 隔夜教材與學習 API
+
+本批新增 material_processing_runs.display_summary、materials.pending_goal、topic_scopes.starting_level／learning_goal、material_notes.started_at；新migration隨分支整合依序編號，不改已套用SQL。隔離驗證套用／交易回滾，正式回復保留新增欄位，不刪使用者新保存的目標。
+
+learning-goal/v2、learning-diagnosis/v2、material-notes/v3 與新回答 material-answer/v3 必須配合前端解析及接線部署；不能單獨上線造成舊前端拒收。原回答v2仍讀取，原來源、結構及runtime lock不改寫。
+
+所有後端匯出的ZIP時間、PDF日期與Word標準日期欄位採Asia/Taipei（Word以+08:00標明），圖片ZIP依概念標題命名並去除非法字元、同名編號。地圖Markdown含完整重點、頁碼及每章Mermaid，需以實際Mermaid解析／渲染驗證特殊字元。

@@ -1,7 +1,7 @@
 """教材目標與當日計量基準；所有排期讀取皆不寫入。"""
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy import select, text
 
@@ -26,8 +26,6 @@ def _material(db, owner, material_id, *, lock=False):
     material = db.scalar(query.with_for_update() if lock else query)
     if material is None:
         raise SourceError("RESOURCE_NOT_FOUND")
-    if material.head_revision is None:
-        raise SourceError("SOURCE_NOT_READY")
     return material
 
 
@@ -61,7 +59,16 @@ def rebase_goal_for_revision(db, owner, material_id, revision):
     """publisher 已持有 Material 鎖且新 head 已發布，沿相同交易重排現存目標。"""
     goal = db.scalar(select(LearningGoal).where(LearningGoal.material_id == material_id,
                                               LearningGoal.learner_id == owner).with_for_update())
-    if goal is not None and goal.baseline_revision != revision:
+    material = db.get(Material, material_id)
+    if goal is None and material.pending_goal:
+        goal = LearningGoal(material_id=material_id, learner_id=owner,
+            target_date=date.fromisoformat(material.pending_goal['target_date']),
+            target_percent=material.pending_goal['target_percent'], created_at=_now())
+        metrics = _rebase(db, goal, revision, _now())
+        goal.notice_revision, goal.notice_points = revision, metrics['assessable_points']
+        db.add(goal)
+        material.pending_goal = None
+    elif goal is not None and goal.baseline_revision != revision:
         _rebase(db, goal, revision, _now())
 
 
@@ -92,10 +99,14 @@ def freeze_goal_day(db, owner, material_id):
 def _project(db, material, goal, now, *, preview_offset=0, preview_days=7):
     today = now.astimezone(TIMEZONE).date()
     revision = material.head_revision
+    if revision is None:
+        return {'schema':'learning-goal/v2', 'material_id':str(material.material_id),
+                'knowledge_structure_revision':None, 'run_id':None, 'today':today,
+                'goal':None, 'pending_goal':material.pending_goal}
     run_id = db.scalar(select(KnowledgeStructure.run_id).where(
         KnowledgeStructure.learner_id == material.learner_id, KnowledgeStructure.material_id == material.material_id,
         KnowledgeStructure.structure_revision == revision))
-    result = {"schema": "learning-goal/v1", "material_id": str(material.material_id),
+    result = {"schema": "learning-goal/v2", "pending_goal": None, "material_id": str(material.material_id),
               "knowledge_structure_revision": revision, "run_id": str(run_id), "today": today, "goal": None}
     if goal is None:
         return result
@@ -140,6 +151,36 @@ def _project(db, material, goal, now, *, preview_offset=0, preview_days=7):
     value["update_notice"] = ({"knowledge_structure_revision": revision,
         "previous_points": goal.notice_points, "current_points": current["assessable_points"]}
         if goal.notice_revision != revision else None)
+    value['suggestions'] = []
+    if value['quota_over_limit'] or value['scheduled_over_limit']:
+        before = read_goal_metrics(db, TrustedLearner(material.learner_id), material.material_id,
+                                   revision, through=_day_before(today))
+        def candidate(target_date, percent):
+            quota = daily_quota(before['assessable_points'], before['completed_points'], percent,
+                                _days_remaining(today, target_date))
+            plan = build_plan(today=today, target_date=target_date, target_percent=percent, current=current,
+                baseline={'date':today, 'assessable_points':before['assessable_points'],
+                          'completed_points':before['completed_points'], 'current_completed_points':current['completed_points']},
+                daily={'assessable_points':current['assessable_points'], 'completed_at_start':before['all_completed_points'],
+                       'completed_now':all_now['completed_points'], 'quota_points':quota},
+                concepts=concepts, manual_review=manual, preview_days=len(concepts))
+            return max([plan['today_stage']['quota_points'], plan['today_stage']['scheduled_points'],
+                        *(stage['scheduled_points'] for stage in plan['future_stages']),
+                        *(stage['quota_points'] for stage in plan['future_stages'])])
+        remaining = max(0, _target(before['assessable_points'], goal.target_percent) - before['completed_points'])
+        for days in range(max(1, _days_remaining(today, goal.target_date) + 1, (remaining + 19) // 20), remaining + 1):
+            target = today + timedelta(days=days-1)
+            daily = candidate(target, goal.target_percent)
+            if daily <= 20:
+                value['suggestions'].append({'kind':'extend_date', 'target_date':target,
+                    'target_percent':goal.target_percent, 'daily_points':daily})
+                break
+        for percent in (80, 60):
+            if percent < goal.target_percent:
+                daily = candidate(goal.target_date, percent)
+                if daily <= 20:
+                    value['suggestions'].append({'kind':'lower_target', 'target_date':goal.target_date,
+                        'target_percent':percent, 'daily_points':daily})
     result["goal"] = value
     return result
 
@@ -199,8 +240,13 @@ def set_goal(learner, material_id, target_date, target_percent, *, dsn=None):
         goal = db.scalar(select(LearningGoal).where(LearningGoal.material_id == material_id,
                                                  LearningGoal.learner_id == learner.learner_id).with_for_update())
         # 過期目標仍可保留原日期調整比例；不能新設或改到另一個過去日期。
-        if target_date < now.astimezone(TIMEZONE).date() and (goal is None or goal.target_date != target_date):
+        existing_date = goal.target_date if goal else date.fromisoformat(material.pending_goal["target_date"]) if material.pending_goal else None
+        if target_date < now.astimezone(TIMEZONE).date() and existing_date != target_date:
             raise SourceError("REQUEST_INVALID")
+        if material.head_revision is None:
+            material.pending_goal = {'target_date':target_date.isoformat(), 'target_percent':target_percent}
+            db.flush()
+            return _project(db, material, None, now)
         if goal is None:
             goal = LearningGoal(material_id=material_id, learner_id=learner.learner_id,
                                 target_date=target_date, target_percent=target_percent, created_at=now)

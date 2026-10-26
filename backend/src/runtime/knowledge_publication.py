@@ -15,6 +15,7 @@ from learning_adaptation.learning_states import progress_plan
 from learning_adaptation.map_context import _context_from_validated_document
 from knowledge_map.structure import validate_knowledge_structure
 
+from .material_run_summary import run_summary
 from .knowledge_chapters import enqueue as enqueue_chapters
 from .material_notes import enqueue as enqueue_notes
 from .source_resolver import verify_structure_input, verify_source_files
@@ -169,6 +170,7 @@ def publish_knowledge_structure(
                     completed_pages=document["page_count"],
                     total_pages=document["page_count"],
                     output_binding=binding,
+                    display_summary=run_summary(session, locked_run, document),
                     completed_at=func.clock_timestamp(),
                     updated_at=func.clock_timestamp(),
                 )

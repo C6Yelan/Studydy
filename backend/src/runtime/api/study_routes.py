@@ -122,13 +122,12 @@ def install(app, settings):
 
     @app.get("/v1/materials/{material_id}/knowledge-structures/{structure_revision}/learning-diagnosis",
              response_model=LearningDiagnosisView, tags=["learning"])
-    def learning_diagnosis(request: Request, material_id: UUID, structure_revision: str,
-                           set_id: UUID | None = None):
-        request_context.require_query(request, {"set_id"})
+    def learning_diagnosis(request: Request, material_id: UUID, structure_revision: str):
+        request_context.require_query(request, set())
         learner = request_context.trusted_learner(request, settings)
         with database_session(settings.dsn) as db:
             db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
-            return read_diagnosis(db, learner.learner_id, material_id, structure_revision, set_id)
+            return read_diagnosis(db, learner.learner_id, material_id, structure_revision)
 
     @app.get("/v1/materials/{material_id}/knowledge-structures/{structure_revision}/concept-difficulty",
              response_model=ConceptDifficultyView, tags=["learning"])

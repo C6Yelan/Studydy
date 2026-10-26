@@ -327,8 +327,10 @@ def read_sources(owner, material_id, *, dsn=None):
             for candidate in candidates
             if candidate.get("source_id")
         }
+        from .source_display import source_display
         sources = [
             {
+                **source_display(owner, source, job, session),
                 "origin": "research"
                 if str(source.source_id) in research_sources
                 else "upload",

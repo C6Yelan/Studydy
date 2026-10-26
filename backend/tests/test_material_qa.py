@@ -42,6 +42,7 @@ def test_basic_question_answers_with_small_sources_and_preserves_citation_locato
     answer = qa.answer('佇列怎麼取資料？', [], None, retrieve=lambda _: [passage()],
         call=fake_model([response(), checked(True)], calls))
     assert answer['supported'] and answer['text'] == '佇列採先進先出。'
+    assert answer['paragraphs'] == [{'text': '佇列採先進先出。', 'citation_ids': [answer['citations'][0]['passage_id']]}]
     assert answer['citations'][0]['evidence'][0]['normalized_page'] == 7
     assert len(calls) == 2 and max(answer['retrieval']['estimated_input_tokens']) <= qa.INPUT_TOKENS
 

@@ -84,7 +84,7 @@ def _candidate_view(item):
     return value
 
 
-def _view(row):
+def _view(row, db):
     value = {
         k: deepcopy(getattr(row, k))
         for k in (
@@ -98,7 +98,7 @@ def _view(row):
             "created_at",
         )
     }
-    # 只送可選或已選的來源：未通過核對與重複的搜尋結果不在畫面上出現，也不再隨輪詢送出。
+    # 只送已核對且可用的來源；選取身分不能繞過正文與來源核對。
     candidates = []
     for item in row.candidates:
         eligible = (
@@ -106,13 +106,14 @@ def _view(row):
             and research_workflow.source_allowed(item)
             and not (row.search_state and item.get("review", {}).get("phase") != "body")
         )
-        selected = item["id"] in row.selection
-        if not selected and (not eligible or item.get("duplicate_of")):
+        if not eligible or item.get("duplicate_of"):
             continue
         candidates.append({**_candidate_view(item), "eligible": eligible})
     value["candidates"] = candidates
+    scope = db.get(TopicScope, row.topic_id).proposal if row.topic_id else None
     value["progress"] = research_workflow.progress(
-        row.search_state, row.candidates, running=row.status == "searching"
+        row.search_state, row.candidates, running=row.status == "searching",
+        topics=scope['topics'] if scope else [], started_at=row.created_at,
     )
     return value
 
@@ -164,7 +165,7 @@ def read(owner, identity, *, dsn=None, allow_deleted=False):
         row, material = _owned(
             db, owner, identity, read=True, allow_deleted=allow_deleted
         )
-        value = _view(row)
+        value = _view(row, db)
         value["is_current_revision"] = (
             row.base_revision == material.head_revision if material else None
         )
@@ -225,7 +226,7 @@ def action(owner, identity, action, selected=None, *, dsn=None):
             if not row.material_id:
                 raise SourceError("REQUEST_INVALID")
             if row.status == "acquiring" and row.selection == selected:
-                return _view(row)
+                return _view(row, db)
             if row.status not in ("selecting", "ready", "failed"):
                 raise SourceError("REQUEST_INVALID")
             research_workflow.validate_selection(row.candidates, selected)
@@ -301,7 +302,7 @@ def action(owner, identity, action, selected=None, *, dsn=None):
             row.candidates = candidates
         row.error_code = None
         row.lease_token = row.lease_expires_at = None
-        result = _view(row)
+        result = _view(row, db)
     if action in {"cancel", "retry"}:
         luna_calls.discard("research", identity, owner)
     return result
@@ -320,7 +321,7 @@ def submit(owner, identity, config, *, dsn=None, attempt_token=None):
         ]
         if row.status == "submitted":
             research_documents.discard(db, identity, keep_sha256=keep_snapshots)
-            return _view(row)
+            return _view(row, db)
         if row.status != "ready":
             raise SourceError("SOURCE_NOT_READY")
         candidates = {c["id"]: c for c in row.candidates}

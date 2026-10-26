@@ -121,9 +121,27 @@ class MaterialDiscardView(_Closed):
     state: Literal["removing", "removed"]
 
 
+class AddedRunSource(_Closed):
+    source_id: UUID
+    display_name: str
+
+
+class StructureCounts(_Closed):
+    concepts: int
+    relations: int
+
+
+class StructureChanges(_Closed):
+    before: StructureCounts
+    after: StructureCounts
+
+
 class MaterialProcessingRunView(_Closed):
     auto_retry_count: Literal[0, 1] = 0
     auto_retry_reason: str | None = None
+    added_sources: list[AddedRunSource] = Field(default_factory=list)
+    existing_source_count: int = 0
+    structure_changes: StructureChanges | None = None
     analysis_saved: bool = False
     base_revision: str | None = Field(
         default=None, exclude_if=lambda value: value is None
@@ -201,7 +219,16 @@ class StudySessionLink(_Closed):
     started_at: datetime
 
 
-class SourceView(_Closed):
+class SourcePresentation(_Closed):
+    display_name: str
+    source_kind: Literal["document", "image", "audio", "video", "youtube"]
+    duration_seconds: float | None
+    image_count: int | None
+    transcript_source: Literal["whisper", "uploader_subtitles"] | None
+    transcript_display_name: str | None
+
+
+class SourceView(SourcePresentation):
     origin: Literal["upload", "research"] = "upload"
     included: bool = False
     source_id: UUID
@@ -277,6 +304,7 @@ class ClaimView(_Closed):
 
 
 class ConceptView(_Closed):
+    uncertain: bool = False
     concept_id: str
     label: str
     aliases: list[str]
@@ -339,6 +367,7 @@ class KnowledgeStructureView(_Closed):
 
 
 class ConceptSummaryView(_Closed):
+    uncertain: bool = False
     concept_id: str
     label: str
     aliases: list[str]
@@ -1078,6 +1107,7 @@ def project_material_run(run: Any) -> MaterialProcessingRunView:
 
     return MaterialProcessingRunView.model_validate(
         {
+            **run.display_summary,
             "analysis_saved": (
                 run.status == "failed"
                 and has_analysis_checkpoint(run.learner_id, run.material_id, run.run_id)
@@ -1131,6 +1161,7 @@ def project_knowledge_structure(view: dict[str, Any]) -> KnowledgeStructureView:
             **view,
             "concepts": [
                 {
+                    "uncertain": concept.get("uncertain", False),
                     "concept_id": concept["concept_id"],
                     "label": concept["label"],
                     "aliases": concept["aliases"],
@@ -1367,7 +1398,7 @@ class MediaPlayback(_Closed):
     video_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
-class EvidenceSourceView(_Closed):
+class EvidenceSourceView(SourcePresentation):
     schema_: Literal["evidence-source/v1"] = Field(alias="schema")
     format: Literal[
         "pdf", "docx", "pptx", "doc", "ppt", "txt", "md",
@@ -1547,6 +1578,9 @@ class LearningDiagnosisEvidence(_Closed):
 
 
 class LearningDiagnosisPoint(_Closed):
+    consecutive_correct_count: int
+    required_consecutive_correct: int
+    completed: bool
     claim_id: str
     title: str
     answer_count: int
@@ -1568,12 +1602,11 @@ class LearningDiagnosisRecommendation(_Closed):
 
 
 class LearningDiagnosisView(_Closed):
-    schema_: Literal["learning-diagnosis/v1"] = Field(alias="schema")
+    schema_: Literal["learning-diagnosis/v2"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
-    scope: Literal["material", "set"]
+    scope: Literal["material"]
     source_resolver: str
-    set_id: UUID | None
     strengths: list[LearningDiagnosisFinding]
     weaknesses: list[LearningDiagnosisFinding]
     recommendations: list[LearningDiagnosisRecommendation]
@@ -1660,7 +1693,20 @@ class GoalUpdateNotice(_Closed):
     current_points: int
 
 
+class GoalSuggestion(_Closed):
+    kind: Literal["extend_date", "lower_target"]
+    target_date: date_type
+    target_percent: Literal[60, 80, 100]
+    daily_points: int
+
+
+class PendingLearningGoal(_Closed):
+    target_date: date_type
+    target_percent: Literal[60, 80, 100]
+
+
 class GoalPlanView(GoalProgressView):
+    suggestions: list[GoalSuggestion]
     future_stages: list[GoalStageView]
     preview_offset: int
     preview_has_more: bool
@@ -1669,10 +1715,11 @@ class GoalPlanView(GoalProgressView):
 
 
 class LearningGoalView(_Closed):
-    schema_: Literal["learning-goal/v1"] = Field(alias="schema")
+    schema_: Literal["learning-goal/v2"] = Field(alias="schema")
+    pending_goal: PendingLearningGoal | None
     material_id: UUID
-    knowledge_structure_revision: str
-    run_id: UUID
+    knowledge_structure_revision: str | None
+    run_id: UUID | None
     today: date_type
     goal: GoalPlanView | None
 
@@ -1809,7 +1856,13 @@ class NoteProgressView(_Closed):
 
 
 class MaterialNotesView(_Closed):
-    schema_: Literal["material-notes/v2"] = Field(alias="schema")
+    schema_: Literal["material-notes/v3"] = Field(alias="schema")
+    content_revision: str | None
+    content_generation: int | None
+    update_available: bool
+    updating: bool
+    started_at: datetime | None
+    updated_at: datetime | None
     material_id: UUID
     knowledge_structure_revision: str
     run_id: UUID

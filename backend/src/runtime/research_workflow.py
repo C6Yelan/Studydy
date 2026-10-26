@@ -469,7 +469,7 @@ def _searches(values, topics):
     return result
 
 
-def progress(state, candidates, *, running):
+def progress(state, candidates, *, running, topics=None, started_at=None):
     """畫面用的研究進度：目前階段的可計數進度、仍缺來源的觀念與結束原因。"""
     if not state:
         return None
@@ -497,7 +497,34 @@ def progress(state, candidates, *, running):
         total = len(deep)
     else:
         done = total = None
+    names = state.get('topics') or topics or []
+    pending = [s for s in searches if s['status'] == 'pending']
+    gaps = {i for i, t in enumerate(state.get('coverage', [])) if t['status'] != 'covered'}
+    pending.sort(key=lambda s: bool(gaps) and not gaps.intersection(s['topics']))
+    searching = set(pending[0]['topics']) if pending and stage == 'searching' else set()
+    checked = [c for c in candidates if c.get('eligible') and source_allowed(c)
+               and c.get('review', {}).get('phase') == 'body' and not c.get('duplicate_of')]
+    topic_progress = []
+    for index, topic in enumerate(names):
+        available = sum(any(q.get('topic') == index for q in c['review'].get('quotes', [])) for c in checked)
+        associated = [c for c in candidates if index in c.get('research_topics', [])
+                      or index in c.get('review', {}).get('topics', [])]
+        coverage = state.get('coverage', [])
+        covered = index < len(coverage) and coverage[index]['status'] == 'covered'
+        if stage == 'complete' or (covered and not any(index in s['topics'] for s in pending)):
+            status = 'completed'
+        elif index in searching:
+            status = 'searching'
+        elif associated or available:
+            status = 'reading'
+        else:
+            status = 'waiting'
+        topic_progress.append({'topic_index':index, 'topic':topic, 'status':status,
+                               'available_source_count':available})
     return {
+        'topic_progress': topic_progress,
+        'completed_topics': sum(t['status'] == 'completed' for t in topic_progress),
+        'total_topics': len(names), 'started_at': started_at,
         "stage": stage,
         "completed": done,
         "total": total,

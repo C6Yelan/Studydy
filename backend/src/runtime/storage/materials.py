@@ -220,6 +220,9 @@ def read_material_library(
                 )
                 .order_by(MaterialSource.source_id)
             ).all()
+            from ..source_display import source_display
+            presentation = {source.source_id: source_display(learner_id, source, job, session)
+                            for source, job, _ in source_rows}
     except (DatabaseConfigurationError, SQLAlchemyError):
         raise MaterialLibraryError("MATERIAL_LIBRARY_STORAGE_FAILED") from None
 
@@ -244,6 +247,7 @@ def read_material_library(
     counts = {identity: 0 for identity in ids}
     for source, normalization, size in source_rows:
         sources[source.material_id] = {
+            **presentation[source.source_id],
             "source_id": source.source_id,
             "normalization_id": normalization.normalization_id,
             "original_artifact_id": source.original_artifact_id,

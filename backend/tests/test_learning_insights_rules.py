@@ -14,21 +14,25 @@ def concept_views():
 
 def test_template_uses_per_point_counts_latest_answer_and_source():
     states = [SimpleNamespace(concept_id="real-concept-one", label="快取有效期", attempts=3, correct_answers=2,
-        completed_claim_ids=["p2"], weak_claim_ids=["p1"])]
+        completed_claim_ids=["p2"], weak_claim_ids=["p1"], assessable_claim_ids=["p1", "p2"])]
     plan = {"concepts": [{"concept_id": "real-concept-one", "targets": [
         {"claim_id": "p1", "covered_claim_ids": ["p1"]},
         {"claim_id": "p2", "covered_claim_ids": ["p2"]}]}]}
-    events = [SimpleNamespace(target_concept_id="real-concept-one", target_claim_id=claim, is_correct=correct)
-              for claim, correct in (("p1", False), ("p2", True), ("p1", True))]
-    data = diagnosis_input(concept_views(), states, events, plan, scope="set")
+    events = [SimpleNamespace(target_concept_id="real-concept-one", target_claim_id=claim, is_correct=correct, semantic_identity=str(index))
+              for index, (claim, correct) in enumerate((("p1", False), ("p2", True), ("p1", True)))]
+    views = concept_views()
+    views[0]["claims"][0]["text"] += "\n" + "完整公式與條件" * 20
+    data = diagnosis_input(views, states, events, plan)
     result = template_diagnosis(data)
-    strength = result["strengths"][0]["points"][0]
-    assert strength["claim_id"] == "p2" and strength["correct_count"] == 1
+    assert result["strengths"] == []
     weakness = result["weaknesses"][0]["points"][0]
     assert weakness["claim_id"] == "p1"
     assert weakness["answer_count"] == 2 and weakness["correct_count"] == 1
     assert weakness["latest_is_correct"] is True
-    assert weakness["title"] == "freshness_lifetime > current_age 時為新鮮。"
+    assert weakness["consecutive_correct_count"] == 1 and weakness["required_consecutive_correct"] == 2
+    assert weakness["completed"] is False
+    assert weakness["title"] == views[0]["claims"][0]["text"]
+    assert len(weakness["title"]) > 80
     assert weakness["evidence"] == [{"evidence_id": "e1", "page": 1, "source_id": "s1",
                                     "source_name": "合成教材.pdf", "normalized_page": 2}]
     assert result["recommendations"][0]["concept_id"] == "real-concept-one"
@@ -60,7 +64,7 @@ def test_structural_difficulty_uses_longest_prerequisite_chain_and_five_points()
 def test_recommendations_prioritize_weak_point_count_then_personal_and_limit_three():
     def concept(identity, weak, personal):
         return {"concept_id": identity, "label": identity, "points": [],
-                "completed_claim_ids": [], "weak_claim_ids": [str(index) for index in range(weak)],
+                "all_points_completed": False, "completed_claim_ids": [], "weak_claim_ids": [str(index) for index in range(weak)],
                 "personal_difficulty": personal, "answer_count": 4, "incorrect_count": 2}
     result = template_diagnosis({"concepts": [concept("two", 2, False), concept("tie-personal", 2, True),
         concept("three", 3, False), concept("only-personal", 0, True), concept("one", 1, True)]})

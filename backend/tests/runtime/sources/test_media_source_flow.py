@@ -204,6 +204,8 @@ def test_chunked_audio_becomes_time_pages_and_plays_from_the_cited_segment(close
     source, = read_sources(owner, material, dsn=dsn)["sources"]
     assert source["status"] == "ready", source["error_code"]
     assert source["media_type"] == "audio/wav" and source["page_count"] == 2
+    assert source["source_kind"] == "audio" and source["duration_seconds"] == 200
+    assert source["transcript_display_name"] == "語音辨識"
     # 送到 provider 的是沙箱轉好的 Opus，並帶工作 lease 以便取消。
     assert calls[0]["speech"] == b"OggS" and set(calls[0]["job"]) == {"job_id", "job_token"}
     with open_verified_artifact(owner, source["normalized_artifact_id"], dsn=dsn) as pdf:
@@ -290,6 +292,7 @@ def test_image_set_becomes_one_source_with_one_page_per_image(closed_loop):
     assert normalize_next(dsn=dsn)
     source, = read_sources(owner, material, dsn=dsn)["sources"]
     assert source["status"] == "ready" and source["page_count"] == 2
+    assert source["display_name"] == "2 張圖片" and source["image_count"] == 2
     with open_verified_artifact(owner, source["normalized_artifact_id"], dsn=dsn) as pdf:
         with pymupdf.open(stream=pdf.file.read(), filetype="pdf") as document:
             assert [len(page.get_images()) for page in document] == [1, 1]
@@ -335,6 +338,8 @@ def test_youtube_uses_uploader_subtitles_and_stores_only_reference_and_transcrip
     assert normalize_next(dsn=dsn)
     source, = read_sources(owner, material, dsn=dsn)["sources"]
     assert source["status"] == "ready" and source["page_count"] == 2
+    assert source["display_name"] == "資料結構／堆疊與佇列"
+    assert source["duration_seconds"] == 200 and source["transcript_display_name"] == "YouTube 上傳者字幕"
     with database_session(dsn) as session:
         kinds = sorted(
             (row.kind, row.media_type)

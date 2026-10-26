@@ -121,7 +121,7 @@ def read(owner, identity, *, dsn=None):
             if turn.mode not in ("text", "voice") or turn.status == "draft":
                 raise SourceError("MATERIAL_FORMAT_UNSUPPORTED")
             answer = deepcopy(turn.answer)
-            if answer and answer.get("schema") != "material-answer/v2":
+            if answer and answer.get("schema") not in {"material-answer/v2", "material-answer/v3"}:
                 raise SourceError("MATERIAL_FORMAT_UNSUPPORTED")
             answers[turn.turn_id] = answer
         return {
@@ -582,7 +582,7 @@ def _save_answer(db, turn, state, result):
             )
         ):
             raise SourceError("VOICE_ANSWER_INVALID")
-    turn.answer = {**result, "schema": "material-answer/v2"}
+    turn.answer = {**result, "schema": "material-answer/v3"}
     memory = state.get("memory_update")
     if memory:
         conversation = db.get(Conversation, turn.conversation_id)

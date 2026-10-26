@@ -706,9 +706,11 @@ def answer(
         break
     citations = []
     paragraphs = []
+    paragraph_sources = {}
     for segment in accepted:
         if segment["text"] not in paragraphs:
             paragraphs.append(segment["text"])
+        paragraph_sources.setdefault(segment["text"], []).extend(p["passage_id"] for p in segment["sources"])
         for passage in segment["sources"]:
             if any(c["passage_id"] == passage["passage_id"] for c in citations):
                 continue
@@ -733,6 +735,10 @@ def answer(
         "text": text,
         "supported": bool(citations),
         "citations": citations,
+        "paragraphs": ([{"text": part, "citation_ids": list(dict.fromkeys(paragraph_sources[part]))}
+                        for part in paragraphs] +
+                       ([{"text": "本輪取材仍缺少的部分：" + missing, "citation_ids": []}] if missing else []))
+                       if paragraphs else [{"text": text, "citation_ids": []}],
         "_memory_update": memory_update,
         "speech_terms": accepted_terms,
         **(

@@ -93,6 +93,7 @@ class Material(Base):
         ),
     )
 
+    pending_goal: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     material_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), primary_key=True
     )
@@ -185,6 +186,7 @@ class MaterialProcessingRun(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     auto_retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     auto_retry_reason: Mapped[str | None] = mapped_column(Text)
+    display_summary: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     maintenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     runtime_binding: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     runtime_lock_document: Mapped[dict[str, Any]] = mapped_column(
@@ -773,6 +775,8 @@ class ResearchDocument(Base):
 
 class TopicScope(Base):
     __tablename__ = "topic_scopes"
+    starting_level: Mapped[str | None] = mapped_column(Text)
+    learning_goal: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     topic_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), primary_key=True
     )
@@ -993,6 +997,7 @@ class LearningGoal(Base):
 
 class MaterialNotes(Base):
     __tablename__ = "material_notes"
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
     material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
     structure_revision: Mapped[str] = mapped_column(Text, primary_key=True)

@@ -68,7 +68,7 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 Migration 驗證先在 0013 建立原題組、補強及答案，再升級至 0014，核對既有資料與 API 投影不變、單概念成員約束仍有效。這些驗證使用受控出題替身，不呼叫真實模型或寫入產品資料。前端涵蓋首次選擇、初學閱讀、直接作答、跨概念題組、深連結與原版本恢復，並依 TASK 核對 global-layout／shell-layout。
 
-`runtime/study/test_learning_insights.py` 使用隔離資料庫驗證教材／題組的即時診斷、交卷時間邊界、補強完成規則、真實統計與來源、版本授權，以及個人難點的 3 題／50% 門檻。`test_learning_insights_rules.py` 驗證短標題與結構難度門檻、複習候選排序及最多 3 個的上限。
+`runtime/study/test_learning_insights.py` 使用隔離資料庫驗證教材即時診斷、補強累計／連對完成規則、真實統計與來源、版本授權，以及個人難點的 3 題／50% 門檻。`test_learning_insights_rules.py` 驗證完整重點與結構難度門檻、複習候選排序及最多 3 個的上限。
 
 前端以 `learning-diagnosis.spec.ts` 驗證直接讀取、空區塊省略、精簡建議與結構標記；`concept-cards.spec.ts` 核對卡組原版本。相關版面檢查沿用 `global-layout` 與 `shell-layout`。這些功能不呼叫模型，也不以合成測試宣稱學習完成。
 
@@ -277,7 +277,7 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 
 研究重用 staged 原檔時，bytes 與分析範圍必須同時相同。`test_research_selected_scope.py` 以兩個有效研究租約驗證同範圍重播可重用；引文、區域或全文／局部模式不同時回報既有 `DUPLICATE_SOURCE`，不修改來源範圍或新增 Artifact／正規化工作。
 
-語音與文字由 `runtime/materials/test_voice.py` 驗證，回答使用受控 `/semantics` 與 `material-answer/v2`。研究／主題回歸核對排定工作完整執行、選段匯入、相同原文重用與補讀不重複範圍。瀏覽器回歸使用 `voice-chat.spec.ts`、`processing.spec.ts`、`topics.spec.ts`、`research-background.spec.ts`、`source-pagination.spec.ts`；包含索引的準備流程共六個階段。
+語音與文字由 `runtime/materials/test_voice.py` 驗證，回答使用受控 `/semantics` 與 `material-answer/v3`。研究／主題回歸核對排定工作完整執行、選段匯入、相同原文重用與補讀不重複範圍。瀏覽器回歸使用 `voice-chat.spec.ts`、`processing.spec.ts`、`topics.spec.ts`、`research-background.spec.ts`、`source-pagination.spec.ts`；包含索引的準備流程共六個階段。
 
 長對話回歸驗證按 token 超額壓縮、超過三輪的短對話完整保留、摘要沿用、不重壓舊輪次與無效摘要不得靜默丟棄歷史。Runtime 另驗證摘要與回答一起保存、取消隔離、重試舊問題不讀未來摘要、原始輪次保留及刪除時清除摘要。這些合成測試不等於真實摘要內容品質已通過。
 
@@ -344,7 +344,7 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 ## 學習資料匯出
 
-筆記與地圖大綱匯出顯示教材真名、教材及版本的 8 碼識別；地圖不新增來源頁碼。筆記 Markdown 將同檔同頁來源合併為一行，仍列出全部引用區塊。公式由可整列換頁的無框表格承載，避免 PDF 在頁尾縮小；`test_exports.py` 逐張核對跨頁公式與 DOCX 尺寸，並驗證教材標示、註記舊版本短碼及來源合併的頁碼／區塊保存。
+筆記與地圖大綱匯出顯示教材真名、教材及版本的 8 碼識別；地圖大綱包含完整重點與原文頁碼、每章 Mermaid。筆記 Markdown 將同檔同頁來源合併為一行，仍列出全部引用區塊。公式由可整列換頁的無框表格承載，避免 PDF 在頁尾縮小；`test_exports.py` 逐張核對跨頁公式與 DOCX 尺寸，並驗證教材標示、註記舊版本短碼及來源合併的頁碼／區塊保存。
 
 `test_exports.py` 檢查筆記三種格式的表格、公式、來源、註記快照與中文字型粗體，新格式另核對大綱與編號、巢狀條列（Word 的 List Bullet 層級）、相鄰表格不合併、公式（Markdown `$$`、PDF／Word 圖片與 Word 替代文字）及醒目區塊，長重點整理依內容自然分頁到多頁 A4、不縮字且全部段落保留、標題為中文粗體，摘要／完整筆記的新舊格式標題與正文開頭同頁、長正文跨頁仍逐行完整且不重複，診斷摘要的頁數與省略數量、MP3 實際解碼、逐字稿名字／時間，以及 Anki 資料庫與全部 PNG；也核對影音來源的「段」標示、DOCX 控制字元／作者及空診斷文案。`runtime/study/test_export_routes.py` 在一次性 DB 驗證 owner、固定版本、Origin、私人快取、未發布筆記、缺少影片／時間軸與偽造地圖選取。
 
@@ -374,3 +374,6 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 ## 刪除後的學習統計與慶祝
 
 `runtime/study/test_learning_retention.py` 以真 DB 驗證教材／卡組／Podcast 刪除前後 XP、等級、作答數、連續日與學習節奏保留；跨卡時間間隔、重複刪除、卡片／收聽／關卡每日上限、兩個同帳號請求的原子領取，以及既有帳號 migration 套用與交易回滾。`test_learning_rewards.py`、`test_learning_badges.py` 和 `test_version_moves.py` 保留既有計分與移版去重回歸，已取得徽章改為永久保存。測試無真實模型與產品資料。
+## 隔夜來源、筆記與匯出投影
+
+`test_overnight_material_projection.py` 驗證固定來源新增數、持久前後計數及從歷史審查封存唯讀投影疑義，結構hash不變。`test_overnight_goal_notes.py` 驗證草稿／主題選擇持久化、發布排程、可達建議套用與舊筆記來源，配合 media_source_flow、learning_insights、material_qa、topics、note_queue 回歸。匯出測試實際產生PDF／DOCX／ZIP，頁尾註腳、公式與完整長文不裁切；Mermaid另在獨立瀏覽器以合成中文／特殊字元樣本渲染，不外送教材。

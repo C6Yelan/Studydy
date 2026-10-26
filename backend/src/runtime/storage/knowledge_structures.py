@@ -69,7 +69,7 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
     from .tables import (
         CardSet,
         MaterialResearch,
-        NoteAnnotation,
+        NoteAnnotation, MaterialNotes,
         Podcast,
         StudySession,
         VoiceConversation,
@@ -85,7 +85,18 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
         .order_by(KnowledgeStructure.structure_revision)
         .with_for_update()
     ).all()
+    note_revisions = set(session.scalars(select(MaterialNotes.structure_revision).join(KnowledgeStructure,
+        (KnowledgeStructure.learner_id == MaterialNotes.learner_id)
+        & (KnowledgeStructure.material_id == MaterialNotes.material_id)
+        & (KnowledgeStructure.structure_revision == MaterialNotes.structure_revision))
+        .where(MaterialNotes.learner_id == owner, MaterialNotes.material_id == material_id,
+               MaterialNotes.paragraphs.is_not(None), MaterialNotes.generation > 0)
+        .distinct(MaterialNotes.kind)
+        .order_by(MaterialNotes.kind, KnowledgeStructure.created_at.desc(), MaterialNotes.updated_at.desc())))
     for row in rows:
+        # 更新期間仍要回查最後一份可讀筆記的來源，兩種筆記各保護最近一份。
+        if row.structure_revision in note_revisions:
+            continue
         # 此次維護承諾封存原版；後續追加來源時也保留它。
         if session.scalar(select(MaterialProcessingRun.run_id).where(
             MaterialProcessingRun.material_id == material_id,
@@ -240,10 +251,13 @@ def read_knowledge_structure(
                 run_id=run_id,
                 revision=revision,
             )
-        # session 已結束，這份 JSON 專屬本次讀取；不再複製完整大型教材。
-        return StoredKnowledgeStructure(
-            document["revision"], document, _view(document, material_id)
-        )
+            from ..review_flags import uncertain_concepts
+            flags = uncertain_concepts(session, learner_id, material_id, document["revision"])
+        # 旗標只加公開投影，原 document 與 hash 不改寫。
+        view = _view(document, material_id)
+        for concept in view["concepts"]:
+            concept["uncertain"] = concept["concept_id"] in flags
+        return StoredKnowledgeStructure(document["revision"], document, view)
     except KnowledgeStructureStoreError:
         raise
     except Exception:

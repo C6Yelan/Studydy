@@ -52,7 +52,12 @@ def test_topic_approval_then_real_source_pipeline(revisions,monkeypatch):
     assert summary['research']=={'status':'searching','material_id':None}
     assert topics.listing(uuid4(),dsn=dsn)['topics']==[]
     with database_session(dsn) as db:assert db.scalar(select(func.count()).select_from(Material))==before
+    pending = research.read(owner, approved['research_id'], dsn=dsn)['progress']
+    assert pending['total_topics'] == 1 and pending['topic_progress'][0]['status'] == 'waiting'
     search_to_selection(owner,approved['research_id'],dsn)
+    progress = research.read(owner, approved['research_id'], dsn=dsn)['progress']
+    assert progress['completed_topics'] == progress['total_topics'] == 1
+    assert progress['topic_progress'][0]['available_source_count'] == 1
     assert len(calls)==1
     with pytest.raises(SourceError,match='REQUEST_INVALID'):
         research.action(owner,approved['research_id'],'acquire',['paper'],dsn=dsn)

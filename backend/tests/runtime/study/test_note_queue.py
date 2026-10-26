@@ -142,7 +142,7 @@ def test_v11_paragraphs_stay_readable_with_annotations_until_regenerated(closed_
         json={'expected_generation': 1, 'paragraph_id': '0', 'body': '舊版註記'})
     assert saved.status_code == 200, saved.json()
     view = client.get(path + '/summary').json()
-    assert view['schema'] == 'material-notes/v2' and view['outline'] == []
+    assert view['schema'] == 'material-notes/v3' and view['outline'] == []
     assert view['paragraphs'] == legacy and view['annotations'][0]['original_paragraph'] == legacy[0]
     for format in ('md', 'pdf', 'docx'):
         assert client.get(path + f'/summary/export/{format}').status_code == 200
