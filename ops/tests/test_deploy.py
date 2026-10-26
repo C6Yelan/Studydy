@@ -3,7 +3,7 @@ import importlib.machinery
 import importlib.util
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 path = Path(__file__).resolve().parents[1] / 'deploy'
 spec = importlib.util.spec_from_loader('deploy_command', importlib.machinery.SourceFileLoader('deploy_command', str(path)))
@@ -56,6 +56,56 @@ class QueueDeadlineTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'QUEUE_TIMEOUT'):
                 deploy.drain(1)
         query.assert_called_once_with(timeout=.75)
+
+
+class NetworkStabilityTests(unittest.TestCase):
+    def monitor(self):
+        monitor = MagicMock()
+        monitor.poll.return_value = None
+        return monitor
+
+    def test_address_event_restarts_full_quiet_period(self):
+        monitor = self.monitor()
+        clock = [0.0]
+        observed_waits = []
+        def ready(readers, writers, errors, timeout):
+            observed_waits.append(timeout)
+            clock[0] += .5 if len(observed_waits) == 1 else timeout
+            return (readers if len(observed_waits) == 1 else [], [], [])
+        with patch.object(deploy.subprocess, 'Popen') as process, \
+             patch.object(deploy.time, 'monotonic', side_effect=lambda: clock[0]), \
+             patch.object(deploy.select, 'select', side_effect=ready), \
+             patch.object(deploy.os, 'read', return_value=b'address changed'):
+            process.return_value.__enter__.return_value = monitor
+            result = deploy.wait_network_stable()
+        self.assertEqual(result, {'wait_seconds': 3.5, 'quiet_seconds': 3, 'event_batches': 1})
+        self.assertEqual(observed_waits, [3, 3])
+        monitor.terminate.assert_called_once()
+        monitor.wait.assert_called_once_with(timeout=5)
+
+    def test_continuous_events_fail_at_total_deadline(self):
+        monitor = self.monitor()
+        clock = [0.0]
+        def ready(readers, writers, errors, timeout):
+            clock[0] += min(.5, timeout)
+            return readers, [], []
+        with patch.object(deploy.subprocess, 'Popen') as process, \
+             patch.object(deploy.time, 'monotonic', side_effect=lambda: clock[0]), \
+             patch.object(deploy.select, 'select', side_effect=ready), \
+             patch.object(deploy.os, 'read', return_value=b'link changed'):
+            process.return_value.__enter__.return_value = monitor
+            with self.assertRaisesRegex(RuntimeError, 'NETWORK_STABILITY_TIMEOUT'):
+                deploy.wait_network_stable(timeout=2, quiet=1)
+        self.assertEqual(clock[0], 2)
+        monitor.terminate.assert_called_once()
+
+    def test_monitor_failure_is_not_treated_as_stable(self):
+        monitor = self.monitor()
+        monitor.poll.return_value = 1
+        with patch.object(deploy.subprocess, 'Popen') as process:
+            process.return_value.__enter__.return_value = monitor
+            with self.assertRaisesRegex(RuntimeError, 'NETWORK_MONITOR_FAILED'):
+                deploy.wait_network_stable()
 
 
 if __name__ == '__main__':

@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -102,13 +103,43 @@ def override(path, images):
     path.write_text('services:\n'+''.join(f'  {service}:\n    image: {image}\n' for service, image in images.items()))
 
 
+def wait_network_stable(timeout=30, quiet=3):
+    # Docker 的 IPv6 位址會延後發布；靜默期涵蓋實測約2秒的 Chromium 通知延遲。
+    started = last_event = time.monotonic()
+    batches = 0
+    with subprocess.Popen(['ip', 'monitor', 'link', 'address', 'route'], stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE) as monitor:
+        try:
+            while True:
+                now = time.monotonic()
+                if now-started >= timeout:
+                    raise RuntimeError('NETWORK_STABILITY_TIMEOUT')
+                if monitor.poll() is not None:
+                    raise RuntimeError('NETWORK_MONITOR_FAILED')
+                readable, _, _ = select.select([monitor.stdout], [], [], max(0, min(quiet-(now-last_event), timeout-(now-started))))
+                if time.monotonic()-started >= timeout:
+                    raise RuntimeError('NETWORK_STABILITY_TIMEOUT')
+                if readable:
+                    if not os.read(monitor.stdout.fileno(), 65536):
+                        raise RuntimeError('NETWORK_MONITOR_FAILED')
+                    last_event = time.monotonic()
+                    batches += 1
+                elif time.monotonic()-last_event >= quiet:
+                    return {'wait_seconds': round(time.monotonic()-started, 2), 'quiet_seconds': quiet, 'event_batches': batches}
+        finally:
+            monitor.terminate()
+            monitor.wait(timeout=5)
+
+
 def verify(images, storage_state):
     actual = {s: run(['docker', 'inspect', '-f', '{{.Image}}', f'studydy-{s}-1']) for s in images}
     if actual != images:
         raise RuntimeError('CONTAINER_IMAGE_MISMATCH')
     run(['docker', 'exec', 'studydy-backend-1', PYTHON, '-c',
          "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8001/internal/ready',timeout=5); assert r.status==200"])
-    return {'ready': 200, 'image_ids': actual, **json.loads(run(['node', '-e', BROWSER, storage_state]))}
+    stable = wait_network_stable()
+    return {'ready': 200, 'image_ids': actual, 'network_stability': stable,
+            **json.loads(run(['node', '-e', BROWSER, storage_state]))}
 
 
 def recover(record, stopped, compose, storage_state):
