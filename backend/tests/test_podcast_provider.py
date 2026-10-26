@@ -100,7 +100,7 @@ def test_show_prompt_uses_host_names_series_preview_and_spoken_numbers(monkeypat
     model,calls=fake_model(candidate())
     monkeypatch.setattr(provider,'luna',model)
     result=provider.script(dialogue())
-    assert result['provider'].endswith(';source-script/v14')
+    assert result['provider'].endswith(';source-script/v15')
     prompts=[prompt for kind,prompt in calls if kind=='script']
     prompt=prompts[0]
     assert 'host「小晴」' in prompt and 'guest「阿哲」' in prompt
@@ -578,3 +578,61 @@ def test_media_transcription_runs_isolated_gpu_script_and_reports_failure(monkey
     monkeypatch.setattr(provider.podcast_process,'run',lambda args,**kwargs:SimpleNamespace(returncode=1))
     with pytest.raises(RuntimeError,match='MEDIA_TRANSCRIPT_FAILED'):provider.media_transcribe(body)
     with pytest.raises(ValueError,match='REQUEST_INVALID'):provider.media_transcribe({'audio':''})
+
+
+
+def recap(declared='3', *, unnumbered_fourth=False):
+    turns = [
+        {'speaker': 'host', 'text': f'回顧本集 {declared} 個重點。第一，空堆疊不可 pop。', 'source_indices': [0]},
+        {'speaker': 'guest', 'text': '第二，先確認堆疊不是空的。', 'source_indices': [0]},
+        {'speaker': 'host', 'text': '第三，再取出最上方元素。', 'source_indices': [0]},
+    ]
+    if unnumbered_fourth:
+        turns.append({'speaker': 'guest', 'text': '取出後記得更新堆疊。謝謝收聽。', 'source_indices': [0]})
+    else:
+        turns.append({'speaker': 'host', 'text': '謝謝收聽。', 'source_indices': []})
+    return {'title': '回顧', 'turns': turns}
+
+
+@pytest.mark.parametrize('declared', ['3', '三'])
+def test_recap_count_matches_numbered_source_turns_without_extra_calls(monkeypatch, declared):
+    value = candidate()
+    value['segments'].append(recap(declared))
+    model, calls = fake_model(value)
+    monkeypatch.setattr(provider, 'luna', model)
+    provider.script(dialogue())
+    assert [kind for kind, _ in calls] == ['script', 'review', 'review']
+
+
+@pytest.mark.parametrize('bad_recap', [recap('4'), recap(unnumbered_fourth=True)])
+@pytest.mark.parametrize('announcement', ['回顧本集', '最後記住', '本集有'])
+def test_recap_mismatch_rewrites_only_the_closing_segment(monkeypatch, bad_recap, announcement):
+    bad_recap = deepcopy(bad_recap)
+    bad_recap['turns'][0]['text'] = bad_recap['turns'][0]['text'].replace('回顧本集', announcement)
+    value = candidate()
+    value['segments'].append(bad_recap)
+    fixed = deepcopy(bad_recap)
+    if len(fixed['turns']) == 4 and fixed['turns'][-1]['source_indices']:
+        fixed['turns'][0]['text'] = fixed['turns'][0]['text'].replace('3 個', '4 個')
+        fixed['turns'][-1]['text'] = '第四，' + fixed['turns'][-1]['text']
+    else:
+        fixed['turns'][0]['text'] = fixed['turns'][0]['text'].replace('4 個', '3 個')
+    model, calls = fake_model(value, rewrites=[fixed])
+    monkeypatch.setattr(provider, 'luna', model)
+    result = provider.script(dialogue())
+    assert [kind for kind, _ in calls] == ['script', 'review', 'review', 'rewrite', 'review']
+    assert result['segments'][0]['turns'][0]['text'] == value['segments'][0]['turns'][0]['text']
+    correction = json.loads(calls[3][1][calls[3][1].index('{"series"'):])['correction']
+    assert correction['segment_index'] == 1
+    assert '宣告的點數' in correction['issues'][0]['reason']
+
+
+def test_recap_mismatch_after_rewrite_is_not_published(monkeypatch):
+    value = candidate()
+    bad = recap(unnumbered_fourth=True)
+    value['segments'].append(bad)
+    model, calls = fake_model(value, rewrites=[bad])
+    monkeypatch.setattr(provider, 'luna', model)
+    with pytest.raises(RuntimeError, match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):
+        provider.script(dialogue())
+    assert [kind for kind, _ in calls] == ['script', 'review', 'review', 'rewrite', 'review']

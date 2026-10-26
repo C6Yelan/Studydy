@@ -58,7 +58,7 @@ PyMuPDF 維持 1.28.0，renderer 的嚴格版本契約不變。此批不修改 O
 
 ## Podcast 講稿逐段核對
 
-`ops/podcast/provider.py` 的 `/script` 改為生成後逐段核對（`source-script/v14`），核對提示存於 runtime lock 新增的 `podcast_script_review`（`podcast-script-review/v1`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash：新工作的 provenance 記錄新 hash，進行中的教材分析、筆記與題組工作沿用各自封存的 lock，不受影響。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊 backend 可接收 v14 講稿，新 backend 也可接收舊 provider 的 v13 講稿，兩者部署順序不互相依賴，backend 隨下次映像更新帶入新 lock 即可。重啟前照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。`/script` 從生成到核對完成都持有 provider 的文字鎖，每集約 60～140 秒（12 段都重寫的最壞情況約 37 次呼叫、4～5 分鐘）；期間教材問答、卡片、主題與研究等 `/semantics` 文字請求會排隊等待（不逾時）。工作日誌 `script_review` 記實際呼叫次數。bundle 內程式與 lock 不一致時，工作日誌記 `PODCAST_REVIEW_CONTRACT_INVALID`，backend 顯示為 `PODCAST_PROVIDER_FAILED`。
+`ops/podcast/provider.py` 的 `/script` 改為生成後逐段核對（`source-script/v15`），核對提示存於 runtime lock 新增的 `podcast_script_review`（`podcast-script-review/v1`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash：新工作的 provenance 記錄新 hash，進行中的教材分析、筆記與題組工作沿用各自封存的 lock，不受影響。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊 backend 可接收 v15 講稿，新 backend 也可接收舊 provider 的 v13 講稿，兩者部署順序不互相依賴，backend 隨下次映像更新帶入新 lock 即可。重啟前照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。`/script` 從生成到核對完成都持有 provider 的文字鎖，每集約 60～140 秒（12 段都重寫的最壞情況約 37 次呼叫、4～5 分鐘）；期間教材問答、卡片、主題與研究等 `/semantics` 文字請求會排隊等待（不逾時）。工作日誌 `script_review` 記實際呼叫次數。bundle 內程式與 lock 不一致時，工作日誌記 `PODCAST_REVIEW_CONTRACT_INVALID`，backend 顯示為 `PODCAST_PROVIDER_FAILED`。
 
 ## 媒體來源（圖片、音訊、影片、YouTube）
 

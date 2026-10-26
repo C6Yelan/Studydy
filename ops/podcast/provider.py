@@ -396,6 +396,7 @@ def script(body, *, cancelled=None, diagnostics=None):
 1. 開場：第一段先用一個引子（問題、情境或生活例子）帶入，主持人打招呼並報出自己的名字，再說出本集路線，依序會談哪幾個主題。
 2. 主體：依主題分段；換段時用一兩句串場，交代上一段和下一段的關係。
 3. 收尾：最後一段用 3～5 點回顧本集重點；series.next_concepts 有內容時，接著依它預告下一集會談的主題，不要提前講解下一集的內容；next_concepts 為空表示系列最後一集，改為簡短收束，不要預告不存在的下一集。
+回顧宣告的點數必須與實際項目一致；每個回顧項目各用一輪有來源的台詞，依序以「第一、」「第二、」等明確編號，不把未編號的另一個重點混入道別。道別和下集預告另外一輪，沒有講述來源內容時 source_indices 留空。
 segments 依主題分成少數幾段，含開場與收尾至多 12 段，台詞放在 turns.text。每輪 source_indices 填入真正支持台詞的來源編號；開場引子、路線、串場、預告等沒有講述來源內容的台詞留空，回顧某個重點時填該重點的來源編號。引用編號不朗讀。
 sources 列出本集必須講解的概念與重點；block_indices 對應 page_context 的原文區塊 index。省略 claim 欄位表示重點就是該原文，不是缺資料。逐項涵蓋所選重點，可合併重複觀念，保留各來源編號。
 篇幅依內容自然安排，不湊字數。每輪至多 1600 字，整集含開場與收尾至多 9600 字，以免超出語音處理容量；篇幅緊時精簡開場、串場與例子，不刪減所選重點。
@@ -422,7 +423,7 @@ sources 列出本集必須講解的概念與重點；block_indices 對應 page_c
         result = validate(
             {
                 "schema": SCHEMA,
-                "provider": f"codex-cli/{MODEL};source-script/v14",
+                "provider": f"codex-cli/{MODEL};source-script/v15",
                 "segments": compile_beats(candidate, claims),
             },
             episode,
