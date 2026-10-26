@@ -328,6 +328,8 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 ## 學習資料匯出
 
+筆記與地圖大綱匯出顯示教材真名、教材及版本的 8 碼識別；地圖不新增來源頁碼。筆記 Markdown 將同檔同頁來源合併為一行，仍列出全部引用區塊。公式由可整列換頁的無框表格承載，避免 PDF 在頁尾縮小；`test_exports.py` 逐張核對跨頁公式與 DOCX 尺寸，並驗證教材標示、註記舊版本短碼及來源合併的頁碼／區塊保存。
+
 `test_exports.py` 檢查筆記三種格式的表格、公式、來源、註記快照與中文字型粗體，新格式另核對大綱與編號、巢狀條列（Word 的 List Bullet 層級）、相鄰表格不合併、公式（Markdown `$$`、PDF／Word 圖片與 Word 替代文字）及醒目區塊，長重點整理依內容自然分頁到多頁 A4、不縮字且全部段落保留、標題為中文粗體，摘要／完整筆記的新舊格式標題與正文開頭同頁、長正文跨頁仍逐行完整且不重複，診斷摘要的頁數與省略數量、MP3 實際解碼、逐字稿名字／時間，以及 Anki 資料庫與全部 PNG；也核對影音來源的「段」標示、DOCX 控制字元／作者及空診斷文案。`runtime/study/test_export_routes.py` 在一次性 DB 驗證 owner、固定版本、Origin、私人快取、未發布筆記、缺少影片／時間軸與偽造地圖選取。
 
 受影響的 notes、concept-cards、knowledge-map-viewport、learning-diagnosis、podcasts mock specs 驗證下載格式、整組分批、地圖渲染、失敗訊息與原介面；notes 真 API browser 同時驗證筆記三種下載。共用 client 的二進位下載沿用帳號失效／請求取消，因此仍需完整 mock 套件與 global-layout／shell-layout。這些驗證不宣稱重新驗收生成內容；匯出本身不呼叫模型。
