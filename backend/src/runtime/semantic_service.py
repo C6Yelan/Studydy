@@ -375,9 +375,11 @@ def request_semantics(
             if cancellation_check:
                 cancellation_check()
             code = (
-                "SEMANTIC_SERVICE_TIMEOUT"
-                if str(error) == "LUNA_GENERATION_TIMEOUT"
-                else "SEMANTIC_SERVICE_UNAVAILABLE"
+                "SEMANTIC_SERVICE_TIMEOUT" if str(error) == "LUNA_GENERATION_TIMEOUT"
+                else "SEMANTIC_SERVICE_UNAVAILABLE" if str(error) in {
+                    "VOICE_PROVIDER_UNAVAILABLE", "GENERATION_PROVIDER_UNAVAILABLE"
+                } or isinstance(error, (ConnectionError, TimeoutError, OSError))
+                else "SEMANTIC_GENERATION_FAILED"
             )
             raise SemanticServiceError(code) from None
         if cancellation_check:

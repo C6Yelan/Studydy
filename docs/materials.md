@@ -37,7 +37,7 @@
 
 圖片組在瀏覽器依目前順序打包成不壓縮的 ZIP（`0001.png`、`0002.jpg`…），原檔即此壓縮檔。沙箱以 PyMuPDF／PyAV 將每張圖排成一頁（長邊 842 pt，JPEG 依 EXIF 轉正），mapping 記錄 `image_number`；之後與掃描 PDF 相同，由 Unlimited-OCR 建立 Evidence。嵌入 PDF 的一律是壓縮影像：不超過 1.5 MiB 且長邊不超過 2,500 px 的 JPEG 原樣嵌入，其餘縮到長邊 2,500 px（OCR 繪製約 2,340 px 已足夠）後以 PNG 或 JPEG 嵌入；50 張 1,200 萬畫素手機照片（合計 88 MiB）轉成約 30 MB 的 PDF。HEIC 不支援：PyAV 無法組合 iPhone 照片常用的圖塊格式。
 
-音訊、影片音軌與沒有可用字幕的 YouTube 在斷網沙箱轉成 16 kHz 單聲道 Opus，再送到主機 Podcast provider 的 `/media-transcribe`，由本機 faster-whisper large-v3-turbo 以顯示卡批次辨識（語言自動偵測），不外送。辨識與 CosyVoice 共用 provider 的 GPU 鎖；教材 OCR 與轉檔都在教材 worker 執行緒上依序執行，不會與這裡的辨識同時進行。實測 1 小時中文課程：CPU int8 約 12.7 分鐘，顯示卡約 1 分鐘。
+音訊、影片音軌與沒有可用字幕的 YouTube 在斷網沙箱轉成 16 kHz 單聲道 Opus，再送到主機 Podcast provider 的 `/media-transcribe`，由本機 faster-whisper large-v3-turbo 以顯示卡批次辨識（語言自動偵測），不外送。辨識與 CosyVoice 共用 provider 的 GPU 鎖；每條教材 worker 內依序執行 OCR 與轉檔；設定多條 worker 時，不同教材的工作可重疊，顯示卡辨識仍由 provider 的 GPU 鎖控制。實測 1 小時中文課程：CPU int8 約 12.7 分鐘，顯示卡約 1 分鐘。
 
 YouTube 連結以 yt-dlp 讀取：只接受單支影片（Shorts 照常；帶清單參數的影片網址只取該影片），拒絕播放清單、直播或尚未播出、會員限定、私人與年齡限制影片，以及超過 2 小時的影片，並回報具體原因。只用上傳者字幕，順序為繁體中文 → 簡體中文 → 影片原語言；YouTube 自動字幕不用，改暫存音軌以本機辨識，辨識後立即刪除。影片的原檔是 `youtube-source/v1` 參照（影片 ID、標題、頻道、長度），不保存影音。使用 yt-dlp 有服務條款灰色地帶，YouTube 改版時需更新 yt-dlp；版本記在轉檔政策。
 
@@ -238,3 +238,7 @@ SearXNG 由 Compose 的 `research-search` 提供，只在 application 網路內�
 新格式不保留舊版讀取轉接。舊教材或舊回答無法使用時顯示明確訊息，可從保留的原檔重新建立；不會背景重分析、覆寫舊版本或刪除原檔。
 
 歷史 `material-notes/v10`（含原 `summary_layout`）與 v11 runtime lock 仍可通過結構驗證供教材分析續接，不改寫封存內容或 hash；筆記生成仍嚴格要求現行 v12 契約及其提示，不執行舊版生成。
+
+## 分析暫時失敗與自動接續
+
+一般使用者分析遇到 RESTART_INTERRUPTED、語意服務暫時不可用／逾時、STORAGE_BUSY 或 SOURCE_BUSY 時，沿同一 run 與已保存 checkpoint 自動接續一次。auto_retry_count／auto_retry_reason 存在工作列，程序重啟不重設，第二次失敗才回 failed；排回 queued 時本次執行進度重新建立，已驗證 checkpoint 不刪除。取消、內容核對（REVIEW_*）、一般模型生成失敗、格式／容量錯誤及空間不足不重試。指定一次性維護 run 排除在此規則之外，仍遵守既有「恢復後再失敗不得自動重排」授權。

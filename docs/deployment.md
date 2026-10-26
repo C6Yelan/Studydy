@@ -352,3 +352,9 @@ exports 不需 migration。後端新增 `genanki`、`python-docx` 與 `fonttools
 部署前要先清空舊 lock 的教材分析佇列，再切換後端與新 lock。
 
 GEN-01 的引用補正新增逐項拒收診斷，並更新 material_semantics 提示；需一起更新後端與 runtime lock，不需 migration 或改動 provider。即使 schema 版本未變，提示變更仍會改變 lock hash，不沿用不相容的舊分析 checkpoint，新 run 會略過並重新分析，舊封存保留；依上述規則先清空舊 lock 的分析佇列，不改寫已封存 hash。
+
+## 教材 worker 與自動重試
+
+Migration 0022 新增 material_processing_runs.auto_retry_count／auto_retry_reason，不改舊 checksum 或來源 hash。先套用 migration 再啟動新後端；回復舊映像時保留新增欄位與已用重試次數，不刪資料。隔離測試驗證 SQL 套用及交易回滾。
+
+STUDYDY_MATERIAL_WORKERS 預設 1，需多教材時由管理者在本機 .env 設定正整數後更新後端。provider 的教材分析／審查依 call-tags feature 分流，章節和其他文字功能仍用單一文字槽；STUDYDY_LUNA_PARALLEL_TEST=1 時教材分析與審查共用兩槽，增加 worker 不增加 provider 槽數。指定維護 run 不使用一般分析的自動重試。

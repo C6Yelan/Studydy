@@ -79,6 +79,11 @@ def test_review_progress_persists_through_failure_cancel_and_recovery(cancellati
             else: row.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
         assert processing.recover_interrupted_material_runs(dsn=dsn) == 1
     stored = read(cancellation_run)
+    if terminal == 'interrupted':
+        assert stored.status == 'pending' and stored.auto_retry_count == 1
+        assert stored.auto_retry_reason == 'RESTART_INTERRUPTED'
+        assert stored.progress_stage == 'queued'
+        return
     assert stored.status == ('cancelled' if terminal == 'cancelled' else 'failed')
     assert (stored.progress_stage, stored.completed_units, stored.total_units) == ('review', 31, 49)
     assert (stored.completed_pages, stored.total_pages) == (368, 368)

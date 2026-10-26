@@ -122,6 +122,8 @@ class MaterialDiscardView(_Closed):
 
 
 class MaterialProcessingRunView(_Closed):
+    auto_retry_count: Literal[0, 1] = 0
+    auto_retry_reason: str | None = None
     analysis_saved: bool = False
     base_revision: str | None = Field(
         default=None, exclude_if=lambda value: value is None
@@ -1091,6 +1093,8 @@ def project_material_run(run: Any) -> MaterialProcessingRunView:
             **{
                 name: getattr(run, name)
                 for name in (
+                    "auto_retry_count",
+                    "auto_retry_reason",
                     "run_id",
                     "material_id",
                     "source_artifact_id",
