@@ -111,7 +111,7 @@ def test_material_raw_failure_reaches_archive_reference_only(provider_server, fa
     luna_calls.set_archive_writer(saved.extend)
     lock = luna_lock(_runtime_lock())
     with pytest.raises(SemanticServiceError):
-        request_semantics(None, runtime_lock=lock, task="material_semantics", request={"case": "invalid-json"}, response_schema={"type": "object"})
+        request_semantics(None, runtime_lock=lock, task="material_semantics", tags=luna_calls.tags(feature="material_analysis", stage="analysis"), request={"case": "invalid-json"}, response_schema={"type": "object"})
     luna_calls.completed("failed", "SEMANTIC_SERVICE_UNAVAILABLE")
     luna_calls.close(work)
     assert saved == [{"candidate": "私密候選：這不是 JSON"}]
@@ -126,7 +126,7 @@ def test_parallel_semantics_preserves_tags_and_runtime_lock(provider_server, fak
     original = deepcopy(lock)
     work = start("material_analysis", archive="analysis/synthetic")
     def invoke():
-        return request_semantics(None, runtime_lock=lock, task="material_semantics", request={"synthetic": True}, response_schema={"type": "object"})
+        return request_semantics(None, runtime_lock=lock, task="material_semantics", tags=luna_calls.tags(feature="material_analysis", stage="analysis"), request={"synthetic": True}, response_schema={"type": "object"})
     with ThreadPoolExecutor(max_workers=2) as pool:
         jobs = [pool.submit(copy_context().run, invoke) for _ in range(2)]
         assert all(job.result() == {"synthetic": True} for job in jobs)

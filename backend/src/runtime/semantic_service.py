@@ -355,14 +355,7 @@ def request_semantics(
         if tags is None:
             from . import luna_calls
 
-            current = luna_calls.tags()
-            if current is not None:
-                feature = "assessment_check" if task == "assessment_check" else current["feature"]
-                if current["feature"].startswith("material_"):
-                    stage = "analysis" if task == "material_semantics" else "review"
-                    tags = luna_calls.tags(feature="material_" + stage, stage=stage)
-                else:
-                    tags = luna_calls.tags(feature=feature)
+            tags = luna_calls.tags()
         try:
             from .generation_jobs import provider_job
 

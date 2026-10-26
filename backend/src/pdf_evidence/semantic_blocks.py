@@ -13,6 +13,7 @@ from knowledge_map.independent_blocks import (
     repair_excerpt_quotes,
 )
 from knowledge_map.localization import localize_block, POLICY as LOCALIZATION_POLICY
+from runtime import luna_calls
 from runtime.semantic_service import semantic_client, SemanticServiceError
 from content_identity import canonical_sha256
 
@@ -84,6 +85,7 @@ def analyze_blocks(
                     client,
                     runtime_lock=lock,
                     task="material_semantics",
+                    tags=luna_calls.tags(feature="material_analysis", stage="analysis"),
                     request=request,
                     response_schema=schema,
                     cancellation_check=check,

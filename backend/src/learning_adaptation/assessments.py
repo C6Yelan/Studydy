@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import case, or_, select
 
 from content_identity import canonical_sha256
+from runtime import luna_calls
 from runtime.semantic_service import request_semantics, semantic_client
 from runtime.storage.tables import (
     Assessment,
@@ -674,6 +675,7 @@ def _checked_candidate(client, runtime_lock, claim, candidates, prior, semantic_
         client,
         runtime_lock=runtime_lock,
         task="assessment_check",
+        tags=luna_calls.tags(feature="assessment_check"),
         request={
             "schema": "assessment-check-request/v1",
             "claim": claim.text,

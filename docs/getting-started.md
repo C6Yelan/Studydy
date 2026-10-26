@@ -111,7 +111,6 @@ docker compose exec backend /app/backend/.venv/bin/python -m runtime.local_runti
 
 Luna 呼叫標籤協定須先更新相容舊請求的 provider，再更新 backend。標籤只在請求最外層，不送入模型。呼叫紀錄預設為 provider 資料目錄的 `luna-calls.jsonl`（可由 `STUDYDY_LUNA_CALL_LOG` 指定），保留 90 天。使用 `python ops/podcast/luna_report.py --help` 查看本機報表篩選參數；報表不顯示教材或模型候選。最終失敗診斷分別保存在 provider 的 `failures/` 與 backend artifact root 的 `failures/`，30 天清理；教材只保存既有 archive 參照。
 
-
 Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集音訊；provider 交回的 24 kHz PCM WAV 由 backend 無損壓成 FLAC（WAV 標頭以 `riff` foreign metadata 保存，可逐位元還原）後存入私人 artifact store，分集 `audio.sha256` 仍是該 WAV 的雜湊。建立後自動生成，選擇單人解說或雙人對談，以及是否同時生成影片（預設不勾），分集保留全部所選重點，每集講稿須由正文段落引用並講解該集全部重點（逐段核對判定），內容較多自動拆集。失敗可接續已保存進度；取消會刪除整份 Podcast。分集沿用所選概念順序，在每集最多 32 個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
 
 文字 provider 沿用 `codex exec -m gpt-5.6-luna`。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。模型每句只輸出 `speaker`、`text` 與 `source_indices`；程式核對編號範圍，依重點帶入該 claim 全部的 `evidence_ids`，保存的 turn 文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須由正文段落引用並經逐段核對判定已講解，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。

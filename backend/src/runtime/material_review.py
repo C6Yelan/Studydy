@@ -23,6 +23,7 @@ from knowledge_map.claim_literals import language_correction_template, restore_l
 from knowledge_map.structure import build_knowledge_structure_view, _revision
 from knowledge_map.structure_rules import RELATION_TYPES
 from content_identity import canonical_sha256
+from . import luna_calls
 from .semantic_service import SemanticServiceError, request_semantics, semantic_client
 
 
@@ -399,6 +400,7 @@ def _checked_review(
                 client,
                 runtime_lock=lock,
                 task="material_review",
+                tags=luna_calls.tags(feature="material_review", stage="review"),
                 request=request,
                 response_schema=schema,
                 cancellation_check=wait_cancellation_check or check_cancel,
