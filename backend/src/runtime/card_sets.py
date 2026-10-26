@@ -234,6 +234,8 @@ def delete_card_set(owner, card_set_id, *, dsn=None):
         row, material = _owned_card(session, owner, card_set_id, allow_deleted=True)
         material_id = material.material_id
         if row.deleted_at is None:
+            from .learning_retention import preserve_learning
+            preserve_learning(session, owner, "cards", card_set_id)
             # 留下最小重送收據，舊建立請求不能在刪除後復活卡組；同時釋放版本引用。
             row.deleted_at = datetime.now(UTC)
             # 刪除時結束未完成的生成，收據不留在 pending／running。

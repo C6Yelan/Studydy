@@ -32,7 +32,7 @@ from .models import (
     KnowledgeConceptsView,
     KnowledgeRegionsView,
     KnowledgeSearchView,
-    LearningActivityView,
+    LearningActivityView, CelebrationClaim, CelebrationClaimView,
     LearningRhythmView,
     LibrarySearchView,
     MapProgressView,
@@ -190,6 +190,14 @@ def install(app, settings):
         learner = request_context.trusted_learner(request, settings)
         with database_session(settings.dsn) as db:
             return learning_activity(db, learner.learner_id)
+
+    @app.post("/v1/learning-activity/celebrations/claim", response_model=CelebrationClaimView, tags=["learning"])
+    def claim_learning_celebrations(request: Request, body: CelebrationClaim):
+        from ..learning_retention import claim_celebrations
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        with database_session(settings.dsn) as db:
+            return claim_celebrations(db, learner.learner_id)
 
     @app.get(
         "/v1/learning-activity/rhythm",

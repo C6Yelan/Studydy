@@ -213,6 +213,7 @@ def test_preview_then_move_cards_and_progress_without_touching_the_old_version(c
 
     # 刪除新版卡組後，舊卡組可以再次移到新版。
     card_sets.delete_card_set(owner, new_set, dsn=dsn)
+    assert activity(fixture)["xp"] == reviewed["xp"]
     again = version_moves.preview_version_move(learner, material, dsn=dsn)
     assert [s["card_set_id"] for s in again["card_sets"]] == [old_set] and again["study"] is None
 

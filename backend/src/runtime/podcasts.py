@@ -375,6 +375,8 @@ def delete_podcast(owner, identity, *, expected_version=None, dsn=None):
             if expected_version is not None and row.version != expected_version:
                 raise PodcastError("PODCAST_CONFLICT")
             if row.status != "deleted":
+                from .learning_retention import preserve_learning
+                preserve_learning(db, owner, "podcast", identity)
                 from .podcast_videos import discard
                 from .podcast_progress import forget_positions
 

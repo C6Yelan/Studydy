@@ -486,6 +486,15 @@ class LearningActivityView(_Closed):
     badges: LearningBadgesView
 
 
+class CelebrationClaim(_Closed):
+    schema_: Literal["celebration-claim/v1"] = Field(alias="schema")
+
+
+class CelebrationClaimView(CelebrationClaim):
+    level: int | None
+    badge_ids: list[str]
+
+
 class LearningRhythmView(_Closed):
     schema_: Literal["learning-rhythm/v1"] = Field(alias="schema")
     timezone: Literal["Asia/Taipei"]

@@ -158,12 +158,12 @@ def test_existing_records_are_derived_retroactively(closed_loop, tmp_path, monke
     assert view["xp"]["sources"]["diagnostics"] == 20
     # 有完成題組、筆記註記與聽完 Podcast，但沒有標記概念卡：全能島主未取得。
     assert not badges["all_tools_material"]["earned"]
-    # 刪除教材後相關紀錄不再計入（匯出紀錄不屬於教材，保留）。
+    # 模擬內容不可讀：當下計量可減少，但已取得徽章及日期永久保存。
     with database_session(dsn) as db:
         db.execute(text("UPDATE materials SET discard_requested_at = now() WHERE material_id = :m"), {"m": material})
     view, badges = activity(f)
-    assert not badges["first_diagnostic"]["earned"] and not badges["upload_image"]["earned"]
-    assert not badges["podcast_series"]["earned"] and badges["first_export"]["earned"]
+    assert badges["first_diagnostic"]["earned"] and badges["upload_image"]["earned"]
+    assert badges["podcast_series"]["earned"] and badges["first_export"]["earned"]
     assert view["xp"]["sources"]["diagnostics"] == 0
 
 

@@ -239,9 +239,10 @@ def test_badges_follow_real_records_and_their_dates(closed_loop):
     assert (badges["streak_7"]["earned"], badges["streak_7"]["progress"]) == (False, view["streak_days"]) == (False, 0)
     assert (badges["listen_30_minutes"]["progress"], badges["level_5"]["progress"]) == (0, view["xp"]["level"])
 
-    # 教材移除後，相關的完成與教材徽章不再成立（作答紀錄仍在，作答徽章保留）。
+    # 既有成就一經取得永久保留，內容不可讀也不收回取得日期。
     with database_session(dsn) as db:
         db.execute(text("UPDATE materials SET discard_requested_at = now()"))
     after = {b["badge_id"]: b for b in activity(fixture, now=now)["badges"]["items"]}
-    assert not after["first_material"]["earned"] and not after["first_concept"]["earned"]
+    assert after["first_material"]["earned"] and after["first_concept"]["earned"]
+    assert after["first_material"]["earned_on"] == badges["first_material"]["earned_on"]
     assert after["first_answer"]["earned"]
