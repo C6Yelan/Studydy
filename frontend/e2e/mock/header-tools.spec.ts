@@ -206,7 +206,7 @@ async function mockAccount(page: Page, initialSessions = 3) {
   await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: "以安" } }));
   await page.route("**/v1/account/sessions", (route) => route.fulfill({ json: view() }));
   await page.route("**/v1/account/storage", (route) => route.fulfill({ json:
-    { schema: "account-storage/v1", used_bytes: 5368709120, reserved_bytes: 104857600, limit_bytes: 5368709120, remaining_bytes: 0 } }));
+    { schema: "account-storage/v2", used_bytes: 5368709120, reserved_bytes: 104857600, limit_bytes: 5368709120, remaining_bytes: 0, breakdown: { material_files_bytes: 5263851520, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 104857600 }, largest_materials: [] } }));
   await page.route("**/v1/account/sessions/*", (route) => {
     const target = new URL(route.request().url()).pathname.split("/").at(-1)!;
     writes.push({ path: target, method: route.request().method(), origin: route.request().headers().origin, body: route.request().postData() });
@@ -365,4 +365,32 @@ test("profile fits a 390px phone and jumps to account settings", async ({ page }
   const devicesButton = page.getByRole("button", { name: "登出其他裝置" });
   await devicesButton.scrollIntoViewIfNeeded();
   await expect(devicesButton).toBeInViewport();
+});
+
+
+test("storage breakdown includes reservations once and lists the five supplied materials",async({page},testInfo)=>{
+ await mockKnowledgeMapApi(page);
+ const gib=1024**3;
+ const largest=Array.from({length:5},(_,index)=>({material_id:index===0?materialId:`77777777-7777-4777-8777-${String(index).padStart(12,'0')}`,display_name:index===0?'資料結構教材':`第 ${index+1} 份教材：機器學習的原理、實作與應用`,used_bytes:[gib,gib/2,gib*3/8,gib/4,gib/8][index]}));
+ await page.route('**/v1/materials',route=>route.fulfill({json:{schema:'material-library/v1',materials:largest.map((material,index)=>({schema:'material-library-item/v1',material_id:material.material_id,display_name:material.display_name,source_artifact_id:null,size_bytes:material.used_bytes,created_at:'2026-10-27T00:00:00Z',latest_attempt:null,available_structures:index===0?[{run_id:runId,knowledge_structure_revision:structureRevision,status:'succeeded',created_at:'2026-10-27T00:00:00Z'}]:[],study_sessions:[]}))}}));
+ await page.route('**/v1/account/storage',route=>route.fulfill({json:{schema:'account-storage/v2',used_bytes:gib*2.5,reserved_bytes:gib/4,limit_bytes:gib*5,remaining_bytes:gib*2.5,breakdown:{material_files_bytes:gib,podcast_audio_bytes:gib/2,podcast_video_bytes:gib/2,analysis_bytes:gib/4,reserved_bytes:gib/4},largest_materials:largest}}));
+ await page.goto('/materials');
+ const opener=page.getByRole('button',{name:/^帳號空間：/});await opener.click();
+ const panel=page.getByRole('region',{name:'帳號空間',exact:true});
+ await expect(panel.locator('dt')).toHaveText(['教材原檔與轉換檔','Podcast 音訊','Podcast 影片','分析資料','處理中預留']);
+ await expect(panel.locator('dd')).toHaveText(['1 GB','512 MB','512 MB','256 MB','256 MB']);
+ await expect(panel.locator('.header-storage-numbers')).toContainText('已用 2.5 GB');
+ await expect(panel.getByRole('link')).toHaveText(largest.map(material=>material.display_name));
+ const bar=panel.getByRole('img',{name:'空間分類：已用 2.5 GB，剩餘 2.5 GB'});
+ const sizes=await bar.evaluate(element=>Array.from(element.children).map(child=>child.getBoundingClientRect().width/element.getBoundingClientRect().width*100));
+ sizes.forEach((size,index)=>expect(size).toBeCloseTo([20,10,10,5,5][index],1));
+ expect(await bar.locator('span').evaluateAll(elements=>new Set(elements.map(element=>getComputedStyle(element).backgroundColor)).size)).toBe(5);
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`storage-breakdown-${width}.png`)});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  const bounds=await panel.boundingBox();expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width);
+  if(width===1440){const last=await panel.getByRole('link').last().boundingBox();expect(last!.y+last!.height).toBeLessThanOrEqual(height);}
+ }
+ await page.keyboard.press('Escape');await expect(opener).toBeFocused();await expect(panel).toHaveCount(0);
+ await opener.click();await panel.getByRole('link',{name:'資料結構教材',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}`));
 });

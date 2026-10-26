@@ -358,3 +358,7 @@ GEN-01 的引用補正新增逐項拒收診斷，並更新 material_semantics �
 Migration 0022 新增 material_processing_runs.auto_retry_count／auto_retry_reason，不改舊 checksum 或來源 hash。先套用 migration 再啟動新後端；回復舊映像時保留新增欄位與已用重試次數，不刪資料。隔離測試驗證 SQL 套用及交易回滾。
 
 STUDYDY_MATERIAL_WORKERS 預設 1，需多教材時由管理者在本機 .env 設定正整數後更新後端。provider 的教材分析／審查依 call-tags feature 分流，章節和其他文字功能仍用單一文字槽；STUDYDY_LUNA_PARALLEL_TEST=1 時教材分析與審查共用兩槽，增加 worker 不增加 provider 槽數。指定維護 run 不使用一般分析的自動重試。
+
+### 帳號空間細項
+
+空間面板僅接受 `account-storage/v2`；須與 B3.4 的細項 API 同批部署。五類 breakdown 合計須等於 used_bytes，reserved_bytes 已包含其中；前 5 大教材使用 API 提供的順序與用量，不由前端重新掃描或估算。

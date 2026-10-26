@@ -22,7 +22,7 @@ const responses: Record<string, unknown> = {
   ] },
   // 較長名稱，檢查頁首在各寬度不溢出。
   "/v1/profile": { schema: "learner-profile/v1", display_name: "林以安同學的學習帳號" },
-  "/v1/account/storage": { schema: "account-storage/v1", used_bytes: 4831838208, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 536870912 },
+  "/v1/account/storage": { schema: "account-storage/v2", used_bytes: 4831838208, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 536870912, breakdown: { material_files_bytes: 4831838208, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] },
   // 有學習紀錄的頁首進度、等級、今日任務與學習節奏，讓各寬度一併檢查頁首、首頁右欄與個人檔案不溢出。
   "/v1/learning-activity/rhythm": learningRhythm({
     streak: 128,

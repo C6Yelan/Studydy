@@ -95,7 +95,11 @@ export type LearnerIdentity = { schema: "learner-identity/v1"; learner_id: strin
 export type LearnerProfile = { schema: "learner-profile/v1"; display_name: string | null };
 /** 帳號已用空間：教材原檔與轉換檔、Podcast 音訊與影片、分析檔及未收齊的分段上傳。 */
 /** used_bytes 已含 reserved_bytes（未收齊的分段上傳與生成中 Podcast／影片的預估額度）。 */
-export type AccountStorage = { schema: "account-storage/v1"; used_bytes: number; reserved_bytes: number; limit_bytes: number; remaining_bytes: number };
+export type AccountStorage = {
+  schema: "account-storage/v2"; used_bytes: number; reserved_bytes: number; limit_bytes: number; remaining_bytes: number;
+  breakdown: { material_files_bytes: number; podcast_audio_bytes: number; podcast_video_bytes: number; analysis_bytes: number; reserved_bytes: number };
+  largest_materials: { material_id: string; display_name: string; used_bytes: number }[];
+};
 // 本人一個仍有效的登入；device_label 為 null 表示未知裝置（舊登入或無法辨識的瀏覽器）。
 export type AccountSession = {
   session_id: string; device_label: string | null; created_at: string; last_used_at: string; current: boolean;
