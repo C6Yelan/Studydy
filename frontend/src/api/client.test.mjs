@@ -1680,3 +1680,46 @@ test("podcast summaries must say whether video was requested", async () => {
     await assert.rejects(new StudydyApiClient(async () => Response.json(broken)).getPodcast(setId), ApiClientError);
   }
 });
+
+
+test("v2 learning goals accept pending draft choices and preserve the update request", async () => {
+  const pending = {target_date:"2026-11-01",target_percent:80};
+  const value = {schema:"learning-goal/v2",material_id:materialId,knowledge_structure_revision:null,run_id:null,today:"2026-10-27",goal:null,pending_goal:pending};
+  const client=new StudydyApiClient(async(url,init)=>{
+    assert.equal(url,`/v1/materials/${materialId}/goal`);
+    assert.deepEqual(JSON.parse(init.body),{schema:"learning-goal-update/v1",...pending});
+    return Response.json(value);
+  });
+  assert.deepEqual((await client.setLearningGoal(materialId,pending.target_date,80)).pending_goal,pending);
+  for(const invalid of [{...value,schema:"learning-goal/v1"},{...value,pending_goal:{...pending,target_percent:70}}])
+    await assert.rejects(new StudydyApiClient(async()=>Response.json(invalid)).getLearningGoal(materialId),error=>error.kind==='schema');
+});
+
+test("v2 diagnosis requests material scope and validates the supplied completion counters", async () => {
+  const value={schema:"learning-diagnosis/v2",material_id:materialId,knowledge_structure_revision:structureRevision,scope:"material",source_resolver:`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`,strengths:[],weaknesses:[{concept_id:conceptId,label:"Stack",points:[{claim_id:claimId,title:"完整重點",answer_count:3,correct_count:1,latest_is_correct:false,consecutive_correct_count:0,required_consecutive_correct:2,completed:false,evidence:[]}]}],recommendations:[]};
+  const request={materialId,structureRevision};
+  const client=new StudydyApiClient(async(url)=>{assert.equal(new URL(url,'http://localhost').search,'');return Response.json(value);});
+  assert.equal((await client.getLearningDiagnosis(request)).weaknesses[0].points[0].required_consecutive_correct,2);
+  for(const invalid of [{...value,schema:"learning-diagnosis/v1"},{...value,scope:"set"}])
+    await assert.rejects(new StudydyApiClient(async()=>Response.json(invalid)).getLearningDiagnosis(request),error=>error.kind==='schema');
+});
+
+test("v3 note annotations write the visible content revision and generation then reload the requested revision", async () => {
+  const contentRevision=`knowledge-structure:sha256:${'f'.repeat(64)}`;
+  const value={schema:"material-notes/v3",material_id:materialId,run_id:runId,knowledge_structure_revision:structureRevision,kind:"summary",status:"running",generation:4,source_status:structureView().status,paragraphs:[],outline:[],annotations:[],source_resolver:`/v1/materials/${materialId}/knowledge-structures/${contentRevision}/evidence`,error_code:null,progress:null,content_revision:contentRevision,content_generation:2,update_available:true,updating:true,started_at:"2026-10-27T00:00:00Z",updated_at:null};
+  const calls=[];
+  const client=new StudydyApiClient(async(url,init)=>{
+    calls.push({url,method:init.method});
+    if(init.method==='PUT'){
+      assert.equal(url,`/v1/materials/${materialId}/knowledge-structures/${contentRevision}/notes/summary/annotations/${setId}`);
+      assert.deepEqual(JSON.parse(init.body),{expected_generation:2,paragraph_id:'paragraph-1',body:'我的註記'});
+      return Response.json({...value,knowledge_structure_revision:contentRevision,generation:2,update_available:false});
+    }
+    assert.equal(url,`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/notes/summary`);
+    return Response.json(value);
+  });
+  assert.equal((await client.saveNoteAnnotation(value,setId,'paragraph-1','我的註記')).knowledge_structure_revision,structureRevision);
+  assert.deepEqual(calls.map(call=>call.method),['PUT','GET']);
+  for(const invalid of [{...value,schema:'material-notes/v2'},{...value,source_resolver:`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`}])
+    await assert.rejects(new StudydyApiClient(async()=>Response.json(invalid)).getNotes(materialId,structureRevision,'summary'),error=>error.kind==='schema');
+});

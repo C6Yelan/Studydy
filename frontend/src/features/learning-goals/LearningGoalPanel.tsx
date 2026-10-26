@@ -51,7 +51,7 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
   };
   const goal = view?.goal;
   const begin = (concept: GoalConcept) => {
-    if (view) void launch.start({ materialId, runId: view.run_id, structureRevision: view.knowledge_structure_revision, conceptId: concept.concept_id });
+    if (view?.run_id && view.knowledge_structure_revision) void launch.start({ materialId, runId: view.run_id, structureRevision: view.knowledge_structure_revision, conceptId: concept.concept_id });
   };
   return <section className="learning-goal-panel" aria-label="學習目標與每日關卡">
     {launch.dialog}

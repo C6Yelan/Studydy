@@ -1,6 +1,7 @@
+import { MathText } from "../../ui/MathText";
 import { Progress } from "../../ui/Progress";
 import { ExportControls } from "../exports/ExportControls";
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { MaterialNotesView, NoteAnnotation, NoteBlock, NoteCalloutStyle, NoteItem, NoteKind, NoteOutlineEntry, NoteParagraph } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
@@ -16,27 +17,24 @@ export function numberedHeading(entry: NoteOutlineEntry) {
   return entry.number + (entry.level === 1 ? "" : " ") + entry.heading;
 }
 
-// KaTeX 與字型只在筆記有公式時載入，不加大其他頁面的主程式。
-const Formula = lazy(() => import("./Formula"));
-
 function Items({ items }: { items: NoteItem[] }) {
-  return <ul className="note-bullets">{items.map((item, i) => <li key={i}>{item.text}{item.children?.length ? <Items items={item.children}/> : null}</li>)}</ul>;
+  return <ul className="note-bullets">{items.map((item, i) => <li key={i}><MathText text={item.text}/>{item.children?.length ? <Items items={item.children}/> : null}</li>)}</ul>;
 }
 
 function Table({ label, caption, headers, rows }: { label: string; caption: string | null; headers: string[]; rows: string[][] }) {
   return <div className="note-table-scroll" role="region" aria-label={caption ?? label} tabIndex={0}><table>
     {caption && <caption>{caption}</caption>}
-    <thead><tr>{headers.map((cell, i) => <th key={i} scope="col">{cell}</th>)}</tr></thead>
-    <tbody>{rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>)}</tbody>
+    <thead><tr>{headers.map((cell, i) => <th key={i} scope="col"><MathText text={cell}/></th>)}</tr></thead>
+    <tbody>{rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}><MathText text={cell}/></td>)}</tr>)}</tbody>
   </table></div>;
 }
 
 function Block({ block, heading }: { block: NoteBlock; heading: string }) {
   switch (block.type) {
-    case "text": return <p className="note-prose">{block.text}</p>;
+    case "text": return <p className="note-prose"><MathText text={block.text}/></p>;
     case "bullets": return <Items items={block.items}/>;
     case "table": return <Table label={`${heading}表格`} caption={block.caption} headers={block.headers} rows={block.rows}/>;
-    case "formula": return <Suspense fallback={<div className="note-formula" aria-busy="true"/>}><Formula latex={block.latex}/></Suspense>;
+    case "formula": return <div className="note-formula"><MathText text={`$$${block.latex}$$`}/></div>;
     case "callout": {
       const label = calloutLabels[block.style];
       return <aside className={`note-callout note-callout-${block.style}`} aria-label={label}>
@@ -49,8 +47,8 @@ function Block({ block, heading }: { block: NoteBlock; heading: string }) {
 function ParagraphBody({ paragraph: p, number }: { paragraph: NoteParagraph; number?: NoteOutlineEntry }) {
   if (!("blocks" in p)) {
     // v11 以前的段落格式，重新生成前仍可閱讀。
-    return <><h3>{p.heading}</h3><p className="note-prose">{p.text}</p>
-      {p.formula && <p className="note-formula-text">{p.formula}</p>}
+    return <><h3>{p.heading}</h3><p className="note-prose"><MathText text={p.text}/></p>
+      {p.formula && <p className="note-formula-text"><MathText text={p.formula}/></p>}
       {p.table && <Table label={`${p.heading}表格`} caption={null} headers={p.table.headers} rows={p.table.rows}/>}
     </>;
   }
@@ -168,7 +166,7 @@ function NotesContent({ api, materialId, revision, kind }: { api: StudydyApiClie
       </div>
       {view.paragraphs.length > 0 && <ExportControls label="匯出筆記" options={[
         { value: "pdf", label: "PDF" }, { value: "md", label: "Markdown" }, { value: "docx", label: "Word（.docx）" },
-      ]} download={format => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${revision}/notes/${kind}/export/${format}`)} />}
+      ]} download={format => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${view.content_revision}/notes/${kind}/export/${format}`)} />}
       {view.progress && <section className="note-progress" aria-label="完整筆記分區進度">
         <p>{view.progress.stage === "validating" ? "正在核對完整筆記…" : view.progress.stage === "completed" ? "分區生成完成" : `正在整理：${view.progress.current_section ?? "教材"}`}</p>
         <Progress aria-label="已完成分區" value={view.progress.completed_sections > 0 ? view.progress.completed_sections : undefined} max={Math.max(1, view.progress.total_sections)}/>
@@ -181,7 +179,7 @@ function NotesContent({ api, materialId, revision, kind }: { api: StudydyApiClie
         <ParagraphBody paragraph={p} number={number}/>
         <div className="note-concepts">{p.concepts.map(c => <button className="text-button" key={c.concept_id} onClick={() => writeRoute({ name: "knowledge-map", materialId, runId: view.run_id, structureRevision: revision }, false,
           { knowledgeMap: { revision, mode: "focus", concept: c.concept_id, detail: c.concept_id } })}>{c.label} · 查看地圖</button>)}</div>
-        <div className="note-sources" aria-label="段落來源">{sourceLinks(p.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e}/>)}</div>
+        <div className="note-sources" aria-label="段落來源">{sourceLinks(p.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e} reference={{quote:e.quote}}/>)}</div>
         {view.annotations.filter(a => a.paragraph_id === p.id).map(annotationItem)}
         <button className="text-button" onClick={e => edit(e.currentTarget, p.id)}>新增註記</button>
       </section>; })}
@@ -189,7 +187,7 @@ function NotesContent({ api, materialId, revision, kind }: { api: StudydyApiClie
         <p>以下註記的來源與重點無法精確對應目前段落，已保留當時內容。</p>
         {orphaned.map(a => <div key={a.annotation_id} className="note-previous-item"><details><summary>當時段落：{a.original_paragraph.heading}</summary>
           <ParagraphBody paragraph={a.original_paragraph}/>
-          <div className="note-sources">{sourceLinks(a.original_paragraph.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} evidence={e}
+          <div className="note-sources">{sourceLinks(a.original_paragraph.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} evidence={e} reference={{quote:e.quote}}
             resolver={`/v1/materials/${materialId}/knowledge-structures/${a.original_revision}/evidence`}/>)}</div>
         </details>{annotationItem(a)}</div>)}
       </section>}

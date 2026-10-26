@@ -86,11 +86,20 @@ function goalMetrics(value: unknown): boolean {
 }
 
 export function learningGoal(value: unknown): value is LearningGoalView {
-  const item = object(value), goal = object(item?.goal);
-  return !!item && item.schema === "learning-goal/v1" && isUuid(item.material_id)
-    && revision(item.knowledge_structure_revision, "knowledge-structure") && isUuid(item.run_id)
+  const item = object(value), goal = object(item?.goal), pending = object(item?.pending_goal);
+  return !!item && item.schema === "learning-goal/v2" && isUuid(item.material_id)
+    && (item.knowledge_structure_revision === null || revision(item.knowledge_structure_revision, "knowledge-structure"))
+    && (item.run_id === null || isUuid(item.run_id))
+    && (item.pending_goal === null || (!!pending && typeof pending.target_date === "string" && isoDate.test(pending.target_date)
+      && typeof pending.target_percent === "number" && [60, 80, 100].includes(pending.target_percent)))
     && typeof item.today === "string" && isoDate.test(item.today)
     && (item.goal === null || (!!goal && goalMetrics(goal)
+      && Array.isArray(goal.suggestions) && goal.suggestions.every(value => {
+        const suggestion = object(value);
+        return !!suggestion && ["extend_date", "lower_target"].includes(String(suggestion.kind))
+          && typeof suggestion.target_date === "string" && isoDate.test(suggestion.target_date)
+          && typeof suggestion.target_percent === "number" && [60, 80, 100].includes(suggestion.target_percent) && count(suggestion.daily_points);
+      })
       && Array.isArray(goal.future_stages) && goal.future_stages.every(goalStage)
       && count(goal.preview_offset) && typeof goal.preview_has_more === "boolean" && goalConcepts(goal.manual_review)
       && (goal.update_notice === null || (!!object(goal.update_notice)
@@ -338,6 +347,7 @@ export function evidenceSource(value: unknown): value is EvidenceSourceView {
   return (
     !!item &&
     item.schema === "evidence-source/v1" &&
+    (item.display_name === undefined || typeof item.display_name === "string") &&
     ["pdf", "docx", "pptx", "doc", "ppt", "txt", "md", "images", "audio", "video", "youtube"].includes(String(item.format)) &&
     typeof item.original_name === "string" &&
     typeof item.label === "string" &&
@@ -992,6 +1002,7 @@ export function learningDiagnosis(value: unknown): value is LearningDiagnosisVie
         return !!point && revision(point.claim_id, "claim") && typeof point.title === "string"
           && Number.isSafeInteger(point.answer_count) && Number(point.answer_count) >= 0
           && Number.isSafeInteger(point.correct_count) && Number(point.correct_count) >= 0 && Number(point.correct_count) <= Number(point.answer_count)
+          && count(point.consecutive_correct_count) && count(point.required_consecutive_correct) && typeof point.completed === "boolean"
           && (point.latest_is_correct === null || typeof point.latest_is_correct === "boolean")
           && Array.isArray(point.evidence) && point.evidence.every(value => {
             const source = object(value);
@@ -1001,10 +1012,10 @@ export function learningDiagnosis(value: unknown): value is LearningDiagnosisVie
           });
       });
   });
-  return !!item && item.schema === "learning-diagnosis/v1" && isUuid(item.material_id)
+  return !!item && item.schema === "learning-diagnosis/v2" && isUuid(item.material_id)
     && revision(item.knowledge_structure_revision, "knowledge-structure")
     && item.source_resolver === `/v1/materials/${item.material_id}/knowledge-structures/${item.knowledge_structure_revision}/evidence`
-    && (item.scope === "material" ? item.set_id === null : item.scope === "set" && isUuid(item.set_id))
+    && item.scope === "material"
     && findings(item.strengths) && findings(item.weaknesses)
     && Array.isArray(item.recommendations) && item.recommendations.length <= 3 && item.recommendations.every(value => {
       const recommendation = object(value);
@@ -1691,7 +1702,7 @@ function noteParagraph(value: unknown): boolean {
     && (p.table === null || noteTable(object(p.table)));
 }
 
-function noteOutline(value: unknown): boolean {
+function noteOutline(value: unknown): value is unknown[] {
   return Array.isArray(value) && value.every(v => {
     const o = object(v);
     return !!o && typeof o.paragraph_id === "string" && (o.level === 1 || o.level === 2)
@@ -1710,13 +1721,20 @@ function noteProgress(value: unknown): boolean {
 
 export function materialNotes(value: unknown): value is MaterialNotesView {
   const v = object(value);
-  return !!v && v.schema === "material-notes/v2" && isUuid(v.material_id) && isUuid(v.run_id)
+  return !!v && v.schema === "material-notes/v3" && isUuid(v.material_id) && isUuid(v.run_id)
     && revision(v.knowledge_structure_revision, "knowledge-structure") && ["summary", "full"].includes(String(v.kind))
     && ["not_generated", "pending", "running", "ready", "failed"].includes(String(v.status))
-    && Number.isInteger(v.generation) && Number(v.generation) >= 0 && typeof v.source_resolver === "string"
+    && Number.isInteger(v.generation) && Number(v.generation) >= 0
+    && (v.content_revision === null || revision(v.content_revision, "knowledge-structure"))
+    && (v.content_generation === null || count(v.content_generation))
+    && typeof v.update_available === "boolean" && typeof v.updating === "boolean"
+    && (v.started_at === null || timestamp(v.started_at)) && (v.updated_at === null || timestamp(v.updated_at))
+    && v.source_resolver === `/v1/materials/${v.material_id}/knowledge-structures/${v.content_revision ?? v.knowledge_structure_revision}/evidence`
     && (v.error_code === null || typeof v.error_code === "string")
     && knowledgeStatus(v.source_status) && noteProgress(v.progress) && Array.isArray(v.paragraphs) && v.paragraphs.every(noteParagraph)
     && noteOutline(v.outline)
+    && (v.content_revision === null ? v.content_generation === null && v.paragraphs.length === 0 && v.outline.length === 0
+      : count(v.content_generation))
     && Array.isArray(v.annotations) && v.annotations.every(a => { const x = object(a); return !!x
       && isUuid(x.annotation_id) && typeof x.anchor === "string" && typeof x.body === "string"
       && revision(x.original_revision, "knowledge-structure") && noteParagraph(x.original_paragraph)

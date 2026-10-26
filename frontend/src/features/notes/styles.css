@@ -15,7 +15,6 @@
 .note-formula-text { padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-input); }
 /* 長公式在窄螢幕只在公式框內橫向捲動，不撐開頁面。 */
 .note-formula { max-width: 100%; overflow-x: auto; overflow-y: hidden; margin: 12px 0; padding: 2px 0; }
-.note-formula .katex-display { margin: 8px 0; }
 .note-bullets { margin: 0 0 16px; padding-left: 1.4em; line-height: 1.8; }
 .note-bullets .note-bullets { margin: 2px 0 4px; }
 .note-bullets li { margin: 2px 0; }
@@ -34,7 +33,6 @@
 .note-outline .text-button { text-align: left; white-space: normal; }
 .note-outline-2 { padding-left: 1.5em; }
 .note-concepts, .note-sources { margin: 10px 0; }
-.note-sources .source-chip { white-space: normal; text-align: left; max-width: 100%; }
 .note-table-scroll { max-width: 100%; overflow: auto; margin: 16px 0; }
 .note-table-scroll table { width: 100%; border-collapse: collapse; font-size: .95rem; line-height: 1.65; }
 .note-table-scroll td, .note-table-scroll th { padding: 10px 12px; border: 1px solid var(--border); text-align: left; min-width: 100px; }

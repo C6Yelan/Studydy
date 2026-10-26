@@ -9,7 +9,10 @@ export function useConceptArtwork() {
   useEffect(() => {
     let active = true;
     void import("./ConceptCardArtwork").then(
-      module => { cachedArtwork = module; if (active) setArtwork(module); },
+      async module => {
+        await Promise.all(["KaTeX_Main", "KaTeX_Math", "KaTeX_Size1", "KaTeX_Size2", "KaTeX_Size3", "KaTeX_Size4"].flatMap(family => [document.fonts.load(`32px ${family}`), document.fonts.load(`italic 32px ${family}`)]));
+        cachedArtwork = module; if (active) setArtwork(module);
+      },
       () => { if (active) setLoadFailed(true); },
     );
     return () => { active = false; };

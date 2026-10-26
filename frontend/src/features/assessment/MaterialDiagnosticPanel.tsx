@@ -108,7 +108,7 @@ export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressCh
         <span>答對<strong>{group.passed_count} / {group.published_count} 題</strong></span>
         <span>已檢測<strong>{group.published_count} 個概念</strong></span>
       </div><p>先學答錯與未測的概念，再補齊已測概念中尚未完成的重點。</p>
-      <LearningDiagnosis api={api} materialId={group.material_id} revision={group.knowledge_structure_revision} setId={group.set_id} onReview={onReview} />
+      <LearningDiagnosis api={api} materialId={group.material_id} revision={group.knowledge_structure_revision} onReview={onReview} />
       {sessionCompleted ? <p role="status">這份教材已完成目前可檢測的重點。</p>
         : <button className="primary-button" disabled={continuing || busy} onClick={onContinue}>{continuing ? "正在更新學習進度…" : completesSession ? "完成本次學習" : "接續學習"}</button>}
       </section>

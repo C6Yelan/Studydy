@@ -18,8 +18,8 @@ test('material voice text flow saves, cites, reopens and closes',async({page})=>
  await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();
  await page.getByLabel('問題／辨識文字').fill('堆疊是什麼？');await page.getByRole('button',{name:'送出問題',exact:true}).click();
  await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
- await expect(page.locator('.voice-source-chips').getByRole('button',{name:'第 1 頁',exact:true})).toHaveAttribute('title',/PDF 第 1 頁/);
- await page.locator('.voice-source-chips').getByRole('button',{name:'第 1 頁',exact:true}).click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材來源'})).toHaveCount(0);await expect(page.getByRole('dialog',{name:'教材問答'})).toBeVisible();
+ await expect(page.locator('.voice-reference-sources').getByRole('button')).toContainText('p.1');
+ await page.locator('.voice-reference-sources').getByRole('button').first().click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材來源'})).toHaveCount(0);await expect(page.getByRole('dialog',{name:'教材問答'})).toBeVisible();
  await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByLabel('問題／辨識文字')).toHaveCount(0);await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();
  await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
  await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材問答'})).toHaveCount(0);await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();
@@ -402,4 +402,29 @@ test('research source comparison has a single toolbar, tri-state select-all and 
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(width);
  }
  await page.getByRole('button',{name:'取得選取的 3 份來源',exact:true}).click();expect(actions).toEqual([{action:'acquire',selected:['s0','s1','s3']}]);
+});
+
+
+test('verified answer paragraphs keep their own citations and open source previews at the right',async({page},testInfo)=>{
+ const structure=structureView();await mockKnowledgeMapApi(page,structure);
+ const evidence=structure.concepts[0].claims[0].evidence[0];
+ await page.route(`**/v1/artifacts/${artifactId}`,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="zh-Hant"><body style="font-family:sans-serif;padding:24px"><h1>教材來源 · 第 1 頁</h1><p>堆疊使用後進先出的順序。</p></body></html>'}));
+ const answer={schema:'material-answer/v3',text:'依教材回答。補充說明。',supported:true,paragraphs:[{text:'依教材回答。',citation_ids:['verified']},{text:'補充說明。',citation_ids:[]}],citations:[{passage_id:'verified',text:evidence.quote,evidence:[evidence]}]};
+ await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[conversation]}));
+ await page.route(`**/v1/voice-conversations/${cid}`,r=>json(r,{...conversation,is_current_revision:true,source_resolver:structure.source_resolver,turns:[{turn_id:tid,mode:'text',question:'教材說明了什麼？',answer,status:'ready',audio_url:null,error_code:null}]}));
+ await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();
+ await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();
+ const paragraphs=page.locator('.voice-answer');
+ await expect(paragraphs).toHaveCount(2);await expect(paragraphs.first().getByRole('button')).toHaveText('[1]');
+ await expect(paragraphs.nth(1)).toHaveText('補充說明。');
+ const marker=paragraphs.first().getByRole('button');await marker.hover();await expect(page.getByRole('tooltip')).toContainText(evidence.quote);
+ await marker.click();const panel=page.getByRole('dialog',{name:'教材來源'});await expect(panel).toBeVisible();
+ await expect(panel.locator('iframe')).toHaveAttribute('src',/#page=1$/);
+ await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('教材來源 · 第 1 頁');
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`source-panel-${width}.png`)});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  const box=await panel.boundingBox();expect(box!.x+box!.width).toBeLessThanOrEqual(width);
+ }
+ await panel.getByRole('button',{name:'關閉',exact:true}).click();await expect(marker).toBeFocused();
 });

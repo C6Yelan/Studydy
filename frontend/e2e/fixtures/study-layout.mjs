@@ -329,9 +329,9 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
           current_concept_id: current, deferred_concept_ids: [], no_safe_claim_ids: [], status: sessionFinished ? "completed" : "active", started_at: timestamp, completed_at: sessionFinished ? timestamp : null, event_watermark: 1 } });
     }
     if (request.method() === "GET" && actualPath === `${mapPath}/learning-diagnosis`) return send({
-      schema: "learning-diagnosis/v1", material_id: materialId, knowledge_structure_revision: structureRevision,
+      schema: "learning-diagnosis/v2", material_id: materialId, knowledge_structure_revision: structureRevision,
       source_resolver: `${mapPath}/evidence`,
-      scope: "set", set_id: query.get("set_id"),
+      scope: "material",
       strengths: [], weaknesses: [], recommendations: [],
     });
     if (request.method() === "GET" && actualPath === `${mapPath}/outline`) return send(outlineView(knowledgeStructure, materialId, runId));

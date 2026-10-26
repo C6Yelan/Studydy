@@ -1,3 +1,5 @@
+import { mathParts } from "../../ui/math-text";
+import { formulaElement, formulaCanvas } from "./card-math";
 import type { ConceptCard, ConceptCardContext, CardDesignPage } from "../../api/contracts";
 import { claimText } from "../../ui/claim-text";
 import { compactLayout, selectConceptCardLayout, selectConceptCardLayouts } from "./concept-card-layout";
@@ -15,9 +17,21 @@ const MONO = 'ui-monospace, "SFMono-Regular", Consolas, "DejaVu Sans Mono", "Not
 const ink = "#1d2742", muted = "#4a5677", blue = "#1d4fd6", green = "#0f7a99";
 let measureContext: CanvasRenderingContext2D | null = null;
 function measure(text: string, size: number, mono = false, weight = 400) {
+  if (!mono) {
+    const formula = formulaElement(text, size, weight >= 600, ink, FONT);
+    if (formula) { const width = formula.getBoundingClientRect().width; formula.remove(); return width; }
+  }
   measureContext ??= document.createElement("canvas").getContext("2d");
   measureContext!.font = `${weight} ${size}px ${mono ? MONO : FONT}`;
   return measureContext!.measureText(text).width;
+}
+
+function mathLineHeight(lines: string[], size: number, minimum: number, bold = false) {
+  return Math.max(minimum, ...lines.map(line => {
+    const formula = formulaElement(line, size, bold, ink, FONT);
+    if (!formula) return minimum;
+    const height = formula.getBoundingClientRect().height; formula.remove(); return height;
+  }));
 }
 
 function fontMetrics(size: number, weight = 400) {
@@ -30,13 +44,24 @@ type TextProps = { text: string; x: number; y: number; width: number; height: nu
 
 // 直接畫入像素畫布；保留原先的字型量測、換行與各區塊容量。
 class CardCanvas {
+  readonly formulas: Promise<void>[] = [];
   constructor(readonly context: CanvasRenderingContext2D) {}
-  text(text: string | number, x: number, y: number, size: number, fill = ink, bold = false, align: CanvasTextAlign = "left", mono = false) {
+  text(text: string | number, x: number, y: number, size: number, fill = ink, bold = false, align: CanvasTextAlign = "left", mono = false, maxWidth?: number) {
     const c = this.context;
     c.font = `${bold ? 600 : 400} ${size}px ${mono ? MONO : FONT}`;
     c.fillStyle = fill;
     c.textAlign = align;
-    c.fillText(String(text), x, y);
+    const formula = !mono && formulaElement(String(text), size, bold, fill, FONT);
+    if (formula) {
+      const bounds = formula.getBoundingClientRect();
+      const matrix = c.getTransform();
+      const width = Math.min(bounds.width, maxWidth ?? bounds.width);
+      const height = bounds.height * width / bounds.width;
+      const left = align === "center" ? x - width / 2 : align === "right" ? x - width : x;
+      this.formulas.push(formulaCanvas(formula).then(image => {
+        c.save(); c.setTransform(matrix); c.drawImage(image, left, y - fontMetrics(size, bold ? 600 : 400).ascent, width, height); c.restore();
+      }));
+    } else c.fillText(String(text), x, y);
   }
   box(x: number, y: number, width: number, height: number, radius: number, fill: string, stroke?: string, lineWidth = 1) {
     const c = this.context;
@@ -77,11 +102,13 @@ class CardCanvas {
     let metrics = fontMetrics(fontSize, bold ? 600 : 400);
     let lineHeight = Math.max(fontSize * 1.4, metrics.ascent + metrics.descent);
     let wrapped = wrapCardText(text, width - 4, t => measure(t, fontSize, false, bold ? 600 : 400));
+    lineHeight = mathLineHeight(wrapped.lines, fontSize, lineHeight, bold);
     while (fontSize > minSize && (wrapped.overflow || wrapped.lines.length * lineHeight > height - 6)) {
       fontSize = Math.max(minSize, fontSize - 2);
       metrics = fontMetrics(fontSize, bold ? 600 : 400);
       lineHeight = Math.max(fontSize * 1.4, metrics.ascent + metrics.descent);
       wrapped = wrapCardText(text, width - 4, t => measure(t, fontSize, false, bold ? 600 : 400));
+      lineHeight = mathLineHeight(wrapped.lines, fontSize, lineHeight, bold);
     }
     const clipped = wrapped.overflow || wrapped.lines.length * lineHeight > height - 6;
     const noticeMetrics = fontMetrics(18);
@@ -96,8 +123,8 @@ type Layout = ReturnType<typeof selectConceptCardLayout>;
 // 量測內容自身高度供卡內置中；外框維持固定，避免切卡時操作列跳動。
 function textHeight(text: string, width: number, size: number) {
   const metrics = fontMetrics(size);
-  const lines = wrapCardText(text, width - 4, t => measure(t, size)).lines.length;
-  return Math.ceil(lines * Math.max(size * 1.4, metrics.ascent + metrics.descent) + 6);
+  const lines = wrapCardText(text, width - 4, t => measure(t, size)).lines;
+  return Math.ceil(lines.length * mathLineHeight(lines, size, Math.max(size * 1.4, metrics.ascent + metrics.descent)) + 6);
 }
 
 function sparseFrame(layout: Layout) {
@@ -380,16 +407,17 @@ function group(draw: CardCanvas, layout: Layout) {
 
 function technical(draw: CardCanvas, layout: Layout) {
   const lines = claimText(layout.claims[0]).split(/\r?\n/), code = layout.technicalKind === "code";
+  const mono = code || !lines.some(line => mathParts(line).some(part => part.kind === "math"));
   let size = code ? 32 : 48;
-  while (size > 24 && (lines.length * size * 1.45 > 375 || lines.some(line => measure(line, size, true) > 975))) size -= 2;
+  while (size > 24 && (lines.length * size * 1.45 > 375 || lines.some(line => measure(line, size, mono) > 975))) size -= 2;
   const capacity = Math.floor(375 / (size * 1.45));
   // 技術內容只取完整的前綴行，絕不在行內折斷運算子、識別符或條件。
-  const firstUnfit = lines.findIndex(line => measure(line, size, true) > 975);
+  const firstUnfit = lines.findIndex(line => measure(line, size, mono) > 975);
   const shown = lines.slice(0, Math.min(capacity, firstUnfit < 0 ? lines.length : firstUnfit));
   draw.box(48, 224, 1104, 510, 28, code ? "#1d2742" : "#e8efff");
   draw.text(code ? "程式碼" : "公式", 82, 270, 23, code ? "#bcd0ff" : blue);
   draw.path("M80 293H1120", code ? "#3d4a6b" : "#c3d2f0");
-  shown.forEach((line, i) => draw.text(line, 126, 320 + size + i * size * 1.45, size, code ? "#f4fbff" : ink, false, "left", true));
+  shown.forEach((line, i) => draw.text(line, 126, 320 + size + i * size * 1.45, size, code ? "#f4fbff" : ink, false, "left", mono));
   shown.forEach((_, i) => draw.text(i + 1, 91, 320 + size + i * size * 1.45, 18, code ? "#93a6d6" : muted, false, "right"));
   if (!shown.length) draw.cardText({ text: "原文單行超出圖卡容量。", x: 126, y: 371, width: 920, height: 140, size: 32, fill: code ? "#f4fbff" : ink });
   draw.text(shown.length < lines.length ? `原文節錄 · 僅列完整前 ${shown.length} 行` : "", 82, 713, 20, code ? "#bcd0ff" : blue);
@@ -402,12 +430,12 @@ type CardPage = Layout | DesignedPage;
 function designTextLayout(text: string, width: number, preferredHeight: number, size: number, minSize: number, bold = false) {
   for (let fontSize = size; fontSize >= minSize; fontSize -= 2) {
     const metrics = fontMetrics(fontSize, bold ? 600 : 400);
-    const lineHeight = Math.max(fontSize * 1.4, metrics.ascent + metrics.descent);
+    let lineHeight = Math.max(fontSize * 1.4, metrics.ascent + metrics.descent);
     const measureLine = (value: string) => measure(value, fontSize, false, bold ? 600 : 400);
-    const wrapped = wrapCardText(text, width - 6, measureLine);
+    const wrapped = wrapCardText(text, width - 6, measureLine, true);
     // 單一長識別符也可視覺換行，原始字元與引用不變。
     const lines = wrapped.lines.flatMap(line => {
-      if (measureLine(line) <= width - 6) return [line];
+      if (measureLine(line) <= width - 6 || mathParts(line).some(part => part.kind === "math")) return [line];
       const parts: string[] = []; let part = "";
       for (const char of line) {
         if (part && measureLine(part + char) > width - 6) { parts.push(part); part = ""; }
@@ -416,14 +444,15 @@ function designTextLayout(text: string, width: number, preferredHeight: number, 
       if (part) parts.push(part);
       return parts;
     });
+    lineHeight = mathLineHeight(lines, fontSize, lineHeight, bold);
     const height = lines.length * lineHeight + 4;
-    if (height <= preferredHeight || fontSize === minSize) return { lines, height, fontSize, metrics, lineHeight, bold };
+    if ((!wrapped.overflow && height <= preferredHeight) || fontSize === minSize) return { lines, height, fontSize, metrics, lineHeight, bold, width: width - 6 };
   }
   throw new Error("CARD_FONT_CONFIGURATION_INVALID");
 }
 
 function designText(draw: CardCanvas, layout: ReturnType<typeof designTextLayout>, x: number, y: number, fill = ink) {
-  layout.lines.forEach((line, index) => draw.text(line, x + 2, y + layout.metrics.ascent + 2 + index * layout.lineHeight, layout.fontSize, fill, layout.bold));
+  layout.lines.forEach((line, index) => draw.text(line, x + 2, y + layout.metrics.ascent + 2 + index * layout.lineHeight, layout.fontSize, fill, layout.bold, "left", false, layout.width));
 }
 
 function designed(draw: CardCanvas, page: CardDesignPage) {
@@ -527,7 +556,7 @@ export function conceptCardCanvas(card: ConceptCard, structure: ConceptCardConte
   const key = JSON.stringify([structure.source_resolver, card.concept_id, card.design?.revision, card.display_edits ?? [], pageIndex, pageCount]);
   const cached = cache.get(key);
   if (cached) { cache.delete(key); cache.set(key, cached); return cached; }
-  const rendered = document.fonts.ready.then(() => {
+  const rendered = document.fonts.ready.then(async () => {
     const canvas = document.createElement("canvas");
     canvas.width = 1200; canvas.height = 760; canvas.lang = "zh-Hant";
     const context = canvas.getContext("2d");
@@ -537,6 +566,7 @@ export function conceptCardCanvas(card: ConceptCard, structure: ConceptCardConte
     if (layout.family === "designed") {
       designed(draw, layout.design);
       if (pageCount > 1) draw.text(`第 ${pageIndex + 1} / ${pageCount} 張圖`, 1152, canvas.height - 16, 20, muted, false, "right");
+      await Promise.all(draw.formulas);
       return canvas;
     }
     const sparseLayout = layout.family === "sparse" ? sparseFrame(layout) : null;
@@ -561,6 +591,7 @@ export function conceptCardCanvas(card: ConceptCard, structure: ConceptCardConte
     }
     context.restore();
     if (pageCount > 1) draw.text(`第 ${pageIndex + 1} / ${pageCount} 張圖`, 1152, 744, 20, muted, false, "right");
+    await Promise.all(draw.formulas);
     return canvas;
   });
   cache.set(key, rendered);

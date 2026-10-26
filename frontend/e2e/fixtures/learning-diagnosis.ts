@@ -5,9 +5,9 @@ export function difficultyView(materialId: string, revision: string): ConceptDif
     mode: "structure", concepts: [] };
 }
 
-export function diagnosisView(materialId: string, revision: string, setId: string | null = null): LearningDiagnosisView {
-  return { schema: "learning-diagnosis/v1", material_id: materialId, knowledge_structure_revision: revision,
+export function diagnosisView(materialId: string, revision: string): LearningDiagnosisView {
+  return { schema: "learning-diagnosis/v2", material_id: materialId, knowledge_structure_revision: revision,
     source_resolver: `/v1/materials/${materialId}/knowledge-structures/${revision}/evidence`,
-    scope: setId ? "set" : "material", set_id: setId,
+    scope: "material",
     strengths: [], weaknesses: [], recommendations: [] };
 }
