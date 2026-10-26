@@ -153,14 +153,16 @@ test("notes export each format and report download failure without regenerating"
     return route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "Content-Disposition": `attachment; filename*=UTF-8''notes.${format}` }, body: "export" });
   });
   await page.goto(`/materials/${materialId}/notes`);
-  const controls = page.getByRole("group", { name: "匯出筆記" });
+  const controls = page.getByRole("dialog", { name: "匯出筆記" });
   for (const format of ["md", "pdf", "docx"]) {
-    await controls.getByRole("combobox").selectOption(format);
+    await page.getByRole("button", { name: "匯出筆記", exact: true }).click();
+    await controls.locator(`input[type="radio"][value="${format}"]`).check();
     const downloaded = page.waitForEvent("download");
     await controls.getByRole("button", { name: "匯出", exact: true }).click();
     expect((await downloaded).suggestedFilename()).toBe(`notes.${format}`);
   }
   fail = true;
+  await page.getByRole("button", { name: "匯出筆記", exact: true }).click();
   await controls.getByRole("button", { name: "匯出", exact: true }).click();
   await expect(controls.getByRole("alert")).toContainText("找不到");
   expect(formats).toEqual(["md", "pdf", "docx", "docx"]);

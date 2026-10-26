@@ -1074,9 +1074,10 @@ test("ready Podcast exports each available format for the selected episode", asy
     return route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "Content-Disposition": `attachment; filename*=UTF-8''episode.${format}` }, body: "saved export" });
   });
   await page.goto(`/podcasts/${podcastId}`);
-  const controls = page.getByRole("group", { name: "匯出本集" });
+  const controls = page.getByRole("dialog", { name: "匯出本集" });
   for (const format of ["mp3", "md", "mp4"]) {
-    await controls.getByRole("combobox").selectOption(format);
+    await page.getByRole("button", { name: "匯出本集", exact: true }).click();
+    await controls.locator(`input[type="radio"][value="${format}"]`).check();
     const download = page.waitForEvent("download");
     await controls.getByRole("button", { name: "匯出", exact: true }).click();
     expect((await download).suggestedFilename()).toBe(`episode.${format}`);
@@ -1098,17 +1099,18 @@ test("transcript export appears after alignment without reloading the page", asy
     headers: { "Content-Disposition": "attachment; filename*=UTF-8''episode.md" }, body: "saved transcript" }));
   await page.goto(`/podcasts/${podcastId}`);
   const controls = page.getByRole("group", { name: "匯出本集" });
-  await expect(controls.getByRole("combobox")).toHaveValue("mp3");
+  await expect(controls.getByRole("button", { name: "匯出本集（MP3）", exact: true })).toBeVisible();
   await expect.poll(() => reads).toBeGreaterThan(0);
-  await expect(controls.locator('option[value="md"]')).toHaveCount(0);
   // 初次影片狀態讀取已結束，後續更新只能來自時間軸輪詢。
   await page.waitForTimeout(2500);
   aligned = true;
-  await expect(controls.locator('option[value="md"]')).toHaveCount(1);
-  await controls.getByRole("combobox").selectOption("md");
+  await controls.getByRole("button", { name: "匯出本集", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "匯出本集" });
+  await dialog.getByRole("radio", { name: "逐字稿 Markdown" }).check();
   const download = page.waitForEvent("download");
-  await controls.getByRole("button", { name: "匯出", exact: true }).click();
+  await dialog.getByRole("button", { name: "匯出", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("episode.md");
+  await expect(dialog).toBeHidden();
   const settled = reads;
   await page.waitForTimeout(2500);
   expect(reads).toBe(settled);
@@ -1133,7 +1135,7 @@ for (const reason of ["PODCAST_TIMELINE_UNAVAILABLE", "PODCAST_TIMELINE_SOURCE_M
     });
     await page.goto(`/podcasts/${podcastId}`);
     const controls = page.getByRole("group", { name: "匯出本集" });
-    await expect(controls.getByRole("combobox")).toHaveValue("mp3");
+    await expect(controls.getByRole("button", { name: "匯出本集（MP3）", exact: true })).toBeVisible();
     await (await firstTimeline).finished();
     // 先完成版本 0 的初讀，再讓影片版本 1 到達；這次正常重讀不算錯誤輪詢。
     releaseVideo();
@@ -1141,6 +1143,6 @@ for (const reason of ["PODCAST_TIMELINE_UNAVAILABLE", "PODCAST_TIMELINE_SOURCE_M
     const settled = reads;
     await page.waitForTimeout(2500);
     expect(reads).toBe(settled);
-    await expect(controls.locator('option[value="md"]')).toHaveCount(0);
+    await expect(controls.getByRole("button", { name: "匯出本集（MP3）", exact: true })).toBeVisible();
   });
 }

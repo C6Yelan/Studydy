@@ -1673,8 +1673,9 @@ test("whole deck export sends bounded batches for 148 concepts and preserves eve
   await page.route(`**/v1/card-sets/${cardSetId}/exports/${uid}/download`, route =>
     route.fulfill({ status: 200, contentType: "application/zip", headers: { "Content-Disposition": "attachment; filename*=UTF-8''cards.zip" }, body: "zip" }));
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
-  const controls = page.getByRole("group", { name: "匯出整組概念卡" });
-  await controls.getByRole("combobox").selectOption("zip");
+  const controls = page.getByRole("dialog", { name: "匯出整組概念卡" });
+    await page.getByRole("button", { name: "匯出整組概念卡", exact: true }).click();
+  await controls.getByRole("radio", { name: "全部卡面 PNG（ZIP）" }).check();
   const download = page.waitForEvent("download");
   await controls.getByRole("button", { name: "匯出", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("cards.zip");
@@ -1703,7 +1704,8 @@ for (const [reason, status, message] of [
       return failure(route);
     });
     await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
-    const controls = page.getByRole("group", { name: "匯出整組概念卡" });
+    const controls = page.getByRole("dialog", { name: "匯出整組概念卡" });
+    await page.getByRole("button", { name: "匯出整組概念卡", exact: true }).click();
     await controls.getByRole("button", { name: "匯出", exact: true }).click();
     await expect(controls.getByRole("alert")).toContainText(message);
     expect(cancelled).toBe(reason === "EXPORT_ACTIVE_LIMIT" ? 0 : 1);
