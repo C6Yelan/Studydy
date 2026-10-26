@@ -135,7 +135,15 @@ def _pack_review(
         section["section_id"]: section["title"]
         for section in view["document_tree"]["sections"]
     }
-    section_titles = {_name(section_title) for section_title in sections.values()}
+    # 章節編號是版面導覽，概念名稱通常沒有它；只用於主題保護比對，不改原文或 IDs。
+    section_titles = {
+        _name(title)
+        for section_title in sections.values()
+        for title in (
+            section_title,
+            re.sub(r"^\s*\d+(?:\.\d+)*[.．、)]\s*(?=[^\d\s])", "", section_title),
+        )
+    }
     direction_rules = {
         "prerequisite": "必要先備→後續知識",
         "part_of": "部分→整體",

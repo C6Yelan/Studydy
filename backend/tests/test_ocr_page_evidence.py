@@ -527,3 +527,31 @@ def test_unrecovered_image_retains_native_with_review_status(tmp_path):
     assert artifact["processing"] == "partial"
     assert "IMAGE_TEXT_NOT_RECOVERED" in artifact["reason_codes"]
     assert artifact["evidence_blocks"][0]["text"] == "Public native text"
+
+
+
+def test_numbered_heading_at_page_bottom_keeps_following_page_definition(tmp_path):
+    path = tmp_path / "cross-page-heading.pdf"
+    document = pymupdf.open()
+    first = document.new_page(width=595, height=842)
+    first.insert_text((40, 80), "Ordinary body text establishes the dominant font size.", fontsize=11)
+    first.insert_text((40, 780), "9. Direct proportion", fontsize=16.5)
+    first.insert_text((300, 820), "Publisher", fontsize=16.5)
+    second = document.new_page(width=595, height=842)
+    second.insert_text((40, 60), "A proportional relationship has a constant ratio.", fontsize=11)
+    document.save(path)
+    document.close()
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    with pymupdf.open(path) as document:
+        pages = [build_native_page_evidence(
+            extract_page(document, sha, n), input_binding={}, produced_at="x",
+        ) for n in (1, 2)]
+    heading = next(b for b in pages[0]["evidence_blocks"] if b["text"] == "9. Direct proportion")
+    footer = next(b for b in pages[0]["evidence_blocks"] if b["text"] == "Publisher")
+    assert heading["kind"] == "heading"
+    assert footer["kind"] == "paragraph"
+    context = build_document_context(pages, page_count=2)
+    section = next(s for s in context["sections"] if s["title"] == "9. Direct proportion")
+    definition = next(e for e in context["evidence"] if "constant ratio" in e["exact_text"])
+    assert definition["section_id"] == section["section_id"]
+    assert definition["page"] == 2
