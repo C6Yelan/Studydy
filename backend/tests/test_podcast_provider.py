@@ -100,7 +100,7 @@ def test_show_prompt_uses_host_names_series_preview_and_spoken_numbers(monkeypat
     model,calls=fake_model(candidate())
     monkeypatch.setattr(provider,'luna',model)
     result=provider.script(dialogue())
-    assert result['provider'].endswith(';source-script/v15')
+    assert result['provider'].endswith(';source-script/v16')
     prompts=[prompt for kind,prompt in calls if kind=='script']
     prompt=prompts[0]
     assert 'host「小晴」' in prompt and 'guest「阿哲」' in prompt
@@ -636,3 +636,18 @@ def test_recap_mismatch_after_rewrite_is_not_published(monkeypatch):
     with pytest.raises(RuntimeError, match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):
         provider.script(dialogue())
     assert [kind for kind, _ in calls] == ['script', 'review', 'review', 'rewrite', 'review']
+
+
+def test_audio_only_rule_is_shared_by_generation_review_and_rewrite(monkeypatch):
+    from runtime import podcast_review
+    original = candidate('請看下方的本集重點。')
+    replacement = candidate()['segments'][0]
+    model, calls = fake_model(original, reviews=[lambda r: verdict(r, ('turn.0',)), None], rewrites=[replacement])
+    monkeypatch.setattr(provider, 'luna', model)
+    result = provider.script(body())
+    assert result['segments'][0]['turns'][0]['text'] == '空堆疊不可 pop。'
+    for kind, prompt in calls:
+        if kind in {'script', 'rewrite'}:
+            assert '不得引導聽眾查看或操作畫面' in prompt
+    assert '不得以串場或非事實主張豁免' in podcast_review.PROMPT
+    assert '只作口頭回顧' in podcast_review.PROMPT

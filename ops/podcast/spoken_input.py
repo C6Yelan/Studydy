@@ -1,10 +1,12 @@
-"""只產生 TTS 輸入；原講稿不改。依字詞類型處理，不設術語替換表。"""
+"""只產生 TTS 輸入；原講稿不改。依字詞類型、明確公式與縮寫念法處理。"""
 
 import re
 from decimal import Decimal
 from functools import lru_cache
 import cmudict
 import wordninja
+
+_PRONUNCIATIONS = {"RAG": "R A G", "DDPM": "D D P M"}
 
 _PREFIX = {
     "": "",
@@ -70,6 +72,8 @@ def initialism(token):
 
 
 def english_words(token, normalize_number):
+    if token in _PRONUNCIATIONS:
+        return _PRONUNCIATIONS[token]
     if token.isdigit():
         return normalize_number(token)
     if initialism(token):
@@ -171,13 +175,26 @@ def mixed_sentences(text, normalize_zh, normalize_en):
         sentence = re.sub(r"<([\u3400-\u9fff]+)>", r"\1標記", sentence)
         if separator == "／":
             sentence = sentence[:-1] + "，"
-        sentence = sentence.replace("→", "，右箭頭，").replace("←", "，左箭頭，")
         # 只展開可辨識的運算符；程式字面值與路徑保留原符號，不能變成數學敘述。
         pieces = re.split(
             r"(`[^`]*`|(?:https?://|(?<!\w)/|(?<!\w)[A-Za-z]:\\)[^\s，。；、]+)",
             sentence,
         )
         for i in range(0, len(pieces), 2):
+            # 只有明示二選一的詞串讀「或」；協定、比值及路徑不從斜線猜語意。
+            pieces[i] = re.sub(
+                r"((?:二選一)[：:]?\s*)([A-Za-z\u3400-\u9fff]+)[/／]([A-Za-z\u3400-\u9fff]+)",
+                r"\1\2 或 \3", pieces[i],
+            )
+            pieces[i] = re.sub(r"(?<![A-Za-z0-9_/])(\d+)/(\d+)(?![A-Za-z0-9_/])", r"\2 分之 \1", pieces[i])
+            pieces[i] = re.sub(r"(?<![A-Za-z0-9_])QK\^T\s*/\s*√d_k(?![A-Za-z0-9_])", "Q 乘以 K 的轉置，除以根號 d k", pieces[i])
+            pieces[i] = re.sub(r"(?<![A-Za-z0-9_])QK\^T(?![A-Za-z0-9_])", "Q 乘以 K 的轉置", pieces[i])
+            pieces[i] = re.sub(r"√d_k(?![A-Za-z0-9_])", "根號 d k", pieces[i])
+            pieces[i] = pieces[i].replace("→", " 到 ").replace("←", " 左箭頭 ")
+            pieces[i] = re.sub(r"(?<=[\w)])\s*\+\s*(?=[\w(])", " 加 ", pieces[i])
+            pieces[i] = re.sub(r"(?<![<>=!])=(?!=)", " 等於 ", pieces[i])
+            pieces[i] = re.sub(r"[、；;：（）()]", "，", pieces[i])
+            pieces[i] = re.sub(r"(?<!\d):(?!\d)", "，", pieces[i])
             pieces[i] = re.sub(
                 r"(?<=[\w)])\s*(<=|>=|≤|≥|<|>)\s*(?=[\w(])",
                 lambda match: " "
