@@ -264,7 +264,8 @@ export function StudySessionPage({
   // 開始／再次練習與只讀承接結果使用同一網址；只保留這次導覽的閱讀意圖。
   const requestedReading = window.history.state?.studyReading?.sessionId === route.studySessionId
     && window.history.state.studyReading.conceptId === visibleConcept.concept_id;
-  const readingFirst = data.startingLevel === "beginner" && !data.selectedSet && !noAssessment && (!inheritedCheck || requestedReading);
+  // 已結束時只接受從地圖明確選擇再次練習的閱讀意圖。
+  const readingFirst = (!completed || requestedReading) && data.startingLevel === "beginner" && !data.selectedSet && !noAssessment && (!inheritedCheck || requestedReading);
   const beginAnswers = async () => {
     if (readingBusy) return;
     setReadingBusy(true); setReadingError(null);
@@ -415,7 +416,8 @@ export function StudySessionPage({
               </details>
             )}
             <div className="study-current-action" id="assessment-panel">
-              {noAssessment && !currentCycle?.active_set_id ? (
+              {completed && !data.selectedSet ? <StateView title="學習進度已保存" description="本次學習已結束，可以回到知識地圖查看進度或選擇其他概念。" tone="empty" icon="check"
+                action={<button className="primary-button" onClick={back}>回到知識地圖</button>} /> : noAssessment && !currentCycle?.active_set_id ? (
                 <section className="surface assessment-cycle">
                   <h2>此概念目前無法提供可靠檢測</h2>
                   <p>這是系統目前無法驗證，不代表你答錯。可以繼續學習其他概念。</p>

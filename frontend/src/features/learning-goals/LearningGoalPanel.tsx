@@ -80,9 +80,10 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
               {goal.behind_points > 0 && <strong>落後 {goal.behind_points} 個重點</strong>}</p>}
             <section className="goal-today" aria-label="今天的關卡">
               <header><h3>今天的關卡</h3><time dateTime={view.today}>{dateText(view.today)}</time></header>
-              <p className="goal-quota">今日目標 <strong>{goal.today_stage.quota_points}</strong> ／ 實際安排 <strong>{goal.today_stage.scheduled_points}</strong> 個重點</p>
+              {goal.today_stage.done ? <p className="goal-quota"><strong>今日關卡已完成</strong></p>
+                : <p className="goal-quota">今日目標 <strong>{goal.today_stage.quota_points}</strong> ／ 實際安排 <strong>{goal.today_stage.scheduled_points}</strong> 個重點</p>}
               <p>今天已完成 {goal.today_stage.completed_points} 個重點{goal.today_stage.remaining_points > 0 ? `，還差 ${goal.today_stage.remaining_points} 個。` : "。"}</p>
-              {goal.achieved ? <p>學習目標已達成。</p> : goal.today_stage.done && <p>今天的關卡已完成。</p>}
+              {goal.achieved && <p>學習目標已達成。</p>}
               {goal.today_stage.scheduled_points > goal.today_stage.remaining_points && <p className="goal-note">題組保留完整概念，實際安排可能多於今天尚需完成的量。</p>}
               {(goal.quota_over_limit || goal.scheduled_over_limit) && <div className="goal-warning" role="status">
                 <p>{goal.quota_over_limit ? "今日目標" : "實際安排"}超過每日建議的 {goal.daily_limit} 個重點。可延後日期或降低目標；系統不會自行修改。</p>
