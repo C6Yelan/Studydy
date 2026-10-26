@@ -185,7 +185,11 @@ class AnalysisArchive:
                     raise AnalysisArchiveError("ANALYSIS_CHECKPOINT_INVALID") from None
         return None
 
-    def _write(self, name, data):
+    def save_provider_failure(self, candidates):
+        """只在失敗已提交後補入 provider 未能回傳的原始候選。"""
+        self._write("provider-failure.json", {"candidates": candidates}, failed=True)
+
+    def _write(self, name, data, *, failed=False):
         try:
             # 序列化與 hash 不需要教材鎖；檔案發布仍與刪除共用交易邊界。
             encoded = canonical_bytes(
@@ -220,10 +224,10 @@ class AnalysisArchive:
                     or material.discard_requested_at is not None
                     or run is None
                     or run.worker_token != self.worker_token
-                    or run.status != "running"
+                    or run.status != ("failed" if failed else "running")
                     or run.cancel_requested_at is not None
-                    or run.lease_expires_at is None
-                    or run.lease_expires_at <= datetime.now(UTC)
+                    or (not failed and (run.lease_expires_at is None
+                        or run.lease_expires_at <= datetime.now(UTC)))
                 ):
                     raise AnalysisArchiveError("MATERIAL_RUN_UNAVAILABLE")
                 for directory in reversed(

@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from collections import Counter
+from contextvars import copy_context
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from threading import Event
 import os
@@ -652,7 +653,7 @@ def _review_units(
             while failure is None and cursor < len(units) and len(pending) < width:
                 unit = units[cursor]
                 cursor += 1
-                pending[pool.submit(generate, cursor, unit)] = (cursor, unit)
+                pending[pool.submit(copy_context().run, generate, cursor, unit)] = (cursor, unit)
             done, _ = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)
             for future in done:
                 index, unit = pending.pop(future)

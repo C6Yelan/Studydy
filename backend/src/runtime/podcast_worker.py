@@ -5,7 +5,7 @@ import json
 import logging
 from urllib.error import HTTPError
 
-from . import podcast_titles, podcasts
+from . import podcast_titles, podcasts, luna_calls
 from .generation_jobs import cancellable_job
 from .provider_http import generation_response, provider_request, provider_error_code
 from .storage.tables import Podcast
@@ -14,12 +14,17 @@ from .storage.tables import Podcast
 def step(*, dsn=None):
     claim = None
     saving = False
+    trace = None
     try:
         claim = podcasts.claim_step(dsn=dsn)
         if claim is None:
             return
         episode = claim["episode"]
         audio = bool(episode["script"])
+        trace = luna_calls.start(
+            "podcast_script", (claim["podcast_id"], claim["index"]), claim["token"],
+            claim["material_id"], claim["owner"], enabled=not audio,
+        )
         with cancellable_job(
             Podcast,
             claim["podcast_id"],
@@ -70,6 +75,7 @@ def step(*, dsn=None):
                     "PODCAST_SCRIPT_NEEDS_REVIEW",
                     "PODCAST_AUDIO_INVALID",
                     "LUNA_GENERATION_FAILED",
+                    "LUNA_CALL_LIMIT_EXCEEDED",
                     "PODCAST_CANCELLED",
                 }:
                     raise PodcastError(code) from None
@@ -77,6 +83,8 @@ def step(*, dsn=None):
             if len(data) > 100 * 1024 * 1024:
                 raise PodcastError("PODCAST_AUDIO_INVALID")
             result = data if audio else json.loads(data)
+            if not audio:
+                luna_calls.capture(result)
             saving = True
             if audio:
                 podcasts.finish_step(
@@ -88,9 +96,10 @@ def step(*, dsn=None):
                 )
             else:
                 # 腳本完成後取短集名；失敗只沿用概念名稱組成的集名。
-                title = podcast_titles.generate({**episode, "script": result})
+                title = podcast_titles.generate({**episode, "script": result}, claim=claim)
                 podcasts.finish_step(claim, script=result, title=title, dsn=dsn)
     except Exception as error:
+        luna_calls.rejected(str(error))
         if claim is not None:
             code = (
                 str(error)
@@ -123,3 +132,6 @@ def step(*, dsn=None):
                 )
         else:
             logging.getLogger(__name__).warning("PODCAST_WORKER_FAILED")
+    finally:
+        if trace is not None:
+            luna_calls.close(trace)

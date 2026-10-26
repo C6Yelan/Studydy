@@ -1,5 +1,6 @@
 """有界並行子圖：各批獨立生成，單一協調者合併，保存亂序完成範圍。"""
 
+from contextvars import copy_context
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from threading import Event, Lock
 
@@ -128,7 +129,9 @@ def analyze_blocks(
                             job["id"], job["digest"], number, response
                         )
                     return block, number
-                except (SemanticServiceError, ValueError):
+                except (SemanticServiceError, ValueError) as error:
+                    if str(error) == "LUNA_CALL_LIMIT_EXCEEDED":
+                        raise
                     check()
                     if attempt + 1 == task["retry_attempts"]:
                         raise
@@ -226,7 +229,7 @@ def analyze_blocks(
                         cached["call_number"],
                     )
                     continue
-                pending[pool.submit(generate, job)] = job
+                pending[pool.submit(copy_context().run, generate, job)] = job
             if not pending:
                 break
             done, _ = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)

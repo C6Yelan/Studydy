@@ -26,6 +26,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from .local_ai_config import configured_lock
+from . import luna_calls, luna_test
 from .generation_jobs import WORKER_LEASE_TTL, JobCancelled, lease_is_current
 from .semantic_service import SemanticServiceError, request_semantics, semantic_client
 from .storage import knowledge_reads
@@ -232,7 +233,7 @@ def compute(rows, sources, fallback_label, call):
                 raise
             except Exception as error:
                 code = getattr(error, "reason_code", None) or str(error)
-                if code == "MATERIAL_MODEL_BUDGET_EXHAUSTED":
+                if code in {"MATERIAL_MODEL_BUDGET_EXHAUSTED", luna_calls.LIMIT_EXCEEDED}:
                     raise
                 errors = [f"CALL_FAILED:{code if code.replace('_', '').isalnum() else type(error).__name__}"]
                 response = None
@@ -487,7 +488,7 @@ def _semantic_call(claim, dsn, stop):
 
 def _save(claim, values, dsn):
     with database_session(dsn) as session:
-        session.execute(
+        saved = session.execute(
             update(KnowledgeChapters)
             .where(
                 KnowledgeChapters.learner_id == claim["key"][0],
@@ -503,6 +504,8 @@ def _save(claim, values, dsn):
                 updated_at=datetime.now(UTC),
             )
         )
+    if saved.rowcount and values["status"] in {"ready", "fallback", "failed"}:
+        luna_calls.completed("failed" if values["status"] == "failed" else "succeeded", values.get("error_code"))
 
 
 def step(*, dsn=None, call=None, model_id=None, stop=None):
@@ -515,10 +518,15 @@ def step(*, dsn=None, call=None, model_id=None, stop=None):
         return False
     if claim.get("skipped"):
         return True
+    trace = luna_calls.start(
+        "chapters", claim["key"], claim["token"], claim["key"][1], claim["key"][0],
+        call_limit=0, enabled=luna_test.enabled(configured_lock()),
+    )
     try:
         if call is None:
             call, model_id = _semantic_call(claim, dsn, stop)
         rows, sources, fallback_label = _rows(claim, dsn)
+        trace.tags["call_limit"] = 2 * len(windows(rows))
         result = compute(rows, sources, fallback_label, call)
         _save(
             claim,
@@ -541,11 +549,18 @@ def step(*, dsn=None, call=None, model_id=None, stop=None):
         )
         return True
     except JobCancelled:
+        luna_calls.completed("cancelled")
         return True
     except Exception as error:
-        code = error.reason_code if isinstance(error, SemanticServiceError) else "CHAPTER_JOB_FAILED"
+        code = error.reason_code if isinstance(error, SemanticServiceError) else luna_calls.LIMIT_EXCEEDED if str(error) == luna_calls.LIMIT_EXCEEDED else "CHAPTER_JOB_FAILED"
         logging.getLogger(__name__).warning(
             "CHAPTER_JOB_FAILED error_type=%s", type(error).__name__
         )
-        _save(claim, {"status": "failed", "chapters": None, "error_code": code}, dsn)
+        luna_calls.rejected(str(error))
+        values = {"status": "failed", "error_code": code}
+        if code != luna_calls.LIMIT_EXCEEDED:
+            values["chapters"] = None
+        _save(claim, values, dsn)
+    finally:
+        luna_calls.close(trace)
     return True

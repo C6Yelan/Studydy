@@ -324,6 +324,7 @@ def request_semantics(
     cancellation_check: Callable[[], None] | None = None,
     usage: dict[str, int] | None = None,
     before_request: Callable[[], None] | None = None,
+    tags: dict | None = None,
 ) -> dict[str, Any]:
     """透過共用 HTTP 邊界請求語意結果。"""
 
@@ -351,6 +352,17 @@ def request_semantics(
         )
         if before_request is not None:
             before_request()
+        if tags is None:
+            from . import luna_calls
+
+            current = luna_calls.tags()
+            if current is not None:
+                feature = "assessment_check" if task == "assessment_check" else current["feature"]
+                if current["budget"] == "material":
+                    stage = "analysis" if task == "material_semantics" else "review"
+                    tags = luna_calls.tags(feature="material_" + stage, stage=stage)
+                else:
+                    tags = luna_calls.tags(feature=feature)
         try:
             from .generation_jobs import provider_job
 
@@ -359,6 +371,7 @@ def request_semantics(
                     "/semantics",
                     {
                         **job,
+                        **({"tags": tags} if tags is not None else {}),
                         "task": task,
                         "prompt": prompt,
                         "request": request,
@@ -369,6 +382,9 @@ def request_semantics(
             if cancellation_check:
                 cancellation_check()
             code = (
+                "LUNA_CALL_LIMIT_EXCEEDED"
+                if str(error) == "LUNA_CALL_LIMIT_EXCEEDED"
+                else
                 "SEMANTIC_SERVICE_TIMEOUT"
                 if str(error) == "LUNA_GENERATION_TIMEOUT"
                 else "SEMANTIC_SERVICE_UNAVAILABLE"

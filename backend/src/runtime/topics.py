@@ -14,6 +14,7 @@ from .storage.artifacts import _key_digest
 from .storage.tables import TopicScope, MaterialResearch, Learner, Material
 from .storage.database import database_session
 from .provider_http import provider
+from . import luna_calls
 from .generation_jobs import cancellable_job, lease_is_current
 
 
@@ -322,51 +323,60 @@ def step(*, dsn=None):
             row.base_revision,
             row.learner_id,
         )
+    trace = luna_calls.start("topic", identity, token, material_id, owner)
     try:
-        with cancellable_job(
-            TopicScope, identity, token, dsn=dsn, statuses=("pending",)
-        ) as job:
-            context = {}
-            if material_id:
-                from .retrieval import search
+        try:
+            with cancellable_job(
+                TopicScope, identity, token, dsn=dsn, statuses=("pending",)
+            ) as job:
+                context = {}
+                if material_id:
+                    from .retrieval import search
 
-                with database_session(dsn) as db:
-                    material = require_material(db, owner, material_id, read=True)
-                    passages = search(
-                        db, owner, material_id, revision, [request], neighbors=False
-                    )
-                    context = {
-                        "material_title": material.display_name,
-                        "existing_concepts": list(
-                            dict.fromkeys(hint for p in passages for hint in p["hints"])
-                        )[:80],
-                    }
-            generated = provider(
-                "/semantics",
-                {
-                    **job,
-                    "task": "topic_scope",
-                    "prompt": SCOPE_PROMPT,
-                    "request": {"request": request, **context},
-                    "schema": SCOPE_SCHEMA,
-                },
+                    with database_session(dsn) as db:
+                        material = require_material(db, owner, material_id, read=True)
+                        passages = search(
+                            db, owner, material_id, revision, [request], neighbors=False
+                        )
+                        context = {
+                            "material_title": material.display_name,
+                            "existing_concepts": list(
+                                dict.fromkeys(hint for p in passages for hint in p["hints"])
+                            )[:80],
+                        }
+                generated = provider(
+                    "/semantics",
+                    {
+                        **job,
+                        "task": "topic_scope",
+                        "prompt": SCOPE_PROMPT,
+                        "request": {"request": request, **context},
+                        "schema": SCOPE_SCHEMA,
+                    },
+                )
+            result = proposal(generated)
+            producer = "codex-exec:gpt-5.6-luna;scope/v6"
+            error = None
+        except Exception as failure:
+            luna_calls.rejected(str(failure))
+            result = None
+            producer = None
+            error = luna_calls.LIMIT_EXCEEDED if str(failure) == luna_calls.LIMIT_EXCEEDED else "TOPIC_PROVIDER_FAILED"
+        saved = False
+        with database_session(dsn) as db:
+            row = db.scalar(
+                select(TopicScope).where(TopicScope.topic_id == identity).with_for_update()
             )
-        result = proposal(generated)
-        producer = "codex-exec:gpt-5.6-luna;scope/v6"
-        error = None
-    except Exception:
-        result = None
-        producer = None
-        error = "TOPIC_PROVIDER_FAILED"
-    with database_session(dsn) as db:
-        row = db.scalar(
-            select(TopicScope).where(TopicScope.topic_id == identity).with_for_update()
-        )
-        if row.status == "pending" and lease_is_current(row, token):
-            row.proposal = result
-            row.generation_provider = producer
-            row.status = "failed" if error else "ready"
-            row.error_code = error
-            row.version += 1
-            row.lease_token = row.lease_expires_at = None
-    return True
+            if row.status == "pending" and lease_is_current(row, token):
+                saved = True
+                row.proposal = result
+                row.generation_provider = producer
+                row.status = "failed" if error else "ready"
+                row.error_code = error
+                row.version += 1
+                row.lease_token = row.lease_expires_at = None
+        if saved:
+            luna_calls.completed("failed" if error else "succeeded", error)
+        return True
+    finally:
+        luna_calls.close(trace)

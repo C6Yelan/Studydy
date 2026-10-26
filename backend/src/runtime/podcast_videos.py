@@ -27,6 +27,7 @@ from .audio import episode_wav
 from .podcast_sources import source_context
 from .podcast_script import digest
 from .provider_http import generation_response, provider_request, provider_error_code
+from . import luna_calls
 from .storage.artifacts import (
     quarantine_artifact,
     reconcile_discarded_artifacts,
@@ -320,6 +321,7 @@ def claim(*, dsn=None):
         row.version += 1
         return {
             "video_id": row.video_id,
+            "material_id": podcast.material_id,
             "podcast_id": row.podcast_id,
             "index": row.episode_index,
             "token": row.lease_token,
@@ -435,7 +437,8 @@ def finish(state, *, bundle=None, error=None, dsn=None):
         release(db, podcast_id=row.podcast_id, kind="podcast_video", episode_index=row.episode_index)
         row.lease_token = row.lease_expires_at = None
         row.version += 1
-        return True
+    luna_calls.completed("failed" if error else "succeeded", error)
+    return True
 
 
 def provider(state, audio):
@@ -471,19 +474,25 @@ def provider(state, audio):
             "SCENE_ALIGNMENT_FAILED",
             "LUNA_GENERATION_FAILED",
             "LUNA_GENERATION_TIMEOUT",
+            "LUNA_CALL_LIMIT_EXCEEDED",
         }
         raise SourceError(
             code if code in allowed else "VIDEO_PROVIDER_FAILED"
         ) from None
     if len(raw) > 140 * 1024 * 1024:
         raise SourceError("VIDEO_RESULT_INVALID")
-    return json.loads(raw)
+    result = json.loads(raw)
+    # 影片 bytes 不作候選重複保存；模型分鏡在 provider 私人記憶體中等待終態。
+    luna_calls.capture({key: value for key, value in result.items() if key not in {"video", "audio"}})
+    return result
 
 
 def step(*, dsn=None):
     state = claim(dsn=dsn)
     if state is None:
         return False
+    trace = luna_calls.start("podcast_video", state["video_id"], state["token"],
+        state["material_id"], state["owner"])
     saving = False
     try:
         with cancellable_job(Video, state["video_id"], state["token"], dsn=dsn):
@@ -492,6 +501,7 @@ def step(*, dsn=None):
             saving = True
             finish(state, bundle=bundle, dsn=dsn)
     except Exception as error:
+        luna_calls.rejected(str(error))
         if isinstance(error, (SourceError, ValueError)) and str(error).startswith(
             ("VIDEO_", "SCENE_", "LUNA_")
         ):
@@ -502,4 +512,6 @@ def step(*, dsn=None):
             finish(state, error=code, dsn=dsn)
         except Exception:
             logging.getLogger(__name__).warning("VIDEO_RESULT_SAVE_FAILED")
+    finally:
+        luna_calls.close(trace)
     return True

@@ -105,6 +105,13 @@ def generation_response(request):
 
 def provider_request(path, body, *, unavailable):
     """統一既有 provider 的位址、認證與 JSON；錯誤語意由呼叫功能決定。"""
+    from . import luna_calls
+
+    if path in {"/semantics", "/script", "/scene-check", "/video"}:
+        call_tags = body.get("tags") or luna_calls.tags()
+        if call_tags is not None:
+            body = {**body, "tags": call_tags}
+            luna_calls.sent(call_tags)
     base = os.environ.get("STUDYDY_PODCAST_PROVIDER_URL", "").rstrip("/")
     token = os.environ.get("STUDYDY_PODCAST_PROVIDER_TOKEN", "")
     if not base or not token:
@@ -145,6 +152,7 @@ def provider(path, body):
             "PODCAST_AUDIO_INVALID",
             "LUNA_GENERATION_FAILED",
             "LUNA_GENERATION_TIMEOUT",
+            "LUNA_CALL_LIMIT_EXCEEDED",
             "SCENE_ALIGNMENT_FAILED",
         }:
             raise SourceError(code) from None
@@ -155,4 +163,9 @@ def provider(path, body):
         ) from None
     if len(data) > 20 * 1024 * 1024:
         raise SourceError("VOICE_PROVIDER_FAILED")
-    return data if path == "/audio" else json.loads(data)
+    result = data if path == "/audio" else json.loads(data)
+    if path in {"/semantics", "/script", "/scene-check", "/video"}:
+        from . import luna_calls
+
+        luna_calls.capture(result, call_tags=body.get("tags"))
+    return result
