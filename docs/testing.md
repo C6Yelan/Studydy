@@ -377,3 +377,5 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 ## 隔夜來源、筆記與匯出投影
 
 `test_overnight_material_projection.py` 驗證固定來源新增數、持久前後計數及從歷史審查封存唯讀投影疑義，結構hash不變。`test_overnight_goal_notes.py` 驗證草稿／主題選擇持久化、發布排程、可達建議套用與舊筆記來源，配合 media_source_flow、learning_insights、material_qa、topics、note_queue 回歸。匯出測試實際產生PDF／DOCX／ZIP，頁尾註腳、公式與完整長文不裁切；Mermaid另在獨立瀏覽器以合成中文／特殊字元樣本渲染，不外送教材。
+
+`runtime/materials/test_storage_breakdown.py` 使用真DB與隔離分析目錄，核對單一SQL、每個目錄只掃一次、五類加總、包含預留與分析資料的前五教材、未知歸屬檔案仍計總量。相關podcast_storage容量／保留案例保護原接受規則。

@@ -212,8 +212,11 @@ def test_usage_counts_files_and_chunked_uploads_reserve_declared_size(closed_loo
     with database_session(dsn) as db:
         stored = sum(a.size_bytes for a in db.scalars(select(Artifact).where(Artifact.learner_id == owner.learner_id)))
     usage = storage(client)
-    assert usage == {"schema": "account-storage/v1", "used_bytes": stored + 1000, "reserved_bytes": 0,
-                     "limit_bytes": 5 * 1024 ** 3, "remaining_bytes": 5 * 1024 ** 3 - stored - 1000}
+    assert usage['schema'] == 'account-storage/v2'
+    assert (usage['used_bytes'], usage['reserved_bytes'], usage['limit_bytes'], usage['remaining_bytes']) == (
+        stored+1000, 0, 5*1024**3, 5*1024**3-stored-1000)
+    assert usage['breakdown'] == {'material_files_bytes':stored, 'podcast_audio_bytes':0,
+        'podcast_video_bytes':0, 'analysis_bytes':1000, 'reserved_bytes':0}
     # Codex 重現：上限比已用多 1000 bytes，兩份宣告 800 bytes 的分段上傳只能接受一份。
     monkeypatch.setattr(storage_usage, "ACCOUNT_STORAGE_LIMIT_BYTES", usage["used_bytes"] + 1000)
     draft = draft_for(client)

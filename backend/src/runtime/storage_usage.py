@@ -65,22 +65,26 @@ class StorageBusyError(RuntimeError):
         super().__init__("STORAGE_BUSY")
 
 
-def _tree_bytes(path):
-    total = 0
-    try:
-        entries = list(os.scandir(path))
-    except FileNotFoundError:
-        return 0
-    for entry in entries:
+def _analysis_usage(path):
+    """一次掃描同時累計總量與第一層教材目錄，不跟隨symlink。"""
+    amounts = {}
+    def scan(directory, material=None):
         try:
-            details = entry.stat(follow_symlinks=False)
+            entries = os.scandir(directory)
         except FileNotFoundError:
-            continue
-        if stat.S_ISDIR(details.st_mode):
-            total += _tree_bytes(entry.path)
-        elif stat.S_ISREG(details.st_mode):
-            total += details.st_size
-    return total
+            return
+        with entries:
+            for entry in entries:
+                try:
+                    details = entry.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISDIR(details.st_mode):
+                    scan(entry.path, material if material is not None else entry.name)
+                elif stat.S_ISREG(details.st_mode):
+                    amounts[material] = amounts.get(material, 0) + details.st_size
+    scan(path)
+    return amounts
 
 
 def lock_account(db, owner: UUID) -> None:
@@ -118,29 +122,47 @@ def episode_estimates(db) -> dict:
 
 
 def _usage(db, owner: UUID, *, exclude=None) -> dict:
-    # artifacts 與保留在同一個敘述加總：背景同時提交「新增成品＋刪除保留」時不會兩邊都漏算。
-    row = db.execute(
-        text(
-            """
-            SELECT
-              (SELECT coalesce(sum(size_bytes), 0) FROM artifacts WHERE learner_id = :owner) AS files,
-              (SELECT coalesce(sum(r.bytes), 0) FROM storage_reservations r
-                 LEFT JOIN podcasts p ON p.podcast_id = r.podcast_id
-                 WHERE r.learner_id = :owner
-                   AND (r.podcast_id IS NULL OR p.status <> 'deleted')
-                   AND r.reservation_id IS DISTINCT FROM CAST(:exclude AS uuid)) AS reserved
-            """
-        ),
-        {"owner": owner, "exclude": exclude},
-    ).one()
-    reserved = int(row.reserved)
-    used = int(row.files) + reserved + _tree_bytes(_root() / "analysis" / owner.hex)
+    # 同一SQL快照分類artifacts與保留，不能先各查一次再重查總量。
+    rows = db.execute(text("""
+        WITH usage AS (
+            SELECT material_id,
+                CASE kind WHEN 'podcast_audio' THEN 'podcast_audio_bytes'
+                          WHEN 'podcast_video' THEN 'podcast_video_bytes'
+                          ELSE 'material_files_bytes' END AS category,
+                size_bytes AS bytes
+            FROM artifacts WHERE learner_id=:owner
+            UNION ALL
+            SELECT r.material_id, 'reserved_bytes', r.bytes
+            FROM storage_reservations r LEFT JOIN podcasts p ON p.podcast_id=r.podcast_id
+            WHERE r.learner_id=:owner AND (r.podcast_id IS NULL OR p.status <> 'deleted')
+              AND r.reservation_id IS DISTINCT FROM CAST(:exclude AS uuid)
+        )
+        SELECT m.material_id, m.display_name, coalesce(u.category, 'material_files_bytes') AS category,
+               coalesce(sum(u.bytes),0) AS bytes
+        FROM materials m LEFT JOIN usage u ON u.material_id=m.material_id
+        WHERE m.learner_id=:owner GROUP BY m.material_id, m.display_name, u.category
+    """), {'owner':owner, 'exclude':exclude}).all()
+    breakdown = dict.fromkeys(('material_files_bytes', 'podcast_audio_bytes', 'podcast_video_bytes',
+                               'analysis_bytes', 'reserved_bytes'), 0)
+    materials = {}
+    for row in rows:
+        size = int(row.bytes)
+        breakdown[row.category] += size
+        item = materials.setdefault(row.material_id.hex, {'material_id':str(row.material_id),
+            'display_name':row.display_name, 'used_bytes':0})
+        item['used_bytes'] += size
+    analysis = _analysis_usage(_root() / 'analysis' / owner.hex)
+    breakdown['analysis_bytes'] = sum(analysis.values())
+    for directory, size in analysis.items():
+        if directory in materials:
+            materials[directory]['used_bytes'] += size
+    used = sum(breakdown.values())
     return {
-        "schema": "account-storage/v1",
-        "used_bytes": used,
-        "reserved_bytes": reserved,
-        "limit_bytes": ACCOUNT_STORAGE_LIMIT_BYTES,
-        "remaining_bytes": max(0, ACCOUNT_STORAGE_LIMIT_BYTES - used),
+        'schema':'account-storage/v2', 'used_bytes':used, 'reserved_bytes':breakdown['reserved_bytes'],
+        'limit_bytes':ACCOUNT_STORAGE_LIMIT_BYTES, 'remaining_bytes':max(0, ACCOUNT_STORAGE_LIMIT_BYTES-used),
+        'breakdown':breakdown,
+        'largest_materials':sorted((item for item in materials.values() if item['used_bytes']),
+                                   key=lambda item:(-item['used_bytes'], item['material_id']))[:5],
     }
 
 

@@ -371,3 +371,7 @@ STUDYDY_MATERIAL_WORKERS 預設 1，需多教材時由管理者在本機 .env �
 learning-goal/v2、learning-diagnosis/v2、material-notes/v3 與新回答 material-answer/v3 必須配合前端解析及接線部署；不能單獨上線造成舊前端拒收。原回答v2仍讀取，原來源、結構及runtime lock不改寫。
 
 所有後端匯出的ZIP時間、PDF日期與Word標準日期欄位採Asia/Taipei（Word以+08:00標明），圖片ZIP依概念標題命名並去除非法字元、同名編號。地圖Markdown含完整重點、頁碼及每章Mermaid，需以實際Mermaid解析／渲染驗證特殊字元。
+
+## 帳號空間細項
+
+GET /v1/account/storage 升為 account-storage/v2，需與前端對應schema及G4接線配合部署，不提供舊schema相容回應。無migration或provider變更；總量與細項來自同一SQL與目錄掃描，並非DB／磁碟原子快照。
