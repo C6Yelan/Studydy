@@ -216,11 +216,13 @@ export type LearningGoalSummary = {
   daily_limit: 20; quota_over_limit: boolean; scheduled_over_limit: boolean; today_stage: GoalStage;
 };
 export type LearningGoal = Omit<LearningGoalSummary, "material_id" | "material_name" | "knowledge_structure_revision" | "run_id"> & {
+  suggestions: { kind: "extend_date" | "lower_target"; target_date: string; target_percent: 60 | 80 | 100; daily_points: number }[];
   future_stages: GoalStage[]; preview_offset: number; preview_has_more: boolean; manual_review: GoalConcept[];
   update_notice: { knowledge_structure_revision: string; previous_points: number; current_points: number } | null;
 };
 export type LearningGoalView = {
-  schema: "learning-goal/v1"; material_id: string; knowledge_structure_revision: string; run_id: string;
+  schema: "learning-goal/v2"; material_id: string; knowledge_structure_revision: string | null; run_id: string | null;
+  pending_goal: { target_date: string; target_percent: 60 | 80 | 100 } | null;
   today: string; goal: LearningGoal | null;
 };
 export type LearningGoalsView = { schema: "learning-goals/v1"; today: string; goals: LearningGoalSummary[] };
@@ -630,13 +632,14 @@ export type GuidanceApply = { schema: "guidance-apply/v1"; guidance_revision: st
 
 export type DiagnosisPoint = {
   claim_id: string; title: string; answer_count: number; correct_count: number; latest_is_correct: boolean | null;
+  consecutive_correct_count: number; required_consecutive_correct: number; completed: boolean;
   evidence: Pick<EvidenceView, "evidence_id" | "page" | "source_id" | "source_name" | "normalized_page">[];
 };
 export type DiagnosisFinding = { concept_id: string; label: string; points: DiagnosisPoint[] };
 export type DiagnosisRecommendation = { concept_id: string; label: string; reason: string };
 export type LearningDiagnosisView = {
-  schema: "learning-diagnosis/v1"; material_id: string; knowledge_structure_revision: string;
-  scope: "material" | "set"; set_id: string | null;
+  schema: "learning-diagnosis/v2"; material_id: string; knowledge_structure_revision: string;
+  scope: "material";
   source_resolver: string;
   strengths: DiagnosisFinding[]; weaknesses: DiagnosisFinding[]; recommendations: DiagnosisRecommendation[];
 };
@@ -999,10 +1002,12 @@ export type NoteAnnotation = {
   paragraph_id: string | null; updated_at: string;
 };
 export type MaterialNotesView = {
-  schema: "material-notes/v2"; material_id: string; knowledge_structure_revision: string;
+  schema: "material-notes/v3"; material_id: string; knowledge_structure_revision: string;
   run_id: string; kind: NoteKind; status: "not_generated" | "pending" | "running" | "ready" | "failed";
   generation: number; source_status: KnowledgeStructureView["status"]; paragraphs: NoteParagraph[]; annotations: NoteAnnotation[];
   outline: NoteOutlineEntry[];
+  content_revision: string | null; content_generation: number | null;
+  update_available: boolean; updating: boolean; started_at: string | null; updated_at: string | null;
   source_resolver: string; error_code: string | null;
   progress: { stage: "generating" | "validating" | "completed"; completed_sections: number; total_sections: number;
     completed_parts: number; total_parts: number; current_section: string | null } | null;

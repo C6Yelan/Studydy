@@ -65,11 +65,11 @@ export function DifficultyList({ report, onReview, disabled = false }: {
   </section>;
 }
 
-export function LearningDiagnosis({ api, materialId, revision, setId, onReview, disabled = false }: {
-  api: StudydyApiClient; materialId: string; revision: string; setId?: string;
+export function LearningDiagnosis({ api, materialId, revision, onReview, disabled = false }: {
+  api: StudydyApiClient; materialId: string; revision: string;
   onReview: (id: string) => void; disabled?: boolean;
 }) {
-  const read = useCallback(() => api.getLearningDiagnosis({ materialId, structureRevision: revision }, setId), [api, materialId, revision, setId]);
+  const read = useCallback(() => api.getLearningDiagnosis({ materialId, structureRevision: revision }), [api, materialId, revision]);
   const { data, error, retry } = useReport(read);
   if (data && !data.strengths.length && !data.weaknesses.length && !data.recommendations.length) return null;
   const findings = (title: string, items: DiagnosisFinding[]) => items.length > 0 && <section>
@@ -86,10 +86,10 @@ export function LearningDiagnosis({ api, materialId, revision, setId, onReview, 
       </div>
     </li>)}</ul>
   </section>;
-  return <section className="learning-diagnosis" aria-label={setId ? "本組學習診斷" : "學習診斷"}>
-    <h2>{setId ? "本組學習診斷" : "學習診斷"}</h2>
+  return <section className="learning-diagnosis" aria-label="學習診斷">
+    <h2>學習診斷</h2>
     {data && <ExportControls label="匯出學習診斷" options={[{ value: "pdf", label: "一頁 PDF 摘要" }]}
-      download={() => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${revision}/learning-diagnosis/export/pdf${setId ? `?set_id=${setId}` : ""}`)} />}
+      download={() => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${revision}/learning-diagnosis/export/pdf`)} />}
     {error ? <p role="alert">診斷暫時無法讀取。{error}<button className="text-button" type="button" onClick={retry}>重新讀取診斷</button></p>
       : !data ? <p role="status">正在讀取學習診斷…</p>
       : <div className="diagnosis-sections">

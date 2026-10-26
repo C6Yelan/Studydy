@@ -601,7 +601,7 @@ export function AssessmentSetPanel({
               </span>
             )}
           </div>
-          <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} setId={group.set_id} onReview={onBackToMap} />
+          <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} onReview={onBackToMap} />
           {group.cycle.active_set_id && group.cycle.active_set_id !== group.set_id && (
             <button
               className="primary-button"

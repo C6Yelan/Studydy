@@ -166,7 +166,7 @@ function NotesContent({ api, materialId, revision, kind }: { api: StudydyApiClie
       </div>
       {view.paragraphs.length > 0 && <ExportControls label="匯出筆記" options={[
         { value: "pdf", label: "PDF" }, { value: "md", label: "Markdown" }, { value: "docx", label: "Word（.docx）" },
-      ]} download={format => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${revision}/notes/${kind}/export/${format}`)} />}
+      ]} download={format => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${view.content_revision}/notes/${kind}/export/${format}`)} />}
       {view.progress && <section className="note-progress" aria-label="完整筆記分區進度">
         <p>{view.progress.stage === "validating" ? "正在核對完整筆記…" : view.progress.stage === "completed" ? "分區生成完成" : `正在整理：${view.progress.current_section ?? "教材"}`}</p>
         <Progress aria-label="已完成分區" value={view.progress.completed_sections > 0 ? view.progress.completed_sections : undefined} max={Math.max(1, view.progress.total_sections)}/>

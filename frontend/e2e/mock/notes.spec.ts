@@ -7,9 +7,10 @@ const formula = String.raw`\text{大小} = \text{推入次數} - \text{取出次
 function notes(kind: NoteKind = "summary"): MaterialNotesView {
   const c = structureView().concepts[0];
   const source = { claim_ids: [c.claims[0].claim_id], evidence_ids: [c.claims[0].evidence[0].evidence_id], concepts: [{ concept_id: c.concept_id, label: c.label }], evidence: c.claims[0].evidence };
-  return { schema: "material-notes/v2", material_id: materialId, run_id: runId, knowledge_structure_revision: structureRevision,
+  return { schema: "material-notes/v3", material_id: materialId, run_id: runId, knowledge_structure_revision: structureRevision,
     kind, status: "ready", generation: 1, source_status: { processing: "succeeded", quality: "accepted", decision: "retain", reason_codes: [] }, source_resolver: `/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`, error_code: null,
-    progress: null, annotations: [],
+    progress: null, annotations: [], content_revision: structureRevision, content_generation: 1,
+    update_available: false, updating: false, started_at: null, updated_at: null,
     outline: [{ paragraph_id: "0", level: 1, number: "一、", heading: "堆疊的順序" }, { paragraph_id: "1", level: 2, number: "1.1", heading: "堆疊大小" }],
     paragraphs: [
       { id: "0", anchor: "stable-anchor", heading: "堆疊的順序", level: 1, ...source, blocks: [
@@ -31,7 +32,7 @@ function legacyParagraph(view: MaterialNotesView) {
 async function setup(page: Parameters<typeof mockKnowledgeMapApi>[0], initial = notes()) {
   await mockKnowledgeMapApi(page);
   let summary = initial;
-  let full: MaterialNotesView = { ...notes("full"), status: "not_generated", generation: 0, paragraphs: [] };
+  let full: MaterialNotesView = { ...notes("full"), status: "not_generated", generation: 0, paragraphs: [], outline: [], content_revision: null, content_generation: null };
   const writes: string[] = [];
   await page.route("**/notes/**", route => {
     const request = route.request();
@@ -116,7 +117,7 @@ test("notes and annotation editor remain usable on narrow screens and keyboard",
 
 test("full notes show restored section progress and retain completed work on retry", async ({ page }) => {
   const state = await setup(page);
-  state.setFull({ ...notes("full"), status: "failed", generation: 0, paragraphs: [], error_code: "NOTE_GENERATION_FAILED",
+  state.setFull({ ...notes("full"), status: "failed", generation: 0, paragraphs: [], outline: [], content_revision: null, content_generation: null, error_code: "NOTE_GENERATION_FAILED",
     progress: { stage: "generating", completed_sections: 1, total_sections: 3, completed_parts: 2, total_parts: 6, current_section: "排序方法" } });
   await page.goto(`/materials/${materialId}/notes`);
   await page.getByRole("button", { name: "完整筆記", exact: true }).click();
@@ -221,4 +222,32 @@ for (const format of ['audio','images'] as const) test(`note references use veri
   await page.screenshot({path:testInfo.outputPath(`note-${format}-${width}.png`)});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
  }
+});
+
+
+test("older visible notes keep annotation and export requests on their content revision",async({page})=>{
+ const initial=notes();const oldRevision=`knowledge-structure:sha256:${"e".repeat(64)}`;
+ initial.content_revision=oldRevision;initial.content_generation=3;initial.generation=0;initial.update_available=true;
+ initial.source_resolver=`/v1/materials/${materialId}/knowledge-structures/${oldRevision}/evidence`;
+ const state=await setup(page,initial);let annotationPath="";let exportPath="";
+ await page.route(`**/knowledge-structures/${oldRevision}/evidence/*/source`,route=>json(route,{schema:'evidence-source/v1',format:'pdf',display_name:'舊教材',original_name:'old.pdf',original_url:`/v1/artifacts/${artifactId}/download`,preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:'exact',origin_locators:[],label:'PDF 第 1 頁'}));
+ await page.route('**/notes/summary/annotations/*',route=>{
+  annotationPath=decodeURIComponent(new URL(route.request().url()).pathname);
+  expect(route.request().postDataJSON().expected_generation).toBe(3);
+  return json(route,{...initial,knowledge_structure_revision:oldRevision,generation:3,update_available:false});
+ });
+ await page.route('**/notes/summary/export/pdf',route=>{
+  exportPath=decodeURIComponent(new URL(route.request().url()).pathname);
+  return route.fulfill({contentType:'application/pdf',headers:{'Content-Disposition':"attachment; filename*=UTF-8''notes.pdf"},body:'%PDF'});
+ });
+ await page.goto(`/materials/${materialId}/notes`);
+ await page.getByRole('button',{name:'新增註記',exact:true}).first().click();
+ await page.getByLabel('個人註記',{exact:true}).fill('舊稿的個人註記');
+ await page.getByRole('button',{name:'儲存註記',exact:true}).click();await expect(page.getByRole('dialog')).toBeHidden();
+ expect(annotationPath).toContain(`/knowledge-structures/${oldRevision}/notes/summary/annotations/`);
+ const downloading=page.waitForEvent('download');await page.getByRole('group',{name:'匯出筆記'}).getByRole('button',{name:'匯出',exact:true}).click();await downloading;
+ expect(exportPath).toBe(`/v1/materials/${materialId}/knowledge-structures/${oldRevision}/notes/summary/export/pdf`);
+ const generating=page.waitForRequest(request=>request.method()==='POST'&&request.url().includes('/notes/summary'));
+ await page.getByRole('button',{name:'重新生成',exact:true}).click();
+ const request=await generating;expect(decodeURIComponent(request.url())).toContain(`/knowledge-structures/${structureRevision}/notes/summary`);expect(request.postDataJSON().expected_generation).toBe(0);expect(state.writes).toEqual(['generate']);
 });

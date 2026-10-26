@@ -298,7 +298,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 ### 結構化筆記（material-notes/v12）
 
-不需 migration：`material_notes.paragraphs` 與註記快照仍是 jsonb，新舊段落格式並存；API 的 `schema` 改為 `material-notes/v2` 並新增 `outline`，前後端須一起部署（舊前端不認得 v2）。後端新增 `matplotlib==3.11.2`（連帶 contourpy、cycler、kiwisolver、pyparsing，numpy／Pillow 由 test extra 轉為正式依賴，版本不變），記在 `backend/pyproject.toml`／`uv.lock`；沒有新系統套件，輕量更新的 `uv sync` 即會安裝。公式排版使用映像內既有的 `fonts-noto-cjk`，matplotlib 第一次排版時在 `$HOME/.config/matplotlib`（backend 的 HOME 為 /tmp tmpfs）建立字型快取，約需數秒；部署後在容器內核對 `import matplotlib` 版本並匯出一份含公式的筆記。前端新增 `katex@0.18.11`（MIT），公式元件與 KaTeX 字型拆成獨立 chunk，只在筆記有公式時載入。runtime lock 的 `material_notes` 改為 v12；未完成的舊提示工作（含早期 v12）重試時依既有規則清除未發布批次並換用目前契約。章節整理在所有批次通過後執行，只調整層級；缺引用會精確補入並重核，不放寬內容檢查。已發布的 v11 筆記保留可讀與匯出，重新生成後才換成新格式。
+不需 migration：`material_notes.paragraphs` 與註記快照仍是 jsonb，新舊段落格式並存；API 現為 `material-notes/v3`，保留 `outline` 並提供實際內容的 `content_revision`／`content_generation` 與更新狀態。前端僅接受 v3，須與 B3.3 的 `learning-goal/v2`、`learning-diagnosis/v2` 同批部署。後端新增 `matplotlib==3.11.2`（連帶 contourpy、cycler、kiwisolver、pyparsing，numpy／Pillow 由 test extra 轉為正式依賴，版本不變），記在 `backend/pyproject.toml`／`uv.lock`；沒有新系統套件，輕量更新的 `uv sync` 即會安裝。公式排版使用映像內既有的 `fonts-noto-cjk`，matplotlib 第一次排版時在 `$HOME/.config/matplotlib`（backend 的 HOME 為 /tmp tmpfs）建立字型快取，約需數秒；部署後在容器內核對 `import matplotlib` 版本並匯出一份含公式的筆記。前端使用 `katex@0.18.11`（MIT）；同批 F1c 將公式排版共用於教材內容與概念卡。runtime lock 的 `material_notes` 改為 v12；未完成的舊提示工作（含早期 v12）重試時依既有規則清除未發布批次並換用目前契約。章節整理在所有批次通過後執行，只調整層級；缺引用會精確補入並重核，不放寬內容檢查。已發布的 v11 筆記保留可讀與匯出，重新生成後才換成新格式。
 
 ## 0018 筆記生成診斷摘要碼
 

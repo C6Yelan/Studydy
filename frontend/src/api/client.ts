@@ -771,12 +771,10 @@ export class StudydyApiClient {
     return view;
   }
 
-  async getLearningDiagnosis(request: KnowledgeStructureRequest, setId?: string): Promise<LearningDiagnosisView> {
-    const query = setId ? `?set_id=${encodeURIComponent(setId)}` : "";
-    return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/learning-diagnosis${query}`,
+  async getLearningDiagnosis(request: KnowledgeStructureRequest): Promise<LearningDiagnosisView> {
+    return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/learning-diagnosis`,
       { method: "GET" }, (value): value is LearningDiagnosisView => validate.learningDiagnosis(value)
-        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision
-        && value.scope === (setId ? "set" : "material") && value.set_id === (setId ?? null));
+        && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
   }
 
   async getStartingLevel(materialId: string): Promise<StartingLevelView> {
@@ -797,10 +795,12 @@ export class StudydyApiClient {
   }
 
   async saveNoteAnnotation(view: MaterialNotesView, id: string, paragraphId: string | null, body: string): Promise<MaterialNotesView> {
-    return this.json(`/v1/materials/${view.material_id}/knowledge-structures/${view.knowledge_structure_revision}/notes/${view.kind}/annotations/${id}`, {
+    const saved = await this.json(`/v1/materials/${view.material_id}/knowledge-structures/${view.content_revision}/notes/${view.kind}/annotations/${id}`, {
       method: "PUT", headers: { Origin: origin(), "Content-Type": "application/json" },
-      body: JSON.stringify({ expected_generation: view.generation, paragraph_id: paragraphId, body }),
-    }, (v): v is MaterialNotesView => validate.materialNotes(v) && v.material_id === view.material_id && v.knowledge_structure_revision === view.knowledge_structure_revision && v.kind === view.kind);
+      body: JSON.stringify({ expected_generation: view.content_generation, paragraph_id: paragraphId, body }),
+    }, (v): v is MaterialNotesView => validate.materialNotes(v) && v.material_id === view.material_id && v.knowledge_structure_revision === view.content_revision && v.kind === view.kind);
+    // 舊稿註記寫回舊內容後，重新讀取目前請求，避免把畫面切成舊教材。
+    return view.content_revision === view.knowledge_structure_revision ? saved : this.getNotes(view.material_id, view.knowledge_structure_revision, view.kind);
   }
 
   async getLearningGoal(materialId: string, offset = 0): Promise<LearningGoalView> {
@@ -813,7 +813,7 @@ export class StudydyApiClient {
       method: "PUT", headers: { Origin: origin(), "Content-Type": "application/json" },
       body: JSON.stringify({ schema: "learning-goal-update/v1", target_date: date, target_percent: percent }),
     }, (value): value is LearningGoalView => validate.learningGoal(value) && value.material_id === materialId
-      && value.goal?.target_date === date && value.goal.target_percent === percent);
+      && (value.goal ?? value.pending_goal)?.target_date === date && (value.goal ?? value.pending_goal)?.target_percent === percent);
   }
 
   async acknowledgeGoalUpdate(materialId: string, revision: string): Promise<LearningGoalView> {
