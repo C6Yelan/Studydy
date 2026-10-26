@@ -75,7 +75,6 @@ def step(*, dsn=None):
                     "PODCAST_SCRIPT_NEEDS_REVIEW",
                     "PODCAST_AUDIO_INVALID",
                     "LUNA_GENERATION_FAILED",
-                    "LUNA_CALL_LIMIT_EXCEEDED",
                     "PODCAST_CANCELLED",
                 }:
                     raise PodcastError(code) from None

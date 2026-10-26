@@ -361,7 +361,7 @@ def step(*, dsn=None):
             luna_calls.rejected(str(failure))
             result = None
             producer = None
-            error = luna_calls.LIMIT_EXCEEDED if str(failure) == luna_calls.LIMIT_EXCEEDED else "TOPIC_PROVIDER_FAILED"
+            error = "TOPIC_PROVIDER_FAILED"
         saved = False
         with database_session(dsn) as db:
             row = db.scalar(

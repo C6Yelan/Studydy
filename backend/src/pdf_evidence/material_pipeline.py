@@ -627,8 +627,6 @@ def analyze_material(
                         last_error = None
                         break
                     except SemanticServiceError as error:
-                        if error.reason_code == "LUNA_CALL_LIMIT_EXCEEDED":
-                            raise
                         last_error = error
                     except ValueError as error:
                         last_error = error

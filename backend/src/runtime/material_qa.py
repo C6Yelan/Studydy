@@ -9,7 +9,6 @@ import re
 from knowledge_map.retrieval import rank_texts
 from .text_budget import estimate_o200k_tokens
 from .errors import SourceError
-from . import luna_calls
 
 
 INPUT_TOKENS = 12000
@@ -220,7 +219,6 @@ def _request(call, prompt, payload, schema, metrics):
         "/semantics",
         {"task": "material_qa", "prompt": prompt, "request": payload, "schema": schema},
     )
-    luna_calls.capture(result)
     if not isinstance(result, dict):
         raise SourceError("VOICE_ANSWER_INVALID")
     return result

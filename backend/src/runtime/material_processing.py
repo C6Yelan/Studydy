@@ -538,7 +538,7 @@ def execute_claimed_material_processing_run(
     run = claim.run
     trace = luna_calls.start(
         "material_analysis", run.run_id, claim.worker_token, run.material_id, run.learner_id,
-        budget="material", archive=f"analysis/{run.learner_id.hex}/{run.material_id.hex}/{run.run_id.hex}",
+        archive=f"analysis/{run.learner_id.hex}/{run.material_id.hex}/{run.run_id.hex}",
         enabled=luna_test.enabled(run.runtime_lock_document),
     )
     try:

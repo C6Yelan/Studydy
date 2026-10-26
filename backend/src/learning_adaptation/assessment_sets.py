@@ -643,7 +643,7 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
                 check_wait()
                 with database_session(dsn) as session:
                     _leased(session, work)
-                return luna_calls.capture(result)
+                return luna_calls.capture(result) if semantic_call is not request_semantics else result
 
             chosen = assessments.prepare_assessment(
                 study_data,
@@ -681,7 +681,6 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
                 "ASSESSMENT_OUTPUT_INVALID",
                 "ASSESSMENT_CHECK_INVALID",
                 "ASSESSMENT_CONFIGURATION_INVALID",
-                "LUNA_CALL_LIMIT_EXCEEDED",
                 "SEMANTIC_SERVICE_UNAVAILABLE",
                 "SEMANTIC_SERVICE_TIMEOUT",
                 "SEMANTIC_RESPONSE_INVALID",

@@ -256,7 +256,7 @@ def _request(claim, state, prompt, payload, schema, dsn, call):
     state["saved_output_tokens"] += estimate_o200k_tokens(
         json.dumps(result, ensure_ascii=False)
     )
-    return luna_calls.capture(result)
+    return luna_calls.capture(result) if call is not None else result
 
 
 def _advance(claim, state, dsn, call):
@@ -349,7 +349,7 @@ def step(*, dsn=None, call=None):
         state = {**initial(previous=state), "luna_attempt": previous_attempt}
     trace = luna_calls.start(
         "cards", claim["id"], state["luna_attempt"], claim["material_id"], claim["owner"],
-        call_limit=4 * len(claim["concept_ids"]), enabled=luna_test.enabled(configured_lock()),
+        enabled=luna_test.enabled(configured_lock()),
     )
     try:
         _advance(claim, state, dsn, call)

@@ -191,7 +191,9 @@ def action(owner, podcast_id, index, action, version, *, dsn=None):
             raise SourceError("VIDEO_CONFLICT")
         row.lease_token = row.lease_expires_at = None
         row.version += 1
-        return _view(podcast, index, row)
+        result, video_id = _view(podcast, index, row), row.video_id
+    luna_calls.discard("podcast_video", video_id, owner)
+    return result
 
 
 def ready_manifest(owner, podcast_id, index, *, dsn=None):
@@ -474,7 +476,6 @@ def provider(state, audio):
             "SCENE_ALIGNMENT_FAILED",
             "LUNA_GENERATION_FAILED",
             "LUNA_GENERATION_TIMEOUT",
-            "LUNA_CALL_LIMIT_EXCEEDED",
         }
         raise SourceError(
             code if code in allowed else "VIDEO_PROVIDER_FAILED"

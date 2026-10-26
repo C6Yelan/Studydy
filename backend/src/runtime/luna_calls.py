@@ -11,21 +11,6 @@ import logging
 import os
 
 
-LIMIT_EXCEEDED = "LUNA_CALL_LIMIT_EXCEEDED"
-LIMIT_MESSAGE = "這次生成用量超過上限，已停止。可以稍後重試。"
-LIMITS = {
-    "material": 1144,
-    "note_summary": 274,
-    "note_full": 324,
-    "assessment": 2,
-    "podcast_script": 37,
-    "podcast_title": 1,
-    "podcast_scenes": 1,
-    "podcast_video": 1,
-    "voice": 10,
-    "topic": 1,
-    "research": 1832,
-}
 _current = ContextVar("luna_work", default=None)
 _logger = logging.getLogger(__name__)
 _pending = {}
@@ -56,20 +41,19 @@ class Work:
 
 
 def _key(value):
-    return (value["learner_id"], value["budget"], value["work_id"], value["attempt_id"])
+    feature = value["feature"]
+    family = "material" if feature.startswith("material_") else "assessment" if feature == "assessment_check" else feature
+    return (value["learner_id"], family, value["work_id"], value["attempt_id"])
 
 
 def start(feature, work_id, attempt_id, material_id, learner_id, *,
-          call_limit=None, budget=None, archive=None, enabled=True, defer_to_parent=False):
-    budget = budget or feature
+          archive=None, enabled=True, defer_to_parent=False):
     work = Work({
         "feature": feature,
         "material_id": identity(material_id),
         "learner_id": identity(learner_id),
         "work_id": identity(work_id),
         "attempt_id": identity(attempt_id),
-        "call_limit": LIMITS[budget] if call_limit is None else call_limit,
-        "budget": budget,
     }, archive=archive)
     if enabled:
         with _pending_lock:
@@ -109,7 +93,7 @@ def sent(value):
     work = _current.get()
     if work is not None and value is not None:
         with work.lock:
-            work.notified_tags[value["feature"]] = value
+            work.notified_tags[_key(value)] = value
 
 
 def capture(candidate, *, call_tags=None):
@@ -218,16 +202,19 @@ def close(work):
         if work.parent is not None:
             work.parent.children.append(work)
         else:
+            if work.outcome is None and work.tags["feature"] not in {"cards", "research"}:
+                # 單步工作失去 lease 或交易未提交，不能留下可誤認成功的候選。
+                work.outcome = "cancelled"
             _finalize(work)
     finally:
         _current.reset(work.token)
 
 
-def discard(feature, work_id, learner_id):
+def discard(feature, work_id, learner_id, *, outcome="cancelled"):
     """使用者取消／重試後清掉舊 attempt 的記憶體，不產生失敗檔。"""
     with _pending_lock:
         obsolete = [work for key, work in _pending.items()
                     if key[:3] == (identity(learner_id), feature, identity(work_id))]
     for work in obsolete:
-        work.outcome, work.reason = "cancelled", None
+        work.outcome, work.reason = outcome, None
         _finalize(work)

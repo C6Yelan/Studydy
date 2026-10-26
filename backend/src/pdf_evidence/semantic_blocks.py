@@ -129,9 +129,7 @@ def analyze_blocks(
                             job["id"], job["digest"], number, response
                         )
                     return block, number
-                except (SemanticServiceError, ValueError) as error:
-                    if str(error) == "LUNA_CALL_LIMIT_EXCEEDED":
-                        raise
+                except (SemanticServiceError, ValueError):
                     check()
                     if attempt + 1 == task["retry_attempts"]:
                         raise

@@ -959,7 +959,7 @@ def step(*, dsn=None, call=None, stop=None):
     except Exception as error:
         code = error.reason_code if isinstance(error, SemanticServiceError) else str(error)
         if code not in {"NOTE_FORMAT_INVALID", "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_FORMULA_INVALID", "NOTE_COVERAGE_INCOMPLETE",
-            "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID", "NOTE_CONTENT_UNSUPPORTED", "NOTE_REVIEW_INVALID", luna_calls.LIMIT_EXCEEDED} and not isinstance(error, SemanticServiceError):
+            "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID", "NOTE_CONTENT_UNSUPPORTED", "NOTE_REVIEW_INVALID"} and not isinstance(error, SemanticServiceError):
             code = "NOTE_GENERATION_FAILED"
         summary = {"code": code, "error_type": type(error).__name__, "events": diagnostics}
         luna_calls.rejected({"reason": str(error), "diagnostics": diagnostics})

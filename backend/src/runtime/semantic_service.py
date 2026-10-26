@@ -358,7 +358,7 @@ def request_semantics(
             current = luna_calls.tags()
             if current is not None:
                 feature = "assessment_check" if task == "assessment_check" else current["feature"]
-                if current["budget"] == "material":
+                if current["feature"].startswith("material_"):
                     stage = "analysis" if task == "material_semantics" else "review"
                     tags = luna_calls.tags(feature="material_" + stage, stage=stage)
                 else:
@@ -382,9 +382,6 @@ def request_semantics(
             if cancellation_check:
                 cancellation_check()
             code = (
-                "LUNA_CALL_LIMIT_EXCEEDED"
-                if str(error) == "LUNA_CALL_LIMIT_EXCEEDED"
-                else
                 "SEMANTIC_SERVICE_TIMEOUT"
                 if str(error) == "LUNA_GENERATION_TIMEOUT"
                 else "SEMANTIC_SERVICE_UNAVAILABLE"

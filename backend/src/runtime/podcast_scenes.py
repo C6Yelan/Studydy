@@ -437,6 +437,8 @@ def action(owner, podcast_id, index, action, version, *, dsn=None):
             raise SourceError("SCENE_CONFLICT")
         row.version += 1
         row.lease_token = row.lease_expires_at = None
+        scene_id = row.scene_id
+    luna_calls.discard("podcast_scenes", scene_id, owner)
     return read(owner, podcast_id, dsn=dsn)
 
 

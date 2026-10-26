@@ -52,7 +52,6 @@ def failure_code(error):
         "PODCAST_REVIEW_CONTRACT_INVALID",
         "PODCAST_AUDIO_INVALID",
         "LUNA_GENERATION_FAILED",
-        "LUNA_CALL_LIMIT_EXCEEDED",
         "LUNA_TAGS_INVALID",
         "LUNA_CALL_LOG_FAILED",
         "LUNA_CALL_LOG_INVALID",

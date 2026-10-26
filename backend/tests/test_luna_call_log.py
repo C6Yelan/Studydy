@@ -1,9 +1,6 @@
 """真 provider HTTP＋假 Codex 子程序；不使用模型、產品 DB 或私人資料。"""
 
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from http.server import ThreadingHTTPServer
-from threading import Thread
 import json
 import os
 from pathlib import Path
@@ -15,13 +12,13 @@ import pytest
 
 from test_podcast_process import provider_server, post
 from test_podcast_provider import provider, body as script_body
-from luna_call_log import CallLog, FEATURES, LIMIT_EXCEEDED, call_records, read_events
+from luna_call_log import CallLog, CallRecord, FEATURES, call_records, read_events
 from luna_report import report
 
 
-def tags(feature="note_summary", *, work="work-1", attempt="attempt-1", limit=10, **extra):
+def tags(feature="note_summary", *, work="work-1", attempt="attempt-1", **extra):
     return {"feature": feature, "material_id": "material-1", "learner_id": "learner-1",
-            "work_id": work, "attempt_id": attempt, "call_limit": limit, **extra}
+            "work_id": work, "attempt_id": attempt, **extra}
 
 
 def semantics(metadata=None, **request):
@@ -42,7 +39,9 @@ with open(os.environ['SYNTHETIC_CLI_STARTS'], 'a') as log:
 schema = json.loads(pathlib.Path(sys.argv[sys.argv.index('--output-schema')+1]).read_text())
 output = pathlib.Path(sys.argv[sys.argv.index('-o')+1])
 properties = schema.get('properties', {})
-if 'failed-cli' in prompt:
+if 'SYNTHETIC_RESPONSE_JSON' in os.environ:
+    output.write_text(os.environ['SYNTHETIC_RESPONSE_JSON'])
+elif 'failed-cli' in prompt:
     output.write_text('私密候選：CLI 失敗但有輸出')
     sys.exit(17)
 elif 'invalid-json' in prompt:
@@ -89,27 +88,17 @@ def test_all_feature_labels_survive_real_http_and_real_fake_process(provider_ser
     assert len(summary) == len(FEATURES)
     for row in summary:
         record, = [item for item in records if item["tags"]["feature"] == row["feature"]]
-        assert row["calls"] == 1 and row["failures"] == row["blocked"] == row["interrupted"] == 0
+        assert row["calls"] == 1 and row["failures"] == row["not_started"] == row["interrupted"] == 0
         assert row["elapsed_seconds"] == record["elapsed_seconds"]
     for line in fake_codex.read_text().splitlines():
         prompt = json.loads(line)["stdin"]
         assert "tags" not in prompt and "learner-1" not in prompt and "attempt-1" not in prompt
 
 
-def test_parallel_limit_is_atomic_and_blocked_never_starts_cli(provider_server, fake_codex, tmp_path):
-    metadata = tags(limit=3)
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(pool.map(lambda _: post(provider_server, "/semantics", semantics(metadata)), range(8)))
-    assert sum(status == 200 for status, _ in results) == 3
-    assert sum(value == {"error_code": LIMIT_EXCEEDED} for _, value in results) == 5
-    assert len(fake_codex.read_text().splitlines()) == 3
-    summary = report(tmp_path / "luna-calls.jsonl")[0]
-    assert summary["calls"] == 3 and summary["blocked"] == 5 and summary["failures"] == 0
-
 
 def test_script_internal_calls_are_individual_and_candidates_wait_for_terminal_failure(provider_server, fake_codex, monkeypatch, tmp_path, caplog):
     monkeypatch.setenv("SYNTHETIC_REJECT", "1")
-    metadata = tags("podcast_script", limit=37)
+    metadata = tags("podcast_script")
     status, response = post(provider_server, "/script", {**script_body(), "tags": metadata})
     assert (status, response) == (502, {"error_code": "PODCAST_SCRIPT_NEEDS_REVIEW"})
     records = call_records(tmp_path / "luna-calls.jsonl")
@@ -129,7 +118,7 @@ def test_script_internal_calls_are_individual_and_candidates_wait_for_terminal_f
 
 @pytest.mark.parametrize("outcome", ["succeeded", "cancelled"])
 def test_success_and_cancel_discard_in_memory_candidates(provider_server, fake_codex, tmp_path, outcome):
-    metadata = tags("podcast_script", limit=37)
+    metadata = tags("podcast_script")
     assert post(provider_server, "/script", {**script_body(), "tags": metadata})[0] == 200
     assert not (tmp_path / "failures").exists()
     response = post(provider_server, "/jobs/luna-result", {"tags": metadata, "outcome": outcome, "reason": None})
@@ -142,7 +131,7 @@ def test_success_and_cancel_discard_in_memory_candidates(provider_server, fake_c
 
 def test_intermediate_rejection_then_success_leaves_no_private_failure(provider_server, fake_codex, monkeypatch, tmp_path):
     monkeypatch.setenv("SYNTHETIC_REJECT", "once")
-    metadata = tags("podcast_script", limit=37)
+    metadata = tags("podcast_script")
     assert post(provider_server, "/script", {**script_body(), "tags": metadata})[0] == 200
     assert len(fake_codex.read_text().splitlines()) == 4
     assert not (tmp_path / "failures").exists()
@@ -175,7 +164,7 @@ def test_real_video_flow_uses_one_cli_call_and_preserves_tag_isolation(provider_
             output.with_suffix(".mp4").write_bytes(b"synthetic video")
         return 0
     monkeypatch.setattr(video_service, "_process", media_process)
-    metadata = tags("podcast_video", limit=1)
+    metadata = tags("podcast_video")
     payload = {"tags": metadata, "job_id": str(uuid4()), "job_token": str(uuid4()),
                "episode": episode, "audio": base64.b64encode(audio).decode(), "source_context": {},
                "podcast_id": "podcast-1", "episode_index": 0, "source_resolver": "/source"}
@@ -199,7 +188,7 @@ def test_invalid_json_is_private_only_after_terminal_failure(provider_server, fa
 
 @pytest.mark.parametrize("mode", ["invalid-json", "failed-cli"])
 def test_material_failure_returns_candidate_for_existing_archive_only(provider_server, fake_codex, tmp_path, mode):
-    metadata = tags("material_analysis", budget="material", stage="analysis")
+    metadata = tags("material_analysis", stage="analysis")
     assert post(provider_server, "/semantics", semantics(metadata, mode=mode))[0] == 502
     receipt = post(provider_server, "/jobs/luna-result", {"tags": metadata, "outcome": "failed", "reason": "SEMANTIC_RESPONSE_INVALID"})[1]
     assert receipt["candidate_available"] and "私密候選" in receipt["candidates"][0]["candidate"]
@@ -209,25 +198,25 @@ def test_material_failure_returns_candidate_for_existing_archive_only(provider_s
 
 @pytest.mark.parametrize("outcome", ["succeeded", "cancelled"])
 def test_material_intermediate_error_is_discarded_at_nonfailed_terminal(provider_server, fake_codex, tmp_path, outcome):
-    metadata = tags("material_analysis", budget="material", stage="analysis")
+    metadata = tags("material_analysis", stage="analysis")
     assert post(provider_server, "/semantics", semantics(metadata, mode="invalid-json"))[0] == 502
     receipt = post(provider_server, "/jobs/luna-result", {"tags": metadata, "outcome": outcome, "reason": None})[1]
     assert receipt["candidate_available"] and not receipt["saved"] and "candidates" not in receipt
     assert not (tmp_path / "failures").exists()
 
 
-def test_spawn_failure_does_not_consume_budget(provider_server, fake_codex, monkeypatch, tmp_path):
+def test_spawn_failure_is_not_an_actual_call(provider_server, fake_codex, monkeypatch, tmp_path):
     original = os.environ["STUDYDY_CODEX_BIN"]
     monkeypatch.setenv("STUDYDY_CODEX_BIN", str(tmp_path / "missing"))
-    metadata = tags(limit=1)
+    metadata = tags()
     assert post(provider_server, "/semantics", semantics(metadata))[0] == 502
     monkeypatch.setenv("STUDYDY_CODEX_BIN", original)
     assert post(provider_server, "/semantics", semantics(metadata))[0] == 200
     summary = report(tmp_path / "luna-calls.jsonl")[0]
-    assert summary["calls"] == 1 and summary["blocked"] == 1
+    assert summary["calls"] == 1 and summary["not_started"] == 1
 
 
-def test_missing_tags_remains_compatible_without_limit(provider_server, fake_codex, tmp_path):
+def test_legacy_requests_without_tags_remain_compatible(provider_server, fake_codex, tmp_path):
     assert post(provider_server, "/semantics", semantics())[0] == 200
     assert post(provider_server, "/semantics", semantics())[0] == 200
     assert all(row["tags"] is None for row in call_records(tmp_path / "luna-calls.jsonl"))
@@ -255,43 +244,28 @@ def test_tags_are_stripped_before_each_body_forwarding_path(provider_server, fak
         assert "tags" not in fake_codex.read_text()
 
 
-def test_rebuild_counts_after_restart_and_new_attempt_gets_budget(tmp_path):
+def test_report_reads_completed_and_interrupted_calls_once_after_restart(tmp_path):
     path = tmp_path / "luna-calls.jsonl"
-    metadata = tags(limit=1)
     store = CallLog(path)
-    ticket = store.reserve(metadata)
-    ticket.started()
-    # 沒有 finished 的已啟動呼叫仍須計入額度，報表不能假成功。
-    restored = CallLog(path)
-    with pytest.raises(RuntimeError, match=LIMIT_EXCEEDED):
-        restored.reserve(metadata)
-    assert report(path)[0]["interrupted"] == 1
-    retry = restored.reserve({**metadata, "attempt_id": "attempt-2"})
-    retry.started()
-    retry.finish()
-    other = restored.reserve({**metadata, "budget": "research"})
-    other.started()
-    other.finish()
-    assert sum(row["calls"] for row in report(path)) == 3
+    interrupted = CallRecord(store, tags())
+    interrupted.started()
+    finished = CallRecord(store, tags())
+    finished.started()
+    finished.finish()
+    CallLog(path)
+    summary, = report(path)
+    assert summary["calls"] == 2 and summary["interrupted"] == 1
+    assert summary["failures"] == 0
 
-
-def test_budget_groups_share_counts_without_material_assignment_reset(tmp_path):
-    store = CallLog(tmp_path / "luna-calls.jsonl")
-    metadata = tags("assessment", budget="assessment", limit=2)
-    for feature in ("assessment", "assessment_check"):
-        ticket = store.reserve({**metadata, "feature": feature})
-        ticket.started(); ticket.finish()
-    with pytest.raises(RuntimeError, match=LIMIT_EXCEEDED):
-        store.reserve({**metadata, "material_id": None})
 
 
 def test_rotation_retains_ninety_days_and_failure_cleanup_thirty_days(tmp_path):
     clock = [datetime(2026, 10, 26, tzinfo=UTC)]
     path = tmp_path / "luna-calls.jsonl"
     store = CallLog(path, now=lambda: clock[0])
-    first = store.reserve(tags()); first.started(); first.finish()
+    first = CallRecord(store, tags()); first.started(); first.finish()
     clock[0] += timedelta(days=1)
-    second = store.reserve(tags()); second.started(); second.finish()
+    second = CallRecord(store, tags()); second.started(); second.finish()
     assert path.with_name(path.name + ".2026-10-26").exists()
     clock[0] += timedelta(days=89)
     store = CallLog(path, now=lambda: clock[0])
@@ -306,16 +280,16 @@ def test_rotation_retains_ninety_days_and_failure_cleanup_thirty_days(tmp_path):
 
 
 def test_report_cli_filters_and_counts_same_records_as_actual_cli(provider_server, fake_codex, tmp_path):
-    metadata = tags(limit=1)
+    metadata = tags()
     assert post(provider_server, "/semantics", semantics(metadata))[0] == 200
-    assert post(provider_server, "/semantics", semantics(metadata))[0] == 502
+    assert post(provider_server, "/semantics", semantics(metadata, mode="invalid-json"))[0] == 502
     path = tmp_path / "luna-calls.jsonl"
     command = [sys.executable, str(Path(provider.__file__).with_name("luna_report.py")), "--log", str(path),
                "--material", "material-1", "--feature", "note_summary", "--work", "work-1",
                "--date", datetime.now(UTC).date().isoformat()]
     output = json.loads(subprocess.check_output(command, text=True))
-    assert output[0]["calls"] == len(fake_codex.read_text().splitlines()) == 1
-    assert output[0]["blocked"] == 1 and output[0]["elapsed_seconds"] > 0
+    assert output[0]["calls"] == len(fake_codex.read_text().splitlines()) == 2
+    assert output[0]["failures"] == 1 and output[0]["not_started"] == 0 and output[0]["elapsed_seconds"] > 0
     assert report(path, material="different") == []
 
 
@@ -334,22 +308,3 @@ def test_failure_write_error_is_reported_and_keeps_candidate_for_retry(tmp_path,
         store.finalize(metadata, "failed", "SYNTHETIC_FAILED")
     monkeypatch.setattr(os, "open", original)
     assert store.finalize(metadata, "failed", "SYNTHETIC_FAILED")["saved"]
-
-
-def test_new_provider_server_restores_persisted_budget(provider_server, fake_codex, tmp_path):
-    metadata = tags(limit=1)
-    assert post(provider_server, "/semantics", semantics(metadata))[0] == 200
-    # 新 server 沒有舊實例的記憶體計數，只能由同一呼叫紀錄恢復。
-    server = ThreadingHTTPServer(("127.0.0.1", 0), provider.Handler)
-    thread = Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    base = f"http://127.0.0.1:{server.server_port}"
-    try:
-        assert post(base, "/semantics", semantics(metadata)) == (502, {"error_code": LIMIT_EXCEEDED})
-        assert post(base, "/semantics", semantics({**metadata, "attempt_id": "attempt-2"}))[0] == 200
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
-    assert len(fake_codex.read_text().splitlines()) == 2
-    assert report(tmp_path / "luna-calls.jsonl")[0]["calls"] == 2

@@ -60,17 +60,15 @@ def _pick_hosts(delivery):
 
 
 def _child_statuses(db, podcast_ids):
-    statuses = {identity: {"videos": [], "scenes": [], "errors": []} for identity in podcast_ids}
+    statuses = {identity: {"videos": [], "scenes": []} for identity in podcast_ids}
     if statuses:
         for model, kind in ((PodcastVideo, "videos"), (PodcastScenes, "scenes")):
-            for identity, status, error in db.execute(
-                select(model.podcast_id, model.status, model.error_code).where(
+            for identity, status in db.execute(
+                select(model.podcast_id, model.status).where(
                     model.podcast_id.in_(statuses)
                 )
             ):
                 statuses[identity][kind].append(status)
-                if error == luna_calls.LIMIT_EXCEEDED:
-                    statuses[identity]["errors"].append(error)
     return statuses
 
 
@@ -80,7 +78,6 @@ def _summary(row, material, child_statuses):
     # 分鏡 worker 只接 ready 節目；失敗節目的待處理分鏡不代表仍在生成。
     active_children = videos + (scenes if row.status == "ready" else [])
     generation = {
-        **({"error_code": luna_calls.LIMIT_EXCEEDED} if child_statuses[row.podcast_id].get("errors") else {}),
         "active": row.status in ("pending", "running")
         or any(status in ("pending", "running") for status in active_children),
         "completed_videos": videos.count("ready"),

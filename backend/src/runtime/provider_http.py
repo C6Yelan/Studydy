@@ -152,7 +152,6 @@ def provider(path, body):
             "PODCAST_AUDIO_INVALID",
             "LUNA_GENERATION_FAILED",
             "LUNA_GENERATION_TIMEOUT",
-            "LUNA_CALL_LIMIT_EXCEEDED",
             "SCENE_ALIGNMENT_FAILED",
         }:
             raise SourceError(code) from None

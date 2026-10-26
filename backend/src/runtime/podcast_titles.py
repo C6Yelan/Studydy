@@ -91,7 +91,7 @@ def generate(episode, call=None, *, claim=None):
     except Exception as error:
         if trace is not None:
             luna_calls.rejected(str(error))
-            luna_calls.completed("failed", luna_calls.LIMIT_EXCEEDED if str(error) == luna_calls.LIMIT_EXCEEDED else "PODCAST_TITLE_FAILED")
+            luna_calls.completed("failed", "PODCAST_TITLE_FAILED")
         logging.getLogger(__name__).warning(
             "PODCAST_TITLE_FAILED error_type=%s", type(error).__name__
         )

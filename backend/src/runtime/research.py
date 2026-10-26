@@ -370,6 +370,7 @@ def submit(owner, identity, config, *, dsn=None, attempt_token=None):
     )
     with database_session(dsn) as db:
         research_documents.discard(db, identity, keep_sha256=keep_snapshots)
+    luna_calls.discard("research", identity, owner, outcome="succeeded")
     return read(owner, identity, dsn=dsn)
 
 

@@ -341,6 +341,7 @@ def action(owner, identity, turn_id, action, *, dsn=None):
         else:
             raise SourceError("REQUEST_INVALID")
         status = turn.status
+    luna_calls.discard("voice", turn_id, owner)
     return {"ok": True, "status": status}
 
 

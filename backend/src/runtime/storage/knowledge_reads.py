@@ -582,17 +582,13 @@ def regions(session, owner, material_id, revision):
         "partial": False,
     }
     stored = session.execute(
-        select(KnowledgeChapters.status, KnowledgeChapters.chapters, KnowledgeChapters.error_code).where(
+        select(KnowledgeChapters.status, KnowledgeChapters.chapters).where(
             KnowledgeChapters.learner_id == owner,
             KnowledgeChapters.material_id == material_id,
             KnowledgeChapters.structure_revision == revision,
         )
     ).one_or_none()
-    if stored is not None and stored.error_code == "LUNA_CALL_LIMIT_EXCEEDED":
-        result["error_code"] = stored.error_code
-    if stored is None or (stored.status not in ("ready", "fallback") and not result.get("error_code")):
-        return result
-    if not stored.chapters:
+    if stored is None or stored.status not in ("ready", "fallback"):
         return result
     chapters = chapter_regions(
         path, grouped if basis == "source" else [], stored.chapters

@@ -11,15 +11,15 @@ from luna_call_log import call_records
 
 
 def report(path, *, date=None, material=None, feature=None, work=None):
-    groups = defaultdict(lambda: {"calls": 0, "failures": 0, "blocked": 0, "interrupted": 0, "elapsed_seconds": 0.0})
+    groups = defaultdict(lambda: {"calls": 0, "failures": 0, "not_started": 0, "interrupted": 0, "elapsed_seconds": 0.0})
     for row in call_records(path):
         tags = row.get("tags") or {}
         key = (row["at"][:10], tags.get("material_id"), tags.get("feature"), tags.get("work_id"))
         if any(want is not None and want != actual for want, actual in zip((date, material, feature, work), key)):
             continue
         group = groups[key]
-        if row["event"] == "blocked":
-            group["blocked"] += 1
+        if row["event"] == "not_started":
+            group["not_started"] += 1
         else:
             group["calls"] += 1
             group["failures"] += row["outcome"] in {"failed", "cancelled"}
