@@ -386,7 +386,9 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
         return reject("RESOURCE_NOT_FOUND", 404);
       const active = !["preparation", "no-safe"].includes(assessmentStage);
       const historical = selectedId === historySetId;
-      const selected = inheritedCheck ? null : historical
+      // 剛開始且沒有指定題組時，與 study_workspace._selection 一致：只恢復進行中的題組。
+      const readingWithoutSet = startingLevel === "beginner" && !selectedId && assessmentStage === "completed";
+      const selected = inheritedCheck || readingWithoutSet ? null : historical
         ? buildAssessmentSet(true)
         : active && (!guidanceApplied || nextAction === "complete")
           ? buildAssessmentSet()
@@ -591,9 +593,9 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       setVersion++;
     },
     async open() {
-      await page.goto(basePath);
+      await page.goto(initialStage === "completed" && !inheritedCheck && !sessionFinished ? `${basePath}/assessment-sets/${setId}` : basePath);
       await page
-        .locator(".starting-reading-intro, .assessment-set-header, .assessment-cycle, .assessment-card, .inherited-check")
+        .locator(".starting-reading-intro, .assessment-set-header, .assessment-cycle, .assessment-card, .inherited-check, .state-view")
         .first()
         .waitFor();
     },

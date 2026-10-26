@@ -65,7 +65,8 @@ for (const width of [1366, 390]) {
   });
 }
 
-test("complete applies authority before showing completion", async ({ page }) => {
+for (const width of [1440, 390]) test(`complete applies authority before showing completion at ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
   const fixture = await studyLayoutFixture(page, "completed", {
     navigation: true, startingLevel: "beginner",
     nextAction: "complete",
@@ -79,6 +80,12 @@ test("complete applies authority before showing completion", async ({ page }) =>
   release();
   await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(fixture.path + "$"));
+  await expect(page.getByRole("button", { name: "回到知識地圖", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "學習進度已保存", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath(`study-completed-${width}.png`) });
   await expect(page.getByRole("button", { name: /下一個觀念|完成本次學習/ })).toHaveCount(0);
 });
 

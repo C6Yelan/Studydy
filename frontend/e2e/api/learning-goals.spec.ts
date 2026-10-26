@@ -68,9 +68,13 @@ test("a real goal leads through level selection, source reading and answers with
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   await expect(goalPanel.getByText("目標已達成", { exact: true })).toBeVisible();
   await expect(goalPanel.locator(".goal-facts")).toContainText("2 / 3");
+  await expect(today).toContainText("今日關卡已完成");
+  await expect(today).toContainText("今天已完成 2 個重點");
   await page.reload();
   await expect(goalPanel.getByText("目標已達成", { exact: true })).toBeVisible();
   await expect(goalPanel.locator(".goal-facts")).toContainText("2 / 3");
+  await expect(today).toContainText("今日關卡已完成");
+  await expect(today).toContainText("今天已完成 2 個重點");
 
   const saved = await (await page.request.get(`/v1/materials/${data.material}/goal`)).json();
   expect(saved.goal.target_date).toBe(data.target_date);
