@@ -187,6 +187,9 @@ def create_revision(
                 )
                 .values(run_id=result.run_id)
             )
+        if result.display_summary is None:
+            from .material_run_summary import run_summary
+            result.display_summary = run_summary(session, result)
         return _row(result)
 
     # 空追加 + 明確現行版本代表只檢核已保存分析；來源集合維持完全相同。

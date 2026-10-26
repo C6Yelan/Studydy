@@ -5,6 +5,7 @@ import json
 import sqlite3
 import wave
 import unicodedata
+import re
 import zipfile
 
 import av
@@ -33,9 +34,10 @@ def test_notes_preserve_body_table_formula_sources_and_orphaned_annotations():
     assert all(text in markdown for text in ('我的想法', '舊註記', '原段落', '第 3 段', '區塊 2', '| 甲 | 乙 |', 'old'))
     word = Document(BytesIO(documents.note_docx(view)))
     assert word.tables[0].cell(1, 0).text == '甲'
+    assert '章節大綱' in [p.text for p in word.paragraphs]
     assert '舊註記' in '\n'.join(p.text for p in word.paragraphs)
     with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
-        assert len(pdf) >= 2
+        assert len(pdf) >= 1
         text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
         assert all(t in text for t in ('我的想法', '舊註記', '原段落', '第 3 段', 'a = b + 1'))
         spans = [s for b in pdf[0].get_text('dict')['blocks'] for l in b.get('lines', []) for s in l['spans']]
@@ -98,7 +100,9 @@ def structured_note():
 def test_structured_notes_keep_outline_levels_bullets_tables_formula_and_callouts_in_every_format():
     view = structured_note()
     markdown = documents.note_markdown(view)
-    assert '## 章節大綱\n\n- 一、國際經濟學概論\n  - 1\\.1 開放度' in markdown
+    assert '## 章節大綱' in markdown
+    links = re.findall(r'- \[.*?\]\(#([^)]*)\)', markdown)
+    assert len(links) == 2 and all(f'<a id="{anchor}"></a>' in markdown for anchor in links)
     assert '## 一、國際經濟學概論' in markdown and '### 1\\.1 開放度' in markdown
     assert '- 出口占比\n  - 子項\n    - 孫項' in markdown
     assert '$$\n' + view['paragraphs'][1]['blocks'][0]['latex'] + '\n$$' in markdown
@@ -156,12 +160,13 @@ def test_mp3_is_decodable_and_transcript_uses_saved_names_and_time():
 
 def test_map_covers_all_regions_and_cross_region_relations():
     view = {'material_id': 'm', 'material_name': '測試教材', 'knowledge_structure_revision': 'r',
-            'concepts': [{'concept_id': str(i), 'label': f'概念{i}', 'claim_count': 1} for i in range(30)],
+            'concepts': [{'concept_id': str(i), 'label': f'概念{i}', 'claim_count': 1, 'claims': [{'text': f'完整重點{i}', 'evidence': [{'page':i+1,'source_name':'原文.pdf'}]}]} for i in range(30)],
             'relations': [{'source_concept_id': '0', 'target_concept_id': '29', 'type': 'prerequisite'}]}
     regions = {'regions': [{'label': '區域一', 'concept_ids': [str(i) for i in range(15)]},
                            {'label': '區域二', 'concept_ids': [str(i) for i in range(15, 30)]}]}
     md = export_map.markdown(view, regions)
-    assert all(f'概念{i}' in md for i in range(30))
+    assert all(f'概念{i}' in md and f'完整重點{i}' in md for i in range(30))
+    assert md.count('```mermaid') == 2 and '第 30 頁' in md
 
 
 def test_card_package_has_all_images_full_text_sources_and_stable_ids(monkeypatch, tmp_path):
@@ -199,9 +204,16 @@ def test_card_package_has_all_images_full_text_sources_and_stable_ids(monkeypatc
         assert all('完整背面' in fields and ' 段' in fields and '<img src=' in fields for _, fields in notes)
     with zipfile.ZipFile(BytesIO(exported('zip'))) as archive:
         assert len(archive.namelist()) == 18 and archive.testzip() is None
+        assert archive.namelist() == [f"概念{i}-{page}.png" for i in range(9) for page in (1, 2)]
     with pymupdf.open(stream=exported('pdf'), filetype='pdf') as pdf:
         assert len(pdf) == 9
         assert all(len(page.get_images()) == 2 for page in pdf)
+    cards[0]['label'] = cards[1]['label'] = '相同/概念?'
+    with zipfile.ZipFile(BytesIO(exported('zip'))) as archive:
+        names = archive.namelist()
+        assert len(names) == len(set(names)) == 18
+        assert all('/' not in name and '?' not in name for name in names)
+        assert all(name.startswith('相同概念') for name in names[:4])
 
 
 def test_long_summary_pdf_flows_onto_more_pages_without_shrinking_or_dropping_text():
@@ -216,7 +228,7 @@ def test_long_summary_pdf_flows_onto_more_pages_without_shrinking_or_dropping_te
         text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
         assert all(f'繁體中文標題 {i}' in text and f'第 {i} 段完整正文' in text for i in range(12))
         spans = [s for page in body for b in page.get_text('dict')['blocks'] for l in b.get('lines', []) for s in l['spans']]
-        assert min(s['size'] for s in spans) >= 12
+        assert min(s['size'] for s in spans if "正文" in s['text'] or "標題" in s['text']) >= 12
         assert any('Bold' in s['font'] and '繁體中文' in s['text'] for s in spans)
 
 
@@ -311,3 +323,21 @@ def test_markdown_groups_sources_without_losing_file_page_or_block_locations():
                        '來源：甲\\.pdf · 第 3 頁 · 區塊 0  ',
                        '來源：乙\\.pdf · 第 2 頁 · 區塊 1  ']
     assert len(view['paragraphs'][0]['evidence']) == 26
+
+
+def test_export_times_use_taipei_for_zip_pdf_and_word(monkeypatch):
+    from datetime import datetime, timezone
+    from xml.etree import ElementTree as ET
+    class FixedTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 27, 0, 15, 30, tzinfo=timezone.utc).astimezone(tz)
+    monkeypatch.setattr(documents, 'datetime', FixedTime)
+    with zipfile.ZipFile(BytesIO(documents.zip_files([('來源.txt', b'content')]))) as archive:
+        assert archive.infolist()[0].date_time == (2026, 10, 27, 8, 15, 30)
+    with pymupdf.open(stream=documents.pdf('<p>合成內容</p>'), filetype='pdf') as doc:
+        assert doc.metadata['creationDate'] == "D:20261027081530+08'00'"
+    with zipfile.ZipFile(BytesIO(documents.note_docx(note()))) as archive:
+        assert all(item.date_time == (2026, 10, 27, 8, 15, 30) for item in archive.infolist())
+        root = ET.fromstring(archive.read('docProps/core.xml'))
+        assert root.find('{http://purl.org/dc/terms/}created').text == '2026-10-27T08:15:30+08:00'

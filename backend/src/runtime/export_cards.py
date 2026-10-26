@@ -1,6 +1,6 @@
 """整組卡面分批暫存與磁碟打包；不佔用容器的 1 GiB /tmp。"""
 from contextlib import closing, contextmanager
-from itertools import count
+from itertools import count, chain
 from html import escape
 from uuid import uuid4
 import fcntl
@@ -10,6 +10,9 @@ import shutil
 import sqlite3
 import time
 import zipfile
+import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import genanki
 import pymupdf
@@ -161,9 +164,20 @@ def render(owner, identity, state, directory, *, dsn=None):
     files = [directory / name for card in cards for name in grouped[card['concept_id']]]
     result = directory / f'export.{format}'
     if format == 'zip':
+        used = set()
         with zipfile.ZipFile(result, 'w', zipfile.ZIP_STORED) as archive:
-            for path in files:
-                archive.write(path, path.name)
+            for card in cards:
+                base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', card['label']).strip(' .') or '概念卡'
+                names = grouped[card['concept_id']]
+                for page, name in enumerate(names, 1):
+                    stem = base if len(names) == 1 else f'{base}-{page}'
+                    output, suffix = f'{stem}.png', 2
+                    while output.casefold() in used:
+                        output = f'{stem}-{suffix}.png'
+                        suffix += 1
+                    used.add(output.casefold())
+                    info = zipfile.ZipInfo(output, datetime.now(ZoneInfo('Asia/Taipei')).timetuple()[:6])
+                    archive.writestr(info, (directory/name).read_bytes())
     elif format == 'pdf':
         with pymupdf.open() as doc:
             for index, path in enumerate(files):
@@ -171,6 +185,8 @@ def render(owner, identity, state, directory, *, dsn=None):
                     page = doc.new_page(width=595.28, height=841.89)
                 y = 28 + (index % 2) * 393
                 page.insert_image(pymupdf.Rect(28, y, 567, y + 365), filename=str(path), keep_proportion=True)
+            stamp = datetime.now(ZoneInfo('Asia/Taipei')).strftime("D:%Y%m%d%H%M%S+08'00'")
+            doc.set_metadata({'creationDate':stamp, 'modDate':stamp})
             doc.save(result, garbage=4, deflate=True)
     else:
         model = genanki.Model(1738150123, 'Studydy 概念卡',
@@ -193,8 +209,8 @@ def render(owner, identity, state, directory, *, dsn=None):
             genanki.Package(deck).write_to_db(connection.cursor(), timestamp, count(int(timestamp * 1000)))
             connection.commit()
         with zipfile.ZipFile(result, 'w', zipfile.ZIP_STORED) as archive:
-            archive.write(database, 'collection.anki2')
-            archive.writestr('media', json.dumps({i: path.name for i, path in enumerate(files)}))
-            for i, path in enumerate(files):
-                archive.write(path, str(i))
+            for name, data in chain([('collection.anki2', database.read_bytes()),
+                                     ('media', json.dumps({i: path.name for i, path in enumerate(files)}).encode())],
+                                    ((str(i), path.read_bytes()) for i, path in enumerate(files))):
+                archive.writestr(zipfile.ZipInfo(name, datetime.now(ZoneInfo('Asia/Taipei')).timetuple()[:6]), data)
     return result

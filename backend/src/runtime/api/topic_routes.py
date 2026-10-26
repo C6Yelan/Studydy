@@ -1,15 +1,24 @@
 from . import request_context
 from typing import Literal
+from datetime import date
 from uuid import UUID
 from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
 from .. import topics
 
 
+class PendingGoal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target_date: date
+    target_percent: Literal[60, 80, 100]
+
+
 class Create(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request: str = Field(min_length=1, max_length=1000)
     material_id: UUID | None = None
+    starting_level: Literal["some_knowledge", "familiar", "gaps"] | None = None
+    learning_goal: PendingGoal | None = None
 
 
 class Approve(BaseModel):
@@ -47,6 +56,8 @@ def install(app, settings):
             body.request,
             request_context.idempotency_key(request),
             material_id=body.material_id,
+            starting_level=body.starting_level,
+            learning_goal=body.learning_goal.model_dump(mode="json") if body.learning_goal else None,
             dsn=settings.dsn,
         )
 

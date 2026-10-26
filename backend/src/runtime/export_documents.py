@@ -1,5 +1,7 @@
 """已發布資料的離線文件；不呼叫模型、不修改生成內容。"""
 from functools import lru_cache
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from html import escape
 from io import BytesIO
 from pathlib import Path
@@ -50,20 +52,21 @@ def font_archive():
     return archive
 
 
-def pdf(html, images=(), *, keep_headings=False):
+def pdf(html, images=(), *, keep_headings=False, footnotes=None):
     archive = font_archive()
     for image in images:
         archive.add(image)
-    forced_breaks = set()
+    forced_breaks, footer_height, footers = set(), 0, {}
+    footer_css = CSS + 'body { font-size:10pt; } p { margin:0 0 3pt; }'
     while True:
         story = pymupdf.Story(html=html, user_css=CSS, archive=archive)
-        if not keep_headings:
+        if not keep_headings and not footnotes:
             break
         pairs = []
         node = story.body.first_child
         while node is not None:
             following = node.next
-            if node.tagname in ('h1', 'h2', 'h3') and following is not None and following.tagname in ('p', 'ul', 'table', 'div'):
+            if keep_headings and node.tagname in ('h1', 'h2', 'h3') and following is not None and following.tagname in ('p', 'ul', 'table', 'div'):
                 index = len(pairs)
                 heading_id, body_id = f'note-heading-{index}', f'note-body-{index}'
                 node.set_id(heading_id)
@@ -72,28 +75,48 @@ def pdf(html, images=(), *, keep_headings=False):
                 if index in forced_breaks:
                     node.set_attribute('style', 'page-break-before:always;')
             node = following
-        # Story 不支援 break-after:avoid；先看實際分頁，將孤立標題移到正文開頭所在頁。
-        # 只保留正文開頭，長段落與後續表格仍可自然跨頁。
-        starts = {}
+        starts, markers = {}, {}
         def remember(position):
             if position.open_close & 1:
                 starts[position.id] = position.page_num
-        story.write(None, lambda _page, _filled: (PAGE, CONTENT, None), positionfn=remember)
+                if footnotes and position.id in footnotes:
+                    markers[position.id] = position.page_num
+        content = CONTENT + (0, 0, 0, -footer_height)
+        story.write(None, lambda _page, _filled: (PAGE, content, None), positionfn=remember)
         orphaned = {index for index, (heading, body) in enumerate(pairs) if starts[heading] != starts[body]}
-        if not orphaned:
+        footers = {}
+        for marker, page in markers.items():
+            footers.setdefault(page, []).append(footnotes[marker])
+        footers = {page: ''.join(f'<p>{escape(label)}</p>' for label in labels) for page, labels in footers.items()}
+        needed = footer_height
+        for footer in footers.values():
+            measured = pymupdf.Story(html=footer, user_css=footer_css, archive=archive)
+            _, filled = measured.place(pymupdf.Rect(0, 0, CONTENT.width, 10000))
+            needed = max(needed, pymupdf.Rect(filled).height + 16)
+        if not orphaned and needed == footer_height:
             story.reset()
             break
         forced_breaks.update(orphaned)
+        footer_height = needed
     stream = BytesIO()
     writer = pymupdf.DocumentWriter(stream)
     more = True
     while more:
         device = writer.begin_page(PAGE)
-        more, _ = story.place(CONTENT)
+        more, _ = story.place(CONTENT + (0, 0, 0, -footer_height))
         story.draw(device)
         writer.end_page()
     writer.close()
-    return stream.getvalue()
+    with pymupdf.open(stream=stream.getvalue(), filetype='pdf') as document:
+        for number, footer in footers.items():
+            page = document[number - 1]
+            top = CONTENT.y1 - footer_height
+            page.draw_line((CONTENT.x0, top), (CONTENT.x1, top), color=(.6, .6, .6), width=.5)
+            page.insert_htmlbox(pymupdf.Rect(CONTENT.x0, top + 8, CONTENT.x1, CONTENT.y1),
+                                footer, css=footer_css, archive=archive, scale_low=1)
+        stamp = datetime.now(ZoneInfo('Asia/Taipei')).strftime("D:%Y%m%d%H%M%S+08'00'")
+        document.set_metadata({**document.metadata, 'creationDate':stamp, 'modDate':stamp})
+        return document.tobytes(garbage=4, deflate=True)
 
 
 def source_text(e):
@@ -184,9 +207,21 @@ def note_markdown(view):
     if _source_notice(view):
         lines += ['> 教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。', '']
     numbers = {o['paragraph_id']: o for o in outline(view['paragraphs'])}
-    if numbers:
+    anchors, used = {}, set()
+    if view['paragraphs']:
         lines.extend(['## 章節大綱', ''])
-        lines.extend(f'{"  " if o["level"] == 2 else ""}- {md_text(numbered_heading(o))}' for o in numbers.values())
+        for p in view['paragraphs']:
+            number = numbers.get(p['id'])
+            heading = numbered_heading(number) if number else p['heading']
+            base = re.sub(r'[^\w-]+', '-', heading.casefold()).strip('-') or 'section'
+            anchor, suffix = base, 2
+            while anchor in used:
+                anchor = f'{base}-{suffix}'
+                suffix += 1
+            used.add(anchor)
+            anchors[p['id']] = anchor
+            indent = '  ' if number and number['level'] == 2 else ''
+            lines.append(f'{indent}- [{md_text(heading)}](#{anchor})')
         lines.append('')
 
     def paragraph(p, number=None):
@@ -207,6 +242,7 @@ def note_markdown(view):
         return depth
 
     for p in view['paragraphs']:
+        lines.extend([f'<a id="{anchors[p["id"]]}"></a>', ''])
         depth = paragraph(p, numbers.get(p['id']))
         for a in view['annotations']:
             if a['paragraph_id'] == p['id']:
@@ -222,28 +258,35 @@ def note_markdown(view):
 
 
 def note_pdf(view):
-    # 正文與來源／註記分開；兩種筆記的正文都依內容自然分頁，不縮小字體。
-    images = []
-    body = pdf(body_html(view['paragraphs'], images), images, keep_headings=True)
-    appendix, images = [f'<h1>{_note_title(view)}：來源與個人註記</h1>',
-                '<p>' + escape('\n'.join(document_metadata(view))) + '</p>'], []
-    if _source_notice(view):
-        appendix.append('<p>教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。</p>')
-    numbers = {o['paragraph_id']: numbered_heading(o) for o in outline(view['paragraphs'])}
+    images, footnotes = [], {}
+    parts = [f'<h1>{_note_title(view)}</h1>', '<p>' + escape('\n'.join(document_metadata(view))) + '</p>']
+    numbers = {o['paragraph_id']: o for o in outline(view['paragraphs'])}
+    if view['paragraphs']:
+        parts.append('<h2>章節大綱</h2><div>' + ''.join(
+            f'<p>{escape(numbered_heading(numbers[p["id"]]) if p["id"] in numbers else p["heading"])}</p>'
+            for p in view['paragraphs']) + '</div>')
     for p in view['paragraphs']:
-        appendix.append(f'<h2>{escape(numbers.get(p["id"], p["heading"]))}</h2>')
-        appendix.extend(f'<p>{escape(source_text(e))}</p>' for e in p['evidence'])
-        appendix.extend(f'<p>個人註記：{escape(a["body"])}</p>' for a in view['annotations'] if a['paragraph_id'] == p['id'])
+        heading = numbered_heading(numbers[p['id']]) if p['id'] in numbers else p['heading']
+        parts.append(body_html([{**p, 'heading':heading}], images, numbered=False))
+        if p['evidence']:
+            number = len(footnotes) + 1
+            marker = f'source-{number}'
+            footnotes[marker] = f'[{number}] ' + '；'.join(_note_sources(p['evidence']))
+            parts.append(f'<p id="{marker}">[{number}]</p>')
+        parts.extend(f'<p>個人註記：{escape(a["body"])}</p>' for a in view['annotations'] if a['paragraph_id'] == p['id'])
     orphaned = [a for a in view['annotations'] if a['paragraph_id'] is None]
     if orphaned:
-        appendix.append('<h1>先前段落的註記</h1><p>以下註記未能精確對應目前段落，保留當時內容。</p>')
+        parts.append('<h1>先前段落的註記</h1><p>以下註記未能精確對應目前段落，保留當時內容。</p>')
         for a in orphaned:
-            appendix.append(f'<p>原版本：{escape(a["original_revision"].rsplit(":", 1)[-1][:8])}</p>' + body_html([a['original_paragraph']], images, numbered=False))
-            appendix.extend(f'<p>{escape(source_text(e))}</p>' for e in a['original_paragraph']['evidence'])
-            appendix.append(f'<p>個人註記：{escape(a["body"])}</p>')
-    with pymupdf.open(stream=body, filetype='pdf') as doc, pymupdf.open(stream=pdf(''.join(appendix), images, keep_headings=True), filetype='pdf') as extra:
-        doc.insert_pdf(extra)
-        return doc.tobytes(garbage=4, deflate=True)
+            p = a['original_paragraph']
+            parts.append(f'<p>原版本：{escape(a["original_revision"].rsplit(":", 1)[-1][:8])}</p>' + body_html([p], images, numbered=False))
+            if p['evidence']:
+                number = len(footnotes) + 1
+                marker = f'source-{number}'
+                footnotes[marker] = f'[{number}] ' + '；'.join(_note_sources(p['evidence']))
+                parts.append(f'<p id="{marker}">[{number}]</p>')
+            parts.append(f'<p>個人註記：{escape(a["body"])}</p>')
+    return pdf(''.join(parts), images, keep_headings=True, footnotes=footnotes)
 
 
 def xml_text(value):
@@ -329,12 +372,14 @@ def note_docx(view):
     if _source_notice(view):
         doc.add_paragraph('教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。')
     numbers = {o['paragraph_id']: o for o in outline(view['paragraphs'])}
-    if numbers:
+    if view['paragraphs']:
         doc.add_heading('章節大綱', 1)
-        for o in numbers.values():
-            item = doc.add_paragraph(xml_text(numbered_heading(o)))
-            if o['level'] == 2:
+        for p in view['paragraphs']:
+            number = numbers.get(p['id'])
+            item = doc.add_paragraph(xml_text(numbered_heading(number) if number else p['heading']))
+            if number and number['level'] == 2:
                 item.paragraph_format.left_indent = Pt(18)
+
 
     def paragraph(p, number=None):
         if 'blocks' not in p:
@@ -370,20 +415,32 @@ def note_docx(view):
             doc.add_paragraph(xml_text(a['body']))
     stream = BytesIO()
     doc.save(stream)
-    return stream.getvalue()
+    from xml.etree import ElementTree as ET
+    with zipfile.ZipFile(BytesIO(stream.getvalue())) as archive:
+        files = []
+        for item in archive.infolist():
+            content = archive.read(item.filename)
+            if item.filename == 'docProps/core.xml':
+                root = ET.fromstring(content)
+                for tag in ('created', 'modified'):
+                    root.find('{http://purl.org/dc/terms/}' + tag).text = datetime.now(ZoneInfo('Asia/Taipei')).isoformat(timespec='seconds')
+                content = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+            files.append((item.filename, content))
+    return zip_files(files)
 
 
 def zip_files(files):
     stream = BytesIO()
     with zipfile.ZipFile(stream, 'w', zipfile.ZIP_DEFLATED) as archive:
         for name, content in files:
-            archive.writestr(name, content)
+            entry = zipfile.ZipInfo(name, datetime.now(ZoneInfo('Asia/Taipei')).timetuple()[:6])
+            archive.writestr(entry, content, compress_type=zipfile.ZIP_DEFLATED)
     return stream.getvalue()
 
 
 def diagnosis_pdf(view):
     counts = {key: sum(len(item['points']) for item in view[key]) for key in ('strengths', 'weaknesses')}
-    head = f'<h1>{"本組" if view["scope"] == "set" else "教材"}學習診斷</h1><p>優勢重點：{counts["strengths"]}　待加強重點：{counts["weaknesses"]}</p>'
+    head = f'<h1>教材學習診斷</h1><p>優勢重點：{counts["strengths"]}　待加強重點：{counts["weaknesses"]}</p>'
     recommendations = view['recommendations']
     points = [(label, finding, point) for key, label in [('weaknesses', '弱點'), ('strengths', '優勢')]
               for finding in view[key] for point in finding['points']]

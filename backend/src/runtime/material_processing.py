@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 import logging
 from pathlib import Path
@@ -76,6 +76,7 @@ class MaterialProcessingRun:
     full_reanalysis: bool = False
     auto_retry_count: int = 0
     auto_retry_reason: str | None = None
+    display_summary: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -229,6 +230,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         full_reanalysis=bool(row.maintenance),
         auto_retry_count=row.auto_retry_count,
         auto_retry_reason=row.auto_retry_reason,
+        display_summary=deepcopy(row.display_summary or {}),
     )
 
 
@@ -242,9 +244,11 @@ def read_material_processing_run(
                     RunRow.learner_id == learner_id, RunRow.run_id == run_id
                 )
             )
-        if found is None:
-            raise MaterialProcessingError("MATERIAL_RUN_NOT_FOUND")
-        return _row(found)
+            if found is None:
+                raise MaterialProcessingError("MATERIAL_RUN_NOT_FOUND")
+            from .material_run_summary import run_summary
+            summary = found.display_summary or run_summary(session, found)
+            return replace(_row(found), display_summary=summary)
     except MaterialProcessingError:
         raise
     except Exception:

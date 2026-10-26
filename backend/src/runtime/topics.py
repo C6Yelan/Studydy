@@ -1,7 +1,7 @@
 """先批准學習範圍，再交接 F2；範圍提案不是知識地圖。"""
 
 from copy import deepcopy
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 from sqlalchemy import or_, select
 from content_identity import canonical_sha256
@@ -100,6 +100,8 @@ def _view(row):
         k: deepcopy(getattr(row, k))
         for k in (
             "topic_id",
+            "starting_level",
+            "learning_goal",
             "material_id",
             "base_revision",
             "request",
@@ -115,8 +117,14 @@ def _view(row):
     }
 
 
-def create(owner, request, key, *, material_id=None, dsn=None):
+def create(owner, request, key, *, material_id=None, starting_level=None, learning_goal=None, dsn=None):
     request = _text(request, 1000)
+    if learning_goal:
+        from learning_adaptation.learning_goals import TIMEZONE
+        if date.fromisoformat(learning_goal["target_date"]) < datetime.now(TIMEZONE).date():
+            raise SourceError("REQUEST_INVALID")
+    if material_id is not None and (starting_level is not None or learning_goal is not None):
+        raise SourceError("REQUEST_INVALID")
     digest = _key_digest(key)
     with database_session(dsn) as db:
         material = require_material(db, owner, material_id) if material_id else None
@@ -134,7 +142,8 @@ def create(owner, request, key, *, material_id=None, dsn=None):
             )
         )
         if old:
-            if old.request != request or old.material_id != material_id:
+            if (old.request != request or old.material_id != material_id
+                    or old.starting_level != starting_level or old.learning_goal != learning_goal):
                 raise SourceError("IDEMPOTENCY_CONFLICT")
             return _view(old)
         row = TopicScope(
@@ -143,6 +152,7 @@ def create(owner, request, key, *, material_id=None, dsn=None):
             material_id=material_id,
             base_revision=material.head_revision if material else None,
             request=request,
+            starting_level=starting_level, learning_goal=deepcopy(learning_goal),
             version=1,
             status="pending",
             idempotency_key_sha256=digest,
@@ -263,6 +273,9 @@ def create_material(owner, identity, selected, *, dsn=None):
         identity_material = create_draft(
             owner, row.proposal["title"], "topic:" + str(identity), dsn=dsn
         )
+        material = db.get(Material, identity_material)
+        material.starting_level = row.starting_level
+        material.pending_goal = deepcopy(row.learning_goal)
         work.material_id = identity_material
         work.selection = list(selected)
         work.status = "acquiring"

@@ -1,4 +1,4 @@
-"""讀時計算的診斷、歷史題組、結構難度與個人難點。"""
+"""教材診斷、補強進度、結構難度與個人難點。"""
 
 from fastapi.testclient import TestClient
 
@@ -18,9 +18,8 @@ def _client(fixture, tmp_path, monkeypatch):
     return client
 
 
-def _diagnosis(client, fixture, group=None):
-    response = client.get(_base(fixture) + "/learning-diagnosis",
-                          params={"set_id": str(group)} if group else {})
+def _diagnosis(client, fixture):
+    response = client.get(_base(fixture) + "/learning-diagnosis")
     assert response.status_code == 200, response.json()
     return response.json()
 
@@ -33,24 +32,21 @@ def test_read_diagnosis_projects_scope_counts_and_resolvable_sources(closed_loop
     group = create(fixture)
     finish(fixture)
     answer(fixture, group, wrong={1})
-    for scope in (None, group):
-        report = _diagnosis(client, fixture, scope)
-        assert report == _diagnosis(client, fixture, scope)
-        points = report["strengths"][0]["points"] + report["weaknesses"][0]["points"]
-        assert sum(point["answer_count"] for point in points) == 2
-        assert sum(point["correct_count"] for point in points) == 1
-        point = report["weaknesses"][0]["points"][0]
-        assert point["answer_count"] == 1 and point["correct_count"] == 0
-        assert point["latest_is_correct"] is False
-        assert len(point["title"]) <= 81
-        reference = point["evidence"][0]
-        resolved = client.get(report["source_resolver"] + f"/{reference['evidence_id']}/source")
-        assert resolved.status_code == 200, resolved.json()
-        assert resolved.json()["normalized_page"] == reference["normalized_page"]
-        assert report["recommendations"][0]["concept_id"] == fixture["concept"]["concept_id"]
+    report = _diagnosis(client, fixture)
+    assert report == _diagnosis(client, fixture)
+    assert report['schema'] == 'learning-diagnosis/v2' and report['strengths'] == []
+    point = report['weaknesses'][0]['points'][0]
+    assert point['answer_count'] == 1 and point['correct_count'] == 0
+    assert point['latest_is_correct'] is False and point['consecutive_correct_count'] == 0
+    assert point['required_consecutive_correct'] == 2
+    assert point['title'] == next(c['text'] for c in fixture['concept']['claims'] if c['claim_id'] == point['claim_id'])
+    reference = point['evidence'][0]
+    resolved = client.get(report['source_resolver'] + f"/{reference['evidence_id']}/source")
+    assert resolved.status_code == 200 and resolved.json()['normalized_page'] == reference['normalized_page']
+    assert report['recommendations'][0]['concept_id'] == fixture['concept']['concept_id']
 
 
-def test_completed_set_uses_its_cutoff_after_later_remediation(closed_loop, monkeypatch, tmp_path):
+def test_material_diagnosis_tracks_cumulative_and_consecutive_remediation(closed_loop, monkeypatch, tmp_path):
     fixture = concept_fixture(closed_loop, 1)
     original = create(fixture)
     finish(fixture)
@@ -59,23 +55,23 @@ def test_completed_set_uses_its_cutoff_after_later_remediation(closed_loop, monk
     finish(fixture, variant="first-correct")
     answer(fixture, first_retry)
     client = _client(fixture, tmp_path, monkeypatch)
-    first = _diagnosis(client, fixture, first_retry)
+    first = _diagnosis(client, fixture)
     assert first["strengths"] == []
     assert first["weaknesses"][0]["points"]
     point = first["weaknesses"][0]["points"][0]
-    assert point["answer_count"] == point["correct_count"] == 1
+    assert point["answer_count"] == 2 and point["correct_count"] == 1
+    assert point["consecutive_correct_count"] == 1 and point["required_consecutive_correct"] == 2
     second_retry = supplement(fixture, original, key="second-correct")
     finish(fixture, variant="second-correct")
     answer(fixture, second_retry)
-    second = _diagnosis(client, fixture, second_retry)
+    second = _diagnosis(client, fixture)
     assert second["strengths"][0]["points"]
     assert second["weaknesses"] == []
-    assert _diagnosis(client, fixture, first_retry) == first
-    assert _diagnosis(client, fixture, original)["strengths"] == []
     material = _diagnosis(client, fixture)
     assert material["weaknesses"] == []
     point = material["strengths"][0]["points"][0]
     assert point["answer_count"] == 3 and point["correct_count"] == 2
+    assert point["consecutive_correct_count"] == 2 and point["completed"]
 
 
 def test_structure_difficulty_covers_unanswered_concepts_and_owner_scope(closed_loop, monkeypatch, tmp_path):

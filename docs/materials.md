@@ -41,7 +41,7 @@
 
 YouTube 連結以 yt-dlp 讀取：只接受單支影片（Shorts 照常；帶清單參數的影片網址只取該影片），拒絕播放清單、直播或尚未播出、會員限定、私人與年齡限制影片，以及超過 2 小時的影片，並回報具體原因。只用上傳者字幕，順序為繁體中文 → 簡體中文 → 影片原語言；YouTube 自動字幕不用，改暫存音軌以本機辨識，辨識後立即刪除。影片的原檔是 `youtube-source/v1` 參照（影片 ID、標題、頻道、長度），不保存影音。使用 yt-dlp 有服務條款灰色地帶，YouTube 改版時需更新 yt-dlp；版本記在轉檔政策。
 
-逐字稿依每句開始時間歸入 2 分鐘時間段，一段一頁（沒有語音的時間段不成頁），單頁放不下時縮小字級而不換頁；辨識片段併成約 180 字的段落，原文不改寫。mapping 的 `origin_locator` 為 `start_seconds`／`end_seconds`，`media` 記錄辨識來源（`whisper` 或 `uploader_subtitles`）與語言。Evidence 仍是 1-based 頁碼與區塊，下游（OCR、索引、問答、Podcast、筆記、題組）照常使用；來源回查顯示時間範圍，音訊由 `/v1/artifacts/{id}/media`（支援 Range）從該段開頭播放，YouTube 由 `youtube-nocookie.com` 內嵌播放器從該秒播放。介面把這類來源的「頁」稱為「段」。
+逐字稿依每句開始時間歸入 2 分鐘時間段，一段一頁（沒有語音的時間段不成頁），單頁放不下時縮小字級而不換頁；辨識片段併成約 180 字的段落，原文不改寫。mapping 的 `origin_locator` 為 `start_seconds`／`end_seconds`，`media` 記錄辨識來源（`whisper` 或 `uploader_subtitles`）與語言。Evidence 仍是 1-based 頁碼與區塊，下游（OCR、索引、問答、Podcast、筆記、題組）照常使用；來源回查顯示時間範圍，音訊由 `/v1/artifacts/{id}/media`（支援 Range）從該段開頭播放，YouTube 由 `youtube-nocookie.com` 內嵌播放器從該秒播放。來源清單以實際時長呈現，原文定位使用已核對的時間範圍，不以內部頁數當成影片頁數。
 
 媒體轉換政策為 `normalization-policy/v1` 的 `kind: media`（另記 yt-dlp 版本），文件轉檔政策不變。轉換沿用來源正規化的 lease 與取消：辨識等待期間持續續租，取消或刪除教材會中斷 provider 請求。辨識服務不可用或失敗時如實標為失敗（`STT_PROVIDER_UNAVAILABLE`／`STT_FAILED`），可按「重試轉換」。
 
@@ -155,7 +155,7 @@ Demo 的 POST-03 修復另有[指定教材一次性維護指令](deployment.md#�
 
 重點整理的「涵蓋」以概念判定：每個概念至少要有一個重點留在核對通過的段落中，也就是至少一個核心重點被實質解說。逐段核對、移除未解說重點與刪段之後，若某概念完全沒有被解說，只為這些概念局部補寫一次並依學習順序插回，新段落比照局部重寫核對（仍不符直接刪段）；仍有概念沒被解說，這一批就以 NOTE_COVERAGE_INCOMPLETE 失敗並依上述批次重試；三次都失敗才不發布，保留上一份筆記。每份新稿與局部修正回應的一般格式錯誤可補正一次；模型 schema 驗證仍失敗時統一回報 NOTE_FORMAT_INVALID，交給上述三輪批次重試，並記錄 part_attempts。公式語法錯誤只送出錯的 LaTeX 與該小節引用原文，不重送整批教材或前稿；每個公式位置最多補正一次，程式只替換公式，仍須通過語法驗證及逐元素原文核對。完整筆記的重點與來源配對錯誤（包含局部修正回應）每個出錯段落各可補正一次：配對補正會列出缺漏／多列的編號與可用來源，程式只採用出錯段落的新編號，保留正文及其他段落；補正回應缺少目標段落時回報 NOTE_FORMAT_INVALID。重點整理的配對由程式整理：未知或重複的重點／來源編號直接丟掉（不再走格式補正），重點沒引用自己的來源就移除該重點，未知或不屬於本段重點的來源就移除該來源，之後交給事實核對抓出失去來源支持的文字。發布前刪掉的重點與段落、補寫的概念，以及失敗原因，只以錯誤碼、重點／概念編號、段落位置與核對理由的 SHA-256 摘要碼保存在 `material_notes.generation_diagnostics`，並以同一份 JSON 記入後端日誌（`NOTE_GENERATION_ADJUSTED`／`NOTE_GENERATION_FAILED`），不記教材或理由全文；欄位只反映最近一次發布或失敗（沒有刪減的成功為 NULL），重新生成時覆寫，API 不回傳。筆記若中途因停止或租約恢復接續，只記最後一段執行的事件。網頁可自然捲動，不縮字或裁掉內容。
 
-筆記可匯出 PDF、Markdown 與 Word（.docx），保留章節大綱與編號、層級標題、巢狀條列、全部表格、公式、醒目區塊、來源檔名／頁碼／區塊及個人註記。Markdown 的公式原樣寫成 `$$…$$`；PDF 與 Word 以 matplotlib mathtext 排成 300 dpi 圖片（中文用 Noto Sans CJK TC），PDF 與 Word 的長公式依可用頁寬等比例縮放，Word 的替代文字保留 LaTeX 原式，公式在 Word 中不是可編輯的方程式物件。無法對應目前段落的註記連同原版本與段落快照匯出。PDF 的正文與來源／註記附錄分開，兩種筆記的正文都依內容自然分頁、標題使用中文粗體字型；正文與附錄的標題會與後續正文開頭同頁，長段落與條列照常跨頁；匯出只讀取已發布內容，重生中或失敗時仍可匯出上一份筆記。尚無已發布內容時不提供匯出。Word 匯出會移除 XML 不允許的控制字元，保留 tab 與換行，作者標為 Studydy；原筆記不變。
+筆記可匯出 PDF、Markdown 與 Word（.docx），保留章節大綱與編號、層級標題、巢狀條列、全部表格、公式、醒目區塊、來源檔名／頁碼／區塊及個人註記。Markdown 開頭提供可點擊目錄與穩定的中文標題 anchor，公式原樣寫成 `$$…$$`；PDF 與 Word 以 matplotlib mathtext 排成 300 dpi 圖片（中文用 Noto Sans CJK TC），PDF 與 Word 的長公式依可用頁寬等比例縮放，Word 的替代文字保留 LaTeX 原式，公式在 Word 中不是可編輯的方程式物件。無法對應目前段落的註記連同原版本與段落快照匯出。PDF 使用章節目錄、層級標題與完整正文，來源編號對應同頁頁尾註腳，個人註記緊接所屬段落；兩種筆記都依內容自然分頁、標題使用中文粗體字型，標題與正文開頭同頁，長段落與條列照常跨頁；匯出只讀取已發布內容，重生中或失敗時仍可匯出上一份筆記。尚無已發布內容時不提供匯出。Word 匯出會移除 XML 不允許的控制字元，保留 tab 與換行，作者標為 Studydy；原筆記不變。
 
 每段可新增、編輯或刪除自己的個人註記。註記保存原段落快照；重新生成或教材更新後，只在來源位置／節錄與重點內容完全相同、且唯一對應新段落時掛回。無法對應的註記列於「先前段落的註記」，可展開當時段落及來源，內容不遺失。註記引用的教材版本保留供查來源。新筆記完成前或生成失敗時，仍可閱讀上一份已發布筆記與註記。
 
@@ -242,3 +242,14 @@ SearXNG 由 Compose 的 `research-search` 提供，只在 application 網路內�
 ## 分析暫時失敗與自動接續
 
 一般使用者分析遇到 RESTART_INTERRUPTED、語意服務暫時不可用／逾時、STORAGE_BUSY 或 SOURCE_BUSY 時，沿同一 run 與已保存 checkpoint 自動接續一次。auto_retry_count／auto_retry_reason 存在工作列，程序重啟不重設，第二次失敗才回 failed；排回 queued 時本次執行進度重新建立，已驗證 checkpoint 不刪除。取消、內容核對（REVIEW_*）、一般模型生成失敗、格式／容量錯誤及空間不足不重試。指定一次性維護 run 排除在此規則之外，仍遵守既有「恢復後再失敗不得自動重排」授權。
+## 來源與執行摘要的顯示投影
+
+來源清單、教材列表代表來源與 Evidence resolver 共同提供 display_name、source_kind、duration_seconds、image_count、transcript_source 與 transcript_display_name。時長取已核對 mapping；YouTube 名稱只在顯示時去掉 .youtube，單張圖片去掉（圖片）.zip，多張顯示張數。新舊圖片同規則，不改ZIP上傳格式，不猜逐張原名。
+
+run 的 added_sources／existing_source_count 依固定 SourceSet 與 base 分辨新增與沿用來源。發布時把前後概念／關係數存為獨立 display_summary，再執行既有清理；不把顯示欄位寫入來源或結構 hash。舊run仍可從保留資料唯讀推導，缺前版結構時不捏造計數。
+
+公開概念 uncertain 旗標只從同run已驗證審查封存的 issue=uncertain、口語來源與 review／consolidation 明確映射推導；新舊教材都適用。無法精確對應就不標，unchanged 的概念身分可沿base繼承；原canonical結構與 needs_review 狀態不變。
+
+筆記 API 為 material-notes/v3。content_revision／content_generation 指目前真正顯示的舊稿，source_resolver 跟該稿走；請求revision的status／generation／progress描述新稿。新版尚無已發布筆記時，讀取最近較舊的同種類已發布稿；started_at／updated_at／updating供進度顯示。兩種筆記皆提供分區進度，第一批完成前以不確定狀態呈現。既有清理保護兩種筆記各自最近可讀稿的來源，沒有新增清理入口。
+
+補充研究 progress 依已確認觀念提供 topic_progress／completed_topics／total_topics／started_at，只列正文與來源類型均已核對且可用的候選；逐觀念來源數亦採同口徑，不增加模型請求。完成且找到零份仍如實顯示0。

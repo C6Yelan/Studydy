@@ -252,7 +252,10 @@ def _read(session, owner, material_id, revision, name):
 
 
 def outline(session, owner, material_id, revision):
-    return _read(session, owner, material_id, revision, "outline")
+    from ..review_flags import uncertain_concepts
+    view = _read(session, owner, material_id, revision, "outline")
+    flags = uncertain_concepts(session, owner, material_id, revision)
+    return {**view, "concepts": [{**c, "uncertain": c["concept_id"] in flags} for c in view["concepts"]]}
 
 
 def learning(session, owner, material_id, revision):
@@ -290,6 +293,8 @@ def concept_context(
         for row in selected
         for e in row.payload["relation_evidence"]
     }
+    from ..review_flags import uncertain_concepts
+    flags = uncertain_concepts(session, owner, material_id, revision)
     return {
         "schema": "knowledge-concepts/v1",
         "material_id": str(material_id),
@@ -297,7 +302,7 @@ def concept_context(
         "requested_concept_ids": identities,
         "source_resolver": meta["source_resolver"],
         "status": meta["status"],
-        "concepts": [row.payload["concept"] for row in rows],
+        "concepts": [{**row.payload["concept"], "uncertain": row.concept_id in flags} for row in rows],
         "relations": list(relations.values()),
         "relation_evidence": list(evidence.values()),
     }
@@ -771,7 +776,9 @@ def resolve_evidence_source(owner, material_id, revision, evidence_id, *, dsn=No
                 "start_seconds": start,
                 "end_seconds": end,
             }
+    from ..source_display import display_metadata
     return {
+        **display_metadata(source["original_name"], source["media_type"], mapping["page_count"], mapping),
         **({"playback": playback} if playback else {}),
         "schema": "evidence-source/v1",
         "format": mapping["format"],

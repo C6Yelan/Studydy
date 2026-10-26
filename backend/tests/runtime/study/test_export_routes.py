@@ -46,7 +46,7 @@ def test_notes_maps_and_diagnosis_export_owner_and_revision(closed_loop, tmp_pat
                 assert len(pdf) >= 1
     assert '匯出私人註記' in client.get(paths[0]).text
     assert client.get(base + '/notes/full/export/md').status_code == 404
-    assert client.get(base + '/learning-diagnosis/export/pdf', params={'set_id': str(uuid4())}).status_code == 404
+    assert client.get(base + '/learning-diagnosis/export/pdf', params={'set_id': str(uuid4())}).status_code == 400
     doc = pymupdf.open(); doc.new_page(width=120, height=76)
     png = b64encode(doc[0].get_pixmap().tobytes('png')).decode(); doc.close()
     ids = [c['concept_id'] for c in client.get(base + '/outline').json()['concepts']]

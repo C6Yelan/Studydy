@@ -82,6 +82,7 @@ def install(app, settings):
         view = material_notes.read(learner, material_id, revision, kind, dsn=settings.dsn)
         if not view['paragraphs']:
             raise request_context.ApiFailure('RESOURCE_NOT_FOUND')
+        view['knowledge_structure_revision'] = view['content_revision']
         from ..storage.database import database_session
         with database_session(settings.dsn) as db:
             view['material_name'] = material_name(db, learner, material_id)
@@ -124,7 +125,10 @@ def install(app, settings):
         with database_session(settings.dsn) as db:
             db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
             view = knowledge_reads.outline(db, learner, material_id, revision)
-            view = {**view, 'material_name': material_name(db, learner, material_id)}
+            details = {row.concept_id: row.payload['concept'] for row in knowledge_reads.read_concepts(
+                db, learner, material_id, revision, [c['concept_id'] for c in view['concepts']])}
+            view = {**view, 'material_name': material_name(db, learner, material_id),
+                    'concepts': [{**c, 'claims':details[c['concept_id']]['claims']} for c in view['concepts']]}
             regions = knowledge_reads.regions(db, learner, material_id, revision)
         response = download(export_map.markdown(view, regions), '概念大綱.md', 'md')
         record_export(learner, 'map', dsn=settings.dsn)
@@ -147,14 +151,14 @@ def install(app, settings):
         return response
 
     @app.get('/v1/materials/{material_id}/knowledge-structures/{revision}/learning-diagnosis/export/pdf', tags=['exports'], dependencies=[Depends(export_slot, scope="function")])
-    def diagnosis(request: Request, material_id: UUID, revision: str, set_id: UUID | None = None):
+    def diagnosis(request: Request, material_id: UUID, revision: str):
         from ..storage.database import database_session
         from learning_adaptation.learning_insights import read_diagnosis
         from sqlalchemy import text
-        learner = owner(request, {'set_id'})
+        learner = owner(request)
         with database_session(settings.dsn) as db:
             db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
-            view = read_diagnosis(db, learner, material_id, revision, set_id)
+            view = read_diagnosis(db, learner, material_id, revision)
         response = download(export_documents.diagnosis_pdf(view), '學習診斷.pdf', 'pdf')
         record_export(learner, 'diagnosis', dsn=settings.dsn)
         return response

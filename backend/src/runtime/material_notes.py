@@ -52,20 +52,36 @@ def read(owner, material_id, revision, kind, *, dsn=None):
         meta = knowledge_reads.metadata(db, owner, material_id, revision)
         row = db.get(MaterialNotes, (owner, material_id, revision, kind))
         structure = db.get(KnowledgeStructure, (owner, material_id, revision))
-        paragraphs = deepcopy(row.paragraphs or []) if row else []
+        content = row if row and row.paragraphs else None
+        if content is None:
+            content = db.scalar(select(MaterialNotes).join(KnowledgeStructure,
+                (KnowledgeStructure.learner_id == MaterialNotes.learner_id)
+                & (KnowledgeStructure.material_id == MaterialNotes.material_id)
+                & (KnowledgeStructure.structure_revision == MaterialNotes.structure_revision))
+                .where(MaterialNotes.learner_id == owner, MaterialNotes.material_id == material_id,
+                       MaterialNotes.kind == kind, MaterialNotes.paragraphs.is_not(None),
+                       MaterialNotes.generation > 0, KnowledgeStructure.created_at < structure.created_at)
+                .order_by(KnowledgeStructure.created_at.desc(), MaterialNotes.updated_at.desc()).limit(1))
+        content_revision = content.structure_revision if content else None
+        content_meta = knowledge_reads.metadata(db, owner, material_id, content_revision) if content else meta
+        paragraphs = deepcopy(content.paragraphs) if content else []
         annotations = [{"annotation_id": str(a.annotation_id), "anchor": a.anchor,
             "body": a.body, "original_revision": a.structure_revision,
             "original_paragraph": a.paragraph_snapshot, "updated_at": a.updated_at.isoformat()}
             for a in db.scalars(select(NoteAnnotation).where(NoteAnnotation.learner_id == owner,
                 NoteAnnotation.material_id == material_id, NoteAnnotation.kind == kind)
                 .order_by(NoteAnnotation.created_at, NoteAnnotation.annotation_id))]
-        return {"schema": "material-notes/v2", "material_id": str(material_id),
+        return {"schema": "material-notes/v3",
+            "content_revision": content_revision, "content_generation": content.generation if content else None,
+            "update_available": content_revision is not None and content_revision != revision,
+            "updating": bool(row and row.status in ("pending", "running")),
+            "started_at": row.started_at if row else None, "updated_at": row.updated_at if row else None, "material_id": str(material_id),
             "knowledge_structure_revision": revision, "run_id": str(structure.run_id),
-            "kind": kind, "source_status": meta["status"], "status": row.status if row else "not_generated",
+            "kind": kind, "source_status": content_meta["status"], "status": row.status if row else "not_generated",
             "generation": row.generation if row else 0, "paragraphs": paragraphs,
             "outline": note_content.outline(paragraphs),
             "annotations": note_content.annotation_matches(paragraphs, annotations),
-            "source_resolver": meta["source_resolver"], "error_code": row.error_code if row else None,
+            "source_resolver": content_meta["source_resolver"], "error_code": row.error_code if row else None,
             "progress": section_progress(row) if row else None}
 
 
@@ -97,6 +113,7 @@ def generate(owner, material_id, revision, kind, expected_generation, *, dsn=Non
                 row.runtime_lock = current_lock
                 row.section_plan = row.section_results = row.progress_stage = None
             row.status, row.error_code, row.attempts = "pending", None, 0
+            row.started_at = None
             row.updated_at = datetime.now(UTC)
     return read(owner, material_id, revision, kind, dsn=dsn)
 
@@ -159,6 +176,7 @@ def _claim(dsn):
             row.lease_token = row.lease_expires_at = None
             return {"skipped": True}
         row.status, row.lease_token = "running", uuid4()
+        row.started_at = row.started_at or now
         row.lease_expires_at = now + WORKER_LEASE_TTL
         row.attempts += 1
         row.updated_at = now
@@ -812,7 +830,7 @@ def complete_sections(concepts, plan, call, results, on_part, diagnostics=None, 
 
 
 def section_progress(row):
-    if row.kind != "full" or row.section_plan is None:
+    if row.section_plan is None:
         return None
     total = sum(len(s["parts"]) for s in row.section_plan)
     completed = total if row.progress_stage == "completed" else len(row.section_results or [])
