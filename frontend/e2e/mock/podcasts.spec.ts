@@ -238,7 +238,11 @@ test('desktop podcast creation fills the workspace while long lists and previews
     const stage = (await page.locator('.podcast-create').boundingBox())!;
     expect(stage.x).toBeLessThanOrEqual(32); expect(width-stage.x-stage.width).toBeLessThanOrEqual(32);
     expect(left.x).toBeGreaterThan(stage.x); expect(right.x+right.width).toBeLessThan(stage.x+stage.width); expect(left.x+left.width).toBeLessThan(right.x);
-    expect(Math.abs(left.y-right.y)).toBeLessThanOrEqual(1); expect(right.height).toBeLessThan(left.height);
+    expect(Math.abs(left.y-right.y)).toBeLessThanOrEqual(1);
+    // 步驟列獨立占一排後，矮桌面左右可同高；設定區須留在內容區內。
+    expect(right.height).toBeLessThanOrEqual(left.height);
+    const footer = (await page.locator('.podcast-create .tool-stage-footer').boundingBox())!;
+    expect(right.y + right.height).toBeLessThanOrEqual(footer.y);
     const list = selection.locator('.podcast-concept-list');
     expect(await list.evaluate(element=>element.scrollHeight>element.clientHeight)).toBe(true);
     await selection.getByRole('button', {name:`查看「${view.concepts[0].label}」重點`,exact:true}).click();

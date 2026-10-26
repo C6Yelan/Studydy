@@ -1,19 +1,8 @@
 /*
  * 建立卡組／Podcast 與管理卡組：沿用建立教材流程（flow.css）的頁首、步驟列與階段卡片。
- * 頁首右側放縮小的步驟列；名稱欄在階段卡片標題列右側；頁尾左邊摘要、右邊主要操作。
+ * 頁首下方放整排步驟列；名稱欄在階段卡片標題列右側；頁尾左邊摘要、右邊主要操作。
  */
 .creation-page { width:100%; max-width:none; }
-.creation-head .flow-head-row { align-items:center; }
-.creation-head .flow-head-aside { flex:0 1 480px; min-width:0; }
-.creation-head .flow-head-aside .learning-steps { padding:10px 12px; }
-.creation-head .flow-head-aside .learning-steps li { font-size:12px; }
-.creation-head .flow-head-aside .learning-step-mark { width:28px; height:28px; font-size:13px; }
-.creation-head .flow-head-aside .learning-steps li + li::before { top:13px; right:calc(50% + 19px); left:calc(-50% + 19px); }
-.creation-head .cards-material-name { display:inline-flex; color:var(--text-secondary); font-weight:700; }
-@media (max-width:720px) {
-  .creation-head .flow-head-row { flex-direction:column; align-items:stretch; gap:12px; }
-  .creation-head .flow-head-aside { flex:none; }
-}
 
 /* 名稱欄：桌面在階段卡片標題列右側，與標題同一列。 */
 .flow-stage-aside:has(> .creation-name) { flex:0 1 460px; max-width:none; }
@@ -140,3 +129,7 @@
   .cards-create-grid { grid-template-columns:minmax(0,1fr); }
   .cards-preview { padding:14px; }
 }
+
+/* 步驟列獨立占一排後，講解設定也必須能縮至剩餘高度並自行捲動，避免蓋到頁尾。 */
+.creation-stacked-steps > .learning-steps { flex-shrink:0; }
+.creation-stacked-steps .podcast-settings { min-height:0; max-height:100%; overflow-y:auto; }

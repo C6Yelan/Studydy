@@ -56,9 +56,9 @@ test.beforeEach(async ({ page }) => {
 
 // 寬度取共用斷點兩側（720／1024／1280）、頁首帳號區收合門檻（1759）與最寬 2560px；
 // 1650、1460、910 是曾經導覽與帳號區或學習進度重疊的寬度，768 是直向平板。
-for (const width of [2560, 1920, 1760, 1650, 1460, 1366, 1281, 1100, 1024, 910, 768, 721, 390, 320]) {
+for (const width of [2560, 1920, 1760, 1650, 1460, 1440, 1366, 1300, 1281, 1200, 1100, 1024, 910, 768, 721, 390, 320]) {
   test(`standard frames stay centered without clipping at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 1080 });
+    await page.setViewportSize({ width, height: width === 390 ? 844 : width === 1024 ? 768 : width === 1440 ? 900 : 1080 });
     for (const [path, heading] of [
       ["/", /^(早安|午安|晚安)，林以安同學的學習帳號！今天想探索哪座島？$/],
       ["/profile", "林以安同學的學習帳號"],
@@ -76,7 +76,9 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1366, 1281, 1100, 1024, 910, 
         await expect(page.locator(".profile-stat-list")).toHaveAttribute("aria-busy", "false");
         await expect(page.getByRole("region", { name: "學習節奏" })).toBeVisible();
         await expect(page.getByRole("region", { name: "登入裝置" })).toBeVisible();
+        await page.getByRole("button", { name: /^帳號空間：/ }).click();
         await expect(page.getByRole("region", { name: "帳號空間" })).toContainText("已用 4.5 GB／上限 5 GB · 剩餘 512 MB");
+        await page.keyboard.press("Escape");
         // 平板寬度的五個統計說明不被擠成「…」。
         expect(await page.locator(".profile-stat small").evaluateAll((nodes) =>
           nodes.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent))).toEqual([]);
@@ -100,12 +102,14 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1366, 1281, 1100, 1024, 910, 
             // 手機隱藏中央導覽（寬度 0）時只比對品牌。
             gap: Math.min(controls.left - Math.max(brand.right, nav.width ? nav.right : 0), nav.width ? nav.left - brand.right : Infinity),
             right: controls.right, width: innerWidth,
+            centers: [brand, controls, ...(nav.width ? [nav] : [])].map(box => box.top + box.height / 2),
             overlaps: items.some((box, index) => index > 0 && box.left < items[index - 1].right - 0.5),
           };
         });
-        expect(header.gap).toBeGreaterThanOrEqual(0);
+        expect(header.gap).toBeGreaterThanOrEqual(12);
         expect(header.right).toBeLessThanOrEqual(header.width);
         expect(header.overlaps).toBe(false);
+        expect(Math.max(...header.centers) - Math.min(...header.centers)).toBeLessThanOrEqual(1);
       }
       if (path === "/upload")
         await expect(page.getByLabel("選擇教材檔案", { exact: true })).toBeEnabled();

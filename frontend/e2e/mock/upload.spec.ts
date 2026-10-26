@@ -48,6 +48,7 @@ async function setup(page: Page) {
       `Unexpected upload request: ${route.request().method()} ${route.request().url()}`,
     );
   });
+  await page.route("**/v1/account/storage", route => route.fulfill({ json: { schema: "account-storage/v1", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120 } }));
   // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
   await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } }));
   // 頁首學習進度；這些案例不涉及學習紀錄。

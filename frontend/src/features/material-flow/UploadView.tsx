@@ -3,6 +3,7 @@ import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { SourceCapabilities } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
+import { BackLink } from "../../ui/BackLink";
 import { FlowFooter, FlowHeader, FlowStage, LearningSteps, uploadSteps } from "./Flow";
 import { formatFileSize } from "./material-flow";
 import { QueuedImages, YoutubeSourceInput } from "./QueuedSourceParts";
@@ -137,7 +138,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
         headingId="upload-title"
         title="上傳教材"
         description="選擇文件、圖片、音訊、影片或 YouTube 影片，確認來源後再開始分析。"
-        image="/assets/studydy/upload-guide.png"
+        back={<BackLink label="返回我的教材" route={{ name: "materials" }} />}
       />
       <LearningSteps labels={uploadSteps} current={0} />
       <FlowStage

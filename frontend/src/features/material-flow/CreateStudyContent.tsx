@@ -51,12 +51,13 @@ export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApi
         </button></li>)}</ul>}
     </div>
   </FlowStage>;
-  return <section className={`cards-page creation-page flow-page${podcast ? " podcast-creation-page" : " cards-creation-page"}`}>
-    <FlowHeader className="creation-head"
+  return <section className={`cards-page creation-page creation-stacked-steps flow-page${podcast ? " podcast-creation-page" : " cards-creation-page"}`}>
+    <FlowHeader
       back={(needsMaterialSelection || fromCollection) && <BackLink label={podcast ? "返回我的 Podcast" : "返回我的概念卡"} route={{ name: podcast ? "podcasts" : "concept-cards" }} />}
       title={podcast ? "建立 Podcast" : "建立概念卡組"}
       description={needsMaterialSelection ? (podcast ? "先選一份教材，再挑選想收聽的概念與講解形式。" : "先選一份教材，再挑選想複習的概念。") : podcast ? "挑選要講解的概念與形式，保存後開始生成。" : "挑選這份教材中想複習的概念。"}
-      aside={<LearningSteps labels={podcast ? podcastSteps : cardSetSteps} current={needsMaterialSelection ? 0 : 1} label={podcast ? "建立 Podcast 步驟" : "建立卡組步驟"} />} />
+      />
+    <LearningSteps labels={podcast ? podcastSteps : cardSetSteps} current={needsMaterialSelection ? 0 : 1} label={podcast ? "建立 Podcast 步驟" : "建立卡組步驟"} />
     {needsMaterialSelection && error && <p role="alert" className="form-error">{error}<button type="button" className="text-button" onClick={() => setReload(v => v + 1)}>重新讀取</button></p>}
     {needsMaterialSelection && materials?.length === 0 ? <EmptyState title="還沒有可用的知識地圖" description={podcast ? "先上傳教材並建立知識地圖，才能把重點做成 Podcast。" : "先上傳教材並建立知識地圖，才能挑選概念做成卡組。"}
       action={<button type="button" className="primary-button" onClick={() => writeRoute({ name: "materials" })}>前往我的教材</button>} />

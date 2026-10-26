@@ -109,7 +109,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
               <p>{error}</p>
               <button className="secondary-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新讀取</button>
             </div>
-          ) : <IslandMap materials={materials} progress={progress} goals={goalsByMaterial} focusId={focus?.material_id} />}
+          ) : <IslandMap materials={materials} progress={progress} goals={goalsByMaterial} />}
         </section>
         {/* 右欄：今日任務與快速存取；等級在全站頁首，徽章與統計在「成就」頁。 */}
         <aside className="dashboard-side">

@@ -234,10 +234,12 @@ test("password change validates input, reports a wrong current password and then
   const section = dialog.getByRole("region", { name: "修改密碼" });
   await expect(dialog.getByRole("region", { name: "個人名稱" })).toBeVisible();
   // 帳號空間已滿：顯示已用、剩餘，以及哪些動作會被擋下。
+  await page.getByRole("button", { name: /^帳號空間：/ }).click();
   const storage = page.getByRole("region", { name: "帳號空間" });
   await expect(storage).toContainText("已用 5 GB／上限 5 GB · 剩餘 0 B");
   await expect(storage).toContainText("無法上傳教材、建立 Podcast 或生成影片");
   await expect(storage).toContainText("已用包含 100 MB 預留給上傳中的檔案與生成中的 Podcast／影片");
+  await page.keyboard.press("Escape");
   // 登入裝置是帳號設定之外的獨立卡片。
   // 三個登入先顯示兩個，其餘收合。
   await expect(page.getByRole("region", { name: "登入裝置" }).getByRole("listitem")).toHaveCount(2);
