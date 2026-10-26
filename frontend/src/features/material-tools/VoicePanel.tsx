@@ -1,13 +1,14 @@
+import { MathText } from "../../ui/MathText";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { InlineConfirm } from '../../ui/InlineConfirm';
 import { ApiClientError, errorMessage, type StudydyApiClient } from '../../api/client';
-import { evidencePlace, evidenceSourceTitle, SourceButton, sourceLinks } from '../../ui/SourceButton';
+import { SourceButton } from '../../ui/SourceButton';
 import type { Conversation, VoiceTurn, VoiceView } from './types';
 import { Icon } from '../../ui/Icon';
 import type { KnowledgeOutlineView, PodcastContext } from '../../api/contracts';
+import { answerSources } from './answerSources';
 import { AnswerAudio } from './AnswerAudio';
 import { prefetchVoiceAssets, useContinuousVoice } from './useContinuousVoice';
-import { answerSources } from './answerSources';
 
 const pending = new Set(['transcribing','pending','answering','speaking']);
 const labels:Record<string,string> = { transcribing:'正在辨識你的問題…', pending:'等待教材回答…', answering:'正在依教材整理回答…', speaking:'正在產生語音…', failed:'本次處理未完成', cancelled:'已取消' };
@@ -205,16 +206,18 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
     </div>}
     {id&&!view&&!showOutgoing&&<p className="voice-inline-note" role="status">正在讀取對話…</p>}
     {turns.map(turn=>{
-     const {sources,text:answerText}=answerSources(turn.answer);
+     const citations=turn.answer?.schema==='material-answer/v3'
+       ? turn.answer.citations.map(citation=>({...citation,evidence:answerSources({...turn.answer!,citations:[citation]}).sources}))
+       : answerSources(turn.answer).sources.map(evidence=>({passage_id:evidence.evidence_id,text:evidence.quote,evidence:[evidence]}));
      if(turn.status==='cancelled'&&!turn.answer)return <article className="voice-turn voice-cancelled" key={turn.turn_id}><small>已取消這次提問</small></article>;
      const waiting=pending.has(turn.status);
      return <article key={turn.turn_id} className="voice-turn">
       <div className="voice-question" aria-label="你的提問">{turn.context&&<small>Podcast 第 {turn.context.episode_index+1} 集 · 所選段落</small>}<p>{turn.question||'語音提問'}</p>{turn.answer?.question_interpretation&&<small>依對話理解為：{turn.answer.question_interpretation.used}</small>}</div>
       <div className="voice-reply"><img className="voice-avatar" src={mascot} alt=""/>
        <div className="voice-response" aria-label="教材回答">
-        {turn.answer&&<><p className="voice-answer">{answerText}</p>
-         <div className="voice-source-chips" aria-label="回答來源">{sourceLinks(sources).map(source=><SourceButton key={source.evidence_id} apiClient={api} resolver={view!.source_resolver} evidence={source} label={evidencePlace(source)} title={evidenceSourceTitle(source)}/>)}{!sources.length&&<small>教材沒有足夠依據。</small>}</div>
-         {sources.some(source=>source.quote)&&<details className="voice-sources"><summary>引用原文 · {sources.length}</summary><ol className="voice-source-list">{sources.map(source=><li key={source.evidence_id}><small>{source.source_name??'教材'} · {evidencePlace(source)}</small>{source.quote&&<p className="voice-source-excerpt">{source.quote}</p>}</li>)}</ol></details>}
+        {turn.answer&&<>
+         {turn.answer.schema==='material-answer/v3' && turn.answer.paragraphs ? turn.answer.paragraphs.map((paragraph,index)=><p key={index} className="voice-answer"><MathText text={paragraph.text}/>{paragraph.citation_ids.map(id=>{const number=citations.findIndex(c=>c.passage_id===id)+1;const citation=citations[number-1];return citation?.evidence.map(evidence=><SourceButton key={`${id}:${evidence.evidence_id}`} apiClient={api} resolver={view!.source_resolver} evidence={evidence} reference={{number,quote:evidence.quote}}/>);})}</p>) : <p className="voice-answer"><MathText text={turn.answer.text}/></p>}
+         <div className="voice-reference-sources" aria-label="回答來源"><strong>來源</strong>{citations.map((citation,index)=><div key={citation.passage_id}>{citation.evidence.map(evidence=><SourceButton key={evidence.evidence_id} apiClient={api} resolver={view!.source_resolver} evidence={evidence} reference={{number:index+1,list:true,quote:evidence.quote}}/>)}</div>)}{!citations.length&&<small>教材沒有足夠依據。</small>}</div>
          {turn.audio_url&&<div className="voice-answer-actions"><AnswerAudio src={turn.audio_url} autoPlay={mode==='voice'&&autoPlayTurnId===turn.turn_id} onAutoPlayAttempt={()=>setAutoPlayTurnId(previous=>previous===turn.turn_id?null:previous)} register={element=>audios.current.add(element)} onPlay={element=>pauseMedia(element)}/></div>}
         </>}
         {waiting&&!turn.answer&&<p className="voice-typing"><span aria-hidden="true"><i/><i/><i/></span>正在輸入…</p>}

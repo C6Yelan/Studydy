@@ -27,3 +27,15 @@ test("KaTeX renders every LaTeX command the backend accepts", () => {
     assert.doesNotThrow(() => katex.renderToString(formula, { displayMode: true, throwOnError: true, strict: "ignore" }), formula);
   }
 });
+
+const { mathParts } = await import("../../ui/math-text.ts");
+test("shared math parses explicit delimiters and the approved notation table", () => {
+  const parts = mathParts(String.raw`機率 product_i，sqrt(d_k)，alpha_bar_t，QK^T，x^2，$\theta - \eta$。`);
+  assert.deepEqual(parts.filter(p => p.kind === "math").map(p => p.latex), [String.raw`\prod_{i}`, String.raw`\sqrt{d_k}`, String.raw`\bar{\alpha}_{t}`, "QK^{T}", "x^{2}", String.raw`\theta - \eta`]);
+  for (const part of parts.filter(p => p.kind === "math")) assert.doesNotThrow(() => katex.renderToString(part.latex, {throwOnError:true}));
+});
+test("shared math preserves code and unknown notation", () => {
+  const text = "`sqrt(x)` 與 ```python\nproduct_i = x^2\n``` 及 unknown_symbol";
+  assert.equal(mathParts(text).some(part => part.kind === "math"), false);
+  assert.equal(mathParts(text).map(part => part.text).join(""), text);
+});

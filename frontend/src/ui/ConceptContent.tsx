@@ -1,3 +1,4 @@
+import { MathText } from "./MathText";
 import { SourceButton, sourceLinks } from "./SourceButton";
 import type { StudydyApiClient } from "../api/client";
 import type { KnowledgeStructureView } from "../api/contracts";
@@ -31,7 +32,7 @@ export function ConceptContent({
             aria-label={`教材重點 ${index + 1}`}
           >
             {claims.length > 1 && <strong className="claim-number">重點 {index + 1}</strong>}
-            <p className={`claim-text${hasCode ? " is-code" : ""}`}>{text}</p>
+            <p className={`claim-text${hasCode ? " is-code" : ""}`}><MathText text={text} code={hasCode}/></p>
           </section>
         );
       })}

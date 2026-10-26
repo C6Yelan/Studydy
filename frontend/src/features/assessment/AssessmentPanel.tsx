@@ -1,3 +1,4 @@
+import { MathText } from "../../ui/MathText";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import type { StudydyApiClient } from "../../api/client";
 import type { AssessmentRecordView, KnowledgeStructureView } from "../../api/contracts";
@@ -44,20 +45,15 @@ export function AssessmentPanel({
         </header>
         <section className="feedback-section">
           <h3>題目</h3>
-          <p>{assessment.prompt}</p>
+          <p><MathText text={assessment.prompt}/></p>
         </section>
         <section className="feedback-section">
           <h3>你的答案</h3>
-          <p>
-            {
-              assessment.options.find((option) => option.option_id === feedback.selected_option_id)
-                ?.text
-            }
-          </p>
+          <p><MathText text={assessment.options.find(option => option.option_id === feedback.selected_option_id)?.text ?? ""}/></p>
         </section>
         <section className="feedback-section">
           <h3>為什麼？</h3>
-          <p className="feedback-rationale">{feedback.rationale}</p>
+          <p className="feedback-rationale"><MathText text={feedback.rationale}/></p>
         </section>
         <div className="feedback-evidence">
           <h3>教材依據</h3>
@@ -78,7 +74,7 @@ export function AssessmentPanel({
   return (
     <section className="assessment-card" aria-labelledby={questionId}>
       <p className="eyebrow">單選題</p>
-      <h2 id={questionId}>{assessment.prompt}</h2>
+      <h2 id={questionId}><MathText text={assessment.prompt}/></h2>
       <fieldset className="assessment-options" disabled={!canAnswer || answerSelection.disabled}>
         <legend className="sr-only">請選擇一個答案</legend>
         {assessment.options.map((option, index) => (
@@ -94,7 +90,7 @@ export function AssessmentPanel({
               onChange={() => answerSelection.onChange(option.option_id)}
             />
             <span>{String.fromCharCode(65 + index)}</span>
-            <strong>{option.text}</strong>
+            <strong><MathText text={option.text}/></strong>
           </label>
         ))}
       </fieldset>

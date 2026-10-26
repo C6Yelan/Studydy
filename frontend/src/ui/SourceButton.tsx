@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useId, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../api/client";
 import type { EvidenceSourceView, EvidenceView } from "../api/contracts";
+import "./source-reference.css";
 
 export function sourceLinks(evidence: EvidenceView[]): EvidenceView[] {
   // 僅合併同教材同 PDF 頁的入口，保留代表 Evidence 供 resolver 回查；不修改 Evidence。
@@ -52,6 +54,7 @@ export function SourceButton({
   evidence,
   label,
   title,
+  reference,
 }: {
   apiClient: StudydyApiClient;
   resolver: string;
@@ -59,17 +62,29 @@ export function SourceButton({
   label?: string;
   /** 按鈕文字較短時，提示完整來源。 */
   title?: string;
+  reference?: { number?: number; list?: boolean; quote: string };
 }) {
   const [source, setSource] = useState<EvidenceSourceView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [opened, setOpened] = useState(false);
+  const [preview, setPreview] = useState<{left:number;top:number}|null>(null);
+  const previewAt = () => { const box = opener.current?.getBoundingClientRect(); if (box) setPreview({left:Math.max(8, Math.min(box.left, window.innerWidth - Math.min(352, window.innerWidth * .75) - 8)),top:Math.min(box.bottom + 8, window.innerHeight - 240)}); };
+  const previewId = useId();
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const closePreview = () => { previewTimer.current = setTimeout(() => setPreview(null), 150); };
+  const keepPreview = () => clearTimeout(previewTimer.current);
+  useEffect(() => () => clearTimeout(previewTimer.current), []);
   const [busy, setBusy] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (source) dialog.current?.showModal();
-  }, [source]);
-  const open = async () => {
-    if (busy) return;
+    if (opened && source) {
+      if (reference) dialog.current?.show(); else dialog.current?.showModal();
+      if (reference) dialog.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    }
+  }, [source, opened]);
+  const load = async () => {
+    if (busy || source) return;
     setBusy(true);
     setError(null);
     try {
@@ -80,32 +95,41 @@ export function SourceButton({
       setBusy(false);
     }
   };
-  return (
+  useEffect(() => { if (reference) void load(); }, [resolver, evidence.evidence_id]);
+  const place = source?.playback ? `▶ ${clock(source.playback.start_seconds)}` : source?.format === "images" ? source.label : source ? `p.${source.normalized_page}` : "來源";
+  const name = source?.display_name ?? source?.original_name ?? evidence.source_name ?? "教材";
+  const content = (
     <>
       <button
         ref={opener}
-        className="text-button source-chip"
+        className={reference ? `text-button source-reference-button${reference.list ? " source-reference-list" : ""}` : "text-button source-chip"}
         type="button"
         disabled={busy}
-        onClick={() => void open()}
+        onFocus={() => { if (reference) previewAt(); }}
+        onBlur={closePreview}
+        onKeyDown={event => { if (event.key === "Escape" && preview) { event.stopPropagation(); setPreview(null); } }}
+        onClick={() => { setPreview(null); setOpened(true); void load(); }}
+        aria-describedby={reference && preview ? previewId : undefined}
+        aria-label={reference ? `${reference.number ? `來源 ${reference.number}：` : ""}${name} · ${place}` : undefined}
         aria-haspopup="dialog"
         title={title ?? label}
       >
-        {busy
+        {reference ? (reference.list ? <>{source?.playback ? "▶" : source?.format === "images" ? "▧" : "▤"} {reference.number ? `${reference.number}. ` : ""}{name} · {place}</> : <sup>[{reference.number ?? place}]</sup>) : busy
           ? "正在讀取來源…"
           : label ?? (evidence.source_name
             ? evidenceSourceTitle(evidence)
             : `查看${evidencePlace(evidence)}來源`)}
       </button>
+      {reference && preview && createPortal(<span onMouseEnter={keepPreview} onMouseLeave={closePreview} style={preview} id={previewId} role="tooltip" className="source-reference-preview"><strong>{name} · {place}</strong><span>{reference.quote}</span>{source?.format === "images" && <iframe src={source.preview_url} title={`${name}圖片預覽`} tabIndex={-1}/>}</span>, document.body)}
       {error && (
         <p role="alert" className="form-error">
           {error}
         </p>
       )}
-      {source && (
+      {source && opened && createPortal(
         <dialog
           ref={dialog}
-          className="source-dialog"
+          className={reference ? "source-reference-panel" : "source-dialog"}
           aria-label="教材來源"
           onCancel={(event) => {
             event.preventDefault();
@@ -113,14 +137,15 @@ export function SourceButton({
             dialog.current?.close();
           }}
           onKeyDown={(event) => {
-            if (event.key === "Escape") event.stopPropagation();
+            if (event.key === "Escape") { event.stopPropagation(); if (reference) dialog.current?.close(); }
           }}
           onClose={() => {
-            setSource(null);
+            setOpened(false);
+            if (!reference) setSource(null);
             opener.current?.focus();
           }}
         >
-          <h2>{source.original_name}</h2>
+          <h2>{source.display_name ?? source.original_name}</h2>
           <p>{source.label}</p>
           {source.accuracy !== "exact" && (
             <p>
@@ -156,6 +181,7 @@ export function SourceButton({
           ) : (
             source.format !== "pdf" && <p>此 PDF 由系統自動轉換，轉換品質不保證。</p>
           )}
+          {reference && !source.playback && <iframe className="source-reference-document" src={source.preview_url} title={`${name}原文`}/>}
           <div className="state-actions">
             <a
               className={source.playback ? "secondary-button" : "primary-button"}
@@ -192,8 +218,9 @@ export function SourceButton({
               關閉
             </button>
           </div>
-        </dialog>
+        </dialog>, document.body
       )}
     </>
   );
+  return reference ? <span className="source-reference" onMouseEnter={() => { keepPreview(); previewAt(); }} onMouseLeave={closePreview}>{content}</span> : content;
 }

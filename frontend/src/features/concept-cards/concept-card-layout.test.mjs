@@ -267,3 +267,11 @@ test("concise paragraphs match restored PDF line wraps without changing evidence
   assert.equal(card.claims[0].text, original);
   assert.equal(result.claims[0].evidence, card.claims[0].evidence);
 });
+
+test("designed text wrapping retains an oversized formula and its following content", () => {
+  const formula = "$\\frac{abcdefghijk}{lmnopqrstuv}$";
+  const wrapped = wrapCardText(`前文 ${formula} 後文`, 8, text => text.length, true);
+  assert.equal(wrapped.overflow, true);
+  assert.ok(wrapped.lines.includes(formula));
+  assert.ok(wrapped.lines.join("").endsWith("後文"));
+});

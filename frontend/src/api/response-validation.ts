@@ -338,6 +338,7 @@ export function evidenceSource(value: unknown): value is EvidenceSourceView {
   return (
     !!item &&
     item.schema === "evidence-source/v1" &&
+    (item.display_name === undefined || typeof item.display_name === "string") &&
     ["pdf", "docx", "pptx", "doc", "ppt", "txt", "md", "images", "audio", "video", "youtube"].includes(String(item.format)) &&
     typeof item.original_name === "string" &&
     typeof item.label === "string" &&

@@ -1710,3 +1710,32 @@ for (const [reason, status, message] of [
     await expect(controls.getByRole("button", { name: "匯出", exact: true })).toBeEnabled();
   });
 }
+
+
+test("formula cards render the same math in readable details and the downloaded PNG", async ({page},testInfo) => {
+  const fixture=await mockCards(page,{saved:true,savedCount:1});
+  fixture.view.concepts[0].claims[0].text=String.raw`連乘 product_i、標準差 sqrt(d_k)、累積係數 alpha_bar_t、轉置 QK^T。公式 $\frac{a}{b}$。`;
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  const canvas=page.locator('canvas.visual-concept-card').first();await expect(canvas).toBeVisible();
+  await page.getByText('完整重點與來源',{exact:true}).click();
+  await expect(page.locator('.flashcard-content .katex')).toHaveCount(5);
+  const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'下載 PNG',exact:true}).first().click();
+  const download=await downloadPromise;await download.saveAs(testInfo.outputPath('formula-card.png'));
+  expect(download.suggestedFilename()).toMatch(/\.png$/);
+  for(const [width,height] of [[1440,900],[1024,768],[390,844]]){
+    await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`formula-card-${width}.png`)});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  }
+});
+
+test("a wide formula in a designed block preserves the formula and the following text", async ({page},testInfo) => {
+  const fixture=await mockCards(page,{saved:true,savedCount:1});
+  const design=designedCard(fixture.view,'flow',4);
+  design.pages[0].blocks[0].text=String.raw`前文 $\frac{abcdefghijklmno}{pqrstuvwxyz}$ 後文必須保留`;
+  fixture.setDesigns({[fixture.view.concepts[0].concept_id]:design});
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  const canvas=page.locator('canvas.visual-concept-card');await expect(canvas).toBeVisible();
+  expect(await drawnText(page)).toContain('後文必須保留');
+  const downloading=page.waitForEvent('download');await page.getByRole('button',{name:'下載 PNG',exact:true}).click();
+  await (await downloading).saveAs(testInfo.outputPath('wide-formula-card.png'));
+});

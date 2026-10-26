@@ -1,3 +1,4 @@
+import { MathText } from "../../ui/MathText";
 import { ExportControls } from "../exports/ExportControls";
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
@@ -40,7 +41,7 @@ export function DifficultyBadge({ concept, detail = false }: {
     {concept.level === "hard" && <span className="difficulty-badge is-hard">預估偏難</span>}
     {concept.personal_difficulty && <span className="difficulty-badge is-personal">你的難點</span>}
     {detail && (concept.reason || concept.personal_difficulty) && <span className="difficulty-reason">
-      {concept.reason}
+      <MathText text={concept.reason}/>
       {concept.personal_difficulty && <span>你的作答：答錯率 {Math.round(concept.incorrect_count / concept.answer_count * 100)}%（{concept.incorrect_count} / {concept.answer_count} 題）。</span>}
     </span>}
   </span>;
@@ -76,7 +77,7 @@ export function LearningDiagnosis({ api, materialId, revision, setId, onReview, 
     <ul className="diagnosis-point-list">{items.map(finding => <li key={finding.concept_id}>
       <div><strong>{finding.label}</strong>
         <ul className="diagnosis-claims">{finding.points.map(point => <li key={point.claim_id}>
-          <p>{point.title}</p>
+          <p><MathText text={point.title}/></p>
           <p className="diagnosis-answer-count">{point.answer_count > 0 ? `答對 ${point.correct_count} / ${point.answer_count} 次` : "尚未作答"}
             {point.latest_is_correct !== null && <span>{point.latest_is_correct ? "最近答對" : "最近答錯"}</span>}
           </p>
@@ -97,7 +98,7 @@ export function LearningDiagnosis({ api, materialId, revision, setId, onReview, 
         {data.recommendations.length > 0 && <section aria-label="建議先複習">
           <h3>建議先複習</h3>
           <ul className="diagnosis-point-list">{data.recommendations.map(recommendation => <li key={recommendation.concept_id}>
-            <div><strong>{recommendation.label}</strong><p>{recommendation.reason}</p></div>
+            <div><strong>{recommendation.label}</strong><p><MathText text={recommendation.reason}/></p></div>
             <button className="secondary-button" type="button" disabled={disabled} onClick={() => onReview(recommendation.concept_id)}>複習 {recommendation.label}</button>
           </li>)}</ul>
         </section>}

@@ -1,3 +1,4 @@
+import { MathText } from "../../ui/MathText";
 import { Progress } from "../../ui/Progress";
 import { LearningDiagnosis } from "../learning-diagnosis/LearningDiagnosis";
 import { useEffect, useLayoutEffect, useRef, useState, type SubmitEvent } from "react";
@@ -621,7 +622,7 @@ export function AssessmentSetPanel({
                       key={claim.claim_id}
                       aria-label="待補強重點"
                     >
-                      <p>{claim.text}</p>
+                      <p><MathText text={claim.text}/></p>
                       <div className="assessment-set-actions">
                         {references.map((reference) => (
                           <SourceButton

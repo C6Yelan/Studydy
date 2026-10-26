@@ -88,8 +88,8 @@ test('compact widget has one entry, chat bubbles, secondary sources and a growin
  await input.fill('堆疊是什麼？');await page.getByRole('button',{name:'送出問題',exact:true}).click();await expect(page.locator('.voice-answer')).toContainText(mock.answer.text);await expect(input).toHaveValue('');expect(mock.questions).toEqual(['堆疊是什麼？']);
  const user=(await page.locator('.voice-question').boundingBox())!,assistant=(await page.locator('.voice-response').boundingBox())!;expect(user.x).toBeGreaterThan(assistant.x);
  await expect(page.locator('.voice-question > span')).toHaveCount(0);
- // 來源頁碼是回答下方可直接點的小標籤，完整來源名稱在提示裡。
- const chip=page.locator('.voice-source-chips').getByRole('button',{name:'第 1 頁',exact:true});await expect(chip).toHaveAttribute('title',/PDF 第 1 頁/);await chip.click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(panel).toBeVisible();
+ // 舊回答保留來源清單；位置與名稱直接顯示，可在右側回查原文。
+ const chip=page.locator('.voice-reference-sources').getByRole('button').first();await expect(chip).toContainText('p.1');await chip.click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(panel).toBeVisible();
  await input.fill('換行');await input.press('Shift+Enter');await input.pressSequentially('補充');await input.dispatchEvent('keydown',{key:'Enter',isComposing:true});expect(mock.questions).toHaveLength(1);await input.press('Enter');await expect.poll(()=>mock.questions.length).toBe(2);expect(mock.questions.at(-1)).toBe('換行\n補充');await expect(input).toHaveValue('');
  for(let i=0;i<3;i++){await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();await open(page);}
  await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.keyboard.press('Escape');await expect(panel).toBeVisible();await expect(page.getByRole('button',{name:'對話紀錄',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);
@@ -191,7 +191,7 @@ test('voice audio failure keeps text and sources and retries only audio with aut
  await page.getByRole('switch',{name:'語音模式',exact:true}).click();await speak(page);
  await expect.poll(()=>mock.recorded.length).toBe(1);const turn=mock.recorded[0];turn.question='語音問題';mock.reply(mock.conversations[0],turn);
  await expect(page.locator('.voice-answer')).toContainText(mock.answer.text);await expect(page.getByText('文字回答已完成',{exact:true})).toBeVisible();
- await expect(page.getByText('本次處理未完成',{exact:true})).toHaveCount(0);await expect(page.locator('.voice-source-chips .source-chip')).toBeVisible();
+ await expect(page.getByText('本次處理未完成',{exact:true})).toHaveCount(0);await expect(page.locator('.voice-reference-sources .source-reference-button')).toBeVisible();
  await page.getByRole('button',{name:'重試語音',exact:true}).click();await expect(page.getByText('正在產生語音…',{exact:true})).toBeVisible();mock.finishAudio(mock.conversations[0],turn);
  await expect.poll(()=>page.locator('.answer-audio audio').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
  expect(mock.actions.at(-1)).toMatchObject({action:'retry',turnId:turn.turn_id});expect(mock.actions.at(-1)).not.toHaveProperty('question');expect(mock.recorded).toHaveLength(1);
@@ -348,7 +348,7 @@ test('sources use structured references without rewriting numeric literals and h
  t.answer!.citations.push(citation);
  await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
  await expect(page.locator('.voice-answer')).toHaveText(t.answer!.text);
- await expect(page.locator('.voice-source-chips .source-chip')).toHaveCount(1);
+ await expect(page.locator('.voice-reference-sources .source-reference-button')).toHaveCount(1);
  await page.getByRole('button',{name:'對話紀錄',exact:true}).click();
  const entry=page.locator('.voice-history-list button > span');expect(await entry.evaluate(el=>getComputedStyle(el).textOverflow)).toBe('ellipsis');
  await expect(page.locator('.voice-history select')).toHaveCount(0);

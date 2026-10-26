@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { json, mockKnowledgeMapApi, materialId, runId, structureRevision, structureView } from "../fixtures/knowledge-map";
+import { json, mockKnowledgeMapApi, artifactId, materialId, runId, structureRevision, structureView } from "../fixtures/knowledge-map";
 import type { MaterialNotesView, NoteKind } from "../../src/api/contracts";
 
 const formula = String.raw`\text{大小} = \text{推入次數} - \text{取出次數}`;
@@ -64,7 +64,7 @@ test("notes read without generating and preserve annotations after reload", asyn
   await expect(page.getByRole("dialog")).toBeHidden();
   await page.reload();
   await expect(page.getByText("記住最後進入、最先取出。", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "查看第 1 頁來源" }).first().click();
+  await page.locator(".note-sources .source-reference-button").first().click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
   await page.getByRole("button", { name: "關閉", exact: true }).click();
   await page.getByRole("button", { name: "Stack · 查看地圖" }).first().click();
@@ -206,4 +206,19 @@ test("readable math remains visible in nested bullets and table cells alongside 
   await expect(page.getByRole("cell", { name: "≈ 0.5", exact: true })).toBeVisible();
   await expect(page.locator(".note-formula .katex-display")).toBeVisible();
   await expect(page.locator(".note-formula .katex-error")).toHaveCount(0);
+});
+
+for (const format of ['audio','images'] as const) test(`note references use verified ${format} locations and previews`,async({page},testInfo)=>{
+ await setup(page);
+ await page.route('**/evidence/*/source',route=>json(route,{schema:'evidence-source/v1',format,display_name:format==='audio'?'課堂錄音':'投影片圖片',original_name:'original',original_url:`/v1/artifacts/${artifactId}/download`,preview_url:`/v1/artifacts/${artifactId}#page=1`,normalized_page:1,accuracy:'exact',origin_locators:[],label:format==='audio'?'音訊片段':'第 3 張圖片',...(format==='audio'?{playback:{kind:'audio',start_seconds:242,end_seconds:265,url:`/v1/artifacts/${artifactId}/media`}}:{})}));
+ await page.route(`**/v1/artifacts/${artifactId}`,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="zh-Hant"><body style="font-family:sans-serif;background:#e8efff;padding:24px"><h1>堆疊示意圖</h1><p>最後放入，最先取出。</p></body></html>'}));
+ await page.goto(`/materials/${materialId}/notes`);
+ const marker=page.locator('.note-sources .source-reference-button').first();await expect(marker).toHaveText(format==='audio'?'[▶ 04:02]':'[第 3 張圖片]');
+ await marker.hover();await expect(page.getByRole('tooltip')).toContainText(format==='audio'?'課堂錄音':'投影片圖片');
+ if(format==='images')await expect(page.getByRole('tooltip').locator('iframe')).toBeVisible();
+ for(const [width,height] of [[1440,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await marker.scrollIntoViewIfNeeded();await marker.hover();
+  await page.screenshot({path:testInfo.outputPath(`note-${format}-${width}.png`)});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+ }
 });

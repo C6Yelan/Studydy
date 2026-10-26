@@ -1,3 +1,4 @@
+import { MathText } from "../../ui/MathText";
 import { DifficultyBadge } from "../learning-diagnosis/LearningDiagnosis";
 import type { StudydyApiClient } from "../../api/client";
 import type { ConceptCard, ConceptCardContext, ConceptDifficulty } from "../../api/contracts";
@@ -46,7 +47,7 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
                   <p
                     className={claim.evidence.some((item) => item.kind === "code") ? "is-code" : undefined}
                     tabIndex={claim.evidence.some((item) => item.kind === "code") ? 0 : undefined}
-                  >{claimText(claim)}</p>
+                  ><MathText text={claimText(claim)} code={claim.evidence.some(item => item.kind === "code")}/></p>
                 </section>
               ))}
               {relations.map(relation => <section key={relation.relation.relation_id} className="flashcard-relation" aria-label="圖卡關係與來源">

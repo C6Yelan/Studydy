@@ -854,6 +854,7 @@ export type MediaPlayback = {
 };
 export type EvidenceSourceView = {
   schema: "evidence-source/v1";
+  display_name?: string;
   format: "pdf" | "docx" | "pptx" | "doc" | "ppt" | "txt" | "md" | "images" | "audio" | "video" | "youtube";
   original_name: string;
   original_url: string;
