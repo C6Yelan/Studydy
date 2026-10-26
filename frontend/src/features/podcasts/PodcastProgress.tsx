@@ -1,4 +1,3 @@
-import { lunaCallLimitMessage } from "../../api/client";
 import { PodcastCancelControl } from "./PodcastCancelControl";
 import type { PodcastView } from "../../api/contracts";
 import { ProcessingTimeline } from "../material-flow/ProcessingTimeline";
@@ -30,11 +29,10 @@ export function PodcastProgress({ view, busy, onAction }: {
           <div className="progress-heading overall-heading"><h2>{withVideo ? "影音生成進度" : "音訊生成進度"}</h2><strong>{percent}%</strong></div>
           <progress className="processing-progress" value={completed} max={total} aria-label={withVideo ? "已完成影音集數" : "已完成音訊集數"} />
           <p className="progress-estimate-note">音訊 {view.completed_episodes} / {view.episode_count} 集{withVideo ? ` · 影片 ${completedVideos} / ${expectedVideos} 集` : ""}；依完成數計算，不代表剩餘時間。</p>
-          {view.generation?.error_code === "LUNA_CALL_LIMIT_EXCEEDED" ? <p role="alert">{lunaCallLimitMessage}</p> : !!view.generation?.failed_videos && <p role="alert">{view.generation.failed_videos} 集影片生成失敗；接續生成會保留已完成的影音。</p>}
+          {!!view.generation?.failed_videos && <p role="alert">{view.generation.failed_videos} 集影片生成失敗；接續生成會保留已完成的影音。</p>}
           <section className="processing-current"><h3>{paused ? podcastStatus[view.status] : "目前狀態"}</h3>
             <div className="progress-heading"><strong className="stage-label stage-status-label">{!paused && <span className="processing-status-indicator" aria-hidden="true" />}{stages[stage].label}</strong><strong>{activity}</strong></div>
             <p role="status">{current >= 0 ? `第 ${current + 1} / ${view.episode_count} 集 · ${paused ? "停在" : view.status === "pending" ? "接下來：" : ""}${stages[stage].label}` : view.generation?.active ? "音訊已完成，正在製作影片。" : "影片尚未全部完成，請接續生成。"}</p>
-            {view.error_code === "LUNA_CALL_LIMIT_EXCEEDED" && <p role="alert">{lunaCallLimitMessage}</p>}
             {view.error_code === "PODCAST_STORAGE_FAILED" && <p role="alert">這一集未能保存，請重試。已完成的部分會保留。</p>}
             {view.error_code === "PODCAST_SCRIPT_NEEDS_REVIEW" && <p role="alert">本集內容的來源或教學品質核對未通過，請重試。尚未發布音訊。</p>}
           </section>

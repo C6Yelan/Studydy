@@ -1,4 +1,3 @@
-import { lunaCallLimitMessage } from "../../api/client";
 import { MapExports } from "../exports/MapExports";
 import { relationStyles } from "./map-appearance";
 import { DifficultyBadge, DifficultyList, LearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
@@ -1301,7 +1300,6 @@ export function KnowledgeMapWorkspace({
       className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}
     >
       <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} materialName={materialName} current={mode === "review" ? "review" : "knowledge-map"} assessmentDisabled={isStartingStudy || isLoadingProgress} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
-      {regions?.error_code === "LUNA_CALL_LIMIT_EXCEEDED" && <p className="form-error" role="status">{lunaCallLimitMessage}</p>}
       {progressMessage && (
         <div className="partial-banner" role="status">
           <span>{progressMessage}</span>

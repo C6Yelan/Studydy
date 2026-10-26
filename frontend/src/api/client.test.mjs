@@ -1680,12 +1680,3 @@ test("podcast summaries must say whether video was requested", async () => {
     await assert.rejects(new StudydyApiClient(async () => Response.json(broken)).getPodcast(setId), ApiClientError);
   }
 });
-
-
-test("Luna call limit keeps its code and fixed message for API failures", async () => {
-  const client = new StudydyApiClient(async () => Response.json({ schema: "api-error/v1", request_id: sessionId,
-    reason_code: "LUNA_CALL_LIMIT_EXCEEDED", retryable: false, message: "Request could not be completed." }, { status: 409 }));
-  await assert.rejects(client.studyTools("/v1/topics", {}), error =>
-    error.reasonCode === "LUNA_CALL_LIMIT_EXCEEDED" && !error.retryable &&
-    error.message === "這次生成用量超過上限，已停止。可以稍後重試。");
-});

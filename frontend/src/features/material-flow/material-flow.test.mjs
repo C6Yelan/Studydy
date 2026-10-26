@@ -92,8 +92,3 @@ test("remembered material indexes stay isolated by API client and material", asy
   assert.equal(rememberedMaterial(firstClient,"first").display_name,"updated version");
   assert.equal(rememberedMaterial(firstClient,"second").display_name,"other material");
 });
-
-
-test("Luna call limit explains why material processing stopped", () => {
-  assert.equal(materialFailureMessage("LUNA_CALL_LIMIT_EXCEEDED"), "這次生成用量超過上限，已停止。可以稍後重試。");
-});

@@ -529,10 +529,3 @@ for (const width of [1280, 390]) test(`failed review explains the cause and pres
   await expect(page.getByText(/已完成的分析批次保存在本機/)).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
-
-
-test("Luna call limit explains stopped material analysis", async ({ page }) => {
-  await mockRun(page, route => route.fulfill({ json: { ...base, status: "failed", completed_at: clockTime.toISOString(), error_code: "LUNA_CALL_LIMIT_EXCEEDED" } }));
-  await page.goto(runPath);
-  await expect(page.getByText("這次生成用量超過上限，已停止。可以稍後重試。", { exact: true })).toBeVisible();
-});

@@ -1,7 +1,5 @@
 import type { MaterialProcessingRunView } from "../../api/contracts";
 
-import { lunaCallLimitMessage } from "../../api/client.ts";
-
 export const automaticPollIntervalMs = 1_500;
 export const materialProgressStages = [
   "queued",
@@ -71,7 +69,6 @@ export function formatFileSize(sizeBytes: number): string {
 }
 
 export function materialFailureMessage(errorCode: string): string {
-  if (errorCode === "LUNA_CALL_LIMIT_EXCEEDED") return lunaCallLimitMessage;
   const reviewFailures: Record<string, string> = {
     REVIEW_RESPONSE_INVALID: "模型的審查回應格式不完整或不符合要求。",
     REVIEW_CONCEPT_COVERAGE_INVALID: "模型的審查結果漏列或重複列出概念。",

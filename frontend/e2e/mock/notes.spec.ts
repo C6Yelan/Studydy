@@ -207,17 +207,3 @@ test("readable math remains visible in nested bullets and table cells alongside 
   await expect(page.locator(".note-formula .katex-display")).toBeVisible();
   await expect(page.locator(".note-formula .katex-error")).toHaveCount(0);
 });
-
-
-for (const kind of ["summary", "full"] as const) test(`Luna call limit keeps published ${kind} notes until explicit retry`, async ({ page }) => {
-  const saved = { ...notes(kind), status: "failed" as const, error_code: "LUNA_CALL_LIMIT_EXCEEDED" };
-  const state = await setup(page, kind === "summary" ? saved : notes());
-  if (kind === "full") state.setFull(saved);
-  await page.goto(`/materials/${materialId}/notes`);
-  if (kind === "full") await page.getByRole("button", { name: "完整筆記", exact: true }).click();
-  await expect(page.getByText(/這次生成用量超過上限，已停止。可以稍後重試。/)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
-  expect(state.writes).toEqual([]);
-  await page.getByRole("button", { name: "重新生成", exact: true }).click();
-  expect(state.writes).toEqual(["generate"]);
-});

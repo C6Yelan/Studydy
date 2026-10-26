@@ -403,24 +403,3 @@ test('research source comparison has a single toolbar, tri-state select-all and 
  }
  await page.getByRole('button',{name:'取得選取的 3 份來源',exact:true}).click();expect(actions).toEqual([{action:'acquire',selected:['s0','s1','s3']}]);
 });
-
-
-test('Luna call limit shows a failed saved question without submitting another turn', async ({page}) => {
- await mockKnowledgeMapApi(page,structureView());
- await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[conversation]}));
- await page.route(`**/v1/voice-conversations/${cid}`,r=>json(r,{...conversation,is_current_revision:true,source_resolver:structureView().source_resolver,turns:[{mode:'text',turn_id:tid,question:'堆疊是什麼？',answer:null,status:'failed',audio_url:null,error_code:'LUNA_CALL_LIMIT_EXCEEDED'}]}));
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();
- await page.getByRole('button',{name:'對話紀錄',exact:true}).click();
- await page.getByRole('button',{name:'測試對話',exact:true}).click();
- await expect(page.getByText('這次生成用量超過上限，已停止。可以稍後重試。',{exact:true})).toBeVisible();
- await expect(page.getByRole('button',{name:'重試回答',exact:true})).toBeEnabled();
-});
-
-test('Luna call limit shows a stopped research',async({page})=>{
- await mockKnowledgeMapApi(page,structureView());
- const work={research_id:cid,material_id:materialId,query:'堆疊補充',mode:'review',status:'failed',candidates:[],selection:[],cursor:null,error_code:'LUNA_CALL_LIMIT_EXCEEDED',run_id:null};
- await page.route('**/v1/materials/*/research',r=>json(r,{researches:[researchSummary(work)]}));
- await page.route(`**/v1/research/${cid}`,r=>json(r,work));
- await page.goto(`/materials/${materialId}/research`);await page.locator('.research-card-link').click();
- await expect(page.getByText('這次生成用量超過上限，已停止。可以稍後重試。',{exact:true})).toBeVisible();
-});

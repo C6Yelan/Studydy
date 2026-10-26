@@ -1144,15 +1144,3 @@ for (const reason of ["PODCAST_TIMELINE_UNAVAILABLE", "PODCAST_TIMELINE_SOURCE_M
     await expect(controls.locator('option[value="md"]')).toHaveCount(0);
   });
 }
-
-
-for (const feature of ["script", "video", "scene"] as const) test(`Luna call limit shows ${feature} failure in saved Podcast progress`, async ({ page }) => {
-  const fixture = await mockPodcasts(page);
-  fixture.view.status = "failed";
-  if (feature === "script") fixture.view.error_code = "LUNA_CALL_LIMIT_EXCEEDED";
-  else fixture.view.generation = { active: false, completed_videos: 0, failed_videos: feature === "video" ? 1 : 0, error_code: "LUNA_CALL_LIMIT_EXCEEDED" };
-  await page.goto(`/podcasts/${podcastId}`);
-  await expect(page.getByText("這次生成用量超過上限，已停止。可以稍後重試。", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "接續生成", exact: true })).toBeEnabled();
-  expect(fixture.actions).toEqual([]);
-});

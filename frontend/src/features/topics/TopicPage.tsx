@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {BackLink} from '../../ui/BackLink';
-import {errorMessage, lunaCallLimitMessage,isNotFound,type StudydyApiClient} from '../../api/client';
+import {errorMessage,isNotFound,type StudydyApiClient} from '../../api/client';
 import {NotFoundView} from '../../ui/NotFoundView';
 import type {MaterialProcessingRunView} from '../../api/contracts';
 import {ProcessingProgress} from '../material-flow/ProcessingProgress';
@@ -127,7 +127,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
   />}>
   <label className="topic-request-field"><span className="visually-hidden">想學的主題</span><textarea aria-label="想學的主題" disabled={busy||view?.status==='pending'||!!topicId&&!view} value={request} maxLength={1000} rows={4} onChange={e=>{requestLoaded.current=true;setRequest(e.target.value);}} placeholder="例如：我知道 IP 的用途，想了解 TCP 三次握手如何建立連線。"/></label>
   {view?.status==='pending'&&<div className="flow-wait" role="status"><span className="loading-ring"/><p>正在整理預計學習範圍；尚未搜尋外部來源。</p></div>}
-  {view?.status==='failed'&&<p className="flow-notice">{view.error_code==='LUNA_CALL_LIMIT_EXCEEDED'?lunaCallLimitMessage:'這次無法產生範圍，請重試。'}</p>}
+  {view?.status==='failed'&&<p className="flow-notice">這次無法產生範圍，請重試。</p>}
   {view?.status==='cancelled'&&<p className="flow-notice">這個規劃已停止，可以建立新主題。</p>}
  </FlowStage>}
  {!inputStage&&draft&&view.status==='ready'&&<FlowStage className="topic-scope" icon="edit" title="確認學習範圍" description="直接修改每一項觀念與細節；確認前不會搜尋外部來源。"

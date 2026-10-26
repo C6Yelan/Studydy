@@ -1,6 +1,6 @@
 import { ExportControls } from "../exports/ExportControls";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
-import { errorMessage, lunaCallLimitMessage, type StudydyApiClient } from "../../api/client";
+import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { MaterialNotesView, NoteAnnotation, NoteBlock, NoteCalloutStyle, NoteItem, NoteKind, NoteOutlineEntry, NoteParagraph } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
@@ -104,7 +104,6 @@ function AnnotationEditor({ api, editor, close, saved }: { api: StudydyApiClient
 }
 
 const failureMessages: Record<string, string> = {
-  LUNA_CALL_LIMIT_EXCEEDED: lunaCallLimitMessage,
   NOTE_FORMAT_INVALID: "筆記回應格式不完整，尚未發布。可重新生成。",
   NOTE_CONTENT_UNSUPPORTED: "筆記內容與引用原文不符，重新生成後仍未通過核對，尚未發布。",
   NOTE_REVIEW_INVALID: "筆記內容核對未完成，尚未發布。請稍後重試。",
