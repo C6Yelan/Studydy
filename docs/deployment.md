@@ -13,6 +13,14 @@ ops/reanalyze-demo-material
 
 分析、審查、合併、新版章節與首次自動摘要共用 300 次額度，每次外送前在 DB 原子保留。`budget.reserved_calls` 是保守的已保留請求上限，連線失敗與不確定是否受理的請求不退額，不等於外部計費明細。重啟與首次摘要重試沿用同一計數；耗盡回報 `MATERIAL_MODEL_BUDGET_EXHAUSTED`，不得改上限或重建 run。首次摘要完成後的手動重生、完整筆記與其他教材不使用本次額度。
 
+使用者另行授權原失敗工作 `257bef38-6c08-4baf-aedc-641d53a26795` 再恢復一次。此修正合併部署後才可執行：
+
+```bash
+ops/reanalyze-demo-material --resume-once
+```
+
+此入口只接受該教材的指定 run 與原冪等鍵，原服務錯誤失敗、未取消、head 未變且沒有其他進行中工作時，才原子標記這次恢復已使用並把同一 run 排回佇列。原 `reserved_calls`（目前 11）及 `limit=300` 不變，run／來源／runtime hash／建立時間不變；重複執行拒絕，再失敗也不自動重排。它不開放一般 retry，不可與 `--enqueue` 同時使用。worker 重新建立顯示進度並沿既有策略重用同 run 的可用 Evidence、子圖及審查快取；部分舊格式分析可能再次送模型，仍計入同一額度，不保證從自身 checkpoint 的階段直接接續。
+
 查詢同時列出分析 `state`、`chapters` 與 `summary`；分析成功不等於衍生工作已完成。完成後仍須確認「正比例」、其他概念及舊版學習承接；`needs_review` 不視為內容已驗收。此指令不負責合併、部署或重啟 provider。
 
 ## 正式部署入口

@@ -353,3 +353,6 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 `test_ocr_page_evidence.py` 驗證頁底大字的編號章節標題，以及下一頁定義歸入該節；無編號頁尾不因此變成標題。`test_material_review.py` 驗證帶數字編號的章節名稱仍保護對應概念，metadata提案不能將它刪除。這些離線回歸不代替指定教材部署後的真實重分析。
 
 `runtime/sources/test_demo_reanalysis_budget.py` 使用隔離 PostgreSQL 驗證並行保留只使用剩餘額度、新連線不重設、一般版本不套維護額度。`test_demo_reanalysis_flow.py` 以受控 provider 驗證同來源全量重分析、固定指令冪等、舊版保留、耗盡不外送且不換 head、章節與首次摘要共用額度、首次摘要失敗重試不重設，以及首次完成後手動重生不受本次限額。`test_demo_reanalysis_boundary.py` 驗證外送前阻擋及 Compose 新程序的 DSN 初始化；不使用真實教材或模型，不代替部署後指定教材驗收。
+
+
+`test_demo_reanalysis_resume.py` 使用隔離DB與受控provider，驗證指定失敗run只恢復一次、原11/300與來源/runtime身分保留、並行只有一次成功、實際worker在同run重新執行並逐次累計請求，並拒絕取消、head改變、其他活躍工作、耗盡、非指定run及非授權錯誤。恢復後再次失敗維持failed，不能再排或重設額度；CLI分派測試確認`--resume-once`不建立新工作。這些測試不執行正式恢復或真實模型。
