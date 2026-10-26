@@ -122,6 +122,8 @@ class AnalysisArchive:
                 candidates.append(
                     (row.run_id, row.error_code, _checkpoint_input_digest(row))
                 )
+        if self.run.auto_retry_count and (self.directory / "checkpoint.json").exists():
+            candidates.insert(0, (self.run.run_id, self.run.auto_retry_reason, self.signature))
         self._review_response_runs = [
             (run_id, signature)
             for run_id, error_code, signature in candidates
@@ -501,6 +503,7 @@ class AnalysisArchive:
                     for frame in traceback.extract_tb(error.__traceback__)
                 ],
             },
+            failed=True,
         )
 
 

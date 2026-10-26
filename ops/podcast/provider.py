@@ -737,7 +737,8 @@ class Handler(BaseHTTPRequestHandler):
                 TEST_BACKGROUND_SLOTS
                 if TEST_BACKGROUND_SLOTS is not None
                 and self.path == "/semantics"
-                and body.get("task") in {"material_semantics", "material_review"}
+                and tags is not None
+                and tags.get("feature") in {"material_analysis", "material_review", "material_consolidation"}
                 else MATERIAL_SLOTS
                 if self.path == "/semantics"
                 and body.get("task") == "material_semantics"

@@ -186,3 +186,20 @@ def test_retry_migration_applies_and_rolls_back(clean_database_dsn, migrations_d
             assert connection.execute("SELECT count(*) FROM information_schema.columns WHERE table_name='material_processing_runs' AND column_name IN ('auto_retry_count','auto_retry_reason')").fetchone() == (2,)
         assert connection.execute("SELECT count(*) FROM information_schema.columns WHERE table_name='material_processing_runs' AND column_name IN ('auto_retry_count','auto_retry_reason')").fetchone() == (0,)
     assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (22,)
+
+
+def test_same_run_retry_reuses_checkpoint_and_terminal_failure_can_archive(closed_loop):
+    from runtime.storage.analysis_archive import AnalysisArchive
+    owner, source, config, _, dsn, _ = closed_loop
+    run = seed_run(owner.learner_id, source.material_id, 'checkpoint-retry', config, dsn=dsn)
+    claim = processing.claim_next_material_processing_run(dsn=dsn)
+    archive = AnalysisArchive(claim, dsn=dsn)
+    saved = {'complete': False, 'synthetic_checkpoint': True}
+    archive.save_checkpoint(saved)
+    processing._record_failure(run.run_id, 'SEMANTIC_SERVICE_TIMEOUT', worker_token=claim.worker_token, dsn=dsn)
+    next_claim = processing.claim_next_material_processing_run(dsn=dsn)
+    next_archive = AnalysisArchive(next_claim, dsn=dsn)
+    assert next_archive.load_checkpoint() == saved
+    processing._record_failure(run.run_id, 'SEMANTIC_SERVICE_TIMEOUT', worker_token=next_claim.worker_token, dsn=dsn)
+    next_archive.save_failure(RuntimeError('synthetic'))
+    assert (next_archive.directory / 'failure.json').is_file()

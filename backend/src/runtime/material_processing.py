@@ -357,8 +357,8 @@ def _retry_or_fail(row, reason, now):
         "STORAGE_BUSY", "SOURCE_BUSY",
     }
     row.updated_at = now
-    row.worker_token = row.lease_expires_at = None
     if retryable and row.auto_retry_count == 0 and row.maintenance is None:
+        row.worker_token = row.lease_expires_at = None
         row.auto_retry_count = 1
         row.auto_retry_reason = reason
         row.status, row.progress_stage = "pending", "queued"
