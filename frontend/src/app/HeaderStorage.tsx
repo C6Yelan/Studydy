@@ -11,9 +11,9 @@ export function HeaderStorage({ apiClient }: { apiClient: StudydyApiClient }) {
   useEffect(() => {
     let cancelled = false;
     let request = 0;
+    // 換頁或回到視窗時重新讀取；讀取中沿用上次的數字，避免頁首元件消失又出現造成跳動。
     const load = () => {
       const current = ++request;
-      setStorage(null);
       setOpen(false);
       void apiClient.getAccountStorage().then(
         (value) => { if (!cancelled && current === request) setStorage(value); },
