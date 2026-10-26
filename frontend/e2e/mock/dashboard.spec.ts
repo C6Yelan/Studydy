@@ -96,7 +96,7 @@ function manyMaterials(count: number): MaterialLibraryItem[] {
     ...(index === 0 ? withStudy() : material),
     material_id: uuid(100 + index),
     display_name: `第 ${index + 1} 份｜${longName}`,
-    created_at: `2026-09-${String(20 - index).padStart(2, "0")}T00:00:00Z`,
+    created_at: new Date(Date.UTC(2026, 8, 20 - index)).toISOString(),
   }));
 }
 
@@ -749,9 +749,9 @@ test("dashboard hides learning numbers when learning activity is unavailable", a
   await expect(page.getByRole("region", { name: "帳號設定" }).getByRole("button", { name: "儲存名稱" })).toBeEnabled();
 });
 
-for (const count of [3, 6, 9])
+for (const count of [3, 6, 9, 24])
   for (const [width, height] of [[1440, 900], [1024, 768], [390, 844]]) {
-    test(`dashboard map shows all ${count} islands and labels never overlap at ${width}px`, async ({ page }) => {
+    test(`dashboard map centers ${count} islands and labels never overlap at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height });
       await mockLibrary(page, () => manyMaterials(count));
       await page.goto("/");
@@ -767,11 +767,16 @@ for (const count of [3, 6, 9])
           const overlaps = box.left < other.right && other.left < box.right && box.top < other.bottom && other.top < box.bottom;
           expect(overlaps, `${box.name} / ${other.name}`).toBe(false);
         }
-      // 初始全覽：學習中的島一定在畫面內。
+      // 小地圖 viewBox 是完整群島 bounds；初始視角以此中心置中。
       const viewport = (await page.locator(".island-map-viewport").boundingBox())!;
-      const focus = (await islands(page).filter({ hasText: "第 1 份｜" }).locator(".island-flag").boundingBox())!;
-      expect(focus.x).toBeGreaterThanOrEqual(viewport.x);
-      expect(focus.x + focus.width).toBeLessThanOrEqual(viewport.x + viewport.width);
+      const [x, y, w, h] = (await page.locator(".island-map-minimap").getAttribute("viewBox"))!.split(" ").map(Number);
+      const view = await mapView(page);
+      expect(view.x + (x + w / 2) * view.k).toBeCloseTo(viewport.width / 2, 0);
+      expect(view.y + (y + h / 2) * view.k).toBeCloseTo(viewport.height / 2, 0);
+      if (count === 24) {
+        expect(Math.min((viewport.width - 48) / w, (viewport.height - 48) / h)).toBeLessThan(0.5);
+        expect(view.k).toBe(0.5);
+      }
     });
   }
 

@@ -22,12 +22,10 @@ type View = { x: number; y: number; k: number };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-export function IslandMap({ materials, progress, goals, focusId }: {
+export function IslandMap({ materials, progress, goals }: {
   materials: MaterialLibraryItem[] | null;
   progress: Map<string, IslandProgress>;
   goals: Map<string, LearningGoalSummary>;
-  /** 只用於島太多時初始置中的位置，地圖上不另外標記。 */
-  focusId: string | undefined;
 }) {
   const { islands, newSpot, bounds } = useMemo(() => layoutIslands(materials ?? []), [materials]);
   const viewport = useRef<HTMLDivElement>(null);
@@ -38,8 +36,8 @@ export function IslandMap({ materials, progress, goals, focusId }: {
   const animation = useRef(0);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef({ startX: 0, startY: 0, moved: false });
-  const geometry = useRef({ islands, newSpot, bounds, focusId });
-  geometry.current = { islands, newSpot, bounds, focusId };
+  const geometry = useRef({ islands, newSpot, bounds });
+  geometry.current = { islands, newSpot, bounds };
 
   const fitZoom = () => {
     const { bounds: b } = geometry.current;
@@ -76,13 +74,10 @@ export function IslandMap({ materials, progress, goals, focusId }: {
   const centerOn = (x: number, y: number, k: number): View =>
     ({ k, x: size.current.w / 2 - x * k, y: size.current.h / 2 - y * k });
 
-  // 全覽：看得到全部島；島太多時改以目前學習的島為中心，維持可讀的大小。
+  // 全覽維持群島範圍置中；島太多時將縮放下限設為 0.5，維持可讀的大小。
   const overview = (): View => {
-    const { bounds: b, islands: all, focusId: focus } = geometry.current;
-    const k = fitZoom();
-    if (k >= 0.5) return centerOn((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, k);
-    const target = all.find((island) => island.material.material_id === focus) ?? all[0];
-    return centerOn(target?.x ?? 0, target?.y ?? 0, 0.5);
+    const { bounds: b } = geometry.current;
+    return centerOn((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, Math.max(0.5, fitZoom()));
   };
 
   const animateTo = (target: View) => {

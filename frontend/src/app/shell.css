@@ -820,3 +820,63 @@
   .header-streak { gap: 1px; padding: 3px 6px 3px 4px; }
   .header-streak-unit { font-size: 11px; }
 }
+
+/* 帳號空間：僅作用於新增元件，不改共用頁首與建立頁規則。 */
+.header-storage { position:relative; flex:none; }
+.header-storage-button { display:inline-flex; align-items:center; gap:6px; min-height:46px; padding:0 8px; border:0; border-radius:999px; background:var(--surface); box-shadow:var(--shadow); color:var(--text-primary); font-size:12px; font-weight:800; white-space:nowrap; }
+.header-storage-button > svg { flex:none; }
+.header-storage-wide { display:flex; align-items:center; gap:6px; }
+.header-storage-bar { width:2rem; height:5px; overflow:hidden; border-radius:999px; background:var(--border); }
+.header-storage-bar i { display:block; height:100%; background:var(--studydy-blue); }
+.header-storage-compact { display:none; }
+.header-storage-full .header-storage-button, .header-storage-warning { color:var(--error); }
+.header-storage-full .header-storage-bar i { background:var(--error); }
+.header-storage-panel { position:absolute; top:calc(100% + 10px); left:0; z-index:10; width:min(24rem, calc(100vw - 32px)); padding:20px; display:grid; gap:10px; border:1px solid var(--border); border-radius:20px; background:var(--surface); box-shadow:var(--shadow); color:var(--text-secondary); font-size:14px; }
+.header-storage-panel h2 { margin:0; color:var(--text-primary); font-size:17px; }
+.header-storage-panel p { margin:0; }
+.header-storage-numbers { display:flex; flex-wrap:wrap; gap:4px; }
+.header-storage-numbers strong { color:var(--text-primary); }
+.header-storage-meter { width:100%; height:10px; accent-color:var(--studydy-blue); }
+.header-storage-full .header-storage-meter { accent-color:var(--error); }
+@media (max-width:1280px) {
+  .header-storage-wide { display:none; }
+  .header-storage-compact { display:inline; }
+}
+@media (max-width:720px) {
+  .header-storage-button { min-height:40px; padding:0 6px; gap:4px; }
+  .header-storage-panel { position:fixed; left:16px; right:16px; top:calc(var(--shell-header-bottom) + 10px); width:auto; max-height:calc(100dvh - var(--shell-header-bottom) - 26px); overflow-y:auto; }
+}
+
+/* 有帳號空間時依三區內容分配寬度；教材頁首不會命中此規則。 */
+.app-header:has(.header-storage) {
+  grid-template-columns: max-content minmax(max-content, 1fr) max-content;
+  column-gap: 12px;
+}
+.app-header:has(.header-storage) { container: app-header / inline-size; }
+.app-header:has(.header-storage) .main-nav { justify-self:center; }
+.app-header:has(.header-storage) .main-nav a { padding-inline:clamp(6px, calc(2.5vw - 32px), 16px); }
+/* 帳號區在 1760px 以上展開名稱與登出文字；左側多了帳號空間後，三區完整展開約需 1740px。
+   一般頁面的頁首內容最寬 1600px，所以依頁首實際寬度（不是視窗寬度）決定是否展開，放不下時沿用 1281–1759px 的收合樣式。 */
+@media (min-width:1760px) {
+  @container app-header (max-width:1779px) {
+    .account-button { justify-content:center; width:46px; padding:0; }
+    .account-button-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+    .account-name { display:none; }
+    .account-profile:has(.account-name) { padding-right:4px; }
+    .header-search-trigger { min-width:180px; }
+  }
+}
+@media (max-width:1280px) {
+  .app-header:has(.header-storage) .header-start,
+  .app-header:has(.header-storage) .account-controls { gap:4px; }
+}
+@media (max-width:720px) {
+  .app-header:has(.header-storage) { grid-template-columns:max-content minmax(0,1fr); }
+  /* 最窄手機逐漸收掉裝飾留白，保留每個按鈕、數字與單列頁首。 */
+  .app-header:has(.header-storage) .header-start,
+  .app-header:has(.header-storage) .account-controls { gap:clamp(0px, calc(10vw - 32px), 6px); }
+  .app-header:has(.header-storage) .brand { padding-inline:0; }
+  .app-header:has(.header-storage) .header-progress { padding-inline:0; gap:2px; }
+  .app-header:has(.header-storage) .header-search-trigger { padding-inline:clamp(0px, calc(20vw - 64px), 10px); }
+  .app-header:has(.header-storage) .header-storage-button { padding-inline:clamp(0px, calc(10vw - 32px), 6px); }
+}

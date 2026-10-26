@@ -13,8 +13,8 @@ export const uploadSteps = ["上傳教材", "確認教材", "建立知識地圖"
 export const topicSteps = ["學習需求", "確認觀念與細節", "選取來源", "建立教材"];
 
 /**
- * 頁首：返回、標題與一句說明；右側可放插圖，或縮小的步驟列等其他資訊（aside，
- * 建立卡組／Podcast 用來讓下方填滿視窗的選取區保留足夠高度）。
+ * 頁首：返回、標題與一句說明；右側可放插圖或補充資訊（aside）。
+ * 建立教材、卡組與 Podcast 的步驟列由呼叫端放在頁首下方，獨立占一整排。
  */
 export function FlowHeader({ title, description, back, image, headingId, aside, className = "" }: {
   title: ReactNode; description?: ReactNode; back?: ReactNode; image?: string; headingId?: string;

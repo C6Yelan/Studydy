@@ -6,10 +6,9 @@ import { StateView } from "../../ui/StateView";
 import { islandState, useMaterialProgress } from "../dashboard/islands";
 import { AccountSettings, DevicesCard, useAccountSessions } from "./AccountSettings";
 import { LearningRhythm } from "./LearningRhythm";
-import { StorageCard } from "./StorageCard";
 import "./styles.css";
 
-// 個人檔案：左欄由上而下是學習總覽（一列小數字）、學習節奏、登入裝置與帳號空間，右欄是帳號設定（名稱與密碼）；
+// 個人檔案：左欄由上而下是學習總覽（一列小數字）、學習節奏與登入裝置，右欄是帳號設定（名稱與密碼）；
 // 等級與徽章在「成就」頁。學習活動讀不到時只有總覽顯示錯誤，節奏、登入裝置與帳號設定各自讀取。
 export function ProfilePage({ apiClient }: { apiClient: StudydyApiClient }) {
   const name = useProfile(apiClient)?.display_name ?? null;
@@ -58,7 +57,6 @@ export function ProfilePage({ apiClient }: { apiClient: StudydyApiClient }) {
       <LearningRhythm apiClient={apiClient} />
       <AccountSettings apiClient={apiClient} onSessionsChanged={setSessions} />
       <DevicesCard apiClient={apiClient} sessions={sessions} onChanged={setSessions} />
-      <StorageCard apiClient={apiClient} />
     </div>
   </section>;
 }
