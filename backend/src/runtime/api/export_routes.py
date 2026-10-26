@@ -28,6 +28,13 @@ MIME = {'md': 'text/markdown; charset=utf-8', 'pdf': 'application/pdf',
         'mp3': 'audio/mpeg', 'mp4': 'video/mp4'}
 
 
+def material_name(db, learner, material_id):
+    from sqlalchemy import select
+    from ..storage.tables import Material
+    return db.scalar(select(Material.display_name).where(
+        Material.learner_id == learner, Material.material_id == material_id))
+
+
 def download(data, filename, format):
     if format == 'pdf':
         data = export_documents.compact_pdf(data)
@@ -75,6 +82,9 @@ def install(app, settings):
         view = material_notes.read(learner, material_id, revision, kind, dsn=settings.dsn)
         if not view['paragraphs']:
             raise request_context.ApiFailure('RESOURCE_NOT_FOUND')
+        from ..storage.database import database_session
+        with database_session(settings.dsn) as db:
+            view['material_name'] = material_name(db, learner, material_id)
         render = {'md': export_documents.note_markdown, 'pdf': export_documents.note_pdf, 'docx': export_documents.note_docx}[format]
         response = download(render(view), f'{"重點整理" if kind == "summary" else "完整筆記"}.{format}', format)
         record_export(learner, 'notes', dsn=settings.dsn)
@@ -114,6 +124,7 @@ def install(app, settings):
         with database_session(settings.dsn) as db:
             db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
             view = knowledge_reads.outline(db, learner, material_id, revision)
+            view = {**view, 'material_name': material_name(db, learner, material_id)}
             regions = knowledge_reads.regions(db, learner, material_id, revision)
         response = download(export_map.markdown(view, regions), '概念大綱.md', 'md')
         record_export(learner, 'map', dsn=settings.dsn)

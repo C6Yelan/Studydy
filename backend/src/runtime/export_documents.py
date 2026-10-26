@@ -99,7 +99,7 @@ def pdf(html, images=(), *, keep_headings=False):
 def source_text(e):
     unit = '段' if re.search(r'\.(mp3|m4a|wav|mp4|youtube)$', e.get('source_name') or '', re.I) else '頁'
     position = f'第 {e.get("normalized_page") or e["page"]} {unit}'
-    return f'{e.get("source_name") or e.get("source_id") or "來源"} · {position}' + (
+    return f'{e.get("source_name") or (e.get("source_id") or "來源")[:8]} · {position}' + (
         f' · 區塊 {e["block_order"]}' if 'block_order' in e else '')
 
 
@@ -109,6 +109,33 @@ def md_text(value):
 
 def _note_title(view):
     return '重點整理' if view['kind'] == 'summary' else '完整筆記'
+
+
+def document_metadata(view):
+    # revision 帶有 knowledge-structure:sha256: 前綴；短碼取真正的 hash。
+    return [f'教材：{view["material_name"]}（{view["material_id"][:8]}）',
+            f'版本：{view["knowledge_structure_revision"].rsplit(":", 1)[-1][:8]}']
+
+
+def _note_sources(evidence):
+    """同檔同頁合併顯示，仍保留所有被引用的區塊，且不改保存的 Evidence。"""
+    groups = {}
+    for e in evidence:
+        key = (e.get('source_id'), e.get('source_name'), e.get('normalized_page') or e['page'])
+        sample, orders = groups.setdefault(key, (e, set()))
+        if 'block_order' in e:
+            orders.add(e['block_order'])
+    for sample, orders in groups.values():
+        label = source_text({k: v for k, v in sample.items() if k != 'block_order'})
+        ranges = []
+        for value in sorted(orders):
+            if ranges and value == ranges[-1][1] + 1:
+                ranges[-1][1] = value
+            else:
+                ranges.append([value, value])
+        if ranges:
+            label += ' · 區塊 ' + '、'.join(str(start) if start == end else f'{start}–{end}' for start, end in ranges)
+        yield label
 
 
 def _source_notice(view):
@@ -153,7 +180,7 @@ def _md_blocks(blocks):
 
 
 def note_markdown(view):
-    lines = [f'# {_note_title(view)}', '', f'教材：{view["material_id"]}', f'版本：{view["knowledge_structure_revision"]}', '']
+    lines = [f'# {_note_title(view)}', '', *(md_text(line) for line in document_metadata(view)), '']
     if _source_notice(view):
         lines += ['> 教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。', '']
     numbers = {o['paragraph_id']: o for o in outline(view['paragraphs'])}
@@ -175,7 +202,7 @@ def note_markdown(view):
             depth = 1 + (number['level'] if number else p['level'])
             heading = numbered_heading(number) if number else p['heading']
             lines.extend([f'{"#" * depth} {md_text(heading)}', '', *_md_blocks(p['blocks'])])
-        lines.extend(f'來源：{md_text(source_text(e))}  ' for e in p['evidence'])
+        lines.extend(f'來源：{md_text(label)}  ' for label in _note_sources(p['evidence']))
         lines.append('')
         return depth
 
@@ -188,7 +215,7 @@ def note_markdown(view):
     if orphaned:
         lines.extend(['# 先前段落的註記', '', '以下註記未能精確對應目前段落，保留當時內容。', ''])
         for a in orphaned:
-            lines.extend([f'原版本：{a["original_revision"]}', ''])
+            lines.extend([f'原版本：{a["original_revision"].rsplit(":", 1)[-1][:8]}', ''])
             depth = paragraph(a['original_paragraph'])
             lines.extend([f'{"#" * (depth + 1)} 個人註記', '', md_text(a['body']), ''])
     return '\n'.join(lines)
@@ -199,7 +226,7 @@ def note_pdf(view):
     images = []
     body = pdf(body_html(view['paragraphs'], images), images, keep_headings=True)
     appendix, images = [f'<h1>{_note_title(view)}：來源與個人註記</h1>',
-                f'<p>教材：{escape(view["material_id"])}\n版本：{escape(view["knowledge_structure_revision"])}</p>'], []
+                '<p>' + escape('\n'.join(document_metadata(view))) + '</p>'], []
     if _source_notice(view):
         appendix.append('<p>教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。</p>')
     numbers = {o['paragraph_id']: numbered_heading(o) for o in outline(view['paragraphs'])}
@@ -211,7 +238,7 @@ def note_pdf(view):
     if orphaned:
         appendix.append('<h1>先前段落的註記</h1><p>以下註記未能精確對應目前段落，保留當時內容。</p>')
         for a in orphaned:
-            appendix.append(f'<p>原版本：{escape(a["original_revision"])}</p>' + body_html([a['original_paragraph']], images, numbered=False))
+            appendix.append(f'<p>原版本：{escape(a["original_revision"].rsplit(":", 1)[-1][:8])}</p>' + body_html([a['original_paragraph']], images, numbered=False))
             appendix.extend(f'<p>{escape(source_text(e))}</p>' for e in a['original_paragraph']['evidence'])
             appendix.append(f'<p>個人註記：{escape(a["body"])}</p>')
     with pymupdf.open(stream=body, filetype='pdf') as doc, pymupdf.open(stream=pdf(''.join(appendix), images, keep_headings=True), filetype='pdf') as extra:
@@ -298,7 +325,7 @@ def note_docx(view):
             style.element.get_or_add_rPr().append(fonts)
         fonts.set(qn('w:eastAsia'), 'Noto Sans CJK TC')
     doc.add_heading(_note_title(view), 0)
-    doc.add_paragraph(f'教材：{view["material_id"]}\n版本：{view["knowledge_structure_revision"]}')
+    doc.add_paragraph(xml_text('\n'.join(document_metadata(view))))
     if _source_notice(view):
         doc.add_paragraph('教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。')
     numbers = {o['paragraph_id']: o for o in outline(view['paragraphs'])}
@@ -337,7 +364,7 @@ def note_docx(view):
     if orphaned:
         doc.add_heading('先前段落的註記', 1)
         for a in orphaned:
-            doc.add_paragraph(xml_text('原版本：' + a['original_revision']))
+            doc.add_paragraph(xml_text('原版本：' + a['original_revision'].rsplit(':', 1)[-1][:8]))
             level = paragraph(a['original_paragraph'])
             doc.add_heading('個人註記', level + 1)
             doc.add_paragraph(xml_text(a['body']))
