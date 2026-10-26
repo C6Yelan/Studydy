@@ -264,3 +264,17 @@ def test_readable_math_in_bullets_and_cells_survives_all_exports():
         text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
         assert '√4 = 2' in text and '≈ 50' in text
         assert sum(len(page.get_images()) for page in pdf) >= 1
+
+
+def test_pdf_formulas_keep_docx_size_across_page_boundaries():
+    view = structured_note()
+    formula = {'type': 'formula', 'latex': r'\frac{x_{1}+1}{y_{2}} = 2'}
+    view['paragraphs'] = [{**view['paragraphs'][0], 'blocks': [formula] * 50}]
+    view['annotations'] = []
+    word = Document(BytesIO(documents.note_docx(view)))
+    with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
+        images = [pymupdf.Rect(image['bbox']) for page in pdf for image in page.get_image_info()]
+        assert len(images) == len(word.inline_shapes) == 50
+        for image, shape in zip(images, word.inline_shapes):
+            assert image.width == pytest.approx(shape.width.pt, abs=0.02)
+            assert image.height == pytest.approx(shape.height.pt, abs=0.02)

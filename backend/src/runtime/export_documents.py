@@ -24,6 +24,7 @@ h3 { font-size: 13pt; margin: 6pt 0 3pt; }
 ul { margin: 0 0 6pt; padding-left: 14pt; } li { margin: 0 0 2pt; }
 .caption, .callout-title { font-weight: bold; margin: 6pt 0 3pt; }
 .formula { text-align: center; margin: 6pt 0; }
+.formula td { border: 0; padding: 0; }
 .callout { background-color: #f3f7fc; border-left: 3pt solid #2f6bff; padding: 4pt 8pt; margin: 6pt 0; }
 .outline-2 { margin-left: 16pt; }
 '''

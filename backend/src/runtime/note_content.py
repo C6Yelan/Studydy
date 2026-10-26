@@ -624,7 +624,9 @@ def blocks_html(blocks, images):
             data, width, height = note_latex.render_png(block["latex"])
             name = f"formula-{len(images)}.png"
             images.append((data, name))
-            parts.append(f'<p class="formula"><img src="{name}" width="{width:.1f}" height="{height:.1f}"/></p>')
+            # Story 會把段落內圖片縮到頁尾剩餘高度；表格列先計算完整高度，再整列換頁。
+            parts.append(f'<table class="formula"><tr><td><img src="{name}" '
+                f'style="width:{width}pt;height:{height}pt"/></td></tr></table>')
         else:
             title = CALLOUT_LABELS[block["style"]] + (f'：{block["title"]}' if block["title"] else "")
             parts.append(f'<div class="callout callout-{block["style"]}"><p class="callout-title">{escape(title)}</p>'
