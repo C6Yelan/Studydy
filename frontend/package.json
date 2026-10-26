@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "e2e:install": "playwright install chromium",
-    "test": "node --test src/api/client.test.mjs src/api/session-hint.test.mjs src/app/routes.test.mjs src/features/material-flow/material-flow.test.mjs src/features/material-flow/source-uploads.test.mjs src/features/knowledge-map/knowledge-map.test.mjs src/features/dashboard/island-layout.test.mjs src/ui/claim-text.test.mjs src/features/concept-cards/concept-card-layout.test.mjs",
+    "test": "node --test src/api/client.test.mjs src/api/session-hint.test.mjs src/app/routes.test.mjs src/features/material-flow/material-flow.test.mjs src/features/material-flow/source-uploads.test.mjs src/features/knowledge-map/knowledge-map.test.mjs src/features/dashboard/island-layout.test.mjs src/ui/claim-text.test.mjs src/features/concept-cards/concept-card-layout.test.mjs src/features/notes/note-latex.test.mjs",
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview"
   },
@@ -17,6 +17,7 @@
     "@ricky0123/vad-web": "0.0.31",
     "@xyflow/react": "12.12.0",
     "html-to-image": "1.11.13",
+    "katex": "0.18.11",
     "onnxruntime-web": "1.30.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"

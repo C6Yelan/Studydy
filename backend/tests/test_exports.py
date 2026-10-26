@@ -44,7 +44,8 @@ def test_notes_preserve_body_table_formula_sources_and_orphaned_annotations():
 
 
 @pytest.mark.parametrize('kind', ['summary', 'full'])
-def test_note_pdf_keeps_heading_with_body_start_and_preserves_long_body(kind):
+@pytest.mark.parametrize('structure', ['legacy', 'bullets'])
+def test_note_pdf_keeps_heading_with_body_start_and_preserves_long_body(kind, structure):
     view = note()
     view['kind'] = kind
     first = view['paragraphs'][0]
@@ -54,15 +55,77 @@ def test_note_pdf_keeps_heading_with_body_start_and_preserves_long_body(kind):
         {**first, 'id': 'target', 'heading': '目標標題 TARGET',
          'text': '首段正文 BODY\n' + '\n'.join(lines), 'formula': None, 'table': None},
     ]
+    if structure == 'bullets':
+        view['paragraphs'] = [
+            {k: v for k, v in paragraph.items() if k not in {'text', 'formula', 'table'}} | {
+                'level': 1 if index == 0 else 2,
+                'blocks': ([{'type': 'text', 'text': paragraph['text']}] if index == 0 else
+                    [{'type': 'bullets', 'items': [{'text': line, 'children': []}
+                        for line in paragraph['text'].splitlines()]}])}
+            for index, paragraph in enumerate(view['paragraphs'])]
     view['annotations'] = []
     with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
         pages = [unicodedata.normalize('NFKC', page.get_text()) for page in pdf]
-        heading_page = next(i for i, text in enumerate(pages) if '目標標題 TARGET' in text)
+        heading_size = 13 if structure == 'bullets' else 14
+        heading_page = next(i for i, page in enumerate(pdf)
+            if any('TARGET' in span['text'] and round(span['size']) == heading_size
+                for block in page.get_text('dict')['blocks'] for line in block.get('lines', []) for span in line['spans']))
         body_page = next(i for i, text in enumerate(pages) if '首段正文 BODY' in text)
         assert heading_page == body_page
         assert body_page > 0
         assert next(i for i, text in enumerate(pages) if lines[-1] in text) > body_page
         assert all(''.join(pages).count(line) == 1 for line in lines)
+
+
+def structured_note():
+    evidence = {'page': 3, 'normalized_page': 3, 'source_name': '經濟.pdf', 'block_order': 2}
+    items = [{'text': '出口占比', 'children': [{'text': '子項', 'children': [{'text': '孫項'}]}]}]
+    chapter = {'id': '0', 'heading': '國際經濟學概論', 'level': 1, 'evidence': [evidence],
+               'blocks': [{'type': 'bullets', 'items': items}]}
+    section = {'id': '1', 'heading': '開放度', 'level': 2, 'evidence': [evidence], 'blocks': [
+        {'type': 'formula', 'latex': r'\text{開放度} = \frac{\text{出口}+\text{進口}}{\text{GDP}} \times 100\%'},
+        {'type': 'table', 'caption': '各國比較', 'headers': ['國家', '值'], 'rows': [['甲', '50']]},
+        {'type': 'table', 'caption': None, 'headers': ['年', '值'], 'rows': [['2020', '1']]},
+        {'type': 'callout', 'style': 'case_study', 'title': '甲國', 'items': [{'text': '案例內容', 'children': []}]},
+        {'type': 'callout', 'style': 'lesson', 'title': None, 'items': [{'text': '教訓內容', 'children': []}]}]}
+    view = note()
+    view['paragraphs'] = [chapter, section]
+    view['annotations'] = [{'paragraph_id': '1', 'body': '我的想法'},
+        {'paragraph_id': None, 'body': '舊註記', 'original_revision': 'old', 'original_paragraph': note()['paragraphs'][0]}]
+    return view
+
+
+def test_structured_notes_keep_outline_levels_bullets_tables_formula_and_callouts_in_every_format():
+    view = structured_note()
+    markdown = documents.note_markdown(view)
+    assert '## 章節大綱\n\n- 一、國際經濟學概論\n  - 1\\.1 開放度' in markdown
+    assert '## 一、國際經濟學概論' in markdown and '### 1\\.1 開放度' in markdown
+    assert '- 出口占比\n  - 子項\n    - 孫項' in markdown
+    assert '$$\n' + view['paragraphs'][1]['blocks'][0]['latex'] + '\n$$' in markdown
+    assert '> **案例研究：甲國**' in markdown and '> **重要教訓**' in markdown and '| 2020 | 1 |' in markdown
+    assert '原段落' not in markdown and '繁體中文粗體標題' in markdown and '舊註記' in markdown
+    word = Document(BytesIO(documents.note_docx(view)))
+    texts = [p.text for p in word.paragraphs]
+    assert '一、國際經濟學概論' in texts and '1.1 開放度' in texts
+    assert [p.style.name for p in word.paragraphs if p.text in ('出口占比', '子項', '孫項')] == ['List Bullet', 'List Bullet 2', 'List Bullet 3']
+    assert len(word.inline_shapes) == 1
+    assert word.inline_shapes[0]._inline.docPr.get('descr') == view['paragraphs'][1]['blocks'][0]['latex']
+    assert [t.cell(1, 0).text for t in word.tables[:2]] == ['甲', '2020']
+    assert word.tables[2].cell(0, 0).paragraphs[0].text == '案例研究：甲國'
+    with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
+        text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
+        assert all(t in text for t in ('章節大綱', '一、國際經濟學概論', '1.1 開放度', '孫項', '各國比較', '案例研究:甲國', '重要教訓', '我的想法', '舊註記'))
+        assert len(pdf[0].get_images()) == 1
+
+
+def test_docx_long_formula_fits_page_width():
+    view = structured_note()
+    latex = ' + '.join([r'x_{1}'] * 40)
+    view['paragraphs'][1]['blocks'][0]['latex'] = latex
+    word = Document(BytesIO(documents.note_docx(view)))
+    section = word.sections[-1]
+    assert word.inline_shapes[0].width <= section.page_width - section.left_margin - section.right_margin
+    assert word.inline_shapes[0]._inline.docPr.get('descr') == latex
 
 
 def test_diagnosis_overflow_is_explicit_and_stays_one_page():
@@ -185,3 +248,19 @@ def test_empty_diagnosis_has_no_empty_recommendations_or_zero_omissions():
         text = unicodedata.normalize('NFKC', doc[0].get_text())
         assert '建議先複習' not in text and '另有' not in text
         assert len(doc) == 1
+
+
+def test_readable_math_in_bullets_and_cells_survives_all_exports():
+    view = structured_note()
+    view['paragraphs'][0]['blocks'][0]['items'][0]['text'] = '平方根 √4 = 2'
+    view['paragraphs'][1]['blocks'][1]['rows'] = [['甲', '≈ 50']]
+    markdown = documents.note_markdown(view)
+    assert '平方根 √4 = 2' in markdown and '| 甲 | ≈ 50 |' in markdown
+    word = Document(BytesIO(documents.note_docx(view)))
+    assert '平方根 √4 = 2' in [p.text for p in word.paragraphs]
+    assert word.tables[0].cell(1, 1).text == '≈ 50'
+    assert len(word.inline_shapes) == 1
+    with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
+        text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
+        assert '√4 = 2' in text and '≈ 50' in text
+        assert sum(len(page.get_images()) for page in pdf) >= 1

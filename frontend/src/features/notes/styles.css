@@ -7,16 +7,39 @@
 .note-status { justify-content: space-between; margin: 20px 0; }
 .note-status > p { flex: 1 1 260px; }
 .note-paragraph { padding: 24px 0; border-top: 1px solid var(--border); }
+.note-paragraph h2 { font-size: 1.35rem; margin: 0 0 12px; }
 .note-paragraph h3 { font-size: 1.18rem; margin: 0 0 12px; }
-.note-prose, .note-formula, .note-annotation p { white-space: pre-wrap; line-height: 1.8; }
+.note-paragraph.note-subsection { padding-top: 16px; border-top-color: var(--border-light); }
+.note-prose, .note-formula-text, .note-annotation p { white-space: pre-wrap; line-height: 1.8; }
 .note-prose { margin: 0 0 16px; }
-.note-formula { padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-input); }
+.note-formula-text { padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-input); }
+/* 長公式在窄螢幕只在公式框內橫向捲動，不撐開頁面。 */
+.note-formula { max-width: 100%; overflow-x: auto; overflow-y: hidden; margin: 12px 0; padding: 2px 0; }
+.note-formula .katex-display { margin: 8px 0; }
+.note-bullets { margin: 0 0 16px; padding-left: 1.4em; line-height: 1.8; }
+.note-bullets .note-bullets { margin: 2px 0 4px; }
+.note-bullets li { margin: 2px 0; }
+.note-callout { --callout-accent: var(--studydy-blue); --callout-soft: var(--studydy-blue-soft);
+  margin: 16px 0; padding: 12px 16px; border-left: 4px solid var(--callout-accent); border-radius: var(--radius-input); background: var(--callout-soft); }
+.note-callout-case_study { --callout-accent: var(--violet); --callout-soft: var(--violet-soft); }
+.note-callout-discussion { --callout-accent: var(--sea); --callout-soft: var(--page-cool); }
+.note-callout-reminder { --callout-accent: var(--amber-deep); --callout-soft: var(--warning-soft); }
+.note-callout-lesson { --callout-accent: var(--success); --callout-soft: var(--success-soft); }
+.note-callout-title { margin: 0 0 6px; font-weight: 700; color: var(--text-primary); }
+.note-callout .note-bullets { margin-bottom: 0; }
+.note-outline { margin: 20px 0; padding: 16px 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); }
+.note-outline h2 { font-size: 1.1rem; margin: 0 0 8px; }
+.note-outline ul { list-style: none; margin: 0; padding: 0; }
+.note-outline li { margin: 4px 0; }
+.note-outline .text-button { text-align: left; white-space: normal; }
+.note-outline-2 { padding-left: 1.5em; }
 .note-concepts, .note-sources { margin: 10px 0; }
 .note-sources .source-chip { white-space: normal; text-align: left; max-width: 100%; }
 .note-table-scroll { max-width: 100%; overflow: auto; margin: 16px 0; }
 .note-table-scroll table { width: 100%; border-collapse: collapse; font-size: .95rem; line-height: 1.65; }
 .note-table-scroll td, .note-table-scroll th { padding: 10px 12px; border: 1px solid var(--border); text-align: left; min-width: 100px; }
 .note-table-scroll th { background: var(--surface); }
+.note-table-scroll caption { caption-side: top; text-align: left; font-weight: 700; padding: 0 0 8px; }
 .note-annotation { border-left: 3px solid var(--studydy-blue); padding: 4px 16px; margin: 16px 0; background: var(--studydy-blue-soft); }
 .note-annotation p { margin: 8px 0; }
 .note-previous { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 24px; }

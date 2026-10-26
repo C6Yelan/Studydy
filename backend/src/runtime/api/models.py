@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date as date_type, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictInt
@@ -1698,7 +1698,65 @@ class NoteConceptView(_Closed):
     label: str
 
 
+class NoteItem3View(_Closed):
+    text: str
+
+
+class NoteItem2View(_Closed):
+    text: str
+    children: list[NoteItem3View]
+
+
+class NoteItemView(_Closed):
+    text: str
+    children: list[NoteItem2View]
+
+
+class NoteTextBlockView(_Closed):
+    type: Literal["text"]
+    text: str
+
+
+class NoteBulletsBlockView(_Closed):
+    type: Literal["bullets"]
+    items: list[NoteItemView]
+
+
+class NoteTableBlockView(_Closed):
+    type: Literal["table"]
+    caption: str | None
+    headers: list[str]
+    rows: list[list[str]]
+
+
+class NoteFormulaBlockView(_Closed):
+    type: Literal["formula"]
+    latex: str
+
+
+class NoteCalloutBlockView(_Closed):
+    type: Literal["callout"]
+    style: Literal["case_study", "discussion", "reminder", "lesson"]
+    title: str | None
+    items: list[NoteItemView]
+
+
+class NoteSectionView(_Closed):
+    """material-notes/v12 起的小節：有層級的標題與條列、表格、公式、醒目區塊。"""
+    id: str
+    anchor: str
+    heading: str
+    level: Literal[1, 2]
+    blocks: list[Annotated[NoteTextBlockView | NoteBulletsBlockView | NoteTableBlockView
+        | NoteFormulaBlockView | NoteCalloutBlockView, Field(discriminator="type")]]
+    claim_ids: list[str]
+    evidence_ids: list[str]
+    concepts: list[NoteConceptView]
+    evidence: list[EvidenceView]
+
+
 class NoteParagraphView(_Closed):
+    """v11 以前的段落格式；重新生成前仍可閱讀。"""
     id: str
     anchor: str
     heading: str
@@ -1711,12 +1769,19 @@ class NoteParagraphView(_Closed):
     evidence: list[EvidenceView]
 
 
+class NoteOutlineView(_Closed):
+    paragraph_id: str
+    level: Literal[1, 2]
+    number: str
+    heading: str
+
+
 class NoteAnnotationView(_Closed):
     annotation_id: UUID
     anchor: str
     body: str
     original_revision: str
-    original_paragraph: NoteParagraphView
+    original_paragraph: NoteSectionView | NoteParagraphView
     paragraph_id: str | None
     updated_at: datetime
 
@@ -1731,7 +1796,7 @@ class NoteProgressView(_Closed):
 
 
 class MaterialNotesView(_Closed):
-    schema_: Literal["material-notes/v1"] = Field(alias="schema")
+    schema_: Literal["material-notes/v2"] = Field(alias="schema")
     material_id: UUID
     knowledge_structure_revision: str
     run_id: UUID
@@ -1740,7 +1805,8 @@ class MaterialNotesView(_Closed):
     generation: int
     source_status: StatusView
     progress: NoteProgressView | None
-    paragraphs: list[NoteParagraphView]
+    paragraphs: list[NoteSectionView | NoteParagraphView]
+    outline: list[NoteOutlineView]
     annotations: list[NoteAnnotationView]
     source_resolver: str
     error_code: str | None

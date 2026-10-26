@@ -1,19 +1,76 @@
 import { ExportControls } from "../exports/ExportControls";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { MaterialNotesView, NoteAnnotation, NoteKind, NoteParagraph } from "../../api/contracts";
+import type { MaterialNotesView, NoteAnnotation, NoteBlock, NoteCalloutStyle, NoteItem, NoteKind, NoteOutlineEntry, NoteParagraph } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import "./styles.css";
 
-function ParagraphBody({ paragraph: p }: { paragraph: NoteParagraph }) {
-  return <><h3>{p.heading}</h3><p className="note-prose">{p.text}</p>
-    {p.formula && <p className="note-formula">{p.formula}</p>}
-    {p.table && <div className="note-table-scroll" role="region" aria-label={`${p.heading}表格`} tabIndex={0}><table>
-      <thead><tr>{p.table.headers.map((cell, i) => <th key={i} scope="col">{cell}</th>)}</tr></thead>
-      <tbody>{p.table.rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>)}</tbody>
-    </table></div>}
+const calloutLabels: Record<NoteCalloutStyle, string> = {
+  case_study: "案例研究", discussion: "討論問題", reminder: "重要提醒", lesson: "重要教訓",
+};
+
+/** 「一、標題」與「1.1 標題」：章節編號後不空格，小節編號後空一格。 */
+export function numberedHeading(entry: NoteOutlineEntry) {
+  return entry.number + (entry.level === 1 ? "" : " ") + entry.heading;
+}
+
+// KaTeX 與字型只在筆記有公式時載入，不加大其他頁面的主程式。
+const Formula = lazy(() => import("./Formula"));
+
+function Items({ items }: { items: NoteItem[] }) {
+  return <ul className="note-bullets">{items.map((item, i) => <li key={i}>{item.text}{item.children?.length ? <Items items={item.children}/> : null}</li>)}</ul>;
+}
+
+function Table({ label, caption, headers, rows }: { label: string; caption: string | null; headers: string[]; rows: string[][] }) {
+  return <div className="note-table-scroll" role="region" aria-label={caption ?? label} tabIndex={0}><table>
+    {caption && <caption>{caption}</caption>}
+    <thead><tr>{headers.map((cell, i) => <th key={i} scope="col">{cell}</th>)}</tr></thead>
+    <tbody>{rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>)}</tbody>
+  </table></div>;
+}
+
+function Block({ block, heading }: { block: NoteBlock; heading: string }) {
+  switch (block.type) {
+    case "text": return <p className="note-prose">{block.text}</p>;
+    case "bullets": return <Items items={block.items}/>;
+    case "table": return <Table label={`${heading}表格`} caption={block.caption} headers={block.headers} rows={block.rows}/>;
+    case "formula": return <Suspense fallback={<div className="note-formula" aria-busy="true"/>}><Formula latex={block.latex}/></Suspense>;
+    case "callout": {
+      const label = calloutLabels[block.style];
+      return <aside className={`note-callout note-callout-${block.style}`} aria-label={label}>
+        <p className="note-callout-title">{label}{block.title && `：${block.title}`}</p><Items items={block.items}/>
+      </aside>;
+    }
+  }
+}
+
+function ParagraphBody({ paragraph: p, number }: { paragraph: NoteParagraph; number?: NoteOutlineEntry }) {
+  if (!("blocks" in p)) {
+    // v11 以前的段落格式，重新生成前仍可閱讀。
+    return <><h3>{p.heading}</h3><p className="note-prose">{p.text}</p>
+      {p.formula && <p className="note-formula-text">{p.formula}</p>}
+      {p.table && <Table label={`${p.heading}表格`} caption={null} headers={p.table.headers} rows={p.table.rows}/>}
+    </>;
+  }
+  const level = number?.level ?? p.level;
+  const Heading = level === 1 ? "h2" : "h3";
+  return <><Heading>{number ? numberedHeading(number) : p.heading}</Heading>
+    {p.blocks.map((block, i) => <Block key={i} block={block} heading={p.heading}/>)}
   </>;
+}
+
+function Outline({ entries }: { entries: NoteOutlineEntry[] }) {
+  const jump = (id: string) => {
+    const target = document.getElementById(`note-section-${id}`);
+    target?.scrollIntoView({ block: "start" });
+    target?.focus({ preventScroll: true });
+  };
+  return <nav className="note-outline" aria-labelledby="note-outline-title"><h2 id="note-outline-title">章節大綱</h2>
+    <ul>{entries.map(o => <li key={o.paragraph_id} className={`note-outline-${o.level}`}>
+      <button type="button" className="text-button" onClick={() => jump(o.paragraph_id)}>{numberedHeading(o)}</button>
+    </li>)}</ul>
+  </nav>;
 }
 
 type Editor = { view: MaterialNotesView; paragraphId: string | null; annotation?: NoteAnnotation; id: string; opener: HTMLButtonElement };
@@ -93,6 +150,7 @@ function NotesContent({ api, materialId, revision, kind }: { api: StudydyApiClie
     <button className="text-button" onClick={e => edit(e.currentTarget, a.paragraph_id, a)}>編輯註記</button></aside>;
   const pending = view?.status === "pending" || view?.status === "running";
   const orphaned = view?.annotations.filter(a => a.paragraph_id === null) ?? [];
+  const numbers = new Map((view?.outline ?? []).map(o => [o.paragraph_id, o]));
   return <>
     {error && <div role="alert"><p className="form-error">{error}</p><button className="text-button" onClick={() => setReload(v => v + 1)}>重新讀取</button></div>}
     {!view && !error && <p role="status">正在讀取筆記…</p>}
@@ -116,14 +174,16 @@ function NotesContent({ api, materialId, revision, kind }: { api: StudydyApiClie
         <p>已完成 {view.progress.completed_sections} / {view.progress.total_sections} 區 · {view.progress.completed_parts} / {view.progress.total_parts} 批</p>
         {view.status === "failed" && view.progress.completed_parts > 0 && <p>已完成部分已保存，重試時會從未完成部分接續。</p>}
       </section>}
-      {view.paragraphs.map(p => <section key={`${view.generation}:${p.id}`} className="note-paragraph" aria-label={p.heading}>
-        <ParagraphBody paragraph={p}/>
+      {view.outline.length > 0 && <Outline entries={view.outline}/>}
+      {view.paragraphs.map(p => { const number = numbers.get(p.id); return <section key={`${view.generation}:${p.id}`} id={`note-section-${p.id}`} tabIndex={-1}
+        className={`note-paragraph${number?.level === 2 ? " note-subsection" : ""}`} aria-label={number ? numberedHeading(number) : p.heading}>
+        <ParagraphBody paragraph={p} number={number}/>
         <div className="note-concepts">{p.concepts.map(c => <button className="text-button" key={c.concept_id} onClick={() => writeRoute({ name: "knowledge-map", materialId, runId: view.run_id, structureRevision: revision }, false,
           { knowledgeMap: { revision, mode: "focus", concept: c.concept_id, detail: c.concept_id } })}>{c.label} · 查看地圖</button>)}</div>
         <div className="note-sources" aria-label="段落來源">{sourceLinks(p.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e}/>)}</div>
         {view.annotations.filter(a => a.paragraph_id === p.id).map(annotationItem)}
         <button className="text-button" onClick={e => edit(e.currentTarget, p.id)}>新增註記</button>
-      </section>)}
+      </section>; })}
       {orphaned.length > 0 && <section className="note-previous" aria-labelledby="previous-notes-title"><h2 id="previous-notes-title">先前段落的註記</h2>
         <p>以下註記的來源與重點無法精確對應目前段落，已保留當時內容。</p>
         {orphaned.map(a => <div key={a.annotation_id} className="note-previous-item"><details><summary>當時段落：{a.original_paragraph.heading}</summary>
