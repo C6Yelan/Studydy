@@ -42,7 +42,7 @@ function speakerName(episode:PodcastEpisode,speaker:'host'|'guest'):string {
   return episode.hosts?.[speaker]??(speaker==='host'?'主持人':'來賓');
 }
 
-// 播放器字幕、逐字稿與匯出選單共用頁面上的時間軸狀態，只輪詢一次。
+// 播放器字幕、逐字稿與匯出入口共用頁面上的時間軸狀態，只輪詢一次。
 export function usePodcastTimeline(api:StudydyApiClient,view:PodcastView|null,index:number,videoVersion:number,enabled=true){
   const episode=view?.episodes[index];
   const [timeline,setTimeline]=useState<Timeline|null>(null),[error,setError]=useState('');

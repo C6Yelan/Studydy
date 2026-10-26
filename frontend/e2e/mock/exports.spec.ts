@@ -21,11 +21,60 @@ test("large map exports every region and splits oversized regions without retain
   });
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
   await page.getByText("匯出地圖", { exact: true }).click();
-  const controls = page.getByRole("group", { name: "匯出知識地圖" });
+  const controls = page.getByRole("dialog", { name: "匯出知識地圖" });
   const download = page.waitForEvent("download");
   await controls.getByRole("button", { name: "匯出", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("maps.zip");
   expect(images.map(i => i.concept_ids.length)).toEqual([24, 1, 5]);
   expect(images.flatMap(i => i.concept_ids)).toEqual(view.concepts.map(c => c.concept_id));
   expect(images.every(i => i.png.startsWith("iVBOR"))).toBe(true);
+});
+
+test("export format cards retain errors, keyboard selection and focus through download", async ({ page }) => {
+  await mockKnowledgeMapApi(page);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let fail = true, requests = 0;
+  await page.route("**/map/export/md", async route => {
+    requests++;
+    await gate;
+    return fail ? json(route, { schema: "api-error/v1", request_id: materialId, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "Unavailable" }, 503)
+      : route.fulfill({ status: 200, contentType: "text/markdown", headers: { "Content-Disposition": "attachment; filename*=UTF-8''map.md" }, body: "# Map" });
+  });
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  const trigger = page.getByRole("button", { name: "匯出地圖", exact: true });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "匯出知識地圖" });
+  await dialog.getByRole("radio").first().focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(dialog.getByRole("radio", { name: "概念大綱 Markdown" })).toBeChecked();
+  for (const [width, height] of [[1440, 900], [1300, 900], [1200, 900], [1024, 768], [390, 844]]) {
+    await page.setViewportSize({ width, height });
+    const bounds = (await dialog.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    await page.screenshot({ path: test.info().outputPath(`export-dialog-${width}.png`) });
+  }
+  await dialog.getByRole("button", { name: "匯出", exact: true }).click();
+  await expect(dialog.getByRole("status")).toHaveText("正在準備下載檔案…");
+  await expect(dialog.getByRole("button", { name: "正在匯出…" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  release();
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: "概念大綱 Markdown" })).toBeChecked();
+  await dialog.getByRole("button", { name: "關閉匯出" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(dialog.getByRole("radio", { name: "概念大綱 Markdown" })).toBeChecked();
+  fail = false;
+  const download = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "匯出", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("map.md");
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect(requests).toBe(2);
 });

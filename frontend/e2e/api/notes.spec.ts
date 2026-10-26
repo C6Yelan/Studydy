@@ -19,9 +19,10 @@ test("real notes save an annotation, reopen its source and generate full notes o
   // 第一則個人註記會取得新徽章（寫下心得），先關閉提示才能繼續操作。
   await page.getByRole("dialog", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
   await expect(page.getByText("真 API 保存我的複習想法", { exact: true })).toBeVisible();
-  const controls = page.getByRole("group", { name: "匯出筆記" });
+  const controls = page.getByRole("dialog", { name: "匯出筆記" });
   for (const format of ["md", "pdf", "docx"]) {
-    await controls.getByRole("combobox").selectOption(format);
+    await page.getByRole("button", { name: "匯出筆記", exact: true }).click();
+    await controls.locator(`input[type="radio"][value="${format}"]`).check();
     const download = page.waitForEvent("download");
     await controls.getByRole("button", { name: "匯出", exact: true }).click();
     const file = await download;

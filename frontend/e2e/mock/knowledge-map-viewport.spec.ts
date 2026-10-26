@@ -450,7 +450,7 @@ test("map export renders complete island artwork without changing the viewport",
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
   const before = await readViewport(page);
   await page.getByText("匯出地圖", { exact: true }).click();
-  const controls = page.getByRole("group", { name: "匯出知識地圖" });
+  const controls = page.getByRole("dialog", { name: "匯出知識地圖" });
   const download = page.waitForEvent("download");
   await controls.getByRole("button", { name: "匯出", exact: true }).click();
   const result = await download;
@@ -459,7 +459,10 @@ test("map export renders complete island artwork without changing the viewport",
   await result.saveAs(test.info().outputPath("export-map.png"));
   await expectViewportUnchanged(page, before);
   await expect(page.locator(".map-export-sheet")).toHaveCount(0);
-  await controls.getByRole("combobox").focus();
+  await expect(controls).toBeHidden();
+  await expect(page.getByRole("button", { name: "匯出地圖", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "匯出地圖", exact: true }).click();
+  await controls.getByRole("radio").first().focus();
   await page.keyboard.press("Escape");
   await expect(page.getByText("匯出地圖", { exact: true })).toBeFocused();
 });

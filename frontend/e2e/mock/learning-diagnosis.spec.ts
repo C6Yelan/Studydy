@@ -135,7 +135,7 @@ test("diagnosis exports a PDF summary for the current material revision", async 
   await page.goto(mapPath);
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   const download = page.waitForEvent("download");
-  await page.getByRole("group", { name: "匯出學習診斷" }).getByRole("button", { name: "匯出", exact: true }).click();
+  await page.getByRole("button", { name: "匯出學習診斷（PDF）", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("diagnosis.pdf");
   expect(path).toBe(`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/learning-diagnosis/export/pdf`);
 });
