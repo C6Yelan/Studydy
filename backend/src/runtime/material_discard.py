@@ -63,6 +63,8 @@ def request_material_discard(
                 raise MaterialDiscardError("RESOURCE_NOT_FOUND")
             runs = _locked_runs(session, material)
             if material.discard_requested_at is None:
+                from .learning_retention import preserve_learning
+                preserve_learning(session, learner_id, "material", material_id)
                 material.discard_requested_at = session.scalar(
                     select(func.clock_timestamp())
                 )

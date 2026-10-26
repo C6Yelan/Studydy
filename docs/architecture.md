@@ -49,6 +49,7 @@ Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；wor
 | [knowledge_map](../backend/src/knowledge_map/) | 概念、Claim、Relation、檢核與確定性建構 |
 | [learning_adaptation](../backend/src/learning_adaptation/) | 題組、私密答案、評分、進度與導覽 |
 | [knowledge_publication.py](../backend/src/runtime/knowledge_publication.py) | 協調知識結構發布、版本與工作驗證、索引建立／補建及章節排程 |
+| [learning_retention.py](../backend/src/runtime/learning_retention.py) | 刪除前每日計量、永久徽章與跨裝置原子慶祝領取 |
 | [learning_activity.py](../backend/src/runtime/learning_activity.py) | 學習活動彙總、XP、等級、連續天數、徽章與今日任務 |
 | [local_ai_config.py](../backend/src/runtime/local_ai_config.py) | 讀取環境設定與 runtime lock，提供共用 AI 設定入口 |
 | [runtime/storage](../backend/src/runtime/storage/) | 資料存取、migration、完整性檢查與檔案恢復 |

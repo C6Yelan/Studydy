@@ -358,3 +358,9 @@ GEN-01 的引用補正新增逐項拒收診斷，並更新 material_semantics �
 Migration 0022 新增 material_processing_runs.auto_retry_count／auto_retry_reason，不改舊 checksum 或來源 hash。先套用 migration 再啟動新後端；回復舊映像時保留新增欄位與已用重試次數，不刪資料。隔離測試驗證 SQL 套用及交易回滾。
 
 STUDYDY_MATERIAL_WORKERS 預設 1，需多教材時由管理者在本機 .env 設定正整數後更新後端。provider 的教材分析／審查依 call-tags feature 分流，章節和其他文字功能仍用單一文字槽；STUDYDY_LUNA_PARALLEL_TEST=1 時教材分析與審查共用兩槽，增加 worker 不增加 provider 槽數。指定維護 run 不使用一般分析的自動重試。
+
+## 學習紀錄與永久徽章
+
+新增 learning_retained_days、learning_awards、learning_celebrations，原教材／作答／標記的資料格式不變。刪除先在同一交易保留每日統計與去重身分，再依原流程清內容；部署前已刪除而沒有紀錄的活動不能回補。既有帳號首次計算時保存目前已得徽章並將等級／徽章標記已看過，新帳號按原子領取端點取得新事件。
+
+上線後若已有內容刪除，不可回退到不讀保留紀錄的舊後端，否則 XP 會暫時少算；需前向修復或相容映像。隔離 DB 驗證 migration 套用及交易回滾，不在產品資料庫刪除保留表回復。前端 G5 接線由前端批次交付。

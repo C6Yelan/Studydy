@@ -1,9 +1,7 @@
-"""學習活動：由作答、概念卡標記、Podcast 收聽與各功能的真實紀錄即時彙總，以台灣日期為界。
+"""學習活動合併現存紀錄與刪除前保存的每日計量，以台灣日期為界。
 
-XP、等級、連續天數、今日任務與徽章都從既有紀錄推導，不另存累計點數、任務或
-徽章狀態（規則 xp-rules/v4 與 badge-rules/v7，說明見 docs/learning.md）。刪除教材或卡組時紀錄一併移除，
-推導結果隨之改變；沒有紀錄的過去活動不補算。無法由既有資料推導的分天關卡、準時達成目標與匯出，
-分別在交卷與匯出成功時記錄（goal_milestones、learner_exports）。
+每日上限在合併基數後計算；永久徽章不因內容刪除或規則變更收回。
+沒有紀錄的過去活動不補算。規則見 docs/learning.md。
 """
 
 from collections import OrderedDict
@@ -15,6 +13,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select, text
 
 from .podcasts import HOST_PAIRS
+from .learning_retention import retained_days, persist_awards
 
 TIMEZONE = "Asia/Taipei"
 RULE_VERSION = "xp-rules/v4"
@@ -637,7 +636,7 @@ CURRENT_HOSTS = {host for host, _ in HOST_PAIRS}
 def _feature_records(session, owner, zone, today, *, answer_events, concept_times, completed, reviews):
     """目標、難點、診斷、筆記、上傳、匯出與 Podcast 節目的真實紀錄 → XP 與徽章計量。
 
-    只計入未刪除的教材；晚於 today 的紀錄不列入。回傳 (每日 XP 來源, 系列計量, 關卡日期, 特殊成就日期)。
+    內容計量取未刪教材；XP 合併刪除前保留基數，晚於 today 的紀錄不列入。回傳 (每日 XP 來源, 系列計量, 關卡日期, 特殊成就日期)。
     """
     values = {"owner": owner, "zone": zone.key}
     alive = "JOIN materials m ON m.material_id = {0}.material_id AND m.learner_id = {0}.learner_id AND m.discard_requested_at IS NULL"
@@ -659,6 +658,10 @@ def _feature_records(session, owner, zone, today, *, answer_events, concept_time
             stages[day] = stages.get(day, 0) + 1
         else:
             achieved.append((day, target))
+    archived = [(day, data) for kind, _, day, data in retained_days(session, owner) if kind == 'material' and day <= today]
+    for day, data in archived:
+        if data.get('stages'):
+            stages[day] = stages.get(day, 0) + data['stages']
     overcome = overcome_difficulties(answer_events)
     diagnosed = {
         material: local(at).date() for material, at in rows(f"""
@@ -745,6 +748,9 @@ def _feature_records(session, owner, zone, today, *, answer_events, concept_time
         daily["goals"][day] = daily["goals"].get(day, 0) + XP_GOAL_ON_TIME
     daily["difficulties"] = {day: count * XP_DIFFICULTY for day, count in daily["difficulties"].items()}
     daily["diagnostics"] = {day: count * XP_DIAGNOSTIC for day, count in daily["diagnostics"].items()}
+    for day, data in archived:
+        for source, key in (('goals', 'goal_xp'), ('difficulties', 'difficulty_xp'), ('diagnostics', 'diagnostic_xp')):
+            daily[source][day] = daily[source].get(day, 0) + data.get(key, 0)
     metrics = {
         "goals": _per_day(day for day in goals if day <= today),
         "stages": stages,
@@ -899,6 +905,7 @@ def _daily_records(session, owner, zone, today):
             FROM answer_events e
             JOIN study_sessions s ON s.study_session_id = e.study_session_id
             WHERE s.learner_id = :owner
+              AND NOT EXISTS (SELECT 1 FROM learning_retained_days r WHERE r.learner_id=:owner AND r.source_kind='material' AND r.source_id=e.material_id)
             GROUP BY day
             """
         ), values).all()
@@ -906,24 +913,40 @@ def _daily_records(session, owner, zone, today):
     }
     # 概念卡標記：{日期: (標記張數, 計分張數)}，規則見 credited_marks。
     origins = card_origins(session, owner)
-    cards = {
-        day: value for day, value in credited_marks(session.execute(text(
-            """
-            SELECT created_at, card_set_id, concept_id FROM card_review_events
-            WHERE learner_id = :owner ORDER BY created_at, review_event_id
-            """
-        ), values).all(), origins, zone).items()
-        if day <= today
-    }
+    archived = retained_days(session, owner)
+    events = []
+    for at, event_id, card, concept in session.execute(text("""
+        SELECT created_at, review_event_id, card_set_id, concept_id FROM card_review_events e
+        WHERE learner_id=:owner AND NOT EXISTS (
+            SELECT 1 FROM learning_retained_days r WHERE r.learner_id=:owner
+            AND r.source_kind='cards' AND r.source_id=e.card_set_id)
+    """), values):
+        root_card, root_concept = origins.get((card, concept), (card, concept))
+        events.append((at, str(event_id), str(root_card), root_concept))
+    for kind, _, day, data in archived:
+        if day > today:
+            continue
+        if kind == 'material' and data.get('answers'):
+            count, correct = answers.get(day, (0, 0))
+            answers[day] = (count + data['answers'], correct + data['correct'])
+        for at, event_id, card, concept in data.get('marks', []):
+            events.append((datetime.fromisoformat(at), event_id, card, concept))
+    events.sort(key=lambda row: row[:2])
+    cards = {day: value for day, value in credited_marks(
+        [(at, card, concept) for at, _, card, concept in events], {}, zone
+    ).items() if day <= today}
     listening = {
         day: int(seconds) for day, seconds in session.execute(text(
             """
-            SELECT listened_on, sum(listened_seconds) FROM podcast_listening_days
-            WHERE learner_id = :owner GROUP BY listened_on
+            SELECT listened_on, sum(listened_seconds) FROM podcast_listening_days p
+            WHERE learner_id = :owner AND NOT EXISTS (SELECT 1 FROM learning_retained_days r WHERE r.learner_id=:owner AND r.source_kind='podcast' AND r.source_id=p.podcast_id) GROUP BY listened_on
             """
         ), values).all()
         if day <= today
     }
+    for kind, _, day, data in archived:
+        if kind == 'podcast' and day <= today:
+            listening[day] = listening.get(day, 0) + data.get('seconds', 0)
     active = (
         set(answers) | set(cards)
         | {day for day, seconds in listening.items() if seconds >= ACTIVE_LISTEN_SECONDS}
@@ -948,6 +971,7 @@ def learning_activity(session, owner, *, now=None):
         FROM answer_events e
         JOIN study_sessions s ON s.study_session_id = e.study_session_id
         WHERE s.learner_id = :owner
+          AND NOT EXISTS (SELECT 1 FROM learning_retained_days r WHERE r.learner_id=:owner AND r.source_kind='material' AND r.source_id=e.material_id)
         ORDER BY e.material_id, e.semantic_identity, e.created_at, e.event_number
         """
     ), values).all():
@@ -958,6 +982,10 @@ def learning_activity(session, owner, *, now=None):
         day: count for day, count in _per_day(at.astimezone(zone).date() for at in concept_times.values()).items()
         if day <= today
     }
+    for kind, _, day, data in retained_days(session, owner):
+        if kind == 'material' and day <= today:
+            answer_xp[day] = answer_xp.get(day, 0) + data.get('answer_xp', 0)
+            concepts[day] = concepts.get(day, 0) + data.get('concepts', 0)
     completed = {material: day for material, day in _material_completions(session, owner, zone).items() if day <= today}
     materials = {}
     for day in completed.values():
@@ -1027,6 +1055,7 @@ def learning_activity(session, owner, *, now=None):
             FROM answer_events e
             JOIN study_sessions s ON s.study_session_id = e.study_session_id
             WHERE s.learner_id = :owner
+              AND NOT EXISTS (SELECT 1 FROM learning_retained_days r WHERE r.learner_id=:owner AND r.source_kind='material' AND r.source_id=e.material_id)
             ORDER BY e.created_at, e.event_number
             """
         ), values).all()
@@ -1097,6 +1126,7 @@ def learning_activity(session, owner, *, now=None):
         listening=listening, completed=completed, pages=pages, reviews=reviews,
         daily_xp=daily_xp, episodes=episodes, features=feature_specials,
     )
+    persist_awards(session, owner, badges, level)
     quests = [
         quest for quest in (
             _card_quest(session, owner, cards.get(today, (0, 0))[1]),
@@ -1153,7 +1183,7 @@ def rhythm_window(period, offset, today):
 def learning_rhythm(session, owner, *, period, offset=0, now=None):
     """指定區間每天的作答、答對、標記卡片張數、收聽秒數與是否有學習；每次最多 364 天。
 
-    與學習活動同一份每日彙總（原始紀錄沒有定期清除，刪除教材時相關紀錄移除）；
+    與學習活動共用現存與刪除前保留的每日彙總；
     first_day 是最早有紀錄的日期，畫面據此決定能否再往前翻。
     """
     zone = ZoneInfo(TIMEZONE)

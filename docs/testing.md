@@ -370,3 +370,7 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 
 `test_demo_reanalysis_resume.py` 使用隔離DB與受控provider，驗證指定失敗run只恢復一次、原11/300與來源/runtime身分保留、並行只有一次成功、實際worker在同run重新執行並逐次累計請求，並拒絕取消、head改變、其他活躍工作、耗盡、非指定run及非授權錯誤。恢復後再次失敗維持failed，不能再排或重設額度；CLI分派測試確認`--resume-once`不建立新工作。這些測試不執行正式恢復或真實模型。
+
+## 刪除後的學習統計與慶祝
+
+`runtime/study/test_learning_retention.py` 以真 DB 驗證教材／卡組／Podcast 刪除前後 XP、等級、作答數、連續日與學習節奏保留；跨卡時間間隔、重複刪除、卡片／收聽／關卡每日上限、兩個同帳號請求的原子領取，以及既有帳號 migration 套用與交易回滾。`test_learning_rewards.py`、`test_learning_badges.py` 和 `test_version_moves.py` 保留既有計分與移版去重回歸，已取得徽章改為永久保存。測試無真實模型與產品資料。
