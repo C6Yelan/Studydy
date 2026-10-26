@@ -11,7 +11,7 @@ from threading import Event, Thread
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import func, select
 
 from pdf_evidence.material_pipeline import analyze_material
 from runtime.material_runtime import MaterialAnalysisError
@@ -74,6 +74,8 @@ class MaterialProcessingRun:
     total_units: int | None = None
     learning_scopes: dict = field(default_factory=dict, repr=False)
     full_reanalysis: bool = False
+    auto_retry_count: int = 0
+    auto_retry_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -225,6 +227,8 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         row.total_units,
         deepcopy(row.learning_scopes),
         full_reanalysis=bool(row.maintenance),
+        auto_retry_count=row.auto_retry_count,
+        auto_retry_reason=row.auto_retry_reason,
     )
 
 
@@ -345,31 +349,41 @@ def _check_cancellation(
         raise MaterialProcessingError("MATERIAL_RUN_STORAGE_FAILED") from None
 
 
+def _retry_or_fail(row, reason, now):
+    """持有工作列鎖時，暫時性失敗與重啟共用一次持久重試額度。"""
+    retryable = reason in {
+        "RESTART_INTERRUPTED", "SEMANTIC_SERVICE_TIMEOUT", "SEMANTIC_SERVICE_UNAVAILABLE",
+        "LUNA_GENERATION_TIMEOUT", "GENERATION_PROVIDER_UNAVAILABLE", "VOICE_PROVIDER_UNAVAILABLE",
+        "STORAGE_BUSY", "SOURCE_BUSY",
+    }
+    row.updated_at = now
+    if retryable and row.auto_retry_count == 0 and row.maintenance is None:
+        row.worker_token = row.lease_expires_at = None
+        row.auto_retry_count = 1
+        row.auto_retry_reason = reason
+        row.status, row.progress_stage = "pending", "queued"
+        row.error_code = row.completed_at = None
+        row.completed_pages, row.total_pages = 0, None
+        row.completed_units = row.total_units = None
+    else:
+        row.status, row.error_code, row.completed_at = "failed", reason, now
+
+
 def recover_interrupted_material_runs(*, dsn: str | None = None) -> int:
     try:
         with database_session(dsn) as session:
-            rows = session.execute(
-                update(RunRow)
-                .where(
+            rows = session.scalars(
+                select(RunRow).where(
                     RunRow.status == "running",
                     (RunRow.cancel_requested_at.is_not(None))
                     | (RunRow.lease_expires_at.is_(None))
                     | (RunRow.lease_expires_at < func.clock_timestamp()),
-                )
-                .values(
-                    status=case(
-                        (RunRow.cancel_requested_at.is_not(None), "cancelled"),
-                        else_="failed",
-                    ),
-                    error_code=case(
-                        (RunRow.cancel_requested_at.is_not(None), None),
-                        else_="RESTART_INTERRUPTED",
-                    ),
-                    completed_at=func.statement_timestamp(),
-                    updated_at=func.statement_timestamp(),
-                )
-                .returning(RunRow.run_id)
+                ).with_for_update(skip_locked=True)
             ).all()
+            now = session.scalar(select(func.clock_timestamp()))
+            for row in rows:
+                if not _honor_cancellation(row, session):
+                    _retry_or_fail(row, "RESTART_INTERRUPTED", now)
         return len(rows)
     except Exception:
         raise MaterialProcessingError("MATERIAL_RUN_STORAGE_FAILED") from None
@@ -490,8 +504,7 @@ def _record_failure(
                 and not _honor_cancellation(row, session)
             ):
                 now = session.scalar(select(func.clock_timestamp()))
-                row.status, row.error_code = "failed", safe
-                row.completed_at = row.updated_at = now
+                _retry_or_fail(row, safe, now)
     except Exception:
         raise MaterialProcessingError("MATERIAL_RUN_STORAGE_FAILED") from None
 
@@ -706,11 +719,6 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
         pass
     except Exception as error:
         luna_calls.rejected(getattr(error, "reason_code", None) or str(error))
-        try:
-            if archive is not None:
-                archive.save_failure(error)
-        except AnalysisArchiveError:
-            pass
         public_errors = (
             KnowledgeStructureStoreError,
             MaterialAnalysisError,
@@ -726,6 +734,12 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
             else "MATERIAL_ANALYSIS_FAILED"
         )
         _record_failure(run.run_id, reason, worker_token=claim.worker_token, dsn=dsn)
+        if read_material_processing_run(run.learner_id, run.run_id, dsn=dsn).status == "failed":
+            try:
+                if archive is not None:
+                    archive.save_failure(error)
+            except AnalysisArchiveError:
+                pass
     result = read_material_processing_run(run.learner_id, run.run_id, dsn=dsn)
     if result.status in {"succeeded", "partial"}:
         # 發布已 commit；清理失敗只記錄並由 worker 補做，不能把成功結果改回 failed。

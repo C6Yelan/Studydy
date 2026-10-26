@@ -5,6 +5,7 @@ from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass, field
 from functools import partial
 import logging
+import os
 from threading import Event, Thread
 from time import monotonic
 
@@ -124,6 +125,7 @@ class RuntimeWorkers:
     _stop: Event = field(default_factory=Event, init=False, repr=False)
     _started: Event = field(default_factory=Event, init=False, repr=False)
     _thread: Thread | None = field(default=None, init=False, repr=False)
+    _material_threads: list[Thread] = field(default_factory=list, init=False, repr=False)
     _assessment_thread: Thread | None = field(default=None, init=False, repr=False)
     _maintenance_thread: Thread | None = field(default=None, init=False, repr=False)
     _startup_error: Exception | None = field(default=None, init=False, repr=False)
@@ -131,6 +133,12 @@ class RuntimeWorkers:
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError("RUNTIME_WORKERS_ALREADY_STARTED")
+        try:
+            count = int(os.environ.get("STUDYDY_MATERIAL_WORKERS", "1"))
+            if count < 1:
+                raise ValueError
+        except ValueError:
+            raise ValueError("MATERIAL_WORKER_COUNT_INVALID") from None
         # lease／checkpoint 負責中斷恢復，阻塞的 I/O 不應卡住程序退出。
         self._thread = Thread(
             target=self._loop, name="studydy-material-worker", daemon=True
@@ -150,6 +158,15 @@ class RuntimeWorkers:
             self._thread = None
             raise startup_error
         # 排程不依賴模型或測試旗標；長教材工作不能阻塞評量與資料復原。
+        for index in range(1, count):
+            thread = Thread(target=lambda: self._loop(startup=False),
+                            name=f"studydy-material-worker-{index + 1}", daemon=True)
+            try:
+                thread.start()
+                self._material_threads.append(thread)
+            except Exception:
+                self.stop()
+                raise RuntimeError("RUNTIME_WORKERS_START_FAILED") from None
         for attribute, target, name in (
             ("_assessment_thread", self._assessment_loop, "studydy-assessment-worker"),
             ("_maintenance_thread", self._maintenance_loop, "studydy-maintenance-worker"),
@@ -171,7 +188,7 @@ class RuntimeWorkers:
 
     def stop(self) -> None:
         self._stop.set()
-        threads = (self._thread, self._assessment_thread, self._maintenance_thread)
+        threads = (self._thread, *self._material_threads, self._assessment_thread, self._maintenance_thread)
         for thread in threads:
             if thread is not None:
                 thread.join(timeout=_SHUTDOWN_WAIT_SECONDS)
@@ -181,7 +198,7 @@ class RuntimeWorkers:
     def is_alive(self):
         return self._started.is_set() and not self._stop.is_set() and all(
             thread is not None and thread.is_alive()
-            for thread in (self._thread, self._assessment_thread, self._maintenance_thread)
+            for thread in (self._thread, *self._material_threads, self._assessment_thread, self._maintenance_thread)
         )
 
     def _assessment_loop(self):
@@ -227,8 +244,8 @@ class RuntimeWorkers:
                 )
             self._stop.wait(_IDLE_WAIT_SECONDS)
 
-    def _loop(self) -> None:
-        is_starting = True
+    def _loop(self, *, startup=True) -> None:
+        is_starting = startup
         while not self._stop.is_set():
             try:
                 if is_starting:

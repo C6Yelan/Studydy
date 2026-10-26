@@ -183,6 +183,8 @@ class MaterialProcessingRun(Base):
     base_revision: Mapped[str | None] = mapped_column(Text)
     worker_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    auto_retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    auto_retry_reason: Mapped[str | None] = mapped_column(Text)
     maintenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     runtime_binding: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     runtime_lock_document: Mapped[dict[str, Any]] = mapped_column(

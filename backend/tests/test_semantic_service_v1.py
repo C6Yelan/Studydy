@@ -378,7 +378,7 @@ def test_truncation_archives_only_safe_phase_and_token_metadata(monkeypatch):
                               request={'source': secret}, response_schema={})
     assert str(caught.value) == 'SEMANTIC_OUTPUT_TRUNCATED'
     saved = {}
-    monkeypatch.setattr(AnalysisArchive, '_write', lambda self, name, value: saved.update({name: value}))
+    monkeypatch.setattr(AnalysisArchive, '_write', lambda self, name, value, **kwargs: saved.update({name: value}))
     AnalysisArchive.__new__(AnalysisArchive).save_failure(caught.value)
     assert saved['failure.json']['semantic_request'] == {
         'task': 'material_review', 'input_tokens': 12000, 'max_tokens': 20768,
