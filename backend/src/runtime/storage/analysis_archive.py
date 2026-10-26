@@ -186,7 +186,7 @@ class AnalysisArchive:
         return None
 
     def save_provider_failure(self, candidates):
-        """只在失敗已提交後補入 provider 未能回傳的原始候選。"""
+        """只在失敗已提交後補入 provider 或後端語意邊界未能交付的候選。"""
         self._write("provider-failure.json", {"candidates": candidates}, failed=True)
 
     def _write(self, name, data, *, failed=False):

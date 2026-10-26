@@ -352,9 +352,9 @@ def request_semantics(
         )
         if before_request is not None:
             before_request()
-        if tags is None:
-            from . import luna_calls
+        from . import luna_calls
 
+        if tags is None:
             tags = luna_calls.tags()
         try:
             from .generation_jobs import provider_job
@@ -386,6 +386,7 @@ def request_semantics(
             estimate_o200k_tokens(json.dumps(result, ensure_ascii=False))
             > output_budget
         ):
+            luna_calls.rejected("SEMANTIC_OUTPUT_TOO_LARGE", candidate=result, call_tags=tags)
             raise SemanticServiceError("SEMANTIC_OUTPUT_TOO_LARGE")
         return result
     service = _service(runtime_lock)

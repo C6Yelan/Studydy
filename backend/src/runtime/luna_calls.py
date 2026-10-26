@@ -104,11 +104,18 @@ def capture(candidate, *, call_tags=None):
     return candidate
 
 
-def rejected(reason):
+def rejected(reason, *, candidate=None, call_tags=None):
     work = _current.get()
     if work is not None:
         with work.lock:
             work.reasons.append(reason)
+            if work.archive is not None and candidate is not None:
+                # 語意邊界已退回，呼叫端尚未取得候選，故不會寫進既有 archive。
+                work.candidates.append({
+                    "tags": call_tags or tags(),
+                    "candidate": candidate,
+                    "rejection_reason": reason,
+                })
 
 
 def completed(outcome, reason=None):
@@ -168,6 +175,7 @@ def _finalize(work):
                     json.dump(document, output, ensure_ascii=False)
             except (OSError, TypeError, ValueError):
                 _logger.warning("LUNA_FAILURE_RECORD_FAILED")
+        archive_candidates = list(work.candidates) if work.archive is not None and work.outcome == "failed" else []
         if work.notified_tags:
             from .provider_http import provider
 
@@ -178,13 +186,18 @@ def _finalize(work):
                         "outcome": work.outcome,
                         "reason": work.reason,
                     })
-                    if work.archive is not None and result.get("candidates"):
-                        if work.archive_writer is None:
-                            raise RuntimeError("LUNA_ARCHIVE_UNAVAILABLE")
-                        work.archive_writer(result["candidates"])
+                    if work.archive is not None and work.outcome == "failed":
+                        archive_candidates.extend(result.get("candidates", []))
                 except Exception:
                     # 終態已提交，不回滾產品結果；診斷失敗必須如實回報，不能宣稱保存成功。
                     _logger.warning("LUNA_FAILURE_NOTIFICATION_FAILED")
+        if archive_candidates:
+            try:
+                if work.archive_writer is None:
+                    raise RuntimeError("LUNA_ARCHIVE_UNAVAILABLE")
+                work.archive_writer(archive_candidates)
+            except Exception:
+                _logger.warning("LUNA_FAILURE_RECORD_FAILED")
         for child in work.children:
             if work.outcome == "cancelled":
                 child.outcome, child.reason = "cancelled", None

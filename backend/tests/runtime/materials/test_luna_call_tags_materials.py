@@ -191,3 +191,36 @@ def test_material_invalid_raw_response_is_archived_only_after_failed_commit(
     with pytest.raises(AnalysisArchiveError, match="MATERIAL_RUN_UNAVAILABLE"):
         archive.save_provider_failure([{"candidate": "late cancelled"}])
     assert path.read_bytes() == raw
+
+
+def test_material_oversized_json_is_archived_after_failed_commit(
+    revisions, tmp_path, monkeypatch, provider_server, fake_codex, caplog,
+):
+    owner, material, settings, dsn, add, start, execute, _, old, _ = revisions
+    enable_review(settings)
+    monkeypatch.setattr(luna_test, "enabled", lambda _: True)
+    candidate = {"private_candidate": "PRIVATE_MATERIAL_OVERSIZED_JSON " + "x " * 40000}
+    monkeypatch.setenv("SYNTHETIC_RESPONSE_JSON", json.dumps(candidate))
+    monkeypatch.setattr("runtime.material_review.request_semantics", request_semantics)
+    run = start([], "tagged-private-oversized", old["revision"])
+    claim = processing.claim_next_material_processing_run(dsn=dsn)
+    archive = AnalysisArchive(claim, dsn=dsn)
+    result = processing.execute_claimed_material_processing_run(claim, settings, dsn=dsn)
+    assert result.status == "failed" and result.error_code == "SEMANTIC_OUTPUT_TOO_LARGE"
+    path = archive.directory / "provider-failure.json"
+    saved, = json.loads(path.read_text())["data"]["candidates"]
+    assert saved["candidate"] == candidate
+    assert saved["rejection_reason"] == "SEMANTIC_OUTPUT_TOO_LARGE"
+    assert saved["tags"]["feature"] == "material_review"
+    assert path.stat().st_mode & 0o777 == 0o600 and path.parent.stat().st_mode & 0o777 == 0o700
+    private, = (Path(os.environ["STUDYDY_ARTIFACT_ROOT"]) / "failures").glob("*.json")
+    index = json.loads(private.read_text())
+    assert index["archive_reference"].endswith(run.run_id.hex)
+    assert "candidates" not in index
+    assert "PRIVATE_MATERIAL_OVERSIZED_JSON" not in private.read_text()
+    assert "PRIVATE_MATERIAL_OVERSIZED_JSON" not in caplog.text
+    assert "PRIVATE_MATERIAL_OVERSIZED_JSON" not in (tmp_path / "luna-calls.jsonl").read_text()
+    record, = call_records(tmp_path / "luna-calls.jsonl")
+    assert record["outcome"] == "succeeded"  # provider 已成功解析，拒收發生在後端容量邊界。
+    assert len(fake_codex.read_text().splitlines()) == 1
+    assert not (tmp_path / "failures").exists()

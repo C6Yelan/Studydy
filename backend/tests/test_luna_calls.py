@@ -57,14 +57,18 @@ def test_cross_step_candidates_survive_until_failed_terminal(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize("outcome", ["succeeded", "cancelled"])
-def test_intermediate_rejection_does_not_become_failure(outcome, tmp_path):
-    work = start()
+@pytest.mark.parametrize("archive", [None, "analysis/synthetic"])
+def test_intermediate_rejection_does_not_become_failure(outcome, archive, tmp_path):
+    work = start(archive=archive)
+    saved = []
+    luna_calls.set_archive_writer(saved.extend)
     luna_calls.capture("私密退稿")
-    luna_calls.rejected("未通過")
+    luna_calls.rejected("未通過", candidate="私密退稿")
     luna_calls.completed(outcome)
     luna_calls.close(work)
     assert not list((tmp_path / "artifacts/failures").glob("*.json"))
     assert not luna_calls._pending
+    assert saved == [] and work.candidates == []
 
 
 def test_cancel_discards_pending_attempt_and_retry_uses_new_identity(tmp_path):
@@ -114,7 +118,9 @@ def test_material_raw_failure_reaches_archive_reference_only(provider_server, fa
         request_semantics(None, runtime_lock=lock, task="material_semantics", tags=luna_calls.tags(feature="material_analysis", stage="analysis"), request={"case": "invalid-json"}, response_schema={"type": "object"})
     luna_calls.completed("failed", "SEMANTIC_SERVICE_UNAVAILABLE")
     luna_calls.close(work)
-    assert saved == [{"candidate": "私密候選：這不是 JSON"}]
+    candidate, = saved
+    assert candidate["candidate"] == "私密候選：這不是 JSON"
+    assert candidate["rejection_reason"].startswith("Expecting value")
     path, = (tmp_path / "artifacts/failures").glob("*.json")
     record = json.loads(path.read_text())
     assert record["archive_reference"] == "analysis/learner/material/run"

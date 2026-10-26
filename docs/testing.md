@@ -99,6 +99,20 @@ CI 使用 Python 3.12.14、Node 24 與 lock file；uv、npm、Docker build cache
 
 `test_office_external_resources.py` 以隔離 HTTP server 與固定的合成公網 DNS 驗證圖片取得、逐次 redirect／目的 IP 核對、TLS hostname、大小／時間上限及原檔保留，測試不連到真實內部服務。真實 Office 案例另核對內網圖片不送出請求、下載後的圖片仍可離線轉檔，以及只有圖片準備階段能連網。`test_normalization_cancellation.py` 驗證多執行緒取消、啟動失敗與限額；由既有 `prlimit` 在 exec 後設定 AS／FSIZE／NOFILE／NPROC，沒有 Python `preexec_fn`。
 
+## 本機 Luna 呼叫診斷
+
+以下五份測試使用合成資料、真正的 provider HTTP server 與假的 Codex 執行檔，不呼叫真模型；runtime 案例沿用一次性 PostgreSQL 與獨立 artifact root，不連產品 DB。
+
+| 測試檔（相對於 backend/tests） | 覆蓋 |
+| --- | --- |
+| `test_luna_call_log.py` | 實際子程序呼叫紀錄、講稿內部呼叫、標籤隔離、舊請求相容、90 天清理及報表；失敗候選與退回理由的私人保存 |
+| `test_luna_calls.py` | 跨步候選、成功／取消清除、提交後終態、0700／0600、30 天清理、教材 archive 交接與 context 傳遞 |
+| `runtime/materials/test_luna_call_tags.py` | 摘要、完整筆記與章節的真 worker 標籤、被退回候選及最終失敗紀錄 |
+| `runtime/materials/test_luna_call_tags_materials.py` | 題目／複核、教材分析／複核／整合、平行標籤、checkpoint 重用、lock 不變，以及真 DB 的 failed archive 寫入邊界、後端容量驗證退回候選 |
+| `runtime/materials/test_luna_call_tags_workflows.py` | 概念卡、問答、主題、研究、Podcast 講稿／集名／分鏡／影片的工作歸屬、最終失敗候選與完整理由、一般 log 不洩漏及報表核對 |
+
+依下節環境執行所需檔案即可；這些測試不代表真模型內容品質或正式站部署已驗收。在本 WSL 工作站，worktree 與測試暫存須使用持久的 `/home/jerry/.studydy-worktrees/`；以 `mktemp -d -p /home/jerry/.studydy-worktrees/.tmp` 建立每次執行目錄，供 `TMPDIR`、pytest `--basetemp` 或獨立瀏覽器 profile 使用。不要依賴重開機會清空的 `/tmp` 保存未提交成果；測試完成後只清除自己建立的暫存目錄。
+
 ## 環境與執行入口
 
 以下命令均從 checkout 根目錄執行。先備妥 `backend/.venv` 與 `frontend/node_modules`；新建的隔離測試環境以 `uv sync --project backend --locked --extra test` 安裝 Python 依賴，不重建其他 checkout 共用的環境。`test` extra 包含 CPU 音訊、字詞切分與影片繪製依賴，不安裝 GPU／模型環境。
