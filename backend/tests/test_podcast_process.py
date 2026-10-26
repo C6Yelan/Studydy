@@ -46,8 +46,9 @@ def post(base, path, body, token='synthetic-provider-token'):
 
 
 @pytest.fixture
-def provider_server(monkeypatch):
+def provider_server(monkeypatch, tmp_path):
     monkeypatch.setenv('STUDYDY_PODCAST_PROVIDER_TOKEN', 'synthetic-provider-token')
+    monkeypatch.setenv('STUDYDY_LUNA_CALL_LOG', str(tmp_path / 'luna-calls.jsonl'))
     server = ThreadingHTTPServer(('127.0.0.1', 0), provider.Handler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()

@@ -21,7 +21,9 @@ import tempfile
 from threading import Lock, BoundedSemaphore
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from runtime import podcast_process
+import luna_call_log
 
 
 MODEL = "gpt-5.6-luna"
@@ -35,6 +37,7 @@ TEST_BACKGROUND_SLOTS = (
 )
 ASR_LOCK = Lock()
 VIDEO_LOCK = Lock()
+CALL_LOG_LOCK = Lock()
 
 
 def failure_code(error):
@@ -49,6 +52,11 @@ def failure_code(error):
         "PODCAST_REVIEW_CONTRACT_INVALID",
         "PODCAST_AUDIO_INVALID",
         "LUNA_GENERATION_FAILED",
+        "LUNA_CALL_LIMIT_EXCEEDED",
+        "LUNA_TAGS_INVALID",
+        "LUNA_CALL_LOG_FAILED",
+        "LUNA_CALL_LOG_INVALID",
+        "LUNA_FAILURE_RECORD_FAILED",
         "PODCAST_CANCELLED",
         "VIDEO_AUDIO_INVALID",
         "VIDEO_CANCELLED",
@@ -177,23 +185,37 @@ def luna(prompt, schema, *, timeout=None, cancelled=None):
         ):
             args.extend(["--disable", feature])
         # stdin 避免教材出現在程序參數；discard CLI logs 避免私人文字进入一般 log。
+        ticket = luna_call_log.begin_call()
+        code = None
         try:
-            result = podcast_process.run(
-                args + ["-"],
-                input=prompt,
-                timeout=timeout,
-                cancelled=cancelled,
-                env={
-                    k: v
-                    for k, v in os.environ.items()
-                    if k != "STUDYDY_PODCAST_PROVIDER_TOKEN"
-                },
-            )
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("LUNA_GENERATION_TIMEOUT") from None
-        if result.returncode != 0 or not output.is_file():
-            raise RuntimeError("LUNA_GENERATION_FAILED")
-        return json.loads(output.read_text(encoding="utf-8"))
+            try:
+                result = podcast_process.run(
+                    args + ["-"],
+                    input=prompt,
+                    timeout=timeout,
+                    cancelled=cancelled,
+                    started=ticket.started if ticket else None,
+                    env={
+                        k: v
+                        for k, v in os.environ.items()
+                        if k != "STUDYDY_PODCAST_PROVIDER_TOKEN"
+                    },
+                )
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("LUNA_GENERATION_TIMEOUT") from None
+            if result.returncode != 0 or not output.is_file():
+                raise RuntimeError("LUNA_GENERATION_FAILED")
+            value = json.loads(output.read_text(encoding="utf-8"))
+            luna_call_log.capture_candidate(value)
+            return value
+        except Exception as error:
+            code = failure_code(error)
+            if output.is_file():
+                luna_call_log.capture_candidate(output.read_text(encoding="utf-8", errors="replace"), failed=True)
+            raise
+        finally:
+            if ticket is not None:
+                ticket.finish(code)
 
 
 def compile_beats(candidate, claims):
@@ -651,6 +673,14 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
+    def calls(self):
+        with CALL_LOG_LOCK:
+            if not hasattr(self.server, "luna_calls"):
+                self.server.luna_calls = luna_call_log.CallLog(
+                    os.environ.get("STUDYDY_LUNA_CALL_LOG", str(Path(__file__).resolve().parents[2] / "data/podcast/luna-calls.jsonl"))
+                )
+            return self.server.luna_calls
+
     def do_POST(self):
         expected = "Bearer " + os.environ["STUDYDY_PODCAST_PROVIDER_TOKEN"]
         if not compare_digest(self.headers.get("Authorization", ""), expected):
@@ -667,6 +697,7 @@ class Handler(BaseHTTPRequestHandler):
             "/scene-check",
             "/video",
             "/jobs/cancel",
+            "/jobs/luna-result",
         }:
             self.send_error(404)
             return
@@ -689,6 +720,11 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 raise ValueError("REQUEST_INVALID")
             body = json.loads(self.rfile.read(size))
+            tags = luna_call_log.normalize_tags(body.pop("tags", None))
+            if self.path == "/jobs/luna-result":
+                result = self.calls().finalize(tags, body.get("outcome"), body.get("reason"))
+                self.respond(json.dumps(result).encode(), "application/json")
+                return
             if self.path == "/jobs/cancel":
                 self.respond(
                     json.dumps(podcast_process.cancel(body)).encode(),
@@ -715,7 +751,7 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path in {"/transcribe", "/align"}
                 else TEXT_LOCK
             )
-            with podcast_process.job(body, required=self.path == "/video") as cancelled:
+            with self.calls().request(tags, self.path), podcast_process.job(body, required=self.path == "/video") as cancelled:
                 with podcast_process.locked(active_lock, cancelled, timeout=None):
                     self.generate(body, cancelled)
         except Exception as error:
@@ -882,6 +918,9 @@ def main():
             int(os.environ.get("STUDYDY_PODCAST_PORT", "18010")),
         ),
         Handler,
+    )
+    server.luna_calls = luna_call_log.CallLog(
+        os.environ.get("STUDYDY_LUNA_CALL_LOG", str(Path(__file__).resolve().parents[2] / "data/podcast/luna-calls.jsonl"))
     )
     server.serve_forever()
 
