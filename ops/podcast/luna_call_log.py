@@ -140,6 +140,15 @@ class CallLog:
         token = _current.set(request)
         try:
             yield
+        except Exception as error:
+            if tags is not None:
+                with self.lock:
+                    entry = self.pending.setdefault(scope_key(tags), {"at": self.now(), "candidates": [], "rejections": []})
+                    entry["rejections"].append(str(error))
+                    if entry["candidates"]:
+                        # 實際核對理由只留私人候選，不能用公開通用錯誤碼取代。
+                        entry["candidates"][-1]["rejection_reason"] = str(error)
+            raise
         finally:
             _current.reset(token)
 
@@ -157,7 +166,7 @@ class CallLog:
                 name = sha256(json.dumps(key).encode()).hexdigest() + ".json"
                 target = self.failure_dir / name
                 temporary = self.failure_dir / (name + ".tmp")
-                value = {"at": self.now().isoformat(), "tags": tags, "reason": reason, "candidates": entry["candidates"]}
+                value = {"at": self.now().isoformat(), "tags": tags, "reason": reason, "candidates": entry["candidates"], "rejections": entry["rejections"]}
                 try:
                     self.failure_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
                     self.failure_dir.chmod(0o700)
@@ -172,7 +181,7 @@ class CallLog:
                     raise RuntimeError("LUNA_FAILURE_RECORD_FAILED") from None
             self.pending.pop(key, None)
         result = {"succeeded": True, "saved": outcome == "failed" and entry is not None and not material,
-                  "candidate_available": entry is not None}
+                  "candidate_available": bool(entry and entry["candidates"])}
         if material and outcome == "failed" and entry:
             # 只有終態失敗才交回 backend 寫入既有教材 archive；此處不另存副本。
             result["candidates"] = entry["candidates"]
@@ -221,5 +230,5 @@ def capture_candidate(value, *, failed=False):
     if failed or request["path"] in {"/script", "/video"}:
         store = request["store"]
         with store.lock:
-            entry = store.pending.setdefault(scope_key(request["tags"]), {"at": store.now(), "candidates": []})
+            entry = store.pending.setdefault(scope_key(request["tags"]), {"at": store.now(), "candidates": [], "rejections": []})
             entry["candidates"].append({"candidate": value})

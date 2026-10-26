@@ -764,7 +764,7 @@ def organize_sections(paragraphs, call):
 
 
 def plan_sections(concepts, regions, kind="full", budget=None):
-    """凍結區域／章節順序與各批重點；區內依輸入容量切批，工作額度由 provider 執行。"""
+    """凍結區域／章節順序與各批重點；區內再依輸入容量切批，不設總呼叫上限。"""
     by_id = {c["concept_id"]: c for c in concepts}
     flat = [cid for region in regions for cid in region["concept_ids"]]
     if len(flat) != len(set(flat)) or set(flat) != by_id.keys():
