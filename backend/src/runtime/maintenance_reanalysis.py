@@ -2,7 +2,7 @@
 
 from functools import partial
 from uuid import UUID
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 
 from .semantic_service import SemanticServiceError, request_semantics
 from .storage.database import database_session
@@ -11,6 +11,7 @@ from .storage.tables import KnowledgeStructure, MaterialProcessingRun, Material,
 # CONTRACT-demo-fixes.md 線3.1明定唯一教材；不是任意教材的公開重分析入口。
 MATERIAL_ID = UUID("4003f055-12f1-462e-83a1-015daffdfdce")
 KEY = "demo-post03-full-reanalysis-v1"
+RESUME_RUN_ID = UUID("257bef38-6c08-4baf-aedc-641d53a26795")
 
 
 def reserve_call(run_id, *, dsn=None):
@@ -67,6 +68,54 @@ def enqueue(config, *, dsn=None):
         base_revision=base_revision, full_reanalysis=True, dsn=dsn).run_id
 
 
+
+def resume_once(config, *, dsn=None):
+    """只恢復這次獲授權的失敗工作一次；原額度、來源與封存身分全部沿用。"""
+    from .luna_test import enabled
+    from .storage.artifacts import _key_digest
+
+    if not enabled(config["runtime_lock"]):
+        raise ValueError("DEMO_REANALYSIS_REQUIRES_LUNA")
+    with database_session(dsn) as session:
+        # 與來源更新／發布相同，先鎖教材，再鎖工作。
+        material = session.scalar(select(Material).where(
+            Material.material_id == MATERIAL_ID).with_for_update())
+        if material is None or material.discard_requested_at is not None:
+            raise ValueError("DEMO_MATERIAL_UNAVAILABLE")
+        run = session.scalar(select(MaterialProcessingRun).where(
+            MaterialProcessingRun.run_id == RESUME_RUN_ID,
+            MaterialProcessingRun.material_id == MATERIAL_ID,
+            MaterialProcessingRun.learner_id == material.learner_id,
+            MaterialProcessingRun.idempotency_key_sha256 == _key_digest(KEY),
+        ).with_for_update())
+        budget = run.maintenance if run is not None else None
+        if not budget or budget.get("mode") != "demo-full-reanalysis/v1":
+            raise ValueError("DEMO_REANALYSIS_RESUME_UNAVAILABLE")
+        if budget.get("resume_once_used"):
+            raise ValueError("DEMO_REANALYSIS_RESUME_ALREADY_USED")
+        if (run.status != "failed" or run.cancel_requested_at is not None
+                or run.output_binding is not None
+                or run.error_code != "SEMANTIC_SERVICE_UNAVAILABLE"):
+            raise ValueError("DEMO_REANALYSIS_RESUME_UNAVAILABLE")
+        if budget["reserved_calls"] >= budget["limit"]:
+            raise ValueError("MATERIAL_MODEL_BUDGET_EXHAUSTED")
+        if material.head_revision != run.base_revision:
+            raise ValueError("REVISION_CONFLICT")
+        if session.scalar(select(MaterialProcessingRun.run_id).where(
+            MaterialProcessingRun.material_id == MATERIAL_ID,
+            MaterialProcessingRun.status.in_(("pending", "running")),
+        )) is not None:
+            raise ValueError("REVISION_IN_PROGRESS")
+        run.maintenance = {**budget, "resume_once_used": True}
+        run.status, run.progress_stage = "pending", "queued"
+        run.error_code = run.completed_at = None
+        run.worker_token = run.lease_expires_at = None
+        run.completed_pages, run.total_pages = 0, None
+        run.completed_units = run.total_units = None
+        run.updated_at = session.scalar(select(func.clock_timestamp()))
+        return run.run_id
+
+
 def status(*, dsn=None):
     from .storage.artifacts import _key_digest
 
@@ -94,14 +143,17 @@ def main():
     import json
     import os
     parser = argparse.ArgumentParser(description="部署後對指定數學教材重分析一次；預設只查狀態。")
-    parser.add_argument("--enqueue", action="store_true", help="建立唯一工作；分析與章節／摘要合計最多300次Luna")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--enqueue", action="store_true", help="建立唯一工作；分析與章節／摘要合計最多300次Luna")
+    action.add_argument("--resume-once", action="store_true", help="只恢復指定失敗工作一次；沿用原300次額度")
     args = parser.parse_args()
     # docker compose exec 是新程序，不繼承 API 啟動程序組出的 DSN。
     from .storage.database import configure_database
     configure_database(os.environ)
-    if args.enqueue:
+    if args.enqueue or args.resume_once:
         from .local_ai_config import read_local_ai_config_from_environment
-        enqueue(read_local_ai_config_from_environment(os.environ))
+        operation = resume_once if args.resume_once else enqueue
+        operation(read_local_ai_config_from_environment(os.environ))
     print(json.dumps(status(), ensure_ascii=False))
 
 

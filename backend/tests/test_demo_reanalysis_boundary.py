@@ -42,3 +42,18 @@ def test_cli_bootstraps_container_database_before_status(monkeypatch, capsys):
     monkeypatch.setattr(maintenance, "enqueue", lambda *_: pytest.fail("status enqueued work"))
     maintenance.main()
     assert capsys.readouterr().out.strip() == '{"state": "not_started"}'
+
+
+def test_cli_resume_flag_does_not_enqueue(monkeypatch, capsys):
+    import runtime.maintenance_reanalysis as maintenance
+    monkeypatch.setattr('sys.argv', ['reanalyze-demo-material', '--resume-once'])
+    monkeypatch.setattr('runtime.storage.database.configure_database', lambda _: None)
+    config = {'runtime_lock': {}}
+    monkeypatch.setattr('runtime.local_ai_config.read_local_ai_config_from_environment', lambda _: config)
+    calls = []
+    monkeypatch.setattr(maintenance, 'resume_once', lambda value: calls.append(value))
+    monkeypatch.setattr(maintenance, 'enqueue', lambda *_: pytest.fail('resume enqueued new work'))
+    monkeypatch.setattr(maintenance, 'status', lambda: {'state': 'pending'})
+    maintenance.main()
+    assert calls == [config]
+    assert capsys.readouterr().out.strip() == '{"state": "pending"}'
