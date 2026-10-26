@@ -4,6 +4,7 @@
   --shell-header-bottom: 70px;
 }
 .app-shell {
+  --header-frame-max: 2200px;
   --application-frame-max: 1600px;
   --readable-content-max: 880px;
   --shell-gutter: clamp(16px, 2.4vw, 32px);
@@ -15,7 +16,7 @@
 }
 /* 首頁與清單頁在寬螢幕放寬版面，多出的寬度給群島地圖與卡片格線。 */
 .app-shell.is-wide {
-  --application-frame-max: 2200px;
+  --application-frame-max: var(--header-frame-max);
 }
 .app-header {
   position: relative;
@@ -25,7 +26,7 @@
   align-items: center;
   gap: 16px;
   width: 100%;
-  max-width: calc(var(--application-frame-max) + 2 * var(--shell-gutter));
+  max-width: calc(var(--header-frame-max) + 2 * var(--shell-gutter));
   margin: 0 auto;
   padding: 18px var(--shell-gutter) 0;
 }
@@ -856,7 +857,7 @@
 .app-header:has(.header-storage) .main-nav { justify-self:center; }
 .app-header:has(.header-storage) .main-nav a { padding-inline:clamp(6px, calc(2.5vw - 32px), 16px); }
 /* 帳號區在 1760px 以上展開名稱與登出文字；左側多了帳號空間後，三區完整展開約需 1740px。
-   一般頁面的頁首內容最寬 1600px，所以依頁首實際寬度（不是視窗寬度）決定是否展開，放不下時沿用 1281–1759px 的收合樣式。 */
+   全站頁首內容統一最寬 2200px，依頁首實際寬度（不是視窗寬度）決定是否展開，放不下時沿用 1281–1759px 的收合樣式。 */
 @media (min-width:1760px) {
   @container app-header (max-width:1779px) {
     .account-button { justify-content:center; width:46px; padding:0; }
