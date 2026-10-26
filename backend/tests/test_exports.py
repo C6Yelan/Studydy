@@ -20,7 +20,7 @@ def note():
     evidence = {'page': 13, 'normalized_page': 3, 'source_name': '錄音.MP3', 'block_order': 2}
     p = {'id': 'p', 'heading': '繁體中文粗體標題', 'text': '完整條件：x < 3，且不可省略。',
          'formula': 'a = b + 1', 'table': {'headers': ['條件', '結果'], 'rows': [['甲', '乙']]}, 'evidence': [evidence]}
-    return {'material_id': 'm', 'knowledge_structure_revision': 'revision', 'kind': 'summary',
+    return {'material_id': 'm', 'material_name': '測試教材', 'knowledge_structure_revision': 'revision', 'kind': 'summary',
             'source_status': {'quality': 'accepted', 'processing': 'succeeded', 'decision': 'retain'},
             'paragraphs': [p], 'annotations': [
                 {'paragraph_id': 'p', 'body': '我的想法'},
@@ -155,7 +155,7 @@ def test_mp3_is_decodable_and_transcript_uses_saved_names_and_time():
 
 
 def test_map_covers_all_regions_and_cross_region_relations():
-    view = {'material_id': 'm', 'knowledge_structure_revision': 'r',
+    view = {'material_id': 'm', 'material_name': '測試教材', 'knowledge_structure_revision': 'r',
             'concepts': [{'concept_id': str(i), 'label': f'概念{i}', 'claim_count': 1} for i in range(30)],
             'relations': [{'source_concept_id': '0', 'target_concept_id': '29', 'type': 'prerequisite'}]}
     regions = {'regions': [{'label': '區域一', 'concept_ids': [str(i) for i in range(15)]},
@@ -264,3 +264,50 @@ def test_readable_math_in_bullets_and_cells_survives_all_exports():
         text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
         assert '√4 = 2' in text and '≈ 50' in text
         assert sum(len(page.get_images()) for page in pdf) >= 1
+
+
+def test_pdf_formulas_keep_docx_size_across_page_boundaries():
+    view = structured_note()
+    formula = {'type': 'formula', 'latex': r'\frac{x_{1}+1}{y_{2}} = 2'}
+    view['paragraphs'] = [{**view['paragraphs'][0], 'blocks': [formula] * 50}]
+    view['annotations'] = []
+    word = Document(BytesIO(documents.note_docx(view)))
+    with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
+        images = [pymupdf.Rect(image['bbox']) for page in pdf for image in page.get_image_info()]
+        assert len(images) == len(word.inline_shapes) == 50
+        for image, shape in zip(images, word.inline_shapes):
+            assert image.width == pytest.approx(shape.width.pt, abs=0.02)
+            assert image.height == pytest.approx(shape.height.pt, abs=0.02)
+
+
+def test_export_metadata_uses_material_name_and_short_hash_without_pdf_clipping():
+    view = note()
+    view.update(material_id='12345678-1234-1234-1234-123456789abc', material_name='網路協定教材',
+                knowledge_structure_revision='knowledge-structure:sha256:' + 'abcdefab' * 8)
+    view['annotations'][1]['original_revision'] = 'knowledge-structure:sha256:' + 'fedcbabc' * 8
+    markdown = documents.note_markdown(view)
+    word = Document(BytesIO(documents.note_docx(view)))
+    with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
+        pdf_text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
+    for output in (markdown, '\n'.join(p.text for p in word.paragraphs), pdf_text):
+        assert all(value in output for value in ('網路協定教材', '12345678', 'abcdefab', 'fedcbabc'))
+        assert view['material_id'] not in output and view['knowledge_structure_revision'] not in output
+    map_text = export_map.markdown({**view, 'concepts': [], 'relations': []}, {'regions': []})
+    assert all(value in map_text for value in ('網路協定教材', '12345678', 'abcdefab'))
+
+
+def test_markdown_groups_sources_without_losing_file_page_or_block_locations():
+    view = note()
+    view['annotations'] = []
+    first = {'source_id': 'source-a', 'source_name': '甲.pdf', 'page': 31, 'normalized_page': 2}
+    evidence = [{**first, 'block_order': i} for i in range(22)]
+    evidence += [{**first, 'block_order': 24}, {**first, 'block_order': 24},
+                 {**first, 'normalized_page': 3, 'block_order': 0},
+                 {**first, 'source_id': 'source-b', 'source_name': '乙.pdf', 'block_order': 1}]
+    view['paragraphs'][0]['evidence'] = evidence
+    markdown = documents.note_markdown(view)
+    sources = [line for line in markdown.splitlines() if line.startswith('來源：')]
+    assert sources == ['來源：甲\\.pdf · 第 2 頁 · 區塊 0–21、24  ',
+                       '來源：甲\\.pdf · 第 3 頁 · 區塊 0  ',
+                       '來源：乙\\.pdf · 第 2 頁 · 區塊 1  ']
+    assert len(view['paragraphs'][0]['evidence']) == 26
