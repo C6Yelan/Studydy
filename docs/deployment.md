@@ -1,5 +1,22 @@
 # studydy.net 的 canonical 部署流程
 
+## 指定教材的一次性重分析
+
+POST-03 的維護指令只處理數學教材 `4003f055-12f1-462e-83a1-015daffdfdce`。先依本文件完成合併、部署與 migration 0021，再從正式 `main` checkout 執行：
+
+```bash
+ops/reanalyze-demo-material --enqueue
+ops/reanalyze-demo-material
+```
+
+指令只呼叫已部署 backend 容器中的程式；預設查狀態，不建立工作。`--enqueue` 使用固定冪等鍵，重複執行仍回同一 run，不能建立第二次分析或重設預算。維護工作只允許目前已授權的 Luna provider，保留原來源、舊版、學習紀錄與新版承接流程；不修改原 runtime binding。原工作失敗或取消也不透過一般 retry 另建一筆維護工作。
+
+分析、審查、合併、新版章節與首次自動摘要共用 300 次額度，每次外送前在 DB 原子保留。`budget.reserved_calls` 是保守的已保留請求上限，連線失敗與不確定是否受理的請求不退額，不等於外部計費明細。重啟與首次摘要重試沿用同一計數；耗盡回報 `MATERIAL_MODEL_BUDGET_EXHAUSTED`，不得改上限或重建 run。首次摘要完成後的手動重生、完整筆記與其他教材不使用本次額度。
+
+查詢同時列出分析 `state`、`chapters` 與 `summary`；分析成功不等於衍生工作已完成。完成後仍須確認「正比例」、其他概念及舊版學習承接；`needs_review` 不視為內容已驗收。此指令不負責合併、部署或重啟 provider。
+
+## 正式部署入口
+
 唯一 deployment working directory 是工作區內正式版的 `main` checkout；以下命令均以該目錄為根目錄。
 日常 rebuild、Compose 管理、設定與 source-of-truth 都在這個 checkout；build context
 是本目錄 `.`，不需要先複製 source 到其他目錄。

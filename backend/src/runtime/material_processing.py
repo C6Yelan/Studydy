@@ -72,6 +72,7 @@ class MaterialProcessingRun:
     completed_units: int | None = None
     total_units: int | None = None
     learning_scopes: dict = field(default_factory=dict, repr=False)
+    full_reanalysis: bool = False
 
 
 @dataclass(frozen=True)
@@ -222,6 +223,7 @@ def _row(row: RunRow) -> MaterialProcessingRun:
         row.completed_units,
         row.total_units,
         deepcopy(row.learning_scopes),
+        full_reanalysis=bool(row.maintenance),
     )
 
 
@@ -555,6 +557,9 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
 
     try:
         check_cancel()
+        from .maintenance_reanalysis import semantic_call_for_run
+        maintenance_call = semantic_call_for_run(run.run_id, dsn=dsn)
+        full_reanalysis = maintenance_call is not None
         archive = AnalysisArchive(claim, dsn=dsn)
         if not same_material_runtime(
             run.runtime_lock_document,
@@ -583,6 +588,7 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
         )
         review_only = bool(
             base
+            and not full_reanalysis
             and binding
             and binding.get("source_set_digest") == base.get("source_set_sha256")
         )
@@ -641,7 +647,8 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
                     binding,
                     deepcopy(local_config),
                     run_id=str(run.run_id),
-                    base_structure=base,
+                    base_structure=None if full_reanalysis else base,
+                    **({"semantic_call": maintenance_call} if full_reanalysis else {}),
                     progress_callback=progress,
                     cancellation_check=check_cancel,
                     analysis_archive=archive,
@@ -663,7 +670,8 @@ def _execute_claimed_material_processing_run(claim, local_config, *, dsn, check_
             check_cancel,
             progress,
             wait_cancellation_check=check_wait,
-            base_structure=base if not review_only else None,
+            base_structure=base if not review_only and not full_reanalysis else None,
+            **({"semantic_call": maintenance_call} if full_reanalysis else {}),
         )
         if review_only:
             structure["metrics"]["semantic_calls"] -= inherited_calls

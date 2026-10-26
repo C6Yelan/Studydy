@@ -163,6 +163,7 @@ def _claim(dsn):
         row.attempts += 1
         row.updated_at = now
         return {"key": (row.learner_id, row.material_id, row.structure_revision, row.kind),
+                "generation": row.generation,
                 "token": row.lease_token, "lock": deepcopy(row.runtime_lock),
                 "plan": deepcopy(row.section_plan), "results": deepcopy(row.section_results or [])}
 
@@ -918,6 +919,11 @@ def step(*, dsn=None, call=None, stop=None):
             raise ValueError("NOTE_CONTRACT_INVALID")
         # 沿現有文字 provider 通道，使用工作建立時封存的獨立筆記契約。
         lock["material_review"] = {**lock["material_review"], "prompt": policy["prompt"], "max_tokens": policy["max_tokens"]}
+        from .maintenance_reanalysis import semantic_call_for_revision
+        maintenance_call = (
+            semantic_call_for_revision(*claim["key"][:3], dsn=dsn)
+            if claim["key"][3] == "summary" and claim["generation"] == 0 else None
+        )
 
         def request(payload):
             _check(claim, dsn, stop, count_call=True)
@@ -926,7 +932,7 @@ def step(*, dsn=None, call=None, stop=None):
             prompt, response_schema = request_contract(payload, policy)
             task_lock = {**lock["material_review"], "prompt": prompt}
             with semantic_client() as client:
-                return request_semantics(client, runtime_lock={**lock, "material_review": task_lock}, task="material_review",
+                return (maintenance_call or request_semantics)(client, runtime_lock={**lock, "material_review": task_lock}, task="material_review",
                     request=payload, response_schema=response_schema,
                     cancellation_check=lambda: _check(claim, dsn, stop))
 

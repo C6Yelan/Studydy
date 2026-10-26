@@ -37,6 +37,8 @@ def _checkpoint_input_digest(run):
     }
     if run.learning_scopes:
         value["learning_scopes"] = run.learning_scopes
+    if getattr(run, "full_reanalysis", False) or getattr(run, "maintenance", None):
+        value["maintenance_mode"] = "demo-full-reanalysis/v1"
     return canonical_sha256(value)
 
 
@@ -50,6 +52,8 @@ def _same_analysis_inputs(first, second):
         and first.input_source_set_id == second.input_source_set_id
         and first.base_revision == second.base_revision
         and first.learning_scopes == second.learning_scopes
+        and bool(getattr(first, "full_reanalysis", False) or getattr(first, "maintenance", None))
+        == bool(getattr(second, "full_reanalysis", False) or getattr(second, "maintenance", None))
     )
 
 

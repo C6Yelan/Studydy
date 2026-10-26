@@ -232,6 +232,8 @@ def compute(rows, sources, fallback_label, call):
                 raise
             except Exception as error:
                 code = getattr(error, "reason_code", None) or str(error)
+                if code == "MATERIAL_MODEL_BUDGET_EXHAUSTED":
+                    raise
                 errors = [f"CALL_FAILED:{code if code.replace('_', '').isalnum() else type(error).__name__}"]
                 response = None
             else:
@@ -437,6 +439,8 @@ def _rows(claim, dsn):
 def _semantic_call(claim, dsn, stop):
     lock = deepcopy(configured_lock())
     model_id = lock["semantic_service"]["model_id"]
+    from .maintenance_reanalysis import semantic_call_for_revision
+    maintenance_call = semantic_call_for_revision(*claim["key"], dsn=dsn)
 
     def check():
         if stop is not None and stop.is_set():
@@ -467,7 +471,7 @@ def _semantic_call(claim, dsn, stop):
             )
             task_lock.update(prompt=PROMPT, max_tokens=budget)
             with semantic_client() as client:
-                return request_semantics(
+                return (maintenance_call or request_semantics)(
                     client,
                     runtime_lock={**lock, "material_review": task_lock},
                     task="material_review",

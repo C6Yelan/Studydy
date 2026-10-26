@@ -86,6 +86,13 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
         .with_for_update()
     ).all()
     for row in rows:
+        # 此次維護承諾封存原版；後續追加來源時也保留它。
+        if session.scalar(select(MaterialProcessingRun.run_id).where(
+            MaterialProcessingRun.material_id == material_id,
+            MaterialProcessingRun.base_revision == row.structure_revision,
+            MaterialProcessingRun.maintenance.is_not(None),
+        ).limit(1)) is not None:
+            continue
         referenced = session.scalar(
             select(StudySession.study_session_id)
             .where(
