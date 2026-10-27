@@ -1,4 +1,7 @@
 import './research.css';
+import { useEffect, useState } from 'react';
+import { materialElapsedLabel } from '../material-flow/material-flow';
+import { SourceCandidates, type Candidate } from './SourceCandidates';
 import { Progress } from '../../ui/Progress';
 import type { ResearchProgress as ResearchProgressView } from './research';
 
@@ -9,19 +12,29 @@ const headings: Record<string, string> = {
   following_up: '正在檢查還缺哪些觀念', organizing: '正在整理可用的來源',
 };
 
-/** 研究進度；`available` 是目前可選取的來源數。 */
-export function ResearchProgress({ progress, running, available }: { progress: ResearchProgressView; running: boolean; available: number }) {
+export function ResearchProgress({ progress, running, candidates }: { progress: ResearchProgressView; running: boolean; candidates: Candidate[] }) {
+  const [now,setNow]=useState(Date.now);
+  useEffect(()=>{if(!running||!progress.started_at)return;const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[running,progress.started_at]);
+  const availableSources=candidates.filter(candidate=>candidate.eligible);
+  const available=availableSources.length;
   if (running) {
-    const countable = progress.total !== null && progress.total > 0 && progress.completed !== null;
-    const waiting = progress.waiting_until && progress.waiting_until * 1000 > Date.now();
-    return <section className="research-progress" aria-label="研究進度">
-      <div className="research-progress-heading"><strong>{headings[progress.stage] ?? '正在找來源'}</strong>
-        {countable && <span>{progress.completed!.toLocaleString()} / {progress.total!.toLocaleString()} {progress.unit === 'queries' ? '組搜尋' : '份來源'}</span>}</div>
-      <Progress aria-label="研究進度" max={progress.total ?? undefined} value={countable ? progress.completed! : undefined} />
-      <p role="status">{waiting
-        ? `來源網站要求稍候，會在 ${new Date(progress.waiting_until! * 1000).toLocaleTimeString('zh-TW')} 後自動接續。`
-        : progress.summary || '找到可用的來源後，就能選擇要加入的內容。'}</p>
-      <small>研究會在背景繼續，可離開頁面；返回後能查看進度或停止。</small>
+    const countable = progress.total_topics !== undefined && progress.total_topics > 0 && progress.completed_topics !== undefined;
+    const waiting = progress.waiting_until && progress.waiting_until * 1000 > now;
+    const labels={waiting:'等待中',searching:'搜尋中',reading:'閱讀候選來源中'};
+    return <section className="research-progress research-topic-progress" aria-label="研究進度">
+      <div className="research-topic-summary"><div className="research-progress-heading"><strong>{headings[progress.stage] ?? '正在找來源'}</strong>
+        {countable && <span>已完成 {progress.completed_topics} / {progress.total_topics} 個觀念</span>}</div>
+      <Progress aria-label="研究進度" max={progress.total_topics} value={countable ? progress.completed_topics : undefined} />
+      {progress.started_at && <p>已耗時 {materialElapsedLabel(progress.started_at,now)}</p>}
+      {progress.topic_progress && <ol className="research-topic-statuses">{progress.topic_progress.map(topic=><li key={topic.topic_index}>
+        <strong>{topic.topic}</strong><span>{topic.status==='completed'?`完成 · 找到 ${topic.available_source_count} 份`:labels[topic.status]}</span>
+      </li>)}</ol>}
+      {waiting && <p role="status">來源網站要求稍候，會在 {new Date(progress.waiting_until! * 1000).toLocaleTimeString('zh-TW')} 後自動接續。</p>}
+      {progress.summary && <details className="research-search-method"><summary>搜尋方式說明</summary><p>{progress.summary}</p></details>}
+      <small>研究會在背景繼續，可離開頁面；返回後能查看進度或停止。</small></div>
+      {available>0 && <section className="research-found-sources" aria-label="已核對來源"><h3>已核對來源 · {available} 份</h3>
+        <SourceCandidates candidates={availableSources} selected={[]} disabled readOnly previewOnly showAcquisitionDetails={false} onChange={()=>{}}/>
+      </section>}
     </section>;
   }
   const finished = progress.stage === 'complete';

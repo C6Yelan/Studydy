@@ -75,3 +75,10 @@
  .topic-concept-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
  .topic-scope-review { position:sticky; top:1rem; }
 }
+
+.topic-search-scope { display:flex; align-items:center; justify-content:space-between; gap:1rem; font-size:.875rem; }
+.topic-search-scope summary { cursor:pointer; font-weight:700; }
+@media(min-width:1280px) {
+ .topic-search-page { gap:1rem; }
+ .topic-search-page-header { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; column-gap:1rem; }
+}
