@@ -1764,3 +1764,20 @@ test("assessment presence validates the response and guarded questions explain t
   const client=new StudydyApiClient(async()=>Response.json({schema:'api-error/v1',request_id:materialId,reason_code:'ASSESSMENT_IN_PROGRESS',retryable:false,message:'Request could not be completed.'},{status:409}));
   await assert.rejects(client.studyTools(`/v1/voice-conversations/${sessionId}/turns`,{question:'問題'}),error=>error.status===409&&error.reasonCode==='ASSESSMENT_IN_PROGRESS'&&error.message.includes('交卷後再試'));
 });
+
+
+test("podcast steps and omissions accept observed progress and reject malformed API values", async () => {
+  const value=podcastView();
+  const step={episode_index:0,step:'audio',status:'queued',started_at:null,elapsed_seconds:null,queue_ahead:null};
+  value.generation={active:true,completed_videos:0,failed_videos:0,steps:[step]};
+  value.episodes[0].omitted_content=[{segment_index:2,claim_ids:[claimId],reason:'source_check_failed'}];
+  const client=new StudydyApiClient(async()=>Response.json(value));
+  assert.deepEqual((await client.getPodcast(setId)).generation.steps,[step]);
+  assert.deepEqual((await client.getPodcast(setId)).episodes[0].omitted_content,value.episodes[0].omitted_content);
+  for(const patch of [{episode_index:1},{status:'complete'},{step:'unknown'},{elapsed_seconds:-1},{queue_ahead:1.5},{started_at:'yesterday'}]){
+    value.generation.steps=[{...step,...patch}];
+    await assert.rejects(client.getPodcast(setId),error=>error.kind==='schema');
+  }
+  value.generation.steps=[step];value.episodes[0].omitted_content=[{segment_index:0,claim_ids:[claimId],reason:'unverified'}];
+  await assert.rejects(client.getPodcast(setId),error=>error.kind==='schema');
+});

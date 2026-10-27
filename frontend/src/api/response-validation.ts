@@ -1553,6 +1553,15 @@ export function podcastSummary(value: unknown): value is PodcastSummary {
       || Number(generation.completed_videos) + Number(generation.failed_videos) > Number(item.episode_count)
       || (generation.expected_videos !== undefined && (!Number.isInteger(generation.expected_videos)
         || Number(generation.expected_videos) < 0 || Number(generation.expected_videos) > Number(item.episode_count)))) return false;
+    if (generation.steps !== undefined && (!Array.isArray(generation.steps) || !generation.steps.every(value => {
+      const step = object(value);
+      return !!step && Number.isInteger(step.episode_index) && Number(step.episode_index) >= 0 && Number(step.episode_index) < Number(item.episode_count)
+        && ['script','audio','alignment','video'].includes(String(step.step))
+        && ['waiting','queued','running','completed','failed','skipped'].includes(String(step.status))
+        && (step.started_at === null || timestamp(step.started_at))
+        && (step.elapsed_seconds === null || typeof step.elapsed_seconds === 'number' && Number.isFinite(step.elapsed_seconds) && step.elapsed_seconds >= 0)
+        && (step.queue_ahead === null || Number.isInteger(step.queue_ahead) && Number(step.queue_ahead) >= 0);
+    }))) return false;
   }
   return !!item && isUuid(item.podcast_id) && isUuid(item.material_id)
     && revision(item.knowledge_structure_revision, "knowledge-structure")
@@ -1598,6 +1607,11 @@ export function podcast(value: unknown): value is PodcastView {
       || !(episode.title === undefined || episode.title === null || (typeof episode.title === "string" && !!episode.title.trim()))
       || !["solo", "dialogue"].includes(String(episode.delivery))
       || episode.delivery !== item.delivery) return false;
+    if (episode.omitted_content !== undefined && (!Array.isArray(episode.omitted_content) || !episode.omitted_content.every(value => {
+      const omission = object(value);
+      return !!omission && Number.isInteger(omission.segment_index) && Number(omission.segment_index) >= 0
+        && strings(omission.claim_ids) && omission.reason === 'source_check_failed';
+    }))) return false;
     if (episode.hosts !== undefined && episode.hosts !== null) {
       const hosts = object(episode.hosts);
       const roles = episode.delivery === "dialogue" ? ["host", "guest"] : ["host"];
