@@ -92,3 +92,23 @@ test("remembered material indexes stay isolated by API client and material", asy
   assert.equal(rememberedMaterial(firstClient,"first").display_name,"updated version");
   assert.equal(rememberedMaterial(firstClient,"second").display_name,"other material");
 });
+
+
+test("source summaries separate documents, images and verified media duration", async () => {
+  const { sourceTotals, sourceTotalsLabel, sourceMetadata } = await import("./source-summary.ts");
+  const sources=[{source_kind:"document",page_count:12},{source_kind:"image",page_count:3,image_count:3},{source_kind:"youtube",page_count:7,duration_seconds:833}];
+  assert.deepEqual(sourceTotals(sources),{page_count:12,image_count:3,media_seconds:833});
+  assert.equal(sourceTotalsLabel(sourceTotals(sources)),"共 12 頁 · 3 張圖片 · 影音 13 分 53 秒");
+  assert.equal(sourceMetadata(sources[2]),"YouTube · 13:53");
+  sources.push({source_kind:"audio",page_count:20,duration_seconds:null});
+  assert.equal(sourceTotalsLabel(sourceTotals(sources)),"共 12 頁 · 3 張圖片");
+  assert.equal(sourceMetadata(sources[3]),"音訊");
+});
+
+test("updated runs require their actual work counts and show percentages", async () => {
+  const { materialStageCountLabel } = await import("./material-flow.ts");
+  const run={...processing("evidence",1,200),base_revision:"existing"};
+  assert.equal(materialCurrentStagePercent(run),null);
+  assert.equal(materialStageCountLabel({...run,completed_units:1,total_units:4}),"已完成 25%");
+  assert.equal(materialStageCountLabel({...run,progress_stage:"review",completed_units:31,total_units:49}),"已完成 63%");
+});

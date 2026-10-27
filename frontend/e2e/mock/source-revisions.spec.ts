@@ -117,6 +117,8 @@ for (const width of [1536, 390]) {
       source_artifact_id: uuid(60),
       base_revision: revision,
       source_names: ["A.pdf", ...files.map((file) => file.name)],
+      added_sources: files.map((file,index) => ({source_id:uuid(70+index),display_name:file.name})),
+      existing_source_count: 1,
       status: "running",
       progress_stage: "semantics",
       completed_pages: 1,
@@ -201,7 +203,7 @@ for (const width of [1536, 390]) {
     await expect(start).toBeEnabled();
     await start.click();
     await expect(page.getByRole("heading", { name: "正在更新教材", exact: true })).toBeVisible();
-    await expect(page.locator(".processing-sources li")).toHaveText(run.source_names!);
+    await expect(page.locator(".processing-sources")).toHaveText(`本次新增 2 份來源：${files.map(file=>file.name).join("、")}並與既有 1 份來源整合`);
     await expect(page.getByRole("button", { name: "取消並刪除教材", exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
@@ -240,6 +242,8 @@ for (const width of [1536, 390]) {
       source_artifact_id: uuid(60),
       base_revision: revision,
       source_names: ["A.pdf", "B.pdf"],
+      added_sources: [{source_id:uuid(70),display_name:"B.pdf"}],
+      existing_source_count: 1,
       status: "partial",
       completed_pages: 3,
       total_pages: 3,
@@ -329,7 +333,7 @@ for (const width of [1536, 390]) {
 
 test('update processing places cancellation and the current map in one card footer',async({page},testInfo)=>{
  await mockKnowledgeMapApi(page,structureView());
- const run:MaterialProcessingRunView={...publishedRun,run_id:newRunId,base_revision:revision,status:'running',progress_stage:'evidence',completed_pages:1,total_pages:2,source_names:['補充教材.pdf'],created_at:new Date(Date.parse(timestamp)-65000).toISOString(),updated_at:new Date(Date.parse(timestamp)-1000).toISOString(),output_binding:null,completed_at:null};
+ const run:MaterialProcessingRunView={...publishedRun,run_id:newRunId,base_revision:revision,status:'running',progress_stage:'evidence',completed_pages:1,total_pages:2,source_names:['舊教材.pdf','補充教材.pdf'],added_sources:[{source_id:uuid(70),display_name:'補充教材.pdf'}],existing_source_count:1,completed_units:1,total_units:2,created_at:new Date(Date.parse(timestamp)-65000).toISOString(),updated_at:new Date(Date.parse(timestamp)-1000).toISOString(),output_binding:null,completed_at:null};
  await mockMaterial(page,()=>({...material,latest_attempt:run}));
  await page.route(`**/v1/material-processing-runs/${newRunId}`,route=>route.fulfill({json:run}));
  const initialRunId=uuid(9);
@@ -350,4 +354,22 @@ test('update processing places cancellation and the current map in one card foot
  await page.evaluate(path=>{history.pushState({},'',path);window.dispatchEvent(new PopStateEvent('popstate'));},`/materials/${materialId}/runs/${initialRunId}`);
  await expect(page.getByRole('button',{name:'取消並刪除教材',exact:true})).toBeVisible();
  await expect(page.locator('.app-header')).toBeVisible();await expect(page.getByRole('navigation',{name:'手機導覽',exact:true})).toBeVisible();
+});
+
+
+test("library cards show server source totals with known and unknown media duration", async ({page},testInfo) => {
+  await mockKnowledgeMapApi(page);
+  const item={...material,source_count:3,source_totals:{page_count:12,image_count:3,media_seconds:833 as number|null}};
+  await mockMaterial(page,()=>item);
+  await page.goto('/materials');
+  const card=page.getByRole('article',{name:material.display_name,exact:true});
+  await expect(card).toContainText('共 12 頁 · 3 張圖片 · 影音 13 分 53 秒');
+  for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+    await page.setViewportSize({width,height});
+    await page.screenshot({path:testInfo.outputPath(`library-source-totals-${width}.png`),animations:'disabled'});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  item.source_totals.media_seconds=null;
+  await page.reload();
+  await expect(card.locator('.library-metadata').last()).toHaveText('共 12 頁 · 3 張圖片');
 });

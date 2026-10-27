@@ -1,3 +1,4 @@
+import { sourceTotalsLabel } from "./source-summary";
 import { useStudyStart } from "../study-session/StartingLevel";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InlineConfirm } from "../../ui/InlineConfirm";
@@ -289,6 +290,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                   ? `${item.source_count} 個檔案`
                   : formatFileSize(item.size_bytes)}
               </p>
+              {item.source_totals && <p className="library-metadata">{sourceTotalsLabel(item.source_totals)}</p>}
               {topic && !latest && <p className="library-state">{topicStages[topic.research!.status] ?? '準備中'}</p>}
               {isProcessingRun ? (
                 <p className="library-state">正在建立知識地圖…</p>

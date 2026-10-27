@@ -135,6 +135,8 @@ export type MaterialProcessingRunView = {
   analysis_saved?: boolean;
   base_revision?: string;
   source_names?: string[];
+  added_sources?: { source_id: string; display_name: string }[];
+  existing_source_count?: number;
   schema: "material-processing-run/v1";
   input_source_set_id?: string;
   cancel_requested_at: string | null;
@@ -187,6 +189,7 @@ export type StudySessionLink = {
 export type MaterialLibraryItem = {
   head_revision?: string | null;
   source_count?: number;
+  source_totals?: { page_count: number; image_count: number; media_seconds: number | null };
   schema: "material-library-item/v1";
   source?: SourceView;
   material_id: string;
@@ -811,6 +814,10 @@ export type AssessmentSetAction = "retry" | "publish-partial";
 export type MaterialRename = { schema: "material-rename/v1"; display_name: string };
 
 export type SourceView = {
+  source_kind?: "document" | "image" | "audio" | "video" | "youtube";
+  duration_seconds?: number | null;
+  image_count?: number | null;
+  transcript_display_name?: string | null;
   display_name?: string;
   origin?: "upload" | "research";
   included?: boolean;

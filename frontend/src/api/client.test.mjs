@@ -1790,3 +1790,26 @@ test("source display names are accepted at the API boundary and malformed names 
   source.display_name=42;
   await assert.rejects(client.getSources(materialId),error=>error.kind==='schema');
 });
+
+
+test("source metadata, library totals and run input summaries validate at the API boundary", async () => {
+  const source={source_id:setId,normalization_id:runId,original_artifact_id:sessionId,normalized_artifact_id:materialId,original_name:'課程.youtube',display_name:'課程',media_type:'application/vnd.studydy.youtube+json',status:'ready',page_count:7,error_code:null,source_kind:'youtube',duration_seconds:833,image_count:null,transcript_display_name:'YouTube 上傳者字幕'};
+  let value={schema:'material-sources/v1',material_id:materialId,sources:[source]};
+  const client=new StudydyApiClient(async()=>Response.json(value));
+  assert.deepEqual((await client.getSources(materialId)).sources[0],source);
+  for(const patch of [{source_kind:'unknown'},{duration_seconds:-1},{image_count:1.5},{transcript_display_name:42}]){
+    value.sources=[{...source,...patch}];
+    await assert.rejects(client.getSources(materialId),error=>error.kind==='schema');
+  }
+  const item={...libraryItem(),source_totals:{page_count:12,image_count:3,media_seconds:null}};
+  value=item;
+  assert.deepEqual((await client.getMaterial(materialId)).source_totals,item.source_totals);
+  value={...item,source_totals:{...item.source_totals,media_seconds:-1}};
+  await assert.rejects(client.getMaterial(materialId),error=>error.kind==='schema');
+  const run={...runView(),added_sources:[{source_id:setId,display_name:'新增.pdf'}],existing_source_count:3};
+  value=run;
+  assert.deepEqual((await client.getMaterialRun(runId)).added_sources,run.added_sources);
+  for(const patch of [{added_sources:[{source_id:'invalid',display_name:'新增.pdf'}]},{existing_source_count:-1}]){
+    value={...run,...patch};await assert.rejects(client.getMaterialRun(runId),error=>error.kind==='schema');
+  }
+});

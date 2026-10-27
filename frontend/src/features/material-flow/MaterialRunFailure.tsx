@@ -11,7 +11,7 @@ export function MaterialRunFailure({apiClient,run}:{apiClient:StudydyApiClient;r
       ? "先前流程因模型的複核提示而停止，這不代表教材已確認有矛盾。可接續已保存的結果完成更新。"
       : materialFailureMessage(run.error_code ?? "MATERIAL_ANALYSIS_FAILED")}</p>
     <p className="failure-progress" role="status">最後記錄進度：{materialProgressStageLabel(run.progress_stage)}{materialStageCountLabel(run) && `，${materialStageCountLabel(run)}`}</p>
-    {!materialStageCountLabel(run) && run.total_pages !== null && <p>已處理 {run.completed_pages} / {run.total_pages} 頁</p>}
+    {!run.base_revision && run.progress_stage === "evidence" && !materialStageCountLabel(run) && run.total_pages !== null && <p>已處理 {run.completed_pages} / {run.total_pages} 頁</p>}
     <dl className="run-failure-times">
       <div><dt>已耗時</dt><dd>{materialElapsedLabel(run.created_at,Date.parse(run.completed_at??run.updated_at))}</dd></div>
       <div><dt>最近更新</dt><dd><time dateTime={run.updated_at}>{new Date(run.updated_at).toLocaleTimeString("zh-TW")}</time></dd></div>

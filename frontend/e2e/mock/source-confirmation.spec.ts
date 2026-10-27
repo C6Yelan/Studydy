@@ -40,6 +40,7 @@ async function mockSources(page: Page, append = false) {
         original_name,
         media_type,
         status: "ready",
+        source_kind: "document",
         page_count: 10,
         error_code: null,
         included: append && index === 0,
@@ -139,7 +140,8 @@ async function mockSources(page: Page, append = false) {
         Object.assign(state.sources[2], {
           status: "ready",
           normalized_artifact_id: uuid(42),
-          page_count: 10,
+          source_kind: "document",
+        page_count: 10,
           error_code: null,
         });
         return route.fulfill({ json: listing() });
@@ -245,6 +247,7 @@ for (const width of [1536, 390])
       Object.assign(job, {
         status: "failed",
         normalized_artifact_id: null,
+        source_kind: "document",
         page_count: null,
         error_code: "NORMALIZATION_FAILED",
       });
@@ -302,6 +305,7 @@ for (const width of [1536, 390])
         included: false,
         status: "running",
         normalized_artifact_id: null,
+        source_kind: "document",
         page_count: null,
         error_code: null,
       };
@@ -416,7 +420,22 @@ for(const append of [false,true])test(`source display names drive labels and sea
  await page.goto(sourcesPath);
  const video=page.getByRole('listitem',{name:'已核對影片標題',exact:true}),pictures=page.getByRole('listitem',{name:'3 張圖片',exact:true});
  await expect(video.locator('.source-name')).toHaveText('已核對影片標題');await expect(video.locator('.source-name')).toHaveAttribute('title','已核對影片標題');await expect(pictures.locator('.source-name')).toHaveText('3 張圖片');
- await expect(video.getByRole('link',{name:'預覽逐字稿',exact:true})).toHaveAttribute('href',`/v1/artifacts/${state.sources[0].normalized_artifact_id}`);
+ await expect(video.locator('.source-metadata')).toContainText('YouTube · 13:53');
+ await expect(pictures.locator('.source-metadata')).toContainText('3 張圖片');
+ await expect(page.locator(append ? '.source-panel-head' : '.source-list-card')).toContainText('共 10 頁 · 3 張圖片 · 影音 13 分 53 秒');
+ await page.route(`**/v1/artifacts/${state.sources[0].normalized_artifact_id}`,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="zh-Hant"><body><p>已保存逐字稿預覽（測試內容）</p></body></html>'}));
+ const opener=video.getByRole('button',{name:'查看逐字稿',exact:true});
+ await opener.click();
+ const dialog=page.getByRole('dialog',{name:'已核對影片標題',exact:true});
+ await expect(dialog).toContainText('逐字稿來源：YouTube 上傳者字幕');
+ await expect(dialog.locator('iframe')).toHaveAttribute('src',`/v1/artifacts/${state.sources[0].normalized_artifact_id}`);
+ await expect(dialog.frameLocator('iframe').getByText('已保存逐字稿預覽（測試內容）')).toBeVisible();
+ for(const [width,height] of [[1440,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`transcript-${append?'published':'confirmation'}-${width}.png`),animations:'disabled'});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
+ await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(opener).toBeFocused();
+ await opener.click();await dialog.getByRole('button',{name:'關閉逐字稿'}).click();await expect(opener).toBeFocused();
  await expect(pictures.getByRole('link',{name:'下載原檔',exact:true})).toHaveAttribute('href',`/v1/artifacts/${state.sources[1].original_artifact_id}/download`);
  if(!append)await expect(page.getByRole('button',{name:'上移 3 張圖片',exact:true})).toBeVisible();
  for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){

@@ -182,7 +182,7 @@ for (const [name, run, overall, current, step] of activeCases)
       await expect(stage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String(current));
       await expect(stage.getByRole("progressbar")).toHaveAttribute(
         "aria-label",
-        `本階段進度 ${current}%，${materialStageCountLabel(run)}`,
+        `本階段進度 ${current}%`,
       );
       await expect(stage.locator(".stage-pages")).toHaveText(
         materialStageCountLabel(run),
@@ -391,7 +391,7 @@ test("loading announces its state and resumes when the backend responds", async 
   release();
   await expect(processing.getByRole("heading", { level: 1 })).toHaveText("正在分析教材");
   await expect(
-    processing.getByRole("progressbar", { name: "本階段進度 6%，已完成 3 / 45 頁", exact: true }),
+    processing.getByRole("progressbar", { name: "本階段進度 6%", exact: true }),
   ).toBeVisible();
 });
 
@@ -443,7 +443,7 @@ test("read failure retries the original run without creating work", async ({ pag
   await page.getByRole("button", { name: "重新讀取", exact: true }).focus();
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("progressbar", { name: "本階段進度 6%，已完成 3 / 45 頁", exact: true }),
+    page.getByRole("progressbar", { name: "本階段進度 6%", exact: true }),
   ).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`${runPath}$`));
   expect(reads()).toBe(2);
@@ -484,21 +484,21 @@ for (const width of [1280, 390]) test(`large review progress survives reload and
   await mockRun(page, route=>route.fulfill({json:server}));
   await page.goto(runPath);
   await expect(page.getByRole("heading",{name:"第 4 / 6 階段",exact:true})).toBeVisible();
-  await expect(page.locator(".stage-pages")).toHaveText("已完成 31 / 49 個檢核批次");
+  await expect(page.locator(".stage-pages")).toHaveText("已完成 63%");
   await expect(page.locator(".overall-heading")).not.toContainText("%");
   await expect(page.locator(".processing-sources li").first()).toBeHidden();
   await page.reload();
-  await expect(page.locator(".stage-pages")).toHaveText("已完成 31 / 49 個檢核批次");
+  await expect(page.locator(".stage-pages")).toHaveText("已完成 63%");
   const current=server;
   server={...semantics,updated_at:"2026-09-12T11:59:59Z"};
   await page.clock.runFor(3000);
-  await expect(page.locator(".stage-pages")).toHaveText("已完成 31 / 49 個檢核批次");
+  await expect(page.locator(".stage-pages")).toHaveText("已完成 63%");
   await page.locator(".processing-sources summary").click();
   expect(await page.locator(".processing-sources ol").evaluate(e=>e.clientHeight)).toBeLessThanOrEqual(160);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(width);
   server={...current,status:"failed",error_code:"REVIEW_RESPONSE_INVALID",completed_at:"2026-09-12T12:00:02Z",updated_at:"2026-09-12T12:00:02Z"};
   await page.clock.runFor(3000);
-  await expect(page.locator(".failure-progress")).toContainText("檢查與修正知識結構，已完成 31 / 49 個檢核批次");
+  await expect(page.locator(".failure-progress")).toContainText("檢查與修正知識結構，已完成 63%");
 });
 
 test("cancelled review retains validated batches without declaring completion", async ({page})=>{
@@ -506,7 +506,7 @@ test("cancelled review retains validated batches without declaring completion", 
     cancel_requested_at:clockTime.toISOString(),completed_at:clockTime.toISOString()}}));
   await page.goto(runPath);
   await expect(page.getByRole("heading",{name:"已取消教材處理",exact:true})).toBeVisible();
-  await expect(page.locator(".failure-progress")).toContainText("已完成 18 / 49 個檢核批次");
+  await expect(page.locator(".failure-progress")).toContainText("已完成 36%");
   await expect(page.getByRole("progressbar")).toHaveCount(0);
 });
 
@@ -526,7 +526,7 @@ for (const width of [1280, 390]) test(`failed review explains the cause and pres
   await expect(page.getByRole('heading',{name:'這次更新未完成',exact:true})).toBeVisible();
   await expect(page.getByText(/模型將概念標為非教學內容，但沒有提供允許的分類理由/)).toBeVisible();
   await expect(page.getByText('REVIEW_METADATA_REASON_INVALID',{exact:true})).toBeVisible();
-  await expect(page.locator('.failure-progress')).toContainText('87 / 224 個檢核批次');
+  await expect(page.locator('.failure-progress')).toContainText('38%');
   await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();
   await expect(page.getByText(/已完成的處理進度已保存/)).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);
