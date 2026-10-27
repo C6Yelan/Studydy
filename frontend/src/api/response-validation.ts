@@ -38,7 +38,7 @@ import type {
   SourceView,
   StudyResumeView,
   StudySessionView,
-  VersionMovePreview,
+  VersionMovePreview, VersionMovePrevious, VersionMoveNoticeView, VersionMoveReturn,
   VersionMoveResult,
 } from "./contracts";
 
@@ -510,12 +510,42 @@ function versionMoveUnmapped(value: unknown): boolean {
     && unmappedReasons.includes(String(item.reason));
 }
 
+function versionMovePrevious(value: unknown): value is VersionMovePrevious {
+  const item = object(value);
+  return !!item && isUuid(item.move_id) && revision(item.revision, "knowledge-structure")
+    && Array.isArray(item.card_set_ids) && item.card_set_ids.every(isUuid)
+    && (item.study_session_id === null || isUuid(item.study_session_id));
+}
+
+export function versionMoveNotice(value: unknown): value is VersionMoveNoticeView {
+  const item = object(value);
+  return !!item && item.schema === "version-move-notice/v1" && typeof item.dismissed === "boolean";
+}
+
+export function versionMoveReturn(value: unknown): value is VersionMoveReturn {
+  const item = object(value);
+  return !!item && item.schema === "version-move-return/v1" && versionMovePrevious(item);
+}
+
 export function versionMovePreview(value: unknown): value is VersionMovePreview {
   const item = object(value);
-  if (!item || item.schema !== "version-move-preview/v1" || !isUuid(item.material_id)
+  if (!item || item.schema !== "version-move-preview/v2" || !isUuid(item.material_id)
     || !(item.to_revision === null || revision(item.to_revision, "knowledge-structure"))
     || !(item.preview_digest === null || revision(item.preview_digest, "version-move"))
     || !count(item.kept_podcasts) || !Array.isArray(item.card_sets)) return false;
+  if (typeof item.automatic_safe !== "boolean" || typeof item.notice_dismissed !== "boolean"
+    || !(item.previous === null || versionMovePrevious(item.previous))
+    || !Array.isArray(item.blocking_reasons) || !item.blocking_reasons.every(value => {
+      const reason = object(value);
+      return !!reason && ["unmapped_cards", "unmapped_progress", "assessment_in_progress", "source_unavailable"].includes(String(reason.code))
+        && Number.isInteger(reason.count) && Number(reason.count) > 0;
+    })) return false;
+  if (item.automatic_move !== null) {
+    const automatic = object(item.automatic_move);
+    if (!automatic || !["pending", "completed", "failed"].includes(String(automatic.status))
+      || !(automatic.move_id === null || isUuid(automatic.move_id))
+      || !(automatic.error_code === null || typeof automatic.error_code === "string")) return false;
+  }
   const sets = item.card_sets.every((value) => {
     const set = object(value);
     return !!set && isUuid(set.card_set_id) && typeof set.name === "string"

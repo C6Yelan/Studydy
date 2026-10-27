@@ -48,7 +48,7 @@ import type {
   StudySessionFocus,
   StudySessionView,
   VersionMoveCreate,
-  VersionMovePreview,
+  VersionMovePreview, VersionMoveNoticeView, VersionMoveReturn,
   VersionMoveResult,
 } from "./contracts";
 
@@ -69,7 +69,9 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   EXPORT_PAGE_LIMIT: "卡面超過匯出上限：每個概念最多 16 張、整份最多 2000 張。",
   CARD_SET_CONFLICT: "卡組已在其他頁面更新，請重新讀取後再編輯。",
   CARD_REVIEW_CONFLICT: "這張卡已在其他頁面標記過，已重新讀取最新標記。",
-  VERSION_MOVE_STALE: "卡組或學習進度剛有變動，已重新整理可移到新版的項目，請再確認一次。",
+  VERSION_MOVE_PREVIEW_STALE: "可返回的內容剛有變動，已重新讀取，請再選一次。",
+  VERSION_MOVE_PREVIOUS_UNAVAILABLE: "目前沒有可返回的更新前內容。",
+  VERSION_MOVE_STALE: "卡組或學習進度剛有變動，已重新整理可更新的項目，請再確認一次。",
   INVALID_EMAIL: "請輸入有效的 Email 格式。",
   INVALID_CREDENTIALS: "Email 或密碼不正確。",
   ACCOUNT_UNAVAILABLE: "這個 Email 已被使用，請使用其他 Email。",
@@ -688,6 +690,20 @@ export class StudydyApiClient {
   getVersionMove(materialId: string): Promise<VersionMovePreview> {
     return this.json(`/v1/materials/${encodeURIComponent(materialId)}/version-move`, { method: "GET" },
       (value): value is VersionMovePreview => validate.versionMovePreview(value) && value.material_id === materialId);
+  }
+
+  setVersionMoveNotice(materialId: string, dismissed: boolean): Promise<VersionMoveNoticeView> {
+    return this.json(`/v1/materials/${encodeURIComponent(materialId)}/version-move/notice`, {
+      method: "PUT", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ schema: "version-move-notice/v1", dismissed }),
+    }, (value): value is VersionMoveNoticeView => validate.versionMoveNotice(value) && value.dismissed === dismissed);
+  }
+
+  returnToPreviousEntries(materialId: string, expectedMoveId: string): Promise<VersionMoveReturn> {
+    return this.json(`/v1/materials/${encodeURIComponent(materialId)}/version-move/return`, {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ schema: "version-move-return/v1", expected_move_id: expectedMoveId }),
+    }, (value): value is VersionMoveReturn => validate.versionMoveReturn(value) && value.move_id === expectedMoveId);
   }
 
   // key 由確認時產生；回應遺失時以同一個鍵重送，取得同一筆承接結果。

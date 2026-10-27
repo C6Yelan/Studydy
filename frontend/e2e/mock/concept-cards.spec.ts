@@ -409,7 +409,7 @@ test("mobile keeps review status, long content and sources usable without page o
   await page.setViewportSize({ width: 390, height: 844 });
   await mockCards(page, { saved: true, long: true });
   await page.goto(`/concept-cards/${cardSetId}`);
-  await expect(page.getByText("教材已有新版。此卡組保留建立時的教材內容與來源。")).toBeVisible();
+  await expect(page.getByText("教材已更新。此卡組保留建立時的教材內容與來源。")).toBeVisible();
   await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-content")).toContainText("x != 0");

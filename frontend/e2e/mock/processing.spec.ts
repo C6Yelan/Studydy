@@ -2,7 +2,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 import type { MaterialProcessingRunView } from "../../src/api/contracts";
 
 import { materialStageCountLabel } from "../../src/features/material-flow/material-flow";
-import { structureView, mockKnowledgeMapApi } from "../fixtures/knowledge-map";
+import { structureView, mockKnowledgeMapApi, emptyVersionMovePreview } from "../fixtures/knowledge-map";
 import { emptyCelebrationClaim, emptyLearningActivity } from "../fixtures/learning-activity";
 
 const materialId = "11111111-1111-4111-8111-111111111111";
@@ -121,6 +121,8 @@ test.beforeEach(async ({ page }) => {
     }
     expect(request.method()).toBe(path === "/v1/session/refresh" ? "POST" : "GET");
     switch (path) {
+      case `/v1/materials/${materialId}/version-move`:
+        return route.fulfill({ json: emptyVersionMovePreview(materialId, revision) });
       case "/v1/session":
       case "/v1/session/refresh":
         return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });

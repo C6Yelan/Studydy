@@ -118,5 +118,5 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
       <AccountMenu apiClient={apiClient} />
     </div>
   </header>
-  <VersionMoveNotice apiClient={apiClient} materialId={materialId} updateCompleted={updateCompleted}/></>;
+  <VersionMoveNotice apiClient={apiClient} materialId={materialId} compact={!updateCompleted && (current === "sources" || current === "concept-cards")}/></>;
 }
