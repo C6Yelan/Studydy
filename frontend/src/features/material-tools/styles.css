@@ -133,3 +133,7 @@
 .answer-audio > p { flex-basis:100%; margin:0; color:var(--error); font-size:11px; }
 .answer-audio > .audio-gesture-note { color:var(--text-secondary); }
 .voice-playback-state { color:var(--studydy-blue); font-size:11px; }
+
+.voice-sentence-audio > .answer-audio-play { min-height:2.75rem; padding:.4rem .75rem; }
+.voice-sentence-audio > .voice-sentence-wait { color:var(--text-secondary); }
+.voice-sentence-audio > .voice-playback-state { flex-basis:100%; }

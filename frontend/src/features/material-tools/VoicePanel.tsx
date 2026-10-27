@@ -7,11 +7,12 @@ import type { Conversation, VoiceTurn, VoiceView } from './types';
 import { Icon } from '../../ui/Icon';
 import type { KnowledgeOutlineView, PodcastContext } from '../../api/contracts';
 import { answerSources } from './answerSources';
-import { AnswerAudio } from './AnswerAudio';
+import { VoiceAnswerAudio } from './VoiceAnswerAudio';
 import { prefetchVoiceAssets, useContinuousVoice } from './useContinuousVoice';
 
 const pending = new Set(['transcribing','pending','answering','speaking']);
 const labels:Record<string,string> = { transcribing:'正在辨識你的問題…', pending:'等待教材回答…', answering:'正在依教材整理回答…', speaking:'正在產生語音…', failed:'本次處理未完成', cancelled:'已取消' };
+const stageLabels:Record<string,string> = {retrieval:'正在查找教材依據…',answering:'正在整理回答…',checking:'正在核對回答來源…',tts_queued:'正在等待語音製作…',tts_synthesizing:'正在準備語音…'};
 const mascot = '/assets/Studydy_角色素材/引導/guide_present.png';
 
 /** 建議問題只用知識結構裡真實存在的概念名稱與關係，句型固定，不由模型生成。 */
@@ -49,11 +50,16 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
  const historyOpener=useRef<HTMLButtonElement>(null),historyPanel=useRef<HTMLDivElement>(null);
  const createKey=useRef(crypto.randomUUID()),questionIntent=useRef<{body:string;key:string}|null>(null);
  const [autoPlayTurnId,setAutoPlayTurnId]=useState<string|null>(null);
+ const [activeAnswer,setActiveAnswer]=useState<HTMLMediaElement|null>(null);
  const expectedRevision=list.find(conversation=>conversation.conversation_id===id)?.knowledge_structure_revision??revision;
- const pauseMedia=(except?:HTMLMediaElement)=>{for(const element of document.querySelectorAll<HTMLMediaElement>('audio, video'))if(element!==except)element.pause();podcastMedia?.current?.pause();};
+ const pauseMedia=(except?:HTMLMediaElement)=>{setActiveAnswer(except??null);for(const element of document.querySelectorAll<HTMLMediaElement>('audio, video'))if(element!==except)element.pause();podcastMedia?.current?.pause();};
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;version.current++;readVersion.current++;for(const a of audios.current){a.pause();a.removeAttribute('src');a.load();}audios.current.clear();};},[]);
  useEffect(()=>{
-   const playing=(event:Event)=>{if(event.target instanceof HTMLMediaElement&&!audios.current.has(event.target as HTMLAudioElement))for(const a of audios.current)a.pause();};
+   const playing=(event:Event)=>{
+    if(event.target instanceof HTMLMediaElement&&!audios.current.has(event.target as HTMLAudioElement)){
+     setActiveAnswer(null);for(const a of audios.current)a.pause();
+    }
+   };
    document.addEventListener('play',playing,true);return()=>document.removeEventListener('play',playing,true);
  },[]);
  // 建議問題讀取失敗只是不顯示，不影響問答。
@@ -94,7 +100,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
  },[api,id,reload,materialId,expectedRevision]);
  const closeHistory=(focusOpener:boolean)=>{setHistoryOpen(false);if(focusOpener)historyOpener.current?.focus();};
  const choose=(next:string|null)=>{
-  version.current++;readVersion.current++;current.current=next;
+  version.current++;readVersion.current++;current.current=next;setActiveAnswer(null);
   for(const audio of audios.current)audio.pause();
   setId(next);setView(null);setQuestion('');setError('');setOutgoing(null);followLatest.current=true;setBehind(false);
   setReload(value=>value+1);
@@ -103,7 +109,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
   if(inFlight.current)focusAfterAction.current=true;else input.current?.focus();
  };
  const switchMode=(next:'text'|'voice')=>{
-  version.current++;setMode(next);setAutoPlayTurnId(null);
+  version.current++;setMode(next);setAutoPlayTurnId(null);setActiveAnswer(null);
   for(const audio of audios.current)audio.pause();
   if(next==='voice')pauseMedia();else focusAfterAction.current=true;
  };
@@ -149,14 +155,14 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
   }
  });
  useEffect(()=>{
-  const changed=()=>{setMode('text');setAutoPlayTurnId(null);for(const audio of audios.current)audio.pause();};
+  const changed=()=>{setMode('text');setAutoPlayTurnId(null);setActiveAnswer(null);for(const audio of audios.current)audio.pause();};
   window.addEventListener('popstate',changed);return()=>window.removeEventListener('popstate',changed);
  },[]);
  useEffect(()=>{if(historyOpen)historyPanel.current?.querySelector<HTMLElement>('[aria-current="true"], button')?.focus();},[historyOpen]);
 
  const working=view?.turns.some(turn=>pending.has(turn.status))??false;
  const listening=useContinuousVoice({enabled:mode==='voice',paused:busy||working,
-  onSpeech:()=>{for(const audio of audios.current)audio.pause();setAutoPlayTurnId(null);},
+  onSpeech:()=>{setActiveAnswer(null);for(const audio of audios.current)audio.pause();setAutoPlayTurnId(null);},
   onError:message=>{setError(message);setMode('text');},
   onRecording:blob=>{const generation=version.current;void perform(async()=>{
    const active=current.current??await create();if(!active)return;
@@ -183,7 +189,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
  useLayoutEffect(()=>{
   if(followLatest.current&&transcript.current)transcript.current.scrollTop=transcript.current.scrollHeight;
   else if(lastTurn)setBehind(true);
- },[id,lastTurn?.turn_id,lastTurn?.status,lastTurn?.answer?.text,lastTurn?.audio_url,showOutgoing]);
+ },[id,lastTurn?.turn_id,lastTurn?.status,lastTurn?.answer?.text,lastTurn?.audio_url,lastTurn?.stage,lastTurn?.audio_sentences?.map(sentence=>sentence.status).join(','),showOutgoing]);
  const statusText=listening==='permission'?'等待麥克風權限…':listening==='loading'?'正在載入人聲辨識…':recording?'正在聆聽你的問題，說完稍停即可送出':busy?'正在送出…':working?(view?.turns.some(turn=>turn.status==='transcribing')?'正在辨識':'正在整理回答'):mode==='voice'?'正在聆聽':'Enter 送出 · Shift+Enter 換行';
  return <div className="voice-panel" onKeyDown={event=>{
   if(event.key==='Escape'&&historyOpen){event.stopPropagation();event.preventDefault();closeHistory(true);}
@@ -201,7 +207,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
     const element=event.currentTarget;followLatest.current=element.scrollHeight-element.clientHeight-element.scrollTop<48;
     if(followLatest.current)setBehind(false);
    }}>
-    {(!id||view?.turns.length===0)&&!showOutgoing&&<div className="voice-empty"><img className="voice-empty-mascot" src={mascot} alt=""/><h3>教材裡哪個地方想再了解？</h3><p>{mode==='voice'?'正在聆聽。說完稍停，會自動送出；回答播放時可直接開口打斷。':'輸入問題，回答會附上教材來源頁碼。'}</p>
+    {(!id||view?.turns.length===0)&&!showOutgoing&&<div className="voice-empty"><img className="voice-empty-mascot" src={mascot} alt=""/><h3>教材裡哪個地方想再了解？</h3><p>{mode==='voice'?'正在聆聽。說完稍停，會自動送出；語音製作中暫停收音，完成後可在播放時開口打斷。':'輸入問題，回答會附上教材來源頁碼。'}</p>
      {mode==='text'&&suggestions.length>0&&<div className="voice-suggestions" role="group" aria-label="建議問題">{suggestions.map(text=><button type="button" className="voice-suggestion" key={text} onClick={()=>{setQuestion(text);input.current?.focus();}}>{text}</button>)}</div>}
     </div>}
     {id&&!view&&!showOutgoing&&<p className="voice-inline-note" role="status">正在讀取對話…</p>}
@@ -211,6 +217,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
        : answerSources(turn.answer).sources.map(evidence=>({passage_id:evidence.evidence_id,text:evidence.quote,evidence:[evidence]}));
      if(turn.status==='cancelled'&&!turn.answer)return <article className="voice-turn voice-cancelled" key={turn.turn_id}><small>已取消這次提問</small></article>;
      const waiting=pending.has(turn.status);
+     const waitingLabel=(waiting?stageLabels[turn.stage??'']:undefined)??labels[turn.status]??'正在處理…';
      return <article key={turn.turn_id} className="voice-turn">
       <div className="voice-question" aria-label="你的提問">{turn.context&&<small>Podcast 第 {turn.context.episode_index+1} 集 · 所選段落</small>}<p>{turn.question||'語音提問'}</p>{turn.answer?.question_interpretation&&<small>依對話理解為：{turn.answer.question_interpretation.used}</small>}</div>
       <div className="voice-reply"><img className="voice-avatar" src={mascot} alt=""/>
@@ -218,18 +225,18 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
         {turn.answer&&<>
          {turn.answer.schema==='material-answer/v3' && turn.answer.paragraphs ? turn.answer.paragraphs.map((paragraph,index)=><p key={index} className="voice-answer"><MathText text={paragraph.text}/>{paragraph.citation_ids.map(id=>{const number=citations.findIndex(c=>c.passage_id===id)+1;const citation=citations[number-1];return citation?.evidence.map(evidence=><SourceButton key={`${id}:${evidence.evidence_id}`} apiClient={api} resolver={view!.source_resolver} evidence={evidence} reference={{number,quote:evidence.quote}}/>);})}</p>) : <p className="voice-answer"><MathText text={turn.answer.text}/></p>}
          <div className="voice-reference-sources" aria-label="回答來源"><strong>來源</strong>{citations.map((citation,index)=><div key={citation.passage_id}>{citation.evidence.map(evidence=><SourceButton key={evidence.evidence_id} apiClient={api} resolver={view!.source_resolver} evidence={evidence} reference={{number:index+1,list:true,quote:evidence.quote}}/>)}</div>)}{!citations.length&&<small>教材沒有足夠依據。</small>}</div>
-         {turn.audio_url&&<div className="voice-answer-actions"><AnswerAudio src={turn.audio_url} autoPlay={mode==='voice'&&autoPlayTurnId===turn.turn_id} onAutoPlayAttempt={()=>setAutoPlayTurnId(previous=>previous===turn.turn_id?null:previous)} register={element=>audios.current.add(element)} onPlay={element=>pauseMedia(element)}/></div>}
+         {(turn.audio_url||!!turn.audio_sentences?.length)&&<div className="voice-answer-actions"><VoiceAnswerAudio src={turn.audio_url} sentences={turn.audio_sentences} status={turn.status} activeAudio={activeAnswer} autoPlay={mode==='voice'&&autoPlayTurnId===turn.turn_id} onAutoPlayAttempt={()=>setAutoPlayTurnId(previous=>previous===turn.turn_id?null:previous)} register={element=>audios.current.add(element)} onPlay={element=>pauseMedia(element)}/></div>}
         </>}
-        {waiting&&!turn.answer&&<p className="voice-typing"><span aria-hidden="true"><i/><i/><i/></span>正在輸入…</p>}
+        {waiting&&!turn.answer&&<p className="voice-typing"><span aria-hidden="true"><i/><i/><i/></span>{waitingLabel}</p>}
        </div>
       </div>
-      {turn.status!=='ready'&&<div className="voice-turn-status"><small>{turn.status==='failed'&&turn.answer?'文字回答已完成':labels[turn.status]??'處理中…'}</small>
+      {turn.status!=='ready'&&<div className="voice-turn-status">{(!waiting||turn.answer)&&<small>{turn.status==='failed'&&turn.answer?'文字回答已完成':waitingLabel}</small>}
        {waiting&&<button className="text-button" disabled={busy} onClick={()=>turnAction(turn,'cancel')}>取消這次提問</button>}
       </div>}
       {turn.status==='failed'&&<div className="voice-turn-status is-failed"><p className="voice-inline-note">{turn.answer?'語音製作未完成，文字與來源已保留。':'目前無法完成處理。'}{turn.error_code==='VOICE_TRANSCRIPT_INVALID'?'沒有辨識到清楚語音，請重新錄音。':turn.error_code==='VOICE_PODCAST_CONTEXT_INVALID'||turn.error_code==='RESOURCE_NOT_FOUND'?'原 Podcast 已不可用，請改用一般教材問答。':''}</p>{turn.question&&<button className="text-button" disabled={busy||working} onClick={()=>turnAction(turn,'retry')}>重試{turn.answer?'語音':'回答'}</button>}</div>}
      </article>;
     })}
-    {showOutgoing&&<article className="voice-turn is-sending"><div className="voice-question" aria-label="你的提問"><p>{outgoing?.text}</p></div><div className="voice-reply"><img className="voice-avatar" src={mascot} alt=""/><div className="voice-response"><p className="voice-typing"><span aria-hidden="true"><i/><i/><i/></span>正在輸入…</p></div></div></article>}
+    {showOutgoing&&<article className="voice-turn is-sending"><div className="voice-question" aria-label="你的提問"><p>{outgoing?.text}</p></div><div className="voice-reply"><img className="voice-avatar" src={mascot} alt=""/><div className="voice-response"><p className="voice-typing"><span aria-hidden="true"><i/><i/><i/></span>正在送出問題…</p></div></div></article>}
    </div>
    {behind&&!historyOpen&&<button type="button" className="voice-latest" onClick={toLatest}><Icon name="chevron-right" size={14}/>最新訊息</button>}
    {historyOpen&&<div ref={historyPanel} id="voice-history" className="voice-history" role="group" aria-label="已保存的對話">
