@@ -811,6 +811,7 @@ export type AssessmentSetAction = "retry" | "publish-partial";
 export type MaterialRename = { schema: "material-rename/v1"; display_name: string };
 
 export type SourceView = {
+  display_name?: string;
   origin?: "upload" | "research";
   included?: boolean;
   source_id: string;

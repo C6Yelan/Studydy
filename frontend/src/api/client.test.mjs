@@ -1781,3 +1781,12 @@ test("podcast steps and omissions accept observed progress and reject malformed 
   value.generation.steps=[step];value.episodes[0].omitted_content=[{segment_index:0,claim_ids:[claimId],reason:'unverified'}];
   await assert.rejects(client.getPodcast(setId),error=>error.kind==='schema');
 });
+
+
+test("source display names are accepted at the API boundary and malformed names are rejected", async () => {
+  const source={source_id:setId,normalization_id:runId,original_artifact_id:sessionId,normalized_artifact_id:materialId,original_name:'課程.youtube',display_name:'課程',media_type:'application/vnd.studydy.youtube+json',status:'ready',page_count:7,error_code:null};
+  const client=new StudydyApiClient(async()=>Response.json({schema:'material-sources/v1',material_id:materialId,sources:[source]}));
+  assert.equal((await client.getSources(materialId)).sources[0].display_name,'課程');
+  source.display_name=42;
+  await assert.rejects(client.getSources(materialId),error=>error.kind==='schema');
+});
