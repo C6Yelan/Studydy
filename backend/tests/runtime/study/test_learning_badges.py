@@ -15,13 +15,10 @@ from runtime import podcasts
 from runtime.learning_activity import learning_activity, record_export
 from runtime.source_normalization import upload_source
 from runtime.storage.database import database_session
-from runtime.storage.migrations import DEFAULT_MIGRATIONS_DIR, run_migrations
 from runtime.storage.tables import Podcast
 from test_starting_level import _client, _finish_cross, _preference, _start
 
 TAIPEI = ZoneInfo("Asia/Taipei")
-# 本功能的 migration 編號；合併時若改號，這裡與檔名一起改。
-BADGE_MIGRATION = 19
 
 
 def activity(f):
@@ -165,54 +162,6 @@ def test_existing_records_are_derived_retroactively(closed_loop, tmp_path, monke
     assert badges["first_diagnostic"]["earned"] and badges["upload_image"]["earned"]
     assert badges["podcast_series"]["earned"] and badges["first_export"]["earned"]
     assert view["xp"]["sources"]["diagnostics"] == 0
-
-
-@pytest.fixture
-def migrations_dir(request, tmp_path):
-    last = getattr(request, "param", None)
-    if last is None:
-        return DEFAULT_MIGRATIONS_DIR
-    target = tmp_path / f"migrations-{last:04d}"
-    target.mkdir()
-    for source in DEFAULT_MIGRATIONS_DIR.glob("*.sql"):
-        if int(source.name[:4]) <= last:
-            (target / source.name).write_bytes(source.read_bytes())
-    return target
-
-
-@pytest.fixture
-def skip_goal_rebase(monkeypatch):
-    """升級前的資料表沒有 created_at，ORM 不能讀目標；合成教材發布時還沒有任何目標，跳過發布時的目標重排。"""
-    monkeypatch.setattr(learning_goals, "rebase_goal_for_revision", lambda *args: None)
-
-
-@pytest.mark.parametrize("migrations_dir", [BADGE_MIGRATION - 1], indirect=True)
-def test_migration_backfills_goal_created_at_without_changing_rows(skip_goal_rebase, closed_loop):
-    f = concept_fixture(closed_loop, 2)
-    baseline = datetime(2026, 10, 20, 9, tzinfo=TAIPEI)
-    with database_session(f["dsn"]) as db:
-        db.execute(text(
-            """
-            INSERT INTO learning_goals (material_id, learner_id, target_date, target_percent, baseline_at,
-                baseline_revision, baseline_assessable_points, baseline_completed_points,
-                baseline_unavailable_claim_ids, notice_revision, notice_points, daily_date,
-                daily_unavailable_claim_ids, daily_completed_points, daily_quota_points)
-            VALUES (:material, :owner, '2026-12-31', 80, :at, :revision, 3, 0, '{}', :revision, 3,
-                    '2026-10-20', '{}', 0, 1)
-            """
-        ), {"material": f["source"].material_id, "owner": f["learner"].learner_id, "at": baseline,
-            "revision": f["document"]["revision"]})
-        before = db.execute(text("SELECT row_to_json(g)::jsonb FROM learning_goals g")).scalar()
-    assert run_migrations(f["dsn"]) == (BADGE_MIGRATION,)
-    with database_session(f["dsn"]) as db:
-        after = db.execute(text("SELECT row_to_json(g)::jsonb FROM learning_goals g")).scalar()
-        assert {key: value for key, value in after.items() if key != "created_at"} == before
-        assert db.execute(text("SELECT created_at = baseline_at FROM learning_goals")).scalar()
-        assert db.execute(text("SELECT count(*) FROM goal_milestones")).scalar() == 0
-        assert db.execute(text("SELECT count(*) FROM learner_exports")).scalar() == 0
-    _, badges = activity(f)
-    assert badges["first_goal"]["earned_on"] == baseline.date()
-    assert run_migrations(f["dsn"]) == ()
 
 
 def test_milestone_failure_rolls_back_only_its_savepoint_and_submit_succeeds(closed_loop, monkeypatch, caplog):

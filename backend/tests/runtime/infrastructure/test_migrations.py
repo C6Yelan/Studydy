@@ -141,7 +141,8 @@ def test_remove_topic_level_preserves_background_and_approval_identity(clean_dat
         assert connection.execute("SELECT to_regprocedure('pg_temp.topic_scope_json(jsonb)')").fetchone()==(None,)
     for identity,_,status,key,expected in records:
         if status=='approved':
-            assert topics.approve(owner,identity,4,expected,key,dsn=clean_database_dsn)['proposal']==expected
+            # 重送已確認的請求帶確認前看到的版本（確認時版本 +1）。
+            assert topics.approve(owner,identity,3,expected,key,dsn=clean_database_dsn)['proposal']==expected
         else:
             with pytest.raises(topics.SourceError,match='TOPIC_CONFLICT'):
                 topics.approve(owner,identity,2,expected,key,dsn=clean_database_dsn)
@@ -176,5 +177,5 @@ def test_remove_topic_exclusions_keeps_constraints_editable(clean_database_dsn, 
         assert saved['version']==9 and saved['status']==status
         assert saved['proposal']==topics.proposal(expected)==expected
         if status=='approved':
-            assert topics.approve(owner,identity,9,expected,key,dsn=clean_database_dsn)['proposal']==expected
+            assert topics.approve(owner,identity,8,expected,key,dsn=clean_database_dsn)['proposal']==expected
     assert run_migrations(clean_database_dsn)==()
