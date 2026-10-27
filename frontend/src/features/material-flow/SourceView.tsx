@@ -345,7 +345,7 @@ export function SourceView({
           <li className={`source-row${source.status === "failed" ? " is-failed" : ""}`} key={source.source_id} aria-label={displayName}>
             <span className="source-number">{currentStructure ? displayedSources.indexOf(source) + 1 : index + 1}</span>
             <div className="source-content">
-              <strong className="source-name" title={displayName}>{displayName}</strong>
+              <strong className="source-name source-name-readable" title={displayName}>{displayName}</strong>
               <div className="source-metadata">
                 {sourceMetadata(source) && <span>{sourceMetadata(source)}</span>}
                 {source.source_kind === "document" && source.analysis_mode === "selected" && source.analysis_page_count != null && <span>依學習需求選讀 {source.analysis_page_count} 頁中的相關段落</span>}
