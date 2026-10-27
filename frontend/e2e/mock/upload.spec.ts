@@ -514,15 +514,13 @@ test('confirmation polling preserves the edited name and reload keeps the saved 
  state.name='先前已自訂的名稱.pdf';await page.reload();await expect(name).toHaveValue('先前已自訂的名稱.pdf');
 });
 
-for (const goal of [false, true]) test(`creation saves the selected level and ${goal ? 'goal' : 'no goal'} before analysis`, async ({ page }, testInfo) => {
+for (const goal of [false, true]) test(`creation saves the selected ${goal ? 'goal' : 'no goal'} before analysis`, async ({ page }, testInfo) => {
  const state=await setup(page);
  await page.goto('/upload');
  const picker=page.getByLabel('選擇教材檔案',{exact:true});await expect(picker).toBeEnabled();await picker.setInputFiles(pdf);
  await page.getByRole('button',{name:'上傳並確認來源',exact:true}).click();
- const settings=page.getByRole('button',{name:'程度與目標',exact:true});await expect(settings).toBeEnabled();await settings.click();
- const dialog=page.getByRole('dialog',{name:'程度與目標',exact:true});
- await expect(dialog.getByRole('radio',{name:/第一次接觸/})).toBeChecked();
- await dialog.getByRole('radio',{name:/學過了/}).check();
+ const settings=page.getByRole('button',{name:'學習目標',exact:true});await expect(settings).toBeEnabled();await settings.click();
+ const dialog=page.getByRole('dialog',{name:'學習目標',exact:true});
  if(goal){await dialog.getByRole('checkbox',{name:'設定學習目標（選填）'}).check();await expect(dialog.getByRole('button',{name:'套用設定'})).toBeDisabled();await dialog.getByLabel('目標日期',{exact:true}).fill('2026-11-30');await dialog.getByRole('radio',{name:/80%/}).check();}
  for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
   await page.setViewportSize({width,height});await expect(dialog).toBeInViewport({ratio:1});
@@ -535,15 +533,15 @@ for (const goal of [false, true]) test(`creation saves the selected level and ${
  await page.screenshot({path:testInfo.outputPath(`creation-confirm-${goal?'goal':'skip'}-1440.png`),animations:'disabled'});
  state.settings!.failNext=true;await start.click();await expect(page.getByRole('alert')).toBeVisible();expect(state.starts).toHaveLength(0);
  await start.click();await expect.poll(()=>state.starts.length).toBe(1);
- expect(state.settings!.level).toBe('familiar');expect(state.settings!.goal).toEqual(goal?{target_date:'2026-11-30',target_percent:80}:null);
- expect(state.settings!.writes.map(write=>write.method)).toEqual(['PUT','PUT',goal?'PUT':'DELETE']);
+ expect(state.settings!.goal).toEqual(goal?{target_date:'2026-11-30',target_percent:80}:null);
+ expect(state.settings!.writes.map(write=>write.method)).toEqual([goal?'PUT':'DELETE',goal?'PUT':'DELETE']);
 });
 
 test('a saved draft goal can be skipped and published goal rejection prevents analysis',async({page})=>{
  const state=await setup(page);state.settings!.goal={target_date:'2026-11-30',target_percent:60};
  await page.goto('/upload');const picker=page.getByLabel('選擇教材檔案',{exact:true});await expect(picker).toBeEnabled();await picker.setInputFiles(pdf);
  await page.getByRole('button',{name:'上傳並確認來源',exact:true}).click();
- await page.getByRole('button',{name:'程度與目標'}).click();const dialog=page.getByRole('dialog',{name:'程度與目標'});
+ await page.getByRole('button',{name:'學習目標'}).click();const dialog=page.getByRole('dialog',{name:'學習目標'});
  await expect(dialog.getByLabel('目標日期',{exact:true})).toHaveValue('2026-11-30');
  await dialog.getByRole('checkbox',{name:'設定學習目標（選填）'}).uncheck();await dialog.getByRole('button',{name:'套用設定'}).click();
  state.settings!.published=true;await page.getByRole('button',{name:'開始分析教材',exact:true}).click();

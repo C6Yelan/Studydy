@@ -1,7 +1,7 @@
 import type {
   MaterialNotesView, AssessmentPresence, CelebrationClaim,
   LearningGoalView, LearningGoalsView,
-  StartingLevel, StartingLevelView, StudyStartView,
+  StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
   KnowledgeOutlineView, StudyNavigationView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, LearningRhythmView, MapProgressView, ProgressSummaryView, PodcastProgressView, StudyWorkspaceView,
   PodcastSummary, PodcastView, PodcastListView, PodcastDeletedView, AccountStorage,
@@ -44,20 +44,10 @@ import type {
 
 type Json = Record<string, unknown>;
 
-export function startingLevel(value: unknown): value is StartingLevel {
-  return ["beginner", "some_knowledge", "familiar", "gaps"].includes(String(value));
-}
-
-export function startingLevelView(value: unknown): value is StartingLevelView {
-  const item = object(value);
-  return !!item && item.schema === "starting-level/v1" && isUuid(item.material_id)
-    && (item.starting_level === null || startingLevel(item.starting_level));
-}
-
 export function studyStart(value: unknown): value is StudyStartView {
   const item = object(value);
-  return !!item && item.schema === "study-start/v1" && studySession(item.session)
-    && startingLevel(item.starting_level) && (item.selected_set_id === null || isUuid(item.selected_set_id));
+  return !!item && item.schema === "study-start/v2" && studySession(item.session)
+    && (item.selected_set_id === null || isUuid(item.selected_set_id));
 }
 
 function goalConcepts(value: unknown): boolean {
@@ -1000,17 +990,17 @@ export function learningActivity(value: unknown): value is LearningActivityView 
   const xp = object(item?.xp);
   const sources = object(xp?.sources);
   const badges = object(item?.badges);
-  return !!item && item.schema === "learning-activity/v3" && item.timezone === "Asia/Taipei"
-    && item.rule_version === "xp-rules/v4"
+  return !!item && item.schema === "learning-activity/v4" && item.timezone === "Asia/Taipei"
+    && item.rule_version === "xp-rules/v5"
     && typeof item.today === "string" && isoDate.test(item.today)
     && count(item.streak_days) && typeof item.active_today === "boolean"
     && count(item.total_answers) && count(item.total_correct) && item.total_correct <= item.total_answers
     && !!xp && !!sources && [xp.total, xp.today, xp.level_xp, xp.level_target].every(count)
     && Number.isInteger(xp.level) && Number(xp.level) >= 1 && Number(xp.level_xp) < Number(xp.level_target)
     && Number(xp.today) <= Number(xp.total)
-    && ["answers", "concepts", "cards", "podcast", "goals", "difficulties", "diagnostics"].every(key => count(sources[key]))
+    && ["answers", "concepts", "cards", "podcast", "goals", "difficulties"].every(key => count(sources[key]))
     && Array.isArray(item.quests) && item.quests.every(learningQuest)
-    && !!badges && badges.rule_version === "badge-rules/v7" && Array.isArray(badges.items) && badges.items.every(learningBadge);
+    && !!badges && badges.rule_version === "badge-rules/v8" && Array.isArray(badges.items) && badges.items.every(learningBadge);
 }
 
 const rhythmPeriods = ["week", "month", "quarter", "year"];
@@ -1104,8 +1094,7 @@ export function conceptDifficulty(value: unknown): value is ConceptDifficultyVie
 
 export function mapProgress(value: unknown): value is MapProgressView {
   const item = object(value);
-  return !!item && item.schema === "map-progress/v1" && isUuid(item.study_session_id)
-    && (item.starting_level === null || startingLevel(item.starting_level))
+  return !!item && item.schema === "map-progress/v2" && isUuid(item.study_session_id)
     && strings(item.learning_path) && item.learning_path.every(id => revision(id, "concept"))
     && revision(item.knowledge_structure_revision, "knowledge-structure")
     && (item.current_concept_id === null || revision(item.current_concept_id, "concept"))
@@ -1138,10 +1127,9 @@ function studyNavigation(value: unknown): value is StudyNavigationView {
 
 export function studyWorkspace(value: unknown): value is StudyWorkspaceView {
   const item = object(value), p = object(item?.progress);
-  if (!item || item.schema !== "study-workspace/v1" || !studySession(item.session)
-    || !(item.starting_level === null || startingLevel(item.starting_level))
+  if (!item || item.schema !== "study-workspace/v2" || !studySession(item.session)
     || !studyNavigation(item.outline) || !isUuid(item.run_id) || !isUuid(item.source_artifact_id)
-    || !p || p.schema !== "study-progress/v1" || !progress({ ...p, schema: "learner-progress/v1" })
+    || !p || p.schema !== "study-progress/v2" || !progress({ ...p, schema: "learner-progress/v2" })
     || p.concept_count !== item.outline.concept_count
     || !(item.context === null || knowledgeConcepts(item.context))
     || !Array.isArray(item.assessment_sets) || !item.assessment_sets.every(assessmentSetSummary)) return false;
@@ -1154,7 +1142,6 @@ export function studyWorkspace(value: unknown): value is StudyWorkspaceView {
     || !item.assessment_sets.some(s => s.set_id === selected.set_id && s.set_version === selected.set_version && s.target_concept_id === selected.target_concept_id)
   )) return false;
   const needed = new Set([session.current_concept_id, object(selected)?.target_concept_id, object(p.next_action)?.target_concept_id,
-    ...(object(selected)?.kind === "material_diagnostic" ? (object(selected)!.items as Json[]).map(row => row.target_concept_id) : []),
   ].filter(v => v != null));
   return outline.material_id === session.material_id && outline.run_id === item.run_id
     && outline.knowledge_structure_revision === session.knowledge_structure_revision
@@ -1167,7 +1154,7 @@ export function studyWorkspace(value: unknown): value is StudyWorkspaceView {
       && [...needed].every(id => context.concepts.some(c => c.concept_id === id)))
     && (p.concept_states as Json[]).every(s => ids.has(String(s.concept_id)))
     && [...needed].every(id => (p.concept_states as Json[]).some(s => s.concept_id === id))
-    && item.assessment_sets.every(s => s.kind === "material_diagnostic" || ids.has(s.target_concept_id));
+    && item.assessment_sets.every(s => ids.has(s.target_concept_id));
 }
 
 export function studySession(value: unknown): value is StudySessionView {
@@ -1242,8 +1229,7 @@ export function progress(value: unknown): value is LearnerProgressView {
   const item = object(value);
   if (
     !item ||
-    item.schema !== "learner-progress/v1" ||
-    !(item.starting_level === null || startingLevel(item.starting_level)) ||
+    item.schema !== "learner-progress/v2" ||
     !strings(item.learning_path) || !item.learning_path.every(id => revision(id, "concept")) ||
     !isUuid(item.study_session_id) ||
     !revision(item.knowledge_structure_revision, "knowledge-structure") ||
@@ -1330,12 +1316,12 @@ function assessmentSetSummary(value: unknown): value is AssessmentSetSummary & J
   const item = object(value);
   return (
     !!item &&
-    ["diagnostic", "remediation", "material_diagnostic"].includes(String(item.kind)) &&
+    ["diagnostic", "remediation"].includes(String(item.kind)) &&
     (item.kind !== "remediation"
       ? item.diagnostic_set_id === null
       : isUuid(item.diagnostic_set_id) && item.diagnostic_set_id !== item.set_id) &&
     isUuid(item.set_id) &&
-    (item.kind === "material_diagnostic" ? item.target_concept_id === null : revision(item.target_concept_id, "concept")) &&
+    revision(item.target_concept_id, "concept") &&
     [
       "preparing",
       "partial_ready",
@@ -1365,7 +1351,7 @@ export function assessmentSetList(value: unknown): value is AssessmentSetListVie
   const item = object(value);
   if (
     !item ||
-    item.schema !== "assessment-set-list/v1" ||
+    item.schema !== "assessment-set-list/v2" ||
     !isUuid(item.study_session_id) ||
     !revision(item.knowledge_structure_revision, "knowledge-structure") ||
     !Array.isArray(item.sets) ||
@@ -1389,12 +1375,12 @@ export function assessmentSet(value: unknown): value is AssessmentSetView {
   if (!assessmentSetSummary(value)) return false;
   const item = value;
   if (
-    item.schema !== "assessment-set/v1" ||
+    item.schema !== "assessment-set/v2" ||
     !isUuid(item.study_session_id) ||
     !isUuid(item.material_id) ||
     !revision(item.knowledge_structure_revision, "knowledge-structure") ||
     item.selection_policy !==
-      (item.kind === "material_diagnostic" ? "material-diagnostic/v1" : item.kind === "diagnostic"
+      (item.kind === "diagnostic"
         ? "single-concept-grounded-points/v1"
         : "needs-review-points/v1") ||
     !["point_count", "excluded_count", "verified_count"].every(
@@ -1412,10 +1398,6 @@ export function assessmentSet(value: unknown): value is AssessmentSetView {
     )
   )
     return false;
-  if (item.kind === "material_diagnostic") {
-    if (item.cycle !== null || item.requested_count > 15
-      || new Set(item.items.map((row: Json) => row.target_concept_id)).size !== item.items.length) return false;
-  } else {
   const cycle = item.cycle;
   if (
     !cycleSummary(cycle) ||
@@ -1458,7 +1440,6 @@ export function assessmentSet(value: unknown): value is AssessmentSetView {
     cycle.unavailable_count < count("unavailable")
   )
     return false;
-  }
   let published = 0,
     answered = 0,
     passed = 0,
@@ -1472,7 +1453,7 @@ export function assessmentSet(value: unknown): value is AssessmentSetView {
       row.ordinal !== index + 1 ||
       !revision(row.target_claim_id, "claim") ||
       !revision(row.target_concept_id, "concept") ||
-      (item.kind !== "material_diagnostic" && row.target_concept_id !== item.target_concept_id) ||
+      row.target_concept_id !== item.target_concept_id ||
       !["pending", "generating", "verified", "published", "failed", "omitted"].includes(
         String(row.state),
       ) ||

@@ -1,7 +1,6 @@
 import { MapExports } from "../exports/MapExports";
 import { relationStyles } from "./map-appearance";
 import { DifficultyBadge, LearningDiagnosis, useLearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
-import { StartingLevelControl } from "../study-session/StartingLevel";
 import { LearningGoalPanel } from "../learning-goals/LearningGoalPanel";
 import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import type { AppRoute } from "../../app/routes";
@@ -920,7 +919,7 @@ function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadi
   const nextLearningConcept = view.concepts.find(concept => concept.concept_id === (progress ? progress.learning_path[0] : view.initial_learning_path[0]?.concept_id));
   return <div className="review-diagnosis">
             <section className="review-next surface" aria-label="下一步">
-              <header><h2>下一步</h2><StartingLevelControl api={apiClient} materialId={materialId} onChanged={onReloadProgress} /></header>
+              <header><h2>下一步</h2></header>
               {isLoadingProgress ? <p role="status">正在讀取學習進度…</p> : progressMessage ? <p>重新讀取進度後，即可接續學習。</p> : <>
                 <p>已完成 {progress?.concept_states.filter(state => state.status === "completed").length ?? 0}／{view.concepts.length} 個概念
                   · {diagnosis.data ? `待加強 ${diagnosis.pending.length} 個` : diagnosis.error ? "待加強暫時無法讀取" : "正在讀取待加強概念…"}</p>

@@ -4,7 +4,7 @@ test.skip(process.env.STUDYDY_E2E_LEARNING_GOALS !== "true", "Requires isolated 
 const data = JSON.parse(process.env.STUDYDY_E2E_GOAL_DATA ?? "{}");
 const mapPath = `/materials/${data.material}/runs/${data.run}/knowledge-structures/${encodeURIComponent(data.revision)}`;
 
-test("a real goal leads through level selection, source reading and answers without completing the material", async ({ page }) => {
+test("a real goal leads through source reading and answers without completing the material", async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 900 });
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -27,16 +27,10 @@ test("a real goal leads through level selection, source reading and answers with
   await expect(today).toContainText("今天學 1 個重點 · 已完成 0");
   await expect(today).toContainText("Signals");
 
-  // 設定目標只保存計畫；程度與題組仍等實際開始學習時處理。
-  const levelBefore = await (await page.request.get(`/v1/materials/${data.material}/starting-level`)).json();
-  expect(levelBefore.starting_level).toBeNull();
+  // 設定目標只保存計畫；題組仍等實際開始學習時建立。
   const setsBefore = await (await page.request.get(`/v1/study-sessions/${data.session}/assessment-sets`)).json();
   expect(setsBefore.sets).toEqual([]);
   await today.getByRole("button", { name: "學習 Signals", exact: true }).click();
-  const levels = page.getByRole("dialog", { name: "你想從哪裡開始？" });
-  await expect(levels).toBeVisible();
-  await levels.getByRole("radio", { name: /第一次接觸/ }).check();
-  await levels.getByRole("button", { name: "儲存選擇", exact: true }).click();
   await expect(page).toHaveURL(/assessment-sets\/[0-9a-f-]+$/);
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   const setId = new URL(page.url()).pathname.split("/").at(-1)!;

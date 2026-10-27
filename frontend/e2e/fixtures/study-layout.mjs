@@ -157,7 +157,6 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       created_at: timestamp,
     };
   };
-  let startingLevel = scenario?.startingLevel === undefined ? (initialStage === "preparation" ? "beginner" : "some_knowledge") : scenario.startingLevel;
   let inheritedCheck = !!scenario?.inheritedCheck;
   let startedNext = false;
   let sessionFinished = !!scenario?.sessionCompleted;
@@ -174,7 +173,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     const kind = historical ? "diagnostic" : (scenario?.kind ?? "diagnostic");
     const groupId = historical ? historySetId : setId;
     // 基本流程預設六題，自訂結果／導覽情境預設四題。
-    const count = kind === "material_diagnostic" ? knowledgeStructure.concepts.length : scenario?.count ?? (scenario ? 4 : 6);
+    const count = scenario?.count ?? (scenario ? 4 : 6);
     const availableCount = count - (scenario?.unavailable ?? 0);
     const publicationLimit = isPartialPublication && !historical ? 4 : availableCount;
     const publishedCount = ["ready", "in_progress", "completed"].includes(status)
@@ -184,12 +183,11 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     const items = claims.slice(0, count).map((claim, index) => {
       const assessment =
         index < publishedCount ? buildAssessment(index, historical ? 20 : 0) : null;
-      const targetConcept = kind === "material_diagnostic" ? knowledgeStructure.concepts[index] : knowledgeStructure.concepts.find(concept => concept.concept_id === (historical ? conceptId : selectedConceptId));
-      const targetClaim = kind === "material_diagnostic" ? targetConcept.claims[0] : targetConcept.claims[index];
+      const targetConcept = knowledgeStructure.concepts.find(concept => concept.concept_id === (historical ? conceptId : selectedConceptId));
+      const targetClaim = targetConcept.claims[index];
       if (assessment) Object.assign(assessment, {
         target_concept_id: targetConcept.concept_id, target_claim_id: targetClaim.claim_id,
         source_evidence_ids: targetClaim.evidence.map(evidence => evidence.evidence_id),
-        ...(kind === "material_diagnostic" ? { prompt: `${targetConcept.label}：下列哪個敘述符合教材？` } : {}),
       });
       let itemState = "failed";
       if (index >= availableCount) itemState = "omitted";
@@ -243,11 +241,11 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
           ? "incomplete"
           : "passed";
     return {
-      schema: "assessment-set/v1",
+      schema: "assessment-set/v2",
       kind,
       diagnostic_set_id: kind === "remediation" ? historySetId : null,
       set_id: groupId,
-      target_concept_id: kind === "material_diagnostic" ? null : historical ? conceptId : selectedConceptId,
+      target_concept_id: historical ? conceptId : selectedConceptId,
       study_session_id: sessionId,
       material_id: materialId,
       knowledge_structure_revision: structureRevision,
@@ -266,11 +264,11 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       created_at: timestamp,
       completed_at: isCompleted ? timestamp : null,
       selection_policy:
-        kind === "material_diagnostic" ? "material-diagnostic/v1" : kind === "remediation" ? "needs-review-points/v1" : "single-concept-grounded-points/v1",
+        kind === "remediation" ? "needs-review-points/v1" : "single-concept-grounded-points/v1",
       can_retry: ["partial_ready", "failed"].includes(status),
       can_publish_partial: status === "partial_ready",
       can_complete: publishedCount > 0 && !isCompleted,
-      cycle: kind === "material_diagnostic" ? null : {
+      cycle: {
         diagnostic_set_id: kind === "remediation" ? historySetId : groupId,
         concept_id: historical ? conceptId : selectedConceptId,
         set_version: historical ? 1 : setVersion,
@@ -317,13 +315,8 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       const body = request.postDataJSON(); presence.push({ body, browserId: request.headers()["x-studydy-browser-id"] });
       return send({ schema: "assessment-presence/v1", active: body.active, expires_at: body.active ? new Date(Date.now() + 60000).toISOString() : null });
     }
-    if (actualPath === `/v1/materials/${materialId}/starting-level`) {
-      if (request.method() === "PUT") { startingLevel = request.postDataJSON().starting_level; requests.push({ path: actualPath, body: request.postData() }); }
-      return send({ schema: "starting-level/v1", material_id: materialId, starting_level: startingLevel });
-    }
     if (actualPath === `/v1/materials/${materialId}/study-start`) {
       requests.push({ path: actualPath, body: request.postData() });
-      if (startingLevel === null) return send({ schema: "api-error/v1", request_id: uuid(9), reason_code: "STARTING_LEVEL_REQUIRED", retryable: false, message: "Request could not be completed." }, 409);
       const wanted = request.postDataJSON().current_concept_id;
       selectedConceptId = wanted ?? latestProgress?.current_concept_id ?? selectedConceptId;
       if (assessmentStage === "preparation" || wanted && assessmentStage === "completed" || guidanceApplied && nextAction === "advance") {
@@ -332,7 +325,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       }
       const current = selectedConceptId;
       const selected = inheritedCheck || ["preparation", "no-safe"].includes(assessmentStage) ? null : setId;
-      return send({ schema: "study-start/v1", starting_level: startingLevel, selected_set_id: selected,
+      return send({ schema: "study-start/v2", selected_set_id: selected,
         session: { schema: "study-session/v1", study_session_id: sessionId, material_id: materialId, knowledge_structure_revision: structureRevision,
           current_concept_id: current, deferred_concept_ids: [], no_safe_claim_ids: [], status: sessionFinished ? "completed" : "active", started_at: timestamp, completed_at: sessionFinished ? timestamp : null, event_watermark: 1 } });
     }
@@ -395,8 +388,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       const active = !["preparation", "no-safe"].includes(assessmentStage);
       const historical = selectedId === historySetId;
       // 剛開始且沒有指定題組時，與 study_workspace._selection 一致：只恢復進行中的題組。
-      const readingWithoutSet = startingLevel === "beginner" && !selectedId && assessmentStage === "completed";
-      const selected = inheritedCheck || readingWithoutSet ? null : historical
+      const selected = inheritedCheck ? null : historical
         ? buildAssessmentSet(true)
         : active && (!guidanceApplied || nextAction === "complete" || startedNext)
           ? buildAssessmentSet()
@@ -440,8 +432,8 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       if (active && !inheritedCheck) assessmentSets.unshift(buildAssessmentSet());
 
       const progress = {
-        schema: "learner-progress/v1",
-        starting_level: startingLevel,
+        schema: "learner-progress/v2",
+
         learning_path: knowledgeStructure.concepts.map(concept => concept.concept_id),
         assessment_cycles: assessmentCycles,
         study_session_id: sessionId,
@@ -587,7 +579,6 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     historyPath: `${basePath}/assessment-sets/${historySetId}`,
     requests,
     presence,
-    getStartingLevel() { return startingLevel; },
     setGuidance(action, version) {
       nextAction = action;
       guidanceVersion = version;

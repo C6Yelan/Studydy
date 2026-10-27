@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { GoalConcept, LearningGoalView } from "../../api/contracts";
 import { GoalEditor, type GoalFormValues } from "./GoalEditor";
-import { useStudyStart } from "../study-session/StartingLevel";
+import { useStudyStart } from "../study-session/useStudyStart";
 import "./styles.css";
 
 const dateText = (date: string) => date.replaceAll("-", "/");
@@ -58,7 +58,7 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
     if (view?.run_id && view.knowledge_structure_revision) void launch.start({ materialId, runId: view.run_id, structureRevision: view.knowledge_structure_revision, conceptId: concept.concept_id });
   };
   return <section className="learning-goal-panel" aria-label="學習目標與每日關卡">
-    {launch.dialog}
+
     <header><div><h2>{goal ? `${Number(goal.target_date.slice(5, 7))}/${Number(goal.target_date.slice(8))} 前掌握 ${goal.target_percent}% · ${goal.achieved ? "目標已達成" : goal.overdue_days > 0 ? `已逾期 ${goal.overdue_days} 天` : `還有 ${goal.days_remaining} 天`}` : "尚未設定學習目標"}</h2></div>
       {view && !error && <button className="secondary-button" type="button" disabled={acknowledging || adjusting} onClick={() => setEditing(true)}>{goal ? "更改學習目標" : "設定學習目標"}</button>}
     </header>

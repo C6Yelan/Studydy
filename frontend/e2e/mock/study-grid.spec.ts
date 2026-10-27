@@ -2,9 +2,9 @@ import { expect, test } from "@playwright/test";
 import { studyLayoutFixture } from "../fixtures/study-layout.mjs";
 
 for (const width of [1440, 1300, 1200, 1024, 390]) {
-  for (const kind of ["diagnostic", "material_diagnostic"]) test(`one question, keyboard, preserved choices and expanded review ${kind} at ${width}px`, async ({ page }, testInfo) => {
+  for (const kind of ["diagnostic"]) test(`one question, keyboard, preserved choices and expanded review ${kind} at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : width === 1024 ? 768 : 900 });
-    const fixture = await studyLayoutFixture(page, "ready", { count: 2, kind, navigation: true, startingLevel: kind === "material_diagnostic" ? "familiar" : "some_knowledge" });
+    const fixture = await studyLayoutFixture(page, "ready", { count: 2, kind, navigation: true, });
     await fixture.open();
     const paper = page.getByRole("form", { name: "本組測驗" });
     await expect(paper.getByRole("article")).toHaveCount(1);
@@ -62,11 +62,11 @@ for (const width of [1440, 1300, 1200, 1024, 390]) {
   });
 }
 
-for (const kind of ["diagnostic", "material_diagnostic"]) {
+for (const kind of ["diagnostic"]) {
   test(`preparation skeleton uses actual progress ${kind}`, async ({ page }, testInfo) => {
-    const fixture = await studyLayoutFixture(page, "preparing", { kind, count: 2, navigation: true, startingLevel: kind === "material_diagnostic" ? "familiar" : "some_knowledge" });
+    const fixture = await studyLayoutFixture(page, "preparing", { kind, count: 2, navigation: true, });
     fixture.setPreparedCount(0); await fixture.open();
-    const label = kind === "material_diagnostic" ? "快速檢測準備進度" : "準備進度";
+    const label = "準備進度";
     const progress = page.getByRole("progressbar", { name: label, exact: true });
     await expect(progress).not.toHaveAttribute("aria-valuenow");
     await expect(page.locator(".question-skeleton")).toBeVisible();
@@ -79,7 +79,7 @@ for (const kind of ["diagnostic", "material_diagnostic"]) {
     }
   });
   test(`lost submission response restores persisted results ${kind}`, async ({ page }) => {
-    const fixture = await studyLayoutFixture(page, "ready", { kind, count: 2, navigation: true, lostSubmissionResponse: true, startingLevel: kind === "material_diagnostic" ? "familiar" : "some_knowledge" });
+    const fixture = await studyLayoutFixture(page, "ready", { kind, count: 2, navigation: true, lostSubmissionResponse: true, });
     await fixture.open();
     await page.getByRole("radio").first().check(); await page.getByRole("button", { name: "下一題", exact: true }).click();
     await page.getByRole("radio").nth(1).check();

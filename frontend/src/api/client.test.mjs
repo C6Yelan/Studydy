@@ -459,8 +459,8 @@ function resumeView() {
     },
     knowledge_structure: structureView(),
     progress: {
-      schema: "learner-progress/v1",
-      starting_level: "some_knowledge", learning_path: [conceptId],
+      schema: "learner-progress/v2",
+      learning_path: [conceptId],
       assessment_cycles: [],
       study_session_id: sessionId,
       knowledge_structure_revision: structureRevision,
@@ -851,7 +851,7 @@ test("material rename uses the existing item guard and exact identity without a 
 function assessmentSetView() {
   return {
     ...assessmentSetSummary({ set_version: 2 }),
-    schema: "assessment-set/v1",
+    schema: "assessment-set/v2",
     study_session_id: sessionId,
     material_id: materialId,
     knowledge_structure_revision: structureRevision,
@@ -1009,7 +1009,7 @@ test("active set lists allow different concepts and identify duplicate creation 
   const secondId = "66666666-6666-4666-8666-666666666666";
   const summary = assessmentSetSummary();
   const list = {
-    schema: "assessment-set-list/v1",
+    schema: "assessment-set-list/v2",
     study_session_id: sessionId,
     knowledge_structure_revision: structureRevision,
     active_set_ids: [setId, secondId],
@@ -1308,7 +1308,7 @@ test('on-demand outlines, concepts and workspace enforce material/version/select
   }
   const workspace = workspaceView(resumeView());
   const resumeRequest = { ...request, runId, studySessionId: sessionId };
-  assert.equal((await new StudydyApiClient(async () => Response.json(workspace)).resumeWorkspace(resumeRequest)).schema, 'study-workspace/v1');
+  assert.equal((await new StudydyApiClient(async () => Response.json(workspace)).resumeWorkspace(resumeRequest)).schema, 'study-workspace/v2');
   for (const corrupt of [
     value => { value.context = null; },
     value => { value.outline.run_id = sessionId; },
@@ -1320,7 +1320,7 @@ test('on-demand outlines, concepts and workspace enforce material/version/select
     await assert.rejects(new StudydyApiClient(async () => Response.json(value)).resumeWorkspace(resumeRequest), error => error.kind === 'schema');
   }
   const summary = mapProgressView(resumeView().progress);
-  assert.equal((await new StudydyApiClient(async () => Response.json(summary)).readMapProgress(sessionId, structureRevision)).schema, 'map-progress/v1');
+  assert.equal((await new StudydyApiClient(async () => Response.json(summary)).readMapProgress(sessionId, structureRevision)).schema, 'map-progress/v2');
   client.invalidate();
   await assert.rejects(client.getKnowledgeOutline(request), error => error.reasonCode === 'SESSION_REQUIRED');
   await assert.rejects(client.getConceptContext(request, [conceptId]), error => error.reasonCode === 'SESSION_REQUIRED');
@@ -1481,11 +1481,11 @@ test("card review sends the intent key and requires the next review count", asyn
 
 function activityView(change = () => undefined) {
   const value = {
-    schema: "learning-activity/v3", timezone: "Asia/Taipei", rule_version: "xp-rules/v4", today: "2026-10-21",
+    schema: "learning-activity/v4", timezone: "Asia/Taipei", rule_version: "xp-rules/v5", today: "2026-10-21",
     streak_days: 1, active_today: true, total_answers: 4, total_correct: 3,
-    xp: { total: 120, today: 40, level: 2, level_xp: 20, level_target: 150, sources: { answers: 46, concepts: 30, cards: 4, podcast: 5, goals: 15, difficulties: 20, diagnostics: 0 } },
+    xp: { total: 120, today: 40, level: 2, level_xp: 20, level_target: 150, sources: { answers: 46, concepts: 30, cards: 4, podcast: 5, goals: 15, difficulties: 20 } },
     quests: [{ kind: "continue_study", progress: 1, target: 1, done: true, material_id: materialId, study_session_id: sessionId, podcast_id: null, episode_index: null }],
-    badges: { rule_version: "badge-rules/v7", items: [
+    badges: { rule_version: "badge-rules/v8", items: [
       { badge_id: "first_answer", earned: true, earned_on: "2026-10-16", progress: 1, target: 1 },
       { badge_id: "answers_100", earned: false, earned_on: null, progress: 4, target: 100 },
     ] },

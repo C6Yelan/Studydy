@@ -2,9 +2,9 @@ import { answerPaper } from "../fixtures/answer-paper";
 import {expect,test} from "@playwright/test";
 import {studyLayoutFixture} from "../fixtures/study-layout.mjs";
 
-for(const kind of ["diagnostic","material_diagnostic"])test(`${kind} reports every twenty seconds and unlocks questions after submission`,async({page},testInfo)=>{
+for(const kind of ["diagnostic"])test(`${kind} reports every twenty seconds and unlocks questions after submission`,async({page},testInfo)=>{
  await page.clock.install();
- const fixture=await studyLayoutFixture(page,"ready",{startingLevel:kind==="material_diagnostic"?"familiar":"some_knowledge",kind,count:2,navigation:true});
+ const fixture=await studyLayoutFixture(page,"ready",{kind,count:2,navigation:true});
  await fixture.open();await expect.poll(()=>fixture.presence.length).toBe(1);
  expect(fixture.presence[0].body).toEqual({schema:"assessment-presence/v1",assessment_set_id:"00000000-0000-4000-8000-000000000005",active:true});
  expect(fixture.presence[0].browserId).toMatch(/^[0-9a-f-]{36}$/);
@@ -22,7 +22,7 @@ for(const kind of ["diagnostic","material_diagnostic"])test(`${kind} reports eve
 });
 
 test("leaving the answer page stops heartbeats without clearing another tab's guard",async({page})=>{
- await page.clock.install();const fixture=await studyLayoutFixture(page,"ready",{startingLevel:"some_knowledge",navigation:true});
+ await page.clock.install();const fixture=await studyLayoutFixture(page,"ready",{navigation:true});
  await fixture.open();await expect.poll(()=>fixture.presence.length).toBe(1);
  await page.goto(fixture.historyPath);await expect(page.locator('.assessment-cycle')).toBeVisible();
  const count=fixture.presence.length;await page.clock.fastForward(60000);expect(fixture.presence).toHaveLength(count);

@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from assessment_fixtures import answer, concept_fixture, create, create_other, finish, other_model
 from learning_adaptation import assessment_sets, learning_goals
-from learning_adaptation.learner_progress import derive_learner_progress
+from learning_adaptation.learner_progress import apply_guidance, derive_learner_progress
 from product_fixtures import closed_loop
 from runtime import version_moves
 from runtime.learning_activity import learning_activity
@@ -83,6 +83,8 @@ def test_upgrade_preserves_normal_answers_goals_and_only_supported_moved_complet
                                             (preserved_source,'material',{'answer_xp':10}),
                                             (uuid4(),'cards',{'marks':[]})]:
             db.execute('INSERT INTO learning_retained_days VALUES (%s,%s,%s,%s,%s)',(owner,kind_name,source_id,day,Jsonb(metrics)))
+        db.execute("INSERT INTO learning_retained_days VALUES (%s,'material',%s,%s,%s)",
+            (owner,material,day-timedelta(days=1),Jsonb({'answers':2,'answer_xp':20,'concepts':1})))
         db.execute("INSERT INTO goal_milestones VALUES (%s,%s,'stage',%s,NULL,now())",(owner,material,day))
         db.execute("INSERT INTO goal_milestones VALUES (%s,%s,'achieved',%s,%s,now())",(owner,material,day,day))
         kept_events = db.execute('SELECT answer_event_id,assessment_revision,is_correct FROM answer_events WHERE target_concept_id=%s AND material_id=%s',(other_old,material)).fetchall()
@@ -111,3 +113,31 @@ def test_upgrade_preserves_normal_answers_goals_and_only_supported_moved_complet
         view = learning_activity(db,owner)
         assert view['total_answers']==1
         assert next(b for b in view['badges']['items'] if b['badge_id']=='first_answer')['earned']
+
+
+def test_upgrade_preserves_finished_study_when_only_unassessable_concept_remains(closed_loop):
+    f = concept_fixture(closed_loop,1)
+    dsn,study = f['dsn'],f['study'].study_session_id
+    kept = create_other(f)
+    while work := assessment_sets.claim_set_work(dsn=dsn):
+        assessment_sets.execute_set_work(work,dsn=dsn,semantic_call=other_model)
+    answer(f,kept)
+    with psycopg.connect(dsn) as db:
+        db.execute('UPDATE study_sessions SET no_safe_claim_ids=%s WHERE study_session_id=%s',
+            ([c['claim_id'] for c in f['concept']['claims']],study))
+    progress = derive_learner_progress(f['learner'],study,dsn=dsn)
+    assert progress.next_action.action=='complete'
+    apply_guidance(f['learner'],study,progress.guidance_revision,dsn=dsn)
+    old_sql = sorted(DEFAULT_MIGRATIONS_DIR.glob('0014_*.sql'))[0].read_text()
+    kind = re.findall(r"'([^']+)'",re.search(r'CHECK \(kind IN \(([^)]+)\)',old_sql)[1])[-1]
+    with psycopg.connect(dsn) as db:
+        db.execute("INSERT INTO assessment_sets (set_id,learner_id,material_id,study_session_id,knowledge_structure_revision,target_concept_id,kind,target_plan,requested_count,runtime_lock_document,status,idempotency_key_sha256,request_fingerprint,created_at,updated_at) SELECT %s,learner_id,material_id,study_session_id,knowledge_structure_revision,NULL,%s,target_plan,0,runtime_lock_document,'failed',%s,%s,now(),now() FROM assessment_sets WHERE set_id=%s",
+            (uuid4(),kind,bytes([4])*32,bytes([5])*32,kept))
+        before = db.execute('SELECT status,completed_at,last_event_number FROM study_sessions WHERE study_session_id=%s',(study,)).fetchone()
+    assert before[0]=='completed' and before[1] is not None and before[2]==1
+    assert run_migrations(dsn)==(29,)
+    with psycopg.connect(dsn) as db:
+        assert db.execute('SELECT status,completed_at,last_event_number FROM study_sessions WHERE study_session_id=%s',(study,)).fetchone()==before
+    progress = derive_learner_progress(f['learner'],study,dsn=dsn)
+    assert progress.next_action.action=='complete'
+    assert next(s for s in progress.concept_states if s.label=='Other topic').status=='completed'

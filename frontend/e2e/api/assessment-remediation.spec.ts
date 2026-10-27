@@ -1,5 +1,4 @@
 import { expect, test, type Page } from "@playwright/test";
-import { chooseFirstLevel } from "../fixtures/starting-level";
 
 test.skip(
   process.env.STUDYDY_E2E_REMEDIATION !== "true",
@@ -33,7 +32,7 @@ test("wrong points directly form groups and survive lost create responses", asyn
   page.on("pageerror", (error) => errors.push(error.message));
   await login(page);
   await page.goto(study);
-  await chooseFirstLevel(page);
+  await page.getByRole("button", { name: "開始學習", exact: true }).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   const rootUrl = page.url();
   for (let n = 1; n <= 3; n++) {

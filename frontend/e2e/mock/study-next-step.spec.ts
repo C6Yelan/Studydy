@@ -29,8 +29,7 @@ for (const width of [1366, 390]) {
     });
     const label = "使用者端與多階段網路服務中的請求及回應角色";
     const fixture = await studyLayoutFixture(page, "completed", {
-      navigation: true, startingLevel: "beginner",
-      kind: "remediation",
+      navigation: true, kind: "remediation",
       wrong: [],
       nextLabel: label,
     });
@@ -67,8 +66,7 @@ for (const width of [1366, 390]) {
 for (const width of [1440, 390]) test(`complete applies authority before showing completion at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
   const fixture = await studyLayoutFixture(page, "completed", {
-    navigation: true, startingLevel: "beginner",
-    nextAction: "complete",
+    navigation: true, nextAction: "complete",
     wrong: [],
   });
   await fixture.open();
@@ -80,7 +78,7 @@ for (const width of [1440, 390]) test(`complete applies authority before showing
   await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(fixture.path + "$"));
   await expect(page.getByRole("button", { name: "查看知識地圖", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "學習進度已保存", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "本輪檢測結果", exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -95,7 +93,7 @@ for (const [name, stage, scenario] of [
   ["another active set", "completed", { wrong: [], preparingHistory: true }],
 ] as const)
   test(`${name} does not offer advance`, async ({ page }) => {
-    const fixture = await studyLayoutFixture(page, stage, { navigation: true, startingLevel: "beginner", ...scenario });
+    const fixture = await studyLayoutFixture(page, stage, { navigation: true, ...scenario });
     await fixture.open();
     await expect(page.getByRole("button", { name: /下一個觀念|完成本次學習/ })).toHaveCount(0);
     if (name === "wrong points")
@@ -104,7 +102,7 @@ for (const [name, stage, scenario] of [
 
 test("a completed concept keeps saved completion and prioritizes remediation", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "completed", {
-    navigation: true, startingLevel: "beginner", wrong: [2], conceptStatus: "completed",
+    navigation: true, wrong: [2], conceptStatus: "completed",
   });
   await fixture.open();
   await expect(page.getByText("本次練習有需要加強的重點，先前的完成紀錄會保留。", { exact: true })).toBeVisible();
@@ -115,7 +113,7 @@ test("a completed concept keeps saved completion and prioritizes remediation", a
 });
 
 test("failed apply keeps result and allows retry with the same guidance", async ({ page }) => {
-  const fixture = await studyLayoutFixture(page, "completed", { navigation: true, startingLevel: "beginner", wrong: [] });
+  const fixture = await studyLayoutFixture(page, "completed", { navigation: true, wrong: [] });
   await fixture.open();
   const before = page.url();
   const revisions: string[] = [];
@@ -139,7 +137,7 @@ test("failed apply keeps result and allows retry with the same guidance", async 
 });
 
 test("stale guidance refreshes the decision without automatic apply", async ({ page }) => {
-  const fixture = await studyLayoutFixture(page, "completed", { navigation: true, startingLevel: "beginner", wrong: [] });
+  const fixture = await studyLayoutFixture(page, "completed", { navigation: true, wrong: [] });
   await fixture.open();
   const before = page.url();
   const revisions: string[] = [];
@@ -167,8 +165,7 @@ test("incomplete cycle follows the backend next action without claiming a pass",
   page,
 }) => {
   const fixture = await studyLayoutFixture(page, "completed", {
-    navigation: true, startingLevel: "beginner",
-    wrong: [],
+    navigation: true, wrong: [],
     unavailable: 1,
   });
   await fixture.open();

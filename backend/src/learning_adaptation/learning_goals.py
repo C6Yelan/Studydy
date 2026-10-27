@@ -129,7 +129,9 @@ def _project(db, material, goal, now, *, preview_offset=0, preview_days=7):
     day_now = measure_targets(scope.plan, scope.events, daily_mask)
     all_now = measure_targets(scope.plan, scope.events)
     baseline_now = measure_targets(scope.plan, scope.events, goal.baseline_unavailable_claim_ids)
-    order = scope.plan["initial_learning_path"]
+    by_state = {state.concept_id: state for state in scope.states}
+    order = [identity for identity in scope.plan["initial_learning_path"]
+             if by_state[identity].status != "completed" and by_state[identity].assessable_claim_ids]
     by_concept = {concept["concept_id"]: concept for concept in current["concepts"]}
     concepts = [{key: by_concept[identity][key] for key in ("concept_id", "label", "remaining_points")}
                 for identity in order if by_concept[identity]["remaining_points"]]

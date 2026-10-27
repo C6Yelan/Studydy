@@ -1,5 +1,5 @@
 import { sourceTotalsLabel } from "./source-summary";
-import { useStudyStart } from "../study-session/StartingLevel";
+import { useStudyStart } from "../study-session/useStudyStart";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InlineConfirm } from "../../ui/InlineConfirm";
 
@@ -151,7 +151,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
   };
   return (
     <section className={libraryClass}>
-      {launch.dialog}
+
       {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
       <CollectionHeader
         title="我的教材"

@@ -4,7 +4,7 @@ import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {BackLink} from '../../ui/BackLink';
 import {errorMessage,isNotFound,type StudydyApiClient} from '../../api/client';
 import {NotFoundView} from '../../ui/NotFoundView';
-import type {MaterialProcessingRunView,StartingLevel} from '../../api/contracts';
+import type {MaterialProcessingRunView} from '../../api/contracts';
 import {ProcessingProgress} from '../material-flow/ProcessingProgress';
 import {ProcessingTimeline} from '../material-flow/ProcessingTimeline';
 import {MaterialRunFailure} from '../material-flow/MaterialRunFailure';
@@ -20,7 +20,7 @@ import '../material-tools/styles.css';
 import './styles.css';
 
 type Scope={title:string;goals:string[];topics:string[]};
-export type Topic={topic_id:string;material_id:string|null;request:string;proposal:Scope|null;version:number;status:string;research_id:string|null;research?:Research;error_code:string|null;starting_level?:StartingLevel|null;learning_goal?:{target_date:string;target_percent:60|80|100}|null};
+export type Topic={topic_id:string;material_id:string|null;request:string;proposal:Scope|null;version:number;status:string;research_id:string|null;research?:Research;error_code:string|null;learning_goal?:{target_date:string;target_percent:60|80|100}|null};
 const active=new Set(['searching','acquiring','normalizing','ready']);
 const stages:Record<string,string>={searching:'正在搜尋來源',selecting:'選擇想加入的來源',acquiring:'正在取得選取來源',normalizing:'正在轉換文件',ready:'正在建立教材分析',submitted:'已送入教材分析',failed:'處理未完成',cancelled:'已停止'};
 const timelineStages=materialProgressStages.slice(0,-1).map(stage=>({label:materialProgressStageLabel(stage),icon:stage==='semantics'?'map' as const:'process' as const}));
@@ -87,7 +87,7 @@ function ScopeFields({draft,onChange,busy,request,supplemental,settings,actions}
 
 export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const [request,setRequest]=useState(''),[view,setView]=useState<Topic|null>(null),[draft,setDraft]=useState<Scope|null>(null),[selected,setSelected]=useState<string[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
- const [learningSettings,setLearningSettings]=useState<CreationSettings>({level:'some_knowledge',goal:null});
+ const [learningSettings,setLearningSettings]=useState<CreationSettings>({goal:null});
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const [editingRequest,setEditingRequest]=useState(false);
  const [notFound,setNotFound]=useState(false);
@@ -96,7 +96,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const alive=useRef(true),loadedVersion=useRef(''),selectionLoaded=useRef(''),createIntent=useRef<{body:string;key:string}|null>(null),approveIntent=useRef<{body:string;key:string}|null>(null);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useEffect(()=>{if(!topicId)return;let stop=false;let timer:ReturnType<typeof setTimeout>;
- const read=async()=>{try{const v=await api.studyTools<Topic>(`/v1/topics/${topicId}`);if(stop)return;viewLoaded.current=true;setView(v);if(v.proposal&&loadedVersion.current!==`${v.topic_id}/${v.version}`){setDraft(v.proposal);setLearningSettings({level:v.starting_level==='beginner'||!v.starting_level?'some_knowledge':v.starting_level,goal:v.learning_goal?{date:v.learning_goal.target_date,percent:v.learning_goal.target_percent}:null});loadedVersion.current=`${v.topic_id}/${v.version}`;}if(!requestLoaded.current){setRequest(v.request);requestLoaded.current=true;}
+ const read=async()=>{try{const v=await api.studyTools<Topic>(`/v1/topics/${topicId}`);if(stop)return;viewLoaded.current=true;setView(v);if(v.proposal&&loadedVersion.current!==`${v.topic_id}/${v.version}`){setDraft(v.proposal);setLearningSettings({goal:v.learning_goal?{date:v.learning_goal.target_date,percent:v.learning_goal.target_percent}:null});loadedVersion.current=`${v.topic_id}/${v.version}`;}if(!requestLoaded.current){setRequest(v.request);requestLoaded.current=true;}
  if(v.research&&selectionLoaded.current!==v.research.research_id){setSelected(v.research.selection);selectionLoaded.current=v.research.research_id;}
  if(v.status==='pending'||v.research&&(active.has(v.research.status)||v.research.run&&['pending','running'].includes(v.research.run.status)))timer=setTimeout(read,1800);
  }catch(e){if(!stop){if(isNotFound(e)&&!viewLoaded.current)setNotFound(true);else setError(errorMessage(e));}}};void read();return()=>{stop=true;clearTimeout(timer);};},[api,topicId,reload]);
@@ -142,7 +142,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const errorNotice=error&&<p role="alert" className="form-error">{error}<button className="text-button" onClick={()=>{setError('');setReload(v=>v+1);}}>重新讀取</button></p>;
  if(notFound)return <NotFoundView title="找不到這個學習主題" description="這個主題可能已被刪除，或不屬於目前登入的帳號。" back={{label:'從主題建立教材',route:{name:'topics'}}}/>;
  const scopeReady=!!draft&&!!draft.title.trim()&&draft.topics.some(x=>x.trim())&&draft.goals.some(x=>x.trim())&&[...draft.topics,...draft.goals].every(item=>item.length<=500)&&[...draft.topics,...draft.goals].reduce((sum,item)=>sum+item.length,0)<=12000;
- const approve=()=>{if(!draft||!view)return;const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const payload={expected_version:view.version,proposal:clean,...(!view.material_id?{starting_level:learningSettings.level,learning_goal:learningSettings.goal?{target_date:learningSettings.goal.date,target_percent:learningSettings.goal.percent}:null}:{})};const body=JSON.stringify(payload);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,payload,approveIntent.current.key);approveIntent.current=null;if(alive.current)writeRoute(view.material_id&&approved.research_id?{name:'research',materialId:view.material_id,researchId:approved.research_id}:{name:'materials'});});};
+ const approve=()=>{if(!draft||!view)return;const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const payload={expected_version:view.version,proposal:clean,...(!view.material_id?{learning_goal:learningSettings.goal?{target_date:learningSettings.goal.date,target_percent:learningSettings.goal.percent}:null}:{})};const body=JSON.stringify(payload);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,payload,approveIntent.current.key);approveIntent.current=null;if(alive.current)writeRoute(view.material_id&&approved.research_id?{name:'research',materialId:view.material_id,researchId:approved.research_id}:{name:'materials'});});};
  const buildTitle=work?.run_id?(removing?'正在刪除教材…':completed?'教材與知識地圖已建立':cancelled?'已取消教材處理':failed?'教材處理失敗':cancelling?'正在取消教材處理':materialRun?.status==='pending'?'等待開始處理':materialRun?'正在分析教材':'正在讀取處理狀態'):work?.deleted?'查詢已刪除':'正在建立教材';
  const buildDescription=completed?`使用你選擇的 ${work?.selection.length??0} 份來源，已完成這份教材。`:removing?'分析已停止，正在刪除 PDF 與處理紀錄。':cancelling?'已收到取消要求，會在目前進行中的步驟完成後安全停止。':cancelled?'這次分析已停止。若不再需要這份教材，可以刪除 PDF 與處理紀錄。':'取得的來源會保留，可離開頁面，稍後回來查看進度。';
  if(work?.run_id) return <section className={`flow-page processing-page task-page${analyzing?' is-processing':''}`}>

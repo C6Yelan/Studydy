@@ -33,11 +33,15 @@ UPDATE public.study_sessions s SET last_event_number = (
 ), last_applied_guidance_revision = NULL, last_applied_progress_sha256 = NULL
 WHERE EXISTS (SELECT 1 FROM affected_materials a WHERE (a.learner_id,a.material_id) = (s.learner_id,s.material_id));
 
--- 舊快照沒有逐題身分，含檢測獎勵的教材日快照無法分拆，整列清除。
+-- 舊快照沒有逐題身分；已證實含檢測貢獻的教材，各日快照都無法再分拆。
+CREATE TEMP TABLE contaminated_snapshots ON COMMIT DROP AS
+SELECT DISTINCT learner_id,source_id FROM public.learning_retained_days
+WHERE source_kind = 'material' AND metrics ? 'diagnostic_xp';
 CREATE TEMP TABLE affected_owners ON COMMIT DROP AS
 SELECT learner_id FROM affected_materials UNION
 SELECT learner_id FROM public.learning_retained_days WHERE source_kind = 'material' AND metrics ? 'diagnostic_xp';
-DELETE FROM public.learning_retained_days WHERE source_kind = 'material' AND metrics ? 'diagnostic_xp';
+DELETE FROM public.learning_retained_days d USING contaminated_snapshots c
+WHERE d.source_kind = 'material' AND (d.learner_id,d.source_id)=(c.learner_id,c.source_id);
 DELETE FROM public.learning_awards WHERE badge_id IN ('first_diagnostic','diagnostics_5','diagnosed_mastery');
 -- 這些已存徽章可能只由被刪作答取得；下次讀取依保留紀錄重算，無關徽章不動。
 DELETE FROM public.learning_awards WHERE learner_id IN (SELECT learner_id FROM affected_owners)
@@ -227,7 +231,10 @@ WHERE s.status='completed' AND EXISTS (SELECT 1 FROM affected_materials a
     WHERE (a.learner_id,a.material_id)=(s.learner_id,s.material_id))
 AND EXISTS (SELECT 1 FROM retained_scopes k,LATERAL jsonb_array_elements(k.learning->'concepts') c
     WHERE (k.learner_id,k.material_id,k.structure_revision)=(s.learner_id,s.material_id,s.knowledge_structure_revision)
-    AND NOT coalesce(pg_temp.concept_done(s.study_session_id,c->>'concept_id'),false));
+    AND NOT coalesce(pg_temp.concept_done(s.study_session_id,c->>'concept_id'),false)
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(c->'targets') target
+        WHERE NOT EXISTS (SELECT 1 FROM unavailable_points u
+            WHERE u.study_session_id=s.study_session_id AND target->'covered_claim_ids' ? u.claim_id)));
 
 CREATE FUNCTION pg_temp.goal_points(owner uuid, material uuid, revision text, mask text[], through_at timestamptz)
 RETURNS TABLE(assessable integer,completed integer) LANGUAGE sql AS $$

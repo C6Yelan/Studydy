@@ -24,8 +24,8 @@ export function conceptsView(view, materialId, ids, neighbors = false) {
 }
 
 export function mapProgressView(progress) {
-  return { schema: 'map-progress/v1', study_session_id: progress.study_session_id,
-    starting_level: progress.starting_level, learning_path: progress.learning_path,
+  return { schema: 'map-progress/v2', study_session_id: progress.study_session_id,
+    learning_path: progress.learning_path,
     knowledge_structure_revision: progress.knowledge_structure_revision, current_concept_id: progress.current_concept_id,
     assessment_cycles: progress.assessment_cycles, next_action: progress.next_action,
     concept_states: progress.concept_states.map(s => ({ concept_id: s.concept_id, status: s.status,
@@ -34,7 +34,7 @@ export function mapProgressView(progress) {
 
 export function workspaceView(resume) {
   const ids = [...new Set([resume.selected_set?.target_concept_id, resume.session.current_concept_id,
-    resume.progress.next_action.target_concept_id, ...(resume.selected_set?.kind === "material_diagnostic" ? resume.selected_set.items.map(item => item.target_concept_id) : [])].filter(Boolean))];
+    resume.progress.next_action.target_concept_id].filter(Boolean))];
   const { knowledge_structure: view, progress, ...rest } = resume;
   const navigation = new Set([...ids, ...resume.assessment_sets.map(s => s.target_concept_id),
     ...progress.assessment_cycles.map(c => c.concept_id), ...progress.next_action.prerequisite_concept_ids]);
@@ -44,9 +44,9 @@ export function workspaceView(resume) {
     source_resolver: overview.source_resolver, status: overview.status, concept_count: view.concepts.length,
     concepts: view.concepts.filter(c => navigation.has(c.concept_id)).map(c => ({concept_id:c.concept_id,label:c.label})),
     initial_learning_path: view.initial_learning_path.filter(s => navigation.has(s.concept_id)) };
-  return { ...rest, schema: 'study-workspace/v1', outline, starting_level: progress.starting_level,
+  return { ...rest, schema: 'study-workspace/v2', outline,
     context: ids.length ? conceptsView(view, resume.session.material_id, ids) : null,
-    progress: { ...progress, schema: 'study-progress/v1', concept_count: view.concepts.length,
+    progress: { ...progress, schema: 'study-progress/v2', concept_count: view.concepts.length,
       concept_states: progress.concept_states.filter(s => ids.includes(s.concept_id)) } };
 }
 
@@ -54,7 +54,7 @@ export function readResponse(url, body, runId) {
   const path = new URL(url).pathname;
   if (path.endsWith('/outline') && body?.schema === 'knowledge-structure-view/v1')
     return outlineView(body, path.split('/')[3], runId);
-  if (path.endsWith('/map-progress') && ['learner-progress/v1', 'study-progress/v1'].includes(body?.schema))
+  if (path.endsWith('/map-progress') && ['learner-progress/v2', 'study-progress/v2'].includes(body?.schema))
     return mapProgressView(body);
   if (path.endsWith('/workspace') && body?.schema === 'study-resume/v1') return workspaceView(body);
   return body;

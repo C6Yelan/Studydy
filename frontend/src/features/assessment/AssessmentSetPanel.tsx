@@ -87,7 +87,6 @@ export function AssessmentSetPanel({
     if (!isCurrent() || (selected.current && next.set_id !== selected.current)) return false;
     if (
       next.knowledge_structure_revision !== view.knowledge_structure_revision ||
-      next.kind === "material_diagnostic" ||
       next.target_concept_id !== concept.concept_id
     ) {
       throw new Error("題組與目前觀念不一致，請重新開啟學習紀錄。");

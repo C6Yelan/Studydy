@@ -173,9 +173,9 @@ export function SourceView({
   useEffect(() => {
     if (!material || currentStructure || settingsLoaded.current) return;
     let cancelled = false;
-    void Promise.all([apiClient.getStartingLevel(materialId), apiClient.getLearningGoal(materialId)]).then(([level, goal]) => {
+    void apiClient.getLearningGoal(materialId).then(goal => {
       if (cancelled) return;
-      setLearningSettings({ level: level.starting_level === "beginner" || !level.starting_level ? "some_knowledge" : level.starting_level,
+      setLearningSettings({
         goal: goal.pending_goal ? { date: goal.pending_goal.target_date, percent: goal.pending_goal.target_percent } : null });
       setGoalToday(goal.today); settingsLoaded.current = true;
     }, failure => { if (!cancelled) setError(errorMessage(failure)); });
@@ -222,7 +222,6 @@ export function SourceView({
         setMaterial(renamed);rememberMaterial(apiClient,renamed);
       }
       if (!currentStructure && learningSettings) {
-        await apiClient.setStartingLevel(materialId, learningSettings.level);
         if (learningSettings.goal) await apiClient.setLearningGoal(materialId, learningSettings.goal.date, learningSettings.goal.percent);
         else await apiClient.clearDraftLearningGoal(materialId);
       }
@@ -618,7 +617,7 @@ export function SourceView({
           footer={listFooter}
         >
           <MaterialNameField value={materialName??""} onChange={setMaterialName} disabled={busy||removing||hasActiveRun}/>
-          {learningSettings ? <CreationLearningSettings value={learningSettings} today={goalToday} disabled={busy||removing||hasActiveRun} onChange={setLearningSettings}/> : <p role="status">正在讀取程度與目標…</p>}
+          {learningSettings ? <CreationLearningSettings value={learningSettings} today={goalToday} disabled={busy||removing||hasActiveRun} onChange={setLearningSettings}/> : <p role="status">正在讀取學習目標…</p>}
           {removing && <p role="status">正在刪除教材…</p>}
           {sourceRows}
           {!removing && !hasActiveRun && (

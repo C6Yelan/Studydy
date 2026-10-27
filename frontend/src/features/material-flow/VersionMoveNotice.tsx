@@ -1,4 +1,4 @@
-import { useStudyStart } from "../study-session/StartingLevel";
+import { useStudyStart } from "../study-session/useStudyStart";
 import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { VersionMovePreview, VersionMoveResult, VersionMoveUnmapped, VersionMoveReturn, StudySessionLink } from "../../api/contracts";
@@ -128,7 +128,7 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false }: { 
   const chosen = selected.size > 0 || (includeStudy && !!preview?.study);
   const headStructure = material?.available_structures.find((item) => item.knowledge_structure_revision === head);
   return <>
-    {launch.dialog}
+
     {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
     {showNotice && <section className={compact ? "version-move-entry" : "version-move-notice version-move-banner"} aria-label="教材已更新">
       {!compact && <span className="version-move-badge"><Icon name="sparkle" size={16}/>教材已更新</span>}

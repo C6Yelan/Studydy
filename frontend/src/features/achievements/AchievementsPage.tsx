@@ -8,7 +8,7 @@ import { BadgeCollection } from "../badges/Badges";
 import "../dashboard/styles.css";
 import "./styles.css";
 
-// 經驗值規則 xp-rules/v4 的圖解；數值須與後端 runtime/learning_activity.py 一致（見 docs/learning.md）。
+// 經驗值規則 xp-rules/v5 的圖解；數值須與後端 runtime/learning_activity.py 一致（見 docs/learning.md）。
 type Source = keyof LearningActivityView["xp"]["sources"];
 const xpRules: { icon: IconName; source: Source; tone: string; title: string; gains: [string, string][]; note: string }[] = [
   { icon: "quiz", source: "answers", tone: "is-answers", title: "作答", gains: [["+10", "答對"], ["+3", "答錯"]], note: "同一題只算第一次作答" },
@@ -17,7 +17,6 @@ const xpRules: { icon: IconName; source: Source; tone: string; title: string; ga
   { icon: "headphones", source: "podcast", tone: "is-podcast", title: "收聽 Podcast", gains: [["+5", "每 5 分鐘"]], note: "實際收聽時間，每天最多 +60" },
   { icon: "route", source: "goals", tone: "is-goals", title: "目標與關卡", gains: [["+15", "每關"], ["+50", "準時達標"]], note: "每份教材每天一關，每天最多 +45；達標每份教材一次" },
   { icon: "check", source: "difficulties", tone: "is-difficulties", title: "克服難點", gains: [["+20", "每個難點"]], note: "錯誤率降到一半以下時計入，同一概念只算一次" },
-  { icon: "search", source: "diagnostics", tone: "is-diagnostics", title: "起始程度診斷", gains: [["+20", "每份教材"]], note: "完成診斷題組時計入，同一份教材只算一次" },
 ];
 
 // 等級與經驗值：目前等級與本級進度（升級所需 XP 由後端分段曲線決定），下方圖解經驗值來源與各來源規則。
@@ -64,7 +63,7 @@ export function AchievementsPage({ apiClient }: { apiClient: StudydyApiClient })
     <header className="library-header collection-head">
       <div className="collection-head-text">
         <h1 id="achievements-title">成就</h1>
-        <p className="library-subtitle">作答、完成概念、標記概念卡、收聽 Podcast、闖關、克服難點與起始程度診斷都會累積經驗值，達到門檻就能取得各系列的下一層徽章。</p>
+        <p className="library-subtitle">作答、完成概念、標記概念卡、收聽 Podcast、闖關、克服難點都會累積經驗值，達到門檻就能取得各系列的下一層徽章。</p>
       </div>
     </header>
     {activity === undefined ? <StateView title="正在讀取學習成就" description="正在整理等級與徽章。" tone="loading" live />

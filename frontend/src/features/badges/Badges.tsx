@@ -4,13 +4,13 @@ import { CelebrationDialog } from "../../ui/CelebrationDialog";
 import { Icon, type IconName } from "../../ui/Icon";
 import "./styles.css";
 
-// 徽章（規則 badge-rules/v7）：取得與進度全部來自學習活動 API，這裡只負責名稱、說明、圖示與稀有度。
+// 徽章（規則 badge-rules/v8）：取得與進度全部來自學習活動 API，這裡只負責名稱、說明、圖示與稀有度。
 // 同一計量的徽章是一個系列的不同層級（I→V），獎章依層級上色：銅、銀、金、鑽石、星耀。
 // 稀有度（普通／稀有／史詩／傳說）只是呈現難度，不影響經驗值。
 type Series = "answers" | "concepts" | "materials" | "cards" | "listen" | "streak" | "days" | "level" | "perfect" | "sets" | "episodes" | "firstTry"
-  | "goal" | "stages" | "difficulties" | "diagnostics" | "notes" | "annotations"
+  | "goal" | "stages" | "difficulties" | "notes" | "annotations"
   | "uploadImage" | "uploadAudio" | "uploadVideo" | "uploadYoutube" | "exports" | "podcastSeries" | "podcastHosts"
-  | "allTools" | "diagnosedMastery" | "mediaConcepts" | "stageStreak";
+  | "allTools" | "mediaConcepts" | "stageStreak";
 type Rarity = 0 | 1 | 2 | 3;
 const rarityNames = ["普通", "稀有", "史詩", "傳說"] as const;
 const series: Record<Series, { title: string; unit: string; icon: IconName; condition: (target: number) => string }> = {
@@ -29,7 +29,6 @@ const series: Record<Series, { title: string; unit: string; icon: IconName; cond
   goal: { title: "目標與關卡", unit: "次", icon: "compass", condition: () => "第一次為教材設定目標日期" },
   stages: { title: "目標與關卡", unit: "關", icon: "route", condition: (target) => target === 1 ? "第一次完成分天關卡（達到今天的目標重點量）" : `累計完成 ${target} 個分天關卡（每份教材每天一關）` },
   difficulties: { title: "克服難點", unit: "個", icon: "check", condition: (target) => target === 1 ? "克服一個「你的難點」：作答 3 題以上、錯一半以上的概念，之後錯誤率降到一半以下" : `克服 ${target} 個「你的難點」（錯誤率降到一半以下）` },
-  diagnostics: { title: "起始程度診斷", unit: "份", icon: "search", condition: (target) => target === 1 ? "完成第一次起始程度診斷題組" : `在 ${target} 份教材完成起始程度診斷` },
   notes: { title: "筆記", unit: "份", icon: "book", condition: () => "生成第一份完整筆記" },
   annotations: { title: "個人註記", unit: "段", icon: "edit", condition: (target) => target === 1 ? "第一次在筆記寫個人註記" : `在 ${target} 個筆記段落寫個人註記（同一段算一次）` },
   uploadImage: { title: "多元教材", unit: "份", icon: "upload", condition: () => "第一次上傳圖片教材" },
@@ -40,7 +39,6 @@ const series: Record<Series, { title: string; unit: string; icon: IconName; cond
   podcastSeries: { title: "Podcast 節目", unit: "部", icon: "headphones", condition: () => "聽完一部多集 Podcast 的每一集" },
   podcastHosts: { title: "Podcast 節目", unit: "組", icon: "user", condition: (target) => `聽完全部 ${target} 組主持人的 Podcast（主持人在建立節目時隨機指派，各至少一集）` },
   allTools: { title: "組合成就", unit: "份", icon: "compass", condition: () => "同一份教材：完成題組、標記概念卡、聽完一集 Podcast，並在筆記寫個人註記" },
-  diagnosedMastery: { title: "組合成就", unit: "份", icon: "map", condition: () => "做過起始程度診斷的教材，之後完成全部學習" },
   mediaConcepts: { title: "組合成就", unit: "個", icon: "play", condition: (target) => `在含圖片、音訊、影片或 YouTube 來源的教材完成 ${target} 個概念` },
   stageStreak: { title: "組合成就", unit: "天", icon: "flame", condition: (target) => `連續 ${target} 天都完成分天關卡` },
 };
@@ -61,7 +59,6 @@ const tiers: Record<Series, [LearningBadgeId, string, Rarity][]> = {
   goal: [["first_goal", "立下目標", 0]],
   stages: [["first_stage", "第一關", 0], ["stages_10", "十關闖將", 1], ["stages_50", "五十關攻略", 2]],
   difficulties: [["first_difficulty", "突破難點", 1], ["difficulties_5", "難點剋星", 2], ["difficulties_20", "難不倒我", 3]],
-  diagnostics: [["first_diagnostic", "摸清底細", 0], ["diagnostics_5", "五島健檢", 1]],
   notes: [["first_note", "第一份筆記", 0]],
   annotations: [["first_annotation", "寫下心得", 0], ["annotations_10", "筆記達人", 1], ["annotations_50", "眉批大師", 2]],
   uploadImage: [["upload_image", "圖片教材", 0]],
@@ -72,7 +69,6 @@ const tiers: Record<Series, [LearningBadgeId, string, Rarity][]> = {
   podcastSeries: [["podcast_series", "追完一季", 1]],
   podcastHosts: [["podcast_hosts_all", "主持人全收集", 2]],
   allTools: [["all_tools_material", "全能島主", 2]],
-  diagnosedMastery: [["diagnosed_mastery", "對症下藥", 2]],
   mediaConcepts: [["media_concepts_5", "影音學習者", 1]],
   stageStreak: [["stage_streak_7", "一週闖關", 2]],
 };
@@ -251,7 +247,7 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
       </header>
       {locked.length > 0 && <ul className="badge-grid">{locked.map((badge) => <BadgeCell key={badge.badge_id} badge={badge} />)}</ul>}
     </section>
-    <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、教材問答、目標與分天關卡、難點、起始程度診斷、筆記註記、上傳的教材、匯出、學習天數與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
+    <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、教材問答、目標與分天關卡、難點、筆記註記、上傳的教材、匯出、學習天數與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
   </section>;
 }
 

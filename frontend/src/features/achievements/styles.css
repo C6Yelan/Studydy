@@ -30,7 +30,6 @@
 .xp-rules .is-podcast { --xp: #1f9fd6; --xp-soft: #e2f5fd; }
 .xp-rules .is-goals { --xp: var(--studydy-blue); --xp-soft: var(--studydy-blue-soft); }
 .xp-rules .is-difficulties { --xp: var(--coral); --xp-soft: #ffe9e6; }
-.xp-rules .is-diagnostics { --xp: var(--amber-deep); --xp-soft: #fdeedd; }
 .xp-mix p { margin: 0 0 6px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
 .xp-mix p b { color: var(--text-primary); font-size: 15px; }
 .xp-mix-bar {

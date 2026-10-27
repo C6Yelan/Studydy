@@ -64,7 +64,7 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
     empty = activity(fixture)
     assert empty["xp"] == {"total": 0, "today": 0, "level": 1, "level_xp": 0, "level_target": 100,
                            "sources": {"answers": 0, "concepts": 0, "cards": 0, "podcast": 0,
-                                       "goals": 0, "difficulties": 0, "diagnostics": 0}}
+                                       "goals": 0, "difficulties": 0}}
     assert empty["rule_version"] == "xp-rules/v5" and empty["streak_days"] == 0
     # 已開始學習但今天尚未完成題組：顯示「繼續學習」且未完成。
     assert [(q["kind"], q["done"]) for q in empty["quests"]] == [("continue_study", False)]
@@ -95,7 +95,7 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
 
     view = activity(fixture, now=start + timedelta(minutes=6))
     assert view["xp"]["sources"] == {"answers": answer_xp, "concepts": 30 * completed, "cards": 2, "podcast": 5,
-                                     "goals": 0, "difficulties": 0, "diagnostics": 0}
+                                     "goals": 0, "difficulties": 0}
     total = answer_xp + 30 * completed + 2 + 5
     assert view["xp"]["total"] == view["xp"]["today"] == total
     assert (view["xp"]["level"], view["xp"]["level_xp"], view["xp"]["level_target"]) == level_for(total)
