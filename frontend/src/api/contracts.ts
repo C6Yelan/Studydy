@@ -137,6 +137,7 @@ export type MaterialProcessingRunView = {
   source_names?: string[];
   added_sources?: { source_id: string; display_name: string }[];
   existing_source_count?: number;
+  structure_changes?: { before: { concepts: number; relations: number }; after: { concepts: number; relations: number } } | null;
   schema: "material-processing-run/v1";
   input_source_set_id?: string;
   cancel_requested_at: string | null;
@@ -284,6 +285,7 @@ export type KnowledgeStructureView = {
     concept_id: string;
     label: string;
     aliases: string[];
+    uncertain?: boolean;
     claims: { claim_id: string; text: string; evidence: EvidenceView[] }[];
   }[];
   relations: {

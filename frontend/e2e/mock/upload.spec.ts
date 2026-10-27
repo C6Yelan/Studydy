@@ -126,6 +126,7 @@ async function setup(page: Page) {
           normalization_id: uuid(n + 1),
           original_artifact_id: uuid(n + 2),
           original_name: name,
+          source_kind: "document",
           media_type: route.request().headers()["content-type"],
           status: failed ? "failed" : "ready",
           normalized_artifact_id: failed ? null : uuid(n + 3),
@@ -283,6 +284,7 @@ test("initial multi-source upload confirms exact order and retries analysis", as
   state.uploadLost = true;
   state.analysisFailsOnce = true;
   await page.goto("/upload");
+  await expect(page.getByLabel("選擇教材檔案", { exact: true })).toBeEnabled();
   await page.getByLabel("選擇教材檔案", { exact: true }).setInputFiles([pdf, txt]);
   await expect(page.locator(".chosen-file")).toHaveCount(2);
   const upload = page.getByRole("button", { name: "上傳並確認來源", exact: true });
