@@ -1,3 +1,4 @@
+import { MaterialNameField } from "../../ui/MaterialNameField";
 import {useEffect,useRef,useState} from 'react';
 import {BackLink} from '../../ui/BackLink';
 import {errorMessage,isNotFound,type StudydyApiClient} from '../../api/client';
@@ -47,10 +48,7 @@ function ScopeList({label,itemLabel,addLabel,hint,items,onChange,busy,error}:{la
 function ScopeFields({draft,onChange,busy}:{draft:Scope;onChange:(scope:Scope)=>void;busy:boolean}){
  const hasGoals=draft.goals.some(x=>x.trim()),hasTopics=draft.topics.some(x=>x.trim());
  return <div className="topic-scope-fields">
-  <label className="topic-scope-name"><span>教材名稱</span>
-   <input aria-label="教材名稱" disabled={busy} value={draft.title} maxLength={180} aria-invalid={!draft.title.trim()} aria-describedby={!draft.title.trim()?'scope-title-error':undefined} onChange={e=>onChange({...draft,title:e.target.value})}/>
-  </label>
-  {!draft.title.trim()&&<p id="scope-title-error" className="form-error" role="alert">請填寫教材名稱。</p>}
+  <MaterialNameField value={draft.title} disabled={busy} onChange={title=>onChange({...draft,title})}/>
   <ScopeList label="觀念與重點／細節" itemLabel="主題" addLabel="新增主題" hint="每項寫清楚想理解的觀念、具體問題與限制；確認後依這些內容查找來源。" items={draft.topics} busy={busy} onChange={topics=>onChange({...draft,topics})} error={hasTopics?undefined:'請至少保留一個要涵蓋的主題。'}/>
   <ScopeList label="學習目標" itemLabel="學習目標" addLabel="新增學習目標" items={draft.goals} busy={busy} onChange={goals=>onChange({...draft,goals})} error={hasGoals?undefined:'請至少保留一個學習目標。'}/>
  </div>;

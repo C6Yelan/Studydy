@@ -30,6 +30,7 @@ async function fileTransfer(page: Page, name: string, type: string) {
 async function setup(page: Page) {
   const state = {
     drafts: [] as string[],
+    name:"A.pdf", renames:[] as string[], renameFailsOnce:false,
     uploads: [] as { name: string; key: string }[],
     sources: [] as SourceView[],
     starts: [] as {
@@ -76,7 +77,7 @@ async function setup(page: Page) {
     schema: "material-library-item/v1",
     material_id: material,
     source_artifact_id: null,
-    display_name: "A.pdf",
+    display_name: state.name,
     size_bytes: 128,
     created_at: stamp,
     latest_attempt: state.run,
@@ -91,6 +92,7 @@ async function setup(page: Page) {
     expect(route.request().method()).toBe("POST");
     expect(route.request().headers()["idempotency-key"]).toMatch(/\S/);
     state.drafts.push(route.request().headers()["idempotency-key"]);
+    state.name=route.request().postDataJSON().display_name;
     if (state.draftLost) {
       state.draftLost = false;
       return route.abort("connectionreset");
@@ -101,6 +103,11 @@ async function setup(page: Page) {
     });
   });
   await page.route(`**/v1/materials/${material}`, (route) => route.fulfill({ json: item() }));
+  await page.route(`**/v1/materials/${material}/rename`,route=>{
+    const body=route.request().postDataJSON();expect(body.schema).toBe('material-rename/v1');state.renames.push(body.display_name);
+    if(state.renameFailsOnce){state.renameFailsOnce=false;return route.fulfill({status:503,json:failure});}
+    state.name=body.display_name;return route.fulfill({json:item()});
+  });
   const listing = () => ({
     schema: "material-sources/v1",
     material_id: material,
@@ -249,7 +256,7 @@ for (const width of [1536, 390]) {
     await expect(page.locator(".file-drop > span:last-child")).toHaveText(
       "文件 PDF、TXT（每份最大 100.0 MiB） · 可選多份",
     );
-    const conversion = page.getByText("非 PDF 教材會先轉換為 PDF；音訊、影片與 YouTube 會轉成約 2 分鐘一段的逐字稿。請在下一步確認轉換內容。", {
+    const conversion = page.getByText("非 PDF 教材會先轉換為 PDF；音訊、影片與 YouTube 會轉成逐字稿。請在下一步確認轉換內容。", {
       exact: true,
     });
     const input = page.getByLabel("選擇教材檔案", { exact: true });
@@ -461,4 +468,36 @@ test("drag state and accessible picker support multiple files without accidental
     await expect(page.locator(".chosen-file")).toHaveCount(3);
   }
   expect(state.uploads).toHaveLength(0);
+});
+
+
+test('confirmation edits the default material name and saves it before starting analysis',async({page},testInfo)=>{
+ const state=await setup(page);await page.goto('/upload');
+ await page.getByLabel('選擇教材檔案',{exact:true}).setInputFiles({...pdf,name:'01.機率模型.pdf'});
+ await page.getByRole('button',{name:'上傳並確認來源',exact:true}).click();
+ const name=page.getByRole('textbox',{name:'教材名稱',exact:true}),start=page.getByRole('button',{name:'開始分析教材',exact:true});
+ await expect(name).toHaveValue('01.機率模型');expect(state.name).toBe('01.機率模型');
+ await expect(name).toHaveAttribute('maxlength','180');
+ await name.fill('   ');await expect(start).toBeDisabled();await expect(page.getByText('請填寫教材名稱。',{exact:true})).toBeVisible();
+ await name.fill('自訂機率課程');
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`material-name-${width}.png`),animations:'disabled'});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
+ state.renameFailsOnce=true;await start.click();await expect.poll(()=>state.renames.length).toBe(1);
+ await expect(page.getByRole('alert')).toBeVisible();expect(state.starts).toHaveLength(0);await expect(name).toHaveValue('自訂機率課程');
+ await start.click();await expect.poll(()=>state.starts.length).toBe(1);
+ expect(state.renames).toEqual(['自訂機率課程','自訂機率課程']);expect(state.name).toBe('自訂機率課程');
+});
+
+test('confirmation polling preserves the edited name and reload keeps the saved draft name',async({page})=>{
+ await page.clock.install();const state=await setup(page);await page.goto('/upload');
+ await page.getByLabel('選擇教材檔案',{exact:true}).setInputFiles(txt);
+ await page.getByRole('button',{name:'上傳並確認來源',exact:true}).click();
+ Object.assign(state.sources[0],{status:'pending',normalized_artifact_id:null,page_count:null});
+ await page.reload();
+ const name=page.getByRole('textbox',{name:'教材名稱',exact:true});await expect(name).toHaveValue('B');
+ let reads=0;page.on('request',request=>{if(request.method()==='GET'&&new URL(request.url()).pathname===`/v1/materials/${material}/sources`)reads++;});
+ await name.fill('尚未儲存的名稱');await page.clock.runFor(6000);await expect.poll(()=>reads).toBeGreaterThan(0);await expect(name).toHaveValue('尚未儲存的名稱');
+ state.name='先前已自訂的名稱.pdf';await page.reload();await expect(name).toHaveValue('先前已自訂的名稱.pdf');
 });

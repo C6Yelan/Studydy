@@ -188,6 +188,7 @@ for (const width of [1536, 390]) {
       return route.fulfill({ json: run });
     });
     await page.goto(`/materials/${materialId}/sources`);
+    await page.getByRole("button",{name:"新增來源",exact:true}).click();
     await expect(page.getByLabel("選擇新增教材", { exact: true })).toBeEnabled();
     await page.getByLabel("選擇新增教材", { exact: true }).setInputFiles(files);
     await page.getByRole("button", { name: "上傳新增教材", exact: true }).click();

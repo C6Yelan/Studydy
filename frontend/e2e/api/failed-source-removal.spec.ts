@@ -19,6 +19,7 @@ test('remove failed initial source, refresh, upload a replacement and publish', 
   await expect(page.locator('.source-row')).toHaveCount(0);
   await page.reload();
   await expect(page.locator('.source-row')).toHaveCount(0);
+  await page.getByRole('button',{name:'新增來源',exact:true}).click();
   const picker = page.getByLabel('選擇新增教材', { exact: true });
   await expect(picker).toBeEnabled();
   await picker.setInputFiles({
