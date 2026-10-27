@@ -1,3 +1,5 @@
+import { MaterialNameField } from "../../ui/MaterialNameField";
+import { SourceUploadPicker } from "./SourceUploadPicker";
 import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
@@ -9,7 +11,7 @@ import { rememberMaterial } from "./material-memory";
 import { MaterialContentNav } from "./MaterialContentNav";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
 import { automaticPollIntervalMs, formatFileSize } from "./material-flow";
-import { QueuedImages, YoutubeSourceInput } from "./QueuedSourceParts";
+import { QueuedImages } from "./QueuedSourceParts";
 import { queueFiles, queuedName, queuedSize, uploadQueued, type QueuedSource } from "./source-uploads";
 import { FlowFooter, FlowHeader, FlowStage, LearningSteps, uploadSteps } from "./Flow";
 import { Icon } from "../../ui/Icon";
@@ -51,6 +53,11 @@ export function SourceView({
   const sourceListRef = useRef<SourceListView | null>(null);
   sourceListRef.current = sourceList;
   const [material, setMaterial] = useState<MaterialLibraryItem | null>(null);
+  const [materialName,setMaterialName]=useState<string|null>(null);
+  const [pickerOpen,setPickerOpen]=useState(false);
+  const pickerDialog=useRef<HTMLDialogElement>(null),pickerButton=useRef<HTMLButtonElement>(null);
+  useEffect(()=>{setMaterialName(null);},[materialId]);
+  useEffect(()=>{if(pickerOpen)pickerDialog.current?.showModal();},[pickerOpen]);
   const [sourceQuery,setSourceQuery]=useState('');
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +75,6 @@ export function SourceView({
   const uploadedKeys = useRef(new Set<string>());
   const intent = useRef({ signature: "", key: crypto.randomUUID() });
   const [capabilities, setCapabilities] = useState<SourceCapabilities | null>(null);
-  const formats = capabilities?.formats ?? [];
   const formatsReady = capabilities !== null;
   const [capabilityError, setCapabilityError] = useState("");
   useEffect(() => {
@@ -115,6 +121,7 @@ export function SourceView({
         setSourceList(sources);
         rememberMaterial(apiClient, item);
         setMaterial(item);
+        setMaterialName(previous=>previous??item.display_name);
         setQueue((previous) => previous.filter((item) => !refreshedKeys.has(item.key)));
         for (const key of refreshedKeys) uploadedKeys.current.delete(key);
         if (sources.discard_requested) {
@@ -193,7 +200,11 @@ export function SourceView({
   };
   const start = () =>
     perform(async () => {
-      if (!sourcesReady || hasActiveRun || queue.length > 0) return;
+      if (!sourcesReady || hasActiveRun || queue.length > 0 || !materialName?.trim()) return;
+      if (!currentStructure && materialName.trim() !== material?.display_name) {
+        const renamed = await apiClient.renameMaterial(materialId, materialName.trim());
+        setMaterial(renamed);rememberMaterial(apiClient,renamed);
+      }
       const ids = selectedSources.map((source) => source.normalization_id);
       const signature = JSON.stringify([baseRevision, ids]);
       if (intent.current.signature !== signature)
@@ -215,6 +226,7 @@ export function SourceView({
     const { queue: next, rejected } = await queueFiles(Array.from(files), capabilities, queue);
     setSelectionError(rejected.join(" "));
     setQueue(next);
+    if(next.length!==queue.length || next.some((item,index)=>item!==queue[index]))pickerDialog.current?.close();
   };
   const updateQueued = (key: string, change: Partial<QueuedSource>) =>
     setQueue((previous) =>
@@ -297,35 +309,15 @@ export function SourceView({
           ]
             .filter(Boolean)
             .join(" · ");
-  const sourcePicker = (
-    <label className={currentStructure ? "secondary-button source-add-control" : "source-add-control"}>
-      <Icon name="plus" size={16} />
-      新增來源
-      <input
-        type="file"
-        multiple
-        accept={formats.map((format) => format.extension).join(",")}
-        aria-label="選擇新增教材"
-        aria-describedby={selectionError ? "source-selection-error" : undefined}
-        disabled={busy || !formatsReady}
-        onChange={(event) => {
-          void chooseFiles(event.currentTarget.files);
-          event.currentTarget.value = "";
-        }}
-      />
-    </label>
-  );
-  const youtubeInput = capabilities?.youtube && (
-    <YoutubeSourceInput
-      disabled={busy}
-      onAdd={(url) =>
-        setQueue((previous) => [
-          ...previous,
-          { key: crypto.randomUUID(), kind: "youtube", status: "pending", error: null, progress: null, url },
-        ])
-      }
-    />
-  );
+  const sourcePicker = <button ref={pickerButton} type="button" className="secondary-button source-add-button" disabled={busy || !formatsReady}
+    onClick={()=>setPickerOpen(true)}><Icon name="plus" size={16}/>新增來源</button>;
+  const sourceDialog = pickerOpen && <dialog ref={pickerDialog} className="source-picker-dialog" aria-labelledby="source-picker-title"
+    onClose={()=>{setPickerOpen(false);pickerButton.current?.focus();}}>
+    <header><h2 id="source-picker-title">新增來源</h2><button type="button" className="flow-icon-button" aria-label="關閉新增來源" onClick={()=>pickerDialog.current?.close()}><Icon name="close" size={18}/></button></header>
+    <SourceUploadPicker capabilities={capabilities} disabled={busy} hasFiles={queue.length>0} inputLabel="選擇新增教材"
+      error={selectionError} errorId="source-selection-error" onFiles={chooseFiles} onSelectionError={setSelectionError}
+      onYoutube={url=>{setQueue(previous=>[...previous,{key:crypto.randomUUID(),kind:"youtube",status:"pending",error:null,progress:null,url}]);pickerDialog.current?.close();}}/>
+  </dialog>;
   const pageCount = displayedSources.reduce((sum, source) => sum + (source.page_count ?? 0), 0);
   const allReady = queue.length === 0 && displayedSources.length > 0 && displayedSources.every((source) => source.status === "ready");
   const groups = (currentStructure ? ["upload", "research"] as const : ["all"] as const).filter(group =>
@@ -535,7 +527,7 @@ export function SourceView({
         </button>
       ) : (
         queue.length === 0 && sourcesReady && (
-          <button className="primary-button" disabled={busy} onClick={() => void start()}>
+          <button className="primary-button" disabled={busy || (!currentStructure && !materialName?.trim())} onClick={() => void start()}>
             {busy ? "正在建立分析…" : currentStructure ? "確認新增並更新地圖" : "開始分析教材"}
             <Icon name="chevron-right" size={16} />
           </button>
@@ -592,19 +584,20 @@ export function SourceView({
           description={`${displayedSources.length + queue.length} 份${allReady ? ` · ${pageCount} 頁` : ""} · 依清單順序分析，可用箭頭調整。`}
           footer={listFooter}
         >
+          <MaterialNameField value={materialName??""} onChange={setMaterialName} disabled={busy||removing||hasActiveRun}/>
           {removing && <p role="status">正在刪除教材…</p>}
           {sourceRows}
           {!removing && !hasActiveRun && (
-            <div className="source-add-area">
+            <div className="source-add-actions">
               {sourcePicker}
               <span className="flow-hint">可再加入其他檔案，一起建立同一份知識地圖。</span>
-              {youtubeInput}
               {capabilityError && <p className="flow-hint" role="status">{capabilityError}</p>}
-              {selectionError && <p id="source-selection-error" className="form-error" role="alert">{selectionError}</p>}
+              {!pickerOpen && selectionError && <p id="source-selection-error" className="form-error" role="alert">{selectionError}</p>}
             </div>
           )}
         </FlowStage>
         {bottom}
+        {sourceDialog}
       </section>
     );
   return (
@@ -629,10 +622,9 @@ export function SourceView({
             </form>
             {!removing && !hasActiveRun && sourcePicker}
           </div>
-          {!removing && !hasActiveRun && youtubeInput}
         </header>
         {capabilityError && <p className="flow-hint" role="status">{capabilityError}</p>}
-        {selectionError && <p id="source-selection-error" className="form-error" role="alert">{selectionError}</p>}
+        {!pickerOpen && selectionError && <p id="source-selection-error" className="form-error" role="alert">{selectionError}</p>}
         {errorCard}
         <section className="surface source-list-card" aria-label="教材來源">
           {removing && <p role="status">正在刪除教材…</p>}
@@ -641,6 +633,7 @@ export function SourceView({
           {listFooter}
         </section>
         {bottom}
+        {sourceDialog}
       </div>
     </section>
   );

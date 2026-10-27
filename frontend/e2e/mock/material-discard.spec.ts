@@ -498,7 +498,7 @@ for (const touch of [false, true])
       await activate(menu.getByRole("button", { name: "來源與更新", exact: true }));
       await expect(page).toHaveURL(new RegExp(`/materials/${firstItem.material_id}/sources$`));
       await expect(page.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
-      await expect(page.getByLabel("選擇新增教材", { exact: true })).toBeEnabled();
+      await expect(page.getByRole("button", {name:"新增來源",exact:true})).toBeEnabled();
       await expect(page.locator(".material-management-menu[open]")).toHaveCount(0);
     });
   });

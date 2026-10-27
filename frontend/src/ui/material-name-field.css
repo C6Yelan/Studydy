@@ -1,0 +1,4 @@
+.material-name-field { margin-bottom:var(--space-5); max-width:45rem; }
+.material-name-field label { display:grid; gap:var(--space-2); }
+.material-name-field label > span { color:var(--text-secondary); font-size:.8125rem; font-weight:800; }
+.material-name-field input { min-height:3rem; font-size:1.125rem; font-weight:800; }

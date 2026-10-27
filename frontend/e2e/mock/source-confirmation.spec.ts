@@ -276,7 +276,7 @@ for (const width of [1536, 390])
       const choices = page.getByRole("checkbox");
       await expect(choices).toHaveCount(2);
       for (const choice of await choices.all()) await expect(choice).toBeDisabled();
-      await expect(page.getByLabel("選擇新增教材", { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button",{name:"新增來源",exact:true})).toHaveCount(0);
     });
 
     test("upload queue retries one file with the same intent and waits for source confirmation", async ({
@@ -323,9 +323,11 @@ for (const width of [1536, 390])
         return route.fulfill({ json: listing() });
       });
       await page.goto(sourcesPath);
+      await activate(page.getByRole("button", {name:"新增來源",exact:true}));
+      await expect(page.getByRole("dialog",{name:"新增來源"})).toBeVisible();
       await expect(page.getByLabel("選擇新增教材", { exact: true })).toBeEnabled();
       const chooser = page.waitForEvent("filechooser");
-      await activate(page.locator(".source-add-control"));
+      await activate(page.getByLabel("選擇新增教材", {exact:true}));
       await (
         await chooser
       ).setFiles([
@@ -383,3 +385,25 @@ for (const width of [1536, 390])
       );
     });
   });
+
+
+for(const append of [false,true])test(`source picker shares upload controls and restores focus in ${append?'published':'confirmation'} view`,async({page},testInfo)=>{
+ await mockSources(page,append);
+ await page.route('**/v1/source-capabilities',route=>route.fulfill({json:{schema:'source-capabilities/v2',max_request_bytes:104857600,max_images:50,max_media_seconds:7200,youtube:true,formats:[{extension:'.pdf',media_type:'application/pdf',max_bytes:104857600,kind:'document'}]}}));
+ await page.goto(sourcesPath);
+ const opener=page.getByRole('button',{name:'新增來源',exact:true});await opener.click();
+ const dialog=page.getByRole('dialog',{name:'新增來源',exact:true});
+ await expect(dialog).toBeVisible();await expect(dialog.locator('.file-drop')).toContainText('PDF');
+ await expect(dialog.getByLabel('YouTube 影片網址',{exact:true})).toBeVisible();
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`source-picker-${append?'published':'confirmation'}-${width}.png`),animations:'disabled'});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
+ await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(opener).toBeFocused();
+ await opener.click();await dialog.getByRole('button',{name:'關閉新增來源'}).click();await expect(opener).toBeFocused();
+ await opener.click();await dialog.getByLabel('YouTube 影片網址',{exact:true}).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+ await dialog.getByRole('button',{name:'加入影片',exact:true}).click();
+ await expect(dialog).toHaveCount(0);await expect(opener).toBeFocused();
+ await expect(page.locator('.source-upload-row')).toContainText('YouTube 影片');
+ await expect(page.getByRole('button',{name:'上傳新增教材',exact:true})).toBeVisible();
+});

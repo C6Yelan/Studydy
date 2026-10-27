@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { SourceUploadPicker } from "./SourceUploadPicker";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { SourceCapabilities } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
@@ -6,7 +7,7 @@ import { Icon } from "../../ui/Icon";
 import { BackLink } from "../../ui/BackLink";
 import { FlowFooter, FlowHeader, FlowStage, LearningSteps, uploadSteps } from "./Flow";
 import { formatFileSize } from "./material-flow";
-import { QueuedImages, YoutubeSourceInput } from "./QueuedSourceParts";
+import { QueuedImages } from "./QueuedSourceParts";
 import {
   queueFiles,
   queuedName,
@@ -17,8 +18,6 @@ import {
 
 export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
   const [capabilities, setCapabilities] = useState<SourceCapabilities | null>(null);
-  const formats = capabilities?.formats ?? [];
-  const formatsReady = capabilities !== null;
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueuedSource[]>([]);
   const [selectionError, setSelectionError] = useState("");
@@ -26,13 +25,6 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const draft = useRef<{ key: string; name: string; id: string | null } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragDepth = useRef(0);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const clearDrag = () => {
-    dragDepth.current = 0;
-    setIsDragging(false);
-  };
   useEffect(() => {
     let cancelled = false;
     void apiClient.sourceCapabilities().then(
@@ -49,24 +41,6 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       cancelled = true;
     };
   }, [apiClient]);
-  useEffect(() => {
-    const cancel = (event: KeyboardEvent) => {
-      if (event.key === "Escape") clearDrag();
-    };
-    const input = fileInput.current;
-    input?.addEventListener("cancel", clearDrag);
-    window.addEventListener("keydown", cancel);
-    window.addEventListener("drop", clearDrag);
-    window.addEventListener("dragend", clearDrag);
-    window.addEventListener("blur", clearDrag);
-    return () => {
-      input?.removeEventListener("cancel", clearDrag);
-      window.removeEventListener("keydown", cancel);
-      window.removeEventListener("drop", clearDrag);
-      window.removeEventListener("dragend", clearDrag);
-      window.removeEventListener("blur", clearDrag);
-    };
-  }, []);
   const chooseFiles = async (files: FileList | null) => {
     if (submitting.current || !files?.length || !capabilities) return;
     const { queue: next, rejected } = await queueFiles(Array.from(files), capabilities, queue);
@@ -86,12 +60,11 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
     submitting.current = true;
     setBusy(true);
     setError(null);
-    clearDrag();
     try {
       // 保留 draft 與逐檔的同一意圖；回應遺失或部分失敗時不重建已成功的來源。
       draft.current ??= {
         key: crypto.randomUUID(),
-        name: queue[0].kind === "youtube" ? "YouTube 影片" : queuedName(queue[0]),
+        name: queue[0].kind === "youtube" ? "YouTube 影片" : (queue[0].kind === "images" ? queue[0].images![0].name : queue[0].file!.name).replace(/\.[^.]+$/, "").slice(0, 180),
         id: null,
       };
       const intent = draft.current;
@@ -167,65 +140,10 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
         }
       >
         <div className="upload-stage-body">
-        <label
-          className={`file-drop${queue.length ? " has-file" : ""}${busy || !formatsReady ? " is-disabled" : ""}${isDragging ? " is-dragging" : ""}`}
-          onDragEnter={(event) => {
-            event.preventDefault();
-            if (!submitting.current && formatsReady && event.dataTransfer.types.includes("Files")) {
-              dragDepth.current++;
-              setIsDragging(true);
-            }
-          }}
-          onDragOver={(event) => {
-            event.preventDefault();
-            event.dataTransfer.dropEffect =
-              !submitting.current && formatsReady && event.dataTransfer.types.includes("Files") ? "copy" : "none";
-          }}
-          onDragLeave={() => {
-            dragDepth.current = Math.max(0, dragDepth.current - 1);
-            if (!dragDepth.current) setIsDragging(false);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            clearDrag();
-            if (submitting.current || !formatsReady) return;
-            const folder = Array.from(event.dataTransfer.items).some(
-              (item) => item.webkitGetAsEntry?.()?.isDirectory,
-            );
-            if (folder || !event.dataTransfer.types.includes("Files"))
-              setSelectionError(
-                folder ? "不接受資料夾，請選擇教材檔案。" : "請拖曳教材檔案，不接受文字或網址。",
-              );
-            else void chooseFiles(event.dataTransfer.files);
-          }}
-        >
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            accept={formats.map((format) => format.extension).join(",")}
-            aria-label="選擇教材檔案"
-            aria-describedby={selectionError ? "upload-selection-error" : undefined}
-            disabled={busy || !formatsReady}
-            onChange={(event) => {
-              void chooseFiles(event.currentTarget.files);
-              // 選取已同步複製到待處理陣列；清空原生值，移除後重選同檔也會觸發 change。
-              event.currentTarget.value = "";
-            }}
-          />
-          <span className="file-drop-icon">
-            <Icon name="upload" size={26} />
-          </span>
-          <strong>
-            {queue.length ? "拖放或點擊以加入更多教材" : "將教材拖放到此處，或點擊選取"}
-          </strong>
-          <span>{formatsReady ? uploadLimitSummary(capabilities!) : "正在載入上傳限制"}</span>
-        </label>
-        {selectionError && (
-          <p id="upload-selection-error" className="form-error" role="alert">
-            {selectionError}
-          </p>
-        )}
+        <SourceUploadPicker capabilities={capabilities} disabled={busy} hasFiles={queue.length > 0}
+          inputLabel="選擇教材檔案" error={selectionError} errorId="upload-selection-error"
+          onFiles={chooseFiles} onSelectionError={setSelectionError}
+          onYoutube={url => {setQueue(previous => [...previous, {key:crypto.randomUUID(),kind:"youtube",status:"pending",error:null,progress:null,url}]);setError(null);}}>
         {queue.length > 0 && (
           <ul className="chosen-files" aria-label="待上傳教材">
             {queue.map((item) => (
@@ -278,25 +196,14 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
             ))}
           </ul>
         )}
-        {capabilities?.youtube && (
-          <YoutubeSourceInput
-            disabled={busy}
-            onAdd={(url) => {
-              setQueue((previous) => [
-                ...previous,
-                { key: crypto.randomUUID(), kind: "youtube", status: "pending", error: null, progress: null, url },
-              ]);
-              setError(null);
-            }}
-          />
-        )}
+        </SourceUploadPicker>
         {capabilityError && (
           <p className="flow-hint" role="status">
             {capabilityError}
           </p>
         )}
         {hasNonPdf && (
-          <p className="flow-notice">非 PDF 教材會先轉換為 PDF；音訊、影片與 YouTube 會轉成約 2 分鐘一段的逐字稿。請在下一步確認轉換內容。</p>
+          <p className="flow-notice">非 PDF 教材會先轉換為 PDF；音訊、影片與 YouTube 會轉成逐字稿。請在下一步確認轉換內容。</p>
         )}
         {error && (
           <p className="form-error" role="alert">
@@ -330,25 +237,4 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       </FlowStage>
     </section>
   );
-}
-
-/** 依實際能力列出可選格式與上限，避免畫面與後端限制不一致。 */
-export function uploadLimitSummary(capabilities: SourceCapabilities): string {
-  const groups: [string, string][] = [
-    ["document", "文件"],
-    ["image", "圖片"],
-    ["audio", "音訊"],
-    ["video", "影片"],
-  ];
-  const parts = groups.flatMap(([kind, label]) => {
-    const formats = capabilities.formats.filter((format) => format.kind === kind);
-    if (!formats.length) return [];
-    const names = [...new Set(formats.map((format) => format.extension.slice(1).toUpperCase().replace("JPEG", "JPG")))].join("、");
-    const max = formatFileSize(Math.max(...formats.map((format) => format.max_bytes)));
-    const note = kind === "image" ? `一次最多 ${capabilities.max_images} 張、合計 ${max}` : `每份最大 ${max}`;
-    return [`${label} ${names}（${note}）`];
-  });
-  const hours = capabilities.max_media_seconds / 3600;
-  const media = capabilities.formats.some((format) => format.kind === "audio" || format.kind === "video");
-  return [...parts, ...(media ? [`音訊／影片最長 ${hours} 小時`] : []), "可選多份"].join(" · ");
 }
