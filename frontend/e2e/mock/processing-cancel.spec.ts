@@ -62,6 +62,8 @@ test.beforeEach(async ({ page }) => {
       case "/v1/session":
       case "/v1/session/refresh":
         return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
+      case `/v1/materials/${materialId}`:
+        return route.fulfill({json:{schema:'material-library-item/v1',material_id:materialId,source_artifact_id:artifactId,display_name:'合成測試教材',size_bytes:1000,created_at:runningRun.created_at,latest_attempt:runningRun,available_structures:[],study_sessions:[]}});
       case "/v1/materials":
         return route.fulfill({ json: { schema: "material-library/v1", materials: [] } });
       // 處理頁依教材來源決定步驟列；這份是上傳的教材。
@@ -105,6 +107,7 @@ async function mockDiscard(page: Page, respond: (route: Route, attempt: number) 
   let deletes = 0;
   await page.route(`**/v1/materials/${materialId}`, (route) => {
     const request = route.request();
+    if(request.method()==="GET")return route.fallback();
     expect(request.method()).toBe("DELETE");
     return respond(route, ++deletes);
   });
@@ -276,7 +279,7 @@ test("semantics DELETE 503 keeps processing and polling; confirmation can retry"
 test("an ordinary GET 404 shows the not-found page without accepted discard", async ({ page }) => {
   await mockRun(page, () => null);
   await page.goto(runPath);
-  // 不存在的處理紀錄顯示「找不到」頁並保留原網址，不當成刪除完成而導回教材庫。
+  // 不存在的處理紀錄顯示「找不到」頁並保留原網址，不當成刪除完成而導回我的教材。
   await expect(page.getByRole("heading", { name: "找不到這次處理", exact: true })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
 });

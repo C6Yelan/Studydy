@@ -418,7 +418,7 @@ for (const viewport of [
     const cta = (await page.getByRole("button", { name: "開始分析教材" }).boundingBox())!;
     expect(cta.y).toBeGreaterThan(confirmation.y);
     expect(cta.y + cta.height).toBeLessThanOrEqual(confirmation.y + confirmation.height);
-    const back = (await page.getByRole("button", { name: "返回教材庫" }).boundingBox())!;
+    const back = (await page.getByRole("button", { name: "返回我的教材" }).boundingBox())!;
     const remove = page.getByRole("button", { name: "刪除教材", exact: true });
     await expect(remove).toBeVisible();
     const removeBox = (await remove.boundingBox())!;

@@ -46,8 +46,8 @@ test("library loading, read failure and empty state retain usable actions", asyn
     { times: 1 },
   );
   await page.goto("/materials");
-  await expect(page.getByRole("status")).toHaveText("正在讀取教材庫");
-  // 讀取中以教材庫版型的骨架佔位；偏好減少動態時光澤動畫停止。
+  await expect(page.getByRole("status")).toHaveText("正在讀取我的教材");
+  // 讀取中以我的教材版型的骨架佔位；偏好減少動態時光澤動畫停止。
   const skeleton = page.locator(".page-skeleton.is-library");
   await expect(skeleton).toHaveAttribute("aria-busy", "true");
   await expect(skeleton.locator(".skeleton-card").first()).toBeVisible();
@@ -85,7 +85,7 @@ test("reopen rejects a run from a different Knowledge Structure revision", async
   await expect(page.getByRole("heading", { name: "無法讀取知識地圖", exact: true })).toBeVisible();
   await expect(page.locator(".map-workspace")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "查看學習成果", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "返回教材庫", exact: true }).click();
+  await page.getByRole("button", { name: "返回我的教材", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
 });

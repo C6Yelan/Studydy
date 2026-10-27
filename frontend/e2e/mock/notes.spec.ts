@@ -82,7 +82,7 @@ test("full notes require a click and failed regeneration keeps content and previ
   const state = await setup(page, initial);
   await page.goto(`/materials/${materialId}/notes`);
   await expect(page.getByText(/來源引用未通過驗證/)).toBeVisible();
-  await expect(page.getByText(/教材仍有待核對/)).toBeVisible();
+  await expect(page.getByText("由 AI 整理，每個重點都可點開原文對照。",{exact:true})).toBeVisible();
   await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "先前段落的註記" })).toBeVisible();
   await page.getByText("當時段落：先前的段落").click();

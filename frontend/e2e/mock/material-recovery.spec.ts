@@ -67,6 +67,7 @@ test.beforeEach(async ({ page }) => {
       learner_id: "99999999-9999-4999-8999-999999999999",
     },
     "/v1/materials": { schema: "material-library/v1", materials: [item] },
+    [`/v1/materials/${materialId}`]: item,
     "/v1/topics": { topics: [] },
     [`/v1/material-processing-runs/${oldId}`]: oldRun,
     [`/v1/material-processing-runs/${newId}`]: newRun,
@@ -121,7 +122,7 @@ for (const width of [1536, 390])
     });
     await page.goto(oldPath);
     await expect(page.getByRole("heading", { name: "教材處理失敗", exact: true })).toBeVisible();
-    await expect(page.getByText("已完成的頁面整理或分析進度保存在本機。", { exact: false })).toBeVisible();
+    await expect(page.getByText("已完成的處理進度已保存；", { exact: false })).toBeVisible();
     await expect(page.getByText("最後記錄進度：", { exact: false })).toContainText("建立概念、關係與學習順序");
     await expect(page.getByRole("link", { name: "開啟知識地圖", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "接續已保存的分析", exact: true }).click();

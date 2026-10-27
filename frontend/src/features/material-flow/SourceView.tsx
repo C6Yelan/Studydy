@@ -543,10 +543,10 @@ export function SourceView({
       </button>
     </div>
   );
-  // 確認教材（尚未建立地圖）時沒有教材頁首，保留返回教材庫；教材分頁內已有頁首返回與分頁列，不再重複。
+  // 確認教材（尚未建立地圖）時沒有教材頁首，保留返回我的教材；教材分頁內已有頁首返回與分頁列，不再重複。
   const bottom = (
     <div className="flow-bottom source-footer">
-      {!currentStructure && <BackLink label="返回教材庫" route={{ name: "materials" }} />}
+      {!currentStructure && <BackLink label="返回我的教材" route={{ name: "materials" }} />}
       <MaterialRemoveControl
         inActionRow
         material={material}

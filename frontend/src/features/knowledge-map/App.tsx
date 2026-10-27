@@ -178,7 +178,7 @@ export default function KnowledgeMap({
               type="button"
               onClick={() => writeRoute({ name: "materials" })}
             >
-              返回教材庫
+              返回我的教材
             </button>
           </div>
         }
