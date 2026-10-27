@@ -388,3 +388,17 @@ def test_tracked_lock_reports_real_wait_and_execution():
     finally:
         finish.set();thread.join(3)
     assert process.progress({'jobs':[body]})=={'jobs':[]}
+
+
+def test_run_drains_stderr_in_memory_while_sending_large_input(capsys):
+    result = podcast_process.run(
+        [sys.executable, '-c',
+         "import sys; sys.stderr.write('合成錯誤內容\\n' * 12000); sys.stderr.flush(); sys.stdin.read(); print('不應輸出的內容')"],
+        input='合成教材\n' * 12000,
+        timeout=5,
+        capture_stderr=True,
+    )
+    assert result.returncode == 0 and result.stdout is None
+    assert result.stderr == '合成錯誤內容\n' * 12000
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ''

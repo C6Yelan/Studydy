@@ -77,7 +77,8 @@ def call_records(path):
             calls[event["call_id"]] = {**event, "outcome": "interrupted"}
         elif event["event"] == "finished" and event["call_id"] in calls:
             calls[event["call_id"]].update(
-                outcome=event["outcome"], error_code=event["error_code"], elapsed_seconds=event["elapsed_seconds"]
+                outcome=event["outcome"], error_code=event["error_code"], elapsed_seconds=event["elapsed_seconds"],
+                failure=event.get("failure"),
             )
     return list(calls.values()) + not_started
 
@@ -195,10 +196,14 @@ class CallRecord:
         self.started_at = None
         self.at = store.now().isoformat()
 
-    def event(self, event, outcome, error_code=None):
-        return {"event": event, "call_id": self.call_id, "at": self.at if event == "started" else self.store.now().isoformat(),
-                "tags": self.tags, "elapsed_seconds": round(time.monotonic() - self.started_at, 6) if self.started_at is not None else 0,
-                "outcome": outcome, "error_code": error_code, "counted": event == "started"}
+    def event(self, event, outcome, error_code=None, failure=None):
+        value = {"event": event, "call_id": self.call_id, "at": self.at if event == "started" else self.store.now().isoformat(),
+                 "tags": self.tags, "elapsed_seconds": round(time.monotonic() - self.started_at, 6) if self.started_at is not None else 0,
+                 "outcome": outcome, "error_code": error_code, "counted": event == "started"}
+        if failure is not None:
+            # 只有固定類別與結束碼；CLI 錯誤原文不落地。
+            value["failure"] = failure
+        return value
 
     def started(self):
         with self.store.lock:
@@ -206,13 +211,13 @@ class CallRecord:
             self.started_at = time.monotonic()
             self.store._write(self.event("started", "running"))
 
-    def finish(self, error_code=None):
+    def finish(self, error_code=None, failure=None):
         with self.store.lock:
             if self.started_at is None:
                 self.store._write(self.event("not_started", "not_started", error_code))
             else:
                 outcome = "cancelled" if error_code in {"PODCAST_CANCELLED", "VIDEO_CANCELLED"} else "failed" if error_code else "succeeded"
-                self.store._write(self.event("finished", outcome, error_code))
+                self.store._write(self.event("finished", outcome, error_code, failure))
 
 
 def begin_call():

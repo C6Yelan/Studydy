@@ -482,12 +482,15 @@ def test_audio_failure_never_returns_partial_file_or_falls_back(monkeypatch, pur
 
 
 def test_luna_timeout_has_fixed_reason_and_task_specific_deadline(monkeypatch):
+    calls = []
     def expired(args,**kwargs):
+        calls.append(args)
         assert kwargs['timeout']==300 and kwargs['input']=='synthetic prompt'
         raise provider.subprocess.TimeoutExpired('codex',300)
     monkeypatch.setattr(provider.podcast_process,'run',expired)
     with pytest.raises(RuntimeError,match='^LUNA_GENERATION_TIMEOUT$'):
         provider.luna('synthetic prompt',{'type':'object'},timeout=300)
+    assert len(calls) == 1
 
 
 
