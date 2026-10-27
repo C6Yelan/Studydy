@@ -1,3 +1,4 @@
+import { ProcessingSources } from "./ProcessingSources";
 import { Progress } from "../../ui/Progress";
 import type { MaterialProcessingRunView } from "../../api/contracts";
 import { materialCurrentStagePercent, materialOverallProgressPercent, materialProgressStageLabel,
@@ -26,18 +27,14 @@ export function ProcessingProgress({ run, now, showSources = true }: { run: Mate
         {percent === null && active && <Progress aria-label="本階段進度" />}
         {percent !== null ? <>
           <Progress max={100} value={percent}
-            aria-label={`本階段進度 ${percent}%，${countLabel}`} />
-          <p className="stage-pages">{countLabel}</p>
+            aria-label={`本階段進度 ${percent}%`} />
+          {countLabel && <p className="stage-pages">{countLabel}</p>}
         </> : <p>{run.progress_stage === "queued" ? "正在等待處理資源，開始後會自動更新進度。"
           : run.progress_stage === "publishing" ? "正在合併並驗證知識結構，保存成功後才會完成。"
           : "此階段尚無可計算的工作總數。"}</p>}
-        {run.progress_stage === "review" && <p className="progress-estimate-note">計數只包含已通過檢查的批次；容量拆分時總批次數會更新。</p>}
       </section>
     </div>
-    {showSources && run.source_names && <details className="processing-sources">
-      <summary>本次分析 {run.source_names.length} 份來源</summary>
-      <ol>{run.source_names.map((name, index) => <li key={index}>{name}</li>)}</ol>
-    </details>}
+    {showSources && <ProcessingSources run={run}/>}
     <dl className="processing-times">
       <div><dt>已耗時</dt><dd>{materialElapsedLabel(run.created_at, active ? now : Date.parse(run.completed_at ?? run.updated_at))}</dd></div>
       <div><dt>最近更新</dt><dd><time dateTime={run.updated_at}>{new Date(run.updated_at).toLocaleTimeString("zh-TW")}</time></dd></div>

@@ -1,3 +1,4 @@
+import { ProcessingSources } from "./ProcessingSources";
 import { MaterialRunWorkspaceContext } from "../../app/AppShell";
 import { MaterialContentNav } from "./MaterialContentNav";
 import { rememberMaterial } from "./material-memory";
@@ -498,7 +499,7 @@ function RevisionRun({
         {completed ? <>
           <p className="status-badge is-success">處理完成</p>
           <p className="run-ai-notice">由 AI 整理，每個重點都可點開原文對照。</p>
-          {run.source_names && <details className="processing-sources"><summary>本次分析 {run.source_names.length} 份來源</summary><ol>{run.source_names.map((name,index)=><li key={index}>{name}</li>)}</ol></details>}
+          <ProcessingSources run={run}/>
         </> : <ProcessingProgress run={run} now={now}/>}
         <div className="run-actions">
           {activeRun(run) && (cancelling ? <p role="status">取消意圖已保存，後續結果不會套用。正在進行中的步驟可能需要一些時間結束。</p>

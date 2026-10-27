@@ -1,3 +1,5 @@
+import { sourceMetadata, sourceTotals, sourceTotalsLabel } from "./source-summary";
+import "./source-transcript.css";
 import { MaterialNameField } from "../../ui/MaterialNameField";
 import { SourceUploadPicker } from "./SourceUploadPicker";
 import { useEffect, useRef, useState } from "react";
@@ -19,11 +21,6 @@ import { Icon } from "../../ui/Icon";
 const SOURCE_PREVIEW_COUNT = 10;
 
 const timedMedia = new Set(["audio/mpeg", "audio/mp4", "audio/wav", "video/mp4", "application/vnd.studydy.youtube+json"]);
-
-/** 音訊、影片與 YouTube 的「頁」是約 2 分鐘的逐字稿時間段。 */
-function sourcePages(source: Pick<SourceItem, "media_type" | "page_count">): string {
-  return timedMedia.has(source.media_type) ? `${source.page_count} 段逐字稿` : `${source.page_count} 頁`;
-}
 
 const sourceFailures: Record<string, string> = {
   MEDIA_TOO_LONG: "超過 2 小時上限。",
@@ -54,6 +51,10 @@ export function SourceView({
   sourceListRef.current = sourceList;
   const [material, setMaterial] = useState<MaterialLibraryItem | null>(null);
   const [materialName,setMaterialName]=useState<string|null>(null);
+  const [transcript, setTranscript] = useState<SourceItem | null>(null);
+  const transcriptDialog = useRef<HTMLDialogElement>(null);
+  const transcriptOpener = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => { if (transcript) transcriptDialog.current?.showModal(); }, [transcript]);
   const [pickerOpen,setPickerOpen]=useState(false);
   const pickerDialog=useRef<HTMLDialogElement>(null),pickerButton=useRef<HTMLButtonElement>(null);
   useEffect(()=>{setMaterialName(null);},[materialId]);
@@ -295,7 +296,7 @@ export function SourceView({
   const uploadNeeded = pendingUploads + failedUploads + uploading > 0;
   const summary =
     queue.length === 0 && sourcesReady
-      ? `${selectedSources.length} 份教材 · 共 ${selectedSources.reduce((sum, source) => sum + (source.page_count ?? 0), 0)} 頁`
+      ? [`${selectedSources.length} 份教材`, sourceTotalsLabel(sourceTotals(selectedSources))].filter(Boolean).join(" · ")
       : selectedSources.length === 0 && queue.length === 0
         ? "0 份教材"
         : [
@@ -318,7 +319,16 @@ export function SourceView({
       error={selectionError} errorId="source-selection-error" onFiles={chooseFiles} onSelectionError={setSelectionError}
       onYoutube={url=>{setQueue(previous=>[...previous,{key:crypto.randomUUID(),kind:"youtube",status:"pending",error:null,progress:null,url}]);pickerDialog.current?.close();}}/>
   </dialog>;
-  const pageCount = displayedSources.reduce((sum, source) => sum + (source.page_count ?? 0), 0);
+  const totalsLabel = sourceTotalsLabel(sourceTotals(displayedSources));
+  const transcriptPanel = transcript && <dialog ref={transcriptDialog} className="source-transcript-panel" aria-labelledby="source-transcript-title"
+    onClose={() => { setTranscript(null); transcriptOpener.current?.focus(); }}>
+    <div className="source-transcript-heading">
+      <h2 id="source-transcript-title">{transcript.display_name ?? transcript.original_name}</h2>
+      <button type="button" className="text-button" autoFocus onClick={() => transcriptDialog.current?.close()}>關閉逐字稿</button>
+    </div>
+    <p>逐字稿來源：{transcript.transcript_display_name ?? "未記錄"}</p>
+    <iframe title="逐字稿 PDF" src={`/v1/artifacts/${encodeURIComponent(transcript.normalized_artifact_id!)}`} />
+  </dialog>;
   const allReady = queue.length === 0 && displayedSources.length > 0 && displayedSources.every((source) => source.status === "ready");
   const groups = (currentStructure ? ["upload", "research"] as const : ["all"] as const).filter(group =>
     // 只有一種來源時不顯示空的另一組；兩組都空時保留「使用者上傳」說明。
@@ -337,10 +347,13 @@ export function SourceView({
             <div className="source-content">
               <strong className="source-name" title={displayName}>{displayName}</strong>
               <div className="source-metadata">
-                {source.page_count !== null && <span>{sourcePages(source)}</span>}
-                {source.analysis_mode === "selected" && source.analysis_page_count != null && <span>依學習需求選讀 {source.analysis_page_count} 頁中的相關段落</span>}
+                {sourceMetadata(source) && <span>{sourceMetadata(source)}</span>}
+                {source.source_kind === "document" && source.analysis_mode === "selected" && source.analysis_page_count != null && <span>依學習需求選讀 {source.analysis_page_count} 頁中的相關段落</span>}
                 {currentStructure && <span className={source.included ? "is-included" : undefined}>{source.included ? "目前地圖使用中" : "尚未納入目前地圖"}</span>}
               </div>
+              {source.normalized_artifact_id && timedMedia.has(source.media_type) && <button
+                type="button" className="text-button source-transcript-link" disabled={removing}
+                onClick={event => { transcriptOpener.current = event.currentTarget; setTranscript(source); }}>查看逐字稿</button>}
               {source.status !== "ready" && (
                 <p className={source.status === "failed" ? "form-error" : "source-progress"} role="status">
                   {source.status === "pending"
@@ -358,7 +371,7 @@ export function SourceView({
               )}
             </div>
             <div className="source-row-actions">
-              {source.normalized_artifact_id && (
+              {source.normalized_artifact_id && !timedMedia.has(source.media_type) && (
                 <a
                   className="text-button"
                   href={removing ? undefined : `/v1/artifacts/${encodeURIComponent(source.normalized_artifact_id)}`}
@@ -367,7 +380,7 @@ export function SourceView({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  {timedMedia.has(source.media_type) ? "預覽逐字稿" : "預覽 PDF"}
+                  預覽 PDF
                 </a>
               )}
               {source.media_type !== "application/vnd.studydy.youtube+json" && <a
@@ -581,7 +594,7 @@ export function SourceView({
           icon="file"
           title="教材來源"
           headingRef={heading}
-          description={`${displayedSources.length + queue.length} 份${allReady ? ` · ${pageCount} 頁` : ""} · 依清單順序分析，可用箭頭調整。`}
+          description={`${displayedSources.length + queue.length} 份${allReady && totalsLabel ? ` · ${totalsLabel}` : ""} · 依清單順序分析，可用箭頭調整。`}
           footer={listFooter}
         >
           <MaterialNameField value={materialName??""} onChange={setMaterialName} disabled={busy||removing||hasActiveRun}/>
@@ -598,6 +611,7 @@ export function SourceView({
         </FlowStage>
         {bottom}
         {sourceDialog}
+        {transcriptPanel}
       </section>
     );
   return (
@@ -609,7 +623,7 @@ export function SourceView({
             {/* 教材分頁內沒有另外的頁面標題，清單標題即本頁標題。 */}
             <h1 ref={heading} tabIndex={-1}>教材來源</h1>
             <p>
-              {displayedSources.length + queue.length} 份{allReady && ` · 全部來源共 ${pageCount} 頁`}
+              {displayedSources.length + queue.length} 份{allReady && totalsLabel && ` · 全部來源${totalsLabel}`}
               <span className="source-inclusion-summary">
                 目前地圖使用 {displayedSources.filter(source => source.included).length} 份
                 {staged.length > 0 && ` · ${staged.length} 份尚未納入地圖`}
@@ -634,6 +648,7 @@ export function SourceView({
         </section>
         {bottom}
         {sourceDialog}
+        {transcriptPanel}
       </div>
     </section>
   );

@@ -239,6 +239,11 @@ export function materialRun(value: unknown): value is MaterialProcessingRunView 
     return false;
   if (item.analysis_saved !== undefined && typeof item.analysis_saved !== "boolean") return false;
   if (item.source_names !== undefined && !strings(item.source_names)) return false;
+  if (item.added_sources !== undefined && (!Array.isArray(item.added_sources) || !item.added_sources.every(value => {
+    const source = object(value);
+    return !!source && isUuid(source.source_id) && typeof source.display_name === "string";
+  }))) return false;
+  if (item.existing_source_count !== undefined && (!Number.isInteger(item.existing_source_count) || Number(item.existing_source_count) < 0)) return false;
   if (!isUuid(item.material_id) || !isUuid(item.source_artifact_id)) return false;
   if (!timestamp(item.updated_at) || !(item.completed_at === null || timestamp(item.completed_at)))
     return false;
@@ -269,6 +274,10 @@ function sourceView(value: unknown): value is SourceView {
     (item.included === undefined || typeof item.included === "boolean") &&
     typeof item.original_name === "string" &&
     (item.display_name === undefined || typeof item.display_name === "string") &&
+    (item.source_kind === undefined || ["document", "image", "audio", "video", "youtube"].includes(String(item.source_kind))) &&
+    (item.duration_seconds == null || (typeof item.duration_seconds === "number" && Number.isFinite(item.duration_seconds) && item.duration_seconds >= 0)) &&
+    (item.image_count == null || (Number.isInteger(item.image_count) && Number(item.image_count) >= 0)) &&
+    (item.transcript_display_name == null || typeof item.transcript_display_name === "string") &&
     typeof item.media_type === "string" &&
     ["pending", "running", "ready", "failed"].includes(String(item.status)) &&
     (item.normalized_artifact_id === null || isUuid(item.normalized_artifact_id)) &&
@@ -367,6 +376,11 @@ export function evidenceSource(value: unknown): value is EvidenceSourceView {
 
 export function libraryItem(value: unknown): value is MaterialLibraryItem {
   const item = object(value);
+  if (item?.source_totals !== undefined) {
+    const totals = object(item.source_totals);
+    if (!totals || ![totals.page_count, totals.image_count].every(value => Number.isInteger(value) && Number(value) >= 0) ||
+      !(totals.media_seconds === null || (typeof totals.media_seconds === "number" && Number.isFinite(totals.media_seconds) && totals.media_seconds >= 0))) return false;
+  }
   if (
     item &&
     ((item.head_revision !== undefined &&

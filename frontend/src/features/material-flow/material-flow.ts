@@ -25,18 +25,18 @@ export function materialProgressStageLabel(
 
 type ProcessingProgress = Pick<
   MaterialProcessingRunView,
-  "status" | "progress_stage" | "completed_pages" | "total_pages" | "completed_units" | "total_units"
+  "base_revision" | "status" | "progress_stage" | "completed_pages" | "total_pages" | "completed_units" | "total_units"
 >;
 
-export function materialStageCount(run: ProcessingProgress): { completed: number; total: number; unit: string } | null {
+export function materialStageCount(run: ProcessingProgress): { completed: number; total: number } | null {
   const stage = run.progress_stage;
   if (!["evidence", "semantics", "review", "indexing"].includes(stage)) return null;
   // 舊工作的區塊／檢核分母無法從頁數重建，保持未定量。
-  const completed = run.completed_units ?? (stage === "evidence" ? run.completed_pages : null);
-  const total = run.total_units ?? (stage === "evidence" ? run.total_pages : null);
+  const completed = run.completed_units ?? (stage === "evidence" && !run.base_revision ? run.completed_pages : null);
+  const total = run.total_units ?? (stage === "evidence" && !run.base_revision ? run.total_pages : null);
   if (completed == null || total == null || !Number.isSafeInteger(completed) ||
       !Number.isSafeInteger(total) || total <= 0 || completed < 0 || completed > total) return null;
-  return { completed, total, unit: stage === "evidence" ? "頁" : stage === "semantics" ? "個來源區塊" : stage === "indexing" ? "個索引來源" : "個檢核批次" };
+  return { completed, total };
 }
 
 export function materialCurrentStagePercent(run: ProcessingProgress): number | null {
@@ -50,7 +50,9 @@ export function materialOverallProgressPercent(run: ProcessingProgress): number 
 
 export function materialStageCountLabel(run: ProcessingProgress): string {
   const count = materialStageCount(run);
-  return count ? `已完成 ${count.completed} / ${count.total} ${count.unit}` : "";
+  if (!count) return "";
+  return run.progress_stage === "evidence" && !run.base_revision
+    ? `已完成 ${count.completed} / ${count.total} 頁` : `已完成 ${Math.floor(count.completed / count.total * 100)}%`;
 }
 
 export function materialElapsedLabel(createdAt: string, now: number): string {
