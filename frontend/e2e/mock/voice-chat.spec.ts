@@ -11,7 +11,7 @@ async function mockVoice(page:Page) {
  const structure=structureView();await mockKnowledgeMapApi(page,structure);
  let counter=1;const next=()=>`77777777-7777-4777-8777-${String(counter++).padStart(12,'0')}`;
  const conversations:VoiceView[]=[],actions:{action:string;question?:string;turnId:string}[]=[],questions:string[]=[];
- const recorded:VoiceTurn[]=[];let deletes=0;
+ const recorded:VoiceTurn[]=[];const browserIds:string[]=[];let deletes=0;
  const behavior={audio:false,status:'ready'};
  const answer:NonNullable<VoiceTurn['answer']>={schema:'material-answer/v2',text:'堆疊採用後進先出。最後放入的資料會最先取出。',supported:true,citations:[{passage_id:"passage:sha256:"+"a".repeat(64),text:structure.concepts[0].claims[0].text,evidence:structure.concepts[0].claims[0].evidence}]};
  const finishAudio=(c:VoiceView,t:VoiceTurn)=>{t.status='ready';t.error_code=null;t.audio_url=`/v1/voice-conversations/${c.conversation_id}/turns/${t.turn_id}/audio`;};
@@ -26,6 +26,8 @@ async function mockVoice(page:Page) {
   const parts=new URL(r.request().url()).pathname.split('/').filter(Boolean),c=conversations.find(c=>c.conversation_id===parts[2]);
   if(!c)return json(r,{schema:'api-error/v1',request_id:materialId,reason_code:'RESOURCE_NOT_FOUND',retryable:false,message:'Not found'},404);
   if(parts.length===3){if(r.request().method()==='DELETE'){deletes++;conversations.splice(conversations.indexOf(c),1);return json(r,{ok:true});}return json(r,c);}
+  const guarded=r.request().method()==='POST'&&(parts[3]==='recordings'||parts.length===4&&parts[3]==='turns'||parts.at(-1)==='actions'&&r.request().postDataJSON().action==='retry');
+  if(guarded){const browserId=r.request().headers()['x-studydy-browser-id'];expect(browserId).toMatch(/^[0-9a-f-]{36}$/);browserIds.push(browserId);}
   if(parts[3]==='recordings'){expect(r.request().headers()['idempotency-key']).toBeTruthy();expect(r.request().postDataBuffer()!.length).toBeGreaterThan(0);const t=turn(c,'','transcribing',false,'voice');recorded.push(t);return json(r,{turn_id:t.turn_id},202);}
   if(parts.length===4&&parts[3]==='turns'){const body=r.request().postDataJSON();questions.push(body.question);expect(r.request().headers()['idempotency-key']).toBeTruthy();const t=turn(c,body.question,'ready',false,body.mode??'text');reply(c,t);c.title=body.question;return json(r,{turn_id:t.turn_id},202);}
   if(parts.at(-1)==='actions'){
@@ -37,7 +39,7 @@ async function mockVoice(page:Page) {
   return json(r,{ok:true});
  });
  await page.route('**/v1/voice-conversations/*/turns/*/audio',r=>r.fulfill({status:200,contentType:'audio/wav',body:wav()}));
- return {conversations,add,turn,answer,actions,questions,recorded,behavior,reply,finishAudio,deletes:()=>deletes};
+ return {conversations,add,turn,answer,actions,questions,recorded,behavior,reply,finishAudio,browserIds,deletes:()=>deletes};
 }
 async function open(page:Page) {await page.getByRole('button',{name:'教材問答',exact:true}).click();await expect(page.getByRole('dialog',{name:'教材問答'})).toBeVisible();}
 async function choose(page:Page,id:string) {await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${id}"]`).click();}
@@ -483,4 +485,22 @@ test('closing while the voice model loads stops microphone and prevents late ini
  await page.waitForLoadState('networkidle');
  expect(await page.evaluate(()=>(window as any).lateVoiceInit)).toBeUndefined();
  expect(mock.recorded).toHaveLength(0);
+});
+
+
+test('browser id survives reload and is shared by tabs but separate browser contexts get another id',async({page,context,browser})=>{
+ const first=await mockVoice(page);await page.goto(mapPath);await open(page);
+ const send=async(target:Page)=>{await target.getByLabel('問題／辨識文字').fill('教材問題');await target.getByRole('button',{name:'送出問題',exact:true}).click();await expect(target.locator('.voice-answer')).toContainText('堆疊');};
+ await send(page);const id=first.browserIds[0];
+ await page.reload();await open(page);await send(page);expect(first.browserIds.at(-1)).toBe(id);
+ const tab=await context.newPage();const second=await mockVoice(tab);await tab.goto(mapPath);await open(tab);await send(tab);expect(second.browserIds[0]).toBe(id);await tab.close();
+ const separate=await browser.newContext();try{const other=await separate.newPage();const third=await mockVoice(other);await other.goto(new URL(mapPath,page.url()).href);await open(other);await send(other);expect(third.browserIds[0]).not.toBe(id);}finally{await separate.close();}
+});
+
+test('assessment refusal keeps the question draft and can be sent after the guard is cleared',async({page})=>{
+ const mock=await mockVoice(page);let blocked=true;
+ await page.route('**/v1/voice-conversations/*/turns',route=>blocked?json(route,{schema:'api-error/v1',request_id:materialId,reason_code:'ASSESSMENT_IN_PROGRESS',retryable:false,message:'Request could not be completed.'},409):route.fallback());
+ await page.goto(mapPath);await open(page);const input=page.getByLabel('問題／辨識文字');await input.fill('作答後再問的問題');await page.getByRole('button',{name:'送出問題',exact:true}).click();
+ await expect(page.getByRole('alert')).toContainText('作答期間暫停教材問答，請交卷後再試。');await expect(input).toHaveValue('作答後再問的問題');expect(mock.questions).toHaveLength(0);
+ blocked=false;await page.getByRole('button',{name:'送出問題',exact:true}).click();await expect(page.locator('.voice-answer')).toContainText('堆疊');expect(mock.questions).toEqual(['作答後再問的問題']);
 });

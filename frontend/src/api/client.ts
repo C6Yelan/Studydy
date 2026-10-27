@@ -1,6 +1,7 @@
+import { browserId } from "./browser-id.ts";
 import * as validate from "./response-validation.ts";
 import type {
-  MaterialNotesView, NoteKind,
+  MaterialNotesView, NoteKind, AssessmentPresence,
   LearningGoalView, LearningGoalsView,
   StartingLevel, StartingLevelView, StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
@@ -83,6 +84,7 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   PODCAST_TIMELINE_SOURCE_MISMATCH: "時間軸與本集原稿、音訊或來源不一致。",
   TOPIC_CONFLICT: "這個規劃的狀態已改變，請重新讀取後再操作。",
   TOPIC_PROVIDER_FAILED: "目前無法產生學習範圍，請重試。",
+  ASSESSMENT_IN_PROGRESS: "作答期間暫停教材問答，請交卷後再試。",
   VOICE_TURN_IN_PROGRESS: "請等目前提問完成，或先取消它。",
   VOICE_PROVIDER_UNAVAILABLE: "語音服務暫時無法連線，已保存的對話仍可查看。",
   VOICE_PROVIDER_FAILED: "這次問答處理失敗，請重試。",
@@ -415,8 +417,11 @@ export class StudydyApiClient {
   }
 
   async studyTools<T>(path: string, body?: unknown, key?: string, method?: string): Promise<T> {
-    const result = await this.request(path, {method: method ?? (body === undefined ? "GET" : "POST"),
-      headers: {"Content-Type":"application/json", ...(key ? {"Idempotency-Key":key} : {})},
+    const verb = method ?? (body === undefined ? "GET" : "POST");
+    const guarded = verb === "POST" && (/^\/v1\/voice-conversations\/[^/]+\/turns$/.test(path)
+      || /^\/v1\/voice-conversations\/[^/]+\/turns\/[^/]+\/actions$/.test(path) && (body as { action?: string } | undefined)?.action === "retry");
+    const result = await this.request(path, {method: verb,
+      headers: {"Content-Type":"application/json", ...(key ? {"Idempotency-Key":key} : {}), ...(guarded ? {"X-Studydy-Browser-Id":browserId()} : {})},
       ...(body === undefined ? {} : {body:JSON.stringify(body)})}, 30000);
     if (!result.value || typeof result.value !== "object") throw schemaMismatch("無法讀取教材工具回應。");
     return result.value as T;
@@ -424,7 +429,7 @@ export class StudydyApiClient {
 
   async voiceRecording(id: string, data: Blob, key: string, context?: PodcastContext): Promise<string> {
     const result = await this.request(`/v1/voice-conversations/${id}/recordings`, {method:"POST",
-      headers:{"Content-Type":data.type,"Idempotency-Key":key,...(context?{"X-Studydy-Podcast-Context":JSON.stringify(context)}:{})},body:data},30000);
+      headers:{"Content-Type":data.type,"Idempotency-Key":key,"X-Studydy-Browser-Id":browserId(),...(context?{"X-Studydy-Podcast-Context":JSON.stringify(context)}:{})},body:data},30000);
     if (!validate.voiceTurnReceipt(result.value)) throw schemaMismatch("無法確認錄音提問的身分。");
     return result.value.turn_id;
   }
@@ -775,6 +780,13 @@ export class StudydyApiClient {
     return this.json(`/v1/materials/${request.materialId}/knowledge-structures/${encodeURIComponent(request.structureRevision)}/learning-diagnosis`,
       { method: "GET" }, (value): value is LearningDiagnosisView => validate.learningDiagnosis(value)
         && value.material_id === request.materialId && value.knowledge_structure_revision === request.structureRevision);
+  }
+
+  setAssessmentPresence(materialId: string, setId: string, active: boolean): Promise<AssessmentPresence> {
+    return this.json(`/v1/materials/${materialId}/assessment-presence`, {
+      method: "PUT", headers: { "Content-Type": "application/json", Origin: origin(), "X-Studydy-Browser-Id": browserId() },
+      body: JSON.stringify({ schema: "assessment-presence/v1", assessment_set_id: setId, active }),
+    }, (value): value is AssessmentPresence => validate.assessmentPresence(value) && value.active === active);
   }
 
   async getStartingLevel(materialId: string): Promise<StartingLevelView> {

@@ -10,6 +10,7 @@ export type KnownApiReasonCode =
   | "PODCAST_TIMELINE_SOURCE_MISMATCH"
   | "TOPIC_CONFLICT"
   | "TOPIC_PROVIDER_FAILED"
+  | "ASSESSMENT_IN_PROGRESS"
   | "VOICE_TURN_IN_PROGRESS"
   | "VOICE_PROVIDER_UNAVAILABLE"
   | "VOICE_PROVIDER_FAILED"
@@ -1016,3 +1017,5 @@ export type MaterialNotesView = {
   progress: { stage: "generating" | "validating" | "completed"; completed_sections: number; total_sections: number;
     completed_parts: number; total_parts: number; current_section: string | null } | null;
 };
+
+export type AssessmentPresence = { schema: "assessment-presence/v1"; active: boolean; expires_at: string | null };

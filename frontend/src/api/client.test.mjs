@@ -3,6 +3,13 @@ import test from "node:test";
 
 import { ApiClientError, StudydyApiClient } from "./client.ts";
 
+const browserStorage = new Map();
+Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+  getItem: key => browserStorage.get(key) ?? null,
+  setItem: (key, value) => browserStorage.set(key, String(value)),
+  removeItem: key => browserStorage.delete(key),
+} });
+
 const materialId = "11111111-1111-4111-8111-111111111111";
 const runId = "22222222-2222-4222-8222-222222222222";
 const sessionId = "33333333-3333-4333-8333-333333333333";
@@ -1726,4 +1733,34 @@ test("v3 note annotations write the visible content revision and generation then
   assert.deepEqual(calls.map(call=>call.method),['PUT','GET']);
   for(const invalid of [{...value,schema:'material-notes/v2'},{...value,source_resolver:`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`}])
     await assert.rejects(new StudydyApiClient(async()=>Response.json(invalid)).getNotes(materialId,structureRevision,'summary'),error=>error.kind==='schema');
+});
+
+
+test("question entry points and assessment presence share a persistent browser id while cancel stays available", async () => {
+  browserStorage.clear(); const requests=[];
+  const client=new StudydyApiClient(async(url,init)=>{
+    requests.push({url,method:init.method,id:new Headers(init.headers).get('X-Studydy-Browser-Id'),body:init.body});
+    if(url.endsWith('/recordings'))return Response.json({turn_id:runId},{status:202});
+    if(url.endsWith('/assessment-presence'))return Response.json({schema:'assessment-presence/v1',active:JSON.parse(init.body).active,expires_at:'2026-10-27T08:00:00Z'});
+    return Response.json({ok:true});
+  });
+  await client.studyTools(`/v1/voice-conversations/${sessionId}/turns`,{question:'問題'});
+  await client.voiceRecording(sessionId,new Blob(['audio'],{type:'audio/webm'}),'record');
+  await client.studyTools(`/v1/voice-conversations/${sessionId}/turns/${runId}/actions`,{action:'retry'});
+  await client.studyTools(`/v1/voice-conversations/${sessionId}/turns/${runId}/actions`,{action:'cancel'});
+  await client.setAssessmentPresence(materialId,setId,true);
+  await client.studyTools('/v1/topics',{});
+  assert.match(requests[0].id,/^[0-9a-f-]{36}$/);
+  for(const index of [1,2,4])assert.equal(requests[index].id,requests[0].id);
+  for(const index of [3,5])assert.equal(requests[index].id,null);
+  assert.deepEqual(JSON.parse(requests[4].body),{schema:'assessment-presence/v1',assessment_set_id:setId,active:true});
+  const next=new StudydyApiClient(async(url,init)=>{assert.equal(new Headers(init.headers).get('X-Studydy-Browser-Id'),requests[0].id);return Response.json({ok:true});});
+  await next.studyTools(`/v1/voice-conversations/${sessionId}/turns`,{question:'同一瀏覽器'});
+});
+
+test("assessment presence validates the response and guarded questions explain the 409 refusal",async()=>{
+  for(const response of [{schema:'assessment-presence/v1',active:false,expires_at:null},{schema:'assessment-presence/v1',active:true,expires_at:'invalid'}])
+    await assert.rejects(new StudydyApiClient(async()=>Response.json(response)).setAssessmentPresence(materialId,setId,true),error=>error.kind==='schema');
+  const client=new StudydyApiClient(async()=>Response.json({schema:'api-error/v1',request_id:materialId,reason_code:'ASSESSMENT_IN_PROGRESS',retryable:false,message:'Request could not be completed.'},{status:409}));
+  await assert.rejects(client.studyTools(`/v1/voice-conversations/${sessionId}/turns`,{question:'問題'}),error=>error.status===409&&error.reasonCode==='ASSESSMENT_IN_PROGRESS'&&error.message.includes('交卷後再試'));
 });

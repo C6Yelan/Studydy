@@ -377,3 +377,7 @@ learning-goal/v2、learning-diagnosis/v2、material-notes/v3 與新回答 materi
 GET /v1/account/storage 升為 account-storage/v2，需與前端對應schema及G4接線配合部署，不提供舊schema相容回應。無migration或provider變更；總量與細項來自同一SQL與目錄掃描，並非DB／磁碟原子快照。
 
 空間面板僅接受 `account-storage/v2`；須與 B3.4 的細項 API 同批部署。五類 breakdown 合計須等於 used_bytes，reserved_bytes 已包含其中；前 5 大教材使用 API 提供的順序與用量，不由前端重新掃描或估算。
+
+### 作答狀態與問答限制
+
+Q3 前端須與 B3.5 同批部署（feat/overnight-qa-guard，87e18dd01384ad31d97f1f626b66155561ac772f）；後端會拒絕缺少有效瀏覽器 ID 的文字提問、錄音與 retry。前端同步提供持久 ID、20 秒作答回報、交卷解除與 409 提示。取消及讀取既有內容不受新 header 限制。

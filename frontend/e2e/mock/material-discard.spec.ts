@@ -85,6 +85,7 @@ test.beforeEach(async ({ page }) => {
     if (path === "/v1/profile") return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
     // 頁首學習進度；這些案例不涉及學習紀錄。
     if (path === "/v1/learning-activity") return route.fulfill({ json: emptyLearningActivity });
+    if (route.request().method() === "GET" && new URL(route.request().url()).pathname === "/v1/account/storage") return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
     throw new Error(`Unexpected material management request: ${route.request().method()} ${path}`);
   });
 });

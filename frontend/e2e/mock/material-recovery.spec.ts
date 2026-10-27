@@ -83,6 +83,7 @@ test.beforeEach(async ({ page }) => {
     if (path === "/v1/profile") return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
     // 頁首學習進度；這些案例不涉及學習紀錄。
     if (path === "/v1/learning-activity") return route.fulfill({ json: emptyLearningActivity });
+    if (route.request().method() === "GET" && new URL(route.request().url()).pathname === "/v1/account/storage") return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
     if (!responses[path])
       throw new Error(`Unexpected recovery request: ${route.request().method()} ${path}`);
     expect(route.request().method()).toBe(path === "/v1/session/refresh" ? "POST" : "GET");
@@ -215,10 +216,10 @@ test("run read failure retries and returns to the material collection", async ({
   );
   await page.goto(oldPath);
   await expect(page.getByRole("heading", { name: "無法讀取處理狀態" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "返回教材庫" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "回到我的教材", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "重新讀取", exact: true }).click();
   await expect(page.getByRole("heading", { name: "教材處理失敗", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "返回教材庫" }).click();
+  await page.getByRole("button", { name: "回到我的教材", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("article").getByRole("heading")).toHaveText(item.display_name);
 });
