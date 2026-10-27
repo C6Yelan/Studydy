@@ -29,7 +29,12 @@ for (const width of [1440, 1300, 1200, 1024, 390]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`question-${kind}-${width}.png`) });
     await page.getByRole("button", { name: /題組紀錄（/ }).click();
-    await page.getByRole("dialog", { name: "題組紀錄", exact: true }).getByRole("button", { name: "關閉", exact: true }).click();
+    const historyDialog = page.getByRole("dialog", { name: "題組紀錄", exact: true });
+    const historyClosed = historyDialog.evaluate(dialog => new Promise<void>(resolve => {
+      dialog.addEventListener("close", () => resolve(), { once: true });
+    }));
+    await historyDialog.getByRole("button", { name: "關閉", exact: true }).click();
+    await historyClosed;
     expect(fixture.requests.filter(request => request.path.endsWith("/submissions"))).toHaveLength(0);
     await paper.locator(".question-paper-card").focus();
     const submission = page.waitForRequest(request => request.url().endsWith("/submissions"));
