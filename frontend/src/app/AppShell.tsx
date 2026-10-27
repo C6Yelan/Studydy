@@ -1,9 +1,11 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { createContext, useLayoutEffect, useRef, useState } from "react";
 import { writeRoute, type AppRoute } from "./routes";
 import { RouteLink } from "../ui/RouteLink";
 import { Icon, type IconName } from "../ui/Icon";
 import "./shell.css";
 import "./chrome.css";
+
+export const MaterialRunWorkspaceContext = createContext<((runId:string|null)=>void)|null>(null);
 
 type Section = "home" | "materials" | "cards" | "podcasts" | "achievements" | "profile";
 // 成就與個人檔案只放在桌機頁首；手機底部列維持四個入口加上傳（手機頁首的等級按鈕與頭像可進入這兩頁）。
@@ -43,7 +45,8 @@ export function AppShell({
   // 品牌旁的學習進度（連續天數／等級）；未登入時不顯示。
   status?: React.ReactNode;
 }) {
-  const isLearningWorkspace = ["knowledge-map", "study-session", "material-sources", "material-content", "research", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create", "card-review"].includes(route.name);
+  const [materialRunId,setMaterialRunId]=useState<string|null>(null);
+  const isLearningWorkspace = (route.name === "material-run" && route.runId === materialRunId) || ["knowledge-map", "study-session", "material-sources", "material-content", "research", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create", "card-review"].includes(route.name);
   // 進入單一教材後由教材頁首（返回、教材名稱、分頁、問答、頭像）取代全站頁首與手機底部導覽，內外分層。
   // 全站頁首只在教材頁首出現後才隱藏（CSS），讀取中或沒有教材頁首的畫面仍有導覽可離開。
   // 從全站「概念卡」「Podcast」直接開啟（沒有 materialId）的頁面仍屬全站。
@@ -63,6 +66,7 @@ export function AppShell({
     return () => window.clearTimeout(timer);
   }, [route, materialId]);
   return (
+    <MaterialRunWorkspaceContext.Provider value={setMaterialRunId}>
     <div className={`app-shell ${isLearningWorkspace ? "is-workspace" : "is-standard"}${isMaterialWorkspace ? " is-material" : ""}${switching ? " is-switching-tab" : ""}${wideRoutes.includes(route.name) ? " is-wide" : ""}${route.name === "home" ? " is-home" : ""}${route.name === "achievements" ? " is-achievements" : ""}`}>
       {/* 教材內不顯示頁首進度，但升級與徽章動畫仍要能出現。 */}
       {isMaterialWorkspace && <div className="material-shell-status">{status}</div>}
@@ -116,5 +120,6 @@ export function AppShell({
         ))}
       </nav>
     </div>
+    </MaterialRunWorkspaceContext.Provider>
   );
 }

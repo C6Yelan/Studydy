@@ -1,6 +1,9 @@
+import { MaterialRunWorkspaceContext } from "../../app/AppShell";
+import { MaterialContentNav } from "./MaterialContentNav";
+import { rememberMaterial } from "./material-memory";
 import { BackLink } from "../../ui/BackLink";
 import { MaterialRunFailure } from "./MaterialRunFailure";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
@@ -47,6 +50,12 @@ export function RunView({
   route: Extract<AppRoute, { name: "material-run" }>;
 }) {
   const [run, setRun] = useState<MaterialProcessingRunView | null>(null);
+  const reportWorkspace=useContext(MaterialRunWorkspaceContext);
+  useLayoutEffect(()=>{
+    if(!run?.base_revision)return;
+    reportWorkspace?.(run.run_id);
+    return ()=>reportWorkspace?.(null);
+  },[reportWorkspace,run?.run_id,run?.base_revision]);
   const [message, setMessage] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [reload, setReload] = useState(0);
@@ -436,7 +445,7 @@ function RevisionRun({
     let cancelled = false;
     void apiClient.getMaterial(run.material_id).then(
       (value) => {
-        if (!cancelled) setMaterial(value);
+        if (!cancelled) {rememberMaterial(apiClient,value);setMaterial(value);}
       },
       (failure) => {
         if (!cancelled) setError(errorMessage(failure));
@@ -478,9 +487,11 @@ function RevisionRun({
     ? {name:"knowledge-map" as const,materialId:run.material_id,runId:run.run_id,structureRevision:run.output_binding.knowledge_structure_revision}
     : currentStructure ? {name:"knowledge-map" as const,materialId:run.material_id,runId:currentStructure.run_id,structureRevision:currentStructure.knowledge_structure_revision} : null;
   const mapAction = map && <button className="primary-button" onClick={()=>writeRoute(map)}>{completed?"開啟知識地圖":"先使用目前地圖"}</button>;
-  return <section className={`flow-page processing-page task-page${activeRun(run)?" is-processing":""}`}>
-    <FlowHeader back={<BackLink label={material?`返回${material.display_name}`:"返回教材"} route={{name:"material",materialId:run.material_id}}/>}
-      title={title} description={run.status==='failed'?undefined:completed?"教材已更新，可以開啟知識地圖繼續使用。":"Studydy 正在整理新增內容，期間仍可使用目前地圖與學習紀錄。"}/>
+  return <section className={`material-content processing-page${activeRun(run)?" is-processing":""}`}>
+    <MaterialContentNav apiClient={apiClient} materialId={run.material_id} materialName={material?.display_name} current="sources"
+      mapRoute={map} back={{label:material?`返回${material.display_name}`:"返回教材",onClick:()=>writeRoute({name:"material",materialId:run.material_id})}}/>
+    <div className="material-content-body" role="tabpanel" id="material-panel-sources" aria-labelledby="material-tab-sources">
+    <FlowHeader title={title} description={run.status==='failed'?undefined:completed?"教材已更新，可以開啟知識地圖繼續使用。":"Studydy 正在整理新增內容，期間仍可使用目前地圖與學習紀錄。"}/>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="processing-grid">
       {run.status==='failed' ? <MaterialRunFailure apiClient={apiClient} run={run}/> : <section className="surface processing-card">
@@ -496,6 +507,7 @@ function RevisionRun({
         </div>
       </section>}
       <ProcessingTimeline stages={materialProgressStages.slice(0,-1).map(stage=>({label:materialProgressStageLabel(stage),icon:stage==='semantics'?'map':'process'}))} currentIndex={materialProgressStages.indexOf(run.progress_stage)} activity={run.status==='failed'?'失敗':run.status==='cancelled'?'已停止':cancelling?'取消中':'進行中'}/>
+    </div>
     </div>
   </section>;
 }
