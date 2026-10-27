@@ -186,16 +186,21 @@ test('switching tabs reuses the material index while still fetching a fresh copy
  await page.getByRole('tab',{name:'概念卡',exact:true}).click();await expect(page.getByRole('tab',{name:'概念卡',exact:true})).toHaveAttribute('aria-selected','true');await expect.poll(()=>reads).toBe(1);await expect(page.locator('.quiet-loading')).toHaveCount(0);release();await expect(page.getByRole('heading',{name:'無法讀取教材',exact:true})).toBeVisible();
 });
 
-test('Voice bubble keeps the page reachable and restores focus when dismissed',async({page})=>{
+test('Voice bubble keeps the page reachable and restores focus when dismissed',async({page},testInfo)=>{
  await mockKnowledgeMapApi(page,structureView());
  await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[]}));
  await page.goto(mapPath);
- for(const width of [1440,390]) {
-  await page.setViewportSize({width,height:844});const opener=page.getByRole('button',{name:'教材問答',exact:true});await opener.click();
+ for(const width of [1920,1440,390]) {
+  await page.setViewportSize({width,height:844});const opener=page.getByRole('button',{name:'教材問答',exact:true});
+  const before=(await page.locator('.material-learning-toolbar').boundingBox())!;
+  await page.screenshot({path:testInfo.outputPath(`qa-closed-${width}.png`)});await opener.click();
   const bubble=page.getByRole('dialog',{name:'教材問答'});await expect(bubble).toHaveAttribute('aria-modal','false');
   // 桌機從教材頁首下緣展開；手機是上緣留 8px 的全高面板。
   const box=(await bubble.boundingBox())!,header=(await page.locator('.material-learning-toolbar').boundingBox())!;
   expect(box.width).toBeLessThanOrEqual(420);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y).toBeGreaterThanOrEqual(width===390?8:header.y+header.height);
+  expect(header.x).toBeCloseTo(before.x,0);expect(header.width).toBeCloseTo(before.width,0);expect(header.height).toBeCloseTo(before.height,0);
+  if(width>720){const content=(await page.locator('.map-content').boundingBox())!;expect(content.x+content.width).toBeLessThanOrEqual(box.x);}
+  await page.screenshot({path:testInfo.outputPath(`qa-open-${width}.png`)});
   await bubble.getByRole('textbox',{name:'問題／辨識文字'}).fill('尚未送出的測試');await page.keyboard.press('Escape');await expect(bubble).toHaveCount(0);await expect(opener).toBeFocused();
  }
 });

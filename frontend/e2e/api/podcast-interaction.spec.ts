@@ -10,7 +10,7 @@ test('real API keeps the original transcript and internal captions without retir
   await page.getByRole('button',{name:'登入',exact:true}).click();
   await expect(page.getByRole('heading',{name:'歡迎回來！今天想探索哪座島？',level:1,exact:true})).toBeVisible();
   await page.goto(`/podcasts/${data.podcast}`);
-  await expect(page.getByText('依建立時的教材版本保存')).toBeVisible();
+  await expect(page.getByText('保留建立時的教材內容')).toBeVisible();
   await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true})).toContainText('堆疊');
   await expect(page.locator('video')).toHaveAttribute('src',new RegExp(`/v1/podcasts/${data.podcast}/episodes/0/audio$`));
   await expect.poll(()=>page.locator('video').evaluate((v:HTMLVideoElement)=>v.readyState)).toBeGreaterThan(0);
