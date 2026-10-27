@@ -22,9 +22,8 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  const workspace=await page.locator('.topic-request').boundingBox();
  expect(workspace!.width).toBeGreaterThan(width===390?300:1000);
  await page.getByLabel('想學的主題').fill('TCP');await page.getByRole('button',{name:'產生學習範圍'}).click();await expect(page.getByRole('heading',{name:/確認學習範圍/})).toBeVisible();expect(approved).toBe(0);expect(created).toBe(0);
- const scopeEnd=await page.locator('.topic-scope-fields').boundingBox();
- const scopeFooter=await page.locator('.topic-scope .tool-stage-footer').boundingBox();
- expect(scopeFooter!.y).toBeGreaterThanOrEqual(scopeEnd!.y+scopeEnd!.height);
+ await expect(page.getByRole('complementary',{name:'對照學習需求'})).toContainText('原始學習需求TCP');
+ await expect(page.locator('.topic-scope-confirm-actions').getByRole('button',{name:'確認範圍並搜尋'})).toBeVisible();
  await page.getByRole('button',{name:'確認範圍並搜尋'}).click();
  await expect(page).toHaveURL(/\/materials$/);await expect(page.getByRole('heading',{name:'我的教材',exact:true})).toBeVisible();
  const preparing=page.getByRole('article',{name:'TCP 入門',exact:true});await expect(preparing).toContainText('等待選取來源');
@@ -89,10 +88,10 @@ for(const width of [1920,1440,390]) test(`scope review edits preserve payload an
  await title.fill('');await expect(page.getByText('請填寫教材名稱。')).toBeVisible();await expect(page.getByRole('button',{name:'確認範圍並搜尋'})).toBeDisabled();
  await title.fill('我的 RAG 教材');
 
- await page.getByLabel('主題 1',{exact:true}).fill('RAG 應用架構');
- await page.getByRole('button',{name:'移除主題 4',exact:true}).click();await expect(page.getByLabel('主題 4',{exact:true})).toHaveCount(0);await expect(page.getByLabel('主題 3',{exact:true})).toBeFocused();
- await page.getByRole('button',{name:'新增主題',exact:true}).click();await expect(page.getByLabel('主題 4',{exact:true})).toBeFocused();await page.keyboard.type('檢索與生成');
- await page.keyboard.press('Enter');await expect(page.getByLabel('主題 5',{exact:true})).toBeFocused();await page.keyboard.type('  ');
+ await page.getByLabel('觀念名稱 1',{exact:true}).fill('RAG 應用架構');
+ await page.getByRole('button',{name:'移除主題 4',exact:true}).click();await expect(page.getByLabel('觀念名稱 4',{exact:true})).toHaveCount(0);await expect(page.getByLabel('觀念名稱 3',{exact:true})).toBeFocused();
+ await page.getByRole('button',{name:'新增主題',exact:true}).click();await expect(page.getByLabel('觀念名稱 4',{exact:true})).toBeFocused();await page.keyboard.type('檢索與生成');
+ await page.keyboard.press('Enter');await expect(page.getByLabel('觀念名稱 5',{exact:true})).toBeFocused();await page.keyboard.type('  ');
  const goals=[page.getByLabel('學習目標 1',{exact:true}),page.getByLabel('學習目標 2',{exact:true})];
  await goals[0].fill(' ');await goals[1].fill('');await expect(page.getByText('請至少保留一個學習目標。')).toBeVisible();await expect(page.getByRole('button',{name:'確認範圍並搜尋'})).toBeDisabled();
  await goals[0].fill('解釋 RAG 架構');await goals[1].fill('比較檢索方法，不討論模型訓練');await page.getByRole('button',{name:'新增學習目標',exact:true}).click();await expect(page.getByLabel('學習目標 3',{exact:true})).toBeFocused();
@@ -100,7 +99,7 @@ for(const width of [1920,1440,390]) test(`scope review edits preserve payload an
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.getByRole('button',{name:'確認範圍並搜尋'}).click();await expect(page.locator('.topic-scope [role=alert]')).toBeVisible();
  const before=reads;await page.getByRole('button',{name:'重新讀取',exact:true}).click();await expect.poll(()=>reads).toBeGreaterThan(before);
- await expect(page.getByLabel('教材名稱',{exact:true})).toHaveValue('我的 RAG 教材');await expect(page.getByLabel('主題 1',{exact:true})).toHaveValue('RAG 應用架構');
+ await expect(page.getByLabel('教材名稱',{exact:true})).toHaveValue('我的 RAG 教材');await expect(page.getByLabel('觀念名稱 1',{exact:true})).toHaveValue('RAG 應用架構');
  await page.getByRole('button',{name:'確認範圍並搜尋'}).click();await expect(page).toHaveURL(/\/materials$/);await expect(page.getByRole('article',{name:'我的 RAG 教材',exact:true})).toContainText('正在搜尋來源');expect(attempts).toBe(2);expect(keys[0]).toBeTruthy();expect(keys[1]).toBe(keys[0]);
 });
 
@@ -112,11 +111,11 @@ test('request editing and replan keep one editable scope',async({page})=>{
  await page.route('**/v1/topics',r=>r.request().method()==='POST'?json(r,second,202):json(r,{topics:[first,second]}));
  await page.route(`**/v1/topics/${id}`,r=>json(r,first));await page.route(`**/v1/topics/${secondId}`,r=>json(r,second));
  await page.goto(`/topics/${id}`);await page.getByLabel('教材名稱',{exact:true}).fill('未提交微調');
- await page.getByRole('button',{name:'修改學習需求',exact:true}).click();await page.getByRole('button',{name:'返回目前規劃',exact:true}).click();await expect(page.getByLabel('教材名稱',{exact:true})).toHaveValue('未提交微調');
+ await page.getByRole('button',{name:'修改需求',exact:true}).click();await page.getByRole('button',{name:'返回目前規劃',exact:true}).click();await expect(page.getByLabel('教材名稱',{exact:true})).toHaveValue('未提交微調');
  await page.goto(`/topics/${secondId}`);await expect(page.getByLabel('教材名稱',{exact:true})).toHaveValue('全新 RAG 規劃');
  await page.getByRole('button',{name:'移除主題 1',exact:true}).click();await expect(page.getByText('請至少保留一個要涵蓋的主題。')).toBeVisible();await expect(page.getByRole('button',{name:'確認範圍並搜尋'})).toBeDisabled();
  await page.goto(`/topics/${id}`);await expect(page.getByLabel('教材名稱',{exact:true})).toHaveValue('TCP 入門');
- await page.getByRole('button',{name:'修改學習需求',exact:true}).click();await page.getByLabel('想學的主題').fill('改學 RAG');await page.getByRole('button',{name:'重新規劃主題',exact:true}).click();await expect(page.getByLabel('教材名稱',{exact:true})).toHaveValue('全新 RAG 規劃');
+ await page.getByRole('button',{name:'修改需求',exact:true}).click();await page.getByLabel('想學的主題').fill('改學 RAG');await page.getByRole('button',{name:'重新規劃主題',exact:true}).click();await expect(page.getByLabel('教材名稱',{exact:true})).toHaveValue('全新 RAG 規劃');
  await page.route(`**/v1/topics/${secondId}/approve`,r=>{expect(Object.keys(r.request().postDataJSON().proposal).sort()).toEqual(['goals','title','topics']);return json(r,second);});
  const approval=page.waitForRequest(`**/v1/topics/${secondId}/approve`);
  await page.getByRole('button',{name:'確認範圍並搜尋'}).click();await approval;
@@ -135,7 +134,7 @@ test('retry and pending polling load the new proposal, cancel remains available'
  await page.goto(`/topics/${id}`);await page.getByRole('button',{name:'重試規劃'}).click();await expect(page.getByLabel('想學的主題')).toBeDisabled();
  topic={...topic,status:'ready',version:3,proposal:plan};
  await expect(page.getByLabel('教材名稱',{exact:true})).toHaveValue('TCP 入門');
- await page.getByRole('button',{name:'修改學習需求'}).click();await page.getByRole('button',{name:'取消這個規劃'}).click();await expect(page.getByText('這個規劃已停止，可以建立新主題。')).toBeVisible();
+ await page.getByRole('button',{name:'修改需求'}).click();await page.getByRole('button',{name:'取消這個規劃'}).click();await expect(page.getByText('這個規劃已停止，可以建立新主題。')).toBeVisible();
 });
 
 
@@ -295,4 +294,33 @@ test('topic analysis cancellation explains removal of search results and require
  publishedDuringDelete=true;await (await completedRead).finished();await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
  await expect(page.getByText('正在停止處理並刪除這份教材，完成後會返回我的教材。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
  gone=true;await expect(page).toHaveURL(/\/materials$/);expect(deletes).toBe(1);
+});
+
+
+for(const supplemental of [false,true])test(`six scope concepts preserve the request and editable details for ${supplemental?'supplement':'new material'}`,async({page},testInfo)=>{
+ await mockTopicApi(page);
+ const request='Transformer 從輸入到輸出的完整運作：位置編碼、多頭注意力、前饋網路、殘差連接與正規化。\n請比較各步驟的作用。';
+ const topics=['輸入與位置編碼：說明輸入表示與位置信息的作用','多頭注意力:比較不同注意力頭：各自能捕捉什麼關係','前饋網路：說明注意力後的處理','殘差連接：說明原始資訊如何保留','層正規化：比較正規化前後的輸入','輸出與逐步生成'];
+ const proposal={title:'Transformer 完整運作',goals:['解釋各步驟如何銜接','用一個例子說明輸入到輸出'],topics};
+ let topic:any={topic_id:id,material_id:supplemental?materialId:null,request,proposal,version:2,status:'ready',research_id:null,error_code:null};let submitted:any;
+ await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
+ await page.route(`**/v1/topics/${id}/approve`,r=>{submitted=r.request().postDataJSON();topic={...topic,status:'approved',version:3,research_id:rid};return json(r,topic);});
+ await page.route(`**/v1/research/${rid}`,r=>json(r,{research_id:rid,material_id:materialId,mode:'review',query:request,approved_scope:proposal,status:'searching',selection:[],candidates:[],cursor:null,error_code:null,run_id:null,created_at:'2026-10-06T00:00:00Z'}));
+ await page.goto(`/topics/${id}`);
+ const title=page.getByLabel(supplemental?'這次補充的名稱':'教材名稱',{exact:true});await expect(title).toHaveValue(proposal.title);
+ expect(await page.locator('.topic-original-request').textContent()).toBe(request);
+ await expect(page.getByLabel('觀念名稱 2',{exact:true})).toHaveValue('多頭注意力');await expect(page.getByLabel('想了解的細節 2',{exact:true})).toHaveValue('比較不同注意力頭：各自能捕捉什麼關係');
+ await expect(page.getByLabel('觀念名稱 6',{exact:true})).toHaveValue('輸出與逐步生成');await expect(page.getByLabel('想了解的細節 6',{exact:true})).toHaveValue('');
+ for(const [width,height] of [[1440,900],[1300,900],[1280,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.evaluate(()=>window.scrollTo(0,0));
+  if(width>=1280){for(const card of await page.locator('.topic-concept-card').all())await expect(card).toBeInViewport({ratio:1});await expect(page.getByRole('button',{name:'確認範圍並搜尋',exact:true})).toBeInViewport({ratio:1});}
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath(`scope-six-${supplemental?'supplement':'new'}-${width}.png`),animations:'disabled'});
+ }
+ const detail=page.getByLabel('想了解的細節 1',{exact:true});await detail.fill('第一行');await detail.press('End');await detail.press('Enter');await detail.pressSequentially('第二行');await expect(detail).toHaveValue('第一行\n第二行');
+ await detail.fill('字'.repeat(500));await expect(page.getByText('觀念名稱與細節合計最多 500 字，請縮短後再確認。')).toBeVisible();await expect(page.getByRole('button',{name:'確認範圍並搜尋'})).toBeDisabled();await expect(detail).toHaveValue('字'.repeat(500));
+ await detail.fill('第一行\n第二行');
+ const goal=page.getByLabel('學習目標 1',{exact:true});await goal.fill('字'.repeat(501));await expect(goal).toHaveValue('字'.repeat(501));await expect(page.getByText('每個學習目標最多 500 字，請縮短後再確認。')).toBeVisible();await expect(page.getByRole('button',{name:'確認範圍並搜尋'})).toBeDisabled();await goal.fill(proposal.goals[0]);
+ await page.getByRole('button',{name:'確認範圍並搜尋'}).click();
+ await expect.poll(()=>submitted).toBeTruthy();expect(submitted.proposal.topics).toEqual(['輸入與位置編碼：第一行\n第二行',...topics.slice(1)]);expect(submitted.proposal.title).toBe(proposal.title);
 });
