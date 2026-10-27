@@ -1928,6 +1928,7 @@ test("strengthening can skip and revisit, but records each concept once and comp
   await page.locator(".card-practice-stage").press("ArrowRight");
   await expect(page.locator(".card-practice-front")).toContainText("陣列（Array）");
   await page.locator(".card-practice-stage").press("Space");
+  await expect(page.getByRole("button", { name: "熟悉", exact: true })).toBeEnabled();
   await page.locator(".card-practice-stage").press("2");
   await expect(page.locator(".card-practice-front")).toContainText("堆疊（Stack）");
   await page.locator(".card-practice-stage").press("ArrowRight");
@@ -1938,6 +1939,7 @@ test("strengthening can skip and revisit, but records each concept once and comp
   expect(posts).toHaveLength(1);
   await page.locator(".card-practice-stage").press("ArrowLeft");
   await page.locator(".card-practice-stage").press("Space");
+  await expect(page.getByRole("button", { name: "不熟", exact: true })).toBeEnabled();
   await page.locator(".card-practice-stage").press("1");
   await expect(page.getByText("這一輪加強完成！")).toBeVisible();
   expect(posts.map(post => post.body.rating)).toEqual(["remembered", "forgot"]);

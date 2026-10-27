@@ -455,6 +455,8 @@ test("map export renders prerequisite boxes and arrows without changing the view
   });
   await page.goto(mapPath);
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
+  await page.getByRole("button", { name: "適應畫面", exact: true }).click();
+  await expectVisibleGraphFits(page);
   const before = await readViewport(page);
   await page.getByText("匯出地圖", { exact: true }).click();
   const controls = page.getByRole("dialog", { name: "匯出知識地圖" });

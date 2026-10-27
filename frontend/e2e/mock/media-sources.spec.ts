@@ -1,7 +1,7 @@
 import { mockCreationSettings } from "../fixtures/creation-settings";
 import { expect, test, type Page, type Request } from "@playwright/test";
 import type { SourceView } from "../../src/api/contracts";
-import { emptyLearningActivity } from "../fixtures/learning-activity";
+import { emptyCelebrationClaim, emptyLearningActivity } from "../fixtures/learning-activity";
 import {
   materialId as mapMaterialId,
   runId as mapRunId,
@@ -29,6 +29,10 @@ async function setup(page: Page) {
   const settings = await mockCreationSettings(page);
   await page.route("**/v1/account/storage", route => route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } }));
   await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } }));
+  await page.route("**/v1/learning-activity/celebrations/claim", (route) => {
+    expect(route.request().method()).toBe("POST");
+    return route.fulfill({ json: emptyCelebrationClaim });
+  });
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: emptyLearningActivity }));
   for (const path of ["**/v1/session", "**/v1/session/refresh"])
     await page.route(path, (route) => route.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }));

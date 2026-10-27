@@ -63,11 +63,12 @@ test('setup and unpublished material workspaces never mount learning chat',async
 // 寬螢幕：問答是右側面板，主內容讓出空間不被蓋住；再按一次入口即可收起。
 test('wide screens dock the chat panel beside the content instead of covering it',async({page})=>{
  await page.setViewportSize({width:1440,height:900});await mockWorkspaces(page);
- await page.goto(mapPath);const trigger=opener(page);await trigger.click();
+ await page.goto(mapPath);const header=page.locator('.material-header');const headerBefore=await header.boundingBox();const trigger=opener(page);await trigger.click();
  const panel=page.getByRole('dialog',{name:'教材問答',exact:true});await expect(panel).toBeVisible();
  await expect(trigger).toHaveAttribute('aria-expanded','true');
  const box=(await panel.boundingBox())!;
- await expect.poll(async()=>{const main=(await page.locator('.app-main > *').first().boundingBox())!;return main.x+main.width;}).toBeLessThanOrEqual(box.x);
+ await expect.poll(async()=>{const main=(await page.locator('.focus-workspace').boundingBox())!;return main.x+main.width;}).toBeLessThanOrEqual(box.x);
+ expect(await header.boundingBox()).toEqual(headerBefore);
  await trigger.click();await expect(panel).toHaveCount(0);await expect(trigger).toBeFocused();
  expect(await page.evaluate(()=>document.documentElement.classList.contains('qa-panel-open'))).toBe(false);
 });

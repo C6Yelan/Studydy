@@ -1,3 +1,4 @@
+import { emptyCelebrationClaim } from "./learning-activity";
 import { conceptsView, readResponse } from "./knowledge-read-views.mjs";
 import { diagnosisView, difficultyView } from "./learning-diagnosis";
 import { emptyGoal, goalToday } from "./learning-goals";
@@ -106,6 +107,8 @@ export function structureView(revision = structureRevision) {
 
 export const run = {
   schema: "material-processing-run/v1",
+  auto_retry_count: 0,
+  auto_retry_reason: null,
   cancel_requested_at: null,
   run_id: runId,
   material_id: materialId,
@@ -264,6 +267,8 @@ export async function mockKnowledgeMapApi(
     (url) => /^\/v[12]\//.test(url.pathname),
     (route) => apiError(route, "RESOURCE_NOT_FOUND", 404),
   );
+  await page.route(pathMatches("/v1/learning-activity/celebrations/claim"), (route) =>
+    route.request().method() === "POST" ? json(route, emptyCelebrationClaim) : apiError(route, "METHOD_NOT_ALLOWED", 405));
   await mockGet(page, "/v1/topics", () => ({topics: []}));
   await mockGet(page, "/v1/source-capabilities", () => ({
     schema: "source-capabilities/v2", max_request_bytes: 104857600, max_images: 50, max_media_seconds: 7200, youtube: false,

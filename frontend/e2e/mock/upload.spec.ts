@@ -1,7 +1,7 @@
 import { mockCreationSettings } from "../fixtures/creation-settings";
 import { expect, test, type Page } from "@playwright/test";
 import type { MaterialProcessingRunView, SourceView } from "../../src/api/contracts";
-import { emptyLearningActivity } from "../fixtures/learning-activity";
+import { emptyCelebrationClaim, emptyLearningActivity } from "../fixtures/learning-activity";
 
 const uuid = (seed: number) => `11111111-1111-4111-8111-${String(seed).padStart(12, "0")}`;
 const material = uuid(1);
@@ -56,6 +56,10 @@ async function setup(page: Page) {
   // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
   await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } }));
   // 頁首學習進度；這些案例不涉及學習紀錄。
+  await page.route("**/v1/learning-activity/celebrations/claim", (route) => {
+    expect(route.request().method()).toBe("POST");
+    return route.fulfill({ json: emptyCelebrationClaim });
+  });
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: emptyLearningActivity }));
   await page.route("**/v1/session", (route) =>
     route.fulfill({ json: { schema: "learner-identity/v1", learner_id: uuid(99) } }),
@@ -167,6 +171,8 @@ async function setup(page: Page) {
     }
     state.run = {
       schema: "material-processing-run/v1",
+      auto_retry_count: 0,
+      auto_retry_reason: null,
       run_id: runId,
       material_id: material,
       source_artifact_id: uuid(13),

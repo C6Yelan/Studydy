@@ -114,3 +114,5 @@ export function learningRhythm(options: {
     streak_days: options.streak ?? 0, days,
   };
 }
+
+export const emptyCelebrationClaim = { schema: "celebration-claim/v1", level: null, badge_ids: [] };

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { learningActivity, learningRhythm } from "../fixtures/learning-activity";
+import { emptyCelebrationClaim, learningActivity, learningRhythm } from "../fixtures/learning-activity";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const identity = { schema: "learner-identity/v1", learner_id: id };
@@ -48,6 +48,10 @@ test.beforeEach(async ({ page }) => {
   await page.route(/\/v[12]\//, (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path === "/v1/learning-activity/celebrations/claim") {
+      expect(route.request().method()).toBe("POST");
+      return route.fulfill({ json: emptyCelebrationClaim });
+    }
     if (!responses[path]) throw new Error(`Unexpected layout request: ${request.method()} ${path}`);
     expect(request.method()).toBe(path === "/v1/session/refresh" ? "POST" : "GET");
     return route.fulfill({ json: responses[path] });

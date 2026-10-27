@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { MaterialLibraryItem, StudySessionLink } from "../../src/api/contracts";
-import { learningActivity, learningRhythm } from "../fixtures/learning-activity";
+import { emptyCelebrationClaim, learningActivity, learningRhythm } from "../fixtures/learning-activity";
 
 const uuid = (seed: number) => `00000000-0000-4000-8000-${String(seed).padStart(12, "0")}`;
 const materialId = uuid(1);
@@ -72,6 +72,10 @@ async function mockLibrary(page: Page, items: () => readonly MaterialLibraryItem
 test.beforeEach(async ({ page }) => {
   await page.route(/\/v[12]\//, (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path === "/v1/learning-activity/celebrations/claim") {
+      expect(route.request().method()).toBe("POST");
+      return route.fulfill({ json: emptyCelebrationClaim });
+    }
     if (path === "/v1/learning-goals") return route.fulfill({ json: { schema: "learning-goals/v1", today: "2026-10-24", goals: [] } });
     if (["/v1/session", "/v1/session/refresh"].includes(path)) {
       expect(route.request().method()).toBe(path.endsWith("/refresh") ? "POST" : "GET");
@@ -558,34 +562,46 @@ test("today quests show done state and open the matching place", async ({ page }
   await expect.poll(() => new URL(page.url()).pathname).toBe(studyPath);
 });
 
-test("level-up plays once when the level is above the last level seen in this browser", async ({ page }) => {
-  let level = 3;
-  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
-    total: level === 3 ? 320 : 100, level: level === 3 ? [3, 20, 300] : [2, 0, 200],
-  }) }));
-  // 第一次看到等級只記下，不播放。
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: /第 3 級/ }).first()).toBeVisible();
-  await expect(page.getByRole("dialog", { name: /升級了！/ })).toHaveCount(0);
-  expect(await page.evaluate((key) => localStorage.getItem(key), `studydy.level-seen:${learnerId}`)).toBe("3");
-  await page.evaluate((key) => localStorage.setItem(key, "2"), `studydy.level-seen:${learnerId}`);
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.reload();
-  const celebration = page.getByRole("dialog", { name: /升級了！/ });
-  await expect(celebration).toContainText("第 3 級");
+test("server-claimed level-up plays once across two browser contexts", async ({ page, browser }) => {
+  let available = true;
+  let claims = 0;
+  const activity = learningActivity({ total: 320, level: [3, 20, 300] });
+  const claim = async (route: import("@playwright/test").Route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({ schema: "celebration-claim/v1" });
+    claims++;
+    const level = available ? 3 : null;
+    available = false;
+    await route.fulfill({ json: { ...emptyCelebrationClaim, level } });
+  };
+  const other = await browser.newContext();
+  const second = await other.newPage();
+  await second.route(/\/v[12]\//, route => {
+    const path = new URL(route.request().url()).pathname;
+    if (["/v1/session", "/v1/session/refresh"].includes(path)) return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
+    if (path === "/v1/materials") return route.fulfill({ json: { schema: "material-library/v1", materials: [] } });
+    if (path === "/v1/topics") return route.fulfill({ json: { topics: [] } });
+    return route.fulfill({ status: 404, json: unavailable });
+  });
+  for (const target of [page, second]) {
+    await target.route("**/v1/learning-activity", route => route.fulfill({ json: activity }));
+    await target.route("**/v1/learning-activity/celebrations/claim", claim);
+    await target.emulateMedia({ reducedMotion: "reduce" });
+  }
+  await Promise.all([page.goto("/"), second.goto("/")]);
+  await expect.poll(() => claims).toBe(2);
+  await expect.poll(async () => (await page.getByRole("dialog").count()) + (await second.getByRole("dialog").count())).toBe(1);
+  const winner = await page.getByRole("dialog").count() ? page : second;
+  const celebration = winner.getByRole("dialog", { name: "升級了！第 3 級" });
   await expect(celebration).toHaveAttribute("aria-modal", "true");
   await expect(celebration.getByRole("button", { name: "太好了" })).toBeFocused();
-  await expect(page.locator(".level-up-card")).toHaveCSS("animation-name", "none");
+  await expect(winner.locator(".level-up-card")).toHaveCSS("animation-name", "none");
   await celebration.getByRole("button", { name: "太好了" }).click();
-  await expect(celebration).toHaveCount(0);
-  await page.reload();
-  await expect(page.getByRole("button", { name: /第 3 級/ }).first()).toBeVisible();
-  await expect(page.getByRole("dialog", { name: /升級了！/ })).toHaveCount(0);
-  // 等級下降（例如刪除教材）不播放，也不覆蓋較高的已看等級。
-  level = 2;
-  await page.reload();
-  await expect(page.getByRole("button", { name: /第 2 級/ }).first()).toBeVisible();
-  await expect(page.getByRole("dialog", { name: /升級了！/ })).toHaveCount(0);
+  await winner.reload();
+  await expect.poll(() => claims).toBe(3);
+  await expect(winner.locator(".header-progress")).toBeVisible();
+  await expect(winner.getByRole("dialog")).toHaveCount(0);
+  await other.close();
 });
 
 test("achievements list earned badges above unearned ones, one cell per badge", async ({ page }) => {
@@ -677,15 +693,23 @@ test("v7 goal, difficulty, media, combo and easter-egg achievements reuse the se
   await expect(onTime.getByRole("progressbar")).toHaveCount(0);
 });
 
-test("new badge notice shows once per badge after the first visit in this browser", async ({ page }) => {
+test("new badge notice shows only server-claimed badges once", async ({ page }) => {
   let earned: Record<string, { earned_on: string }> = { first_answer: { earned_on: "2026-10-16" } };
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ badges: earned }) }));
-  const key = `studydy.badges-seen:${learnerId}`;
-  // 第一次在此瀏覽器讀到時只記下既有徽章，不提示。
+  let pending: string[] = [];
+  let claims = 0;
+  await page.route("**/v1/learning-activity/celebrations/claim", route => {
+    claims++;
+    const badge_ids = pending;
+    pending = [];
+    return route.fulfill({ json: { ...emptyCelebrationClaim, badge_ids } });
+  });
+  // 伺服器已標記歷史徽章；首次讀取不補播。
   await page.goto("/");
   await expect(page.locator(".header-progress")).toBeVisible();
   await expect(page.getByRole("dialog", { name: "獲得新徽章" })).toHaveCount(0);
-  expect(JSON.parse(await page.evaluate((name) => localStorage.getItem(name) ?? "null", key))).toEqual(["first_answer"]);
+  await expect.poll(() => claims).toBe(1);
+  pending = ["first_concept", "future_badge"];
   earned = { ...earned, first_concept: { earned_on: "2026-10-22" } };
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();
@@ -704,12 +728,22 @@ test("level-up and badge dialogs open one after another, close by Escape or back
   let level = 2;
   let earned: Record<string, { earned_on: string }> = { first_answer: { earned_on: "2026-10-16" } };
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ total: level * 100, level: [level, 0, 300], badges: earned }) }));
+  let pending = false;
+  let claims = 0;
+  await page.route("**/v1/learning-activity/celebrations/claim", route => {
+    claims++;
+    const value = pending ? { ...emptyCelebrationClaim, level: 3, badge_ids: ["first_concept"] } : emptyCelebrationClaim;
+    pending = false;
+    return route.fulfill({ json: value });
+  });
   await page.clock.install();
   await page.goto("/");
   const progress = page.locator(".header-progress");
   await expect(progress).toBeVisible();
-  // 第一次讀取只記下等級與徽章；之後從頁首按鈕上重新讀取到升級與新徽章。
+  // 學習活動更新後，伺服器同次回傳升級與新徽章。
+  await expect.poll(() => claims).toBe(1);
   await progress.focus();
+  pending = true;
   level = 3;
   earned = { ...earned, first_concept: { earned_on: "2026-10-22" } };
   await page.clock.runFor(31_000);
@@ -927,4 +961,28 @@ test("achievements scroll inside the overview on desktop while the page and leve
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true);
   expect(await overview.evaluate((element) => getComputedStyle(element).overflowY)).not.toBe("auto");
+});
+
+
+test("an in-flight celebration remains valid when learning activity changes", async ({ page }) => {
+  let level = 3;
+  let calls = 0;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/v1/learning-activity", route => route.fulfill({ json: learningActivity({ total: 600, level: [level, 0, 400] }) }));
+  await page.route("**/v1/learning-activity/celebrations/claim", async route => {
+    const first = ++calls === 1;
+    if (first) await held;
+    await route.fulfill({ json: { ...emptyCelebrationClaim, level: first ? 3 : null } });
+  });
+  await page.clock.install();
+  await page.goto("/");
+  await expect.poll(() => calls).toBe(1);
+  level = 4;
+  await page.clock.runFor(31_000);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator(".header-progress")).toHaveAttribute("aria-label", /第 4 級/);
+  await expect.poll(() => calls).toBe(2);
+  release();
+  await expect(page.getByRole("dialog", { name: "升級了！第 3 級" })).toBeVisible();
 });

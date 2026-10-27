@@ -1,8 +1,8 @@
 import { Progress } from "../ui/Progress";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { StudydyApiClient } from "../api/client";
 import type { LearningActivityView } from "../api/contracts";
-import { BadgeEarned, useNewBadges } from "../features/badges/Badges";
+import { BadgeEarned, knownBadges } from "../features/badges/Badges";
 import { CelebrationDialog } from "../ui/CelebrationDialog";
 import { Icon } from "../ui/Icon";
 import { writeRoute } from "./routes";
@@ -33,17 +33,6 @@ export function useLearningActivity(apiClient: StudydyApiClient, options: { fres
   return activity;
 }
 
-// 「上次看到的等級」只用來決定是否播放升級動畫，不是學習資料。
-function seenLevel(key: string): number | null {
-  try {
-    const value = Number(localStorage.getItem(key));
-    return Number.isInteger(value) && value >= 1 ? value : null;
-  } catch { return null; }
-}
-function rememberLevel(key: string, level: number) {
-  try { localStorage.setItem(key, String(level)); } catch { /* 無法保存時只是不再判斷升級。 */ }
-}
-
 function LevelUp({ level, onClose }: { level: number; onClose: () => void }) {
   return <CelebrationDialog className="level-up" label={`升級了！第 ${level} 級`} onClose={onClose}>
     <div className="level-up-card">
@@ -60,17 +49,23 @@ function LevelUp({ level, onClose }: { level: number; onClose: () => void }) {
 export function LearningProgressPill({ apiClient, learnerId }: { apiClient: StudydyApiClient; learnerId: string }) {
   const activity = useLearningActivity(apiClient);
   const [celebrate, setCelebrate] = useState<number | null>(null);
-  const key = `studydy.level-seen:${learnerId}`;
+  const [claimedBadgeIds, setClaimedBadgeIds] = useState<string[]>([]);
   const level = activity?.xp.level;
-  const [newBadges, clearBadges] = useNewBadges(activity ?? null, learnerId);
+  const earnedIds = activity?.badges.items.filter((badge) => badge.earned).map((badge) => badge.badge_id).join(",");
+  const newBadges = activity ? knownBadges(activity).filter((badge) => claimedBadgeIds.includes(badge.badge_id)) : [];
   const closeLevelUp = useCallback(() => setCelebrate(null), []);
+  const clearBadges = useCallback(() => setClaimedBadgeIds([]), []);
+  const session = useRef(0);
+  useEffect(() => () => { session.current++; }, [apiClient, learnerId]);
   useEffect(() => {
     if (level === undefined) return;
-    const seen = seenLevel(key);
-    // 第一次在此瀏覽器看到等級時只記下，不把既有等級當成剛升級。
-    if (seen !== null && level > seen) setCelebrate(level);
-    if (seen === null || level > seen) rememberLevel(key, level);
-  }, [key, level]);
+    const claimedSession = session.current;
+    void apiClient.claimCelebrations().then((claim) => {
+      if (claimedSession !== session.current) return;
+      if (claim.level !== null) setCelebrate(current => Math.max(current ?? 0, claim.level!));
+      if (claim.badge_ids.length) setClaimedBadgeIds((ids) => [...new Set([...ids, ...claim.badge_ids])]);
+    }, () => { /* 領取失敗不推測慶祝事件；下次學習活動更新時再向伺服器領取。 */ });
+  }, [apiClient, learnerId, level, earnedIds]);
   if (!activity) return null;
   const { streak_days: streak, xp } = activity;
   // 等級盾牌與本級進度在連續天數左邊；點按進入成就頁。

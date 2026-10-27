@@ -158,13 +158,14 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
  await page.setViewportSize({width,height:width===390?844:1000});await mockTopicApi(page);
  const sources=Array.from({length:23},(_,i)=>({...candidate,id:`source-${i}`,title:`已選文件 ${i+1}`}));
  const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:sources,selection:sources.map(c=>c.id),error_code:null,run_id:runId,run:{status:'succeeded',output_binding:{knowledge_structure_revision:runFixture.output_binding.knowledge_structure_revision}}}};
- let current:any={...runFixture,status:'running',progress_stage:'semantics',total_pages:10,completed_pages:4,source_names:sources.map(c=>c.title),output_binding:null,completed_at:null,created_at:new Date(Date.now()-65000).toISOString()};
+ let current:any={...runFixture,auto_retry_count:1,auto_retry_reason:'RESTART_INTERRUPTED',status:'running',progress_stage:'semantics',total_pages:10,completed_pages:4,source_names:sources.map(c=>c.title),output_binding:null,completed_at:null,created_at:new Date(Date.now()-65000).toISOString()};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));await page.route(`**/v1/material-processing-runs/${runId}`,r=>json(r,current));
  await page.goto(`/topics/${id}`);
  await expect(page.getByRole('heading',{name:'第 3 / 6 階段',exact:true})).toBeVisible();
  await expect(page.getByText('此階段尚無可計算的工作總數。')).toBeVisible();
  await expect(page.getByRole('progressbar')).toBeVisible();await expect(page.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
  await expect(page.locator('.processing-times')).toContainText('1 分');
+ await expect(page.getByText('已自動重試一次',{exact:true})).toBeVisible();
  await expect(page.locator('.learning-steps > li')).toHaveCount(4);await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('建立教材');
  await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('建立概念、關係與學習順序');
  await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
@@ -177,11 +178,12 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
 
 for(const status of ['failed','cancelled','partial'] as const) test(`topic material run ${status} retains canonical outcome`,async({page})=>{
  await mockTopicApi(page);
- const current={...runFixture,status,cancel_requested_at:status==='cancelled'?runFixture.updated_at:null,progress_stage:status==='partial'?'completed':'semantics',completed_pages:status==='partial'?2:1,analysis_saved:status==='failed',output_binding:status==='partial'?runFixture.output_binding:null,error_code:status==='failed'?'MATERIAL_ANALYSIS_FAILED':null};
+ const current={...runFixture,auto_retry_count:1,auto_retry_reason:'RESTART_INTERRUPTED',status,cancel_requested_at:status==='cancelled'?runFixture.updated_at:null,progress_stage:status==='partial'?'completed':'semantics',completed_pages:status==='partial'?2:1,analysis_saved:status==='failed',output_binding:status==='partial'?runFixture.output_binding:null,error_code:status==='failed'?'MATERIAL_ANALYSIS_FAILED':null};
  const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],error_code:null,run_id:runId,run:{status:'running',output_binding:null}}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));await page.route(`**/v1/material-processing-runs/${runId}`,r=>json(r,current));
  await page.goto(`/topics/${id}`);await expect(page.getByRole('heading',{name:status==='failed'?'教材處理失敗':status==='cancelled'?'已取消教材處理':'教材與知識地圖已建立',exact:true})).toBeVisible();
  await expect(page.getByRole('progressbar')).toHaveCount(0);
+ await expect(page.getByText('已自動重試一次',{exact:true})).toBeVisible();
  if(status==='partial'){await expect(page.locator('.flow-chip')).toContainText('處理完成');await expect(page.getByText('由 AI 整理，每個重點都可點開原文對照。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();}
  else {await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);await expect(page.getByRole('region',{name:'教材分析子流程'})).toContainText('已處理 1 / 2 頁');}
  if(status==='failed'){await expect(page.getByText('已完成的處理進度已保存；使用相同來源與設定重試，會接續未完成的部分。')).toBeVisible();await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();}

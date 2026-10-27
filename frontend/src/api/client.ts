@@ -1,7 +1,7 @@
 import { browserId } from "./browser-id.ts";
 import * as validate from "./response-validation.ts";
 import type {
-  MaterialNotesView, NoteKind, AssessmentPresence,
+  MaterialNotesView, NoteKind, AssessmentPresence, CelebrationClaim,
   LearningGoalView, LearningGoalsView,
   StartingLevel, StartingLevelView, StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
@@ -982,6 +982,13 @@ export class StudydyApiClient {
       );
     }
     return this.activity.task;
+  }
+
+  claimCelebrations(): Promise<CelebrationClaim> {
+    return this.json("/v1/learning-activity/celebrations/claim", {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: origin() },
+      body: JSON.stringify({ schema: "celebration-claim/v1" }),
+    }, validate.celebrationClaim);
   }
 
   // 學習節奏不快取：切換區間或翻頁時才讀，每次最多一年的每日彙總。

@@ -1216,7 +1216,7 @@
 @media(max-width:720px) {
   .map-export-corner { top:10px; right:10px; }
   .map-export-corner .export-entry > button { width:42px; min-width:42px; padding:0; font-size:0; }
-  .map-export-corner .export-entry > button::before { content:"↓"; display:inline-block; font-size:24px; line-height:1; border-bottom:2px solid currentColor; }
+  .map-export-corner .export-entry > button::before { content:"↓" / ""; display:inline-block; font-size:24px; line-height:1; border-bottom:2px solid currentColor; }
   .map-navigation:has(+ .map-export-corner) { right:64px; max-width:none; }
   .map-navigation .map-corner-search { flex:0 0 42px; min-width:0; width:42px; }
   .map-corner-search .map-search-toggle { display:flex; width:42px; padding:0; justify-content:center; }

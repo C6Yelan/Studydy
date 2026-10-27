@@ -1,4 +1,4 @@
-import { emptyLearningActivity } from "../fixtures/learning-activity";
+import { emptyCelebrationClaim, emptyLearningActivity } from "../fixtures/learning-activity";
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 const origin = process.env.STUDYDY_E2E_BASE_URL ?? "http://127.0.0.1:4173";
@@ -42,6 +42,10 @@ test.beforeEach(async ({ page }) => {
   await page.route(/\/v[12]\//, (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path === "/v1/learning-activity/celebrations/claim") {
+      expect(route.request().method()).toBe("POST");
+      return route.fulfill({ json: emptyCelebrationClaim });
+    }
     switch (path) {
       case "/v1/session":
       case "/v1/session/refresh":

@@ -152,6 +152,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
   {errorNotice}
   <section aria-label="教材分析子流程">
    {runError&&<p className="form-error" role="alert">無法讀取處理狀態：{runError}<button className="text-button" onClick={()=>setRunReload(v=>v+1)}>重新讀取進度</button></p>}
+   {materialRun?.auto_retry_count===1&&<p className="run-ai-notice">已自動重試一次</p>}
    {!materialRun&&!runError&&<p role="status">正在讀取教材分析進度…</p>}
    {materialRun&&(removing?<section className="surface processing-card"><p role="status">正在停止處理並刪除這份教材，完成後會返回我的教材。</p></section>:<div className="processing-grid">
     {failed?<MaterialRunFailure apiClient={api} run={materialRun}/>:<section className="surface processing-card">
