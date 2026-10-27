@@ -37,9 +37,16 @@ test("real notes save an annotation, reopen its source and generate full notes o
   await expect(page.getByRole("button", { name: "生成完整筆記", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "生成完整筆記", exact: true }).click();
   await expect(page.locator(".note-paragraph")).toHaveCount(3);
-  await page.getByRole("button", { name: "重點整理", exact: true }).click();
+  await page.getByRole("button", { name: "新增註記", exact: true }).first().click();
+  await page.getByLabel("個人註記", { exact: true }).fill("完整筆記的複習想法");
+  await page.getByRole("button", { name: "儲存註記", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await page.getByLabel("更多筆記操作").click();
   await page.getByRole("button", { name: "重新生成", exact: true }).click();
+  await page.getByRole("button", { name: "確認重新生成", exact: true }).click();
   await expect(page.getByRole("button", { name: "重新生成", exact: true })).toBeEnabled();
+  await expect(page.getByText("完整筆記的複習想法", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "重點整理", exact: true }).click();
   await expect(page.getByText("真 API 保存我的複習想法", { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
