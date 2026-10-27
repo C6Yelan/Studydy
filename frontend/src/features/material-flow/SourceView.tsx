@@ -173,7 +173,7 @@ export function SourceView({
     staged.filter((source) => source.normalization_id === id),
   );
   const displayedSources = currentStructure ? (sourceList?.sources ?? []) : selectedSources;
-  const visibleSources=displayedSources.filter(source=>!currentStructure||source.original_name.toLocaleLowerCase().includes(sourceQuery.trim().toLocaleLowerCase()));
+  const visibleSources=displayedSources.filter(source=>!currentStructure||(source.display_name??source.original_name).toLocaleLowerCase().includes(sourceQuery.trim().toLocaleLowerCase()));
   const adjustingSources=!currentStructure||hasActiveRun||staged.length>0||queue.length>0;
   const sourcesReady =
     selectedSources.length > 0 && selectedSources.every((source) => source.status === "ready");
@@ -331,11 +331,11 @@ export function SourceView({
     return <section key={group} className="source-group" aria-label={group === "research" ? "網路補充學習資源" : "使用者上傳"}>
       {currentStructure && <h3 className="source-group-title">{group === "research" ? "網路補充學習資源" : "使用者上傳"}<small>{groupSources.length} 份</small></h3>}
       <ol className="source-list">
-        {(collapsed ? groupSources.slice(0, SOURCE_PREVIEW_COUNT) : groupSources).map((source, index) => (
-          <li className={`source-row${source.status === "failed" ? " is-failed" : ""}`} key={source.source_id} aria-label={source.original_name}>
+        {(collapsed ? groupSources.slice(0, SOURCE_PREVIEW_COUNT) : groupSources).map((source, index) => { const displayName=source.display_name??source.original_name; return (
+          <li className={`source-row${source.status === "failed" ? " is-failed" : ""}`} key={source.source_id} aria-label={displayName}>
             <span className="source-number">{currentStructure ? displayedSources.indexOf(source) + 1 : index + 1}</span>
             <div className="source-content">
-              <strong className="source-name" title={source.original_name}>{source.original_name}</strong>
+              <strong className="source-name" title={displayName}>{displayName}</strong>
               <div className="source-metadata">
                 {source.page_count !== null && <span>{sourcePages(source)}</span>}
                 {source.analysis_mode === "selected" && source.analysis_page_count != null && <span>依學習需求選讀 {source.analysis_page_count} 頁中的相關段落</span>}
@@ -434,7 +434,7 @@ export function SourceView({
                   <button
                     type="button"
                     disabled={busy || hasActiveRun || index === 0}
-                    aria-label={`上移 ${source.original_name}`}
+                    aria-label={`上移 ${displayName}`}
                     onClick={() => moveSource(index, -1)}
                   >
                     ↑
@@ -442,7 +442,7 @@ export function SourceView({
                   <button
                     type="button"
                     disabled={busy || hasActiveRun || index === selectedSources.length - 1}
-                    aria-label={`下移 ${source.original_name}`}
+                    aria-label={`下移 ${displayName}`}
                     onClick={() => moveSource(index, 1)}
                   >
                     ↓
@@ -451,7 +451,7 @@ export function SourceView({
               )}
             </div>
           </li>
-        ))}
+        );})}
         {group !== "research" && queue.map((item, index) => (
           <li className={`source-row source-upload-row is-${item.status}`} key={item.key} aria-label={queuedName(item)}>
             <span className="source-number">{displayedSources.length + index + 1}</span>
