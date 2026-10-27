@@ -67,7 +67,7 @@ export function PodcastTranscript({view,index,media,active,timelineState}:{
   const {timeline:current,error}=timelineState;
   const [clock,setClock]=useState({index:-1,ready:false,playing:false});
   const list=useRef<HTMLOListElement>(null);
-  useEffect(() => { const panel = list.current?.closest<HTMLElement>(".podcast-transcript"); if (panel) panel.scrollTop = 0; }, [index]);
+  useEffect(() => { const panel = list.current?.closest<HTMLElement>(".podcast-content-panel"); if (panel) panel.scrollTop = 0; }, [index]);
   useEffect(()=>{
     if(!active||!current)return;
     let raf=0;
@@ -81,7 +81,7 @@ export function PodcastTranscript({view,index,media,active,timelineState}:{
   },[active,current,media]);
   useEffect(()=>{
     if(!clock.playing)return;
-    const item=list.current?.querySelector<HTMLElement>('button[aria-current=true]'),panel=list.current?.closest<HTMLElement>('.podcast-transcript');
+    const item=list.current?.querySelector<HTMLElement>('button[aria-current=true]'),panel=list.current?.closest<HTMLElement>('.podcast-content-panel');
     if(!item||!panel||panel.scrollHeight<=panel.clientHeight||item.contains(document.activeElement))return;
     const a=item.getBoundingClientRect(),b=panel.getBoundingClientRect();
     if(a.top<b.top||a.bottom>b.bottom)panel.scrollTop+=a.top-b.top;

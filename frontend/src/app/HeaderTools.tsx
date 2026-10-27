@@ -243,11 +243,11 @@ export function AccountMenu({ apiClient }: { apiClient: StudydyApiClient }) {
   const opener = useRef<HTMLElement>(null);
   useDismissibleMenu(menu, opener);
   const go = (route: Parameters<typeof writeRoute>[0]) => { if (menu.current) menu.current.open = false; writeRoute(route); };
-  return <details ref={menu} className="account-menu">
+  return <details ref={menu} className="account-menu material-account-menu">
     <summary ref={opener} className="account-profile" role="button" aria-label={`帳號選單：${name ?? "尚未設定名稱"}`}>
       <span className="account-avatar" aria-hidden="true">{name ? [...name][0] : <Icon name="user" size={18} />}</span>
     </summary>
-    <div className="account-menu-list">
+    <div className="account-menu-list material-account-menu-layer">
       {name && <p className="account-menu-name">{name}</p>}
       <button type="button" onClick={() => go({ name: "profile" })}><Icon name="user" size={18} />個人檔案</button>
       <button type="button" onClick={() => go({ name: "achievements" })}><Icon name="sparkle" size={18} />成就</button>

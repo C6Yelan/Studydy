@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
-import { createPortal } from "react-dom";
 import type { PodcastProgressUpdate, PodcastView } from "../../api/contracts";
 import { type VideoView, type usePodcastVideo } from "./PodcastVideo";
 
@@ -38,11 +37,11 @@ function ControlIcon({ name }: { name: "play" | "pause" | "previous" | "next" | 
 const SYNC_INTERVAL_MS = 15_000;
 export type ProgressSync = (body: PodcastProgressUpdate, keepalive: boolean) => Promise<unknown>;
 
-export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsKey, rememberPosition, autoPlay, onEnded, onPrevious, onNext, mediaRef, videoState, timelineReady, resumeAt, onSync }: {
-  view: PodcastView; index: number; episodeLabel?: string; storageKey: string; settingsKey: string; rememberPosition: { current: boolean };
+export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPosition, autoPlay, onEnded, onPrevious, onNext, mediaRef, videoState, timelineReady, resumeAt, onSync, theater, onTheater }: {
+  view: PodcastView; index: number; storageKey: string; settingsKey: string; rememberPosition: { current: boolean };
   mediaRef?: {current: HTMLMediaElement | null};
   videoState: ReturnType<typeof usePodcastVideo>;
-  timelineReady: boolean;
+  timelineReady: boolean; theater: boolean; onTheater: () => void;
   autoPlay: boolean; onEnded: (autoAdvance:boolean) => void; onPrevious: () => void; onNext: () => void;
   // 伺服器保存的本集位置（跨裝置接續）；沒有時改用此瀏覽器保存的位置。
   resumeAt?: number | null; onSync?: ProgressSync;
@@ -128,7 +127,7 @@ export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsK
     for (const track of tracks) track.mode = "hidden";
     setCaption(showSubtitles ? tracks.flatMap(track => Array.from(track.activeCues ?? []))
       .map(cue => (cue as VTTCue).getCueAsHTML().textContent ?? "").join("\n") : "");
-    // 播放列平時在畫面底部常駐，只有全螢幕時疊在影片上，字幕才需要讓開。
+    // 一般模式的控制列在播放器下方；全螢幕時字幕須讓開疊在畫面上的控制列。
     const controlsHeight = controlsVisible && fullscreen ? viewport.current?.querySelector(".media-playback-controls")?.getBoundingClientRect().height ?? 0 : 0;
     setCaptionBottom(controlsHeight + 12);
   }, [media, showSubtitles, controlsVisible, fullscreen]);
@@ -218,10 +217,9 @@ export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsK
     onEnded:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget!==media.current)return;setPlaying(false);save(e.currentTarget);sync(e.currentTarget,{ended:true});onEnded(settings.autoAdvance)},
     onError:(e:SyntheticEvent<HTMLMediaElement>)=>{if(e.currentTarget===media.current){setReady(false);setError("媒體讀取失敗，請重試。")}},
   };
-  // 播放列：平時固定在畫面底部（捲動或切換分頁時都看得到），全螢幕時疊在影片上。
+  // 一般模式與全螢幕共用同一組播放操作。
   const controls = <>
       <div className="media-playback-controls" role="group" aria-label="播放控制">
-    <span className="media-now-playing">第 {index + 1} 集{episodeLabel ? ` · ${episodeLabel}` : ""}</span>
     <div className="media-progress-track"><span aria-hidden="true" style={{width:`${length ? Math.max(0,Math.min(100,time / length * 100)) : 0}%`}}/>
     <input className="media-timeline" type="range" aria-label="播放進度" aria-valuetext={`${formatTime(time)} / ${formatTime(length)}`} min={0} max={length} step={0.1} value={time} disabled={!ready} onChange={e => seek(Number(e.target.value))} />
     </div>
@@ -239,6 +237,7 @@ export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsK
       <span className="media-time" aria-live="off">{formatTime(time)} / {formatTime(length)}</span>
       <div className="media-settings" ref={menu}><label className="media-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><button ref={gear} type="button" className="media-icon media-settings-toggle" aria-label="播放設定" title="播放設定" aria-expanded={menuOpen} aria-controls="podcast-player-settings" onClick={() => setMenuOpen(v => !v)}><span>{settings.speed}×</span><ControlIcon name="settings" /></button>
         {menuOpen && <div id="podcast-player-settings" className="media-settings-panel" role="group" aria-label="播放設定選單"><label className="media-menu-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><div className="media-menu-seek"><button type="button" className="text-button" disabled={!ready} onClick={() => seek(time - 10)}><ControlIcon name="rewind" />後退 10 秒</button><button type="button" className="text-button" disabled={!ready} onClick={() => seek(time + 10)}><ControlIcon name="forward" />前進 10 秒</button></div>{<button type="button" className="text-button" aria-label="字幕" aria-pressed={showSubtitles} onClick={() => setShowSubtitles(value => !value)}>字幕：{showSubtitles ? "開啟" : "關閉"}</button>}<strong>播放速度</strong><div className="media-speed-options">{speeds.map(speed => <button type="button" key={speed} aria-pressed={settings.speed === speed} onClick={() => {setSettings(s => ({ ...s, speed }));setMenuOpen(false)}}>{speed === 1 ? "正常" : `${speed}×`}</button>)}</div><label className="media-menu-volume">音量<input type="range" aria-label="設定音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))}/></label></div>}
+        {!fullscreen && <button type="button" className="media-icon media-theater-toggle" aria-label="劇院模式" aria-pressed={theater} title="劇院模式" onClick={onTheater}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/></svg></button>}
         {video && <button type="button" className="media-icon" aria-label={fullscreen ? "退出全螢幕" : "全螢幕"} title={fullscreen ? "退出全螢幕" : "全螢幕"} onClick={() => void toggleFullscreen()}><ControlIcon name="fullscreen" /></button>}
       </div>
     </div>
@@ -257,7 +256,8 @@ export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsK
         keyboardFocus.current = true; showControls();
         if (e.target !== e.currentTarget) return;
         if ([' ', 'Enter'].includes(e.key)) { e.preventDefault(); toggle(); }
-        else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); seek(time + (e.key === 'ArrowLeft' ? -10 : 10)); }
+        else if (e.key.toLowerCase() === 'f' && video) { e.preventDefault(); void toggleFullscreen(); }
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); seek(time + (e.key === 'ArrowLeft' ? -5 : 5)); }
       }}
       tabIndex={0} aria-label={video ? '影片播放區；按空白鍵播放或暫停' : '音訊播放區；按空白鍵播放或暫停'}>
       <div className="media-display" role="region" aria-label={video ? "教學影片" : "Podcast 音訊"} onClick={e => { if (!(e.target as HTMLElement).closest("button, a, input, select")) { toggle(); showControls(); } }}>
@@ -276,7 +276,7 @@ export function PodcastPlayer({ view, index, episodeLabel, storageKey, settingsK
       {caption && <div className="media-subtitles" aria-hidden="true" style={{ bottom: captionBottom }}>{caption}</div>}
       {fullscreen && controls}
     </div>
-    {!fullscreen && createPortal(<div className="podcast-dock" role="region" aria-label="播放列">{controls}</div>, document.body)}
+    {!fullscreen && <div className="podcast-controls-bar" role="region" aria-label="播放列">{controls}</div>}
     {error && <p className="form-error media-feedback" role="alert">{error}{!ready && <button type="button" className="text-button" onClick={() => { setError(null); media.current?.load(); }}>重新載入媒體</button>}</p>}
     {storageError && <p className="media-feedback">瀏覽器目前無法保存播放位置或設定。</p>}
   </section>;
