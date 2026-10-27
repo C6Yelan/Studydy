@@ -272,3 +272,5 @@ GET /v1/account/storage 使用 account-storage/v2，回傳教材原檔與轉換�
 講稿重寫後仍無法核對的段落略過，其他已核對段落才送配音；episode.omitted_content 保存原段號、選定 claim_ids 與 source_check_failed，不保存未核對台詞。門檻以本集選定重點去重後計算，超過半數落在略過正文才回 PODCAST_SCRIPT_NEEDS_REVIEW；剛好一半發布。開場、收尾不計入重點門檻，核對失敗仍略過。前端逐字稿與本集重點顯示固定略過提示。
 
 處理頁的完成呈現不直接曝光整份 partial／needs_review 提示；完成頁與筆記提供固定AI／原文對照說明，來源、品質狀態與核對紀錄仍原樣保存。從主題建立在分析中可透過既有DELETE教材操作取消並刪除；此操作清除所屬搜尋結果，主題狀態改為取消並從列表移除，介面確認須明示此範圍。
+
+教材列表每份source_totals彙總未移除來源：document只加已知頁數、image只加已知張數，audio／video／youtube只加已核對mapping時長；任一影音時長未知則media_seconds=null，沒有影音為0。前端null只顯示頁數／張數，不把逐字稿頁數或部分已知時長冒充教材合計。合計重用來源列表同批查詢及source_display結果，不另加SQL或重讀mapping。

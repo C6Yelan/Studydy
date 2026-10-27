@@ -260,7 +260,14 @@ class SourceView(SourcePresentation):
     error_code: str | None
 
 
+class MaterialSourceTotals(_Closed):
+    page_count: int
+    image_count: int
+    media_seconds: float | None
+
+
 class MaterialLibraryItem(_Closed):
+    source_totals: MaterialSourceTotals
     head_revision: str | None = None
     source_count: int = 1
     schema_: Literal["material-library-item/v1"] = Field(alias="schema")
