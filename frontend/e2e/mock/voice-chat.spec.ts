@@ -514,7 +514,7 @@ async function streamingReply(page:Page) {
  await page.goto(mapPath);await open(page);await page.getByRole('switch',{name:'語音模式',exact:true}).click();await speak(page);
  await expect.poll(()=>mock.recorded.length).toBe(1);
  const turn=mock.recorded[0],conversation=mock.conversations[0];const base=`/v1/voice-conversations/${conversation.conversation_id}/turns/${turn.turn_id}`;
- Object.assign(turn,{question:'請解釋堆疊',answer:{...mock.answer},status:'speaking',stage:'tts_synthesizing',audio_url:null,audio_sentences:[
+ Object.assign(turn,{question:'請解釋堆疊',answer:{...mock.answer},status:'speaking',stage:'tts_synthesizing',timings:{retrieval_ms:12,answer_ms:34,verification_ms:56,tts_queue_ms:78,tts_synthesis_ms:90},audio_url:null,audio_sentences:[
   {index:0,text:'堆疊採用後進先出。',status:'ready',audio_url:base+'/audio/0',duration_seconds:.3},
   {index:1,text:'最後放入的資料會最先取出。',status:'pending',audio_url:null,duration_seconds:null},
  ]});
