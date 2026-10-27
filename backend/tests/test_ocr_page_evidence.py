@@ -555,3 +555,15 @@ def test_numbered_heading_at_page_bottom_keeps_following_page_definition(tmp_pat
     definition = next(e for e in context["evidence"] if "constant ratio" in e["exact_text"])
     assert definition["section_id"] == section["section_id"]
     assert definition["page"] == 2
+
+
+def test_native_chinese_word_wrap_keeps_formula_literals(tmp_path):
+    path = tmp_path/'word-wrap.pdf'
+    with pymupdf.open() as document:
+        page = document.new_page()
+        for y,text in [(40,'需要更'),(54,'多資料'),(68,'x_i = 1 / 2')]:
+            page.insert_text((40,y),text,fontname='china-s',fontsize=11)
+        document.save(path)
+    with pymupdf.open(path) as document:
+        blocks = _native_text_blocks(extract_page(document, hashlib.sha256(path.read_bytes()).hexdigest(), 1))
+    assert [block['text'] for block in blocks] == ['需要更多資料\nx_i = 1 / 2']

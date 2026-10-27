@@ -80,7 +80,10 @@ def extract_page(
         or max(estimated_width, estimated_height) > MAX_RENDER_SIDE
     ):
         raise ValueError("PROTOCOL_LIMIT_EXCEEDED")
-    raw_text = _json_value(page.get_text("rawdict", sort=False))
+    raw_text = _json_value(page.get_text(
+        "rawdict", sort=False,
+        flags=pymupdf.TEXTFLAGS_RAWDICT & ~pymupdf.TEXT_PRESERVE_LIGATURES,
+    ))
     images = _json_value(page.get_image_info(hashes=True, xrefs=True))
     drawings = _json_value(page.get_drawings())
     pixmap = page.get_pixmap(dpi=RENDER_DPI, colorspace=pymupdf.csRGB, alpha=False)
@@ -364,7 +367,12 @@ def _native_text_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
                 and overlap > 0
             )
             if continuous:
-                previous["text"] += "\n" + block["text"]
+                # 中文詞可在排版行尾被切開；英文與技術字面值仍保留原換行。
+                separator = "" if (
+                    re.search(r"[\u3400-\u9fff]$", previous["text"])
+                    and re.match(r"[\u3400-\u9fff]", block["text"])
+                ) else "\n"
+                previous["text"] += separator + block["text"]
                 previous["bbox"] = [
                     min(previous["bbox"][0], box[0]),
                     min(previous["bbox"][1], box[1]),

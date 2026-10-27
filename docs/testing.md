@@ -370,3 +370,5 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 
 `test_demo_reanalysis_resume.py` 使用隔離DB與受控provider，驗證指定失敗run只恢復一次、原11/300與來源/runtime身分保留、並行只有一次成功、實際worker在同run重新執行並逐次累計請求，並拒絕取消、head改變、其他活躍工作、耗盡、非指定run及非授權錯誤。恢復後再次失敗維持failed，不能再排或重設額度；CLI分派測試確認`--resume-once`不建立新工作。這些測試不執行正式恢復或真實模型。
+
+T2 的 `test_media_sources.py` 以真實逐字稿 PDF→native Evidence 驗證段界與合字展開；`test_ocr_page_evidence.py` 以真實 PDF 驗證中文詞內換行與公式字面值保留。`test_spoken_analysis.py` 核對疑義還原僅回到原引用、保留 needs_review 而不把診斷加進重點。這些測試不代替隔離重分析的語意品質比較。

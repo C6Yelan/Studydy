@@ -329,7 +329,7 @@ BOX = pymupdf.Rect(40, 40, 555, 802)
 def _fitting_css(markup):
     """單頁放不下時縮小字級，維持「一頁＝一個時間段」的對應。"""
     for size in (11, 10, 9, 8, 7, 6):
-        css = f"body {{font-family:sans-serif;font-size:{size}pt;}} p {{margin:0 0 4pt;}}"
+        css = f"body {{font-family:sans-serif;font-size:{size}pt;}} p {{margin:0 0 1em;}}"
         more, _ = pymupdf.Story(markup, user_css=css).place(BOX)
         if not more:
             return css
