@@ -11,6 +11,8 @@ export function MaterialRemoveControl({
   inActionRow = false,
   material,
   sources,
+  actionLabel = "刪除教材",
+  confirmationDescription,
 }: {
   apiClient: StudydyApiClient;
   materialId: string;
@@ -18,6 +20,8 @@ export function MaterialRemoveControl({
   inActionRow?: boolean;
   material?: MaterialLibraryItem | null;
   sources?: SourceView[];
+  actionLabel?: string;
+  confirmationDescription?: string;
 }) {
   const copy = materialDeleteCopy(material, sources);
   const [confirming, setConfirming] = useState(false);
@@ -77,7 +81,7 @@ export function MaterialRemoveControl({
             setConfirming(true);
           }}
         >
-          刪除教材
+          {actionLabel}
         </button>
       )}
       {confirming && (
@@ -93,7 +97,7 @@ export function MaterialRemoveControl({
         >
           <h3 id={title}>確定要刪除這份教材嗎？</h3>
           {copy.notice && <p>{copy.notice}</p>}
-          <p>{copy.scope}</p>
+          <p>{confirmationDescription??copy.scope}</p>
           <div className="state-actions">
             <button
               ref={keep}

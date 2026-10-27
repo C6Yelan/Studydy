@@ -212,7 +212,7 @@ for (const state of states) {
       );
     await page.goto("/materials");
     if (state === "loading" || state === "failure") {
-      await expect(state === "loading" ? page.getByRole("status").filter({hasText:"正在讀取教材庫"}) : page.getByRole("heading", {name:"無法讀取教材",exact:true})).toBeVisible();
+      await expect(state === "loading" ? page.getByRole("status").filter({hasText:"正在讀取我的教材"}) : page.getByRole("heading", {name:"無法讀取教材",exact:true})).toBeVisible();
       if (state === "loading") releaseRead();
       else {
         await expect(

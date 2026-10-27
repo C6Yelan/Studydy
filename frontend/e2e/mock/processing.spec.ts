@@ -118,6 +118,8 @@ test.beforeEach(async ({ page }) => {
       case "/v1/session":
       case "/v1/session/refresh":
         return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: learnerId } });
+      case `/v1/materials/${materialId}`:
+        return route.fulfill({json:{schema:'material-library-item/v1',material_id:materialId,source_artifact_id:artifactId,display_name:'合成測試教材',size_bytes:1000,created_at:base.created_at,latest_attempt:base,available_structures:[],study_sessions:[]}});
       case "/v1/materials":
         return route.fulfill({ json: { schema: "material-library/v1", materials: [] } });
       case "/v1/topics":
@@ -221,7 +223,7 @@ for (const status of ["succeeded", "partial"] as const)
     const processing = page.locator(".processing-page");
     await expect(processing.getByRole("heading", { level: 1 })).toHaveText("教材整理完成");
     await expect(processing.locator(".flow-result h2")).toHaveText(
-      status === "partial" ? "知識地圖已建立" : "知識地圖已準備完成",
+      "知識地圖已準備完成",
     );
     await expect(processing.locator(".processing-summary")).toContainText("共處理 45 頁");
     await expect(processing.locator(".processing-summary ul > li")).toHaveText([
@@ -230,15 +232,12 @@ for (const status of ["succeeded", "partial"] as const)
       "教材建議學習順序",
     ]);
     await expect(processing.locator(".status-badge")).toHaveText(
-      status === "partial" ? "部分結果可用" : "處理完成",
+      "處理完成",
     );
     await expect(processing.locator(".status-badge")).toHaveClass(
-      `status-badge ${status === "partial" ? "is-partial" : "is-success"}`,
+      "status-badge is-success",
     );
-    if (status === "partial") {
-      await expect(processing.locator(".status-badge svg")).toHaveCount(0);
-      await expect(processing.locator(".flow-head")).toContainText("部分內容未完整整理");
-    } else await expect(processing).not.toContainText(/部分結果可用|未完整整理/);
+    await expect(processing.getByText("由 AI 整理，每個重點都可點開原文對照。",{exact:true})).toBeVisible();
     await expect(processing).not.toContainText(/待確認|待複核|需要你確認|請確認內容/);
     await expect(processing.getByRole("progressbar")).toHaveCount(0);
     await expect(
@@ -473,7 +472,7 @@ test('saved page evidence offers resume after source context failure',async({pag
  await expect(page.getByRole('heading',{name:'教材處理失敗',exact:true})).toBeVisible();
  await expect(page.getByText('教材來源文字或章節結構未通過檢查，尚未發布知識地圖。請檢查來源後重試。')).toBeVisible();
  await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();
- await expect(page.getByText(/已完成的頁面整理或分析進度保存在本機/)).toBeVisible();
+ await expect(page.getByText(/已完成的處理進度已保存/)).toBeVisible();
  await expect(page.locator('.failure-progress')).toContainText('368 / 368 頁');
 });
 
@@ -529,6 +528,28 @@ for (const width of [1280, 390]) test(`failed review explains the cause and pres
   await expect(page.getByText('REVIEW_METADATA_REASON_INVALID',{exact:true})).toBeVisible();
   await expect(page.locator('.failure-progress')).toContainText('87 / 224 個檢核批次');
   await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();
-  await expect(page.getByText(/已完成的分析批次保存在本機/)).toBeVisible();
+  await expect(page.getByText(/已完成的處理進度已保存/)).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+
+test('processing failure keeps recovery order and completion keeps its source notice across widths',async({page},testInfo)=>{
+ let current:MaterialProcessingRunView={...base,source_names:['合成測試教材.pdf']};
+ await mockRun(page,route=>route.fulfill({json:current}));
+ for(const state of ['running','failed','partial'] as const){
+  current=state==='partial'?completed('partial'):{...base,status:state,source_names:['合成測試教材.pdf'],analysis_saved:state==='failed',input_source_set_id:artifactId,completed_at:state==='failed'?clockTime.toISOString():null,error_code:state==='failed'?'STORAGE_UNAVAILABLE':null};
+  await page.goto(runPath);await expect(page.locator('.run-material-return')).toContainText('合成測試教材');
+  if(state==='failed'){
+   const card=page.locator('.run-failure-content');await expect(card.getByRole('button',{name:'接續已保存的分析'})).toBeVisible();
+   const order=await card.evaluate(element=>{
+    const progress=element.querySelector('.failure-progress')!, action=element.querySelector('.run-failure-actions')!, code=element.querySelector('.run-failure-code')!;
+    return !!(progress.compareDocumentPosition(action)&Node.DOCUMENT_POSITION_FOLLOWING)&&!!(action.compareDocumentPosition(code)&Node.DOCUMENT_POSITION_FOLLOWING);
+   });expect(order).toBe(true);
+   await expect(card.locator('.run-failure-code')).toContainText('STORAGE_UNAVAILABLE');
+  }
+  for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+   await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`processing-${state}-${width}.png`),animations:'disabled'});
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+ }
 });

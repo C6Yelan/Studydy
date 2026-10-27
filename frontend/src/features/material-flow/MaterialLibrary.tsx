@@ -121,14 +121,14 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
               type="button"
               onClick={() => writeRoute({ name: "materials" })}
             >
-              返回教材庫
+              返回我的教材
             </button>
           </>
         }
       />
     ) : (
       <StateView
-        title="正在讀取教材庫"
+        title="正在讀取我的教材"
         description="正在載入你的教材與已發布結果。"
         tone="loading"
         live

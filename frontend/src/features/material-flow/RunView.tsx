@@ -1,5 +1,5 @@
 import { BackLink } from "../../ui/BackLink";
-import { useStudyStart } from "../study-session/StartingLevel";
+import { MaterialRunFailure } from "./MaterialRunFailure";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
@@ -10,12 +10,10 @@ import { Icon } from "../../ui/Icon";
 import { ProcessingProgress } from "./ProcessingProgress";
 import { ProcessingTimeline } from "./ProcessingTimeline";
 import { StateView } from "../../ui/StateView";
-import { MaterialRunStartControl } from "./MaterialRunStartControl";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
 import { FlowHeader, LearningSteps, topicSteps, uploadSteps } from "./Flow";
 import {
   automaticPollIntervalMs,
-  materialFailureMessage,
   materialProgressStageLabel,
   materialStageCountLabel,
   materialProgressStages,
@@ -67,6 +65,7 @@ export function RunView({
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const [steps, setSteps] = useState<string[] | null>(null);
+  const [materialName,setMaterialName]=useState<string|null>(null);
   // 新版更新（base_revision）沒有建立流程的步驟列，不需要讀來源。
   const firstBuild = run ? !run.base_revision : null;
 
@@ -150,6 +149,7 @@ export function RunView({
     if (!firstBuild) return;
     let cancelled = false;
     setSteps(null);
+    void apiClient.getMaterial(route.materialId).then(item=>{if(!cancelled)setMaterialName(item.display_name);},()=>undefined);
     void apiClient.getSources(route.materialId).then(
       (list) => { if (!cancelled) setSteps(flowSteps(list.sources)); },
       () => undefined,
@@ -193,7 +193,8 @@ export function RunView({
     return () => window.clearInterval(timer);
   }, [run?.run_id, run?.status]);
 
-  const back = <BackLink label={run?.base_revision || run?.output_binding ? "返回教材" : "回到我的教材"} route={run?.base_revision || run?.output_binding ? { name: "material", materialId: route.materialId } : { name: "materials" }} />;
+  const backLink = <BackLink label={run?.base_revision || run?.output_binding ? "返回教材" : "回到我的教材"} route={run?.base_revision || run?.output_binding ? { name: "material", materialId: route.materialId } : { name: "materials" }} />;
+  const back = <div className="run-material-return">{backLink}{materialName && <span>{materialName}</span>}</div>;
 
   if (notFound) return <NotFoundView title="找不到這次處理" description="這筆處理紀錄可能已被刪除，或不屬於目前登入的帳號。" back={materialNotFound.back} />;
   if (message)
@@ -256,7 +257,7 @@ export function RunView({
           <section className="surface processing-card">
             <ProcessingProgress run={run} now={now} />
             {!removing && canRequestDiscard(run) && (
-              <div className="processing-cancel">
+              <div className="run-actions">
                 {confirmingCancel ? (
                   <section
                     aria-labelledby="cancel-confirm-title"
@@ -365,72 +366,30 @@ export function RunView({
       </section>
     );
 
-  if (run.status === "failed")
-    return (
-      <section className="flow-page processing-page task-page terminal-failure">
-        {back}
-        {steps && <LearningSteps labels={steps} current={steps.length - 1} />}
-        <StateView
-          action={
-            <>
-              <MaterialRunStartControl
-                apiClient={apiClient}
-                materialId={run.material_id}
-                retryRun={{ runId: run.run_id, saved: !!run.analysis_saved }}
-              />
-            </>
-          }
-          description={materialFailureMessage(run.error_code ?? "MATERIAL_ANALYSIS_FAILED")}
-          image="/assets/studydy/failure-confused.png"
-          title="教材處理失敗"
-          tone="failure"
-        />
-        <p className="failure-progress" role="status">
-          最後記錄進度：{materialProgressStageLabel(run.progress_stage)}
-          {materialStageCountLabel(run) && `，${materialStageCountLabel(run)}`}
-        </p>
-        {run.analysis_saved && (
-          <p role="status">
-            已完成的頁面整理或分析進度保存在本機。使用相同來源與設定重試，會接續未完成的部分；若只剩地圖組裝，就不再呼叫模型。
-          </p>
-        )}
-        {run.input_source_set_id && !run.analysis_saved && (
-          <p role="status">這次沒有已保存的分析進度；重試將重新分析原來源。</p>
-        )}
-        {run.input_source_set_id && (
-          <button
-            className="text-button"
-            onClick={() => writeRoute({ name: "material-sources", materialId: run.material_id })}
-          >
-            修改來源與重新分析
-          </button>
-        )}
-        {run.error_code && (
-          <p className="processing-technical">錯誤代碼：<code>{run.error_code}</code></p>
-        )}
-      </section>
-    );
+  if (run.status === "failed") return <section className="flow-page processing-page task-page terminal-failure">
+    <FlowHeader back={back} title="教材處理失敗"/>
+    {steps && <LearningSteps labels={steps} current={steps.length - 1}/>}
+    <div className="processing-grid">
+      <MaterialRunFailure apiClient={apiClient} run={run}/>
+      <ProcessingTimeline stages={materialProgressStages.slice(0,-1).map(stage=>({label:materialProgressStageLabel(stage),icon:stage==='semantics'?'map':'process'}))} currentIndex={materialProgressStages.indexOf(run.progress_stage)} activity="失敗"/>
+    </div>
+  </section>;
 
   const binding = run.output_binding!;
-  const partial = run.status === "partial";
   return (
     <section className="flow-page processing-page task-page is-complete">
       <FlowHeader back={back}
         title="教材整理完成"
-        description={partial
-          ? "知識地圖已建立，可先查看已整理的內容；部分內容未完整整理。"
-          : "知識地圖已準備完成，可以查看概念、關係、來源與建議學習順序。"}
+        description="知識地圖已準備完成，可以查看概念、關係、來源與建議學習順序。"
       />
       {steps && <LearningSteps labels={steps} current={steps.length} />}
       <section className="surface flow-result processing-summary" aria-labelledby="processing-result-title">
         <img src="/assets/studydy/success-jump.png" alt="" />
         <div className="flow-result-body">
-          <p className={`status-badge ${partial ? "is-partial" : "is-success"}`}>
-            {!partial && <Icon name="check" />}
-            {partial ? "部分結果可用" : "處理完成"}
-          </p>
-          <h2 id="processing-result-title">{partial ? "知識地圖已建立" : "知識地圖已準備完成"}</h2>
-          <p>共處理 {binding.page_count} 頁，{partial ? "可以查看已整理的概念、關係與來源。" : "可以查看概念、關係、來源與建議學習順序。"}</p>
+          <p className="status-badge is-success"><Icon name="check"/>處理完成</p>
+          <h2 id="processing-result-title">知識地圖已準備完成</h2>
+          <p>共處理 {binding.page_count} 頁，可以查看概念、關係、來源與建議學習順序。</p>
+          <p className="run-ai-notice">由 AI 整理，每個重點都可點開原文對照。</p>
           <ul className="flow-result-stats">
             <li><Icon name="check" size={16} />可回查的概念與學習重點</li>
             <li><Icon name="check" size={16} />教材中的概念關係</li>
@@ -470,7 +429,6 @@ function RevisionRun({
   now: number;
   onChange: (run: MaterialProcessingRunView) => void;
 }) {
-  const launch = useStudyStart(apiClient, run.material_id);
   const [material, setMaterial] = useState<MaterialLibraryItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -492,11 +450,6 @@ function RevisionRun({
     material?.available_structures.find(
       (item) => item.knowledge_structure_revision === material.head_revision,
     ) ?? material?.available_structures[0];
-  const savedSession =
-    currentStructure &&
-    material?.study_sessions.find(
-      (item) => item.knowledge_structure_revision === currentStructure.knowledge_structure_revision,
-    );
   const cancelling = run.cancel_requested_at !== null && activeRun(run);
   const completed = run.status === "succeeded" || run.status === "partial";
   const title =
@@ -521,128 +474,28 @@ function RevisionRun({
       setBusy(false);
     }
   };
-  const publishedActions = (
-    <>
-      {currentStructure && (
-        <button
-          className="primary-button"
-          onClick={() =>
-            writeRoute({
-              name: "knowledge-map",
-              materialId: run.material_id,
-              runId: currentStructure.run_id,
-              structureRevision: currentStructure.knowledge_structure_revision,
-            })
-          }
-        >
-          開啟目前地圖
-        </button>
-      )}
-      {savedSession && <button className="secondary-button" disabled={launch.busy}
-        onClick={() => void launch.start({ materialId: run.material_id, runId: savedSession.run_id, structureRevision: savedSession.knowledge_structure_revision })}>繼續學習</button>}
-      {launch.dialog}
-      {launch.error && <p className="form-error" role="alert">{launch.error}</p>}
-    </>
-  );
-  const libraryActions = (
-    <>
-      <button
-        className="text-button"
-        onClick={() => writeRoute({ name: "material-sources", materialId: run.material_id })}
-      >
-        查看來源與新增教材
-      </button>
-    </>
-  );
-
-  if (activeRun(run))
-    return (
-      <section className="flow-page processing-page task-page is-processing">
-        <FlowHeader back={<BackLink label="返回教材" route={{ name: "material", materialId: run.material_id }} />}
-          title={title}
-          description="Studydy 正在整理新增內容並更新知識地圖，期間仍可使用目前地圖與學習紀錄。"
-        />
-        <div className="processing-grid">
-          <section className="surface processing-card">
-            <ProcessingProgress run={run} now={now} />
-            <div className="state-actions">{publishedActions}</div>
-            <div className="processing-cancel">
-              {cancelling ? (
-                <p role="status">
-                  取消意圖已保存，後續結果不會套用。正在進行中的步驟可能需要一些時間結束。
-                </p>
-              ) : (
-                <button className="secondary-button" disabled={busy} onClick={() => void cancel()}>
-                  {busy ? "正在送出取消…" : "取消這次更新"}
-                </button>
-              )}
-              {error && (
-                <p className="form-error" role="alert">
-                  {error}
-                </p>
-              )}
-            </div>
-          </section>
-          <ProcessingTimeline stages={materialProgressStages.slice(0, -1).map(stage => ({ label: materialProgressStageLabel(stage), icon: stage === "semantics" ? "map" : "process" }))} currentIndex={materialProgressStages.indexOf(run.progress_stage)} />
+  const map = completed && run.output_binding
+    ? {name:"knowledge-map" as const,materialId:run.material_id,runId:run.run_id,structureRevision:run.output_binding.knowledge_structure_revision}
+    : currentStructure ? {name:"knowledge-map" as const,materialId:run.material_id,runId:currentStructure.run_id,structureRevision:currentStructure.knowledge_structure_revision} : null;
+  const mapAction = map && <button className="primary-button" onClick={()=>writeRoute(map)}>{completed?"開啟知識地圖":"先使用目前地圖"}</button>;
+  return <section className={`flow-page processing-page task-page${activeRun(run)?" is-processing":""}`}>
+    <FlowHeader back={<BackLink label={material?`返回${material.display_name}`:"返回教材"} route={{name:"material",materialId:run.material_id}}/>}
+      title={title} description={run.status==='failed'?undefined:completed?"教材已更新，可以開啟知識地圖繼續使用。":"Studydy 正在整理新增內容，期間仍可使用目前地圖與學習紀錄。"}/>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="processing-grid">
+      {run.status==='failed' ? <MaterialRunFailure apiClient={apiClient} run={run}/> : <section className="surface processing-card">
+        {completed ? <>
+          <p className="status-badge is-success">處理完成</p>
+          <p className="run-ai-notice">由 AI 整理，每個重點都可點開原文對照。</p>
+          {run.source_names && <details className="processing-sources"><summary>本次分析 {run.source_names.length} 份來源</summary><ol>{run.source_names.map((name,index)=><li key={index}>{name}</li>)}</ol></details>}
+        </> : <ProcessingProgress run={run} now={now}/>}
+        <div className="run-actions">
+          {activeRun(run) && (cancelling ? <p role="status">取消意圖已保存，後續結果不會套用。正在進行中的步驟可能需要一些時間結束。</p>
+            : <button className="secondary-button" disabled={busy} onClick={()=>void cancel()}>{busy?"正在送出取消…":"取消這次更新"}</button>)}
+          {mapAction}
         </div>
-        <div className="state-actions">{libraryActions}</div>
-      </section>
-    );
-  return (
-    <section className="flow-page processing-page task-page">
-      <FlowHeader back={<BackLink label="返回教材" route={{ name: "material", materialId: run.material_id }} />}
-        title={title}
-        description={completed
-          ? "新版地圖已可使用；未變知識點會依原有作答證據承接進度。"
-          : "目前地圖與學習紀錄仍保留，更新完成後即可使用新版地圖。"}
-        image={`/assets/studydy/${run.status === "failed" ? "failure-confused" : completed ? "success-jump" : "processing-laptop"}.png`}
-      />
-      <section className="surface processing-card processing-outcome">
-        {run.status === "partial" && (
-          <p role="status">部分內容建議對照來源確認，不影響使用更新後的地圖。</p>
-        )}
-        {!completed && <p className="failure-progress" role="status">
-          停止於：{materialProgressStageLabel(run.progress_stage)}
-          {materialStageCountLabel(run) && `，${materialStageCountLabel(run)}`}
-        </p>}
-        {run.source_names && <details className="processing-sources">
-          <summary>本次分析 {run.source_names.length} 份來源</summary>
-          <ol>{run.source_names.map((name, index) => <li key={index}>{name}</li>)}</ol>
-        </details>}
-        {run.error_code && (
-          <p className="form-error" role="status">
-            {run.error_code === "SOURCE_UPDATE_NEEDS_REVIEW"
-              ? "先前流程因模型的複核提示而停止，這不代表教材已確認有矛盾。可接續已保存的結果完成更新。"
-              : materialFailureMessage(run.error_code)}
-          </p>
-        )}
-        {run.status === "failed" && run.analysis_saved && (
-          <p role="status">
-            已完成的分析批次保存在本機，使用相同來源與設定重試會接續未完成的部分。
-          </p>
-        )}
-        {run.status === "failed" && run.error_code && (
-          <p className="processing-technical">
-            錯誤代碼：<code>{run.error_code}</code>
-          </p>
-        )}
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="state-actions">
-          {run.status === "failed" && (
-            <MaterialRunStartControl
-              apiClient={apiClient}
-              materialId={run.material_id}
-              retryRun={{ runId: run.run_id, saved: !!run.analysis_saved }}
-            />
-          )}
-          {publishedActions}
-          {libraryActions}
-        </div>
-      </section>
-    </section>
-  );
+      </section>}
+      <ProcessingTimeline stages={materialProgressStages.slice(0,-1).map(stage=>({label:materialProgressStageLabel(stage),icon:stage==='semantics'?'map':'process'}))} currentIndex={materialProgressStages.indexOf(run.progress_stage)} activity={run.status==='failed'?'失敗':run.status==='cancelled'?'已停止':cancelling?'取消中':'進行中'}/>
+    </div>
+  </section>;
 }

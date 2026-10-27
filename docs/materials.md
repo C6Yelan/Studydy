@@ -169,7 +169,7 @@ Demo 的 POST-03 修復另有[指定教材一次性維護指令](deployment.md#�
 
 新來源將確認過的學習範圍封存至 bundle，分析與檢核沿用該範圍；不追改已發布 bundle 的 hash。
 
-追加只分析新增來源，再整合檢核；發布同交易更新知識結構、run 與教材 head。教材庫開目前 head，學習依 exact revision 恢復。被學習、活動工作或未刪除研究的 base revision 引用的結構保留，其餘完整結構可清理；來源檔跨版本重用。
+追加只分析新增來源，再整合檢核；發布同交易更新知識結構、run 與教材 head。我的教材開目前 head，學習依 exact revision 恢復。被學習、活動工作或未刪除研究的 base revision 引用的結構保留，其餘完整結構可清理；來源檔跨版本重用。
 
 每頁成功整理後，先原子寫入頁面 Evidence checkpoint，再更新處理頁數；快照綁定 owner、教材、來源集合、原來源頁碼與 runtime，保留完整原文及 Evidence 身分。失敗或中斷後，只重用來源與分析設定相容的已保存頁面，不重新渲染或呼叫 OCR；不相容的舊工作略過、由新 run 重新擷取，尚未成功擷取的頁面仍需重試。
 
@@ -264,3 +264,5 @@ GET /v1/account/storage 使用 account-storage/v2，回傳教材原檔與轉換�
 ## 作答中問答限制
 
 `PUT /v1/materials/{id}/assessment-presence` 接受 `assessment-presence/v1`、`assessment_set_id`、`active`。與問答文字、錄音、retry 共用必填 UUID header `X-Studydy-Browser-Id`，缺漏或不合法回 `REQUEST_INVALID`。只接受本人同教材已封題、ready/in_progress 的題組；每 20 秒回報延長至 60 秒。限制範圍為帳號＋教材＋瀏覽器，另一瀏覽器可問。活動期間三入口回 409 `ASSESSMENT_IN_PROGRESS`，不排入模型工作；取消與既有回答不受影響。交卷後題組 completed 立即使 presence 失效，離頁停止回報後到期；讀取不續期。這是介面約束，並非裝置驗證。
+
+處理頁的完成呈現不直接曝光整份 partial／needs_review 提示；完成頁與筆記提供固定AI／原文對照說明，來源、品質狀態與核對紀錄仍原樣保存。從主題建立在分析中可透過既有DELETE教材操作取消並刪除；此操作清除所屬搜尋結果，主題狀態改為取消並從列表移除，介面確認須明示此範圍。
