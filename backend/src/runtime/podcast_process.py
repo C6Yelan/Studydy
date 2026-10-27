@@ -142,13 +142,15 @@ def run(
     cancelled=None,
     cancel_code="PODCAST_CANCELLED",
     started=None,
+    capture_stderr=False,
 ):
+    """capture_stderr 只把 stderr 留在記憶體交給呼叫端分類，不寫入任何 log。"""
     check(cancelled, cancel_code)
     with subprocess.Popen(
         args,
         stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
         text=not isinstance(input, bytes),
         env=env,
         start_new_session=True,
@@ -163,10 +165,11 @@ def run(
         # 重入時，不會繼續寫完尚未送出的 stdin，會讓子程序永遠等不到 EOF。
         finished = Event()
         failures = []
+        outputs = []
 
         def communicate():
             try:
-                process.communicate(input=input)
+                outputs.append(process.communicate(input=input)[1])
             except BaseException as error:
                 failures.append(error)
             finally:
@@ -187,7 +190,9 @@ def run(
                     check(cancelled, cancel_code)
                     if failures:
                         raise failures[0]
-                    return subprocess.CompletedProcess(args, process.returncode)
+                    return subprocess.CompletedProcess(
+                        args, process.returncode, stderr=outputs[0] if outputs else None
+                    )
         except BaseException:
             _stop(process)
             raise

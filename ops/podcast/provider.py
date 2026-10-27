@@ -142,7 +142,66 @@ def script_schema(claims, dialogue=False):
     )
 
 
+# CLI 錯誤行只對照成固定類別；原文可能含教材，不保存也不輸出。
+# 不重試類別優先，避免同一診斷的 HTTP 狀態碼遮蔽 timeout／context 原因。
+LUNA_FAILURE_CAUSES = (
+    ("usage_limit", ("usage limit", "quota", "billing")),
+    ("auth", ("401", "403", "unauthorized", "forbidden", "authentication", "unauthenticated",
+              "not logged in", "login", "log in", "sign in", "refresh token", "token refresh", "invalid api key")),
+    ("context_window", ("context window", "context_length", "maximum context")),
+    ("timeout", ("504", "timed out", "timeout", "deadline exceeded")),
+    ("rate_limit", ("429", "rate limit", "too many requests")),
+    ("server_error", ("500", "502", "503", "internal server error", "overloaded",
+                      "bad gateway", "service unavailable")),
+    ("connection", ("stream disconnected", "connection", "error sending request",
+                    "broken pipe", "network")),
+)
+# 不自動重試的原因；timeout 與外層程序逾時遵守相同邊界。
+LUNA_PERMANENT_CAUSES = {"usage_limit", "auth", "context_window", "timeout"}
+
+
+class LunaCliFailure(RuntimeError):
+    def __init__(self, cause):
+        super().__init__("LUNA_GENERATION_FAILED")
+        self.cause = cause
+
+
+def luna_failure_cause(returncode, stderr):
+    """只看 CLI 以 error 開頭的行，避免回顯的教材內容影響分類。"""
+    lines = [
+        line.strip().lower()
+        for line in (stderr or "").splitlines()
+        if line.strip().lower().startswith("error")
+    ]
+    matched = next(
+        (name for name, needles in LUNA_FAILURE_CAUSES
+         if any(needle in line for line in lines for needle in needles)),
+        None,
+    )
+    if matched in LUNA_PERMANENT_CAUSES:
+        cause = matched
+    elif returncode == 0:
+        cause = "output_missing"
+    elif returncode < 0:
+        cause = "signal"
+    elif not lines:
+        cause = "no_error_message"
+    else:
+        cause = matched or "unclassified"
+    return {"cause": cause, "exit_code": returncode}
+
+
 def luna(prompt, schema, *, timeout=None, cancelled=None):
+    try:
+        return _luna_once(prompt, schema, timeout=timeout, cancelled=cancelled)
+    except LunaCliFailure as error:
+        if error.cause["cause"] in LUNA_PERMANENT_CAUSES:
+            raise
+    podcast_process.check(cancelled)
+    return _luna_once(prompt, schema, timeout=timeout, cancelled=cancelled)
+
+
+def _luna_once(prompt, schema, *, timeout, cancelled):
     with tempfile.TemporaryDirectory(prefix="studydy-podcast-") as temporary:
         directory = Path(temporary)
         schema_path, output = directory / "schema.json", directory / "output.json"
@@ -183,9 +242,9 @@ def luna(prompt, schema, *, timeout=None, cancelled=None):
             "image_generation",
         ):
             args.extend(["--disable", feature])
-        # stdin 避免教材出現在程序參數；discard CLI logs 避免私人文字进入一般 log。
+        # stdin 避免教材出現在程序參數；stderr 只留記憶體做固定分類。
         ticket = luna_call_log.begin_call()
-        code = None
+        code = failure = None
         try:
             try:
                 result = podcast_process.run(
@@ -194,6 +253,7 @@ def luna(prompt, schema, *, timeout=None, cancelled=None):
                     timeout=timeout,
                     cancelled=cancelled,
                     started=ticket.started if ticket else None,
+                    capture_stderr=True,
                     env={
                         k: v
                         for k, v in os.environ.items()
@@ -203,18 +263,19 @@ def luna(prompt, schema, *, timeout=None, cancelled=None):
             except subprocess.TimeoutExpired:
                 raise RuntimeError("LUNA_GENERATION_TIMEOUT") from None
             if result.returncode != 0 or not output.is_file():
-                raise RuntimeError("LUNA_GENERATION_FAILED")
+                raise LunaCliFailure(luna_failure_cause(result.returncode, result.stderr))
             value = json.loads(output.read_text(encoding="utf-8"))
             luna_call_log.capture_candidate(value)
             return value
         except Exception as error:
             code = failure_code(error)
+            failure = getattr(error, "cause", None)
             if output.is_file():
                 luna_call_log.capture_candidate(output.read_text(encoding="utf-8", errors="replace"), failed=True)
             raise
         finally:
             if ticket is not None:
-                ticket.finish(code)
+                ticket.finish(code, failure)
 
 
 def compile_beats(candidate, claims):

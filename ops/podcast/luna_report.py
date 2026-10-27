@@ -11,7 +11,8 @@ from luna_call_log import call_records
 
 
 def report(path, *, date=None, material=None, feature=None, work=None):
-    groups = defaultdict(lambda: {"calls": 0, "failures": 0, "not_started": 0, "interrupted": 0, "elapsed_seconds": 0.0})
+    groups = defaultdict(lambda: {"calls": 0, "failures": 0, "not_started": 0, "interrupted": 0, "elapsed_seconds": 0.0,
+                                  "failure_causes": defaultdict(int)})
     for row in call_records(path):
         tags = row.get("tags") or {}
         key = (row["at"][:10], tags.get("material_id"), tags.get("feature"), tags.get("work_id"))
@@ -24,9 +25,12 @@ def report(path, *, date=None, material=None, feature=None, work=None):
             group["calls"] += 1
             group["failures"] += row["outcome"] in {"failed", "cancelled"}
             group["interrupted"] += row["outcome"] == "interrupted"
+            if row.get("failure"):
+                group["failure_causes"][row["failure"]["cause"]] += 1
             group["elapsed_seconds"] += row["elapsed_seconds"]
     return [{"date": key[0], "material_id": key[1], "feature": key[2], "work_id": key[3],
-             **value, "elapsed_seconds": round(value["elapsed_seconds"], 6)}
+             **value, "elapsed_seconds": round(value["elapsed_seconds"], 6),
+             "failure_causes": dict(sorted(value["failure_causes"].items()))}
             for key, value in sorted(groups.items(), key=lambda item: tuple(str(part) for part in item[0]))]
 
 

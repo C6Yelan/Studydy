@@ -110,7 +110,7 @@ docker compose exec backend /app/backend/.venv/bin/python -m runtime.local_runti
 
 ## 本機 Podcast provider
 
-Luna 呼叫標籤協定須先更新相容舊請求的 provider，再更新 backend。標籤只在請求最外層，不送入模型。呼叫紀錄預設為 provider 資料目錄的 `luna-calls.jsonl`（可由 `STUDYDY_LUNA_CALL_LOG` 指定），保留 90 天。使用 `python ops/podcast/luna_report.py --help` 查看本機報表篩選參數；報表不顯示教材或模型候選。最終失敗診斷分別保存在 provider 的 `failures/` 與 backend artifact root 的 `failures/`，30 天清理；教材只保存既有 archive 參照。
+Luna 呼叫標籤協定須先更新相容舊請求的 provider，再更新 backend。標籤只在請求最外層，不送入模型。呼叫紀錄預設為 provider 資料目錄的 `luna-calls.jsonl`（可由 `STUDYDY_LUNA_CALL_LOG` 指定），保留 90 天。CLI 異常結束時，呼叫紀錄的 `failure` 只保存固定原因類別（`usage_limit`、`auth`、`rate_limit`、`context_window`、`server_error`、`connection`、`timeout`、`signal`、`no_error_message`、`unclassified` 等）與結束碼，類別只依 CLI 以 error 開頭的行判斷，原文不落地；`usage_limit`、`auth`、`context_window`、`timeout`（含 HTTP 504）不重試，混合錯誤訊息優先採不可重試原因，已辨識的不可重試原因也不會被 signal／output_missing 的退路分類覆蓋；取消、程序逾時與無效 JSON 也不重試。其餘 CLI 失敗在檢查取消後最多自動重試一次，每次實際啟動各記一對 `started`／`finished`，報表按每次啟動計數並保留相同工作標籤。使用 `python ops/podcast/luna_report.py --help` 查看本機報表篩選參數；報表的 `failure_causes` 依類別計數，不顯示教材或模型候選。最終失敗診斷分別保存在 provider 的 `failures/` 與 backend artifact root 的 `failures/`，30 天清理；教材只保存既有 archive 參照。
 
 Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集音訊；provider 交回的 24 kHz PCM WAV 由 backend 無損壓成 FLAC（WAV 標頭以 `riff` foreign metadata 保存，可逐位元還原）後存入私人 artifact store，分集 `audio.sha256` 仍是該 WAV 的雜湊。建立後自動生成，選擇單人解說或雙人對談，以及是否同時生成影片（預設不勾），分集保留全部所選重點，每集講稿須由正文段落引用並講解該集全部重點（逐段核對判定），內容較多自動拆集。失敗可接續已保存進度；取消會刪除整份 Podcast。分集沿用所選概念順序，在每集最多 32 個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
 

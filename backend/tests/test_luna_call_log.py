@@ -41,6 +41,19 @@ output = pathlib.Path(sys.argv[sys.argv.index('-o')+1])
 properties = schema.get('properties', {})
 if 'SYNTHETIC_RESPONSE_JSON' in os.environ:
     output.write_text(os.environ['SYNTHETIC_RESPONSE_JSON'])
+elif 'SYNTHETIC_CLI_ERROR' in os.environ:
+    sys.stderr.write('ERROR: ' + os.environ['SYNTHETIC_CLI_ERROR'] + ' 私密錯誤原文\n')
+    sys.stderr.flush()
+    exit_code = int(os.environ.get('SYNTHETIC_CLI_EXIT', '1'))
+    if exit_code < 0:
+        os.kill(os.getpid(), -exit_code)
+    sys.exit(exit_code)
+elif 'flaky-cli' in prompt and sum('flaky-cli' in json.loads(line)['stdin'] for line in pathlib.Path(os.environ['SYNTHETIC_CLI_STARTS']).read_text().splitlines()) == 1:
+    # 回顯的教材含看似錯誤的字詞；只有 ERROR 行可決定類別。
+    sys.stderr.write('user\n私密教材 429 login\nERROR: stream disconnected before completion\n')
+    sys.exit(1)
+elif 'flaky-cli' in prompt:
+    output.write_text(json.dumps({'synthetic': True}))
 elif 'failed-cli' in prompt:
     output.write_text('私密候選：CLI 失敗但有輸出')
     sys.exit(17)
@@ -179,6 +192,7 @@ def test_real_video_flow_uses_one_cli_call_and_preserves_tag_isolation(provider_
 def test_invalid_json_is_private_only_after_terminal_failure(provider_server, fake_codex, tmp_path):
     metadata = tags()
     assert post(provider_server, "/semantics", semantics(metadata, mode="invalid-json"))[0] == 502
+    assert len(fake_codex.read_text().splitlines()) == 1
     assert not (tmp_path / "failures").exists()
     assert post(provider_server, "/jobs/luna-result", {"tags": metadata, "outcome": "failed", "reason": "SEMANTIC_RESPONSE_INVALID"})[1]["saved"]
     saved, = (tmp_path / "failures").glob("*.json")
@@ -203,6 +217,78 @@ def test_material_intermediate_error_is_discarded_at_nonfailed_terminal(provider
     receipt = post(provider_server, "/jobs/luna-result", {"tags": metadata, "outcome": outcome, "reason": None})[1]
     assert receipt["candidate_available"] and not receipt["saved"] and "candidates" not in receipt
     assert not (tmp_path / "failures").exists()
+
+
+def test_transient_cli_failure_is_retried_once_and_records_only_fixed_cause(provider_server, fake_codex, tmp_path):
+    metadata = tags("material_review", stage="review")
+    assert post(provider_server, "/semantics", semantics(metadata, mode="flaky-cli"))[0] == 200
+    events = list(read_events(tmp_path / "luna-calls.jsonl"))
+    assert [event["event"] for event in events] == ["started", "finished", "started", "finished"]
+    assert all(event["tags"] == metadata for event in events)
+    finished = [event for event in events if event["event"] == "finished"]
+    assert len(fake_codex.read_text().splitlines()) == 2
+    assert [(event["outcome"], event["error_code"], event.get("failure")) for event in finished] == [
+        ("failed", "LUNA_GENERATION_FAILED", {"cause": "connection", "exit_code": 1}),
+        ("succeeded", None, None),
+    ]
+    assert "私密教材" not in (tmp_path / "luna-calls.jsonl").read_text()
+    summary = report(tmp_path / "luna-calls.jsonl")[0]
+    assert summary["calls"] == 2 and summary["failure_causes"] == {"connection": 1}
+
+
+@pytest.mark.parametrize("message,cause", [
+    ("You've hit your usage limit", "usage_limit"),
+    ("HTTP 401 Unauthorized", "auth"),
+    ("authentication failed", "auth"),
+    ("Please log in again", "auth"),
+    ("Token refresh failed", "auth"),
+    ("maximum context window exceeded", "context_window"),
+    ("request timed out", "timeout"),
+    ("HTTP 504 Gateway Timeout", "timeout"),
+    ("HTTP 504", "timeout"),
+    ("429 rate limit\nERROR: context window exceeded", "context_window"),
+])
+def test_permanent_cli_failure_is_not_retried(provider_server, fake_codex, tmp_path, monkeypatch, caplog, message, cause):
+    monkeypatch.setenv("SYNTHETIC_CLI_ERROR", message)
+    metadata = tags()
+    assert post(provider_server, "/semantics", semantics(metadata))[0] == 502
+    events = list(read_events(tmp_path / "luna-calls.jsonl"))
+    assert [event["event"] for event in events] == ["started", "finished"]
+    assert events[-1]["failure"] == {"cause": cause, "exit_code": 1}
+    assert len(fake_codex.read_text().splitlines()) == 1
+    assert post(provider_server, "/jobs/luna-result", {"tags": metadata, "outcome": "failed", "reason": "LUNA_GENERATION_FAILED"})[0] == 200
+    for text in [(tmp_path / "luna-calls.jsonl").read_text(), caplog.text, *[path.read_text() for path in (tmp_path / "failures").glob("*.json")]]:
+        assert "私密錯誤原文" not in text
+
+
+@pytest.mark.parametrize("exit_code", [0, -15])
+def test_permanent_diagnostic_precedes_missing_output_or_signal(provider_server, fake_codex, tmp_path, monkeypatch, exit_code):
+    monkeypatch.setenv("SYNTHETIC_CLI_ERROR", "You've hit your usage limit")
+    monkeypatch.setenv("SYNTHETIC_CLI_EXIT", str(exit_code))
+    assert post(provider_server, "/semantics", semantics(tags()))[0] == 502
+    assert len(fake_codex.read_text().splitlines()) == 1
+    finished = [e for e in read_events(tmp_path / "luna-calls.jsonl") if e["event"] == "finished"]
+    assert [e["failure"] for e in finished] == [{"cause": "usage_limit", "exit_code": exit_code}]
+
+
+def test_repeated_cli_failure_stops_after_one_retry(provider_server, fake_codex, tmp_path):
+    assert post(provider_server, "/semantics", semantics(tags(), mode="failed-cli"))[0] == 502
+    finished = [event for event in read_events(tmp_path / "luna-calls.jsonl") if event["event"] == "finished"]
+    assert [event["failure"] for event in finished] == [{"cause": "no_error_message", "exit_code": 17}] * 2
+
+
+def test_cancel_between_cli_attempts_does_not_start_retry(provider_server, fake_codex, tmp_path, monkeypatch):
+    body = semantics(tags(), mode="failed-cli")
+    finish = CallRecord.finish
+
+    def cancel_after_finish(self, *args, **kwargs):
+        finish(self, *args, **kwargs)
+        assert post(provider_server, "/jobs/cancel", {key: body[key] for key in ("job_id", "job_token")})[0] == 200
+
+    monkeypatch.setattr(CallRecord, "finish", cancel_after_finish)
+    assert post(provider_server, "/semantics", body) == (502, {"error_code": "PODCAST_CANCELLED"})
+    assert len(fake_codex.read_text().splitlines()) == 1
+    assert [e["event"] for e in read_events(tmp_path / "luna-calls.jsonl")] == ["started", "finished"]
 
 
 def test_spawn_failure_is_not_an_actual_call(provider_server, fake_codex, monkeypatch, tmp_path):
