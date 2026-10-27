@@ -3,7 +3,7 @@ import * as validate from "./response-validation.ts";
 import type {
   MaterialNotesView, NoteKind, AssessmentPresence, CelebrationClaim,
   LearningGoalView, LearningGoalsView,
-  StartingLevel, StartingLevelView, StudyStartView,
+  StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
   KnowledgeOutlineView, KnowledgeConceptsView, KnowledgeRegionsView, KnowledgeSearchView, LearningActivityView, LearningRhythmPeriod, LearningRhythmView, MapProgressView, ProgressSummaryView, PodcastProgressView, PodcastProgressUpdate, StudyWorkspaceView,
   PodcastContext, PodcastSummary, PodcastView, PodcastCreate, PodcastAction, PodcastListView, PodcastDeletedView,
@@ -58,7 +58,6 @@ const genericApiMessage = "請求無法完成，請稍後再試。";
 const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   LEARNING_GOAL_PUBLISHED: "教材已建立，請回到教材頁更改學習目標。",
   LEARNING_GOAL_STALE: "教材或目標已更新，請重新讀取學習目標。",
-  STARTING_LEVEL_REQUIRED: "請先選擇這份教材的起始程度。",
   VOICE_PODCAST_CONTEXT_INVALID: "這段 Podcast 已不可用，請重新選段或改用教材問答。",
   PODCAST_CONFLICT: "Podcast 狀態已更新，請重新讀取後操作。",
   PODCAST_SOURCE_INSUFFICIENT: "所選概念缺少可回查的重點來源，請重新選擇。",
@@ -806,10 +805,6 @@ export class StudydyApiClient {
     }, (value): value is AssessmentPresence => validate.assessmentPresence(value) && value.active === active);
   }
 
-  async getStartingLevel(materialId: string): Promise<StartingLevelView> {
-    return this.json(`/v1/materials/${materialId}/starting-level`, { method: "GET" },
-      (value): value is StartingLevelView => validate.startingLevelView(value) && value.material_id === materialId);
-  }
 
   async getNotes(materialId: string, revision: string, kind: NoteKind): Promise<MaterialNotesView> {
     return this.json(`/v1/materials/${materialId}/knowledge-structures/${revision}/notes/${kind}`, { method: "GET" },
@@ -862,13 +857,6 @@ export class StudydyApiClient {
     return this.json("/v1/learning-goals", { method: "GET" }, validate.learningGoals);
   }
 
-  async setStartingLevel(materialId: string, level: StartingLevel): Promise<StartingLevelView> {
-    return this.json(`/v1/materials/${materialId}/starting-level`, {
-      method: "PUT", headers: { Origin: origin(), "Content-Type": "application/json" },
-      body: JSON.stringify({ schema: "starting-level-update/v1", starting_level: level }),
-    }, (value): value is StartingLevelView => validate.startingLevelView(value)
-      && value.material_id === materialId && value.starting_level === level);
-  }
 
   async startStudy(request: KnowledgeStructureRequest, key: string, conceptId?: string): Promise<StudyStartView> {
     return this.post(`/v1/materials/${request.materialId}/study-start`, {

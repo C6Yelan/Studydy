@@ -59,7 +59,7 @@ async function mockLibrary(page: Page, items: () => readonly MaterialLibraryItem
     const material = items().find(item => item.material_id === mid)!;
     const structure = material.available_structures.find(item => item.knowledge_structure_revision === body.knowledge_structure_revision)!;
     const stored = material.study_sessions.find(item => item.knowledge_structure_revision === body.knowledge_structure_revision && item.run_id === structure.run_id)!;
-    return route.fulfill({ json: { schema: "study-start/v1", starting_level: "some_knowledge", selected_set_id: null,
+    return route.fulfill({ json: { schema: "study-start/v2", selected_set_id: null,
       session: { ...stored, schema: "study-session/v1", material_id: mid, deferred_concept_ids: [], no_safe_claim_ids: [], event_watermark: 0,
         completed_at: stored.status === "completed" ? stored.started_at : null } } });
   });
@@ -494,7 +494,7 @@ test("achievements level card, XP rules and profile overview show real numbers w
   await mockLibrary(page, () => [withStudy(), { ...material, material_id: uuid(7) }]);
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
     streak: 4, total: 245, todayXp: 32, level: [2, 145, 200],
-    sources: { answers: 145, concepts: 30, cards: 20, podcast: 15, goals: 15, difficulties: 20, diagnostics: 0 },
+    sources: { answers: 145, concepts: 30, cards: 20, podcast: 15, goals: 15, difficulties: 20 },
   }) }));
   await page.goto("/");
   const pill = page.getByRole("button", { name: "第 2 級，本級 145 / 200 XP，連續學習 4 天，查看成就" });
@@ -507,13 +507,12 @@ test("achievements level card, XP rules and profile overview show real numbers w
   // 經驗值說明列出每種來源的規則與已獲得的 XP。
   const rules = page.getByRole("region", { name: "經驗值怎麼算" });
   const sources = rules.locator(".xp-sources > li");
-  await expect(sources).toHaveCount(7);
+  await expect(sources).toHaveCount(6);
   await expect(sources.filter({ hasText: "作答" })).toContainText(/\+10答對\+3答錯145已獲得/);
   await expect(sources.filter({ hasText: "收聽 Podcast" })).toContainText("每天最多 +60");
   await expect(sources.filter({ hasText: "目標與關卡" })).toContainText(/\+15每關\+50準時達標15已獲得/);
-  await expect(sources.filter({ hasText: "起始程度診斷" })).toContainText(/\+20每份教材0已獲得/);
   // 來源比例長條依實際 XP 分段，沒有 XP 的來源不畫。
-  await expect(rules.getByRole("img")).toHaveAttribute("aria-label", "作答 145 XP、完成概念 30 XP、標記概念卡 20 XP、收聽 Podcast 15 XP、目標與關卡 15 XP、克服難點 20 XP、起始程度診斷 0 XP");
+  await expect(rules.getByRole("img")).toHaveAttribute("aria-label", "作答 145 XP、完成概念 30 XP、標記概念卡 20 XP、收聽 Podcast 15 XP、目標與關卡 15 XP、克服難點 20 XP");
   await expect(rules.locator(".xp-mix-bar > i")).toHaveCount(6);
   await page.getByRole("button", { name: /^個人檔案：/ }).click();
   await expect(page).toHaveURL(/\/profile$/);
@@ -616,8 +615,8 @@ test("achievements list earned badges above unearned ones, one cell per badge", 
   }) }));
   await page.goto("/achievements");
   const wall = page.getByRole("region", { name: "成就總覽" });
-  // 已取得：作答 2 層、連續 1 層與第 6 級的等級 I；分母是 106 個成就扣掉成就鏈尚未揭曉的 5 步。
-  await expect(wall.locator(":scope > header .badge-count")).toHaveText("4 / 101");
+  // 已取得：作答 2 層、連續 1 層與第 6 級的等級 I；分母是 103 個成就扣掉成就鏈尚未揭曉的 5 步。
+  await expect(wall.locator(":scope > header .badge-count")).toHaveText("4 / 98");
   await expect(wall).not.toContainText("future_badge");
   const earned = page.getByRole("region", { name: "已取得" }).locator(".badge-cell");
   await expect(earned).toHaveCount(4);
@@ -626,7 +625,7 @@ test("achievements list earned badges above unearned ones, one cell per badge", 
   await expect(earned.filter({ hasText: "百題挑戰" })).toContainText(/作答 · 銀・II.*累計作答 100 題.*2026\/10\/18 取得/);
   await expect(earned.filter({ hasText: "三日不間斷" })).toContainText("已取得");
   const locked = page.getByRole("region", { name: "未取得" });
-  await expect(locked.locator(":scope > header .badge-count")).toHaveText("97");
+  await expect(locked.locator(":scope > header .badge-count")).toHaveText("94");
   const next = locked.locator(".badge-cell").filter({ hasText: "題海航行者" });
   await expect(next).toContainText(/作答 · 金・III.*累計作答 300 題/);
   await expect(next.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "124 / 300 題");

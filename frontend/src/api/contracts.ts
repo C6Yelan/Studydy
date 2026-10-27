@@ -1,7 +1,6 @@
 export type KnownApiReasonCode =
   | "LEARNING_GOAL_PUBLISHED"
   | "LEARNING_GOAL_STALE"
-  | "STARTING_LEVEL_REQUIRED"
   | "SCENE_CONFLICT"
   | "SCENE_ALIGNMENT_INVALID"
   | "SCENE_ALIGNMENT_FAILED"
@@ -213,9 +212,7 @@ export type MaterialLibraryView = {
   materials: MaterialLibraryItem[];
 };
 
-export type StartingLevel = "beginner" | "some_knowledge" | "familiar" | "gaps";
-export type StartingLevelView = { schema: "starting-level/v1"; material_id: string; starting_level: StartingLevel | null };
-export type StudyStartView = { schema: "study-start/v1"; session: StudySessionView; selected_set_id: string | null; starting_level: StartingLevel };
+export type StudyStartView = { schema: "study-start/v2"; session: StudySessionView; selected_set_id: string | null };
 
 export type GoalConcept = { concept_id: string; label: string; remaining_points: number };
 export type GoalStage = {
@@ -343,9 +340,9 @@ export type LearningQuest = {
 };
 export type LearningXp = {
   total: number; today: number; level: number; level_xp: number; level_target: number;
-  sources: { answers: number; concepts: number; cards: number; podcast: number; goals: number; difficulties: number; diagnostics: number };
+  sources: { answers: number; concepts: number; cards: number; podcast: number; goals: number; difficulties: number };
 };
-// 徽章（規則 badge-rules/v7）只由真實紀錄推導；同一計量的多個門檻是同一系列的層級，另有隱藏條件的特殊成就與逐步揭曉的成就鏈。未知代號由畫面忽略。
+// 徽章（規則 badge-rules/v8）只由真實紀錄推導；同一計量的多個門檻是同一系列的層級，另有隱藏條件的特殊成就與逐步揭曉的成就鏈。未知代號由畫面忽略。
 export type LearningBadgeId =
   | "first_answer" | "answers_100" | "answers_300" | "answers_1000" | "answers_5000"
   | "first_concept" | "concepts_25" | "concepts_100" | "concepts_300" | "concepts_1000"
@@ -364,20 +361,20 @@ export type LearningBadgeId =
   | "first_try_material" | "perfect_day" | "all_round_day" | "thousand_pages" | "revisit"
   | "xp_day_300" | "never_give_up" | "binge_3" | "three_islands" | "new_year"
   | "first_goal" | "first_stage" | "stages_10" | "stages_50"
-  | "first_difficulty" | "difficulties_5" | "difficulties_20" | "first_diagnostic" | "diagnostics_5"
+  | "first_difficulty" | "difficulties_5" | "difficulties_20"
   | "first_note" | "first_annotation" | "annotations_10" | "annotations_50"
   | "upload_image" | "upload_audio" | "upload_video" | "upload_youtube" | "first_export" | "export_kinds_4"
   | "podcast_series" | "podcast_hosts_all"
-  | "all_tools_material" | "diagnosed_mastery" | "media_concepts_5" | "stage_streak_7"
+  | "all_tools_material" | "media_concepts_5" | "stage_streak_7"
   | "goal_on_time" | "all_media" | "last_minute" | "night_listener" | "nemesis" | "same_day_learner";
 export type LearningBadge = { badge_id: string; earned: boolean; earned_on: string | null; progress: number; target: number };
 export type LearningActivityView = {
-  schema: "learning-activity/v3"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v4"; today: string;
+  schema: "learning-activity/v4"; timezone: "Asia/Taipei"; rule_version: "xp-rules/v5"; today: string;
   streak_days: number; active_today: boolean;
   total_answers: number; total_correct: number;
   xp: LearningXp;
   quests: LearningQuest[];
-  badges: { rule_version: "badge-rules/v7"; items: LearningBadge[] };
+  badges: { rule_version: "badge-rules/v8"; items: LearningBadge[] };
 };
 // 學習節奏：週（週一到週日）、月（自然月）、近 3 個月（13 週）、近一年（52 週）；offset 為往前翻的頁數。
 export type LearningRhythmPeriod = "week" | "month" | "quarter" | "year";
@@ -415,8 +412,8 @@ export type KnowledgeSearchView = {
 };
 
 export type MapProgressView = Pick<LearnerProgressView,
-  "study_session_id" | "knowledge_structure_revision" | "current_concept_id" | "assessment_cycles" | "next_action" | "starting_level" | "learning_path"> & {
-  schema: "map-progress/v1";
+  "study_session_id" | "knowledge_structure_revision" | "current_concept_id" | "assessment_cycles" | "next_action" | "learning_path"> & {
+  schema: "map-progress/v2";
   concept_states: (Pick<ConceptLearningStateView, "concept_id" | "status" | "attempts"> & { assessable: boolean })[];
 };
 
@@ -428,7 +425,7 @@ export type ProgressSummaryView = {
 };
 
 export type StudyProgressView = Omit<LearnerProgressView, "schema"> & {
-  schema: "study-progress/v1"; concept_count: number;
+  schema: "study-progress/v2"; concept_count: number;
 };
 
 export type StudyNavigationView = Pick<KnowledgeOutlineView,
@@ -439,11 +436,10 @@ export type StudyNavigationView = Pick<KnowledgeOutlineView,
 };
 
 export type StudyWorkspaceView = Omit<StudyResumeView, "schema" | "knowledge_structure" | "progress"> & {
-  schema: "study-workspace/v1";
+  schema: "study-workspace/v2";
   outline: StudyNavigationView;
   context: KnowledgeConceptsView | null;
   progress: StudyProgressView;
-  starting_level: StartingLevel | null;
 };
 
 export type CardDesignSources = { claim_ids: string[]; relation_ids: string[]; evidence_ids: string[] };
@@ -670,7 +666,7 @@ export type ConceptDifficultyView = {
 };
 
 export type LearnerProgressView = {
-  schema: "learner-progress/v1";
+  schema: "learner-progress/v2";
   assessment_cycles: AssessmentCycleSummary[];
   study_session_id: string;
   knowledge_structure_revision: string;
@@ -681,7 +677,6 @@ export type LearnerProgressView = {
   weaknesses: { concept_id: string; claim_ids: string[]; reason: string }[];
   next_action: NextActionView;
   guidance_revision: string;
-  starting_level: StartingLevel | null;
   learning_path: string[];
 };
 
@@ -764,11 +759,10 @@ type AssessmentSetSummaryBase = {
 };
 
 export type ConceptAssessmentSetSummary = AssessmentSetSummaryBase & { kind: "diagnostic" | "remediation"; target_concept_id: string };
-export type MaterialDiagnosticSetSummary = AssessmentSetSummaryBase & { kind: "material_diagnostic"; target_concept_id: null };
-export type AssessmentSetSummary = ConceptAssessmentSetSummary | MaterialDiagnosticSetSummary;
+export type AssessmentSetSummary = ConceptAssessmentSetSummary;
 
 export type AssessmentSetListView = {
-  schema: "assessment-set-list/v1";
+  schema: "assessment-set-list/v2";
   study_session_id: string;
   knowledge_structure_revision: string;
   active_set_ids: string[];
@@ -789,7 +783,7 @@ type AssessmentSetItem = {
 };
 
 type AssessmentSetDetails = {
-  schema: "assessment-set/v1";
+  schema: "assessment-set/v2";
   study_session_id: string;
   material_id: string;
   knowledge_structure_revision: string;
@@ -806,10 +800,7 @@ export type ConceptAssessmentSetView = ConceptAssessmentSetSummary & AssessmentS
   cycle: AssessmentCycleView;
   selection_policy: "single-concept-grounded-points/v1" | "needs-review-points/v1";
 };
-export type MaterialDiagnosticSetView = MaterialDiagnosticSetSummary & AssessmentSetDetails & {
-  cycle: null; selection_policy: "material-diagnostic/v1";
-};
-export type AssessmentSetView = ConceptAssessmentSetView | MaterialDiagnosticSetView;
+export type AssessmentSetView = ConceptAssessmentSetView;
 
 export type AssessmentSetAnswer = {
   assessment_revision: string;

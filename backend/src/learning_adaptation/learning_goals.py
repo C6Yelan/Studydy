@@ -11,7 +11,6 @@ from runtime.storage.database import database_session
 from runtime.storage.tables import LearningGoal, Material, KnowledgeStructure
 from .goal_metrics import load_goal_evidence, measure_targets, read_goal_metrics
 from .goal_planning import daily_quota, build_plan, _target
-from .starting_levels import route_order, diagnostic_correct_concepts
 
 TIMEZONE = ZoneInfo("Asia/Taipei")
 
@@ -130,10 +129,9 @@ def _project(db, material, goal, now, *, preview_offset=0, preview_days=7):
     day_now = measure_targets(scope.plan, scope.events, daily_mask)
     all_now = measure_targets(scope.plan, scope.events)
     baseline_now = measure_targets(scope.plan, scope.events, goal.baseline_unavailable_claim_ids)
-    correct = diagnostic_correct_concepts(db, scope.study) if scope.study is not None else ()
-    order = route_order(scope.plan, scope.states, material.starting_level, correct)
-    weak = {state.concept_id for state in scope.states if state.weak_claim_ids}
-    order.sort(key=lambda identity: identity not in weak)
+    by_state = {state.concept_id: state for state in scope.states}
+    order = [identity for identity in scope.plan["initial_learning_path"]
+             if by_state[identity].status != "completed" and by_state[identity].assessable_claim_ids]
     by_concept = {concept["concept_id"]: concept for concept in current["concepts"]}
     concepts = [{key: by_concept[identity][key] for key in ("concept_id", "label", "remaining_points")}
                 for identity in order if by_concept[identity]["remaining_points"]]

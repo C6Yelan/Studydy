@@ -5,7 +5,7 @@ for (const width of [1366, 390]) {
   test(`inherited pass survives refresh and advances without generating at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     const fixture = await studyLayoutFixture(page, "completed", {
-      navigation: true, startingLevel: "beginner", wrong: [], inheritedCheck: true, nextLabel: "Next topic",
+      navigation: true, wrong: [], inheritedCheck: true, nextLabel: "Next topic",
     });
     await fixture.open();
     const summary = page.locator(".inherited-check");
@@ -39,7 +39,7 @@ for (const width of [1366, 390]) {
 test("long inherited next-step label stays inside the card", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const fixture = await studyLayoutFixture(page, "completed", {
-    navigation: true, startingLevel: "beginner", wrong: [], inheritedCheck: true,
+    navigation: true, wrong: [], inheritedCheck: true,
     nextLabel: "NetworkApplicationProtocolResponsibilities".repeat(4),
   });
   await fixture.open();

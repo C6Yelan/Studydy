@@ -458,10 +458,9 @@ class LearningXpSources(_Closed):
     concepts: int
     cards: int
     podcast: int
-    # xp-rules/v4：分天關卡與準時達成目標、克服難點、完成起始程度診斷。
+    # xp-rules/v5：分天關卡與準時達成目標、克服難點。
     goals: int
     difficulties: int
-    diagnostics: int
 
 
 class LearningXpView(_Closed):
@@ -503,13 +502,13 @@ class LearningBadgeView(_Closed):
         "weekend", "return", "curious_10", "curious_50", "researcher", "creator", "corrected_5",
         "first_try_material", "perfect_day", "all_round_day", "thousand_pages", "revisit",
         "xp_day_300", "never_give_up", "binge_3", "three_islands", "new_year",
-        # badge-rules/v7
+        # badge-rules/v8
         "first_goal", "first_stage", "stages_10", "stages_50",
-        "first_difficulty", "difficulties_5", "difficulties_20", "first_diagnostic", "diagnostics_5",
+        "first_difficulty", "difficulties_5", "difficulties_20",
         "first_note", "first_annotation", "annotations_10", "annotations_50",
         "upload_image", "upload_audio", "upload_video", "upload_youtube", "first_export", "export_kinds_4",
         "podcast_series", "podcast_hosts_all",
-        "all_tools_material", "diagnosed_mastery", "media_concepts_5", "stage_streak_7",
+        "all_tools_material", "media_concepts_5", "stage_streak_7",
         "goal_on_time", "all_media", "last_minute", "night_listener", "nemesis", "same_day_learner",
     ]
     earned: bool
@@ -520,14 +519,14 @@ class LearningBadgeView(_Closed):
 
 
 class LearningBadgesView(_Closed):
-    rule_version: Literal["badge-rules/v7"]
+    rule_version: Literal["badge-rules/v8"]
     items: list[LearningBadgeView]
 
 
 class LearningActivityView(_Closed):
-    schema_: Literal["learning-activity/v3"] = Field(alias="schema")
+    schema_: Literal["learning-activity/v4"] = Field(alias="schema")
     timezone: Literal["Asia/Taipei"]
-    rule_version: Literal["xp-rules/v4"]
+    rule_version: Literal["xp-rules/v5"]
     today: date_type
     streak_days: int
     active_today: bool
@@ -973,10 +972,10 @@ class AssessmentCycleView(AssessmentCycleSummary):
 
 
 class AssessmentSetSummary(_Closed):
-    kind: Literal["diagnostic", "remediation", "material_diagnostic"]
+    kind: Literal["diagnostic", "remediation"]
     diagnostic_set_id: UUID | None
     set_id: UUID
-    target_concept_id: str | None
+    target_concept_id: str
     status: Literal[
         "preparing",
         "partial_ready",
@@ -997,7 +996,7 @@ class AssessmentSetSummary(_Closed):
 
 
 class AssessmentSetListView(_Closed):
-    schema_: Literal["assessment-set-list/v1"] = Field(alias="schema")
+    schema_: Literal["assessment-set-list/v2"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
     active_set_ids: list[UUID]
@@ -1020,12 +1019,12 @@ class AssessmentSetItemView(_Closed):
 
 
 class AssessmentSetView(AssessmentSetSummary):
-    schema_: Literal["assessment-set/v1"] = Field(alias="schema")
+    schema_: Literal["assessment-set/v2"] = Field(alias="schema")
     study_session_id: UUID
     material_id: UUID
     knowledge_structure_revision: str
     selection_policy: Literal[
-        "single-concept-grounded-points/v1", "needs-review-points/v1", "material-diagnostic/v1"
+        "single-concept-grounded-points/v1", "needs-review-points/v1"
     ]
     point_count: int
     excluded_count: int
@@ -1034,7 +1033,7 @@ class AssessmentSetView(AssessmentSetSummary):
     can_publish_partial: bool
     can_complete: bool
     items: list[AssessmentSetItemView]
-    cycle: AssessmentCycleView | None
+    cycle: AssessmentCycleView
 
 
 class GuidanceApply(_Closed):
@@ -1044,10 +1043,9 @@ class GuidanceApply(_Closed):
 
 class LearnerProgressView(_Closed):
     assessment_cycles: list[AssessmentCycleSummary]
-    schema_: Literal["learner-progress/v1"] = Field(alias="schema")
+    schema_: Literal["learner-progress/v2"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
-    starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"] | None
     learning_path: list[str]
     event_watermark: int
     current_concept_id: str | None
@@ -1059,7 +1057,7 @@ class LearnerProgressView(_Closed):
 
 
 class StudyProgressView(LearnerProgressView):
-    schema_: Literal["study-progress/v1"] = Field(alias="schema")
+    schema_: Literal["study-progress/v2"] = Field(alias="schema")
     concept_count: int
 
 
@@ -1071,10 +1069,9 @@ class MapConceptStateView(_Closed):
 
 
 class MapProgressView(_Closed):
-    schema_: Literal["map-progress/v1"] = Field(alias="schema")
+    schema_: Literal["map-progress/v2"] = Field(alias="schema")
     study_session_id: UUID
     knowledge_structure_revision: str
-    starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"] | None
     learning_path: list[str]
     current_concept_id: str | None
     concept_states: list[MapConceptStateView]
@@ -1113,9 +1110,8 @@ class StudyNavigationView(_Closed):
 
 
 class StudyWorkspaceView(_Closed):
-    schema_: Literal["study-workspace/v1"] = Field(alias="schema")
+    schema_: Literal["study-workspace/v2"] = Field(alias="schema")
     session: StudySessionView
-    starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"] | None
     run_id: UUID
     source_artifact_id: UUID
     outline: StudyNavigationView
@@ -1708,17 +1704,6 @@ class ConceptDifficultyView(_Closed):
     concepts: list[ConceptDifficultyItem]
 
 
-class StartingLevelView(_Closed):
-    schema_: Literal["starting-level/v1"] = Field(alias="schema")
-    material_id: UUID
-    starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"] | None
-
-
-class StartingLevelUpdate(_Closed):
-    schema_: Literal["starting-level-update/v1"] = Field(alias="schema")
-    starting_level: str
-
-
 class StudyStartCreate(_Closed):
     schema_: Literal["study-start/v1"] = Field(alias="schema")
     knowledge_structure_revision: str
@@ -1726,10 +1711,9 @@ class StudyStartCreate(_Closed):
 
 
 class StudyStartView(_Closed):
-    schema_: Literal["study-start/v1"] = Field(alias="schema")
+    schema_: Literal["study-start/v2"] = Field(alias="schema")
     session: StudySessionView
     selected_set_id: UUID | None
-    starting_level: Literal["beginner", "some_knowledge", "familiar", "gaps"]
 
 
 class GoalConceptView(_Closed):

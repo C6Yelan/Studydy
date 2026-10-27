@@ -1,6 +1,5 @@
 import { Progress } from "../../ui/Progress";
-import { StartingLevelDialog, useStudyStart } from "./StartingLevel";
-import { MaterialDiagnosticPanel } from "../assessment/MaterialDiagnosticPanel";
+import { useStudyStart } from "./useStudyStart";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
@@ -11,7 +10,6 @@ import type {
   StudyNavigationView, KnowledgeConceptsView,
   StudyProgressView,
   StudySessionView,
-  StartingLevel,
 } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
@@ -23,7 +21,6 @@ import { AssessmentSetPanel } from "../assessment/AssessmentSetPanel";
 import "./styles.css";
 
 type StudyData = {
-  startingLevel: StartingLevel | null;
   progress: StudyProgressView;
   session: StudySessionView;
   view: StudyNavigationView;
@@ -36,7 +33,7 @@ type StudyData = {
 function validBinding(data: StudyData): boolean {
   const concepts = new Set(data.view.concepts.map((concept) => concept.concept_id));
   return (
-    data.assessmentSets.every((group) => group.kind === "material_diagnostic" || concepts.has(group.target_concept_id)) &&
+    data.assessmentSets.every((group) => concepts.has(group.target_concept_id)) &&
     data.progress.assessment_cycles.every((cycle) => concepts.has(cycle.concept_id)) &&
     data.progress.concept_count === data.view.concept_count &&
     data.progress.concept_states.every((state) => concepts.has(state.concept_id)) &&
@@ -74,7 +71,6 @@ export function StudySessionPage({
   const load = async () => {
     const restored = await apiClient.resumeWorkspace(route);
     const next = {
-      startingLevel: restored.starting_level,
       view: restored.outline,
       context: restored.context,
       session: restored.session,
@@ -186,13 +182,6 @@ export function StudySessionPage({
     (group) => group.published_count > 0 || ["completed", "cancelled"].includes(group.status),
   );
   const selectedSet = data.assessmentSets.find((group) => group.set_id === data.selectedSetId);
-  if (data.startingLevel === null && data.session.status !== "completed" && data.selectedSet?.status !== "completed") return <section className="study-session-page">
-    <StateView title="選擇起始程度" description="先選擇這份教材的學習方式，已保存的進度與題組會保留。" tone="empty"
-      action={<button className="secondary-button" onClick={backToReview}>返回學習與測驗</button>} />
-    {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
-    {launch.busy ? <p role="status">正在接續學習…</p> : <StartingLevelDialog api={apiClient} materialId={route.materialId} current={null} onClose={backToReview}
-      onSaved={() => void launch.start(route)} />}
-  </section>;
   const history = historySets.length > 0 && <div className="question-history">
     <button ref={historyOpener} type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => historyDialog.current?.showModal()}>題組紀錄（{historySets.length}）</button>
     <dialog ref={historyDialog} className="question-history-dialog" aria-labelledby="question-history-title" onClose={() => historyOpener.current?.focus()}>
@@ -200,43 +189,12 @@ export function StudySessionPage({
       {historySets.map((group, index) => <li key={group.set_id}><button type="button" className={`study-history-item is-${group.kind}`}
         aria-current={group.set_id === data.selectedSetId ? "true" : undefined}
         onClick={() => { historyDialog.current?.close(); setContinueError(null); writeRoute({ ...route, assessmentSetId: group.set_id }); }}>
-        <b>第 {historySets.length - index} 組 · {group.kind === "material_diagnostic" ? "快速檢測" : group.kind === "remediation" ? "補強" : "初篩"}</b>
-        <span>{group.kind === "material_diagnostic" ? "快速檢測" : data.view.concepts.find(concept => concept.concept_id === group.target_concept_id)?.label ?? "觀念"}</span>
+        <b>第 {historySets.length - index} 組 · {group.kind === "remediation" ? "補強" : "初篩"}</b>
+        <span>{data.view.concepts.find(concept => concept.concept_id === group.target_concept_id)?.label ?? "觀念"}</span>
         <small>{group.published_count === 0 ? "此題組已結束" : group.answered_count === 0 ? "尚未作答" : `已答 ${group.answered_count}/${group.published_count}`}</small>
       </button></li>)}
     </ol></dialog>
   </div>;
-  if (data.selectedSet?.kind === "material_diagnostic" && data.context) {
-    const continueDiagnostic = async () => {
-      if (data.progress.next_action.action !== "complete") { void launch.start(route); return; }
-      if (continuing || completed) return;
-      const version = pageVersion.current;
-      setContinuing(true); setContinueError(null);
-      try {
-        await apiClient.applyGuidance(route.studySessionId, { schema: "guidance-apply/v1", guidance_revision: data.progress.guidance_revision });
-        if (activePage.current && pageVersion.current === version) await refresh();
-      } catch (failure) {
-        if (activePage.current && pageVersion.current === version) {
-          setContinueError(errorMessage(failure));
-          if (failure instanceof ApiClientError && failure.reasonCode === "LEARNER_GUIDANCE_STALE") await refresh();
-        }
-      } finally { if (activePage.current && pageVersion.current === version) setContinuing(false); }
-    };
-    return <section className="study-session-page">
-    {launch.dialog}
-    <MaterialContentNav apiClient={apiClient} materialId={route.materialId} current="review" loadMaterial hideQuestionAnswer={(panelPhase ?? assessmentPhase(data.selectedSet)) === "question"}
-      back={{ label: "返回學習與測驗", onClick: backToReview }}
-      mapRoute={{ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }} />
-    {(launch.error || continueError) && <p role="alert" className="form-error">{launch.error || continueError}</p>}
-    {(panelPhase ?? assessmentPhase(data.selectedSet)) === "question" ? <h1 className="sr-only">快速檢測</h1> : <header className="question-session-header"><h1>快速檢測</h1>{history}</header>}
-    <div className="study-workspace without-rail"><div className="study-main">
-      <MaterialDiagnosticPanel onPhaseChange={setPanelPhase} key={data.selectedSet.set_id} api={apiClient} initialSet={data.selectedSet} context={data.context}
-        history={history} onProgressChanged={refresh} onBack={back} continuing={launch.busy || continuing}
-        sessionCompleted={completed} completesSession={data.progress.next_action.action === "complete"}
-        onContinue={() => void continueDiagnostic()} />
-    </div></div>
-  </section>;
-  }
   // 歷史題組顯示該題組的觀念；繼續學習仍依目前進度判斷。
   const visibleConceptId = route.assessmentSetId
     ? selectedSet?.target_concept_id
@@ -357,7 +315,7 @@ export function StudySessionPage({
   );
   return (
     <section className="study-session-page">
-      {launch.dialog}
+
       <MaterialContentNav apiClient={apiClient} materialId={route.materialId} current="review" loadMaterial hideQuestionAnswer={layoutMode === "question"}
       back={{ label: "返回學習與測驗", onClick: backToReview }}
         mapRoute={{ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }}
@@ -431,7 +389,7 @@ export function StudySessionPage({
                     )}
                   </div>
                 </section>
-              ) : data.selectedSet && data.selectedSet.kind !== "material_diagnostic" && data.selectedSetId ? <AssessmentSetPanel
+              ) : data.selectedSet && data.selectedSetId ? <AssessmentSetPanel
                 apiClient={apiClient}
                 materialId={route.materialId}
                 studySessionId={route.studySessionId}
@@ -448,7 +406,7 @@ export function StudySessionPage({
                 onPhaseChange={setPanelPhase}
                 continuation={continuation}
                 history={history}
-              /> : <StateView title="尚未開始這個概念" description="按下開始，依目前的起始程度接續學習。" tone="empty"
+              /> : <StateView title="尚未開始這個概念" description="按下開始，進入這個概念的題組。" tone="empty"
                 action={<button className="primary-button" disabled={launch.busy} onClick={() => void launch.start(route)}>開始學習</button>} />}
             </div>
           </div>

@@ -9,7 +9,7 @@ from threading import Event, Thread
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, or_
+from sqlalchemy import select
 
 from runtime import luna_calls, luna_test
 from runtime.material_runtime import validate_runtime_lock
@@ -54,7 +54,7 @@ def plan_concept(context, concept_id):
 
 
 def _create_group(
-    session, study, plan, *, lock, key, fingerprint, diagnostic_set_id=None, kind=None
+    session, study, plan, *, lock, key, fingerprint, diagnostic_set_id=None
 ):
     """初篩與補強共用題組／成員保存；呼叫者負責各自的資格與狀態轉移。"""
     from .learning_goals import freeze_goal_day
@@ -66,7 +66,7 @@ def _create_group(
         study_session_id=study.study_session_id,
         knowledge_structure_revision=study.knowledge_structure_revision,
         target_concept_id=plan["concept_id"],
-        kind=kind or ("remediation" if diagnostic_set_id is not None else "diagnostic"),
+        kind=("remediation" if diagnostic_set_id is not None else "diagnostic"),
         diagnostic_set_id=diagnostic_set_id,
         target_plan=plan,
         requested_count=len(plan["targets"]),
@@ -88,7 +88,7 @@ def _create_group(
                 ordinal=ordinal,
                 study_session_id=study.study_session_id,
                 knowledge_structure_revision=study.knowledge_structure_revision,
-                target_concept_id=target.get("concept_id", plan["concept_id"]),
+                target_concept_id=plan["concept_id"],
                 target_claim_id=target["claim_id"],
                 state="pending",
                 attempts=0,
@@ -396,9 +396,7 @@ def change_set(
                     AssessmentSet.study_session_id == sid,
                     AssessmentSet.set_id != set_id,
                     AssessmentSet.status.in_(ACTIVE),
-                    (True if group.kind == "material_diagnostic" else or_(
-                        AssessmentSet.target_concept_id == group.target_concept_id,
-                        AssessmentSet.kind == "material_diagnostic")),
+                    AssessmentSet.target_concept_id == group.target_concept_id,
                 )
                 .limit(1)
             )

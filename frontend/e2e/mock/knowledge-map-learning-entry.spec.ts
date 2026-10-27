@@ -155,7 +155,7 @@ for (const destination of ["leave", "material", "run", "structure"] as const) {
       const readJson = Response.prototype.json;
       Response.prototype.json = async function () {
         const value = await readJson.call(this);
-        if (value.schema === "study-start/v1" && this.url.endsWith("/study-start"))
+        if (value.schema === "study-start/v2" && this.url.endsWith("/study-start"))
           setTimeout(() => document.documentElement.dataset.studyResponseRead = "true", 0);
         return value;
       };
@@ -166,7 +166,7 @@ for (const destination of ["leave", "material", "run", "structure"] as const) {
     await page.route(`**/v1/materials/${materialId}/study-start`, async route => {
       starts.push(route.request().postDataJSON());
       await blocked;
-      return json(route, { schema: "study-start/v1", session: { ...session(), current_concept_id: secondConcept }, selected_set_id: null, starting_level: "some_knowledge" });
+      return json(route, { schema: "study-start/v2", session: { ...session(), current_concept_id: secondConcept }, selected_set_id: null, });
     });
     await page.goto(mapPath);
     await openMapConcept(page, "Array");

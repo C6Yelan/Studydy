@@ -16,7 +16,7 @@ from .podcasts import HOST_PAIRS
 from .learning_retention import retained_days, persist_awards
 
 TIMEZONE = "Asia/Taipei"
-RULE_VERSION = "xp-rules/v4"
+RULE_VERSION = "xp-rules/v5"
 XP_CORRECT, XP_WRONG = 10, 3
 XP_CONCEPT = 30
 # 概念卡標記：同一張卡每天第一次標記 +2，單日上限 40；距上一次標記不到 3 秒的不計（連續狂點不加分）。
@@ -27,9 +27,8 @@ XP_LISTEN_STEP, XP_LISTEN_SECONDS, XP_LISTEN_DAILY_CAP = 5, 300, 60
 # 分天關卡：每份教材每天第一次達到今日配額 +15，單日上限 45（3 關）；在目標日以前達成目標每份教材 +50。
 XP_STAGE, XP_STAGE_DAILY_CAP = 15, 45
 XP_GOAL_ON_TIME = 50
-# 克服難點：每份教材的每個概念只算一次。完成起始程度診斷：每份教材只算第一次。
+# 克服難點：每份教材的每個概念只算一次。
 XP_DIFFICULTY = 20
-XP_DIAGNOSTIC = 20
 # 當天實際收聽滿 1 分鐘才算當天有學習活動。
 ACTIVE_LISTEN_SECONDS = 60
 MARK_QUEST = 5
@@ -37,7 +36,7 @@ MARK_QUEST = 5
 # 第 n 級升到 n+1 所需 XP＝所在段的基數＋增量×(n−起始等級)；每進入新的一段需求明顯跳一階。
 LEVEL_SEGMENTS = ((1, 100, 50), (5, 500, 100), (10, 1400, 150), (15, 2600, 200), (20, 4500, 300), (30, 9000, 500))
 
-BADGE_RULE_VERSION = "badge-rules/v7"
+BADGE_RULE_VERSION = "badge-rules/v8"
 # 徽章依顯示順序列出：(代號, 計量, 門檻)。同一計量的多個門檻是同一系列的不同層級（由低到高），
 # 計量見 derive_badges；修改時一併更新版本字串、API 模型、前端名稱與文件。
 BADGES = (
@@ -102,9 +101,6 @@ BADGES = (
     ("first_difficulty", "difficulties", 1),
     ("difficulties_5", "difficulties", 5),
     ("difficulties_20", "difficulties", 20),
-    # 完成起始程度診斷題組（material_diagnostic）的教材份數。
-    ("first_diagnostic", "diagnostics", 1),
-    ("diagnostics_5", "diagnostics", 5),
     # 筆記：第一份完整筆記；寫個人註記的段落數（同一段落多則註記只算一次）。
     ("first_note", "notes", 1),
     ("first_annotation", "annotations", 1),
@@ -123,7 +119,6 @@ BADGES = (
     ("podcast_hosts_all", "host_pairs", len(HOST_PAIRS)),
     # 組合成就（公開條件）。
     ("all_tools_material", "all_tools", 1),         # 同一份教材：完成題組、標記概念卡、聽完一集 Podcast、寫筆記註記
-    ("diagnosed_mastery", "diagnosed_mastery", 1),  # 做過起始程度診斷的教材，之後完成全部學習
     ("media_concepts_5", "media_concepts", 5),      # 在含圖片／音訊／影片／YouTube 來源的教材完成 5 個概念
     ("stage_streak_7", "stage_streak", 7),          # 連續 7 天都完成分天關卡
 )
@@ -297,7 +292,7 @@ def xp_threshold(level):
 
 def derive_badges(*, answers, concepts, materials, card_marks, listening, xp, active, streak, level,
                   perfect_sets=None, sets=None, episodes=None, extra=None, stage_days=()):
-    """由每日紀錄推導系列徽章（規則 badge-rules/v7）。
+    """由每日紀錄推導系列徽章（規則 badge-rules/v8）。
 
     answers／concepts／materials／card_marks（計分的標記張數）／listening（秒）／xp／sets（完成題組）／
     episodes（聽完的集數）皆為 {台灣日期: 當天數量}；
@@ -350,7 +345,7 @@ def _reached(dates, target):
 def derive_special_badges(*, events, answers, active, questions, research, card_sets, podcasts,
                           correct=None, card_days=(), listening=None, completed=None, pages=None, reviews=None,
                           daily_xp=None, episodes=(), features=None):
-    """特殊與挑戰成就（規則 badge-rules/v7）。
+    """特殊與挑戰成就（規則 badge-rules/v8）。
 
     events 為依時間排序的作答 (台灣時間 datetime, 是否答對, 教材, 目標概念)；answers 為 {日期: 作答數}；
     active 為有學習活動的日期；questions、research 為 {日期: 次數}；card_sets、podcasts 為完成日期清單。
@@ -663,14 +658,6 @@ def _feature_records(session, owner, zone, today, *, answer_events, concept_time
         if data.get('stages'):
             stages[day] = stages.get(day, 0) + data['stages']
     overcome = overcome_difficulties(answer_events)
-    diagnosed = {
-        material: local(at).date() for material, at in rows(f"""
-            SELECT a.material_id, min(a.completed_at) FROM assessment_sets a {alive.format('a')}
-            WHERE a.learner_id = :owner AND a.kind = 'material_diagnostic' AND a.status = 'completed'
-            GROUP BY a.material_id
-        """)
-    }
-    diagnosed = {material: day for material, day in diagnosed.items() if day <= today}
     # 完整筆記由使用者按下才生成（重點整理是教材分析後自動生成），以請求生成的日期計。
     notes = [local(at).date() for (at,) in rows(f"""
         SELECT n.created_at FROM material_notes n {alive.format('n')}
@@ -740,22 +727,19 @@ def _feature_records(session, owner, zone, today, *, answer_events, concept_time
     completions = [(material, day) for material, day in completions if day <= today]
     daily = {
         "goals": {}, "difficulties": _per_day(day for day, _ in overcome),
-        "diagnostics": _per_day(diagnosed.values()),
     }
     for day, count in stages.items():
         daily["goals"][day] = daily["goals"].get(day, 0) + stage_xp(count)
     for day, _ in achieved:
         daily["goals"][day] = daily["goals"].get(day, 0) + XP_GOAL_ON_TIME
     daily["difficulties"] = {day: count * XP_DIFFICULTY for day, count in daily["difficulties"].items()}
-    daily["diagnostics"] = {day: count * XP_DIAGNOSTIC for day, count in daily["diagnostics"].items()}
     for day, data in archived:
-        for source, key in (('goals', 'goal_xp'), ('difficulties', 'difficulty_xp'), ('diagnostics', 'diagnostic_xp')):
+        for source, key in (('goals', 'goal_xp'), ('difficulties', 'difficulty_xp')):
             daily[source][day] = daily[source].get(day, 0) + data.get(key, 0)
     metrics = {
         "goals": _per_day(day for day in goals if day <= today),
         "stages": stages,
         "difficulties": _per_day(day for day, _ in overcome),
-        "diagnostics": _per_day(diagnosed.values()),
         "notes": _per_day(day for day in notes if day <= today),
         "annotations": _per_day(day for days in annotated.values() for day in days if day <= today),
         **{f"{kind}_uploads": _per_day([day] if day <= today else []) for kind, day in
@@ -765,9 +749,6 @@ def _feature_records(session, owner, zone, today, *, answer_events, concept_time
         "finished_series": _per_day(finished_series),
         "host_pairs": _per_day(hosts.values()),
         "all_tools": _per_day(all_tools),
-        "diagnosed_mastery": _per_day(
-            completed[material] for material, day in diagnosed.items()
-            if material in completed and completed[material] >= day),
         "media_concepts": _per_day(day for material, day in completions if material in media_materials),
     }
     specials = {
@@ -1136,7 +1117,7 @@ def learning_activity(session, owner, *, now=None):
         if quest is not None
     ]
     return {
-        "schema": "learning-activity/v3",
+        "schema": "learning-activity/v4",
         "timezone": TIMEZONE,
         "rule_version": RULE_VERSION,
         "today": today,

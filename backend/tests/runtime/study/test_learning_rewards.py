@@ -64,8 +64,8 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
     empty = activity(fixture)
     assert empty["xp"] == {"total": 0, "today": 0, "level": 1, "level_xp": 0, "level_target": 100,
                            "sources": {"answers": 0, "concepts": 0, "cards": 0, "podcast": 0,
-                                       "goals": 0, "difficulties": 0, "diagnostics": 0}}
-    assert empty["rule_version"] == "xp-rules/v4" and empty["streak_days"] == 0
+                                       "goals": 0, "difficulties": 0}}
+    assert empty["rule_version"] == "xp-rules/v5" and empty["streak_days"] == 0
     # 已開始學習但今天尚未完成題組：顯示「繼續學習」且未完成。
     assert [(q["kind"], q["done"]) for q in empty["quests"]] == [("continue_study", False)]
 
@@ -95,7 +95,7 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
 
     view = activity(fixture, now=start + timedelta(minutes=6))
     assert view["xp"]["sources"] == {"answers": answer_xp, "concepts": 30 * completed, "cards": 2, "podcast": 5,
-                                     "goals": 0, "difficulties": 0, "diagnostics": 0}
+                                     "goals": 0, "difficulties": 0}
     total = answer_xp + 30 * completed + 2 + 5
     assert view["xp"]["total"] == view["xp"]["today"] == total
     assert (view["xp"]["level"], view["xp"]["level_xp"], view["xp"]["level_target"]) == level_for(total)
@@ -127,7 +127,7 @@ def test_xp_sources_level_and_quests_follow_real_records(closed_loop, tmp_path, 
     client.cookies.set("studydy_session", fixture["token"])
     response = client.get("/v1/learning-activity")
     assert response.status_code == 200, response.json()
-    assert response.json()["schema"] == "learning-activity/v3" and response.json()["xp"]["total"] == total
+    assert response.json()["schema"] == "learning-activity/v4" and response.json()["xp"]["total"] == total
     other = register_account(f"other_{uuid4().hex[:8]}@example.com", "Synthetic test password 42", dsn=dsn)
     client.cookies.set("studydy_session", other.raw_token)
     foreign = client.get("/v1/learning-activity").json()
@@ -202,7 +202,7 @@ def test_badges_follow_real_records_and_their_dates(closed_loop):
     owner, dsn = fixture["learner"].learner_id, fixture["dsn"]
     now = datetime(2026, 10, 22, 12, 0, tzinfo=TAIPEI)
     empty = {b["badge_id"]: b for b in activity(fixture, now=now)["badges"]["items"]}
-    assert activity(fixture, now=now)["badges"]["rule_version"] == "badge-rules/v7"
+    assert activity(fixture, now=now)["badges"]["rule_version"] == "badge-rules/v8"
     assert not any(b["earned"] for b in empty.values())
 
     set_id = create(fixture)

@@ -1,4 +1,4 @@
-import { useStudyStart } from "../study-session/StartingLevel";
+import { useStudyStart } from "../study-session/useStudyStart";
 import { useEffect, useMemo, useState } from "react";
 import type { StudydyApiClient } from "../../api/client";
 import type { LearningGoalSummary, LearningGoalsView, LearningQuest } from "../../api/contracts";
@@ -84,7 +84,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
 
   return (
     <section className="dashboard">
-      {launch.dialog}
+
       {launch.error && <p className="form-error" role="alert">{launch.error}</p>}
       <header className="dashboard-greeting">
         <div className="dashboard-hello">

@@ -53,6 +53,15 @@ def test_carried_concept_completion_does_not_invent_goal_point_evidence(closed_l
     concept = next(item for item in metrics["concepts"] if item["concept_id"] == carried.concept_id)
     assert concept["completed_points"] == 0
     assert concept["remaining_points"] == concept["manual_review_points"] == 2
+    from learning_adaptation.learning_goals import set_goal
+    goal = set_goal(old["learner"], material, date.today(), 100, dsn=old["dsn"])["goal"]
+    other = next(c for c in document["concepts"] if c["label"] == "Other topic")
+    extra = next(c for c in document["concepts"] if c["label"] == "Extra topic")
+    assert goal["today_stage"]["concepts"] == [
+        {"concept_id": other["concept_id"], "label": "Other topic", "remaining_points": 1},
+        {"concept_id": extra["concept_id"], "label": "Extra topic", "remaining_points": 1},
+    ]
+    assert next(c for c in goal["manual_review"] if c["concept_id"] == carried.concept_id)["remaining_points"] == 2
 
 
 def _client(fixture, tmp_path, monkeypatch):

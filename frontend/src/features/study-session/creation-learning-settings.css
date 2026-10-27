@@ -1,8 +1,11 @@
 .creation-learning-settings { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem .75rem; }
 .creation-learning-settings > div { min-width: 0; }
-.creation-learning-settings strong, .creation-learning-settings small { display: block; line-height: 1.5; }
-.creation-learning-settings strong { font-size: .85rem; }
+.creation-learning-settings small { display: block; line-height: 1.5; }
 .creation-learning-settings small { color: var(--text-secondary); font-size: .8rem; }
 .creation-settings-dialog form > p { color: var(--text-secondary); line-height: 1.6; }
 .creation-goal-toggle { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; }
 .creation-goal-note { font-size: .85rem; }
+
+.creation-settings-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-panel); padding: 24px; color: var(--text-primary); }
+.creation-settings-dialog::backdrop { background: rgb(29 39 66 / 45%); }
+.creation-settings-dialog h2 { margin: 0 0 8px; }

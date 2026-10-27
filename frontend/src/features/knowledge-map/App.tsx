@@ -1,4 +1,4 @@
-import { useStudyStart } from "../study-session/StartingLevel";
+import { useStudyStart } from "../study-session/useStudyStart";
 import { rememberMaterial, rememberedMaterial } from "../material-flow/material-memory";
 import { useEffect, useRef, useState } from "react";
 
@@ -199,7 +199,7 @@ export default function KnowledgeMap({
       />
     );
   return (
-    <>{launch.dialog}<KnowledgeMapWorkspace
+    <KnowledgeMapWorkspace
       key={view.knowledge_structure_revision}
       apiClient={apiClient}
       progress={progress}
@@ -216,6 +216,6 @@ export default function KnowledgeMap({
       onStartStudy={startStudy}
       startMessage={launch.error}
       view={view}
-    /></>
+    />
   );
 }

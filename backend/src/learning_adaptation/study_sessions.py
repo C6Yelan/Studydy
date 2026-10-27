@@ -309,3 +309,73 @@ def set_current_study_concept(
         raise
     except Exception:
         raise StudySessionError("STUDY_SESSION_STORAGE_FAILED") from None
+
+
+def start_learning(learner, material_id, revision, idempotency_key, local_config,
+                   *, current_concept_id=None, dsn=None):
+    from .assessment_sets import create_set_in_transaction
+    from .assessment_state import ACTIVE, _read_cycles
+    from .assessments import _key
+    from .learning_insights import _material_states
+    from content_identity import canonical_sha256
+    from runtime.storage import knowledge_reads
+    from runtime.storage.tables import Material, AssessmentSet
+
+    key = _key(idempotency_key).hex()
+    fingerprint = canonical_sha256({"material_id": str(material_id), "revision": revision,
+                                     "concept_id": current_concept_id})
+    with database_session(dsn) as db:
+        material = db.scalar(select(Material).where(
+            Material.material_id == material_id, Material.learner_id == learner.learner_id,
+            Material.discard_requested_at.is_(None)).with_for_update())
+        if material is None:
+            raise SourceError("RESOURCE_NOT_FOUND")
+        study, context = ensure_study_session_in_transaction(
+            db, learner, material_id, revision, "study-start:" + key,
+            current_concept_id=current_concept_id)
+        # session 可能已存在，所有進一步決策與交卷共用 Material → Study 鎖序。
+        study = db.scalar(select(StudySession).where(StudySession.study_session_id == study.study_session_id)
+                          .with_for_update().execution_options(populate_existing=True))
+        receipt = study.start_receipts.get(key)
+        if receipt is not None:
+            if receipt["fingerprint"] != fingerprint:
+                raise SourceError("REQUEST_INVALID")
+            selected_id = UUID(receipt["set_id"]) if receipt["set_id"] else None
+        else:
+            plan = knowledge_reads.learning(db, learner.learner_id, material_id, revision)
+            if current_concept_id is not None and current_concept_id not in {c["concept_id"] for c in plan["concepts"]}:
+                raise SourceError("REQUEST_INVALID")
+            _, states, _ = _material_states(db, study, plan)
+            by_id = {state.concept_id: state for state in states}
+            target = current_concept_id or next((identity for identity in plan["initial_learning_path"]
+                if by_id[identity].status != "completed" and by_id[identity].assessable_claim_ids), None)
+            selected = db.scalar(select(AssessmentSet).where(
+                AssessmentSet.study_session_id == study.study_session_id,
+                AssessmentSet.target_concept_id == target, AssessmentSet.status.in_(ACTIVE))
+                .order_by(AssessmentSet.created_at, AssessmentSet.set_id).limit(1)) if target else None
+            if selected is None:
+                if target is not None:
+                    state = next(state for state in states if state.concept_id == target)
+                    cycle = next((cycle for cycle in _read_cycles(db, study) if cycle["concept_id"] == target), None)
+                    if cycle and state.status != "completed" and state.assessable_claim_ids:
+                        previous = db.get(AssessmentSet, UUID(cycle["diagnostic_set_id"]))
+                        if cycle["outcome"] == "needs_review" or (cycle["outcome"] == "incomplete" and previous.status == "failed"):
+                            selected = previous
+                    if selected is None:
+                        if not state.assessable_claim_ids:
+                            study.current_concept_id = target
+                        else:
+                            selected_id = create_set_in_transaction(db, study, context, target, "start-set:" + key, local_config, state=state)
+                            selected = db.get(AssessmentSet, selected_id)
+                else:
+                    selected = db.scalar(select(AssessmentSet).where(
+                        AssessmentSet.study_session_id == study.study_session_id, AssessmentSet.status == "completed")
+                        .order_by(AssessmentSet.completed_at.desc(), AssessmentSet.set_id).limit(1))
+            selected_id = selected.set_id if selected else None
+            if selected is not None:
+                study.current_concept_id = selected.target_concept_id
+            study.start_receipts = {**study.start_receipts, key: {
+                "fingerprint": fingerprint, "set_id": str(selected_id) if selected_id else None}}
+            study.last_applied_guidance_revision = study.last_applied_progress_sha256 = None
+        return {"schema": "study-start/v2", "session": _stored(study),
+                "selected_set_id": selected_id}

@@ -17,7 +17,6 @@ class Create(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request: str = Field(min_length=1, max_length=1000)
     material_id: UUID | None = None
-    starting_level: Literal["some_knowledge", "familiar", "gaps"] | None = None
     learning_goal: PendingGoal | None = None
 
 
@@ -25,7 +24,6 @@ class Approve(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1)
     proposal: dict
-    starting_level: Literal["some_knowledge", "familiar", "gaps"] | None = None
     learning_goal: PendingGoal | None = None
 
 
@@ -58,7 +56,6 @@ def install(app, settings):
             body.request,
             request_context.idempotency_key(request),
             material_id=body.material_id,
-            starting_level=body.starting_level,
             learning_goal=body.learning_goal.model_dump(mode="json") if body.learning_goal else None,
             dsn=settings.dsn,
         )
@@ -75,7 +72,7 @@ def install(app, settings):
             body.expected_version,
             body.proposal,
             request_context.idempotency_key(request),
-            settings=body.model_dump(mode="json", exclude_unset=True, include={"starting_level", "learning_goal"}),
+            settings=body.model_dump(mode="json", exclude_unset=True, include={"learning_goal"}),
             dsn=settings.dsn,
         )
 

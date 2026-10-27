@@ -27,8 +27,6 @@
 .review-next > header, .diagnosis-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
 .review-next h2, .review-next p, .diagnosis-heading h2 { margin: 0; }
 .review-next > button { justify-self: start; }
-.review-next .starting-level-setting { max-width: 60%; }
-.review-next .starting-level-setting button { text-align: right; white-space: normal; }
 .diagnosis-heading { margin-bottom: 16px; }
 .diagnosis-export { position: relative; }
 .diagnosis-export summary { cursor: pointer; padding: 8px 12px; }
@@ -41,6 +39,4 @@
   .review-diagnosis { padding: 16px; }
   .review-next, .review-diagnosis > .learning-goal-panel, .learning-diagnosis { padding: 18px; }
   .review-next > header { flex-wrap: wrap; }
-  .review-next .starting-level-setting { max-width: 100%; }
-  .review-next .starting-level-setting button { text-align: left; }
 }

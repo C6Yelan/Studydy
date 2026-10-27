@@ -100,7 +100,6 @@ def _view(row):
         k: deepcopy(getattr(row, k))
         for k in (
             "topic_id",
-            "starting_level",
             "learning_goal",
             "material_id",
             "base_revision",
@@ -117,13 +116,13 @@ def _view(row):
     }
 
 
-def create(owner, request, key, *, material_id=None, starting_level=None, learning_goal=None, dsn=None):
+def create(owner, request, key, *, material_id=None, learning_goal=None, dsn=None):
     request = _text(request, 1000)
     if learning_goal:
         from learning_adaptation.learning_goals import TIMEZONE
         if date.fromisoformat(learning_goal["target_date"]) < datetime.now(TIMEZONE).date():
             raise SourceError("REQUEST_INVALID")
-    if material_id is not None and (starting_level is not None or learning_goal is not None):
+    if material_id is not None and learning_goal is not None:
         raise SourceError("REQUEST_INVALID")
     digest = _key_digest(key)
     with database_session(dsn) as db:
@@ -143,7 +142,7 @@ def create(owner, request, key, *, material_id=None, starting_level=None, learni
         )
         if old:
             if (old.request != request or old.material_id != material_id
-                    or old.starting_level != starting_level or old.learning_goal != learning_goal):
+                    or old.learning_goal != learning_goal):
                 raise SourceError("IDEMPOTENCY_CONFLICT")
             return _view(old)
         row = TopicScope(
@@ -152,7 +151,7 @@ def create(owner, request, key, *, material_id=None, starting_level=None, learni
             material_id=material_id,
             base_revision=material.head_revision if material else None,
             request=request,
-            starting_level=starting_level, learning_goal=deepcopy(learning_goal),
+            learning_goal=deepcopy(learning_goal),
             version=1,
             status="pending",
             idempotency_key_sha256=digest,
@@ -287,7 +286,6 @@ def create_material(owner, identity, selected, *, dsn=None):
             owner, row.proposal["title"], "topic:" + str(identity), dsn=dsn
         )
         material = db.get(Material, identity_material)
-        material.starting_level = row.starting_level
         material.pending_goal = deepcopy(row.learning_goal)
         work.material_id = identity_material
         work.selection = list(selected)

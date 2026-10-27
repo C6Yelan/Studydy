@@ -263,10 +263,10 @@ def test_direct_remediation_http_replay_is_scoped_and_get_does_not_create(closed
     assert {route.rsplit("/", 1)[-1] for route in set_routes} == {
         "{set_id}", "submissions", "remediation", "retry", "publish-partial",
     }
-    assert created.json()["schema"] == "assessment-set/v1"
+    assert created.json()["schema"] == "assessment-set/v2"
     for name, version in (
-        ("AssessmentSetView", "assessment-set/v1"),
-        ("LearnerProgressView", "learner-progress/v1"),
+        ("AssessmentSetView", "assessment-set/v2"),
+        ("LearnerProgressView", "learner-progress/v2"),
         ("StudyResumeView", "study-resume/v1"),
     ):
         assert schema["components"]["schemas"][name]["properties"]["schema"]["const"] == version

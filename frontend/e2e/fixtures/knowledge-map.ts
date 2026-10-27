@@ -152,8 +152,7 @@ export function session(status = "active") {
 }
 
 export const progress = {
-  schema: "learner-progress/v1",
-  starting_level: "some_knowledge",
+  schema: "learner-progress/v2",
   learning_path: [firstConcept, secondConcept],
   assessment_cycles: [],
   study_session_id: sessionId,
@@ -316,11 +315,10 @@ export async function mockKnowledgeMapApi(
   await mockGet(page, mapPath, () => view);
   await mockGet(page, "/v1/learning-goals", () => ({ schema: "learning-goals/v1", today: goalToday, goals: [] }));
   await mockGet(page, `/v1/materials/${materialId}/goal`, () => emptyGoal(materialId, revision, runId));
-  await mockGet(page, `/v1/materials/${materialId}/starting-level`, () => ({ schema: "starting-level/v1", material_id: materialId, starting_level: "some_knowledge" }));
   await page.route(pathMatches(`/v1/materials/${materialId}/study-start`), route => {
     const body = route.request().postDataJSON();
     currentConceptId = body.current_concept_id ?? getProgress().current_concept_id;
-    return json(route, { schema: "study-start/v1", session: { ...session(), knowledge_structure_revision: revision, current_concept_id: currentConceptId }, selected_set_id: null, starting_level: "some_knowledge" });
+    return json(route, { schema: "study-start/v2", session: { ...session(), knowledge_structure_revision: revision, current_concept_id: currentConceptId }, selected_set_id: null });
   });
   await mockGet(page, `${mapPath}/concept-difficulty`, () => difficultyView(materialId, revision));
   await mockGet(page, `${mapPath}/learning-diagnosis`, () => diagnosisView(materialId, revision));
