@@ -285,7 +285,7 @@ def test_notes_generation_rejects_historical_policy(monkeypatch, version):
         lock["material_notes"]["summary_layout"] = "a4-12pt-18mm/v1"
     if version == "material-notes/v12":
         lock["material_notes"]["review_prompt"] = "歷史 v12 核對提示"
-    claim = {"lock": lock, "key": (None, None, None, "summary")}
+    claim = {"lock": lock, "key": (None, None, None, "summary"), "token": "lease"}
     saved = []
     monkeypatch.setattr(mn, "_claim", lambda *args, **kwargs: claim)
     monkeypatch.setattr(mn, "_save", lambda *args, **kwargs: saved.append(kwargs))

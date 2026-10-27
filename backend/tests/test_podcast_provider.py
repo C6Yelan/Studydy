@@ -541,6 +541,7 @@ def test_voice_and_podcast_responses_use_the_same_dynamic_pause_identity(metadat
     from io import BytesIO
     handler=object.__new__(provider.Handler)
     handler.path='/audio';handler.wfile=BytesIO()
+    handler.audio_queued_at=handler.audio_started_at=0.0
     headers={}
     handler.send_response=lambda status: None
     handler.send_header=lambda key,value: headers.update({key:value})
