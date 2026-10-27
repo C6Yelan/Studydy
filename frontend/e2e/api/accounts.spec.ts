@@ -60,8 +60,8 @@ test("real accounts survive new browser profiles; logout and back never reveal a
       }),
     { times: 1 },
   );
-  // 教材內的登出在教材頁首的帳號選單裡。
-  await page.getByRole("button", { name: /^帳號選單/ }).click();
+  // 從教材返回清單後使用全站登出。
+  await page.goto("/materials");
   await page.getByRole("button", { name: "登出", exact: true }).click();
   await expect(page.getByText(/登出尚未完成/)).toBeVisible();
   await expect(page.getByText("Stack", { exact: true })).toHaveCount(0);

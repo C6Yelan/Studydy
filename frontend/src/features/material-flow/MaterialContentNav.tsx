@@ -4,7 +4,6 @@ import type { StudydyApiClient } from "../../api/client";
 import { Icon, type IconName } from "../../ui/Icon";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { MaterialTools } from "../material-tools/MaterialTools";
-import { AccountMenu } from "../../app/HeaderTools";
 import { rememberMaterial, rememberedMaterial } from "./material-memory";
 import { VersionMoveNotice } from "./VersionMoveNotice";
 import "./material-header.css";
@@ -92,7 +91,7 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
   const pages = material?.latest_attempt?.total_pages;
   // 來源數、頁數與建立日期不常用，收進教材名稱的提示，完整資訊在「教材來源」分頁。
   const meta = material ? [material.source_count ? `${material.source_count} 個來源` : null, pages ? `最近一次分析 ${pages} 頁` : null, `建立於 ${dateFormat.format(new Date(material.created_at))}`].filter(Boolean).join(" · ") : undefined;
-  // 教材內唯一的頁首：返回、教材、分頁、問答與頭像排成一列（取代全站頁首）。
+  // 教材內唯一的頁首：返回、教材、分頁與問答排成一列（取代全站頁首）。
   return <><header className="material-learning-toolbar material-header" aria-label="目前教材">
     <div className="material-header-identity">
       <button className="material-header-back" type="button" aria-label={back?.label ?? "回到我的教材"} title={back?.label ?? "回到我的教材"} onClick={back?.onClick ?? (() => writeRoute({ name: "materials" }))}><Icon name="arrow-left" size={20}/></button>
@@ -115,7 +114,6 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
     </div>
     <div className="material-header-tools">
       {mapRoute && !hideQuestionAnswer && <MaterialTools key={`${materialId}:${mapRoute.structureRevision}`} api={apiClient} materialId={materialId} revision={mapRoute.structureRevision} />}
-      <AccountMenu apiClient={apiClient} />
     </div>
   </header>
   <VersionMoveNotice apiClient={apiClient} materialId={materialId} compact={!updateCompleted && (current === "sources" || current === "concept-cards")}/></>;

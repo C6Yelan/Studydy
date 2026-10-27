@@ -155,9 +155,8 @@ test("a different login does not restore the previous user's record list", async
   await page.goto(mapPath);
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   await expect(page.locator("details.review-records li")).toHaveCount(1);
-  // 教材內從頭像選單登出。
-  await page.getByRole("button", { name: /^帳號選單/ }).click();
-  await page.getByRole("button", { name: "登出", exact: true }).click();
+  // 另一分頁切換帳號時，立即清除私人內容。
+  await page.evaluate(() => { const channel = new BroadcastChannel("studydy-account"); channel.postMessage("identity-changed"); channel.close(); });
   await expect(page.locator("form.auth-form")).toBeVisible();
   await mockKnowledgeMapApi(page);
   const identity = { schema: "learner-identity/v1", learner_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };

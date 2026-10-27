@@ -142,9 +142,9 @@ test('one material header row; map search floats on the map and only content tab
     await page.getByLabel(label,{exact:true}).waitFor();const box=(await page.getByLabel(label,{exact:true}).boundingBox())!;
     expect(box.y).toBeGreaterThanOrEqual(currentNav.y+currentNav.height);
    } else await expect(page.getByLabel('搜尋概念或關鍵字',{exact:true})).toHaveCount(0);
-   // 教材問答在教材頁首右端，緊鄰頭像選單。
-   const voice=(await page.getByRole('button',{name:'教材問答',exact:true}).boundingBox())!;const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;const account=(await page.locator('.material-learning-toolbar .account-menu').boundingBox())!;
-   expect(voice.y).toBeGreaterThanOrEqual(toolbar.y);expect(voice.y+voice.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);expect(account.x-voice.x-voice.width).toBeLessThanOrEqual(12);expect(toolbar.x+toolbar.width-account.x-account.width).toBeLessThanOrEqual(12);
+   // 教材問答在教材頁首右端。
+   const voice=(await page.getByRole('button',{name:'教材問答',exact:true}).boundingBox())!;const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;
+   expect(voice.y).toBeGreaterThanOrEqual(toolbar.y);expect(voice.y+voice.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);
    if(tab==='概念卡'||tab==='Podcast'){
     await expect(page.locator('.material-search-row').getByRole('searchbox')).toHaveCount(0);
     const create=(await page.locator('.material-search-row').getByRole('button',{name:tab==='概念卡'?'建立卡組':'建立 Podcast',exact:true}).boundingBox())!;expect(create.y).toBeGreaterThanOrEqual(currentNav.y+currentNav.height);

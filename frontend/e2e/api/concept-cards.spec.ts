@@ -42,7 +42,7 @@ test("real API persists selected cards across fresh login and resolves original 
   expect(source.status()).toBe(200);
   expect((await source.body()).subarray(0, 4).toString()).toBe("%PDF");
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: /^帳號選單/ }).click();
+  await page.goto("/materials");
   await page.getByRole("button", { name: "登出", exact: true }).click();
   await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await first.close();

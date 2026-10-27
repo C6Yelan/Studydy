@@ -298,14 +298,14 @@ test('switching account releases private voice audio and never carries it into t
  await page.getByRole('switch',{name:'語音模式',exact:true}).click();await speak(page);await expect.poll(()=>mock.recorded.length).toBe(1);
  const turn=mock.recorded[0];turn.question='第一個帳號的問題';mock.reply(mock.conversations[0],turn);
  const audio=page.locator('.answer-audio audio');await expect.poll(()=>audio.evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
- await audio.evaluate(a=>{(window as any).previousVoiceAudio=a;});await page.getByRole('button',{name:/^帳號選單/}).click();await page.getByRole('button',{name:'登出',exact:true}).click();
+ await audio.evaluate(a=>{(window as any).previousVoiceAudio=a;});await page.evaluate(() => { const channel = new BroadcastChannel("studydy-account"); channel.postMessage("identity-changed"); channel.close(); });
  await expect(page.getByRole('heading',{name:'登入您的帳戶'})).toBeVisible();
  expect(await page.evaluate(()=>({paused:(window as any).previousVoiceAudio.paused,src:(window as any).previousVoiceAudio.getAttribute('src')}))).toEqual({paused:true,src:null});
  const stranger={schema:'learner-identity/v1',learner_id:'88888888-8888-4888-8888-888888888888'};
  await page.route('**/v1/session/login',r=>json(r,stranger));await page.route('**/v1/session/refresh',r=>json(r,stranger));
  await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[]}));
  await page.getByLabel('Email',{exact:true}).fill('second@example.test');await page.getByLabel('密碼',{exact:true}).fill('Synthetic password 42');await page.getByRole('button',{name:'登入',exact:true}).click();
- await expect(page.getByRole('button',{name:'登出',exact:true})).toBeVisible();
+ await expect(page.getByRole('tab',{name:'知識地圖',exact:true})).toBeVisible();
  await expect(page.locator('.voice-answer')).toHaveCount(0);await expect(page.locator('.answer-audio audio')).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).previousVoiceAudio.paused)).toBe(true);
 });
