@@ -284,3 +284,13 @@
   font-size: 16px;
   font-weight: 900;
 }
+
+/* 教材頁帳號選單開啟時才跨出內容層，避免被掛在 body 的問答抽屜擋住。 */
+@media (min-width: 721px) {
+  .app-shell.is-material .app-main:has(.material-account-menu[open]) {
+    isolation: auto;
+  }
+  .material-account-menu-layer {
+    z-index: 31;
+  }
+}
