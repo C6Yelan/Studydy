@@ -72,7 +72,7 @@ def validate(script, episode):
         if not (
             {"schema", "segments", "provider"}
             <= set(script)
-            <= {"schema", "segments", "provider", "review"}
+            <= {"schema", "segments", "provider", "review", "omitted_content"}
             and script["schema"] == SCHEMA
         ):
             raise ValueError()
@@ -81,6 +81,23 @@ def validate(script, episode):
         beats = script["segments"]
         claims = episode["claims"]
         if not (isinstance(beats, list) and 1 <= len(beats) <= 12):
+            raise ValueError()
+        omissions = script.get("omitted_content", [])
+        ids = {claim["claim_id"] for claim in claims}
+        if not isinstance(omissions, list):
+            raise ValueError()
+        seen_segments = set()
+        for item in omissions:
+            if (not isinstance(item, dict) or set(item) != {"segment_index", "claim_ids", "reason"}
+                or type(item["segment_index"]) is not int or not 0 <= item["segment_index"] < 12
+                or item["segment_index"] in seen_segments or item["reason"] != "source_check_failed"
+                or not isinstance(item["claim_ids"], list)
+                or any(not isinstance(identity, str) for identity in item["claim_ids"])
+                or len(set(item["claim_ids"])) != len(item["claim_ids"])
+                or not set(item["claim_ids"]) <= ids):
+                raise ValueError()
+            seen_segments.add(item["segment_index"])
+        if len({identity for item in omissions for identity in item["claim_ids"]}) * 2 > len(ids):
             raise ValueError()
         total_size = 0
         for i, beat in enumerate(beats):

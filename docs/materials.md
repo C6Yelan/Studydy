@@ -255,3 +255,10 @@ run 的 added_sources／existing_source_count 依固定 SourceSet 與 base 分�
 補充研究 progress 依已確認觀念提供 topic_progress／completed_topics／total_topics／started_at，只列正文與來源類型均已核對且可用的候選；逐觀念來源數亦採同口徑，不增加模型請求。完成且找到零份仍如實顯示0。
 
 筆記小節的來源標記依原本小節綁定放在末尾，不推測逐句來源；預覽顯示檔名、位置與原文節錄，點擊在右側查看原文。舊段落註記仍使用當時的來源定位。
+
+
+### Podcast 步驟與部分略過
+
+列表及詳情 generation.steps 按集提供 script／audio／alignment／video；未選影片且無影片工作時不列 video。狀態依真實工作列與 provider 鎖投影，待領取與等待共用鎖為 queued，已取得鎖才 running；無法讀取 provider 時不猜正在配音。分鏡維持 Podcast 全部音訊 ready 才可領取。started_at 與 elapsed_seconds 是實際領取至完成（含等待）的時間，舊資料沒有時間就 null；鎖不保證 FIFO，queue_ahead 維持 null。
+
+講稿重寫後仍無法核對的段落略過，其他已核對段落才送配音；episode.omitted_content 保存原段號、選定 claim_ids 與 source_check_failed，不保存未核對台詞。門檻以本集選定重點去重後計算，超過半數落在略過正文才回 PODCAST_SCRIPT_NEEDS_REVIEW；剛好一半發布。開場、收尾不計入重點門檻，核對失敗仍略過。前端逐字稿與本集重點顯示固定略過提示。

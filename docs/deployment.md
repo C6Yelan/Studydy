@@ -371,3 +371,6 @@ STUDYDY_MATERIAL_WORKERS 預設 1，需多教材時由管理者在本機 .env �
 learning-goal/v2、learning-diagnosis/v2、material-notes/v3 與新回答 material-answer/v3 必須配合前端解析及接線部署；不能單獨上線造成舊前端拒收。原回答v2仍讀取，原來源、結構及runtime lock不改寫。
 
 所有後端匯出的ZIP時間、PDF日期與Word標準日期欄位採Asia/Taipei（Word以+08:00標明），圖片ZIP依概念標題命名並去除非法字元、同名編號。地圖Markdown含完整重點、頁碼及每章Mermaid，需以實際Mermaid解析／渲染驗證特殊字元。
+
+
+PC1／PC2 使用 0026_podcast_step_times（在教材投影0024、作答presence0025之後）。須先更新 provider 的 /jobs/progress 與略過邏輯，再部署後端；未清空 Luna 工作不得重啟 provider。新增時間欄位可保留回復舊映像；不改既有講稿／音訊或核對封存。前端依已審 API 契約顯示步驟及略過提示。

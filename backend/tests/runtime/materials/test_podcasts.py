@@ -236,7 +236,9 @@ def test_api_owner_audio_ranges_and_origin_boundary(closed_loop, monkeypatch):
     client.cookies.set("studydy_session", token)
     # 沒勾影片：不建立影片工作，只有音訊即可開啟播放。
     assert view.json()['video_enabled'] is False
-    assert view.json()['generation'] == {'active':False,'completed_videos':0,'failed_videos':0,'preview_ready':True,'retryable_videos':False,'expected_videos':0}
+    generation=view.json()['generation']
+    assert len(generation.pop('steps'))==3
+    assert generation == {'active':False,'completed_videos':0,'failed_videos':0,'preview_ready':True,'retryable_videos':False,'expected_videos':0}
     cancelled = client.post(detail + '/actions', headers={'Origin':origin}, json={
         'schema':'podcast-action/v1','action':'cancel','expected_version':view.json()['version']})
     assert cancelled.status_code == 200 and cancelled.json() == {'schema':'podcast-deleted/v1','podcast_id':identity}
@@ -458,6 +460,7 @@ def test_podcast_list_batches_child_states_without_changing_summaries(closed_loo
         db.query(PodcastScenes).filter(PodcastScenes.podcast_id == identity).delete()
         db.query(PodcastVideo).filter(PodcastVideo.podcast_id == identity).delete()
     base = podcasts.list_podcasts(owner.learner_id, dsn=dsn)['podcasts'][0]
+    base['generation'].pop('steps')
     # Podcast、影片、分鏡狀態，以及六個 generation 欄位的預期值（預期影片數只算實際影片工作）。
     cases = [
         # 沒勾影片的節目：沒有影片工作即只播音訊，可預覽，也沒有可重試或補建的影片。
@@ -516,6 +519,8 @@ def test_podcast_list_batches_child_states_without_changing_summaries(closed_loo
             result = podcasts.list_podcasts(owner.learner_id, dsn=dsn)
         finally:
             event.remove(engine, 'before_cursor_execute', count_query)
+        for item in result['podcasts']:
+            assert item['generation'].pop('steps')
         assert result == {'schema': 'podcast-list/v1', 'podcasts': list(reversed(expected))}
         counts.append((size, len(statements)))
     record_property('podcast_count_list_queries', counts)

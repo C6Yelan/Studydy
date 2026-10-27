@@ -125,3 +125,5 @@ Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文�
 索引與知識結構同一交易發布，索引失敗不更新教材 head。索引階段可沿已保存的分析與檢核結果重試，不必重新呼叫模型。新來源綁定為 `structure-input-binding/v2`／`source-set/v2`／`bundle-manifest/v2`；舊格式不轉接、不自動遷移，原始檔案不刪除。
 
 來源顯示、run完成摘要與概念疑義為獨立公開投影，不改已發布結構hash。草稿目標在教材發布時建立排程；跨版筆記以content_revision回查真正顯示稿件的來源。
+
+Podcast 步驟時間：講稿／音訊放在分集 step_times，對齊／影片使用工作表 started_at／finished_at。只讀 provider /jobs/progress 用 job_id＋job_token 對應活動請求，觀測真正等待鎖／持鎖狀態；回應不含教材、帳號或台詞。段落略過只改發布取捨，不改核對提示或 runtime lock。

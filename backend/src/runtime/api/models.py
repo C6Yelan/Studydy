@@ -1435,7 +1435,17 @@ class PodcastAction(_Closed):
     name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
+class PodcastGenerationStep(_Closed):
+    episode_index: int = Field(ge=0)
+    step: Literal["script", "audio", "alignment", "video"]
+    status: Literal["waiting", "queued", "running", "completed", "failed", "skipped"]
+    started_at: datetime | None
+    elapsed_seconds: float | None
+    queue_ahead: int | None
+
+
 class PodcastGeneration(_Closed):
+    steps: list[PodcastGenerationStep]
     active: bool
     preview_ready: bool
     retryable_videos: bool
@@ -1538,7 +1548,14 @@ class PodcastAudio(_Closed):
     provider: str
 
 
+class PodcastOmittedContent(_Closed):
+    segment_index: int = Field(ge=0)
+    claim_ids: list[str]
+    reason: Literal["source_check_failed"]
+
+
 class PodcastEpisode(_Closed):
+    omitted_content: list[PodcastOmittedContent] = Field(default_factory=list)
     script_sha256: str | None = None
     # 短集名（衍生顯示資料）；舊資料或取名失敗時為 None。
     title: str | None = None
