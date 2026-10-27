@@ -152,3 +152,30 @@ def test_retention_migration_preserves_users_and_rolls_back(clean_database_dsn, 
     with psycopg.connect(clean_database_dsn) as db:
         assert db.execute('SELECT count(*) FROM learners WHERE learner_id=%s', (owner,)).fetchone() == (1,)
         assert db.execute('SELECT seen_level,baseline_pending FROM learning_celebrations WHERE learner_id=%s', (owner,)).fetchone() == (1,True)
+
+
+def test_permanent_badge_stays_complete_when_current_measurement_returns_to_zero(closed_loop):
+    from assessment_fixtures import create_other, other_model
+    from learning_adaptation import assessment_sets
+    f = concept_fixture(closed_loop, 20)
+    group = create(f)
+    finish(f)
+    answer(f, group)
+    before = activity(f)
+    earned = next(b for b in before['badges']['items'] if b['badge_id'] == 'perfect_day')
+    assert earned['earned'] and earned['progress'] == earned['target'] == 1
+    # 同日再答錯一題，當下已不符合「20題以上且全對」，但已取得徽章不能倒退。
+    other = create_other(f)
+    while work := assessment_sets.claim_set_work(dsn=f['dsn']):
+        assessment_sets.execute_set_work(work, dsn=f['dsn'], semantic_call=other_model)
+    answer(f, other, wrong={1})
+    after = activity(f)
+    assert after['total_answers'] == 21 and after['total_correct'] == 20
+    saved = next(b for b in after['badges']['items'] if b['badge_id'] == 'perfect_day')
+    assert saved['earned'] and saved['earned_on'] == earned['earned_on']
+    assert saved['progress'] == saved['target'] == 1
+    # 與前端learningBadge相同的公開契約，不能讓單一徽章拒收整份學習活動。
+    for badge in after['badges']['items']:
+        assert 0 <= badge['progress'] <= badge['target'] and badge['target'] > 0
+        assert badge['earned'] == (badge['progress'] == badge['target'])
+        assert badge['earned'] or badge['earned_on'] is None

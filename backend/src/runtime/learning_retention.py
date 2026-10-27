@@ -99,6 +99,7 @@ def persist_awards(db, owner, badges, level):
         if badge['badge_id'] in earned:
             badge['earned'] = True
             badge['earned_on'] = earned[badge['badge_id']]
+            badge['progress'] = badge['target']
     if baseline:
         db.execute(text('UPDATE learning_awards SET seen=true WHERE learner_id=:owner'), {'owner': owner})
         db.execute(text('UPDATE learning_celebrations SET seen_level=:level,baseline_pending=false WHERE learner_id=:owner'), {'owner': owner, 'level': level})
