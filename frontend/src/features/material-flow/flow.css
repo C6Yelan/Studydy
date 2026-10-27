@@ -215,3 +215,5 @@
 .source-picker-dialog .youtube-source-input { margin-top:var(--space-4); }
 
 .source-picker-dialog .flow-icon-button { min-width:2.75rem; min-height:2.75rem; }
+
+.source-name.source-name-readable { overflow:visible; text-overflow:clip; white-space:normal; overflow-wrap:anywhere; }

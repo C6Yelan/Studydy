@@ -415,18 +415,18 @@ for(const append of [false,true])test(`source picker shares upload controls and 
 
 for(const append of [false,true])test(`source display names drive labels and search in ${append?'published':'confirmation'} view`,async({page},testInfo)=>{
  const {state}=await mockSources(page,append);
- Object.assign(state.sources[0],{original_name:'已核對影片標題.youtube',display_name:'已核對影片標題',media_type:'application/vnd.studydy.youtube+json',source_kind:'youtube',page_count:7,duration_seconds:833,image_count:null,transcript_source:'uploader_subtitles',transcript_display_name:'YouTube 上傳者字幕'});
+ Object.assign(state.sources[0],{original_name:'【生成式 AI】淺談圖像生成模型 Diffusion Model 原理與實際應用.youtube',display_name:'【生成式 AI】淺談圖像生成模型 Diffusion Model 原理與實際應用',media_type:'application/vnd.studydy.youtube+json',source_kind:'youtube',page_count:7,duration_seconds:833,image_count:null,transcript_source:'uploader_subtitles',transcript_display_name:'YouTube 上傳者字幕'});
  Object.assign(state.sources[1],{original_name:'架構圖（圖片）.zip',display_name:'3 張圖片',media_type:'application/zip',source_kind:'image',page_count:3,duration_seconds:null,image_count:3,transcript_source:null,transcript_display_name:null});
  await page.goto(sourcesPath);
- const video=page.getByRole('listitem',{name:'已核對影片標題',exact:true}),pictures=page.getByRole('listitem',{name:'3 張圖片',exact:true});
- await expect(video.locator('.source-name')).toHaveText('已核對影片標題');await expect(video.locator('.source-name')).toHaveAttribute('title','已核對影片標題');await expect(pictures.locator('.source-name')).toHaveText('3 張圖片');
+ const video=page.getByRole('listitem',{name:'【生成式 AI】淺談圖像生成模型 Diffusion Model 原理與實際應用',exact:true}),pictures=page.getByRole('listitem',{name:'3 張圖片',exact:true});
+ await expect(video.locator('.source-name')).toHaveText('【生成式 AI】淺談圖像生成模型 Diffusion Model 原理與實際應用');await expect(video.locator('.source-name')).toHaveAttribute('title','【生成式 AI】淺談圖像生成模型 Diffusion Model 原理與實際應用');await expect(pictures.locator('.source-name')).toHaveText('3 張圖片');
  await expect(video.locator('.source-metadata')).toContainText('YouTube · 13:53');
  await expect(pictures.locator('.source-metadata')).toContainText('3 張圖片');
  await expect(page.locator(append ? '.source-panel-head' : '.source-list-card')).toContainText('共 10 頁 · 3 張圖片 · 影音 13 分 53 秒');
  await page.route(`**/v1/artifacts/${state.sources[0].normalized_artifact_id}`,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="zh-Hant"><body><p>已保存逐字稿預覽（測試內容）</p></body></html>'}));
  const opener=video.getByRole('button',{name:'查看逐字稿',exact:true});
  await opener.click();
- const dialog=page.getByRole('dialog',{name:'已核對影片標題',exact:true});
+ const dialog=page.getByRole('dialog',{name:'【生成式 AI】淺談圖像生成模型 Diffusion Model 原理與實際應用',exact:true});
  await expect(dialog).toContainText('逐字稿來源：YouTube 上傳者字幕');
  await expect(dialog.locator('iframe')).toHaveAttribute('src',`/v1/artifacts/${state.sources[0].normalized_artifact_id}`);
  await expect(dialog.frameLocator('iframe').getByText('已保存逐字稿預覽（測試內容）')).toBeVisible();
