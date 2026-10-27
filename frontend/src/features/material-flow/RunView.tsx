@@ -489,7 +489,7 @@ function RevisionRun({
     : currentStructure ? {name:"knowledge-map" as const,materialId:run.material_id,runId:currentStructure.run_id,structureRevision:currentStructure.knowledge_structure_revision} : null;
   const mapAction = map && <button className="primary-button" onClick={()=>writeRoute(map)}>{completed?"開啟知識地圖":"先使用目前地圖"}</button>;
   return <section className={`material-content processing-page${activeRun(run)?" is-processing":""}`}>
-    <MaterialContentNav apiClient={apiClient} materialId={run.material_id} materialName={material?.display_name} current="sources"
+    <MaterialContentNav apiClient={apiClient} materialId={run.material_id} materialName={material?.display_name} current="sources" updateCompleted={completed}
       mapRoute={map} back={{label:material?`返回${material.display_name}`:"返回教材",onClick:()=>writeRoute({name:"material",materialId:run.material_id})}}/>
     <div className="material-content-body" role="tabpanel" id="material-panel-sources" aria-labelledby="material-tab-sources">
     <FlowHeader title={title} description={run.status==='failed'?undefined:completed?"教材已更新，可以開啟知識地圖繼續使用。":"Studydy 正在整理新增內容，期間仍可使用目前地圖與學習紀錄。"}/>
@@ -499,6 +499,14 @@ function RevisionRun({
         {completed ? <>
           <p className="status-badge is-success">處理完成</p>
           <p className="run-ai-notice">由 AI 整理，每個重點都可點開原文對照。</p>
+          {run.structure_changes && <section aria-label="這次更新改了什麼">
+            <h2>這次更新改了什麼</h2>
+            <p>{[
+              run.added_sources && `新增 ${run.added_sources.length} 份來源`,
+              `概念 ${run.structure_changes.before.concepts} → ${run.structure_changes.after.concepts} 個`,
+              `關係 ${run.structure_changes.before.relations} → ${run.structure_changes.after.relations} 條`,
+            ].filter(Boolean).join(" · ")}</p>
+          </section>}
           <ProcessingSources run={run}/>
         </> : <ProcessingProgress run={run} now={now}/>}
         <div className="run-actions">

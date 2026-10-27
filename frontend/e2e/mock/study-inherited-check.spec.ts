@@ -11,7 +11,7 @@ for (const width of [1366, 390]) {
     const summary = page.locator(".inherited-check");
     await expect(summary.getByRole("heading", { name: "已完成", exact: true })).toBeVisible();
     await expect(summary.getByRole("button", { name: "查看原始結果", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "開始作答", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "開始學習", exact: true })).toHaveCount(0);
     const box = (await summary.boundingBox())!;
     const heading = (await summary.locator("h2").boundingBox())!;
     const buttons = await summary.getByRole("button").evaluateAll(nodes =>
@@ -30,7 +30,7 @@ for (const width of [1366, 390]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await summary.getByRole("button", { name: "下一個觀念：Next topic", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Next topic", level: 1, exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "開始作答", exact: true })).toBeVisible();
+    await expect(page.getByRole("progressbar", { name: "準備進度", exact: true })).toBeVisible();
     expect(fixture.requests.filter(request => request.path.endsWith("/assessment-sets"))).toHaveLength(0);
     expect(fixture.requests.filter(request => request.path.endsWith("/guidance/apply"))).toHaveLength(1);
   });

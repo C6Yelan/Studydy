@@ -1706,6 +1706,17 @@ test("v2 learning goals accept pending draft choices and preserve the update req
     await assert.rejects(new StudydyApiClient(async()=>Response.json(invalid)).getLearningGoal(materialId),error=>error.kind==='schema');
 });
 
+test("draft goal deletion uses an empty request and validates the cleared result", async () => {
+  const value = {schema:"learning-goal/v2",material_id:materialId,knowledge_structure_revision:null,run_id:null,today:"2026-10-27",goal:null,pending_goal:null};
+  const client = new StudydyApiClient(async (url, init) => {
+    assert.equal(url, `/v1/materials/${materialId}/goal`);
+    assert.equal(init.method, "DELETE"); assert.equal(init.body, undefined); assert.ok(new Headers(init.headers).get("Origin"));
+    return Response.json(value);
+  });
+  assert.deepEqual(await client.clearDraftLearningGoal(materialId), value);
+  await assert.rejects(new StudydyApiClient(async () => Response.json({...value, pending_goal:{target_date:"2026-11-01",target_percent:80}})).clearDraftLearningGoal(materialId), error => error.kind === "schema");
+});
+
 test("v2 diagnosis requests material scope and validates the supplied completion counters", async () => {
   const value={schema:"learning-diagnosis/v2",material_id:materialId,knowledge_structure_revision:structureRevision,scope:"material",source_resolver:`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`,strengths:[],weaknesses:[{concept_id:conceptId,label:"Stack",points:[{claim_id:claimId,title:"完整重點",answer_count:3,correct_count:1,latest_is_correct:false,consecutive_correct_count:0,required_consecutive_correct:2,completed:false,evidence:[]}]}],recommendations:[]};
   const request={materialId,structureRevision};
@@ -1812,4 +1823,20 @@ test("source metadata, library totals and run input summaries validate at the AP
   for(const patch of [{added_sources:[{source_id:'invalid',display_name:'新增.pdf'}]},{existing_source_count:-1}]){
     value={...run,...patch};await assert.rejects(client.getMaterialRun(runId),error=>error.kind==='schema');
   }
+});
+
+
+test("run structure changes and concept uncertainty use validated server values", async () => {
+  let value={...runView(),structure_changes:{before:{concepts:34,relations:24},after:{concepts:38,relations:29}}};
+  const client=new StudydyApiClient(async()=>Response.json(value));
+  assert.deepEqual((await client.getMaterialRun(runId)).structure_changes,value.structure_changes);
+  for(const changes of [{before:{concepts:-1,relations:24},after:{concepts:38,relations:29}},{before:{concepts:34},after:{concepts:38,relations:29}}]){
+    value={...runView(),structure_changes:changes};await assert.rejects(client.getMaterialRun(runId),e=>e.kind==='schema');
+  }
+  value=structureView();value.concepts[0].uncertain=true;
+  assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getKnowledgeStructure({materialId,structureRevision})).concepts[0].uncertain,true);
+  value.concepts[0].uncertain=false;
+  assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getKnowledgeStructure({materialId,structureRevision})).concepts[0].uncertain,false);
+  value.concepts[0].uncertain='true';
+  await assert.rejects(new StudydyApiClient(async()=>Response.json(value)).getKnowledgeStructure({materialId,structureRevision}),e=>e.kind==='schema');
 });

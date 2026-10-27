@@ -84,8 +84,8 @@ function SourceDetail({ candidate: c, showAcquisitionDetails, onClose }: { candi
   </dialog>;
 }
 
-export function SourceCandidates({ candidates, selected, disabled, onChange, readOnly = false, search, inlineSearch = false, showAcquisitionDetails = true, compact = false }: {
-  candidates: Candidate[]; selected: string[]; disabled: boolean; compact?: boolean;
+export function SourceCandidates({ candidates, selected, disabled, onChange, readOnly = false, search, inlineSearch = false, showAcquisitionDetails = true, compact = false, previewOnly = false }: {
+  candidates: Candidate[]; selected: string[]; disabled: boolean; compact?: boolean; previewOnly?: boolean;
   onChange: (ids: string[]) => void; readOnly?: boolean; inlineSearch?: boolean; showAcquisitionDetails?: boolean; search?: { value: string; onChange: (value: string) => void };
 }) {
   const [localQuery, setLocalQuery] = useState('');
@@ -130,8 +130,14 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
         <SelectionToggle pressed={onlySelected} onChange={setOnlySelected}>已選 {selected.length} 個</SelectionToggle>
       </div>}
     </>}
-    <div ref={list} className="research-candidates" tabIndex={0} aria-label={readOnly ? '已選來源' : '來源搜尋結果'}>
+    <div ref={list} className="research-candidates" tabIndex={0} aria-label={previewOnly ? '搜尋中已核對的來源' : readOnly ? '已選來源' : '來源搜尋結果'}>
       {pageItems.map(c => {
+        if(previewOnly)return <article key={c.id} className="research-source-preview">
+          <button type="button" aria-haspopup="dialog" onClick={()=>setDetail(c)}>
+            <Icon name={c.kind==='paper'?'file':c.kind==='web'?'search':'book'} size={20}/>
+            <span><small>{sourceKindLabel(c.kind)}</small><strong>{c.title}</strong></span><Icon name="chevron-right" size={16}/>
+          </button>
+        </article>;
         // 只剩來源類型時（Wikipedia 沒有個別作者與年份）與下方網址重複，不另列。
         const metadata = [c.kind === 'wikipedia' ? null : c.authors, c.year].some(Boolean)
           ? [sourceKindLabel(c.kind), c.kind === 'wikipedia' ? null : c.authors, c.year].filter(Boolean).join(' · ') : '';

@@ -1,3 +1,4 @@
+import { mockCreationSettings } from "../fixtures/creation-settings";
 import { expect, test, type Page, type Request } from "@playwright/test";
 import type { SourceView } from "../../src/api/contracts";
 import { emptyLearningActivity } from "../fixtures/learning-activity";
@@ -25,6 +26,7 @@ async function setup(page: Page) {
   await page.route(/\/v[12]\//, (route) => {
     throw new Error(`Unexpected request: ${route.request().method()} ${route.request().url()}`);
   });
+  const settings = await mockCreationSettings(page);
   await page.route("**/v1/account/storage", route => route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } }));
   await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } }));
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: emptyLearningActivity }));

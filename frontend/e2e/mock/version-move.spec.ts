@@ -132,3 +132,28 @@ test("a material with only its current version does not ask for a move preview",
   expect(reads).toEqual([]);
   await expect(page.getByRole("region", { name: "有新版本" })).toHaveCount(0);
 });
+
+
+test("update completion shows saved structure changes and one secondary move preview",async({page},testInfo)=>{
+ const {reads,posts}=await mockMove(page);
+ const completed={...run,base_revision:oldRevision,source_names:['舊教材.pdf','新增影片'],added_sources:[{source_id:artifactId,display_name:'新增影片'}],existing_source_count:3,structure_changes:{before:{concepts:34,relations:24},after:{concepts:38,relations:29}}};
+ await page.route(`**/v1/material-processing-runs/${runId}`,route=>json(route,completed));
+ await page.goto(`/materials/${materialId}/runs/${runId}`);
+ await expect(page.getByRole('heading',{name:'教材更新完成',exact:true})).toBeVisible();
+ await expect(page.getByRole('region',{name:'這次更新改了什麼',exact:true})).toContainText('新增 1 份來源 · 概念 34 → 38 個 · 關係 24 → 29 條');
+ const notice=page.getByRole('region',{name:'教材已更新',exact:true});
+ await expect(notice).toContainText('你的 1 個卡組與學習進度還在更新前的內容。');
+ const open=page.getByRole('button',{name:'開啟知識地圖',exact:true});
+ await expect(page.locator('.processing-page .primary-button')).toHaveCount(1);
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.evaluate(()=>window.scrollTo(0,0));
+  if(width===1440)await expect(open).toBeInViewport({ratio:1});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath(`update-completed-${width}.png`),animations:'disabled'});
+ }
+ await notice.getByRole('button',{name:'更新',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'移到新版',exact:true});await expect(dialog).toContainText('卡組「資料結構重點」');
+ expect(reads).toHaveLength(1);expect(posts).toHaveLength(0);
+ await dialog.getByRole('button',{name:'關閉移到新版',exact:true}).click();
+ await open.click();await expect(page).toHaveURL(new RegExp(`${mapPath}$`));
+});

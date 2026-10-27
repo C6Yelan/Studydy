@@ -28,7 +28,7 @@ function UnmappedList({ title, items }: { title: string; items: VersionMoveUnmap
  * 教材有新版本、而學生的卡組或學習進度還在舊版時，於教材頁顯示「有新版本」。
  * 只有學生確認後才承接；可對應的概念承接，其餘列出。只有教材保留舊版本時才查詢預覽。
  */
-export function VersionMoveNotice({ apiClient, materialId }: { apiClient: StudydyApiClient; materialId: string }) {
+export function VersionMoveNotice({ apiClient, materialId, updateCompleted = false }: { apiClient: StudydyApiClient; materialId: string; updateCompleted?: boolean }) {
   const launch = useStudyStart(apiClient, materialId);
   const material = rememberedMaterial(apiClient, materialId);
   const head = material?.head_revision ?? null;
@@ -92,10 +92,11 @@ export function VersionMoveNotice({ apiClient, materialId }: { apiClient: Studyd
   return <>
     {launch.dialog}
     {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
-    {pending && <section className="version-move-notice" aria-label="有新版本">
-      <span className="version-move-badge"><Icon name="sparkle" size={16}/>有新版本</span>
-      <p>這份教材已更新，產生了新版本。你的{/^\d/.test(parts) ? " " : ""}{parts}還在舊版，確認後才會移到新版。</p>
-      <button className="primary-button" type="button" onClick={() => { setError(null); setOpen(true); }}>移到新版</button>
+    {pending && <section className="version-move-notice" aria-label={updateCompleted ? "教材已更新" : "有新版本"}>
+      <span className="version-move-badge"><Icon name="sparkle" size={16}/>{updateCompleted ? "教材已更新" : "有新版本"}</span>
+      {updateCompleted ? <p>你的 {parts}還在更新前的內容。</p>
+        : <p>這份教材已更新，產生了新版本。你的{/^\d/.test(parts) ? " " : ""}{parts}還在舊版，確認後才會移到新版。</p>}
+      <button className={updateCompleted ? "secondary-button" : "primary-button"} type="button" onClick={() => { setError(null); setOpen(true); }}>{updateCompleted ? "更新" : "移到新版"}</button>
     </section>}
     <Modal label="移到新版" open={open} onClose={close} className="version-move-dialog">
       <header className="version-move-head">

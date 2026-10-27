@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { chooseBeginner } from "../fixtures/starting-level";
+import { chooseFirstLevel } from "../fixtures/starting-level";
 
 test.skip(
   process.env.STUDYDY_E2E_CONCEPT_NAVIGATION !== "true",
@@ -30,8 +30,7 @@ test("unfinished A does not block B and switching back resumes A", async ({ page
     page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true }),
   ).toBeVisible();
   await page.goto(studyPath);
-  await chooseBeginner(page);
-  await page.getByRole("button", { name: "開始作答", exact: true }).click();
+  await chooseFirstLevel(page);
   await expect(page.getByText("0 / 1 題", { exact: true })).toBeVisible();
   const firstSetUrl = page.url();
   const firstSetId = firstSetUrl.split("/").at(-1)!;

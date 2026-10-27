@@ -244,6 +244,13 @@ export function materialRun(value: unknown): value is MaterialProcessingRunView 
     return !!source && isUuid(source.source_id) && typeof source.display_name === "string";
   }))) return false;
   if (item.existing_source_count !== undefined && (!Number.isInteger(item.existing_source_count) || Number(item.existing_source_count) < 0)) return false;
+  if (item.structure_changes != null) {
+    const changes = object(item.structure_changes);
+    if (!changes || ![changes.before, changes.after].every(value => {
+      const counts = object(value);
+      return !!counts && [counts.concepts, counts.relations].every(count => Number.isInteger(count) && Number(count) >= 0);
+    })) return false;
+  }
   if (!isUuid(item.material_id) || !isUuid(item.source_artifact_id)) return false;
   if (!timestamp(item.updated_at) || !(item.completed_at === null || timestamp(item.completed_at)))
     return false;
@@ -474,6 +481,7 @@ function cardEvidence(value: unknown): boolean {
 function conceptCard(value: unknown): value is ConceptCard {
   const item = object(value);
   return !!item && revision(item.concept_id, "concept") && typeof item.label === "string"
+    && (item.uncertain === undefined || typeof item.uncertain === "boolean")
     && Array.isArray(item.claims) && item.claims.every((value) => {
       const claim = object(value);
       return !!claim && revision(claim.claim_id, "claim") && typeof claim.text === "string"

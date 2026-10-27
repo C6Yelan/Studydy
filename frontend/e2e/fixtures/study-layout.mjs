@@ -158,6 +158,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
   };
   let startingLevel = scenario?.startingLevel === undefined ? (initialStage === "preparation" ? "beginner" : "some_knowledge") : scenario.startingLevel;
   let inheritedCheck = !!scenario?.inheritedCheck;
+  let startedNext = false;
   let sessionFinished = !!scenario?.sessionCompleted;
   let selectedConceptId = conceptId;
   let assessmentStage = initialStage;
@@ -324,11 +325,12 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       if (startingLevel === null) return send({ schema: "api-error/v1", request_id: uuid(9), reason_code: "STARTING_LEVEL_REQUIRED", retryable: false, message: "Request could not be completed." }, 409);
       const wanted = request.postDataJSON().current_concept_id;
       selectedConceptId = wanted ?? latestProgress?.current_concept_id ?? selectedConceptId;
-      if (startingLevel !== "beginner" && (assessmentStage === "preparation" || wanted && assessmentStage === "completed")) {
-        assessmentStage = "preparing"; setVersion++;
+      if (assessmentStage === "preparation" || wanted && assessmentStage === "completed" || guidanceApplied && nextAction === "advance") {
+        startedNext = guidanceApplied && nextAction === "advance";
+        assessmentStage = "preparing"; setVersion++; inheritedCheck = false; sessionFinished = false;
       }
       const current = selectedConceptId;
-      const selected = inheritedCheck || ["preparation", "no-safe"].includes(assessmentStage) || guidanceApplied && nextAction === "advance" ? null : setId;
+      const selected = inheritedCheck || ["preparation", "no-safe"].includes(assessmentStage) ? null : setId;
       return send({ schema: "study-start/v1", starting_level: startingLevel, selected_set_id: selected,
         session: { schema: "study-session/v1", study_session_id: sessionId, material_id: materialId, knowledge_structure_revision: structureRevision,
           current_concept_id: current, deferred_concept_ids: [], no_safe_claim_ids: [], status: sessionFinished ? "completed" : "active", started_at: timestamp, completed_at: sessionFinished ? timestamp : null, event_watermark: 1 } });
@@ -395,7 +397,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       const readingWithoutSet = startingLevel === "beginner" && !selectedId && assessmentStage === "completed";
       const selected = inheritedCheck || readingWithoutSet ? null : historical
         ? buildAssessmentSet(true)
-        : active && (!guidanceApplied || nextAction === "complete")
+        : active && (!guidanceApplied || nextAction === "complete" || startedNext)
           ? buildAssessmentSet()
           : null;
       const current = guidanceApplied && nextAction === "advance" ? nextConceptId : selectedConceptId;
@@ -601,7 +603,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     async open() {
       await page.goto(initialStage === "completed" && !inheritedCheck && !sessionFinished ? `${basePath}/assessment-sets/${setId}` : basePath);
       await page
-        .locator(".starting-reading-intro, .assessment-set-header, .assessment-cycle, .assessment-card, .inherited-check, .state-view")
+        .locator(".assessment-set-header, .assessment-cycle, .assessment-card, .inherited-check, .state-view")
         .first()
         .waitFor();
     },

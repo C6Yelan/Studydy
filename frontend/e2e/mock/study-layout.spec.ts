@@ -4,7 +4,7 @@ import { readRoute } from "../../src/app/routes";
 import { studyLayoutFixture } from "../fixtures/study-layout.mjs";
 
 async function preparationLayout(page: Page, width: number) {
-  await expect(page.getByRole("region", { name: "先閱讀概念說明" })).toBeVisible();
+  await page.locator(".study-material-summary > summary").click();
   await expect(page.locator(".current-concept-card")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
@@ -36,7 +36,7 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     const fixture = await studyLayoutFixture(page);
     await fixture.open();
-    const start = page.getByRole("button", { name: "開始作答", exact: true });
+    const start = page.getByRole("button", { name: "開始學習", exact: true });
     await expect(start).toBeEnabled();
     await preparationLayout(page, viewport.width);
     await start.scrollIntoViewIfNeeded();
@@ -52,17 +52,18 @@ for (const viewport of [
     );
     await page.keyboard.press("Escape");
     await expect(sources).toBeFocused();
+    await page.locator(".study-material-summary > summary").click();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     fixture.setPreparedCount(0);
-    await page.route("**/assessment-sets", async (route) => {
+    await page.route("**/study-start", async (route) => {
       await gate;
       await route.fallback();
     });
     await start.click();
-    await expect(page.getByRole("button", { name: "正在開始作答…", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "開始學習", exact: true })).toBeDisabled();
     release();
     await inlinePreparing(page);
     const bar = page.getByRole("progressbar", { name: "準備進度" });
@@ -151,7 +152,7 @@ for (const viewport of [
     await expect(page).toHaveURL(new RegExp(fixture.historyPath.split("/").at(-1)! + "$"));
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-result-mode/);
     expect(
-      fixture.requests.filter((request) => request.path.endsWith("/assessment-sets")),
+      fixture.requests.filter((request) => request.path.endsWith("/study-start")),
     ).toHaveLength(1);
     expect(
       fixture.requests.filter((request) => request.path.endsWith("/submissions")),
@@ -207,7 +208,7 @@ test("generation failure and no-safe keep clear states and readable material", a
 test("create failure restores entry and retry retains its idempotency key", async ({ page }) => {
   const fixture = await studyLayoutFixture(page);
   const keys: string[] = [];
-  await page.route("**/assessment-sets", async (route) => {
+  await page.route("**/study-start", async (route) => {
     keys.push(route.request().headers()["idempotency-key"]);
     if (keys.length === 1)
       return route.fulfill({
@@ -223,11 +224,11 @@ test("create failure restores entry and retry retains its idempotency key", asyn
     return route.fallback();
   });
   await fixture.open();
-  const start = page.getByRole("button", { name: "開始作答", exact: true });
+  const start = page.getByRole("button", { name: "開始學習", exact: true });
   await start.click();
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(start).toBeEnabled();
-  await expect(page.locator(".current-concept-card")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "尚未開始這個概念" })).toBeVisible();
   await start.click();
   await expect(page.getByText("2 / 6 題", { exact: true })).toBeVisible();
   await inlinePreparing(page);

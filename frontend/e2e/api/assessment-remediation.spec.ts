@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { chooseBeginner } from "../fixtures/starting-level";
+import { chooseFirstLevel } from "../fixtures/starting-level";
 
 test.skip(
   process.env.STUDYDY_E2E_REMEDIATION !== "true",
@@ -33,8 +33,7 @@ test("wrong points directly form groups and survive lost create responses", asyn
   page.on("pageerror", (error) => errors.push(error.message));
   await login(page);
   await page.goto(study);
-  await chooseBeginner(page);
-  await page.getByRole("button", { name: "開始作答", exact: true }).click();
+  await chooseFirstLevel(page);
   await expect(page.locator(".assessment-set-item")).toHaveCount(3);
   const rootUrl = page.url();
   for (let n = 1; n <= 3; n++) {
@@ -115,12 +114,11 @@ test("wrong points directly form groups and survive lost create responses", asyn
   await expect(fresh).toHaveURL(rootUrl);
   await expect(fresh.locator(".assessment-set-item")).toHaveCount(3);
   await fresh.getByRole("button", { name: "下一個觀念：Other topic", exact: true }).click();
-  await expect(fresh).toHaveURL(study);
+  await expect(fresh).toHaveURL(new RegExp(study + "/assessment-sets/"));
   await expect(
     fresh.getByRole("heading", { name: "Other topic", level: 1, exact: true }),
   ).toBeVisible();
-  await expect(fresh.getByRole("region", { name: "先閱讀概念說明" })).toContainText("Other topic");
-  await expect(fresh.getByRole("button", { name: "開始作答", exact: true })).toBeVisible();
+  await expect(fresh.locator(".assessment-set-item")).toHaveCount(1);
   expect(errors).toEqual([]);
   await context.close();
 });

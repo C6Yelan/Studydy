@@ -1,3 +1,4 @@
+import { CreationLearningSettings, type CreationSettings } from "../study-session/CreationLearningSettings";
 import { sourceMetadata, sourceTotals, sourceTotalsLabel } from "./source-summary";
 import "./source-transcript.css";
 import { MaterialNameField } from "../../ui/MaterialNameField";
@@ -50,6 +51,9 @@ export function SourceView({
   const sourceListRef = useRef<SourceListView | null>(null);
   sourceListRef.current = sourceList;
   const [material, setMaterial] = useState<MaterialLibraryItem | null>(null);
+  const [learningSettings, setLearningSettings] = useState<CreationSettings | null>(null);
+  const [goalToday, setGoalToday] = useState("");
+  const settingsLoaded = useRef(false);
   const [materialName,setMaterialName]=useState<string|null>(null);
   const [transcript, setTranscript] = useState<SourceItem | null>(null);
   const transcriptDialog = useRef<HTMLDialogElement>(null);
@@ -166,6 +170,17 @@ export function SourceView({
     material?.available_structures.find(
       (item) => item.knowledge_structure_revision === material.head_revision,
     ) ?? material?.available_structures[0];
+  useEffect(() => {
+    if (!material || currentStructure || settingsLoaded.current) return;
+    let cancelled = false;
+    void Promise.all([apiClient.getStartingLevel(materialId), apiClient.getLearningGoal(materialId)]).then(([level, goal]) => {
+      if (cancelled) return;
+      setLearningSettings({ level: level.starting_level === "beginner" || !level.starting_level ? "some_knowledge" : level.starting_level,
+        goal: goal.pending_goal ? { date: goal.pending_goal.target_date, percent: goal.pending_goal.target_percent } : null });
+      setGoalToday(goal.today); settingsLoaded.current = true;
+    }, failure => { if (!cancelled) setError(errorMessage(failure)); });
+    return () => { cancelled = true; };
+  }, [apiClient, materialId, !!material, !!currentStructure, reload]);
   const baseRevision = currentStructure?.knowledge_structure_revision ?? null;
   const run = material?.latest_attempt;
   const hasActiveRun = run?.status === "pending" || run?.status === "running";
@@ -201,10 +216,15 @@ export function SourceView({
   };
   const start = () =>
     perform(async () => {
-      if (!sourcesReady || hasActiveRun || queue.length > 0 || !materialName?.trim()) return;
+      if ((!currentStructure && !learningSettings) || !sourcesReady || hasActiveRun || queue.length > 0 || !materialName?.trim()) return;
       if (!currentStructure && materialName.trim() !== material?.display_name) {
         const renamed = await apiClient.renameMaterial(materialId, materialName.trim());
         setMaterial(renamed);rememberMaterial(apiClient,renamed);
+      }
+      if (!currentStructure && learningSettings) {
+        await apiClient.setStartingLevel(materialId, learningSettings.level);
+        if (learningSettings.goal) await apiClient.setLearningGoal(materialId, learningSettings.goal.date, learningSettings.goal.percent);
+        else await apiClient.clearDraftLearningGoal(materialId);
       }
       const ids = selectedSources.map((source) => source.normalization_id);
       const signature = JSON.stringify([baseRevision, ids]);
@@ -540,7 +560,7 @@ export function SourceView({
         </button>
       ) : (
         queue.length === 0 && sourcesReady && (
-          <button className="primary-button" disabled={busy || (!currentStructure && !materialName?.trim())} onClick={() => void start()}>
+          <button className="primary-button" disabled={busy || (!currentStructure && (!materialName?.trim() || !learningSettings))} onClick={() => void start()}>
             {busy ? "正在建立分析…" : currentStructure ? "確認新增並更新地圖" : "開始分析教材"}
             <Icon name="chevron-right" size={16} />
           </button>
@@ -598,6 +618,7 @@ export function SourceView({
           footer={listFooter}
         >
           <MaterialNameField value={materialName??""} onChange={setMaterialName} disabled={busy||removing||hasActiveRun}/>
+          {learningSettings ? <CreationLearningSettings value={learningSettings} today={goalToday} disabled={busy||removing||hasActiveRun} onChange={setLearningSettings}/> : <p role="status">正在讀取程度與目標…</p>}
           {removing && <p role="status">正在刪除教材…</p>}
           {sourceRows}
           {!removing && !hasActiveRun && (

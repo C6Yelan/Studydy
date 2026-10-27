@@ -35,7 +35,7 @@ test("a real goal leads through level selection, source reading and answers with
   await today.getByRole("button", { name: "學習 Signals", exact: true }).click();
   const levels = page.getByRole("dialog", { name: "你想從哪裡開始？" });
   await expect(levels).toBeVisible();
-  await levels.getByRole("radio", { name: /懂一點/ }).check();
+  await levels.getByRole("radio", { name: /第一次接觸/ }).check();
   await levels.getByRole("button", { name: "儲存選擇", exact: true }).click();
   await expect(page).toHaveURL(/assessment-sets\/[0-9a-f-]+$/);
   await expect(page.locator(".assessment-set-item")).toHaveCount(2);
@@ -46,7 +46,12 @@ test("a real goal leads through level selection, source reading and answers with
   expect(published.knowledge_structure_revision).toBe(data.revision);
   expect(JSON.stringify(published)).not.toMatch(/"correct_option_id"|"prepared_document"|"private_answer_document"|"generation_provenance"/);
 
-  // 懂一點直接作答，但仍能展開原教材並透過真 API 回查 PDF。
+
+  await page.getByRole("article", { name: "第 1 題", exact: true }).getByRole("radio", { name: /\bcode0\b/ }).check();
+  await page.getByRole("article", { name: "第 2 題", exact: true }).getByRole("radio", { name: /\bcode1\b/ }).check();
+  await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
+  await expect(page.locator(".assessment-set-summary")).toContainText("答對2 / 2 題");
+  // 完成作答後可展開原教材並透過真 API 回查 PDF。
   await expect(page.locator(".study-material-summary")).not.toHaveAttribute("open", "");
   await page.locator(".study-material-summary > summary").click();
   await page.getByRole("region", { name: "教材來源", exact: true }).getByRole("button").click();
@@ -59,10 +64,6 @@ test("a real goal leads through level selection, source reading and answers with
   await page.keyboard.press("Escape");
   await page.locator(".study-material-summary > summary").click();
 
-  await page.getByRole("article", { name: "第 1 題", exact: true }).getByRole("radio", { name: /\bcode0\b/ }).check();
-  await page.getByRole("article", { name: "第 2 題", exact: true }).getByRole("radio", { name: /\bcode1\b/ }).check();
-  await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
-  await expect(page.locator(".assessment-set-summary")).toContainText("答對2 / 2 題");
   const badgeNotice = page.getByRole("dialog", { name: "獲得新徽章" });
   if (await badgeNotice.isVisible()) await badgeNotice.getByRole("button", { name: "太好了", exact: true }).click();
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
