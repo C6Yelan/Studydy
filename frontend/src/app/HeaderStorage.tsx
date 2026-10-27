@@ -89,7 +89,7 @@ export function HeaderStorage({ apiClient }: { apiClient: StudydyApiClient }) {
       <div className="storage-largest">
         <h3>佔用最多的教材</h3>
         {storage.largest_materials.length ? <ol>{storage.largest_materials.map(material => <li key={material.material_id}>
-          <a href={routePath({ name: "material", materialId: material.material_id })} onClick={event => {
+          <a className="header-storage-material-link" href={routePath({ name: "material", materialId: material.material_id })} onClick={event => {
             if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
             event.preventDefault(); setOpen(false); writeRoute({ name: "material", materialId: material.material_id });
           }}>{material.display_name}</a>
