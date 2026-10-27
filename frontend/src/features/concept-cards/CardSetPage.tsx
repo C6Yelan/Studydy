@@ -272,15 +272,15 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
     {countError && <p className="form-error" role="alert">張數尚未保存。<button className="text-button" onClick={() => setCountRetry(n => n + 1)}>重試保存張數</button></p>}
     <header className="cards-study-heading"><div><h1>{view.name}</h1>
       <p className="cards-study-meta">{total !== null && <span>{total} 張卡片</span>}{!materialId && <span><Icon name="book" size={15} /> {view.material_name}</span>}</p>
-      {/* 教材頁上方已有「有新版本」提示；這裡只用小標籤說明此卡組的內容版本。 */}
-      {!view.is_current_revision && !view.moved_to_card_set_id && <p className="cards-version-tag"><Icon name="sparkle" size={14} />教材已有新版。此卡組保留建立時的教材內容與來源。</p>}
+      {/* 教材頁上方已有更新入口；這裡說明此卡組保留建立時的內容。 */}
+      {!view.is_current_revision && !view.moved_to_card_set_id && <p className="cards-version-tag"><Icon name="sparkle" size={14} />教材已更新。此卡組保留建立時的教材內容與來源。</p>}
     </div>
       {/* 需要加強在獨立頁進行，只看這個卡組標成不熟的卡片。 */}
       {weak !== null && weak > 0 && <button className="cards-weak-link" type="button" onClick={() => writeRoute({ name: "card-review", cardSetId: view.card_set_id, materialId }, false, { fromCollection: !!window.history.state?.fromCollection })}>
         <Icon name="refresh" size={18} /><span>需要加強 <b>{weak}</b> 張</span><strong>開始加強<Icon name="chevron-right" size={16} /></strong>
       </button>}
     </header>
-    {!view.is_current_revision && view.moved_to_card_set_id && <p className="cards-notice">這個卡組已移到新版，這裡保留舊版的卡面與來源；學習標記由新版卡組沿用。<button className="text-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: view.moved_to_card_set_id!, materialId: view.material_id })}>前往新版卡組</button></p>}
+    {!view.is_current_revision && view.moved_to_card_set_id && <p className="cards-notice">這個卡組已更新，這裡保留更新前的卡面與來源；學習標記由更新後的卡組沿用。<button className="text-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: view.moved_to_card_set_id!, materialId: view.material_id })}>前往更新後卡組</button></p>}
     <button type="button" className="text-button card-practice-list-toggle" aria-expanded={listOpen} onClick={() => setListOpen(value => !value)}>{listOpen ? "收合卡片清單" : "展開卡片清單"}</button>
     <div className={`cards-browse-layout card-practice-layout ${listOpen ? "is-list-open" : ""}`}><nav hidden={!listOpen} className="cards-browse-list" aria-label="選擇概念卡">
       {view.navigation.length > 12 && <input className="cards-browse-search" type="search" aria-label="搜尋概念卡" placeholder={`搜尋 ${view.navigation.length} 張概念…`} value={listQuery} onChange={event => setListQuery(event.target.value)} onKeyDown={event => event.stopPropagation()} />}

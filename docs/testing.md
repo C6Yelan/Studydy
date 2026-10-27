@@ -386,3 +386,5 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 `test_voice_sentences.py` 使用真DB與合成PCM驗證完整核對後切句、句序、第一句先可讀、未完成整份不下載、取消拒絕遲到結果、失敗重試不重做已完成句、最後串接及migration套用回滾。`test_voice_audio_timings.py` 使用真HTTP與真provider鎖驗證實測等待／合成header；問答回歸驗證三段階段量測，不呼叫模型。離線量測只證明計時與生命周期，不作真實回答延遲改善宣稱。
 
 T2 的 `test_media_sources.py` 以真實逐字稿 PDF→native Evidence 驗證段界與合字展開；`test_ocr_page_evidence.py` 以真實 PDF 驗證中文詞內換行與公式字面值保留。`test_spoken_analysis.py` 核對疑義還原僅回到原引用、保留 needs_review 而不把診斷加進重點。這些測試不代替隔離重分析的語意品質比較。
+
+`test_version_entry_state.py` 以隔離DB驗證真發布後安全自動移動、三類不安全留手動、返回保留新標記與head、提醒跨瀏覽器、同head分次移動用move_id判過期、無引用副本清理且原始事件／最小收據保留及migration套用回滾；原test_version_moves保護手動預覽／冪等／XP不重算。S5不在正式站測清理或部署。

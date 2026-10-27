@@ -130,9 +130,9 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
                 <p className="library-metadata">{new Date(item.created_at).toLocaleDateString()} · <CardCount key={`${item.card_set_id}:${item.version}`} item={item} apiClient={apiClient} onSaved={countSaved} /></p>
                 {!material && <p className="cards-library-material" title={item.material_name}>{item.material_name}</p>}
                 {!item.is_current_revision && (item.moved_to_card_set_id
-                  ? <p className="library-state is-version">已移到新版（保留舊版卡面）</p>
-                  // 到教材頁才有「移到新版」；標籤直接帶過去。
-                  : <button type="button" className="library-state is-version" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>教材已有新版 · 查看移到新版</button>)}
+                  ? <p className="library-state is-version">已更新（保留更新前卡面）</p>
+                  // 到卡組頁查看更新入口；標籤直接帶過去。
+                  : <button type="button" className="library-state is-version" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>教材已更新 · 查看更新內容</button>)}
                 {(weak?.get(item.card_set_id) ?? 0) > 0 && <p className="card-review-due"><Icon name="refresh" size={14} />需要加強 {weak!.get(item.card_set_id)} 張</p>}
                 <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>開始複習</button></div>
               </article>

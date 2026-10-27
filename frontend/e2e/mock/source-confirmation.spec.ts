@@ -1,3 +1,4 @@
+import { emptyVersionMovePreview } from "../fixtures/knowledge-map";
 import { mockCreationSettings } from "../fixtures/creation-settings";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {
@@ -87,6 +88,9 @@ async function mockSources(page: Page, append = false) {
       return route.fulfill({ json: emptyCelebrationClaim });
     }
     switch (path) {
+      case `/v1/materials/${materialId}/version-move`:
+        expect(request.method()).toBe("GET");
+        return route.fulfill({ json: emptyVersionMovePreview(materialId, revision) });
       case "/v1/session":
       case "/v1/session/refresh":
         expect(request.method()).toBe(path.endsWith("/refresh") ? "POST" : "GET");

@@ -85,6 +85,9 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
         .order_by(KnowledgeStructure.structure_revision)
         .with_for_update()
     ).all()
+    from .tables import MaterialVersionState
+    entry_state = session.get(MaterialVersionState,(owner,material_id))
+    previous_revision = entry_state.previous.get("revision") if entry_state and entry_state.previous else None
     note_revisions = set(session.scalars(select(MaterialNotes.structure_revision).join(KnowledgeStructure,
         (KnowledgeStructure.learner_id == MaterialNotes.learner_id)
         & (KnowledgeStructure.material_id == MaterialNotes.material_id)
@@ -95,7 +98,7 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
         .order_by(MaterialNotes.kind, KnowledgeStructure.created_at.desc(), MaterialNotes.updated_at.desc())))
     for row in rows:
         # 更新期間仍要回查最後一份可讀筆記的來源，兩種筆記各保護最近一份。
-        if row.structure_revision in note_revisions:
+        if row.structure_revision == previous_revision or row.structure_revision in note_revisions:
             continue
         # 此次維護承諾封存原版；後續追加來源時也保留它。
         if session.scalar(select(MaterialProcessingRun.run_id).where(

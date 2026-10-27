@@ -4,7 +4,14 @@ import { diagnosisView, difficultyView } from "./learning-diagnosis";
 import { emptyGoal, goalToday } from "./learning-goals";
 // 地圖 browser 測試共用的合成資料與 API 攔截；不呼叫真實後端或模型。
 import { expect, type Page, type Route } from "@playwright/test";
-import type { EvidenceView } from "../../src/api/contracts";
+import type { EvidenceView, VersionMovePreview } from "../../src/api/contracts";
+
+export function emptyVersionMovePreview(id: string, revision: string | null): VersionMovePreview {
+  return { schema: "version-move-preview/v2", material_id: id, to_revision: revision,
+    preview_digest: null, card_sets: [], study: null, kept_podcasts: 0,
+    automatic_safe: revision !== null, blocking_reasons: [], notice_dismissed: false,
+    previous: null, automatic_move: null };
+}
 
 export const browserOrigin = process.env.STUDYDY_E2E_BASE_URL ?? "http://127.0.0.1:4173";
 
@@ -304,6 +311,7 @@ export async function mockKnowledgeMapApi(
     ],
     study_sessions: [],
   }));
+  await mockGet(page, `/v1/materials/${materialId}/version-move`, () => emptyVersionMovePreview(materialId, revision));
   await mockGet(page, `/v1/material-processing-runs/${runId}`, () => boundRun);
   await mockGet(page, mapPath, () => view);
   await mockGet(page, "/v1/learning-goals", () => ({ schema: "learning-goals/v1", today: goalToday, goals: [] }));

@@ -15,7 +15,7 @@
 .cards-dialog p { line-height: 1.8; overflow-wrap: anywhere; }
 .cards-dialog .state-actions { justify-content: flex-end; margin-top: 24px; }
 .cards-danger { background: #b13c3c; border-color: #b13c3c; }
-/* 版本說明：與教材頁「有新版本」同一套紫色提示語言。 */
+/* 更新說明：與教材頁更新提醒使用同一套提示語言。 */
 .cards-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 0 16px; padding: 12px 18px; border: 0; border-radius: var(--radius-card); background: var(--violet-soft); color: #5b3ab8; font-size: 13px; font-weight: 700; line-height: 1.7; }
 .cards-version-tag { display: inline-flex !important; align-items: center; gap: 6px; width: fit-content; margin-top: 8px !important; padding: 4px 12px; border-radius: 999px; background: var(--violet-soft); color: #5b3ab8 !important; font-size: 12px !important; font-weight: 800; }
 .cards-version-tag svg { margin-top: 0 !important; }

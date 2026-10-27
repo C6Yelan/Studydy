@@ -402,3 +402,5 @@ S2教材卡片合計新增material-library-item/v1.source_totals，與前端S2�
 L1確認設定與草稿目標DELETE需與前端L1同批部署，使用既有topic starting_level／learning_goal及material pending_goal，無migration／provider變更。approve未傳保留、null清除；確認改設定後舊建立請求可回既有IDEMPOTENCY_CONFLICT，此限制已核准。
 
 Q4正確選項投影與前端Q4同批部署：answer-feedback/v1新增可選correct_option_id，僅已交卷題組出現，舊已交卷資料直接投影保存的私密答案。無migration或provider變更，不回寫題目／作答紀錄。
+
+S5移到新版與前端F6同批部署，套用migration0028_version_entry_state。前端F6須接受version-move-preview/v2、previous.move_id與return expected_move_id；不能單獨上線。既有材料初始化提醒狀態，不追溯自動移動；新發布才排入安全判定。

@@ -41,6 +41,8 @@ export type KnownApiReasonCode =
   | "CARD_SET_CONFLICT"
   | "CARD_REVIEW_CONFLICT"
   | "VERSION_MOVE_STALE"
+  | "VERSION_MOVE_PREVIEW_STALE"
+  | "VERSION_MOVE_PREVIOUS_UNAVAILABLE"
   | "INVALID_EMAIL"
   | "INVALID_CREDENTIALS"
   | "ACCOUNT_UNAVAILABLE"
@@ -967,8 +969,22 @@ export type VersionMoveCardSet = {
   unmapped: VersionMoveUnmapped[];
 };
 
+export type VersionMovePrevious = {
+  move_id: string;
+  revision: string;
+  card_set_ids: string[];
+  study_session_id: string | null;
+};
+export type VersionMoveNoticeView = { schema: "version-move-notice/v1"; dismissed: boolean };
+export type VersionMoveReturn = VersionMovePrevious & { schema: "version-move-return/v1" };
+
 export type VersionMovePreview = {
-  schema: "version-move-preview/v1";
+  schema: "version-move-preview/v2";
+  automatic_safe: boolean;
+  blocking_reasons: { code: "unmapped_cards" | "unmapped_progress" | "assessment_in_progress" | "source_unavailable"; count: number }[];
+  notice_dismissed: boolean;
+  previous: VersionMovePrevious | null;
+  automatic_move: { status: "pending" | "completed" | "failed"; move_id: string | null; error_code: string | null } | null;
   material_id: string;
   to_revision: string | null;
   preview_digest: string | null;

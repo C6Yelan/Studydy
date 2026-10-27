@@ -179,6 +179,8 @@ def publish_knowledge_structure(
             if updated is None:
                 raise KnowledgeStructureStoreError("MATERIAL_RUN_UNAVAILABLE")
             # 品質提示隨結果保留，不阻擋已驗證且含新增內容的地圖發布。
+            from .version_moves import enqueue_automatic
+            enqueue_automatic(session, material, document["revision"])
             material.head_revision = document["revision"]
             material.source_artifact_id = locked_run.source_artifact_id
             session.flush()

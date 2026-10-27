@@ -1,4 +1,4 @@
-/* 教材新版承接：教材頁的「有新版本」提示與移到新版對話框。 */
+/* 教材更新承接：一般提醒、常駐入口與確認對話框。 */
 .version-move-notice {
   display: flex;
   align-items: center;
@@ -10,14 +10,10 @@
   color: var(--text-primary);
 }
 .version-move-notice p {
-  flex: 1;
   min-width: 0;
   margin: 0;
   font-size: 14px;
   line-height: 1.7;
-}
-.version-move-notice .primary-button {
-  flex: none;
 }
 .version-move-badge {
   display: inline-flex;
@@ -156,12 +152,6 @@
     flex-wrap: wrap;
     padding: var(--space-4);
   }
-  .version-move-notice p {
-    flex-basis: 100%;
-  }
-  .version-move-notice .primary-button {
-    width: 100%;
-  }
   .version-move-body {
     padding: var(--space-4);
   }
@@ -169,3 +159,23 @@
     flex: 1 1 auto;
   }
 }
+
+.version-move-description { flex:1; min-width:0; }
+.version-move-description > p { margin:0; }
+.version-move-banner { position:relative; padding-inline-end:64px; }
+.version-move-dismiss { position:absolute; top:6px; right:6px; display:grid; place-items:center; width:42px; height:42px; border:0; border-radius:50%; background:transparent; color:var(--text-secondary); cursor:pointer; }
+.version-move-dismiss:hover { background:var(--surface); }
+.version-move-entry { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:0 0 var(--space-4); color:var(--text-secondary); font-size:13px; }
+.version-move-entry .version-move-description { flex:0 1 auto; }
+.version-move-entry-action { border:0; padding:6px 2px; background:transparent; color:var(--studydy-blue); font:inherit; font-weight:700; cursor:pointer; }
+.version-move-entry-action:hover { text-decoration:underline; }
+.version-move-entry-action:disabled, .version-move-dismiss:disabled { cursor:wait; opacity:.6; }
+@media (max-width:720px) {
+  .version-move-banner .version-move-description { flex-basis:100%; }
+}
+
+.version-move-body .version-move-return-entry { justify-content:flex-start; padding-block:12px; text-align:left; }
+.version-move-return-entry > span { min-width:0; overflow-wrap:anywhere; }
+
+.version-move-return-entry > svg { flex:none; }
+.version-move-confirm-actions { flex:none; padding:16px 24px; border-top:1px solid var(--border); }

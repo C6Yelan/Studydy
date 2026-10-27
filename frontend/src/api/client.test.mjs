@@ -1593,7 +1593,8 @@ test("podcast progress posts listening reports with keepalive and checks the pod
 
 function versionMovePreview(change = () => undefined) {
   const value = {
-    schema: "version-move-preview/v1", material_id: materialId, to_revision: structureRevision,
+    schema: "version-move-preview/v2", material_id: materialId, to_revision: structureRevision,
+    automatic_safe: false, blocking_reasons: [{ code: "unmapped_cards", count: 1 }], notice_dismissed: false, previous: null, automatic_move: null,
     preview_digest: `version-move:sha256:${"f".repeat(64)}`, kept_podcasts: 1,
     card_sets: [{
       card_set_id: setId, name: "複習", from_revision: `knowledge-structure:sha256:${"9".repeat(64)}`,
@@ -1619,6 +1620,12 @@ test("version move preview keeps the mapping, reasons and digest shape", async (
   for (const change of [
     (value) => { value.material_id = runId; },
     (value) => { value.preview_digest = "sha256:x"; },
+    (value) => { delete value.automatic_safe; },
+    (value) => { value.notice_dismissed = "true"; },
+    (value) => { value.blocking_reasons = [{ code: "unknown", count: 1 }]; },
+    (value) => { value.blocking_reasons[0].count = 0; },
+    (value) => { value.previous = { move_id: "wrong", revision: structureRevision, card_set_ids: [], study_session_id: null }; },
+    (value) => { value.automatic_move = { status: "ready", move_id: null, error_code: null }; },
     (value) => { value.card_sets[0].unmapped[0].reason = "guess"; },
     (value) => { value.card_sets[0].mapped[0].basis = "similar"; },
     (value) => { value.card_sets[0].carried_reviews = -1; },
@@ -1889,4 +1896,35 @@ test("material run validates persisted automatic retry fields", async () => {
     value = { ...runView(), ...patch };
     await assert.rejects(client.getMaterialRun(runId), error => error.kind === "schema");
   }
+});
+
+
+test("version move v2 keeps the exact previous move and automatic state", async () => {
+  const value = versionMovePreview(item => {
+    item.previous = { move_id: runId, revision: structureRevision, card_set_ids: [setId], study_session_id: sessionId };
+    item.automatic_move = { status: "completed", move_id: runId, error_code: null };
+  });
+  const client = new StudydyApiClient(async () => Response.json(value));
+  assert.deepEqual(await client.getVersionMove(materialId), value);
+});
+
+test("notice dismissal and return use their schemas and bind the expected move id", async () => {
+  const sent = [];
+  let value = { schema: "version-move-notice/v1", dismissed: true };
+  const client = new StudydyApiClient(async (path, init) => {
+    sent.push([path, init.method, JSON.parse(init.body)]);
+    return Response.json(value);
+  });
+  assert.deepEqual(await client.setVersionMoveNotice(materialId, true), value);
+  assert.deepEqual(sent.pop(), [`/v1/materials/${materialId}/version-move/notice`, "PUT", { schema: "version-move-notice/v1", dismissed: true }]);
+  value = { schema: "version-move-return/v1", move_id: runId, revision: structureRevision, card_set_ids: [setId], study_session_id: sessionId };
+  assert.deepEqual(await client.returnToPreviousEntries(materialId, runId), value);
+  assert.deepEqual(sent.pop(), [`/v1/materials/${materialId}/version-move/return`, "POST", { schema: "version-move-return/v1", expected_move_id: runId }]);
+  for (const patch of [{ move_id: sessionId }, { card_set_ids: ["bad"] }, { revision: "bad" }, { study_session_id: "bad" }]) {
+    const original = value; value = { ...value, ...patch };
+    await assert.rejects(client.returnToPreviousEntries(materialId, runId), error => error.kind === "schema");
+    value = original;
+  }
+  value = { schema: "version-move-notice/v1", dismissed: false };
+  await assert.rejects(client.setVersionMoveNotice(materialId, true), error => error.kind === "schema");
 });
