@@ -268,6 +268,7 @@ function sourceView(value: unknown): value is SourceView {
     [item.source_id, item.normalization_id, item.original_artifact_id].every(isUuid) &&
     (item.included === undefined || typeof item.included === "boolean") &&
     typeof item.original_name === "string" &&
+    (item.display_name === undefined || typeof item.display_name === "string") &&
     typeof item.media_type === "string" &&
     ["pending", "running", "ready", "failed"].includes(String(item.status)) &&
     (item.normalized_artifact_id === null || isUuid(item.normalized_artifact_id)) &&

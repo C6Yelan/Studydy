@@ -407,3 +407,21 @@ for(const append of [false,true])test(`source picker shares upload controls and 
  await expect(page.locator('.source-upload-row')).toContainText('YouTube 影片');
  await expect(page.getByRole('button',{name:'上傳新增教材',exact:true})).toBeVisible();
 });
+
+
+for(const append of [false,true])test(`source display names drive labels and search in ${append?'published':'confirmation'} view`,async({page},testInfo)=>{
+ const {state}=await mockSources(page,append);
+ Object.assign(state.sources[0],{original_name:'已核對影片標題.youtube',display_name:'已核對影片標題',media_type:'application/vnd.studydy.youtube+json',source_kind:'youtube',page_count:7,duration_seconds:833,image_count:null,transcript_source:'uploader_subtitles',transcript_display_name:'YouTube 上傳者字幕'});
+ Object.assign(state.sources[1],{original_name:'架構圖（圖片）.zip',display_name:'3 張圖片',media_type:'application/zip',source_kind:'image',page_count:3,duration_seconds:null,image_count:3,transcript_source:null,transcript_display_name:null});
+ await page.goto(sourcesPath);
+ const video=page.getByRole('listitem',{name:'已核對影片標題',exact:true}),pictures=page.getByRole('listitem',{name:'3 張圖片',exact:true});
+ await expect(video.locator('.source-name')).toHaveText('已核對影片標題');await expect(video.locator('.source-name')).toHaveAttribute('title','已核對影片標題');await expect(pictures.locator('.source-name')).toHaveText('3 張圖片');
+ await expect(video.getByRole('link',{name:'預覽逐字稿',exact:true})).toHaveAttribute('href',`/v1/artifacts/${state.sources[0].normalized_artifact_id}`);
+ await expect(pictures.getByRole('link',{name:'下載原檔',exact:true})).toHaveAttribute('href',`/v1/artifacts/${state.sources[1].original_artifact_id}/download`);
+ if(!append)await expect(page.getByRole('button',{name:'上移 3 張圖片',exact:true})).toBeVisible();
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`source-names-${append?'published':'confirmation'}-${width}.png`),animations:'disabled'});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
+ if(append){await page.getByRole('searchbox',{name:'搜尋教材來源',exact:true}).fill('3 張圖片');await expect(page.locator('.source-row')).toHaveCount(1);await expect(pictures).toBeVisible();}
+});
