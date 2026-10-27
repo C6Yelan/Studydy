@@ -1,9 +1,15 @@
-.map-export-sheet { width:1400px; padding:40px; background:var(--page-cool); color:var(--text-primary); box-sizing:border-box; }
-.map-export-sheet h1 { font-size:28px; margin:0 0 12px; }
-.map-export-graph { position:relative; }
-.map-export-grid { display:grid; grid-template-columns:repeat(3, 300px); column-gap:160px; row-gap:110px; padding:60px 40px; }
-.map-export-node.react-flow__node { position:relative; width:300px; align-self:start; }
-.map-export-node strong { display:block; overflow:visible; -webkit-line-clamp:unset; }
-.map-export-edges { position:absolute; inset:0; overflow:visible; }
-.map-export-relations { margin-top:30px; background:var(--surface); padding:24px; border-radius:16px; }
-.map-export-relations li { margin:8px 0; overflow-wrap:anywhere; }
+.map-export-sheet { padding:40px; background:#f6f9ff; color:#1d2742; box-sizing:border-box; }
+.map-export-sheet h1 { font-size:28px; margin:0 0 12px; overflow-wrap:anywhere; }
+.map-export-sheet > p { margin:0 0 16px; color:#4a5677; }
+.map-export-key { display:flex; flex-wrap:wrap; gap:12px 24px; font-size:16px; }
+.map-export-key span { display:flex; align-items:center; gap:8px; }
+.map-export-graph { position:relative; margin-top:24px; }
+.map-export-layers { display:grid; gap:100px; padding:64px 40px 24px; align-items:center; }
+.map-export-layer { width:100%; max-width:240px; justify-self:center; display:grid; gap:36px; min-width:0; }
+.map-export-concept { position:relative; z-index:1; display:grid; gap:8px; min-width:0; padding:20px; border:2px solid #b9cbee; border-radius:12px; background:#fff; overflow-wrap:anywhere; }
+.map-export-concept strong { font-size:20px; line-height:1.5; }
+.map-export-concept small, .map-export-concept > span { color:#4a5677; font-size:14px; }
+.map-export-edges { position:absolute; inset:0; pointer-events:none; }
+.map-export-relations { margin-top:30px; background:#fff; padding:24px; border-radius:12px; }
+.map-export-relations h2 { margin-top:0; font-size:20px; }
+.map-export-relations li { margin:8px 0; line-height:1.7; overflow-wrap:anywhere; }

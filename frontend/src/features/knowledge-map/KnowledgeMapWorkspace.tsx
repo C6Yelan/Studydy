@@ -234,18 +234,6 @@ function regionCountText(regions: MapRegions) {
   return (regions.groups.length ? `${regions.groups.length} 個島群・` : "") + `${regions.regions.length} 個章節`;
 }
 
-/** 目前概念所在位置；兩層時寫出島群與章節。 */
-function whereabouts(regions: MapRegions, conceptId: string) {
-  const region = regions.regions[regions.byConcept.get(conceptId) ?? 0];
-  const group = region?.group != null ? regions.groups.find((item) => item.index === region.group) : null;
-  return (
-    <>
-      {group && <><b>{group.label}</b> › </>}
-      <b>{region?.label}</b>
-    </>
-  );
-}
-
 /** 把範圍內的章節切片依島群合併；章節已依島群排列，同群相鄰。 */
 function islandGroups<T extends { index: number }, S>(regions: MapRegions, slices: { group: T; slice: S }[]) {
   const result: { group: MapRegions["groups"][number]; slices: { group: T; slice: S }[] }[] = [];
@@ -491,7 +479,7 @@ function MapGraph({
   apiClient: StudydyApiClient;
   detail: ReactNode;
   difficulty: ConceptDifficultyView | null;
-  /** 浮在地圖左上的搜尋與地圖摘要，和「學習導覽」排成同一列。 */
+  /** 浮在地圖左上的搜尋，和「學習導覽」排成同一列。 */
   toolbar: ReactNode;
   regions: MapRegions | null;
   selectedRelationId: string | null;
@@ -517,6 +505,7 @@ function MapGraph({
     );
     (element ?? navigatorToggle.current)?.focus({ preventScroll: true });
   };
+  const [legendOpen, setLegendOpen] = useState(false);
   const [navigatorOpen, setNavigatorOpen] = useState(false);
   const navigatorToggle = useRef<HTMLButtonElement>(null);
   const graph = useReactFlow();
@@ -828,12 +817,10 @@ function MapGraph({
               }}
             />
           </div>
-          {/* 地圖一次只畫目前概念附近兩層；標出所在區域，全部區域清單從「學習導覽」開啟。 */}
-          {!navigatorOpen && regions && regions.regions.length > 1 && (
-            <p className="map-whereabouts">目前在 {whereabouts(regions, selected.concept_id)}</p>
-          )}
         </div>
-        <div className="map-annotations">
+        <div className="map-export-corner"><MapExports api={apiClient} view={view} /></div>
+        <div className={`map-annotations map-corner-legend ${legendOpen ? "is-expanded" : ""}`}>
+          <button type="button" className="secondary-button map-legend-toggle" aria-label="顯示關係圖例" aria-expanded={legendOpen} onClick={() => setLegendOpen(value => !value)}>?</button>
           <div className="relation-legend" aria-label="概念關係圖例">
             {Object.entries(relationStyles).map(([type, { label, bridge, color }]) => (
               <span key={type} style={{ color }}>
@@ -1000,6 +987,7 @@ export function KnowledgeMapWorkspace({
     };
   });
   const [mode, setMode] = useState<Mode>(restored?.mode ?? "focus");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState(restored?.search ?? "");
   const [selectedConceptId, setSelectedConceptId] = useState(restored?.concept ?? initialConceptId);
   const [reviewConceptId] = useState(restored?.review ?? initialConceptId);
@@ -1202,13 +1190,15 @@ export function KnowledgeMapWorkspace({
   const mapToolbar = (
     <>
         <form
-          className="map-search"
+          className={`map-search map-corner-search ${searchOpen ? "is-expanded" : ""}`}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               // 只清空搜尋；不讓外層的學習導覽把焦點移走。
               event.stopPropagation();
               setSearchQuery("");
-              searchInput.current?.focus();
+              setSearchOpen(false);
+              if (window.matchMedia("(max-width:720px)").matches) event.currentTarget.querySelector<HTMLButtonElement>(".map-search-toggle")?.focus();
+              else searchInput.current?.focus();
             }
           }}
           onBlur={(event) => {
@@ -1221,6 +1211,7 @@ export function KnowledgeMapWorkspace({
             if (searchResults[0]) chooseSearchResult(searchResults[0].concept_id);
           }}
         >
+          <button type="button" className="secondary-button map-search-toggle" aria-label="開啟概念搜尋" aria-expanded={searchOpen} onClick={() => { setSearchOpen(value => !value); requestAnimationFrame(() => searchInput.current?.focus()); }}><Icon name="search" size={18} /></button>
           <input
             ref={searchInput}
             type="search"
@@ -1257,20 +1248,6 @@ export function KnowledgeMapWorkspace({
             </div>
           )}
         </form>
-          <div className="map-facts" aria-label="地圖摘要">
-            <span>
-              <strong>{view.concepts.length}</strong>概念
-            </span>
-            <span>
-              <strong>{view.relations.length}</strong>關係
-            </span>
-            {regions && regions.regions.length > 1 && (
-              <span title={regionBasisText(regions)}>
-                <strong>{regions.regions.length}</strong>{regions.basis === "chapters" ? "章節" : "區域"}
-              </span>
-            )}
-          </div>
-      <MapExports api={apiClient} view={view} />
     </>
   );
   return (

@@ -128,8 +128,10 @@ test('one material header row; map search floats on the map and only content tab
   const nav=(await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox())!;
   // 教材內只有一列教材頁首；全站頁首隱藏。
   await expect(page.locator('.app-header')).toBeHidden();
-  // 地圖搜尋與摘要浮在地圖上（地圖滿版），不另佔一列。
-  const anchor=(await page.getByLabel('搜尋概念或關鍵字',{exact:true}).boundingBox())!;const graph=(await page.locator('.focus-graph').boundingBox())!;
+  // 地圖搜尋浮在地圖上；手機先顯示搜尋圖示，不另佔一列。
+  const searchAnchor=width===390?page.getByRole('button',{name:'開啟概念搜尋'}):page.getByRole('searchbox',{name:'搜尋概念或關鍵字'});
+  await expect(searchAnchor).toBeVisible();
+  const anchor=(await searchAnchor.boundingBox())!;const graph=(await page.locator('.focus-graph').boundingBox())!;
   expect(anchor.y).toBeGreaterThanOrEqual(graph.y);expect(anchor.x).toBeGreaterThanOrEqual(graph.x);expect(anchor.y+anchor.height).toBeLessThanOrEqual(graph.y+graph.height);
   expect(graph.y-nav.y-nav.height).toBeLessThanOrEqual(20);
   for(const [tab,label] of [['學習與測驗',null],['概念卡',null],['Podcast',null],['補充學習','想多了解什麼？'],['教材來源','搜尋教材來源']] as const){

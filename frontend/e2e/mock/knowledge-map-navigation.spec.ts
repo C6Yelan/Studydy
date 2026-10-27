@@ -131,6 +131,9 @@ for (const width of [1536, 390])
     await expect(current).toHaveText(view.concepts[3].label);
     await expect(suggested).toHaveText(view.concepts[4].label);
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("search", { name: "搜尋教材概念" })).toBeVisible();
+    const searchToggle = page.getByRole("button", { name: "開啟概念搜尋" });
+    if (await searchToggle.isVisible()) await searchToggle.click();
     const search = page.getByRole("searchbox", { name: "搜尋概念或關鍵字" });
     await search.fill(view.concepts[30].label);
     await expect(page.locator(".map-search-results button")).toContainText(view.concepts[30].label);
@@ -276,7 +279,6 @@ test("learning navigator groups concepts by region and the detail names the regi
     ],
   } }));
   await page.goto(mapPath);
-  await expect(page.getByLabel("地圖摘要")).toContainText("3區域");
   await page.getByRole("button", { name: "學習導覽", exact: true }).click();
   const nav = page.getByRole("navigation", { name: "學習導覽" });
   await expect(nav.getByRole("heading", { level: 3 })).toHaveText([
@@ -308,7 +310,6 @@ test("learning navigator stays flat when regions do not match the map", async ({
   const nav = page.getByRole("navigation", { name: "學習導覽" });
   await expect(nav.getByRole("button")).toHaveCount(8);
   await expect(nav.getByRole("heading", { level: 3 })).toHaveCount(0);
-  await expect(page.getByLabel("地圖摘要")).not.toContainText("區域");
 });
 
 test("chapter regions stay one level for a demo-sized material", async ({ page }) => {
@@ -324,7 +325,6 @@ test("chapter regions stay one level for a demo-sized material", async ({ page }
     ],
   } }));
   await page.goto(mapPath);
-  await expect(page.getByLabel("地圖摘要")).toContainText("2章節");
   await page.getByRole("button", { name: "學習導覽", exact: true }).click();
   const nav = page.getByRole("navigation", { name: "學習導覽" });
   await expect(nav.getByRole("heading", { level: 3 })).toHaveText(["生成模型基礎5 個", "推論與評估3 個"]);
@@ -355,8 +355,6 @@ for (const width of [1536, 390])
       })),
     } }));
     await page.goto(mapPath);
-    await expect(page.getByLabel("地圖摘要")).toContainText("30章節");
-    await expect(page.locator(".map-whereabouts")).toContainText("目前在 01_從生成到推論 › 章節 1");
     await page.getByRole("button", { name: "學習導覽" }).click();
     const nav = page.getByRole("navigation", { name: "學習導覽" });
     await expect(nav.getByRole("heading", { level: 3 })).toHaveText([
@@ -380,6 +378,5 @@ for (const width of [1536, 390])
     await expect(dialog.getByRole("heading", { name: "Concept 73", exact: true })).toBeVisible();
     await expect(dialog.locator(".detail-kicker")).toHaveText("教材概念 · 章節 25");
     await page.keyboard.press("Escape");
-    await expect(page.locator(".map-whereabouts")).toContainText("目前在 03_評估 › 章節 25");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });

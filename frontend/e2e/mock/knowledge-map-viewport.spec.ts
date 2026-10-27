@@ -191,7 +191,9 @@ for (const [width, count] of [
     ).toHaveCount(4);
     const canvas = (await graph.boundingBox())!;
     const frame = (await page.locator(".map-view").boundingBox())!;
-    const legend = (await page.getByLabel("概念關係圖例").boundingBox())!;
+    const legendToggle = page.getByRole("button", { name: "顯示關係圖例" });
+    if (await legendToggle.isVisible()) await legendToggle.click();
+    const legend = (await page.getByLabel("概念關係圖例", { exact: true }).boundingBox())!;
     const navigatorButton = (await graph.getByRole("button", { name: "學習導覽", exact: true }).boundingBox())!;
     // 圖例在地圖右下；搜尋與學習導覽浮在左上，兩者不重疊。
     const zoomOut = (await graph.getByRole("button", { name: "縮小地圖", exact: true }).boundingBox())!;
@@ -328,7 +330,7 @@ test("large map only renders its local neighbourhood and stays responsive when d
   const graph = (await page.locator(".focus-graph").boundingBox())!;
   const viewport = page.locator(".react-flow__viewport");
   const transform = await viewport.getAttribute("style");
-  await page.mouse.move(graph.x + graph.width - 50, graph.y + 25);
+  await page.mouse.move(graph.x + graph.width - 50, graph.y + 100);
   await page.mouse.down();
   await page.mouse.move(graph.x + graph.width - 280, graph.y + 140, { steps: 24 });
   await page.mouse.up();
@@ -366,7 +368,9 @@ for (const width of [1536, 390])
       `30／80 個概念、60／${view.relations.length} 條關係`,
     );
     await expect(page.locator(".map-limit-note")).toContainText("尚有其他相關內容");
-    const legend = (await page.getByLabel("概念關係圖例").boundingBox())!;
+    const legendToggle = page.getByRole("button", { name: "顯示關係圖例" });
+    if (await legendToggle.isVisible()) await legendToggle.click();
+    const legend = (await page.getByLabel("概念關係圖例", { exact: true }).boundingBox())!;
     const limitNote = (await page.locator(".map-limit-note").boundingBox())!;
     expect(limitNote.y).toBeGreaterThanOrEqual(legend.y + legend.height + 4);
     const secondary = page.locator(".concept-flow-node.is-secondary");
@@ -423,7 +427,7 @@ for (const width of [1536, 390])
     assertReadOnly();
   });
 
-test("map export renders complete island artwork without changing the viewport", async ({ page }) => {
+test("map export renders prerequisite boxes and arrows without changing the viewport", async ({ page }) => {
   const view = structureView();
   await mockKnowledgeMapApi(page, view);
   await page.route("**/regions", route => json(route, { schema: "knowledge-regions/v1", material_id: materialId,
@@ -432,6 +436,9 @@ test("map export renders complete island artwork without changing the viewport",
   let exported: { images: { concept_ids: string[]; png: string }[] } | null = null;
   await page.route("**/map/export/png", async route => {
     exported = route.request().postDataJSON();
+    const boxes = await page.locator(".map-export-concept").evaluateAll(nodes => nodes.map(node => ({id:node.getAttribute("data-concept-id"),x:node.getBoundingClientRect().x})));
+    const relation = view.relations.find(item => item.type === "prerequisite")!;
+    expect(boxes.find(box => box.id === relation.source_concept_id)!.x).toBeLessThan(boxes.find(box => box.id === relation.target_concept_id)!.x);
     const bridgePixels = await page.evaluate(async png => {
       const blob = await fetch(`data:image/png;base64,${png}`).then(r => r.blob());
       const bitmap = await createImageBitmap(blob);
@@ -439,7 +446,7 @@ test("map export renders complete island artwork without changing the viewport",
       const ctx = canvas.getContext("2d")!; ctx.drawImage(bitmap, 0, 0);
       const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
       let count = 0;
-      for (let i = 0; i < pixels.length; i += 4) if (pixels[i] === 201 && pixels[i + 1] === 183 && pixels[i + 2] === 156) count++;
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i] === 47 && pixels[i + 1] === 107 && pixels[i + 2] === 255) count++;
       bitmap.close(); return count;
     }, exported!.images[0].png);
     expect(bridgePixels).toBeGreaterThan(200);
@@ -465,4 +472,55 @@ test("map export renders complete island artwork without changing the viewport",
   await controls.getByRole("radio").first().focus();
   await page.keyboard.press("Escape");
   await expect(page.getByText("匯出地圖", { exact: true })).toBeFocused();
+});
+
+
+test("small chapters export separately with all relationship styles and cross-map destinations", async ({ page }, testInfo) => {
+  const view = structureView();
+  for (let index = 2; index < 4; index++) {
+    const concept = structuredClone(view.concepts[0]);
+    concept.concept_id = `concept:sha256:${(index + 100).toString(16).padStart(64, "0")}`;
+    concept.claims[0].claim_id = `claim:sha256:${(index + 100).toString(16).padStart(64, "0")}`;
+    concept.label = `概念 ${index + 1}：條件與推論`;
+    view.concepts.push(concept);
+    view.document_tree.sections[0].concept_ids.push(concept.concept_id);
+    view.initial_learning_path.push({ position: index + 1, concept_id: concept.concept_id, reason: "document_order" });
+  }
+  const seed = view.relations[0];
+  view.relations = [
+    [0, 1, "prerequisite"], [1, 2, "prerequisite"], [0, 2, "prerequisite"],
+    [0, 1, "part_of"], [1, 2, "application"], [0, 1, "example"], [0, 2, "contrast"], [2, 3, "application"],
+  ].map(([a, b, type], index) => ({ ...seed, relation_id: `relation:sha256:${(index + 200).toString(16).padStart(64, "0")}`, source_concept_id: view.concepts[a as number].concept_id, target_concept_id: view.concepts[b as number].concept_id, type: type as typeof seed.type }));
+  await mockKnowledgeMapApi(page, view);
+  await page.route("**/regions", route => json(route, { schema: "knowledge-regions/v1", material_id: materialId,
+    knowledge_structure_revision: structureRevision, basis: "chapters", groups: [], partial: false,
+    regions: [
+      { region_id: "chapter-1", label: "第一章 基礎", source_id: null, concept_ids: view.concepts.slice(0, 3).map(concept => concept.concept_id) },
+      { region_id: "chapter-2", label: "第二章 應用", source_id: null, concept_ids: [view.concepts[3].concept_id] },
+    ] }));
+  await page.route("**/map/export/png", async route => {
+    const body = route.request().postDataJSON() as { images: {concept_ids:string[];png:string}[] };
+    expect(body.images.map(image => image.concept_ids)).toEqual([view.concepts.slice(0, 3).map(concept => concept.concept_id), [view.concepts[3].concept_id]]);
+    await expect(page.locator(".map-export-relations")).toContainText("第一章 基礎（圖 1）");
+    const graphTop = await page.locator(".map-export-graph").evaluate(element => element.getBoundingClientRect().top - element.closest(".map-export-sheet")!.getBoundingClientRect().top);
+    const colors = await page.evaluate(async ({png, graphTop}) => {
+      const bitmap = await createImageBitmap(await fetch(`data:image/png;base64,${png}`).then(response => response.blob()));
+      const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const context = canvas.getContext("2d")!; context.drawImage(bitmap, 0, 0);
+      const pixels = context.getImageData(0, graphTop, canvas.width, canvas.height - graphTop).data;
+      const counts: Record<string, number> = {};
+      for (let index = 0; index < pixels.length; index += 4) { const key = [pixels[index], pixels[index+1], pixels[index+2]].join(","); counts[key] = (counts[key] ?? 0) + 1; }
+      bitmap.close(); return ["47,107,255", "34,168,101", "240,138,0", "26,163,184", "224,86,154"].map(color => counts[color] ?? 0);
+    }, {png:body.images[0].png, graphTop});
+    // 只檢查圖內線條；圖例顏色不能代替實際畫出的關係。
+    for (const count of colors) expect(count).toBeGreaterThan(0);
+    const { writeFile } = await import("node:fs/promises");
+    for (const [index, image] of body.images.entries()) await writeFile(testInfo.outputPath(`chapter-${index + 1}.png`), Buffer.from(image.png, "base64"));
+    await route.fulfill({status:200,contentType:"application/zip",headers:{"Content-Disposition":"attachment; filename*=UTF-8''chapters.zip"},body:"synthetic zip"});
+  });
+  await page.goto(mapPath);
+  await page.getByRole("button", { name: "匯出地圖", exact: true }).click();
+  const download = page.waitForEvent("download");
+  await page.getByRole("dialog", { name: "匯出知識地圖" }).getByRole("button", { name: "匯出", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("chapters.zip");
 });
