@@ -1,3 +1,4 @@
+import { LearningSteps, topicSteps } from '../material-flow/Flow';
 import './research.css';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { errorMessage, isNotFound, type StudydyApiClient } from '../../api/client';
@@ -64,7 +65,6 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
   const publishedRevision = completed ? view?.run?.output_binding?.knowledge_structure_revision : undefined;
   const selectionMatches = !!view && view.selection.length === selected.length && view.selection.every(id => selected.includes(id));
   const canConfirm = view?.status === 'ready' && !editing && selectionMatches;
-  const stageNames = [view?.progress ? '背景研究' : '搜尋資料', '選取來源', '加入教材'];
   const currentStage = submitted || canConfirm ? 2 : view?.progress && view.status === 'searching' || !view?.candidates.length || (['failed', 'cancelled'].includes(view?.status ?? '') && !view?.selection.length) ? 0 : 1;
   const editable = !!view && ['selecting', 'ready', 'failed'].includes(view.status);
   const canNavigate = [editable, editable && !!view?.candidates.length, view?.status === 'ready' && selectionMatches];
@@ -81,26 +81,22 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
   const displayed = view?.candidates.filter(candidate => (!onlyAcquired || view.selection.includes(candidate.id))) ?? [];
   const acquiredCount = view?.candidates.filter(candidate => view.selection.includes(candidate.id) && candidate.state === 'ready').length ?? 0;
   const selectedCount = submitted || ['acquiring', 'normalizing'].includes(view?.status ?? '') ? view?.selection.length ?? 0 : selected.length;
-  const stepDone = [!!view && view.status !== 'searching' && (['selecting', 'ready', 'submitted'].includes(view.status) && view.candidates.length > 0 || view.selection.length > 0), !!submitted || !!canConfirm, !!completed];
+
   if (notFound) return <section className="cards-page supplementary-page research-detail">{contentNavigation}
     <NotFoundView title="找不到這筆補充學習" description="這筆查詢可能已被刪除，或不屬於這份教材。" back={contentNavigation ? null : { label: '回到補充學習', route: { name: 'material-content', materialId, kind: 'research' } }} /></section>;
   return <section className="cards-page supplementary-page research-detail">
     {contentNavigation}
     <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
-      <header className="cards-page-header research-detail-header"><div><details className="research-request"><summary><h1>{view?.query ?? '查詢詳情'}</h1></summary><p>{view?.query}</p></details></div></header>
+      <header className="research-scope-header"><div><h1 className="research-scope-title">{view?.approved_scope?.title ?? '補充學習'}</h1>
+        {view && <details><summary>本次補充範圍</summary><p>{view.query}</p>{view.approved_scope && <ul>{view.approved_scope.topics.map((topic,i)=><li key={i}>{topic}</li>)}</ul>}</details>}
+      </div>{view && <LearningSteps labels={[...topicSteps.slice(0,-1),'補充教材']} current={completed?4:currentStage===2?3:2} label="補充學習流程"/>}</header>
       {!view ? <StateView title={error ? '無法讀取查詢' : '正在讀取查詢'} description={error || '正在載入來源與處理進度。'} tone={error ? 'failure' : 'loading'} live={!error} skeleton="page"
         action={error ? <button type="button" className="secondary-button" onClick={() => setReload(value => value + 1)}>重新讀取</button> : undefined}/> : <>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="research-workspace">
-          <nav className="research-workflow" aria-label="補充學習流程"><ol>{stageNames.map((name, index) => <li key={name} className={`${stepDone[index] ? 'is-complete' : ''} ${currentStage === index ? 'is-current' : ''} ${stage === index ? 'is-viewing' : ''}`}>
-            <button type="button" className="research-workflow-step" disabled={busy || !canNavigate[index]} aria-current={currentStage === index ? 'step' : undefined} aria-pressed={stage === index} aria-controls="research-stage-content" onClick={() => navigate(index)}>
-              <span className="research-workflow-number" aria-hidden="true">{stepDone[index] ? <Icon name="check" size={14}/> : index + 1}</span>
-              <strong>{name}</strong>
-            </button>
-          </li>)}</ol>{submitted && <p>已送入教材分析，來源不可再修改。</p>}</nav>
+          {submitted && <p className="research-submitted-note">已送入教材分析，來源不可再修改。</p>}
           <section id="research-stage-content" className="surface research-detail-body tool-stage" aria-label="查詢來源與進度">
       {view.error_code && <p className="tool-notice">{reasons[view.error_code] ?? '處理未完成，已保存取得的結果。'}</p>}
-      {view.approved_scope && <details><summary>本次補充範圍</summary><ul>{view.approved_scope.topics.map((topic,i)=><li key={i}>{topic}</li>)}</ul></details>}
       {view.is_current_revision === false && !submitted && <p className="tool-notice">教材已更新，這次搜尋不能直接加入舊版本。請以目前教材重新搜尋。</p>}
       {stage === 2 && submitted && <div className={`tool-result${completed ? ' is-complete' : ''}`}>
         <span className="tool-result-icon"><Icon name={completed ? 'check' : 'process'} size={24} /></span>
@@ -111,7 +107,7 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
           : { name: 'material-run', materialId, runId: view.run_id! }); }}>{publishedRevision ? '查看補充教材' : '查看教材分析'}<Icon name="chevron-right" size={16} /></button>}
         {['succeeded','partial'].includes(view.run?.status ?? '') && view.candidates.some(c => view.selection.includes(c.id) && c.state === 'failed') && <button className="secondary-button" disabled={busy} onClick={() => void perform('retry')}>重試未完成來源</button>}
       </div>}
-      {view.progress && stage !== 2 && <ResearchProgress progress={view.progress} running={view.status === 'searching'} available={view.candidates.filter(candidate => candidate.eligible).length} />}
+      {view.progress && stage !== 2 && <ResearchProgress progress={view.progress} running={view.status === 'searching'} candidates={view.candidates} />}
       {!view.progress && stage === 0 && view.status === 'searching' && <div className="tool-wait" role="status"><span className="loading-ring" /><p>正在尋找補充資料，搜尋結果會保存在這筆紀錄。</p></div>}
       {stage === 2 && canConfirm && <div className="tool-selection-heading"><h4>確認加入的來源 · {acquiredCount} 份</h4><button className="text-button" disabled={busy} onClick={() => navigate(1)}>調整來源</button></div>}
       {stage === 2 && submitted && <h4 className="tool-section-label">{completed ? '已加入的來源' : '已送出的來源'} · {acquiredCount} 份</h4>}
@@ -120,7 +116,7 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
       {stage === 2 && canConfirm && <div className="research-confirm">{acquiredCount < view.selection.length && <p>部分來源處理未完成，本次先加入已準備好的 {acquiredCount} 份；未完成紀錄會保留。</p>}<p>這些來源目前尚未納入知識地圖；確認後會開始分析。加入後會更新教材與知識地圖，<strong>無法撤回新增內容</strong>。</p><label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我了解加入後不可逆</label></div>}
       {!submitted && <footer className="tool-stage-footer">
         <div className="tool-footer-secondary">
-          {researchActive.has(view.status) && <button className="secondary-button" disabled={busy} onClick={() => void perform('cancel')}>停止處理</button>}
+          {researchActive.has(view.status) && <button className="secondary-button" disabled={busy} onClick={() => void perform('cancel')}>{view.status==='searching'?'停止搜尋':'停止處理'}</button>}
           {view.status === 'selecting' && <button className="text-button" disabled={busy} onClick={replan}>重新確認搜尋範圍</button>}
           {['failed', 'cancelled'].includes(view.status) && <button className="secondary-button" disabled={busy} onClick={() => {
             if(view.approved_scope||view.selection.length)void perform('retry');else replan();

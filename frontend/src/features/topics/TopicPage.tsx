@@ -134,6 +134,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const visibleSources=work?.candidates.filter(c=>(!readOnlySources||work.selection.includes(c.id)))??[];
  const inputStage=editingRequest||!view||['pending','failed','cancelled'].includes(view.status);
  const confirmingScope=!inputStage&&!!draft&&view?.status==='ready';
+ const searchingSources=!inputStage&&view?.status==='approved'&&work?.status==='searching'&&!hasMaterial;
  const step=inputStage?0:view.status==='ready'?1:completed?4:hasMaterial?3:2;
  const errorNotice=error&&<p role="alert" className="form-error">{error}<button className="text-button" onClick={()=>{setError('');setReload(v=>v+1);}}>重新讀取</button></p>;
  if(notFound)return <NotFoundView title="找不到這個學習主題" description="這個主題可能已被刪除，或不屬於目前登入的帳號。" back={{label:'從主題建立教材',route:{name:'topics'}}}/>;
@@ -170,8 +171,8 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
    </div>)}
   </section>
  </section>;
- return <section className={`flow-page topic-page${confirmingScope?" topic-scope-confirmation":""}`}>
- <FlowHeader className={confirmingScope?'topic-scope-page-header':undefined} back={<BackLink label={view?.material_id?'返回補充學習':'返回我的教材'} onClick={back}/>} title={view?.material_id?'確認補充學習需求':'從主題建立教材'} description="先確認想查找的觀念與細節，再搜尋並核對來源。"/>
+ return <section className={`flow-page topic-page${confirmingScope?" topic-scope-confirmation":searchingSources?" topic-search-page":""}`}>
+ <FlowHeader className={confirmingScope?'topic-scope-page-header':searchingSources?'topic-search-page-header':undefined} back={<BackLink label={view?.material_id?'返回補充學習':'返回我的教材'} onClick={back}/>} title={view?.status==='approved'?(view.proposal?.title??'搜尋教材來源'):view?.material_id?'確認補充學習需求':'從主題建立教材'} description={view?.status==='approved'?'依已確認的學習範圍查看來源與處理進度。':'先確認想查找的觀念與細節，再搜尋並核對來源。'}/>
  <LearningSteps labels={view?.material_id?[...topicSteps.slice(0,-1),'補充教材']:topicSteps} current={step}/>
  {(inputStage||view?.status!=='ready')&&errorNotice}
  {inputStage&&<FlowStage className="topic-request" icon="sparkle" title="你想學什麼？" description="可以是一個主題、一個問題，或想完成的學習目標。"
@@ -205,7 +206,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
     {!work.deleted&&<>
      {work.status==='selecting'&&!hasMaterial&&!work.approved_scope&&<button className="text-button" disabled={busy} onClick={()=>setEditingRequest(true)}>重新確認搜尋範圍</button>}
      {work.status==='failed'&&!work.run_id&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('retry')}>重試未完成部分</button>}
-     {working&&work.status!=='ready'&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('cancel')}>停止處理</button>}
+     {working&&work.status!=='ready'&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('cancel')}>{work.status==='searching'?'停止搜尋':'停止處理'}</button>}
      {work.status==='cancelled'&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('retry')}>接續處理</button>}
      {!hasMaterial&&!working&&<span>已選 {selected.length} 份來源</span>}
     </>}
@@ -215,15 +216,15 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
     {!work.deleted&&work.status==='failed'&&hasMaterial&&!work.run_id&&<button className="primary-button" disabled={busy||!selected.length} onClick={()=>void actResearch('acquire',selected)}>使用選取來源繼續建立</button>}
    </>}
   />}>
-  <div className="topic-approved-summary">
+  <div className={work.status==='searching'?"topic-search-scope":"topic-approved-summary"}>
    <span className="topic-approved-icon" aria-hidden="true"><Icon name="book" size={18}/></span>
-   <div><strong>{view.proposal?.title}</strong><details><summary>已確認的學習範圍</summary><dl><dt>涵蓋主題</dt><dd><ul>{view.proposal?.topics.map((topic,i)=><li key={i}>{topic}</li>)}</ul></dd><dt>學習目標</dt><dd><ul>{view.proposal?.goals.map((goal,i)=><li key={i}>{goal}</li>)}</ul></dd></dl></details></div>
+   <div>{work.status!=='searching'&&<strong>{view.proposal?.title}</strong>}<details><summary>已確認的學習範圍</summary><dl><dt>涵蓋主題</dt><dd><ul>{view.proposal?.topics.map((topic,i)=><li key={i}>{topic}</li>)}</ul></dd><dt>學習目標</dt><dd><ul>{view.proposal?.goals.map((goal,i)=><li key={i}>{goal}</li>)}</ul></dd></dl></details></div>
    <button className="text-button" disabled={busy} onClick={()=>setEditingRequest(true)}>重新規劃</button>
   </div>
   {work.deleted&&<p className="flow-notice">查詢紀錄已刪除，已建立的教材與來源仍可查看。</p>}
   {work.error_code&&<p className="flow-notice">{sourceReasons[work.error_code]??'目前無法完成，已取得資料會保留。'}</p>}
   {work.status==='searching'&&!work.progress&&<div className="flow-wait" role="status"><span className="loading-ring"/><p>正在搜尋論文與官方教學。</p></div>}
-  {work.progress&&!hasMaterial&&<ResearchProgress progress={work.progress} running={work.status==='searching'} available={work.candidates.filter(c=>c.eligible).length}/>}
+  {work.progress&&!hasMaterial&&<ResearchProgress progress={work.progress} running={work.status==='searching'} candidates={work.candidates}/>}
   {(!work.progress||work.status!=='searching')&&(hasMaterial&&readOnlySources?<details className="topic-selected-sources"><summary>已選來源 · {work.selection.length} 份</summary>
    <SourceCandidates candidates={visibleSources} selected={selected} disabled readOnly onChange={setSelected}/>
   </details>:visibleSources.length>0&&<SourceCandidates candidates={visibleSources} selected={selected} disabled={busy||working||readOnlySources} readOnly={readOnlySources} onChange={setSelected}/>)}
