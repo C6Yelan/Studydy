@@ -317,6 +317,7 @@ def claim(*, dsn=None):
             row.version += 1
             release(db, podcast_id=row.podcast_id, kind="podcast_video", episode_index=row.episode_index)
             return None
+        row.started_at, row.finished_at = now, None
         row.status = "running"
         row.lease_token = uuid4()
         row.lease_expires_at = now + WORKER_LEASE_TTL
@@ -418,6 +419,7 @@ def finish(state, *, bundle=None, error=None, dsn=None):
             return False
         if row.source_sha256 != identity(podcast, _episode(podcast, state["index"])):
             error = "VIDEO_SOURCE_CHANGED"
+        row.finished_at = datetime.now(UTC)
         if error:
             row.status = "failed"
             row.error_code = error

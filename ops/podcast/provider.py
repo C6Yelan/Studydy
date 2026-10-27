@@ -509,7 +509,7 @@ sources 列出本集必須講解的概念與重點；block_indices 對應 page_c
         podcast_process.check(cancelled)
         return response
 
-    # 逐段對照引用原文；不符只重生該段，仍不符就整集不發布。
+    # 逐段對照引用原文；不符只重生該段，仍不符依選定重點門檻略過。
     return podcast_review.verify(
         result,
         claims,
@@ -696,6 +696,7 @@ class Handler(BaseHTTPRequestHandler):
             "/scene-check",
             "/video",
             "/jobs/cancel",
+            "/jobs/progress",
             "/jobs/luna-result",
         }:
             self.send_error(404)
@@ -723,6 +724,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/jobs/luna-result":
                 result = self.calls().finalize(tags, body.get("outcome"), body.get("reason"))
                 self.respond(json.dumps(result).encode(), "application/json")
+                return
+            if self.path == "/jobs/progress":
+                self.respond(json.dumps(podcast_process.progress(body)).encode(), "application/json")
                 return
             if self.path == "/jobs/cancel":
                 self.respond(
@@ -752,7 +756,7 @@ class Handler(BaseHTTPRequestHandler):
                 else TEXT_LOCK
             )
             with self.calls().request(tags, self.path), podcast_process.job(body, required=self.path == "/video") as cancelled:
-                with podcast_process.locked(active_lock, cancelled, timeout=None):
+                with podcast_process.tracked_lock(active_lock, cancelled, body, self.path):
                     self.generate(body, cancelled)
         except Exception as error:
             failure = error

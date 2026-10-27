@@ -198,13 +198,14 @@ def test_uncited_claim_goes_to_the_last_body_segment_of_its_concept(monkeypatch)
     assert result['segments'][1]['turns'][-1]['text']=='pop 前先確認非空。'
 
 
-def test_rewrite_that_still_leaves_the_assigned_claim_uncited_fails(monkeypatch):
+def test_rewrite_that_leaves_half_the_claims_uncited_omits_the_segment(monkeypatch):
     request,script=show()
     script['segments'][2]['turns'][0]['source_indices']=[]
     model,calls=fake_model(script,rewrites=[script['segments'][2]])
     monkeypatch.setattr(provider,'luna',model)
-    with pytest.raises(RuntimeError,match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):provider.script(request)
-    assert [kind for kind,_ in calls]==['script','review','review','review','rewrite']
+    result=provider.script(request)
+    assert result['omitted_content'][0]['claim_ids']==[request['claims'][1]['claim_id']]
+    assert [kind for kind,_ in calls]==['script','review','review','review','rewrite','review']
 
 
 def test_unsupported_segment_is_rewritten_alone_and_checked_again(monkeypatch):
@@ -229,27 +230,29 @@ def test_unsupported_segment_is_rewritten_alone_and_checked_again(monkeypatch):
     assert diagnostics=={'model_calls':7,'rewrites':[{'segment':2,'rejected':['turn.0']}]}
 
 
-def test_segment_still_unsupported_after_one_rewrite_fails_the_episode(monkeypatch):
+def test_half_unsupported_after_rewrite_is_omitted_and_other_segments_publish(monkeypatch):
     request,script=show()
     model,calls=fake_model(script,reviews=[None,lambda r:verdict(r,{'turn.0'}),lambda r:verdict(r,{'turn.0'})],
         rewrites=[script['segments'][1]])
     monkeypatch.setattr(provider,'luna',model)
     diagnostics={}
-    with pytest.raises(RuntimeError,match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):provider.script(request,diagnostics=diagnostics)
-    # 第二段失敗後不再核對後面的段落。
-    assert [kind for kind,_ in calls]==['script','review','review','rewrite','review']
+    result=provider.script(request,diagnostics=diagnostics)
+    assert result['omitted_content']==[{'segment_index':1,'claim_ids':[request['claims'][0]['claim_id']],'reason':'source_check_failed'}]
+    assert len(result['segments'])==3
+    assert [kind for kind,_ in calls]==['script','review','review','rewrite','review','review','review']
     assert diagnostics['rewrites']==[{'segment':1,'rejected':['turn.0']},{'segment':1,'rejected_after_rewrite':['turn.0']}]
     assert provider.failure_code(RuntimeError('PODCAST_SCRIPT_NEEDS_REVIEW'))=='PODCAST_SCRIPT_NEEDS_REVIEW'
 
 
-def test_uncited_opening_with_factual_claim_is_rewritten_and_fails_if_it_keeps_the_claim(monkeypatch):
+def test_unsupported_opening_is_omitted_without_affecting_claim_threshold(monkeypatch):
     request,script=show()
     script['segments'][0]['turns'][0]['text']='歡迎，我是小晴。學習率 0.5 時損失會變成 36。'
     model,calls=fake_model(script,reviews=[lambda r:verdict(r,{'turn.0'})]*2,rewrites=[script['segments'][0]])
     monkeypatch.setattr(provider,'luna',model)
-    with pytest.raises(RuntimeError,match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):provider.script(request)
+    result=provider.script(request)
+    assert result['omitted_content']==[{'segment_index':0,'claim_ids':[],'reason':'source_check_failed'}]
     reviews=[r for kind,r in calls if kind=='review']
-    assert all(r['evidence']==[] and r['coverage_claims']==[] for r in reviews)
+    assert all(r['evidence']==[] and r['coverage_claims']==[] for r in reviews[:2])
 
 
 def test_missing_explanation_is_reported_by_source_index_and_rewrite_cannot_drop_it(monkeypatch):
@@ -259,13 +262,14 @@ def test_missing_explanation_is_reported_by_source_index_and_rewrite_cannot_drop
     model,calls=fake_model(script,reviews=[None,None,lambda r:verdict(r,{'C1'})],rewrites=[dropped])
     monkeypatch.setattr(provider,'luna',model)
     diagnostics={}
-    with pytest.raises(RuntimeError,match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):provider.script(request,diagnostics=diagnostics)
+    result=provider.script(request,diagnostics=diagnostics)
+    assert result['omitted_content'][0]['claim_ids']==[request['claims'][1]['claim_id']]
     rewrite=calls[4][1]
     correction=json.loads(rewrite[rewrite.index('{"series"'):])['correction']
     assert correction['issues']==[{'part':'source.1','reason':'只念數字沒有說明'}]
     assert correction['required_source_indices']==[1]
-    # 重寫刪掉唯一的引用就不再送核對，直接不發布。
-    assert [kind for kind,_ in calls]==['script','review','review','review','rewrite']
+    # 重寫刪掉唯一引用，略過該段後繼續核對後續段落。
+    assert [kind for kind,_ in calls]==['script','review','review','review','rewrite','review']
     assert diagnostics['rewrites'][-1]=={'segment':2,'rejected_after_rewrite':['source.1']}
 
 
@@ -320,13 +324,14 @@ def test_self_naming_left_after_rewrite_is_published_and_only_its_position_logge
     assert diagnostics['rewrites']==[{'segment':1,'rejected':['turn.0']},{'segment':1,'self_naming_after_rewrite':['turn.0']}]
 
 
-def test_self_naming_with_unsupported_facts_after_rewrite_still_fails(monkeypatch):
+def test_self_naming_with_unsupported_facts_after_rewrite_is_omitted(monkeypatch):
     request,script=show()
     script['segments'][1]['turns'][0]['text']='阿哲覺得：空堆疊不可 pop。'
     model,calls=fake_model(script,reviews=[None,None,lambda r:verdict(r,{'turn.0'})],rewrites=[script['segments'][1]])
     monkeypatch.setattr(provider,'luna',model)
     diagnostics={}
-    with pytest.raises(RuntimeError,match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):provider.script(request,diagnostics=diagnostics)
+    result=provider.script(request,diagnostics=diagnostics)
+    assert result['omitted_content'][0]['segment_index']==1
     assert diagnostics['rewrites'][-1]=={'segment':1,'rejected_after_rewrite':['turn.0']}
 
 
@@ -633,8 +638,9 @@ def test_recap_mismatch_after_rewrite_is_not_published(monkeypatch):
     value['segments'].append(bad)
     model, calls = fake_model(value, rewrites=[bad])
     monkeypatch.setattr(provider, 'luna', model)
-    with pytest.raises(RuntimeError, match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):
-        provider.script(dialogue())
+    result=provider.script(dialogue())
+    assert result['omitted_content']==[{'segment_index':1,'claim_ids':[],'reason':'source_check_failed'}]
+    assert len(result['segments'])==1
     assert [kind for kind, _ in calls] == ['script', 'review', 'review', 'rewrite', 'review']
 
 
@@ -651,3 +657,34 @@ def test_audio_only_rule_is_shared_by_generation_review_and_rewrite(monkeypatch)
             assert '不得引導聽眾查看或操作畫面' in prompt
     assert '不得以串場或非事實主張豁免' in podcast_review.PROMPT
     assert '只作口頭回顧' in podcast_review.PROMPT
+
+
+@pytest.mark.parametrize('failed_count,expected_failure', [(1,False),(2,False),(3,True)])
+def test_omission_threshold_uses_unique_selected_claims(monkeypatch, failed_count, expected_failure):
+    request=body()
+    request['claims']=[{**deepcopy(request['claims'][0]),'claim_id':f'claim-{i}'} for i in range(4)]
+    opening={'title':'開場','turns':[{'speaker':'host','text':'大家好，今天一起學習。','source_indices':[]}]}
+    ending={'title':'收尾','turns':[{'speaker':'host','text':'下次再見。','source_indices':[]}]}
+    value={'segments':[opening,*[candidate(sources=[i])['segments'][0] for i in range(4)],ending]}
+    def review_result(r):
+        return verdict(r, {'turn.0'} if 1 <= r['segment_index'] <= failed_count else set())
+    model,calls=fake_model(value,reviews=[review_result]*12,rewrites=value['segments'][1:failed_count+1])
+    monkeypatch.setattr(provider,'luna',model)
+    if expected_failure:
+        with pytest.raises(RuntimeError,match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):
+            provider.script(request)
+    else:
+        result=provider.script(request)
+        assert len(result['omitted_content'])==failed_count
+        assert [b['beat_id'] for b in result['segments']]==[f'beat-{i}' for i in range(6-failed_count)]
+        assert {ref['source_index'] for b in result['segments'] for t in b['turns'] for p in t['parts'] for ref in p['source_refs']}==set(range(failed_count,4))
+
+
+def test_duplicate_selected_claim_identity_counts_once_for_threshold(monkeypatch):
+    request,value=show()
+    request['claims'].append(deepcopy(request['claims'][1]))
+    value['segments'][2]['turns'][0]['source_indices']=[1,2]
+    model,_=fake_model(value,reviews=[None,None,lambda r:verdict(r,{'turn.0'}),lambda r:verdict(r,{'turn.0'})],rewrites=[value['segments'][2]])
+    monkeypatch.setattr(provider,'luna',model)
+    result=provider.script(request)
+    assert result['omitted_content'][0]['claim_ids']==[request['claims'][1]['claim_id']]

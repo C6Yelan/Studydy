@@ -264,3 +264,9 @@ GET /v1/account/storage 使用 account-storage/v2，回傳教材原檔與轉換�
 ## 作答中問答限制
 
 `PUT /v1/materials/{id}/assessment-presence` 接受 `assessment-presence/v1`、`assessment_set_id`、`active`。與問答文字、錄音、retry 共用必填 UUID header `X-Studydy-Browser-Id`，缺漏或不合法回 `REQUEST_INVALID`。只接受本人同教材已封題、ready/in_progress 的題組；每 20 秒回報延長至 60 秒。限制範圍為帳號＋教材＋瀏覽器，另一瀏覽器可問。活動期間三入口回 409 `ASSESSMENT_IN_PROGRESS`，不排入模型工作；取消與既有回答不受影響。交卷後題組 completed 立即使 presence 失效，離頁停止回報後到期；讀取不續期。這是介面約束，並非裝置驗證。
+
+### Podcast 步驟與部分略過
+
+列表及詳情 generation.steps 按集提供 script／audio／alignment／video；未選影片且無影片工作時不列 video。狀態依真實工作列與 provider 鎖投影，待領取與等待共用鎖為 queued，已取得鎖才 running；無法讀取 provider 時不猜正在配音。分鏡維持 Podcast 全部音訊 ready 才可領取。started_at 與 elapsed_seconds 是實際領取至完成（含等待）的時間，舊資料沒有時間就 null；鎖不保證 FIFO，queue_ahead 維持 null。
+
+講稿重寫後仍無法核對的段落略過，其他已核對段落才送配音；episode.omitted_content 保存原段號、選定 claim_ids 與 source_check_failed，不保存未核對台詞。門檻以本集選定重點去重後計算，超過半數落在略過正文才回 PODCAST_SCRIPT_NEEDS_REVIEW；剛好一半發布。開場、收尾不計入重點門檻，核對失敗仍略過。前端逐字稿與本集重點顯示固定略過提示。

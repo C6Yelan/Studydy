@@ -36,7 +36,10 @@ def test_prepare_publish_reopen_and_preserve_audio(closed_loop):
     assert result['episodes'][0]['status']=='ready'
     assert manifest['alignment_producer']=='synthetic-test'
     assert [s['claim_id'] for s in manifest['scenes']]==[c['claim_id'] for c in before['episodes'][0]['claims']]
-    assert podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)==before
+    after=podcasts.read_podcast(owner.learner_id,identity,dsn=dsn)
+    assert next(s for s in after['generation'].pop('steps') if s['step']=='alignment')['status']=='completed'
+    before['generation'].pop('steps')
+    assert after==before
     with pytest.raises(PodcastError,match='RESOURCE_NOT_FOUND'):scenes.read(uuid4(),identity,dsn=dsn)
 
 
