@@ -36,7 +36,7 @@ def test_submitted_feedback_exposes_saved_answer_key_without_changing_public_que
     assert result['items'][0]['feedback']['selected_option_id']!=result['items'][0]['feedback']['correct_option_id']
 
 
-def test_unsubmitted_feedback_hides_even_previously_saved_individual_answers(closed_loop,tmp_path,monkeypatch):
+def test_unsubmitted_answer_keeps_existing_feedback_without_answer_key(closed_loop,tmp_path,monkeypatch):
     fixture=concept_fixture(closed_loop,2)
     set_id=create(fixture)
     finish_set(fixture)
@@ -51,15 +51,21 @@ def test_unsubmitted_feedback_hides_even_previously_saved_individual_answers(clo
     with database_session(fixture['dsn']) as db:
         study,_,_=assessment_state._scope(db,fixture['learner'],sid,lock=True)
         assessment=db.get(Assessment,answer['assessment_revision'])
-        answer_events.record_answer(db,study,assessment,answer['selected_option_id'],'historic-single-answer')
+        saved=answer_events.record_answer(db,study,assessment,answer['selected_option_id'],'historic-single-answer')
+        expected_feedback=saved.feedback.model_dump(mode='json',by_alias=True)
     partial=client.get(url).json()
     assert partial['status']=='in_progress' and partial['answered_count']==1
-    assert all(item['feedback'] is None for item in partial['items'])
-    assert 'correct_option_id' not in str(partial) and 'rationale' not in str(partial)
+    answered=next(item for item in partial['items'] if item['assessment']['assessment_revision']==answer['assessment_revision'])
+    assert answered['feedback']==expected_feedback
+    assert answered['feedback']['is_correct'] is True and answered['feedback']['rationale']
+    assert 'correct_option_id' not in str(partial)
+    assert all(item['feedback'] is None for item in partial['items'] if item is not answered)
     workspace=client.get(f"/v1/materials/{fixture['source'].material_id}/knowledge-structures/{fixture['document']['revision']}/study-sessions/{sid}/workspace",
         params={'run_id':fixture['document']['run_id'],'set_id':str(set_id)})
     assert workspace.status_code==200,workspace.text
-    assert all(item['feedback'] is None for item in workspace.json()['selected_set']['items'])
+    workspace_answered=next(item for item in workspace.json()['selected_set']['items']
+        if item['assessment']['assessment_revision']==answer['assessment_revision'])
+    assert workspace_answered['feedback']==expected_feedback
     assert 'correct_option_id' not in workspace.text
 
 

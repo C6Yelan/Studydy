@@ -337,4 +337,4 @@ Podcast 依選定概念及關係規劃分集，透過同一索引取得各集引
 
 依 voice turn 的 stage 顯示查找教材、整理回答、核對來源、等待語音及製作語音；舊資料依原生命週期顯示，不估填耗時。已核對音訊依 audio_sentences.index 順序播放，只請求 ready 的片段；下一句未完成就等待，失敗不跳過。retry 沿用 ready 前綴，cancel 停止待製作句子並保留原取消語意。逐句製作中沿用暫停收音，不新增自動取消；完整完成後才恢復開口打斷。完整回覆保留既有播放器與播放軸，串播進行中不切換成整段重播。
 
-Q4交卷回饋沿用answer-feedback/v1，只有題組completed時增加correct_option_id，直接讀保存的private_answer_document；歷史已交卷題組同樣可回查，不重生題目。public_document仍只有公開題目；未交卷題組（含舊逐題作答紀錄）feedback=null，不提前提供正解或解析。整組交卷回應、題組讀取與學習工作區共用同一公開門檻。
+Q4交卷回饋沿用answer-feedback/v1，只有題組completed時增加correct_option_id，直接讀保存的private_answer_document；歷史已交卷題組同樣可回查，不重生題目。public_document仍只有公開題目；未交卷但已有作答事件的題目照舊回傳feedback（含is_correct、rationale），只省略新增的correct_option_id；未作答仍為null。整組交卷回應、題組讀取與學習工作區只對新增正確選項欄位套用completed門檻，不改既有回饋語意。
