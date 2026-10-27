@@ -139,7 +139,7 @@ def test_voice_api_origin_owner_and_validation(closed_loop):
     app=api.create_app(api.ApiSettings(profile='local',public_origin=origin,secure_cookie=False,local_config=settings,dsn=dsn))
     client=TestClient(app,base_url=origin)
     url=f'/v1/materials/{source.material_id}/voice-conversations'
-    h={'Origin':origin,'Idempotency-Key':'voice-api'}
+    h={'Origin':origin,'Idempotency-Key':'voice-api','X-Studydy-Browser-Id':str(uuid4())}
     assert client.post(url,headers=h).status_code==401
     client.cookies.set('studydy_session',token)
     assert client.post(url).status_code==403

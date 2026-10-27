@@ -377,3 +377,7 @@ learning-goal/v2、learning-diagnosis/v2、material-notes/v3 與新回答 materi
 GET /v1/account/storage 升為 account-storage/v2，需與前端對應schema及G4接線配合部署，不提供舊schema相容回應。無migration或provider變更；總量與細項來自同一SQL與目錄掃描，並非DB／磁碟原子快照。
 
 空間面板僅接受 `account-storage/v2`；須與 B3.4 的細項 API 同批部署。五類 breakdown 合計須等於 used_bytes，reserved_bytes 已包含其中；前 5 大教材使用 API 提供的順序與用量，不由前端重新掃描或估算。
+
+## 作答狀態與問答限制
+
+Q3 新增 assessment_presence migration，部署前需與前端 UUID browser header／作答心跳同批接線；舊文字、錄音、retry 呼叫若缺 header 會被拒絕。migration 只新增短期 presence 表，可在隔離 DB 以 transaction rollback 驗證；正式已套用檔不得改號或修改 checksum。

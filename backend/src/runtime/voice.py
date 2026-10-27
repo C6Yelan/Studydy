@@ -234,6 +234,13 @@ def podcast_context(db, conversation, locator):
         raise SourceError("VOICE_PODCAST_CONTEXT_INVALID") from None
 
 
+def require_question_allowed(owner, identity, browser_id, *, dsn=None):
+    from .assessment_presence import require_allowed
+    with database_session(dsn) as db:
+        row, _ = _conversation(db, owner, identity, read=True)
+        require_allowed(db, owner, row.material_id, browser_id)
+
+
 def add_turn(
     owner,
     identity,

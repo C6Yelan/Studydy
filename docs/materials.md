@@ -260,3 +260,7 @@ run 的 added_sources／existing_source_count 依固定 SourceSet 與 base 分�
 ## 帳號空間細項
 
 GET /v1/account/storage 使用 account-storage/v2，回傳教材原檔與轉換檔、Podcast音訊、Podcast影片、分析資料、處理中保留額度五項；breakdown總和等於used_bytes。largest_materials列最多五份佔用最大的本人教材，含各自分析資料與保留額度。同一次SQL取得檔案／保留／教材名稱，同一次目錄掃描取得分析總量與教材歸屬；不宣稱DB和磁碟為原子快照。無法對應現存教材的分析檔仍計入總量，不提供失效教材連結。
+
+## 作答中問答限制
+
+`PUT /v1/materials/{id}/assessment-presence` 接受 `assessment-presence/v1`、`assessment_set_id`、`active`。與問答文字、錄音、retry 共用必填 UUID header `X-Studydy-Browser-Id`，缺漏或不合法回 `REQUEST_INVALID`。只接受本人同教材已封題、ready/in_progress 的題組；每 20 秒回報延長至 60 秒。限制範圍為帳號＋教材＋瀏覽器，另一瀏覽器可問。活動期間三入口回 409 `ASSESSMENT_IN_PROGRESS`，不排入模型工作；取消與既有回答不受影響。交卷後題組 completed 立即使 presence 失效，離頁停止回報後到期；讀取不續期。這是介面約束，並非裝置驗證。
