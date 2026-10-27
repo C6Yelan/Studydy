@@ -64,7 +64,7 @@ export function UploadView({ apiClient }: { apiClient: StudydyApiClient }) {
       // 保留 draft 與逐檔的同一意圖；回應遺失或部分失敗時不重建已成功的來源。
       draft.current ??= {
         key: crypto.randomUUID(),
-        name: queue[0].kind === "youtube" ? "YouTube 影片" : (queue[0].kind === "images" ? queue[0].images![0].name : queue[0].file!.name).replace(/\.[^.]+$/, "").slice(0, 180),
+        name: queue[0].kind === "youtube" ? "YouTube 影片" : (queue[0].kind === "images" ? queue[0].images![0].name : queue[0].file!.name).replace(/\.[^.]+$/, "").slice(0, 40),
         id: null,
       };
       const intent = draft.current;

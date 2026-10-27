@@ -179,3 +179,29 @@ def test_remove_topic_exclusions_keeps_constraints_editable(clean_database_dsn, 
         if status=='approved':
             assert topics.approve(owner,identity,8,expected,key,dsn=clean_database_dsn)['proposal']==expected
     assert run_migrations(clean_database_dsn)==()
+
+
+def test_material_name_upgrade_truncates_existing_names(clean_database_dsn, migrations_dir, tmp_path):
+    previous = tmp_path / "before_material_name_limit"
+    previous.mkdir()
+    for path in migrations_dir.glob("*.sql"):
+        if int(path.name[:4]) < 30:
+            shutil.copy2(path, previous / path.name)
+    run_migrations(clean_database_dsn, migrations_dir=previous)
+    owner = uuid4()
+    names = ["短名稱", "字" * 40, "課" * 80, "🐍" * 50]
+    with psycopg.connect(clean_database_dsn) as connection:
+        connection.execute("INSERT INTO learners (learner_id,created_at) VALUES (%s,now())", (owner,))
+        for index, name in enumerate(names):
+            connection.execute(
+                """INSERT INTO materials (material_id,learner_id,display_name,
+                   upload_idempotency_key_sha256,upload_request_fingerprint,created_at)
+                   VALUES (%s,%s,%s,%s,%s,now())""",
+                (uuid4(), owner, name, bytes([index]) * 32, bytes(32)),
+            )
+    run_migrations(clean_database_dsn)
+    with psycopg.connect(clean_database_dsn) as connection:
+        assert set(connection.execute("SELECT display_name FROM materials").fetchall()) == {(name[:40],) for name in names}
+        with pytest.raises(psycopg.errors.CheckViolation, match="materials_display_name_length"):
+            with connection.transaction():
+                connection.execute("UPDATE materials SET display_name=%s", ("字" * 41,))

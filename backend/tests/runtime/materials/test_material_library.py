@@ -91,7 +91,12 @@ def test_named_draft_is_owned_and_idempotent(closed_loop,tmp_path,monkeypatch):
     item=client.get('/v1/materials/'+created.json()['material_id']).json()
     assert item['display_name']=='陣列.pdf' and item['latest_attempt'] is None
     assert client.post('/v1/materials',headers=headers,json={**body,'display_name':'different.pdf'}).status_code==409
-    for invalid in ['\x00.pdf','../private.pdf','x'*201]:
+    for invalid in ['\x00.pdf','../private.pdf','x'*41]:
         assert client.post('/v1/materials',headers={**headers,'Idempotency-Key':'invalid'},json={**body,'display_name':invalid}).status_code==400
+    boundary = client.post('/v1/materials',headers={**headers,'Idempotency-Key':'forty-characters'},json={**body,'display_name':'字'*40})
+    assert boundary.status_code == 201
+    path = '/v1/materials/' + boundary.json()['material_id'] + '/rename'
+    assert client.post(path,headers=HEADERS,json={'schema':'material-rename/v1','display_name':'名'*40}).status_code == 200
+    assert client.post(path,headers=HEADERS,json={'schema':'material-rename/v1','display_name':'名'*41}).status_code == 400
     assert client.post('/v1/materials',headers=HEADERS,content=b'retired').status_code == 400
     assert client.post('/v2/materials',headers=HEADERS,content=b'retired').status_code == 404

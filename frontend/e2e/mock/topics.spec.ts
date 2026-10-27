@@ -82,7 +82,7 @@ for(const width of [1920,1440,390]) test(`scope review edits preserve payload an
   return json(r,topic);
  });
  await page.goto(`/topics/${id}`);
- const title=page.getByLabel('教材名稱',{exact:true});await expect(title).toHaveValue(proposal.title);await expect(title).toHaveAttribute('maxlength','180');
+ const title=page.getByLabel('教材名稱',{exact:true});await expect(title).toHaveValue(proposal.title);await expect(title).toHaveAttribute('maxlength','40');
  await expect(page.getByLabel('學習目標 2',{exact:true})).toHaveValue(proposal.goals[1]);
  await expect(page.getByRole('button',{name:/^(編輯|完成)/})).toHaveCount(0);
  await title.fill('');await expect(page.getByText('請填寫教材名稱。')).toBeVisible();await expect(page.getByRole('button',{name:'確認範圍並搜尋'})).toBeDisabled();

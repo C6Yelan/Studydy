@@ -134,6 +134,7 @@ def test_topic_api_requires_identity_origin_and_exact_scope(closed_loop,monkeypa
     identity=r.json()['topic_id'];topics.step(dsn=dsn)
     assert client.post('/v1/materials/'+str(closed_loop[1].material_id)+'/research',headers=headers,json={'query':'bypass','mode':'review'}).status_code==405
     view=client.get('/v1/topics/'+identity).json();assert view['generation_provider']=='codex-exec:gpt-5.6-luna;scope/v6'
+    assert client.post('/v1/topics/'+identity+'/approve',headers=headers,json={'expected_version':view['version'],'proposal':{**PLAN,'title':'字'*41}}).status_code == 400
     r=client.post('/v1/topics/'+identity+'/approve',headers=headers,json={'expected_version':view['version'],'proposal':PLAN})
     assert r.status_code==200 and r.json()['approved_at']
     assert client.get('/v1/topics/'+identity).headers['cache-control']=='private, no-store'

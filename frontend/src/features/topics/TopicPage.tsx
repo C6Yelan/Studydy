@@ -74,7 +74,7 @@ function ScopeFields({draft,onChange,busy,request,supplemental,settings,actions}
    {count===0&&<p className="form-error" role="alert">請至少保留一個要涵蓋的主題。</p>}
   </section>
   <aside className="topic-scope-review" aria-label="對照學習需求">
-   <MaterialNameField label={supplemental?'這次補充的名稱':'教材名稱'} value={draft.title} disabled={busy} onChange={title=>onChange({...draft,title})}/>
+   <MaterialNameField maxLength={supplemental?180:40} label={supplemental?'這次補充的名稱':'教材名稱'} value={draft.title} disabled={busy} onChange={title=>onChange({...draft,title})}/>
    <section><h3>原始學習需求</h3><p className="topic-original-request">{request}</p></section>
    <ScopeList label="學習目標" itemLabel="學習目標" addLabel="新增學習目標" items={draft.goals} busy={busy} onChange={goals=>onChange({...draft,goals})} error={hasGoals?undefined:'請至少保留一個學習目標。'}/>
    {draft.goals.some(item=>item.length>500)&&<p className="form-error" role="alert">每個學習目標最多 500 字，請縮短後再確認。</p>}
@@ -96,7 +96,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const alive=useRef(true),loadedVersion=useRef(''),selectionLoaded=useRef(''),createIntent=useRef<{body:string;key:string}|null>(null),approveIntent=useRef<{body:string;key:string}|null>(null);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useEffect(()=>{if(!topicId)return;let stop=false;let timer:ReturnType<typeof setTimeout>;
- const read=async()=>{try{const v=await api.studyTools<Topic>(`/v1/topics/${topicId}`);if(stop)return;viewLoaded.current=true;setView(v);if(v.proposal&&loadedVersion.current!==`${v.topic_id}/${v.version}`){setDraft(v.proposal);setLearningSettings({goal:v.learning_goal?{date:v.learning_goal.target_date,percent:v.learning_goal.target_percent}:null});loadedVersion.current=`${v.topic_id}/${v.version}`;}if(!requestLoaded.current){setRequest(v.request);requestLoaded.current=true;}
+ const read=async()=>{try{const v=await api.studyTools<Topic>(`/v1/topics/${topicId}`);if(stop)return;viewLoaded.current=true;setView(v);if(v.proposal&&loadedVersion.current!==`${v.topic_id}/${v.version}`){setDraft(v.material_id?v.proposal:{...v.proposal,title:v.proposal.title.slice(0,40)});setLearningSettings({goal:v.learning_goal?{date:v.learning_goal.target_date,percent:v.learning_goal.target_percent}:null});loadedVersion.current=`${v.topic_id}/${v.version}`;}if(!requestLoaded.current){setRequest(v.request);requestLoaded.current=true;}
  if(v.research&&selectionLoaded.current!==v.research.research_id){setSelected(v.research.selection);selectionLoaded.current=v.research.research_id;}
  if(v.status==='pending'||v.research&&(active.has(v.research.status)||v.research.run&&['pending','running'].includes(v.research.run.status)))timer=setTimeout(read,1800);
  }catch(e){if(!stop){if(isNotFound(e)&&!viewLoaded.current)setNotFound(true);else setError(errorMessage(e));}}};void read();return()=>{stop=true;clearTimeout(timer);};},[api,topicId,reload]);

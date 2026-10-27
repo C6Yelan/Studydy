@@ -21,6 +21,8 @@
 
 原檔、PDF 與 mapping 各自保存 hash。下載使用原 MIME 與 attachment，PDF 預覽使用獨立入口。解析在 Bubblewrap 子程序內執行，唯讀掛載 runtime 及輸入，僅輸出／暫存可寫。只有 DOCX／PPTX 的受控圖片準備階段可連線，實際 Office 與 PDF 解析始終在斷網沙箱；超連結保留，其他 HTTP(S) 外部素材在轉檔副本內盡力取得並內嵌，失敗或超出下載限額就略過，不因此拒絕整份文件。原檔不改寫；其餘格式仍不連線。資源限制、版本檢查與禁止的主動內容見 [converter.py](../backend/src/document_normalization/converter.py) 及 [renderer.py](../backend/src/document_normalization/renderer.py)。失敗來源按「重試轉換」時使用現行轉檔政策，已完成來源的快照保持不變。
 
+教材名稱上限為 40 字，上傳確認、從主題建立與我的教材重新命名一致；來源原檔名維持原有限制。0030 升級時將既有超長教材名稱截為前 40 字，部署前備份可找回原名。
+
 ## 帳號空間
 
 每個帳號總空間上限 5 GiB（介面標示 5 GB；`storage_usage.ACCOUNT_STORAGE_LIMIT_BYTES`）。上限是「接受新增工作」的門檻：已接受的工作產生的檔案（成品比預估大、normalized_pdf／mapping／分析檔、補充學習匯入）照常完成、不會中途中斷，但都計入已用並擋住之後的新增。

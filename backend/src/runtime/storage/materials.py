@@ -296,7 +296,7 @@ def rename_material(
     ):
         raise MaterialLibraryError("REQUEST_INVALID")
     name = display_name.strip()
-    if not 1 <= len(name) <= 200:
+    if not 1 <= len(name) <= 40:
         raise MaterialLibraryError("REQUEST_INVALID")
     try:
         with database_session(dsn) as session:
