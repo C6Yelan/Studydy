@@ -355,6 +355,10 @@ def note_docx(view):
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import Pt
+    from docx.enum.style import WD_STYLE_TYPE
+    from docx.opc.constants import CONTENT_TYPE, RELATIONSHIP_TYPE
+    from docx.opc.packuri import PackURI
+    from docx.opc.part import XmlPart
     doc = Document()
     doc.core_properties.author = 'Studydy'
     doc.core_properties.last_modified_by = 'Studydy'
@@ -367,6 +371,63 @@ def note_docx(view):
             fonts = OxmlElement('w:rFonts')
             style.element.get_or_add_rPr().append(fonts)
         fonts.set(qn('w:eastAsia'), 'Noto Sans CJK TC')
+    footnote_style = doc.styles.add_style('Footnote Text', WD_STYLE_TYPE.PARAGRAPH)
+    footnote_style.base_style = doc.styles['Normal']
+    footnote_style.font.size = Pt(10)
+    reference_style = doc.styles.add_style('Footnote Reference', WD_STYLE_TYPE.CHARACTER)
+    reference_style.font.superscript = True
+    footnotes = OxmlElement('w:footnotes')
+    for identity, kind in [(-1, 'separator'), (0, 'continuationSeparator')]:
+        separator = OxmlElement('w:footnote')
+        separator.set(qn('w:id'), str(identity))
+        separator.set(qn('w:type'), kind)
+        paragraph = OxmlElement('w:p')
+        run = OxmlElement('w:r')
+        run.append(OxmlElement('w:' + kind))
+        paragraph.append(run)
+        separator.append(paragraph)
+        footnotes.append(separator)
+
+    def source_footnote(evidence):
+        identity = str(len(footnotes) - 1)
+        note = OxmlElement('w:footnote')
+        note.set(qn('w:id'), identity)
+        paragraph = OxmlElement('w:p')
+        properties = OxmlElement('w:pPr')
+        style = OxmlElement('w:pStyle')
+        style.set(qn('w:val'), 'FootnoteText')
+        properties.append(style)
+        paragraph.append(properties)
+        marker = OxmlElement('w:r')
+        properties = OxmlElement('w:rPr')
+        style = OxmlElement('w:rStyle')
+        style.set(qn('w:val'), 'FootnoteReference')
+        properties.append(style)
+        marker.append(properties)
+        marker.append(OxmlElement('w:footnoteRef'))
+        paragraph.append(marker)
+        run = OxmlElement('w:r')
+        text = OxmlElement('w:t')
+        text.set(qn('xml:space'), 'preserve')
+        text.text = ' ' + xml_text('；'.join(_note_sources(evidence)))
+        run.append(text)
+        paragraph.append(run)
+        note.append(paragraph)
+        footnotes.append(note)
+        tail = doc.element.body[-2]
+        if tail.tag != qn('w:p'):
+            tail = doc.add_paragraph()._p
+        marker = OxmlElement('w:r')
+        properties = OxmlElement('w:rPr')
+        style = OxmlElement('w:rStyle')
+        style.set(qn('w:val'), 'FootnoteReference')
+        properties.append(style)
+        marker.append(properties)
+        reference = OxmlElement('w:footnoteReference')
+        reference.set(qn('w:id'), identity)
+        marker.append(reference)
+        tail.append(marker)
+
     doc.add_heading(_note_title(view), 0)
     doc.add_paragraph(xml_text('\n'.join(document_metadata(view))))
     if _source_notice(view):
@@ -395,8 +456,8 @@ def note_docx(view):
             level = number['level'] if number else p['level']
             doc.add_heading(xml_text(numbered_heading(number) if number else p['heading']), level)
             _docx_blocks(doc, p['blocks'])
-        for e in p['evidence']:
-            doc.add_paragraph(xml_text('來源：' + source_text(e)))
+        if p['evidence']:
+            source_footnote(p['evidence'])
         return level
 
     for p in view['paragraphs']:
@@ -413,6 +474,10 @@ def note_docx(view):
             level = paragraph(a['original_paragraph'])
             doc.add_heading('個人註記', level + 1)
             doc.add_paragraph(xml_text(a['body']))
+    if len(footnotes) > 2:
+        part = XmlPart(PackURI('/word/footnotes.xml'), CONTENT_TYPE.WML_FOOTNOTES,
+                       footnotes, doc.part.package)
+        doc.part.relate_to(part, RELATIONSHIP_TYPE.FOOTNOTES)
     stream = BytesIO()
     doc.save(stream)
     from xml.etree import ElementTree as ET

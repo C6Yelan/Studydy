@@ -358,3 +358,28 @@ def test_note_markdown_keeps_filenames_and_hyphenated_terms_readable(structured)
     markdown = documents.note_markdown(view)
     assert name in markdown and "Self-attention 使用 QK^T" in markdown
     assert r"\*字面星號\*" in markdown and r"\[引用\]" in markdown
+
+
+def test_note_word_sources_are_real_footnotes_with_the_pdf_source_grouping():
+    from xml.etree import ElementTree as ET
+    view = note()
+    view["paragraphs"][0]["evidence"] = [*view["paragraphs"][0]["evidence"],
+        {"page": 13, "normalized_page": 3, "source_name": "錄音.MP3", "block_order": 3},
+        {"page": 4, "normalized_page": 4, "source_name": "課堂.pdf", "block_order": 1},
+    ]
+    data = documents.note_docx(view)
+    assert "我的想法" in "\n".join(paragraph.text for paragraph in Document(BytesIO(data)).paragraphs)
+    namespaces = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        body = ET.fromstring(archive.read("word/document.xml"))
+        notes = ET.fromstring(archive.read("word/footnotes.xml"))
+        references = body.findall(".//w:footnoteReference", namespaces)
+        assert [reference.attrib[f"{{{namespaces['w']}}}id"] for reference in references] == ["1", "2"]
+        texts = {note.attrib[f"{{{namespaces['w']}}}id"]: "".join(note.itertext()).strip() for note in notes}
+        assert texts["1"] == "錄音.MP3 · 第 3 段 · 區塊 2–3；課堂.pdf · 第 4 頁 · 區塊 1"
+        assert texts["2"] == "錄音.MP3 · 第 3 段 · 區塊 2"
+        assert len(notes.findall(".//w:footnoteRef", namespaces)) == 2
+        relationships = ET.fromstring(archive.read("word/_rels/document.xml.rels"))
+        assert any(relation.attrib["Type"].endswith("/footnotes") and relation.attrib["Target"] == "footnotes.xml" for relation in relationships)
+        content_types = ET.fromstring(archive.read("[Content_Types].xml"))
+        assert any(part.attrib.get("PartName") == "/word/footnotes.xml" and part.attrib["ContentType"].endswith(".footnotes+xml") for part in content_types)
