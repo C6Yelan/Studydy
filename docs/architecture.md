@@ -129,3 +129,7 @@ Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文�
 帳號空間細項與總量使用同一次SQL及同一次分析目錄掃描，回應內加總一致；DB／磁碟不是跨系統原子快照。
 
 作答 presence 存於 PostgreSQL `assessment_presence`，鍵為 learner/material/browser。問答 API 以可信登入帳號及對話教材檢查，並連接題組即時狀態；交卷與回答在同交易完成，completed 題組不再阻擋提問。題組刪除以外鍵 cascade 清理 presence。
+
+Podcast 步驟時間：講稿／音訊放在分集 step_times，對齊／影片使用工作表 started_at／finished_at。只讀 provider /jobs/progress 用 job_id＋job_token 對應活動請求，觀測真正等待鎖／持鎖狀態；回應不含教材、帳號或台詞。段落略過只改發布取捨，不改核對提示或 runtime lock。
+
+V2 的 voice_sentences 由 voice_turns 外鍵 cascade 管理，保存句序、原文、狀態、WAV及時長；只有已核對回答能建立句列，租約仍由原turn持有，取消與遲到結果沿用原檢查。查詢中的語音stage共用provider真實鎖狀態；provider回傳X-Studydy-Audio-Timings供排隊／合成量測，不改GPU鎖或PC6可念化規則。

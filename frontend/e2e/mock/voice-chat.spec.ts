@@ -4,8 +4,8 @@ import type { VoiceTurn, VoiceView } from '../../src/features/material-tools/typ
 import { materialId, runId, structureRevision, structureView, mockKnowledgeMapApi, json } from '../fixtures/knowledge-map';
 
 const mapPath=`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
-function wav() {
- const data=Buffer.alloc(44+24000*8*2);data.write('RIFF');data.writeUInt32LE(data.length-8,4);data.write('WAVEfmt ',8);data.writeUInt32LE(16,16);data.writeUInt16LE(1,20);data.writeUInt16LE(1,22);data.writeUInt32LE(24000,24);data.writeUInt32LE(48000,28);data.writeUInt16LE(2,32);data.writeUInt16LE(16,34);data.write('data',36);data.writeUInt32LE(data.length-44,40);return data;
+function wav(seconds=8) {
+ const data=Buffer.alloc(44+Math.round(24000*seconds)*2);data.write('RIFF');data.writeUInt32LE(data.length-8,4);data.write('WAVEfmt ',8);data.writeUInt32LE(16,16);data.writeUInt16LE(1,20);data.writeUInt16LE(1,22);data.writeUInt32LE(24000,24);data.writeUInt32LE(48000,28);data.writeUInt16LE(2,32);data.writeUInt16LE(16,34);data.write('data',36);data.writeUInt32LE(data.length-44,40);return data;
 }
 async function mockVoice(page:Page) {
  const structure=structureView();await mockKnowledgeMapApi(page,structure);
@@ -503,4 +503,73 @@ test('assessment refusal keeps the question draft and can be sent after the guar
  await page.goto(mapPath);await open(page);const input=page.getByLabel('問題／辨識文字');await input.fill('作答後再問的問題');await page.getByRole('button',{name:'送出問題',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('作答期間暫停教材問答，請交卷後再試。');await expect(input).toHaveValue('作答後再問的問題');expect(mock.questions).toHaveLength(0);
  blocked=false;await page.getByRole('button',{name:'送出問題',exact:true}).click();await expect(page.locator('.voice-answer')).toContainText('堆疊');expect(mock.questions).toEqual(['作答後再問的問題']);
+});
+
+
+async function streamingReply(page:Page) {
+ const mock=await mockVoice(page);await microphone(page);
+ await page.addInitScript(()=>{(window as any).sentencePlays=[];document.addEventListener('play',event=>{if(event.target instanceof HTMLAudioElement){const path=new URL(event.target.src).pathname;if(path.includes('/voice-conversations/'))(window as any).sentencePlays.push(path.match(/\/audio\/(\d+)$/)?.[1]??'whole');}},true);});
+ const requests:string[]=[];
+ await page.route(/\/v1\/voice-conversations\/[^/]+\/turns\/[^/]+\/audio(?:\/\d+)?$/,route=>{const path=new URL(route.request().url()).pathname;requests.push(path);return route.fulfill({status:200,contentType:'audio/wav',body:wav(/\/audio\/\d+$/.test(path) ? .3 : .6)});});
+ await page.goto(mapPath);await open(page);await page.getByRole('switch',{name:'語音模式',exact:true}).click();await speak(page);
+ await expect.poll(()=>mock.recorded.length).toBe(1);
+ const turn=mock.recorded[0],conversation=mock.conversations[0];const base=`/v1/voice-conversations/${conversation.conversation_id}/turns/${turn.turn_id}`;
+ Object.assign(turn,{question:'請解釋堆疊',answer:{...mock.answer},status:'speaking',stage:'tts_synthesizing',timings:{retrieval_ms:12,answer_ms:34,verification_ms:56,tts_queue_ms:78,tts_synthesis_ms:90},audio_url:null,audio_sentences:[
+  {index:0,text:'堆疊採用後進先出。',status:'ready',audio_url:base+'/audio/0',duration_seconds:.3},
+  {index:1,text:'最後放入的資料會最先取出。',status:'pending',audio_url:null,duration_seconds:null},
+ ]});
+ await expect.poll(()=>page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0']);
+ await expect(page.getByText('正在準備後續語音…',{exact:true})).toBeVisible();
+ return {mock,turn,base,requests,ready:()=>{turn.audio_sentences![1]={...turn.audio_sentences![1],status:'ready',audio_url:base+'/audio/1',duration_seconds:.3};},complete:()=>{turn.status='ready';turn.stage='completed';turn.audio_url=base+'/audio';}};
+}
+
+test('verified sentences play in order, wait for the next ready sentence and retain the full player after completion',async({page},testInfo)=>{
+ const stream=await streamingReply(page);
+ expect(stream.requests.some(path=>path.endsWith('/audio/1'))).toBe(false);
+ await expect(page.locator('.voice-turn-status')).toContainText('正在準備語音');
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`sentence-wait-${width}.png`),animations:'disabled'});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
+ stream.ready();await expect.poll(()=>page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0','1']);
+ await expect(page.getByText('正在準備後續語音…',{exact:true})).toBeVisible();
+ expect(stream.requests.some(path=>path.endsWith('/audio'))).toBe(false);
+ stream.complete();await expect(page.getByRole('slider',{name:'回答語音進度'})).toBeVisible();
+ expect(await page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0','1']);
+ await expect(page.locator('.voice-answer')).toHaveText(stream.mock.answer.text);
+});
+
+test('switching to text during a sentence gap prevents late autoplay and manual play resumes the next sentence',async({page})=>{
+ const stream=await streamingReply(page);await page.getByRole('switch',{name:'語音模式',exact:true}).click();
+ stream.ready();stream.complete();await expect(page.locator('.voice-sentence-audio audio')).toHaveAttribute('src',stream.base+'/audio/1');
+ expect(await page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0']);
+ await page.getByRole('button',{name:'播放回答語音',exact:true}).click();await expect.poll(()=>page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0','1']);
+});
+
+test('failed sentence generation keeps verified text and retry resumes after the already played prefix',async({page})=>{
+ const stream=await streamingReply(page);stream.turn.status='failed';stream.turn.stage='failed';stream.turn.error_code='VOICE_PROVIDER_FAILED';stream.turn.audio_sentences![1].status='failed';
+ await expect(page.getByText(/語音製作未完成，文字與來源已保留/)).toBeVisible();
+ expect(await page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0']);
+ await page.getByRole('button',{name:'播放回答語音',exact:true}).click();await expect.poll(()=>page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0','0']);
+ await expect(page.getByRole('button',{name:'播放回答語音',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'重試語音',exact:true}).click();await expect.poll(()=>stream.mock.actions.length).toBe(1);
+ stream.turn.stage='tts_queued';stream.turn.audio_sentences![1].status='pending';stream.ready();stream.complete();
+ await expect.poll(()=>page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0','0','1']);
+ await expect(page.locator('.voice-answer')).toHaveText(stream.mock.answer.text);
+});
+
+test('cancelling while waiting for a sentence keeps the answer and stops automatic continuation',async({page})=>{
+ const stream=await streamingReply(page);await page.getByRole('button',{name:'取消這次提問',exact:true}).click();
+ await expect.poll(()=>stream.mock.actions.some(action=>action.action==='cancel')).toBe(true);stream.turn.stage='cancelled';stream.turn.audio_sentences![1].status='cancelled';
+ await expect(page.locator('.voice-turn-status')).toContainText('已取消');
+ await expect(page.locator('.voice-answer')).toHaveText(stream.mock.answer.text);
+ expect(await page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0']);
+ expect(stream.requests.some(path=>path.endsWith('/audio/1'))).toBe(false);
+});
+
+
+test('playing external media during a sentence gap prevents automatic continuation',async({page})=>{
+ const stream=await streamingReply(page);await page.route('**/external.wav',route=>route.fulfill({contentType:'audio/wav',body:wav()}));
+ await page.evaluate(async()=>{const media=document.createElement('audio');media.id='external-audio';media.src='/external.wav';document.body.append(media);await media.play();});
+ stream.ready();stream.complete();
+ await expect(page.locator('.voice-sentence-audio audio')).toHaveAttribute('src',stream.base+'/audio/1');
+ expect(await page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0']);
+ expect(await page.locator('#external-audio').evaluate((media:HTMLAudioElement)=>media.paused)).toBe(false);
 });

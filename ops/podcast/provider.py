@@ -509,7 +509,7 @@ sources 列出本集必須講解的概念與重點；block_indices 對應 page_c
         podcast_process.check(cancelled)
         return response
 
-    # 逐段對照引用原文；不符只重生該段，仍不符就整集不發布。
+    # 逐段對照引用原文；不符只重生該段，仍不符依選定重點門檻略過。
     return podcast_review.verify(
         result,
         claims,
@@ -696,12 +696,14 @@ class Handler(BaseHTTPRequestHandler):
             "/scene-check",
             "/video",
             "/jobs/cancel",
+            "/jobs/progress",
             "/jobs/luna-result",
         }:
             self.send_error(404)
             return
         started, body, failure = time.monotonic(), None, None
         self.script_review = None
+        self.audio_queued_at = self.audio_started_at = None
         try:
             size = int(self.headers.get("Content-Length", "0"))
             if (
@@ -723,6 +725,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/jobs/luna-result":
                 result = self.calls().finalize(tags, body.get("outcome"), body.get("reason"))
                 self.respond(json.dumps(result).encode(), "application/json")
+                return
+            if self.path == "/jobs/progress":
+                self.respond(json.dumps(podcast_process.progress(body)).encode(), "application/json")
                 return
             if self.path == "/jobs/cancel":
                 self.respond(
@@ -752,7 +757,11 @@ class Handler(BaseHTTPRequestHandler):
                 else TEXT_LOCK
             )
             with self.calls().request(tags, self.path), podcast_process.job(body, required=self.path == "/video") as cancelled:
-                with podcast_process.locked(active_lock, cancelled, timeout=None):
+                if self.path == "/audio":
+                    self.audio_queued_at = time.monotonic()
+                with podcast_process.tracked_lock(active_lock, cancelled, body, self.path):
+                    if self.path == "/audio":
+                        self.audio_started_at = time.monotonic()
                     self.generate(body, cancelled)
         except Exception as error:
             failure = error
@@ -872,6 +881,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", media)
         self.send_header("Content-Length", str(len(data)))
         if self.path == "/audio":
+            self.send_header("X-Studydy-Audio-Timings", json.dumps({
+                "tts_queue_ms": (self.audio_started_at - self.audio_queued_at) * 1000,
+                "tts_synthesis_ms": (time.monotonic() - self.audio_started_at) * 1000,
+            }))
             self.send_header(
                 "X-Studydy-Audio-Provider",
                 "Fun-CosyVoice3-0.5B-2512;rl-reference-vw;spoken-input/v15;dynamic-pauses/v2;podcast-mastering/v1",

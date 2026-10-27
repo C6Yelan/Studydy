@@ -57,7 +57,7 @@ def test_conversation_memory_persists_without_recompressing_or_reading_future(cl
         state=voice.claim(dsn=dsn)
         voice.finish(state,grounded_answer(state,dsn,'舊的完整教材說明。'*70),dsn=dsn)
     calls=[]
-    def provider(path, body):
+    def provider(path, body, **kwargs):
         calls.append(deepcopy(body))
         if body['schema']['required']==['summary']:
             return {'summary':'使用者已提供條件 0 至 6，曾討論教材概念。'}
@@ -208,7 +208,7 @@ def test_voice_worker_auto_chains_transcript_answer_audio_without_send(closed_lo
     owner, _, cid, dsn = setup(closed_loop)
     turn = voice.add_turn(owner, cid, 'voice-auto', recording=b'synthetic recording', dsn=dsn)
     paths = []
-    def provider(path, body):
+    def provider(path, body, **kwargs):
         paths.append(path)
         if path == '/transcribe':
             assert isinstance(body['hints'],str) and len(body['hints'])<=320
@@ -244,7 +244,7 @@ def test_text_worker_finishes_without_audio_provider_and_mode_is_part_of_intent(
     with pytest.raises(SourceError, match='IDEMPOTENCY_CONFLICT'):
         voice.add_turn(owner, cid, 'same-intent', recording=b'same bytes', dsn=dsn)
     paths = []
-    def provider(path, body):
+    def provider(path, body, **kwargs):
         paths.append(path)
         assert path == '/semantics', 'Text mode must not request TTS'
         return qa_model(body, '純文字回答。')
@@ -306,7 +306,7 @@ def test_voice_audio_retry_keeps_answer_and_does_not_repeat_stt_or_answer(closed
     before = deepcopy(voice.read(owner, cid, dsn=dsn)['turns'][0]['answer'])
     voice.action(owner, cid, turn['turn_id'], 'retry', dsn=dsn)
     paths = []
-    def provider(path, body):
+    def provider(path, body, **kwargs):
         paths.append(path);assert path == '/audio';return audio_fixture()
     monkeypatch.setattr(voice, 'provider', provider)
     assert voice.step(dsn=dsn)
@@ -321,7 +321,7 @@ def test_invalid_transcript_does_not_send_question_or_keep_recording(closed_loop
     owner, _, cid, dsn = setup(closed_loop)
     turn = voice.add_turn(owner, cid, 'empty-transcript', recording=b'synthetic recording', dsn=dsn)
     paths = []
-    def provider(path, body):
+    def provider(path, body, **kwargs):
         paths.append(path);return {'text': '   '}
     monkeypatch.setattr(voice, 'provider', provider)
     assert voice.step(dsn=dsn) and not voice.step(dsn=dsn)
@@ -357,7 +357,7 @@ def test_typed_question_in_voice_mode_uses_same_history_and_generates_audio(clos
     with pytest.raises(SourceError, match='IDEMPOTENCY_CONFLICT'):
         voice.add_turn(owner, cid, 'typed-voice', '用文字輸入的語音模式問題', mode='text', dsn=dsn)
     paths = []
-    def provider(path, body):
+    def provider(path, body, **kwargs):
         paths.append(path)
         return qa_model(body, '教材支持的回答。') if path == '/semantics' else audio_fixture()
     monkeypatch.setattr(voice, 'provider', provider)

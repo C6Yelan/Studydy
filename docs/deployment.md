@@ -384,6 +384,15 @@ Q3 新增 assessment_presence migration，部署前需與前端 UUID browser hea
 
 Q3 前端須與 B3.5 同批部署（feat/overnight-qa-guard，87e18dd01384ad31d97f1f626b66155561ac772f）；前端同步提供持久 ID、20 秒作答回報、交卷解除與 409 提示。取消及讀取既有內容不受新 header 限制。
 
+
+PC1／PC2 使用 0026_podcast_step_times（在教材投影0024、作答presence0025之後）。須先更新 provider 的 /jobs/progress 與略過邏輯，再部署後端；未清空 Luna 工作不得重啟 provider。新增時間欄位可保留回復舊映像；不改既有講稿／音訊或核對封存。前端依已審 API 契約顯示步驟及略過提示。
+
 ### Podcast 步驟與略過提示前端
 
 PC1／PC2 前端與 B3.6 `feat/overnight-podcast-progress`（94f342703d2656ff48ce7db85487a5655383130c）同批部署，依後端規定先更新 provider。部署順序為 B3.5＋Q3 → B3.6＋PC1／PC2 → B3.7＋V2。
+
+V2使用0027_voice_sentences，順序在Q3的0025與PC1的0026之後。先部署provider音訊量測header，再部署後端與前端逐句播放接線；部署前沿既有規則清空工作，舊完成回答不建立假句序或補估時間。回復舊映像保留新增表／欄位，不刪已生成音訊。
+
+### 逐句語音回答前端
+
+V2 與 B3.7 `feat/overnight-voice-stream`（e8d191097285cf7f5f9bac921604433ca28c0134）同批部署；後端需先有 B3.6 並依其規則更新 provider。前端讀取公開 stage／audio_sentences，不以片段非空認定回答完成；未呼叫真模型量測延遲，不能把 mock 播放測試當作實際效能結果。

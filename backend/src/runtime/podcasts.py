@@ -60,24 +60,32 @@ def _pick_hosts(delivery):
 
 
 def _child_statuses(db, podcast_ids):
-    statuses = {identity: {"videos": [], "scenes": []} for identity in podcast_ids}
+    from .podcast_generation import live_progress
+    statuses = {identity: {"videos": [], "scenes": [], "video_rows": [], "scene_rows": []} for identity in podcast_ids}
+    jobs = []
     if statuses:
-        for model, kind in ((PodcastVideo, "videos"), (PodcastScenes, "scenes")):
-            for identity, status in db.execute(
-                select(model.podcast_id, model.status).where(
-                    model.podcast_id.in_(statuses)
-                )
-            ):
-                statuses[identity][kind].append(status)
+        jobs.extend(db.execute(select(Podcast.podcast_id, Podcast.lease_token).where(
+            Podcast.podcast_id.in_(statuses), Podcast.status == "running")))
+        for model, kind, rows in ((PodcastVideo, "videos", "video_rows"), (PodcastScenes, "scenes", "scene_rows")):
+            for child in db.scalars(select(model).where(model.podcast_id.in_(statuses))):
+                statuses[child.podcast_id][kind].append(child.status)
+                statuses[child.podcast_id][rows].append(child)
+                if child.status == "running":
+                    jobs.append((child.video_id if model is PodcastVideo else child.scene_id, child.lease_token))
+    live = live_progress(jobs)
+    for item in statuses.values():
+        item["live"] = live
     return statuses
 
 
 def _summary(row, material, child_statuses):
+    from .podcast_generation import steps
     videos = child_statuses[row.podcast_id]["videos"]
     scenes = child_statuses[row.podcast_id]["scenes"]
     # 分鏡 worker 只接 ready 節目；失敗節目的待處理分鏡不代表仍在生成。
     active_children = videos + (scenes if row.status == "ready" else [])
     generation = {
+        "steps": steps(row, child_statuses[row.podcast_id]),
         "active": row.status in ("pending", "running")
         or any(status in ("pending", "running") for status in active_children),
         "completed_videos": videos.count("ready"),
@@ -270,6 +278,8 @@ def read_podcast(owner, identity, *, dsn=None):
         # 播放頁僅需來源入口與狀態，不讀整份教材或展開概念視圖。
         episodes = deepcopy(row.episodes)
         for episode in episodes:
+            episode.pop("step_times", None)
+            episode.setdefault("omitted_content", [])
             episode["script_sha256"] = (
                 digest(episode["script"]) if episode["script"] else None
             )
@@ -444,6 +454,10 @@ def claim_step(*, dsn=None):
                     else {**e, "hosts": dict(hosts)}
                     for e in row.episodes
                 ]
+            episodes = deepcopy(row.episodes)
+            step = "audio" if episodes[index]["script"] else "script"
+            episodes[index].setdefault("step_times", {})[step] = {"started_at": now.isoformat(), "finished_at": None}
+            row.episodes = episodes
             episode = deepcopy(row.episodes[index])
             following = row.episodes[index + 1] if index + 1 < len(row.episodes) else None
             context = {}
@@ -510,11 +524,16 @@ def finish_step(
             return False
         episodes = deepcopy(row.episodes)
         episode = episodes[claim["index"]]
+        step = "audio" if claim["episode"]["script"] else "script"
+        timing = episode.setdefault("step_times", {}).setdefault(step, {})
+        timing["finished_at"] = datetime.now(UTC).isoformat()
         if error:
+            row.episodes = episodes
             row.status, row.error_code = "failed", error
         else:
             if script is not None:
                 episode["script"] = validate_script(script, episode)
+                episode["omitted_content"] = episode["script"].pop("omitted_content", [])
                 if title:
                     episode["title"] = title
             elif audio is not None and episode["script"]:

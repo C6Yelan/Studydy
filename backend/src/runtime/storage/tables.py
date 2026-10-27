@@ -742,7 +742,20 @@ class VoiceTurn(Base):
     error_code: Mapped[str | None] = mapped_column(Text)
     lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stage: Mapped[str | None] = mapped_column(Text)
+    timings: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class VoiceSentence(Base):
+    __tablename__ = "voice_sentences"
+    turn_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("voice_turns.turn_id", ondelete="CASCADE"), primary_key=True)
+    index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    audio: Mapped[bytes | None] = mapped_column(LargeBinary)
+    duration_seconds: Mapped[float | None] = mapped_column(Double)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class MaterialResearch(Base):
@@ -829,6 +842,9 @@ class PodcastScenes(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
 
 class PodcastVideo(Base):
     __tablename__ = "podcast_videos"
@@ -846,6 +862,9 @@ class PodcastVideo(Base):
     lease_token: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class CardReviewEvent(Base):

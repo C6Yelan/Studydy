@@ -468,6 +468,8 @@ def claim(*, dsn=None):
             row.error_code = "SCENE_SOURCE_CHANGED"
             row.lease_token = row.lease_expires_at = None
             return None
+        if not row.alignment:
+            row.started_at, row.finished_at = now, None
         row.status = "running"
         row.lease_token = uuid4()
         row.lease_expires_at = now + WORKER_LEASE_TTL
@@ -514,6 +516,7 @@ def save_alignment(state, alignment, *, dsn=None):
             return False
         validate_alignment(podcast.episodes[state["index"]], alignment)
         row.alignment = alignment
+        row.finished_at = datetime.now(UTC)
         return True
 
 
@@ -531,6 +534,7 @@ def finish(state, alignment=None, error=None, checks=None, *, dsn=None):
         episode = podcast.episodes[state["index"]]
         if not error and (podcast.status != "ready" or row.input_sha256 != identity(podcast, episode)):
             error = "SCENE_SOURCE_CHANGED"
+        row.finished_at = row.finished_at or datetime.now(UTC)
         if error:
             row.status = "failed"
             row.error_code = error

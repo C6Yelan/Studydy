@@ -362,3 +362,29 @@ def test_delayed_reader_receives_complete_large_stdin_and_eof(binary, tmp_path):
     import hashlib
     assert result.returncode == 0
     assert output.read_text() == hashlib.sha256(payload).hexdigest()
+
+
+def test_tracked_lock_reports_real_wait_and_execution():
+    from threading import Lock, Thread, Event
+    from uuid import uuid4
+    from runtime import podcast_process as process
+    import time
+    lock=Lock();lock.acquire()
+    body={'job_id':str(uuid4()),'job_token':str(uuid4())}
+    started=Event();finish=Event()
+    def work():
+        with process.tracked_lock(lock,None,body,'/audio'):
+            started.set();finish.wait(2)
+    thread=Thread(target=work);thread.start()
+    try:
+        deadline=time.monotonic()+2
+        while not process.progress({'jobs':[body]})['jobs'] and time.monotonic()<deadline:
+            time.sleep(.01)
+        queued=process.progress({'jobs':[body]})['jobs'][0]
+        assert queued['status']=='queued' and queued['started_at'] is None
+        lock.release();assert started.wait(2)
+        running=process.progress({'jobs':[body]})['jobs'][0]
+        assert running['status']=='running' and running['started_at']
+    finally:
+        finish.set();thread.join(3)
+    assert process.progress({'jobs':[body]})=={'jobs':[]}

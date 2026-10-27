@@ -350,10 +350,12 @@ def recap_counts(segment):
 
 
 def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics):
-    """逐段核對；不符只重生該段並重核一次，仍不符就整集不發布。"""
+    """逐段核對；重寫後仍不符的段落略過，超過半數選定重點受影響才失敗。"""
     material = material_text(claims, pages)
+    omitted = []
+    rejected_indices = set()
     for index in range(len(script["segments"])):
-        related = range(index)
+        related = [i for i in range(index) if i not in rejected_indices]
         request = segment_request(script, index, claims, pages, hosts=hosts, series=series, related_indices=related)
         # 自稱名字由程式檢查，與原文核對的不符項目合併成同一次重寫。
         found = issues(request, review(request)) + self_naming(script["segments"][index], hosts, material, script)
@@ -371,6 +373,7 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
         ]
         diagnostics.append({"segment": index, "rejected": [i["part"] for i in found]})
         # 在本段判斷涵蓋的重點不能靠重寫刪掉引用來躲過涵蓋核對。
+        original_sources = cited(script["segments"][index])
         required = coverage_sources(script, index) + assigned
         script = rewrite(script, index, found, required)
         missing = set(required) - set(cited(script["segments"][index]))
@@ -381,9 +384,27 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
             found += recap_counts(script["segments"][index])
         if found:
             diagnostics.append({"segment": index, "rejected_after_rewrite": [i["part"] for i in found]})
-            raise RuntimeError("PODCAST_SCRIPT_NEEDS_REVIEW")
+            rejected_indices.add(index)
+            # 只有正文影響重點門檻；開場與收尾的失敗仍略過，但不計入重點數。
+            is_body = index < len(script["segments"]) - 1 and (index > 0 or len(script["segments"]) <= 2)
+            if len(script["segments"]) == 1:
+                is_body = True
+            sources = set(required) | set(original_sources) | set(cited(script["segments"][index])) if is_body else set()
+            omitted.append({"segment_index": index,
+                            "claim_ids": sorted({claims[i]["claim_id"] for i in sources}),
+                            "reason": "source_check_failed"})
+            continue
         # 自稱是風格問題：重寫後仍有就照常發布，只記位置，不記台詞。
         kept = self_naming(script["segments"][index], hosts, material, script)
         if kept:
             diagnostics.append({"segment": index, "self_naming_after_rewrite": [i["part"] for i in kept]})
+    omitted_claims = {identity for item in omitted for identity in item["claim_ids"]}
+    if len(omitted_claims) * 2 > len({claim["claim_id"] for claim in claims}):
+        raise RuntimeError("PODCAST_SCRIPT_NEEDS_REVIEW")
+    if omitted:
+        kept = [beat for i, beat in enumerate(script["segments"]) if i not in rejected_indices]
+        if not kept:
+            raise RuntimeError("PODCAST_SCRIPT_NEEDS_REVIEW")
+        script = {**script, "segments": [{**beat, "beat_id": f"beat-{i}"} for i, beat in enumerate(kept)],
+                  "omitted_content": omitted}
     return script

@@ -326,3 +326,13 @@ Podcast 依選定概念及關係規劃分集，透過同一索引取得各集引
 ### Podcast 製作步驟與略過提示
 
 生成頁直接讀取各集 generation.steps 的 script／audio／alignment／video 狀態及 elapsed_seconds；未知排隊數不估填，未選影片不自行補步驟。單集未完成使用不確定進度，多集以已完成集數計數，步驟不折算百分比。omitted_content 只用於逐字稿與本集重點的固定略過提示，不呈現未核對台詞；過半失敗門檻由後端判定，前端沿用 PODCAST_SCRIPT_NEEDS_REVIEW 並說明原因。
+
+### 語音逐句播放與實際耗時
+
+新語音回答整份來源核對完成後，才依句末標點／換行切句（小數點不切），依 index 連續保存。audio_sentences 的 ready 句可由專屬 audio/{index} 讀取，尚未完成回409 VOICE_AUDIO_NOT_READY；每句保留原文，送TTS沿PC6可念化處理。第一句完成即可播放，整份 /audio 只在全部完成後提供串接WAV，舊整份音訊維持可讀。
+
+取消會停止正在製作與待生成句，保留已完成句；失敗後不跳過該句，重試保留已核對回答及已完成音訊。stage 與原status共同描述生命週期，不能以已有某句音訊認定全部完成。timings 記錄 retrieval_ms／answer_ms／verification_ms／tts_queue_ms／tts_synthesis_ms；TTS排隊包含成為下一句後等待worker與provider鎖的實測時間，合成時間由provider回報。重試累加實際已量測耗時，舊資料沒有量測即null，不估填。部署前已核對但配音失敗的回答，重試時才從保存的原回答建立句列，不重新問答或改寫內容。
+
+### 逐句回答語音
+
+依 voice turn 的 stage 顯示查找教材、整理回答、核對來源、等待語音及製作語音；舊資料依原生命週期顯示，不估填耗時。已核對音訊依 audio_sentences.index 順序播放，只請求 ready 的片段；下一句未完成就等待，失敗不跳過。retry 沿用 ready 前綴，cancel 停止待製作句子並保留原取消語意。逐句製作中沿用暫停收音，不新增自動取消；完整完成後才恢復開口打斷。完整回覆保留既有播放器與播放軸，串播進行中不切換成整段重播。

@@ -1,6 +1,7 @@
 """Provider 的工作取消與子程序生命週期；不接資料庫、不記錄教材內容。"""
 
 from contextlib import contextmanager
+from datetime import UTC, datetime
 import os
 import signal
 import subprocess
@@ -11,6 +12,7 @@ from uuid import UUID
 
 _jobs = {}
 _jobs_lock = Lock()
+_progress = {}
 
 
 def _key(body):
@@ -85,6 +87,32 @@ def locked(lock, cancelled, *, timeout=None):
     finally:
         if acquired:
             lock.release()
+
+
+def progress(body):
+    keys = [_key(item) for item in body["jobs"]]
+    with _jobs_lock:
+        return {"jobs": [{"job_id": key[0], "job_token": key[1], **_progress[key]}
+                         for key in keys if key in _progress]}
+
+
+@contextmanager
+def tracked_lock(lock, cancelled, body, operation):
+    key = _key(body) if "job_id" in body else None
+    if key is not None:
+        with _jobs_lock:
+            _progress[key] = {"operation": operation, "status": "queued", "started_at": None}
+    try:
+        with locked(lock, cancelled, timeout=None):
+            if key is not None:
+                with _jobs_lock:
+                    _progress[key] = {"operation": operation, "status": "running",
+                                      "started_at": datetime.now(UTC).isoformat()}
+            yield
+    finally:
+        if key is not None:
+            with _jobs_lock:
+                _progress.pop(key, None)
 
 
 def _stop(process):
