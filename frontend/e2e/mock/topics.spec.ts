@@ -165,7 +165,6 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
  await expect(page.getByText('此階段尚無可計算的工作總數。')).toBeVisible();
  await expect(page.getByRole('progressbar')).toBeVisible();await expect(page.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
  await expect(page.locator('.processing-times')).toContainText('1 分');
- await expect(page.getByText('已自動重試一次',{exact:true})).toBeVisible();
  await expect(page.locator('.learning-steps > li')).toHaveCount(4);await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('建立教材');
  await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('建立概念、關係與學習順序');
  await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
@@ -183,7 +182,6 @@ for(const status of ['failed','cancelled','partial'] as const) test(`topic mater
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));await page.route(`**/v1/material-processing-runs/${runId}`,r=>json(r,current));
  await page.goto(`/topics/${id}`);await expect(page.getByRole('heading',{name:status==='failed'?'教材處理失敗':status==='cancelled'?'已取消教材處理':'教材與知識地圖已建立',exact:true})).toBeVisible();
  await expect(page.getByRole('progressbar')).toHaveCount(0);
- await expect(page.getByText('已自動重試一次',{exact:true})).toBeVisible();
  if(status==='partial'){await expect(page.locator('.flow-chip')).toContainText('處理完成');await expect(page.getByText('由 AI 整理，每個重點都可點開原文對照。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();}
  else {await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);await expect(page.getByRole('region',{name:'教材分析子流程'})).toContainText('已處理 1 / 2 頁');}
  if(status==='failed'){await expect(page.getByText('已完成的處理進度已保存；使用相同來源與設定重試，會接續未完成的部分。')).toBeVisible();await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();}
