@@ -5,21 +5,6 @@
   margin: 0 auto;
   color: var(--text-primary);
 }
-.map-facts {
-  display: flex;
-  gap: 16px;
-}
-.map-facts span {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.map-facts strong {
-  font-size: 20px;
-  color: var(--studydy-blue);
-}
 .map-start-error {
   padding: 12px;
   color: #a32626;
@@ -857,11 +842,7 @@
 }
 
 /* 集中管理響應式配置；同一斷點內保留原有規則順序。 */
-@media (max-width: 1024px) {
-  .map-facts {
-    display: none;
-  }
-}
+
 @media (min-width: 1025px) {
   .focus-context .detail-panel {
     position: static;
@@ -1149,33 +1130,13 @@
   }
 }
 
-/* 學習導覽按鈕下方的位置提示：目前所在區域。 */
-.map-whereabouts {
-  width: fit-content;
-  max-width: min(360px, 100%);
-  margin: 8px 0 0;
-  padding: 8px 14px;
-  border-radius: 18px;
-  background: var(--surface);
-  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 700;
-}
-.map-whereabouts b {
-  color: var(--text-primary);
-  overflow-wrap: anywhere;
-}
-@media (max-width: 720px) {
-  .map-whereabouts { max-width: min(220px, 100%); }
-}
 /* 學習導覽清單上下緣淡出，捲動時被切到的列不會突兀地露出半截文字。 */
 .navigator-list {
   -webkit-mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
   mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
 }
 
-/* 地圖工具列：搜尋、地圖摘要與學習導覽浮在地圖左上，地圖本身滿版；圖例移到右下。 */
+/* 地圖工具列：搜尋與學習導覽浮在地圖左上，地圖本身滿版；圖例移到右下。 */
 .map-toolbar {
   display: flex;
   flex-wrap: nowrap;
@@ -1207,20 +1168,6 @@
   order: 2;
   flex: none;
   white-space: nowrap;
-}
-.map-toolbar .map-facts {
-  order: 3;
-  flex: none;
-  align-items: center;
-  gap: 12px;
-  min-height: 42px;
-  padding: 0 16px;
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
-}
-.map-toolbar .map-facts strong {
-  font-size: 16px;
 }
 .map-annotations {
   top: auto;
@@ -1259,4 +1206,24 @@
 .review-records {
   display: grid;
   gap: 14px;
+}
+
+/* 地圖四角依畫布邊界定位；桌機詳情使用既有並排欄，平板手機維持模態。 */
+.map-export-corner { position:absolute; z-index:5; top:12px; right:12px; }
+.map-navigation:has(+ .map-export-corner) { max-width:calc(100% - 156px); }
+.map-corner-legend .map-legend-toggle, .map-corner-search .map-search-toggle { display:none; }
+.map-corner-legend .relation-legend { pointer-events:auto; }
+@media(max-width:720px) {
+  .map-export-corner { top:10px; right:10px; }
+  .map-export-corner .export-entry > button { width:42px; min-width:42px; padding:0; font-size:0; }
+  .map-export-corner .export-entry > button::before { content:"↓"; display:inline-block; font-size:24px; line-height:1; border-bottom:2px solid currentColor; }
+  .map-navigation:has(+ .map-export-corner) { right:64px; max-width:none; }
+  .map-navigation .map-corner-search { flex:0 0 42px; min-width:0; width:42px; }
+  .map-corner-search .map-search-toggle { display:flex; width:42px; padding:0; justify-content:center; }
+  .map-corner-search:not(.is-expanded) > input { display:none; }
+  .map-corner-search.is-expanded > input { position:absolute; top:50px; left:0; width:min(280px,calc(100vw - 90px)); }
+  .map-corner-search .map-search-results { top:94px; width:min(280px,calc(100vw - 90px)); }
+  .map-corner-legend .map-legend-toggle { display:block; pointer-events:auto; width:40px; padding:0; font-size:20px; }
+  .map-corner-legend:not(.is-expanded) > .relation-legend { display:none; }
+  .map-annotations.map-corner-legend > .relation-legend { flex-wrap:wrap; overflow:visible; max-width:250px; padding:12px; }
 }

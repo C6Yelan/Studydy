@@ -261,7 +261,10 @@ for (const viewport of [
       view.relations[0].evidence_refs = evidence.map((item) => item.evidence_id);
       await mockKnowledgeMapApi(page, view);
       await page.goto(mapPath);
-      const search = page.getByRole("searchbox", { name: "搜尋概念或關鍵字" });
+      await expect(page.getByRole("search", { name: "搜尋教材概念" })).toBeVisible();
+    const searchToggle = page.getByRole("button", { name: "開啟概念搜尋" });
+    if (await searchToggle.isVisible()) await searchToggle.click();
+    const search = page.getByRole("searchbox", { name: "搜尋概念或關鍵字" });
       await search.fill("Host");
       await expect(page.locator(".map-search-results strong")).toHaveText(["主機"]);
       await search.press("Enter");
