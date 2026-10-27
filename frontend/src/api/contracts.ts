@@ -874,6 +874,12 @@ export type EvidenceSourceView = {
   playback?: MediaPlayback;
 };
 
+export type PodcastGenerationStep = {
+  episode_index: number; step: "script" | "audio" | "alignment" | "video";
+  status: "waiting" | "queued" | "running" | "completed" | "failed" | "skipped";
+  started_at: string | null; elapsed_seconds: number | null; queue_ahead: number | null;
+};
+
 export type PodcastSummary = {
   podcast_id: string; material_id: string; material_name: string;
   knowledge_structure_revision: string; name: string;
@@ -886,7 +892,7 @@ export type PodcastSummary = {
   /** 所有分集音訊的總秒數；音訊未全部完成時為 null。 */
   duration_seconds: number | null;
   /** expected_videos：預期會有影片的集數（勾選影片的全部分集扣掉已刪除的；沒勾選時為實際影片工作數）。 */
-  generation?: {preview_ready?:boolean; retryable_videos?:boolean; active:boolean; completed_videos:number; failed_videos:number; expected_videos?:number};
+  generation?: {steps?:PodcastGenerationStep[]; preview_ready?:boolean; retryable_videos?:boolean; active:boolean; completed_videos:number; failed_videos:number; expected_videos?:number};
 };
 export type PodcastClaim = ConceptCard["claims"][number] & { concept_id: string; label: string };
 export type PodcastContext = {
@@ -902,6 +908,7 @@ export type PodcastScript = {
   review?: {correctness:{passed:boolean;reason:string};teaching_quality:{passed:boolean;reason:string}} | null;
 };
 export type PodcastEpisode = {
+  omitted_content?: {segment_index:number; claim_ids:string[]; reason:"source_check_failed"}[];
   // 短集名；舊資料或取名失敗時沒有，改以概念名稱組成。
   title?: string | null;
   delivery: "solo" | "dialogue";

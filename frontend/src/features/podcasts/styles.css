@@ -272,3 +272,13 @@
 /* 返回與節目名稱之間留白收緊。 */
 .podcast-page > .back-link + .cards-page-header { margin-top: 2px; }
 .podcast-page > .cards-page-header h1 { margin: 0; }
+
+.podcast-generation-episode h3 { margin:var(--space-4) 0 var(--space-2); font-size:.95rem; }
+.podcast-generation-episode ol { list-style:none; padding:0; margin:var(--space-3) 0; display:grid; gap:var(--space-3); }
+.podcast-generation-episode li { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:var(--space-1) var(--space-2); font-size:.875rem; }
+.podcast-generation-episode li > span { color:var(--text-secondary); }
+.podcast-generation-episode li > small { grid-column:1 / -1; color:var(--text-secondary); }
+.podcast-generation-episode li[data-status="completed"] > strong { color:var(--success); }
+.podcast-generation-episode li[data-status="running"] > strong { color:var(--studydy-blue); }
+.podcast-generation-episode li[data-status="failed"] > strong { color:var(--error); }
+.podcast-omission-note { padding:var(--space-3); border-radius:var(--radius-input); background:var(--page-cool); color:var(--text-secondary); line-height:1.6; }
