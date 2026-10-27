@@ -343,3 +343,5 @@ Podcast 依選定概念及關係規劃分集，透過同一索引取得各集引
 L1確認範圍時，POST /v1/topics/{id}/approve 可同時保存starting_level及learning_goal：未傳欄位保留建立時設定，明確null清除。設定、proposal與搜尋意圖同交易保存；相同key／expected_version重送需相同確認內容，否則TOPIC_CONFLICT。確認改設定後，舊POST /v1/topics建立請求若重送原設定，依既有規則回IDEMPOTENCY_CONFLICT；不新增建立指紋，建立時的網路重試與之後確認分開處理。補充既有教材仍拒絕非空新設定，不覆蓋教材原值。
 
 DELETE /v1/materials/{id}/goal只清尚無已發布head的pending_goal，回learning-goal/v2且goal/pending_goal均null，可重送。已有head一律回409 LEARNING_GOAL_PUBLISHED，保留已發布目標；不提供刪除已發布目標的旁路。
+
+Q4交卷回饋沿用answer-feedback/v1，只有題組completed時增加correct_option_id，直接讀保存的private_answer_document；歷史已交卷題組同樣可回查，不重生題目。public_document仍只有公開題目；未交卷但已有作答事件的題目照舊回傳feedback（含is_correct、rationale），只省略新增的correct_option_id；未作答仍為null。整組交卷回應、題組讀取與學習工作區只對新增正確選項欄位套用completed門檻，不改既有回饋語意。

@@ -34,6 +34,7 @@ class AnswerFeedback(BaseModel):
     assessment_revision: str
     question_id: str
     selected_option_id: str
+    correct_option_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
     is_correct: bool
     rationale: str
     source_evidence_ids: list[str]
@@ -187,7 +188,7 @@ def _event(
     )
 
 
-def _feedback(event: StoredAnswerEvent, assessment: Assessment) -> AnswerFeedback:
+def _feedback(event: StoredAnswerEvent, assessment: Assessment, *, include_answer_key=False) -> AnswerFeedback:
     return AnswerFeedback.model_validate(
         {
             "schema": "answer-feedback/v1",
@@ -196,6 +197,7 @@ def _feedback(event: StoredAnswerEvent, assessment: Assessment) -> AnswerFeedbac
             "assessment_revision": event.assessment_revision,
             "question_id": event.question_id,
             "selected_option_id": event.selected_option_id,
+            **({"correct_option_id": assessment.private_answer_document["correct_option_id"]} if include_answer_key else {}),
             "is_correct": event.is_correct,
             "rationale": assessment.private_answer_document["rationale"],
             "source_evidence_ids": assessment.public_document["source_evidence_ids"],

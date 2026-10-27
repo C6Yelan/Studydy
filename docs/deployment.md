@@ -400,3 +400,5 @@ V2 與 B3.7 `feat/overnight-voice-stream`（e8d191097285cf7f5f9bac921604433ca28c
 S2教材卡片合計新增material-library-item/v1.source_totals，與前端S2卡片同批部署；沒有migration或provider變更。未知影音合計為null、無影音為0。
 
 L1確認設定與草稿目標DELETE需與前端L1同批部署，使用既有topic starting_level／learning_goal及material pending_goal，無migration／provider變更。approve未傳保留、null清除；確認改設定後舊建立請求可回既有IDEMPOTENCY_CONFLICT，此限制已核准。
+
+Q4正確選項投影與前端Q4同批部署：answer-feedback/v1新增可選correct_option_id，僅已交卷題組出現，舊已交卷資料直接投影保存的私密答案。無migration或provider變更，不回寫題目／作答紀錄。
