@@ -834,12 +834,21 @@ function storageBytes(value: unknown): boolean {
 }
 
 export function accountStorage(value: unknown): value is AccountStorage {
-  const item = object(value);
-  return !!item && item.schema === "account-storage/v1" && storageBytes(item)
+  const item = object(value), breakdown = object(item?.breakdown);
+  const categories = ["material_files_bytes", "podcast_audio_bytes", "podcast_video_bytes", "analysis_bytes", "reserved_bytes"];
+  return !!item && item.schema === "account-storage/v2" && storageBytes(item)
     && Number.isSafeInteger(item.reserved_bytes) && Number(item.reserved_bytes) >= 0
     && Number(item.reserved_bytes) <= Number(item.used_bytes)
     && Number.isSafeInteger(item.remaining_bytes)
-    && item.remaining_bytes === Math.max(0, Number(item.limit_bytes) - Number(item.used_bytes));
+    && item.remaining_bytes === Math.max(0, Number(item.limit_bytes) - Number(item.used_bytes))
+    && !!breakdown && categories.every(key => Number.isSafeInteger(breakdown[key]) && Number(breakdown[key]) >= 0)
+    && categories.reduce((sum, key) => sum + Number(breakdown[key]), 0) === item.used_bytes
+    && breakdown.reserved_bytes === item.reserved_bytes
+    && Array.isArray(item.largest_materials) && item.largest_materials.length <= 5 && item.largest_materials.every(value => {
+      const material = object(value);
+      return !!material && isUuid(material.material_id) && typeof material.display_name === "string"
+        && Number.isSafeInteger(material.used_bytes) && Number(material.used_bytes) >= 0;
+    });
 }
 
 export function learnerProfile(value: unknown): value is LearnerProfile {

@@ -129,7 +129,7 @@ test.beforeEach(async ({ page }) => {
       case "/v1/learning-activity":
         return route.fulfill({ json: emptyLearningActivity });
       case "/v1/account/storage":
-        return route.fulfill({ json: { schema: "account-storage/v1", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120 } });
+        return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
       default:
         throw new Error(`Unexpected processing request: ${request.method()} ${path}`);
     }

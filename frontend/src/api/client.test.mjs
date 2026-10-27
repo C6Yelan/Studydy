@@ -1661,10 +1661,14 @@ test("account storage quota errors show used and limit, storage view must be con
     { status: 503 }));
   await assert.rejects(busy.getAccountStorage(), (error) => error.reasonCode === "STORAGE_BUSY" && error.retryable
     && error.message === "同一帳號的其他新增正在處理，請稍後再試。");
-  const storage = { schema: "account-storage/v1", used_bytes: gib, reserved_bytes: 0, limit_bytes: 5 * gib, remaining_bytes: 4 * gib };
+  const storage = { schema: "account-storage/v2", used_bytes: gib, reserved_bytes: 0, limit_bytes: 5 * gib, remaining_bytes: 4 * gib, breakdown: { material_files_bytes: gib, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] };
   assert.deepEqual(await new StudydyApiClient(async () => Response.json(storage)).getAccountStorage(), storage);
-  for (const body of [{ ...storage, remaining_bytes: 5 * gib }, { ...storage, used_bytes: -1 }, { ...storage, schema: "account-storage/v2" },
-    { ...storage, reserved_bytes: 2 * gib }, { ...storage, reserved_bytes: undefined }]) {
+  for (const body of [{ ...storage, remaining_bytes: 5 * gib }, { ...storage, used_bytes: -1 }, { ...storage, schema: "account-storage/v1" },
+    { ...storage, reserved_bytes: 2 * gib }, { ...storage, reserved_bytes: undefined },
+    { ...storage, breakdown: { ...storage.breakdown, podcast_audio_bytes: 1 } },
+    { ...storage, breakdown: { ...storage.breakdown, reserved_bytes: 1, material_files_bytes: gib - 1 } },
+    { ...storage, largest_materials: [{ material_id: "invalid", display_name: "教材", used_bytes: 1 }] },
+    { ...storage, largest_materials: Array.from({ length: 6 }, () => ({ material_id: materialId, display_name: "教材", used_bytes: 1 })) }]) {
     await assert.rejects(new StudydyApiClient(async () => Response.json(body)).getAccountStorage(), ApiClientError);
   }
 });
