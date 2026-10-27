@@ -105,9 +105,11 @@ test("material explanation remembers the last choice across visits", async ({ pa
   const details = page.locator(".study-material-summary");
   await details.locator("summary").click();
   await expect(details).toHaveAttribute("open", "");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("studydy.material-details-open"))).toBe("true");
   await page.reload();
   await expect(details).toHaveAttribute("open", "");
   await details.locator("summary").click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("studydy.material-details-open"))).toBe("false");
   await page.reload();
   await expect(details).not.toHaveAttribute("open", "");
 });
