@@ -319,7 +319,7 @@ for (const kind of ["extend_date", "lower_target"] as const) test(`goal suggesti
     return json(route, view);
   });
   await page.goto(mapPath); await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  const button = page.getByRole("button", { name: kind === "extend_date" ? /延後到 2026\/11\/10/ : /改成 60%/ });
+  const button = page.getByRole("button", { name: kind === "extend_date" ? /延後到 11\/10/ : /改成 60%/ });
   await expect(button).toBeVisible(); expect(writes).toEqual([]);
   await button.click(); await expect(page.getByRole("alert")).toBeVisible(); await expect(button).toBeEnabled();
   await button.click(); await expect(button).toHaveCount(0);
