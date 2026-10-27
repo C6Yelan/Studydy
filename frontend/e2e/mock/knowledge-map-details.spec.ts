@@ -378,3 +378,18 @@ for (const width of [1536, 390])
     await expect(page.getByRole("button", { name: "查看第 1 頁來源", exact: true })).toBeFocused();
     expect(reads).toBe(1);
   });
+
+
+test("concept detail shows the transcript reminder only for its explicit uncertainty flag",async({page},testInfo)=>{
+ const view=structureView();Object.assign(view.concepts[0],{uncertain:true});Object.assign(view.concepts[1],{uncertain:false});
+ await mockKnowledgeMapApi(page,view);await page.goto(mapPath);await openMapConcept(page,'Stack');
+ const panel=page.getByRole('dialog',{name:'概念詳情',exact:true});
+ await expect(panel.getByText('影片逐字稿可能有聽錯的詞，建議對照原影片',{exact:true})).toBeVisible();
+ for(const [width,height] of [[1440,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath(`concept-uncertain-${width}.png`),animations:'disabled'});
+ }
+ await page.keyboard.press('Escape');await page.setViewportSize({width:1440,height:900});await openMapConcept(page,'Array');
+ await expect(panel.getByText('影片逐字稿可能有聽錯的詞，建議對照原影片',{exact:true})).toHaveCount(0);
+ await expect(panel.getByRole('heading',{name:'Array',exact:true})).toBeVisible();
+});

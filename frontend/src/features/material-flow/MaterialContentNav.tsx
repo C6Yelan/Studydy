@@ -21,7 +21,7 @@ const dateFormat = new Intl.DateTimeFormat("zh-TW", { year: "numeric", month: "2
 const tabId = (id: Content) => id === "knowledge-map" ? "map-tab-focus" : id === "review" ? "map-tab-review" : `material-tab-${id}`;
 const panelId = (id: Content) => id === "knowledge-map" ? "map-panel-focus" : id === "review" ? "map-panel-review" : `material-panel-${id}`;
 
-export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName, assessmentDisabled = false, hideQuestionAnswer = false, loadMaterial = false, back }: {
+export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName, assessmentDisabled = false, hideQuestionAnswer = false, loadMaterial = false, updateCompleted = false, back }: {
   apiClient: StudydyApiClient; materialId: string;
   mapRoute: Extract<AppRoute, { name: "knowledge-map" }> | null; current: Content;
   onMapModeChange?: (mode: Mode) => void;
@@ -31,6 +31,7 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
   back?: { label: string; onClick: () => void };
   /** 所在頁面本身不讀教材索引時，由資訊列補讀。 */
   loadMaterial?: boolean;
+  updateCompleted?: boolean;
 }) {
   const navigation = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -117,5 +118,5 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
       <AccountMenu apiClient={apiClient} />
     </div>
   </header>
-  <VersionMoveNotice apiClient={apiClient} materialId={materialId}/></>;
+  <VersionMoveNotice apiClient={apiClient} materialId={materialId} updateCompleted={updateCompleted}/></>;
 }

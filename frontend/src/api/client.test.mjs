@@ -1813,3 +1813,19 @@ test("source metadata, library totals and run input summaries validate at the AP
     value={...run,...patch};await assert.rejects(client.getMaterialRun(runId),error=>error.kind==='schema');
   }
 });
+
+
+test("run structure changes and concept uncertainty use validated server values", async () => {
+  let value={...runView(),structure_changes:{before:{concepts:34,relations:24},after:{concepts:38,relations:29}}};
+  const client=new StudydyApiClient(async()=>Response.json(value));
+  assert.deepEqual((await client.getMaterialRun(runId)).structure_changes,value.structure_changes);
+  for(const changes of [{before:{concepts:-1,relations:24},after:{concepts:38,relations:29}},{before:{concepts:34},after:{concepts:38,relations:29}}]){
+    value={...runView(),structure_changes:changes};await assert.rejects(client.getMaterialRun(runId),e=>e.kind==='schema');
+  }
+  value=structureView();value.concepts[0].uncertain=true;
+  assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getKnowledgeStructure({materialId,structureRevision})).concepts[0].uncertain,true);
+  value.concepts[0].uncertain=false;
+  assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getKnowledgeStructure({materialId,structureRevision})).concepts[0].uncertain,false);
+  value.concepts[0].uncertain='true';
+  await assert.rejects(new StudydyApiClient(async()=>Response.json(value)).getKnowledgeStructure({materialId,structureRevision}),e=>e.kind==='schema');
+});
