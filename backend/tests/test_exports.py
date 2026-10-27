@@ -103,7 +103,7 @@ def test_structured_notes_keep_outline_levels_bullets_tables_formula_and_callout
     assert '## 章節大綱' in markdown
     links = re.findall(r'- \[.*?\]\(#([^)]*)\)', markdown)
     assert len(links) == 2 and all(f'<a id="{anchor}"></a>' in markdown for anchor in links)
-    assert '## 一、國際經濟學概論' in markdown and '### 1\\.1 開放度' in markdown
+    assert '## 一、國際經濟學概論' in markdown and '### 1.1 開放度' in markdown
     assert '- 出口占比\n  - 子項\n    - 孫項' in markdown
     assert '$$\n' + view['paragraphs'][1]['blocks'][0]['latex'] + '\n$$' in markdown
     assert '> **案例研究：甲國**' in markdown and '> **重要教訓**' in markdown and '| 2020 | 1 |' in markdown
@@ -319,9 +319,9 @@ def test_markdown_groups_sources_without_losing_file_page_or_block_locations():
     view['paragraphs'][0]['evidence'] = evidence
     markdown = documents.note_markdown(view)
     sources = [line for line in markdown.splitlines() if line.startswith('來源：')]
-    assert sources == ['來源：甲\\.pdf · 第 2 頁 · 區塊 0–21、24  ',
-                       '來源：甲\\.pdf · 第 3 頁 · 區塊 0  ',
-                       '來源：乙\\.pdf · 第 2 頁 · 區塊 1  ']
+    assert sources == ['來源：甲.pdf · 第 2 頁 · 區塊 0–21、24  ',
+                       '來源：甲.pdf · 第 3 頁 · 區塊 0  ',
+                       '來源：乙.pdf · 第 2 頁 · 區塊 1  ']
     assert len(view['paragraphs'][0]['evidence']) == 26
 
 
@@ -341,3 +341,20 @@ def test_export_times_use_taipei_for_zip_pdf_and_word(monkeypatch):
         assert all(item.date_time == (2026, 10, 27, 8, 15, 30) for item in archive.infolist())
         root = ET.fromstring(archive.read('docProps/core.xml'))
         assert root.find('{http://purl.org/dc/terms/}created').text == '2026-10-27T08:15:30+08:00'
+
+
+@pytest.mark.parametrize("structured", [False, True])
+def test_note_markdown_keeps_filenames_and_hyphenated_terms_readable(structured):
+    view = structured_note() if structured else note()
+    name = "01_生成式AI基礎與機率建模.pptx"
+    view["material_name"] = name
+    paragraph = view["paragraphs"][0]
+    paragraph["evidence"][0]["source_name"] = name
+    text = "Self-attention 使用 QK^T；保留 *字面星號* 與 [引用]。"
+    if structured:
+        paragraph["blocks"] = [{"type": "text", "text": text}]
+    else:
+        paragraph["text"] = text
+    markdown = documents.note_markdown(view)
+    assert name in markdown and "Self-attention 使用 QK^T" in markdown
+    assert r"\*字面星號\*" in markdown and r"\[引用\]" in markdown

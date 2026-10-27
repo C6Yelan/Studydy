@@ -127,7 +127,7 @@ def source_text(e):
 
 
 def md_text(value):
-    return re.sub(r'([\\`*_{}\[\]<>#+.!|~-])', r'\\\1', str(value))
+    return re.sub(r'([\\`*\[\]<>|])', r'\\\1', str(value))
 
 
 def _note_title(view):
