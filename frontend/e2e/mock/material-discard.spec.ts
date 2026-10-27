@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { MaterialLibraryItem } from "../../src/api/contracts";
-import { emptyLearningActivity } from "../fixtures/learning-activity";
+import { emptyCelebrationClaim, emptyLearningActivity } from "../fixtures/learning-activity";
 
 const id = (value: number) => `10000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
 const revision = `knowledge-structure:sha256:${"a".repeat(64)}`;
@@ -64,6 +64,10 @@ test.beforeEach(async ({ page }) => {
   await page.clock.pauseAt(new Date(created));
   await page.route(/\/v[12]\//, (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path === "/v1/learning-activity/celebrations/claim") {
+      expect(route.request().method()).toBe("POST");
+      return route.fulfill({ json: emptyCelebrationClaim });
+    }
     if (["/v1/session", "/v1/session/refresh"].includes(path)) {
       expect(route.request().method()).toBe(path.endsWith("/refresh") ? "POST" : "GET");
       return route.fulfill({ json: { schema: "learner-identity/v1", learner_id: id(900) } });

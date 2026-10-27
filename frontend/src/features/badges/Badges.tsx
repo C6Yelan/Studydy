@@ -1,5 +1,4 @@
 import { Progress } from "../../ui/Progress";
-import { useCallback, useEffect, useState } from "react";
 import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../../api/contracts";
 import { CelebrationDialog } from "../../ui/CelebrationDialog";
 import { Icon, type IconName } from "../../ui/Icon";
@@ -254,36 +253,6 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
     </section>
     <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、教材問答、目標與分天關卡、難點、起始程度診斷、筆記註記、上傳的教材、匯出、學習天數與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
   </section>;
-}
-
-// 「上次看過的徽章」只用來決定是否顯示一次性提示，不是學習資料。
-function seenBadges(key: string): string[] | null {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
-    return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;
-  } catch { return null; }
-}
-function rememberBadges(key: string, ids: string[]) {
-  try { localStorage.setItem(key, JSON.stringify(ids)); } catch { /* 無法保存時只是不再提示。 */ }
-}
-
-// 回傳這次新取得、此瀏覽器還沒提示過的徽章；第一次在此瀏覽器讀到時只記下，不把既有徽章當成剛取得。
-export function useNewBadges(activity: LearningActivityView | null, learnerId: string): [KnownBadge[], () => void] {
-  const [fresh, setFresh] = useState<KnownBadge[]>([]);
-  const key = `studydy.badges-seen:${learnerId}`;
-  const earnedIds = activity ? knownBadges(activity).filter((badge) => badge.earned).map((badge) => badge.badge_id).join(",") : null;
-  useEffect(() => {
-    if (earnedIds === null || !activity) return;
-    const earned = knownBadges(activity).filter((badge) => badge.earned);
-    const seen = seenBadges(key);
-    const added = seen === null ? [] : earned.filter((badge) => !seen.includes(badge.badge_id));
-    if (added.length) setFresh(added);
-    // 保留已看過但目前因刪除教材而失去的徽章，日後重新取得時不再重複提示。
-    if (seen === null || added.length) rememberBadges(key, [...new Set([...(seen ?? []), ...earned.map((badge) => badge.badge_id)])]);
-    // earnedIds 代表已取得集合；activity 其他欄位變動不需重新比較。
-  }, [key, earnedIds]);
-  const clear = useCallback(() => setFresh([]), []);
-  return [fresh, clear];
 }
 
 export function BadgeEarned({ badges, onClose }: { badges: KnownBadge[]; onClose: () => void }) {

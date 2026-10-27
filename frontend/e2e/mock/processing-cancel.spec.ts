@@ -6,7 +6,7 @@ import type {
 } from "../../src/api/contracts";
 
 import { run as publishedRun } from "../fixtures/knowledge-map";
-import { emptyLearningActivity } from "../fixtures/learning-activity";
+import { emptyCelebrationClaim, emptyLearningActivity } from "../fixtures/learning-activity";
 
 const materialId = "11111111-1111-4111-8111-111111111111";
 const runId = "22222222-2222-4222-8222-222222222222";
@@ -16,6 +16,8 @@ const runPath = `/materials/${materialId}/runs/${runId}`;
 const currentTime = new Date("2026-09-12T12:00:00Z");
 const runningRun: MaterialProcessingRunView = {
   schema: "material-processing-run/v1",
+  auto_retry_count: 0,
+  auto_retry_reason: null,
   run_id: runId,
   material_id: materialId,
   source_artifact_id: artifactId,
@@ -55,6 +57,10 @@ test.beforeEach(async ({ page }) => {
   await page.route(/\/v[12]\//, (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path === "/v1/learning-activity/celebrations/claim") {
+      expect(route.request().method()).toBe("POST");
+      return route.fulfill({ json: emptyCelebrationClaim });
+    }
     expect(request.method()).toBe(path === "/v1/session/refresh" ? "POST" : "GET");
     switch (path) {
       case "/v1/topics":

@@ -1,5 +1,5 @@
 import type {
-  MaterialNotesView, AssessmentPresence,
+  MaterialNotesView, AssessmentPresence, CelebrationClaim,
   LearningGoalView, LearningGoalsView,
   StartingLevel, StartingLevelView, StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
@@ -235,6 +235,7 @@ export function materialDiscard(value: unknown): value is MaterialDiscardView {
 export function materialRun(value: unknown): value is MaterialProcessingRunView {
   const item = object(value);
   if (!item || item.schema !== "material-processing-run/v1" || !materialAttempt(item)) return false;
+  if ((item.auto_retry_count !== 0 && item.auto_retry_count !== 1) || (item.auto_retry_reason !== null && typeof item.auto_retry_reason !== "string")) return false;
   if (item.base_revision !== undefined && !revision(item.base_revision, "knowledge-structure"))
     return false;
   if (item.analysis_saved !== undefined && typeof item.analysis_saved !== "boolean") return false;
@@ -1794,4 +1795,11 @@ export function assessmentPresence(value: unknown): value is AssessmentPresence 
   const item = object(value);
   return !!item && item.schema === "assessment-presence/v1" && typeof item.active === "boolean"
     && (item.expires_at === null || timestamp(item.expires_at));
+}
+
+export function celebrationClaim(value: unknown): value is CelebrationClaim {
+  const item = object(value);
+  return !!item && item.schema === "celebration-claim/v1"
+    && (item.level === null || (Number.isInteger(item.level) && Number(item.level) >= 1))
+    && strings(item.badge_ids);
 }

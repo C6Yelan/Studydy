@@ -3,7 +3,7 @@ import type { MaterialProcessingRunView } from "../../src/api/contracts";
 
 import { materialStageCountLabel } from "../../src/features/material-flow/material-flow";
 import { structureView, mockKnowledgeMapApi } from "../fixtures/knowledge-map";
-import { emptyLearningActivity } from "../fixtures/learning-activity";
+import { emptyCelebrationClaim, emptyLearningActivity } from "../fixtures/learning-activity";
 
 const materialId = "11111111-1111-4111-8111-111111111111";
 const runId = "22222222-2222-4222-8222-222222222222";
@@ -14,6 +14,8 @@ const runPath = `/materials/${materialId}/runs/${runId}`;
 const clockTime = new Date("2026-09-12T12:00:00Z");
 const base: MaterialProcessingRunView = {
   schema: "material-processing-run/v1",
+  auto_retry_count: 0,
+  auto_retry_reason: null,
   cancel_requested_at: null,
   material_id: materialId,
   run_id: runId,
@@ -113,6 +115,10 @@ test.beforeEach(async ({ page }) => {
   await page.route(/\/v[12]\//, (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path === "/v1/learning-activity/celebrations/claim") {
+      expect(route.request().method()).toBe("POST");
+      return route.fulfill({ json: emptyCelebrationClaim });
+    }
     expect(request.method()).toBe(path === "/v1/session/refresh" ? "POST" : "GET");
     switch (path) {
       case "/v1/session":
@@ -553,3 +559,30 @@ test('processing failure keeps recovery order and completion keeps its source no
   }
  }
 });
+
+
+test("automatic retry keeps the original elapsed time and only reads the existing run", async ({ page }) => {
+  let run: MaterialProcessingRunView = { ...base };
+  const methods: string[] = [];
+  page.on("request", request => { if (new URL(request.url()).pathname.includes("material-processing-runs")) methods.push(request.method()); });
+  await mockRun(page, route => route.fulfill({ json: run }));
+  await page.goto(runPath);
+  await expect(page.locator(".processing-times")).toContainText("2 秒");
+  run = { ...run, status: "pending", progress_stage: "queued", completed_pages: 0, total_pages: null, auto_retry_count: 1, auto_retry_reason: "RESTART_INTERRUPTED", updated_at: clockTime.toISOString() };
+  await page.clock.runFor(5_000);
+  await expect(page.getByText("已自動重試一次", { exact: true })).toBeVisible();
+  await expect(page.locator(".processing-times")).toContainText("7 秒");
+  expect(methods.every(method => method === "GET")).toBe(true);
+});
+
+for (const update of [false, true]) for (const status of ["failed", "succeeded"] as const)
+  test(`automatic retry notice remains on ${update ? "update" : "initial"} ${status}`, async ({ page }) => {
+    const run: MaterialProcessingRunView = {
+      ...(status === "succeeded" ? completed(status) : { ...base, status, error_code: "STORAGE_UNAVAILABLE", completed_at: clockTime.toISOString() }),
+      ...(update ? { base_revision: revision } : {}), auto_retry_count: 1, auto_retry_reason: "STORAGE_BUSY",
+    };
+    await mockRun(page, route => route.fulfill({ json: run }));
+    await page.goto(runPath);
+    await expect(page.getByText("已自動重試一次", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(status === "failed" ? (update ? "這次更新未完成" : "教材處理失敗") : (update ? "教材更新完成" : "教材整理完成"));
+  });

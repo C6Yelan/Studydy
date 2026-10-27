@@ -263,6 +263,7 @@ export function RunView({
             : "Studydy 會依序整理教材內容、建立概念關係，並在完成後發布知識地圖。"}
         />
         {steps && <LearningSteps labels={steps} current={steps.length - 1} />}
+        {run.auto_retry_count === 1 && <p className="run-ai-notice">已自動重試一次</p>}
         <div className="processing-grid">
           <section className="surface processing-card">
             <ProcessingProgress run={run} now={now} />
@@ -378,6 +379,7 @@ export function RunView({
 
   if (run.status === "failed") return <section className="flow-page processing-page task-page terminal-failure">
     <FlowHeader back={back} title="教材處理失敗"/>
+    {run.auto_retry_count === 1 && <p className="run-ai-notice">已自動重試一次</p>}
     {steps && <LearningSteps labels={steps} current={steps.length - 1}/>}
     <div className="processing-grid">
       <MaterialRunFailure apiClient={apiClient} run={run}/>
@@ -393,6 +395,7 @@ export function RunView({
         description="知識地圖已準備完成，可以查看概念、關係、來源與建議學習順序。"
       />
       {steps && <LearningSteps labels={steps} current={steps.length} />}
+      {run.auto_retry_count === 1 && <p className="run-ai-notice">已自動重試一次</p>}
       <section className="surface flow-result processing-summary" aria-labelledby="processing-result-title">
         <img src="/assets/studydy/success-jump.png" alt="" />
         <div className="flow-result-body">
@@ -493,6 +496,7 @@ function RevisionRun({
       mapRoute={map} back={{label:material?`返回${material.display_name}`:"返回教材",onClick:()=>writeRoute({name:"material",materialId:run.material_id})}}/>
     <div className="material-content-body" role="tabpanel" id="material-panel-sources" aria-labelledby="material-tab-sources">
     <FlowHeader title={title} description={run.status==='failed'?undefined:completed?"教材已更新，可以開啟知識地圖繼續使用。":"Studydy 正在整理新增內容，期間仍可使用目前地圖與學習紀錄。"}/>
+    {run.auto_retry_count === 1 && <p className="run-ai-notice">已自動重試一次</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="processing-grid">
       {run.status==='failed' ? <MaterialRunFailure apiClient={apiClient} run={run}/> : <section className="surface processing-card">

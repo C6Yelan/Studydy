@@ -40,21 +40,10 @@ test("fresh profiles reopen the current head and read exact historical versions"
   const fresh = await browser.newContext();
   const freshPage = await fresh.newPage();
   await login(freshPage, "learner_test@example.com");
-  // 只允許公開登入身分提示，以及等級／徽章「已看過」紀錄（只決定是否播放提示）；
-  // 教材定位、內容與憑證仍不得存入 localStorage。
+  // 教材定位、內容與憑證不得存入 localStorage，只保留公開登入身分提示。
   const hint = await freshPage.evaluate(() => JSON.parse(localStorage.getItem("studydy.session-hint")!));
   expect(hint).toEqual({ schema: "learner-identity/v1", learner_id: expect.any(String) });
-  await expect.poll(() => freshPage.evaluate(() => Object.keys(localStorage).sort())).toEqual([
-    `studydy.badges-seen:${hint.learner_id}`,
-    `studydy.level-seen:${hint.learner_id}`,
-    "studydy.session-hint",
-  ]);
-  const [badges, level] = await freshPage.evaluate((id) => [
-    JSON.parse(localStorage.getItem(`studydy.badges-seen:${id}`)!),
-    localStorage.getItem(`studydy.level-seen:${id}`),
-  ], hint.learner_id as string);
-  expect(Array.isArray(badges) && badges.every((item: unknown) => typeof item === "string" && /^[a-z0-9_]+$/.test(item))).toBe(true);
-  expect(level).toMatch(/^[1-9]\d*$/);
+  await expect.poll(() => freshPage.evaluate(() => Object.keys(localStorage).sort())).toEqual(["studydy.session-hint"]);
   await freshPage.getByRole("link", { name: "開啟知識地圖", exact: true }).click();
   await expect(freshPage).toHaveURL(`${browserOrigin}${newerPath}`);
   await expect(

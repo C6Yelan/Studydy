@@ -10,17 +10,9 @@ async function login(page: Page) {
   await expect(page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", exact: true })).toBeVisible();
 }
 
-// localStorage 只可有登入身分提示與等級／徽章的「已看過」紀錄（只決定是否播放提示），不得有卡組或教材內容。
+// 教材與卡組內容不得保存在瀏覽器；這些操作只留下公開登入身分提示。
 async function expectOnlyUiHints(page: Page) {
-  const learnerId = await page.evaluate(() => JSON.parse(localStorage.getItem("studydy.session-hint")!).learner_id as string);
-  await expect.poll(() => page.evaluate(() => Object.keys(localStorage).sort())).toEqual([
-    `studydy.badges-seen:${learnerId}`, `studydy.level-seen:${learnerId}`, "studydy.session-hint",
-  ]);
-  const [badges, level] = await page.evaluate((id) => [
-    JSON.parse(localStorage.getItem(`studydy.badges-seen:${id}`)!), localStorage.getItem(`studydy.level-seen:${id}`),
-  ], learnerId);
-  expect(Array.isArray(badges) && badges.every((item: unknown) => typeof item === "string" && /^[a-z0-9_]+$/.test(item))).toBe(true);
-  expect(level).toMatch(/^[1-9]\d*$/);
+  await expect.poll(() => page.evaluate(() => Object.keys(localStorage).sort())).toEqual(["studydy.session-hint"]);
 }
 
 test("real API persists selected cards across fresh login and resolves original evidence", async ({ browser }) => {

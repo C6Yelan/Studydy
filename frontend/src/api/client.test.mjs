@@ -134,6 +134,8 @@ function apiErrorResponse(reasonCode, status, retryable = false) {
 function runView() {
   return {
     schema: "material-processing-run/v1",
+    auto_retry_count: 0,
+    auto_retry_reason: null,
     cancel_requested_at: null,
     run_id: runId,
     material_id: materialId,
@@ -1856,4 +1858,35 @@ test("run structure changes and concept uncertainty use validated server values"
   assert.equal((await new StudydyApiClient(async()=>Response.json(value)).getKnowledgeStructure({materialId,structureRevision})).concepts[0].uncertain,false);
   value.concepts[0].uncertain='true';
   await assert.rejects(new StudydyApiClient(async()=>Response.json(value)).getKnowledgeStructure({materialId,structureRevision}),e=>e.kind==='schema');
+});
+
+
+test("celebration claim posts the schema and validates server events", async () => {
+  let value = { schema: "celebration-claim/v1", level: 3, badge_ids: ["first_answer", "future_badge"] };
+  const client = new StudydyApiClient(async (path, init) => {
+    assert.equal(path, "/v1/learning-activity/celebrations/claim");
+    assert.equal(init.method, "POST");
+    assert.deepEqual(JSON.parse(init.body), { schema: "celebration-claim/v1" });
+    return Response.json(value);
+  });
+  assert.deepEqual(await client.claimCelebrations(), value);
+  value = { ...value, level: null, badge_ids: [] };
+  assert.deepEqual(await client.claimCelebrations(), value);
+  for (const patch of [{ level: 0 }, { level: 1.5 }, { badge_ids: [1] }, { schema: "other" }]) {
+    value = { schema: "celebration-claim/v1", level: null, badge_ids: [], ...patch };
+    await assert.rejects(client.claimCelebrations(), error => error.kind === "schema");
+  }
+});
+
+test("material run validates persisted automatic retry fields", async () => {
+  let value = runView();
+  const client = new StudydyApiClient(async () => Response.json(value));
+  for (const count of [0, 1]) {
+    value = { ...runView(), auto_retry_count: count, auto_retry_reason: count ? "RESTART_INTERRUPTED" : null };
+    assert.deepEqual(await client.getMaterialRun(runId), value);
+  }
+  for (const patch of [{ auto_retry_count: 2 }, { auto_retry_count: undefined }, { auto_retry_reason: 1 }, { auto_retry_reason: undefined }]) {
+    value = { ...runView(), ...patch };
+    await assert.rejects(client.getMaterialRun(runId), error => error.kind === "schema");
+  }
 });

@@ -5,7 +5,7 @@ import type {
   MaterialProcessingRunView,
   SourceView,
 } from "../../src/api/contracts";
-import { emptyLearningActivity } from "../fixtures/learning-activity";
+import { emptyCelebrationClaim, emptyLearningActivity } from "../fixtures/learning-activity";
 
 const uuid = (seed: number) => `22222222-2222-4222-8222-${String(seed).padStart(12, "0")}`;
 const materialId = uuid(1);
@@ -82,6 +82,10 @@ async function mockSources(page: Page, append = false) {
   await page.route(/\/v[12]\//, (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path === "/v1/learning-activity/celebrations/claim") {
+      expect(route.request().method()).toBe("POST");
+      return route.fulfill({ json: emptyCelebrationClaim });
+    }
     switch (path) {
       case "/v1/session":
       case "/v1/session/refresh":
@@ -110,6 +114,8 @@ async function mockSources(page: Page, append = false) {
         state.starts.push(request.postDataJSON());
         state.run = {
           schema: "material-processing-run/v1",
+          auto_retry_count: 0,
+          auto_retry_reason: null,
           run_id: newRunId,
           material_id: materialId,
           source_artifact_id: uuid(40),

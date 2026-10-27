@@ -133,6 +133,8 @@ export type MaterialDiscardView = {
 };
 
 export type MaterialProcessingRunView = {
+  auto_retry_count: 0 | 1;
+  auto_retry_reason: string | null;
   analysis_saved?: boolean;
   base_revision?: string;
   source_names?: string[];
@@ -1038,3 +1040,9 @@ export type MaterialNotesView = {
 };
 
 export type AssessmentPresence = { schema: "assessment-presence/v1"; active: boolean; expires_at: string | null };
+
+export type CelebrationClaim = {
+  schema: "celebration-claim/v1";
+  level: number | null;
+  badge_ids: string[];
+};

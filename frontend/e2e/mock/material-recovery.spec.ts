@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { MaterialLibraryItem, MaterialProcessingRunView } from "../../src/api/contracts";
-import { emptyLearningActivity } from "../fixtures/learning-activity";
+import { emptyCelebrationClaim, emptyLearningActivity } from "../fixtures/learning-activity";
 
 const materialId = "11111111-1111-4111-8111-111111111111";
 const oldId = "22222222-2222-4222-8222-222222222222";
@@ -9,6 +9,8 @@ const newId = "44444444-4444-4444-8444-444444444444";
 const stamp = "2026-09-12T12:00:00Z";
 const oldRun: MaterialProcessingRunView = {
   schema: "material-processing-run/v1",
+  auto_retry_count: 0,
+  auto_retry_reason: null,
   material_id: materialId,
   run_id: oldId,
   source_artifact_id: sourceId,
@@ -80,6 +82,10 @@ test.beforeEach(async ({ page }) => {
   };
   await page.route(/\/v[12]\//, (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path === "/v1/learning-activity/celebrations/claim") {
+      expect(route.request().method()).toBe("POST");
+      return route.fulfill({ json: emptyCelebrationClaim });
+    }
     // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
     if (path === "/v1/profile") return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
     // 頁首學習進度；這些案例不涉及學習紀錄。
