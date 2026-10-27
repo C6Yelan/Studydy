@@ -296,8 +296,8 @@ test('supplement requires editable scope confirmation before creating research',
  await page.route(`**/v1/research/${cid}`,r=>json(r,work));
  await page.goto(`/materials/${materialId}/research`);await page.getByLabel('想多了解什麼？',{exact:true}).fill(scope.request);await page.getByRole('button',{name:'產生搜尋範圍',exact:true}).click();
  await expect(page).toHaveURL(new RegExp(`/topics/${tid}$`));await expect(page.getByRole('heading',{name:'確認學習範圍',exact:true})).toBeVisible();expect(plans).toBe(1);expect(searches).toBe(0);
- await page.reload();await expect(page.getByLabel('主題 2',{exact:true})).toHaveValue('停止：何時結束重試');expect(searches).toBe(0);
- await page.getByLabel('主題 2',{exact:true}).fill('停止：重試沒有進展時交由人類判斷');
+ await page.reload();await expect(page.getByLabel('想了解的細節 2',{exact:true})).toHaveValue('何時結束重試');expect(searches).toBe(0);
+ await page.getByLabel('想了解的細節 2',{exact:true}).fill('重試沒有進展時交由人類判斷');
  await page.getByRole('button',{name:'確認範圍並搜尋',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/research/${cid}$`));expect(searches).toBe(1);
  await page.getByRole('button',{name:'返回補充學習',exact:true}).click();await expect(page.locator('.research-card-link')).toHaveCount(1);
  await expect(page.getByRole('button',{name:'查看搜尋範圍',exact:true})).toHaveCount(0);
