@@ -104,7 +104,6 @@ class Material(Base):
         PostgreSQLUUID(as_uuid=True), unique=True
     )
     head_revision: Mapped[str | None] = mapped_column(Text)
-    starting_level: Mapped[str | None] = mapped_column(Text)
     upload_idempotency_key_sha256: Mapped[bytes] = mapped_column(
         LargeBinary, nullable=False
     )
@@ -800,7 +799,6 @@ class ResearchDocument(Base):
 
 class TopicScope(Base):
     __tablename__ = "topic_scopes"
-    starting_level: Mapped[str | None] = mapped_column(Text)
     learning_goal: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     topic_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), primary_key=True

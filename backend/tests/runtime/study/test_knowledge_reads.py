@@ -55,7 +55,7 @@ def test_outline_detail_search_and_workspace_do_not_read_the_full_document(close
                            params={'run_id': fixture['document']['run_id']})
     assert workspace.status_code == 200, workspace.json()
     body = workspace.json()
-    assert body['schema'] == 'study-workspace/v1' and 'knowledge_structure' not in body
+    assert body['schema'] == 'study-workspace/v2' and 'knowledge_structure' not in body
     assert body['selected_set_id'] == str(root)
     assert len(body['context']['requested_concept_ids']) <= 3
     assert len(body['progress']['concept_states']) <= 3

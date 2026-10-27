@@ -54,7 +54,7 @@ def test_enter_and_start_b_while_a_is_generating_then_submit_a_without_changing_
     assert created.status_code == 202, created.json()
     second = UUID(created.json()["set_id"])
     listing = client.get(base).json()
-    assert listing["schema"] == "assessment-set-list/v1"
+    assert listing["schema"] == "assessment-set-list/v2"
     assert set(listing["active_set_ids"]) == {str(first), str(second)}
 
     duplicate = client.post(

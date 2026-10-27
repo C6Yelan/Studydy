@@ -52,7 +52,6 @@ class LearnerProgressSnapshot(BaseModel):
     next_action: NextAction
     guidance_revision: str
     assessment_cycles: list[dict]
-    starting_level: str | None = None
     learning_path: list[str] = []
 
 
@@ -89,7 +88,7 @@ def _first_incomplete_claim(
 
 
 def _next_action(
-    context, session: StoredStudySession, states: list[ConceptLearningState], cycles, *, level=None, learning_path=None
+    context, session: StoredStudySession, states: list[ConceptLearningState], cycles, *, learning_path=None
 ) -> NextAction:
     by_id = {state.concept_id: state for state in states}
     current = _concept(context, session.current_concept_id)
@@ -111,7 +110,7 @@ def _next_action(
                 prerequisite_concept_ids=[],
                 reason="active_assessment_set",
             )
-        if remaining(current["concept_id"]) and (level not in ("familiar", "gaps") or (path and current["concept_id"] == path[0])):
+        if remaining(current["concept_id"]):
             unmet = [
                 identity
                 for identity in current["prerequisite_ids"]
@@ -151,7 +150,6 @@ def _snapshot(
     context,
     states: tuple[ConceptLearningState, ...],
     cycles,
-    *, level=None, diagnostic_correct=(),
 ) -> LearnerProgressSnapshot:
     weaknesses = [
         WeaknessFinding(
@@ -164,9 +162,10 @@ def _snapshot(
         for state in states
         if state.weak_claim_ids
     ]
-    from .starting_levels import route_order
-    path = route_order(context, states, level, diagnostic_correct)
-    action = _next_action(context, session, list(states), cycles, level=level, learning_path=path)
+    by_id = {state.concept_id: state for state in states}
+    path = [identity for identity in context["initial_learning_path"]
+            if by_id[identity].status != "completed" and by_id[identity].assessable_claim_ids]
+    action = _next_action(context, session, list(states), cycles, learning_path=path)
     identity = {
         "study_session_id": str(session.study_session_id),
         "knowledge_structure_revision": session.knowledge_structure_revision,
@@ -178,11 +177,10 @@ def _snapshot(
         "next_action": action.model_dump(),
         "assessment_cycles": cycles,
         "policy": "claim-completion/v2",
-        "starting_level": level,
         "learning_path": path,
     }
     return LearnerProgressSnapshot(
-        schema_="learner-progress/v1",
+        schema_="learner-progress/v2",
         study_session_id=session.study_session_id,
         knowledge_structure_revision=session.knowledge_structure_revision,
         event_watermark=session.last_event_number,
@@ -193,7 +191,7 @@ def _snapshot(
         next_action=action,
         guidance_revision="learner-guidance:sha256:" + canonical_sha256(identity),
         assessment_cycles=cycles,
-        starting_level=level, learning_path=path,
+        learning_path=path,
     )
 
 
@@ -212,7 +210,7 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
             db.info["read_snapshot"] = {"documents": {}, "inherited": {}, "cycles": {}}
             row = _row(db, _learner(learner), study_session_id)
             material = db.execute(
-                select(Material.material_id, Material.starting_level).where(
+                select(Material.material_id).where(
                     Material.learner_id == learner.learner_id,
                     Material.material_id == row.material_id,
                     Material.discard_requested_at.is_(None),
@@ -262,9 +260,7 @@ def progress_snapshot(learner: TrustedLearner, study_session_id: UUID, *, dsn=No
                 for cycle in inherited_cycles
                 if cycle["concept_id"] not in current_cycles | weak
             ]
-            from .starting_levels import diagnostic_correct_concepts
-            correct = diagnostic_correct_concepts(db, row) if material.starting_level in ("familiar", "gaps") else ()
-            snapshot = _snapshot(study, context, states, cycles, level=material.starting_level, diagnostic_correct=correct)
+            snapshot = _snapshot(study, context, states, cycles)
         except LearnerProgressError:
             raise
         except Exception:

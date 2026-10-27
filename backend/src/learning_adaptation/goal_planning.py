@@ -37,7 +37,7 @@ def build_plan(*, today: date, target_date: date, target_percent: int,
     """今日用固定基準，未來假設建議的完整概念順利完成，只作預覽。
 
     baseline 的完成量使用保存範圍；daily 配額固定，但完成量包含所有當日
-    真實完成重點。關卡已依起始程度與弱點排序，preview_days=0 省略未來計算。
+    真實完成重點。關卡依地圖編號排序，preview_days=0 省略未來計算。
     """
     total, complete = current["assessable_points"], current["completed_points"]
     target = _target(total, target_percent)

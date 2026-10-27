@@ -19,13 +19,12 @@ def _check_scope(study, plan, material_id, revision, run_id):
         raise SourceError("RESOURCE_NOT_FOUND")
 
 
-def _selection(rounds, concept_id, set_id, *, level=None):
+def _selection(rounds, concept_id, set_id):
     selected_id = str(set_id) if set_id is not None else None
     if selected_id is None:
         active = next((group for group in rounds if group["status"] in assessment_state.ACTIVE
-                       and (group["target_concept_id"] == concept_id or group["kind"] == "material_diagnostic")), None)
-        selected = active or (next((group for group in rounds if group["target_concept_id"] == concept_id), None)
-                              if level != "beginner" else None)
+                       and group["target_concept_id"] == concept_id), None)
+        selected = active or next((group for group in rounds if group["target_concept_id"] == concept_id), None)
         selected_id = selected["set_id"] if selected else None
     selected = next((group for group in rounds if group["set_id"] == selected_id), None)
     if selected_id is not None and selected is None:
@@ -46,7 +45,7 @@ def read_workspace(
         meta = knowledge_reads.metadata(db, learner.learner_id, material_id, revision)
         run = read_material_processing_run(learner.learner_id, run_id, dsn=dsn)
         rounds = assessment_state._list_sets(db, study)["sets"]
-        selected_id, selected = _selection(rounds, study.current_concept_id, set_id, level=progress.starting_level)
+        selected_id, selected = _selection(rounds, study.current_concept_id, set_id)
         selected_set = assessment_state._read_set(db, study, UUID(selected_id)) if selected_id else None
         member_concepts = [item["target_concept_id"] for item in selected_set["items"]] if selected_set else []
         identities = list(
@@ -88,9 +87,8 @@ def read_workspace(
             ],
         }
         return {
-            "schema": "study-workspace/v1",
+            "schema": "study-workspace/v2",
             "session": study,
-            "starting_level": progress.starting_level,
             "run_id": run_id,
             "source_artifact_id": run.source_artifact_id,
             "outline": navigation,
@@ -122,7 +120,7 @@ def read_resume(
         )
         run = read_material_processing_run(learner.learner_id, run_id, dsn=dsn)
         rounds = assessment_state._list_sets(db, study)["sets"]
-        selected_id, _ = _selection(rounds, study.current_concept_id, set_id, level=progress.starting_level)
+        selected_id, _ = _selection(rounds, study.current_concept_id, set_id)
         return {
             "session": study,
             "run_id": run_id,

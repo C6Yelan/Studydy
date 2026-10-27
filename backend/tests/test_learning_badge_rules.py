@@ -1,4 +1,4 @@
-"""徽章規則 badge-rules/v7：系列徽章的每一層與特殊成就的未達、剛好達標與取得日期。"""
+"""徽章規則 badge-rules/v8：系列徽章的每一層與特殊成就的未達、剛好達標與取得日期。"""
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -17,7 +17,7 @@ def badges(**records):
         "xp": {}, "active": set(), "streak": 0, "level": 1, **records,
     }
     view = derive_badges(**values)
-    assert view["rule_version"] == "badge-rules/v7"
+    assert view["rule_version"] == "badge-rules/v8"
     assert [item["badge_id"] for item in view["items"]] == [badge_id for badge_id, _, _ in BADGES]
     return {item["badge_id"]: item for item in view["items"]}
 
@@ -319,9 +319,9 @@ def test_new_year_needs_activity_on_january_first():
 @pytest.mark.parametrize(("badge_id", "metric", "target"), [
     (badge_id, metric, target) for badge_id, metric, target in BADGES
     if metric in {
-        "goals", "stages", "difficulties", "diagnostics", "notes", "annotations",
+        "goals", "stages", "difficulties", "notes", "annotations",
         "image_uploads", "audio_uploads", "video_uploads", "youtube_uploads", "exports", "export_kinds",
-        "finished_series", "host_pairs", "all_tools", "diagnosed_mastery", "media_concepts",
+        "finished_series", "host_pairs", "all_tools", "media_concepts",
     }
 ])
 def test_v7_cumulative_badges_count_real_records_and_date_the_threshold_day(badge_id, metric, target):

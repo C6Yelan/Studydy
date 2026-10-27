@@ -1,4 +1,4 @@
-"""badge-rules/v7／xp-rules/v4 的真 DB：交卷記錄分天關卡與準時達標、既有資料回溯推導，以及 0019 升級。"""
+"""badge-rules/v8／xp-rules/v5 的真 DB：交卷記錄分天關卡與準時達標、既有資料回溯推導，以及 0019 升級。"""
 import json
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -16,7 +16,6 @@ from runtime.learning_activity import learning_activity, record_export
 from runtime.source_normalization import upload_source
 from runtime.storage.database import database_session
 from runtime.storage.tables import Podcast
-from test_starting_level import _client, _finish_cross, _preference, _start
 
 TAIPEI = ZoneInfo("Asia/Taipei")
 
@@ -82,13 +81,9 @@ def test_existing_records_are_derived_retroactively(closed_loop, tmp_path, monke
     f = concept_fixture(closed_loop, 2)
     owner, dsn, material = f["learner"].learner_id, f["dsn"], f["source"].material_id
     revision = f["document"]["revision"]
-    # 起始程度診斷（真 API 流程）。
-    client = _client(f, tmp_path, monkeypatch)
-    _preference(client, f, "familiar")
-    launched = _start(client, f)
-    assert launched.status_code == 200, launched.json()
-    _finish_cross(f)
-    answer(f, UUID(launched.json()["selected_set_id"]))
+    root = create(f)
+    finish(f)
+    answer(f, root)
     # 媒體來源：圖片組、音訊、影片（只存音軌，來源仍記為影片）、YouTube。
     for name, media, data in (
         ("photos.zip", "application/zip", b"PK synthetic"), ("talk.mp3", "audio/mpeg", b"ID3 synthetic"),
@@ -145,23 +140,20 @@ def test_existing_records_are_derived_retroactively(closed_loop, tmp_path, monke
     today = now.date()
     earned = {badge_id for badge_id, item in badges.items() if item["earned"]}
     assert {
-        "first_diagnostic", "first_note", "first_annotation", "upload_image", "upload_audio", "upload_video",
+        "first_note", "first_annotation", "upload_image", "upload_audio", "upload_video",
         "upload_youtube", "all_media", "first_export", "export_kinds_4", "podcast_series", "night_listener",
     } <= earned
-    assert all(badges[badge_id]["earned_on"] == today for badge_id in ("first_diagnostic", "upload_video", "all_media"))
+    assert all(badges[badge_id]["earned_on"] == today for badge_id in ("upload_video", "all_media"))
     assert badges["annotations_10"]["progress"] == 2
     assert badges["podcast_hosts_all"]["progress"] == 1 and host
-    assert badges["diagnostics_5"]["progress"] == 1
-    assert view["xp"]["sources"]["diagnostics"] == 20
     # 有完成題組、筆記註記與聽完 Podcast，但沒有標記概念卡：全能島主未取得。
     assert not badges["all_tools_material"]["earned"]
     # 模擬內容不可讀：當下計量可減少，但已取得徽章及日期永久保存。
     with database_session(dsn) as db:
         db.execute(text("UPDATE materials SET discard_requested_at = now() WHERE material_id = :m"), {"m": material})
     view, badges = activity(f)
-    assert badges["first_diagnostic"]["earned"] and badges["upload_image"]["earned"]
+    assert badges["upload_image"]["earned"]
     assert badges["podcast_series"]["earned"] and badges["first_export"]["earned"]
-    assert view["xp"]["sources"]["diagnostics"] == 0
 
 
 def test_milestone_failure_rolls_back_only_its_savepoint_and_submit_succeeds(closed_loop, monkeypatch, caplog):

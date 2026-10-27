@@ -9,18 +9,17 @@ from runtime import topics, material_notes, research
 from runtime.source_normalization import create_draft, upload_source, normalize_next, read_sources
 from runtime.storage.database import database_session
 from runtime.storage.tables import Material, LearningGoal
-from learning_adaptation import learning_goals, starting_levels
+from learning_adaptation import learning_goals
 from test_note_queue import setup, drain
 from test_version_moves import new_revision
 
 
-def test_goal_and_starting_level_are_kept_before_first_publication(closed_loop, monkeypatch, tmp_path):
+def test_goal_is_kept_before_first_publication(closed_loop, monkeypatch, tmp_path):
     from test_source_revisions import pdf
     from test_media_source_flow import _publish
     owner, _, _, _, dsn, _ = closed_loop
     material = create_draft(owner.learner_id, 'pending goal', 'pending-goal', dsn=dsn)
     target = date.today() + timedelta(days=7)
-    starting_levels.set_level(owner, material, 'some_knowledge', dsn=dsn)
     saved = learning_goals.set_goal(owner, material, target, 80, dsn=dsn)
     assert saved['schema'] == 'learning-goal/v2' and saved['goal'] is None
     assert saved['pending_goal'] == {'target_date':target.isoformat(),'target_percent':80}
@@ -31,7 +30,6 @@ def test_goal_and_starting_level_are_kept_before_first_publication(closed_loop, 
     with database_session(dsn) as db:
         actual = learning_goals.read_goal(db, owner.learner_id, material)
         assert actual['pending_goal'] is None and actual['goal']['target_percent'] == 80
-        assert db.get(Material, material).starting_level == 'some_knowledge'
         assert db.get(LearningGoal, material).target_date == target
 
 
@@ -41,16 +39,16 @@ def test_topic_preferences_survive_source_selection(closed_loop, monkeypatch):
     owner, _, _, _, dsn, _ = closed_loop
     fixtures(monkeypatch)
     goal = {'target_date':(date.today()+timedelta(days=7)).isoformat(),'target_percent':60}
-    created = topics.create(owner.learner_id, 'Queue', 'topic-preferences', starting_level='gaps', learning_goal=goal, dsn=dsn)
+    created = topics.create(owner.learner_id, 'Queue', 'topic-preferences', learning_goal=goal, dsn=dsn)
     assert topics.step(dsn=dsn)
     ready = topics.read(owner.learner_id, created['topic_id'], dsn=dsn)
-    assert ready['starting_level'] == 'gaps' and ready['learning_goal'] == goal
+    assert ready['learning_goal'] == goal
     approved = topics.approve(owner.learner_id, created['topic_id'], ready['version'], PLAN, 'approve', dsn=dsn)
     search_to_selection(owner.learner_id, approved['research_id'], dsn)
     result = topics.create_material(owner.learner_id, created['topic_id'], ['paper'], dsn=dsn)
     with database_session(dsn) as db:
         row = db.get(Material, result['material_id'])
-        assert row.starting_level == 'gaps' and row.pending_goal == goal
+        assert row.pending_goal == goal
 
 
 def test_goal_suggestions_apply_to_real_schedule_without_over_twenty(closed_loop):
@@ -63,10 +61,6 @@ def test_goal_suggestions_apply_to_real_schedule_without_over_twenty(closed_loop
         updated = learning_goals.set_goal(owner, material, target, suggested['target_percent'], dsn=dsn)
         assert not updated['goal']['quota_over_limit'] and not updated['goal']['scheduled_over_limit']
         assert suggested['daily_points'] <= 20
-    before = updated['goal']['today_stage']['quota_points']
-    starting_levels.set_level(owner, material, 'gaps', dsn=dsn)
-    with database_session(dsn) as db:
-        assert learning_goals.read_goal(db, owner.learner_id, material)['goal']['today_stage']['quota_points'] == before
 
 
 def test_new_revision_reads_old_notes_with_old_sources_until_replacement(closed_loop, tmp_path, monkeypatch):

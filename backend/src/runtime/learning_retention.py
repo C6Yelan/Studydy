@@ -49,12 +49,6 @@ def preserve_learning(db, owner, kind, identity):
         '''), values):
             key = 'stages' if milestone == 'stage' else 'goal_xp'
             daily[day][key] = daily[day].get(key, 0) + (1 if milestone == 'stage' else activity.XP_GOAL_ON_TIME)
-        at = db.execute(text('''
-            SELECT min(completed_at) FROM assessment_sets
-            WHERE learner_id=:owner AND material_id=:identity AND kind='material_diagnostic' AND status='completed'
-        '''), values).scalar()
-        if at:
-            daily[at.astimezone(zone).date()]['diagnostic_xp'] = activity.XP_DIAGNOSTIC
         for card_id in db.execute(text('SELECT card_set_id FROM card_sets WHERE learner_id=:owner AND material_id=:identity'), values).scalars():
             preserve_learning(db, owner, 'cards', card_id)
         for podcast_id in db.execute(text('SELECT podcast_id FROM podcasts WHERE learner_id=:owner AND material_id=:identity'), values).scalars():
