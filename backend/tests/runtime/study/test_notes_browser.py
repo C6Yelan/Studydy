@@ -39,4 +39,4 @@ def test_notes_browser_persists_annotations_and_generates_full_notes(closed_loop
     assert not thread.is_alive() and not errors
     with database_session(f["dsn"]) as db:
         values = db.scalars(select(NoteAnnotation).where(NoteAnnotation.material_id == f["source"].material_id)).all()
-        assert len(values) == 1 and values[0].body == "真 API 保存我的複習想法"
+        assert sorted(value.body for value in values) == ["完整筆記的複習想法", "真 API 保存我的複習想法"]

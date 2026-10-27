@@ -177,6 +177,8 @@ def test_analysis_retry_updates_research_entry_atomically(revisions,monkeypatch)
     actual=processing.analyze_material
     def fail(*a,**kw):raise MaterialAnalysisError('SEMANTIC_SERVICE_UNAVAILABLE')
     monkeypatch.setattr(processing,'analyze_material',fail)
+    # 暫時性失敗先自動接續一次，第二次失敗才停下。
+    assert execute().status=='pending'
     assert execute().status=='failed'
     retry=retry_revision(owner,submitted['run_id'],'retry-research',settings,dsn=dsn)
     assert research.read(owner,identity,dsn=dsn)['run_id']==retry.run_id
@@ -509,8 +511,11 @@ def test_view_sends_only_learner_facing_fields(closed_loop,monkeypatch):
     assert set(view['candidates'][0])=={'id','kind','title','authors','year','url','license','license_url','eligible','state','acquisition','review'}
     assert set(view['candidates'][0]['acquisition'])=={'license_text','acquired_at'}
     assert set(view['candidates'][0]['review'])=={'phase','relevance','reason','scope'}
-    assert view['progress']=={'stage':'complete','completed':None,'total':None,'unit':'queries','topics':[{'topic':'佇列：順序','status':'missing'}],
-        'summary':'','finish_reason':'covered','waiting_until':None}
+    progress=dict(view['progress'])
+    assert progress.pop('started_at') is not None
+    assert progress=={'stage':'complete','completed':None,'total':None,'unit':'queries','topics':[{'topic':'佇列：順序','status':'missing'}],
+        'summary':'','finish_reason':'covered','waiting_until':None,
+        'topic_progress':[{'topic_index':0,'topic':'queue','status':'completed','available_source_count':0}],'completed_topics':1,'total_topics':1}
     forbidden={'screening','preview','access','discovered_by','version','research_topics','description_kind','source_type_review','source_id',
         'doi','duplicate_of','round','warnings','unavailable_sources','candidate_count','read_count','importable_count','screened_count',
         'mode','cursor','search_query','base_revision','topic_id'}

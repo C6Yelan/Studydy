@@ -58,5 +58,7 @@ def create_confirmed_research(owner,material,request,key,*,dsn):
             row.proposal={'title':request,'goals':['理解原理'],'topics':['queue']}
             row.status='ready';row.version+=1
     scope=topics.read(owner,scope['topic_id'],dsn=dsn)
-    approved=topics.approve(owner,scope['topic_id'],scope['version'],scope['proposal'],key+':approve',dsn=dsn)
+    # 重送已確認的請求要帶確認前看到的版本（確認時版本 +1）。
+    expected=scope['version']-1 if scope['status']=='approved' else scope['version']
+    approved=topics.approve(owner,scope['topic_id'],expected,scope['proposal'],key+':approve',dsn=dsn)
     return research.read(owner,approved['research_id'],dsn=dsn)

@@ -53,7 +53,9 @@ def test_batches_preserve_neighbor_context_without_reloading_document(closed_loo
     batch = study['batch']
     assert [c['concept_id'] for c in batch['cards']] == ids[:8]
     expected_ids = {*ids[:8], ids[-1]}
-    assert batch['context']['concepts'] == [c for c in original['concepts'] if c['concept_id'] in expected_ids]
+    # uncertain 只供知識地圖提示逐字稿疑義，卡片 context 不帶。
+    assert batch['context']['concepts'] == [
+        {k: v for k, v in c.items() if k != 'uncertain'} for c in original['concepts'] if c['concept_id'] in expected_ids]
     assert batch['context']['relations'] == original['relations']
     evidence = {e['evidence_id']: e for c in original['concepts'] for claim in c['claims'] for e in claim['evidence']}
     assert batch['context']['relation_evidence'] == [evidence[ref] for ref in original['relations'][0]['evidence_refs']]

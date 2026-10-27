@@ -393,6 +393,8 @@ def test_retry_continues_at_failed_block_then_cleans_checkpoints_and_keeps_call_
                 'relations':[],'review_required':False}
     monkeypatch.setattr(processing,'analyze_material',lambda *args,**kwargs:material_pipeline.analyze_material(*args,**kwargs,semantic_call=semantic))
     start([source['normalization_id']],'mid-page-failure',old['revision'])
+    # 暫時性失敗先自動接續一次，第二次失敗才停下。
+    assert execute().status=='pending'
     failed=execute()
     assert failed.status=='failed' and failed.completed_pages==failed.total_pages==2
     completed_handle=calls[0];failed_handle=calls[-1]

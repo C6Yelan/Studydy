@@ -42,7 +42,8 @@ def test_partial_v1_run_upgrades_and_calls_only_remaining_sources(revisions,monk
         if count>1:raise SemanticServiceError('SEMANTIC_SERVICE_UNAVAILABLE')
         return fake_response(kwargs,legacy=True)
     analyze_with(monkeypatch,legacy)
-    old_run=start([b,c],'legacy-partial',old['revision']);assert execute().status=='failed'
+    # 暫時性失敗先自動接續一次，第二次失敗才停下。
+    old_run=start([b,c],'legacy-partial',old['revision']);assert execute().status=='pending';assert execute().status=='failed'
     path=_material_directory(learner.learner_id,material)/old_run.run_id.hex/'checkpoint.json'
     raw=path.read_bytes();saved=json.loads(raw)['data'];assert saved['cursor']>0
     old_lock=deepcopy(old_run.runtime_lock_document)

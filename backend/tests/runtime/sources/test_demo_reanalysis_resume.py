@@ -25,7 +25,7 @@ def failed_maintenance(maintained, monkeypatch):
     def fail_review(path, body):
         if body['task'] == 'material_review':
             failed_calls.append(body['task'])
-            raise RuntimeError('synthetic unavailable')
+            raise ValueError('GENERATION_PROVIDER_UNAVAILABLE')
         return provider(path, body)
 
     monkeypatch.setattr(http, 'provider', fail_review)

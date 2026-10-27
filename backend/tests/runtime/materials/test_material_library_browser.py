@@ -23,7 +23,8 @@ def test_library_browser_reads_existing_records_without_generation(library_mater
         path = request.url.path
         if request.method == "GET":
             read_paths.append(path)
-        elif not path.startswith("/v1/session"):
+        # 頁首會領取未看過的升級／徽章；沒有可領取時不改資料，由下方 DB 快照確認。
+        elif not path.startswith(("/v1/session", "/v1/learning-activity/celebrations/claim")):
             writes.append(path)
         return await call_next(request)
 

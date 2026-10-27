@@ -109,6 +109,10 @@ test("wrong points directly form groups and survive lost create responses", asyn
     progress.concept_states.find((c: { concept_id: string }) => c.concept_id === data.concept)
       .completed_claim_ids.length,
   ).toBe(3);
+  // 升級與徽章由先領取的瀏覽器顯示，兩個瀏覽器誰先領不固定；出現時關閉。
+  await fresh.addLocatorHandler(fresh.locator("dialog.level-up"), async (dialog) => {
+    await dialog.getByRole("button", { name: "太好了" }).click();
+  }, { noWaitAfter: true });
   await fresh.getByRole("button", { name: /題組紀錄（/ }).click();
   await fresh
     .getByRole("dialog", { name: "題組紀錄" })

@@ -31,7 +31,7 @@ test("unfinished A does not block B and switching back resumes A", async ({ page
   ).toBeVisible();
   await page.goto(studyPath);
   await chooseFirstLevel(page);
-  await expect(page.getByText("0 / 1 題", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "已準備 0 / 1 題" })).toBeVisible();
   const firstSetUrl = page.url();
   const firstSetId = firstSetUrl.split("/").at(-1)!;
 

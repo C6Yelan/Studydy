@@ -40,6 +40,9 @@ def test_real_api_lifespan_login_and_saved_reads_work_without_ai(closed_loop, mo
     import httpx
     from runtime.local_app import create_local_app
     learner, source, settings, structure, dsn, _token = closed_loop
+    # fixture 發布時自動排入的重點整理會由筆記 worker 生成；本案例只驗讀取，先移除這個背景工作。
+    with psycopg.connect(dsn) as connection:
+        connection.execute("DELETE FROM material_notes")
     calls = []
     def offline(*_args, **_kwargs):
         calls.append("model")

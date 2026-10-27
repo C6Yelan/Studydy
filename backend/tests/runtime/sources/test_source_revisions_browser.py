@@ -1,6 +1,7 @@
 """以真 API、DB、轉檔及 worker 驗證來源流程，語意回應使用受控 fixture。"""
 
 import httpx
+import psycopg
 from uuid import uuid4
 
 import runtime.api.app as api
@@ -58,6 +59,11 @@ def test_real_initial_multiple_sources_browser(revisions, monkeypatch, tmp_path)
         raise AssertionError("MODEL_NOT_ALLOWED")
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", reject)
+    # 發布後自動排入的重點整理另由筆記測試驗證；這裡只驗教材分析不外呼模型。
+    from runtime import knowledge_publication
+    monkeypatch.setattr(knowledge_publication, "enqueue_notes", lambda *args: None)
+    with psycopg.connect(dsn) as connection:
+        connection.execute("DELETE FROM material_notes")
     monkeypatch.setenv("STUDYDY_E2E_INITIAL_REAL", "true")
     monkeypatch.setenv("STUDYDY_E2E_INITIAL_PDF", str(source))
     before = len(requests)

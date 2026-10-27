@@ -173,7 +173,7 @@ def test_extra_workers_start_after_single_recovery(monkeypatch):
 def test_retry_migration_applies_and_rolls_back(clean_database_dsn, migrations_dir, tmp_path):
     import shutil
     import psycopg
-    from runtime.storage.migrations import run_migrations
+    from runtime.storage.migrations import load_migrations, run_migrations
     previous = tmp_path / 'migrations'
     previous.mkdir()
     for path in migrations_dir.glob('*.sql'):
@@ -186,7 +186,7 @@ def test_retry_migration_applies_and_rolls_back(clean_database_dsn, migrations_d
             connection.execute(sql)
             assert connection.execute("SELECT count(*) FROM information_schema.columns WHERE table_name='material_processing_runs' AND column_name IN ('auto_retry_count','auto_retry_reason')").fetchone() == (2,)
         assert connection.execute("SELECT count(*) FROM information_schema.columns WHERE table_name='material_processing_runs' AND column_name IN ('auto_retry_count','auto_retry_reason')").fetchone() == (0,)
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (22,)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == tuple(m.version for m in load_migrations(migrations_dir)[21:])
 
 
 def test_same_run_retry_reuses_checkpoint_and_terminal_failure_can_archive(closed_loop):

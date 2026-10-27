@@ -77,6 +77,8 @@ def test_failed_consolidation_reuses_rejected_draft_only_as_repair_input(revisio
         return result
     monkeypatch.setattr('runtime.material_consolidation.request_semantics', fail)
     start([], 'failed-consolidation', original['revision'])
+    # 暫時性失敗先自動接續一次，第二次失敗才停下。
+    assert execute().status == 'pending'
     failed = execute()
     assert failed.status == 'failed' and failed.error_code == 'SEMANTIC_SERVICE_UNAVAILABLE'
     operations = []
