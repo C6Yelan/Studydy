@@ -266,7 +266,7 @@ def test_uncertain_review_can_only_retract_a_paraphrase_to_its_exact_quotes(sour
     result, projection = apply_review(doc, view, units[0], proposal(units[0], issue='uncertain', meaning=source.replace('\n', '')))
     assert projection['claim_changes']
     claim = result['concepts'][0]['claims'][0]
-    assert claim['text'] == ' '.join(source.split()) + '（逐字稿用詞待核對）'
+    assert claim['text'] == ' '.join(source.split())
     assert claim['source_spans'] == doc['concepts'][0]['claims'][0]['source_spans']
     assert result['status']['quality'] == 'needs_review' and validate_knowledge_structure(result)
 
@@ -283,7 +283,7 @@ def test_uncertain_foreign_quote_restore_is_not_dropped_as_a_translation_failure
     archive = Archive(tmp_path/'review')
     archive.review_reuses = []
     result = review_structure(doc, _runtime_lock(), archive, lambda: None, lambda *a: None)
-    assert result['concepts'][0]['claims'][0]['text'] == source + '（逐字稿用詞待核對）'
+    assert result['concepts'][0]['claims'][0]['text'] == source
     assert result['status']['quality'] == 'needs_review'
 
 

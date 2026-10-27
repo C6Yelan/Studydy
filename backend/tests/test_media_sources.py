@@ -325,3 +325,20 @@ def test_video_audio_is_transcoded_when_the_track_cannot_be_copied(tmp_path, mon
         assert [stream.type for stream in stored.streams] == ["audio"]
         assert stored.streams.audio[0].codec_context.name == "aac"
         assert stored.streams.audio[0].codec_context.sample_rate == 24000
+
+
+def test_transcript_paragraphs_remain_separate_native_evidence(tmp_path):
+    from pdf_evidence.ocr_page_evidence import extract_page, _native_text_blocks
+    text = 'Diffusion 模型逐步加入雜訊並學習反向去噪這是文字段落邊界的測試資料'
+    segments = [{'start':i * 5, 'end':i * 5 + 4, 'text':text} for i in range(20)]
+    module = _media_module()
+    source = tmp_path / 'transcript.json'
+    source.write_text(json.dumps({'schema':'media-transcript/v1', 'format':'youtube',
+        'original_sha256':'a'*64, 'duration_seconds':120,
+        'media':{'video_id':'iG9CE55wbtY'}, 'segments':segments}, ensure_ascii=False))
+    module.transcript(source, tmp_path)
+    with pymupdf.open(tmp_path/'normalized.pdf') as document:
+        blocks = _native_text_blocks(extract_page(document, 'a'*64, 1))
+    assert len(blocks) == len(module._paragraphs(segments))
+    assert all('Diffusion' in block['text'] for block in blocks)
+    assert ''.join(''.join(block['text'].split()) for block in blocks) == ''.join((text*20).split())

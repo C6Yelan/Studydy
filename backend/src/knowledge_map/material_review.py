@@ -485,7 +485,7 @@ def transcript_restore_text(unit: ReviewUnit, claim: int, meaning: str) -> str |
     # PDF 可能在詞內換行。只忽略排版空白核對還原意圖；原 quote 不動，學習文字沿用既有空白正規化。
     if not isinstance(meaning, str) or "".join(meaning.split()) != "".join(original.split()):
         return None
-    return original + "（逐字稿用詞待核對）"
+    return original
 
 
 def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
