@@ -218,7 +218,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
             </div>
           </div>
           <div id="podcast-highlights-panel" className="podcast-content-panel" role="tabpanel" aria-labelledby="podcast-highlights-tab" hidden={readingTab !== 'highlights'}>
-            <div className="podcast-highlights" key={index} tabIndex={0}><header><span>{episode.claims.length} 個重點</span></header>
+            <div className="podcast-highlights" key={index} tabIndex={0}>{!!episode.omitted_content?.length && <p className="podcast-omission-note">有一段因無法核對原文而略過。</p>}<header><span>{episode.claims.length} 個重點</span></header>
               {groups.map(group => <div key={group.claims[0].concept_id}>{groups.length > 1 && <h3>{group.label}</h3>}<ul>{group.claims.map(claim => <li key={claim.claim_id}><p>{claimText(claim)}</p></li>)}</ul></div>)}
             </div>
           </div>

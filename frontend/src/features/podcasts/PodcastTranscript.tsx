@@ -88,6 +88,7 @@ export function PodcastTranscript({view,index,media,active,timelineState}:{
   },[clock.index,clock.playing]);
   if(!episode.script)return <p className="podcast-meta-note">本集逐字稿尚未生成。</p>;
   return <>
+    {!!episode.omitted_content?.length && <p className="podcast-omission-note">有一段因無法核對原文而略過。</p>}
     {error&&<p className="form-error" role="alert">{error}</p>}
     {current?<><p className="podcast-meta-note">點擊講稿可跳到對應位置。</p><ol ref={list} className="podcast-timed-transcript">{current.segments.map((s,i)=><li key={s.id}>
       <button type="button" aria-current={clock.index===i?'true':undefined} disabled={!clock.ready} onClick={()=>{if(media.current)media.current.currentTime=s.start}}>

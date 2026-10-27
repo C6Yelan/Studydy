@@ -322,3 +322,7 @@ Podcast 依選定概念及關係規劃分集，透過同一索引取得各集引
 ### 作答期間的教材問答
 
 普通題組與快速診斷在實際作答時每 20 秒送出 assessment-presence/v1；離頁停止回報，伺服器在 60 秒到期後解除。交卷成功補送 active=false，後端交卷交易也會解除。瀏覽器 ID 以 localStorage 保存並跨分頁共用，只在 presence、文字提問、錄音與重試附上 X-Studydy-Browser-Id；另一個瀏覽器使用不同 ID。作答時移除問答入口，既有回答不新增取消；被拒絕時顯示 ASSESSMENT_IN_PROGRESS 對應提示，保留問題草稿。此機制是避免順手查答案的介面限制，不是裝置驗證。
+
+### Podcast 製作步驟與略過提示
+
+生成頁直接讀取各集 generation.steps 的 script／audio／alignment／video 狀態及 elapsed_seconds；未知排隊數不估填，未選影片不自行補步驟。單集未完成使用不確定進度，多集以已完成集數計數，步驟不折算百分比。omitted_content 只用於逐字稿與本集重點的固定略過提示，不呈現未核對台詞；過半失敗門檻由後端判定，前端沿用 PODCAST_SCRIPT_NEEDS_REVIEW 並說明原因。

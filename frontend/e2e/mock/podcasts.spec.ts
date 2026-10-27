@@ -86,12 +86,14 @@ test("management menu renames with conflict recovery; deletion needs confirmatio
 });
 
 test('unfinished Podcasts show only saved progress, cancel and retry',async({page})=>{
- const fixture=await mockPodcasts(page);await page.goto(`/podcasts/${podcastId}`);
+ const fixture=await mockPodcasts(page);
+ fixture.view.generation={active:true,completed_videos:0,failed_videos:0,steps:[{episode_index:1,step:'script',status:'running',started_at:null,elapsed_seconds:12,queue_ahead:null}]};
+ await page.goto(`/podcasts/${podcastId}`);
  const progress=page.getByRole('region',{name:'Podcast 生成進度'});
- await expect(progress.getByRole('status')).toHaveText('第 2 / 3 集 · 整理內容');
+ await expect(progress.getByRole('status')).toHaveText('第 2 / 3 集 · 寫講稿 · 進行中');
  await expect(page.locator('video,audio,.media-playback-controls')).toHaveCount(0);
- fixture.view.episodes[1].script=fixture.script;
- await expect(progress.getByRole('status')).toHaveText('第 2 / 3 集 · 製作音訊');
+ fixture.view.episodes[1].script=fixture.script;fixture.view.generation!.steps![0].step='audio';
+ await expect(progress.getByRole('status')).toHaveText('第 2 / 3 集 · 配音 · 進行中');
  fixture.view.status='cancelled';
  await expect(progress.getByRole('button',{name:'接續生成'})).toBeVisible();
  await expect(page.locator('video,audio,.media-playback-controls')).toHaveCount(0);
@@ -974,9 +976,10 @@ test('cancel and delete removes unfinished podcast instead of retaining a paused
 
 for(const entry of ['library','player']) test(`audio ready does not hide remaining generation or cancellation from ${entry}`,async({page})=>{
  const mock=await mockEpisodeVideo(page,'ready');
- mock.fixture.view.generation={active:true,completed_videos:1,failed_videos:0};
+ mock.fixture.view.generation={active:true,completed_videos:1,failed_videos:0,steps:[{episode_index:1,step:'video',status:'running',started_at:null,elapsed_seconds:45,queue_ahead:null}]};
  await page.goto(entry==='library'?'/podcasts':`/podcasts/${podcastId}`);
- await expect(page.getByText(/影片.*仍在生成|影片.*生成中|音訊已完成，正在製作影片/)).toBeVisible();
+ if(entry==='player')await expect(page.getByRole('region',{name:'Podcast 生成進度'}).getByRole('status')).toHaveText('第 2 / 3 集 · 製作影片 · 進行中');
+ else await expect(page.getByText(/影片.*生成中/)).toBeVisible();
  await expect(page.locator('video,audio')).toHaveCount(0);
  if(entry==='library')await expect(page.getByRole('button',{name:'開啟播放'})).toHaveCount(0);
  await page.getByRole('button',{name:'取消並刪除',exact:true}).click();
@@ -1146,3 +1149,43 @@ for (const reason of ["PODCAST_TIMELINE_UNAVAILABLE", "PODCAST_TIMELINE_SOURCE_M
     await expect(controls.getByRole("button", { name: "匯出本集（MP3）", exact: true })).toBeVisible();
   });
 }
+
+
+test('podcast generation shows actual steps, elapsed time and observed queue without a single-episode zero percentage',async({page},testInfo)=>{
+ const {view}=await mockPodcasts(page);
+ view.episodes=[view.episodes[1]];view.episode_count=1;view.completed_episodes=0;view.video_enabled=false;
+ const steps:NonNullable<PodcastView['generation']>['steps']=[
+  {episode_index:0,step:'script',status:'completed',started_at:'2026-10-27T00:00:00Z',elapsed_seconds:53,queue_ahead:null},
+  {episode_index:0,step:'audio',status:'queued',started_at:'2026-10-27T00:00:53Z',elapsed_seconds:65,queue_ahead:null},
+  {episode_index:0,step:'alignment',status:'waiting',started_at:null,elapsed_seconds:null,queue_ahead:null},
+ ];
+ view.episodes[0].script={provider:'synthetic',segments:view.episodes[0].claims.map(c=>({claim_id:c.claim_id,turns:[{speaker:'host',text:'已核對的合成內容。'}]}))};
+ view.generation={active:true,completed_videos:0,failed_videos:0,expected_videos:0,steps};
+ await page.goto(`/podcasts/${podcastId}`);
+ const region=page.getByRole('region',{name:'各集製作步驟'}), audio=region.getByRole('listitem').filter({hasText:'配音'});
+ await expect(region.getByRole('listitem').filter({hasText:'寫講稿'})).toContainText('已完成');
+ await expect(audio).toContainText('排隊中');await expect(audio).toContainText('已耗時 1 分 5 秒');
+ await expect(page.getByRole('progressbar',{name:'已完成音訊集數'})).not.toHaveAttribute('aria-valuenow');
+ expect(await region.getByRole('listitem').allTextContents()).toEqual(['✓ 寫講稿已完成已耗時 0 分 53 秒','配音排隊中已耗時 1 分 5 秒','對齊字幕尚未開始']);
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`podcast-steps-${width}.png`),animations:'disabled'});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
+ steps[1].queue_ahead=3;await expect(audio).toContainText('排隊中，前面還有 3 個');
+ steps[1].status='running';steps[1].queue_ahead=null;await expect(audio).toContainText('進行中');
+ view.status='failed';view.error_code='PODCAST_SCRIPT_NEEDS_REVIEW';steps[1].status='failed';
+ await expect(page.getByRole('alert')).toHaveText('本集大部分重點無法核對原文，因此尚未發布音訊。可接續生成重試。');
+ await expect(page.getByRole('button',{name:'接續生成'})).toBeVisible();
+});
+
+test('published partial podcast explains omitted content in transcript and highlights',async({page},testInfo)=>{
+ const {fixture}=await mockEpisodeVideo(page);
+ fixture.view.episodes[0].omitted_content=[{segment_index:2,claim_ids:[fixture.view.episodes[0].claims[0].claim_id],reason:'source_check_failed'}];
+ await page.goto(`/podcasts/${podcastId}`);
+ const note='有一段因無法核對原文而略過。';
+ await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByText(note,{exact:true})).toBeVisible();
+ await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByRole('button',{name:/前半段/})).toBeVisible();
+ await page.getByRole('tab',{name:'本集重點',exact:true}).click();
+ await expect(page.getByRole('tabpanel',{name:'本集重點',exact:true}).getByText(note,{exact:true})).toBeVisible();
+ await page.screenshot({path:testInfo.outputPath('podcast-omission.png'),animations:'disabled'});
+});
