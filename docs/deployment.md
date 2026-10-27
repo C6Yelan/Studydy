@@ -398,3 +398,5 @@ V2使用0027_voice_sentences，順序在Q3的0025與PC1的0026之後。先部署
 V2 與 B3.7 `feat/overnight-voice-stream`（e8d191097285cf7f5f9bac921604433ca28c0134）同批部署；後端需先有 B3.6 並依其規則更新 provider。前端讀取公開 stage／audio_sentences，不以片段非空認定回答完成；未呼叫真模型量測延遲，不能把 mock 播放測試當作實際效能結果。
 
 S2教材卡片合計新增material-library-item/v1.source_totals，與前端S2卡片同批部署；沒有migration或provider變更。未知影音合計為null、無影音為0。
+
+Q4正確選項投影與前端Q4同批部署：answer-feedback/v1新增可選correct_option_id，僅已交卷題組出現，舊已交卷資料直接投影保存的私密答案。無migration或provider變更，不回寫題目／作答紀錄。

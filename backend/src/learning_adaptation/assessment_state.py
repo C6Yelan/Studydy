@@ -574,9 +574,10 @@ def _read_set(session, study, set_id):
             stored = assessments._stored(assessment, expected_provenance)
             public, created = stored.public_document, assessment.created_at
             if event is not None:
-                feedback = _feedback(
-                    _event(event, assessment, study), assessment
-                ).model_dump(by_alias=True)
+                if group.status == "completed":
+                    feedback = _feedback(
+                        _event(event, assessment, study), assessment, include_answer_key=True
+                    ).model_dump(by_alias=True)
             else:
                 # _round 已驗證題組 scope；每題隸屬此組且 assessment_revision 在 DB 中唯一。
                 can_submit = (

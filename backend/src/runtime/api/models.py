@@ -867,6 +867,7 @@ class AnswerFeedbackView(_Closed):
     assessment_revision: str
     question_id: str
     selected_option_id: str
+    correct_option_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
     is_correct: bool
     rationale: str
     source_evidence_ids: list[str]
