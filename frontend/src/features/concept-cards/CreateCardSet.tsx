@@ -10,7 +10,10 @@ import { useConceptContext } from "../material-flow/useConceptContext";
 import { FlowFooter, FlowHeader, FlowStage } from "../material-flow/Flow";
 import "../material-flow/creation.css";
 import { SelectionToggle } from "../../ui/SelectionToggle";
-import { Flashcard } from "./Flashcard";
+import { MathText } from "../../ui/MathText";
+import { claimText } from "../../ui/claim-text";
+import { SourceButton, sourceLinks } from "../../ui/SourceButton";
+import "./card-practice.css";
 
 export function CreateCardSet({ apiClient, route, embedded = false }: {
   embedded?: boolean;
@@ -91,8 +94,10 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     const desktop = window.matchMedia("(min-width: 1000px)");
     let previousSize: number | null = null;
     const resize = () => {
-      // 桌面每列三個概念，依 60px 列高與 8px 間距使用清單的實際剩餘空間。
-      const size = desktop.matches ? Math.max(3, Math.floor((list.clientHeight + 8) / 68)) * 3 : 8;
+      // 依自動欄數與實際格高分頁，長標題保留完整文字。
+      const columns = getComputedStyle(list).gridTemplateColumns.split(" ").length;
+      const rowHeight = list.firstElementChild?.getBoundingClientRect().height ?? 60;
+      const size = desktop.matches ? Math.max(3, Math.floor((list.clientHeight + 8) / (rowHeight + 8))) * columns : 8;
       if (size === previousSize) return;
       previousSize = size;
       setPageSize(size);
@@ -160,15 +165,14 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const preview = previewRead.context?.concepts.find((item) => item.concept_id === previewId);
   const toggle = (id: string) => {
     setSelected((previous) => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-    setPreviewId(id);
   };
   const stage = <FlowStage icon="cards" className="cards-create"
     title={editing ? "調整卡組內容" : "選擇概念"}
-    description={editing ? "修改名稱或勾選要保留的概念，保存後卡組會依新內容更新。" : "勾選想做成卡片的概念，按「預覽」查看卡面。"}
+    description={editing ? "修改名稱或勾選要保留的概念，保存後卡組會依新內容更新。" : "勾選想做成卡片的概念，點概念名稱查看重點。"}
     aside={<label className="creation-name">卡組名稱<input value={name} maxLength={200} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>}
     footer={<FlowFooter
       secondary={<>
-        <div className="cards-create-summary"><strong>{selected.size} 個觀念</strong><span>{editing ? "卡片張數會在保存後重新計算。" : "保存後精簡卡面，卡片張數會在生成完成後計算。"}</span></div>
+        <div className="cards-create-summary"><strong>{selected.size} 個觀念</strong><span>保存後，每個概念會生成一張或多張複習卡，依重點內容安排。</span></div>
         {editing && <button className="secondary-button" type="button" disabled={busy} onClick={back}>取消變更</button>}
       </>}
       primary={<button className="primary-button" type="button" disabled={busy || !validName || selected.size === 0 || conflict} onClick={() => void save()}>
@@ -182,10 +186,10 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
           <div className="cards-selection-actions"><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set(view.concepts.map((item) => item.concept_id)))}>全選</button><span>／</span><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set())}>取消全選</button></div>
           <SelectionToggle pressed={onlySelected} onChange={value => { setOnlySelected(value); setConceptPage(1); }}>{`已選 ${selected.size} / ${view.concepts.length} 個觀念`}</SelectionToggle>
         </div>
-        <div className="cards-concept-list" ref={conceptList}>
-          {pageConcepts.map((concept) => <div className={`cards-concept-row ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>
-            <label><input type="checkbox" checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} /><span><strong>{concept.label}</strong><small>{concept.claim_count} 個重點</small></span></label>
-            <button className="text-button" type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => { setPreviewId(concept.concept_id); }}>預覽</button>
+        <div className="cards-concept-list card-picker-grid" ref={conceptList}>
+          {pageConcepts.map((concept) => <div className={`card-picker-option ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>
+            <input type="checkbox" aria-label={concept.label} checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} />
+            <button type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(concept.concept_id)}><strong>{concept.label}</strong><small>{concept.claim_count} 個重點</small></button>
           </div>)}
           {visible.length === 0 && <p className="cards-no-results">找不到符合的概念。</p>}
         </div>
@@ -195,7 +199,14 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
           <button className="secondary-button" type="button" disabled={currentPage === pageCount} onClick={() => setConceptPage(currentPage + 1)}>下一頁</button>
         </nav>}
       </section>
-      <section className="cards-preview" aria-label="卡片預覽"><div className="cards-preview-heading"><h3>卡片預覽</h3><span>{preview ? preview.label : "點概念旁的「預覽」查看卡面"}</span></div>{previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p className="cards-preview-status" role="status">正在讀取概念與來源…</p> : null}{preview && <Flashcard key={preview.concept_id} card={preview} structure={previewRead.context!} materialName={materialName} apiClient={apiClient} sourceResolver={view.source_resolver} />}</section>
+      <section className="cards-preview card-picker-preview" aria-label="這個概念的重點">
+        <h3>這個概念的重點</h3>
+        {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p role="status">正在讀取概念與來源…</p> : null}
+        {preview && <><h4>{preview.label}</h4><ol>{preview.claims.map(claim => <li key={claim.claim_id}>
+          <MathText text={claimText(claim)} code={claim.evidence.some(item => item.kind === "code")} />
+          <div className="flashcard-source-links">{sourceLinks(claim.evidence).map(evidence => <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={view.source_resolver} evidence={evidence} />)}</div>
+        </li>)}</ol></>}
+      </section>
     </div>
   </FlowStage>;
   return embedded ? stage : <section className="cards-page creation-page flow-page cards-creation-page">{header}{stage}</section>;

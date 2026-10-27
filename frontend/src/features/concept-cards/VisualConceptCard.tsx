@@ -21,16 +21,14 @@ export function useConceptArtwork() {
 }
 
 // sources：卡面下方與「下載 PNG」同一列、靠左顯示的來源連結。
-export function VisualConceptCard({ card, structure, pageIndex, cacheOwner, sources }: {
-  card: ConceptCard; structure: ConceptCardContext; pageIndex?: number; cacheOwner: object; sources?: ReactNode;
+export function VisualConceptCard({ card, structure, pageIndex, cacheOwner, sources, downloadName, onFlip }: {
+  card: ConceptCard; structure: ConceptCardContext; pageIndex: number; cacheOwner: object; sources?: ReactNode; downloadName: () => Promise<string>; onFlip?: () => void;
 }) {
   const { artworkModule, loadFailed } = useConceptArtwork();
   const pages = useMemo(() => artworkModule?.conceptCardPages(card, structure) ?? [], [artworkModule, card, structure]);
   if (!artworkModule) return <div className="visual-card"><p role="status">{loadFailed ? "圖卡載入失敗，重新整理後再試。仍可查看下方完整重點。" : "正在載入圖卡…"}</p><div className="visual-card-actions">{sources}<DownloadButton disabled /></div></div>;
-  // 預覽直接列出此觀念的所有圖；複習時由卡組的單一導覽控制目前頁。
-  return <>{(pageIndex === undefined ? pages.map((_, i) => i) : [pageIndex]).map(index =>
-    <CardImage key={index} card={card} structure={structure} cacheOwner={cacheOwner} artworkModule={artworkModule} pages={pages} pageIndex={index} sources={sources} />
-  )}</>;
+  // 複習時由卡組的單一導覽控制目前頁。
+  return <CardImage key={pageIndex} card={card} structure={structure} cacheOwner={cacheOwner} artworkModule={artworkModule} pages={pages} pageIndex={pageIndex} sources={sources} downloadName={downloadName} onFlip={onFlip} />;
 }
 
 function DownloadButton({ disabled, downloading = false, onClick }: { disabled: boolean; downloading?: boolean; onClick?: () => void }) {
@@ -39,8 +37,8 @@ function DownloadButton({ disabled, downloading = false, onClick }: { disabled: 
   </button>;
 }
 
-function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageIndex, sources }: {
-  card: ConceptCard; structure: ConceptCardContext; cacheOwner: object; sources?: ReactNode;
+function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageIndex, sources, downloadName, onFlip }: {
+  card: ConceptCard; structure: ConceptCardContext; cacheOwner: object; sources?: ReactNode; downloadName: () => Promise<string>; onFlip?: () => void;
   artworkModule: ArtworkModule; pages: ReturnType<ArtworkModule["conceptCardPages"]>; pageIndex: number;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -78,10 +76,12 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
         blob => blob ? resolve(blob) : reject(new Error("PNG_ENCODING_FAILED")), "image/png",
       ));
       if (canvas.current !== source || currentArtwork.current !== artwork) return;
+      const filename = await downloadName();
+      if (canvas.current !== source || currentArtwork.current !== artwork) return;
       const url = URL.createObjectURL(png);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${card.label.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").slice(0, 80) || "概念卡"}${pages.length > 1 ? `-${pageIndex + 1}` : ""}.png`;
+      link.download = filename;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {
@@ -92,7 +92,7 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
   };
   return <div className="visual-card">
     <canvas ref={canvas} className="visual-concept-card" width={1200} height={760} hidden={!ready}
-      role="img" aria-label={`${card.label}視覺化概念卡`} title={`${card.label}｜概念卡${pages.length > 1 ? ` · ${pageIndex + 1}/${pages.length}` : ""}`}
+      onClick={onFlip} role="img" aria-label={`${card.label}視覺化概念卡`} title={`${card.label}｜概念卡${pages.length > 1 ? ` · ${pageIndex + 1}/${pages.length}` : ""}`}
       data-layout={artwork.layout.family} data-image-index={pageIndex + 1} data-image-count={pages.length} />
     {!ready && <div className="concept-card-placeholder">
       {failed ? <><p role="alert">圖卡繪製失敗，請再試一次。</p><button type="button" className="secondary-button" onClick={() => setAttempt(value => value + 1)}>重試圖卡</button></>

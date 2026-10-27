@@ -8,6 +8,18 @@ import { artifactId, materialId, runId, sessionId, structureRevision, structureV
 const cardSetId = "55555555-5555-4555-8555-555555555555";
 const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
 
+async function showCardBack(page: Page) {
+  await expect(page.locator(".card-practice-face")).toBeVisible();
+  const front = page.getByRole("button", { name: "翻到背面", exact: true });
+  if (await front.isVisible()) await front.click();
+}
+
+async function showCardList(page: Page) {
+  await expect(page.locator(".card-practice-list-toggle")).toBeVisible();
+  const toggle = page.getByRole("button", { name: "展開卡片清單", exact: true });
+  if (await toggle.isVisible()) await toggle.click();
+}
+
 test("card difficulty stays bound to the saved card revision", async ({ page }) => {
   const fixture = await mockCards(page, { saved: true });
   fixture.material.head_revision = `knowledge-structure:sha256:${"9".repeat(64)}`;
@@ -22,13 +34,19 @@ test("card difficulty stays bound to the saved card revision", async ({ page }) 
     }] });
   });
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("預估偏難");
+  await showCardBack(page);
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("需先學 3 層先備概念。");
+  await showCardBack(page);
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("你的難點");
+  await showCardBack(page);
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("答錯率 67%（2 / 3 題）");
   expect(requests).toEqual([`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/concept-difficulty`]);
   await page.reload();
+  await showCardBack(page);
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("你的難點");
+  await showCardBack(page);
   await expect(page.locator(".concept-card > .concept-difficulty")).toContainText("答錯率 67%（2 / 3 題）");
 });
 
@@ -169,7 +187,7 @@ test("card creation fits a desktop viewport and preserves selections across page
     await page.setViewportSize(viewport);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight && document.documentElement.scrollWidth === innerWidth)).toBe(true);
     await expect.poll(() => manual.getByRole("checkbox").count()).toBeGreaterThanOrEqual(viewport.height > 850 ? 12 : 9);
-    const firstRow = await manual.locator(".cards-concept-row").evaluateAll(elements => elements.slice(0, 3).map(element => {
+    const firstRow = await manual.locator(".card-picker-option").evaluateAll(elements => elements.slice(0, 3).map(element => {
       const { x, y } = element.getBoundingClientRect();
       return { x, y };
     }));
@@ -192,7 +210,7 @@ test("card creation fits a desktop viewport and preserves selections across page
   await manual.getByRole("checkbox").check();
   await manual.getByRole("searchbox", { name: "搜尋概念" }).fill("");
   await manual.getByRole("button", { name: "預覽「堆疊（Stack）」" }).click();
-  await expect(page.locator('.cards-preview canvas.visual-concept-card').first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "這個概念的重點" })).toContainText("最後一個條件不可遺漏");
   await expect(manual).toContainText('已選 3 / 31 個觀念');
   const onlySelected = manual.getByRole("button", { name: "已選 3 / 31 個觀念" });
   await onlySelected.click();
@@ -202,8 +220,7 @@ test("card creation fits a desktop viewport and preserves selections across page
   await expect(onlySelected).toHaveAttribute("aria-pressed", "false");
   await expect(manual.getByRole("checkbox").first()).toBeChecked();
 
-  await page.locator(".concept-card-details > summary").click();
-  await expect(page.locator(".flashcard-point")).toContainText("最後一個條件不可遺漏");
+  await expect(page.locator(".card-picker-preview li")).toContainText("最後一個條件不可遺漏");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
   await pagination.getByRole("button", { name: "下一頁", exact: true }).click();
   await page.getByRole("button", { name: "保存並開始複習" }).click();
@@ -228,11 +245,14 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await page.getByRole("button", { name: "保存並開始複習" }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
   expect(fixture.requests).toHaveLength(1);
-  await expect(page.locator(".visual-concept-card")).toHaveAttribute("title", "堆疊（Stack）｜概念卡");
+  await expect(page.getByRole("button", { name: "翻到背面" })).toContainText("堆疊（Stack）");
+  await page.locator(".card-practice-stage").focus();
   await page.screenshot({ path: "../.studydy-runtime/card-preview/study-front-desktop.png", fullPage: true });
   await page.keyboard.press("Space");
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   await expect(page.locator(".concept-card-details")).not.toHaveAttribute("open", "");
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-point")).toContainText("後進先出");
   await expect(page.locator(".flashcard")).not.toContainText("先備");
@@ -243,9 +263,12 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", `/v1/artifacts/${artifactId}#page=1`);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "下一張", exact: true }).click();
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toHaveAttribute("title", "陣列（Array）｜概念卡");
   await page.keyboard.press("ArrowLeft");
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toHaveAttribute("title", "堆疊（Stack）｜概念卡");
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await page.screenshot({ path: "../.studydy-runtime/card-preview/study-details-desktop.png", fullPage: true });
   await page.getByRole("button", { name: "洗牌重看" }).click();
@@ -255,6 +278,7 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await expect(page.getByRole("heading", { name: "已瀏覽全部卡片" })).toBeVisible();
   await page.getByRole("button", { name: "再看一次" }).click();
   await page.reload();
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toHaveAttribute("title", "堆疊（Stack）｜概念卡");
   await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的資料結構卡組" })).toBeVisible();
@@ -386,6 +410,7 @@ test("mobile keeps review status, long content and sources usable without page o
   await mockCards(page, { saved: true, long: true });
   await page.goto(`/concept-cards/${cardSetId}`);
   await expect(page.getByText("教材已有新版。此卡組保留建立時的教材內容與來源。")).toBeVisible();
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-content")).toContainText("x != 0");
   await expect(page.getByText("教材版本待複核", { exact: true })).toBeVisible();
@@ -399,6 +424,7 @@ test("mobile keeps review status, long content and sources usable without page o
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeInViewport();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "下一張", exact: true }).click();
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await page.screenshot({ path: "../.studydy-runtime/card-preview/study-mobile.png", fullPage: true });
 });
@@ -423,6 +449,7 @@ test("account collection can select a material; failed save retries the same int
   await page.getByRole("button", { name: "保存並開始複習" }).click();
   await expect(page.getByRole("alert")).toContainText("資料服務暫時無法使用");
   await page.getByRole("button", { name: "保存並開始複習" }).click();
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   expect(keys).toHaveLength(2);
   expect(keys[0]).toBe(keys[1]);
@@ -489,16 +516,20 @@ test("library stays aligned and card review keeps compact content and controls",
   expect(loadingBack.x).toBeGreaterThanOrEqual(tabs.x);
   expect(loadingBack.x + loadingBack.width).toBeLessThanOrEqual(tabs.x + tabs.width);
   release();
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   expect((await back.boundingBox())!.x).toBeCloseTo(loadingBack.x, 0);
   expect((await back.boundingBox())!.y).toBeCloseTo(loadingBack.y, 0);
+  await showCardList(page);
   const content = await page.locator(".cards-study").boundingBox();
   const card = await page.locator(".visual-concept-card").boundingBox();
   expect(card!.width / content!.width).toBeLessThan(.85);
+  await showCardList(page);
   await expect(page.getByRole("navigation", {name:"選擇概念卡"})).toBeVisible();
   expect(card!.width/card!.height).toBeCloseTo(1200/Number(await page.locator(".visual-concept-card").getAttribute("height")),1);
-  expect(card!.width).toBeGreaterThan(600);
+  expect(card!.height).toBeLessThanOrEqual(960 * .33);
   expect(card!.width).toBeLessThanOrEqual(760);
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   expect(card!.x).toBeGreaterThan((await page.locator(".cards-browse-list").boundingBox())!.x);
   const controls = page.locator('.cards-study-toolbar');
@@ -533,6 +564,7 @@ test("desktop code scroll preserves keyboard control and formula literals", asyn
   const formula = "f(x) = (x² − 1)/(x − 1), x ≠ 1\nΣᵢ₌₁ⁿ i = n(n + 1)/2；n ∈ ℕ，n ≥ 1\nP(A | B) = P(A ∩ B)/P(B)，P(B) > 0";
   view.concepts[1].claims[0].text = formula;
   await page.goto(`/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   const code = page.locator(".flashcard-point .is-code");
   expect(await code.textContent()).toBe(claim.text);
@@ -545,6 +577,7 @@ test("desktop code scroll preserves keyboard control and formula literals", asyn
   expect(await code.evaluate((e) => Math.abs(e.scrollWidth - e.clientWidth - e.scrollLeft) < 2)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole("button", { name: "下一張", exact: true }).click();
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   expect(await page.locator(".flashcard-point p").textContent()).toBe(formula);
 });
@@ -568,6 +601,7 @@ test("card sources keep distinct files on the same page and recover after source
     return json(route, { schema: "evidence-source/v1", format: "pdf", original_name: evidence === first ? "A.pdf" : "B.pdf", original_url: `/v1/artifacts/${artifact}/download`, preview_url: `/v1/artifacts/${artifact}#page=1`, normalized_page: 1, accuracy: "exact", origin_locators: [], label: "PDF 第 1 頁" });
   });
   await page.goto(`/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   const links = page.getByRole("region", { name: "概念重點來源", exact: true }).getByRole("button");
   await expect(links).toHaveCount(2);
@@ -602,6 +636,7 @@ test("late card save and source read do not reopen a page after navigation", asy
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
   await page.reload();
   await page.getByRole("button", { name: "開始複習", exact: true }).click();
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   let releaseSource!: () => void;
   const sourceGate = new Promise<void>((resolve) => { releaseSource = resolve; });
@@ -649,6 +684,7 @@ test("switching account while a card read is pending hides old content and rejec
 test("account change from another tab removes an open card source dialog", async ({ page }) => {
   await mockCards(page, { saved: true });
   await page.goto(`/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await page.getByRole("button", { name: "查看第 1 頁來源" }).click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
@@ -718,6 +754,7 @@ test('saved material card review keeps the chat entry in the material tab row',a
  await mockCards(page,{saved:true});
  for(const width of [1920,1440,390]){
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await expect(page.locator('.visual-concept-card')).toBeVisible();
   const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
   // 問答入口在教材頁首右端，緊鄰頭像選單。
@@ -769,18 +806,23 @@ for (const sample of ["general", "prerequisite", "contrast", "part_of", "applica
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+      await showCardBack(page);
       const image = page.locator("canvas.visual-concept-card");
+      await showCardBack(page);
       await expect(image).toBeVisible();
       await expect(page.locator(".visual-card svg")).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      await showCardBack(page);
       const text = await drawnText(page);
       if (sample === "prerequisite") expect(text).toContain("學習先備");
       if (sample === "contrast") expect(text).toContain("對照：");
       if (!["structure", "code", "formula"].includes(expected)) expect(text).toContain(target.label);
       expect(await image.evaluate((canvas: HTMLCanvasElement) => [canvas.width, canvas.height])).toEqual([1200, 760]);
       expect(await page.evaluate(() => window.cardEncodingCount)).toBe(0);
-      await expectCardTextFits(page);
+      await showCardBack(page);
+    await expectCardTextFits(page);
       // 各圖型以 DOM／來源斷言驗證，不持續累積可重建全頁快照。
+      await showCardBack(page);
       await page.locator(".concept-card-details > summary").click();
       await expect(page.locator(".flashcard-point p").first()).toHaveText(source.claims[0].text);
       if (!["structure", "code", "formula"].includes(expected)) {
@@ -809,6 +851,7 @@ test("visual structure read retries the retained revision and ignores completion
   await expect(page.locator(".flashcard")).toHaveCount(0);
   failed = false;
   await page.getByRole("button", { name: "重新讀取", exact: true }).click();
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   expect(reads.every(url => url.endsWith("/study"))).toBe(true);
   let release!: () => void;
@@ -829,8 +872,10 @@ test("pending visual structure cannot restore a previous account's card", async 
   const gate = new Promise<void>(resolve => { release = resolve; });
   await page.route(`**/v1/card-sets/${cardSetId}/cards?offset=24&*`, async route => { await gate; await route.fallback(); });
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await expect(page.locator('canvas.visual-concept-card')).toBeVisible();
   const pending = page.waitForRequest(`**/v1/card-sets/${cardSetId}/cards?offset=24&*`);
+  await showCardList(page);
   await page.getByRole('navigation', { name: '選擇概念卡' }).getByRole('button', { name: view.concepts[30].label, exact: true }).click();
   await pending;
   const aborted = page.waitForEvent("requestfailed", request => request.url().includes("/cards?offset=24"));
@@ -847,9 +892,12 @@ test("visual labels remain inert text and long excerpts keep full conditions in 
   const { view } = await mockCards(page, { saved: true, long: true });
   view.concepts[0].label = '<script>alert("x")</script> & <image href="https://invalid.test" />';
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   expect(await drawnText(page)).toContain("保留所有必要條件與符號。");
   await expect(page.locator(".visual-card script, .visual-card svg")).toHaveCount(0);
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toHaveAttribute("title", view.concepts[0].label + `｜概念卡 · 1/${await page.locator(".visual-concept-card").getAttribute("data-image-count")}`);
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-point p").first()).toContainText("最後一個條件不可遺漏：x != 0。");
 });
@@ -861,8 +909,11 @@ test("whole PNG card exports grounded content and preserves reading navigation",
   first.claims[0].evidence[0].source_name = "資料結構講義.pdf";
   first.claims[0].evidence[0].normalized_page = 7;
   await page.goto(`/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const image = page.locator("canvas.visual-concept-card");
+  await showCardBack(page);
   await expect(image).toBeVisible();
+  await showCardBack(page);
   expect(await drawnText(page)).not.toMatch(/STUDYDY|教材版本待複核|概念關係/);
   await expectCardTextFits(page);
   const downloaded = page.waitForEvent("download");
@@ -880,6 +931,7 @@ test("whole PNG card exports grounded content and preserves reading navigation",
     await image.decode();
     return [image.naturalWidth, image.naturalHeight];
   }, png.toString("base64"))).toEqual([1200, 760]);
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-content")).toContainText("最後一個條件不可遺漏：x != 0。");
   await page.getByRole("button", { name: "資料結構講義.pdf · 第 7 頁", exact: true }).click();
@@ -887,11 +939,14 @@ test("whole PNG card exports grounded content and preserves reading navigation",
   await page.keyboard.press("Escape");
   const imageCount = Number(await image.getAttribute("data-image-count"));
   for (let i = 0; i < imageCount; i++) await page.getByRole("button", { name: "下一張", exact: true }).click();
+  await showCardBack(page);
   await expect(image).toHaveAttribute("aria-label", "陣列（Array）視覺化概念卡");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await page.reload();
+  await showCardBack(page);
   await expect(page.locator("canvas.visual-concept-card")).toBeVisible();
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toHaveAttribute("title", `堆疊（Stack）｜概念卡 · 1/${await image.getAttribute("data-image-count")}`);
 });
 
@@ -900,8 +955,11 @@ test("sparse PNG card keeps review status without inventing points", async ({ pa
   view.status.quality = "needs_review";
   view.relations = [];
   await page.goto(`/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   expect(await drawnText(page)).toContain("堆疊遵循後進先出");
+  await showCardBack(page);
   expect(await drawnText(page)).not.toContain("教材版本待複核");
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-review")).toHaveText("教材版本待複核");
 });
@@ -912,15 +970,21 @@ for (const sample of visualCases) {
     Object.assign(view, visualCase(sample));
     await page.setViewportSize({ width: 1536, height: 960 });
     await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+    await showCardBack(page);
     const image = page.locator("canvas.visual-concept-card");
     const family = ['code', 'formula'].includes(sample) ? 'technical' : sample === 'long' ? 'text' : ['three', 'four', 'many'].includes(sample) ? 'points' : 'sparse';
+    await showCardBack(page);
     await expect(image).toHaveAttribute('data-layout', family);
+    await showCardBack(page);
     await expectCardTextFits(page);
     if (sample === 'two') expect((await cardDrawing(page)).iconStrokes).toBeGreaterThan(0);
     if (sample === 'many') {
+      await showCardBack(page);
       await expect(image).toHaveAttribute('data-image-count', '2');
       await page.getByRole('button', { name: '下一張', exact: true }).click();
+      await showCardBack(page);
       await expect(image).toHaveAttribute('data-image-index', '2');
+      await showCardBack(page);
       for (const claim of view.concepts[0].claims.slice(4)) expect(await drawnText(page)).toContain(claim.text);
     }
     if (sample === 'code' || sample === 'formula') {
@@ -933,6 +997,7 @@ for (const sample of visualCases) {
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator('.cards-study-counter')).toHaveText(counterBeforeResize);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await showCardBack(page);
     await page.locator(".concept-card-details > summary").click();
     expect(await page.locator('.flashcard-point p').allTextContents()).toEqual(view.concepts[0].claims.map(c => c.text));
     if (sample === 'missing-relation') await expect(page.getByRole('region', { name: '待複核的教材關係' })).toContainText(view.relations[0].learner_reason);
@@ -944,11 +1009,13 @@ test('v2 relation ranking keeps all original reasons and sources in details', as
   const original = view.relations[0];
   view.relations.push({ ...original, relation_id: `relation:sha256:${'9'.repeat(64)}`, type: 'part_of', learner_reason: '合成案例：A 是 B 的組成部分。' });
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const text = await drawnText(page);
   expect(text).toContain("整體");
   expect(text).toContain("組成部分");
   expect(text).toContain(view.concepts[0].label);
   expect(text).toContain(view.concepts[1].label);
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   const relations = page.getByRole('region', { name: '圖卡關係與來源' });
   await expect(relations).toHaveCount(2);
@@ -981,6 +1048,7 @@ test("PNG encoding preserves the pixels drawn on Canvas", async ({ page }) => {
     };
   });
   await page.goto(`/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await expect(page.locator("canvas.visual-concept-card")).toBeVisible();
   expect(await page.evaluate(() => window.cardEncodingCount)).toBe(0);
   const downloading = page.waitForEvent("download");
@@ -996,6 +1064,7 @@ test('v2 prose preserves paragraph gaps and avoids orphan Chinese punctuation', 
   view.concepts[0].claims[0].text = '這是第一段。\n\n第二段保留空白分隔。';
   view.concepts[0].claims[0].evidence[0].quote = view.concepts[0].claims[0].text;
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const lines = (await cardDrawing(page)).texts.filter(line => line.y > 175 && line.text !== "原文節錄");
   expect(lines.map(l => l.text)).toEqual(['這是第一段。', '', '第二段保留空白分隔。']);
   expect(lines[1].y - lines[0].y).toBeGreaterThan(0);
@@ -1011,13 +1080,17 @@ test("catalog icons are compact, embedded in downloads and keep sources in detai
   view.concepts[0].claims[0].evidence[0].quote = view.concepts[0].claims[0].text;
   await page.setViewportSize({ width: 1536, height: 960 });
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const image = page.locator("canvas.visual-concept-card");
+  await showCardBack(page);
   await expect(image).toBeVisible();
   expect((await image.boundingBox())!.width).toBeLessThanOrEqual(760);
   expect((await image.boundingBox())!.height).toBeLessThanOrEqual(482);
   expect((await cardDrawing(page)).iconStrokes).toBeGreaterThan(0);
+  await showCardBack(page);
   expect(await drawnText(page)).not.toMatch(/STUDYDY|圖解筆記|教材版本待複核/);
   await expect(page.locator(".visual-card svg")).toHaveCount(0);
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator('.flashcard-point p').first()).toHaveText(view.concepts[0].claims[0].text);
   await expect(page.getByRole('region', { name: '概念重點來源' })).toBeVisible();
@@ -1028,8 +1101,10 @@ test("an unavailable icon bundle leaves the original card content accessible", a
   await mockCards(page, { saved: true });
   await page.route('**/assets/ConceptCardArtwork-*.js', route => route.abort());
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await expect(page.getByRole('status')).toContainText('圖卡載入失敗');
   await expect(page.getByRole('button', { name: '下載 PNG' })).toBeDisabled();
+  await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator('.flashcard-point p').first()).toContainText('堆疊');
 });
@@ -1040,7 +1115,9 @@ test("relation artwork shows three source claims beside the diagram without an o
   const concept = view.concepts[0];
   concept.claims.push(...[7,8].map(n => ({ ...structuredClone(concept.claims[0]), claim_id: `claim:sha256:${String(n).repeat(64)}`, text: `教材重點 ${n}：保留原文的條件與來源。` })));
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await expect(page.locator("canvas.visual-concept-card")).toHaveAttribute('data-layout', 'relation');
+  await showCardBack(page);
   const text = await drawnText(page);
   for (const claim of concept.claims) expect(text).toContain(claim.text);
   expect(text).not.toContain("另有");
@@ -1058,21 +1135,28 @@ test("short and detailed cards keep a fixed canvas and navigation position", asy
   concept.claims[0].evidence[0].quote = concept.claims[0].text;
   view.relations = [];
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const image = page.locator("canvas.visual-concept-card");
+  await showCardBack(page);
   await expect(page.locator("canvas.visual-concept-card")).toBeVisible();
   expect(Number(await image.getAttribute('height'))).toBe(760);
   const before = await page.getByRole("button", { name: "下一張", exact: true }).boundingBox();
+  await showCardBack(page);
   expect(await drawnText(page)).not.toContain("原文節錄");
+  await showCardBack(page);
   expect(await drawnText(page)).toContain(concept.claims[0].text);
   view.relations = relations;
   await page.reload();
+  await showCardBack(page);
   await expect(image).toHaveAttribute('data-layout', 'relation');
   expect(Number(await image.getAttribute('height'))).toBe(760);
   const after = await page.getByRole("button", { name: "下一張", exact: true }).boundingBox();
   expect(after).toEqual(before);
   await page.getByRole("button", { name: "下一張", exact: true }).click();
   await expect(page.locator(".cards-study-counter")).toContainText("2 / 2");
+  await showCardBack(page);
   expect(await page.getByRole("button", { name: "完成本輪", exact: true }).boundingBox()).toEqual(before);
+  await showCardBack(page);
   expect(await drawnText(page)).not.toContain("原文節錄");
   expect(Number(await image.getAttribute('height'))).toBe(760);
 });
@@ -1091,17 +1175,24 @@ for (const scenario of [
   claim.text = scenario.lines.join(" ");
   claim.evidence = scenario.lines.map((quote, index) => ({ ...structuredClone(template), evidence_id: `evidence:sha256:${(index + 100).toString(16).padStart(64, "0")}`, quote, kind: "paragraph" }));
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const image = page.locator("canvas.visual-concept-card");
+  await showCardBack(page);
   await expect(image).toHaveAttribute('data-layout', scenario.kind);
+  await showCardBack(page);
   expect(await drawnText(page)).toContain(scenario.check);
+  await showCardBack(page);
   expect(await drawnText(page)).not.toContain("原文節錄");
+  await showCardBack(page);
   await expect(image).toHaveAttribute('height', '760');
   if (scenario.kind === 'sequence') {
+    await showCardBack(page);
     const text = await drawnText(page);
     expect(text.indexOf('START')).toBeLessThan(text.indexOf('READY'));
     expect(text).toContain("甲端"); expect(text).toContain("乙端");
   }
   await expectCardTextFits(page);
+  await showCardBack(page);
   await page.locator('.concept-card-details > summary').click();
   await expect(page.locator('.flashcard-point p').first()).toContainText(scenario.lines[0]);
 });
@@ -1113,29 +1204,38 @@ test("concept canvases share the deck navigation, counter and export", async ({ 
   const concept = view.concepts[0];
   concept.claims = Array.from({ length: 7 }, (_, i) => ({ ...structuredClone(concept.claims[0]), claim_id: `claim:sha256:${(i + 100).toString(16).padStart(64, "0")}`, text: `這是教材的第 ${i + 1} 則重點。` }));
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const image = page.locator("canvas.visual-concept-card");
+  await showCardBack(page);
   await expect(image).toHaveAttribute('data-image-count', '2');
+  await showCardBack(page);
   expect(await drawnText(page)).not.toContain("原文節錄");
   await expect(page.locator('.cards-study-counter')).toContainText('1 / 3');
   const bounds = await page.locator("canvas.visual-concept-card").boundingBox();
   await page.getByRole('button', { name: '下一張', exact: true }).click();
+  await showCardBack(page);
   await expect(image).toHaveAttribute('data-image-index', '2');
   expect(await page.locator("canvas.visual-concept-card").boundingBox()).toEqual(bounds);
+  await showCardBack(page);
   expect(await drawnText(page)).toContain(concept.claims[6].text);
+  await showCardBack(page);
   expect(await drawnText(page)).not.toContain("另有");
   const downloading = page.waitForEvent('download');
   await page.getByRole('button', { name: '下載 PNG', exact: true }).click();
   expect((await downloading).suggestedFilename()).toMatch(/-2\.png$/);
   await page.getByRole('button', { name: '下一張', exact: true }).click();
+  await showCardBack(page);
   await expect(image).toHaveAttribute('data-image-index', '1');
   await expect(page.locator('.cards-study-counter')).toContainText('3 / 3');
   await page.keyboard.press('ArrowLeft');
+  await showCardBack(page);
   await expect(image).toHaveAttribute('data-image-index', '2');
   await expect(page.locator('.cards-study-counter')).toContainText('2 / 3');
   await page.keyboard.press('ArrowRight');
   await page.getByRole('button', { name: '完成本輪', exact: true }).click();
   await expect(page.getByRole('heading', { name: '已瀏覽全部卡片' })).toBeVisible();
   await page.getByRole('button', { name: '再看一次', exact: true }).click();
+  await showCardBack(page);
   await expect(image).toHaveAttribute('data-image-index', '1');
 });
 
@@ -1145,15 +1245,18 @@ test("a long paragraph continues until its final condition is visible", async ({
   const claim = view.concepts[0].claims[0];
   claim.evidence[0].quote = claim.text;
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const image = page.locator("canvas.visual-concept-card");
+  await showCardBack(page);
   await expect(image).toHaveAttribute('data-image-index', '1');
   const count = Number(await image.getAttribute('data-image-count'));
   expect(count).toBeGreaterThan(1);
   let text = '';
   for (let i = 0; i < count; i++) {
+    await showCardBack(page);
     expect(await drawnText(page)).not.toContain("原文節錄");
     text += (await cardDrawing(page)).texts.filter(line => line.y > 175 && !/^第 .* 張圖$/.test(line.text)).map(line => line.text).join('');
-    if (i < count - 1) await page.getByRole('button', { name: '下一張', exact: true }).click();
+    if (i < count - 1) { await page.getByRole('button', { name: '下一張', exact: true }).click(); await showCardBack(page); }
   }
   expect(text.replace(/\s/g, '')).toBe(claim.text.replace(/\s/g, ''));
 });
@@ -1232,10 +1335,12 @@ test("PNG download failure does not hide the canvas and can be retried", async (
   });
   await page.goto(`/concept-cards/${cardSetId}`);
   const canvas = page.locator("canvas.visual-concept-card");
+  await showCardBack(page);
   await expect(canvas).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page.getByRole("button", { name: "下載 PNG", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveText("PNG 下載失敗，請再試一次。");
+  await showCardBack(page);
   await expect(canvas).toBeVisible();
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "下載 PNG", exact: true }).click();
@@ -1247,6 +1352,7 @@ test("canvas preview encodes only on download and has no zoom", async ({ page })
   await mockCards(page, { saved: true });
   await page.goto(`/concept-cards/${cardSetId}`);
   const preview = page.locator(".visual-card > canvas.visual-concept-card");
+  await showCardBack(page);
   await expect(preview).toBeVisible();
   expect(await page.evaluate(() => window.cardEncodingCount)).toBe(0);
   const downloaded = page.waitForEvent("download");
@@ -1258,6 +1364,7 @@ test("canvas preview encodes only on download and has no zoom", async ({ page })
   expect([...png.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
   expect(await page.evaluate(() => window.cardEncodingCount)).toBe(1);
   await page.getByRole("button", { name: "下一張", exact: true }).click();
+  await showCardBack(page);
   await expect(preview).toHaveAttribute("aria-label", "陣列（Array）視覺化概念卡");
   expect(await page.evaluate(() => window.cardEncodingCount)).toBe(1);
 });
@@ -1272,18 +1379,22 @@ test("a late download cannot replace the next card or trigger an obsolete downlo
     };
   });
   await page.goto(`/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await expect(page.locator('canvas.visual-concept-card')).toBeVisible();
   const downloads: string[] = [];
   page.on('download', item => downloads.push(item.suggestedFilename()));
   await page.getByRole('button', { name: '下載 PNG', exact: true }).click();
   await expect.poll(() => page.evaluate(() => typeof (window as Window & { finishFirstPng?: () => void }).finishFirstPng)).toBe("function");
   await page.getByRole("button", { name: "下一張", exact: true }).click();
+  await showCardBack(page);
   const image = page.locator("canvas.visual-concept-card");
+  await showCardBack(page);
   await expect(image).toHaveAttribute("aria-label", "陣列（Array）視覺化概念卡");
   await page.evaluate(async () => {
     (window as Window & { finishFirstPng?: () => void }).finishFirstPng!();
     await new Promise(resolve => setTimeout(resolve, 100));
   });
+  await showCardBack(page);
   await expect(image).toHaveAttribute("aria-label", "陣列（Array）視覺化概念卡");
   expect(downloads).toEqual([]);
 });
@@ -1291,10 +1402,14 @@ test("a late download cannot replace the next card or trigger an obsolete downlo
 test("returning to a card and reopening the deck reuse bounded canvas memory", async ({ page }) => {
   await mockCards(page, { saved: true });
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const image = page.locator("canvas.visual-concept-card");
+  await showCardBack(page);
   await expect(image).toBeVisible();
   await page.getByRole("button", { name: "下一張", exact: true }).click();
+  await showCardBack(page);
   await expect(image).toHaveAttribute("aria-label", "陣列（Array）視覺化概念卡");
+  await showCardBack(page);
   await expect(image).toBeVisible();
   expect(await page.evaluate(() => window.cardEncodingCount)).toBe(0);
   await page.evaluate(() => {
@@ -1302,11 +1417,15 @@ test("returning to a card and reopening the deck reuse bounded canvas memory", a
     CanvasRenderingContext2D.prototype.fillText = () => { throw new Error("UNEXPECTED_REDRAW"); };
   });
   await page.getByRole("button", { name: "上一張", exact: true }).click();
+  await showCardBack(page);
   await expect(image).toHaveAttribute("aria-label", "堆疊（Stack）視覺化概念卡");
+  await showCardBack(page);
   await expect(image).toBeVisible();
   await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
   await page.getByRole('button', { name: '開始複習', exact: true }).click();
+  await showCardBack(page);
   await expect(image).toBeVisible();
+  await showCardBack(page);
   await expect(image).toHaveAttribute("aria-label", "堆疊（Stack）視覺化概念卡");
   expect(await page.evaluate(() => window.cardEncodingCount)).toBe(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
@@ -1321,11 +1440,15 @@ test("large decks read only the first batches and jump directly to a distant con
   await page.route(`**/v1/card-sets/${cardSetId}`, route => route.abort());
   await page.route('**/knowledge-structures/*', route => route.abort());
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await expect(page.locator('canvas.visual-concept-card')).toBeVisible();
   await expect.poll(() => reads.includes(8)).toBe(true);
   expect(reads).not.toContain(16); expect(reads).not.toContain(24);
+  await showCardList(page);
   await page.getByRole('navigation', { name: '選擇概念卡' }).getByRole('button', { name: view.concepts[30].label, exact: true }).click();
+  await showCardBack(page);
   await expect(page.locator('canvas.visual-concept-card')).toHaveAttribute('aria-label', `${view.concepts[30].label}視覺化概念卡`);
+  await showCardBack(page);
   await expect(page.locator('canvas.visual-concept-card')).toBeVisible();
   expect(reads).toContain(24); expect(reads).not.toContain(16);
   expect(await page.evaluate(() => window.cardEncodingCount)).toBe(0);
@@ -1335,15 +1458,21 @@ test("canvas cache evicts old pages instead of keeping every image", async ({ pa
   const { view } = await mockCards(page, { saved: true, many: true });
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   const canvas = page.locator('canvas.visual-concept-card');
+  await showCardBack(page);
   await expect(canvas).toBeVisible();
   for (let index = 1; index < 11; index++) {
     await page.getByRole('button', { name: '下一張', exact: true }).click();
+    await showCardBack(page);
     await expect(canvas).toHaveAttribute('aria-label', `${view.concepts[index].label}視覺化概念卡`);
+    await showCardBack(page);
     await expect(canvas).toBeVisible();
   }
   const before = await page.evaluate(() => window.cardRenderCount);
+  await showCardList(page);
   await page.getByRole('navigation', { name: '選擇概念卡' }).getByRole('button', { name: '堆疊（Stack）', exact: true }).click();
+  await showCardBack(page);
   await expect(canvas).toHaveAttribute('aria-label', '堆疊（Stack）視覺化概念卡');
+  await showCardBack(page);
   await expect(canvas).toBeVisible();
   expect(await page.evaluate(() => window.cardRenderCount)).toBeGreaterThan(before);
   expect(await page.evaluate(() => window.cardEncodingCount)).toBe(0);
@@ -1359,40 +1488,52 @@ test("next and previous preserve continuation pages across batch boundaries", as
   }
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   const canvas = page.locator('canvas.visual-concept-card');
+  await showCardList(page);
   const concepts = page.getByRole('navigation', { name: '選擇概念卡' });
   await concepts.getByRole('button', { name: view.concepts[7].label, exact: true }).click();
+  await showCardBack(page);
   await expect(canvas).toHaveAttribute('data-image-count', '2');
   await page.getByRole('button', { name: '下一張', exact: true }).click();
+  await showCardBack(page);
   await expect(canvas).toHaveAttribute('data-image-index', '2');
   await page.getByRole('button', { name: '下一張', exact: true }).click();
+  await showCardBack(page);
   await expect(canvas).toHaveAttribute('aria-label', `${view.concepts[8].label}視覺化概念卡`);
   await page.getByRole('button', { name: '上一張', exact: true }).click();
+  await showCardBack(page);
   await expect(canvas).toHaveAttribute('aria-label', `${view.concepts[7].label}視覺化概念卡`);
+  await showCardBack(page);
   await expect(canvas).toHaveAttribute('data-image-index', '2');
   await concepts.getByRole('button', { name: view.concepts[24].label, exact: true }).click();
+  await showCardBack(page);
   await expect(canvas).toHaveAttribute('aria-label', `${view.concepts[24].label}視覺化概念卡`);
   await page.getByRole('button', { name: '上一張', exact: true }).click();
+  await showCardBack(page);
   await expect(canvas).toHaveAttribute('aria-label', `${view.concepts[23].label}視覺化概念卡`);
+  await showCardBack(page);
   await expect(canvas).toHaveAttribute('data-image-index', '2');
 });
 
 test("a failed canvas drawing leaves sources available and can be retried", async ({ page }) => {
   await mockCards(page, { saved: true });
   await page.addInitScript(() => {
-    const fillText = CanvasRenderingContext2D.prototype.fillText;
-    CanvasRenderingContext2D.prototype.fillText = function (text, ...args) {
-      if (this.canvas.width === 1200 && text === '堆疊（Stack）') {
-        CanvasRenderingContext2D.prototype.fillText = fillText;
-        throw new Error('synthetic drawing failure');
+    const drawImage = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (...args: unknown[]) {
+      if (this.canvas.classList.contains("visual-concept-card")) {
+        CanvasRenderingContext2D.prototype.drawImage = drawImage;
+        throw new Error("synthetic drawing failure");
       }
-      Reflect.apply(fillText, this, [text, ...args]);
+      Reflect.apply(drawImage, this, args);
     };
   });
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await expect(page.getByRole('alert')).toHaveText('圖卡繪製失敗，請再試一次。');
+  await showCardBack(page);
   await page.locator('.concept-card-details > summary').click();
   await expect(page.locator('.flashcard-point p').first()).toContainText('堆疊');
   await page.getByRole('button', { name: '重試圖卡', exact: true }).click();
+  await showCardBack(page);
   await expect(page.locator('canvas.visual-concept-card')).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
@@ -1417,6 +1558,7 @@ test("card generation restores stages after reload, retries failure and keeps fu
   const card = controls.view.concepts[0];
   controls.setEdits({ [card.concept_id]: [{ source: card.claims[0].text, text: "堆疊：後進先出（LIFO）。" }] });
   controls.setGeneration({ ...state, status: "ready", stage: "complete", completed: 2, retained_original: 1 });
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card").first()).toBeVisible();
   const drawing = await cardDrawing(page);
   expect(drawing.texts.some(line => line.text.includes("後進先出（LIFO）"))).toBeTruthy();
@@ -1439,11 +1581,16 @@ for (const [layout, count] of [['focus', 1], ['focus', 2], ['compare', 2], ['flo
     const design = designedCard(fixture.view, layout, count);
     fixture.setDesigns({ [fixture.view.concepts[0].concept_id]: design });
     await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+    await showCardBack(page);
     await expect(page.locator('canvas.visual-concept-card')).toHaveAttribute('data-layout', 'designed');
+    await showCardBack(page);
     await expectCardTextFits(page);
+    await showCardBack(page);
     expect(await drawnText(page)).toContain(design.pages[0].takeaway.text);
+    await showCardBack(page);
     expect(await drawnText(page)).not.toContain('最後一個條件不可遺漏');
     await expect(page.getByRole('button', { name: '本張引用 · 第 1 頁', exact: true })).toBeVisible();
+    await showCardBack(page);
     await page.locator('.concept-card-details > summary').click();
     await expect(page.locator('.flashcard-point p').first()).toContainText('最後一個條件不可遺漏');
     expect(await page.evaluate(() => window.cardEncodingCount)).toBe(0);
@@ -1466,7 +1613,9 @@ for (const [layout, count] of [['focus', 1], ['compare', 2], ['grid', 4], ['flow
     }
     fixture.setDesigns({ [fixture.view.concepts[0].concept_id]: design });
     await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+    await showCardBack(page);
     await expectCardTextFits(page);
+    await showCardBack(page);
     const text = await drawnText(page);
     expect(text).toContain(design.pages[0].title);
     expect(text).toContain(design.pages[0].takeaway.text);
@@ -1533,12 +1682,16 @@ test("needs-work row opens its own page that shows the original cards one at a t
   await expect(page.locator(".card-review-progress")).toContainText("第 1 / 2 張");
   // 卡片是卡組瀏覽時的同一張概念卡：圖卡、完整重點與來源。
   const stage = page.getByRole("article", { name: "需要加強：堆疊（Stack）" });
+  await showCardBack(page);
   await expect(stage.locator(".visual-concept-card, .concept-card").first()).toBeVisible();
+  await showCardBack(page);
   await expect(stage.getByText("完整重點與來源")).toBeVisible();
   await expect(stage.getByRole("group", { name: "標記「堆疊（Stack）」熟不熟" }).getByRole("button")).toHaveText(["不熟", "熟悉"]);
+  await showCardBack(page);
   await stage.getByRole("button", { name: "熟悉" }).click();
   await expect(page.locator(".card-review-notice")).toHaveText("已標成熟悉，離開需要加強。");
   await expect(page.locator(".card-review-progress")).toContainText("第 2 / 2 張");
+  await showCardBack(page);
   await page.getByRole("article", { name: "需要加強：陣列（Array）" }).getByRole("button", { name: "不熟" }).click();
   await expect(page.getByText("這一輪加強完成！")).toBeVisible();
   await expect(page.locator(".card-review-done")).toContainText("標成熟悉 1 張，仍不熟 1 張");
@@ -1554,6 +1707,7 @@ test("a failed mark keeps the card and retries with the same intent key", async 
   const { posts } = await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" }, failFirstPost: true });
   await page.goto("/concept-cards/review");
   const stage = page.getByRole("article", { name: "需要加強：堆疊（Stack）" });
+  await showCardBack(page);
   await stage.getByRole("button", { name: "不熟" }).click();
   await expect(stage.getByRole("alert")).toContainText("標記尚未保存");
   await expect(page.locator(".card-review-progress")).toContainText("第 1 / 2 張");
@@ -1567,6 +1721,7 @@ test("a mark conflict from another tab moves on without counting twice", async (
   const { view } = await mockCards(page, { saved: true });
   const { posts } = await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" }, conflictOnce: true });
   await page.goto("/concept-cards/review");
+  await showCardBack(page);
   await page.getByRole("article", { name: "需要加強：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
   await expect(page.locator(".card-review-notice")).toHaveText("上一張卡已在其他頁面標記過，這裡不重複標記。");
   await expect(page.getByRole("article", { name: "需要加強：陣列（Array）" })).toBeVisible();
@@ -1591,9 +1746,11 @@ test("material needs-work entry opens a review of only this material's card sets
   await expect(page.locator(".card-review-heading")).toContainText("這份教材各卡組中標成不熟的卡片");
   // 混合多個卡組時標示卡組名稱；同一份教材內不再重複教材名稱。
   await expect(page.locator(".card-review-source")).toHaveText("資料結構 · 核心概念");
-  // 卡組名稱過長時以省略號截斷（省略號要設在文字元素上，彈性容器本身不會顯示）。
-  await expect(page.locator(".card-review-source > span")).toHaveCSS("text-overflow", "ellipsis");
+  await expect(page.locator(".card-review-source")).toHaveCSS("white-space", "normal");
+  await showCardBack(page);
   await page.getByRole("article", { name: "需要加強：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
+  await expect(page.getByRole("article", { name: "需要加強：陣列（Array）" })).toBeVisible();
+  await showCardBack(page);
   await page.getByRole("article", { name: "需要加強：陣列（Array）" }).getByRole("button", { name: "熟悉" }).click();
   await expect(page.getByText("這一輪加強完成！")).toBeVisible();
   await page.getByRole("button", { name: "返回概念卡列表", exact: true }).click();
@@ -1610,6 +1767,7 @@ test("card set strengthening preserves the collection return destination", async
   await link.click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}/review$`));
   await expect(page.locator(".card-review-heading")).toContainText("資料結構 · 核心概念");
+  await showCardBack(page);
   await page.getByRole("article", { name: "需要加強：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
   await expect(page.locator(".card-review-progress")).toContainText("第 2 / 2 張");
   await page.getByRole("button", { name: "返回我的概念卡" }).click();
@@ -1631,11 +1789,13 @@ test("browsing marks the current card and an unmarked set needs no strengthening
   await expect(page.locator(".cards-weak-link")).toHaveCount(0);
   const marks = page.getByRole("group", { name: "標記「堆疊（Stack）」熟不熟" });
   await expect(marks.getByRole("button", { name: "不熟" })).toHaveAttribute("aria-pressed", "false");
+  await showCardBack(page);
   await marks.getByRole("button", { name: "不熟" }).click();
   await expect(marks.getByRole("button", { name: "不熟" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".cards-study-mark")).toContainText("目前：不熟");
   await expect(page.getByRole("button", { name: /需要加強 1 張/ })).toBeVisible();
   // 已標記的卡再改標：送出的次數接續目前的標記次數。
+  await showCardBack(page);
   await marks.getByRole("button", { name: "熟悉" }).click();
   await expect(page.locator(".cards-study-mark")).toContainText("目前：熟悉");
   expect(posts.map(p => [p.body.rating, p.body.expected_review_count])).toEqual([["forgot", 0], ["remembered", 1]]);
@@ -1645,6 +1805,7 @@ test("a card set left out of the marks summary (moved to a new version) offers n
   const { view } = await mockCards(page, { saved: true });
   const { posts } = await mockMarks(page, view, { marked: { 0: "forgot" }, listed: false });
   await page.goto(`/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   await expect(page.locator(".visual-concept-card, .concept-card").first()).toBeVisible();
   await expect(page.locator(".cards-study-mark")).toHaveCount(0);
   await expect(page.locator(".cards-weak-link")).toHaveCount(0);
@@ -1718,6 +1879,7 @@ test("formula cards render the same math in readable details and the downloaded 
   const fixture=await mockCards(page,{saved:true,savedCount:1});
   fixture.view.concepts[0].claims[0].text=String.raw`連乘 product_i、標準差 sqrt(d_k)、累積係數 alpha_bar_t、轉置 QK^T。公式 $\frac{a}{b}$。`;
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const canvas=page.locator('canvas.visual-concept-card').first();await expect(canvas).toBeVisible();
   await page.getByText('完整重點與來源',{exact:true}).click();
   await expect(page.locator('.flashcard-content .katex')).toHaveCount(5);
@@ -1736,8 +1898,87 @@ test("a wide formula in a designed block preserves the formula and the following
   design.pages[0].blocks[0].text=String.raw`前文 $\frac{abcdefghijklmno}{pqrstuvwxyz}$ 後文必須保留`;
   fixture.setDesigns({[fixture.view.concepts[0].concept_id]:design});
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
   const canvas=page.locator('canvas.visual-concept-card');await expect(canvas).toBeVisible();
+  await showCardBack(page);
   expect(await drawnText(page)).toContain('後文必須保留');
   const downloading=page.waitForEvent('download');await page.getByRole('button',{name:'下載 PNG',exact:true}).click();
   await (await downloading).saveAs(testInfo.outputPath('wide-formula-card.png'));
+});
+
+
+test("concept body previews full points while only its checkbox changes selection", async ({ page }) => {
+  const { view } = await mockCards(page);
+  await page.goto(mapPath + "/create-cards");
+  await page.getByRole("button", { name: "取消全選", exact: true }).click();
+  await page.getByRole("button", { name: `預覽「${view.concepts[1].label}」` }).click();
+  await expect(page.getByRole("region", { name: "這個概念的重點" })).toContainText(view.concepts[1].claims[0].text);
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("0 個觀念");
+  await page.getByRole("checkbox", { name: view.concepts[1].label, exact: true }).check();
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("1 個觀念");
+});
+
+test("strengthening can skip and revisit, but records each concept once and completes only after all are processed", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true });
+  const { posts } = await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" } });
+  await page.goto("/concept-cards/review");
+  await expect(page.getByRole("button", { name: "熟悉", exact: true })).toBeDisabled();
+  await page.locator(".card-practice-stage").press("2");
+  expect(posts).toHaveLength(0);
+  await page.locator(".card-practice-stage").press("ArrowRight");
+  await expect(page.locator(".card-practice-front")).toContainText("陣列（Array）");
+  await page.locator(".card-practice-stage").press("Space");
+  await page.locator(".card-practice-stage").press("2");
+  await expect(page.locator(".card-practice-front")).toContainText("堆疊（Stack）");
+  await page.locator(".card-practice-stage").press("ArrowRight");
+  await showCardBack(page);
+  await expect(page.getByRole("button", { name: "熟悉", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "熟悉", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".card-review-hint")).toContainText("本輪已標成熟悉");
+  expect(posts).toHaveLength(1);
+  await page.locator(".card-practice-stage").press("ArrowLeft");
+  await page.locator(".card-practice-stage").press("Space");
+  await page.locator(".card-practice-stage").press("1");
+  await expect(page.getByText("這一輪加強完成！")).toBeVisible();
+  expect(posts.map(post => post.body.rating)).toEqual(["remembered", "forgot"]);
+});
+
+test("PNG names use cleaned concept titles and resolve case-insensitive duplicates in deck order", async ({ page }) => {
+  const fixture = await mockCards(page, { saved: true });
+  fixture.view.relations = [];
+  fixture.view.concepts[0].label = ' .A:/ ';
+  fixture.view.concepts[1].label = 'a*';
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  for (const name of ["A.png", "a-2.png"]) {
+    await showCardBack(page);
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下載 PNG", exact: true }).click();
+    expect((await download).suggestedFilename()).toBe(name);
+    if (name === "A.png") await page.getByRole("button", { name: "下一張", exact: true }).click();
+  }
+});
+
+test("comparison front reveals its headings before the full saved design", async ({ page }) => {
+  const fixture = await mockCards(page, { saved: true });
+  const design = designedCard(fixture.view, "compare", 2);
+  fixture.setDesigns({ [fixture.view.concepts[0].concept_id]: design });
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await expect(page.locator(".card-practice-comparison strong")).toHaveText(design.pages[0].blocks.map(block => block.heading));
+  await page.getByRole("button", { name: "翻到背面" }).click();
+  await expect(page.locator("canvas.visual-concept-card")).toBeVisible();
+});
+
+
+test("strengthening previous crosses to the last face of the preceding concept", async ({ page }) => {
+  const fixture = await mockCards(page, { saved: true });
+  fixture.view.relations = [];
+  const concept = fixture.view.concepts[0];
+  concept.claims = Array.from({ length: 7 }, (_, index) => ({ ...structuredClone(concept.claims[0]), claim_id: `claim:sha256:${(index + 100).toString(16).padStart(64, "0")}`, text: `第 ${index + 1} 則教材重點。` }));
+  await mockMarks(page, fixture.view, { marked: { 0: "forgot", 1: "forgot" } });
+  await page.goto("/concept-cards/review");
+  await showCardList(page);
+  await page.getByRole("navigation", { name: "選擇概念卡" }).getByRole("button", { name: fixture.view.concepts[1].label }).click();
+  await page.locator(".card-practice-stage").press("ArrowLeft");
+  await showCardBack(page);
+  await expect(page.locator("canvas.visual-concept-card")).toHaveAttribute("data-image-index", "2");
 });

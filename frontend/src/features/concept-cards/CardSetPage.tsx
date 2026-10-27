@@ -1,3 +1,4 @@
+import { cardPngName } from "./card-png-name";
 import { BackLink } from "../../ui/BackLink";
 import { Progress } from "../../ui/Progress";
 import { CardExports } from "../exports/CardExports";
@@ -119,6 +120,8 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
   const [order, setOrder] = useState(() => view.navigation.map((_, i) => i));
   const [position, setPosition] = useState(0);
   const [pageIndex, setPageIndex] = useState(0);
+  const [back, setBack] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
   const [finished, setFinished] = useState(false);
   const [notice, setNotice] = useState("");
   // 概念多時側欄可搜尋，只過濾清單，不改變瀏覽順序。
@@ -157,7 +160,7 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
   const pendingLocal = local.get(conceptId);
   const currentMark = pendingLocal && (!saved || pendingLocal.review_count > saved.review_count) ? pendingLocal : saved ?? null;
   const markCard = async (rating: CardReviewRating) => {
-    if (marking || !marks) return;
+    if (marking || !marks || !back) return;
     setMarking(true); setMarkError(null);
     try {
       const result = await submitMark(view.card_set_id, conceptId, rating, currentMark?.review_count ?? 0);
@@ -227,6 +230,8 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
     return () => { cancelled = true; };
   }, [batches, artworkModule, apiClient, view, countRetry]);
 
+  useEffect(() => { setBack(false); setMarkError(null); }, [position, localPage]);
+
   const nextIndex = localPage + 1 < localCount ? index : order[position + 1];
   const nextBatch = nextIndex === undefined ? undefined : batches.get(Math.floor(nextIndex / 8) * 8);
   const nextCard = nextIndex === undefined ? undefined : nextBatch?.cards[nextIndex % 8];
@@ -252,12 +257,14 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
   const restart = (shuffle: boolean) => {
     const next = view.navigation.map((_, i) => i);
     if (shuffle) for (let i = next.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [next[i], next[j]] = [next[j], next[i]]; }
-    setOrder(next); setPosition(0); setPageIndex(0); setFinished(false);
+    setBack(false); setOrder(next); setPosition(0); setPageIndex(0); setFinished(false);
     setNotice(shuffle ? "已洗牌，從第一張開始。" : "已回到第一張。");
   };
   const keys = (event: KeyboardEvent) => {
     if ((!artworkModule && !loadFailed) || finished || event.altKey || event.ctrlKey || event.metaKey || document.querySelector("dialog[open]")) return;
     if ((event.target as HTMLElement).closest("input, textarea, select, [contenteditable=true], details, .is-code")) return;
+    if (event.key === " " && !(event.target as HTMLElement).closest("button, a")) { event.preventDefault(); setBack(value => !value); }
+    if (event.key === "1" || event.key === "2") { event.preventDefault(); void markCard(event.key === "1" ? "forgot" : "remembered"); }
     if (event.key === "ArrowRight") { event.preventDefault(); move(1); }
     if (event.key === "ArrowLeft") { event.preventDefault(); move(-1); }
   };
@@ -274,18 +281,19 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
       </button>}
     </header>
     {!view.is_current_revision && view.moved_to_card_set_id && <p className="cards-notice">這個卡組已移到新版，這裡保留舊版的卡面與來源；學習標記由新版卡組沿用。<button className="text-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: view.moved_to_card_set_id!, materialId: view.material_id })}>前往新版卡組</button></p>}
-    <div className="cards-browse-layout"><nav className="cards-browse-list" aria-label="選擇概念卡">
+    <button type="button" className="text-button card-practice-list-toggle" aria-expanded={listOpen} onClick={() => setListOpen(value => !value)}>{listOpen ? "收合卡片清單" : "展開卡片清單"}</button>
+    <div className={`cards-browse-layout card-practice-layout ${listOpen ? "is-list-open" : ""}`}><nav hidden={!listOpen} className="cards-browse-list" aria-label="選擇概念卡">
       {view.navigation.length > 12 && <input className="cards-browse-search" type="search" aria-label="搜尋概念卡" placeholder={`搜尋 ${view.navigation.length} 張概念…`} value={listQuery} onChange={event => setListQuery(event.target.value)} onKeyDown={event => event.stopPropagation()} />}
       {order.map((i, orderIndex) => matchesList(view.navigation[i].label) && <button type="button" key={view.navigation[i].concept_id} aria-current={index === i ? 'true' : undefined} onClick={() => { setFinished(false); setPosition(orderIndex); setPageIndex(0); }}>{view.navigation[i].label}</button>)}
       {listQuery.trim() && !order.some(i => matchesList(view.navigation[i].label)) && <p className="cards-browse-empty">找不到符合的概念。</p>}
     </nav>
-      <section ref={stage} tabIndex={-1} className="cards-study-stage surface" aria-label={finished ? "本輪瀏覽完成" : `第 ${absolute ?? localPage + 1} 張概念卡`}>
+      <section ref={stage} tabIndex={-1} className="cards-study-stage surface card-practice-stage" aria-label={finished ? "本輪瀏覽完成" : `第 ${absolute ?? localPage + 1} 張概念卡`}>
         {finished ? <div className="cards-complete"><h2>已瀏覽全部卡片</h2><p>{total !== null ? `這一輪看過了 ${total} 張概念卡。想再回顧一次嗎？` : "已瀏覽全部觀念與卡片，想再回顧一次嗎？"}</p><div className="state-actions"><button className="primary-button" onClick={() => restart(false)}>再看一次</button></div></div>
-          : <>{card && batch ? <Flashcard key={`${card.concept_id}:${localPage}`} card={card} difficulty={difficulty.data?.concepts.find(item => item.concept_id === card.concept_id)} pageIndex={localPage} structure={batch.context} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
+          : <>{card && batch ? <Flashcard downloadName={() => cardPngName(view, card.concept_id, localPage, apiClient)} back={back} onFlip={() => setBack(value => !value)} key={`${card.concept_id}:${localPage}`} card={card} difficulty={difficulty.data?.concepts.find(item => item.concept_id === card.concept_id)} pageIndex={localPage} structure={batch.context} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
             : <StateView title={error ? "無法讀取這批卡片" : "正在讀取卡片"} description={error ?? "正在取得這個觀念及來源。"} tone={error ? "failure" : "loading"} action={error ? <button className="primary-button" onClick={onReload}>重新讀取卡組</button> : undefined} />}
             {card && marks && <div className="cards-study-mark">
               <span>這張卡你熟悉嗎？{currentMark && <b>目前：{markLabel(currentMark.rating)}</b>}</span>
-              <CardMarkButtons current={currentMark?.rating ?? null} disabled={marking} onMark={(rating) => void markCard(rating)} label={`標記「${card.label}」熟不熟`} />
+              <CardMarkButtons current={currentMark?.rating ?? null} disabled={marking || !back} onMark={(rating) => void markCard(rating)} label={`標記「${card.label}」熟不熟`} />
               {markError && <p className="form-error" role="alert">標記尚未保存。{markError}</p>}
             </div>}
             <div className="cards-study-toolbar" role="group" aria-label="概念卡操作">
@@ -295,7 +303,7 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
                 <button className="secondary-button" disabled={!card || !artworkModule && !loadFailed} onClick={() => move(1)}>{position === order.length - 1 && localPage === localCount - 1 ? "完成本輪" : "下一張"}<Icon name="chevron-right" size={18} /></button>
               </div>
               <button className="text-button cards-study-shuffle" disabled={order.length < 2} onClick={() => restart(true)}>洗牌重看</button>
-            </div><p className="cards-keyboard-hint">← → 切換卡片</p></>}
+            </div><p className="cards-keyboard-hint">空白鍵翻面 · 1 不熟 · 2 熟悉 · ← → 切換卡片</p></>}
         {notice && <p className="cards-study-notice" role="status">{notice}</p>}
       </section>
     </div>
