@@ -318,3 +318,7 @@ Podcast 依選定概念及關係規劃分集，透過同一索引取得各集引
 超過每日20點時，goal.suggestions 只提供經現行完整概念排程驗證可達的延後日期／降低比例。每個建議提供實際 target_date／target_percent／daily_points，前端使用既有PUT套用；單一概念本身超過20點而無可行方案時不提供假建議，不改出題或拆點規則。
 
 新問答保存 material-answer/v3 的 paragraphs（text、citation_ids），來源關係只取已核對接受的段落；既有 v2 回答維持原文與來源清單，不猜段落對應、不重新呼叫模型。
+
+### 作答期間的教材問答
+
+普通題組與快速診斷在實際作答時每 20 秒送出 assessment-presence/v1；離頁停止回報，伺服器在 60 秒到期後解除。交卷成功補送 active=false，後端交卷交易也會解除。瀏覽器 ID 以 localStorage 保存並跨分頁共用，只在 presence、文字提問、錄音與重試附上 X-Studydy-Browser-Id；另一個瀏覽器使用不同 ID。作答時移除問答入口，既有回答不新增取消；被拒絕時顯示 ASSESSMENT_IN_PROGRESS 對應提示，保留問題草稿。此機制是避免順手查答案的介面限制，不是裝置驗證。

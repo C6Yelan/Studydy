@@ -221,12 +221,12 @@ export function StudySessionPage({
     };
     return <section className="study-session-page">
     {launch.dialog}
-    <MaterialContentNav apiClient={apiClient} materialId={route.materialId} current="review" loadMaterial
+    <MaterialContentNav apiClient={apiClient} materialId={route.materialId} current="review" loadMaterial hideQuestionAnswer={(panelPhase ?? assessmentPhase(data.selectedSet)) === "question"}
       back={{ label: "返回學習與測驗", onClick: backToReview }}
       mapRoute={{ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }} />
     {(launch.error || continueError) && <p role="alert" className="form-error">{launch.error || continueError}</p>}
     <div className={`study-workspace${historySets.length ? "" : " without-rail"}`}><div className="study-main">
-      <MaterialDiagnosticPanel key={data.selectedSet.set_id} api={apiClient} initialSet={data.selectedSet} context={data.context}
+      <MaterialDiagnosticPanel onPhaseChange={setPanelPhase} key={data.selectedSet.set_id} api={apiClient} initialSet={data.selectedSet} context={data.context}
         onProgressChanged={refresh} onReview={reviewConcept} onBack={back} continuing={launch.busy || continuing}
         sessionCompleted={completed} completesSession={data.progress.next_action.action === "complete"}
         onContinue={() => void continueDiagnostic()} />
@@ -374,7 +374,7 @@ export function StudySessionPage({
   return (
     <section className="study-session-page">
       {launch.dialog}
-      <MaterialContentNav apiClient={apiClient} materialId={route.materialId} current="review" loadMaterial
+      <MaterialContentNav apiClient={apiClient} materialId={route.materialId} current="review" loadMaterial hideQuestionAnswer={layoutMode === "question"}
       back={{ label: "返回學習與測驗", onClick: backToReview }}
         mapRoute={{ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }}
         // 從學習頁回到地圖時，聚焦剛才學習的概念。

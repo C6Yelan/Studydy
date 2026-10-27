@@ -1,5 +1,5 @@
 import type {
-  MaterialNotesView,
+  MaterialNotesView, AssessmentPresence,
   LearningGoalView, LearningGoalsView,
   StartingLevel, StartingLevelView, StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
@@ -1748,4 +1748,10 @@ export function materialNotes(value: unknown): value is MaterialNotesView {
       && isUuid(x.annotation_id) && typeof x.anchor === "string" && typeof x.body === "string"
       && revision(x.original_revision, "knowledge-structure") && noteParagraph(x.original_paragraph)
       && (x.paragraph_id === null || typeof x.paragraph_id === "string") && timestamp(x.updated_at); });
+}
+
+export function assessmentPresence(value: unknown): value is AssessmentPresence {
+  const item = object(value);
+  return !!item && item.schema === "assessment-presence/v1" && typeof item.active === "boolean"
+    && (item.expires_at === null || timestamp(item.expires_at));
 }

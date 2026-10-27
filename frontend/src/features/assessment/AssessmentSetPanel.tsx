@@ -1,3 +1,4 @@
+import { useAssessmentPresence } from "./useAssessmentPresence";
 import { MathText } from "../../ui/MathText";
 import { Progress } from "../../ui/Progress";
 import { LearningDiagnosis } from "../learning-diagnosis/LearningDiagnosis";
@@ -189,6 +190,7 @@ export function AssessmentSetPanel({
 
   const phase = starting ? "preparing" : group ? assessmentPhase(group) : initialPhase;
   const answering = phase === "question";
+  const presenceError = useAssessmentPresence(apiClient, materialId, group?.set_id ?? null, answering);
   useLayoutEffect(() => {
     onPhaseChange(phase);
   }, [phase, onPhaseChange]);
@@ -308,6 +310,8 @@ export function AssessmentSetPanel({
           intent.key,
         ),
       );
+      // 交卷已由伺服器同交易解除；補送失敗不能把已保存成績當作交卷失敗。
+      void apiClient.setAssessmentPresence(materialId, group.set_id, false).catch(() => undefined);
       submissionIntent.current = null;
       await onProgressChanged();
     } catch (error) {
@@ -454,6 +458,7 @@ export function AssessmentSetPanel({
   );
   return (
     <section className="assessment-set-panel" aria-label={`${concept.label}的重點題組`}>
+      {answering && presenceError && <p className="form-error" role="status">作答狀態暫時無法同步：{presenceError}</p>}
       {(!closed || waiting) && (
         <header className={`surface assessment-set-header${waiting ? " is-preparing" : ""}`}>
           {waiting ? (

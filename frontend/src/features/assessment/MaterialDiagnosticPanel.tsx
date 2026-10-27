@@ -1,16 +1,18 @@
+import { useAssessmentPresence } from "./useAssessmentPresence";
+import { assessmentPhase, type AssessmentPhase } from "./assessment-phase";
 import { Progress } from "../../ui/Progress";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AssessmentSetAnswer, AssessmentSetView, KnowledgeConceptsView, MaterialDiagnosticSetView } from "../../api/contracts";
 import { AssessmentPanel } from "./AssessmentPanel";
 import { LearningDiagnosis } from "../learning-diagnosis/LearningDiagnosis";
 import "./sets.css";
 
-export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressChanged, onReview, onBack, onContinue, continuing, sessionCompleted, completesSession }: {
+export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressChanged, onReview, onBack, onContinue, continuing, sessionCompleted, completesSession, onPhaseChange }: {
   api: StudydyApiClient; initialSet: MaterialDiagnosticSetView; context: KnowledgeConceptsView;
   onProgressChanged: () => Promise<void>; onReview: (conceptId: string) => void; onBack: () => void;
   onContinue: () => void; continuing: boolean;
-  sessionCompleted: boolean; completesSession: boolean;
+  sessionCompleted: boolean; completesSession: boolean; onPhaseChange: (phase: AssessmentPhase) => void;
 }) {
   const [group, setGroup] = useState(initialSet);
   const [selections, setSelections] = useState<Record<string, string>>({});
@@ -48,6 +50,9 @@ export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressCh
   }, [api, group.study_session_id, group.set_id, group.status]);
   const questions = group.items.filter(item => item.assessment && item.created_at);
   const done = group.status === "completed";
+  const phase = assessmentPhase(group);
+  const presenceError = useAssessmentPresence(api, group.material_id, group.set_id, phase === "question");
+  useLayoutEffect(() => { onPhaseChange(phase); }, [phase, onPhaseChange]);
   const selectedCount = questions.filter(item => item.feedback || selections[item.assessment!.assessment_revision]).length;
   const submit = async () => {
     if (busy || done || selectedCount !== questions.length) return;
@@ -59,6 +64,7 @@ export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressCh
     try {
       const value = intent.current;
       accept(await api.submitAssessmentSet(group.study_session_id, group.set_id, value.answers, value.version, value.key));
+      void api.setAssessmentPresence(group.material_id, group.set_id, false).catch(() => undefined);
       if (!alive.current) return;
       intent.current = null; setSubmissionFailed(false);
       await onProgressChanged();
@@ -90,6 +96,7 @@ export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressCh
         disabled: busy || !!intent.current, onChange: option => setSelections(current => ({ ...current, [item.assessment!.assessment_revision]: option })) }} />
   </article>)}</div>;
   return <section className="assessment-set-panel" aria-label="跨概念起始診斷">
+    {phase === "question" && presenceError && <p className="form-error" role="status">作答狀態暫時無法同步：{presenceError}</p>}
     <header className="surface assessment-set-header"><p className="eyebrow">跨概念起始診斷</p>
       <h2>{done ? "起始診斷結果" : "先找出這次學習的起點"}</h2>
       <p>每個概念最多 1 題。答對的重點依作答規則計入完成，其餘重點仍會安排學習，不會據此替你分級。</p>

@@ -21,12 +21,13 @@ const dateFormat = new Intl.DateTimeFormat("zh-TW", { year: "numeric", month: "2
 const tabId = (id: Content) => id === "knowledge-map" ? "map-tab-focus" : id === "review" ? "map-tab-review" : `material-tab-${id}`;
 const panelId = (id: Content) => id === "knowledge-map" ? "map-panel-focus" : id === "review" ? "map-panel-review" : `material-panel-${id}`;
 
-export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName, assessmentDisabled = false, loadMaterial = false, back }: {
+export function MaterialContentNav({ apiClient, materialId, mapRoute, current, onMapModeChange, onMapTabRef, materialName, assessmentDisabled = false, hideQuestionAnswer = false, loadMaterial = false, back }: {
   apiClient: StudydyApiClient; materialId: string;
   mapRoute: Extract<AppRoute, { name: "knowledge-map" }> | null; current: Content;
   onMapModeChange?: (mode: Mode) => void;
   onMapTabRef?: (mode: Mode, element: HTMLButtonElement | null) => void; materialName?: string;
   assessmentDisabled?: boolean;
+  hideQuestionAnswer?: boolean;
   back?: { label: string; onClick: () => void };
   /** 所在頁面本身不讀教材索引時，由資訊列補讀。 */
   loadMaterial?: boolean;
@@ -112,7 +113,7 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
         }}><Icon name={item.icon} size={18}/><span>{item.label}</span></button>)}
     </div>
     <div className="material-header-tools">
-      {mapRoute && <MaterialTools key={`${materialId}:${mapRoute.structureRevision}`} api={apiClient} materialId={materialId} revision={mapRoute.structureRevision} />}
+      {mapRoute && !hideQuestionAnswer && <MaterialTools key={`${materialId}:${mapRoute.structureRevision}`} api={apiClient} materialId={materialId} revision={mapRoute.structureRevision} />}
       <AccountMenu apiClient={apiClient} />
     </div>
   </header>

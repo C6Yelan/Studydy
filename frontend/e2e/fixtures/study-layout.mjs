@@ -165,6 +165,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
   let setVersion = 1;
   let verifiedCount = 2;
   const requests = [];
+  const presence = [];
   const buildAssessmentSet = (historical = false) => {
     const status = historical ? "completed" : assessmentStage;
     const isCompleted = status === "completed";
@@ -310,6 +311,10 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     const path = actualPath.replace(/\/workspace$/, "/resume");
     const query = address.searchParams;
     const send = (body, status = 200) => route.fulfill({ json: readResponse(request.url(), body, runId), status });
+    if (actualPath === `/v1/materials/${materialId}/assessment-presence` && request.method() === "PUT") {
+      const body = request.postDataJSON(); presence.push({ body, browserId: request.headers()["x-studydy-browser-id"] });
+      return send({ schema: "assessment-presence/v1", active: body.active, expires_at: body.active ? new Date(Date.now() + 60000).toISOString() : null });
+    }
     if (actualPath === `/v1/materials/${materialId}/starting-level`) {
       if (request.method() === "PUT") { startingLevel = request.postDataJSON().starting_level; requests.push({ path: actualPath, body: request.postData() }); }
       return send({ schema: "starting-level/v1", material_id: materialId, starting_level: startingLevel });
@@ -579,6 +584,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
     knowledgeStructure,
     historyPath: `${basePath}/assessment-sets/${historySetId}`,
     requests,
+    presence,
     getStartingLevel() { return startingLevel; },
     setGuidance(action, version) {
       nextAction = action;
