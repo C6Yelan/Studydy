@@ -70,7 +70,7 @@ def test_first_start_requires_explicit_choice_and_preferences_are_owner_scoped(c
     launched = _start(client, fixture)
     assert launched.status_code == 200, launched.json()
     assert launched.json()["starting_level"] == "beginner"
-    assert launched.json()["selected_set_id"] is None
+    assert launched.json()["selected_set_id"] is not None
     foreign = register_account("starting_foreign@example.com", "Synthetic test password 42", dsn=dsn)
     client.cookies.set("studydy_session", foreign.raw_token)
     assert client.get(path).status_code == 404
@@ -105,13 +105,15 @@ def test_changing_level_preserves_active_set_and_answer_progress(closed_loop, mo
             AssessmentSet.kind == "material_diagnostic")) == 0
 
 
-def test_some_knowledge_starts_a_concept_set_and_reuses_same_intent(closed_loop, monkeypatch, tmp_path):
+@pytest.mark.parametrize("level", ["beginner", "some_knowledge"])
+def test_foundational_levels_start_a_concept_set_and_reuse_same_intent(closed_loop, monkeypatch, tmp_path, level):
     fixture = concept_fixture(closed_loop, 2)
     client = _client(fixture, tmp_path, monkeypatch)
-    _preference(client, fixture, "some_knowledge")
+    _preference(client, fixture, level)
     first = _start(client, fixture, key="start-intent")
     second = _start(client, fixture, key="start-intent")
     assert first.status_code == second.status_code == 200, (first.json(), second.json())
+    assert first.json()["starting_level"] == second.json()["starting_level"] == level
     assert first.json()["selected_set_id"] == second.json()["selected_set_id"]
     finish(fixture)
     answer(fixture, UUID(first.json()["selected_set_id"]))
@@ -195,3 +197,36 @@ def test_cross_diagnostic_can_finish_study_only_when_all_points_are_completed(cl
     with database_session(fixture["dsn"]) as db:
         study = db.get(StudySession, sid)
         assert study.status == "completed" and study.completed_at is not None
+
+
+def test_beginner_without_assessable_claims_keeps_empty_receipt_when_claims_return(closed_loop, monkeypatch, tmp_path):
+    from copy import deepcopy
+    fixture = concept_fixture(closed_loop, 1)
+    client = _client(fixture, tmp_path, monkeypatch)
+    _preference(client, fixture, "beginner")
+    target = fixture["concept"]["concept_id"]
+    with database_session(fixture["dsn"]) as db:
+        study = db.get(StudySession, fixture["study"].study_session_id)
+        study.no_safe_claim_ids = [claim["claim_id"] for claim in fixture["concept"]["claims"]]
+    url = f"/v1/materials/{fixture['source'].material_id}/study-start"
+    body = {"schema":"study-start/v1", "knowledge_structure_revision":fixture["document"]["revision"],
+            "current_concept_id":target}
+    headers = {**HEADERS, "Idempotency-Key":"empty-intent"}
+    first = client.post(url, headers=headers, json=body)
+    assert first.status_code == 200, first.text
+    assert first.json()["selected_set_id"] is None
+    with database_session(fixture["dsn"]) as db:
+        study = db.get(StudySession, fixture["study"].study_session_id)
+        receipts = deepcopy(study.start_receipts)
+        assert study.current_concept_id == target
+        assert db.scalar(select(func.count()).select_from(AssessmentSet).where(
+            AssessmentSet.study_session_id == study.study_session_id)) == 0
+        study.no_safe_claim_ids = []
+    # 舊的無題組收據仍原樣重播，不因後來已有可檢測重點而改寫同一意圖。
+    replay = client.post(url, headers=headers, json=body)
+    assert replay.status_code == 200 and replay.json()["selected_set_id"] is None
+    with database_session(fixture["dsn"]) as db:
+        assert db.get(StudySession, fixture["study"].study_session_id).start_receipts == receipts
+    current = client.post(url, headers={**HEADERS,"Idempotency-Key":"new-intent"}, json=body)
+    assert current.status_code == 200 and current.json()["selected_set_id"] is not None
+    assert current.json()["starting_level"] == "beginner"

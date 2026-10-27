@@ -170,7 +170,7 @@ def start_learning(learner, material_id, revision, idempotency_key, local_config
                         if cycle["outcome"] == "needs_review" or (cycle["outcome"] == "incomplete" and previous.status == "failed"):
                             selected = previous
                     if selected is None:
-                        if level == "beginner" or not state.assessable_claim_ids:
+                        if not state.assessable_claim_ids:
                             study.current_concept_id = target
                         else:
                             selected_id = create_set_in_transaction(db, study, context, target, "start-set:" + key, local_config, state=state)
