@@ -1312,7 +1312,9 @@ class VersionMoveStudy(_Closed):
     from_revision: str
     target_study_session_id: UUID | None
     completed_count: int
+    movable: bool
     carried: list[VersionMoveCarried]
+    already_completed: list[VersionMoveCarried]
     not_carried: list[VersionMoveUnmapped]
     current_concept: VersionMoveFocus | None
 

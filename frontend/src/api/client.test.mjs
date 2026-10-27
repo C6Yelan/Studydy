@@ -1604,8 +1604,8 @@ function versionMovePreview(change = () => undefined) {
     }],
     study: {
       study_session_id: sessionId, from_revision: `knowledge-structure:sha256:${"9".repeat(64)}`,
-      target_study_session_id: null, completed_count: 1,
-      carried: [{ concept_id: conceptId, label: "堆疊", from_labels: ["Stack"] }], not_carried: [],
+      target_study_session_id: null, completed_count: 1, movable: true,
+      carried: [{ concept_id: conceptId, label: "堆疊", from_labels: ["Stack"] }], already_completed: [], not_carried: [],
       current_concept: { concept_id: conceptId, label: "堆疊" },
     },
   };

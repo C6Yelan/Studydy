@@ -985,7 +985,9 @@ export type VersionMovePreview = {
     from_revision: string;
     target_study_session_id: string | null;
     completed_count: number;
+    movable: boolean;
     carried: { concept_id: string; label: string; from_labels: string[] }[];
+    already_completed: { concept_id: string; label: string; from_labels: string[] }[];
     not_carried: VersionMoveUnmapped[];
     current_concept: { concept_id: string; label: string } | null;
   } | null;

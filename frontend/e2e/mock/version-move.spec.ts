@@ -42,8 +42,9 @@ function preview(): VersionMovePreview {
       unmapped: [{ concept_id: `concept:sha256:${"9".repeat(64)}`, label: "雜湊表", reason: "split" }],
     }],
     study: {
-      study_session_id: sessionId, from_revision: oldRevision, target_study_session_id: null, completed_count: 2,
-      carried: [{ concept_id: stack.concept_id, label: stack.label, from_labels: ["Stack"] }],
+      study_session_id: sessionId, from_revision: oldRevision, target_study_session_id: null, completed_count: 4, movable: true,
+      carried: [{ concept_id: stack.concept_id, label: stack.label, from_labels: ["Stack", "LIFO"] }],
+      already_completed: [{ concept_id: array.concept_id, label: array.label, from_labels: ["Array"] }],
       not_carried: [{ concept_id: `concept:sha256:${"7".repeat(64)}`, label: "佇列", reason: "not_found" }],
       current_concept: { concept_id: stack.concept_id, label: stack.label },
     },
@@ -99,8 +100,9 @@ for (const width of [1440, 1024, 390]) {
     await expect(dialog).toContainText("1 張卡的內容在更新後有更動");
     await expect(dialog).toContainText("這 1 張卡在更新後找不到對應概念，不會移動：");
     await expect(dialog).toContainText("雜湊表內容在更新後分散到多個概念");
-    await expect(dialog).toContainText("更新前已完成 2 個概念，其中 1 個在更新後標示為已完成");
+    await expect(dialog).toContainText("更新前已完成 4 個概念；可承接 2 個舊概念，對應更新後 1 個概念");
     await expect(dialog).toContainText("佇列更新後找不到對應的概念");
+    await expect(dialog).toContainText("1 個舊概念對應到更新後原本已完成的 1 個概念，維持完成");
     await expect(dialog).toContainText("2 集 Podcast 維持更新前內容");
     await dialog.getByText("查看概念對應").click();
     await expect(dialog).toContainText("依相同原文");
@@ -224,7 +226,7 @@ for (const outcome of ["completed", "failed"] as const)
   test(`automatic update polls pending to ${outcome} without frontend move requests`, async ({ page }) => {
     const safe = preview();
     safe.card_sets = safe.card_sets.map(item => ({ ...item, concept_count: item.target_count, unmapped: [] }));
-    safe.study = { ...safe.study!, completed_count: 1, not_carried: [] };
+    safe.study = { ...safe.study!, completed_count: 2, already_completed: [], not_carried: [] };
     const server = { value: { ...safe, automatic_safe: true, blocking_reasons: [],
       automatic_move: { status: "pending" as "pending" | "completed" | "failed", move_id: null as string | null, error_code: null as string | null } } };
     const { posts } = await mockMove(page, 2, server);
@@ -344,4 +346,21 @@ test("remaining older items take precedence over an earlier automatic success", 
   await expect(notice).toContainText("卡組與學習進度還在更新前的內容");
   await notice.getByRole("button", { name: "更新", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "更新卡組與學習進度" })).toContainText("卡組「資料結構重點」");
+});
+
+
+test("unmovable study progress still explains every completed concept", async ({ page }) => {
+  const value = preview();
+  value.study = { ...value.study!, movable: false, completed_count: 2, carried: [] };
+  value.card_sets = []; value.preview_digest = null;
+  value.blocking_reasons = [{ code: "unmapped_progress", count: 1 }];
+  await mockMove(page, 2, { value });
+  await page.goto(mapPath);
+  await page.getByRole("region", { name: "教材已更新" }).getByRole("button", { name: "更新", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "更新卡組與學習進度" });
+  await expect(dialog.getByRole("checkbox", { name: /學習進度/ })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "確認更新", exact: true })).toBeDisabled();
+  await expect(dialog).toContainText("更新前已完成 2 個概念；可承接 0 個舊概念");
+  await expect(dialog).toContainText("1 個舊概念對應到更新後原本已完成的 1 個概念，維持完成");
+  await expect(dialog).toContainText("佇列更新後找不到對應的概念");
 });
