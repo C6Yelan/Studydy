@@ -1,3 +1,4 @@
+import { answerPaper } from "../fixtures/answer-paper";
 import { expect, test, type Page } from "@playwright/test";
 import type { StartingLevel } from "../../src/api/contracts";
 import { materialId, runId, sessionId, structureRevision, firstConcept, secondConcept, progress, session, run, artifactId, mockKnowledgeMapApi, json, openMapConcept } from "../fixtures/knowledge-map";
@@ -41,7 +42,7 @@ for (const width of [1440, 390]) test(`legacy material defaults to the first of 
   await expect(picker.getByRole("radio")).toHaveCount(3);
   await expect(picker.getByRole("radio", { name: /第一次接觸/ })).toBeChecked();
   await picker.getByRole("button", { name: "儲存選擇" }).click();
-  await expect(page.locator(".assessment-set-item")).toHaveCount(4);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   expect(fixture.getStartingLevel()).toBe("some_knowledge");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -53,7 +54,7 @@ test("an existing session deep link asks for a missing choice before continuing"
   await expect(picker).toBeVisible();
   await picker.getByRole("radio", { name: /第一次接觸，或還不太熟/ }).check();
   await picker.getByRole("button", { name: "儲存選擇" }).click();
-  await expect(page.locator(".assessment-set-item")).toHaveCount(4);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   expect(fixture.getStartingLevel()).toBe("some_knowledge");
   expect(fixture.requests.filter((item: { path: string }) => /\/assessment-sets$/.test(item.path))).toHaveLength(0);
 });
@@ -87,14 +88,14 @@ for (const [completed, inherited] of [[false, false], [true, false], [false, tru
   expect(JSON.parse(starts[0].body).current_concept_id).toBe(selected.concept_id);
   expect(fixture.requests.filter((item: { path: string }) => item.path.endsWith("/assessment-sets"))).toHaveLength(0);
   fixture.setStage("ready");
-  await expect(page.getByRole("heading", { name: selected.label, level: 1, exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "交卷並查看結果", exact: true })).toBeVisible();
+  await expect(page.locator(".question-paper-heading")).toContainText(selected.label);
+  await expect(page.getByRole("button", { name: "下一題", exact: true })).toBeVisible();
 });
 
 for (const level of ["beginner", "some_knowledge", "gaps"] as const) test(`${level} resumes the supplied active set`, async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "ready", { startingLevel: level });
   await fixture.open();
-  await expect(page.locator(".assessment-set-item")).toHaveCount(4);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   expect(fixture.requests.filter((item: { path: string }) => /\/assessment-sets$/.test(item.path))).toHaveLength(0);
 });
 
@@ -130,12 +131,13 @@ test("cross-concept diagnostic keeps question concepts, sources and persisted re
   await fixture.open();
   const diagnostic = page.getByRole("region", { name: "快速檢測", exact: true });
   await expect(diagnostic).toBeVisible();
-  await expect(diagnostic.locator(".assessment-set-number")).toHaveText(["第 1 題 · 伺服器", "第 2 題 · 使用者端"]);
+  await expect(diagnostic.locator(".question-paper-heading")).toContainText("伺服器");
   await diagnostic.getByRole("article", { name: "第 1 題", exact: true }).getByRole("radio").first().check();
+  await page.getByRole("button", { name: "下一題", exact: true }).click();
+  await expect(diagnostic.locator(".question-paper-heading")).toContainText("使用者端");
   await diagnostic.getByRole("article", { name: "第 2 題", exact: true }).getByRole("radio").nth(1).check();
-  await diagnostic.getByRole("button", { name: "交卷並查看結果" }).click();
-  await expect(diagnostic.locator(".assessment-set-summary")).toContainText("答對1 / 2 題");
-  await diagnostic.locator(".assessment-answer-review > summary").click();
+  await diagnostic.getByRole("button", { name: "交卷" }).click();
+  await expect(diagnostic.locator(".question-result-summary")).toContainText("答對 1／2 題");
   await expect(diagnostic.locator(".feedback-card")).toHaveCount(2);
   await diagnostic.getByRole("button", { name: /PDF 第 1 頁/ }).first().click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
@@ -151,8 +153,8 @@ test("a diagnostic that completes every assessable claim finishes through guidan
   const fixture = await studyLayoutFixture(page, "ready", { startingLevel: "familiar", kind: "material_diagnostic", navigation: true,
     nextAction: "complete", singleClaimConcepts: true, noHistory: true, wrong: [], count: 2 });
   await fixture.open();
-  for (const question of await page.locator(".assessment-set-item").all()) await question.getByRole("radio").first().check();
-  await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
+  await answerPaper(page, [0, 0]);
+  await page.getByRole("button", { name: "交卷", exact: true }).click();
   await page.getByRole("button", { name: "完成本次學習", exact: true }).click();
   await expect(page.getByText("這份教材已完成目前可檢測的重點。", { exact: true })).toBeVisible();
   expect(fixture.requests.filter((item: { path: string }) => item.path.endsWith("/guidance/apply"))).toHaveLength(1);

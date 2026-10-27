@@ -1199,6 +1199,7 @@ function feedback(value: unknown): value is AnswerFeedbackView {
     revision(item.assessment_revision, "assessment") &&
     revision(item.question_id, "question") &&
     revision(item.selected_option_id, "option") &&
+    (item.correct_option_id === undefined || revision(item.correct_option_id, "option")) &&
     typeof item.is_correct === "boolean" &&
     typeof item.rationale === "string" &&
     strings(item.source_evidence_ids) &&
@@ -1488,7 +1489,9 @@ export function assessmentSet(value: unknown): value is AssessmentSetView {
       row.can_submit ||
       row.feedback.assessment_revision !== row.assessment.assessment_revision ||
       row.feedback.study_session_id !== item.study_session_id ||
-      row.feedback.question_id !== row.assessment.question_id
+      row.feedback.question_id !== row.assessment.question_id ||
+      (row.feedback.correct_option_id !== undefined && (item.status !== "completed" ||
+        !row.assessment.options.map(option => option.option_id).includes(row.feedback.correct_option_id)))
     )
       return false;
     answered += 1;

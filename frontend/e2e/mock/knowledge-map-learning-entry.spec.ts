@@ -1,3 +1,4 @@
+import { answerPaper } from "../fixtures/answer-paper";
 import { outlineView } from "../fixtures/knowledge-read-views.mjs";
 import { expect, test, type Page } from "@playwright/test";
 import type { StudyWorkspaceView } from "../../src/api/contracts";
@@ -74,18 +75,18 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
     await expect(page).toHaveURL(new RegExp(`/study-sessions/${sid}`));
     await page.reload();
     if (stage === "preparing") await expect(page.getByRole("progressbar", { name: "準備進度" })).toBeVisible();
-    if (stage === "ready") await expect(page.locator(".assessment-set-item")).toHaveCount(4);
+    if (stage === "ready") await expect(page.locator(".assessment-set-item")).toHaveCount(1);
     if (stage === "remediation") {
-      await expect(page.locator(".assessment-set-item")).toHaveCount(4);
-      await expect(page.getByText("錯題重點補強", { exact: true })).toBeVisible();
+      await expect(page.locator(".assessment-set-item")).toHaveCount(1);
+      await expect(page.locator(".question-paper-heading")).toContainText("伺服器");
     }
     if (stage === "failed") await expect(page.getByRole("button", { name: "再試一次", exact: true })).toBeEnabled();
     if (stage === "no-safe") await expect(page.getByText("此概念目前無法提供可靠檢測", { exact: true })).toBeVisible();
     expect(fixture.requests.filter((r: { path: string }) => /\/study-sessions/.test(r.path))).toEqual([]);
     if (stage === "ready") {
-      for (const question of await page.locator(".assessment-set-item").all()) await question.getByRole("radio").first().check();
-      await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
-      await expect(page.locator(".assessment-set-summary")).toContainText("答對4 / 4 題");
+      await answerPaper(page, [0, 0, 0, 0]);
+      await page.getByRole("button", { name: "交卷", exact: true }).click();
+      await expect(page.locator(".question-result-summary")).toContainText("答對 4／4 題");
     }
     if (stage === "failed") {
       await page.getByRole("button", { name: "再試一次", exact: true }).click();
@@ -193,7 +194,7 @@ test("restoring a saved assessment normalizes the URL without downloading resume
   });
   await fixture.open();
   await expect(page).toHaveURL(/assessment-sets/);
-  await expect(page.locator(".assessment-set-item")).toHaveCount(4);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   expect(resumes).toHaveLength(1);
   expect(setReads).toEqual([]);
   // 真正切換到歷史題組及重新整理仍須讀取其正確 snapshot。

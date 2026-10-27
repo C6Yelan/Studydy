@@ -1,3 +1,4 @@
+import { answerPaper } from "../fixtures/answer-paper";
 import {expect,test} from "@playwright/test";
 import {studyLayoutFixture} from "../fixtures/study-layout.mjs";
 
@@ -13,8 +14,8 @@ for(const kind of ["diagnostic","material_diagnostic"])test(`${kind} reports eve
   await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`presence-${kind}-${width}.png`)});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }
- for(const item of await page.locator('.assessment-set-item').all())await item.getByRole('radio').first().check();
- await page.getByRole('button',{name:'交卷並查看結果',exact:true}).click();
+ await answerPaper(page, [0, 0]);
+ await page.getByRole('button',{name:'交卷',exact:true}).click();
  await expect.poll(()=>fixture.presence.some(p=>p.body.active===false)).toBe(true);
  await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeVisible();
  const count=fixture.presence.length;await page.clock.fastForward(40000);expect(fixture.presence).toHaveLength(count);

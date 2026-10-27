@@ -70,14 +70,8 @@
   align-items: start;
   gap: var(--space-5);
 }
-.study-main,
-.study-rail {
+.study-main {
   min-width: 0;
-}
-.study-rail {
-  display: grid;
-  align-self: start;
-  gap: var(--space-4);
 }
 @media (max-width: 1024px) {
   .study-learning-grid {
@@ -93,12 +87,7 @@
   }
 }
 
-@media (min-width: 1280px) { /* 特殊值：1280px 筆電維持雙欄題卡與黏性側欄 */
-  .study-workspace {
-    grid-template-columns: minmax(0, 1fr) clamp(300px, 22vw, 320px);
-    gap: var(--space-6);
-  }
-}
+
 
 /* 測驗使用寬版主區；教材重點留在可展開的輔助區。 */
 .study-main .study-learning-grid.is-result-mode,
@@ -128,12 +117,6 @@
   box-shadow: none;
 }
 
-@media (min-width: 1280px) { /* 特殊值：1280px 筆電維持雙欄題卡與黏性側欄 */
-  .study-workspace:not(.is-preparation-mode) .study-rail {
-    position: sticky;
-    top: 80px;
-  }
-}
 
 /* 沒有可回顧的紀錄時，主內容直接使用完整 workspace。 */
 .study-workspace.without-rail {
@@ -156,7 +139,7 @@
   overflow-wrap: anywhere;
 }
 
-/* 作答頁精修：標題下方是概念位置進度條；題組卡片、結果摘要與紀錄側欄沿用首頁白卡風格。 */
+/* 非作答狀態顯示目前的概念位置。 */
 .study-header {
   margin-bottom: var(--space-4);
 }
@@ -199,61 +182,6 @@
   font-weight: 800;
   letter-spacing: 0;
 }
-/* 結果摘要：三個數字各有語意色；答對用綠、待補強用珊瑚色。 */
-.study-session-page .assessment-set-summary > span {
-  padding: 12px 14px;
-  border-radius: 16px;
-  color: var(--text-secondary);
-  font-weight: 700;
-}
-.study-session-page .assessment-set-summary strong {
-  color: var(--text-primary);
-  font-size: 22px;
-  font-weight: 900;
-}
-.study-session-page .assessment-set-summary > .is-correct {
-  background: var(--success-soft);
-}
-.study-session-page .assessment-set-summary > .is-correct strong {
-  color: var(--success);
-}
-.study-session-page .assessment-set-summary > .is-pending {
-  background: #fff0ec;
-}
-.study-session-page .assessment-set-summary > .is-pending strong {
-  color: var(--coral);
-}
-.study-session-page .assessment-review-section h3 {
-  margin: 18px 0 0;
-  font-size: 15px;
-}
-.study-session-page .assessment-review-point {
-  border-left: 4px solid var(--coral);
-  border-radius: 16px;
-  background: #fff7f4;
-}
-.study-session-page .assessment-cycle > .assessment-set-actions {
-  margin-top: 16px;
-}
-.study-session-page .assessment-answer-review > summary,
-.study-session-page .study-material-summary > summary {
-  color: var(--text-primary);
-  font-weight: 800;
-}
-/* 作答回顧：答對／答錯以卡片左緣色條區分。 */
-.study-session-page .assessment-paper .assessment-set-item:has(.feedback-card.is-correct) {
-  box-shadow: inset 4px 0 0 var(--success);
-}
-.study-session-page .assessment-paper .assessment-set-item:has(.feedback-card.is-incorrect) {
-  box-shadow: inset 4px 0 0 var(--warning);
-}
-/* 觀念題組紀錄：每組一列（組別、觀念、作答數），目前這組以藍底標示。 */
-.study-session-page .assessment-set-history {
-  padding: 12px;
-}
-.study-session-page .assessment-set-history ol {
-  margin: 8px 0 0;
-}
 .study-history-item {
   display: grid;
   gap: 2px;
@@ -291,12 +219,4 @@
   font-size: 12px;
   font-weight: 700;
 }
-/* 作答中：交卷列黏在畫面底部，隨時看得到已選題數。 */
-.study-session-page .assessment-paper > .assessment-set-submit {
-  position: sticky;
-  bottom: 12px;
-  z-index: 4;
-  box-shadow: 0 18px 40px -18px rgba(29, 52, 110, 0.45);
-}
-
 .study-position-progress { width:6rem; }

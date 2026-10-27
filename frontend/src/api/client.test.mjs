@@ -918,6 +918,23 @@ test("assessment sets validate preparation, published data and submission reques
     can_submit: true,
   });
   assert.equal((await read(ready)).published_count, 1);
+  const done = structuredClone(ready);
+  const option = record.assessment.options[0].option_id;
+  Object.assign(done, { status: "completed", can_complete: false, answered_count: 1, passed_count: 1 });
+  Object.assign(done.items[0], { can_submit: false, feedback: {
+    schema: "answer-feedback/v1", answer_event_id: sessionId, study_session_id: sessionId,
+    assessment_revision: record.assessment.assessment_revision, question_id: record.assessment.question_id,
+    selected_option_id: option, correct_option_id: option, is_correct: true, rationale: "Saved explanation",
+    source_evidence_ids: [evidenceId], event_number: 1, created_at: record.created_at,
+  } });
+  assert.equal((await read(done)).items[0].feedback.correct_option_id, option);
+  for (const invalid of ["bad", `option:sha256:${"f".repeat(64)}`]) {
+    done.items[0].feedback.correct_option_id = invalid;
+    await assert.rejects(read(done), error => error.kind === "schema");
+  }
+  delete done.items[0].feedback.correct_option_id;
+  assert.equal((await read(done)).items[0].feedback.rationale, "Saved explanation");
+
   for (const overrides of [
     { study_session_id: materialId },
     { verified_count: 0 },

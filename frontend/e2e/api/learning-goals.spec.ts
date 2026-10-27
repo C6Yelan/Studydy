@@ -38,7 +38,7 @@ test("a real goal leads through level selection, source reading and answers with
   await levels.getByRole("radio", { name: /第一次接觸/ }).check();
   await levels.getByRole("button", { name: "儲存選擇", exact: true }).click();
   await expect(page).toHaveURL(/assessment-sets\/[0-9a-f-]+$/);
-  await expect(page.locator(".assessment-set-item")).toHaveCount(2);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   const setId = new URL(page.url()).pathname.split("/").at(-1)!;
   const setPath = `/v1/study-sessions/${data.session}/assessment-sets/${setId}`;
   const published = await (await page.request.get(setPath)).json();
@@ -48,13 +48,12 @@ test("a real goal leads through level selection, source reading and answers with
 
 
   await page.getByRole("article", { name: "第 1 題", exact: true }).getByRole("radio", { name: /\bcode0\b/ }).check();
+  await page.getByRole("button", { name: "下一題", exact: true }).click();
   await page.getByRole("article", { name: "第 2 題", exact: true }).getByRole("radio", { name: /\bcode1\b/ }).check();
-  await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
-  await expect(page.locator(".assessment-set-summary")).toContainText("答對2 / 2 題");
-  // 完成作答後可展開原教材並透過真 API 回查 PDF。
-  await expect(page.locator(".study-material-summary")).not.toHaveAttribute("open", "");
-  await page.locator(".study-material-summary > summary").click();
-  await page.getByRole("region", { name: "教材來源", exact: true }).getByRole("button").click();
+  await page.getByRole("button", { name: "交卷", exact: true }).click();
+  await expect(page.locator(".question-result-summary")).toContainText("答對 2／2 題");
+  // 完成作答後從每題回顧透過真 API 回查 PDF。
+  await page.locator(".feedback-evidence").first().getByRole("button").first().click();
   const source = page.getByRole("dialog", { name: "教材來源", exact: true });
   await expect(source).toBeVisible();
   const preview = source.getByRole("link", { name: "開啟 PDF 來源頁", exact: true });
@@ -62,7 +61,6 @@ test("a real goal leads through level selection, source reading and answers with
   const sourceUrl = (await preview.getAttribute("href"))!.split("#")[0];
   expect((await page.request.get(sourceUrl)).status()).toBe(200);
   await page.keyboard.press("Escape");
-  await page.locator(".study-material-summary > summary").click();
 
   const badgeNotice = page.getByRole("dialog", { name: "獲得新徽章" });
   if (await badgeNotice.isVisible()) await badgeNotice.getByRole("button", { name: "太好了", exact: true }).click();

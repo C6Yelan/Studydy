@@ -28,7 +28,7 @@ for (const width of [1366, 390]) {
     await page.reload();
     await expect(summary).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await summary.getByRole("button", { name: "下一個觀念：Next topic", exact: true }).click();
+    await summary.getByRole("button", { name: "繼續下一個概念", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Next topic", level: 1, exact: true })).toBeVisible();
     await expect(page.getByRole("progressbar", { name: "準備進度", exact: true })).toBeVisible();
     expect(fixture.requests.filter(request => request.path.endsWith("/assessment-sets"))).toHaveLength(0);

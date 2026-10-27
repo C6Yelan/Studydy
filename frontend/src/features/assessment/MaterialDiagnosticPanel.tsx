@@ -1,17 +1,16 @@
 import { useAssessmentPresence } from "./useAssessmentPresence";
 import { assessmentPhase, type AssessmentPhase } from "./assessment-phase";
-import { Progress } from "../../ui/Progress";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AssessmentSetAnswer, AssessmentSetView, KnowledgeConceptsView, MaterialDiagnosticSetView } from "../../api/contracts";
-import { AssessmentPanel } from "./AssessmentPanel";
-import { LearningDiagnosis } from "../learning-diagnosis/LearningDiagnosis";
+import { AssessmentPaper, QuestionPreparation } from "./AssessmentPaper";
 import "./sets.css";
 
-export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressChanged, onReview, onBack, onContinue, continuing, sessionCompleted, completesSession, onPhaseChange }: {
+export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressChanged, onBack, onContinue, continuing, sessionCompleted, completesSession, onPhaseChange, history }: {
   api: StudydyApiClient; initialSet: MaterialDiagnosticSetView; context: KnowledgeConceptsView;
-  onProgressChanged: () => Promise<void>; onReview: (conceptId: string) => void; onBack: () => void;
+  onProgressChanged: () => Promise<void>; onBack: () => void;
   onContinue: () => void; continuing: boolean;
+  history?: ReactNode;
   sessionCompleted: boolean; completesSession: boolean; onPhaseChange: (phase: AssessmentPhase) => void;
 }) {
   const [group, setGroup] = useState(initialSet);
@@ -89,43 +88,33 @@ export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressCh
     } catch (failure) { if (alive.current) setMessage(errorMessage(failure)); }
     finally { if (alive.current) setBusy(false); }
   };
-  const paper = <div className="assessment-set-items">{questions.map((item, index) => <article className="assessment-set-item" key={item.assessment!.assessment_revision} aria-label={`第 ${index + 1} 題`}>
-    <p className="assessment-set-number">第 {index + 1} 題 · {context.concepts.find(concept => concept.concept_id === item.target_concept_id)?.label}</p>
-    <AssessmentPanel apiClient={api} record={{ assessment: item.assessment!, feedback: item.feedback, can_submit: item.can_submit }} completed={done}
-      view={context} answerSelection={{ value: item.feedback?.selected_option_id ?? selections[item.assessment!.assessment_revision] ?? null,
-        disabled: busy || !!intent.current, onChange: option => setSelections(current => ({ ...current, [item.assessment!.assessment_revision]: option })) }} />
-  </article>)}</div>;
+  const paper = <AssessmentPaper key={group.set_id} api={api} records={questions.map(item => ({ assessment: item.assessment!, feedback: item.feedback, can_submit: item.can_submit }))}
+    view={context} history={history} completed={done} selections={selections} disabled={busy || !!intent.current} busy={busy}
+    canSubmit={!busy && selectedCount === group.published_count && group.can_complete}
+    submitLabel={busy ? "正在交卷…" : submissionFailed ? "重新交卷" : "交卷"}
+    onSubmit={() => void submit()} onSelect={(revision, option) => setSelections(current => ({ ...current, [revision]: option }))}>
+    {submissionFailed && <button className="secondary-button" type="button" disabled={busy} onClick={() => void read().then(() => { setMessage(null); return onProgressChanged(); }).catch(failure => setMessage(errorMessage(failure)))}>查回交卷結果</button>}
+  </AssessmentPaper>;
   return <section className="assessment-set-panel" aria-label="快速檢測">
     {phase === "question" && presenceError && <p className="form-error" role="status">作答狀態暫時無法同步：{presenceError}</p>}
-    <header className="surface assessment-set-header"><p className="eyebrow">快速檢測</p>
-      <h2>{done ? "快速檢測結果" : "先找出這次學習的起點"}</h2>
-      <p>每個概念最多 1 題。答對的重點依作答規則計入完成，其餘重點仍會安排學習，不會據此替你分級。</p>
-      {message && <p role="alert" className="form-error">{message}</p>}
-      {group.status === "preparing" && <><p role="status">正在準備快速檢測 · {group.verified_count} / {group.requested_count} 題</p>
-        <Progress aria-label="快速檢測準備進度" value={group.verified_count > 0 ? group.verified_count : undefined} max={Math.max(1, group.requested_count)} /></>}
-      {["partial_ready", "failed"].includes(group.status) && <div className="assessment-set-actions">
-        <p>部分快速檢測題目尚未準備完成；沒有測到的概念會保留在後續學習。</p>
-        {group.can_retry && <button className="secondary-button" disabled={busy} onClick={() => void change("retry")}>再試一次</button>}
-        {group.can_publish_partial && <button className="primary-button" disabled={busy} onClick={() => void change("publish-partial")}>先做已準備的 {group.verified_count} 題</button>}
-      </div>}
+    {message && <p role="alert" className="form-error">{message}</p>}
+    {(group.status === "preparing" || ["partial_ready", "failed"].includes(group.status)) && <header className="surface assessment-set-header is-preparing">
+      <h2>先找出這次學習的起點</h2>
+      {group.status === "preparing" ? <QuestionPreparation ready={group.verified_count} total={group.requested_count} label="快速檢測準備進度" />
+        : <div className="assessment-set-actions"><p>部分快速檢測題目尚未準備完成；沒有測到的概念會保留在後續學習。</p>
+          {group.can_retry && <button className="secondary-button" disabled={busy} onClick={() => void change("retry")}>再試一次</button>}
+          {group.can_publish_partial && <button className="primary-button" disabled={busy} onClick={() => void change("publish-partial")}>先做已準備的 {group.verified_count} 題</button>}
+        </div>}
       <button className="text-button" onClick={onBack}>查看知識地圖</button>
-    </header>
-    {done ? <>
-      <section className="surface assessment-cycle"><div className="assessment-set-summary" aria-label="快速檢測摘要">
-        <span>答對<strong>{group.passed_count} / {group.published_count} 題</strong></span>
-        <span>已檢測<strong>{group.published_count} 個概念</strong></span>
-      </div><p>先學答錯與未測的概念，再補齊已測概念中尚未完成的重點。</p>
-      <LearningDiagnosis api={api} materialId={group.material_id} revision={group.knowledge_structure_revision} onReview={onReview} />
-      {sessionCompleted ? <p role="status">這份教材已完成目前可檢測的重點。</p>
-        : <button className="primary-button" disabled={continuing || busy} onClick={onContinue}>{continuing ? "正在更新學習進度…" : completesSession ? "完成本次學習" : "接續學習"}</button>}
-      </section>
-      <details className="surface assessment-answer-review"><summary>查看本次 {group.published_count} 題作答回顧</summary>{paper}</details>
-    </> : group.published_count > 0 && <form className="assessment-paper" onSubmit={event => { event.preventDefault(); void submit(); }}>
-      {paper}
-      <div className="assessment-set-actions">
-        <button className="primary-button" type="submit" disabled={busy || selectedCount !== group.published_count || !group.can_complete}>{busy ? "正在交卷…" : submissionFailed ? "重新交卷" : "交卷並查看結果"}</button>
-        {submissionFailed && <button className="secondary-button" type="button" disabled={busy} onClick={() => void read().then(() => { setMessage(null); return onProgressChanged(); }).catch(failure => setMessage(errorMessage(failure)))}>查回交卷結果</button>}
-      </div>
-    </form>}
+    </header>}
+    {done && <section className="surface assessment-cycle">
+      <h2>快速檢測結果</h2>
+      <p className="question-result-summary" aria-label="快速檢測摘要">答對 {group.passed_count}／{group.published_count} 題 · {new Set(questions.filter(item => item.feedback && !item.feedback.is_correct).map(item => item.target_claim_id)).size} 個重點需要補強</p>
+      <p>先學答錯與未測的概念，再補齊已測概念中尚未完成的重點。</p>
+      {sessionCompleted && <p role="status">這份教材已完成目前可檢測的重點。</p>}
+      <div className="assessment-set-actions">{!sessionCompleted && <button className="primary-button" disabled={continuing || busy} onClick={onContinue}>{continuing ? "正在更新學習進度…" : completesSession ? "完成本次學習" : "接續學習"}</button>}
+        <button className="text-button" onClick={onBack}>查看知識地圖</button></div>
+    </section>}
+    {group.published_count > 0 && paper}
   </section>;
 }
