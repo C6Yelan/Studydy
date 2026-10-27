@@ -261,6 +261,16 @@ def set_goal(learner, material_id, target_date, target_percent, *, dsn=None):
         return _project(db, material, goal, now)
 
 
+def clear_pending_goal(learner, material_id, *, dsn=None):
+    with database_session(dsn) as db:
+        material = _material(db, learner.learner_id, material_id, lock=True)
+        if material.head_revision is not None:
+            raise SourceError("LEARNING_GOAL_PUBLISHED")
+        material.pending_goal = None
+        db.flush()
+        return _project(db, material, None, _now())
+
+
 def acknowledge_update(learner, material_id, revision, *, dsn=None):
     with database_session(dsn) as db:
         material = _material(db, learner.learner_id, material_id, lock=True)

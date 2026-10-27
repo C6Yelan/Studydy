@@ -336,3 +336,7 @@ Podcast 依選定概念及關係規劃分集，透過同一索引取得各集引
 ### 逐句回答語音
 
 依 voice turn 的 stage 顯示查找教材、整理回答、核對來源、等待語音及製作語音；舊資料依原生命週期顯示，不估填耗時。已核對音訊依 audio_sentences.index 順序播放，只請求 ready 的片段；下一句未完成就等待，失敗不跳過。retry 沿用 ready 前綴，cancel 停止待製作句子並保留原取消語意。逐句製作中沿用暫停收音，不新增自動取消；完整完成後才恢復開口打斷。完整回覆保留既有播放器與播放軸，串播進行中不切換成整段重播。
+
+L1確認範圍時，POST /v1/topics/{id}/approve 可同時保存starting_level及learning_goal：未傳欄位保留建立時設定，明確null清除。設定、proposal與搜尋意圖同交易保存；相同key／expected_version重送需相同確認內容，否則TOPIC_CONFLICT。確認改設定後，舊POST /v1/topics建立請求若重送原設定，依既有規則回IDEMPOTENCY_CONFLICT；不新增建立指紋，建立時的網路重試與之後確認分開處理。補充既有教材仍拒絕非空新設定，不覆蓋教材原值。
+
+DELETE /v1/materials/{id}/goal只清尚無已發布head的pending_goal，回learning-goal/v2且goal/pending_goal均null，可重送。已有head一律回409 LEARNING_GOAL_PUBLISHED，保留已發布目標；不提供刪除已發布目標的旁路。

@@ -25,6 +25,8 @@ class Approve(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1)
     proposal: dict
+    starting_level: Literal["some_knowledge", "familiar", "gaps"] | None = None
+    learning_goal: PendingGoal | None = None
 
 
 class Sources(BaseModel):
@@ -73,6 +75,7 @@ def install(app, settings):
             body.expected_version,
             body.proposal,
             request_context.idempotency_key(request),
+            settings=body.model_dump(mode="json", exclude_unset=True, include={"starting_level", "learning_goal"}),
             dsn=settings.dsn,
         )
 

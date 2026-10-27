@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Literal
 from uuid import UUID
-from fastapi import Request, Query
+from fastapi import Request, Query, Depends
 from sqlalchemy import text
 from learning_adaptation import assessment_sets, assessment_state
 from learning_adaptation.learner_progress import (
@@ -76,6 +76,13 @@ def install(app, settings):
         request_context.require_query(request, set())
         learner = request_context.trusted_learner(request, settings)
         return learning_goals.set_goal(learner, material_id, body.target_date, body.target_percent, dsn=settings.dsn)
+
+    @app.delete("/v1/materials/{material_id}/goal", response_model=LearningGoalView,
+                dependencies=[Depends(request_context.require_empty_body)], tags=["learning"])
+    def clear_pending_material_goal(request: Request, material_id: UUID):
+        request_context.require_query(request, set())
+        learner = request_context.trusted_learner(request, settings)
+        return learning_goals.clear_pending_goal(learner, material_id, dsn=settings.dsn)
 
     @app.post("/v1/materials/{material_id}/goal/acknowledge-update", response_model=LearningGoalView, tags=["learning"])
     def acknowledge_goal_update(request: Request, material_id: UUID, body: LearningGoalAck):

@@ -206,9 +206,11 @@ def read(owner, identity, *, dsn=None):
     return value
 
 
-def approve(owner, identity, expected, edited, key, *, dsn=None):
+def approve(owner, identity, expected, edited, key, *, settings=None, dsn=None):
     edited = proposal(edited)
-    fingerprint = canonical_sha256(edited)
+    settings = settings or {}
+    # 未帶設定的確認沿用既有指紋；明確 null 與未傳必須是不同的確認意圖。
+    fingerprint = canonical_sha256({"proposal": edited, "settings": settings} if settings else edited)
     digest = _key_digest(key)
     with database_session(dsn) as db:
         row = _owned(db, owner, identity, True)
@@ -216,6 +218,7 @@ def approve(owner, identity, expected, edited, key, *, dsn=None):
             if (
                 row.approved_sha256 != fingerprint
                 or bytes(row.approval_key_sha256) != digest
+                or row.version != expected + 1
             ):
                 raise SourceError("TOPIC_CONFLICT")
             return _view(row)
@@ -226,6 +229,16 @@ def approve(owner, identity, expected, edited, key, *, dsn=None):
             and db.get(Material, row.material_id).head_revision != row.base_revision
         ):
             raise SourceError("REVISION_CONFLICT")
+        if row.material_id and any(value is not None for value in settings.values()):
+            raise SourceError("REQUEST_INVALID")
+        goal = settings.get("learning_goal")
+        if goal:
+            from learning_adaptation.learning_goals import TIMEZONE
+            existing_date = (row.learning_goal or {}).get("target_date")
+            if date.fromisoformat(goal["target_date"]) < datetime.now(TIMEZONE).date() and goal["target_date"] != existing_date:
+                raise SourceError("REQUEST_INVALID")
+        for field, value in settings.items():
+            setattr(row, field, deepcopy(value))
         # 與批准同一交易建立 F2 意圖；批准前完全不存在搜尋工作。
         work = MaterialResearch(
             research_id=uuid4(),
