@@ -91,7 +91,15 @@ test('compact widget has one entry, chat bubbles, secondary sources and a growin
  const user=(await page.locator('.voice-question').boundingBox())!,assistant=(await page.locator('.voice-response').boundingBox())!;expect(user.x).toBeGreaterThan(assistant.x);
  await expect(page.locator('.voice-question > span')).toHaveCount(0);
  // 舊回答保留來源清單；位置與名稱直接顯示，可在右側回查原文。
- const chip=page.locator('.voice-reference-sources').getByRole('button').first();await expect(chip).toContainText('p.1');await chip.click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(panel).toBeVisible();
+ const chip=page.locator('.voice-reference-sources').getByRole('button').first();await expect(chip).toContainText('p.1');await chip.click();const sourcePanel=page.getByRole('dialog',{name:'教材來源'});await expect(sourcePanel).toBeVisible();
+ for(const width of [1440,390]){
+  await page.setViewportSize({width,height:width===390?844:900});
+  await expect.poll(async()=>{
+   const header=(await page.locator('.material-header').boundingBox())!,panel=(await sourcePanel.boundingBox())!;
+   return panel.y>=header.y+header.height;
+  }).toBe(true);
+ }
+ await page.keyboard.press('Escape');await expect(panel).toBeVisible();
  await input.fill('換行');await input.press('Shift+Enter');await input.pressSequentially('補充');await input.dispatchEvent('keydown',{key:'Enter',isComposing:true});expect(mock.questions).toHaveLength(1);await input.press('Enter');await expect.poll(()=>mock.questions.length).toBe(2);expect(mock.questions.at(-1)).toBe('換行\n補充');await expect(input).toHaveValue('');
  for(let i=0;i<3;i++){await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();await open(page);}
  await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.keyboard.press('Escape');await expect(panel).toBeVisible();await expect(page.getByRole('button',{name:'對話紀錄',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);
