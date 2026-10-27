@@ -266,6 +266,7 @@ for (const width of [1440, 390]) test(`home shows separate material goals and ta
   ] }));
   const first = goalSummary(goalView(materialId, structureRevision, runId, firstConcept));
   const second = goalSummary(goalView(secondMaterial, structureRevision, runId, secondConcept), "作業系統");
+  Object.assign(second, { target_date: goalToday, days_remaining: 1, behind_points: 0 });
   await page.route("**/v1/learning-goals", route => json(route, { schema: "learning-goals/v1", today: goalToday, goals: [first, second] }));
   const starts: string[] = [];
   page.on("request", request => { if (request.url().endsWith("/study-start")) starts.push(request.url()); });
@@ -276,8 +277,10 @@ for (const width of [1440, 390]) test(`home shows separate material goals and ta
   const island = page.locator(".map-island").filter({ hasText: "資料結構" });
   await expect(island).toContainText("目標 80% · 剩 7 天");
   await expect(island.locator(".progress-ring")).toContainText("38%");
-  await expect(island.locator(".island-goal-flag")).toContainText("7 天");
-  await expect(island.locator(".island-goal-flag")).toHaveClass(/is-warning/);
+  await expect(island.locator(".island-flag")).toHaveClass(/is-warning/);
+  const dueToday = page.locator(".map-island").filter({ hasText: "作業系統" }).locator(".island-flag");
+  await expect(dueToday).toContainText("今天到期");
+  await expect(dueToday).toHaveClass(/is-warning/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await tasks.getByRole("button", { name: "查看關卡：資料結構", exact: true }).click();
   await expect(page.getByRole("tab", { name: "學習與測驗", exact: true })).toHaveAttribute("aria-selected", "true");

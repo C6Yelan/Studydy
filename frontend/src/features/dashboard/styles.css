@@ -579,6 +579,7 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
   .dashboard-content > * { min-width: 0; }
 }
 
-.island-goal-flag { position: absolute; top: 12%; right: 12%; padding: 6px 10px; border-radius: 8px 8px 8px 0; background: var(--studydy-blue); color: white; font-size: 12px; font-weight: 800; box-shadow: 0 2px 6px #0002; }
-.island-goal-flag.is-warning { background: var(--warning-soft); color: var(--text-primary); }
 .goal-quest .daily-goal-progress { margin-top: 6px; }
+
+.map-island .island-flag.is-warning { background: var(--warning-soft); }
+.island-flag.is-warning .island-goal-summary { color: var(--text-primary); }
