@@ -5,6 +5,7 @@ from datetime import datetime, UTC
 import json
 import logging
 import os
+import re
 import shutil
 import stat
 import tempfile
@@ -365,11 +366,11 @@ class AnalysisArchive:
         return None
 
     def prepare_block_call(self, identity, number, request):
-        self._write(f"blocks/{identity}/call-{number:06d}/request.json", request)
+        self._write(self._attempt_name(f"blocks/{identity}/call-{number:06d}/request.json"), request)
 
     def save_block_response(self, identity, number, response):
         # 原始回應在驗證前保存，失敗原因不能只剩通用錯誤碼。
-        self._write(f"blocks/{identity}/call-{number:06d}/response.json", response)
+        self._write(self._attempt_name(f"blocks/{identity}/call-{number:06d}/response.json"), response)
 
     def complete_block(self, identity, request_digest, number, response):
         self._write(
@@ -385,16 +386,28 @@ class AnalysisArchive:
         digest = data["original_evidence_id"].rsplit(":", 1)[-1]
         self._write(f"ocr-recovery-{digest}.json", data)
 
+    def _attempt_name(self, name):
+        # 自動重試在同一 run 目錄重跑，呼叫編號從頭計；加上重試序號，保留第一次的請求與回應。
+        if not self.run.auto_retry_count:
+            return name
+        return re.sub(
+            r"(^|/)(call-\d{6}(?:-repair-\d{2})?)(?=/)",
+            rf"\1\2-retry-{self.run.auto_retry_count:02d}",
+            name,
+            count=1,
+        )
+
     def save_response(self, index, request, response):
         self._write(
-            f"call-{index:06d}/decoded.json", {"request": request, "response": response}
+            self._attempt_name(f"call-{index:06d}/decoded.json"),
+            {"request": request, "response": response},
         )
 
     def prepare_call(self, index, request):
-        self._write(f"call-{index:06d}/request.json", request)
+        self._write(self._attempt_name(f"call-{index:06d}/request.json"), request)
 
     def save_review(self, name, data):
-        self._write(f"review/{name}.json", data)
+        self._write(f"review/{self._attempt_name(name)}.json", data)
 
     def prepare_review_call(self, index, key, request, *, attempt=0):
         name = f"call-{index:06d}" + (f"-repair-{attempt:02d}" if attempt else "")
