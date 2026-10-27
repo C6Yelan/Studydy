@@ -600,6 +600,7 @@ export type AnswerFeedbackView = {
   assessment_revision: string;
   question_id: string;
   selected_option_id: string;
+  correct_option_id?: string;
   is_correct: boolean;
   rationale: string;
   source_evidence_ids: string[];

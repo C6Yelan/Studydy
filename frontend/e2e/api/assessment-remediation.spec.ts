@@ -34,21 +34,22 @@ test("wrong points directly form groups and survive lost create responses", asyn
   await login(page);
   await page.goto(study);
   await chooseFirstLevel(page);
-  await expect(page.locator(".assessment-set-item")).toHaveCount(3);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   const rootUrl = page.url();
   for (let n = 1; n <= 3; n++) {
     await card(page, n)
       .getByRole("radio", { name: n === 1 ? /\bcode0\b/ : new RegExp(`wrong${n - 1}a`) })
       .check();
+    if (n < 3) await page.getByRole("button", { name: "下一題", exact: true }).click();
   }
-  await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
-  const reviews = page.getByRole("article", { name: "待補強重點", exact: true });
+  await page.getByRole("button", { name: "交卷", exact: true }).click();
+  const reviews = page.locator(".feedback-card.is-incorrect .feedback-evidence");
   await expect(reviews).toHaveCount(2);
   await expect(reviews.nth(0)).toContainText("Signal 1 uses code1.");
   await expect(reviews.nth(1)).toContainText("Signal 2 uses code2.");
-  await expect(page.getByRole("button", { name: "開始補強 2 題", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "補強這 2 個重點", exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("button", { name: "開始補強 2 題", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "補強這 2 個重點", exact: true })).toBeVisible();
   let lostCreate = false;
   await page.route("**/assessment-sets/*/remediation", async (route) => {
     if (lostCreate) {
@@ -62,34 +63,36 @@ test("wrong points directly form groups and survive lost create responses", asyn
   });
   // 第一次交卷會跳出新徽章（初次作答、第一份題組），先關閉才能繼續操作。
   await page.getByRole("dialog", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
-  await page.getByRole("button", { name: "開始補強 2 題", exact: true }).click();
+  await page.getByRole("button", { name: "補強這 2 個重點", exact: true }).click();
   await expect(page.getByRole("button", { name: "重新讀取題組", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "重新讀取題組", exact: true }).click();
   await page.getByRole("button", { name: "接續補強", exact: true }).click();
-  await expect(page.locator(".assessment-set-item")).toHaveCount(2);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   expect(page.url()).not.toBe(rootUrl);
-  await expect(page.getByText("錯題重點補強", { exact: true })).toBeVisible();
+  await expect(page.locator(".question-paper-heading")).toContainText("Signals");
   await card(page, 1)
     .getByRole("radio", { name: /\bcode1\b/ })
     .check();
+  await page.getByRole("button", { name: "下一題", exact: true }).click();
   await card(page, 2)
     .getByRole("radio", { name: /wrong2a/ })
     .check();
-  await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
-  await expect(page.getByRole("button", { name: "開始補強 2 題", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "交卷", exact: true }).click();
+  await expect(page.getByRole("button", { name: "補強這 2 個重點", exact: true })).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "開始補強 2 題", exact: true }).click();
-  await expect(page.locator(".assessment-set-item")).toHaveCount(2);
+  await page.getByRole("button", { name: "補強這 2 個重點", exact: true }).click();
+  await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   await card(page,1).getByRole("radio",{name:/\bcode1\b/}).check();
+  await page.getByRole("button", { name: "下一題", exact: true }).click();
   await card(page,2).getByRole("radio",{name:/\bcode2\b/}).check();
-  await page.getByRole("button",{name:"交卷並查看結果",exact:true}).click();
-  await page.getByRole("button",{name:"開始補強 1 題",exact:true}).click();
+  await page.getByRole("button",{name:"交卷",exact:true}).click();
+  await page.getByRole("button",{name:"補強這 1 個重點",exact:true}).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   // 上一次交卷讓 Signals 的錯誤率降到一半以下，進入補強題組時讀到新徽章（突破難點），先關閉提示。
   await page.getByRole("dialog", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
   const childUrl=page.url();
   await card(page,1).getByRole("radio",{name:/\bcode2\b/}).check();
-  await page.getByRole("button",{name:"交卷並查看結果",exact:true}).click();
+  await page.getByRole("button",{name:"交卷",exact:true}).click();
   await expect(page.getByText(passedMessage,{exact:true})).toBeVisible();
 
   const context = await browser.newContext({ viewport });
@@ -106,17 +109,18 @@ test("wrong points directly form groups and survive lost create responses", asyn
     progress.concept_states.find((c: { concept_id: string }) => c.concept_id === data.concept)
       .completed_claim_ids.length,
   ).toBe(3);
+  await fresh.getByRole("button", { name: /題組紀錄（/ }).click();
   await fresh
-    .locator(".assessment-set-history")
+    .getByRole("dialog", { name: "題組紀錄" })
     .getByRole("button")
     .filter({ hasText: "初篩" })
     .click();
   await expect(fresh).toHaveURL(rootUrl);
   await expect(fresh.locator(".assessment-set-item")).toHaveCount(3);
-  await fresh.getByRole("button", { name: "下一個觀念：Other topic", exact: true }).click();
+  await fresh.getByRole("button", { name: "繼續下一個概念", exact: true }).click();
   await expect(fresh).toHaveURL(new RegExp(study + "/assessment-sets/"));
   await expect(
-    fresh.getByRole("heading", { name: "Other topic", level: 1, exact: true }),
+    fresh.locator(".question-paper-heading"),
   ).toBeVisible();
   await expect(fresh.locator(".assessment-set-item")).toHaveCount(1);
   expect(errors).toEqual([]);

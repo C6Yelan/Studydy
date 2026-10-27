@@ -1,3 +1,4 @@
+import { answerPaper } from "../fixtures/answer-paper";
 import { expect, test, type Page } from "@playwright/test";
 import type { AssessmentSetView } from "../../src/api/contracts";
 import { readRoute } from "../../src/app/routes";
@@ -41,7 +42,7 @@ for (const viewport of [
     await preparationLayout(page, viewport.width);
     await start.scrollIntoViewIfNeeded();
     await expect(start).toBeInViewport();
-    await expect(page.locator(".assessment-set-history")).toHaveAttribute("open", "");
+    await expect(page.getByRole("button", { name: /題組紀錄（/ })).toBeVisible();
     const sources = page.getByRole("region", { name: "教材來源", exact: true }).getByRole("button");
     await expect(sources).toHaveCount(1);
     await sources.click();
@@ -67,7 +68,7 @@ for (const viewport of [
     release();
     await inlinePreparing(page);
     const bar = page.getByRole("progressbar", { name: "準備進度" });
-    await expect(page.getByText("0 / 6 題", { exact: true })).toBeVisible();
+    await expect(page.getByText("已準備 0 / 6 題", { exact: true })).toBeVisible();
     await expect(bar).not.toHaveAttribute("aria-valuenow");
     fixture.setPreparedCount(2);
     await expect(bar).toHaveAttribute("aria-valuenow", "2");
@@ -114,7 +115,7 @@ for (const viewport of [
     fixture.setPreparedCount(6);
     await expect(bar).toHaveAttribute("aria-valuenow", "6");
     fixture.setStage("ready");
-    await expect(page.locator(".assessment-set-item")).toHaveCount(6);
+    await expect(page.locator(".assessment-set-item")).toHaveCount(1);
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-question-mode/);
     await expect(page.locator(".current-concept-card")).not.toBeVisible();
     const readyResponse = page.waitForResponse(
@@ -124,13 +125,12 @@ for (const viewport of [
     );
     await page.reload();
     const readySet: AssessmentSetView = (await (await readyResponse).json()).selected_set;
-    await expect(page.locator(".assessment-set-item")).toHaveCount(6);
+    await expect(page.locator(".assessment-set-item")).toHaveCount(1);
     // 最後一題選第四個選項，刻意不同於 fixture 預載結果的第二個選項。
     const choices = [0, 0, 0, 0, 0, 3];
     const submission = page.waitForRequest((request) => request.url().endsWith("/submissions"));
-    for (let i = 0; i < 6; i++)
-      await page.locator(".assessment-set-item").nth(i).getByRole("radio").nth(choices[i]).check();
-    await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
+    await answerPaper(page, choices);
+    await page.getByRole("button", { name: "交卷", exact: true }).click();
     const submitted = await submission;
     expect(submitted.method()).toBe("POST");
     expect(submitted.headers()["idempotency-key"]).toMatch(/\S/);
@@ -144,11 +144,10 @@ for (const viewport of [
       })),
     });
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-result-mode/);
-    await expect(page.locator(".study-material-summary")).not.toHaveAttribute("open", "");
     await expect(page.locator(".current-concept-card")).not.toBeVisible();
     await expect(page.locator(".feedback-card")).toHaveCount(6);
-    await expect(page.getByRole("article", { name: "待補強重點", exact: true })).toHaveCount(1);
-    await page.locator(".assessment-set-history button").last().click();
+    await page.getByRole("button", { name: /題組紀錄（/ }).click();
+    await page.getByRole("dialog", { name: "題組紀錄" }).locator("li button").last().click();
     await expect(page).toHaveURL(new RegExp(fixture.historyPath.split("/").at(-1)! + "$"));
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-result-mode/);
     expect(
@@ -172,23 +171,21 @@ for (const viewport of [
     await expect(publish).toBeEnabled();
     await inlinePreparing(page, "intervention");
     await page.getByRole("button", { name: "再試一次", exact: true }).click();
-    await expect(page.getByText("2 / 6 題", { exact: true })).toBeVisible();
+    await expect(page.getByText("已準備 2 / 6 題", { exact: true })).toBeVisible();
     await inlinePreparing(page);
     fixture.setStage("partial_ready");
     await expect(publish).toBeVisible();
     await publish.click();
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-question-mode/);
-    await expect(page.locator(".assessment-set-item")).toHaveCount(4);
+    await expect(page.locator(".assessment-set-item")).toHaveCount(1);
     expect(fixture.requests.filter((request) => request.path.endsWith("/retry"))).toHaveLength(1);
     expect(
       fixture.requests.filter((request) => request.path.endsWith("/publish-partial")),
     ).toHaveLength(1);
-    for (const item of await page.locator(".assessment-set-item").all())
-      await item.getByRole("radio").first().check();
-    await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
+    await answerPaper(page, [0, 0, 0, 0]);
+    await page.getByRole("button", { name: "交卷", exact: true }).click();
     await expect(page.locator(".feedback-card")).toHaveCount(4);
     await expect(page.getByText("本輪有未作答或未檢測的重點。", { exact: true })).toBeVisible();
-    await expect(page.getByRole("article", { name: "待補強重點", exact: true })).toHaveCount(0);
   });
 }
 
@@ -230,7 +227,7 @@ test("create failure restores entry and retry retains its idempotency key", asyn
   await expect(start).toBeEnabled();
   await expect(page.getByRole("heading", { name: "尚未開始這個概念" })).toBeVisible();
   await start.click();
-  await expect(page.getByText("2 / 6 題", { exact: true })).toBeVisible();
+  await expect(page.getByText("已準備 2 / 6 題", { exact: true })).toBeVisible();
   await inlinePreparing(page);
   expect(keys).toHaveLength(2);
   expect(keys[0]).toBeTruthy();
@@ -240,7 +237,7 @@ test("create failure restores entry and retry retains its idempotency key", asyn
 test("in-progress set offers submission without cancellation", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "in_progress");
   await fixture.open();
-  await expect(page.locator(".assessment-set-item")).toHaveCount(6);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   await expect(page.getByRole("button", { name: /取消本組測驗|取消本輪/ })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "交卷並查看結果", exact: true })).toBeVisible();
+  await answerPaper(page, [0, 0, 0, 0, 0, 0]);
 });

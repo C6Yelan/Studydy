@@ -145,6 +145,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       assessment_revision: assessment.assessment_revision,
       question_id: assessment.question_id,
       selected_option_id: selectedOptionId,
+      ...(scenario?.missingCorrectOption ? {} : { correct_option_id: assessment.options[0].option_id }),
       is_correct: isCorrect,
       rationale:
         "請依照教材描述的通訊角色判斷。" +
@@ -513,10 +514,8 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       )
         return reject("LEARNER_GUIDANCE_STALE", 409);
       guidanceApplied = true;
-      return send({
-        ...latestProgress,
-        current_concept_id: nextAction === "advance" ? nextConceptId : conceptId,
-      });
+      latestProgress = { ...latestProgress, current_concept_id: nextAction === "advance" ? nextConceptId : conceptId };
+      return send(latestProgress);
     }
     if (path.endsWith("/assessment-plan")) {
       const concept = knowledgeStructure.concepts.find(
@@ -575,6 +574,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       );
       assessmentStage = "completed";
       setVersion++;
+      if (scenario?.lostSubmissionResponse) return route.abort();
       return send(buildAssessmentSet());
     }
     if (path.endsWith(`/assessment-sets/${historySetId}`)) return send(buildAssessmentSet(true));

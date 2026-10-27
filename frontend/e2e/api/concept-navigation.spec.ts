@@ -70,7 +70,7 @@ test("unfinished A does not block B and switching back resumes A", async ({ page
   const readySet = await readySetResponse.json();
   expect(readySet.status).toBe("ready");
   await page.getByRole("radio", { name: /EXTERNAL/ }).check();
-  await page.getByRole("button", { name: "交卷並查看結果", exact: true }).click();
+  await page.getByRole("button", { name: "交卷", exact: true }).click();
   await expect(
     page.getByText("可檢測的重點皆已完成。", { exact: true }),
   ).toBeVisible();
@@ -78,7 +78,7 @@ test("unfinished A does not block B and switching back resumes A", async ({ page
   const unansweredSet = await unansweredSetResponse.json();
   expect(unansweredSet.answered_count).toBe(0);
 
-  await page.getByRole("button", { name: "下一個觀念：Signals", exact: true }).click();
+  await page.getByRole("button", { name: "繼續下一個概念", exact: true }).click();
   await expect(page).toHaveURL(firstSetUrl);
   await expect(page.getByRole("radio", { name: /\bcode0\b/ })).toBeEnabled();
   const resumedSetResponse = await page.request.get(`${assessmentSetsPath}/${firstSetId}`);

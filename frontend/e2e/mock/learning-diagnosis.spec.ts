@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { diagnosisView, difficultyView } from "../fixtures/learning-diagnosis";
 import { materialId, runId, sessionId, structureRevision, firstConcept, firstClaim, structureView, workspaceView, mockKnowledgeMapApi, json, openMapConcept } from "../fixtures/knowledge-map";
-import { studyLayoutFixture } from "../fixtures/study-layout.mjs";
 
 const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
 const hard = { concept_id: firstConcept, label: "Stack", level: "hard" as const, reason: "需先學 3 層先備概念。", personal_difficulty: false, incorrect_count: 0, answer_count: 0 };
@@ -84,43 +83,6 @@ test("recommendations preserve the three supplied concepts and their review targ
   const start = page.waitForRequest(request => request.method() === "POST" && /\/study-start$/.test(new URL(request.url()).pathname));
   await section.getByRole("button").first().click();
   expect((await start).postDataJSON().current_concept_id).toBe(recommendations[0].concept_id);
-});
-
-test("material diagnosis from the result opens its concept for review", async ({ page }) => {
-  const fixture = await studyLayoutFixture(page, "completed", {});
-  const concept = fixture.knowledgeStructure.concepts[0];
-  await page.route("**/learning-diagnosis", route => {
-    const url = new URL(route.request().url()), parts = decodeURIComponent(url.pathname).split("/");
-    return json(route, { ...diagnosisView(parts[3], parts[5]),
-      recommendations: [{ concept_id: concept.concept_id, label: concept.label, reason: "2 個重點最近答錯。" }] });
-  });
-  await fixture.open();
-  await expect(page.locator(".assessment-set-summary")).toContainText("答對2 / 4 題");
-  const diagnosis = page.getByRole("region", { name: "學習診斷" });
-  await expect(diagnosis).toContainText("2 個重點最近答錯。");
-  await diagnosis.getByRole("button", { name: `複習 ${concept.label}` }).click();
-  await expect(page).toHaveURL(fixture.path.split("/study-sessions/")[0]);
-  expect(await page.evaluate(() => window.history.state.knowledgeMap.detail)).toBe(concept.concept_id);
-});
-
-test("a failed diagnosis read preserves the score and can be retried", async ({ page }) => {
-  const fixture = await studyLayoutFixture(page, "completed", {});
-  let failed = true;
-  await page.route("**/learning-diagnosis", route => {
-    if (failed) return json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "REQUEST_INVALID", retryable: true, message: "Request could not be completed." }, 503);
-    const url = new URL(route.request().url()), parts = decodeURIComponent(url.pathname).split("/");
-    return json(route, { ...diagnosisView(parts[3], parts[5]),
-      recommendations: [{ concept_id: fixture.knowledgeStructure.concepts[0].concept_id, label: "伺服器", reason: "2 個重點最近答錯。" }] });
-  });
-  await fixture.open();
-  const diagnosis = page.getByRole("region", { name: "學習診斷" });
-  await expect(diagnosis).toContainText("診斷暫時無法讀取");
-  await expect(page.locator(".assessment-set-summary")).toContainText("答對2 / 4 題");
-  failed = false;
-  await diagnosis.getByRole("button", { name: "重新讀取診斷" }).click();
-  await expect(diagnosis).toContainText("2 個重點最近答錯。");
-  await page.locator(".assessment-answer-review summary").click();
-  await expect(page.locator(".assessment-answer-review .feedback-card")).toHaveCount(4);
 });
 
 test("diagnosis exports a PDF summary for the current material revision", async ({ page }) => {

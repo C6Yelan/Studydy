@@ -26,7 +26,8 @@ export function AssessmentPanel({
   const feedback = record.feedback;
   const selection = answerSelection.value;
   const canAnswer = !completed && record.can_submit;
-  if (feedback) {
+  if (feedback && completed) {
+    const claim = view.concepts.flatMap(item => item.claims).find(item => item.claim_id === assessment.target_claim_id);
     const evidence = view.concepts
       .flatMap((item) => item.claims)
       .flatMap((claim) => claim.evidence)
@@ -52,11 +53,16 @@ export function AssessmentPanel({
           <p><MathText text={assessment.options.find(option => option.option_id === feedback.selected_option_id)?.text ?? ""}/></p>
         </section>
         <section className="feedback-section">
-          <h3>為什麼？</h3>
+          <h3>正確答案</h3>
+          <p><MathText text={assessment.options.find(option => option.option_id === feedback.correct_option_id)?.text ?? "這份作答紀錄尚未提供正確答案。"}/></p>
+        </section>
+        <section className="feedback-section">
+          <h3>解析</h3>
           <p className="feedback-rationale"><MathText text={feedback.rationale}/></p>
         </section>
         <div className="feedback-evidence">
-          <h3>教材依據</h3>
+          <h3>對應重點與原文來源</h3>
+          {claim && <p><MathText text={claim.text}/></p>}
           {evidenceLinks.map((item) => (
             <SourceButton
               apiClient={apiClient}
@@ -83,6 +89,7 @@ export function AssessmentPanel({
             key={option.option_id}
           >
             <input
+              className="question-option-input"
               type="radio"
               name={`assessment-option-${assessment.question_id}`}
               value={option.option_id}

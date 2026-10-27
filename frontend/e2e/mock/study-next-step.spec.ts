@@ -35,7 +35,7 @@ for (const width of [1366, 390]) {
       nextLabel: label,
     });
     await fixture.open();
-    const next = page.getByRole("button", { name: `下一個觀念：${label}`, exact: true });
+    const next = page.getByRole("button", { name: "繼續下一個概念", exact: true });
     await expect(next).toBeVisible();
     await expect(
       page.getByRole("button", { name: /查看原始初篩題組|回到地圖繼續學習/ }),
@@ -99,18 +99,19 @@ for (const [name, stage, scenario] of [
     await fixture.open();
     await expect(page.getByRole("button", { name: /下一個觀念|完成本次學習/ })).toHaveCount(0);
     if (name === "wrong points")
-      await expect(page.getByRole("button", { name: "開始補強 1 題", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "補強這 1 個重點", exact: true })).toBeVisible();
   });
 
-test("a completed concept retains navigation after a wrong practice answer", async ({ page }) => {
+test("a completed concept keeps saved completion and prioritizes remediation", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "completed", {
     navigation: true, startingLevel: "beginner", wrong: [2], conceptStatus: "completed",
   });
   await fixture.open();
   await expect(page.getByText("本次練習有需要加強的重點，先前的完成紀錄會保留。", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "開始補強 1 題", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "下一個觀念：使用者端", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "使用者端", level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "補強這 1 個重點", exact: true })).toBeEnabled();
+  await expect(page.locator(".assessment-cycle .primary-button")).toHaveCount(1);
+  await page.getByRole("button", { name: "查看知識地圖", exact: true }).click();
+  expect(await page.evaluate(() => window.history.state.knowledgeMap.detail)).toBe(fixture.knowledgeStructure.concepts[0].concept_id);
 });
 
 test("failed apply keeps result and allows retry with the same guidance", async ({ page }) => {
@@ -127,10 +128,10 @@ test("failed apply keeps result and allows retry with the same guidance", async 
       });
     await route.fallback();
   });
-  await page.getByRole("button", { name: "下一個觀念：使用者端", exact: true }).click();
+  await page.getByRole("button", { name: "繼續下一個概念", exact: true }).click();
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page).toHaveURL(before);
-  await page.getByRole("button", { name: "下一個觀念：使用者端", exact: true }).click();
+  await page.getByRole("button", { name: "繼續下一個概念", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "使用者端", level: 1, exact: true }),
   ).toBeVisible();
@@ -153,7 +154,7 @@ test("stale guidance refreshes the decision without automatic apply", async ({ p
     }
     await route.fallback();
   });
-  await page.getByRole("button", { name: "下一個觀念：使用者端", exact: true }).click();
+  await page.getByRole("button", { name: "繼續下一個概念", exact: true }).click();
   await expect(page.getByRole("button", { name: "完成本次學習", exact: true })).toBeVisible();
   await expect(page).toHaveURL(before);
   expect(revisions).toHaveLength(1);
@@ -172,7 +173,7 @@ test("incomplete cycle follows the backend next action without claiming a pass",
   });
   await fixture.open();
   await expect(page.getByText("本輪有未作答或未檢測的重點。", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "下一個觀念：使用者端", exact: true }).click();
+  await page.getByRole("button", { name: "繼續下一個概念", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "使用者端", level: 1, exact: true }),
   ).toBeVisible();
