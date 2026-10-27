@@ -81,13 +81,13 @@ def test_step_time_migration_applies_and_rolls_back(clean_database_dsn, migratio
     import psycopg
     from runtime.storage.migrations import load_migrations,run_migrations
     previous=tmp_path/'previous';previous.mkdir()
-    for path in sorted(migrations_dir.glob('*.sql'))[:-1]:
+    for path in sorted(migrations_dir.glob('*.sql'))[:25]:
         shutil.copyfile(path,previous/path.name)
     run_migrations(clean_database_dsn,migrations_dir=previous)
     migrations=load_migrations(migrations_dir)
     with psycopg.connect(clean_database_dsn,autocommit=True) as db:
         with db.transaction(force_rollback=True):
-            db.execute(migrations[-1].sql)
+            db.execute(migrations[25].sql)
             db.execute('SELECT started_at,finished_at FROM podcast_scenes')
         assert db.execute("SELECT count(*) FROM information_schema.columns WHERE table_name='podcast_scenes' AND column_name='started_at'").fetchone()==(0,)
-    assert run_migrations(clean_database_dsn,migrations_dir=migrations_dir)==(len(migrations),)
+    assert run_migrations(clean_database_dsn,migrations_dir=migrations_dir)==tuple(m.version for m in migrations[25:])

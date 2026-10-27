@@ -98,12 +98,12 @@ def test_presence_migration_transaction_rollback(clean_database_dsn, migrations_
     migrations = load_migrations(migrations_dir)
     previous = tmp_path / 'previous'
     previous.mkdir()
-    for path in sorted(migrations_dir.glob('*.sql'))[:-1]:
+    for path in sorted(migrations_dir.glob('*.sql'))[:24]:
         shutil.copyfile(path, previous / path.name)
     run_migrations(clean_database_dsn, migrations_dir=previous)
     with psycopg.connect(clean_database_dsn, autocommit=True) as db:
         with db.transaction(force_rollback=True):
-            db.execute(migrations[-1].sql)
+            db.execute(migrations[24].sql)
             assert db.execute("SELECT to_regclass('assessment_presence')").fetchone() == ('assessment_presence',)
         assert db.execute("SELECT to_regclass('assessment_presence')").fetchone() == (None,)
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (len(migrations),)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == tuple(m.version for m in migrations[24:])

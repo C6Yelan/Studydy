@@ -138,17 +138,17 @@ def test_retention_migration_preserves_users_and_rolls_back(clean_database_dsn, 
     migrations = load_migrations(migrations_dir)
     previous = tmp_path/'previous'
     previous.mkdir()
-    for path in sorted(migrations_dir.glob('*.sql'))[:-1]:
+    for path in sorted(migrations_dir.glob('*.sql'))[:22]:
         shutil.copyfile(path, previous/path.name)
     run_migrations(clean_database_dsn, migrations_dir=previous)
     owner = uuid4()
     with psycopg.connect(clean_database_dsn, autocommit=True) as db:
         db.execute('INSERT INTO learners (learner_id,created_at) VALUES (%s,now())', (owner,))
         with db.transaction(force_rollback=True):
-            db.execute(migrations[-1].sql)
+            db.execute(migrations[22].sql)
             assert db.execute('SELECT baseline_pending FROM learning_celebrations WHERE learner_id=%s', (owner,)).fetchone() == (True,)
         assert db.execute("SELECT to_regclass('learning_retained_days')").fetchone() == (None,)
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (len(migrations),)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == tuple(m.version for m in migrations[22:])
     with psycopg.connect(clean_database_dsn) as db:
         assert db.execute('SELECT count(*) FROM learners WHERE learner_id=%s', (owner,)).fetchone() == (1,)
         assert db.execute('SELECT seen_level,baseline_pending FROM learning_celebrations WHERE learner_id=%s', (owner,)).fetchone() == (1,True)

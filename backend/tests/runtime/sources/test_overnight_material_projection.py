@@ -82,13 +82,13 @@ def test_presentation_migration_applies_and_rolls_back(clean_database_dsn, migra
     from runtime.storage.migrations import load_migrations, run_migrations
     previous = tmp_path/'previous'
     previous.mkdir()
-    for path in sorted(migrations_dir.glob('*.sql'))[:-1]:
+    for path in sorted(migrations_dir.glob('*.sql'))[:23]:
         shutil.copyfile(path, previous/path.name)
     run_migrations(clean_database_dsn, migrations_dir=previous)
     migrations = load_migrations(migrations_dir)
     with psycopg.connect(clean_database_dsn, autocommit=True) as db:
         with db.transaction(force_rollback=True):
-            db.execute(migrations[-1].sql)
+            db.execute(migrations[23].sql)
             assert db.execute("SELECT count(*) FROM information_schema.columns WHERE (table_name,column_name) IN (('materials','pending_goal'),('material_processing_runs','display_summary'),('topic_scopes','starting_level'),('topic_scopes','learning_goal'),('material_notes','started_at'))").fetchone() == (5,)
         assert db.execute("SELECT count(*) FROM information_schema.columns WHERE table_name='materials' AND column_name='pending_goal'").fetchone() == (0,)
-    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == (len(migrations),)
+    assert run_migrations(clean_database_dsn, migrations_dir=migrations_dir) == tuple(m.version for m in migrations[23:])
