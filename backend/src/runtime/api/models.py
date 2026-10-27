@@ -43,8 +43,24 @@ class LearnerProfileView(_Closed):
     display_name: str | None
 
 
+class StorageBreakdown(_Closed):
+    material_files_bytes: int
+    podcast_audio_bytes: int
+    podcast_video_bytes: int
+    analysis_bytes: int
+    reserved_bytes: int
+
+
+class StorageMaterial(_Closed):
+    material_id: UUID
+    display_name: str
+    used_bytes: int
+
+
 class AccountStorageView(_Closed):
-    schema_: Literal["account-storage/v1"] = Field(alias="schema")
+    breakdown: StorageBreakdown
+    largest_materials: list[StorageMaterial]
+    schema_: Literal["account-storage/v2"] = Field(alias="schema")
     # 已用含 reserved_bytes：未收齊的分段上傳（宣告大小）與生成中 Podcast／影片的預估額度。
     used_bytes: int = Field(ge=0)
     reserved_bytes: int = Field(ge=0)
