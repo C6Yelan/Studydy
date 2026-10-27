@@ -489,3 +489,23 @@ def test_artifact_constraints_allow_larger_audio_originals_only(closed_loop):
     ]:
         with pytest.raises(psycopg.errors.CheckViolation, match=constraint):
             insert(kind, media, size)
+
+
+@pytest.mark.parametrize("name,title,expected", [
+    ("YouTube 影片", "影片標題" * 20, ("影片標題" * 20)[:40]),
+    ("YouTube 影片", None, "YouTube 影片"),
+    ("自己的教材名稱", "影片標題", "自己的教材名稱"),
+], ids=["video-title", "missing-title", "custom-name"])
+def test_youtube_metadata_names_a_new_default_material(closed_loop, monkeypatch, name, title, expected):
+    client = _client(closed_loop)
+    draft = client.post("/v1/materials", json={"schema": "material-draft-create/v1", "display_name": name},
+                        headers={**HEADERS, "Idempotency-Key": "youtube-default-name"})
+    assert draft.status_code == 201
+    material = draft.json()["material_id"]
+    _youtube(monkeypatch, title=title)
+    response = _add_youtube(client, material, "https://youtu.be/iG9CE55wbtY")
+    assert response.status_code == 202
+    assert client.get(f"/v1/materials/{material}").json()["display_name"] == expected
+    _youtube(monkeypatch, title="後來新增的影片")
+    assert _add_youtube(client, material, "https://youtu.be/AAAAAAAAAAA", key="second-video").status_code == 202
+    assert client.get(f"/v1/materials/{material}").json()["display_name"] == expected

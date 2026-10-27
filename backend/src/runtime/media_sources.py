@@ -476,9 +476,18 @@ def add_youtube_source(owner, material_id, url, key, *, dsn=None):
         "duration_seconds": float(info["duration"]),
     }
     data = json.dumps(reference, ensure_ascii=False, sort_keys=True).encode()
-    return upload_source(
+    source_id = upload_source(
         owner, material_id, data, reference["title"] + ".youtube", YOUTUBE_MIME, key, dsn=dsn
     )
+    if str(info.get("title") or "").strip():
+        with database_session(dsn) as session:
+            material = require_source_material(session, owner, material_id)
+            sources = list(session.scalars(select(MaterialSource.source_id).where(
+                MaterialSource.material_id == material_id, MaterialSource.removed_at.is_(None)
+            )))
+            if material.display_name == "YouTube 影片" and not material.head_revision and sources == [source_id]:
+                material.display_name = reference["title"][:40]
+    return source_id
 
 
 def pick_subtitle(info):

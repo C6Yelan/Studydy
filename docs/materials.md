@@ -246,7 +246,7 @@ SearXNG 由 Compose 的 `research-search` 提供，只在 application 網路內�
 一般使用者分析遇到 RESTART_INTERRUPTED、語意服務暫時不可用／逾時、STORAGE_BUSY 或 SOURCE_BUSY 時，沿同一 run 與已保存 checkpoint 自動接續一次。auto_retry_count／auto_retry_reason 存在工作列，程序重啟不重設，第二次失敗才回 failed；排回 queued 時本次執行進度重新建立，已驗證 checkpoint 不刪除。取消、內容核對（REVIEW_*）、一般模型生成失敗、格式／容量錯誤及空間不足不重試。指定一次性維護 run 排除在此規則之外，仍遵守既有「恢復後再失敗不得自動重排」授權。
 ## 來源與執行摘要的顯示投影
 
-來源清單、教材列表代表來源與 Evidence resolver 共同提供 display_name、source_kind、duration_seconds、image_count、transcript_source 與 transcript_display_name。時長取已核對 mapping；YouTube 名稱只在顯示時去掉 .youtube，單張圖片去掉（圖片）.zip，多張顯示張數。新舊圖片同規則，不改ZIP上傳格式，不猜逐張原名。
+來源清單、教材列表代表來源與 Evidence resolver 共同提供 display_name、source_kind、duration_seconds、image_count、transcript_source 與 transcript_display_name。時長取已核對 mapping；新教材首個來源是 YouTube 時，預設教材名稱使用後端已取得的影片標題並取前 40 字；標題缺失保留「YouTube 影片」，自訂名稱與追加來源不覆寫教材名稱。YouTube 來源名稱只在顯示時去掉 .youtube，單張圖片去掉（圖片）.zip，多張顯示張數。新舊圖片同規則，不改ZIP上傳格式，不猜逐張原名。
 
 run 的 added_sources／existing_source_count 依固定 SourceSet 與 base 分辨新增與沿用來源。發布時把前後概念／關係數存為獨立 display_summary，再執行既有清理；不把顯示欄位寫入來源或結構 hash。舊run仍可從保留資料唯讀推導，缺前版結構時不捏造計數。
 
