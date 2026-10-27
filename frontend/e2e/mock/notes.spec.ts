@@ -247,7 +247,9 @@ test("older visible notes keep annotation and export requests on their content r
  await page.getByLabel('個人註記',{exact:true}).fill('舊稿的個人註記');
  await page.getByRole('button',{name:'儲存註記',exact:true}).click();await expect(page.getByRole('dialog')).toBeHidden();
  expect(annotationPath).toContain(`/knowledge-structures/${oldRevision}/notes/summary/annotations/`);
- const downloading=page.waitForEvent('download');await page.getByRole('group',{name:'匯出筆記'}).getByRole('button',{name:'匯出',exact:true}).click();await downloading;
+ await page.getByRole('button',{name:'匯出筆記',exact:true}).click();
+ const exportDialog=page.getByRole('dialog',{name:'匯出筆記',exact:true});await exportDialog.getByRole('radio',{name:'PDF',exact:true}).check();
+ const downloading=page.waitForEvent('download');await exportDialog.getByRole('button',{name:'匯出',exact:true}).click();await downloading;
  expect(exportPath).toBe(`/v1/materials/${materialId}/knowledge-structures/${oldRevision}/notes/summary/export/pdf`);
  const generating=page.waitForRequest(request=>request.method()==='POST'&&request.url().includes('/notes/summary'));
  await page.getByRole('button',{name:'重新生成',exact:true}).click();
