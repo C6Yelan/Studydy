@@ -48,7 +48,7 @@ export function StartingLevelDialog({ api, materialId, current, onSaved, onClose
   return <dialog ref={dialog} className="starting-level-dialog" aria-labelledby="starting-level-title"
     onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <h2 id="starting-level-title">你想從哪裡開始？</h2>
-    <p>依你對這份教材的熟悉程度選擇，之後可以在教材頁更改。</p>
+    <p>{current ? "只調整後續學習安排，已完成的重點與進行中的題組會保留。" : "依你對這份教材的熟悉程度選擇，之後可以在教材頁更改。"}</p>
     <StartingLevelOptions selected={selected} onChange={setSelected} disabled={busy} />
     {error && <p role="alert" className="form-error">{error}</p>}
     <div className="state-actions">
@@ -58,9 +58,8 @@ export function StartingLevelDialog({ api, materialId, current, onSaved, onClose
   </dialog>;
 }
 
-export function StartingLevelControl({ api, materialId, onChanged, nextConcept, onContinue, busy }: {
+export function StartingLevelControl({ api, materialId, onChanged }: {
   api: StudydyApiClient; materialId: string; onChanged: () => void;
-  nextConcept: string | null; onContinue: (() => void) | null; busy: boolean;
 }) {
   const [level, setLevel] = useState<StartingLevel | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -73,13 +72,8 @@ export function StartingLevelControl({ api, materialId, onChanged, nextConcept, 
     return () => { cancelled = true; };
   }, [api, materialId, reload]);
   return <section className="starting-level-setting" aria-label="起始程度設定">
-    <div><h2>起始程度</h2><p>只調整後續學習安排，已完成的重點與進行中的題組會保留。</p></div>
     {error ? <p role="alert">{error}<button className="text-button" onClick={() => setReload(value => value + 1)}>重新讀取程度</button></p>
-      : <button className="secondary-button" disabled={level === undefined} onClick={() => setEditing(true)}>{level === undefined ? "正在讀取…" : `起始程度：${levels.find(item => item.value === (level === "beginner" ? "some_knowledge" : level))?.label ?? "尚未選擇"} · 更改`}</button>}
-    {onContinue && <div className="starting-level-next">
-      {nextConcept && <p>接下來：{nextConcept}</p>}
-      <button className="primary-button" disabled={busy} onClick={onContinue}>{busy ? "正在接續學習…" : nextConcept ? "依目前路線接續學習" : "開始學習"}</button>
-    </div>}
+      : <button className="text-button" disabled={level === undefined} onClick={() => setEditing(true)}>{level === undefined ? "正在讀取…" : `程度：${levels.find(item => item.value === (level === "beginner" ? "some_knowledge" : level))?.label ?? "尚未選擇"} · 更改`}</button>}
     {editing && level !== undefined && <StartingLevelDialog api={api} materialId={materialId} current={level}
       onClose={() => setEditing(false)} onSaved={value => { setLevel(value); setEditing(false); onChanged(); }} />}
   </section>;

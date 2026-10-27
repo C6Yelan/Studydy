@@ -1,8 +1,6 @@
-.learning-diagnosis, .diagnosis-difficulties { min-width: 0; }
+.learning-diagnosis { min-width: 0; }
 .learning-diagnosis h2 { margin: 0 0 16px; font-size: 1.3rem; }
-.learning-diagnosis h3, .diagnosis-difficulties h3 { margin: 0 0 8px; font-size: 1.05rem; }
-.diagnosis-sections { display: grid; gap: 20px; }
-.diagnosis-sections p, .difficulty-reason { margin: 6px 0 0; color: var(--text-secondary); line-height: 1.65; }
+.learning-diagnosis h3 { margin: 0 0 8px; font-size: 1.05rem; }
 .diagnosis-point-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .diagnosis-point-list > li { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .diagnosis-point-list > li > div { min-width: 0; overflow-wrap: anywhere; }
@@ -18,10 +16,31 @@
 .concept-difficulty.has-reason { display: flex; margin-top: 8px; }
 .difficulty-reason { display: block; flex-basis: 100%; font-size: .9rem; font-weight: 400; }
 .difficulty-reason > span { display: block; }
-.review-diagnosis { padding: 24px; border-bottom: 1px solid var(--border); display: grid; gap: 28px; }
-.assessment-cycle > .learning-diagnosis { margin: 24px 0; padding-top: 20px; border-top: 1px solid var(--border); }
 .concept-card > .concept-difficulty { margin: 0 0 12px; }
 @media (max-width: 600px) {
   .review-diagnosis { padding: 20px 16px; }
   .diagnosis-point-list > li { align-items: flex-start; flex-direction: column; gap: 10px; }
+}
+.review-diagnosis { padding: 24px; display: grid; gap: 20px; background: var(--page-cool); }
+.review-next, .review-diagnosis > .learning-goal-panel, .learning-diagnosis { padding: 24px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+.review-next { display: grid; gap: 16px; }
+.review-next > header, .diagnosis-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
+.review-next h2, .review-next p, .diagnosis-heading h2 { margin: 0; }
+.review-next > button { justify-self: start; }
+.review-next .starting-level-setting { max-width: 60%; }
+.review-next .starting-level-setting button { text-align: right; white-space: normal; }
+.diagnosis-heading { margin-bottom: 16px; }
+.diagnosis-export { position: relative; }
+.diagnosis-export summary { cursor: pointer; padding: 8px 12px; }
+.diagnosis-export .export-controls { position: absolute; right: 0; z-index: 2; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-card); width: max-content; }
+.diagnosis-point-list p { margin: 8px 0; line-height: 1.65; color: var(--text-secondary); }
+.diagnosis-point-details summary, .diagnosis-mastered > summary, .review-records > summary { cursor: pointer; padding: 10px 0; font-weight: 700; }
+.diagnosis-mastered, .learning-diagnosis > .review-records { margin-top: 20px; padding: 0; border-top: 1px solid var(--border); }
+.diagnosis-point-list .difficulty-badge { margin-left: 8px; }
+@media (max-width: 600px) {
+  .review-diagnosis { padding: 16px; }
+  .review-next, .review-diagnosis > .learning-goal-panel, .learning-diagnosis { padding: 18px; }
+  .review-next > header { flex-wrap: wrap; }
+  .review-next .starting-level-setting { max-width: 100%; }
+  .review-next .starting-level-setting button { text-align: left; }
 }

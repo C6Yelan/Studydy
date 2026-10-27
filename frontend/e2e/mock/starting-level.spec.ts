@@ -117,12 +117,12 @@ test("changing the material level preserves work and shows the supplied next con
   await page.goto(mapPath);
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   const setting = page.getByRole("region", { name: "起始程度設定" });
-  await expect(setting).toContainText("接下來：Array");
-  await setting.getByRole("button", { name: /起始程度：第一次接觸，或還不太熟/ }).click();
+  await expect(page.getByRole("region", { name: "下一步" })).toContainText("接下來：Array");
+  await setting.getByRole("button", { name: /程度：第一次接觸，或還不太熟/ }).click();
   const picker = page.getByRole("dialog", { name: "你想從哪裡開始？" });
   await picker.getByRole("radio", { name: /學過了，想跳過已經會的/ }).check();
   await picker.getByRole("button", { name: "儲存選擇" }).click();
-  await expect(setting).toContainText("起始程度：學過了，想跳過已經會的");
+  await expect(setting).toContainText("程度：學過了，想跳過已經會的");
   expect(fixture.mutations.map(item => item.path)).toEqual(["level"]);
 });
 

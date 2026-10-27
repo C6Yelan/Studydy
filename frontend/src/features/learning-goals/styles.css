@@ -18,15 +18,9 @@
 .learning-goal-panel p { line-height: 1.65; color: var(--text-secondary); }
 .learning-goal-panel > header, .goal-today > header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
 .learning-goal-panel > header p { margin-top: 6px; }
-.goal-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0; }
-.goal-facts dt { color: var(--text-secondary); font-size: .85rem; }
-.goal-facts dd { margin: 5px 0 0; font-weight: 800; overflow-wrap: anywhere; }
-.goal-facts small { display: block; font-weight: 400; color: var(--text-secondary); }
 .goal-timing { display: flex; flex-wrap: wrap; gap: 16px; }
 .goal-timing strong { color: var(--text-primary); }
 .goal-today, .goal-manual, .goal-preview { display: grid; gap: 12px; padding-top: 18px; border-top: 1px solid var(--border); }
-.goal-quota strong { color: var(--text-primary); }
-.goal-note { font-size: .9rem; }
 .goal-warning, .goal-update-notice { padding: 14px 16px; border-radius: 14px; background: var(--warning-soft); }
 .goal-warning .text-button, .goal-update-notice .text-button { margin-top: 6px; }
 .goal-concepts, .goal-preview ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
@@ -39,6 +33,10 @@
 .goal-preview-label { color: var(--text-secondary); font-size: .85rem; }
 .goal-preview-actions { display: flex; gap: 10px; justify-content: flex-end; }
 @media (max-width: 720px) {
-  .goal-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .goal-concepts li { align-items: start; flex-direction: column; gap: 10px; }
 }
+.daily-goal-progress { display: grid; gap: 8px; min-width: 0; }
+.daily-goal-progress p { margin: 0; line-height: 1.6; }
+.daily-goal-progress small { color: var(--text-secondary); line-height: 1.6; }
+.goal-suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.goal-suggestions button { white-space: normal; }

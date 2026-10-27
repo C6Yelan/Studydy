@@ -22,9 +22,9 @@ test("a real goal leads through level selection, source reading and answers with
   await editor.getByLabel("目標日期", { exact: true }).fill(data.target_date);
   await editor.getByRole("radio", { name: /60%/ }).check();
   await editor.getByRole("button", { name: "儲存目標", exact: true }).click();
-  await expect(goalPanel).toContainText("60% · 及格");
+  await expect(goalPanel).toContainText("前掌握 60%");
   const today = goalPanel.getByRole("region", { name: "今天的關卡", exact: true });
-  await expect(today).toContainText("今日目標 1 ／ 實際安排 2 個重點");
+  await expect(today).toContainText("今天學 1 個重點 · 已完成 0");
   await expect(today).toContainText("Signals");
 
   // 設定目標只保存計畫；程度與題組仍等實際開始學習時處理。
@@ -65,15 +65,15 @@ test("a real goal leads through level selection, source reading and answers with
   const badgeNotice = page.getByRole("dialog", { name: "獲得新徽章" });
   if (await badgeNotice.isVisible()) await badgeNotice.getByRole("button", { name: "太好了", exact: true }).click();
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  await expect(goalPanel.getByText("目標已達成", { exact: true })).toBeVisible();
-  await expect(goalPanel.locator(".goal-facts")).toContainText("2 / 3");
+  await expect(goalPanel.getByText("學習目標已達成。", { exact: true })).toBeVisible();
+  await expect(goalPanel.getByRole("progressbar", { name: "學習目標進度", exact: true })).toHaveAttribute("aria-valuetext", "已完成 2／需完成 2 個重點");
   await expect(today).toContainText("今日關卡已完成");
-  await expect(today).toContainText("今天已完成 2 個重點");
+  await expect(today).toContainText("已完成 2");
   await page.reload();
-  await expect(goalPanel.getByText("目標已達成", { exact: true })).toBeVisible();
-  await expect(goalPanel.locator(".goal-facts")).toContainText("2 / 3");
+  await expect(goalPanel.getByText("學習目標已達成。", { exact: true })).toBeVisible();
+  await expect(goalPanel.getByRole("progressbar", { name: "學習目標進度", exact: true })).toHaveAttribute("aria-valuetext", "已完成 2／需完成 2 個重點");
   await expect(today).toContainText("今日關卡已完成");
-  await expect(today).toContainText("今天已完成 2 個重點");
+  await expect(today).toContainText("已完成 2");
 
   const saved = await (await page.request.get(`/v1/materials/${data.material}/goal`)).json();
   expect(saved.goal.target_date).toBe(data.target_date);

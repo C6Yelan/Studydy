@@ -38,8 +38,8 @@ for (const width of [1366, 390]) test(`goal form saves date and percentage and k
   await expect(editor.getByLabel("目標日期", { exact: true })).toHaveValue("2026-10-30");
   await expect(editor.getByRole("radio", { name: /60%/ })).toBeChecked();
   await editor.getByRole("button", { name: "儲存目標" }).click();
-  await expect(panel).toContainText("60% · 及格");
-  await expect(panel).toContainText("2026/10/30");
+  await expect(panel).toContainText("前掌握 60%");
+  await expect(panel).toContainText("10/30 前掌握");
   expect(writes).toEqual(Array(2).fill({ schema: "learning-goal-update/v1", target_date: "2026-10-30", target_percent: 60 }));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -55,7 +55,7 @@ test("today shows fixed quota, whole-concept workload and manual evidence gaps",
   await page.goto(mapPath);
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   const panel = page.getByRole("region", { name: "學習目標與每日關卡" });
-  await expect(panel).toContainText("今日目標 2 ／ 實際安排 24 個重點");
+  await expect(panel).toContainText("今天學 2 個重點 · 已完成 0");
   await expect(panel).toContainText("落後 2 個重點");
   await expect(panel).toContainText("實際安排超過每日建議的 20 個重點");
   await expect(panel.getByRole("button", { name: "學習 Stack", exact: true })).toBeEnabled();
@@ -89,8 +89,8 @@ test("an overdue goal can lower its percentage without postponing its date", asy
   await expect(editor.getByLabel("目標日期", { exact: true })).toHaveValue("2026-10-19");
   await editor.getByRole("radio", { name: /60%/ }).check();
   await editor.getByRole("button", { name: "儲存目標", exact: true }).click();
-  await expect(panel).toContainText("60% · 及格");
-  await expect(panel).toContainText("2026/10/19");
+  await expect(panel).toContainText("前掌握 60%");
+  await expect(panel).toContainText("10/19 前掌握");
   expect(writes).toEqual([{ schema: "learning-goal-update/v1", target_date: "2026-10-19", target_percent: 60 }]);
 });
 
@@ -110,14 +110,14 @@ test("earned daily progress survives when every point later becomes unavailable"
   await page.goto("/");
   const daily = page.getByRole("region", { name: "今日任務" }).locator(".goal-quest");
   await expect(daily).toHaveClass(/is-done/);
-  await expect(daily).toContainText("今天已完成 4 個重點");
+  await expect(daily).toContainText("已完成 4");
   await daily.getByRole("button", { name: "查看關卡：資料結構" }).click();
   const panel = page.getByRole("region", { name: "學習目標與每日關卡" });
   await expect(panel).toContainText("目前沒有可檢測重點");
   await expect(panel).toContainText("尚無法計算");
   const today = panel.getByRole("region", { name: "今天的關卡" });
   await expect(today).toContainText("今日關卡已完成");
-  await expect(today).toContainText("今天已完成 4 個重點");
+  await expect(today).toContainText("已完成 4");
   await expect(panel.getByText("目標已達成", { exact: true })).toHaveCount(0);
   await expect(panel.getByRole("alert")).toHaveCount(0);
 });
@@ -145,13 +145,13 @@ test("editing the target date preserves all of today's earned points", async ({ 
   const panel = page.getByRole("region", { name: "學習目標與每日關卡" });
   const today = panel.getByRole("region", { name: "今天的關卡" });
   await expect(today).toContainText("今日關卡已完成");
-  await expect(today).toContainText("今天已完成 4 個重點");
+  await expect(today).toContainText("已完成 4");
   await panel.getByRole("button", { name: "更改學習目標", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "更改學習目標", exact: true });
   await editor.getByLabel("目標日期", { exact: true }).fill("2026-10-27");
   await editor.getByRole("button", { name: "儲存目標", exact: true }).click();
   await expect(today).toContainText("今日關卡已完成");
-  await expect(today).toContainText("今天已完成 4 個重點");
+  await expect(today).toContainText("已完成 4");
   expect(writes).toEqual([{ schema: "learning-goal-update/v1", target_date: "2026-10-27", target_percent: 80 }]);
 });
 
@@ -173,7 +173,8 @@ test("zero assessable points stays unavailable and achieved goals stay distinct"
   await expect(panel).toContainText("目標已達成");
   await expect(panel).toContainText("需完成 16 個重點");
   await expect(panel).not.toContainText("已逾期 5 天");
-  await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("還沒有測驗紀錄");
+  await page.locator("details.review-records > summary").click();
+  await expect(page.locator("details.review-records")).toContainText("還沒有測驗紀錄");
 });
 
 test("revision notice acknowledgement persists without changing the goal or daily quota", async ({ page }) => {
@@ -193,9 +194,9 @@ test("revision notice acknowledgement persists without changing the goal or dail
   await panel.getByRole("button", { name: "關閉教材更新提示", exact: true }).click();
   await expect(panel.getByRole("button", { name: "關閉教材更新提示", exact: true })).toHaveCount(0);
   await page.reload();
-  await expect(panel).toContainText("80% · 熟練");
-  await expect(panel).toContainText("2026/10/30");
-  await expect(panel).toContainText("今日目標 2 ／ 實際安排 3 個重點");
+  await expect(panel).toContainText("前掌握 80%");
+  await expect(panel).toContainText("10/30 前掌握");
+  await expect(panel).toContainText("今天學 2 個重點 · 已完成 0");
   await expect(panel.getByRole("button", { name: "關閉教材更新提示", exact: true })).toHaveCount(0);
   expect(acknowledgements).toEqual([{ schema: "learning-goal-ack/v1", knowledge_structure_revision: structureRevision }]);
 });
@@ -228,7 +229,7 @@ test("a stale notice cannot acknowledge an unseen revision", async ({ page }) =>
   await panel.getByRole("button", { name: "重新讀取目標" }).click();
   await expect(panel).toContainText("重點數 18 → 30");
   await panel.getByRole("button", { name: "關閉教材更新提示" }).click();
-  await expect(panel).toContainText("今日目標 3 ／ 實際安排 3 個重點");
+  await expect(panel).toContainText("今天學 3 個重點 · 已完成 0");
   expect(seen).toEqual([structureRevision, newerRevision]);
 });
 
@@ -254,7 +255,7 @@ test("future stage pages are read-only previews", async ({ page }) => {
   expect(methods).toEqual(["GET", "GET", "GET"]);
 });
 
-for (const width of [1440, 390]) test(`home shows separate material goals without replacing concept rings at ${width}px`, async ({ page }) => {
+for (const width of [1440, 390]) test(`home shows separate material goals and target progress rings at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
   await mockKnowledgeMapApi(page);
   const secondMaterial = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -274,7 +275,9 @@ for (const width of [1440, 390]) test(`home shows separate material goals withou
   await expect(tasks.getByText("今天的關卡 · 作業系統", { exact: true })).toBeVisible();
   const island = page.locator(".map-island").filter({ hasText: "資料結構" });
   await expect(island).toContainText("目標 80% · 剩 7 天");
-  await expect(island.locator(".progress-ring")).toContainText("0");
+  await expect(island.locator(".progress-ring")).toContainText("38%");
+  await expect(island.locator(".island-goal-flag")).toContainText("7 天");
+  await expect(island.locator(".island-goal-flag")).toHaveClass(/is-warning/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await tasks.getByRole("button", { name: "查看關卡：資料結構", exact: true }).click();
   await expect(page.getByRole("tab", { name: "學習與測驗", exact: true })).toHaveAttribute("aria-selected", "true");
@@ -292,8 +295,30 @@ for (const width of [1440, 390]) test(`completed daily stage shows earned points
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   const today = page.getByRole("region", { name: "今天的關卡" });
   await expect(today).toContainText("今日關卡已完成");
-  await expect(today).toContainText("今天已完成 3 個重點");
+  await expect(today).toContainText("已完成 3");
   await today.scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`goal-completed-${width}.png`) });
+});
+
+for (const kind of ["extend_date", "lower_target"] as const) test(`goal suggestion ${kind} writes only after explicit click and can retry`, async ({ page }) => {
+  await mockKnowledgeMapApi(page);
+  const view = goalView(materialId, structureRevision, runId, firstConcept);
+  const suggestion = { kind, target_date: kind === "extend_date" ? "2026-11-10" : "2026-10-30", target_percent: kind === "lower_target" ? 60 as const : 80 as const, daily_points: 18 };
+  Object.assign(view.goal!, { quota_over_limit: true, suggestions: [suggestion] });
+  const writes: unknown[] = [];
+  await page.route(`**/v1/materials/${materialId}/goal**`, route => {
+    if (route.request().method() === "PUT") {
+      const body = route.request().postDataJSON(); writes.push(body);
+      if (writes.length === 1) return json(route, failure, 503);
+      Object.assign(view.goal!, { target_date: body.target_date, target_percent: body.target_percent, quota_over_limit: false, suggestions: [] });
+    }
+    return json(route, view);
+  });
+  await page.goto(mapPath); await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  const button = page.getByRole("button", { name: kind === "extend_date" ? /延後到 2026\/11\/10/ : /改成 60%/ });
+  await expect(button).toBeVisible(); expect(writes).toEqual([]);
+  await button.click(); await expect(page.getByRole("alert")).toBeVisible(); await expect(button).toBeEnabled();
+  await button.click(); await expect(button).toHaveCount(0);
+  expect(writes).toEqual(Array(2).fill({ schema: "learning-goal-update/v1", target_date: suggestion.target_date, target_percent: suggestion.target_percent }));
 });

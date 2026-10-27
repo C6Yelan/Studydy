@@ -10,4 +10,3 @@
 .starting-level-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .starting-level-setting h2 { font-size: 1.3rem; }
 .starting-level-setting p { margin-bottom: 0; }
-.starting-level-next { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }

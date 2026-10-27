@@ -35,39 +35,46 @@ async function mockOwnedReview(
 }
 
 
-for (const width of [1536,1100,390]) {
- test(`assessment list separates unfinished concepts and optional practice at ${width}px`,async({page})=>{
-  await page.setViewportSize({width,height:900});const view=structureView(),state=structuredClone(progress);
+for (const width of [1440, 1300, 1200, 1024, 390]) {
+ test(`next step and collapsed records at ${width}px`,async({page}, info)=>{
+  await page.setViewportSize({width,height:900}); const view=structureView(), state=structuredClone(progress);
   state.concept_states.forEach(s => s.attempts = 1);
-  state.concept_states[0].status='needs_review';state.concept_states[0].weak_claim_ids=[view.concepts[0].claims[0].claim_id];
-  state.concept_states[1].status='completed';state.concept_states[1].completed_claim_ids=[view.concepts[1].claims[0].claim_id];
-  await mockOwnedReview(page,view,()=>state);await page.goto(mapPath);await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
-  const section=page.getByRole('region',{name:'測驗紀錄'}),pending=section.locator(':scope > .assessment-concept-list');
-  await expect(pending.locator('li')).toHaveCount(1);await expect(pending).toContainText('Stack');await expect(pending).toContainText('需要加強');await expect(pending).not.toContainText('Array');
-  await expect(section.getByRole('button',{name:'再次練習',exact:true})).not.toBeVisible();
-  await section.locator('summary').click();await expect(section.getByRole('button',{name:'再次練習',exact:true})).toBeVisible();await expect(section.locator('details')).toContainText('Array');
-  await expect(section).not.toContainText(/mastered|assisted|本輪檢測通過|掌握度/);
+  state.concept_states[0].status='needs_review'; state.concept_states[1].status='completed';
+  await mockOwnedReview(page,view,()=>state); await page.goto(mapPath); await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
+  const next = page.getByRole('region',{name:'下一步'});
+  await expect(next).toContainText('已完成 1／2 個概念');
+  await expect(next.getByRole('button',{name:'繼續學習',exact:true})).toBeInViewport();
+  const diagnosis = page.getByRole('region',{name:'學習診斷'});
+  await expect(diagnosis.locator(':scope > ul > li')).toHaveCount(1);
+  await expect(diagnosis.locator(':scope > ul > li')).toContainText('Stack');
+  const records=page.locator('details.review-records');
+  await expect(records).not.toHaveAttribute('open','');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await page.reload();await expect(page.getByRole('tab',{name:'學習與測驗',exact:true})).toHaveAttribute('aria-selected','true');
+  await page.screenshot({path:info.outputPath(`review-${width}.png`),fullPage:true});
+  await records.locator(':scope > summary').click();
+  await expect(records.locator('li')).toHaveCount(2);
+  await expect(records.locator('li').last()).toContainText('已完成');
+  await page.reload(); await expect(page.getByRole('tab',{name:'學習與測驗',exact:true})).toHaveAttribute('aria-selected','true');
  });
 }
 
 for (const completed of [0,32]) {
- test(`assessment list preserves ${32-completed} unfinished memberships`,async({page})=>{
+ test(`assessment records preserve ${32-completed} unfinished memberships`,async({page})=>{
   const view=workspaceView(32,true),state=structuredClone(progress);
   state.concept_states=view.concepts.map(c=>({...progress.concept_states[0],concept_id:c.concept_id,label:c.label,attempts:1,status:completed?'completed':'in_progress',assessable_claim_ids:c.claims.map(a=>a.claim_id),completed_claim_ids:completed?c.claims.map(a=>a.claim_id):[]}));
   state.current_concept_id=view.concepts[0].concept_id;
-  await mockOwnedReview(page,view,()=>state);await page.goto(mapPath);await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
-  const section=page.getByRole('region',{name:'測驗紀錄'});
-  if(completed){await expect(section).toContainText('已有作答紀錄的概念都已完成');await expect(section.getByRole('button',{name:'繼續測驗',exact:true})).toHaveCount(0);}
-  else {await expect(section.locator(':scope > ul li strong')).toHaveText(view.concepts.map(c=>c.label));await section.locator(':scope > ul li').last().scrollIntoViewIfNeeded();await expect(section.locator(':scope > ul li').last()).toBeInViewport();}
+  await mockOwnedReview(page,view,()=>state); await page.goto(mapPath); await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
+  const records=page.locator('details.review-records'); await records.locator(':scope > summary').click();
+  await expect(records.locator('li strong')).toHaveText(view.concepts.map(c=>c.label));
+  await records.locator('li').last().scrollIntoViewIfNeeded(); await expect(records.locator('li').last()).toBeInViewport();
+  await expect(page.getByRole('region',{name:'學習診斷'}).locator(':scope > ul > li')).toHaveCount(completed?0:32);
  });
 }
 
-test('zero assessable concept is not put into completed practice',async({page})=>{
+test('zero assessable concept has no submitted record',async({page})=>{
  const state=structuredClone(progress);state.concept_states[0].assessable_claim_ids=[];
  await mockOwnedReview(page,structureView(),()=>state);await page.goto(mapPath);await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
- const section=page.getByRole('region',{name:'測驗紀錄'});await expect(section).toContainText('目前還沒有測驗紀錄');await expect(section.locator('li')).toHaveCount(0);await expect(section.locator('details')).toHaveCount(0);
+ const section=page.locator('details.review-records'); await section.locator('summary').click(); await expect(section).toContainText('還沒有測驗紀錄'); await expect(section.locator('li')).toHaveCount(0);
 });
 
 test('loading progress does not show a false completed or empty list',async({page})=>{
@@ -76,7 +83,7 @@ test('loading progress does not show a false completed or empty list',async({pag
  await page.goto(mapPath);const tab=page.getByRole('tab',{name:'學習與測驗',exact:true});
  await expect.poll(()=>reads).toBe(1);await expect(tab).toBeDisabled();
  await expect(page.getByText('已有作答紀錄的概念都已完成。',{exact:true})).toHaveCount(0);
- release();await tab.click();await expect(page.getByRole('region',{name:'測驗紀錄'}).getByRole('button',{name:'繼續測驗',exact:true})).toHaveCount(0);
+ release();await tab.click();await expect(page.locator('details.review-records').getByRole('button',{name:'繼續測驗',exact:true})).toHaveCount(0);
 });
 
 for (const status of ["in_progress", "needs_review", "completed"]) {
@@ -89,34 +96,24 @@ for (const status of ["in_progress", "needs_review", "completed"]) {
     await mockOwnedReview(page, structureView(), () => state);
     await page.goto(mapPath);
     await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-    const section = page.getByRole("region", { name: "測驗紀錄" });
+    const section = page.locator("details.review-records");
     for (const reload of [false, true]) {
       if (reload) await page.reload();
       await expect(section.locator("li")).toHaveCount(1);
       await expect(section).not.toContainText("Array");
       await expect(section).not.toContainText("尚未開始");
-      if (status === "completed") {
-        await section.locator("summary").click();
-        await expect(section.locator("li")).toContainText("已完成");
-        await expect(section.getByRole("button", { name: "再次練習", exact: true })).toBeVisible();
-        await expect(section.getByRole("button", { name: "繼續測驗", exact: true })).toHaveCount(0);
-      } else {
-        await expect(section).toContainText(status === "needs_review" ? "需要加強" : "進行中");
-        await expect(section.getByRole("button", { name: "繼續測驗", exact: true })).toBeVisible();
-      }
+      await section.locator("summary").click();
+      await expect(section.locator("li")).toContainText(status === "completed" ? "已完成" : "尚未完成");
+      await expect(section.getByRole("button", { name: "查看與練習", exact: true })).toBeVisible();
     }
   });
 }
 
-test("no saved session has an empty record list and a map entry", async ({ page }) => {
-  await mockKnowledgeMapApi(page);
-  await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  const section = page.getByRole("region", { name: "測驗紀錄" });
-  await expect(section).toContainText("目前還沒有測驗紀錄，可以從知識地圖選擇概念開始學習。");
-  await expect(section.locator("li")).toHaveCount(0);
-  await section.getByRole("button", { name: "回到知識地圖" }).click();
-  await expect(page.getByRole("tab", { name: "知識地圖", exact: true })).toHaveAttribute("aria-selected", "true");
+test("no saved session offers next step and an empty collapsed record list", async ({ page }) => {
+  await mockKnowledgeMapApi(page); await page.goto(mapPath); await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await expect(page.getByRole("region", { name: "下一步" }).getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
+  const section = page.locator("details.review-records"); await section.locator("summary").click();
+  await expect(section).toContainText("還沒有測驗紀錄"); await expect(section.locator("li")).toHaveCount(0);
 });
 
 test("switching materials never reuses the previous material's answers", async ({ page }) => {
@@ -141,14 +138,14 @@ test("switching materials never reuses the previous material's answers", async (
     route => json(route, outlineView(otherView, otherId, otherRunId)));
   await page.goto(mapPath);
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  await expect(page.locator(".assessment-concept-list li")).toHaveCount(1);
+  await expect(page.locator("details.review-records li")).toHaveCount(1);
   await page.evaluate(path => {
     window.history.pushState(null, "", path);
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, mapPath.replace(materialId, otherId).replace(runId, otherRunId));
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("目前還沒有測驗紀錄");
-  await expect(page.locator(".assessment-concept-list li")).toHaveCount(0);
+  await expect(page.locator("details.review-records")).toContainText("還沒有測驗紀錄");
+  await expect(page.locator("details.review-records li")).toHaveCount(0);
 });
 
 test("a different login does not restore the previous user's record list", async ({ page }) => {
@@ -157,7 +154,7 @@ test("a different login does not restore the previous user's record list", async
   await mockOwnedReview(page, structureView(), () => state);
   await page.goto(mapPath);
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  await expect(page.locator(".assessment-concept-list li")).toHaveCount(1);
+  await expect(page.locator("details.review-records li")).toHaveCount(1);
   // 教材內從頭像選單登出。
   await page.getByRole("button", { name: /^帳號選單/ }).click();
   await page.getByRole("button", { name: "登出", exact: true }).click();
@@ -176,8 +173,8 @@ test("a different login does not restore the previous user's record list", async
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, mapPath);
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("目前還沒有測驗紀錄");
-  await expect(page.locator(".assessment-concept-list li")).toHaveCount(0);
+  await expect(page.locator("details.review-records")).toContainText("還沒有測驗紀錄");
+  await expect(page.locator("details.review-records li")).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("目前還沒有測驗紀錄");
+  await expect(page.locator("details.review-records")).toContainText("還沒有測驗紀錄");
 });
