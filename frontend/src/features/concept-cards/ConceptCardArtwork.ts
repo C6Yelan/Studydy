@@ -26,12 +26,12 @@ function measure(text: string, size: number, mono = false, weight = 400) {
   return measureContext!.measureText(text).width;
 }
 
-function mathLineHeight(lines: string[], size: number, minimum: number, bold = false) {
-  return Math.max(minimum, ...lines.map(line => {
-    const formula = formulaElement(line, size, bold, ink, FONT);
+function mathLineHeights(lines: string[], size: number, minimum: number, bold = false, width?: number) {
+  return lines.map(line => {
+    const formula = formulaElement(line, size, bold, ink, FONT, width);
     if (!formula) return minimum;
-    const height = formula.getBoundingClientRect().height; formula.remove(); return height;
-  }));
+    const height = formula.getBoundingClientRect().height; formula.remove(); return Math.max(minimum, height);
+  });
 }
 
 function fontMetrics(size: number, weight = 400) {
@@ -51,12 +51,12 @@ class CardCanvas {
     c.font = `${bold ? 600 : 400} ${size}px ${mono ? MONO : FONT}`;
     c.fillStyle = fill;
     c.textAlign = align;
-    const formula = !mono && formulaElement(String(text), size, bold, fill, FONT);
+    const formula = !mono && formulaElement(String(text), size, bold, fill, FONT, maxWidth);
     if (formula) {
       const bounds = formula.getBoundingClientRect();
       const matrix = c.getTransform();
-      const width = Math.min(bounds.width, maxWidth ?? bounds.width);
-      const height = bounds.height * width / bounds.width;
+      const width = bounds.width;
+      const height = bounds.height;
       const left = align === "center" ? x - width / 2 : align === "right" ? x - width : x;
       this.formulas.push(formulaCanvas(formula).then(image => {
         c.save(); c.setTransform(matrix); c.drawImage(image, left, y - fontMetrics(size, bold ? 600 : 400).ascent, width, height); c.restore();
@@ -102,19 +102,26 @@ class CardCanvas {
     let metrics = fontMetrics(fontSize, bold ? 600 : 400);
     let lineHeight = Math.max(fontSize * 1.4, metrics.ascent + metrics.descent);
     let wrapped = wrapCardText(text, width - 4, t => measure(t, fontSize, false, bold ? 600 : 400));
-    lineHeight = mathLineHeight(wrapped.lines, fontSize, lineHeight, bold);
-    while (fontSize > minSize && (wrapped.overflow || wrapped.lines.length * lineHeight > height - 6)) {
+    let lineHeights = mathLineHeights(wrapped.lines, fontSize, lineHeight, bold, width - 4);
+    let contentHeight = lineHeights.reduce((sum, value) => sum + value, 0);
+    while (fontSize > minSize && (wrapped.overflow || contentHeight > height - 6)) {
       fontSize = Math.max(minSize, fontSize - 2);
       metrics = fontMetrics(fontSize, bold ? 600 : 400);
       lineHeight = Math.max(fontSize * 1.4, metrics.ascent + metrics.descent);
       wrapped = wrapCardText(text, width - 4, t => measure(t, fontSize, false, bold ? 600 : 400));
-      lineHeight = mathLineHeight(wrapped.lines, fontSize, lineHeight, bold);
+      lineHeights = mathLineHeights(wrapped.lines, fontSize, lineHeight, bold, width - 4);
+      contentHeight = lineHeights.reduce((sum, value) => sum + value, 0);
     }
-    const clipped = wrapped.overflow || wrapped.lines.length * lineHeight > height - 6;
+    const clipped = wrapped.overflow || contentHeight > height - 6;
     const noticeMetrics = fontMetrics(18);
-    const rows = Math.max(0, Math.floor((height - 6 - (clipped ? noticeMetrics.ascent + noticeMetrics.descent + 6 : 0)) / lineHeight));
+    const available = height - 6 - (clipped ? noticeMetrics.ascent + noticeMetrics.descent + 6 : 0);
     const anchor = center ? x + width / 2 : x + 2;
-    wrapped.lines.slice(0, rows).forEach((line, i) => this.text(line, anchor, y + metrics.ascent + 3 + i * lineHeight, fontSize, fill, bold, center ? "center" : "left"));
+    let used = 0;
+    for (const [index, line] of wrapped.lines.entries()) {
+      if (used + lineHeights[index] > available) break;
+      this.text(line, anchor, y + metrics.ascent + 3 + used, fontSize, fill, bold, center ? "center" : "left", false, width - 4);
+      used += lineHeights[index];
+    }
     if (clipped) this.text(notice, anchor, y + height - noticeMetrics.descent - 3, 18, fill, false, center ? "center" : "left");
   }
 }
@@ -124,7 +131,7 @@ type Layout = ReturnType<typeof selectConceptCardLayout>;
 function textHeight(text: string, width: number, size: number) {
   const metrics = fontMetrics(size);
   const lines = wrapCardText(text, width - 4, t => measure(t, size)).lines;
-  return Math.ceil(lines.length * mathLineHeight(lines, size, Math.max(size * 1.4, metrics.ascent + metrics.descent)) + 6);
+  return Math.ceil(mathLineHeights(lines, size, Math.max(size * 1.4, metrics.ascent + metrics.descent), false, width - 4).reduce((sum, value) => sum + value, 0) + 6);
 }
 
 function sparseFrame(layout: Layout) {
@@ -444,15 +451,19 @@ function designTextLayout(text: string, width: number, preferredHeight: number, 
       if (part) parts.push(part);
       return parts;
     });
-    lineHeight = mathLineHeight(lines, fontSize, lineHeight, bold);
-    const height = lines.length * lineHeight + 4;
-    if ((!wrapped.overflow && height <= preferredHeight) || fontSize === minSize) return { lines, height, fontSize, metrics, lineHeight, bold, width: width - 6 };
+    const lineHeights = mathLineHeights(lines, fontSize, lineHeight, bold, width - 6);
+    const height = lineHeights.reduce((sum, value) => sum + value, 0) + 4;
+    if ((!wrapped.overflow && height <= preferredHeight) || fontSize === minSize) return { lines, height, fontSize, metrics, lineHeights, bold, width: width - 6 };
   }
   throw new Error("CARD_FONT_CONFIGURATION_INVALID");
 }
 
 function designText(draw: CardCanvas, layout: ReturnType<typeof designTextLayout>, x: number, y: number, fill = ink) {
-  layout.lines.forEach((line, index) => draw.text(line, x + 2, y + layout.metrics.ascent + 2 + index * layout.lineHeight, layout.fontSize, fill, layout.bold, "left", false, layout.width));
+  let top = y + layout.metrics.ascent + 2;
+  layout.lines.forEach((line, index) => {
+    draw.text(line, x + 2, top, layout.fontSize, fill, layout.bold, "left", false, layout.width);
+    top += layout.lineHeights[index];
+  });
 }
 
 function designed(draw: CardCanvas, page: CardDesignPage) {

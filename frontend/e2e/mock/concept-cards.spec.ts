@@ -1893,7 +1893,7 @@ test("formula cards render the same math in readable details and the downloaded 
 test("a wide formula in a designed block preserves the formula and the following text", async ({page},testInfo) => {
   const fixture=await mockCards(page,{saved:true,savedCount:1});
   const design=designedCard(fixture.view,'flow',4);
-  design.pages[0].blocks[0].text=String.raw`前文 $\frac{abcdefghijklmno}{pqrstuvwxyz}$ 後文必須保留`;
+  design.pages[0].blocks[0].text=String.raw`前文 $\frac{abcdefghijklmno}{pqrstuvwxyz}$ 與 $$`+Array.from({length:24},(_,i)=>`a_{${i}}`).join(" + ")+"$$ 後文必須保留";
   fixture.setDesigns({[fixture.view.concepts[0].concept_id]:design});
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   await showCardBack(page);
