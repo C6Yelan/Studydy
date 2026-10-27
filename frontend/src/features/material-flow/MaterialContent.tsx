@@ -33,7 +33,7 @@ export function MaterialContent({ apiClient, learnerId, materialId, kind, childr
     onClick: () => writeRoute(window.history.state?.fromCollection && kind !== "research" && kind !== "notes" ? { name: kind } : { name: "material-content", materialId, kind }),
   } : undefined} materialName={material?.display_name} mapRoute={structure ? { name: "knowledge-map", materialId, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision } : null} />;
   if (notFound) return <NotFoundView {...materialNotFound} />;
-  return <section className="material-content">
+  return <section className={`material-content${kind === "notes" ? " notes-material-content" : ""}`}>
     {error || !material ? <StateView title={error ? "無法讀取教材" : "正在讀取教材"} description={error ?? "正在載入此教材的學習內容。"} tone={error ? "failure" : "loading"} live={!error} skeleton="material"
       action={error ? <button type="button" className="secondary-button" onClick={() => setReload(v => v + 1)}>重新讀取</button> : undefined} /> : <>
       {(children != null || kind === "notes") && navigation}
