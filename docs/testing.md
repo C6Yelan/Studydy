@@ -62,11 +62,11 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 `test_goal_metrics.py` 與 `test_goal_planning.py` 驗證可檢測 target 計量、真實完成、原排期落後量、固定今日配額、完整概念超量與唯讀預覽。`runtime/study/test_goals_stages.py` 驗證沒有 Study 也能讀取真實承接證據、概念完成不補造點數、目標權限、教材新版重排與提示關閉、同值儲存不重排，以及過期目標保留原日期調整比例。
 
-目標的日基準測試涵蓋 NO_SAFE／部分發布／恢復可測與作答等實際寫入；日內配額不漂移，恢復可測後真正完成的點仍計今日成果。真 API 瀏覽器從設定目標、選程度到受控作答驗證目標達成不會把整份教材標完成；mock 另核對多教材首頁任務、原島嶼概念環、手機與更新提示。
+目標的日基準測試涵蓋 NO_SAFE／部分發布／恢復可測與作答等實際寫入；日內配額不漂移，恢復可測後真正完成的點仍計今日成果。真 API 瀏覽器從設定目標到受控作答驗證目標達成不會把整份教材標完成；mock 另核對多教材首頁任務、原島嶼概念環、手機與更新提示。
 
-`runtime/study/test_starting_level.py` 透過真 API 與隔離 DB 驗證必須由學生選程度、擁有者／Origin 邊界、切換不改現有題組或答案、開始請求重送、跨概念取材與作答、未測重點保留，以及後續只準備剩餘重點；另驗beginner直接建題組、無可檢測重點不建與舊空收據原樣重播。`test_starting_levels.py` 驗證每概念一題、15 題上限、難點優先與路線排序；原交卷、補強、來源及進度測試保留。
+`runtime/study/test_study_start.py` 透過真 API 與隔離 DB 驗證指定概念優先於其他進行中題組、未指定時依地圖編號、擁有者邊界、開始意圖重送、補強／失敗題組接續及無可測重點的空收據重播。
 
-Migration 驗證先在 0013 建立原題組、補強及答案，再升級至 0014，核對既有資料與 API 投影不變、單概念成員約束仍有效。這些驗證使用受控出題替身，不呼叫真實模型或寫入產品資料。前端涵蓋首次選擇、直接作答、跨概念題組、深連結與原版本恢復，並依 TASK 核對 global-layout／shell-layout。
+`runtime/infrastructure/test_learning_cleanup_upgrade.py` 驗證空 DB 升到 0029，以及含舊跨概念題組的資料升級：正常題組、答案與無關紀錄保留，剩餘事件連續編號且進度可讀，受影響目標基準與移版完成依剩餘作答重算。使用隔離 DB 與受控出題，不呼叫真模型。前端涵蓋直接作答、深連結與原版本恢復，並核對完整 mock、global-layout／shell-layout 與受影響 API browser。
 
 `runtime/study/test_learning_insights.py` 使用隔離資料庫驗證教材即時診斷、補強累計／連對完成規則、真實統計與來源、版本授權，以及個人難點的 3 題／50% 門檻。`test_learning_insights_rules.py` 驗證完整重點與結構難度門檻、複習候選排序及最多 3 個的上限。
 
@@ -139,7 +139,7 @@ npm --prefix frontend run build -- --outDir "$STUDYDY_E2E_FRONTEND_DIST" --empty
 env -u STUDYDY_TEST_POSTGRES_DSN -u STUDYDY_DATABASE_DSN \
   -u PGHOST -u PGHOSTADDR -u PGPORT -u PGSERVICE -u PGSERVICEFILE \
   -u PGSYSCONFDIR -u PGDATABASE -u PGUSER -u PGPASSWORD -u PGPASSFILE \
-  PYTHONPATH=backend/src:backend/tests:backend/tests/runtime/materials:local_ai/src \
+  PYTHONPATH=backend/src:backend/tests:backend/tests/runtime/materials:backend/tests/runtime/study:backend/tests/runtime/sources:local_ai/src \
   backend/.venv/bin/python -m pytest -q backend/tests --durations=10
 ~~~
 

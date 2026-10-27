@@ -268,19 +268,21 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 `0011_version_moves.sql` 新增 `material_version_moves`、`card_set_moves`、`study_session_moves`，保存學生確認、重送結果、卡組與概念對應及學習完成承接。對教材、卡組與學習的外鍵為 ON DELETE CASCADE，不改寫既有資料；舊前端不顯示新版提示，但已承接資料仍可讀。
 
-## 學習活動 v3 與成就規則
+## 學習活動 v4 與成就規則
 
-後端使用 `learning-activity/v3`（經驗值 `xp-rules/v4`、徽章 `badge-rules/v7`）並提供 `/v1/learning-activity/rhythm`；前端只接受這組版本，前後端必須一起上線，不可只更新其中一邊（任一邊是舊版時，頁首等級、成就與個人檔案的學習進度都會因版本不符而讀不到）。v4／v7 需要 0019（見下節）；退回時前後端一起退回。
+後端使用 `learning-activity/v4`（經驗值 `xp-rules/v5`、徽章 `badge-rules/v8`）並提供 `/v1/learning-activity/rhythm`；前端只接受這組版本，前後端必須一起上線，不可只更新其中一邊（任一邊是舊版時，頁首等級、成就與個人檔案的學習進度都會因版本不符而讀不到）。現行規則需要 0019 與 0029（見下節）；退回時前後端一起退回。
 
 ## 0013 登入裝置清單
 
 `0013_session_devices.sql` 只在 `learner_sessions` 新增 nullable `device_label`（1–64 字元 CHECK）與 `last_used_at`，不回填、不改寫既有資料；新後端啟動（`serve`／`migrate`）時由 `run_migrations` 自動套用。套用前同 0009–0011 在獨立 DB 副本驗證並核對原業務資料不變。後端使用 `account-sessions/v2`（裝置清單，取代登入數），並提供 `DELETE /v1/account/sessions/{session_id}`；前端只接受 v2，前後端必須一起上線（只更新任一邊時，個人檔案讀不到登入裝置，修改密碼成功後也會顯示錯誤）。套用後需使用識別 0013 的後端，採前向修正；退回時前後端一起退回。既有登入沒有裝置標籤，顯示「未知裝置」，最後使用時間在下一次請求後開始記錄。
 
-## 0014 起始程度與跨概念診斷
+## 0029 單概念學習資料清理
 
-`0014_starting_level.sql` 新增教材的 nullable `starting_level` 與學習開始請求回執，不推測或回填學生程度。題組新增 `material_diagnostic` 種類，調整跨概念成員範圍外鍵，保留原單概念／補強與私密答案的範圍保護；既有題組及答案不改寫。部署前備份產品 DB，並在隔離資料庫驗證 0013 升級至 0014 保留原資料。
+0029 將題組恢復為每組必屬一個概念，刪除舊跨概念題組、題目、答案與相關開始收據，重編剩餘作答事件。另清理相依的三枚徽章、含舊獎勵的教材日快照，以及受影響帳號需要重算的作答／進度／XP 徽章。無關卡片、Podcast、筆記、匯出等紀錄保留。
 
-前後端須一起更新，以支援程度選擇、空的整組概念目標及每題自己的概念。0014 一經套用，舊版 migration runner 會因不識別新帳本版本而拒絕啟動；舊題組讀取程式也不識別跨概念資料。回復須採支援 0014 的修正版或前向修正，不能只重啟舊映像。若需還原部署前 DB，必須先處理切換後的新資料，不自動覆蓋或丟棄新題組與作答。
+只對有舊跨概念題組的教材重計目標基準、清除歷史關卡與達標紀錄；移版標記只保留有正常作答或通過題組依據的完成。正常題組與私密答案保護不變。受影響經驗值、等級、完成量與目標達成可能下降；相依徽章重算後可能再次慶祝。
+
+前後端須同批更新：學習開始回應、進度、地圖進度、工作區、工作區進度、題組與題組列表都升為 v2；開始請求仍為 v1。學習活動使用 v4、XP 規則 v5、徽章規則 v8。部署前先以與腳本相同的 `pg_dump -Fc` 參數做臨時備份，在相同 PostgreSQL 映像、無具名 volume／無正式網路的臨時容器實際還原，核對教材、題組、作答與學習相關表筆數一致；只輸出筆數，完成即刪臨時容器與 dump。`ops/deploy` 仍照常另存部署備份並以 `pg_restore --list` 檢查，該備份保留到使用者驗收。套用後採前向修正；若還原部署前 DB，須先處理切換後新資料，不能直接啟動舊映像或丟棄新作答。
 
 ## 0015 目標日期與分天關卡
 
@@ -308,7 +310,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 `0019_badge_records.sql` 在 `learning_goals` 新增 `created_at`（既有列回填為目前的 `baseline_at` 後設為 NOT NULL，其他欄位不變），並新增 `goal_milestones`（分天關卡與準時達成目標，對教材 ON DELETE CASCADE）與 `learner_exports`（每種匯出第一次成功的時間，只記種類與時間）。套用前備份產品 DB；隔離環境由前一版升級並核對目標列除新欄位外不變。
 
-新後端寫入新表與新欄位，必須先套用 0019 才能啟動，且前端要同時更新到接受 `xp-rules/v4`／`badge-rules/v7` 的版本。只改 Python 與前端，不需新增套件、不改 runtime lock，可用輕量後端更新（以 `docker inspect studydy-backend-1` 當下映像為基底）與前端輕量部署。已套用後回復版本須識別 0019，採前向修復，不還原 DB 丟棄新紀錄。部署後關卡、準時達成目標與匯出才開始累計，不補跑也不推測過去的紀錄。
+新後端寫入新表與新欄位，必須先套用 0019 才能啟動，且前端要同時更新到接受 `xp-rules/v5`／`badge-rules/v8` 的版本。只改 Python 與前端，不需新增套件、不改 runtime lock，可用輕量後端更新（以 `docker inspect studydy-backend-1` 當下映像為基底）與前端輕量部署。已套用後回復版本須識別 0019，採前向修復，不還原 DB 丟棄新紀錄。部署後關卡、準時達成目標與匯出才開始累計，不補跑也不推測過去的紀錄。
 
 ## 0020 Podcast 影片選項、FLAC 音訊與帳號空間
 
@@ -366,7 +368,7 @@ STUDYDY_MATERIAL_WORKERS 預設 1，需多教材時由管理者在本機 .env �
 上線後若已有內容刪除，不可回退到不讀保留紀錄的舊後端，否則 XP 會暫時少算；需前向修復或相容映像。隔離 DB 驗證 migration 套用及交易回滾，不在產品資料庫刪除保留表回復。前端 G5 接線由前端批次交付。
 ## 隔夜教材與學習 API
 
-本批新增 material_processing_runs.display_summary、materials.pending_goal、topic_scopes.starting_level／learning_goal、material_notes.started_at；新migration隨分支整合依序編號，不改已套用SQL。隔離驗證套用／交易回滾，正式回復保留新增欄位，不刪使用者新保存的目標。
+本批新增 material_processing_runs.display_summary、materials.pending_goal、topic_scopes.learning_goal、material_notes.started_at；新migration隨分支整合依序編號，不改已套用SQL。隔離驗證套用／交易回滾，正式回復保留新增欄位，不刪使用者新保存的目標。
 
 learning-goal/v2、learning-diagnosis/v2、material-notes/v3 與新回答 material-answer/v3 必須配合前端解析及接線部署；不能單獨上線造成舊前端拒收。原回答v2仍讀取，原來源、結構及runtime lock不改寫。
 
@@ -399,7 +401,7 @@ V2 與 B3.7 `feat/overnight-voice-stream`（e8d191097285cf7f5f9bac921604433ca28c
 
 S2教材卡片合計新增material-library-item/v1.source_totals，與前端S2卡片同批部署；沒有migration或provider變更。未知影音合計為null、無影音為0。
 
-L1確認設定與草稿目標DELETE需與前端L1同批部署，使用既有topic starting_level／learning_goal及material pending_goal，無migration／provider變更。approve未傳保留、null清除；確認改設定後舊建立請求可回既有IDEMPOTENCY_CONFLICT，此限制已核准。
+L1確認設定與草稿目標DELETE需與前端L1同批部署，使用既有topic learning_goal及material pending_goal，無migration／provider變更。approve未傳保留、null清除；確認改設定後舊建立請求可回既有IDEMPOTENCY_CONFLICT，此限制已核准。
 
 Q4正確選項投影與前端Q4同批部署：answer-feedback/v1新增可選correct_option_id，僅已交卷題組出現，舊已交卷資料直接投影保存的私密答案。無migration或provider變更，不回寫題目／作答紀錄。
 
