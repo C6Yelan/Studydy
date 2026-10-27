@@ -20,7 +20,7 @@ from .media_sources import cleanup_stale_uploads
 from .storage_usage import release_stale_upload_reservations
 from .export_cards import cleanup_stale_uploads as cleanup_exports
 
-from . import material_notes
+from . import material_notes, version_moves
 from .source_normalization import normalize_next
 from .storage.artifacts import reconcile_new_artifacts
 from .storage.analysis_archive import (
@@ -278,6 +278,8 @@ class RuntimeWorkers:
                         dsn=self.dsn,
                         shutdown=self._stop,
                     )
+                if not self._stop.is_set():
+                    version_moves.run_next(dsn=self.dsn)
                 if not self._stop.is_set():
                     material_notes.step(dsn=self.dsn, stop=self._stop)
             except Exception as error:

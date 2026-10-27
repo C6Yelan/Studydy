@@ -229,6 +229,22 @@ def update_card_set(
         return _summary(row, material)
 
 
+def discard_card_contents(row):
+    """釋放卡面與結構，保留建立請求的最小重送收據。"""
+    row.deleted_at = datetime.now(UTC)
+    # 刪除時結束未完成的生成，收據不留在 pending／running。
+    if row.status in ("pending", "running"):
+        row.status = "failed"
+    row.knowledge_structure_revision = None
+    row.name = ""
+    row.concept_ids = []
+    row.card_count = None
+    row.page_counts = {}
+    row.generation = {}
+    row.lease_token = None
+    row.lease_expires_at = None
+
+
 def delete_card_set(owner, card_set_id, *, dsn=None):
     with database_session(dsn) as session:
         row, material = _owned_card(session, owner, card_set_id, allow_deleted=True)
@@ -237,18 +253,7 @@ def delete_card_set(owner, card_set_id, *, dsn=None):
             from .learning_retention import preserve_learning
             preserve_learning(session, owner, "cards", card_set_id)
             # 留下最小重送收據，舊建立請求不能在刪除後復活卡組；同時釋放版本引用。
-            row.deleted_at = datetime.now(UTC)
-            # 刪除時結束未完成的生成，收據不留在 pending／running。
-            if row.status in ("pending", "running"):
-                row.status = "failed"
-            row.knowledge_structure_revision = None
-            row.name = ""
-            row.concept_ids = []
-            row.card_count = None
-            row.page_counts = {}
-            row.generation = {}
-            row.lease_token = None
-            row.lease_expires_at = None
+            discard_card_contents(row)
             session.flush()
             _prune_unreferenced_structures(
                 session, owner, material_id, material.head_revision

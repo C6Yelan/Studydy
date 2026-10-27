@@ -157,6 +157,7 @@ def test_extra_workers_start_after_single_recovery(monkeypatch):
     monkeypatch.setattr(workers, 'normalize_next', normalize)
     monkeypatch.setattr(workers, 'claim_next_material_processing_run', lambda **_: None)
     monkeypatch.setattr(workers.material_notes, 'step', lambda **_: False)
+    monkeypatch.setattr(workers.version_moves, 'run_next', lambda **_: False)
     monkeypatch.setattr(workers.RuntimeWorkers, '_assessment_loop', lambda self: self._stop.wait())
     monkeypatch.setattr(workers.RuntimeWorkers, '_maintenance_loop', lambda self: self._stop.wait())
     runtime = workers.RuntimeWorkers(None, {})

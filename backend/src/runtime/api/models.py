@@ -1315,8 +1315,45 @@ class VersionMoveStudy(_Closed):
     current_concept: VersionMoveFocus | None
 
 
+class VersionMoveBlocker(_Closed):
+    code: Literal["unmapped_cards", "unmapped_progress", "assessment_in_progress", "source_unavailable"]
+    count: int = Field(gt=0)
+
+
+class VersionMovePrevious(_Closed):
+    move_id: UUID
+    revision: str
+    card_set_ids: list[UUID]
+    study_session_id: UUID | None
+
+
+class VersionMoveAutomatic(_Closed):
+    status: Literal["pending", "completed", "failed"]
+    move_id: UUID | None
+    error_code: str | None
+
+
+class VersionMoveNotice(_Closed):
+    schema_: Literal["version-move-notice/v1"] = Field(alias="schema")
+    dismissed: bool = Field(strict=True)
+
+
+class VersionMoveReturn(_Closed):
+    schema_: Literal["version-move-return/v1"] = Field(alias="schema")
+    expected_move_id: UUID
+
+
+class VersionMoveReturnView(VersionMovePrevious):
+    schema_: Literal["version-move-return/v1"] = Field(alias="schema")
+
+
 class VersionMovePreviewView(_Closed):
-    schema_: Literal["version-move-preview/v1"] = Field(alias="schema")
+    schema_: Literal["version-move-preview/v2"] = Field(alias="schema")
+    automatic_safe: bool
+    blocking_reasons: list[VersionMoveBlocker]
+    notice_dismissed: bool
+    previous: VersionMovePrevious | None
+    automatic_move: VersionMoveAutomatic | None
     material_id: UUID
     to_revision: str | None
     preview_digest: str | None

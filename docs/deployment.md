@@ -398,3 +398,5 @@ V2使用0027_voice_sentences，順序在Q3的0025與PC1的0026之後。先部署
 V2 與 B3.7 `feat/overnight-voice-stream`（e8d191097285cf7f5f9bac921604433ca28c0134）同批部署；後端需先有 B3.6 並依其規則更新 provider。前端讀取公開 stage／audio_sentences，不以片段非空認定回答完成；未呼叫真模型量測延遲，不能把 mock 播放測試當作實際效能結果。
 
 S2教材卡片合計新增material-library-item/v1.source_totals，與前端S2卡片同批部署；沒有migration或provider變更。未知影音合計為null、無影音為0。
+
+S5只做不部署，保留feat/overnight-version-move，不合dev；等使用者手測D4後另行放行。migration0028_version_entry_state排在今晚最後，合併前若dev有新migration必須重編號。前端F6須接受version-move-preview/v2、previous.move_id與return expected_move_id；不能單獨上線。既有材料初始化提醒狀態，不追溯自動移動；新發布才排入安全判定。

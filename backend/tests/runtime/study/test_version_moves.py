@@ -279,7 +279,7 @@ def test_api_boundaries_and_owner_isolation(closed_loop, tmp_path, monkeypatch):
     client.cookies.set("studydy_session", fixture["token"])
     preview = client.get(url)
     assert preview.status_code == 200, preview.json()
-    assert preview.json()["schema"] == "version-move-preview/v1"
+    assert preview.json()["schema"] == "version-move-preview/v2"
     body = {"schema": "version-move-create/v1", "to_revision": document["revision"],
             "card_set_ids": [str(old_set)], "include_study": True,
             "preview_digest": preview.json()["preview_digest"]}
