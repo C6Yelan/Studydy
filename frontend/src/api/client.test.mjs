@@ -1706,6 +1706,17 @@ test("v2 learning goals accept pending draft choices and preserve the update req
     await assert.rejects(new StudydyApiClient(async()=>Response.json(invalid)).getLearningGoal(materialId),error=>error.kind==='schema');
 });
 
+test("draft goal deletion uses an empty request and validates the cleared result", async () => {
+  const value = {schema:"learning-goal/v2",material_id:materialId,knowledge_structure_revision:null,run_id:null,today:"2026-10-27",goal:null,pending_goal:null};
+  const client = new StudydyApiClient(async (url, init) => {
+    assert.equal(url, `/v1/materials/${materialId}/goal`);
+    assert.equal(init.method, "DELETE"); assert.equal(init.body, undefined); assert.ok(new Headers(init.headers).get("Origin"));
+    return Response.json(value);
+  });
+  assert.deepEqual(await client.clearDraftLearningGoal(materialId), value);
+  await assert.rejects(new StudydyApiClient(async () => Response.json({...value, pending_goal:{target_date:"2026-11-01",target_percent:80}})).clearDraftLearningGoal(materialId), error => error.kind === "schema");
+});
+
 test("v2 diagnosis requests material scope and validates the supplied completion counters", async () => {
   const value={schema:"learning-diagnosis/v2",material_id:materialId,knowledge_structure_revision:structureRevision,scope:"material",source_resolver:`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`,strengths:[],weaknesses:[{concept_id:conceptId,label:"Stack",points:[{claim_id:claimId,title:"完整重點",answer_count:3,correct_count:1,latest_is_correct:false,consecutive_correct_count:0,required_consecutive_correct:2,completed:false,evidence:[]}]}],recommendations:[]};
   const request={materialId,structureRevision};

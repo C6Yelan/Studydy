@@ -56,6 +56,7 @@ type FetchRequest = (input: RequestInfo | URL, init?: RequestInit) => Promise<Re
 
 const genericApiMessage = "請求無法完成，請稍後再試。";
 const apiErrorMessages: Record<KnownApiReasonCode, string> = {
+  LEARNING_GOAL_PUBLISHED: "教材已建立，請回到教材頁更改學習目標。",
   LEARNING_GOAL_STALE: "教材或目標已更新，請重新讀取學習目標。",
   STARTING_LEVEL_REQUIRED: "請先選擇這份教材的起始程度。",
   VOICE_PODCAST_CONTEXT_INVALID: "這段 Podcast 已不可用，請重新選段或改用教材問答。",
@@ -818,6 +819,12 @@ export class StudydyApiClient {
   async getLearningGoal(materialId: string, offset = 0): Promise<LearningGoalView> {
     return this.json(`/v1/materials/${materialId}/goal?preview_offset=${offset}&preview_days=7`, { method: "GET" },
       (value): value is LearningGoalView => validate.learningGoal(value) && value.material_id === materialId);
+  }
+
+  async clearDraftLearningGoal(materialId: string): Promise<LearningGoalView> {
+    return this.json(`/v1/materials/${materialId}/goal`, { method: "DELETE", headers: { Origin: origin() } },
+      (value): value is LearningGoalView => validate.learningGoal(value) && value.material_id === materialId
+        && value.goal === null && value.pending_goal === null);
   }
 
   async setLearningGoal(materialId: string, date: string, percent: 60 | 80 | 100): Promise<LearningGoalView> {

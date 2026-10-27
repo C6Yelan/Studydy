@@ -1,4 +1,5 @@
 export type KnownApiReasonCode =
+  | "LEARNING_GOAL_PUBLISHED"
   | "LEARNING_GOAL_STALE"
   | "STARTING_LEVEL_REQUIRED"
   | "SCENE_CONFLICT"

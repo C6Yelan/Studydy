@@ -1,3 +1,4 @@
+import { mockCreationSettings } from "../fixtures/creation-settings";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {
   MaterialLibraryItem,
@@ -156,7 +157,8 @@ async function mockSources(page: Page, append = false) {
         throw new Error(`Unexpected source confirmation request: ${request.method()} ${path}`);
     }
   });
-  return { state, listing };
+  const settings = !append ? await mockCreationSettings(page) : null;
+  return { state, listing, settings };
 }
 
 async function readyRows(page: Page) {

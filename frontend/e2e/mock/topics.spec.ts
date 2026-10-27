@@ -76,7 +76,7 @@ for(const width of [1920,1440,390]) test(`scope review edits preserve payload an
  await page.route(`**/v1/topics/${id}`,r=>{reads++;return json(r,topic);});
  await page.route(`**/v1/topics/${id}/approve`,r=>{
   attempts++;keys.push(r.request().headers()['idempotency-key']);
-  expect(r.request().postDataJSON()).toEqual({expected_version:2,proposal:{title:'我的 RAG 教材',topics:['RAG 應用架構','文件載入與切分','嵌入向量','檢索與生成'],goals:['解釋 RAG 架構','比較檢索方法，不討論模型訓練']}});
+  expect(r.request().postDataJSON()).toEqual({starting_level:'some_knowledge',learning_goal:null,expected_version:2,proposal:{title:'我的 RAG 教材',topics:['RAG 應用架構','文件載入與切分','嵌入向量','檢索與生成'],goals:['解釋 RAG 架構','比較檢索方法，不討論模型訓練']}});
   if(attempts===1)return json(r,{schema:'api-error/v1',request_id:id,reason_code:'INTERNAL_ERROR',retryable:true,message:'Retry'},500);
   topic={...topic,proposal:r.request().postDataJSON().proposal,status:'approved',version:3,research_id:rid,research:{research_id:rid,material_id:null,status:'searching',query:'RAG',candidates:[],selection:[],error_code:null,run_id:null}};
   return json(r,topic);
@@ -323,4 +323,19 @@ for(const supplemental of [false,true])test(`six scope concepts preserve the req
  const goal=page.getByLabel('學習目標 1',{exact:true});await goal.fill('字'.repeat(501));await expect(goal).toHaveValue('字'.repeat(501));await expect(page.getByText('每個學習目標最多 500 字，請縮短後再確認。')).toBeVisible();await expect(page.getByRole('button',{name:'確認範圍並搜尋'})).toBeDisabled();await goal.fill(proposal.goals[0]);
  await page.getByRole('button',{name:'確認範圍並搜尋'}).click();
  await expect.poll(()=>submitted).toBeTruthy();expect(submitted.proposal.topics).toEqual(['輸入與位置編碼：第一行\n第二行',...topics.slice(1)]);expect(submitted.proposal.title).toBe(proposal.title);
+ if(supplemental){expect(submitted).not.toHaveProperty('starting_level');expect(submitted).not.toHaveProperty('learning_goal');}else{expect(submitted.starting_level).toBe('some_knowledge');expect(submitted.learning_goal).toBeNull();}
+});
+
+test('new topic approval persists level and goal, cancel keeps the applied choice',async({page})=>{
+ await mockTopicApi(page);let submitted:any;
+ const topic={topic_id:id,material_id:null,request:'TCP',proposal:plan,version:2,status:'ready',research_id:null,error_code:null,starting_level:'gaps',learning_goal:{target_date:'2026-11-30',target_percent:60}};
+ await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
+ await page.route(`**/v1/topics/${id}/approve`,r=>{submitted=r.request().postDataJSON();return json(r,{...topic,status:'approved'});});
+ await page.goto(`/topics/${id}`);await page.getByRole('button',{name:'程度與目標'}).click();
+ const dialog=page.getByRole('dialog',{name:'程度與目標'});await expect(dialog.getByRole('radio',{name:/想找出/})).toBeChecked();
+ await dialog.getByRole('radio',{name:/學過了/}).check();await dialog.getByRole('button',{name:'取消',exact:true}).click();
+ await page.getByRole('button',{name:'程度與目標'}).click();await expect(dialog.getByRole('radio',{name:/想找出/})).toBeChecked();
+ await dialog.getByRole('radio',{name:/學過了/}).check();await dialog.getByRole('radio',{name:/80%/}).check();await dialog.getByRole('button',{name:'套用設定'}).click();
+ await page.getByRole('button',{name:'確認範圍並搜尋'}).click();await expect.poll(()=>submitted).toBeTruthy();
+ expect(submitted).toEqual({expected_version:2,proposal:plan,starting_level:'familiar',learning_goal:{target_date:'2026-11-30',target_percent:80}});
 });

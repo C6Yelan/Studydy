@@ -4,12 +4,23 @@ import type { StartingLevel } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import "./starting-level.css";
 
-const levels: { value: StartingLevel; label: string; description: string }[] = [
-  { value: "beginner", label: "剛開始", description: "依先備順序，先看概念說明，再開始作答。" },
-  { value: "some_knowledge", label: "懂一點", description: "依先備順序直接作答，需要時再展開說明。" },
-  { value: "familiar", label: "比較熟悉", description: "先做最多 15 題的跨概念診斷，再從答錯與未測的概念開始。" },
-  { value: "gaps", label: "查漏補缺", description: "從未完成的弱點與難點開始；沒有作答紀錄時先做跨概念診斷。" },
+export const levels: { value: StartingLevel; label: string; description: string }[] = [
+  { value: "some_knowledge", label: "第一次接觸，或還不太熟", description: "從基礎概念開始，照先備順序直接作答，需要時可查看說明。" },
+  { value: "familiar", label: "學過了，想跳過已經會的", description: "先做約 15 題快速檢測，答錯的概念優先學，答對的往後排。" },
+  { value: "gaps", label: "想找出還不會的地方（例如準備考試）", description: "從答錯過的弱點開始；沒有作答紀錄時先做快速檢測。" },
 ];
+
+export function StartingLevelOptions({ selected, onChange, disabled = false }: {
+  selected: StartingLevel; onChange: (level: StartingLevel) => void; disabled?: boolean;
+}) {
+  return <fieldset disabled={disabled} className="starting-level-options">
+    <legend className="sr-only">起始程度</legend>
+    {levels.map(level => <label key={level.value} className={selected === level.value ? "is-selected" : ""}>
+      <input type="radio" name="starting-level" value={level.value} checked={selected === level.value} onChange={() => onChange(level.value)} />
+      <span><strong>{level.label}</strong><small>{level.description}</small></span>
+    </label>)}
+  </fieldset>;
+}
 
 export function StartingLevelDialog({ api, materialId, current, onSaved, onClose }: {
   api: StudydyApiClient; materialId: string; current: StartingLevel | null;
@@ -17,7 +28,7 @@ export function StartingLevelDialog({ api, materialId, current, onSaved, onClose
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const active = useRef(true);
-  const [selected, setSelected] = useState<StartingLevel | null>(current);
+  const [selected, setSelected] = useState<StartingLevel>(current === "beginner" || !current ? "some_knowledge" : current);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -37,14 +48,8 @@ export function StartingLevelDialog({ api, materialId, current, onSaved, onClose
   return <dialog ref={dialog} className="starting-level-dialog" aria-labelledby="starting-level-title"
     onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <h2 id="starting-level-title">你想從哪裡開始？</h2>
-    <p>依你對這份教材的熟悉程度選擇，之後可在教材頁更改。這不是分級測驗。</p>
-    <fieldset disabled={busy} className="starting-level-options">
-      <legend className="sr-only">起始程度</legend>
-      {levels.map(level => <label key={level.value} className={selected === level.value ? "is-selected" : ""}>
-        <input type="radio" name="starting-level" value={level.value} checked={selected === level.value} onChange={() => setSelected(level.value)} />
-        <span><strong>{level.label}</strong><small>{level.description}</small></span>
-      </label>)}
-    </fieldset>
+    <p>依你對這份教材的熟悉程度選擇，之後可以在教材頁更改。</p>
+    <StartingLevelOptions selected={selected} onChange={setSelected} disabled={busy} />
     {error && <p role="alert" className="form-error">{error}</p>}
     <div className="state-actions">
       <button className="secondary-button" type="button" disabled={busy} onClick={onClose}>取消</button>
@@ -70,7 +75,7 @@ export function StartingLevelControl({ api, materialId, onChanged, nextConcept, 
   return <section className="starting-level-setting" aria-label="起始程度設定">
     <div><h2>起始程度</h2><p>只調整後續學習安排，已完成的重點與進行中的題組會保留。</p></div>
     {error ? <p role="alert">{error}<button className="text-button" onClick={() => setReload(value => value + 1)}>重新讀取程度</button></p>
-      : <button className="secondary-button" disabled={level === undefined} onClick={() => setEditing(true)}>{level === undefined ? "正在讀取…" : `起始程度：${levels.find(item => item.value === level)?.label ?? "尚未選擇"} · 更改`}</button>}
+      : <button className="secondary-button" disabled={level === undefined} onClick={() => setEditing(true)}>{level === undefined ? "正在讀取…" : `起始程度：${levels.find(item => item.value === (level === "beginner" ? "some_knowledge" : level))?.label ?? "尚未選擇"} · 更改`}</button>}
     {onContinue && <div className="starting-level-next">
       {nextConcept && <p>接下來：{nextConcept}</p>}
       <button className="primary-button" disabled={busy} onClick={onContinue}>{busy ? "正在接續學習…" : nextConcept ? "依目前路線接續學習" : "開始學習"}</button>
@@ -109,9 +114,7 @@ export function useStudyStart(api: StudydyApiClient, scope = "") {
       setPending(null); intent.current = null;
       writeRoute({ name: "study-session", materialId: destination.materialId, runId: destination.runId,
         structureRevision: destination.structureRevision, studySessionId: result.session.study_session_id,
-        ...(result.selected_set_id ? { assessmentSetId: result.selected_set_id } : {}) }, false,
-        { studyReading: result.starting_level === "beginner" && !result.selected_set_id && destination.conceptId
-          ? { sessionId: result.session.study_session_id, conceptId: result.session.current_concept_id } : null });
+        ...(result.selected_set_id ? { assessmentSetId: result.selected_set_id } : {}) });
     } catch (failure) {
       if (!isCurrent()) return;
       if (failure instanceof ApiClientError && failure.reasonCode === "STARTING_LEVEL_REQUIRED") setPending(destination);

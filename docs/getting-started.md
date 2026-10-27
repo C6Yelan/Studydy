@@ -212,7 +212,7 @@ Luna 的後端總額度為 65,536 tokens，包含輸入與輸出，使用與 pro
 
 `0005_cards_and_media.sql` 的 nullable `voice_turns.context` 保存 locator 與必要來源引用，不複製 script。Podcast 刪除後拒絕使用該 locator 新追問，既有回答依 Voice 保存規則保留；不自動搬移或重製 Podcast、音訊、影片及 manifest。provider、backend 與 frontend 須共同支援相同互動契約。
 
-播放、seek、聽完及 Voice 問答皆不產生 mastery 作答事件。教材學習與程度選擇見[學習與評量](learning.md#起始程度與跨概念診斷)。
+播放、seek、聽完及 Voice 問答皆不產生 mastery 作答事件。教材學習與程度選擇見[學習與評量](learning.md#起始程度與快速檢測)。
 
 30fps 只供 benchmark 輸入使用；正式 bundle 仍要求 1080p60。benchmark 結論及重跑命令見 [測試](testing.md)。原教材圖片／page-region asset、3D、生成影片與模型 executable code 均不在此版本範圍。
 
