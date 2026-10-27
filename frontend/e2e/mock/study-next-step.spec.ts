@@ -52,10 +52,9 @@ for (const width of [1366, 390]) {
     ).toBeDisabled();
     await expect(page).toHaveURL(before);
     release();
-    await expect(page).toHaveURL(new RegExp(fixture.path + "$"));
+    await expect(page).toHaveURL(new RegExp(fixture.path + "/assessment-sets/"));
     await expect(page.getByRole("heading", { name: label, level: 1, exact: true })).toBeVisible();
-    await expect(page.locator(".current-concept-card")).toContainText(label);
-    await expect(page.getByRole("button", { name: "開始作答", exact: true })).toBeVisible();
+    await expect(page.getByRole("progressbar", { name: "準備進度", exact: true })).toBeVisible();
     const requests = fixture.requests.filter((request) => request.path.endsWith("/guidance/apply"));
     expect(requests).toHaveLength(1);
     expect(JSON.parse(requests[0].body!)).toEqual({

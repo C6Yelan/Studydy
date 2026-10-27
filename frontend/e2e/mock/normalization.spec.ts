@@ -1,3 +1,4 @@
+import { mockCreationSettings } from "../fixtures/creation-settings";
 import { expect, test, type Page } from "@playwright/test";
 import type {
   MaterialLibraryItem,
@@ -49,6 +50,7 @@ function material(job: SourceView, id = materialId): MaterialLibraryItem {
 }
 
 async function mockSources(page: Page, getSource: () => SourceView, id = materialId) {
+  await mockCreationSettings(page);
   await page.route(`**/v1/materials/${id}`, (route) => {
     expect(route.request().method()).toBe("GET");
     return route.fulfill({ json: material(getSource(), id) });
@@ -222,6 +224,7 @@ test("failed conversion recovers after explicit retry and keeps the original", a
 test("accepted deletion of a converting source survives reload and returns to library", async ({
   page,
 }) => {
+  await mockCreationSettings(page);
   let deleting = false;
   let removed = false;
   let deletes = 0;

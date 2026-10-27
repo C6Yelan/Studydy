@@ -11,5 +11,3 @@
 .starting-level-setting h2 { font-size: 1.3rem; }
 .starting-level-setting p { margin-bottom: 0; }
 .starting-level-next { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.starting-reading-intro { margin: 20px 0; padding: 24px; }
-.starting-reading-intro > .primary-button { margin-top: 20px; }

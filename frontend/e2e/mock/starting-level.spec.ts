@@ -32,24 +32,17 @@ async function levelMap(page: Page, initial: StartingLevel | null, saved = false
   return { mutations, level: () => level };
 }
 
-for (const width of [1366, 390]) test(`first learning choice follows browsing, not opening the map at ${width}px`, async ({ page }) => {
+for (const width of [1440, 390]) test(`legacy material defaults to the first of three choices at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
-  const fixture = await levelMap(page, null);
-  await page.goto(mapPath);
-  await openMapConcept(page, "Stack");
-  expect(fixture.mutations).toHaveLength(0);
-  await expect(page.getByRole("dialog", { name: "你想從哪裡開始？" })).toHaveCount(0);
-  await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
+  const fixture = await studyLayoutFixture(page, "ready", { startingLevel: null });
+  await page.goto(fixture.path);
   const picker = page.getByRole("dialog", { name: "你想從哪裡開始？" });
   await expect(picker).toBeVisible();
-  await expect(picker.getByRole("radio")).toHaveCount(4);
-  await expect(picker.locator("input:checked")).toHaveCount(0);
-  await picker.getByRole("radio", { name: /剛開始/ }).check();
+  await expect(picker.getByRole("radio")).toHaveCount(3);
+  await expect(picker.getByRole("radio", { name: /第一次接觸/ })).toBeChecked();
   await picker.getByRole("button", { name: "儲存選擇" }).click();
-  await expect(page).toHaveURL(/study-sessions/);
-  await expect(page.getByRole("region", { name: "先閱讀概念說明" })).toContainText("Stack");
-  expect(fixture.level()).toBe("beginner");
-  expect(fixture.mutations.filter(item => item.path === "level")).toHaveLength(1);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(4);
+  expect(fixture.getStartingLevel()).toBe("some_knowledge");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -58,27 +51,11 @@ test("an existing session deep link asks for a missing choice before continuing"
   await page.goto(fixture.path);
   const picker = page.getByRole("dialog", { name: "你想從哪裡開始？" });
   await expect(picker).toBeVisible();
-  await picker.getByRole("radio", { name: /懂一點/ }).check();
+  await picker.getByRole("radio", { name: /第一次接觸，或還不太熟/ }).check();
   await picker.getByRole("button", { name: "儲存選擇" }).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(4);
   expect(fixture.getStartingLevel()).toBe("some_knowledge");
   expect(fixture.requests.filter((item: { path: string }) => /\/assessment-sets$/.test(item.path))).toHaveLength(0);
-});
-
-test("beginner reads sources before creating a question set", async ({ page }) => {
-  const fixture = await studyLayoutFixture(page, "preparation", { startingLevel: "beginner" });
-  await page.goto(fixture.path);
-  const reading = page.getByRole("region", { name: "先閱讀概念說明" });
-  await expect(reading).toContainText("伺服器接收請求並提供服務");
-  expect(fixture.requests.filter((item: { path: string }) => /\/assessment-sets$/.test(item.path))).toHaveLength(0);
-  await reading.getByRole("button", { name: /PDF 第 1 頁/ }).click();
-  await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await reading.getByRole("button", { name: "開始作答" }).click();
-  await expect(page.getByRole("progressbar", { name: "準備進度", exact: true })).toBeVisible();
-  fixture.setStage("ready");
-  await expect(page.locator(".assessment-set-item")).toHaveCount(4);
-  expect(fixture.requests.filter((item: { path: string }) => /\/assessment-sets$/.test(item.path))).toHaveLength(1);
 });
 
 for (const [completed, inherited] of [[false, false], [true, false], [false, true]] as const) test(`beginner manual review keeps the selected concept when session completed=${completed}${inherited ? " inherited=true" : ""}`, async ({ page }) => {
@@ -104,28 +81,34 @@ for (const [completed, inherited] of [[false, false], [true, false], [false, tru
   await page.goto(fixture.path.split("/study-sessions/")[0]);
   await openMapConcept(page, selected.label);
   await page.getByRole("button", { name: completed || inherited ? "再次練習" : "檢測這個概念", exact: true }).click();
-  const reading = page.getByRole("region", { name: "先閱讀概念說明" });
-  await expect(reading.getByRole("heading", { name: selected.label, exact: true })).toBeVisible();
-  expect(fixture.requests.filter((item: { path: string }) => item.path.endsWith("/assessment-sets"))).toHaveLength(0);
-  expect(fixture.requests.filter((item: { path: string }) => item.path.endsWith("/study-start"))).toHaveLength(1);
-  await reading.getByRole("button", { name: "開始作答" }).click();
   await expect(page.getByRole("progressbar", { name: "準備進度", exact: true })).toBeVisible();
-  const creates = fixture.requests.filter((item: { path: string }) => item.path.endsWith("/assessment-sets"));
-  expect(creates).toHaveLength(1);
-  expect(JSON.parse(creates[0].body).target_concept_id).toBe(selected.concept_id);
+  const starts = fixture.requests.filter((item: { path: string }) => item.path.endsWith("/study-start"));
+  expect(starts).toHaveLength(1);
+  expect(JSON.parse(starts[0].body).current_concept_id).toBe(selected.concept_id);
+  expect(fixture.requests.filter((item: { path: string }) => item.path.endsWith("/assessment-sets"))).toHaveLength(0);
   fixture.setStage("ready");
   await expect(page.getByRole("heading", { name: selected.label, level: 1, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "交卷並查看結果", exact: true })).toBeVisible();
 });
 
-for (const level of ["some_knowledge", "gaps"] as const) test(`${level} resumes the supplied active set with collapsed explanation`, async ({ page }) => {
+for (const level of ["beginner", "some_knowledge", "gaps"] as const) test(`${level} resumes the supplied active set`, async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "ready", { startingLevel: level });
   await fixture.open();
   await expect(page.locator(".assessment-set-item")).toHaveCount(4);
-  await expect(page.locator(".study-material-summary")).not.toHaveAttribute("open", "");
-  await page.locator(".study-material-summary > summary").click();
-  await expect(page.locator(".current-concept-card")).toBeVisible();
   expect(fixture.requests.filter((item: { path: string }) => /\/assessment-sets$/.test(item.path))).toHaveLength(0);
+});
+
+test("material explanation remembers the last choice across visits", async ({ page }) => {
+  const fixture = await studyLayoutFixture(page, "no-safe");
+  await fixture.open();
+  const details = page.locator(".study-material-summary");
+  await details.locator("summary").click();
+  await expect(details).toHaveAttribute("open", "");
+  await page.reload();
+  await expect(details).toHaveAttribute("open", "");
+  await details.locator("summary").click();
+  await page.reload();
+  await expect(details).not.toHaveAttribute("open", "");
 });
 
 test("changing the material level preserves work and shows the supplied next concept", async ({ page }) => {
@@ -134,18 +117,18 @@ test("changing the material level preserves work and shows the supplied next con
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   const setting = page.getByRole("region", { name: "起始程度設定" });
   await expect(setting).toContainText("接下來：Array");
-  await setting.getByRole("button", { name: /起始程度：懂一點/ }).click();
+  await setting.getByRole("button", { name: /起始程度：第一次接觸，或還不太熟/ }).click();
   const picker = page.getByRole("dialog", { name: "你想從哪裡開始？" });
-  await picker.getByRole("radio", { name: /比較熟悉/ }).check();
+  await picker.getByRole("radio", { name: /學過了，想跳過已經會的/ }).check();
   await picker.getByRole("button", { name: "儲存選擇" }).click();
-  await expect(setting).toContainText("起始程度：比較熟悉");
+  await expect(setting).toContainText("起始程度：學過了，想跳過已經會的");
   expect(fixture.mutations.map(item => item.path)).toEqual(["level"]);
 });
 
 test("cross-concept diagnostic keeps question concepts, sources and persisted results", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "ready", { startingLevel: "familiar", kind: "material_diagnostic", navigation: true, wrong: [1], count: 2 });
   await fixture.open();
-  const diagnostic = page.getByRole("region", { name: "跨概念起始診斷", exact: true });
+  const diagnostic = page.getByRole("region", { name: "快速檢測", exact: true });
   await expect(diagnostic).toBeVisible();
   await expect(diagnostic.locator(".assessment-set-number")).toHaveText(["第 1 題 · 伺服器", "第 2 題 · 使用者端"]);
   await diagnostic.getByRole("article", { name: "第 1 題", exact: true }).getByRole("radio").first().check();
@@ -159,7 +142,7 @@ test("cross-concept diagnostic keeps question concepts, sources and persisted re
   await page.keyboard.press("Escape");
   const starts = fixture.requests.filter((item: { path: string }) => item.path.endsWith("/study-start")).length;
   await page.reload();
-  await expect(page.getByRole("heading", { name: "起始診斷結果" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "快速檢測結果" })).toBeVisible();
   expect(fixture.requests.filter((item: { path: string }) => item.path.endsWith("/study-start"))).toHaveLength(starts);
   expect(fixture.requests.filter((item: { path: string }) => item.path.endsWith("/submissions"))).toHaveLength(1);
 });

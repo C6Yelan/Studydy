@@ -1,3 +1,4 @@
+import { mockCreationSettings } from "../fixtures/creation-settings";
 import { expect, test, type Page } from "@playwright/test";
 import type { MaterialProcessingRunView, SourceView } from "../../src/api/contracts";
 import { emptyLearningActivity } from "../fixtures/learning-activity";
@@ -29,6 +30,7 @@ async function fileTransfer(page: Page, name: string, type: string) {
 
 async function setup(page: Page) {
   const state = {
+    settings: null as Awaited<ReturnType<typeof mockCreationSettings>> | null,
     drafts: [] as string[],
     name:"A.pdf", renames:[] as string[], renameFailsOnce:false,
     uploads: [] as { name: string; key: string }[],
@@ -49,6 +51,7 @@ async function setup(page: Page) {
       `Unexpected upload request: ${route.request().method()} ${route.request().url()}`,
     );
   });
+  state.settings = await mockCreationSettings(page);
   await page.route("**/v1/account/storage", route => route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } }));
   // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
   await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } }));
@@ -503,4 +506,41 @@ test('confirmation polling preserves the edited name and reload keeps the saved 
  let reads=0;page.on('request',request=>{if(request.method()==='GET'&&new URL(request.url()).pathname===`/v1/materials/${material}/sources`)reads++;});
  await name.fill('尚未儲存的名稱');await page.clock.runFor(6000);await expect.poll(()=>reads).toBeGreaterThan(0);await expect(name).toHaveValue('尚未儲存的名稱');
  state.name='先前已自訂的名稱.pdf';await page.reload();await expect(name).toHaveValue('先前已自訂的名稱.pdf');
+});
+
+for (const goal of [false, true]) test(`creation saves the selected level and ${goal ? 'goal' : 'no goal'} before analysis`, async ({ page }, testInfo) => {
+ const state=await setup(page);
+ await page.goto('/upload');
+ const picker=page.getByLabel('選擇教材檔案',{exact:true});await expect(picker).toBeEnabled();await picker.setInputFiles(pdf);
+ await page.getByRole('button',{name:'上傳並確認來源',exact:true}).click();
+ const settings=page.getByRole('button',{name:'程度與目標',exact:true});await expect(settings).toBeEnabled();await settings.click();
+ const dialog=page.getByRole('dialog',{name:'程度與目標',exact:true});
+ await expect(dialog.getByRole('radio',{name:/第一次接觸/})).toBeChecked();
+ await dialog.getByRole('radio',{name:/學過了/}).check();
+ if(goal){await dialog.getByRole('checkbox',{name:'設定學習目標（選填）'}).check();await expect(dialog.getByRole('button',{name:'套用設定'})).toBeDisabled();await dialog.getByLabel('目標日期',{exact:true}).fill('2026-11-30');await dialog.getByRole('radio',{name:/80%/}).check();}
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await expect(dialog).toBeInViewport({ratio:1});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath(`creation-settings-${goal?'goal':'skip'}-${width}.png`),animations:'disabled'});
+ }
+ await dialog.getByRole('button',{name:'套用設定'}).click();await expect(settings).toBeFocused();
+ const start=page.getByRole('button',{name:'開始分析教材',exact:true});
+ await page.setViewportSize({width:1440,height:900});await page.evaluate(()=>window.scrollTo(0,0));await expect(start).toBeInViewport({ratio:1});
+ await page.screenshot({path:testInfo.outputPath(`creation-confirm-${goal?'goal':'skip'}-1440.png`),animations:'disabled'});
+ state.settings!.failNext=true;await start.click();await expect(page.getByRole('alert')).toBeVisible();expect(state.starts).toHaveLength(0);
+ await start.click();await expect.poll(()=>state.starts.length).toBe(1);
+ expect(state.settings!.level).toBe('familiar');expect(state.settings!.goal).toEqual(goal?{target_date:'2026-11-30',target_percent:80}:null);
+ expect(state.settings!.writes.map(write=>write.method)).toEqual(['PUT','PUT',goal?'PUT':'DELETE']);
+});
+
+test('a saved draft goal can be skipped and published goal rejection prevents analysis',async({page})=>{
+ const state=await setup(page);state.settings!.goal={target_date:'2026-11-30',target_percent:60};
+ await page.goto('/upload');const picker=page.getByLabel('選擇教材檔案',{exact:true});await expect(picker).toBeEnabled();await picker.setInputFiles(pdf);
+ await page.getByRole('button',{name:'上傳並確認來源',exact:true}).click();
+ await page.getByRole('button',{name:'程度與目標'}).click();const dialog=page.getByRole('dialog',{name:'程度與目標'});
+ await expect(dialog.getByLabel('目標日期',{exact:true})).toHaveValue('2026-11-30');
+ await dialog.getByRole('checkbox',{name:'設定學習目標（選填）'}).uncheck();await dialog.getByRole('button',{name:'套用設定'}).click();
+ state.settings!.published=true;await page.getByRole('button',{name:'開始分析教材',exact:true}).click();
+ await expect(page.getByRole('alert')).toContainText('教材已建立，請回到教材頁更改學習目標。');expect(state.starts).toHaveLength(0);
+ state.settings!.published=false;await page.getByRole('button',{name:'開始分析教材',exact:true}).click();await expect.poll(()=>state.starts.length).toBe(1);expect(state.settings!.goal).toBeNull();
 });

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { chooseBeginner } from "../fixtures/starting-level";
+import { chooseFirstLevel } from "../fixtures/starting-level";
 
 test.skip(
   process.env.STUDYDY_E2E_ASSESSMENT_SET !== "true",
@@ -32,8 +32,7 @@ test("whole paper submits once and restores persisted results after response los
   page.on("pageerror", (error) => errors.push(error.message));
   await login(page);
   await page.goto(studyPath);
-  await chooseBeginner(page);
-  await page.getByRole("button", { name: "開始作答", exact: true }).click();
+  await chooseFirstLevel(page);
   await expect(page).toHaveURL(/assessment-sets\/[0-9a-f-]+$/);
   const roundPath = new URL(page.url()).pathname;
   const setId = roundPath.split("/").at(-1)!;

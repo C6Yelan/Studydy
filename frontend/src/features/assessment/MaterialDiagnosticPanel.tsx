@@ -95,23 +95,23 @@ export function MaterialDiagnosticPanel({ api, initialSet, context, onProgressCh
       view={context} answerSelection={{ value: item.feedback?.selected_option_id ?? selections[item.assessment!.assessment_revision] ?? null,
         disabled: busy || !!intent.current, onChange: option => setSelections(current => ({ ...current, [item.assessment!.assessment_revision]: option })) }} />
   </article>)}</div>;
-  return <section className="assessment-set-panel" aria-label="跨概念起始診斷">
+  return <section className="assessment-set-panel" aria-label="快速檢測">
     {phase === "question" && presenceError && <p className="form-error" role="status">作答狀態暫時無法同步：{presenceError}</p>}
-    <header className="surface assessment-set-header"><p className="eyebrow">跨概念起始診斷</p>
-      <h2>{done ? "起始診斷結果" : "先找出這次學習的起點"}</h2>
+    <header className="surface assessment-set-header"><p className="eyebrow">快速檢測</p>
+      <h2>{done ? "快速檢測結果" : "先找出這次學習的起點"}</h2>
       <p>每個概念最多 1 題。答對的重點依作答規則計入完成，其餘重點仍會安排學習，不會據此替你分級。</p>
       {message && <p role="alert" className="form-error">{message}</p>}
-      {group.status === "preparing" && <><p role="status">正在準備起始診斷 · {group.verified_count} / {group.requested_count} 題</p>
-        <Progress aria-label="診斷準備進度" value={group.verified_count > 0 ? group.verified_count : undefined} max={Math.max(1, group.requested_count)} /></>}
+      {group.status === "preparing" && <><p role="status">正在準備快速檢測 · {group.verified_count} / {group.requested_count} 題</p>
+        <Progress aria-label="快速檢測準備進度" value={group.verified_count > 0 ? group.verified_count : undefined} max={Math.max(1, group.requested_count)} /></>}
       {["partial_ready", "failed"].includes(group.status) && <div className="assessment-set-actions">
-        <p>部分診斷題尚未準備完成；沒有測到的概念會保留在後續學習。</p>
+        <p>部分快速檢測題目尚未準備完成；沒有測到的概念會保留在後續學習。</p>
         {group.can_retry && <button className="secondary-button" disabled={busy} onClick={() => void change("retry")}>再試一次</button>}
         {group.can_publish_partial && <button className="primary-button" disabled={busy} onClick={() => void change("publish-partial")}>先做已準備的 {group.verified_count} 題</button>}
       </div>}
       <button className="text-button" onClick={onBack}>查看知識地圖</button>
     </header>
     {done ? <>
-      <section className="surface assessment-cycle"><div className="assessment-set-summary" aria-label="起始診斷摘要">
+      <section className="surface assessment-cycle"><div className="assessment-set-summary" aria-label="快速檢測摘要">
         <span>答對<strong>{group.passed_count} / {group.published_count} 題</strong></span>
         <span>已檢測<strong>{group.published_count} 個概念</strong></span>
       </div><p>先學答錯與未測的概念，再補齊已測概念中尚未完成的重點。</p>

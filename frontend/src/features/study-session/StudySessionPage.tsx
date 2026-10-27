@@ -53,9 +53,9 @@ export function StudySessionPage({
   route: Extract<AppRoute, { name: "study-session" }>;
 }) {
   const launch = useStudyStart(apiClient, `${route.materialId}:${route.structureRevision}`);
-  const [readingBusy, setReadingBusy] = useState(false);
-  const [readingError, setReadingError] = useState<string | null>(null);
-  const readingIntent = useRef<{ conceptId: string; key: string } | null>(null);
+  const [materialOpen, setMaterialOpen] = useState(() => {
+    try { return localStorage.getItem("studydy.material-details-open") === "true"; } catch { return false; }
+  });
   const continueIntent = useRef<string | null>(null);
   const [data, setData] = useState<StudyData | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -99,7 +99,6 @@ export function StudySessionPage({
     setRefreshMessage(null);
     setContinuing(false);
     setContinueError(null);
-    setReadingBusy(false); setReadingError(null); readingIntent.current = null;
     void load().then(
       (next) => {
         if (cancelled) return;
@@ -198,7 +197,7 @@ export function StudySessionPage({
         aria-current={group.set_id === data.selectedSetId ? "true" : undefined}
         onClick={() => { setContinueError(null); writeRoute({ ...route, assessmentSetId: group.set_id }); }}>
         <b>第 {historySets.length - index} 組 · {group.kind === "material_diagnostic" ? "起始診斷" : group.kind === "remediation" ? "補強" : "初篩"}</b>
-        <span>{group.kind === "material_diagnostic" ? "跨概念" : data.view.concepts.find(concept => concept.concept_id === group.target_concept_id)?.label ?? "觀念"}</span>
+        <span>{group.kind === "material_diagnostic" ? "快速檢測" : data.view.concepts.find(concept => concept.concept_id === group.target_concept_id)?.label ?? "觀念"}</span>
         <small>{group.published_count === 0 ? "此題組已結束" : group.answered_count === 0 ? "尚未作答" : `已答 ${group.answered_count}/${group.published_count}`}</small>
       </button></li>)}
     </ol></details>
@@ -264,26 +263,7 @@ export function StudySessionPage({
     (item) => item.concept_id === data.progress.current_concept_id,
   );
   const inheritedCheck = !selectedSet && currentCycle?.inherited_from ? currentCycle : null;
-  // 開始／再次練習與只讀承接結果使用同一網址；只保留這次導覽的閱讀意圖。
-  const requestedReading = window.history.state?.studyReading?.sessionId === route.studySessionId
-    && window.history.state.studyReading.conceptId === visibleConcept.concept_id;
-  // 已結束時只接受從地圖明確選擇再次練習的閱讀意圖。
-  const readingFirst = (!completed || requestedReading) && data.startingLevel === "beginner" && !data.selectedSet && !noAssessment && (!inheritedCheck || requestedReading);
-  const beginAnswers = async () => {
-    if (readingBusy) return;
-    setReadingBusy(true); setReadingError(null);
-    const version = pageVersion.current;
-    if (readingIntent.current?.conceptId !== visibleConcept.concept_id)
-      readingIntent.current = { conceptId: visibleConcept.concept_id, key: crypto.randomUUID() };
-    try {
-      const group = await apiClient.createAssessmentSet(route.studySessionId, visibleConcept.concept_id, readingIntent.current.key);
-      if (!activePage.current || pageVersion.current !== version) return;
-      readingIntent.current = null;
-      writeRoute({ ...route, assessmentSetId: group.set_id });
-    } catch (failure) { if (activePage.current && pageVersion.current === version) setReadingError(errorMessage(failure)); }
-    finally { if (activePage.current && pageVersion.current === version) setReadingBusy(false); }
-  };
-  const showMaterial = !preparing && !readingFirst;
+  const showMaterial = !preparing && layoutMode !== "question";
   const showRail = !preparing && historySets.length > 0;
   const nextAction = data.progress.next_action;
   const completesSession = nextAction.action === "complete";
@@ -383,7 +363,7 @@ export function StudySessionPage({
           false, { knowledgeMap: { revision: route.structureRevision, mode: "review" } })} />
       <header className="study-header">
         <div>
-          <h1>{completed && !readingFirst ? "本次學習已結束" : visibleConcept.label}</h1>
+          <h1>{completed ? "本次學習已結束" : visibleConcept.label}</h1>
           <p className="study-header-meta">
             {position !== undefined && <span className="study-position">
               <b>第 {position} / {data.view.concept_count} 個概念</b>
@@ -393,9 +373,9 @@ export function StudySessionPage({
           </p>
         </div>
       </header>
-      {continueError && (
+      {(launch.error || continueError) && (
         <div className="assessment-error" role="alert">
-          {continueError}
+          {launch.error || continueError}
         </div>
       )}
       {refreshMessage && (
@@ -408,13 +388,12 @@ export function StudySessionPage({
       )}
       <div className={`study-workspace is-${layoutMode}-mode${!showRail ? " without-rail" : ""}`}>
         <div className="study-main">
-          {readingFirst ? <section className="surface starting-reading-intro" aria-label="先閱讀概念說明">
-            {materialCard}
-            {readingError && <p role="alert" className="form-error">{readingError}</p>}
-            <button className="primary-button" disabled={readingBusy} onClick={() => void beginAnswers()}>{readingBusy ? "正在開始作答…" : "開始作答"}</button>
-          </section> : <div className={`study-learning-grid is-${layoutMode}-mode is-set-mode`}>
+          <div className={`study-learning-grid is-${layoutMode}-mode is-set-mode`}>
             {showMaterial && (
-              <details className="surface study-material-summary">
+              <details className="surface study-material-summary" open={materialOpen} onToggle={event => {
+                const open = event.currentTarget.open; setMaterialOpen(open);
+                try { localStorage.setItem("studydy.material-details-open", String(open)); } catch { /* 瀏覽器停用儲存時仍可展開。 */ }
+              }}>
                 <summary>教材重點與來源</summary>
                 {materialCard}
               </details>
@@ -466,7 +445,7 @@ export function StudySessionPage({
               /> : <StateView title="尚未開始這個概念" description="按下開始，依目前的起始程度接續學習。" tone="empty"
                 action={<button className="primary-button" disabled={launch.busy} onClick={() => void launch.start(route)}>開始學習</button>} />}
             </div>
-          </div>}
+          </div>
         </div>
         {showRail && history}
       </div>
