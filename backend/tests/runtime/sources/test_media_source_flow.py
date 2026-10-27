@@ -206,6 +206,15 @@ def test_chunked_audio_becomes_time_pages_and_plays_from_the_cited_segment(close
     assert source["media_type"] == "audio/wav" and source["page_count"] == 2
     assert source["source_kind"] == "audio" and source["duration_seconds"] == 200
     assert source["transcript_display_name"] == "語音辨識"
+    transcript_path = f"/v1/materials/{material}/sources/{source['normalization_id']}/transcript"
+    transcript = client.get(transcript_path)
+    assert transcript.status_code == 200
+    assert all(segment["text"] in transcript.json()["text"].replace("\n", "") for segment in TRANSCRIPT)
+    assert transcript.headers["cache-control"] == "private, no-store"
+    foreign = TestClient(client.app)
+    assert foreign.get(transcript_path).status_code == 401
+    assert client.get(f"/v1/materials/{closed_loop[1].material_id}/sources/{source['normalization_id']}/transcript").status_code == 404
+
     # 送到 provider 的是沙箱轉好的 Opus，並帶工作 lease 以便取消。
     assert calls[0]["speech"] == b"OggS" and set(calls[0]["job"]) == {"job_id", "job_token"}
     with open_verified_artifact(owner, source["normalized_artifact_id"], dsn=dsn) as pdf:

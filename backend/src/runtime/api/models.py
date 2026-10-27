@@ -235,6 +235,11 @@ class StudySessionLink(_Closed):
     started_at: datetime
 
 
+class SourceTranscriptView(_Closed):
+    schema_: Literal["source-transcript/v1"] = Field(alias="schema")
+    text: str
+
+
 class SourcePresentation(_Closed):
     display_name: str
     source_kind: Literal["document", "image", "audio", "video", "youtube"]

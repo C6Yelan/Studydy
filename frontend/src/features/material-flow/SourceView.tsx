@@ -56,9 +56,21 @@ export function SourceView({
   const settingsLoaded = useRef(false);
   const [materialName,setMaterialName]=useState<string|null>(null);
   const [transcript, setTranscript] = useState<SourceItem | null>(null);
+  const [transcriptText, setTranscriptText] = useState<string | null>(null);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const transcriptDialog = useRef<HTMLDialogElement>(null);
   const transcriptOpener = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => { if (transcript) transcriptDialog.current?.showModal(); }, [transcript]);
+  useEffect(() => {
+    if (!transcript) return;
+    transcriptDialog.current?.showModal();
+    let cancelled = false;
+    setTranscriptText(null); setTranscriptError(null);
+    void apiClient.studyTools<{ text: string }>(`/v1/materials/${materialId}/sources/${transcript.normalization_id}/transcript`).then(
+      value => { if (!cancelled) setTranscriptText(value.text); },
+      failure => { if (!cancelled) setTranscriptError(errorMessage(failure)); },
+    );
+    return () => { cancelled = true; };
+  }, [apiClient, materialId, transcript]);
   const [pickerOpen,setPickerOpen]=useState(false);
   const pickerDialog=useRef<HTMLDialogElement>(null),pickerButton=useRef<HTMLButtonElement>(null);
   useEffect(()=>{setMaterialName(null);},[materialId]);
@@ -346,7 +358,9 @@ export function SourceView({
       <button type="button" className="text-button" autoFocus onClick={() => transcriptDialog.current?.close()}>關閉逐字稿</button>
     </div>
     <p>逐字稿來源：{transcript.transcript_display_name ?? "未記錄"}</p>
-    <iframe title="逐字稿 PDF" src={`/v1/artifacts/${encodeURIComponent(transcript.normalized_artifact_id!)}`} />
+    {transcriptError ? <p className="form-error" role="alert">{transcriptError}</p>
+      : transcriptText === null ? <p role="status">正在讀取來源…</p>
+      : <div className="source-transcript-text">{transcriptText}</div>}
   </dialog>;
   const allReady = queue.length === 0 && displayedSources.length > 0 && displayedSources.every((source) => source.status === "ready");
   const groups = (currentStructure ? ["upload", "research"] as const : ["all"] as const).filter(group =>

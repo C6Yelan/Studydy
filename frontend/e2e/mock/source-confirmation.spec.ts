@@ -435,13 +435,12 @@ for(const append of [false,true])test(`source display names drive labels and sea
  await expect(video.locator('.source-metadata')).toContainText('YouTube · 13:53');
  await expect(pictures.locator('.source-metadata')).toContainText('3 張圖片');
  await expect(page.locator(append ? '.source-panel-head' : '.source-list-card')).toContainText('共 10 頁 · 3 張圖片 · 影音 13 分 53 秒');
- await page.route(`**/v1/artifacts/${state.sources[0].normalized_artifact_id}`,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="zh-Hant"><body><p>已保存逐字稿預覽（測試內容）</p></body></html>'}));
+ await page.route(`**/v1/materials/${materialId}/sources/${state.sources[0].normalization_id}/transcript`,route=>route.fulfill({json:{schema:'source-transcript/v1',text:'已保存逐字稿預覽（測試內容）\n第二段原文'}}));
  const opener=video.getByRole('button',{name:'查看逐字稿',exact:true});
  await opener.click();
  const dialog=page.getByRole('dialog',{name:'【生成式 AI】淺談圖像生成模型 Diffusion Model 原理與實際應用',exact:true});
  await expect(dialog).toContainText('逐字稿來源：YouTube 上傳者字幕');
- await expect(dialog.locator('iframe')).toHaveAttribute('src',`/v1/artifacts/${state.sources[0].normalized_artifact_id}`);
- await expect(dialog.frameLocator('iframe').getByText('已保存逐字稿預覽（測試內容）')).toBeVisible();
+ await expect(dialog.locator('.source-transcript-text')).toHaveText('已保存逐字稿預覽（測試內容）\n第二段原文');
  for(const [width,height] of [[1440,900],[1024,768],[390,844]]){
   await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`transcript-${append?'published':'confirmation'}-${width}.png`),animations:'disabled'});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

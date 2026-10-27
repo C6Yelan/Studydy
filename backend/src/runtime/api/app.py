@@ -128,6 +128,7 @@ from .models import (
     SourceCapabilities,
     SourceListView,
     SourceUploadProgress,
+    SourceTranscriptView,
     YoutubeSourceCreate,
     VersionMoveCreate,
     VersionMoveNotice,
@@ -1154,6 +1155,17 @@ def create_app(settings: ApiSettings) -> FastAPI:
         accept_reference(owner, material_id, key, dsn=settings.dsn)
         add_youtube_source(owner, material_id, body.url, key, dsn=settings.dsn)
         return read_sources(owner, material_id, dsn=settings.dsn)
+
+    @app.get(
+        "/v1/materials/{material_id}/sources/{normalization_id}/transcript",
+        response_model=SourceTranscriptView,
+    )
+    def get_source_transcript(request: Request, material_id: UUID, normalization_id: UUID):
+        from ..source_transcript import read_transcript
+
+        request_context.require_query(request, set())
+        owner = request_context.trusted_learner(request, settings).learner_id
+        return read_transcript(owner, material_id, normalization_id, dsn=settings.dsn)
 
     @app.get("/v1/materials/{material_id}/sources", response_model=SourceListView)
     def get_material_sources(request: Request, material_id: UUID):
