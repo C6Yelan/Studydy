@@ -703,6 +703,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         started, body, failure = time.monotonic(), None, None
         self.script_review = None
+        self.audio_queued_at = self.audio_started_at = None
         try:
             size = int(self.headers.get("Content-Length", "0"))
             if (
@@ -756,7 +757,11 @@ class Handler(BaseHTTPRequestHandler):
                 else TEXT_LOCK
             )
             with self.calls().request(tags, self.path), podcast_process.job(body, required=self.path == "/video") as cancelled:
+                if self.path == "/audio":
+                    self.audio_queued_at = time.monotonic()
                 with podcast_process.tracked_lock(active_lock, cancelled, body, self.path):
+                    if self.path == "/audio":
+                        self.audio_started_at = time.monotonic()
                     self.generate(body, cancelled)
         except Exception as error:
             failure = error
@@ -876,6 +881,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", media)
         self.send_header("Content-Length", str(len(data)))
         if self.path == "/audio":
+            self.send_header("X-Studydy-Audio-Timings", json.dumps({
+                "tts_queue_ms": (self.audio_started_at - self.audio_queued_at) * 1000,
+                "tts_synthesis_ms": (time.monotonic() - self.audio_started_at) * 1000,
+            }))
             self.send_header(
                 "X-Studydy-Audio-Provider",
                 "Fun-CosyVoice3-0.5B-2512;rl-reference-vw;spoken-input/v15;dynamic-pauses/v2;podcast-mastering/v1",

@@ -444,7 +444,10 @@ def answer(
     user_history=(),
     spoken=False,
     recognition=None,
+    on_stage=None,
 ):
+    if on_stage:
+        on_stage("retrieval")
     answer_prompt = ANSWER_PROMPT + (SPOKEN_STYLE if spoken else "")
     review_prompt = REVIEW_PROMPT + (SPOKEN_STYLE if spoken else "")
     original_question = question
@@ -658,10 +661,14 @@ def answer(
             "catalog_for_search_only": outline,
             "can_search_again": attempt == 0,
         }
+        if on_stage:
+            on_stage("answering")
         generated = _request(call, answer_prompt, payload, ANSWER_SCHEMA, metrics)
         segments, next_queries, missing = _segments(generated, len(bound))
         generated_queries = next_queries
         if segments:
+            if on_stage:
+                on_stage("checking")
             checked, next_queries, missing = _review_segments(
                 question,
                 history,
@@ -687,6 +694,8 @@ def answer(
                     )
                 )
         if attempt == 0 and next_queries:
+            if on_stage:
+                on_stage("retrieval")
             additions = retrieve(list(dict.fromkeys(next_queries))[:8])
             old = {p["passage_id"] for p in passages}
             if any(p["passage_id"] not in old for p in additions):

@@ -341,6 +341,7 @@ _ERROR_STATUS.update(
         "RESEARCH_SEARCH_FAILED": (502, True),
         "RESEARCH_DOWNLOAD_FAILED": (502, True),
         "ASSESSMENT_IN_PROGRESS": (409, False),
+        "VOICE_AUDIO_NOT_READY": (409, True),
         "VOICE_TURN_IN_PROGRESS": (409, True),
         "VOICE_PROVIDER_UNAVAILABLE": (503, True),
         "VOICE_PROVIDER_FAILED": (502, True),

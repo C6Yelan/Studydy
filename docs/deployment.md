@@ -390,3 +390,5 @@ PC1／PC2 使用 0026_podcast_step_times（在教材投影0024、作答presence0
 ### Podcast 步驟與略過提示前端
 
 PC1／PC2 前端與 B3.6 `feat/overnight-podcast-progress`（94f342703d2656ff48ce7db85487a5655383130c）同批部署，依後端規定先更新 provider。部署順序為 B3.5＋Q3 → B3.6＋PC1／PC2 → B3.7＋V2。
+
+V2使用0027_voice_sentences，順序在Q3的0025與PC1的0026之後。先部署provider音訊量測header，再部署後端與前端逐句播放接線；部署前沿既有規則清空工作，舊完成回答不建立假句序或補估時間。回復舊映像保留新增表／欄位，不刪已生成音訊。

@@ -382,3 +382,5 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 
 `test_podcast_generation_steps.py` 以隔離 DB 驗證步驟與實際領取／發布、分鏡／影片工作一致，略過身分保存及 migration 套用回滾；`test_podcast_process.py` 以真鎖驗證排隊與執行。provider 受控回應另驗證少於一半、剛好一半、過半與重點去重，不呼叫真模型。
+
+`test_voice_sentences.py` 使用真DB與合成PCM驗證完整核對後切句、句序、第一句先可讀、未完成整份不下載、取消拒絕遲到結果、失敗重試不重做已完成句、最後串接及migration套用回滾。`test_voice_audio_timings.py` 使用真HTTP與真provider鎖驗證實測等待／合成header；問答回歸驗證三段階段量測，不呼叫模型。離線量測只證明計時與生命周期，不作真實回答延遲改善宣稱。
