@@ -122,6 +122,10 @@ def install(app, settings):
             owner(request), identity, turn_id, body.action, dsn=settings.dsn
         )
 
+    @app.get("/v1/voice-conversations/{identity}/turns/{turn_id}/audio/{index}")
+    def sentence_audio(request: Request, identity: UUID, turn_id: UUID, index: int):
+        return bytes_response(request, voice.audio(owner(request), identity, turn_id, index=index, dsn=settings.dsn), "audio/wav")
+
     @app.get("/v1/voice-conversations/{identity}/turns/{turn_id}/audio")
     def audio(request: Request, identity: UUID, turn_id: UUID):
         return bytes_response(

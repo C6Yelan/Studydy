@@ -318,3 +318,9 @@ Podcast 依選定概念及關係規劃分集，透過同一索引取得各集引
 超過每日20點時，goal.suggestions 只提供經現行完整概念排程驗證可達的延後日期／降低比例。每個建議提供實際 target_date／target_percent／daily_points，前端使用既有PUT套用；單一概念本身超過20點而無可行方案時不提供假建議，不改出題或拆點規則。
 
 新問答保存 material-answer/v3 的 paragraphs（text、citation_ids），來源關係只取已核對接受的段落；既有 v2 回答維持原文與來源清單，不猜段落對應、不重新呼叫模型。
+
+### 語音逐句播放與實際耗時
+
+新語音回答整份來源核對完成後，才依句末標點／換行切句（小數點不切），依 index 連續保存。audio_sentences 的 ready 句可由專屬 audio/{index} 讀取，尚未完成回409 VOICE_AUDIO_NOT_READY；每句保留原文，送TTS沿PC6可念化處理。第一句完成即可播放，整份 /audio 只在全部完成後提供串接WAV，舊整份音訊維持可讀。
+
+取消會停止正在製作與待生成句，保留已完成句；失敗後不跳過該句，重試保留已核對回答及已完成音訊。stage 與原status共同描述生命週期，不能以已有某句音訊認定全部完成。timings 記錄 retrieval_ms／answer_ms／verification_ms／tts_queue_ms／tts_synthesis_ms；TTS排隊包含成為下一句後等待worker與provider鎖的實測時間，合成時間由provider回報。重試累加實際已量測耗時，舊資料沒有量測即null，不估填。部署前已核對但配音失敗的回答，重試時才從保存的原回答建立句列，不重新問答或改寫內容。

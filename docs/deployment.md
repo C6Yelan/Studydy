@@ -374,3 +374,5 @@ learning-goal/v2、learning-diagnosis/v2、material-notes/v3 與新回答 materi
 
 
 PC1／PC2 使用 0026_podcast_step_times（在教材投影0024、作答presence0025之後）。須先更新 provider 的 /jobs/progress 與略過邏輯，再部署後端；未清空 Luna 工作不得重啟 provider。新增時間欄位可保留回復舊映像；不改既有講稿／音訊或核對封存。前端依已審 API 契約顯示步驟及略過提示。
+
+V2使用0027_voice_sentences，順序在Q3的0025與PC1的0026之後。先部署provider音訊量測header，再部署後端與前端逐句播放接線；部署前沿既有規則清空工作，舊完成回答不建立假句序或補估時間。回復舊映像保留新增表／欄位，不刪已生成音訊。

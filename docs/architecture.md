@@ -127,3 +127,5 @@ Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文�
 來源顯示、run完成摘要與概念疑義為獨立公開投影，不改已發布結構hash。草稿目標在教材發布時建立排程；跨版筆記以content_revision回查真正顯示稿件的來源。
 
 Podcast 步驟時間：講稿／音訊放在分集 step_times，對齊／影片使用工作表 started_at／finished_at。只讀 provider /jobs/progress 用 job_id＋job_token 對應活動請求，觀測真正等待鎖／持鎖狀態；回應不含教材、帳號或台詞。段落略過只改發布取捨，不改核對提示或 runtime lock。
+
+V2 的 voice_sentences 由 voice_turns 外鍵 cascade 管理，保存句序、原文、狀態、WAV及時長；只有已核對回答能建立句列，租約仍由原turn持有，取消與遲到結果沿用原檢查。查詢中的語音stage共用provider真實鎖狀態；provider回傳X-Studydy-Audio-Timings供排隊／合成量測，不改GPU鎖或PC6可念化規則。

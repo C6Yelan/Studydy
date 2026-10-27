@@ -3,12 +3,13 @@
 from .storage.materials import require_material
 
 from .provider_http import provider
-from . import luna_calls
+from . import luna_calls, voice_sentences
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import base64
 import json
+import time
 from itertools import zip_longest
 from uuid import UUID, uuid4
 from sqlalchemy import delete, or_, select, tuple_
@@ -18,6 +19,7 @@ from .storage.knowledge_structures import _prune_unreferenced_structures
 from .storage.tables import (
     VoiceConversation as Conversation,
     VoiceTurn as Turn,
+    VoiceSentence,
     Material,
 )
 from .storage.database import database_session
@@ -116,6 +118,13 @@ def read(owner, identity, *, dsn=None):
             .order_by(Turn.created_at, Turn.turn_id)
         ).all()
         retrieval._scope(db, owner, row.material_id, row.knowledge_structure_revision)
+        sentences = {turn.turn_id: [] for turn in turns}
+        for item in db.scalars(select(VoiceSentence).where(VoiceSentence.turn_id.in_(sentences)).order_by(VoiceSentence.index)):
+            sentences[item.turn_id].append({"index":item.index,"text":item.text,"status":item.status,
+                "duration_seconds":item.duration_seconds,
+                "audio_url":f"/v1/voice-conversations/{identity}/turns/{item.turn_id}/audio/{item.index}" if item.status=="ready" else None})
+        from .podcast_generation import live_progress
+        live = live_progress([(t.turn_id,t.lease_token) for t in turns if t.status=="speaking"])
         answers = {}
         for turn in turns:
             if turn.mode not in ("text", "voice") or turn.status == "draft":
@@ -145,6 +154,9 @@ def read(owner, identity, *, dsn=None):
                         )
                     },
                     "answer": answers[t.turn_id],
+                    "stage": ("tts_synthesizing" if live.get((str(t.turn_id),str(t.lease_token)),{}).get("status")=="running" else t.stage),
+                    "timings": {key:(t.timings or {}).get(key) for key in voice_sentences.TIMING_KEYS},
+                    "audio_sentences": sentences[t.turn_id],
                     "audio_url": f"/v1/voice-conversations/{identity}/turns/{t.turn_id}/audio"
                     if t.audio
                     else None,
@@ -316,6 +328,8 @@ def action(owner, identity, turn_id, action, *, dsn=None):
         if action == "cancel":
             if turn.status in ACTIVE:
                 turn.status = "cancelled"
+                turn.stage = "cancelled"
+                voice_sentences.stop(db, turn, "cancelled")
                 turn.recording = None
                 turn.lease_token = turn.lease_expires_at = None
         elif action == "retry":
@@ -338,6 +352,9 @@ def action(owner, identity, turn_id, action, *, dsn=None):
                 else "pending"
             )
             turn.error_code = None
+            turn.stage = "tts_queued" if turn.status == "speaking" else "completed" if turn.status == "ready" else "retrieval"
+            if turn.status == "speaking":
+                voice_sentences.retry(db, turn)
         else:
             raise SourceError("REQUEST_INVALID")
         status = turn.status
@@ -360,11 +377,15 @@ def remove(owner, identity, *, dsn=None):
     return {"ok": True}
 
 
-def audio(owner, identity, turn_id, *, dsn=None):
+def audio(owner, identity, turn_id, *, index=None, dsn=None):
     with database_session(dsn) as db:
         _conversation(db, owner, identity, read=True)
         turn = db.get(Turn, turn_id)
-        if not turn or turn.conversation_id != identity or not turn.audio:
+        if not turn or turn.conversation_id != identity:
+            raise SourceError("RESOURCE_NOT_FOUND")
+        if index is not None:
+            return bytes(voice_sentences.audio(db, turn_id, index))
+        if not turn.audio:
             raise SourceError("RESOURCE_NOT_FOUND")
         return bytes(turn.audio)
 
@@ -406,6 +427,7 @@ def claim(*, dsn=None):
                 "lease_token",
                 "context",
                 "transcription",
+                "timings",
             )
         }
         state.update(
@@ -413,6 +435,8 @@ def claim(*, dsn=None):
             material_id=row.material_id,
             revision=row.knowledge_structure_revision,
         )
+        if turn.status == "speaking":
+            voice_sentences.claim(db, turn, state)
         if turn.status == "transcribing":
             recent = db.scalar(
                 select(Turn)
@@ -593,6 +617,9 @@ def _save_answer(db, turn, state, result):
         ):
             conversation.memory = memory
     turn.status = "ready" if turn.mode == "text" else "speaking"
+    turn.stage = "completed" if turn.mode == "text" else "tts_queued"
+    if turn.mode == "voice":
+        voice_sentences.enqueue(db, turn)
 
 
 def finish(state, result=None, error=None, *, dsn=None):
@@ -615,17 +642,39 @@ def finish(state, result=None, error=None, *, dsn=None):
         if error:
             turn.status = "failed"
             turn.error_code = error
+            turn.stage = "failed"
+            voice_sentences.stop(db, turn, "failed")
             turn.recording = None
         elif state["status"] == "transcribing":
             _save_transcript(db, turn, result)
         elif state["status"] == "answering":
             _save_answer(db, turn, state, result)
         else:
-            validate_audio(result)
-            turn.audio = result
-            turn.status = "ready"
+            voice_sentences.finish(db, turn, state, result)
+            measured = state.get("audio_timings", {})
+            timings = dict(turn.timings or {})
+            for key, extra in (("tts_queue_ms", state["tts_wait_ms"]), ("tts_synthesis_ms", 0)):
+                if key in measured:
+                    timings[key] = (timings.get(key) or 0) + measured[key] + extra
+            turn.timings = timings
     if state["status"] == "answering":
         luna_calls.completed("failed" if error else "succeeded", error)
+
+
+def _record_stage(state, stage, *, dsn):
+    now = time.perf_counter()
+    previous = state.get("_stage")
+    timings = dict(state.get("timings") or {})
+    key = {"retrieval":"retrieval_ms", "answering":"answer_ms", "checking":"verification_ms"}.get(previous)
+    if key:
+        timings[key] = (timings.get(key) or 0) + (now - state["_stage_start"]) * 1000
+    state.update(timings=timings, _stage=stage, _stage_start=now)
+    with database_session(dsn) as db:
+        turn = db.get(Turn,state["turn_id"])
+        if turn and turn.status==state["status"] and lease_is_current(turn,state["lease_token"]):
+            turn.timings = timings
+            if stage:
+                turn.stage = stage
 
 
 def step(*, dsn=None):
@@ -652,6 +701,7 @@ def step(*, dsn=None):
                     },
                 )
             elif state["status"] == "answering":
+                _record_stage(state, "retrieval", dsn=dsn)
                 context = None
                 if state["context"]:
                     with database_session(dsn) as db:
@@ -687,24 +737,21 @@ def step(*, dsn=None):
                     user_history=state["user_history"],
                     spoken=state["mode"] == "voice",
                     recognition=state.get("transcription"),
+                    on_stage=lambda stage: _record_stage(state, stage, dsn=dsn),
                 )
+                _record_stage(state, None, dsn=dsn)
                 state["memory_update"] = result.pop("_memory_update")
             else:
+                state["audio_timings"] = {}
                 result = provider(
                     "/audio",
-                    {
-                        **job,
-                        "script": {
-                            "segments": [
-                                {"turns": [{"speaker": "host", "text": paragraph}]}
-                                for paragraph in state["answer"]["text"].split("\n\n")
-                                if paragraph.strip()
-                            ]
-                        },
-                    },
+                    {**job, "script": {"segments": [{"turns": [{"speaker": "host", "text": state["sentence_text"]}]}]}},
+                    timings=state["audio_timings"],
                 )
             finish(state, result, dsn=dsn)
     except Exception as error:
+        if state.get("_stage"):
+            _record_stage(state, None, dsn=dsn)
         luna_calls.rejected(str(error))
         code = str(error) if isinstance(error, SourceError) else "VOICE_PROVIDER_FAILED"
         finish(state, error=code, dsn=dsn)
