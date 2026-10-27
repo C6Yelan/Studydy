@@ -34,7 +34,7 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  await expect(page.getByRole('heading',{name:'等待開始處理',exact:true})).toBeVisible();
  await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('建立教材');
  topic.research.run={status:'succeeded',error_code:null,output_binding:{knowledge_structure_revision:structureRevision}};
- await page.reload();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();expect(created).toBe(1);await expect(page.locator('.tool-stage-footer').getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();
+ await page.reload();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();expect(created).toBe(1);await expect(page.locator('.run-actions').getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();
  await page.reload();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();expect(created).toBe(1);expect(approved).toBe(1);await expect(page.getByLabel('想學的主題')).toHaveCount(0);await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toHaveCount(0);
  await page.getByRole('button',{name:'開啟知識地圖',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/runs/${runId}/knowledge-structures/`));
 });
@@ -169,8 +169,8 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
  await expect(page.locator('.learning-steps > li')).toHaveCount(4);await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('建立教材');
  await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('建立概念、關係與學習順序');
  await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
- await expect(page.getByText('已選文件 1',{exact:true})).not.toBeVisible();
- const summary=page.locator('.topic-selected-sources > summary');await expect(summary).toHaveText('已選來源 · 23 份');await summary.focus();await page.keyboard.press('Enter');await expect(page.getByText('已選文件 1',{exact:true})).toBeVisible();await summary.click();
+ await expect(page.locator('.topic-selected-sources').getByText('已選文件 1',{exact:true})).not.toBeVisible();
+ const summary=page.locator('.topic-selected-sources > summary');await expect(summary).toHaveText('已選來源 · 23 份');await summary.focus();await page.keyboard.press('Enter');await expect(page.locator('.topic-selected-sources').getByText('已選文件 1',{exact:true})).toBeVisible();await summary.click();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  current={...current,progress_stage:'publishing',completed_pages:10};await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('組裝與發布知識地圖');await expect(page.getByRole('progressbar',{name:/本階段進度/})).toBeVisible();await expect(page.getByRole('progressbar',{name:/本階段進度/})).not.toHaveAttribute('aria-valuenow');
  current={...runFixture,total_pages:10,completed_pages:10,output_binding:{...runFixture.output_binding,page_count:10}};await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();await expect(page.getByRole('progressbar')).toHaveCount(0);await expect(page.locator('.learning-steps li.is-complete')).toHaveCount(4);
@@ -183,9 +183,9 @@ for(const status of ['failed','cancelled','partial'] as const) test(`topic mater
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));await page.route(`**/v1/material-processing-runs/${runId}`,r=>json(r,current));
  await page.goto(`/topics/${id}`);await expect(page.getByRole('heading',{name:status==='failed'?'教材處理失敗':status==='cancelled'?'已取消教材處理':'教材與知識地圖已建立',exact:true})).toBeVisible();
  await expect(page.getByRole('progressbar')).toHaveCount(0);
- if(status==='partial'){await expect(page.locator('.topic-analysis-result').getByRole('status')).toContainText('部分結果可用');await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();}
- else {await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);await expect(page.locator('.topic-analysis-result')).toContainText('已處理 1 / 2 頁');}
- if(status==='failed'){await expect(page.getByText('已完成的處理進度已保存；重試會接續未完成的部分。')).toBeVisible();await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();}
+ if(status==='partial'){await expect(page.locator('.flow-chip')).toContainText('處理完成');await expect(page.getByText('由 AI 整理，每個重點都可點開原文對照。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();}
+ else {await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);await expect(page.getByRole('region',{name:'教材分析子流程'})).toContainText('已處理 1 / 2 頁');}
+ if(status==='failed'){await expect(page.getByText('已完成的處理進度已保存；使用相同來源與設定重試，會接續未完成的部分。')).toBeVisible();await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();}
  else await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'查看教材建立結果',exact:true})).toHaveCount(0);
 });
@@ -270,4 +270,29 @@ test('topics still being planned stay reachable from the library',async({page})=
  await page.goto('/materials');
  await card.getByRole('button',{name:'取消建立'}).click();await expect(card.getByRole('group',{name:'取消這個主題規劃？'})).toBeVisible();
  await card.getByRole('button',{name:'取消建立',exact:true}).click();await expect(card).toHaveCount(0);
+});
+
+
+test('topic analysis cancellation explains removal of search results and requires confirmation',async({page},testInfo)=>{
+ await mockTopicApi(page);let gone=false,deletes=0,publishedDuringDelete=false;const captureTime=Date.now();
+ const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],error_code:null,run_id:runId,run:{status:'running',output_binding:null}}};
+ const missing={schema:'api-error/v1',request_id:id,reason_code:'RESOURCE_NOT_FOUND',retryable:false,message:'Request could not be completed.'};
+ await page.route('**/v1/topics',r=>json(r,{topics:gone?[]:[topic]}));
+ await page.route(`**/v1/topics/${id}`,r=>gone?r.fulfill({status:404,json:missing}):json(r,topic));
+ await page.route(`**/v1/material-processing-runs/${runId}`,r=>gone?r.fulfill({status:404,json:missing}):json(r,publishedDuringDelete?runFixture:{...runFixture,status:'running',progress_stage:'evidence',completed_pages:1,total_pages:2,source_names:['TCP handshake'],created_at:new Date(captureTime-65000).toISOString(),updated_at:new Date(captureTime).toISOString(),output_binding:null,completed_at:null}));
+ await page.route(`**/v1/materials/${materialId}`,r=>{expect(r.request().method()).toBe('DELETE');deletes++;return json(r,{schema:'material-discard/v1',material_id:materialId,state:'removing'},202);});
+ await page.goto(`/topics/${id}`);const cancel=page.getByRole('button',{name:'取消並刪除教材',exact:true});await expect(cancel).toBeVisible();
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`topic-running-${width}.png`),animations:'disabled'});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
+ await cancel.click();const confirmation=page.getByRole('region',{name:'確定要刪除這份教材嗎？'});
+ await expect(confirmation).toContainText('這次搜尋結果不會保留，這個主題也會從列表移除。');await expect(confirmation.getByRole('button',{name:'取消',exact:true})).toBeFocused();expect(deletes).toBe(0);
+ await page.screenshot({path:testInfo.outputPath('topic-discard-confirmation-390.png'),animations:'disabled'});
+ await page.keyboard.press('Escape');await expect(cancel).toBeFocused();expect(deletes).toBe(0);
+ await cancel.click();await page.getByRole('button',{name:'確認刪除',exact:true}).click();await expect(page.getByRole('heading',{name:'正在刪除教材…',exact:true})).toBeVisible();expect(deletes).toBe(1);
+ const completedRead=page.waitForResponse(async response=>response.url().endsWith(`/v1/material-processing-runs/${runId}`)&&response.status()===200&&(await response.json()).status==='succeeded');
+ publishedDuringDelete=true;await (await completedRead).finished();await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
+ await expect(page.getByText('正在停止處理並刪除這份教材，完成後會返回我的教材。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
+ gone=true;await expect(page).toHaveURL(/\/materials$/);expect(deletes).toBe(1);
 });

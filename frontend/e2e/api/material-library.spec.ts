@@ -13,7 +13,7 @@ async function login(page: Page, email: string) {
   await expect(
     page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: /^(教材庫|我的教材)$/, exact: true }).click();
+  await page.getByRole("link", { name: /^我的教材$/, exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
 }
 
@@ -92,7 +92,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
     ).toBeVisible();
     await expect(freshPage).toHaveURL(`${browserOrigin}${headPath}`);
   }
-  // 教材內由教材頁首的返回按鈕回到教材庫。
+  // 教材內由教材頁首的返回按鈕回到我的教材。
   await freshPage.getByRole("button", { name: "回到我的教材", exact: true }).click();
   const pdfUrl = `/v1/artifacts/${material.source_artifact_id}`;
   const pdf = await fresh.request.get(`${browserOrigin}${pdfUrl}`);

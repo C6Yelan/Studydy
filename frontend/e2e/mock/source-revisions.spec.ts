@@ -202,7 +202,6 @@ for (const width of [1536, 390]) {
     await start.click();
     await expect(page.getByRole("heading", { name: "正在更新教材", exact: true })).toBeVisible();
     await expect(page.locator(".processing-sources li")).toHaveText(run.source_names!);
-    await expect(page.getByRole("button", { name: "繼續學習", exact: true })).toBeEnabled();
     await expect(page.getByRole("button", { name: "取消並刪除教材", exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
@@ -211,7 +210,7 @@ for (const width of [1536, 390]) {
     await expect(page.getByRole("heading", { name: "已取消這次更新", exact: true })).toBeVisible();
     await page.reload();
     await expect(page.getByRole("heading", { name: "已取消這次更新", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "開啟目前地圖", exact: true }).click();
+    await page.getByRole("button", { name: "先使用目前地圖", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${mapPath(oldRunId, revision)}$`));
     await expect(page.getByRole("region", { name: "知識地圖工作區", exact: true })).toBeVisible();
     await page.goto("/materials");
@@ -223,7 +222,7 @@ for (const width of [1536, 390]) {
     expect({ starts, cancels }).toEqual({ starts: 1, cancels: 1 });
   });
 
-  test(`partial update keeps its notice and opens the current head at ${width}px`, async ({
+  test(`partial update uses the source notice and opens the current head at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
@@ -294,8 +293,8 @@ for (const width of [1536, 390]) {
     );
     await page.goto(updatePath);
     await expect(page.getByRole("heading", { name: "教材更新完成", exact: true })).toBeVisible();
-    await expect(page.getByRole("status")).toContainText("部分內容建議對照來源確認");
-    await page.getByRole("button", { name: "開啟目前地圖", exact: true }).click();
+    await expect(page.getByText("由 AI 整理，每個重點都可點開原文對照。",{exact:true})).toBeVisible();
+    await page.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${mapPath(newRunId, newRevision)}$`));
     await expect(page.getByRole("region", { name: "知識地圖工作區", exact: true })).toBeVisible();
     await page.goto("/materials");
@@ -326,3 +325,18 @@ for (const width of [1536, 390]) {
     await expect(page.locator(".study-session-page")).toBeVisible();
   });
 }
+
+
+test('update processing places cancellation and the current map in one card footer',async({page},testInfo)=>{
+ await mockKnowledgeMapApi(page,structureView());
+ const run:MaterialProcessingRunView={...publishedRun,run_id:newRunId,base_revision:revision,status:'running',progress_stage:'evidence',completed_pages:1,total_pages:2,source_names:['補充教材.pdf'],created_at:new Date(Date.parse(timestamp)-65000).toISOString(),updated_at:new Date(Date.parse(timestamp)-1000).toISOString(),output_binding:null,completed_at:null};
+ await mockMaterial(page,()=>({...material,latest_attempt:run}));
+ await page.route(`**/v1/material-processing-runs/${newRunId}`,route=>route.fulfill({json:run}));
+ await page.goto(updatePath);
+ const footer=page.locator('.run-actions');await expect(footer.getByRole('button',{name:'取消這次更新',exact:true})).toBeVisible();
+ await expect(footer.getByRole('button',{name:'先使用目前地圖',exact:true})).toBeVisible();await expect(page.locator('.processing-page .primary-button')).toHaveCount(1);
+ for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
+  await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`update-running-${width}.png`),animations:'disabled'});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
+});

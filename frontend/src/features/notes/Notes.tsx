@@ -154,8 +154,7 @@ function NotesContent({ api, materialId, revision, kind }: { api: StudydyApiClie
     {error && <div role="alert"><p className="form-error">{error}</p><button className="text-button" onClick={() => setReload(v => v + 1)}>重新讀取</button></div>}
     {!view && !error && <p role="status">正在讀取筆記…</p>}
     {view && <>
-      {(view.source_status.quality === "needs_review" || view.source_status.processing !== "succeeded" || view.source_status.decision !== "retain") &&
-        <p className="note-source-notice">教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。</p>}
+      <p className="note-source-notice">由 AI 整理，每個重點都可點開原文對照。</p>
       <div className="note-status" aria-live="polite">
         {pending ? <p>{view.status === "pending" ? "筆記已排入生成佇列。" : "正在撰寫並逐段核對筆記內容…"}{view.paragraphs.length > 0 && "以下仍可閱讀上一份筆記。"}</p>
           : view.status === "failed" ? <p>{failureMessages[view.error_code ?? ""] ?? "筆記生成未完成，請稍後重試。"}{view.paragraphs.length > 0 && "以下保留上一份筆記。"}</p>

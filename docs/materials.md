@@ -169,7 +169,7 @@ Demo 的 POST-03 修復另有[指定教材一次性維護指令](deployment.md#�
 
 新來源將確認過的學習範圍封存至 bundle，分析與檢核沿用該範圍；不追改已發布 bundle 的 hash。
 
-追加只分析新增來源，再整合檢核；發布同交易更新知識結構、run 與教材 head。教材庫開目前 head，學習依 exact revision 恢復。被學習、活動工作或未刪除研究的 base revision 引用的結構保留，其餘完整結構可清理；來源檔跨版本重用。
+追加只分析新增來源，再整合檢核；發布同交易更新知識結構、run 與教材 head。我的教材開目前 head，學習依 exact revision 恢復。被學習、活動工作或未刪除研究的 base revision 引用的結構保留，其餘完整結構可清理；來源檔跨版本重用。
 
 每頁成功整理後，先原子寫入頁面 Evidence checkpoint，再更新處理頁數；快照綁定 owner、教材、來源集合、原來源頁碼與 runtime，保留完整原文及 Evidence 身分。失敗或中斷後，只重用來源與分析設定相容的已保存頁面，不重新渲染或呼叫 OCR；不相容的舊工作略過、由新 run 重新擷取，尚未成功擷取的頁面仍需重試。
 
@@ -270,3 +270,5 @@ GET /v1/account/storage 使用 account-storage/v2，回傳教材原檔與轉換�
 列表及詳情 generation.steps 按集提供 script／audio／alignment／video；未選影片且無影片工作時不列 video。狀態依真實工作列與 provider 鎖投影，待領取與等待共用鎖為 queued，已取得鎖才 running；無法讀取 provider 時不猜正在配音。分鏡維持 Podcast 全部音訊 ready 才可領取。started_at 與 elapsed_seconds 是實際領取至完成（含等待）的時間，舊資料沒有時間就 null；鎖不保證 FIFO，queue_ahead 維持 null。
 
 講稿重寫後仍無法核對的段落略過，其他已核對段落才送配音；episode.omitted_content 保存原段號、選定 claim_ids 與 source_check_failed，不保存未核對台詞。門檻以本集選定重點去重後計算，超過半數落在略過正文才回 PODCAST_SCRIPT_NEEDS_REVIEW；剛好一半發布。開場、收尾不計入重點門檻，核對失敗仍略過。前端逐字稿與本集重點顯示固定略過提示。
+
+處理頁的完成呈現不直接曝光整份 partial／needs_review 提示；完成頁與筆記提供固定AI／原文對照說明，來源、品質狀態與核對紀錄仍原樣保存。從主題建立在分析中可透過既有DELETE教材操作取消並刪除；此操作清除所屬搜尋結果，主題狀態改為取消並從列表移除，介面確認須明示此範圍。
