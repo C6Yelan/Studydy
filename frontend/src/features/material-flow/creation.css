@@ -34,27 +34,21 @@
 .cards-selection-actions button { min-height:32px; padding:0; white-space:nowrap; }
 
 .cards-concept-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-auto-rows:max-content; gap:8px; align-content:start; }
-.cards-concept-row, .podcast-concept-option { display:flex; align-items:center; gap:8px; min-width:0; min-height:60px; padding:8px 12px; border:1.5px solid transparent; border-radius:18px; background:var(--page-cool); transition:background .15s, border-color .15s; }
-.cards-concept-row.is-selected, .podcast-concept-option.is-selected { border-color:#c8d7f5; background:var(--studydy-blue-soft); }
-.cards-concept-row label, .podcast-concept-option label { display:flex; flex:1; align-items:center; gap:10px; min-width:0; cursor:pointer; }
-.cards-concept-row label > span, .podcast-concept-option label > span { min-width:0; }
-.cards-concept-row input, .podcast-concept-option input { flex:none; width:17px; height:17px; margin:0; accent-color:var(--studydy-blue); }
-.cards-concept-row strong, .podcast-concept-option strong { display:block; color:var(--text-primary); font-size:14px; font-weight:800; line-height:1.4; overflow-wrap:anywhere; }
-.cards-concept-row small, .podcast-concept-option small { display:block; margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:700; }
-.cards-concept-row > button, .podcast-concept-option > button { flex:none; min-height:32px; padding:0 4px; font-size:12px; }
+.podcast-concept-option { display:flex; align-items:center; gap:8px; min-width:0; min-height:60px; padding:8px 12px; border:1.5px solid transparent; border-radius:18px; background:var(--page-cool); transition:background .15s, border-color .15s; }
+.podcast-concept-option.is-selected { border-color:#c8d7f5; background:var(--studydy-blue-soft); }
+.podcast-concept-option label { display:flex; flex:1; align-items:center; gap:10px; min-width:0; cursor:pointer; }
+.podcast-concept-option label > span { min-width:0; }
+.podcast-concept-option input { flex:none; width:17px; height:17px; margin:0; accent-color:var(--studydy-blue); }
+.podcast-concept-option strong { display:block; color:var(--text-primary); font-size:14px; font-weight:800; line-height:1.4; overflow-wrap:anywhere; }
+.podcast-concept-option small { display:block; margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:700; }
+.podcast-concept-option > button { flex:none; min-height:32px; padding:0 4px; font-size:12px; }
 .cards-concept-pagination { display:flex; justify-content:space-between; align-items:center; gap:8px; }
 .cards-concept-pagination button { min-height:36px; padding:6px 14px; font-size:13px; }
 .cards-concept-pagination span { color:var(--text-secondary); font-size:12px; font-weight:700; }
 
 /* 預覽與講解設定：淺色底的副區塊。 */
 .cards-preview, .podcast-settings { display:flex; flex-direction:column; gap:12px; min-width:0; padding:16px 18px 18px; border-radius:20px; background:var(--page-cool); }
-.cards-preview-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; min-width:0; }
-.cards-preview-heading h3, .podcast-settings h3 { margin:0; font-size:15px; }
-.cards-preview-heading span { overflow:hidden; color:var(--text-secondary); font-size:12px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
-.cards-preview-status { margin:0; color:var(--text-secondary); font-size:13px; }
-.cards-create .flashcard, .cards-create .flashcard-details { min-height:240px; }
-.cards-create .flashcard-details { padding:20px; }
-.cards-preview .visual-card + .visual-card { margin-top:20px; }
+.podcast-settings h3 { margin:0; font-size:15px; }
 
 /* 頁尾摘要：數量＋一句提示。 */
 .cards-create-summary { display:grid; gap:2px; min-width:0; }
@@ -101,12 +95,6 @@
   .material-content .creation-page :is(.cards-selection, .podcast-selection) > :not(.cards-concept-list):not(.podcast-concept-list) { flex-shrink:0; }
   .material-content .creation-page :is(.cards-concept-list, .podcast-concept-list) { flex:1; min-height:0; max-height:none; overflow-y:auto; }
   .material-content .creation-page .cards-preview { overflow-y:auto; }
-  .material-content .creation-page .cards-preview-heading { flex-shrink:0; }
-  .material-content .creation-page .cards-preview .flashcard { flex:1; min-height:0; }
-  .material-content .creation-page .cards-preview .flashcard-details { display:flex; flex-direction:column; height:100%; min-height:0; }
-  .material-content .creation-page .cards-preview .flashcard-content { flex:1; min-height:0; max-height:none; }
-  .material-content .creation-page .cards-preview .visual-card { display:flex; flex-direction:column; min-height:0; }
-  .material-content .creation-page .cards-preview .visual-concept-card { flex:1; min-height:0; }
   .material-content .creation-page .podcast-settings { align-self:start; }
 }
 /* 與上方 1000px 互補（保留理由同上）。 */
