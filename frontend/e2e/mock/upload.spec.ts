@@ -494,6 +494,7 @@ test('confirmation polling preserves the edited name and reload keeps the saved 
  await page.clock.install();const state=await setup(page);await page.goto('/upload');
  await page.getByLabel('選擇教材檔案',{exact:true}).setInputFiles(txt);
  await page.getByRole('button',{name:'上傳並確認來源',exact:true}).click();
+ await expect(page).toHaveURL(new RegExp(`/materials/${material}/sources$`));
  Object.assign(state.sources[0],{status:'pending',normalized_artifact_id:null,page_count:null});
  await page.reload();
  const name=page.getByRole('textbox',{name:'教材名稱',exact:true});await expect(name).toHaveValue('B');
