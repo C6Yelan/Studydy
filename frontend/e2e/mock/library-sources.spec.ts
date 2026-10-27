@@ -149,7 +149,7 @@ for (const width of [1536, 390]) {
     await expect(rows.nth(1).getByRole("link", { name: "預覽 PDF", exact: true })).toHaveCount(0);
     await expect(rows.nth(2).getByRole("status")).toHaveText("轉換失敗");
     await expect(rows.nth(2).getByRole("link", { name: "預覽 PDF", exact: true })).toHaveCount(0);
-    await expect(page.getByLabel("選擇新增教材", { exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", {name:"新增來源",exact:true})).toBeEnabled();
     await expect(
       page.getByText("無法載入上傳限制，請重新整理後再試。", { exact: true }),
     ).toHaveCount(0);

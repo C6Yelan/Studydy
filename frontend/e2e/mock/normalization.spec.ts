@@ -115,7 +115,7 @@ for (const width of [1536, 390])
       expect(request.method()).toBe("POST");
       expect(request.postDataJSON()).toEqual({
         schema: "material-draft-create/v1",
-        display_name: "notes.txt",
+        display_name: "notes",
       });
       draftKeys.push(request.headers()["idempotency-key"]);
       return route.fulfill({
@@ -274,7 +274,7 @@ test("accepted deletion of a converting source survives reload and returns to li
   await expect(page.getByText("正在刪除教材…", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByText("正在刪除教材…", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("選擇新增教材", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"新增來源",exact:true})).toHaveCount(0);
   await expect(page.getByRole("button", { name: "開始分析教材", exact: true })).toHaveCount(0);
   await expect(page.locator(".source-download")).toHaveAttribute("aria-disabled", "true");
   removed = true;
@@ -406,7 +406,7 @@ for (const viewport of [
     await expect(page.getByRole("link", { name: "預覽 PDF", exact: true })).toBeVisible();
     await expect(page.locator(".source-row").getByRole("status")).toHaveCount(0);
     await expectApplicationFrame();
-    expect((await page.locator(".source-add-control").boundingBox())!.height).toBeLessThanOrEqual(
+    expect((await page.getByRole("button",{name:"新增來源",exact:true}).boundingBox())!.height).toBeLessThanOrEqual(
       44,
     );
     await expect(page.locator(".source-page .primary-button")).toHaveCount(1);
