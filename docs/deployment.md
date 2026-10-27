@@ -383,3 +383,5 @@ GET /v1/account/storage 升為 account-storage/v2，需與前端對應schema及G
 Q3 新增 assessment_presence migration，部署前需與前端 UUID browser header／作答心跳同批接線；舊文字、錄音、retry 呼叫若缺 header 會被拒絕。migration 只新增短期 presence 表，可在隔離 DB 以 transaction rollback 驗證；正式已套用檔不得改號或修改 checksum。
 
 Q3 前端須與 B3.5 同批部署（feat/overnight-qa-guard，87e18dd01384ad31d97f1f626b66155561ac772f）；前端同步提供持久 ID、20 秒作答回報、交卷解除與 409 提示。取消及讀取既有內容不受新 header 限制。
+
+S2教材卡片合計新增material-library-item/v1.source_totals，與前端S2卡片同批部署；沒有migration或provider變更。未知影音合計為null、無影音為0。

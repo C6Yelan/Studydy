@@ -264,3 +264,5 @@ GET /v1/account/storage 使用 account-storage/v2，回傳教材原檔與轉換�
 ## 作答中問答限制
 
 `PUT /v1/materials/{id}/assessment-presence` 接受 `assessment-presence/v1`、`assessment_set_id`、`active`。與問答文字、錄音、retry 共用必填 UUID header `X-Studydy-Browser-Id`，缺漏或不合法回 `REQUEST_INVALID`。只接受本人同教材已封題、ready/in_progress 的題組；每 20 秒回報延長至 60 秒。限制範圍為帳號＋教材＋瀏覽器，另一瀏覽器可問。活動期間三入口回 409 `ASSESSMENT_IN_PROGRESS`，不排入模型工作；取消與既有回答不受影響。交卷後題組 completed 立即使 presence 失效，離頁停止回報後到期；讀取不續期。這是介面約束，並非裝置驗證。
+
+教材列表每份source_totals彙總未移除來源：document只加已知頁數、image只加已知張數，audio／video／youtube只加已核對mapping時長；任一影音時長未知則media_seconds=null，沒有影音為0。前端null只顯示頁數／張數，不把逐字稿頁數或部分已知時長冒充教材合計。合計重用來源列表同批查詢及source_display結果，不另加SQL或重讀mapping。

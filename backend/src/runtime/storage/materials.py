@@ -245,7 +245,17 @@ def read_material_library(
     sources = {}
     original_sizes = {identity: 0 for identity in ids}
     counts = {identity: 0 for identity in ids}
+    totals = {identity: {"page_count": 0, "image_count": 0, "media_seconds": 0} for identity in ids}
     for source, normalization, size in source_rows:
+        display = presentation[source.source_id]
+        total = totals[source.material_id]
+        if display["source_kind"] == "document":
+            total["page_count"] += normalization.page_count or 0
+        elif display["source_kind"] == "image":
+            total["image_count"] += display["image_count"] or 0
+        elif total["media_seconds"] is not None:
+            duration = display["duration_seconds"]
+            total["media_seconds"] = None if duration is None else total["media_seconds"] + duration
         sources[source.material_id] = {
             **presentation[source.source_id],
             "source_id": source.source_id,
@@ -266,6 +276,7 @@ def read_material_library(
             "schema": "material-library-item/v1",
             "size_bytes": original_sizes[row["material_id"]],
             "source_count": counts[row["material_id"]],
+            "source_totals": totals[row["material_id"]],
             "source": sources.get(row["material_id"]),
             "display_name": row["display_name"],
             "latest_attempt": latest.get(row["material_id"]),
