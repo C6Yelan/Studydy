@@ -1,7 +1,8 @@
 import { MathText } from "../../ui/MathText";
+import { Icon } from "../../ui/Icon";
 import { Progress } from "../../ui/Progress";
 import { ExportControls } from "../exports/ExportControls";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { MaterialNotesView, NoteAnnotation, NoteBlock, NoteCalloutStyle, NoteItem, NoteKind, NoteOutlineEntry, NoteParagraph } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
@@ -17,53 +18,63 @@ export function numberedHeading(entry: NoteOutlineEntry) {
   return entry.number + (entry.level === 1 ? "" : " ") + entry.heading;
 }
 
-function Items({ items }: { items: NoteItem[] }) {
-  return <ul className="note-bullets">{items.map((item, i) => <li key={i}><MathText text={item.text}/>{item.children?.length ? <Items items={item.children}/> : null}</li>)}</ul>;
+function Items({ items, tail }: { items: NoteItem[]; tail?: ReactNode }) {
+  return <ul className="note-bullets">{items.map((item, i) => <li key={i}><MathText text={item.text}/>{item.children?.length ? <Items items={item.children} tail={i === items.length - 1 ? tail : undefined}/> : i === items.length - 1 ? tail : null}</li>)}</ul>;
 }
 
-function Table({ label, caption, headers, rows }: { label: string; caption: string | null; headers: string[]; rows: string[][] }) {
+function Table({ label, caption, headers, rows, tail }: { tail?: ReactNode; label: string; caption: string | null; headers: string[]; rows: string[][] }) {
   return <div className="note-table-scroll" role="region" aria-label={caption ?? label} tabIndex={0}><table>
     {caption && <caption>{caption}</caption>}
     <thead><tr>{headers.map((cell, i) => <th key={i} scope="col"><MathText text={cell}/></th>)}</tr></thead>
-    <tbody>{rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}><MathText text={cell}/></td>)}</tr>)}</tbody>
+    <tbody>{rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}><MathText text={cell}/>{i === rows.length - 1 && j === row.length - 1 && tail}</td>)}</tr>)}</tbody>
   </table></div>;
 }
 
-function Block({ block, heading }: { block: NoteBlock; heading: string }) {
+function Block({ block, heading, tail }: { block: NoteBlock; heading: string; tail?: ReactNode }) {
   switch (block.type) {
-    case "text": return <p className="note-prose"><MathText text={block.text}/></p>;
-    case "bullets": return <Items items={block.items}/>;
-    case "table": return <Table label={`${heading}表格`} caption={block.caption} headers={block.headers} rows={block.rows}/>;
-    case "formula": return <div className="note-formula"><MathText text={`$$${block.latex}$$`}/></div>;
+    case "text": return <p className="note-prose"><MathText text={block.text}/>{tail}</p>;
+    case "bullets": return <Items items={block.items} tail={tail}/>;
+    case "table": return <Table label={`${heading}表格`} caption={block.caption} headers={block.headers} rows={block.rows} tail={tail}/>;
+    case "formula": return <div className="note-formula"><MathText text={`$$${block.latex}$$`}/>{tail}</div>;
     case "callout": {
       const label = calloutLabels[block.style];
       return <aside className={`note-callout note-callout-${block.style}`} aria-label={label}>
-        <p className="note-callout-title">{label}{block.title && `：${block.title}`}</p><Items items={block.items}/>
+        <p className="note-callout-title">{label}{block.title && `：${block.title}`}</p><Items items={block.items} tail={tail}/>
       </aside>;
     }
   }
 }
 
-function ParagraphBody({ paragraph: p, number }: { paragraph: NoteParagraph; number?: NoteOutlineEntry }) {
+function ParagraphBody({ paragraph: p, number, sources }: { paragraph: NoteParagraph; number?: NoteOutlineEntry; sources?: ReactNode }) {
   if (!("blocks" in p)) {
     // v11 以前的段落格式，重新生成前仍可閱讀。
-    return <><h3>{p.heading}</h3><p className="note-prose"><MathText text={p.text}/></p>
-      {p.formula && <p className="note-formula-text"><MathText text={p.formula}/></p>}
-      {p.table && <Table label={`${p.heading}表格`} caption={null} headers={p.table.headers} rows={p.table.rows}/>}
+    return <><h3>{p.heading}</h3><p className="note-prose"><MathText text={p.text}/>{!p.formula && !p.table && sources}</p>
+      {p.formula && <p className="note-formula-text"><MathText text={p.formula}/>{!p.table && sources}</p>}
+      {p.table && <Table label={`${p.heading}表格`} caption={null} headers={p.table.headers} rows={p.table.rows} tail={sources}/>}
     </>;
   }
   const level = number?.level ?? p.level;
   const Heading = level === 1 ? "h2" : "h3";
   return <><Heading>{number ? numberedHeading(number) : p.heading}</Heading>
-    {p.blocks.map((block, i) => <Block key={i} block={block} heading={p.heading}/>)}
+    {p.blocks.map((block, i) => <Block key={i} block={block} heading={p.heading} tail={i === p.blocks.length - 1 ? sources : undefined}/>)}
   </>;
 }
 
 function Outline({ entries, active, jump }: { entries: NoteOutlineEntry[]; active: string; jump: (id: string) => void }) {
-  return <nav className="note-outline" aria-label="章節大綱"><h2>章節大綱</h2>
+  const navigation = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const container = navigation.current;
+    const selected = container?.querySelector<HTMLButtonElement>('[aria-current="location"]');
+    if (!container || !selected) return;
+    const bounds = container.getBoundingClientRect();
+    const item = selected.getBoundingClientRect();
+    if (item.top < bounds.top) container.scrollTop += item.top - bounds.top;
+    else if (item.bottom > bounds.bottom) container.scrollTop += item.bottom - bounds.bottom;
+  }, [active]);
+  return <nav ref={navigation} className="note-outline" aria-label="章節大綱">
     <ul>{entries.map(o => <li key={o.paragraph_id} className={`note-outline-${o.level}`}>
       <button type="button" className="text-button" aria-current={active === o.paragraph_id ? "location" : undefined}
-        onClick={() => jump(o.paragraph_id)}>{numberedHeading(o)}</button>
+        title={numberedHeading(o)} onClick={() => jump(o.paragraph_id)}>{numberedHeading(o)}</button>
     </li>)}</ul>
   </nav>;
 }
@@ -116,24 +127,21 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const sequence = useRef(0);
-  const toolbar = useRef<HTMLDivElement>(null);
+  const readingBody = useRef<HTMLDivElement>(null);
   const outlineDialog = useRef<HTMLDialogElement>(null);
   const outlineTrigger = useRef<HTMLButtonElement>(null);
   const jumpAfterClose = useRef<string | null>(null);
   const confirmDialog = useRef<HTMLDialogElement>(null);
   const regenerateTrigger = useRef<HTMLButtonElement>(null);
   const [outlineExpanded, setOutlineExpanded] = useState(true);
+  const [outlineDrawerOpen, setOutlineDrawerOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("");
-  const [toolbarHeight, setToolbarHeight] = useState(0);
+  const positionKey = `studydy:notes-position:${materialId}:${revision}:${kind}`;
+  const [previousPosition, setPreviousPosition] = useState(() => {
+    try { return Number(localStorage.getItem(positionKey)) || 0; } catch { return 0; }
+  });
   const [now, setNow] = useState(Date.now());
   const pending = view?.status === "pending" || view?.status === "running";
-  useEffect(() => {
-    const element = toolbar.current;
-    if (!element) return;
-    const observer = new ResizeObserver(() => setToolbarHeight(element.getBoundingClientRect().height));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
   useEffect(() => {
     if (!pending || !view?.started_at) return;
     setNow(Date.now());
@@ -142,23 +150,29 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
   }, [pending, view?.started_at]);
   useEffect(() => {
     const entries = view?.outline ?? [];
+    const body = readingBody.current;
+    if (!body) return;
     const track = () => {
-      const boundary = (toolbar.current?.getBoundingClientRect().bottom ?? 0) + 24;
+      const boundary = body.getBoundingClientRect().top + 32;
       let current = entries[0]?.paragraph_id ?? "";
       for (const entry of entries) {
         const section = document.getElementById(`note-section-${entry.paragraph_id}`);
         if (section && section.getBoundingClientRect().top <= boundary) current = entry.paragraph_id;
       }
-      if (window.scrollY > 0 && window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1) {
+      if (body.scrollTop > 0 && body.scrollTop + body.clientHeight >= body.scrollHeight - 1) {
         current = entries.at(-1)?.paragraph_id ?? current;
       }
       setActiveSection(current);
     };
     track();
-    window.addEventListener("scroll", track, { passive: true });
+    const read = () => {
+      track();
+      try { localStorage.setItem(positionKey, String(body.scrollTop)); } catch { /* 瀏覽器停用儲存時仍可閱讀。 */ }
+    };
+    body.addEventListener("scroll", read, { passive: true });
     window.addEventListener("resize", track);
-    return () => { window.removeEventListener("scroll", track); window.removeEventListener("resize", track); };
-  }, [view?.outline, toolbarHeight]);
+    return () => { body.removeEventListener("scroll", read); window.removeEventListener("resize", track); };
+  }, [view?.outline, positionKey]);
   const jump = (id: string) => {
     const target = document.getElementById(`note-section-${id}`);
     target?.scrollIntoView({ block: "start" });
@@ -205,77 +219,80 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
         { knowledgeMap: { revision: contentRevision, mode: "focus", concept, detail: concept } });
     } catch (e) { setError(errorMessage(e)); }
   };
-  return <div className="note-workspace" style={{ "--note-toolbar-height": `${toolbarHeight}px` } as CSSProperties}>
-    <div ref={toolbar} className="note-reading-toolbar">
+  return <div className="note-workspace">
+    <div className="note-reading-toolbar">
+      <div className="note-reading-controls">
+      {!!view?.outline.length && <>
+        <button type="button" className="note-outline-toggle note-outline-desktop-toggle" aria-label="章節目錄" title="章節目錄" aria-expanded={outlineExpanded} onClick={() => setOutlineExpanded(v => !v)}><Icon name="book" size={18}/></button>
+        <button ref={outlineTrigger} type="button" className="note-outline-toggle note-outline-mobile-toggle" aria-label="章節目錄" title="章節目錄" aria-expanded={outlineDrawerOpen} aria-haspopup="dialog" onClick={() => { setOutlineDrawerOpen(true); outlineDialog.current?.showModal(); }}><Icon name="book" size={18}/></button>
+      </>}
       <div className="note-kinds" role="group" aria-label="筆記種類">{(["summary", "full"] as const).map(k => <button key={k} type="button" aria-pressed={kind === k}
         className={kind === k ? "primary-button" : "secondary-button"} onClick={() => changeKind(k)}>{k === "summary" ? "重點整理" : "完整筆記"}</button>)}</div>
+      </div>
+      <p className="note-source-notice" title="由 AI 整理，每個重點都可點開原文對照。"><Icon name="sparkle" size={16}/><span>由 AI 整理，每個重點都可點開原文對照。</span></p>
       <div className="note-reading-actions">
-        {!!view?.outline.length && <button ref={outlineTrigger} type="button" className="secondary-button note-outline-mobile" onClick={() => outlineDialog.current?.showModal()}>章節目錄</button>}
         {!!view?.paragraphs.length && <ExportControls label="匯出筆記" options={[
           { value: "pdf", label: "PDF" }, { value: "md", label: "Markdown" }, { value: "docx", label: "Word（.docx）" },
         ]} download={format => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${view.content_revision}/notes/${kind}/export/${format}`)} />}
-        {kind === "full" && !!view?.paragraphs.length && !view.update_available && <details className="note-more">
-          <summary aria-label="更多筆記操作">⋯</summary>
+        {!!view?.paragraphs.length && <details className="note-more">
+          <summary className="note-more-trigger" aria-label="更多筆記操作">⋯</summary>
           <div><button ref={regenerateTrigger} type="button" className="text-button" disabled={busy || pending} onClick={() => confirmDialog.current?.showModal()}>重新生成</button></div>
         </details>}
       </div>
     </div>
     <div className={`note-reading-layout${outlineExpanded && view?.outline.length ? " has-outline" : ""}`}>
-      {!!view?.outline.length && <aside className="note-outline-desktop">
-        <button type="button" className="text-button" aria-expanded={outlineExpanded} onClick={() => setOutlineExpanded(v => !v)}>{outlineExpanded ? "收合目錄" : "展開目錄"}</button>
-        {outlineExpanded && <Outline entries={view.outline} active={activeSection} jump={jump}/>}
-      </aside>}
-      <div className="note-reading-body">
-        <p className="note-caption">{kind === "summary" ? "每個概念只整理最核心的重點，細節見完整筆記；長度隨教材大小而定。" : "涵蓋教材所有重點，依學習順序閱讀。"}內文不可編輯，可在段落旁加上自己的註記。</p>
+      {outlineExpanded && !!view?.outline.length && <aside className="note-outline-desktop"><Outline entries={view.outline} active={activeSection} jump={jump}/></aside>}
+      <div ref={readingBody} className="note-reading-body"><div className="note-reading-column">
     {error && <div role="alert"><p className="form-error">{error}</p><button className="text-button" onClick={() => setReload(v => v + 1)}>重新讀取</button></div>}
     {!view && !error && <p role="status">正在讀取筆記…</p>}
     {view && <>
-      <p className="note-source-notice">由 AI 整理，每個重點都可點開原文對照。</p>
       <div className="note-status" aria-live="polite">
-        {pending ? <p>{view.paragraphs.length > 0 ? "正在更新筆記，完成後自動替換" : view.status === "pending" ? "筆記已排入生成佇列。" : "正在撰寫並逐段核對筆記內容…"}</p>
-          : view.status === "failed" ? <p>{failureMessages[view.error_code ?? ""] ?? "筆記生成未完成，請稍後重試。"}{view.paragraphs.length > 0 && "以下保留上一份筆記。"}</p>
-          : view.status === "not_generated" ? <p>{kind === "full" ? "完整筆記依教材學習順序涵蓋所有重點，按下按鈕後開始生成。" : "重點整理尚未生成。"}</p> : null}
+        {view.status === "failed" ? <p>{failureMessages[view.error_code ?? ""] ?? "筆記生成未完成，請稍後重試。"}{view.paragraphs.length > 0 && "以下保留上一份筆記。"}</p>
+          : view.status === "not_generated" && !view.paragraphs.length ? <p>{kind === "full" ? "完整筆記依教材學習順序涵蓋所有重點，按下按鈕後開始生成。" : "重點整理尚未生成。"}</p> : null}
         {!pending && kind === "full" && view.update_available && <p>教材已更新，要更新完整筆記嗎？</p>}
-        {(pending || view.status === "failed" || (kind === "full" && (!view.paragraphs.length || view.update_available))) && <button type="button" className={view.paragraphs.length ? "secondary-button" : "primary-button"} disabled={busy || pending} onClick={() => void generate()}>
-          {busy ? "正在送出…" : pending ? "生成中" : view.status === "failed" ? "重試生成" : view.update_available ? "更新完整筆記" : "生成完整筆記"}
+        {!pending && (view.status === "failed" || (kind === "full" && (!view.paragraphs.length || view.update_available))) && <button type="button" className={view.paragraphs.length ? "secondary-button" : "primary-button"} disabled={busy} onClick={() => void generate()}>
+          {busy ? "正在送出…" : view.status === "failed" ? "重試生成" : view.update_available ? "更新完整筆記" : "生成完整筆記"}
         </button>}
       </div>
-      {(pending || view.progress) && <section className="note-progress" aria-label="完整筆記分區進度">
-        <p>{view.status === "pending" ? "正在等待開始" : view.progress?.stage === "validating" ? "正在核對完整筆記…" : view.progress?.stage === "completed" ? "分區生成完成" : `正在整理：${view.progress?.current_section ?? "教材"}`}</p>
-        <Progress aria-label="已完成分區" value={view.progress && view.progress.completed_parts > 0 ? view.progress.completed_sections : undefined} max={Math.max(1, view.progress?.total_sections ?? 1)}/>
-        {view.progress && <p>已完成 {view.progress.completed_sections} / {view.progress.total_sections} 個分區</p>}
-        {pending && elapsed !== null && <p>已耗時 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒</p>}
-        {view.status === "failed" && view.progress && view.progress.completed_parts > 0 && <p>已完成部分已保存，重試時會從未完成部分接續。</p>}
+      {pending && <section className="note-progress" aria-label="完整筆記分區進度" aria-live="polite">
+        <span>{view.paragraphs.length > 0 ? "正在更新筆記，完成後自動替換" : view.status === "pending" ? "筆記已排入生成佇列。" : "正在撰寫並逐段核對筆記內容…"}</span>
+        <span>{view.status === "pending" ? "正在等待開始" : view.progress?.stage === "validating" ? "正在核對完整筆記…" : `正在整理：${view.progress?.current_section ?? "教材"}`}</span>
+        <Progress aria-label="已完成分區" value={view.progress && view.progress.completed_parts > 0 ? view.progress.completed_sections : undefined} max={Math.max(1, view.progress?.total_sections ?? 1)} size="small"/>
+        {view.progress && <span>已完成 {view.progress.completed_sections} / {view.progress.total_sections} 個分區</span>}
+        {elapsed !== null && <span>已耗時 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒</span>}
       </section>}
+      {view.status === "failed" && view.progress && view.progress.completed_parts > 0 && <p>已完成部分已保存，重試時會從未完成部分接續。</p>}
       {view.paragraphs.map(p => { const number = numbers.get(p.id); return <section key={`${view.content_revision}:${view.content_generation}:${p.id}`} id={`note-section-${p.id}`} tabIndex={-1}
         className={`note-paragraph${number?.level === 2 ? " note-subsection" : ""}`} aria-label={number ? numberedHeading(number) : p.heading}>
-        <ParagraphBody paragraph={p} number={number}/>
-        <div className="note-concepts">{p.concepts.map(c => <button className="text-button" key={c.concept_id} onClick={() => void openConcept(c.concept_id)}>{c.label} · 查看地圖</button>)}</div>
-        <div className="note-sources" aria-label="段落來源">{sourceLinks(p.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e} reference={{quote:e.quote}}/>)}</div>
+        <ParagraphBody paragraph={p} number={number} sources={<span className="note-sources" aria-label="段落來源">{sourceLinks(p.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e} reference={{quote:e.quote}}/>)}</span>}/>
+        <div className="note-paragraph-actions"><div className="note-concepts">{p.concepts.map(c => <button className="text-button" key={c.concept_id} onClick={() => void openConcept(c.concept_id)}>{c.label} · 查看地圖</button>)}</div>
+        <button className="text-button" onClick={e => edit(e.currentTarget, p.id)}>新增註記</button></div>
         {view.annotations.filter(a => a.paragraph_id === p.id).map(annotationItem)}
-        <button className="text-button" onClick={e => edit(e.currentTarget, p.id)}>新增註記</button>
       </section>; })}
       {orphaned.length > 0 && <section className="note-previous" aria-labelledby="previous-notes-title"><h2 id="previous-notes-title">先前段落的註記</h2>
         <p>以下註記的來源與重點無法精確對應目前段落，已保留當時內容。</p>
         {orphaned.map(a => <div key={a.annotation_id} className="note-previous-item"><details><summary>當時段落：{a.original_paragraph.heading}</summary>
-          <ParagraphBody paragraph={a.original_paragraph}/>
-          <div className="note-sources">{sourceLinks(a.original_paragraph.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} evidence={e} reference={{quote:e.quote}}
-            resolver={`/v1/materials/${materialId}/knowledge-structures/${a.original_revision}/evidence`}/>)}</div>
+          <ParagraphBody paragraph={a.original_paragraph} sources={<span className="note-sources">{sourceLinks(a.original_paragraph.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} evidence={e} reference={{quote:e.quote}}
+            resolver={`/v1/materials/${materialId}/knowledge-structures/${a.original_revision}/evidence`}/>)}</span>}/>
         </details>{annotationItem(a)}</div>)}
       </section>}
     </>}
-      </div>
+      </div></div>
     </div>
+    {previousPosition > 0 && !!view?.paragraphs.length && <button type="button" className="note-resume secondary-button" onClick={() => {
+      readingBody.current?.scrollTo({ top: previousPosition }); setPreviousPosition(0);
+    }}>回到上次閱讀位置</button>}
     <dialog ref={outlineDialog} className="note-outline-drawer" aria-label="章節目錄" onClose={() => {
+      setOutlineDrawerOpen(false);
       const target = jumpAfterClose.current;
       jumpAfterClose.current = null;
       if (target !== null) jump(target); else outlineTrigger.current?.focus();
     }}>
       <button type="button" className="secondary-button" onClick={() => outlineDialog.current?.close()}>關閉目錄</button>
-      <Outline entries={view?.outline ?? []} active={activeSection} jump={id => { jumpAfterClose.current = id; outlineDialog.current?.close(); }}/>
+      {outlineDrawerOpen && <Outline entries={view?.outline ?? []} active={activeSection} jump={id => { jumpAfterClose.current = id; outlineDialog.current?.close(); }}/>}
     </dialog>
     <dialog ref={confirmDialog} className="note-regenerate-dialog" aria-labelledby="note-regenerate-title" onClose={() => regenerateTrigger.current?.focus()}>
-      <h2 id="note-regenerate-title">重新生成完整筆記</h2>
+      <h2 id="note-regenerate-title">{kind === "full" ? "重新生成完整筆記" : "重新生成重點整理"}</h2>
       <p>將重新撰寫整份筆記，可能需要數分鐘</p>
       <div className="state-actions"><button type="button" className="secondary-button" onClick={() => confirmDialog.current?.close()}>取消</button>
         <button type="button" className="primary-button" onClick={() => { confirmDialog.current?.close(); void generate(); }}>確認重新生成</button></div>
@@ -286,7 +303,7 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
 
 export function Notes({ api, materialId, revision }: { api: StudydyApiClient; materialId: string; revision: string }) {
   const [kind, setKind] = useState<NoteKind>("summary");
-  return <div className="notes-page"><header><h1>筆記</h1><p>依教材整理的閱讀筆記，每段都能回查原文。</p></header>
+  return <div className="notes-page">
     <NotesContent key={`${materialId}:${revision}:${kind}`} api={api} materialId={materialId} revision={revision} kind={kind} changeKind={setKind}/>
   </div>;
 }

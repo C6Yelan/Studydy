@@ -83,7 +83,7 @@ test("full notes require a click and failed regeneration keeps content and previ
   const state = await setup(page, initial);
   await page.goto(`/materials/${materialId}/notes`);
   await expect(page.getByText(/來源引用未通過驗證/)).toBeVisible();
-  await expect(page.getByText("由 AI 整理，每個重點都可點開原文對照。",{exact:true})).toBeVisible();
+  await expect(page.getByTitle("由 AI 整理，每個重點都可點開原文對照。",{exact:true})).toBeVisible();
   await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "先前段落的註記" })).toBeVisible();
   await page.getByText("當時段落：先前的段落").click();
@@ -95,7 +95,7 @@ test("full notes require a click and failed regeneration keeps content and previ
   await expect(page.getByRole("button", { name: "生成完整筆記", exact: true })).toBeVisible();
   expect(state.writes).toEqual([]);
   await page.getByRole("button", { name: "生成完整筆記", exact: true }).click();
-  await expect(page.getByRole("button", { name: "生成中", exact: true })).toBeDisabled();
+  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toBeVisible();
   expect(state.writes).toEqual(["generate"]);
 });
 
@@ -122,13 +122,12 @@ test("full notes show restored section progress and retain completed work on ret
     progress: { stage: "generating", completed_sections: 1, total_sections: 3, completed_parts: 2, total_parts: 6, current_section: "排序方法" } });
   await page.goto(`/materials/${materialId}/notes`);
   await page.getByRole("button", { name: "完整筆記", exact: true }).click();
+  await expect(page.getByText(/重試時會從未完成部分接續/)).toBeVisible();
+  await page.getByRole("button", { name: "重試生成", exact: true }).click();
+  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toBeVisible();
   await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("aria-valuenow", "1");
   await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("aria-valuemax", "3");
   await expect(page.getByText("已完成 1 / 3 個分區", { exact: true })).toBeVisible();
-  await expect(page.getByText(/重試時會從未完成部分接續/)).toBeVisible();
-  await page.getByRole("button", { name: "重試生成", exact: true }).click();
-  await expect(page.getByRole("button", { name: "生成中", exact: true })).toBeDisabled();
-  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("aria-valuenow", "1");
 });
 
 
@@ -206,8 +205,8 @@ test("readable math remains visible in nested bullets and table cells alongside 
   second.blocks.push({ type: "table", caption: "近似值", headers: ["項目", "機率"], rows: [["甲", "≈ 0.5"]] });
   await setup(page, view);
   await page.goto(`/materials/${materialId}/notes`);
-  await expect(page.getByText("√4 = 2", { exact: true })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "≈ 0.5", exact: true })).toBeVisible();
+  await expect(page.getByText(/^√4 = 2/ )).toBeVisible();
+  await expect(page.getByRole("cell", { name: /^≈ 0.5/ })).toBeVisible();
   await expect(page.locator(".note-formula .katex-display")).toBeVisible();
   await expect(page.locator(".note-formula .katex-error")).toHaveCount(0);
 });
@@ -325,8 +324,9 @@ test("notes toolbar and current chapter remain reachable while reading, mobile d
       await outline.getByRole("button", { name: "1.1 堆疊大小", exact: true }).click();
       await expect(page.locator("#note-section-1")).toBeFocused();
       await expect(outline.getByRole("button", { name: "1.1 堆疊大小", exact: true })).toHaveAttribute("aria-current", "location");
-      await page.getByRole("button", { name: "收合目錄", exact: true }).click();
-      await page.getByRole("button", { name: "展開目錄", exact: true }).click();
+      await page.getByRole("button", { name: "章節目錄", exact: true }).click();
+      await expect(page.getByRole("button", { name: "章節目錄", exact: true })).toHaveAttribute("aria-expanded", "false");
+      await page.getByRole("button", { name: "章節目錄", exact: true }).click();
     }
     await expect(page.getByRole("button", { name: "完整筆記", exact: true })).toBeInViewport();
     await expect(page.getByRole("button", { name: "匯出筆記", exact: true })).toBeInViewport();
@@ -347,4 +347,65 @@ test("older notes open the map bound to the visible content and its original run
   await page.getByRole("button", { name: "Stack · 查看地圖", exact: true }).first().click();
   await expect(page).toHaveURL(new RegExp(`/runs/${oldRun}/knowledge-structures/`));
   expect(decodeURIComponent(page.url())).toContain(oldRevision);
+});
+
+
+test("long notes keep the current outline entry visible and restore the local reading position", async ({ page }) => {
+  const initial = notes();
+  initial.paragraphs = Array.from({ length: 36 }, (_,index) => ({ ...initial.paragraphs[0], id: String(index), anchor: `anchor-${index}`, heading: `閱讀段落 ${index + 1}` }));
+  initial.outline = initial.paragraphs.map(p => ({ paragraph_id: p.id, level: 1, number: "", heading: p.heading }));
+  await setup(page, initial);
+  await page.goto(`/materials/${materialId}/notes`);
+  const body = page.locator(".note-reading-body");
+  await body.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  const last = page.getByRole("navigation", { name: "章節大綱" }).getByRole("button", { name: "閱讀段落 36", exact: true });
+  await expect(last).toHaveAttribute("aria-current", "location");
+  await expect(last).toBeInViewport();
+  const storedPosition = await body.evaluate(element => element.scrollTop);
+  await page.reload();
+  await page.getByRole("button", { name: "回到上次閱讀位置", exact: true }).click();
+  await expect.poll(() => body.evaluate(element => element.scrollTop)).toBe(storedPosition);
+  await expect(last).toHaveAttribute("aria-current", "location");
+  await expect(last).toBeInViewport();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const trigger = page.getByRole("button", { name: "章節目錄", exact: true });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.click();
+  const drawer = page.getByRole("dialog", { name: "章節目錄" });
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(drawer.getByRole("button", { name: "閱讀段落 36", exact: true })).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+});
+
+test("paragraph actions appear on hover and keyboard focus, with inline source markers", async ({ page }) => {
+  await setup(page);
+  await page.goto(`/materials/${materialId}/notes`);
+  const paragraph = page.locator("#note-section-0");
+  const actions = paragraph.locator(".note-paragraph-actions");
+  await page.locator(".note-kinds").hover();
+  await expect(actions).toHaveCSS("opacity", "0");
+  await paragraph.hover();
+  await expect(actions).toHaveCSS("opacity", "1");
+  await page.locator(".note-kinds").hover();
+  await paragraph.focus();
+  await expect(actions).toHaveCSS("opacity", "1");
+  await expect(paragraph.locator(".note-callout li .note-sources .source-reference-button")).toHaveCount(1);
+});
+
+test("both note kinds expose regeneration and existing full content remains readable", async ({ page }) => {
+  const state = await setup(page);
+  state.setFull({ ...notes("full"), status: "not_generated", update_available: true });
+  await page.goto(`/materials/${materialId}/notes`);
+  await page.getByLabel("更多筆記操作").click();
+  await page.getByRole("button", { name: "重新生成", exact: true }).click();
+  const confirmation = page.getByRole("dialog", { name: "重新生成重點整理" });
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("button", { name: "完整筆記", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
+  await page.getByLabel("更多筆記操作").click();
+  await page.getByRole("button", { name: "重新生成", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "重新生成完整筆記" })).toBeVisible();
+  expect(state.writes).toEqual([]);
 });
