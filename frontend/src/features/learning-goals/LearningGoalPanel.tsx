@@ -1,3 +1,5 @@
+import { Progress } from "../../ui/Progress";
+import { DailyGoalProgress } from "./DailyGoalProgress";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { GoalConcept, LearningGoalView } from "../../api/contracts";
@@ -12,6 +14,8 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [offset, setOffset] = useState(0);
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjustError, setAdjustError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [acknowledging, setAcknowledging] = useState(false);
   const [ackError, setAckError] = useState<string | null>(null);
@@ -55,39 +59,39 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
   };
   return <section className="learning-goal-panel" aria-label="學習目標與每日關卡">
     {launch.dialog}
-    <header><div><h2>學習目標</h2><p>用目標日期安排每天要學的概念，依真實作答更新進度。</p></div>
-      {view && !error && <button className="secondary-button" type="button" disabled={acknowledging} onClick={() => setEditing(true)}>{goal ? "更改學習目標" : "設定學習目標"}</button>}
+    <header><div><h2>{goal ? `${Number(goal.target_date.slice(5, 7))}/${Number(goal.target_date.slice(8))} 前掌握 ${goal.target_percent}% · ${goal.achieved ? "目標已達成" : goal.overdue_days > 0 ? `已逾期 ${goal.overdue_days} 天` : `還有 ${goal.days_remaining} 天`}` : "尚未設定學習目標"}</h2></div>
+      {view && !error && <button className="secondary-button" type="button" disabled={acknowledging || adjusting} onClick={() => setEditing(true)}>{goal ? "更改學習目標" : "設定學習目標"}</button>}
     </header>
     {error ? <p role="alert" className="form-error">目標暫時無法讀取。{error}<button className="text-button" onClick={() => setReload(value => value + 1)}>重新讀取目標</button></p>
       : !view ? <p role="status">正在讀取學習目標…</p>
-      : !goal ? <p>設定日期與掌握目標後，這裡會顯示今天的關卡與後續預覽。</p>
+      : !goal ? null
       : <>
         {goal.update_notice && <div className="goal-update-notice" role="status">
           <p>教材已更新，重點數 {goal.update_notice.previous_points} → {goal.update_notice.current_points}。目標日期與比例保持不變。</p>
           <button type="button" className="text-button" disabled={acknowledging} onClick={() => void dismiss()}>{acknowledging ? "正在關閉…" : "關閉教材更新提示"}</button>
           {ackError && <p className="form-error" role="alert">{ackError}<button className="text-button" onClick={() => setReload(value => value + 1)}>重新讀取目標</button></p>}
         </div>}
-        <dl className="goal-facts">
-          <div><dt>目標日期</dt><dd><time dateTime={goal.target_date}>{dateText(goal.target_date)}</time></dd></div>
-          <div><dt>掌握目標</dt><dd>{goal.target_percent}% · {goal.target_percent === 60 ? "及格" : goal.target_percent === 80 ? "熟練" : "精通"}
-            {goal.assessable_points > 0 && <small>需完成 {goal.target_points} 個重點</small>}</dd></div>
-          <div><dt>重點完成</dt><dd>{goal.completed_points} / {goal.assessable_points}<small>可檢測重點</small></dd></div>
-          <div><dt>距離目標</dt><dd>{goal.assessable_points === 0 ? "尚無法計算" : goal.achieved ? "目標已達成" : `還差 ${goal.remaining_points} 個重點`}</dd></div>
-        </dl>
-        {goal.assessable_points === 0 && <p className="goal-warning" role="status">目前沒有可檢測重點，還不能判定整體目標達成或安排新的關卡。今天已取得的成果仍會保留，也可從地圖閱讀教材。</p>}
+        {goal.assessable_points > 0 && <Progress value={goal.completed_points} max={goal.target_points || 1} tone={goal.achieved ? "complete" : "default"} aria-label="學習目標進度" aria-valuetext={`已完成 ${goal.completed_points}／需完成 ${goal.target_points} 個重點`} />}
+        <p>已完成 {goal.completed_points}／需完成 {goal.target_points} 個重點</p>
+        <p>每天約 {goal.today_stage.quota_points} 個重點 · 今天 {goal.today_stage.completed_points}／{goal.today_stage.quota_points}</p>
+        {goal.assessable_points === 0 && <p className="goal-warning" role="status">目前沒有可檢測重點，尚無法計算目標進度，也不能判定整體目標達成或安排新的關卡。今天已取得的成果仍會保留，也可從地圖閱讀教材。</p>}
           <>
             {!goal.achieved && <p className="goal-timing">{goal.overdue_days > 0 ? `已逾期 ${goal.overdue_days} 天` : `包含今天，剩餘 ${goal.days_remaining} 天`}
               {goal.behind_points > 0 && <strong>落後 {goal.behind_points} 個重點</strong>}</p>}
             <section className="goal-today" aria-label="今天的關卡">
               <header><h3>今天的關卡</h3><time dateTime={view.today}>{dateText(view.today)}</time></header>
-              {goal.today_stage.done ? <p className="goal-quota"><strong>今日關卡已完成</strong></p>
-                : <p className="goal-quota">今日目標 <strong>{goal.today_stage.quota_points}</strong> ／ 實際安排 <strong>{goal.today_stage.scheduled_points}</strong> 個重點</p>}
-              <p>今天已完成 {goal.today_stage.completed_points} 個重點{goal.today_stage.remaining_points > 0 ? `，還差 ${goal.today_stage.remaining_points} 個。` : "。"}</p>
+              <DailyGoalProgress stage={goal.today_stage} />
               {goal.achieved && <p>學習目標已達成。</p>}
-              {goal.today_stage.scheduled_points > goal.today_stage.remaining_points && <p className="goal-note">題組保留完整概念，實際安排可能多於今天尚需完成的量。</p>}
               {(goal.quota_over_limit || goal.scheduled_over_limit) && <div className="goal-warning" role="status">
                 <p>{goal.quota_over_limit ? "今日目標" : "實際安排"}超過每日建議的 {goal.daily_limit} 個重點。可延後日期或降低目標；系統不會自行修改。</p>
-                <button className="text-button" type="button" onClick={() => setEditing(true)}>調整學習目標</button>
+                <div className="goal-suggestions">{goal.suggestions.map(suggestion => <button key={suggestion.kind} className="secondary-button" type="button" disabled={adjusting || acknowledging} onClick={async () => {
+                  setAdjusting(true); setAdjustError(null);
+                  try { await save({ date: suggestion.target_date, percent: suggestion.target_percent }); }
+                  catch (failure) { if (active.current) setAdjustError(errorMessage(failure)); }
+                  finally { if (active.current) setAdjusting(false); }
+                }}>{suggestion.kind === "extend_date" ? `延後到 ${dateText(suggestion.target_date)}` : `改成 ${suggestion.target_percent}%`} · 每天約 {suggestion.daily_points} 個</button>)}</div>
+                {adjustError && <p role="alert">{adjustError}</p>}
+                <button className="text-button" type="button" disabled={adjusting} onClick={() => setEditing(true)}>自行調整目標</button>
               </div>}
               {goal.today_stage.concepts.length > 0 && <ul className="goal-concepts">{goal.today_stage.concepts.map(concept => <li key={concept.concept_id}>
                 <div><strong>{concept.label}</strong><small>尚需完成 {concept.remaining_points} 個重點</small></div>

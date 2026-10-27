@@ -62,12 +62,12 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
     await page.goto(map);
     if (stage !== "remediation") {
       await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-      await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("目前還沒有測驗紀錄");
+      await expect(page.getByRole("region", { name: "學習診斷" })).toContainText("還沒有測驗紀錄");
       await page.getByRole("tab", { name: "知識地圖", exact: true }).click();
     }
     if (stage === "remediation") {
       await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-      await page.getByRole("button", { name: "繼續測驗", exact: true }).click();
+      await page.getByRole("button", { name: /^複習/ }).first().click();
     } else {
       await openMapConcept(page, "伺服器");
       await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
@@ -140,8 +140,8 @@ for (const stage of ["completed"] as const) {
   if(stage==='completed') await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
   else await openMapConcept(page, '伺服器');
   await expect(page).not.toHaveURL(/study-sessions/);
-  if(stage==='completed')await page.getByText(/已完成的概念 · 再次練習/).click();
-  await page.getByRole('button',{name:stage==='completed'?'再次練習':'檢測這個概念',exact:true}).click();
+  if(stage==='completed')await page.locator('details.review-records > summary').click();
+  await page.getByRole('button',{name:stage==='completed'?'查看與練習':'檢測這個概念',exact:true}).first().click();
   await expect(page).toHaveURL(/assessment-sets/);
   await expect(page.getByRole('progressbar',{name:'準備進度'})).toBeVisible();
   await expect(page.locator('.current-concept-card')).not.toBeVisible();

@@ -1,6 +1,6 @@
 import { MapExports } from "../exports/MapExports";
 import { relationStyles } from "./map-appearance";
-import { DifficultyBadge, DifficultyList, LearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
+import { DifficultyBadge, LearningDiagnosis, useLearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { StartingLevelControl } from "../study-session/StartingLevel";
 import { LearningGoalPanel } from "../learning-goals/LearningGoalPanel";
 import { MaterialContentNav } from "../material-flow/MaterialContentNav";
@@ -37,7 +37,7 @@ import { useConceptContext } from "../material-flow/useConceptContext";
 import { errorMessage } from "../../api/client";
 import { ConceptContent } from "../../ui/ConceptContent";
 import { Icon } from "../../ui/Icon";
-import { EmptyState } from "../../ui/EmptyState";
+import { Progress } from "../../ui/Progress";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
 import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, regionBasisText, regionColorIndex, type MapRegions, type NavigatorRange } from "./knowledge-map";
@@ -924,50 +924,28 @@ function RelationDetail({
   );
 }
 
-function ReviewView({ view, progress, startStudy, busyLabel, loading, returnToMap }: {
-  view: KnowledgeOutlineView;
-  progress: MapProgressView | null;
-  startStudy: (id: string) => void;
-  busyLabel: string | null;
-  loading: boolean;
-  returnToMap: () => void;
+function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadingProgress, progressMessage, onReloadProgress, isStartingStudy, onStartStudy }: {
+  apiClient: StudydyApiClient; materialId: string; view: KnowledgeOutlineView; progress: MapProgressView | null;
+  difficulty: ReturnType<typeof useConceptDifficulty>; isLoadingProgress: boolean; progressMessage: string | null;
+  onReloadProgress: () => void; isStartingStudy: boolean; onStartStudy: (id: string) => void;
 }) {
-  const states = new Map(progress?.concept_states.map(state => [state.concept_id, state]));
-  // attempts 由後端正式答案事件計算；閱讀、準備題組與出題失敗都不算作答。
-  const attempted = view.concepts.filter(concept => (states.get(concept.concept_id)?.attempts ?? 0) > 0);
-  const pending = attempted.filter(concept => states.get(concept.concept_id)?.status !== "completed");
-  const completed = attempted.filter(concept => states.get(concept.concept_id)?.status === "completed");
-  const list = (concepts: Concept[], practice: boolean) => <ul className="assessment-concept-list">
-    {concepts.map(concept => {
-      const state = states.get(concept.concept_id);
-      return <li key={concept.concept_id} className={`is-${state?.status ?? "not_started"}`}>
-        <span className="assessment-concept-icon" aria-hidden="true"><Icon name={practice ? "check" : "quiz"} size={20} /></span>
-        <div><strong>{concept.label}</strong>
-          <span className="assessment-concept-meta"><LearningBadge conceptId={concept.concept_id} progress={progress}/>{state?.attempts ? <small>已作答 {state.attempts} 題</small> : null}</span></div>
-        <button className={practice ? "secondary-button" : "primary-button"} disabled={!!busyLabel}
-          onClick={() => startStudy(concept.concept_id)}>{busyLabel ?? (practice ? "再次練習" : "繼續測驗")}</button>
-      </li>;
-    })}
-  </ul>;
-  return <section className="review-records" aria-labelledby="review-title">
-    <header className="review-records-head">
-      <div><h2 id="review-title">測驗紀錄</h2>
-        <p>查看作答結果、繼續未完成的檢測，或再次練習已完成的概念。</p></div>
-      {!loading && attempted.length > 0 && <dl className="review-stats" aria-label="測驗摘要">
-        <div><dt>已作答概念</dt><dd>{attempted.length}<small> / {view.concepts.length}</small></dd></div>
-        <div className="is-pending"><dt>待完成</dt><dd>{pending.length}</dd></div>
-        <div className="is-done"><dt>已完成</dt><dd>{completed.length}</dd></div>
-      </dl>}
-    </header>
-    {loading ? <p role="status">正在讀取學習進度…</p> : attempted.length === 0 ? <>
-      <EmptyState label="開始學習引導" title="還沒有測驗紀錄" description="目前還沒有測驗紀錄，可以從知識地圖選擇概念開始學習。"
-        action={<button className="primary-button" type="button" onClick={returnToMap}>回到知識地圖</button>} />
-    </> : <>
-      {pending.length > 0 && <h3>尚未完成／需要加強</h3>}
-      {pending.length ? list(pending, false) : <p className="review-records-clear">已有作答紀錄的概念都已完成。</p>}
-      {completed.length > 0 && <details className="review-records-done"><summary>已完成的概念 · 再次練習（{completed.length}）</summary>{list(completed, true)}</details>}
-    </>}
-  </section>;
+  const diagnosis = useLearningDiagnosis(apiClient, materialId, view.knowledge_structure_revision, difficulty, progress, view.concepts);
+  const nextLearningConcept = view.concepts.find(concept => concept.concept_id === (progress ? progress.learning_path[0] : view.initial_learning_path[0]?.concept_id));
+  return <div className="review-diagnosis">
+            <section className="review-next surface" aria-label="下一步">
+              <header><h2>下一步</h2><StartingLevelControl api={apiClient} materialId={materialId} onChanged={onReloadProgress} /></header>
+              {isLoadingProgress ? <p role="status">正在讀取學習進度…</p> : progressMessage ? <p>重新讀取進度後，即可接續學習。</p> : <>
+                <p>已完成 {progress?.concept_states.filter(state => state.status === "completed").length ?? 0}／{view.concepts.length} 個概念
+                  · {diagnosis.data ? `待加強 ${diagnosis.pending.length} 個` : diagnosis.error ? "待加強暫時無法讀取" : "正在讀取待加強概念…"}</p>
+                <Progress value={progress?.concept_states.filter(state => state.status === "completed").length ?? 0} max={view.concepts.length || 1} aria-label="概念學習進度" />
+                <p>{nextLearningConcept ? `接下來：${nextLearningConcept.label}` : progress ? "目前路線已完成，可展開紀錄再次練習。" : "從第一個概念開始學習。"}</p>
+                {(nextLearningConcept || (!progress && view.initial_learning_path[0])) && <button className="primary-button" type="button" disabled={isStartingStudy} onClick={() => onStartStudy(nextLearningConcept?.concept_id ?? view.initial_learning_path[0].concept_id)}>{isStartingStudy ? "正在接續學習…" : "繼續學習"}</button>}
+              </>}
+            </section>
+            <LearningGoalPanel key={materialId} api={apiClient} materialId={materialId} />
+            <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} onReview={onStartStudy} disabled={isStartingStudy || isLoadingProgress}
+              difficulty={difficulty} progress={progress} concepts={view.concepts} report={diagnosis} />
+          </div>;
 }
 
 export function KnowledgeMapWorkspace({
@@ -999,7 +977,6 @@ export function KnowledgeMapWorkspace({
   view: KnowledgeOutlineView;
 }) {
   const difficulty = useConceptDifficulty(apiClient, mapRoute.materialId, view.knowledge_structure_revision);
-  const nextLearningConcept = view.concepts.find(concept => concept.concept_id === progress?.learning_path[0]);
   const initialConceptId = progress?.current_concept_id ?? initialFocusConceptId(view);
   // 只記住目前瀏覽器紀錄的呈現位置；登入、作答與 learner progress 仍由 API 管理。
   const [restored] = useState(() => {
@@ -1345,36 +1322,8 @@ export function KnowledgeMapWorkspace({
               />
             </ReactFlowProvider>
           )}
-          {mode === "review" && <div className="review-diagnosis">
-            <StartingLevelControl api={apiClient} materialId={mapRoute.materialId} onChanged={onReloadProgress}
-              nextConcept={nextLearningConcept?.label ?? null} busy={isStartingStudy}
-              onContinue={nextLearningConcept ? () => onStartStudy(nextLearningConcept.concept_id)
-                : !progress && view.initial_learning_path[0] ? () => onStartStudy(view.initial_learning_path[0].concept_id) : null} />
-            <LearningGoalPanel key={mapRoute.materialId} api={apiClient} materialId={mapRoute.materialId} />
-            <LearningDiagnosis api={apiClient} materialId={mapRoute.materialId} revision={view.knowledge_structure_revision} onReview={onStartStudy} disabled={isStartingStudy} />
-            <DifficultyList report={difficulty} onReview={onStartStudy} disabled={isStartingStudy} />
-          </div>}
-          {mode === "review" &&
-            (progressMessage ? (
-              <div className="review-empty">
-                <div>
-                  <h2>暫時無法顯示複習重點</h2>
-                  <p>重新讀取進度後，即可查看最近一次學習的複習方向。</p>
-                  <button className="primary-button" type="button" onClick={onReloadProgress}>
-                    重新讀取進度
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <ReviewView
-                loading={isLoadingProgress}
-                returnToMap={() => selectMode("focus")}
-                view={view}
-                progress={progress}
-                startStudy={onStartStudy}
-                busyLabel={busyStudyLabel}
-              />
-            ))}
+          {mode === "review" && <ReviewView apiClient={apiClient} materialId={mapRoute.materialId} view={view} progress={progress} difficulty={difficulty}
+            isLoadingProgress={isLoadingProgress} progressMessage={progressMessage} onReloadProgress={onReloadProgress} isStartingStudy={isStartingStudy} onStartStudy={onStartStudy} />}
         </div>
       </div>
     </section>
