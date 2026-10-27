@@ -125,3 +125,5 @@ Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文�
 索引與知識結構同一交易發布，索引失敗不更新教材 head。索引階段可沿已保存的分析與檢核結果重試，不必重新呼叫模型。新來源綁定為 `structure-input-binding/v2`／`source-set/v2`／`bundle-manifest/v2`；舊格式不轉接、不自動遷移，原始檔案不刪除。
 
 來源顯示、run完成摘要與概念疑義為獨立公開投影，不改已發布結構hash。草稿目標在教材發布時建立排程；跨版筆記以content_revision回查真正顯示稿件的來源。
+
+S5 使用 material_version_state 保存教材更新前head、目標head、帳號提醒、最近一次移動入口快照及自動工作結果。發布交易排入pending，教材worker在發布完成後計算安全預覽，以既有教材鎖／移動冪等鍵建立入口；不在未commit的新版上讀學習進度。清理保護原始事件及移版身分鏈，只釋放無引用副本。

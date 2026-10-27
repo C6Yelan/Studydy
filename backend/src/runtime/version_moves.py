@@ -1,10 +1,7 @@
-"""教材新版承接（移到新版）：學生確認後，才把舊版卡組與學習進度承接到目前版本。
+"""教材更新後安全時自動承接；有損失時保留預覽與手動確認。
 
-不自動搬動：教材更新產生新版後，舊版卡組與學習照常保留在建立時的版本。
-預覽列出可承接與無法對應的概念；學生確認後，以同一次交易建立新版卡組（複製卡片
-標記）與新版學習（記錄依概念對應承接的已完成概念），並保留舊版資料與作答／標記事件。
-概念對應規則見 knowledge_map.source_identity.map_concepts 與 docs/learning.md。
-Podcast 維持建立時的版本，不承接。
+只保留最近一次移動前的入口快照，原始作答／標記及必要引用不改寫。
+Podcast 維持建立時的內容，不承接。
 """
 
 from collections import OrderedDict, defaultdict
@@ -14,7 +11,8 @@ from threading import Lock
 from types import SimpleNamespace
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update, delete
+from sqlalchemy.dialects.postgresql import insert
 
 from content_identity import canonical_sha256
 from knowledge_map.source_identity import map_concepts
@@ -22,7 +20,7 @@ from learning_adaptation.learner_progress import LearnerProgressError, derive_le
 from learning_adaptation.study_sessions import _fingerprint as study_fingerprint
 from . import card_design as design
 from . import card_generation
-from .card_sets import CardSetError
+from .card_sets import CardSetError, discard_card_contents
 from .storage import card_sources, knowledge_reads
 from .storage.artifacts import _key_digest
 from .storage.database import database_session
@@ -31,6 +29,13 @@ from .storage.knowledge_structures import KnowledgeStructureStoreError, _read_ve
 from .storage.materials import require_material
 from .storage.tables import (
     CardReviewState,
+    CardReviewEvent,
+    AssessmentSet,
+    Assessment,
+    AnswerEvent,
+    MaterialVersionState,
+    Material,
+    MaterialProcessingRun,
     CardSet,
     CardSetMove,
     KnowledgeStructure,
@@ -200,13 +205,18 @@ def _structure_facts(document):
 
 def _empty(material_id, head):
     return {
-        "schema": "version-move-preview/v1",
+        "schema": "version-move-preview/v2",
         "material_id": material_id,
         "to_revision": head,
         "preview_digest": None,
         "card_sets": [],
         "study": None,
         "kept_podcasts": 0,
+        "automatic_safe": head is not None,
+        "blocking_reasons": [],
+        "notice_dismissed": False,
+        "previous": None,
+        "automatic_move": None,
     }
 
 
@@ -217,6 +227,15 @@ def _plan(session, learner, material, *, dsn, lock=False):
     if head is None:
         return _empty(material_id, None), None
     moved = _live_moved_sources(session, owner, material_id)
+    blockers = defaultdict(int)
+    unavailable = list(session.scalars(select(CardSet.card_set_id).where(
+        CardSet.learner_id==owner, CardSet.material_id==material_id, CardSet.deleted_at.is_(None),
+        (CardSet.knowledge_structure_revision!=head)|(CardSet.knowledge_structure_revision.is_(None)),
+        (CardSet.status!="ready")|(CardSet.knowledge_structure_revision.is_(None)))))
+    blockers["source_unavailable"] += len(set(unavailable)-moved)
+    blockers["assessment_in_progress"] += len(list(session.scalars(select(AssessmentSet.set_id).where(
+        AssessmentSet.learner_id==owner, AssessmentSet.material_id==material_id,
+        AssessmentSet.status.in_(("preparing","partial_ready","ready","in_progress"))))))
     card_rows = [
         row
         for row in session.scalars(
@@ -260,7 +279,10 @@ def _plan(session, learner, material, *, dsn, lock=False):
             .limit(1)
         )
     if not card_rows and source_study is None:
-        return _empty(material_id, head), None
+        preview = _empty(material_id, head)
+        preview["blocking_reasons"] = [{"code":code,"count":count} for code,count in blockers.items() if count]
+        preview["automatic_safe"] = not preview["blocking_reasons"]
+        return preview, None
 
     documents = {}
 
@@ -296,7 +318,8 @@ def _plan(session, learner, material, *, dsn, lock=False):
         try:
             found, labels = mapping(revision), old_labels(revision)
         except (KnowledgeStructureStoreError, SourceError):
-            # 舊版本無法通過核對時不列出，也不猜測對應。
+            # 舊版本無法核對時仍可手動處理其他項目，但不能宣稱全部安全。
+            blockers["source_unavailable"] += 1
             continue
         targets, sources_for, mapped, unmapped = [], defaultdict(list), [], []
         for concept in row.concept_ids:
@@ -315,6 +338,7 @@ def _plan(session, learner, material, *, dsn, lock=False):
                     "concept_id": concept, "label": labels.get(concept, ""),
                     "reason": info["reason"] if info else "not_found",
                 })
+        blockers["unmapped_cards"] += len(unmapped) + len(mapped) - len(targets)
         states = {
             state.concept_id: state
             for state in session.scalars(
@@ -360,6 +384,7 @@ def _plan(session, learner, material, *, dsn, lock=False):
             already = _completed(learner, head_study, dsn) if head_study is not None else set()
         except (LearnerProgressError, KnowledgeStructureStoreError, SourceError):
             # 舊版進度無法核對時只略過學習進度，卡組仍可承接；不推測完成狀態。
+            blockers["source_unavailable"] += 1
             source_study = None
     if source_study is not None:
         by_target = defaultdict(list)
@@ -382,6 +407,7 @@ def _plan(session, learner, material, *, dsn, lock=False):
                 not_carried.append({"concept_id": concept, "label": labels[concept], "reason": info["reason"]})
             elif info["to"] not in carried and info["to"] not in already:
                 not_carried.append({"concept_id": concept, "label": labels[concept], "reason": "merged_unfinished"})
+        blockers["unmapped_progress"] += len(not_carried)
         current = found.get(source_study.current_concept_id or "", {}).get("to")
         offered = bool(carried) or (head_study is None and source_study.last_event_number > 0)
         if offered:
@@ -431,13 +457,18 @@ def _plan(session, learner, material, *, dsn, lock=False):
             ] if internal_study else None,
         })
     preview = {
-        "schema": "version-move-preview/v1",
+        "schema": "version-move-preview/v2",
         "material_id": material_id,
         "to_revision": head,
         "preview_digest": digest,
         "card_sets": card_items,
         "study": study_item,
         "kept_podcasts": kept_podcasts,
+        "automatic_safe": not any(blockers.values()),
+        "blocking_reasons": [{"code":code,"count":count} for code,count in blockers.items() if count],
+        "notice_dismissed": False,
+        "previous": None,
+        "automatic_move": None,
     }
     return preview, {
         "cards": internal_cards, "study": internal_study,
@@ -449,11 +480,15 @@ def preview_version_move(learner, material_id, *, dsn=None):
     with database_session(dsn) as session:
         material = require_material(session, learner.learner_id, material_id, read=True)
         preview, _ = _plan(session, learner, material, dsn=dsn)
+        state = session.get(MaterialVersionState,(learner.learner_id,material_id))
+        if state:
+            preview.update(notice_dismissed=state.notice_dismissed, previous=state.previous,
+                automatic_move={"status":state.automatic_status,"move_id":state.automatic_move_id,"error_code":state.automatic_error} if state.automatic_status else None)
         return preview
 
 
 def execute_version_move(
-    learner, material_id, to_revision, card_set_ids, include_study, preview_digest, key, *, dsn=None
+    learner, material_id, to_revision, card_set_ids, include_study, preview_digest, key, *, automatic=False, dsn=None
 ):
     owner = learner.learner_id
     digest = _key_digest(key)
@@ -483,6 +518,8 @@ def execute_version_move(
             raise VersionMoveError("VERSION_MOVE_STALE")
         preview, plan = _plan(session, learner, material, dsn=dsn, lock=True)
         if preview["preview_digest"] is None or preview["preview_digest"] != preview_digest:
+            raise VersionMoveError("VERSION_MOVE_STALE")
+        if automatic and not preview["automatic_safe"]:
             raise VersionMoveError("VERSION_MOVE_STALE")
         movable = {item["card_set_id"] for item in preview["card_sets"] if item["movable"]}
         if not set(card_set_ids) <= movable or (include_study and plan["study"] is None):
@@ -578,5 +615,119 @@ def execute_version_move(
             "created_at": now.isoformat(),
         }
         move.result = result
+        state = session.get(MaterialVersionState,(owner,material_id))
+        if state is None:
+            prior = session.scalar(select(MaterialProcessingRun.base_revision).join(KnowledgeStructure,
+                KnowledgeStructure.run_id==MaterialProcessingRun.run_id).where(KnowledgeStructure.learner_id==owner,
+                KnowledgeStructure.material_id==material_id,KnowledgeStructure.structure_revision==to_revision))
+            state = MaterialVersionState(learner_id=owner,material_id=material_id,target_revision=to_revision,prior_revision=prior)
+            session.add(state)
+        state.previous = {"move_id":str(move.move_id),"revision":state.prior_revision,
+            "card_set_ids":[str(identity) for identity in card_set_ids],
+            "study_session_id":str(plan["study"]["source"].study_session_id) if include_study else None}
+        state.automatic_status = "completed" if automatic else None
+        state.automatic_move_id = move.move_id if automatic else None
+        state.automatic_error = None
         session.flush()
+        _clean_unreferenced_copies(session,owner,material_id,to_revision,state.previous)
         return result
+
+
+def _clean_unreferenced_copies(session, owner, material_id, head, previous):
+    """只清較早且沒有原始事件／移版鏈引用的副本，原始入口與事件保留。"""
+    from .storage.knowledge_structures import _prune_unreferenced_structures
+    previous_cards = set(previous['card_set_ids'])
+    card_ids = list(session.scalars(select(CardSet.card_set_id).join(
+        CardSetMove,CardSetMove.target_card_set_id==CardSet.card_set_id).where(
+        CardSet.learner_id==owner,CardSet.material_id==material_id,
+        CardSet.knowledge_structure_revision!=head,CardSet.status.notin_(("pending","running")))))
+    for identity in card_ids:
+        if str(identity) in previous_cards:
+            continue
+        if session.scalar(select(CardReviewEvent.review_event_id).where(CardReviewEvent.card_set_id==identity).limit(1)):
+            continue
+        if session.scalar(select(CardSetMove.target_card_set_id).where(CardSetMove.source_card_set_id==identity).limit(1)):
+            continue
+        discard_card_contents(session.get(CardSet,identity))
+    studies = list(session.scalars(select(StudySession.study_session_id).join(
+        StudySessionMove,StudySessionMove.target_study_session_id==StudySession.study_session_id).where(
+        StudySession.learner_id==owner,StudySession.material_id==material_id,
+        StudySession.knowledge_structure_revision!=head)))
+    for identity in studies:
+        if str(identity)==previous['study_session_id']:
+            continue
+        if session.scalar(select(StudySessionMove.target_study_session_id).where(StudySessionMove.source_study_session_id==identity).limit(1)):
+            continue
+        if any(session.scalar(select(model.study_session_id).where(model.study_session_id==identity).limit(1))
+               for model in (AnswerEvent,Assessment,AssessmentSet)):
+            continue
+        session.delete(session.get(StudySession,identity))
+    session.flush()
+    _prune_unreferenced_structures(session,owner,material_id,head)
+
+
+def set_notice(learner, material_id, dismissed, *, dsn=None):
+    with database_session(dsn) as session:
+        require_material(session,learner.learner_id,material_id)
+        session.execute(insert(MaterialVersionState).values(learner_id=learner.learner_id,
+            material_id=material_id,notice_dismissed=dismissed).on_conflict_do_update(
+                index_elements=['learner_id','material_id'],set_={'notice_dismissed':dismissed}))
+    return {'schema':'version-move-notice/v1','dismissed':dismissed}
+
+
+def return_previous(learner, material_id, expected_move_id, *, dsn=None):
+    with database_session(dsn) as session:
+        require_material(session,learner.learner_id,material_id,read=True)
+        state=session.get(MaterialVersionState,(learner.learner_id,material_id))
+        if state is None or not state.previous:
+            raise VersionMoveError('VERSION_MOVE_PREVIOUS_UNAVAILABLE')
+        if state.previous['move_id']!=str(expected_move_id):
+            raise VersionMoveError('VERSION_MOVE_PREVIEW_STALE')
+        # 返回只提供原入口導航；教材 head 與移動後新增的作答／標記一律不動。
+        return {'schema':'version-move-return/v1',**state.previous}
+
+
+def enqueue_automatic(session, material, revision):
+    session.execute(insert(MaterialVersionState).values(
+        learner_id=material.learner_id,material_id=material.material_id,
+        target_revision=revision,prior_revision=material.head_revision,
+        automatic_status='pending' if material.head_revision else None,
+    ).on_conflict_do_update(index_elements=['learner_id','material_id'],set_={
+        'target_revision':revision,'prior_revision':material.head_revision,
+        'automatic_status':'pending' if material.head_revision else None,
+        'automatic_move_id':None,'automatic_error':None,
+    }))
+
+
+def run_next(*, dsn=None):
+    from .learner_session import TrustedLearner
+    with database_session(dsn) as session:
+        row=session.execute(select(MaterialVersionState.learner_id,MaterialVersionState.material_id,
+            MaterialVersionState.target_revision).join(Material,
+                (Material.learner_id==MaterialVersionState.learner_id)&(Material.material_id==MaterialVersionState.material_id))
+            .where(MaterialVersionState.automatic_status=='pending',Material.discard_requested_at.is_(None),
+                   Material.head_revision==MaterialVersionState.target_revision)
+            .order_by(MaterialVersionState.material_id).limit(1)).first()
+    if row is None:
+        return False
+    learner=TrustedLearner(row.learner_id)
+    status=error=move_id=None
+    try:
+        preview=preview_version_move(learner,row.material_id,dsn=dsn)
+        if preview['automatic_safe']:
+            cards=[item['card_set_id'] for item in preview['card_sets']]
+            if cards or preview['study']:
+                result=execute_version_move(learner,row.material_id,row.target_revision,cards,bool(preview['study']),
+                    preview['preview_digest'],f'automatic:{row.material_id}:{row.target_revision}',automatic=True,dsn=dsn)
+                move_id=result['move_id']
+            status='completed'
+    except (CardSetError,SourceError,KnowledgeStructureStoreError,LearnerProgressError) as failure:
+        status,error='failed',str(failure)
+    except Exception:
+        status,error='failed','VERSION_MOVE_FAILED'
+    with database_session(dsn) as session:
+        session.execute(update(MaterialVersionState).where(MaterialVersionState.learner_id==row.learner_id,
+            MaterialVersionState.material_id==row.material_id,MaterialVersionState.target_revision==row.target_revision,
+            MaterialVersionState.automatic_status=='pending').values(automatic_status=status,
+                automatic_move_id=move_id,automatic_error=error))
+    return True

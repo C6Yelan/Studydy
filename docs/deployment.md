@@ -371,3 +371,5 @@ STUDYDY_MATERIAL_WORKERS 預設 1，需多教材時由管理者在本機 .env �
 learning-goal/v2、learning-diagnosis/v2、material-notes/v3 與新回答 material-answer/v3 必須配合前端解析及接線部署；不能單獨上線造成舊前端拒收。原回答v2仍讀取，原來源、結構及runtime lock不改寫。
 
 所有後端匯出的ZIP時間、PDF日期與Word標準日期欄位採Asia/Taipei（Word以+08:00標明），圖片ZIP依概念標題命名並去除非法字元、同名編號。地圖Markdown含完整重點、頁碼及每章Mermaid，需以實際Mermaid解析／渲染驗證特殊字元。
+
+S5只做不部署，保留feat/overnight-version-move，不合dev；等使用者手測D4後另行放行。migration0028_version_entry_state排在今晚最後，合併前若dev有新migration必須重編號。前端F6須接受version-move-preview/v2、previous.move_id與return expected_move_id；不能單獨上線。既有材料初始化提醒狀態，不追溯自動移動；新發布才排入安全判定。

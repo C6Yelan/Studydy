@@ -255,3 +255,5 @@ run 的 added_sources／existing_source_count 依固定 SourceSet 與 base 分�
 補充研究 progress 依已確認觀念提供 topic_progress／completed_topics／total_topics／started_at，只列正文與來源類型均已核對且可用的候選；逐觀念來源數亦採同口徑，不增加模型請求。完成且找到零份仍如實顯示0。
 
 筆記小節的來源標記依原本小節綁定放在末尾，不推測逐句來源；預覽顯示檔名、位置與原文節錄，點擊在右側查看原文。舊段落註記仍使用當時的來源定位。
+
+S5安全時自動承接卡組／學習，有損失則待確認；詳見[學習入口承接](learning.md)。最近一次移動前的入口快照由move_id驗證，返回不改教材head與新事件。清理只釋放無引用副本／結構，原始作答、標記、Podcast、問答、註記、研究及維護封存引用保留。

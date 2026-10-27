@@ -889,6 +889,20 @@ class PodcastListeningDay(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class MaterialVersionState(Base):
+    __tablename__ = "material_version_state"
+    __table_args__ = (ForeignKeyConstraint(["learner_id", "material_id"], ["materials.learner_id", "materials.material_id"], ondelete="CASCADE"),)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    target_revision: Mapped[str | None] = mapped_column(Text)
+    prior_revision: Mapped[str | None] = mapped_column(Text)
+    previous: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    notice_dismissed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    automatic_status: Mapped[str | None] = mapped_column(Text)
+    automatic_move_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    automatic_error: Mapped[str | None] = mapped_column(Text)
+
+
 class MaterialVersionMove(Base):
     """學生確認的「移到新版」請求；result 為重送時原樣回傳的結果。"""
 

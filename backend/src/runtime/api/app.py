@@ -130,6 +130,9 @@ from .models import (
     SourceUploadProgress,
     YoutubeSourceCreate,
     VersionMoveCreate,
+    VersionMoveNotice,
+    VersionMoveReturn,
+    VersionMoveReturnView,
     VersionMovePreviewView,
     VersionMoveView,
     project_material_run,
@@ -146,6 +149,8 @@ _ERROR_STATUS = {
     "CARD_SET_CONFLICT": (409, False),
     "CARD_REVIEW_CONFLICT": (409, False),
     "VERSION_MOVE_STALE": (409, False),
+    "VERSION_MOVE_PREVIEW_STALE": (409, False),
+    "VERSION_MOVE_PREVIOUS_UNAVAILABLE": (409, False),
     "LEARNER_GUIDANCE_STALE": (409, True),
     "ASSESSMENT_SET_CONFLICT": (409, False),
     "ASSESSMENT_SET_ACTIVE": (409, False),
@@ -1223,6 +1228,18 @@ def create_app(settings: ApiSettings) -> FastAPI:
         request_context.require_query(request, set())
         learner = request_context.trusted_learner(request, settings)
         return preview_version_move(learner, material_id, dsn=settings.dsn)
+
+    @app.put("/v1/materials/{material_id}/version-move/notice", response_model=VersionMoveNotice)
+    def version_move_notice(request: Request, material_id: UUID, body: VersionMoveNotice):
+        from ..version_moves import set_notice
+        request_context.require_query(request, set())
+        return set_notice(request_context.trusted_learner(request, settings), material_id, body.dismissed, dsn=settings.dsn)
+
+    @app.post("/v1/materials/{material_id}/version-move/return", response_model=VersionMoveReturnView)
+    def version_move_return(request: Request, material_id: UUID, body: VersionMoveReturn):
+        from ..version_moves import return_previous
+        request_context.require_query(request, set())
+        return return_previous(request_context.trusted_learner(request, settings), material_id, body.expected_move_id, dsn=settings.dsn)
 
     @app.post(
         "/v1/materials/{material_id}/version-move",

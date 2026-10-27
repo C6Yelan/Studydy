@@ -377,3 +377,5 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 ## 隔夜來源、筆記與匯出投影
 
 `test_overnight_material_projection.py` 驗證固定來源新增數、持久前後計數及從歷史審查封存唯讀投影疑義，結構hash不變。`test_overnight_goal_notes.py` 驗證草稿／主題選擇持久化、發布排程、可達建議套用與舊筆記來源，配合 media_source_flow、learning_insights、material_qa、topics、note_queue 回歸。匯出測試實際產生PDF／DOCX／ZIP，頁尾註腳、公式與完整長文不裁切；Mermaid另在獨立瀏覽器以合成中文／特殊字元樣本渲染，不外送教材。
+
+`test_version_entry_state.py` 以隔離DB驗證真發布後安全自動移動、三類不安全留手動、返回保留新標記與head、提醒跨瀏覽器、同head分次移動用move_id判過期、無引用副本清理且原始事件／最小收據保留及migration套用回滾；原test_version_moves保護手動預覽／冪等／XP不重算。S5不在正式站測清理或部署。
