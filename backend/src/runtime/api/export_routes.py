@@ -1,5 +1,6 @@
 """私人匯出入口：沿用各領域讀取的擁有者與固定版本核對。"""
 from typing import Literal
+import re
 from urllib.parse import quote
 from uuid import UUID
 
@@ -24,7 +25,7 @@ async def export_slot(request: Request):
 
 MIME = {'md': 'text/markdown; charset=utf-8', 'pdf': 'application/pdf',
         'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'zip': 'application/zip', 'apkg': 'application/octet-stream', 'png': 'image/png',
+        'zip': 'application/zip', 'apkg': 'application/octet-stream',
         'mp3': 'audio/mpeg', 'mp4': 'video/mp4'}
 
 
@@ -33,6 +34,12 @@ def material_name(db, learner, material_id):
     from ..storage.tables import Material
     return db.scalar(select(Material.display_name).where(
         Material.learner_id == learner, Material.material_id == material_id))
+
+
+def file_stem(material_name, fallback):
+    """檔名用教材名稱：去掉原檔副檔名，並換掉檔案系統不接受的字元。"""
+    stem = re.sub(r'\.(pdf|pptx?|docx?|png|jpe?g|mp3|m4a|wav|mp4)$', '', material_name, flags=re.I)
+    return re.sub(r'[\\/:*?"<>|]', '_', stem).strip() or fallback
 
 
 def download(data, filename, format):
@@ -59,15 +66,6 @@ class CardExportBatch(_Closed):
     images: list[CardImage] = Field(min_length=1, max_length=2)
 
 
-class MapImage(_Closed):
-    concept_ids: list[str] = Field(min_length=1, max_length=24)
-    png: str = Field(max_length=8000000)
-
-
-class MapExport(_Closed):
-    images: list[MapImage] = Field(min_length=1, max_length=2000)
-
-
 def install(app, settings):
     app.state.export_slots = asyncio.Semaphore(2)
 
@@ -87,7 +85,8 @@ def install(app, settings):
         with database_session(settings.dsn) as db:
             view['material_name'] = material_name(db, learner, material_id)
         render = {'md': export_documents.note_markdown, 'pdf': export_documents.note_pdf, 'docx': export_documents.note_docx}[format]
-        response = download(render(view), f'{"重點整理" if kind == "summary" else "完整筆記"}.{format}', format)
+        title = "重點整理" if kind == "summary" else "完整筆記"
+        response = download(render(view), f'{file_stem(view["material_name"], "筆記")}-{title}.{format}', format)
         record_export(learner, 'notes', dsn=settings.dsn)
         return response
 
@@ -111,8 +110,8 @@ def install(app, settings):
 
     @app.post('/v1/card-sets/{identity}/exports/{upload_id}/download', tags=['exports'], dependencies=[Depends(export_slot, scope="function")])
     def download_cards(file=Depends(card_download_file)):
-        path, format = file
-        return FileResponse(path, media_type=MIME[format], filename=f'概念卡.{format}',
+        path, format, name = file
+        return FileResponse(path, media_type=MIME[format], filename=f'{file_stem(name, "概念卡")}.{format}',
             headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
 
     @app.get('/v1/materials/{material_id}/knowledge-structures/{revision}/map/export/md', tags=['exports'], dependencies=[Depends(export_slot, scope="function")])
@@ -130,23 +129,8 @@ def install(app, settings):
             view = {**view, 'material_name': material_name(db, learner, material_id),
                     'concepts': [{**c, 'claims':details[c['concept_id']]['claims']} for c in view['concepts']]}
             regions = knowledge_reads.regions(db, learner, material_id, revision)
-        response = download(export_map.markdown(view, regions), '概念大綱.md', 'md')
-        record_export(learner, 'map', dsn=settings.dsn)
-        return response
-
-    @app.post('/v1/materials/{material_id}/knowledge-structures/{revision}/map/export/png', tags=['exports'], dependencies=[Depends(export_slot, scope="function")])
-    def map_images(request: Request, material_id: UUID, revision: str, body: MapExport):
-        from ..storage.database import database_session
-        from ..storage import knowledge_reads
-        learner = owner(request)
-        with database_session(settings.dsn) as db:
-            view = knowledge_reads.outline(db, learner, material_id, revision)
-        ids = [identity for image in body.images for identity in image.concept_ids]
-        if len(ids) != len(set(ids)) or set(ids) != {c['concept_id'] for c in view['concepts']}:
-            raise request_context.ApiFailure('REQUEST_INVALID')
-        files = [(f'地圖-{i + 1:03}.png', export_documents.decode_png(image.png)) for i, image in enumerate(body.images)]
-        data, extension = (files[0][1], 'png') if len(files) == 1 else (export_documents.zip_files(files), 'zip')
-        response = download(data, f'知識地圖.{extension}', extension)
+        name = file_stem(view['material_name'], '概念大綱')
+        response = download(export_map.markdown(view, regions), f'{name}.md', 'md')
         record_export(learner, 'map', dsn=settings.dsn)
         return response
 
@@ -159,7 +143,8 @@ def install(app, settings):
         with database_session(settings.dsn) as db:
             db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
             view = read_diagnosis(db, learner, material_id, revision)
-        response = download(export_documents.diagnosis_pdf(view), '學習診斷.pdf', 'pdf')
+            stem = file_stem(material_name(db, learner, material_id), '教材')
+        response = download(export_documents.diagnosis_pdf(view), f'{stem}-學習診斷.pdf', 'pdf')
         record_export(learner, 'diagnosis', dsn=settings.dsn)
         return response
 

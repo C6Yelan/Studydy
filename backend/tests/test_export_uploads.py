@@ -3,6 +3,7 @@ from base64 import b64encode
 from io import BytesIO
 from types import SimpleNamespace
 from uuid import uuid4
+from urllib.parse import unquote
 import asyncio
 import json
 import os
@@ -55,7 +56,7 @@ def test_148_concept_export_exceeds_old_request_limit_but_downloads_as_one_zip(m
     cards = [{'concept_id': str(i), 'label': f'合成概念{i}', 'claims': []} for i in range(148)]
     def read(learner, card_set, *, offset=0, expected_version=None, dsn=None):
         assert learner == owner and card_set == identity
-        return {'cards': cards[offset:offset + 8]} if expected_version else {'version': 1, 'name': '148概念合成卡組', 'navigation': cards, 'batch': {}}
+        return {'cards': cards[offset:offset + 8]} if expected_version else {'version': 1, 'name': '148概念合成卡組', 'material_name': '01_合成教材.pptx', 'navigation': cards, 'batch': {}}
     monkeypatch.setattr(export_cards.card_sets, 'read_card_study', read)
     monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
     monkeypatch.setattr(export_routes.request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=owner))
@@ -83,6 +84,7 @@ def test_148_concept_export_exceeds_old_request_limit_but_downloads_as_one_zip(m
         assert max(sizes) < 16 * 1024 * 1024
         response = client.post(f'{base}/{uid}/download')
         assert response.status_code == 200
+        assert unquote(response.headers['content-disposition']).endswith('01_合成教材.zip')
         with zipfile.ZipFile(BytesIO(response.content)) as archive:
             assert len(archive.namelist()) == 148
             assert archive.testzip() is None
@@ -95,7 +97,7 @@ def test_148_concept_export_exceeds_old_request_limit_but_downloads_as_one_zip(m
 
 def test_upload_cleanup_excludes_locked_download_and_removes_abandoned_session(monkeypatch, tmp_path):
     monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
-    monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, **_kwargs: {'version': 1, 'batch': {}, 'navigation': [{'concept_id': 'a'}]})
+    monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, **_kwargs: {'version': 1, 'batch': {}, 'material_name': '教材', 'navigation': [{'concept_id': 'a'}]})
     uid = export_cards.create('owner', 'cards', 1, 'zip')['upload_id']
     path = export_cards.work_root() / f'owner_{uid}'
     os.utime(path / 'state.json', (0, 0))
@@ -111,7 +113,7 @@ def test_upload_cleanup_excludes_locked_download_and_removes_abandoned_session(m
 def test_owner_quota_is_atomic_and_cancel_releases_it(monkeypatch, tmp_path):
     from concurrent.futures import ThreadPoolExecutor
     monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
-    monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, **_kwargs: {'version': 1, 'batch': {}, 'navigation': [{'concept_id': 'a'}]})
+    monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, **_kwargs: {'version': 1, 'batch': {}, 'material_name': '教材', 'navigation': [{'concept_id': 'a'}]})
     def create():
         try:
             return export_cards.create('owner', 'cards', 1, 'zip')['upload_id']
@@ -132,7 +134,7 @@ def test_owner_quota_is_atomic_and_cancel_releases_it(monkeypatch, tmp_path):
 
 def test_byte_and_concept_page_limits_reject_before_writing_batch(monkeypatch, tmp_path):
     monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
-    monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, **_kwargs: {'version': 1, 'batch': {}, 'navigation': [{'concept_id': 'a'}]})
+    monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, **_kwargs: {'version': 1, 'batch': {}, 'material_name': '教材', 'navigation': [{'concept_id': 'a'}]})
     output = BytesIO(); Image.new('RGB', (8, 8)).save(output, format='PNG')
     png = output.getvalue()
     def image(page):
@@ -177,7 +179,7 @@ def test_card_stream_releases_generation_slot_but_keeps_temporary_files_locked(m
     card = {'concept_id': 'a', 'label': '合成', 'claims': []}
     monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
     monkeypatch.setattr(export_cards.card_sets, 'read_card_study', lambda *_args, expected_version=None, **_kwargs:
-        {'cards': [card]} if expected_version else {'version': 1, 'batch': {}, 'name': '合成', 'navigation': [card]})
+        {'cards': [card]} if expected_version else {'version': 1, 'batch': {}, 'material_name': '教材', 'name': '合成', 'navigation': [card]})
     monkeypatch.setattr(export_routes.request_context, 'trusted_learner', lambda *_: SimpleNamespace(learner_id=owner))
     # 成就用的匯出紀錄寫在 DB；這些案例沒有 DB，只記下呼叫。
     exported = []

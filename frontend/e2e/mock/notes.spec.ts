@@ -154,17 +154,16 @@ test("notes export each format and report download failure without regenerating"
     return route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "Content-Disposition": `attachment; filename*=UTF-8''notes.${format}` }, body: "export" });
   });
   await page.goto(`/materials/${materialId}/notes`);
-  const controls = page.getByRole("dialog", { name: "匯出筆記" });
+  const controls = page.getByRole("menu", { name: "匯出筆記" });
   for (const format of ["md", "pdf", "docx"]) {
     await page.getByRole("button", { name: "匯出筆記", exact: true }).click();
-    await controls.locator(`input[type="radio"][value="${format}"]`).check();
     const downloaded = page.waitForEvent("download");
-    await controls.getByRole("button", { name: "匯出", exact: true }).click();
+    await controls.getByRole("menuitem", { name: ({ md: "Markdown", pdf: "PDF", docx: "Word（.docx）" })[format], exact: true }).click();
     expect((await downloaded).suggestedFilename()).toBe(`notes.${format}`);
   }
   fail = true;
   await page.getByRole("button", { name: "匯出筆記", exact: true }).click();
-  await controls.getByRole("button", { name: "匯出", exact: true }).click();
+  await controls.getByRole("menuitem", { name: "Word（.docx）", exact: true }).click();
   await expect(controls.getByRole("alert")).toContainText("找不到");
   expect(formats).toEqual(["md", "pdf", "docx", "docx"]);
   expect(state.writes).toEqual([]);
@@ -253,8 +252,8 @@ test("older visible notes keep annotation and export requests on their content r
  await page.getByRole('button',{name:'儲存註記',exact:true}).click();await expect(page.getByRole('dialog')).toBeHidden();
  expect(annotationPath).toContain(`/knowledge-structures/${oldRevision}/notes/summary/annotations/`);
  await page.getByRole('button',{name:'匯出筆記',exact:true}).click();
- const exportDialog=page.getByRole('dialog',{name:'匯出筆記',exact:true});await exportDialog.getByRole('radio',{name:'PDF',exact:true}).check();
- const downloading=page.waitForEvent('download');await exportDialog.getByRole('button',{name:'匯出',exact:true}).click();await downloading;
+ const exportMenu=page.getByRole('menu',{name:'匯出筆記',exact:true});
+ const downloading=page.waitForEvent('download');await exportMenu.getByRole('menuitem',{name:'PDF',exact:true}).click();await downloading;
  expect(exportPath).toBe(`/v1/materials/${materialId}/knowledge-structures/${oldRevision}/notes/summary/export/pdf`);
  expect(state.writes).toEqual([]);
 });

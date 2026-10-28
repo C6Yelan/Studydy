@@ -71,7 +71,7 @@ def create(owner, identity, version, format, *, dsn=None):
         directory = root / f'{owner}_{upload_id}'
         directory.mkdir(mode=0o700)
         state = {'owner': str(owner), 'identity': str(identity), 'version': version, 'format': format,
-                 'concept_ids': [c['concept_id'] for c in view['navigation']], 'images': []}
+                 'material_name': view['material_name'], 'concept_ids': [c['concept_id'] for c in view['navigation']], 'images': []}
         (directory / 'state.json').write_text(json.dumps(state))
     return {'upload_id': str(upload_id)}
 
@@ -142,7 +142,7 @@ def finish(owner, identity, upload_id, *, dsn=None):
         try:
             result = render(owner, identity, state, directory, dsn=dsn)
             # HTTP dependency 保持此 lease 到串流結束，取消連線與例外也會清理。
-            yield result, state['format']
+            yield result, state['format'], state['material_name']
         finally:
             shutil.rmtree(directory)
 

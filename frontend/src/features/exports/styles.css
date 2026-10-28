@@ -1,16 +1,12 @@
-.export-entry { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-3); margin-block:var(--space-3); max-width:100%; }
+.export-entry { position:relative; display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-3); margin-block:var(--space-3); max-width:100%; }
 .export-entry > button { white-space:nowrap; }
 .export-entry > [role="alert"], .export-entry > [role="status"] { flex-basis:100%; margin:0; }
-.export-dialog { width:min(32rem,calc(100vw - 2rem)); max-height:calc(100dvh - 2rem); padding:var(--space-6); border:1px solid var(--border); border-radius:var(--radius-panel); background:var(--surface); color:var(--text-primary); box-shadow:var(--shadow); }
-.export-dialog::backdrop { background:rgba(15,23,42,.45); }
-.export-dialog-heading { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); }
-.export-dialog-heading h2 { margin:0; font-size:1.25rem; }
-.export-format-options { display:grid; gap:var(--space-3); min-width:0; margin:var(--space-5) 0; padding:0; border:0; }
-.export-format-options legend { margin-bottom:var(--space-3); color:var(--text-secondary); }
-.export-format-card { display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-card); cursor:pointer; }
-.export-format-card:has(input:checked) { border-color:var(--studydy-blue); background:var(--studydy-blue-soft-2); }
-.export-format-card:focus-within { outline:2px solid var(--studydy-blue); outline-offset:2px; }
-.export-format-card input { flex:none; margin:0; accent-color:var(--studydy-blue); }
-.export-format-card span { min-width:0; overflow-wrap:anywhere; }
-.export-dialog-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:var(--space-3); }
-@media (max-width:720px) { .export-dialog { padding:var(--space-4); } }
+
+/* 匯出小視窗：從按鈕下方展開、靠右對齊，點格式就直接匯出。 */
+.export-popover { position:absolute; top:calc(100% + 6px); right:0; z-index:30; display:grid; gap:4px; width:min(20rem,calc(100vw - 2rem)); padding:6px; border:1px solid var(--border); border-radius:var(--radius-card); background:var(--surface); box-shadow:var(--shadow); }
+.export-popover-item { display:grid; gap:2px; width:100%; padding:10px 12px; border:0; border-radius:10px; background:transparent; color:var(--text-primary); font:inherit; text-align:left; cursor:pointer; }
+.export-popover-item:hover:not(:disabled), .export-popover-item:focus-visible { background:var(--studydy-blue-soft-2); outline:none; }
+.export-popover-item:disabled { cursor:progress; opacity:.7; }
+.export-popover-item b { font-size:14px; font-weight:700; overflow-wrap:anywhere; }
+.export-popover-item small { color:var(--text-secondary); font-size:12px; }
+.export-popover .form-error { margin:4px 8px; font-size:13px; }

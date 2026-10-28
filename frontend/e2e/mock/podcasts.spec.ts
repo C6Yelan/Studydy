@@ -1086,12 +1086,11 @@ test("ready Podcast exports each available format for the selected episode", asy
     return route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "Content-Disposition": `attachment; filename*=UTF-8''episode.${format}` }, body: "saved export" });
   });
   await page.goto(`/podcasts/${podcastId}`);
-  const controls = page.getByRole("dialog", { name: "匯出本集" });
+  const controls = page.getByRole("menu", { name: "匯出本集" });
   for (const format of ["mp3", "md", "mp4"]) {
     await page.getByRole("button", { name: "匯出本集", exact: true }).click();
-    await controls.locator(`input[type="radio"][value="${format}"]`).check();
     const download = page.waitForEvent("download");
-    await controls.getByRole("button", { name: "匯出", exact: true }).click();
+    await controls.getByRole("menuitem", { name: ({ mp3: "MP3 音檔", md: "逐字稿 Markdown", mp4: "MP4 影片" })[format], exact: true }).click();
     expect((await download).suggestedFilename()).toBe(`episode.${format}`);
   }
   expect(requests.every(path => path.includes("/episodes/0/export/"))).toBe(true);
@@ -1117,10 +1116,9 @@ test("transcript export appears after alignment without reloading the page", asy
   await page.waitForTimeout(2500);
   aligned = true;
   await controls.getByRole("button", { name: "匯出本集", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "匯出本集" });
-  await dialog.getByRole("radio", { name: "逐字稿 Markdown" }).check();
+  const dialog = page.getByRole("menu", { name: "匯出本集" });
   const download = page.waitForEvent("download");
-  await dialog.getByRole("button", { name: "匯出", exact: true }).click();
+  await dialog.getByRole("menuitem", { name: "逐字稿 Markdown", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("episode.md");
   await expect(dialog).toBeHidden();
   const settled = reads;

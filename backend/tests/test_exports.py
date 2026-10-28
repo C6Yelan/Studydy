@@ -166,7 +166,7 @@ def test_map_covers_all_regions_and_cross_region_relations():
                            {'label': '區域二', 'concept_ids': [str(i) for i in range(15, 30)]}]}
     md = export_map.markdown(view, regions)
     assert all(f'概念{i}' in md and f'完整重點{i}' in md for i in range(30))
-    assert md.count('```mermaid') == 2 and '第 30 頁' in md
+    assert md.count('```mermaid') == 2 and '相關：先備 → 概念29' in md and '來源：原文.pdf 第 30 頁' in md
 
 
 def test_card_package_has_all_images_full_text_sources_and_stable_ids(monkeypatch, tmp_path):
@@ -176,7 +176,7 @@ def test_card_package_has_all_images_full_text_sources_and_stable_ids(monkeypatc
     def read(owner, identity, *, offset=0, expected_version=None, dsn=None):
         if expected_version is not None:
             return {'cards': cards[offset:offset + 8]}
-        return {'version': 1, 'name': '整組', 'navigation': cards, 'batch': {}}
+        return {'version': 1, 'name': '整組', 'material_name': '教材.pptx', 'navigation': cards, 'batch': {}}
     monkeypatch.setattr(export_cards.card_sets, 'read_card_study', read)
     monkeypatch.setattr(export_cards, '_root', lambda: tmp_path)
     images = [CardImage(concept_id=c['concept_id'], page=p, png=b64encode(png).decode()) for c in cards for p in range(2)]
@@ -184,7 +184,7 @@ def test_card_package_has_all_images_full_text_sources_and_stable_ids(monkeypatc
         upload_id = export_cards.create('owner', 'deck', 1, format)['upload_id']
         for offset in range(0, len(images), 2):
             export_cards.append('owner', 'deck', upload_id, offset, images[offset:offset + 2])
-        with export_cards.finish('owner', 'deck', upload_id) as (path, _):
+        with export_cards.finish('owner', 'deck', upload_id) as (path, *_):
             if format == 'apkg':
                 assert (path.parent / 'collection.anki2').is_file()
             content = path.read_bytes()
