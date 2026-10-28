@@ -9,13 +9,13 @@ export const MaterialRunWorkspaceContext = createContext<((runId:string|null)=>v
 
 type Section = "home" | "materials" | "cards" | "podcasts" | "achievements" | "profile";
 // 成就與個人檔案只放在桌機頁首；手機底部列維持四個入口加上傳（手機頁首的等級按鈕與頭像可進入這兩頁）。
-const sections: { id: Section; label: string; short: string; icon: IconName; route: AppRoute; headerOnly?: boolean }[] = [
+const sections: { id: Section; label: string; short: string; icon: IconName; headerIcon?: IconName; route: AppRoute; headerOnly?: boolean }[] = [
   { id: "home", label: "首頁", short: "首頁", icon: "home", route: { name: "home" } },
   { id: "materials", label: "我的教材", short: "教材", icon: "book", route: { name: "materials" } },
-  { id: "cards", label: "概念卡", short: "概念卡", icon: "cards", route: { name: "concept-cards" } },
+  { id: "cards", label: "概念卡", short: "概念卡", icon: "cards", headerIcon: "cards-fan", route: { name: "concept-cards" } },
   { id: "podcasts", label: "Podcast", short: "Podcast", icon: "headphones", route: { name: "podcasts" } },
-  { id: "achievements", label: "成就", short: "成就", icon: "sparkle", route: { name: "achievements" }, headerOnly: true },
-  { id: "profile", label: "個人檔案", short: "個人", icon: "user", route: { name: "profile" }, headerOnly: true },
+  { id: "achievements", label: "成就", short: "成就", icon: "trophy", route: { name: "achievements" }, headerOnly: true },
+  { id: "profile", label: "個人檔案", short: "個人", icon: "user-circle", route: { name: "profile" }, headerOnly: true },
 ];
 const tabSections = sections.filter((item) => !item.headerOnly);
 
@@ -88,12 +88,11 @@ export function AppShell({
             <RouteLink
               key={item.id}
               route={item.route}
-              // 窄一點的桌機只顯示圖示，名稱另由 aria-label 提供。
               aria-label={item.label}
               aria-current={section === item.id ? "page" : undefined}
             >
-              <Icon name={item.icon} size={18} />
-              <span>{item.label}</span>
+              <Icon name={item.headerIcon ?? item.icon} size={20} />
+              <span className="main-nav-tooltip" role="tooltip">{item.label}</span>
             </RouteLink>
           ))}
         </nav>
