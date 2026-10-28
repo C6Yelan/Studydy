@@ -816,3 +816,32 @@ def test_newly_available_prerequisite_target_uses_original_document_priority():
     # a 解鎖後應回到文件順序，不排在已等待的 d 後面。
     assert [step['concept_id'] for step in path] == ['b', 'c', 'a', 'd']
     assert [step['reason'] for step in path] == ['document_order', 'document_order', 'prerequisite', 'document_order']
+
+
+@pytest.mark.parametrize('label_kind', ['paragraph', 'heading'])
+def test_slide_production_labels_are_filtered_before_semantics_without_changing_evidence(label_kind):
+    label = '[GPT] [DCOURSE] ｜ 原創數值／情境示例，非模型實測'
+    body = '[GPT] [DCOURSE] ｜ 重試上限為 8 次。'
+    context = build_document_context([_page(1, [
+        _block(1, 0, label_kind, label), _block(1, 1, 'paragraph', body),
+        _block(1, 2, 'paragraph', 'GPT 是模型名稱，DCOURSE 是課程代號。'),
+    ])], page_count=1)
+    bundle = next(build_semantic_bundles(context, state=SemanticState(), fits=lambda _: True))
+    request = semantic_request(context, bundle, SemanticState())
+    rows = [row for section in request['sections'] for row in section['evidence']]
+    assert [row[3] for row in rows] == ['重試上限為 8 次。', 'GPT 是模型名稱，DCOURSE 是課程代號。']
+    assert all('[GPT]' not in section['title'] for section in request['sections'])
+    assert [e['exact_text'] for e in context['evidence']][:2] == [label, body]
+    source = context['evidence'][1]
+    claim = _project_claim({'meaning': body, 'source_spans': [
+        {'evidence_id': source['evidence_id'], 'quote': body},
+    ]}, {source['evidence_id']: source})
+    assert claim['text'] == '重試上限為 8 次。'
+    assert claim['source_spans'][0]['quote'] == body
+
+
+def test_slide_label_literal_failure_is_not_published_as_an_invalid_cleaned_repair():
+    source = {'evidence_id': 'original', 'exact_text': '[GPT] [DCOURSE] ｜ 重試上限為 8 次。', 'kind': 'paragraph'}
+    assert _project_claim({'meaning': '重試上限。', 'source_spans': [
+        {'evidence_id': 'original', 'quote': source['exact_text']},
+    ]}, {'original': source}) is None

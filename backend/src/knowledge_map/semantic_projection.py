@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from content_identity import canonical_sha256
+from .source_context import teaching_text
 from .claim_literals import (
     LITERAL_PROJECTION, EXCERPT_PROJECTION, EXCERPT_REPAIR, LITERAL_REPAIRS,
     preserves_literals, quoted_sources,
@@ -372,13 +373,13 @@ def semantic_request(
         ),
         "sections": [
             {
-                "title": section["title"],
+                "title": teaching_text(section["title"]) or "教材開頭",
                 "evidence": [
                     [
                         handles[ref],
                         evidence[ref]["page"],
                         evidence[ref]["kind"],
-                        evidence[ref]["exact_text"],
+                        teaching_text(evidence[ref]["exact_text"]),
                     ]
                     for ref in section["evidence_ids"]
                 ],
@@ -450,7 +451,9 @@ def _project_claim(
     if not isinstance(claim, dict) or set(claim) != {"meaning", "source_spans"}:
         return None
     try:
-        meaning = _text(claim["meaning"])
+        meaning = teaching_text(_text(claim["meaning"]))
+        if not meaning:
+            return None
     except ValueError:
         return None
     spans = claim["source_spans"]
@@ -468,6 +471,9 @@ def _project_claim(
         meaning,
         sources,
     )
+    # 清理後文字不是逐字原文，不能標成原文字面值還原。
+    if needs_literal_repair and teaching_text(source_text) != source_text:
+        return None
     text = source_text if needs_literal_repair else meaning
     # 不把模型誤填的 JSON 空值字串當教材；來源真的討論 null 時仍可保留。
     if _unsupported_null_meaning(text, source_text):
