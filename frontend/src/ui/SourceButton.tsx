@@ -36,8 +36,7 @@ export function evidencePlace(
 export function evidenceSourceTitle(
   evidence: Pick<EvidenceView, "page" | "normalized_page" | "source_name">,
 ): string {
-  const timed = !!evidence.source_name && timedSource.test(evidence.source_name);
-  return `${evidence.source_name ?? "教材"} · ${timed ? "" : "PDF "}${evidencePlace(evidence)}`;
+  return `${evidence.source_name ?? "教材"} · ${evidencePlace(evidence)}`;
 }
 
 function clock(seconds: number): string {
@@ -132,7 +131,6 @@ export function SourceButton({
           : label ?? (evidence.source_name
             ? evidenceSourceTitle(evidence)
             : `查看${evidencePlace(evidence)}來源`)}
-        {evidence.citation_count != null && evidence.citation_count > 1 && <span className={mergedReference ? "source-reference-fixed" : undefined}> · 引用 {evidence.citation_count} 次</span>}
       </button>
       {reference && preview && createPortal(<span onMouseEnter={keepPreview} onMouseLeave={closePreview} style={preview} id={previewId} role="tooltip" className="source-reference-preview"><strong>{name} · {place}</strong><span>{reference.quote}</span>{source?.format === "images" && <iframe src={source.preview_url} title={`${name}圖片預覽`} tabIndex={-1}/>}</span>, document.body)}
       {error && (

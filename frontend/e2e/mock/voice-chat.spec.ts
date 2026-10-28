@@ -593,7 +593,6 @@ test(`answer source lists merge ten citations in one line: ${filename === 'Lesso
  await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
  const sources=page.getByLabel('回答來源',{exact:true}),button=sources.getByRole('button');
  await expect(button).toHaveCount(1);
- await expect(sources).toContainText('引用 10 次');
  await expect(sources).toContainText('1–10.');
  await expect(button).toContainText('p.1');
  const bounds=await button.locator('span').evaluateAll(elements=>elements.map(element=>{const box=element.getBoundingClientRect();return {top:box.top,bottom:box.bottom};}));

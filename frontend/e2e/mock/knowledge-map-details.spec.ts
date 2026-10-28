@@ -317,7 +317,7 @@ for (const viewport of [
       const edge = await openFocusRelation(page);
       const relation = page.getByRole("dialog", { name: "關係詳情", exact: true });
       await expect(relation).toContainText(view.relations[0].learner_reason);
-      await expect(relation.getByRole("button", { name: /PDF 第|查看第|原始教材第/ })).toHaveCount(
+      await expect(relation.locator("button.source-chip")).toHaveCount(
         representatives.length,
       );
       await relation.getByRole("button", { name: "關閉關係詳情" }).click();
