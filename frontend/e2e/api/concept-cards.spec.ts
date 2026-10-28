@@ -28,11 +28,11 @@ test("real API persists selected cards across fresh login and resolves original 
   await page.getByLabel("卡組名稱", { exact: true }).fill("隔離測試卡組");
   await page.getByRole("button", { name: "保存並開始複習" }).click();
   await expect(page).toHaveURL(/\/concept-cards\/[0-9a-f-]+$/);
-  await page.getByRole("button", { name: "翻到背面" }).click();
+  await page.locator(".card-practice-front").click();
   await expect(page.locator(".visual-concept-card")).toHaveAttribute("title", "Stack｜概念卡");
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   const savedPath = new URL(page.url()).pathname;
-  await page.getByText("完整重點與來源", { exact: true }).click();
+  await page.locator(".card-page-ref").click();
   await expect(page.locator(".flashcard-point")).toContainText("LIFO");
   await page.getByRole("button", { name: "Synthetic.pdf · 第 1 頁", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "教材來源" });
@@ -52,7 +52,7 @@ test("real API persists selected cards across fresh login and resolves original 
   await reopened.getByRole("link", { name: "概念卡", exact: true }).click();
   await reopened.getByRole("button", { name: "開始複習", exact: true }).click();
   await expect(reopened).toHaveURL(new RegExp(`${savedPath}$`));
-  await reopened.getByRole("button", { name: "翻到背面" }).click();
+  await reopened.locator(".card-practice-front").click();
   await expect(reopened.locator(".visual-concept-card")).toHaveAttribute("title", "Stack｜概念卡");
   await reopened.getByRole("button", { name: "返回我的概念卡", exact: true }).click();
   await reopened.getByRole("button", { name: "管理卡組「隔離測試卡組」" }).click();

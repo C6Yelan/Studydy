@@ -26,13 +26,13 @@ export function useMarkSubmit(apiClient: StudydyApiClient) {
   };
 }
 
-export function CardMarkButtons({ current, disabled, onMark, label = "標記這張卡" }: {
-  current: CardReviewRating | null; disabled?: boolean; onMark: (rating: CardReviewRating) => void; label?: string;
+export function CardMarkButtons({ current, disabled, onMark, label = "標記這張卡", hotkeys = false, title }: {
+  current: CardReviewRating | null; disabled?: boolean; onMark: (rating: CardReviewRating) => void; label?: string; hotkeys?: boolean; title?: string;
 }) {
-  return <div className="review-grades" role="group" aria-label={label}>
+  return <div className="review-grades" role="group" aria-label={label} title={title}>
     {cardMarks.map((mark) => <button key={mark.rating} type="button" className={`is-${mark.rating}${current === mark.rating ? " is-selected" : ""}`}
       aria-pressed={current === mark.rating} disabled={disabled} onClick={() => onMark(mark.rating)}>
-      <Icon name={mark.icon} size={20} />{mark.label}
+      <Icon name={mark.icon} size={20} />{mark.label}{hotkeys && <kbd aria-hidden="true">{mark.rating === "forgot" ? "1" : "2"}</kbd>}
     </button>)}
   </div>;
 }

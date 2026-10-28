@@ -1,34 +1,96 @@
-/* 上一張／下一張貼在卡片左右兩側；展開完整重點變高時跟著畫面中央。 */
-.card-nav-frame { display:grid; grid-template-columns:72px minmax(0,42rem) 72px; justify-content:center; gap:12px; align-items:start; }
-.card-nav-body { min-width:0; }
-.card-nav-button { position:sticky; top:calc(50vh - 60px); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; width:100%; min-height:120px; padding:10px 4px; border:0; border-radius:20px; background:var(--page-cool); color:var(--studydy-blue-deep); font-size:12px; font-weight:800; white-space:nowrap; transition:background .2s; }
-.card-nav-button:not(:disabled):hover { background:var(--studydy-blue-soft); }
-.card-nav-button:disabled { opacity:.35; }
-.card-nav-button.is-prev { grid-column:1; grid-row:1; }
-.card-nav-button.is-next { grid-column:3; grid-row:1; }
-.card-nav-body { grid-column:2; grid-row:1; }
-@media (max-width:720px) {
-  .card-nav-frame { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
-  .card-nav-body { grid-column:1/-1; grid-row:1; }
-  .card-nav-button { position:static; flex-direction:row; gap:4px; min-height:44px; padding:8px; border-radius:14px; font-size:13px; }
-  .card-nav-button.is-prev { grid-column:1; grid-row:2; }
-  .card-nav-button.is-next { grid-column:2; grid-row:2; }
-  .card-nav-button svg { width:18px; height:18px; }
-}
-
-/* 頁面計數、標記與洗牌收成一列，把垂直空間留給卡片。 */
-.card-study-footer { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:6px 16px; margin-top:6px; padding-top:10px; border-top:1px solid var(--border-light); }
-.card-study-footer > .cards-study-counter, .card-study-footer > .card-review-pages { grid-column:1; grid-row:1; justify-self:start; }
-.card-practice-stage .card-study-footer > div.cards-study-mark { grid-column:2; grid-row:1; margin:0; padding:0; border:0; }
-.card-study-footer > .cards-study-shuffle { grid-column:3; grid-row:1; justify-self:end; min-height:40px; }
-@media (max-width:720px) {
-  .card-study-footer { grid-template-columns:minmax(0,1fr) auto; }
-  .card-practice-stage .card-study-footer > div.cards-study-mark { grid-column:1/-1; grid-row:1; }
-  .card-study-footer > .cards-study-counter, .card-study-footer > .card-review-pages { grid-row:2; }
-  .card-study-footer > .cards-study-shuffle { grid-column:2; grid-row:2; }
-}
-
-/* 卡組標題列：張數在左，需要加強、展開清單與匯出在右同一列。 */
-.cards-study-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 14px; }
-.cards-study-actions .card-practice-list-toggle { margin:0; }
+/* 標題列：左側卡組名稱與張數，右側清單、洗牌、匯出（沒有獨立的一列）。 */
+.cards-study-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; min-height:40px; margin:0 0 10px; padding:0 4px; }
+.cards-study-title { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 12px; min-width:0; }
+.cards-study-heading h1 { margin:0; font-size:20px; font-weight:900; letter-spacing:0; overflow-wrap:anywhere; }
+.cards-study-meta { display:flex; flex-wrap:wrap; align-items:center; gap:2px 12px; color:var(--text-muted); font-size:13px; font-weight:700; }
+.cards-study-meta > span { display:inline-flex; align-items:center; gap:4px; }
+.cards-study-notice { color:var(--text-secondary); }
+.cards-version-tag { padding:3px 10px; border-radius:999px; background:var(--violet-soft); color:#5b3ab8; font-size:12px; font-weight:800; }
+.cards-study-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; }
 .cards-study-actions .export-entry { margin:0; }
+.cards-head-button, .cards-study-actions .export-entry > button { min-height:36px; padding:0 14px; font-size:13px; }
+.cards-head-button svg { margin-left:4px; transform:rotate(90deg); }
+
+/* 卡片清單下拉。 */
+.card-list-menu { position:relative; }
+.card-list-popover { position:absolute; top:calc(100% + 6px); right:0; z-index:20; display:grid; gap:2px; width:min(320px,calc(100vw - 32px)); max-height:min(60vh,420px); overflow:auto; padding:8px; border:1px solid var(--border-light); border-radius:16px; background:var(--surface); box-shadow:var(--shadow); }
+.card-list-popover input[type="search"] { min-height:36px; margin-bottom:4px; padding:6px 12px; border:1.5px solid var(--border); border-radius:999px; font:inherit; font-size:13px; }
+.card-list-popover button { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; border:0; border-radius:12px; background:transparent; color:var(--text-primary); font-size:14px; text-align:left; overflow-wrap:anywhere; }
+.card-list-popover button:hover { background:var(--page-cool); }
+.card-list-popover button[aria-current=true] { background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-weight:800; }
+.card-list-popover small { flex:none; color:var(--text-muted); font-size:12px; font-weight:800; }
+.card-list-popover p { margin:4px 8px; color:var(--text-muted); font-size:13px; }
+
+.cards-study-stage { min-width:0; outline:none; }
+
+/* 卡片外框：上一張／下一張是卡片外側的圓鈕；卡片寬度跟著縮放後的卡面，置中。 */
+.card-nav-frame { display:flex; align-items:center; justify-content:center; gap:28px; }
+.card-nav-button { flex:none; display:grid; place-items:center; width:54px; height:54px; padding:0; border:0; border-radius:50%; background:var(--surface); box-shadow:0 6px 22px #1f2a4829; color:var(--studydy-blue); transition:background .15s,color .15s; }
+.card-nav-button:not(:disabled):hover { background:var(--studydy-blue); color:#fff; }
+.card-nav-button:disabled { opacity:.3; }
+.card-shell { position:relative; flex:0 1 auto; width:fit-content; min-width:min(480px,100%); max-width:100%; overflow:hidden; border-radius:26px; background:var(--surface); box-shadow:var(--shadow); }
+.card-shell-progress { height:4px; border-radius:0; }
+.card-shell-face { min-width:0; }
+.card-dock { position:absolute; left:50%; bottom:16px; z-index:3; display:flex; align-items:center; gap:10px; padding:9px 12px; border:1px solid var(--border-light); border-radius:999px; background:#fffffff5; box-shadow:0 8px 30px #1f2a4833; transform:translateX(-50%); white-space:nowrap; }
+.card-dock .review-grades { display:flex; gap:10px; }
+.card-dock .review-grades button { flex-direction:row; justify-content:center; gap:6px; min-height:38px; padding:0 14px; border-radius:999px; font-size:14px; }
+.card-dock kbd { padding:1px 6px; border-radius:6px; background:#ffffffb3; box-shadow:inset 0 0 0 1px var(--border); color:var(--text-secondary); font:inherit; font-size:11px; font-weight:800; }
+.card-dock-count { padding:0 10px; color:var(--text-muted); font-size:14px; font-weight:800; }
+.card-dock-count b { color:var(--text-primary); font-size:16px; }
+.card-dock-count small { font-size:12px; font-weight:700; }
+.card-dock .form-error { position:absolute; bottom:calc(100% + 8px); left:50%; width:max-content; max-width:min(420px,80vw); margin:0; padding:6px 12px; border-radius:12px; background:var(--surface); box-shadow:var(--shadow); transform:translateX(-50%); white-space:normal; text-align:center; }
+
+/* 卡面區：點任一處翻面；下方為頁數小字與浮動操作列保留的空間。 */
+.card-face-flip { padding:14px 20px 112px; cursor:pointer; outline:none; }
+.card-face-flip:focus-visible { box-shadow:inset 0 0 0 3px var(--studydy-blue-soft); }
+.card-practice-front { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; width:min(var(--card-face-w,760px),760px); min-height:min(var(--card-face-h,360px),420px); margin-inline:auto; padding:24px; color:var(--text-primary); text-align:center; }
+.card-practice-front h2 { margin:0; font-size:clamp(28px,3vw,44px); line-height:1.3; overflow-wrap:anywhere; }
+.card-practice-front p { margin:0; color:var(--text-secondary); line-height:1.7; }
+.card-practice-front > span { padding:5px 14px; border-radius:999px; background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-size:13px; font-weight:800; }
+.card-practice-comparison { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; gap:16px; overflow-wrap:anywhere; }
+.card-practice-comparison strong { padding:16px; border-radius:14px; background:var(--page-cool); }
+
+/* 卡面（canvas）等比縮放：寬不超過 --card-face-w、高不超過 --card-face-h；縮到下限（內文約 16px）仍放不下時在卡內捲動。 */
+.visual-card-frame { position:relative; }
+.visual-card { max-height:var(--card-face-h); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable both-edges; }
+.visual-concept-card[hidden] { display:none; }
+.visual-concept-card { display:block; width:max(444px,min(var(--card-face-w),calc(var(--card-face-h) * 1200 / var(--card-canvas-h)))); height:auto; margin-inline:auto; border-radius:16px; }
+.concept-card-placeholder { display:grid; place-content:center; min-height:240px; text-align:center; }
+.visual-card-more { position:absolute; left:50%; bottom:8px; transform:translateX(-50%); padding:3px 12px; border-radius:999px; background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-size:12px; font-weight:800; pointer-events:none; box-shadow:0 1px 4px #2b456122; }
+.visual-card.has-more { -webkit-mask-image:linear-gradient(#000 calc(100% - 56px),transparent); mask-image:linear-gradient(#000 calc(100% - 56px),transparent); }
+
+/* 反面右下角的頁數、難度標記與從卡片下方滑出的完整重點與來源。 */
+.card-page-ref { position:absolute; right:22px; bottom:84px; z-index:3; padding:4px 8px; border:0; border-radius:8px; background:transparent; color:var(--text-muted); font-size:12.5px; font-weight:800; }
+.card-page-ref:hover, .card-page-ref[aria-expanded=true] { background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); }
+.card-face-badge { position:absolute; left:22px; bottom:84px; z-index:3; }
+.card-face-chip { position:absolute; left:22px; bottom:84px; z-index:3; display:inline-flex; flex-wrap:wrap; align-items:center; gap:2px 8px; max-width:60%; margin:0; padding:4px 12px; border-radius:14px; background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-size:12px; font-weight:800; }
+.card-source-drawer { position:absolute; left:0; right:0; bottom:0; z-index:4; max-height:70%; overflow:auto; padding:16px 32px 20px; border-radius:22px 22px 0 0; background:var(--surface); box-shadow:0 -12px 30px #1f2a4829; cursor:default; animation:card-drawer-in .18s ease-out; }
+.card-source-drawer > header { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-bottom:10px; }
+.card-source-drawer > header h3 { flex:1; margin:0; font-size:15px; font-weight:900; }
+.card-source-drawer .visual-card-download { min-height:32px; padding:0 12px; font-size:13px; }
+.card-source-drawer .flashcard { min-height:0; border:0; border-radius:0; box-shadow:none; animation:none; }
+.card-source-drawer .flashcard-details { min-height:0; padding:0; }
+.card-source-drawer .flashcard-details h2 { margin:8px 0; font-size:18px; }
+.card-source-drawer .flashcard-content { max-height:none; overflow:visible; padding:0; }
+.card-source-drawer .flashcard-point p { font-size:15px; }
+@keyframes card-drawer-in { from { transform:translateY(16px); opacity:.4; } to { transform:none; opacity:1; } }
+@media (prefers-reduced-motion:reduce) { .card-source-drawer { animation:none; } }
+
+@media (max-width:720px) {
+  .cards-study-heading h1 { font-size:18px; }
+  .cards-study-actions { justify-content:flex-start; }
+  .card-nav-frame { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .card-shell { grid-column:1/-1; grid-row:1; width:100%; min-width:0; }
+  .card-nav-button.is-prev { grid-column:1; grid-row:2; justify-self:start; }
+  .card-nav-button.is-next { grid-column:2; grid-row:2; justify-self:end; }
+  .card-face-flip { padding:12px 12px 8px; }
+  .card-practice-front { width:100%; min-height:260px; padding:20px 12px; }
+  .visual-card { max-height:70vh; scrollbar-gutter:auto; }
+  .visual-concept-card { width:100%; }
+  .card-dock { position:static; width:fit-content; max-width:calc(100% - 16px); margin:0 auto 14px; transform:none; flex-wrap:wrap; justify-content:center; box-shadow:0 2px 10px #1f2a4829; }
+  .card-dock .form-error { position:static; transform:none; width:100%; }
+  .card-page-ref, .card-face-badge { position:static; display:block; margin:0 12px 8px auto; }
+  .card-face-badge { margin:0 auto 8px 12px; }
+  .card-face-chip { position:static; max-width:none; margin:0 12px 8px; }
+  .card-source-drawer { max-height:80%; padding:14px 16px 16px; }
+}

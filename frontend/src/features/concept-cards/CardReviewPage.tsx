@@ -1,7 +1,6 @@
 import { cardPngName } from "./card-png-name";
-import { Progress } from "../../ui/Progress";
 import { useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardBatch, CardReviewItem, CardReviewRating, CardStudyView } from "../../api/contracts";
 import { type AppRoute } from "../../app/routes";
@@ -10,6 +9,7 @@ import { EmptyState } from "../../ui/EmptyState";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { CardMarkButtons, markLabel, useMarkSubmit } from "./CardMarks";
+import { CardListMenu } from "./CardListMenu";
 import { CardNavFrame } from "./CardNavFrame";
 import { Flashcard } from "./Flashcard";
 import { useConceptArtwork } from "./VisualConceptCard";
@@ -35,7 +35,6 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
   const [position, setPosition] = useState(0);
   const [enterLastPage, setEnterLastPage] = useState(false);
   const [processed, setProcessed] = useState<Map<number, CardReviewRating | null>>(new Map());
-  const [listOpen, setListOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
@@ -48,33 +47,34 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
     return () => { cancelled = true; };
   }, [apiClient, cardSetId, materialId, materialOnly, reload]);
   const setName = round?.[0]?.card_set_name;
-  const heading = <header className="card-review-heading">
-    <div>
+  const description = cardSetId ? setName ? `卡組「${setName}」中標成不熟的卡片` : "這個卡組標成不熟的卡片" : materialOnly ? "這份教材各卡組中標成不熟的卡片" : "所有卡組中標成不熟的卡片";
+  const heading = (actions?: ReactNode, origin?: string | null) => <header className="cards-study-heading card-review-heading">
+    <div className="cards-study-title">
       <h1>需要加強</h1>
-      <p>{cardSetId ? setName ? `卡組「${setName}」中標成不熟的卡片` : "這個卡組標成不熟的卡片" : materialOnly ? "這份教材各卡組中標成不熟的卡片" : "所有卡組中標成不熟的卡片"} · 看完卡片，再標記熟不熟。</p>
+      <span className="cards-study-meta"><span>{description}</span>{origin && <span title={origin}><Icon name="cards" size={15} />{origin}</span>}{notice && <span className="cards-study-notice" role="status">{notice}</span>}</span>
     </div>
+    {actions && <div className="cards-study-actions">{actions}</div>}
   </header>;
   if (loadError) return <section className="card-review-page">
     {backLink}
-    {heading}
+    {heading()}
     <StateView title="無法讀取需要加強的卡片" description={loadError} tone="failure"
       action={<button className="primary-button" type="button" onClick={() => setReload((value) => value + 1)}>重新讀取</button>} />
   </section>;
   if (!round) return <section className="card-review-page">
     {backLink}
-    {heading}
+    {heading()}
     <StateView title="正在讀取需要加強的卡片" description="正在整理這一輪要看的卡片。" tone="loading" live skeleton="deck" />
   </section>;
   const done = processed.size === round.length;
   const marked = { forgot: [...processed.values()].filter(value => value === "forgot").length, remembered: [...processed.values()].filter(value => value === "remembered").length };
   return <section className="card-review-page">
     {backLink}
-    {heading}
-    {round.length > 0 && <div className="card-review-progress" aria-label="這一輪進度">
-      <span>{done ? <>這一輪完成</> : <>第 <b>{position + 1}</b> / {round.length} 張</>}</span>
-      <Progress max={round.length} value={processed.size} aria-label="已看完的張數" />
-    </div>}
-    {notice && <p className="card-review-notice" role="status">{notice}</p>}
+    {heading(round.length > 0 && !done && <CardListMenu disabled={saving}
+      items={round.map((item, i) => ({ key: `${item.card_set_id}:${item.card.concept_id}`, label: item.card.label, current: position === i, status: processed.has(i) ? "已處理" : null }))}
+      onSelect={i => { setEnterLastPage(false); setPosition(i); }} />,
+    // 混合多個卡組時標示這張卡的來源（教材內只寫卡組，全站另附教材）。
+    round.length > 0 && !done && !cardSetId ? materialOnly ? round[position].card_set_name : `${round[position].card_set_name} · ${round[position].material_name}` : null)}
     {round.length === 0
       ? <EmptyState label="需要加強空狀態" title="目前沒有需要加強的卡片" description="瀏覽卡組時，在卡片下方標成「不熟」，就會出現在這裡。" />
       : done
@@ -86,11 +86,7 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
             {marked.forgot > 0 && <button className="primary-button" type="button" onClick={() => setReload((value) => value + 1)}>再加強一輪</button>}
           </div>
         </div>
-        : <><button type="button" className="text-button card-practice-list-toggle" aria-expanded={listOpen} onClick={() => setListOpen(value => !value)}>{listOpen ? "收合卡片清單" : "展開卡片清單"}</button>
-        <div className={`cards-browse-layout card-practice-layout ${listOpen ? "is-list-open" : ""}`}>
-          <nav className="cards-browse-list" aria-label="選擇概念卡" hidden={!listOpen}>{round.map((item, i) => <button type="button" key={`${item.card_set_id}:${item.card.concept_id}`} aria-current={position === i ? "true" : undefined} disabled={saving} onClick={() => { setEnterLastPage(false); setPosition(i); }}>{item.card.label}{processed.has(i) && <small> · 已處理</small>}</button>)}</nav>
-          <ReviewCard key={`${round[position].card_set_id}:${round[position].card.concept_id}`} apiClient={apiClient} item={round[position]} onBusy={setSaving} processed={processed.has(position)} savedRating={processed.get(position) ?? null} position={position} total={round.length} enterLastPage={enterLastPage} onMove={direction => { setEnterLastPage(direction < 0); setPosition(value => value + direction); }}
-          source={cardSetId ? null : materialOnly ? item => item.card_set_name : item => `${item.card_set_name} · ${item.material_name}`}
+        : <ReviewCard key={`${round[position].card_set_id}:${round[position].card.concept_id}`} apiClient={apiClient} item={round[position]} onBusy={setSaving} processed={processed.has(position)} processedCount={processed.size} savedRating={processed.get(position) ?? null} position={position} total={round.length} enterLastPage={enterLastPage} onMove={direction => { setEnterLastPage(direction < 0); setPosition(value => value + direction); }}
           onMarked={(rating) => {
             const next = new Map(processed).set(position, rating);
             setProcessed(next); setEnterLastPage(false);
@@ -101,17 +97,15 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
             setNotice(rating === "remembered" ? "已標成熟悉，離開需要加強。" : "已標成不熟，下一輪還會出現。");
             // 標記後重新讀取學習活動，讓頁首經驗值與今日任務跟上（失敗時保留原畫面）。
             void apiClient.getLearningActivity().catch(() => undefined);
-          }} /></div></>}
+          }} />}
   </section>;
 }
 
-function ReviewCard({ apiClient, item, source, onMarked, processed, savedRating, position, total, onMove, onBusy, enterLastPage }: {
+function ReviewCard({ apiClient, item, onMarked, processed, processedCount, savedRating, position, total, onMove, onBusy, enterLastPage }: {
   apiClient: StudydyApiClient; item: CardReviewItem;
   enterLastPage: boolean;
   onBusy: (busy: boolean) => void;
-  processed: boolean; savedRating: CardReviewRating | null; position: number; total: number; onMove: (direction: number) => void;
-  /** 混合多個卡組時標示這張卡的來源（教材內只寫卡組，全站另附教材）。 */
-  source: ((item: CardReviewItem) => string) | null;
+  processed: boolean; processedCount: number; savedRating: CardReviewRating | null; position: number; total: number; onMove: (direction: number) => void;
   /** 標記完成後換下一張；null 表示這張已在其他頁面標記過，不重複計次。 */
   onMarked: (rating: CardReviewRating | null) => void;
 }) {
@@ -168,31 +162,25 @@ function ReviewCard({ apiClient, item, source, onMarked, processed, savedRating,
     else if (position + direction >= 0 && position + direction < total) onMove(direction);
   };
   const keys = (event: KeyboardEvent) => {
-    if (event.altKey || event.ctrlKey || event.metaKey || document.querySelector("dialog[open]") || (event.target as HTMLElement).closest("input, textarea, select, [contenteditable=true], details, .is-code")) return;
-    if (event.key === " " && !(event.target as HTMLElement).closest("button, a")) { event.preventDefault(); setBack(value => !value); }
+    if (event.altKey || event.ctrlKey || event.metaKey || document.querySelector("dialog[open]") || (event.target as HTMLElement).closest("input, textarea, select, [contenteditable=true], details, .is-code, .card-list-menu")) return;
+    if (event.key === "Enter" && event.target === stage.current) { event.preventDefault(); setBack(value => !value); }
     if (event.key === "1" || event.key === "2") { event.preventDefault(); if (loaded) void mark(event.key === "1" ? "forgot" : "remembered"); }
     if (event.key === "ArrowRight") { event.preventDefault(); move(1); }
     if (event.key === "ArrowLeft") { event.preventDefault(); move(-1); }
   };
-  return <article ref={stage} tabIndex={-1} onKeyDown={keys} className="card-review-stage card-practice-stage" aria-label={`需要加強：${item.card.label}`}>
-    {source && <p className="card-review-source" title={source(item)}><Icon name="cards" size={15} /><span>{source(item)}</span></p>}
-    <CardNavFrame onPrev={() => move(-1)} onNext={() => move(1)} prevDisabled={busy || !loaded || position === 0 && localPage === 0} nextDisabled={busy || !loaded || position === total - 1 && localPage === pages - 1}>
+  const status = processed ? savedRating ? `本輪已標成${markLabel(savedRating)}，回看不會重複記錄。` : "這張卡已在其他頁面標記，本輪只供回看。" : busy ? "正在保存…" : null;
+  return <article ref={stage} tabIndex={-1} onKeyDown={keys} className="card-review-stage cards-study-stage" aria-label={`需要加強：${item.card.label}`}>
+    <CardNavFrame onPrev={() => move(-1)} onNext={() => move(1)} prevDisabled={busy || !loaded || position === 0 && localPage === 0} nextDisabled={busy || !loaded || position === total - 1 && localPage === pages - 1}
+      progress={{ value: processedCount, max: total, label: "已看完的張數" }}
+      dock={<>
+        <CardMarkButtons current={savedRating} disabled={busy || !loaded || !back || processed} hotkeys title={back ? undefined : "先翻到背面查看重點，再標記。"} onMark={(rating) => void mark(rating)} label={`標記「${item.card.label}」熟不熟`} />
+        <span className="card-dock-count"><b>{position + 1}</b> / {total}{pages > 1 && !loadFailed && <small> · 卡面 {localPage + 1} / {pages}</small>}</span>
+      </>}>
     {loaded
       ? <Flashcard downloadName={() => cardPngName(loaded.study, loaded.card.concept_id, localPage, apiClient)} back={back} onFlip={() => setBack(value => !value)} key={localPage} card={loaded.card} difficulty={difficulty.data?.concepts.find(concept => concept.concept_id === loaded.card.concept_id)} structure={loaded.context} pageIndex={localPage} materialName={item.material_name} apiClient={apiClient} sourceResolver={loaded.sourceResolver} />
       : <StateView title={error ? "無法讀取這張卡片" : "正在讀取卡片"} description={error ?? "正在取得卡面與來源。"} tone={error ? "failure" : "loading"} live={!error}
-        action={error ? <button className="primary-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新讀取</button> : undefined} />}</CardNavFrame>
-    <div className="card-study-footer">
-    <div className="card-review-pages">
-      <span>第 {position + 1} / {total} 個概念{pages > 1 && !loadFailed && <> · 卡面 {localPage + 1} / {pages}</>}</span>
-    </div>
-    <div className="cards-study-mark card-review-mark">
-      <span>這張卡你熟悉嗎？</span>
-      <CardMarkButtons current={savedRating} disabled={busy || !loaded || !back || processed} onMark={(rating) => void mark(rating)} label={`標記「${item.card.label}」熟不熟`} />
-      <p className="card-review-hint" role="status">{processed ? savedRating ? `本輪已標成${markLabel(savedRating)}，回看不會重複記錄。` : "這張卡已在其他頁面標記，本輪只供回看。" : busy ? "正在保存…" : !back ? "先翻到背面查看重點，再標記。" : "標成熟悉就會離開需要加強；不熟的卡片下一輪還會出現。"}</p>
-      {markError && <p className="form-error" role="alert">標記尚未保存。{markError}<button className="text-button" type="button" onClick={() => void mark(failed.current!)}>重試</button></p>}
-    </div>
-    </div>
-    <p className="cards-keyboard-hint">空白鍵翻面 · 1 不熟 · 2 熟悉 · ← → 切換卡片</p>
+        action={error ? <button className="primary-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新讀取</button> : undefined} />}
+    {(status || markError) && <p className="card-face-chip" role="status">{status}{markError && <span className="form-error" role="alert">標記尚未保存。{markError}<button className="text-button" type="button" onClick={() => void mark(failed.current!)}>重試</button></span>}</p>}
+    </CardNavFrame>
   </article>;
 }
-
