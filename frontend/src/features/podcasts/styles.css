@@ -210,7 +210,8 @@
 .podcast-omission-note { padding:var(--space-3); border-radius:var(--radius-input); background:var(--page-cool); color:var(--text-secondary); line-height:1.6; }
 
 /* 比照 YouTube：左欄影片與標題同一條左緣，右欄（集數說明、分集、逐字稿）與左欄同高。 */
-.podcast-watch-layout { display:grid; grid-template-columns:var(--podcast-player-width, 2fr) minmax(340px,1fr); grid-template-areas:"player companion" "info companion"; grid-template-rows:auto auto; align-content:start; align-items:start; gap:0 20px; width:100%; }
+.podcast-watch-layout { display:grid; grid-template-columns:minmax(0,calc((100dvh - 165px) * 16 / 9)) minmax(clamp(340px,26vw,400px),1fr); grid-template-areas:"player companion" "info info"; grid-template-rows:auto auto; align-content:start; align-items:start; gap:0 20px; width:100%; }
+/* 影片佔滿左欄；左欄上限為視窗扣掉頁首與控制列的高度換算寬度，被限制時多出的寬度由右欄吃掉。 */
 .podcast-watch-layout > .media-player { grid-area:player; }
 .podcast-watch-layout > .podcast-watch-info { grid-area:info; }
 .podcast-watch-layout .podcast-companion { grid-area:companion; align-self:stretch; position:relative; min-width:0; min-height:320px; }

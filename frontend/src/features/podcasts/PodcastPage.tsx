@@ -45,15 +45,12 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     const player = layout?.querySelector<HTMLElement>(".media-player");
     const controls = layout?.querySelector<HTMLElement>(".podcast-controls-bar");
     const screen = layout?.querySelector<HTMLElement>(".media-viewport");
-    if (!layout || !info || !player || !screen) return;
+    if (!layout || !info || !player || !screen || !theater) return;
     const fit = () => {
-      // 影片高度以第一屏扣掉標題列與控制列後的剩餘高度為上限；寬度依 16:9 換算，右欄至少留 340px。
-      const gap = 20, minCompanion = 340;
+      // 劇院模式的影片高度以第一屏扣掉標題列與控制列後的剩餘高度為上限。
       const available = Math.max(0, window.innerHeight - layout.getBoundingClientRect().top - window.scrollY
         - info.getBoundingClientRect().height - (player.getBoundingClientRect().height - screen.getBoundingClientRect().height) - 16);
-      const maxWidth = layout.clientWidth - gap - minCompanion;
       layout.style.setProperty("--podcast-video-height", `${available}px`);
-      layout.style.setProperty("--podcast-player-width", `${Math.min(maxWidth, Math.max(layout.clientWidth * 0.45, available * 16 / 9))}px`);
     };
     const observer = new ResizeObserver(fit);
     observer.observe(info);
