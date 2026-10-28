@@ -2,7 +2,7 @@ import { MathText } from "../../ui/MathText";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { InlineConfirm } from '../../ui/InlineConfirm';
 import { ApiClientError, errorMessage, type StudydyApiClient } from '../../api/client';
-import { SourceButton } from '../../ui/SourceButton';
+import { AnswerSourceList, SourceButton } from '../../ui/SourceButton';
 import type { Conversation, VoiceTurn, VoiceView } from './types';
 import { Icon } from '../../ui/Icon';
 import type { KnowledgeOutlineView, PodcastContext } from '../../api/contracts';
@@ -224,7 +224,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
        <div className="voice-response" aria-label="教材回答">
         {turn.answer&&<>
          {turn.answer.schema==='material-answer/v3' && turn.answer.paragraphs ? turn.answer.paragraphs.map((paragraph,index)=><p key={index} className="voice-answer"><MathText text={paragraph.text}/>{paragraph.citation_ids.map(id=>{const number=citations.findIndex(c=>c.passage_id===id)+1;const citation=citations[number-1];return citation?.evidence.map(evidence=><SourceButton key={`${id}:${evidence.evidence_id}`} apiClient={api} resolver={view!.source_resolver} evidence={evidence} reference={{number,quote:evidence.quote}}/>);})}</p>) : <p className="voice-answer"><MathText text={turn.answer.text}/></p>}
-         <div className="voice-reference-sources" aria-label="回答來源"><strong>來源</strong>{citations.map((citation,index)=><div key={citation.passage_id}>{citation.evidence.map(evidence=><SourceButton key={evidence.evidence_id} apiClient={api} resolver={view!.source_resolver} evidence={evidence} reference={{number:index+1,list:true,quote:evidence.quote}}/>)}</div>)}{!citations.length&&<small>教材沒有足夠依據。</small>}</div>
+         <div className="voice-reference-sources" aria-label="回答來源"><strong>來源</strong><AnswerSourceList apiClient={api} resolver={view!.source_resolver} citations={turn.answer.schema==='material-answer/v3'?turn.answer.citations:turn.answer.citations.flatMap(citation=>citation.evidence.map(evidence=>({evidence:[evidence]})))}/>{!citations.length&&<small>教材沒有足夠依據。</small>}</div>
          {(turn.audio_url||!!turn.audio_sentences?.length)&&<div className="voice-answer-actions"><VoiceAnswerAudio src={turn.audio_url} sentences={turn.audio_sentences} status={turn.status} activeAudio={activeAnswer} autoPlay={mode==='voice'&&autoPlayTurnId===turn.turn_id} onAutoPlayAttempt={()=>setAutoPlayTurnId(previous=>previous===turn.turn_id?null:previous)} register={element=>audios.current.add(element)} onPlay={element=>pauseMedia(element)}/></div>}
         </>}
         {waiting&&!turn.answer&&<p className="voice-typing"><span aria-hidden="true"><i/><i/><i/></span>{waitingLabel}</p>}

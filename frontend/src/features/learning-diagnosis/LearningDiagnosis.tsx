@@ -3,7 +3,7 @@ import { ExportControls } from "../exports/ExportControls";
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { ConceptDifficulty, DiagnosisFinding, MapProgressView, KnowledgeOutlineView } from "../../api/contracts";
-import { SourceButton } from "../../ui/SourceButton";
+import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import "./styles.css";
 
 function useReport<T>(read: () => Promise<T>) {
@@ -84,7 +84,7 @@ export function LearningDiagnosis({ api, materialId, revision, onReview, disable
       <p><MathText text={point.title}/></p>
       <p>累計答對 {point.correct_count}／{point.answer_count} 題</p>
       {!point.completed && <p>需連續答對 {point.required_consecutive_correct} 題才算補強完成，目前連續 {point.consecutive_correct_count} 題。</p>}
-      <div className="diagnosis-sources">{point.evidence.map(evidence => <SourceButton key={evidence.evidence_id} apiClient={api} resolver={data!.source_resolver} evidence={evidence} />)}</div>
+      <div className="diagnosis-sources">{sourceLinks(point.evidence).map(evidence => <SourceButton key={evidence.evidence_id} apiClient={api} resolver={data!.source_resolver} evidence={evidence} />)}</div>
     </li>)}</ul>
   </details>;
   return <section className="learning-diagnosis" aria-label="學習診斷">

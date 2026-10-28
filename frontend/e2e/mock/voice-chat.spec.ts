@@ -581,3 +581,29 @@ test('playing external media during a sentence gap prevents automatic continuati
  expect(await page.evaluate(()=>(window as any).sentencePlays)).toEqual(['0']);
  expect(await page.locator('#external-audio').evaluate((media:HTMLAudioElement)=>media.paused)).toBe(false);
 });
+
+
+for (const filename of ['Lesson.pdf', '這是一個需要保留完整來源名稱但在清單中只截斷檔名的非常長教材檔案名稱'.repeat(3)+'.pdf']) {
+test(`answer source lists merge ten citations in one line: ${filename === 'Lesson.pdf' ? 'short' : 'long'} filename`, async ({page}) => {
+ await page.setViewportSize({width:1440,height:900});
+ const mock=await mockVoice(page),conversation=mock.add(),turn=mock.turn(conversation,'堆疊的操作是什麼？');
+ const evidence=mock.answer.citations[0].evidence[0];
+ Object.assign(evidence,{source_id:'88888888-8888-4888-8888-888888888888',source_name:filename,normalized_page:1});
+ turn.answer={...mock.answer,schema:'material-answer/v3',paragraphs:[{text:mock.answer.text,citation_ids:['passage:sha256:'+ '0'.repeat(64),'passage:sha256:'+ '9'.repeat(64)]}],citations:Array.from({length:10},(_,index)=>({passage_id:`passage:sha256:${String(index).repeat(64)}`,text:`引用 ${index}`,evidence:[{...evidence}]}))};
+ await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
+ const sources=page.getByLabel('回答來源',{exact:true}),button=sources.getByRole('button');
+ await expect(button).toHaveCount(1);
+ await expect(sources).toContainText('引用 10 次');
+ await expect(sources).toContainText('1–10.');
+ await expect(button).toContainText('p.1');
+ const bounds=await button.locator('span').evaluateAll(elements=>elements.map(element=>{const box=element.getBoundingClientRect();return {top:box.top,bottom:box.bottom};}));
+ expect(Math.max(...bounds.map(box=>box.top))).toBeLessThan(Math.min(...bounds.map(box=>box.bottom)));
+ const row=(await button.boundingBox())!,container=(await sources.boundingBox())!;
+ expect(row.x+row.width).toBeLessThanOrEqual(container.x+container.width+1);
+ const name=button.locator('.source-reference-filename');
+ await expect(name).toHaveText(filename);
+ expect(await name.evaluate(element=>element.scrollWidth>element.clientWidth)).toBe(filename!=='Lesson.pdf');
+ await button.click();
+ await expect(page.getByRole('dialog',{name:'教材來源'})).toContainText(evidence.quote);
+});
+}

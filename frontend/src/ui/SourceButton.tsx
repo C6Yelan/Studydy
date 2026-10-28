@@ -4,21 +4,20 @@ import { errorMessage, type StudydyApiClient } from "../api/client";
 import type { EvidenceSourceView, EvidenceView } from "../api/contracts";
 import "./source-reference.css";
 
-export function sourceLinks(evidence: EvidenceView[]): EvidenceView[] {
-  // 僅合併同教材同 PDF 頁的入口，保留代表 Evidence 供 resolver 回查；不修改 Evidence。
-  const links = new Map<string, EvidenceView>();
-  for (const item of evidence) {
-    const key = JSON.stringify([
-      item.source_id
-        ? ["id", item.source_id]
-        : item.source_name
-          ? ["name", item.source_name]
-          : ["evidence", item.evidence_id],
-      item.normalized_page ?? item.page,
-    ]);
-    if (!links.has(key)) links.set(key, item);
-  }
-  return [...links.values()];
+import { citationNumberRanges, sourceLinks } from "./source-links";
+export { sourceLinks } from "./source-links";
+
+export function AnswerSourceList({ apiClient, resolver, citations }: {
+  apiClient: StudydyApiClient;
+  resolver: string;
+  citations: { evidence: EvidenceView[] }[];
+}) {
+  return sourceLinks(citations.flatMap(citation => citation.evidence)).map(evidence => {
+    const numbers = citations.flatMap((citation, index) => citation.evidence.some(item =>
+      evidence.references.some(reference => reference.evidence_id === item.evidence_id)) ? [index + 1] : []);
+    return <div className="answer-source-row" key={evidence.evidence_id}><SourceButton apiClient={apiClient} resolver={resolver}
+      evidence={evidence} reference={{number: numbers[0], numbers, list: true, quote: [...new Set(evidence.references.map(item => item.quote))].join("\n…\n")}} /></div>;
+  });
 }
 
 const timedSource = /\.(mp3|m4a|wav|mp4|youtube)$/i;
@@ -58,11 +57,11 @@ export function SourceButton({
 }: {
   apiClient: StudydyApiClient;
   resolver: string;
-  evidence: Pick<EvidenceView, "evidence_id" | "page" | "normalized_page" | "source_name">;
+  evidence: Pick<EvidenceView, "evidence_id" | "page" | "normalized_page" | "source_name"> & { citation_count?: number; references?: {evidence_id: string; quote?: string}[] };
   label?: string;
   /** 按鈕文字較短時，提示完整來源。 */
   title?: string;
-  reference?: { number?: number; list?: boolean; quote: string };
+  reference?: { number?: number; numbers?: number[]; list?: boolean; quote: string };
 }) {
   const [source, setSource] = useState<EvidenceSourceView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -107,11 +106,12 @@ export function SourceButton({
   useEffect(() => { if (reference) void load(); }, [resolver, evidence.evidence_id]);
   const place = source?.playback ? `▶ ${clock(source.playback.start_seconds)}` : source?.format === "images" ? source.label : source ? `p.${source.normalized_page}` : "來源";
   const name = source?.display_name ?? source?.original_name ?? evidence.source_name ?? "教材";
+  const mergedReference = reference?.list && (evidence.citation_count ?? 0) > 1;
   const content = (
     <>
       <button
         ref={opener}
-        className={reference ? `text-button source-reference-button${reference.list ? " source-reference-list" : ""}` : "text-button source-chip"}
+        className={reference ? `text-button source-reference-button${reference.list ? ` source-reference-list${mergedReference ? " source-reference-merged" : ""}` : ""}` : "text-button source-chip"}
         type="button"
         disabled={busy}
         onFocus={() => { if (reference) previewAt(); }}
@@ -123,11 +123,16 @@ export function SourceButton({
         aria-haspopup="dialog"
         title={title ?? label}
       >
-        {reference ? (reference.list ? <>{source?.playback ? "▶" : source?.format === "images" ? "▧" : "▤"} {reference.number ? `${reference.number}. ` : ""}{name} · {place}</> : <sup>[{reference.number ?? place}]</sup>) : busy
+        {reference ? (reference.list ? mergedReference ? <>
+          <span className="source-reference-fixed">{source?.playback ? "▶" : source?.format === "images" ? "▧" : "▤"} {reference.number ? `${citationNumberRanges(reference.numbers ?? [reference.number])}. ` : ""}</span>
+          <span className="source-reference-filename">{name}</span>
+          <span className="source-reference-fixed"> · {place}</span>
+        </> : <>{source?.playback ? "▶" : source?.format === "images" ? "▧" : "▤"} {reference.number ? `${citationNumberRanges(reference.numbers ?? [reference.number])}. ` : ""}{name} · {place}</> : <sup>[{reference.number ?? place}]</sup>) : busy
           ? "正在讀取來源…"
           : label ?? (evidence.source_name
             ? evidenceSourceTitle(evidence)
             : `查看${evidencePlace(evidence)}來源`)}
+        {evidence.citation_count != null && evidence.citation_count > 1 && <span className={mergedReference ? "source-reference-fixed" : undefined}> · 引用 {evidence.citation_count} 次</span>}
       </button>
       {reference && preview && createPortal(<span onMouseEnter={keepPreview} onMouseLeave={closePreview} style={preview} id={previewId} role="tooltip" className="source-reference-preview"><strong>{name} · {place}</strong><span>{reference.quote}</span>{source?.format === "images" && <iframe src={source.preview_url} title={`${name}圖片預覽`} tabIndex={-1}/>}</span>, document.body)}
       {error && (
@@ -157,6 +162,8 @@ export function SourceButton({
         >
           <h2>{source.display_name ?? source.original_name}</h2>
           <p>{source.label}</p>
+          {evidence.references && <blockquote>{evidence.references.map((item, index) =>
+            <p key={`${item.evidence_id}:${index}`}>{item.quote}</p>)}</blockquote>}
           {source.accuracy !== "exact" && (
             <p>
               原始文件的位置{source.accuracy === "ambiguous" ? "可能對應多處" : "無法精確對應"}

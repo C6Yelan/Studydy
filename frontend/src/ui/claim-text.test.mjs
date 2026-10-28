@@ -48,3 +48,25 @@ test("structured citations never rewrite numeric vectors or code literals", () =
     {passage_id:'two',evidence:[{evidence_id:'b',quote:'原文二'}]}]});
   assert.ok(result.text.startsWith('向量 [0,1] 與索引 values[0] 必須保持原樣。'));
 });
+
+
+test("source lists merge only the same file and normalized page and preserve quotes", async () => {
+  const { sourceLinks } = await import("./source-links.ts");
+  const first = {evidence_id:'a',source_id:'file-a',source_name:'Lesson.pdf',page:7,normalized_page:2,quote:'原文前段。'};
+  const last = {...first,evidence_id:'b',quote:'原文後段，仍有條件。'};
+  const input = [first, last, {...first,quote:'不同節錄。'}, {...first,source_id:'file-b'}, {...first,normalized_page:3}];
+  const original = structuredClone(input);
+  const result = sourceLinks(input);
+  assert.equal(result.length, 3);
+  assert.equal(result[0].citation_count, 3);
+  assert.deepEqual(result[0].references.map(item=>item.quote), ['原文前段。','原文後段，仍有條件。','不同節錄。']);
+  assert.deepEqual(input, original);
+});
+
+
+test("citation numbers compact consecutive ranges and retain gaps", async () => {
+  const { citationNumberRanges } = await import("./source-links.ts");
+  assert.equal(citationNumberRanges([1,2,3,4,5,6,7,8,9,10]), "1–10");
+  assert.equal(citationNumberRanges([1,3,4,5]), "1、3–5");
+  assert.equal(citationNumberRanges([2]), "2");
+});
