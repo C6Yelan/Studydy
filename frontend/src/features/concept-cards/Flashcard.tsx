@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import "./card-practice.css";
 import { MathText } from "../../ui/MathText";
 import { DifficultyBadge } from "../learning-diagnosis/LearningDiagnosis";
@@ -34,21 +35,22 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
   const legacy = !designed ? artworkModule?.conceptCardPages(card, structure)[pageIndex] : null;
   const headings = designed?.layout === "compare" ? designed.blocks.slice(0, 2).map(block => block.heading)
     : legacy && "relation" in legacy && legacy.relation?.relation.type === "contrast" ? [legacy.relation.source.label, legacy.relation.target.label] : [];
-  return (
-    <div className={`concept-card card-practice-face ${back ? "is-back" : "is-front"}`}>
-      {!back ? <button type="button" className="card-practice-front" onClick={onFlip} aria-label="翻到背面">
-        <span>先回想，再翻面</span><h2>{card.label}</h2>
-        {headings.length > 0 ? <div className="card-practice-comparison">{headings.map((heading, i) => <strong key={i}><MathText text={heading} /></strong>)}</div>
-          : <p>這個概念的重點是什麼？先在心裡說說看</p>}
-        <small>點卡片或按空白鍵查看重點</small>
-      </button> : <>
-      <button className="text-button card-practice-flip" type="button" onClick={onFlip}>翻回正面</button>
-      <DifficultyBadge concept={difficulty} detail />
-      <VisualConceptCard card={card} structure={structure} pageIndex={pageIndex} cacheOwner={apiClient} downloadName={downloadName} onFlip={onFlip}
-        sources={designed && <div className="flashcard-source-links" aria-label="本張卡面來源">{sourceLinks(pageEvidence).map(evidence =>
-          <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`本張引用 · ${evidencePlace(evidence)}`} />)}</div>} />
-      <details className="concept-card-details">
-        <summary>完整重點與來源</summary>
+  const evidence = designed ? pageEvidence : shownEvidence;
+  const timed = evidence.length > 0 && evidence.every(item => evidencePlace(item).endsWith("段"));
+  const numbers = [...new Set(evidence.map(item => item.normalized_page ?? item.page))].sort((a, b) => a - b);
+  const pageRef = numbers.length ? `教材第 ${numbers.join("、")} ${timed ? "段" : "頁"}` : "完整重點與來源";
+  // 點卡片任一處翻面；按鈕、連結、抽屜與選取文字的操作不翻面（可捲動區的捲動不會產生 click）。
+  const flip = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, summary, input, .card-source-drawer") || window.getSelection()?.toString()) return;
+    const scroller = target.closest<HTMLElement>(".visual-card");
+    if (scroller && event.clientX > scroller.getBoundingClientRect().left + scroller.clientWidth) return;
+    onFlip();
+  };
+  const details = <>
+    <DifficultyBadge concept={difficulty} detail />
+    {designed && <div className="flashcard-source-links" aria-label="本張卡面來源">{sourceLinks(pageEvidence).map(item =>
+      <SourceButton key={item.evidence_id} apiClient={apiClient} resolver={sourceResolver} evidence={item} label={`本張引用 · ${evidencePlace(item)}`} />)}</div>}
         <div className="flashcard">
           <article className="flashcard-details" aria-label={`${card.label}的重點`}>
             <span className="flashcard-kicker">概念重點</span>
@@ -94,8 +96,20 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
             </div>
           </article>
         </div>
-      </details>
-      </>}
+  </>;
+  return (
+    <div className={`concept-card card-practice-face ${back ? "is-back" : "is-front"}`}>
+      <div className="card-face-flip" tabIndex={0} role="group" aria-label={back ? "概念卡反面，按 Enter 翻回正面" : "概念卡正面，按 Enter 翻到背面"}
+        onClick={flip} onKeyDown={event => { if (event.key === "Enter" && event.target === event.currentTarget) { event.preventDefault(); onFlip(); } }}>
+        {!back ? <div className="card-practice-front">
+          <span>先回想，再翻面</span><h2>{card.label}</h2>
+          {headings.length > 0 ? <div className="card-practice-comparison">{headings.map((heading, i) => <strong key={i}><MathText text={heading} /></strong>)}</div>
+            : <p>這個概念的重點是什麼？先在心裡說說看</p>}
+        </div> : <>
+          <VisualConceptCard card={card} structure={structure} pageIndex={pageIndex} cacheOwner={apiClient} downloadName={downloadName} pageRef={pageRef} details={details} />
+          <div className="card-face-badge"><DifficultyBadge concept={difficulty} /></div>
+        </>}
+      </div>
     </div>
   );
 }

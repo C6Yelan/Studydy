@@ -38,41 +38,17 @@
 .flashcard-source-links > .text-button { display:block; max-width:100%; min-height:28px; padding:4px 8px; border:1px solid var(--border-light); border-radius:12px; background:var(--page-cool); font-size:12px; line-height:1.5; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cards-study { width:100%; max-width:1440px; margin:0 auto; }
 .cards-study-page { width:100%; max-width:none; }
-.cards-study-heading { margin-bottom:12px; }
-.cards-study-heading h1 { font-size: 26px; }
-.cards-study-heading p { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; color: var(--text-secondary); margin: 0; overflow-wrap: anywhere; }
-.cards-study-heading svg { flex-shrink: 0; margin-top: 3px; }
-.cards-study-stage { width:100%; max-width:760px; margin:0 auto; outline:none; }
-.cards-study-counter { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:12px; color:var(--text-secondary); }
-.cards-study-counter strong { color:var(--studydy-blue); font-size:15px; }
-.cards-study .flashcard { min-height:260px; } .cards-study .flashcard-details { min-height:260px; padding:24px; }
-
-.cards-study .flashcard-details h2 { margin:12px 0; }
-.cards-study .flashcard-content { max-height:min(42vh,420px); }
-.cards-study .flashcard-point { padding:12px 0; }
-.cards-study .flashcard-point p { font-size: 17px; }
-.cards-study-shuffle { font-size:13px; white-space:nowrap; }
-.cards-keyboard-hint { margin:8px 0 0; text-align:center; color:var(--text-muted); font-size:12px; }
-.cards-study-notice { text-align: center; font-size: 13px; color: var(--text-secondary); }
 @keyframes card-reveal { from { opacity: .6; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 720px) {
   .cards-page-header { align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; }
   .cards-page-header > .primary-button { min-height: 42px; font-size: 14px; }
-  .cards-study-heading h1 { font-size: 23px; }
 
-  .flashcard-details { min-height:320px; padding:20px; }
-  .cards-study .flashcard { min-height:240px; } .cards-study .flashcard-details { min-height:240px; padding:20px; }
-  .flashcard-content { max-height: 45vh; }
-  .cards-keyboard-hint { display: none; }
   .cards-empty { padding: 45px 20px; }
 }
 @media (prefers-reduced-motion: reduce) { .flashcard { animation: none; } }
 .cards-library-material { overflow-wrap: anywhere; line-height: 1.6; }
 /* 卡組卡片：標題不預留第二行，單行標題與日期之間不留空白（只影響概念卡頁）。 */
 .cards-library .library-item h2 { min-height: 0; margin: 8px 0 4px; }
-@media (max-width: 720px) {
-  .cards-study .flashcard-point p { font-size: 15px; }
-}
 
 
 .flashcard-review { display:block; width:fit-content; padding:4px 9px; border-radius:12px; background:#fff3d9; color:#78541b; font-size:12px; line-height:1.5; }
@@ -80,42 +56,6 @@
 .flashcard-relation h3 { margin:0; font-size:14px; }
 .flashcard-relation p { font-size:14px; line-height:1.7; overflow-wrap:anywhere; }
 
-/* PNG 圖卡與完整重點共用概念導覽。 */
-
-.cards-browse-layout { display:grid; grid-template-columns:170px minmax(0,1fr); gap:20px; align-items:start; }
-.cards-browse-list { display:grid; gap:6px; max-height:70vh; overflow:auto; padding:8px; border:1px solid var(--border-light); border-radius:14px; background:#fff; }
-.cards-browse-list button { border:0; border-radius:12px; padding:12px; text-align:left; background:transparent; color:var(--text-primary); line-height:1.5; }
-.cards-browse-list button[aria-current=true] { background:#eaf2ff; color:#285998; }
-
-@media(max-width:720px) { .cards-browse-layout { grid-template-columns:1fr; gap:12px; } .cards-browse-list { display:flex; max-height:100px; overflow:auto; } .cards-browse-list button { min-width:120px; }
-
- }
-
-/* 卡片區與頁面標題左對齊：左側概念清單、右側白卡填滿其餘寬度（卡面最寬 760px，在白卡內置中，見 .visual-card）。 */
-.cards-browse-layout { grid-template-columns:240px minmax(0,1fr); max-width:none; margin-inline:0; }
-.cards-browse-list { padding:10px; border:0; border-radius:var(--radius-card); box-shadow:var(--shadow); align-content:start; }
-.cards-browse-search { width:100%; min-height:38px; margin-bottom:4px; padding:6px 12px; border-radius:999px; font-size:13px; }
-.cards-browse-empty { margin:4px 8px; color:var(--text-muted); font-size:13px; }
-.cards-browse-list button { overflow-wrap:anywhere; }
-.cards-browse-list button[aria-current=true] { background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-weight:800; }
-@media(max-width:720px) {
-  .cards-browse-layout { grid-template-columns:minmax(0,1fr); }
-  /* 手機概念列橫向捲動：右緣淡出提示還有更多。 */
-  .cards-browse-list { align-items:center; scroll-snap-type:x proximity; -webkit-mask-image:linear-gradient(90deg,#000 85%,transparent); mask-image:linear-gradient(90deg,#000 85%,transparent); }
-  .cards-browse-list button { flex:none; scroll-snap-align:start; }
-  .cards-browse-search { flex:none; width:160px; margin:0; }
-}
-.cards-browse-layout .cards-study-stage { min-width:0; }
-/* 白卡填滿右欄時，卡面、來源頁碼與完整重點一起在白卡內置中、左緣對齊卡面。 */
-.cards-browse-layout .concept-card { max-width:760px; margin-inline:auto; }
-
-.visual-card { width: 100%; max-width: 760px; margin: 0 auto; }
-.visual-concept-card[hidden] { display: none; }
-.visual-concept-card { display: block; width: 100%; height: auto; object-fit: contain; }
-.concept-card-placeholder { aspect-ratio: 1200 / 760; display: grid; place-content: center; text-align: center; }
-/* 卡面下方一列：左側本張引用、右側較小的「下載 PNG」；放不下時下載按鈕換到下一列靠右。 */
-.visual-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
-.visual-card-actions > .flashcard-source-links { flex: 1 1 260px; min-width: 0; }
 .visual-card-download { min-height: 36px; margin-left: auto; padding: 0 14px; font-size: 13px; }
 
 @media (max-width: 720px) {
@@ -123,30 +63,8 @@
 }
 
 .concept-card { min-width: 0; }
-.concept-card-details { margin-top: 12px; }
-.concept-card-details > summary { width: fit-content; cursor: pointer; color: var(--studydy-blue); padding: 8px 0; font-size: 14px; }
-.concept-card-details[open] > summary { margin-bottom: 8px; }
 
 
-/* 瀏覽時標記目前這張卡熟不熟。 */
-.cards-study-mark {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 8px 14px;
-  margin-top: 14px;
-}
-.cards-study-mark > span {
-  display: flex;
-  gap: 8px;
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 800;
-}
-.cards-study-mark > span b { color: var(--studydy-blue); }
-.cards-study-mark .review-grades { width: min(100%, 260px); }
-.cards-study-mark .form-error { flex-basis: 100%; margin: 0; text-align: center; }
 .card-review-due {
   display: inline-flex;
   align-items: center;
@@ -201,35 +119,12 @@
   .cards-strengthen-bar button { width: 100%; }
 }
 
-/* 卡組翻卡頁：標題列右側是「需要加強」入口；卡面、標記與翻頁收在同一張白卡。 */
-.cards-study-page .cards-study-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 10px 16px;
-  margin-bottom: 14px;
-}
-.cards-study-heading h1 {
-  margin: 0;
-}
-.cards-study-heading .cards-study-meta {
-  gap: 12px;
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-weight: 700;
-}
-.cards-study-meta span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
 .cards-weak-link {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
-  padding: 0 8px 0 14px;
+  min-height: 36px;
+  padding: 0 6px 0 12px;
   border: 0;
   border-radius: 999px;
   background: #fff0ec;
@@ -249,8 +144,8 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  min-height: 32px;
-  padding: 0 10px 0 14px;
+  min-height: 26px;
+  padding: 0 8px 0 12px;
   border-radius: 999px;
   background: var(--coral);
   color: #fff;
@@ -259,22 +154,9 @@
 .cards-weak-link:hover strong {
   filter: brightness(1.05);
 }
-.cards-browse-layout .cards-study-stage.surface {
-  max-width: none;
-  margin: 0;
-  padding: 18px 20px 14px;
-  border-radius: var(--radius-panel);
-}
-.cards-study-stage.surface .cards-study-mark {
-  padding-top: 14px;
-  border-top: 1px solid var(--border-light);
-}
 @media (max-width: 720px) {
   .cards-weak-link {
     width: 100%;
     justify-content: space-between;
-  }
-  .cards-browse-layout .cards-study-stage.surface {
-    padding: 12px;
   }
 }

@@ -32,106 +32,17 @@
 .review-grades .is-forgot.is-selected { background: #ffe9e6; box-shadow: inset 0 0 0 2px var(--coral); }
 .review-grades .is-remembered.is-selected { background: var(--success-soft); box-shadow: inset 0 0 0 2px var(--success); }
 
-/* 需要加強頁：與卡組翻卡頁同一張概念卡，一次一張，上方顯示這一輪的進度。 */
+/* 需要加強頁：與卡組翻卡頁同一張概念卡，一次一張。 */
 .app-shell .app-main > .card-review-page,
 .card-review-page {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   width: 100%;
-  max-width: 900px;
+  max-width: 1440px;
   margin: 0 auto;
 }
 .card-review-page > .back-link {
   justify-self: start;
-}
-.card-review-heading h1 {
-  margin: 0;
-  font-size: clamp(24px, 2.6vw, 30px);
-}
-.card-review-heading p {
-  margin: 4px 0 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-.card-review-progress {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 16px;
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-.card-review-progress b {
-  color: var(--studydy-blue);
-  font-size: 17px;
-}
-
-.card-review-notice {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 700;
-  text-align: center;
-}
-.card-review-stage {
-  display: grid;
-  gap: 12px;
-  padding: 18px;
-  border-radius: var(--radius-panel);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-.card-review-source {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  justify-self: start;
-  max-width: 100%;
-  margin: 0;
-  padding: 4px 12px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--studydy-blue-soft);
-  color: var(--studydy-blue-deep);
-  font-size: 12px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-.card-review-source svg {
-  flex: none;
-}
-/* 卡組名稱太長時以省略號截斷（彈性容器本身不會顯示省略號，要放在文字元素上）。 */
-.card-review-source > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.card-review-pages {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 800;
-}
-.card-review-mark {
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-light);
-}
-.card-review-hint {
-  flex-basis: 100%;
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  text-align: center;
 }
 .card-review-done {
   display: grid;
@@ -155,13 +66,3 @@
 .card-review-done b {
   color: var(--studydy-blue);
 }
-@media (max-width: 720px) {
-  .card-review-stage {
-    padding: 12px;
-  }
-  .card-review-progress {
-    padding: 8px 14px;
-  }
-}
-
-.card-review-progress .studydy-progress { flex:1; }
