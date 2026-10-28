@@ -172,7 +172,7 @@ export function SourceButton({
           )}
           {source.playback ? (
             <>
-              <p>逐字稿由本機語音辨識或影片上傳者的字幕產生，可能有誤，請以原音回查。</p>
+              <p><strong>語音辨識結果</strong>：逐字稿由本機語音辨識或影片上傳者的字幕產生，可能有誤，請以原音回查。</p>
               {source.playback.kind === "audio" ? (
                 <audio
                   className="source-media"

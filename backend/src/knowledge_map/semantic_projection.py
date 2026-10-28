@@ -12,7 +12,7 @@ from typing import Any
 from content_identity import canonical_sha256
 from .source_context import teaching_text
 from .claim_literals import (
-    LITERAL_PROJECTION, EXCERPT_PROJECTION, EXCERPT_REPAIR, LITERAL_REPAIRS,
+    LITERAL_PROJECTION, EXCERPT_PROJECTION, LITERAL_REPAIRS,
     preserves_literals, quoted_sources,
 )
 
@@ -471,8 +471,8 @@ def _project_claim(
         meaning,
         sources,
     )
-    # 清理後文字不是逐字原文，不能標成原文字面值還原。
-    if needs_literal_repair and teaching_text(source_text) != source_text:
+    # 逐字稿不能以整段原文冒充整理結果；拒收後沿用既有待核對流程。
+    if needs_literal_repair and (excerpts or teaching_text(source_text) != source_text):
         return None
     text = source_text if needs_literal_repair else meaning
     # 不把模型誤填的 JSON 空值字串當教材；來源真的討論 null 時仍可保留。
@@ -481,9 +481,7 @@ def _project_claim(
     return {
         "text": text,
         "source_spans": projected,
-        "projection": (
-            EXCERPT_REPAIR if needs_literal_repair else EXCERPT_PROJECTION
-        ) if excerpts else (
+        "projection": EXCERPT_PROJECTION if excerpts else (
             "source_literal_repair" if needs_literal_repair else LITERAL_PROJECTION
         ),
     }
