@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { getFontEmbedCSS, toPng } from "html-to-image";
@@ -6,7 +7,7 @@ import type { KnowledgeOutlineView } from "../../api/contracts";
 import { mapRegions } from "../knowledge-map/knowledge-map";
 import { relationStyles } from "../knowledge-map/map-appearance";
 import "./map-images.css";
-import { arrangeMapColumns, mapEdgeLanes } from "./map-image-layout";
+import { layoutMap, MAP_NODE_WIDTH } from "./map-image-layout";
 
 export async function downloadMapImages(api: StudydyApiClient, view: KnowledgeOutlineView) {
   const raw = await api.getKnowledgeRegions({ materialId: view.material_id, structureRevision: view.knowledge_structure_revision });
@@ -29,48 +30,34 @@ export async function downloadMapImages(api: StudydyApiClient, view: KnowledgeOu
   let fonts: string | undefined;
   try {
     await document.fonts.ready;
+    // 概念框寬度固定、高度依文字換行；先量測再排版，文字才不會被截斷或重疊。
+    flushSync(() => root.render(<div className="map-export-measure" style={{ width: MAP_NODE_WIDTH }}>{view.concepts.map(c =>
+      <div key={c.concept_id} data-concept-id={c.concept_id} className="map-export-concept">
+        <small>概念 {order.get(c.concept_id)}</small><strong>{c.label}</strong><span>{c.claim_count} 個重點</span></div>)}</div>));
+    const heights = new Map(Array.from(host.querySelectorAll<HTMLElement>("[data-concept-id]"), node => [node.dataset.conceptId!, Math.ceil(node.getBoundingClientRect().height)]));
     for (const [partIndex, part] of parts.entries()) {
       const within = view.relations.filter(r => part.ids.includes(r.source_concept_id) && part.ids.includes(r.target_concept_id));
       const crossing = view.relations.filter(r => part.ids.includes(r.source_concept_id) !== part.ids.includes(r.target_concept_id));
-      const prerequisites = within.filter(r => r.type === "prerequisite");
-      const ranks = new Map(part.ids.map(id => [id, 0]));
-      const pending = new Map(part.ids.map(id => [id, prerequisites.filter(r => r.target_concept_id === id).length]));
-      const queue = part.ids.filter(id => pending.get(id) === 0);
-      // 先備關係已由結構契約保證無環；其他關係只畫線，不改變學習層次。
-      for (const id of queue) for (const relation of prerequisites.filter(r => r.source_concept_id === id)) {
-        const target = relation.target_concept_id;
-        ranks.set(target, Math.max(ranks.get(target)!, ranks.get(id)! + 1));
-        pending.set(target, pending.get(target)! - 1);
-        if (pending.get(target) === 0) queue.push(target);
-      }
-      const columns = arrangeMapColumns(Array.from({ length: Math.max(...ranks.values()) + 1 }, (_, rank) =>
-        part.ids.filter(id => ranks.get(id) === rank).sort((a, b) => order.get(a)! - order.get(b)!)), within);
-      const rows = new Map(columns.flatMap(ids => ids.map((id, row) => [id, row] as const)));
-      const outerLanes = mapEdgeLanes(within.filter(edge => {
-        const from = ranks.get(edge.source_concept_id)!, to = ranks.get(edge.target_concept_id)!;
-        return from !== to && (to < from || to - from > 1);
-      }).map(edge => ({ id: edge.relation_id, start: Math.min(ranks.get(edge.source_concept_id)!, ranks.get(edge.target_concept_id)!), end: Math.max(ranks.get(edge.source_concept_id)!, ranks.get(edge.target_concept_id)!) })));
-      const sideLanes = new Map(columns.flatMap(ids => [...mapEdgeLanes(within.filter(edge => ids.includes(edge.source_concept_id) && ids.includes(edge.target_concept_id)).map(edge => ({
-        id: edge.relation_id, start: Math.min(rows.get(edge.source_concept_id)!, rows.get(edge.target_concept_id)!), end: Math.max(rows.get(edge.source_concept_id)!, rows.get(edge.target_concept_id)!),
-      })))]));
-      const sideSpace = Math.max(0, ...sideLanes.values()) * 12;
-      const gap = 100 + sideSpace;
-      const topSpace = Math.max(64, 24 + (Math.max(-1, ...outerLanes.values()) + 1) * 12);
-      const sheet = <div className="map-export-sheet" style={{ width: Math.max(1000, columns.length * (240 + gap) + 80 + sideSpace) }}>
+      const layout = layoutMap({
+        nodes: part.ids.map(id => ({ id, height: heights.get(id)!, order: order.get(id)! })),
+        edges: within.map(r => ({ id: r.relation_id, source: r.source_concept_id, target: r.target_concept_id, prerequisite: r.type === "prerequisite" })),
+      });
+      const sheetWidth = Math.max(960, layout.width + 80);
+      const card = (id: string, style?: CSSProperties) => <div key={id} data-concept-id={id} className="map-export-concept" style={style}>
+        <small>概念 {order.get(id)}</small><strong>{concepts.get(id)!.label}</strong><span>{concepts.get(id)!.claim_count} 個重點</span>
+      </div>;
+      const sheet = <div className="map-export-sheet" style={{ width: sheetWidth }}>
         <h1>{part.label} · 圖 {partIndex + 1}/{parts.length}</h1>
-        <p>由左至右依先備關係排列；箭頭由來源概念指向目標概念。</p>
+        <p>共 {part.ids.length} 個概念；由左至右依先備關係排列，箭頭由來源概念指向目標概念。</p>
         <div className="map-export-key" aria-label="關係圖例">{Object.entries(relationStyles).map(([type, style]) => <span key={type}>
           <svg width="42" height="12" aria-hidden="true"><path d="M0 6H40m-6 -4 6 4 -6 4" fill="none" stroke={style.color} strokeWidth="2" strokeDasharray={linePatterns[type as keyof typeof linePatterns].join(" ")} /></svg>{style.label}
         </span>)}</div>
-        <div className="map-export-graph">
-          <div className="map-export-layers" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`, columnGap: gap, paddingTop: topSpace, paddingRight: 48 + sideSpace }}>{columns.map((ids, rank) =>
-            <div className="map-export-layer" key={rank}>{ids.map(id => {
-              const concept = concepts.get(id)!;
-              return <div key={id} data-concept-id={id} className="map-export-concept">
-                <small>概念 {order.get(id)}</small><strong>{concept.label}</strong><span>{concept.claim_count} 個重點</span>
-              </div>;
-            })}</div>)}</div>
+        <div className="map-export-graph" style={{ width: layout.width, height: layout.height }}>
+          {part.ids.filter(id => layout.nodes.has(id)).map(id => { const n = layout.nodes.get(id)!; return card(id, { left: n.x, top: n.y, height: n.height }); })}
         </div>
+        {layout.isolated.length > 0 && <section className="map-export-isolated"><h2>未與其他概念連線</h2>
+          <div>{layout.isolated.map(id => card(id))}</div>
+        </section>}
         {crossing.length > 0 && <section className="map-export-relations"><h2>跨圖關係</h2>
           <ul>{crossing.map(relation => <li key={relation.relation_id}>
             {concepts.get(relation.source_concept_id)!.label} → {concepts.get(relation.target_concept_id)!.label}：{relationStyles[relation.type].label}
@@ -81,40 +68,27 @@ export async function downloadMapImages(api: StudydyApiClient, view: KnowledgeOu
       flushSync(() => root.render(sheet));
       const element = host.firstElementChild as HTMLElement;
       const graph = element.querySelector<HTMLElement>(".map-export-graph")!;
-      const bounds = graph.getBoundingClientRect();
-      const nodes = new Map(Array.from(graph.querySelectorAll<HTMLElement>("[data-concept-id]"), node => [node.dataset.conceptId!, node.getBoundingClientRect()]));
       const bridges = document.createElement("canvas");
-      bridges.width = Math.ceil(bounds.width); bridges.height = Math.ceil(bounds.height);
+      bridges.width = layout.width; bridges.height = layout.height;
       bridges.className = "map-export-edges";
       const context = bridges.getContext("2d")!;
-      within.forEach(relation => {
-        const a = nodes.get(relation.source_concept_id)!, b = nodes.get(relation.target_concept_id)!;
-        const forward = b.x > a.x;
-        const sameColumn = Math.abs(b.x - a.x) < 1;
-        const x = (forward || sameColumn ? a.right : a.left) - bounds.x, y = a.top + a.height / 2 - bounds.y;
-        const tx = (forward ? b.left : b.right) - bounds.x, ty = b.top + b.height / 2 - bounds.y;
-        const bend = 30 + (sideLanes.get(relation.relation_id) ?? 0) * 12;
-        context.strokeStyle = relationStyles[relation.type].color;
-        context.lineWidth = 2.5; context.lineCap = "round";
-        context.setLineDash(linePatterns[relation.type]);
-        context.beginPath(); context.moveTo(x, y);
-        if (!sameColumn && (!forward || Math.abs(ranks.get(relation.target_concept_id)! - ranks.get(relation.source_concept_id)!) > 1)) {
-          const direction = forward ? 1 : -1, lane = 16 + outerLanes.get(relation.relation_id)! * 12;
-          context.bezierCurveTo(x + direction * bend, y, x + direction * bend, lane, x + direction * bend, lane);
-          context.lineTo(tx - direction * bend, lane);
-          context.bezierCurveTo(tx - direction * bend, lane, tx - direction * bend, ty, tx, ty);
-        } else if (sameColumn) context.bezierCurveTo(x + bend, y, tx + bend, ty, tx, ty);
-        else {
-          const direction = forward ? 1 : -1;
-          const parallel = within.filter(edge => edge.source_concept_id === relation.source_concept_id && edge.target_concept_id === relation.target_concept_id);
-          const offset = (parallel.indexOf(relation) - (parallel.length - 1) / 2) * 18;
-          context.bezierCurveTo(x + direction * bend, y + offset, tx - direction * bend, ty + offset, tx, ty);
+      const types = new Map(within.map(r => [r.relation_id, r.type]));
+      for (const [id, edge] of layout.edges) {
+        const type = types.get(id)!;
+        context.strokeStyle = relationStyles[type].color;
+        context.lineWidth = 2.5; context.lineCap = "round"; context.lineJoin = "round";
+        context.setLineDash(linePatterns[type]);
+        context.beginPath();
+        for (const op of edge.ops) {
+          if (op[0] === "M") context.moveTo(op[1], op[2]);
+          else if (op[0] === "L") context.lineTo(op[1], op[2]);
+          else context.bezierCurveTo(op[1], op[2], op[3], op[4], op[5], op[6]);
         }
         context.stroke();
         context.setLineDash([]);
-        const arrow = forward ? -1 : 1;
-        context.beginPath(); context.moveTo(tx + arrow * 9, ty - 5); context.lineTo(tx, ty); context.lineTo(tx + arrow * 9, ty + 5); context.stroke();
-      });
+        const { x, y, direction } = edge.arrow;
+        context.beginPath(); context.moveTo(x - direction * 9, y - 5); context.lineTo(x, y); context.lineTo(x - direction * 9, y + 5); context.stroke();
+      }
       graph.prepend(bridges);
       fonts ??= await getFontEmbedCSS(element);
       const image = await toPng(element, { pixelRatio: 1, fontEmbedCSS: fonts });
