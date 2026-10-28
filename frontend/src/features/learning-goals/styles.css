@@ -40,3 +40,11 @@
 .daily-goal-progress small { color: var(--text-secondary); line-height: 1.6; }
 .goal-suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .goal-suggestions button { white-space: normal; }
+
+.goal-summary { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-4); cursor:pointer; min-height:44px; }
+.goal-summary::before { content:"▸"; }
+.goal-details[open] > .goal-summary::before { content:"▾"; }
+.goal-summary h2 { font-size:1rem; }
+.goal-summary > span { color:var(--text-secondary); }
+.goal-details-content { display:grid; gap:18px; padding-top:18px; }
+.goal-details-content > header { display:flex; justify-content:flex-end; }
