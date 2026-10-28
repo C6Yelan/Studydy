@@ -234,3 +234,5 @@
 @media (max-width:720px) { .podcast-controls-bar .media-theater-toggle { display:none; } }
 .podcast-controls-bar .media-settings-panel > .text-button { display:block; margin-bottom:12px; }
 .podcast-controls-bar .media-settings-panel > strong { display:block; }
+
+.podcast-watch-layout .media-player { width:min(100%, var(--podcast-player-width, 100%)); margin-inline:auto; }

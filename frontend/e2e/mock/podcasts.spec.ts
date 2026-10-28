@@ -880,10 +880,11 @@ test('watch page keeps a large 16:9 player, aligned companion and controls below
   }
   await page.setViewportSize({width:1440,height:900});await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByRole('button',{name:'播放',exact:true})).toBeEnabled();
-  const before=(await page.locator('.media-viewport').boundingBox())!;
   await page.getByRole('button',{name:'劇院模式',exact:true}).click();
   await expect(page.getByRole('button',{name:'劇院模式',exact:true})).toHaveAttribute('aria-pressed','true');
-  expect((await page.locator('.media-viewport').boundingBox())!.width).toBeGreaterThan(before.width);
+  const theaterBox = (await page.locator('.media-viewport').boundingBox())!;
+  expect(theaterBox.width / theaterBox.height).toBeCloseTo(16 / 9, 2);
+  expect((await page.locator('.podcast-watch-info').boundingBox())!.y + (await page.locator('.podcast-watch-info').boundingBox())!.height).toBeLessThanOrEqual(900);
   await page.screenshot({path:testInfo.outputPath('podcast-theater-1440.png')});
   await page.getByRole('button',{name:'劇院模式',exact:true}).click();
   await page.locator('.media-viewport').focus();await page.keyboard.press('f');
@@ -1191,4 +1192,21 @@ for (const mode of ['ready', 'removed'] as const) test(`mobile ${mode} player se
   expect(await page.locator('video').evaluate((v:HTMLVideoElement)=>v.playbackRate)).toBe(.5);
   await page.getByRole('button',{name:'播放設定',exact:true}).click();
   await page.screenshot({path:testInfo.outputPath(`settings-${mode}-390.png`)});
+});
+
+for (const [width, height] of [[1440, 900], [1920, 1080], [1024, 768]]) test(`video and title fit the viewport in both modes at ${width}`, async ({page}) => {
+  await mockEpisodeVideo(page);
+  await page.setViewportSize({width, height});
+  await page.goto(`/materials/${materialId}/podcasts/${podcastId}`);
+  await expect(page.getByRole('button', {name:'播放', exact:true})).toBeEnabled();
+  for (const theater of [false, true]) {
+    if (theater) await page.getByRole('button', {name:'劇院模式', exact:true}).click();
+    const screen = (await page.locator('.media-viewport').boundingBox())!;
+    const info = (await page.locator('.podcast-watch-info').boundingBox())!;
+    expect(screen.y).toBeGreaterThanOrEqual(0);
+    expect(info.y + info.height).toBeLessThanOrEqual(height);
+    expect(screen.width / screen.height).toBeCloseTo(16/9, 2);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await page.locator('video').evaluate(element => getComputedStyle(element).objectFit)).toBe('contain');
+  }
 });

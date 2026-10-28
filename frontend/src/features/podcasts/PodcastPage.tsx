@@ -49,6 +49,25 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     observer.observe(screen); resize();
     return () => observer.disconnect();
   }, [view?.podcast_id, view?.status, videoState.state?.status, progress === undefined, index]);
+  useLayoutEffect(() => {
+    const layout = workspace.current;
+    const info = layout?.querySelector<HTMLElement>(".podcast-watch-info");
+    const player = layout?.querySelector<HTMLElement>(".media-player");
+    const controls = layout?.querySelector<HTMLElement>(".podcast-controls-bar");
+    const screen = layout?.querySelector<HTMLElement>(".media-viewport");
+    if (!layout || !info || !player || !screen) return;
+    const fit = () => {
+      const available = window.innerHeight - layout.getBoundingClientRect().top - window.scrollY
+        - info.getBoundingClientRect().height - (player.getBoundingClientRect().height - screen.getBoundingClientRect().height) - 16;
+      layout.style.setProperty("--podcast-player-width", `${Math.max(0, available) * 16 / 9}px`);
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(info);
+    if (controls) observer.observe(controls);
+    window.addEventListener("resize", fit);
+    fit();
+    return () => { observer.disconnect(); window.removeEventListener("resize", fit); };
+  }, [view?.podcast_id, view?.status, videoState.state?.status, progress === undefined, index, theater]);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
   useEffect(() => {
     let cancelled = false;
