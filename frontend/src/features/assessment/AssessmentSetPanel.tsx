@@ -439,7 +439,7 @@ export function AssessmentSetPanel({
         </header>
       )}
       {!waiting && group && closed && (
-        <section className="surface assessment-cycle" aria-label="本輪檢測與補強">
+        <section className="surface assessment-cycle assessment-cycle-summary" aria-label="本輪檢測與補強">
           <p className="eyebrow">{isRemediation ? "錯題重點補強" : "觀念重點檢測"}</p>
           <h2>{isRemediation ? "本次補強結果" : "本輪檢測結果"}</h2>
           {readError}
