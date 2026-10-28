@@ -8,7 +8,6 @@ import { NotFoundView } from "../../ui/NotFoundView";
 import type { PodcastProgressUpdate, PodcastProgressView, PodcastView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
-import { Icon } from "../../ui/Icon";
 import { claimText } from "../../ui/claim-text";
 import { PodcastProgress } from "./PodcastProgress";
 import { podcastPreviewReady } from "./PodcastLibrary";
@@ -42,24 +41,19 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const timelineState = usePodcastTimeline(apiClient,view,index,videoState.state?.version??0,view?.status === "ready");
   useLayoutEffect(() => {
     const layout = workspace.current;
-    const screen = layout?.querySelector<HTMLElement>(".media-viewport");
-    if (!layout || !screen) return;
-    const resize = () => layout.style.setProperty("--podcast-screen-height", `${screen.getBoundingClientRect().height}px`);
-    const observer = new ResizeObserver(resize);
-    observer.observe(screen); resize();
-    return () => observer.disconnect();
-  }, [view?.podcast_id, view?.status, videoState.state?.status, progress === undefined, index]);
-  useLayoutEffect(() => {
-    const layout = workspace.current;
     const info = layout?.querySelector<HTMLElement>(".podcast-watch-info");
     const player = layout?.querySelector<HTMLElement>(".media-player");
     const controls = layout?.querySelector<HTMLElement>(".podcast-controls-bar");
     const screen = layout?.querySelector<HTMLElement>(".media-viewport");
     if (!layout || !info || !player || !screen) return;
     const fit = () => {
-      const available = window.innerHeight - layout.getBoundingClientRect().top - window.scrollY
-        - info.getBoundingClientRect().height - (player.getBoundingClientRect().height - screen.getBoundingClientRect().height) - 16;
-      layout.style.setProperty("--podcast-player-width", `${Math.max(0, available) * 16 / 9}px`);
+      // 影片高度以第一屏扣掉標題列與控制列後的剩餘高度為上限；寬度依 16:9 換算，右欄至少留 340px。
+      const gap = 20, minCompanion = 340;
+      const available = Math.max(0, window.innerHeight - layout.getBoundingClientRect().top - window.scrollY
+        - info.getBoundingClientRect().height - (player.getBoundingClientRect().height - screen.getBoundingClientRect().height) - 16);
+      const maxWidth = layout.clientWidth - gap - minCompanion;
+      layout.style.setProperty("--podcast-video-height", `${available}px`);
+      layout.style.setProperty("--podcast-player-width", `${Math.min(maxWidth, Math.max(layout.clientWidth * 0.45, available * 16 / 9))}px`);
     };
     const observer = new ResizeObserver(fit);
     observer.observe(info);
@@ -150,13 +144,14 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const episode = view.episodes[index];
   const previewReady = podcastPreviewReady(view);
   const groups = [...new Set(episode.claims.map(c => c.concept_id))].map(id => ({ label: episode.claims.find(c => c.concept_id === id)!.label, claims: episode.claims.filter(c => c.concept_id === id) }));
+  const episodeNote = <div className="podcast-watch-episode">
+    <p className="podcast-watch-meta">第 {index + 1} 集 · {episode.delivery === "dialogue" ? "雙人對談" : "單人講解"}{episode.audio && ` · ${duration(episode.audio.duration_seconds)}`}</p>
+    {!view.is_current_revision && <p className="podcast-meta-note">保留建立時的教材內容</p>}
+  </div>;
   const metadata = <div className="podcast-watch-info">
     <header className="podcast-watch-heading"><div>
       <h1>{view.name}</h1>
-      <p className="cards-material-name"><Icon name="book" size={16} />{view.material_name}</p>
     </div></header>
-    <p className="podcast-watch-meta">第 {index + 1} 集 · {episode.delivery === "dialogue" ? "雙人對談" : "單人講解"}{episode.audio && ` · ${duration(episode.audio.duration_seconds)}`}</p>
-    {!view.is_current_revision && <p className="podcast-meta-note">保留建立時的教材內容</p>}
     {view.status === "ready" && <div className="podcast-watch-actions">
       {!previewReady && <label>匯出集數<select aria-label="匯出集數" value={index} onChange={e => setIndex(Number(e.target.value))}>
         {view.episodes.map((e, i) => <option key={i} value={i}>第 {i + 1} 集 · {e.title ?? ""}</option>)}
@@ -172,14 +167,15 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     {actionError && <p className="form-error" role="alert">{actionError}</p>}
     {!previewReady && <PodcastProgress view={view} busy={busy} onAction={action => void act(action)} />}
     {previewReady && !videoState.state && <StateView title={videoState.error ? "無法載入影片" : "正在載入影片"} description={videoState.error || "正在確認本集影片。"} tone={videoState.error ? "failure" : "loading"} action={<button type="button" className="secondary-button" onClick={videoState.reload}>重新讀取</button>} />}
-    {previewReady && !!videoState.state && progress !== undefined && <div ref={workspace} className={`podcast-watch-layout${theater ? " is-theater" : ""}`}><div className="podcast-screen-column">
+    {previewReady && !!videoState.state && progress !== undefined && <div ref={workspace} className={`podcast-watch-layout${theater ? " is-theater" : ""}`}>
         <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} videoState={videoState} timelineReady={!!timelineState.timeline} theater={theater} onTheater={() => setTheater(v => !v)} mediaRef={media} storageKey={storageKey}
           resumeAt={progress?.episodes.find((item) => item.episode_index === index)?.position_seconds ?? null} onSync={syncProgress} settingsKey={`studydy.podcast.settings:${learnerId}`} onPrevious={() => { autoPlayNext.current = view.status === "ready"; setIndex(index - 1); }} onNext={() => { autoPlayNext.current = view.status === "ready"; setIndex(index + 1); }} rememberPosition={rememberPosition} autoPlay={autoPlayNext.current} onEnded={(autoAdvance) => {
           if (autoAdvance && index + 1 < view.episodes.length) { autoPlayNext.current = true; setIndex(index + 1); }
         }} />
-      {metadata}</div>
+      {metadata}
       <div className="podcast-companion">
         <section className="surface podcast-reading-area" aria-label="本集內容">
+          {episodeNote}
           <div className="podcast-content-tabs" role="tablist" aria-label="本集內容">
             {([['episodes', '分集'], ['transcript', '逐字稿'], ['highlights', '本集重點']] as const).map(([tab, label]) => <button
               key={tab} id={`podcast-${tab}-tab`} type="button" role="tab" aria-selected={readingTab === tab}
@@ -211,7 +207,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
         </section>
       </div>
     </div>}
-    {(!previewReady || !videoState.state || progress === undefined) && metadata}
+    {(!previewReady || !videoState.state || progress === undefined) && <>{metadata}{episodeNote}</>}
   </section>;
 }
 
