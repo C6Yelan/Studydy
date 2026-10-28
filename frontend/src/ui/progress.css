@@ -2,7 +2,7 @@
   --progress-track: var(--page-cool-2);
   --progress-color: var(--studydy-blue);
 }
-.studydy-progress { display:block; width:100%; min-width:0; height:var(--progress-thickness); overflow:hidden; border-radius:999px; background:var(--progress-track); }
+.studydy-progress { display:block; width:100%; min-width:0; height:8px; overflow:hidden; border-radius:999px; background:var(--progress-track); }
 .studydy-progress.is-warning, .progress-ring.is-warning { --progress-color:var(--warning); }
 .studydy-progress.is-complete, .progress-ring.is-complete { --progress-color:var(--success); }
 .studydy-progress-fill { display:block; height:100%; width:var(--progress-ratio); border-radius:inherit; background:var(--progress-color); transition:width .18s ease; }

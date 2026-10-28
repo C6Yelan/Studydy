@@ -257,7 +257,7 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
       {pending && <section className="note-progress" aria-label="完整筆記分區進度" aria-live="polite">
         <span>{view.paragraphs.length > 0 ? "正在更新筆記，完成後自動替換" : view.status === "pending" ? "筆記已排入生成佇列。" : "正在撰寫並逐段核對筆記內容…"}</span>
         <span>{view.status === "pending" ? "正在等待開始" : view.progress?.stage === "validating" ? "正在核對完整筆記…" : `正在整理：${view.progress?.current_section ?? "教材"}`}</span>
-        <Progress aria-label="已完成分區" value={view.progress && view.progress.completed_parts > 0 ? view.progress.completed_sections : undefined} max={Math.max(1, view.progress?.total_sections ?? 1)} size="small"/>
+        <Progress aria-label="已完成分區" value={view.progress && view.progress.completed_parts > 0 ? view.progress.completed_sections : undefined} max={Math.max(1, view.progress?.total_sections ?? 1)}/>
         {view.progress && <span>已完成 {view.progress.completed_sections} / {view.progress.total_sections} 個分區</span>}
         {elapsed !== null && <span>已耗時 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒</span>}
       </section>}

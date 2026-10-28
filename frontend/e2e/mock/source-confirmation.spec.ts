@@ -454,3 +454,21 @@ for(const append of [false,true])test(`source display names drive labels and sea
  }
  if(append){await page.getByRole('searchbox',{name:'搜尋教材來源',exact:true}).fill('3 張圖片');await expect(page.locator('.source-row')).toHaveCount(1);await expect(pictures).toBeVisible();}
 });
+
+for (const append of [false, true]) test(`empty transcripts explain silence and retry only failed sources in ${append ? 'published' : 'confirmation'} view`, async ({ page }) => {
+ const {state} = await mockSources(page, append);
+ Object.assign(state.sources[0], {original_name:'已完成語音.wav',media_type:'audio/wav',source_kind:'audio',transcript_source:'whisper',transcript_display_name:'本機 Whisper'});
+ Object.assign(state.sources[2], {original_name:'未辨識到語音.wav',media_type:'audio/wav',source_kind:'audio',status:'failed',error_code:'TRANSCRIPT_EMPTY',normalized_artifact_id:null,page_count:null});
+ await page.route(`**/v1/materials/${materialId}/sources/${state.sources[0].normalization_id}/transcript`, route => route.fulfill({json:{schema:'source-transcript/v1',text:append ? ' \n\t ' : ''}}));
+ await page.goto(sourcesPath);
+ const failed = page.getByRole('listitem',{name:'未辨識到語音.wav',exact:true});
+ await expect(failed.getByRole('status')).toHaveText('這段沒有辨識到語音');
+ await failed.getByRole('button',{name:'重新辨識',exact:true}).click();
+ await expect.poll(() => state.retried).toEqual([state.sources[2].normalization_id]);
+ const ready = page.getByRole('listitem',{name:'已完成語音.wav',exact:true});
+ await ready.getByRole('button',{name:'查看逐字稿',exact:true}).click();
+ const dialog = page.getByRole('dialog',{name:'已完成語音.wav',exact:true});
+ await expect(dialog.getByRole('status')).toHaveText('這段沒有辨識到語音');
+ await expect(ready.getByRole('button',{name:'重新辨識',exact:true})).toHaveCount(0);
+ await expect(dialog.getByRole('button',{name:'重新辨識',exact:true})).toHaveCount(0);
+});

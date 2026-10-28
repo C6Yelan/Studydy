@@ -329,7 +329,7 @@ export function StudySessionPage({
           <p className="study-header-meta">
             {position !== undefined && <span className="study-position">
               <b>第 {position} / {data.view.concept_count} 個概念</b>
-              <Progress className="study-position-progress" size="small" value={position} max={data.view.concept_count} aria-label="學習概念進度" />
+              <Progress className="study-position-progress" value={position} max={data.view.concept_count} aria-label="學習概念進度" />
             </span>}
             {showMaterial && <span>學習進度會自動保存。</span>}
           </p>

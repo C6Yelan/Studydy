@@ -62,7 +62,7 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
     <details className="goal-details">
       <summary className="goal-summary">
         <h2>{goal ? `${Number(goal.target_date.slice(5, 7))}/${Number(goal.target_date.slice(8))} 前掌握 ${goal.target_percent}%` : "尚未設定學習目標"}</h2>
-        {goal && <><span>已完成 {goal.completed_points}／需完成 {goal.target_points} 個重點</span><span>{goal.achieved ? "目標已達成" : goal.overdue_days > 0 ? `已逾期 ${goal.overdue_days} 天` : `還有 ${goal.days_remaining} 天`}</span></>}
+        {goal && <><span>已完成 {goal.completed_points}／需完成 {goal.target_points} 個重點</span><span>{goal.achieved ? "目標已達成" : goal.overdue_days > 0 ? `已逾期 ${goal.overdue_days} 天` : goal.days_remaining <= 1 ? "今天到期" : `還有 ${goal.days_remaining} 天`}</span></>}
       </summary>
       <div className="goal-details-content"><header>
       {view && !error && <button className="secondary-button" type="button" disabled={acknowledging || adjusting} onClick={() => setEditing(true)}>{goal ? "更改學習目標" : "設定學習目標"}</button>}
@@ -81,7 +81,7 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
         <p>每天約 {goal.today_stage.quota_points} 個重點 · 今天 {goal.today_stage.completed_points}／{goal.today_stage.quota_points}</p>
         {goal.assessable_points === 0 && <p className="goal-warning" role="status">目前沒有可檢測重點，尚無法計算目標進度，也不能判定整體目標達成或安排新的關卡。今天已取得的成果仍會保留，也可從地圖閱讀教材。</p>}
           <>
-            {!goal.achieved && <p className="goal-timing">{goal.overdue_days > 0 ? `已逾期 ${goal.overdue_days} 天` : `包含今天，剩餘 ${goal.days_remaining} 天`}
+            {!goal.achieved && <p className="goal-timing">{goal.overdue_days > 0 ? `已逾期 ${goal.overdue_days} 天` : goal.days_remaining <= 1 ? "今天到期" : `包含今天，剩餘 ${goal.days_remaining} 天`}
               {goal.behind_points > 0 && <strong>落後 {goal.behind_points} 個重點</strong>}</p>}
             <section className="goal-today" aria-label="今天的關卡">
               <header><h3>今天的關卡</h3><time dateTime={view.today}>{dateText(view.today)}</time></header>

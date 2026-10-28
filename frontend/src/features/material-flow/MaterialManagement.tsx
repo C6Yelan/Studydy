@@ -141,7 +141,7 @@ export function MaterialManagement({
           正在刪除…
         </p>
       ) : (
-        mode === "rename" ? <InlineNameEditor maxLength={40} label="教材名稱" name={name} busy={busy} error={error} inputRef={input} onChange={setName} onSave={() => void submit()} onCancel={close} /> : mode === "delete" && <InlineConfirm message="確定刪除教材與相關資料？" label="刪除教材確認" confirmLabel="刪除"
+        mode === "rename" ? <InlineNameEditor label="教材名稱" name={name} busy={busy} error={error} inputRef={input} onChange={setName} onSave={() => void submit()} onCancel={close} /> : mode === "delete" && <InlineConfirm message="確定刪除教材與相關資料？" label="刪除教材確認" confirmLabel="刪除"
           confirmAriaLabel="確認刪除" busyLabel="正在刪除…" busy={busy} error={error} onCancel={close} onConfirm={() => void submit()} />
       )}
     </>

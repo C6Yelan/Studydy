@@ -60,6 +60,8 @@ test("management menu renames with conflict recovery; deletion needs confirmatio
   const dialog = page.getByRole("form", { name: "重新命名Podcast" });
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator(".library-item").getByRole("heading", { name: "我的 Podcast", exact: true })).toHaveCount(0);
+  await dialog.getByLabel("Podcast 名稱").fill("字".repeat(41));
+  await expect(dialog.getByLabel("Podcast 名稱")).toHaveValue("字".repeat(40));
   await dialog.getByLabel("Podcast 名稱").fill("更新後的名稱");
   fixture.conflict();
   await dialog.getByRole("button", { name: "儲存", exact: true }).click();
@@ -113,6 +115,8 @@ test("account creation chooses a material once and keeps name editing usable on 
   await expect(page.getByRole("button", { name: "返回我的 Podcast", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await name.fill("字".repeat(41));
+  await expect(name).toHaveValue("字".repeat(40));
   await name.fill("手機建立測試");
   await page.getByRole("button", {name:"講解設定",exact:true}).click();
   await expect(page.getByRole("button", { name: "開始生成 Podcast" })).toBeEnabled();

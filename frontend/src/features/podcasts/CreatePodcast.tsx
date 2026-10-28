@@ -41,14 +41,14 @@ export function CreatePodcast({ apiClient, route }: {
         setError("這個教材版本已不可用，請重新選擇教材。"); return;
       }
       setView(structure);
-      setName(`${material.display_name.replace(/\.[^.]+$/, "").slice(0, 180)}・聽重點`);
+      setName(`${Array.from(material.display_name.replace(/\.[^.]+$/, "")).slice(0, 36).join("")}・聽重點`);
       setSelected(new Set(structure.concepts.map((c) => c.concept_id)));
       setPreviewId(null);
     }, (e) => { if (!cancelled) setError(errorMessage(e)); });
     return () => { cancelled = true; };
   }, [apiClient, route.materialId, route.runId, route.structureRevision, reload]);
   const previewRead = useConceptContext(apiClient, route.materialId, route.structureRevision, previewId ? [previewId] : []);
-  const validName = name.trim().length > 0 && Array.from(name.trim()).length <= 200 && !/[\p{Cc}\p{Cs}]/u.test(name);
+  const validName = name.trim().length > 0 && Array.from(name.trim()).length <= 40 && !/[\p{Cc}\p{Cs}]/u.test(name);
   const save = async () => {
     if (!view || !selected.size || !validName || saving.current) return;
     saving.current = true; setBusy(true); setSaveError(null);
@@ -77,7 +77,7 @@ export function CreatePodcast({ apiClient, route }: {
   const toggle = (id: string) => setSelected(previous => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   return <FlowStage icon="headphones" className="podcast-create" title="選擇概念與講解形式"
     description="依所選重點生成，內容較多時自動拆成多集。"
-    aside={<label className="creation-name">Podcast 名稱<input value={name} maxLength={200} disabled={busy} onChange={e => setName(e.target.value)} /></label>}
+    aside={<label className="creation-name">Podcast 名稱<input value={name} maxLength={40} disabled={busy} onChange={e => setName(e.target.value)} /></label>}
     footer={<FlowFooter
       secondary={<div className="cards-create-summary"><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · {video ? "音訊＋影片" : "只有音訊"} · 生成需要幾分鐘，可先離開頁面。</span></div>}
       primary={<button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始生成 Podcast"}<Icon name="chevron-right" size={18} /></button>} />}>

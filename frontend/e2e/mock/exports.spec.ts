@@ -1,3 +1,4 @@
+import { recordMapExportPaths, mapPathCrossings } from "../fixtures/map-export-paths";
 import { test, expect } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import { mockKnowledgeMapApi, workspaceView, materialId, structureRevision, runId, json } from "../fixtures/knowledge-map";
@@ -77,4 +78,31 @@ test("export format cards retain errors, keyboard selection and focus through do
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
   expect(requests).toBe(2);
+});
+
+
+test("map PNG reorders crossing prerequisite paths without losing concepts", async ({page}) => {
+  const view=workspaceView(4);
+  const ids=view.concepts.map(c=>c.concept_id);
+  view.relations=[[0,3],[1,2]].map(([source,target],index)=>({...view.relations[0],relation_id:`relation:sha256:${String(index+20).padStart(64,'0')}`,source_concept_id:ids[source],target_concept_id:ids[target]}));
+  await recordMapExportPaths(page);
+  await mockKnowledgeMapApi(page,view);
+  await page.route('**/regions',route=>json(route,{schema:'knowledge-regions/v1',material_id:materialId,knowledge_structure_revision:structureRevision,basis:'learning_order',groups:[],partial:false,regions:[{region_id:'crossing',label:'交叉連線驗證',source_id:null,concept_ids:ids}]}));
+  let images:{concept_ids:string[];png:string}[]=[];
+  await page.route('**/map/export/png',route=>{images=route.request().postDataJSON().images;return route.fulfill({contentType:'image/png',headers:{'Content-Disposition':"attachment; filename*=UTF-8''map.png"},body:'png'});});
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  await page.getByText('匯出地圖',{exact:true}).click();
+  const download=page.waitForEvent('download');
+  await page.getByRole('dialog',{name:'匯出知識地圖'}).getByRole('button',{name:'匯出',exact:true}).click();
+  await download;
+  const paths=await page.evaluate(()=>(window as any).mapExportPaths);
+  expect(paths).toHaveLength(2);
+  expect(mapPathCrossings(paths)).toBe(0);
+  expect(images.flatMap(image=>image.concept_ids)).toEqual(ids);
+  expect(images[0].png.startsWith('iVBOR')).toBe(true);
+});
+
+
+test("map crossing count excludes shared endpoints without hiding later intersections", () => {
+  expect(mapPathCrossings([[[0,0],[2,2],[4,0]],[[0,0],[4,2]]])).toBe(1);
 });

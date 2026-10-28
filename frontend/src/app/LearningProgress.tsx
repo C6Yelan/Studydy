@@ -79,7 +79,7 @@ export function LearningProgressPill({ apiClient, learnerId }: { apiClient: Stud
           <b>{xp.level}</b>
         </span>
         <span className="header-level-meter">
-          <Progress size="small" value={xp.level_xp} max={xp.level_target} aria-label="本級經驗值" />
+          <Progress value={xp.level_xp} max={xp.level_target} aria-label="本級經驗值" />
           <small>{xp.level_xp}/{xp.level_target}</small>
         </span>
       </span>

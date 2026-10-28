@@ -46,7 +46,7 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
   const currentArtwork = useRef(artwork);
   currentArtwork.current = artwork;
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{ artwork: typeof artwork; failed: boolean } | null>(null);
+  const [result, setResult] = useState<{ artwork: typeof artwork; failed: boolean; height: number } | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadFailed, setDownloadFailed] = useState(false);
   const ready = result?.artwork === artwork && !result.failed;
@@ -63,8 +63,8 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
       canvas.current.height = source.height;
       context.clearRect(0, 0, source.width, source.height);
       context.drawImage(source, 0, 0);
-      setResult({ artwork, failed: false });
-    }).catch(() => { if (active) setResult({ artwork, failed: true }); });
+      setResult({ artwork, failed: false, height: source.height });
+    }).catch(() => { if (active) setResult({ artwork, failed: true, height: 0 }); });
     return () => { active = false; };
   }, [artworkModule, artwork, attempt, card, structure, cacheOwner, pageIndex, pages.length]);
   const download = async () => {
@@ -90,7 +90,7 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
       if (canvas.current === source && currentArtwork.current === artwork) setDownloading(false);
     }
   };
-  return <div className="visual-card">
+  return <div className={`visual-card${ready && result.height > 760 ? " is-long" : ""}`} tabIndex={ready && result.height > 760 ? 0 : undefined}>
     <canvas ref={canvas} className="visual-concept-card" width={1200} height={760} hidden={!ready}
       onClick={onFlip} role="img" aria-label={`${card.label}視覺化概念卡`} title={`${card.label}｜概念卡${pages.length > 1 ? ` · ${pageIndex + 1}/${pages.length}` : ""}`}
       data-layout={artwork.layout.family} data-image-index={pageIndex + 1} data-image-count={pages.length} />
