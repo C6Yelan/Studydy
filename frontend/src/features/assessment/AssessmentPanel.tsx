@@ -12,6 +12,7 @@ export function AssessmentPanel({
   view,
   answerSelection,
   fresh,
+  number,
 }: {
   apiClient: StudydyApiClient;
   record: AssessmentRecordView;
@@ -23,6 +24,7 @@ export function AssessmentPanel({
     onChange: (optionId: string) => void;
   };
   fresh?: boolean;
+  number: number;
 }) {
   const assessment = record.assessment;
   const feedback = record.feedback;
@@ -35,35 +37,31 @@ export function AssessmentPanel({
       .flatMap((claim) => claim.evidence)
       .filter((item) => feedback.source_evidence_ids.includes(item.evidence_id));
     const evidenceLinks = sourceLinks(evidence);
+    const correct = feedback.is_correct;
+    const optionText = (id: string) => assessment.options.find(option => option.option_id === id)?.text;
     return (
       <section
-        className={`assessment-card feedback-card is-${feedback.is_correct ? "correct" : "incorrect"}${fresh ? " feedback-enter" : ""}`}
-        aria-live="polite"
+        className={`assessment-card feedback-card is-${correct ? "correct" : "incorrect"}${fresh ? " feedback-enter" : ""}`}
       >
         <header className="feedback-result">
           <span className="feedback-icon" aria-hidden="true">
-            <Icon name={feedback.is_correct ? "check" : "warning"} size={24} />
+            <Icon name={correct ? "check" : "warning"} size={18} />
           </span>
-          <h2>{feedback.is_correct ? "答對了" : "這題需要再想一下"}</h2>
+          <span className="sr-only">{correct ? "答對了" : "這題需要再想一下"}</span>
+          <b className="feedback-number">第 {number} 題</b>
         </header>
-        <section className="feedback-section">
-          <h3>題目</h3>
-          <p><MathText text={assessment.prompt}/></p>
-        </section>
-        <section className="feedback-section">
+        <p className="feedback-prompt"><MathText text={assessment.prompt}/></p>
+        <section className="feedback-section feedback-yours">
           <h3>你的答案</h3>
-          <p><MathText text={assessment.options.find(option => option.option_id === feedback.selected_option_id)?.text ?? ""}/></p>
+          <p><MathText text={(feedback.selected_option_id ? optionText(feedback.selected_option_id) : undefined) ?? ""}/></p>
         </section>
-        <section className="feedback-section">
+        <section className="feedback-section feedback-correct">
           <h3>正確答案</h3>
-          <p><MathText text={assessment.options.find(option => option.option_id === feedback.correct_option_id)?.text ?? "這份作答紀錄尚未提供正確答案。"}/></p>
+          <p><MathText text={(feedback.correct_option_id ? optionText(feedback.correct_option_id) : undefined) ?? "這份作答紀錄尚未提供正確答案。"}/></p>
         </section>
-        <section className="feedback-section">
+        {/* 解析只顯示對應重點（整理過的文字）；教材原文改由下方來源按鈕查看，不直接堆在卡片上。 */}
+        <section className="feedback-section feedback-evidence">
           <h3>解析</h3>
-          <p className="feedback-rationale"><MathText text={feedback.rationale}/></p>
-        </section>
-        <div className="feedback-evidence">
-          <h3>對應重點與原文來源</h3>
           {claim && <p><MathText text={claim.text}/></p>}
           {evidenceLinks.map((item) => (
             <SourceButton
@@ -73,7 +71,7 @@ export function AssessmentPanel({
               evidence={item}
             />
           ))}
-        </div>
+        </section>
       </section>
     );
   }

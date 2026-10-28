@@ -18,6 +18,7 @@ import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import { StateView } from "../../ui/StateView";
 import { assessmentPhase, type AssessmentPhase } from "../assessment/assessment-phase";
 import { AssessmentSetPanel } from "../assessment/AssessmentSetPanel";
+import { HistoryRail } from "./HistoryRail";
 import "./styles.css";
 
 type StudyData = {
@@ -53,8 +54,6 @@ export function StudySessionPage({
   const [materialOpen, setMaterialOpen] = useState(() => {
     try { return localStorage.getItem("studydy.material-details-open") === "true"; } catch { return false; }
   });
-  const historyDialog = useRef<HTMLDialogElement>(null);
-  const historyOpener = useRef<HTMLButtonElement>(null);
   const continueIntent = useRef<string | null>(null);
   const [data, setData] = useState<StudyData | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -182,19 +181,12 @@ export function StudySessionPage({
     (group) => group.published_count > 0 || ["completed", "cancelled"].includes(group.status),
   );
   const selectedSet = data.assessmentSets.find((group) => group.set_id === data.selectedSetId);
-  const history = historySets.length > 0 && <div className="question-history">
-    <button ref={historyOpener} type="button" className="secondary-button" aria-haspopup="dialog" onClick={() => historyDialog.current?.showModal()}>題組紀錄（{historySets.length}）</button>
-    <dialog ref={historyDialog} className="question-history-dialog" aria-labelledby="question-history-title" onClose={() => historyOpener.current?.focus()}>
-      <header><h2 id="question-history-title">題組紀錄</h2><button type="button" className="text-button" onClick={() => historyDialog.current?.close()}>關閉</button></header><ol>
-      {historySets.map((group, index) => <li key={group.set_id}><button type="button" className={`study-history-item is-${group.kind}`}
-        aria-current={group.set_id === data.selectedSetId ? "true" : undefined}
-        onClick={() => { historyDialog.current?.close(); setContinueError(null); writeRoute({ ...route, assessmentSetId: group.set_id }); }}>
-        <b>第 {historySets.length - index} 組 · {group.kind === "remediation" ? "補強" : "初篩"}</b>
-        <span>{data.view.concepts.find(concept => concept.concept_id === group.target_concept_id)?.label ?? "觀念"}</span>
-        <small>{group.published_count === 0 ? "此題組已結束" : group.answered_count === 0 ? "尚未作答" : `已答 ${group.answered_count}/${group.published_count}`}</small>
-      </button></li>)}
-    </ol></dialog>
-  </div>;
+  const history = historySets.length > 0 && <HistoryRail
+    sets={historySets}
+    selectedSetId={data.selectedSetId}
+    conceptLabel={(id) => data.view.concepts.find(concept => concept.concept_id === id)?.label ?? "觀念"}
+    onSelect={(setId) => { setContinueError(null); writeRoute({ ...route, assessmentSetId: setId }); }}
+  />;
   // 歷史題組顯示該題組的觀念；繼續學習仍依目前進度判斷。
   const visibleConceptId = route.assessmentSetId
     ? selectedSet?.target_concept_id
@@ -334,7 +326,6 @@ export function StudySessionPage({
             {showMaterial && <span>學習進度會自動保存。</span>}
           </p>
         </div>
-        {history}
       </header>}
       {(launch.error || continueError) && (
         <div className="assessment-error" role="alert">
@@ -405,7 +396,8 @@ export function StudySessionPage({
                 initialPhase={initialSetPhase}
                 onPhaseChange={setPanelPhase}
                 continuation={continuation}
-                history={history}
+                // 作答中用不到作答紀錄；交卷後的結果頁才在右側提供切回之前的題組。
+                history={layoutMode === "question" ? undefined : history}
               /> : <StateView title="尚未開始這個概念" description="按下開始，進入這個概念的題組。" tone="empty"
                 action={<button className="primary-button" disabled={launch.busy} onClick={() => void launch.start(route)}>開始學習</button>} />}
             </div>

@@ -102,11 +102,6 @@
   background: var(--warning-soft);
 }
 
-.feedback-rationale {
-  max-width: 620px;
-  margin: 0;
-  font-size: 1rem;
-}
 
 .feedback-evidence {
   display: grid;

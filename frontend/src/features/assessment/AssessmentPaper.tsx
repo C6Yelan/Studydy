@@ -5,12 +5,12 @@ import { Progress } from "../../ui/Progress";
 import { AssessmentPanel } from "./AssessmentPanel";
 import "./paper.css";
 
-export function AssessmentPaper({ api, records, view, completed, selections, disabled, canSubmit, busy, submitLabel, onSelect, onSubmit, history, fresh, children }: {
+export function AssessmentPaper({ api, records, view, completed, selections, disabled, canSubmit, busy, submitLabel, onSelect, onSubmit, fresh, children }: {
   api: StudydyApiClient; records: AssessmentRecordView[];
   view: Pick<KnowledgeStructureView, "concepts" | "source_resolver">;
   completed: boolean; selections: Record<string, string>; disabled: boolean; canSubmit: boolean;
   busy: boolean; submitLabel: string; onSelect: (revision: string, option: string) => void;
-  onSubmit: () => void; history?: ReactNode; fresh?: boolean; children?: ReactNode;
+  onSubmit: () => void; fresh?: boolean; children?: ReactNode;
 }) {
   const [index, setIndex] = useState(0);
   const card = useRef<HTMLDivElement>(null);
@@ -18,8 +18,7 @@ export function AssessmentPaper({ api, records, view, completed, selections, dis
   const selected = current?.feedback?.selected_option_id ?? selections[current?.assessment.assessment_revision];
   const move = (next: number) => { setIndex(next); card.current?.focus(); };
   const renderQuestion = (record: AssessmentRecordView, position: number) => <article className="assessment-set-item" key={record.assessment.assessment_revision} aria-label={`第 ${position + 1} 題`}>
-    {completed && <p className="assessment-set-number">第 {position + 1} 題</p>}
-    <AssessmentPanel apiClient={api} record={record} completed={completed} view={view} fresh={fresh}
+    <AssessmentPanel apiClient={api} record={record} number={position + 1} completed={completed} view={view} fresh={fresh}
       answerSelection={{ value: record.feedback?.selected_option_id ?? selections[record.assessment.assessment_revision] ?? null,
         disabled, onChange: option => onSelect(record.assessment.assessment_revision, option) }} />
   </article>;
@@ -40,7 +39,6 @@ export function AssessmentPaper({ api, records, view, completed, selections, dis
       <strong>{view.concepts.find(concept => concept.concept_id === current.assessment.target_concept_id)?.label}</strong>
       <span>第 {index + 1}／{records.length} 題</span>
       <Progress value={index + 1} max={records.length} aria-label="作答題目進度" />
-      {history}
     </header>
     <div ref={card} className="question-paper-card" tabIndex={-1}>{renderQuestion(current, index)}</div>
     {children}

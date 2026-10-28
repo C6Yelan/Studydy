@@ -371,7 +371,7 @@ export function AssessmentSetPanel({
   const total = progressGroup?.requested_count ?? 0;
   const ready = progressGroup?.verified_count ?? 0;
   const intervention = phase === "intervention";
-  const paper = group && prepared && <AssessmentPaper key={group.set_id} api={apiClient} records={questions} view={view} history={history} fresh={justSubmittedSet === group.set_id}
+  const paper = group && prepared && <AssessmentPaper key={group.set_id} api={apiClient} records={questions} view={view} fresh={justSubmittedSet === group.set_id}
     completed={closed || completed} selections={selections} disabled={busy || !!submissionIntent.current}
     busy={busy} canSubmit={group.can_complete && !completed && !busy && !submissionNeedsRefresh && selectedCount === questions.length}
     submitLabel={busy ? "正在交卷…" : submissionError ? "重新交卷" : "交卷"}
@@ -445,19 +445,19 @@ export function AssessmentSetPanel({
         </header>
       )}
       {!waiting && group && closed && (
-        <section className="surface assessment-cycle assessment-cycle-summary" aria-label="本輪檢測與補強">
-          <p className="eyebrow">{isRemediation ? "錯題重點補強" : "觀念重點檢測"}</p>
-          <h2>{isRemediation ? "本次補強結果" : "本輪檢測結果"}</h2>
-          {readError}
-          {group.cycle.outcome === "passed" ? (
-            <p className="assessment-cycle-result">可檢測的重點皆已完成。</p>
-          ) : group.cycle.outcome === "incomplete" ? (
-            <p className="assessment-cycle-result">本輪有未作答或未檢測的重點。</p>
-          ) : (
-            group.cycle.pending_count > 0 && conceptCompleted && <p>本次練習有需要加強的重點，先前的完成紀錄會保留。</p>
-          )}
-          <p className="question-result-summary" aria-label="本輪檢測摘要">答對 {group.passed_count}／{group.published_count} 題 · {group.cycle.pending_count} 個重點需要補強</p>
-          {(group.cycle.unanswered_count > 0 || unavailable > 0) && <p>未作答 {group.cycle.unanswered_count} 個重點 · 未檢測 {group.cycle.unavailable_count} 個重點</p>}
+        <section className="surface assessment-cycle assessment-cycle-summary result-bar" aria-label="本輪檢測與補強">
+          <div className="result-bar-text">
+            <h2>{isRemediation ? "本次補強結果" : "本輪檢測結果"}</h2>
+            <p className="question-result-summary" aria-label="本輪檢測摘要">答對 {group.passed_count}／{group.published_count} 題 · {group.cycle.pending_count} 個重點需要補強</p>
+            {readError}
+            <small>
+              {group.cycle.outcome === "passed" ? "可檢測的重點皆已完成。"
+                : group.cycle.outcome === "incomplete" ? "本輪有未作答或未檢測的重點。"
+                : group.cycle.pending_count > 0 && conceptCompleted ? "本次練習有需要加強的重點，先前的完成紀錄會保留。" : null}
+              {(group.cycle.unanswered_count > 0 || unavailable > 0) && ` 未作答 ${group.cycle.unanswered_count} 個重點 · 未檢測 ${group.cycle.unavailable_count} 個重點。`}
+              {group.cycle.pending_count > 0 && " 連續答對 2 道不同題，才算補強完成。"}
+            </small>
+          </div>
           <div className="assessment-set-actions">
             {group.cycle.active_set_id && group.cycle.active_set_id !== group.set_id
               ? <button className="primary-button" onClick={() => onSetSelected(group.cycle.active_set_id!)}>接續補強</button>
@@ -468,11 +468,12 @@ export function AssessmentSetPanel({
                   : null}
             <button className="text-button" onClick={onBackToMap}>查看知識地圖</button>
           </div>
-          {group.cycle.pending_count > 0 && <small>連續答對 2 道不同題，才算補強完成。</small>}
         </section>
       )}
       {!waiting && !closed && readError}
-      {!waiting && paper}
+      {!waiting && paper && (closed || completed
+        ? <div className="result-body">{paper}{history}</div>
+        : paper)}
     </section>
   );
 }

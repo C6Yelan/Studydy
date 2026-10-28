@@ -26,11 +26,6 @@
   min-width: 0;
   scroll-margin-top: 1rem;
 }
-.assessment-set-number {
-  font-size: 0.85rem;
-  font-weight: 700;
-  margin: 0 0 0.45rem 0.35rem;
-}
 .assessment-set-item .assessment-card {
   margin: 0;
 }

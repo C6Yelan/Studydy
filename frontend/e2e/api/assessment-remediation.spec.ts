@@ -112,10 +112,9 @@ test("wrong points directly form groups and survive lost create responses", asyn
   await fresh.addLocatorHandler(fresh.locator("dialog.level-up"), async (dialog) => {
     await dialog.getByRole("button", { name: "太好了" }).click();
   }, { noWaitAfter: true });
-  await fresh.getByRole("button", { name: /題組紀錄（/ }).click();
   await fresh
-    .getByRole("dialog", { name: "題組紀錄" })
-    .getByRole("button")
+    .getByRole("complementary", { name: "作答紀錄" })
+    .locator("li button")
     .filter({ hasText: "初篩" })
     .click();
   await expect(fresh).toHaveURL(rootUrl);

@@ -220,3 +220,11 @@
   font-weight: 700;
 }
 .study-position-progress { width:6rem; }
+
+.result-rail { display: grid; gap: var(--space-3); align-content: start; position: sticky; top: var(--space-3); max-height: calc(100dvh - 8rem); padding: var(--space-3); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
+.result-rail header { display: grid; gap: var(--space-2); }
+.result-rail h2 { margin: 0; font-size: 0.95rem; }
+.result-rail-filter { display: flex; gap: 4px; }
+.result-rail-filter button { flex: 1; min-height: 30px; border: 0; border-radius: 999px; background: var(--page-cool); color: var(--text-primary); font-size: 12px; font-weight: 800; cursor: pointer; }
+.result-rail-filter button[aria-pressed="true"] { background: var(--studydy-blue); color: #fff; }
+.result-rail ol { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; overflow-y: auto; min-height: 0; }

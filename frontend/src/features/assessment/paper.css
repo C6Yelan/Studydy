@@ -13,7 +13,6 @@
 .question-paper-navigation { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .question-paper-navigation small { color: var(--text-secondary); text-align: center; line-height: 1.6; }
 .question-result-summary { font-weight: 700; font-variant-numeric: tabular-nums; }
-.assessment-review-list .assessment-set-item { padding: var(--space-4); border-radius: var(--radius-card); background: var(--surface); }
 .assessment-review-list .feedback-evidence { width: auto; }
 .question-preparation { width: min(100%, 48rem); margin-inline: auto; display: grid; gap: var(--space-4); }
 .question-preparation-message { display: flex; align-items: center; justify-content: center; gap: var(--space-5); }
@@ -25,13 +24,31 @@
 .question-skeleton span { height: 2.5rem; }
 .question-session-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .question-session-header h1 { margin: 0; font-size: 1.2rem; }
-.question-history { flex-shrink: 0; }
-.question-history-dialog { width: min(36rem, calc(100vw - 2rem)); max-height: 80dvh; padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--radius-card); color: var(--text-primary); background: var(--surface); }
-.question-history-dialog::backdrop { background: rgb(22 35 59 / 35%); }
-.question-history-dialog header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.question-history-dialog h2 { margin: 0; }
-.question-history-dialog ol { display: grid; gap: var(--space-2); list-style: none; padding: 0; }
-.question-history-dialog .study-history-item { width: 100%; text-align: start; white-space: normal; }
+.assessment-cycle-summary.result-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-5); padding: var(--space-3) var(--space-5); margin-bottom: var(--space-4); }
+.result-bar .result-bar-text { display: grid; gap: 2px; min-width: 0; flex: 1 1 24rem; }
+.result-bar-text > * { margin: 0; }
+.result-bar h2 { font-size: 0.8rem; color: var(--text-secondary); }
+.result-bar .question-result-summary { font-size: 1.1rem; }
+.result-bar small { color: var(--text-secondary); line-height: 1.5; }
+.result-bar .assessment-set-actions { flex: 0 0 auto; }
+.result-body .assessment-review-list { width: 100%; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); grid-auto-rows: 1fr; align-items: stretch; gap: var(--space-3); }
+.assessment-review-list .assessment-set-item { display: grid; padding: 0; background: none; }
+.feedback-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); box-shadow: var(--shadow); overflow-y: auto; max-height: max(24rem, calc(100dvh - 18.5rem)); }
+.feedback-card .feedback-result { gap: var(--space-2); }
+.feedback-card .feedback-icon { width: 30px; height: 30px; margin: 0; flex-shrink: 0; }
+.feedback-number { font-size: 0.9rem; }
+.feedback-prompt { margin: 0; font-weight: 700; line-height: 1.55; }
+.feedback-card .feedback-section { margin: 0; padding: var(--space-3); border-radius: var(--radius-input); background: var(--page-cool); }
+.feedback-card.is-incorrect .feedback-yours { box-shadow: inset 0 0 0 1.5px var(--warning); }
+.feedback-card.is-correct .feedback-correct { box-shadow: inset 0 0 0 1.5px var(--success); }
+.feedback-card .feedback-evidence { width: auto; margin: 0; }
+.result-body { display: grid; grid-template-columns: minmax(0, 1fr) clamp(16rem, 22vw, 19rem); align-items: start; gap: var(--space-4); }
+@media (max-width: 1280px) {
+  .result-body { grid-template-columns: minmax(0, 1fr); }
+  .result-body > .result-rail { order: -1; max-height: none; position: static; }
+  .result-body .result-rail ol { display: flex; overflow-x: auto; padding-bottom: 4px; }
+  .result-body .result-rail ol > li { flex: 0 0 13rem; }
+}
 @media (max-width: 720px) {
   .question-paper-heading { gap: var(--space-2); flex-wrap: wrap; }
   .question-paper-heading > .studydy-progress { width: 100%; }

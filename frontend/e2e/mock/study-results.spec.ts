@@ -10,11 +10,11 @@ for (const width of [1440, 390]) test(`result summary, full answers, source and 
   await expect(review.locator(".feedback-card")).toHaveCount(4);
   for (const card of await review.locator(".feedback-card").all()) {
     await expect(card).toBeVisible();
-    for (const label of ["題目", "你的答案", "正確答案", "解析", "對應重點與原文來源"]) await expect(card.getByRole("heading", { name: label, exact: true })).toBeVisible();
+    for (const label of ["你的答案", "正確答案", "解析"]) await expect(card.getByRole("heading", { name: label, exact: true })).toBeVisible();
   }
   const first = review.locator(".feedback-card").first();
   await expect(first.locator(".feedback-evidence")).toContainText(fixture.knowledgeStructure.concepts[0].claims[0].text);
-  await review.getByRole("button", { name: /PDF 第 1 頁/ }).first().click();
+  await review.getByRole("button", { name: /第 1 頁/ }).first().click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
   await page.keyboard.press("Escape");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -35,17 +35,13 @@ for (const [name, scenario, expected] of [
 test("older feedback without a correct option remains readable", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "completed", { missingCorrectOption: true }); await fixture.open();
   await expect(page.locator(".feedback-card").first()).toContainText("這份作答紀錄尚未提供正確答案。");
-  await expect(page.locator(".feedback-rationale").first()).toContainText("請依照教材描述的通訊角色判斷。");
+  await expect(page.locator(".feedback-evidence").first()).toContainText(fixture.knowledgeStructure.concepts[0].claims[0].text);
 });
 
 test("history includes published results and resumes selected group", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "preparing", {}); await page.goto(fixture.historyPath);
-  await page.getByRole("button", { name: "題組紀錄（1）", exact: true }).click();
-  const history = page.getByRole("dialog", { name: "題組紀錄", exact: true });
+  const history = page.getByRole("complementary", { name: "作答紀錄", exact: true });
   await expect(history.locator("li")).toHaveCount(1);
   await history.locator("li button").click();
   await expect(page.locator(".assessment-cycle")).toBeVisible();
-  fixture.setStage("ready"); await page.goto(fixture.path);
-  await page.getByRole("button", { name: "題組紀錄（2）", exact: true }).click();
-  await expect(history).toContainText("尚未作答");
 });

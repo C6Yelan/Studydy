@@ -105,7 +105,7 @@ test("a completed concept keeps saved completion and prioritizes remediation", a
     navigation: true, wrong: [2], conceptStatus: "completed",
   });
   await fixture.open();
-  await expect(page.getByText("本次練習有需要加強的重點，先前的完成紀錄會保留。", { exact: true })).toBeVisible();
+  await expect(page.getByText("本次練習有需要加強的重點，先前的完成紀錄會保留。 連續答對 2 道不同題，才算補強完成。", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "補強這 1 個重點", exact: true })).toBeEnabled();
   await expect(page.locator(".assessment-cycle .primary-button")).toHaveCount(1);
   await page.getByRole("button", { name: "查看知識地圖", exact: true }).click();
@@ -169,7 +169,7 @@ test("incomplete cycle follows the backend next action without claiming a pass",
     unavailable: 1,
   });
   await fixture.open();
-  await expect(page.getByText("本輪有未作答或未檢測的重點。", { exact: true })).toBeVisible();
+  await expect(page.getByText("本輪有未作答或未檢測的重點。 未作答 0 個重點 · 未檢測 1 個重點。", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "繼續下一個概念", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "使用者端", level: 1, exact: true }),

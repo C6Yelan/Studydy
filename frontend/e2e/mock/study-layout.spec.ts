@@ -42,7 +42,6 @@ for (const viewport of [
     await preparationLayout(page, viewport.width);
     await start.scrollIntoViewIfNeeded();
     await expect(start).toBeInViewport();
-    await expect(page.getByRole("button", { name: /題組紀錄（/ })).toBeVisible();
     const sources = page.getByRole("region", { name: "教材來源", exact: true }).getByRole("button");
     await expect(sources).toHaveCount(1);
     await sources.click();
@@ -146,8 +145,7 @@ for (const viewport of [
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-result-mode/);
     await expect(page.locator(".current-concept-card")).not.toBeVisible();
     await expect(page.locator(".feedback-card")).toHaveCount(6);
-    await page.getByRole("button", { name: /題組紀錄（/ }).click();
-    await page.getByRole("dialog", { name: "題組紀錄" }).locator("li button").last().click();
+    await page.getByRole("complementary", { name: "作答紀錄" }).locator("li button").last().click();
     await expect(page).toHaveURL(new RegExp(fixture.historyPath.split("/").at(-1)! + "$"));
     await expect(page.locator(".study-learning-grid")).toHaveClass(/is-result-mode/);
     expect(
@@ -185,7 +183,7 @@ for (const viewport of [
     await answerPaper(page, [0, 0, 0, 0]);
     await page.getByRole("button", { name: "交卷", exact: true }).click();
     await expect(page.locator(".feedback-card")).toHaveCount(4);
-    await expect(page.getByText("本輪有未作答或未檢測的重點。", { exact: true })).toBeVisible();
+    await expect(page.locator(".assessment-cycle")).toContainText("本輪有未作答或未檢測的重點。 未作答 0 個重點 · 未檢測 2 個重點。");
   });
 }
 
