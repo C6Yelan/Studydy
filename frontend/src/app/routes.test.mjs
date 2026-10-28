@@ -25,6 +25,7 @@ test("routes use expected paths and round trip", () => {
     [{ name: "upload" }, "/upload"],
     [{ name: "profile" }, "/profile"],
     [{ name: "achievements" }, "/achievements"],
+    [{ name: "material-source-upload", materialId }, `/materials/${materialId}/sources/new`],
     [{ name: "material-run", materialId, runId }, materialRunPath],
     [{ name: "knowledge-map", materialId, runId, structureRevision }, mapPath],
     [{ name: "study-session", materialId, runId, structureRevision, studySessionId }, studyPath],

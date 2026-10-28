@@ -98,3 +98,7 @@
 @media (max-width: 720px) {
   .assessment-set-actions > .primary-button, .assessment-set-actions > .secondary-button { width: 100%; }
 }
+
+.assessment-cycle-summary { display:grid; gap:var(--space-4); }
+.assessment-cycle-summary > h2,
+.assessment-cycle-summary > p { margin:0; }

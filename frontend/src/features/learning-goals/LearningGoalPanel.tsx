@@ -59,7 +59,12 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
   };
   return <section className="learning-goal-panel" aria-label="學習目標與每日關卡">
 
-    <header><div><h2>{goal ? `${Number(goal.target_date.slice(5, 7))}/${Number(goal.target_date.slice(8))} 前掌握 ${goal.target_percent}% · ${goal.achieved ? "目標已達成" : goal.overdue_days > 0 ? `已逾期 ${goal.overdue_days} 天` : `還有 ${goal.days_remaining} 天`}` : "尚未設定學習目標"}</h2></div>
+    <details className="goal-details">
+      <summary className="goal-summary">
+        <h2>{goal ? `${Number(goal.target_date.slice(5, 7))}/${Number(goal.target_date.slice(8))} 前掌握 ${goal.target_percent}%` : "尚未設定學習目標"}</h2>
+        {goal && <><span>已完成 {goal.completed_points}／需完成 {goal.target_points} 個重點</span><span>{goal.achieved ? "目標已達成" : goal.overdue_days > 0 ? `已逾期 ${goal.overdue_days} 天` : `還有 ${goal.days_remaining} 天`}</span></>}
+      </summary>
+      <div className="goal-details-content"><header>
       {view && !error && <button className="secondary-button" type="button" disabled={acknowledging || adjusting} onClick={() => setEditing(true)}>{goal ? "更改學習目標" : "設定學習目標"}</button>}
     </header>
     {error ? <p role="alert" className="form-error">目標暫時無法讀取。{error}<button className="text-button" onClick={() => setReload(value => value + 1)}>重新讀取目標</button></p>
@@ -121,6 +126,8 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
           </>
       </>}
     {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
+      </div>
+    </details>
     {editing && view && <GoalEditor today={view.today} current={goal ? { date: goal.target_date, percent: goal.target_percent } : null} onSave={save} onClose={() => setEditing(false)} />}
   </section>;
 }

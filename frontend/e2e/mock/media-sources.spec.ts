@@ -117,9 +117,9 @@ for (const width of [1536, 390]) {
     await page.setViewportSize({ width, height: 844 });
     const state = await setup(page);
     await page.goto("/upload");
-    await expect(page.locator(".file-drop > span:last-child")).toHaveText(
-      "文件 PDF（每份最大 100.0 MiB） · 圖片 PNG、JPG（一次最多 50 張、合計 100.0 MiB） · 音訊 MP3（每份最大 300.0 MiB） · 影片 MP4（每份最大 2.0 GiB） · 音訊／影片最長 2 小時 · 可選多份",
-    );
+    await expect(page.locator(".upload-format-summary > span")).toHaveText([
+      "文件：PDF（每份最大 100.0 MiB）", "圖片：PNG、JPG（一次最多 50 張、合計 100.0 MiB）", "音訊：MP3（每份最大 300.0 MiB）", "影片：MP4（每份最大 2.0 GiB）", "音訊／影片最長 2 小時", "可選多份",
+    ]);
     const input = page.getByLabel("選擇教材檔案", { exact: true });
     await input.setInputFiles([png("a.png", "first"), png("b.png", "second"), mp3]);
     await expect(page.locator(".chosen-file > .chosen-file-body > strong")).toHaveText(["a 等 2 張圖片", "lecture.mp3"]);

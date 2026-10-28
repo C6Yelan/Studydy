@@ -9,7 +9,6 @@ import { StateView } from "../../ui/StateView";
 import { useConceptContext } from "../material-flow/useConceptContext";
 import { FlowFooter, FlowHeader, FlowStage } from "../material-flow/Flow";
 import "../material-flow/creation.css";
-import { SelectionToggle } from "../../ui/SelectionToggle";
 import { MathText } from "../../ui/MathText";
 import { claimText } from "../../ui/claim-text";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
@@ -32,7 +31,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const [selected, setSelected] = useState(new Set<string>());
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [onlySelected, setOnlySelected] = useState(false);
+  const [selectionFilter, setSelectionFilter] = useState<"all" | "selected" | "unselected">("all");
   const [conceptPage, setConceptPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
   const conceptList = useRef<HTMLDivElement>(null);
@@ -158,7 +157,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     return embedded ? <section className="cards-page">{state}</section>
       : <section className="cards-page creation-page flow-page cards-creation-page">{header}{state}</section>;
   }
-  const visible = view.concepts.filter((item) => (!onlySelected || selected.has(item.concept_id)) && `${item.label} ${item.aliases.join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const visible = view.concepts.filter((item) => (selectionFilter === "all" || selected.has(item.concept_id) === (selectionFilter === "selected")) && `${item.label} ${item.aliases.join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
   const currentPage = Math.min(conceptPage, pageCount);
   const pageConcepts = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -184,7 +183,9 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         <div className="cards-selection-heading">
           <input className="cards-concept-search" type="search" aria-label="搜尋概念" placeholder="搜尋概念…" value={query} onChange={(event) => { setQuery(event.target.value); setConceptPage(1); }} />
           <div className="cards-selection-actions"><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set(view.concepts.map((item) => item.concept_id)))}>全選</button><span>／</span><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set())}>取消全選</button></div>
-          <SelectionToggle pressed={onlySelected} onChange={value => { setOnlySelected(value); setConceptPage(1); }}>{`已選 ${selected.size} / ${view.concepts.length} 個觀念`}</SelectionToggle>
+          <div className="concept-selection-filters">
+            {([["all", "全部", view.concepts.length], ["selected", "已選", selected.size], ["unselected", "未選", view.concepts.length - selected.size]] as const).map(([filter, label, count]) => <button key={filter} type="button" className="secondary-button" aria-pressed={selectionFilter === filter} onClick={() => { setSelectionFilter(filter); setConceptPage(1); }}>{label} {count}</button>)}
+          </div>
         </div>
         <div className="cards-concept-list card-picker-grid" ref={conceptList}>
           {pageConcepts.map((concept) => <div className={`card-picker-option ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>

@@ -92,6 +92,7 @@ function MaterialFlowBody({
   if (route.name === "card-set") return <CardSetPage key={route.cardSetId} apiClient={apiClient} cardSetId={route.cardSetId} materialId={route.materialId} />;
   if (route.name === "materials") return <MaterialLibrary key="library" apiClient={apiClient} />;
   if (route.name === "upload") return <UploadView apiClient={apiClient} />;
+  if (route.name === "material-source-upload") return <UploadView key={route.materialId} apiClient={apiClient} materialId={route.materialId} />;
   if (route.name === "material-sources")
     return (
       <SourceView key={route.materialId} apiClient={apiClient} materialId={route.materialId} />

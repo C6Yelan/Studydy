@@ -263,9 +263,9 @@ for (const width of [1536, 390]) {
       "選擇文件、圖片、音訊、影片或 YouTube 影片，確認來源後再開始分析。",
     );
     await expect(page.locator(".file-drop strong")).toHaveText("將教材拖放到此處，或點擊選取");
-    await expect(page.locator(".file-drop > span:last-child")).toHaveText(
-      "文件 PDF、TXT（每份最大 100.0 MiB） · 可選多份",
-    );
+    await expect(page.locator(".upload-format-summary > span")).toHaveText([
+      "文件：PDF、TXT（每份最大 100.0 MiB）", "可選多份",
+    ]);
     const conversion = page.getByText("非 PDF 教材會先轉換為 PDF；音訊、影片與 YouTube 會轉成逐字稿。請在下一步確認轉換內容。", {
       exact: true,
     });
