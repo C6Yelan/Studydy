@@ -113,7 +113,7 @@ export function UploadView({ apiClient, materialId }: { apiClient: StudydyApiCli
         description="選擇文件、圖片、音訊、影片或 YouTube 影片，確認來源後再開始分析。"
         back={materialId ? <BackLink label="返回教材來源" route={{ name: "material-sources", materialId }} /> : <BackLink label="返回我的教材" route={{ name: "materials" }} />}
       />
-      <LearningSteps labels={uploadSteps} current={0} />
+      <LearningSteps labels={materialId ? [...uploadSteps.slice(0, 2), "更新知識地圖"] : uploadSteps} current={0} />
       <FlowStage
         icon="upload"
         title="選擇教材檔案"
@@ -229,7 +229,7 @@ export function UploadView({ apiClient, materialId }: { apiClient: StudydyApiCli
           <li>
             <span><Icon name="map" size={18} /></span>
             <div>
-              <strong>建立知識地圖</strong>
+              <strong>{materialId ? "更新知識地圖" : "建立知識地圖"}</strong>
               <p>整理重要概念、概念關係與建議學習順序。</p>
             </div>
           </li>
