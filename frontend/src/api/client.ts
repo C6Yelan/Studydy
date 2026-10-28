@@ -846,13 +846,6 @@ export class StudydyApiClient {
       && (value.goal ?? value.pending_goal)?.target_date === date && (value.goal ?? value.pending_goal)?.target_percent === percent);
   }
 
-  async acknowledgeGoalUpdate(materialId: string, revision: string): Promise<LearningGoalView> {
-    return this.json(`/v1/materials/${materialId}/goal/acknowledge-update`, {
-      method: "POST", headers: { Origin: origin(), "Content-Type": "application/json" },
-      body: JSON.stringify({ schema: "learning-goal-ack/v1", knowledge_structure_revision: revision }),
-    }, (value): value is LearningGoalView => validate.learningGoal(value) && value.material_id === materialId);
-  }
-
   getLearningGoals(): Promise<LearningGoalsView> {
     return this.json("/v1/learning-goals", { method: "GET" }, validate.learningGoals);
   }

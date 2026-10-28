@@ -9,17 +9,22 @@
 .cards-study-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; }
 .cards-study-actions .export-entry { margin:0; }
 .cards-head-button, .cards-study-actions .export-entry > button { min-height:36px; padding:0 14px; font-size:13px; }
-.cards-head-button svg { margin-left:4px; transform:rotate(90deg); }
 
-/* 卡片清單下拉。 */
-.card-list-menu { position:relative; }
-.card-list-popover { position:absolute; top:calc(100% + 6px); right:0; z-index:20; display:grid; gap:2px; width:min(320px,calc(100vw - 32px)); max-height:min(60vh,420px); overflow:auto; padding:8px; border:1px solid var(--border-light); border-radius:16px; background:var(--surface); box-shadow:var(--shadow); }
-.card-list-popover input[type="search"] { min-height:36px; margin-bottom:4px; padding:6px 12px; border:1.5px solid var(--border); border-radius:999px; font:inherit; font-size:13px; }
-.card-list-popover button { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; border:0; border-radius:12px; background:transparent; color:var(--text-primary); font-size:14px; text-align:left; overflow-wrap:anywhere; }
-.card-list-popover button:hover { background:var(--page-cool); }
-.card-list-popover button[aria-current=true] { background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-weight:800; }
-.card-list-popover small { flex:none; color:var(--text-muted); font-size:12px; font-weight:800; }
-.card-list-popover p { margin:4px 8px; color:var(--text-muted); font-size:13px; }
+/* 卡片左側清單欄：高度跟卡片一致，欄內自己捲動。 */
+.card-list-column { position:relative; flex:none; align-self:stretch; width:260px; }
+.card-list { position:absolute; inset:0; display:flex; flex-direction:column; gap:6px; padding:10px; border-radius:20px; background:var(--surface); box-shadow:var(--shadow); }
+.card-list input[type="search"] { flex:none; min-height:36px; padding:6px 12px; border:1.5px solid var(--border); border-radius:999px; font:inherit; font-size:13px; }
+.card-list-scroll { display:flex; flex-direction:column; gap:2px; flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+.card-list-scroll button { flex:none; display:flex; align-items:center; gap:8px; padding:8px 10px; border:0; border-radius:12px; background:transparent; color:var(--text-primary); font-size:14px; text-align:left; }
+.card-list-scroll button:hover:not(:disabled) { background:var(--page-cool); }
+.card-list-scroll button[aria-current=true] { background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-weight:800; }
+.card-list-no { flex:none; min-width:1.6em; color:var(--text-muted); font-size:12px; font-weight:800; text-align:right; }
+.card-list-label { min-width:0; overflow-wrap:anywhere; line-height:1.4; }
+.card-list-dot { flex:none; width:8px; height:8px; border-radius:50%; box-shadow:inset 0 0 0 1.5px var(--border); }
+.card-list-dot[data-status="不熟"] { background:var(--coral); box-shadow:none; }
+.card-list-dot[data-status="熟悉"] { background:var(--success); box-shadow:none; }
+.card-list-dot[data-status="已處理"] { background:var(--studydy-blue); box-shadow:none; }
+.card-list p { margin:4px 8px; color:var(--text-muted); font-size:13px; }
 
 .cards-study-stage { min-width:0; outline:none; }
 
@@ -28,6 +33,8 @@
 .card-nav-button { flex:none; display:grid; place-items:center; width:54px; height:54px; padding:0; border:0; border-radius:50%; background:var(--surface); box-shadow:0 6px 22px #1f2a4829; color:var(--studydy-blue); transition:background .15s,color .15s; }
 .card-nav-button:not(:disabled):hover { background:var(--studydy-blue); color:#fff; }
 .card-nav-button:disabled { opacity:.3; }
+.card-nav-button.is-prev { margin-left:auto; }
+.card-nav-button.is-next { margin-right:auto; }
 .card-shell { position:relative; flex:0 1 auto; width:fit-content; min-width:min(480px,100%); max-width:100%; overflow:hidden; border-radius:26px; background:var(--surface); box-shadow:var(--shadow); }
 .card-shell-progress { height:4px; border-radius:0; }
 .card-shell-face { min-width:0; }
@@ -41,7 +48,8 @@
 .card-dock .form-error { position:absolute; bottom:calc(100% + 8px); left:50%; width:max-content; max-width:min(420px,80vw); margin:0; padding:6px 12px; border-radius:12px; background:var(--surface); box-shadow:var(--shadow); transform:translateX(-50%); white-space:normal; text-align:center; }
 
 /* 卡面區：點任一處翻面；下方為頁數小字與浮動操作列保留的空間。 */
-.card-face-flip { padding:14px 20px 112px; cursor:pointer; outline:none; }
+/* 正面與反面共用同一個固定卡框（寬高由 CardNavFrame 量測），翻面不跳動；內容在框內置中。 */
+.card-face-flip { box-sizing:border-box; display:flex; flex-direction:column; justify-content:center; width:calc(var(--card-face-w) + 40px); height:calc(var(--card-face-h) + 126px); padding:14px 20px 112px; cursor:pointer; outline:none; }
 .card-face-flip:focus-visible { box-shadow:inset 0 0 0 3px var(--studydy-blue-soft); }
 .card-practice-front { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; width:min(var(--card-face-w,760px),760px); min-height:min(var(--card-face-h,360px),420px); margin-inline:auto; padding:24px; color:var(--text-primary); text-align:center; }
 .card-practice-front h2 { margin:0; font-size:clamp(28px,3vw,44px); line-height:1.3; overflow-wrap:anywhere; }
@@ -54,7 +62,7 @@
 .visual-card-frame { position:relative; }
 .visual-card { max-height:var(--card-face-h); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable both-edges; }
 .visual-concept-card[hidden] { display:none; }
-.visual-concept-card { display:block; width:max(444px,min(var(--card-face-w),calc(var(--card-face-h) * 1200 / var(--card-canvas-h)))); height:auto; margin-inline:auto; border-radius:16px; }
+.visual-concept-card { display:block; width:max(444px,min(var(--card-face-w),calc(var(--card-face-h) * 1200 / var(--card-canvas-h)))); height:auto; max-width:100%; margin-inline:auto; border-radius:16px; }
 .concept-card-placeholder { display:grid; place-content:center; min-height:240px; text-align:center; }
 .visual-card-more { position:absolute; left:50%; bottom:8px; transform:translateX(-50%); padding:3px 12px; border-radius:999px; background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-size:12px; font-weight:800; pointer-events:none; box-shadow:0 1px 4px #2b456122; }
 .visual-card.has-more { -webkit-mask-image:linear-gradient(#000 calc(100% - 56px),transparent); mask-image:linear-gradient(#000 calc(100% - 56px),transparent); }
@@ -76,14 +84,28 @@
 @keyframes card-drawer-in { from { transform:translateY(16px); opacity:.4; } to { transform:none; opacity:1; } }
 @media (prefers-reduced-motion:reduce) { .card-source-drawer { animation:none; } }
 
+/* 窄螢幕：清單移到卡片上方，變成橫向捲動列。 */
+@media (max-width:1100px) {
+  .card-nav-frame { flex-wrap:wrap; row-gap:16px; }
+  .card-list-column { order:-1; width:100%; height:56px; align-self:auto; }
+  .card-list { flex-direction:row; align-items:center; padding:8px; }
+  .card-list input[type="search"] { display:none; }
+  .card-list-scroll { flex-direction:row; align-items:center; overflow:auto hidden; }
+  .card-list-scroll button { max-width:220px; white-space:nowrap; }
+  .card-list-label { overflow:hidden; text-overflow:ellipsis; }
+  .card-nav-button.is-prev { margin-left:0; }
+  .card-nav-button.is-next { margin-right:0; }
+}
+
 @media (max-width:720px) {
   .cards-study-heading h1 { font-size:18px; }
   .cards-study-actions { justify-content:flex-start; }
   .card-nav-frame { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .card-list-column { display:none; }
   .card-shell { grid-column:1/-1; grid-row:1; width:100%; min-width:0; }
   .card-nav-button.is-prev { grid-column:1; grid-row:2; justify-self:start; }
   .card-nav-button.is-next { grid-column:2; grid-row:2; justify-self:end; }
-  .card-face-flip { padding:12px 12px 8px; }
+  .card-face-flip { width:auto; height:auto; padding:12px 12px 8px; }
   .card-practice-front { width:100%; min-height:260px; padding:20px 12px; }
   .visual-card { max-height:70vh; scrollbar-gutter:auto; }
   .visual-concept-card { width:100%; }

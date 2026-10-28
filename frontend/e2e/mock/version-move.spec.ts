@@ -88,7 +88,7 @@ for (const width of [1440, 1024, 390]) {
     const { reads, posts } = await mockMove(page);
     await page.goto(mapPath);
     const notice = page.getByRole("region", { name: "教材已更新" });
-    await expect(notice).toContainText("卡組與學習進度還在更新前的內容");
+    await expect(notice).toContainText("卡組與學習進度仍是舊版內容");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`update-notice-${width}.png`), animations: "disabled" });
     await notice.getByRole("button", { name: "更新", exact: true }).click();
@@ -155,7 +155,7 @@ test("update completion shows saved structure changes and one secondary move pre
  await expect(page.getByRole('heading',{name:'教材更新完成',exact:true})).toBeVisible();
  await expect(page.getByRole('region',{name:'這次更新改了什麼',exact:true})).toContainText('新增 1 份來源 · 概念 34 → 38 個 · 關係 24 → 29 條');
  const notice=page.getByRole('region',{name:'教材已更新',exact:true});
- await expect(notice).toContainText('卡組與學習進度還在更新前的內容');
+ await expect(notice).toContainText('卡組與學習進度仍是舊版內容');
  const open=page.getByRole('button',{name:'開啟知識地圖',exact:true});
  await expect(page.locator('.processing-page .primary-button')).toHaveCount(1);
  for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
@@ -198,23 +198,23 @@ test("dismissal persists across independent browsers and source/card entries rem
   await expect.poll(() => fixture.reads.length).toBeGreaterThan(0);
   await expect(second.getByRole("region", { name: "教材已更新" })).toHaveCount(0);
   await second.route(`**/v1/materials/${materialId}/sources`, route => json(route, { schema: "material-sources/v1", material_id: materialId, sources: [] }));
-  const view = structureView(oldRevision);
-  const card = { ...summary(), generation: { ...summary().generation, status: "pending", stage: "preparing", completed: 0 } };
-  await second.route(`**/v1/card-sets/${cardSetId}/study`, route => json(route, { ...card, schema: "card-study/v1",
-    source_resolver: decodeURIComponent(view.source_resolver), status: view.status,
-    navigation: view.concepts.map(item => ({ concept_id: item.concept_id, label: item.label, page_count: null })), batch: null }));
-  await second.route(`**/v1/card-sets/${cardSetId}/generation`, route => json(route, card.generation));
-  for (const path of [`/materials/${materialId}/sources`, `/materials/${materialId}/concept-cards/${cardSetId}`]) {
+  await second.route("**/v1/card-sets", route => json(route, { schema: "card-set-list/v1", card_sets: [summary()] }));
+  for (const path of [`/materials/${materialId}/sources`, `/materials/${materialId}/concept-cards`]) {
     await second.goto(path);
+    const cards = path.endsWith("concept-cards");
     const entry = second.getByRole("region", { name: "教材已更新" });
-    await expect(entry).toContainText("卡組與學習進度還在更新前的內容");
-    await expect(entry).toHaveClass("version-move-entry");
+    if (cards) await expect(second.getByRole("button", { name: "舊版內容 · 可更新", exact: true })).toBeVisible();
+    else {
+      await expect(entry).toContainText("卡組與學習進度仍是舊版內容");
+      await expect(entry).toHaveClass("version-move-entry");
+    }
     for (const [width, height] of [[1440, 900], [1024, 768], [390, 844]]) {
       await second.setViewportSize({ width, height });
       expect(await second.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await second.screenshot({ path: testInfo.outputPath(`compact-${path.endsWith("sources") ? "sources" : "cards"}-${width}.png`), animations: "disabled" });
     }
-    await entry.getByRole("button", { name: "更新", exact: true }).click();
+    if (cards) await second.getByRole("button", { name: "舊版內容 · 可更新", exact: true }).click();
+    else await entry.getByRole("button", { name: "更新", exact: true }).click();
     const dialog = second.getByRole("dialog", { name: "更新卡組與學習進度" });
     await expect(dialog).toContainText("雜湊表");
     await dialog.getByRole("button", { name: "關閉更新預覽" }).click();
@@ -343,7 +343,7 @@ test("remaining older items take precedence over an earlier automatic success", 
   await mockMove(page, 2, { value: { ...preview(), automatic_move: { status: "completed", move_id: moveId, error_code: null } } });
   await page.goto(mapPath);
   const notice = page.getByRole("region", { name: "教材已更新" });
-  await expect(notice).toContainText("卡組與學習進度還在更新前的內容");
+  await expect(notice).toContainText("卡組與學習進度仍是舊版內容");
   await notice.getByRole("button", { name: "更新", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "更新卡組與學習進度" })).toContainText("卡組「資料結構重點」");
 });

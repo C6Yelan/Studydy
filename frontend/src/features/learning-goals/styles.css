@@ -11,40 +11,15 @@
 .goal-target-options label.is-selected { border-color: var(--studydy-blue); background: var(--studydy-blue-soft); }
 .goal-target-options strong { font-size: 1.15rem; }
 .goal-target-options span { color: var(--text-secondary); }
-.learning-goal-panel { min-width: 0; display: grid; gap: 18px; overflow-wrap: anywhere; }
-.learning-goal-panel h2, .learning-goal-panel h3, .learning-goal-panel p { margin: 0; }
-.learning-goal-panel h2 { font-size: 1.3rem; }
-.learning-goal-panel h3 { font-size: 1.08rem; }
-.learning-goal-panel p { line-height: 1.65; color: var(--text-secondary); }
-.learning-goal-panel > header, .goal-today > header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
-.learning-goal-panel > header p { margin-top: 6px; }
-.goal-timing { display: flex; flex-wrap: wrap; gap: 16px; }
-.goal-timing strong { color: var(--text-primary); }
-.goal-today, .goal-manual, .goal-preview { display: grid; gap: 12px; padding-top: 18px; border-top: 1px solid var(--border); }
-.goal-warning, .goal-update-notice { padding: 14px 16px; border-radius: 14px; background: var(--warning-soft); }
-.goal-warning .text-button, .goal-update-notice .text-button { margin-top: 6px; }
-.goal-concepts, .goal-preview ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
-.goal-concepts li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
-.goal-concepts li > div { min-width: 0; overflow-wrap: anywhere; }
-.goal-concepts small { display: block; margin-top: 4px; color: var(--text-secondary); }
-.goal-concepts button { flex-shrink: 0; max-width: 100%; white-space: normal; }
-.goal-preview li { padding: 12px 14px; border-radius: 14px; background: var(--page-cool); }
-.goal-preview time { font-weight: 700; margin-right: 10px; }
-.goal-preview-label { color: var(--text-secondary); font-size: .85rem; }
-.goal-preview-actions { display: flex; gap: 10px; justify-content: flex-end; }
-@media (max-width: 720px) {
-  .goal-concepts li { align-items: start; flex-direction: column; gap: 10px; }
-}
-.daily-goal-progress { display: grid; gap: 8px; min-width: 0; }
-.daily-goal-progress p { margin: 0; line-height: 1.6; }
-.daily-goal-progress small { color: var(--text-secondary); line-height: 1.6; }
-.goal-suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.learning-goal-panel { overflow-wrap: anywhere; }
+.learning-goal-panel p { margin: 0; line-height: 1.6; color: var(--text-secondary); }
+.learning-goal-panel .goal-title { color: var(--text-primary); font-weight: 700; font-size: 1.05rem; }
+.goal-warning { padding: 10px 12px; border-radius: 12px; background: var(--warning-soft); }
+.goal-warning strong { color: var(--text-primary); }
+.goal-progress-line { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+.goal-progress-line .studydy-progress { flex: 1; }
+.goal-suggestions { display: grid; gap: 8px; margin-top: 10px; }
 .goal-suggestions button { white-space: normal; }
-
-.goal-summary { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-4); cursor:pointer; min-height:44px; }
-.goal-summary::before { content:"▸"; }
-.goal-details[open] > .goal-summary::before { content:"▾"; }
-.goal-summary h2 { font-size:1rem; }
-.goal-summary > span { color:var(--text-secondary); }
-.goal-details-content { display:grid; gap:18px; padding-top:18px; }
-.goal-details-content > header { display:flex; justify-content:flex-end; }
+.goal-edit { justify-self: start; }
+.daily-goal-progress { display: grid; gap: 6px; min-width: 0; flex: 1 1 220px; }
+.daily-goal-progress small { color: var(--text-secondary); }

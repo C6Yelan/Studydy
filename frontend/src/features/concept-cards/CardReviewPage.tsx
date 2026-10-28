@@ -9,7 +9,7 @@ import { EmptyState } from "../../ui/EmptyState";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { CardMarkButtons, markLabel, useMarkSubmit } from "./CardMarks";
-import { CardListMenu } from "./CardListMenu";
+import { CardList } from "./CardList";
 import { CardNavFrame } from "./CardNavFrame";
 import { Flashcard } from "./Flashcard";
 import { useConceptArtwork } from "./VisualConceptCard";
@@ -48,12 +48,11 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
   }, [apiClient, cardSetId, materialId, materialOnly, reload]);
   const setName = round?.[0]?.card_set_name;
   const description = cardSetId ? setName ? `卡組「${setName}」中標成不熟的卡片` : "這個卡組標成不熟的卡片" : materialOnly ? "這份教材各卡組中標成不熟的卡片" : "所有卡組中標成不熟的卡片";
-  const heading = (actions?: ReactNode, origin?: string | null) => <header className="cards-study-heading card-review-heading">
+  const heading = (origin?: string | null) => <header className="cards-study-heading card-review-heading">
     <div className="cards-study-title">
       <h1>需要加強</h1>
       <span className="cards-study-meta"><span>{description}</span>{origin && <span title={origin}><Icon name="cards" size={15} />{origin}</span>}{notice && <span className="cards-study-notice" role="status">{notice}</span>}</span>
     </div>
-    {actions && <div className="cards-study-actions">{actions}</div>}
   </header>;
   if (loadError) return <section className="card-review-page">
     {backLink}
@@ -70,9 +69,7 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
   const marked = { forgot: [...processed.values()].filter(value => value === "forgot").length, remembered: [...processed.values()].filter(value => value === "remembered").length };
   return <section className="card-review-page">
     {backLink}
-    {heading(round.length > 0 && !done && <CardListMenu disabled={saving}
-      items={round.map((item, i) => ({ key: `${item.card_set_id}:${item.card.concept_id}`, label: item.card.label, current: position === i, status: processed.has(i) ? "已處理" : null }))}
-      onSelect={i => { setEnterLastPage(false); setPosition(i); }} />,
+    {heading(
     // 混合多個卡組時標示這張卡的來源（教材內只寫卡組，全站另附教材）。
     round.length > 0 && !done && !cardSetId ? materialOnly ? round[position].card_set_name : `${round[position].card_set_name} · ${round[position].material_name}` : null)}
     {round.length === 0
@@ -87,6 +84,8 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
           </div>
         </div>
         : <ReviewCard key={`${round[position].card_set_id}:${round[position].card.concept_id}`} apiClient={apiClient} item={round[position]} onBusy={setSaving} processed={processed.has(position)} processedCount={processed.size} savedRating={processed.get(position) ?? null} position={position} total={round.length} enterLastPage={enterLastPage} onMove={direction => { setEnterLastPage(direction < 0); setPosition(value => value + direction); }}
+          list={<CardList disabled={saving} items={round.map((entry, i) => ({ key: `${entry.card_set_id}:${entry.card.concept_id}`, label: entry.card.label, current: position === i, status: processed.has(i) ? "已處理" : null }))}
+            onSelect={i => { setEnterLastPage(false); setPosition(i); }} />}
           onMarked={(rating) => {
             const next = new Map(processed).set(position, rating);
             setProcessed(next); setEnterLastPage(false);
@@ -101,9 +100,9 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
   </section>;
 }
 
-function ReviewCard({ apiClient, item, onMarked, processed, processedCount, savedRating, position, total, onMove, onBusy, enterLastPage }: {
+function ReviewCard({ apiClient, item, list, onMarked, processed, processedCount, savedRating, position, total, onMove, onBusy, enterLastPage }: {
   apiClient: StudydyApiClient; item: CardReviewItem;
-  enterLastPage: boolean;
+  enterLastPage: boolean; list: ReactNode;
   onBusy: (busy: boolean) => void;
   processed: boolean; processedCount: number; savedRating: CardReviewRating | null; position: number; total: number; onMove: (direction: number) => void;
   /** 標記完成後換下一張；null 表示這張已在其他頁面標記過，不重複計次。 */
@@ -162,7 +161,7 @@ function ReviewCard({ apiClient, item, onMarked, processed, processedCount, save
     else if (position + direction >= 0 && position + direction < total) onMove(direction);
   };
   const keys = (event: KeyboardEvent) => {
-    if (event.altKey || event.ctrlKey || event.metaKey || document.querySelector("dialog[open]") || (event.target as HTMLElement).closest("input, textarea, select, [contenteditable=true], details, .is-code, .card-list-menu")) return;
+    if (event.altKey || event.ctrlKey || event.metaKey || document.querySelector("dialog[open]") || (event.target as HTMLElement).closest("input, textarea, select, [contenteditable=true], details, .is-code, .card-list")) return;
     if (event.key === "Enter" && event.target === stage.current) { event.preventDefault(); setBack(value => !value); }
     if (event.key === "1" || event.key === "2") { event.preventDefault(); if (loaded) void mark(event.key === "1" ? "forgot" : "remembered"); }
     if (event.key === "ArrowRight") { event.preventDefault(); move(1); }
@@ -170,7 +169,7 @@ function ReviewCard({ apiClient, item, onMarked, processed, processedCount, save
   };
   const status = processed ? savedRating ? `本輪已標成${markLabel(savedRating)}，回看不會重複記錄。` : "這張卡已在其他頁面標記，本輪只供回看。" : busy ? "正在保存…" : null;
   return <article ref={stage} tabIndex={-1} onKeyDown={keys} className="card-review-stage cards-study-stage" aria-label={`需要加強：${item.card.label}`}>
-    <CardNavFrame onPrev={() => move(-1)} onNext={() => move(1)} prevDisabled={busy || !loaded || position === 0 && localPage === 0} nextDisabled={busy || !loaded || position === total - 1 && localPage === pages - 1}
+    <CardNavFrame list={list} onPrev={() => move(-1)} onNext={() => move(1)} prevDisabled={busy || !loaded || position === 0 && localPage === 0} nextDisabled={busy || !loaded || position === total - 1 && localPage === pages - 1}
       progress={{ value: processedCount, max: total, label: "已看完的張數" }}
       dock={<>
         <CardMarkButtons current={savedRating} disabled={busy || !loaded || !back || processed} hotkeys title={back ? undefined : "先翻到背面查看重點，再標記。"} onMark={(rating) => void mark(rating)} label={`標記「${item.card.label}」熟不熟`} />

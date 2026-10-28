@@ -2,8 +2,7 @@ import { MathText } from "../../ui/MathText";
 import { ExportControls } from "../exports/ExportControls";
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { ConceptDifficulty, DiagnosisFinding, MapProgressView, KnowledgeOutlineView } from "../../api/contracts";
-import { SourceButton, sourceLinks } from "../../ui/SourceButton";
+import type { ConceptDifficulty, MapProgressView, KnowledgeOutlineView } from "../../api/contracts";
 import "./styles.css";
 
 function useReport<T>(read: () => Promise<T>) {
@@ -76,47 +75,49 @@ export function LearningDiagnosis({ api, materialId, revision, onReview, disable
   const { data, error, retry, pending } = report;
   const counts = (id: string) => {
     const value = difficulty.data?.concepts.find(item => item.concept_id === id);
-    return value ? `累計答對 ${value.answer_count - value.incorrect_count}／${value.answer_count} 題` : difficulty.error ? "累計作答暫時無法讀取" : difficulty.data ? "尚無累計作答資料" : "累計作答讀取中";
+    return value ? `答對 ${value.answer_count - value.incorrect_count}/${value.answer_count}` : difficulty.error ? "累計作答暫時無法讀取" : difficulty.data ? "尚無作答資料" : "讀取中";
   };
-  const points = (finding?: DiagnosisFinding) => finding && finding.points.length > 0 && <details className="diagnosis-point-details">
-    <summary>查看 {finding.points.length} 個重點與來源</summary>
-    <ul className="diagnosis-claims">{finding.points.map(point => <li key={point.claim_id}>
-      <p><MathText text={point.title}/></p>
-      <p>累計答對 {point.correct_count}／{point.answer_count} 題</p>
-      {!point.completed && <p>需連續答對 {point.required_consecutive_correct} 題才算補強完成，目前連續 {point.consecutive_correct_count} 題。</p>}
-      <div className="diagnosis-sources">{sourceLinks(point.evidence).map(evidence => <SourceButton key={evidence.evidence_id} apiClient={api} resolver={data!.source_resolver} evidence={evidence} />)}</div>
-    </li>)}</ul>
-  </details>;
-  return <section className="learning-diagnosis" aria-label="學習診斷">
-    <header className="diagnosis-heading"><h2>待加強</h2>
-      {data && <details className="diagnosis-export"><summary aria-label="更多診斷操作">⋯</summary>
-        <ExportControls label="匯出學習診斷" options={[{ value: "pdf", label: "PDF" }]}
-          download={() => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${revision}/learning-diagnosis/export/pdf`)} />
-      </details>}
+  const personal = (id: string) => difficulty.data?.concepts.find(item => item.concept_id === id)?.personal_difficulty && <span className="difficulty-badge is-personal">常答錯</span>;
+  const labelOf = (id: string) => concepts.find(concept => concept.concept_id === id)?.label ?? id;
+  const strengths = data?.strengths ?? [];
+  const allIds = [...new Set([...pending.map(item => item.concept_id), ...strengths.map(item => item.concept_id),
+    ...(progress?.concept_states.filter(state => state.attempts > 0).map(state => state.concept_id) ?? [])])];
+  const [picked, setPicked] = useState<"pending" | "mastered" | "all" | null>(null);
+  const [query, setQuery] = useState("");
+  const tab = picked ?? (pending.length > 0 ? "pending" : "all");
+  const match = (label: string) => label.toLowerCase().includes(query.trim().toLowerCase());
+  const tabs = [{ id: "pending" as const, label: "待加強", count: pending.length }, { id: "mastered" as const, label: "已掌握", count: strengths.length },
+    { id: "all" as const, label: "全部", count: allIds.length }];
+  const failed = error ? <p role="alert">診斷暫時無法讀取。{error}<button className="text-button" type="button" onClick={retry}>重新讀取診斷</button></p>
+    : !data && <p role="status">正在讀取學習診斷…</p>;
+  const empty = tab === "pending" ? "目前沒有待加強的概念。" : tab === "mastered" ? "依現行完成規則，目前還沒有已掌握的概念。" : "還沒有測驗紀錄。";
+  const rows = !data ? [] : tab === "pending" ? pending.filter(item => match(item.label)).map(concept => {
+    const finding = data!.weaknesses.find(item => item.concept_id === concept.concept_id);
+    return <li key={concept.concept_id}><div><strong>{concept.label}</strong>{personal(concept.concept_id)}
+      <p>{finding ? "" : "尚未完成 · "}{counts(concept.concept_id)}</p>
+    </div><button type="button" className="secondary-button" aria-label={`複習 ${concept.label}`} disabled={disabled} onClick={() => onReview(concept.concept_id)}>複習</button></li>;
+  }) : tab === "mastered" ? strengths.filter(item => match(item.label)).map(finding => <li key={finding.concept_id}>
+    <div><strong>{finding.label}</strong>{personal(finding.concept_id)}<p>{counts(finding.concept_id)}</p></div>
+    <button className="secondary-button" type="button" aria-label={`再次練習 ${finding.label}`} disabled={disabled} onClick={() => onReview(finding.concept_id)}>練習</button></li>)
+    : allIds.filter(id => match(labelOf(id))).map(id => {
+      const done = strengths.some(item => item.concept_id === id) || progress?.concept_states.some(state => state.concept_id === id && state.status === "completed");
+      return <li key={id}><div><strong>{labelOf(id)}</strong><p>{counts(id)} · {done ? "已完成" : "尚未完成"}</p></div>
+        <button className="secondary-button" type="button" disabled={disabled} onClick={() => onReview(id)}>查看與練習</button></li>;
+    });
+  return <section className="review-block learning-diagnosis" aria-label="測驗紀錄">
+    <header className="review-block-heading"><h2>測驗紀錄</h2>
+      {data && <div className="review-block-action"><ExportControls label="匯出學習診斷" triggerLabel="匯出" options={[{ value: "pdf", label: "PDF" }]}
+        download={() => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${revision}/learning-diagnosis/export/pdf`)} /></div>}
     </header>
-    {error ? <p role="alert">診斷暫時無法讀取。{error}<button className="text-button" type="button" onClick={retry}>重新讀取診斷</button></p>
-      : !data ? <p role="status">正在讀取學習診斷…</p> : <>
+    {data && <div className="review-tabs" role="group" aria-label="紀錄類別">
+      {tabs.map(item => <button key={item.id} type="button" className={tab === item.id ? "is-active" : ""} aria-pressed={tab === item.id} onClick={() => setPicked(item.id)}>{item.label} {item.count}</button>)}
+    </div>}
+    {data && allIds.length > 8 && <input className="review-search" type="search" aria-label="搜尋概念名稱" placeholder="搜尋概念名稱" value={query} onChange={event => setQuery(event.currentTarget.value)} />}
+    <div className="review-block-body">
+      {failed || <>
         {difficulty.error && <p role="alert">累計作答暫時無法讀取。{difficulty.error}<button className="text-button" type="button" onClick={difficulty.retry}>重新讀取難度</button></p>}
-        {pending.length === 0 ? <p>目前沒有待加強的概念。</p> : <ul className="diagnosis-point-list">{pending.map(concept => {
-          const finding = data.weaknesses.find(item => item.concept_id === concept.concept_id);
-          const personal = difficulty.data?.concepts.find(item => item.concept_id === concept.concept_id)?.personal_difficulty;
-          const recommendation = data.recommendations.find(item => item.concept_id === concept.concept_id);
-          return <li key={concept.concept_id}><div><strong>{concept.label}</strong>{personal && <span className="difficulty-badge is-personal">常答錯</span>}
-            <p>{finding ? `${finding.points.length} 個重點待加強 · ` : "尚未完成 · "}{counts(concept.concept_id)}</p>
-            {recommendation && <p><MathText text={recommendation.reason}/></p>}
-            {points(finding)}
-          </div><button type="button" className="secondary-button" disabled={disabled} onClick={() => onReview(concept.concept_id)}>複習 {concept.label}</button></li>;
-        })}</ul>}
-        <details className="diagnosis-mastered"><summary>已掌握（{data.strengths.length} 個概念）</summary>
-          {data.strengths.length === 0 ? <p>依現行完成規則，目前還沒有已掌握的概念。</p> : <ul className="diagnosis-point-list">{data.strengths.map(finding => <li key={finding.concept_id}><div><strong>{finding.label}</strong>{difficulty.data?.concepts.find(item => item.concept_id === finding.concept_id)?.personal_difficulty && <span className="difficulty-badge is-personal">常答錯</span>}<p>{counts(finding.concept_id)}</p>{points(finding)}</div>
-            <button className="secondary-button" type="button" disabled={disabled} onClick={() => onReview(finding.concept_id)}>再次練習 {finding.label}</button></li>)}</ul>}
-        </details>
+        {rows.length === 0 ? <p>{query.trim() ? "沒有符合的概念。" : empty}</p> : <ul className="diagnosis-point-list">{rows}</ul>}
       </>}
-        <details className="review-records"><summary>測驗紀錄</summary>
-          {!progress?.concept_states.some(state => state.attempts > 0) ? <p>還沒有測驗紀錄。</p> : <ul className="diagnosis-point-list">{progress.concept_states.filter(state => state.attempts > 0).map(state => <li key={state.concept_id}>
-            <div><strong>{concepts.find(concept => concept.concept_id === state.concept_id)?.label}</strong><p>{counts(state.concept_id)} · {state.status === "completed" ? "已完成" : "尚未完成"}</p></div>
-            <button className="secondary-button" type="button" disabled={disabled} onClick={() => onReview(state.concept_id)}>查看與練習</button>
-          </li>)}</ul>}
-        </details>
+    </div>
   </section>;
 }

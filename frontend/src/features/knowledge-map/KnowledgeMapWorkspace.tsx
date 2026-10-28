@@ -1,7 +1,8 @@
 import { MapExports } from "../exports/MapExports";
 import { relationStyles } from "./map-appearance";
 import { DifficultyBadge, LearningDiagnosis, useLearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
-import { LearningGoalPanel } from "../learning-goals/LearningGoalPanel";
+import { GoalEditorHost, LearningGoalBlock, TodayConceptsBlock, useLearningGoal } from "../learning-goals/LearningGoalPanel";
+import { DailyGoalProgress } from "../learning-goals/DailyGoalProgress";
 import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import type { AppRoute } from "../../app/routes";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
@@ -828,11 +829,6 @@ function MapGraph({
               </span>
             ))}
           </div>
-          {projection.totalNodes <= 1 && view.concepts.length > 1 && (
-            <p className="map-limit-note" role="status">
-              這個概念目前沒有直接相連的概念。可從「學習導覽」選擇其他{regions && regions.regions.length > 1 ? "區域或" : ""}概念繼續探索。
-            </p>
-          )}
           {(nodes.length < projection.totalNodes || edges.length < projection.totalRelations) && (
             <p className="map-limit-note" role="status">
               兩層範圍：{nodes.length}／{projection.totalNodes} 個概念、{edges.length}／
@@ -916,22 +912,30 @@ function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadi
   onReloadProgress: () => void; isStartingStudy: boolean; onStartStudy: (id: string) => void;
 }) {
   const diagnosis = useLearningDiagnosis(apiClient, materialId, view.knowledge_structure_revision, difficulty, progress, view.concepts);
+  const goal = useLearningGoal(apiClient, materialId);
   const nextLearningConcept = view.concepts.find(concept => concept.concept_id === (progress ? progress.learning_path[0] : view.initial_learning_path[0]?.concept_id));
+  const completedCount = progress?.concept_states.filter(state => state.status === "completed").length ?? 0;
+  const startId = nextLearningConcept?.concept_id ?? view.initial_learning_path[0]?.concept_id;
+  const hasToday = !!goal.goal;
   return <div className="review-diagnosis">
-            <section className="review-next surface" aria-label="下一步">
-              <header><h2>下一步</h2></header>
-              {isLoadingProgress ? <p role="status">正在讀取學習進度…</p> : progressMessage ? <p>重新讀取進度後，即可接續學習。</p> : <>
-                <p>已完成 {progress?.concept_states.filter(state => state.status === "completed").length ?? 0}／{view.concepts.length} 個概念
-                  · {diagnosis.data ? `待加強 ${diagnosis.pending.length} 個` : diagnosis.error ? "待加強暫時無法讀取" : "正在讀取待加強概念…"}</p>
-                <Progress value={progress?.concept_states.filter(state => state.status === "completed").length ?? 0} max={view.concepts.length || 1} aria-label="概念學習進度" />
-                <p>{nextLearningConcept ? `接下來：${nextLearningConcept.label}` : progress ? "目前路線已完成，可展開紀錄再次練習。" : "從第一個概念開始學習。"}</p>
-                {(nextLearningConcept || (!progress && view.initial_learning_path[0])) && <button className="primary-button" type="button" disabled={isStartingStudy} onClick={() => onStartStudy(nextLearningConcept?.concept_id ?? view.initial_learning_path[0].concept_id)}>{isStartingStudy ? "正在接續學習…" : "繼續學習"}</button>}
-              </>}
-            </section>
-            <LearningGoalPanel key={materialId} api={apiClient} materialId={materialId} />
-            <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} onReview={onStartStudy} disabled={isStartingStudy || isLoadingProgress}
-              difficulty={difficulty} progress={progress} concepts={view.concepts} report={diagnosis} />
-          </div>;
+    <section className="review-summary" aria-label="學習進度">
+      {isLoadingProgress ? <p role="status">正在讀取學習進度…</p> : progressMessage ? <p>重新讀取進度後，即可接續學習。</p> : <>
+        {goal.goal ? <DailyGoalProgress stage={goal.goal.today_stage} stageKey={materialId} /> : <div className="daily-goal-progress">
+          <span>已完成 {completedCount}／{view.concepts.length} 個概念</span>
+          <Progress value={completedCount} max={view.concepts.length || 1} aria-label="概念學習進度" />
+        </div>}
+        <p className="review-next-concept">{nextLearningConcept ? `接下來：${nextLearningConcept.label}` : progress ? "目前路線已完成，可再次練習。" : "從第一個概念開始學習。"}</p>
+        {startId && <button className="primary-button" type="button" disabled={isStartingStudy} onClick={() => onStartStudy(startId)}>{isStartingStudy ? "正在接續學習…" : "繼續學習"}</button>}
+      </>}
+    </section>
+    <div className={`review-grid${hasToday ? "" : " no-today"}`}>
+      {hasToday && <TodayConceptsBlock state={goal} />}
+      <LearningGoalBlock state={goal} />
+      <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} onReview={onStartStudy} disabled={isStartingStudy || isLoadingProgress}
+        difficulty={difficulty} progress={progress} concepts={view.concepts} report={diagnosis} />
+    </div>
+    <GoalEditorHost state={goal} />
+  </div>;
 }
 
 export function KnowledgeMapWorkspace({
@@ -1251,7 +1255,7 @@ export function KnowledgeMapWorkspace({
   );
   return (
     <section
-      className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}
+      className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${mode === "review" ? " is-review-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}
     >
       <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} materialName={materialName} current={mode === "review" ? "review" : "knowledge-map"} assessmentDisabled={isStartingStudy || isLoadingProgress} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
       {progressMessage && (

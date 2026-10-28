@@ -22,7 +22,6 @@ async function openSources(page: Page) {
 
 async function showCardList(page: Page) {
   const list = page.getByRole("navigation", { name: "選擇概念卡" });
-  if (!await list.isVisible()) await page.getByRole("button", { name: "卡片清單", exact: true }).click();
   await expect(list).toBeVisible();
 }
 
@@ -419,7 +418,7 @@ test("mobile keeps review status, long content and sources usable without page o
   await page.setViewportSize({ width: 390, height: 844 });
   await mockCards(page, { saved: true, long: true });
   await page.goto(`/concept-cards/${cardSetId}`);
-  await expect(page.getByText("教材已更新。此卡組保留建立時的教材內容與來源。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "舊版內容 · 更新此卡組" })).toBeVisible();
   await showCardBack(page);
   await openSources(page);
   await expect(page.locator(".flashcard-content")).toContainText("x != 0");
@@ -546,7 +545,7 @@ test("library stays aligned and card review keeps compact content and controls",
   const controls = page.locator('.card-dock');
   await expect(controls).toContainText('1 / 2');
   const header = page.locator('.cards-study-heading');
-  for (const name of ['洗牌重看', '卡片清單', '匯出整組概念卡']) await expect(header.getByRole('button', {name, exact: true})).toBeVisible();
+  for (const name of ['洗牌重看', '匯出整組概念卡']) await expect(header.getByRole('button', {name, exact: true})).toBeVisible();
   await page.setViewportSize({width:390,height:844});
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   // 手機：圓鈕在卡片下方左右，操作列不浮動。
@@ -613,7 +612,7 @@ test("card sources keep distinct files on the same page and recover after source
   await expect(links).toHaveCount(2);
   const positions = await links.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().y));
   expect(Math.abs(positions[0] - positions[1])).toBeLessThanOrEqual(1);
-  await page.getByRole("button", { name: "A.pdf · 第 1 頁 · 引用 2 次", exact: true }).click();
+  await page.getByRole("button", { name: "A.pdf · 第 1 頁", exact: true }).click();
   await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", `/v1/artifacts/${artifactId}#page=1`);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "B.pdf · 第 1 頁", exact: true }).click();
@@ -925,7 +924,7 @@ test("whole PNG card exports grounded content and preserves reading navigation",
   await openSources(page);
   await page.getByRole("button", { name: "下載 PNG" }).click();
   const download = await downloaded;
-  expect(download.suggestedFilename()).toBe("堆疊（Stack）-1.png");
+  expect(download.suggestedFilename()).toBe("資料結構講義-01-堆疊（Stack）-1.png");
   const stream = (await download.createReadStream())!;
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
@@ -1862,11 +1861,10 @@ test("whole deck export sends bounded batches for 148 concepts and preserves eve
   await page.route(`**/v1/card-sets/${cardSetId}/exports/${uid}/download`, route =>
     route.fulfill({ status: 200, contentType: "application/zip", headers: { "Content-Disposition": "attachment; filename*=UTF-8''cards.zip" }, body: "zip" }));
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
-  const controls = page.getByRole("dialog", { name: "匯出整組概念卡" });
+  const controls = page.getByRole("menu", { name: "匯出整組概念卡" });
     await page.getByRole("button", { name: "匯出整組概念卡", exact: true }).click();
-  await controls.getByRole("radio", { name: "全部卡面 PNG（ZIP）" }).check();
   const download = page.waitForEvent("download");
-  await controls.getByRole("button", { name: "匯出", exact: true }).click();
+  await controls.getByRole("menuitem", { name: "全部卡面 PNG（ZIP）", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("cards.zip");
   expect(new Set(images.map(i => i.concept_id)).size).toBe(148);
   expect(images.every(i => i.png.startsWith("iVBOR"))).toBe(true);
@@ -1893,12 +1891,12 @@ for (const [reason, status, message] of [
       return failure(route);
     });
     await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
-    const controls = page.getByRole("dialog", { name: "匯出整組概念卡" });
+    const controls = page.getByRole("menu", { name: "匯出整組概念卡" });
     await page.getByRole("button", { name: "匯出整組概念卡", exact: true }).click();
-    await controls.getByRole("button", { name: "匯出", exact: true }).click();
+    await controls.getByRole("menuitem", { name: "Anki（.apkg）", exact: true }).click();
     await expect(controls.getByRole("alert")).toContainText(message);
     expect(cancelled).toBe(reason === "EXPORT_ACTIVE_LIMIT" ? 0 : 1);
-    await expect(controls.getByRole("button", { name: "匯出", exact: true })).toBeEnabled();
+    await expect(controls.getByRole("menuitem", { name: "Anki（.apkg）", exact: true })).toBeEnabled();
   });
 }
 
@@ -1975,19 +1973,19 @@ test("strengthening can skip and revisit, but records each concept once and comp
   expect(posts.map(post => post.body.rating)).toEqual(["remembered", "forgot"]);
 });
 
-test("PNG names use cleaned concept titles and resolve case-insensitive duplicates in deck order", async ({ page }) => {
+test("PNG names include material and deck order with cleaned concept titles", async ({ page }) => {
   const fixture = await mockCards(page, { saved: true });
   fixture.view.relations = [];
   fixture.view.concepts[0].label = ' .A:/ ';
   fixture.view.concepts[1].label = 'a*';
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
-  for (const name of ["A.png", "a-2.png"]) {
+  for (const name of ["資料結構講義-01-A.png", "資料結構講義-02-a.png"]) {
     await showCardBack(page);
     const download = page.waitForEvent("download");
     await openSources(page);
     await page.getByRole("button", { name: "下載 PNG", exact: true }).click();
     expect((await download).suggestedFilename()).toBe(name);
-    if (name === "A.png") await page.getByRole("button", { name: "下一張", exact: true }).click();
+    if (name === "資料結構講義-01-A.png") await page.getByRole("button", { name: "下一張", exact: true }).click();
   }
 });
 

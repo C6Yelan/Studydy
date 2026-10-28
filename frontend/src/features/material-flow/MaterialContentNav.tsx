@@ -116,5 +116,5 @@ export function MaterialContentNav({ apiClient, materialId, mapRoute, current, o
       {mapRoute && !hideQuestionAnswer && <MaterialTools key={`${materialId}:${mapRoute.structureRevision}`} api={apiClient} materialId={materialId} revision={mapRoute.structureRevision} />}
     </div>
   </header>
-  <VersionMoveNotice apiClient={apiClient} materialId={materialId} compact={!updateCompleted && (current === "sources" || current === "concept-cards")}/></>;
+  <VersionMoveNotice apiClient={apiClient} materialId={materialId} compact={!updateCompleted && current === "sources"} entryHidden={current === "concept-cards"}/></>;
 }

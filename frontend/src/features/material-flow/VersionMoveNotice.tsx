@@ -25,7 +25,11 @@ function UnmappedList({ title, items }: { title: string; items: VersionMoveUnmap
 }
 
 // 預覽也包含自動承接與上一入口；沒有待移項目時仍可顯示完成與返回。
-export function VersionMoveNotice({ apiClient, materialId, compact = false }: { apiClient: StudydyApiClient; materialId: string; compact?: boolean }) {
+// 概念卡頁不放頁首更新入口，改由各卡組的「可更新」標籤送出這個事件，只預選那個卡組。
+export const OPEN_CARD_SET_UPDATE = "studydy:update-card-set";
+export function openCardSetUpdate(cardSetId: string) { window.dispatchEvent(new CustomEvent(OPEN_CARD_SET_UPDATE, { detail: cardSetId })); }
+
+export function VersionMoveNotice({ apiClient, materialId, compact = false, entryHidden = false }: { apiClient: StudydyApiClient; materialId: string; compact?: boolean; entryHidden?: boolean }) {
   const launch = useStudyStart(apiClient, materialId);
   const material = rememberedMaterial(apiClient, materialId);
   const head = material?.head_revision ?? null;
@@ -62,6 +66,16 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false }: { 
     void load();
     return () => { cancelled = true; clearTimeout(timer); };
   }, [apiClient, materialId, head, reload]);
+
+  useEffect(() => {
+    const openFor = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (!preview?.card_sets.some(item => item.card_set_id === id && item.movable)) return;
+      setSelected(new Set([id])); setIncludeStudy(false); setError(null); setOpen(true);
+    };
+    window.addEventListener(OPEN_CARD_SET_UPDATE, openFor);
+    return () => window.removeEventListener(OPEN_CARD_SET_UPDATE, openFor);
+  }, [preview]);
 
   const pending = !!preview && (
     !!preview.preview_digest && (preview.card_sets.length > 0 || preview.study !== null)
@@ -133,10 +147,10 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false }: { 
   return <>
 
     {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
-    {showNotice && <section className={compact ? "version-move-entry" : "version-move-notice version-move-banner"} aria-label="教材已更新">
+    {showNotice && !entryHidden && <section className={compact ? "version-move-entry" : "version-move-notice version-move-banner"} aria-label="教材已更新">
       {!compact && <span className="version-move-badge"><Icon name="sparkle" size={16}/>教材已更新</span>}
       <div className="version-move-description">
-        <p>{automaticPending ? "正在一起更新卡組和學習進度…" : pending ? "卡組與學習進度還在更新前的內容"
+        <p>{automaticPending ? "正在一起更新卡組和學習進度…" : pending ? "教材有新版本，卡組與學習進度仍是舊版內容"
           : automaticDone ? "卡組和學習進度已一起更新" : preview?.automatic_move?.status === "failed" ? "卡組與學習進度未能自動更新。" : "可以開啟更新前的卡組與學習紀錄。"}</p>
         {!compact && !!preview?.blocking_reasons.length && <p className="version-move-note">{preview.blocking_reasons.map(reason => ({
           unmapped_cards: `${reason.count} 張卡無法完整帶過去`,

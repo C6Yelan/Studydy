@@ -16,7 +16,8 @@ for (const width of [1366, 390]) {
     await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText(hard.reason);
     await page.keyboard.press("Escape");
     await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-    await expect(page.getByRole("region", { name: "學習診斷" })).toContainText("目前沒有待加強的概念");
+    await page.getByRole("region", { name: "測驗紀錄" }).getByRole("button", { name: /^待加強 / }).click();
+    await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("目前沒有待加強的概念");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 }
@@ -31,40 +32,10 @@ test("personal difficulty is independent of structural difficulty", async ({ pag
   await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("答錯率 67%（2 / 3 題）");
   await page.keyboard.press("Escape");
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  const difficulties = page.getByRole("region", { name: "學習診斷" });
+  const difficulties = page.getByRole("region", { name: "測驗紀錄" });
   await expect(difficulties).toContainText("常答錯");
-  await expect(difficulties).toContainText("累計答對 1／3 題");
+  await expect(difficulties).toContainText("答對 1/3");
   await expect(difficulties.getByRole("button", { name: "複習 Stack" })).toBeEnabled();
-});
-
-for (const width of [1366, 390]) test(`material diagnosis lists full titles, real counts and sources at ${width}px`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 900 });
-  await mockKnowledgeMapApi(page);
-  const point = { claim_id: firstClaim, title: "後進先出的操作順序：最後放入的項目會最先取出。", consecutive_correct_count: 1, required_consecutive_correct: 2, completed: false, answer_count: 3, correct_count: 1, latest_is_correct: true,
-    evidence: structureView().concepts[0].claims[0].evidence.map(({ evidence_id, page }) => ({ evidence_id, page })) };
-  await page.route("**/concept-difficulty", route => json(route, { ...difficultyView(materialId, structureRevision), concepts: [{ ...hard, personal_difficulty: true, answer_count: 3, incorrect_count: 2 }] }));
-  const finding = { concept_id: firstConcept, label: "Stack", points: [point] };
-  await page.route("**/learning-diagnosis", route => json(route, { ...diagnosisView(materialId, structureRevision),
-    weaknesses: [finding], recommendations: [{ concept_id: firstConcept, label: "Stack", reason: "1 個重點最近答錯。" }] }));
-  await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  const diagnosis = page.getByRole("region", { name: "學習診斷", exact: true });
-  await expect(diagnosis.getByRole("heading", { name: "待加強", exact: true })).toBeVisible();
-  await expect(diagnosis.locator(":scope > ul > li")).toHaveCount(1);
-  await expect(diagnosis).toContainText("累計答對 1／3 題");
-  await expect(diagnosis.getByText(point.title)).not.toBeVisible();
-  await diagnosis.locator(".diagnosis-point-details > summary").click();
-  await expect(diagnosis.getByText(point.title)).toBeVisible();
-  await expect(diagnosis).toContainText("需連續答對 2 題才算補強完成，目前連續 1 題");
-  await diagnosis.getByRole("button", { name: "查看第 1 頁來源" }).click();
-  await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", /#page=1$/);
-  await page.keyboard.press("Escape");
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: test.info().outputPath("diagnosis-points.png"), fullPage: true });
-  await page.reload();
-  await diagnosis.locator(".diagnosis-point-details > summary").click();
-  await expect(diagnosis.getByText(point.title)).toBeVisible();
 });
 
 test("recommendations preserve the three supplied concepts and their review targets", async ({ page }) => {
@@ -76,8 +47,8 @@ test("recommendations preserve the three supplied concepts and their review targ
   await page.route("**/learning-diagnosis", route => json(route, { ...diagnosisView(materialId, structureRevision), recommendations }));
   await page.goto(mapPath);
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  const section = page.getByRole("region", { name: "學習診斷" });
-  await expect(section.locator(":scope > ul > li strong")).toHaveText(recommendations.map(item => item.label));
+  const section = page.getByRole("region", { name: "測驗紀錄" });
+  await expect(section.locator(".diagnosis-point-list > li strong")).toHaveText(recommendations.map(item => item.label));
   const start = page.waitForRequest(request => request.method() === "POST" && /\/study-start$/.test(new URL(request.url()).pathname));
   await section.getByRole("button", { name: /^複習/ }).first().click();
   expect((await start).postDataJSON().current_concept_id).toBe(recommendations[0].concept_id);
@@ -94,9 +65,8 @@ test("diagnosis exports a PDF summary for the current material revision", async 
   });
   await page.goto(mapPath);
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  await page.getByLabel("更多診斷操作").click();
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "匯出學習診斷（PDF）", exact: true }).click();
+  await page.getByRole("button", { name: "匯出（PDF）", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("diagnosis.pdf");
   expect(path).toBe(`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/learning-diagnosis/export/pdf`);
 });
@@ -106,10 +76,11 @@ test("completed personal difficulty remains mastered despite a backend recommend
   await page.route("**/concept-difficulty", route => json(route, { ...difficultyView(materialId, structureRevision), concepts: [{ ...hard, personal_difficulty: true, answer_count: 6, incorrect_count: 3 }] }));
   await page.route("**/learning-diagnosis", route => json(route, { ...diagnosisView(materialId, structureRevision), strengths: [{ concept_id: firstConcept, label: "Stack", points: [{ claim_id: firstClaim, title: "已完成的重點", answer_count: 6, correct_count: 3, latest_is_correct: true, consecutive_correct_count: 2, required_consecutive_correct: 2, completed: true, evidence: [] }] }], recommendations: [{ concept_id: firstConcept, label: "Stack", reason: "答錯 3/6 題，是你的難點。" }] }));
   await page.goto(mapPath); await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  await expect(page.getByRole("region", { name: "下一步" })).toContainText("待加強 0 個");
-  const diagnosis = page.getByRole("region", { name: "學習診斷" });
+  await expect(page.getByRole("region", { name: "測驗紀錄" }).getByRole("button", { name: "待加強 0", exact: true })).toBeVisible();
+  const diagnosis = page.getByRole("region", { name: "測驗紀錄" });
+  await diagnosis.getByRole("button", { name: /^待加強 / }).click();
   await expect(diagnosis).toContainText("目前沒有待加強的概念");
-  await diagnosis.locator(".diagnosis-mastered > summary").click();
-  await expect(diagnosis.locator(".diagnosis-mastered")).toContainText("Stack常答錯");
-  await expect(diagnosis.locator(".diagnosis-mastered")).toContainText("累計答對 3／6 題");
+  await diagnosis.getByRole("button", {name:/^已掌握 /}).click();
+  await expect(diagnosis).toContainText("Stack常答錯");
+  await expect(diagnosis).toContainText("答對 3/6");
 });

@@ -16,21 +16,21 @@ test("a real goal leads through source reading and answers without completing th
 
   await page.goto(mapPath);
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  const goalPanel = page.getByRole("region", { name: "學習目標與每日關卡" });
+  const goalPanel = page.locator(".review-diagnosis");
   await goalPanel.getByRole("button", { name: "設定學習目標", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "設定學習目標", exact: true });
   await editor.getByLabel("目標日期", { exact: true }).fill(data.target_date);
   await editor.getByRole("radio", { name: /60%/ }).check();
   await editor.getByRole("button", { name: "儲存目標", exact: true }).click();
   await expect(goalPanel).toContainText("前掌握 60%");
-  const today = goalPanel.getByRole("region", { name: "今天的關卡", exact: true });
-  await expect(today).toContainText("今天學 1 個重點 · 已完成 0");
-  await expect(today).toContainText("Signals");
+  const today = page.getByRole("region", { name: "學習進度", exact: true });
+  await expect(today).toContainText("今天 0/1 個重點");
+  await expect(page.getByRole("region", { name: "今天的概念", exact: true })).toContainText("Signals");
 
   // 設定目標只保存計畫；題組仍等實際開始學習時建立。
   const setsBefore = await (await page.request.get(`/v1/study-sessions/${data.session}/assessment-sets`)).json();
   expect(setsBefore.sets).toEqual([]);
-  await today.getByRole("button", { name: "學習 Signals", exact: true }).click();
+  await page.getByRole("region", { name: "今天的概念", exact: true }).getByRole("button", { name: "學習 Signals", exact: true }).click();
   await expect(page).toHaveURL(/assessment-sets\/[0-9a-f-]+$/);
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   const setId = new URL(page.url()).pathname.split("/").at(-1)!;
@@ -62,12 +62,12 @@ test("a real goal leads through source reading and answers without completing th
   await expect(goalPanel.getByText("學習目標已達成。", { exact: true })).toBeVisible();
   await expect(goalPanel.getByRole("progressbar", { name: "學習目標進度", exact: true })).toHaveAttribute("aria-valuetext", "已完成 2／需完成 2 個重點");
   await expect(today).toContainText("今日關卡已完成");
-  await expect(today).toContainText("已完成 2");
+  await expect(today).toContainText("今天 2/1 個重點");
   await page.reload();
   await expect(goalPanel.getByText("學習目標已達成。", { exact: true })).toBeVisible();
   await expect(goalPanel.getByRole("progressbar", { name: "學習目標進度", exact: true })).toHaveAttribute("aria-valuetext", "已完成 2／需完成 2 個重點");
   await expect(today).toContainText("今日關卡已完成");
-  await expect(today).toContainText("已完成 2");
+  await expect(today).toContainText("今天 2/1 個重點");
 
   const saved = await (await page.request.get(`/v1/materials/${data.material}/goal`)).json();
   expect(saved.goal.target_date).toBe(data.target_date);

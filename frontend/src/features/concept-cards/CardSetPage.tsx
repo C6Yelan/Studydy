@@ -1,3 +1,4 @@
+import { openCardSetUpdate } from "../material-flow/VersionMoveNotice";
 import { cardPngName } from "./card-png-name";
 import { BackLink } from "../../ui/BackLink";
 import { Progress } from "../../ui/Progress";
@@ -14,7 +15,7 @@ import { ProcessingTimeline } from "../material-flow/ProcessingTimeline";
 import { CardNavFrame } from "./CardNavFrame";
 import { Flashcard } from "./Flashcard";
 import { CardMarkButtons, markLabel, useMarkSubmit } from "./CardMarks";
-import { CardListMenu } from "./CardListMenu";
+import { CardList } from "./CardList";
 import { useConceptArtwork } from "./VisualConceptCard";
 
 export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: StudydyApiClient; cardSetId: string; materialId?: string }) {
@@ -261,7 +262,7 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
   };
   const keys = (event: KeyboardEvent) => {
     if ((!artworkModule && !loadFailed) || finished || event.altKey || event.ctrlKey || event.metaKey || document.querySelector("dialog[open]")) return;
-    if ((event.target as HTMLElement).closest("input, textarea, select, [contenteditable=true], details, .is-code, .card-list-menu")) return;
+    if ((event.target as HTMLElement).closest("input, textarea, select, [contenteditable=true], details, .is-code, .card-list")) return;
     if (event.key === "Enter" && event.target === stage.current) { event.preventDefault(); setBack(value => !value); }
     if (event.key === "1" || event.key === "2") { event.preventDefault(); void markCard(event.key === "1" ? "forgot" : "remembered"); }
     if (event.key === "ArrowRight") { event.preventDefault(); move(1); }
@@ -277,8 +278,8 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
     <header className="cards-study-heading">
       <div className="cards-study-title"><h1>{view.name}</h1>
         <span className="cards-study-meta">{total !== null && <span>{total} 張卡片</span>}{!materialId && <span><Icon name="book" size={15} /> {view.material_name}</span>}
-          {/* 教材頁上方已有更新入口；這裡說明此卡組保留建立時的內容。 */}
-          {!view.is_current_revision && !view.moved_to_card_set_id && <span className="cards-version-tag"><Icon name="sparkle" size={14} />教材已更新。此卡組保留建立時的教材內容與來源。</span>}
+          {/* 更新入口在卡組上：點標籤開啟只選這個卡組的更新預覽。 */}
+          {!view.is_current_revision && !view.moved_to_card_set_id && <button type="button" className="cards-version-tag" onClick={() => openCardSetUpdate(view.card_set_id)}><Icon name="sparkle" size={14} />舊版內容 · 更新此卡組</button>}
           {notice && <span className="cards-study-notice" role="status">{notice}</span>}</span>
       </div>
       <div className="cards-study-actions">
@@ -286,8 +287,6 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
         {weak !== null && weak > 0 && <button className="cards-weak-link" type="button" onClick={() => writeRoute({ name: "card-review", cardSetId: view.card_set_id, materialId }, false, { fromCollection: !!window.history.state?.fromCollection })}>
           <Icon name="refresh" size={18} /><span>需要加強 <b>{weak}</b> 張</span><strong>開始加強<Icon name="chevron-right" size={16} /></strong>
         </button>}
-        <CardListMenu items={order.map(i => { const mark = markOf(view.navigation[i].concept_id); return { key: view.navigation[i].concept_id, label: view.navigation[i].label, current: index === i, status: mark ? markLabel(mark) : null }; })}
-          onSelect={orderIndex => { setFinished(false); setPosition(orderIndex); setPageIndex(0); }} />
         <button className="secondary-button cards-head-button" type="button" disabled={order.length < 2} onClick={() => restart(true)}>洗牌重看</button>
         {exports}
       </div>
@@ -298,6 +297,8 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
         : <CardNavFrame onPrev={() => move(-1)} onNext={() => move(1)} prevDisabled={!card || (!position && !localPage)} nextDisabled={!card || !artworkModule && !loadFailed}
           nextLabel={position === order.length - 1 && localPage === localCount - 1 ? "完成本輪" : "下一張"}
           progress={{ value: position + 1, max: order.length, label: "瀏覽進度" }}
+          list={<CardList items={order.map(i => { const mark = markOf(view.navigation[i].concept_id); return { key: view.navigation[i].concept_id, label: view.navigation[i].label, current: index === i, status: mark ? markLabel(mark) : null }; })}
+            onSelect={orderIndex => { setFinished(false); setPosition(orderIndex); setPageIndex(0); }} />}
           dock={<>
             {card && marks && <CardMarkButtons current={currentMark?.rating ?? null} disabled={marking || !back} hotkeys title={back ? undefined : "先翻到背面查看重點，再標記。"} onMark={(rating) => void markCard(rating)} label={`標記「${card.label}」熟不熟`} />}
             <span className="card-dock-count" aria-live="polite">{dockCount}</span>

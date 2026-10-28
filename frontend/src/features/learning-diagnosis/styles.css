@@ -4,10 +4,7 @@
 .diagnosis-point-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .diagnosis-point-list > li { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .diagnosis-point-list > li > div { min-width: 0; overflow-wrap: anywhere; }
-.diagnosis-claims { padding-left: 20px; margin: 8px 0 0; display: grid; gap: 12px; }
-.diagnosis-claims li::marker { color: var(--text-secondary); }
 .diagnosis-answer-count { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: .9rem; }
-.diagnosis-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .diagnosis-point-list button { flex-shrink: 0; max-width: 100%; white-space: normal; }
 .concept-difficulty { display: inline-flex; flex-wrap: wrap; gap: 5px; vertical-align: middle; }
 .difficulty-badge { display: inline-block; border-radius: 999px; padding: 3px 8px; background: var(--page-cool); color: var(--text-secondary); font-size: .75rem; font-weight: 700; line-height: 1.5; }
@@ -17,26 +14,54 @@
 .difficulty-reason { display: block; flex-basis: 100%; font-size: .9rem; font-weight: 400; }
 .difficulty-reason > span { display: block; }
 .concept-card > .concept-difficulty { margin: 0 0 12px; }
-@media (max-width: 600px) {
-  .review-diagnosis { padding: 20px 16px; }
-  .diagnosis-point-list > li { align-items: flex-start; flex-direction: column; gap: 10px; }
-}
-.review-diagnosis { padding: 24px; display: grid; gap: 20px; background: var(--page-cool); }
-.review-next, .review-diagnosis > .learning-goal-panel, .learning-diagnosis { padding: 24px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
-.review-next { display: grid; gap: 16px; }
-.review-next > header, .diagnosis-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
-.review-next h2, .review-next p, .diagnosis-heading h2 { margin: 0; }
-.review-next > button { justify-self: start; }
-.diagnosis-heading { margin-bottom: 16px; }
-.diagnosis-export { position: relative; }
-.diagnosis-export summary { cursor: pointer; padding: 8px 12px; }
-.diagnosis-export .export-controls { position: absolute; right: 0; z-index: 2; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-card); width: max-content; }
-.diagnosis-point-list p { margin: 8px 0; line-height: 1.65; color: var(--text-secondary); }
-.diagnosis-point-details summary, .diagnosis-mastered > summary, .review-records > summary { cursor: pointer; padding: 10px 0; font-weight: 700; }
-.diagnosis-mastered, .learning-diagnosis > .review-records { margin-top: 20px; padding: 0; border-top: 1px solid var(--border); }
+  /* 學習與測驗頁：頂列＋四個並排區塊，區塊在剩餘視窗高度內各自捲動。 */
+.review-diagnosis { padding: 16px 0 0; display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
+.review-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+.review-summary > p { margin: 0; }
+.review-summary .studydy-progress { flex: 1 1 160px; min-width: 120px; }
+.review-summary .review-next-concept { flex: 2 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.review-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px; min-height: 0; }
+.review-grid.no-today { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.review-block { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); overflow: hidden; }
+.review-block-heading { display: flex; align-items: center; gap: 8px; padding: 12px 16px 8px; flex-shrink: 0; }
+.review-block-heading h2 { margin: 0; font-size: 1.05rem; }
+.review-block-count { color: var(--text-secondary); font-weight: 700; }
+.review-block-action { margin-left: auto; }
+.review-block-action .export-entry { margin: 0; }
+.review-block-action .export-popover { width: max-content; }
+.review-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 8px; flex-shrink: 0; }
+.review-tabs button { padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-secondary); font: inherit; font-size: .9rem; cursor: pointer; }
+.review-tabs button.is-active { background: var(--studydy-blue-soft); border-color: var(--studydy-blue); color: var(--text-primary); font-weight: 700; }
+.review-search { margin: 0 16px 8px; padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--radius-input); font: inherit; color: var(--text-primary); background: var(--surface); flex-shrink: 0; }
+.review-block-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 14px; display: grid; gap: 10px; align-content: start; overflow-wrap: anywhere; }
+.review-block-body > p { margin: 0; line-height: 1.6; color: var(--text-secondary); }
+.review-block-body h3 { margin: 6px 0 0; font-size: .95rem; }
+.concept-rows { list-style: none; margin: 0; padding: 0; display: grid; }
+.concept-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 4px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }
+.concept-row:hover:not(:disabled), .concept-row:focus-visible { background: var(--studydy-blue-soft-2); }
+.concept-row:disabled { cursor: progress; opacity: .7; }
+.concept-row-name { flex: 1; min-width: 0; font-weight: 600; }
+.concept-row small { flex-shrink: 0; color: var(--text-secondary); }
+.concept-dot { flex-shrink: 0; width: 12px; height: 12px; border: 2px solid var(--text-secondary); border-radius: 50%; }
+.concept-dot.is-done { background: var(--studydy-blue); border-color: var(--studydy-blue); }
+.review-block .diagnosis-point-list { gap: 0; }
+.review-block .diagnosis-point-list > li { padding: 9px 0; gap: 10px; align-items: flex-start; }
+.review-block .diagnosis-point-list p { margin: 2px 0; font-size: .9rem; line-height: 1.5; }
+.review-block .diagnosis-point-list button { padding: 6px 12px; min-height: 0; }
 .diagnosis-point-list .difficulty-badge { margin-left: 8px; }
-@media (max-width: 600px) {
-  .review-diagnosis { padding: 16px; }
-  .review-next, .review-diagnosis > .learning-goal-panel, .learning-diagnosis { padding: 18px; }
-  .review-next > header { flex-wrap: wrap; }
+@media (min-width: 1281px) {
+  .map-workspace.is-review-mode { display: flex; flex-direction: column; height: calc(100dvh - var(--shell-offset)); min-height: 560px; }
+  .is-review-mode > :not(.map-content) { flex-shrink: 0; }
+  .is-review-mode .map-content { flex: 1; min-height: 0; display: block; }
+  .is-review-mode .map-view { height: 100%; padding: 0; border: 0; background: transparent; }
+  .review-diagnosis { padding-bottom: 12px; }
+  .review-grid > .review-block { height: 100%; }
+}
+@media (max-width: 1280px) {
+  .review-grid, .review-grid.no-today { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .review-block { max-height: 420px; }
+}
+@media (max-width: 720px) {
+  .review-grid, .review-grid.no-today { grid-template-columns: minmax(0, 1fr); }
+  .review-summary { padding: 12px 16px; }
 }
