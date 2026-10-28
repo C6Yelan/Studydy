@@ -808,7 +808,8 @@ for (const count of [3, 6, 9, 24])
       expect(view.y + (y + h / 2) * view.k).toBeCloseTo(viewport.height / 2, 0);
       if (count === 24) {
         expect(Math.min((viewport.width - 48) / w, (viewport.height - 48) / h)).toBeLessThan(0.5);
-        expect(view.k).toBe(0.5);
+        // 島太多時縮到全部放得進畫面，不再停在 0.5。
+        expect(view.k).toBeLessThan(0.5);
       }
     });
   }
@@ -936,6 +937,31 @@ for (const [width, height, fits] of [[1920, 950, true], [2560, 1300, true], [144
       expect(map.height).toBeGreaterThanOrEqual(380);
     }
   });
+
+test("home at 1536×730 opens with every island label inside the map and the quests inside the window", async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await mockLibrary(page, () => manyMaterials(9));
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    quests: [{ kind: "mark_cards", progress: 0, target: 5, done: false }, { kind: "continue_study", progress: 0, target: 1, done: false }],
+  }) }));
+  await page.goto("/");
+  await expect(islands(page)).toHaveCount(9);
+  const map = (await page.locator(".island-map-viewport").boundingBox())!;
+  const flags = await page.locator(".map-island:not(.is-new) .island-flag").evaluateAll((nodes) => nodes.map((node) => {
+    const { top, bottom, left, right } = node.getBoundingClientRect();
+    return { top, bottom, left, right };
+  }));
+  expect(flags).toHaveLength(9);
+  for (const flag of flags) {
+    expect(flag.top).toBeGreaterThanOrEqual(map.y);
+    expect(flag.bottom).toBeLessThanOrEqual(map.y + map.height);
+    expect(flag.left).toBeGreaterThanOrEqual(map.x);
+    expect(flag.right).toBeLessThanOrEqual(map.x + map.width);
+  }
+  const quests = (await page.getByRole("region", { name: "今日任務" }).boundingBox())!;
+  expect(quests.y + quests.height).toBeLessThanOrEqual(730);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
+});
 
 test("achievements scroll inside the overview on desktop while the page and level column stay put", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 900 });

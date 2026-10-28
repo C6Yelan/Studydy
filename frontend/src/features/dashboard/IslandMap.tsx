@@ -40,11 +40,7 @@ export function IslandMap({ materials, progress, goals }: {
   const geometry = useRef({ islands, newSpot, bounds });
   geometry.current = { islands, newSpot, bounds };
 
-  const fitZoom = () => {
-    const { bounds: b } = geometry.current;
-    return Math.min((size.current.w - 48) / (b.maxX - b.minX), (size.current.h - 48) / (b.maxY - b.minY), 1.1);
-  };
-  const zoomRange = () => [Math.max(minZoom, Math.min(0.5, fitZoom() * 0.8)), maxZoom] as const;
+  const zoomRange = () => [Math.max(minZoom, Math.min(0.5, overview().k * 0.8)), maxZoom] as const;
 
   // 畫面中心不離開地圖範圍；縮放限制在可讀範圍內。
   const constrain = (next: View): View => {
@@ -75,10 +71,21 @@ export function IslandMap({ materials, progress, goals }: {
   const centerOn = (x: number, y: number, k: number): View =>
     ({ k, x: size.current.w / 2 - x * k, y: size.current.h / 2 - y * k });
 
-  // 全覽維持群島範圍置中；島太多時將縮放下限設為 0.5，維持可讀的大小。
+  // 全覽：以群島範圍的中心置中，並讓所有島（含上緣的名稱標籤與新島入口）留在畫面內。
+  // 標籤字級固定，所以四邊各留 64／24／48／48 像素（上／下／左／右）的螢幕空間，其餘依縮放換算；縮放不低於 minZoom。
   const overview = (): View => {
-    const { bounds: b } = geometry.current;
-    return centerOn((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, Math.max(0.5, fitZoom()));
+    const { islands: placed, newSpot: spot, bounds: b } = geometry.current;
+    let minX = spot.x - 120, maxX = spot.x + 120, minY = spot.y - 100, maxY = spot.y + 100;
+    for (const island of placed) {
+      minX = Math.min(minX, island.x - island.w / 2); maxX = Math.max(maxX, island.x + island.w / 2);
+      minY = Math.min(minY, island.y - island.h / 2); maxY = Math.max(maxY, island.y + island.h / 2);
+    }
+    const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+    const { w, h } = size.current;
+    const k = clamp(Math.min(
+      (w / 2 - 48) / Math.max(cx - minX, maxX - cx), (h / 2 - 64) / (cy - minY), (h / 2 - 24) / (maxY - cy), 1.1,
+    ), minZoom, maxZoom);
+    return centerOn(cx, cy, k);
   };
 
   const animateTo = (target: View) => {
