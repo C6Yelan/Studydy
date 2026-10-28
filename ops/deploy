@@ -47,6 +47,25 @@ def run(args, *, input=None, timeout=None):
     return result.stdout.strip()
 
 
+def flatten(base):
+    """輕量建置每次疊在目前映像上，層數累積會超過 overlayfs 掛載上限；層數過多時先壓成單層並保留執行設定。"""
+    if int(run(['docker', 'image', 'inspect', '-f', '{{len .RootFS.Layers}}', base])) <= 100:
+        return base
+    config = json.loads(run(['docker', 'image', 'inspect', '-f', '{{json .Config}}', base]))
+    lines = [f'FROM {base} AS source', 'FROM scratch', 'COPY --from=source / /']
+    lines += [f'ENV {name}={json.dumps(value)}' for name, value in (item.split('=', 1) for item in config.get('Env') or [])]
+    lines += [f'EXPOSE {port}' for port in config.get('ExposedPorts') or {}]
+    for key, instruction in (('WorkingDir', 'WORKDIR'), ('StopSignal', 'STOPSIGNAL'), ('User', 'USER')):
+        if config.get(key):
+            lines.append(f'{instruction} {config[key]}')
+    for key, instruction in (('Entrypoint', 'ENTRYPOINT'), ('Cmd', 'CMD')):
+        if config.get(key):
+            lines.append(f'{instruction} {json.dumps(config[key])}')
+    flat = base + '-flat'
+    run(['docker', 'build', '-t', flat, '-'], input='\n'.join(lines) + '\n', timeout=1800)
+    return flat
+
+
 def sql(statement, timeout=30):
     return run(['docker', 'exec', '-i', '-e', f'PGOPTIONS=-c statement_timeout={max(1, int(timeout*1000))}',
                 'studydy-postgres-1', 'sh', '-c',
@@ -221,7 +240,8 @@ def deploy(args):
             record.update(db_backup_bytes=backup.stat().st_size, backup_validation='pg_restore --list passed')
         # 5：全程輕量建置；靜態目錄／檔案明確設 0755／0644，再以 Nginx 身分驗證。
         print('建置後端與前端輕量映像', flush=True)
-        run(['docker', 'build', '--build-arg', 'RUNTIME_IMAGE='+bases['backend'], '--label',
+        build_bases = {service: flatten(base) for service, base in bases.items()}
+        run(['docker', 'build', '--build-arg', 'RUNTIME_IMAGE='+build_bases['backend'], '--label',
              'org.opencontainers.image.revision='+args.sha, '-f', 'ops/docker/backend-app.Dockerfile', '-t', images['backend'], '.'])
         with tempfile.TemporaryDirectory(prefix='studydy-deploy-') as temporary:
             context = Path(temporary)
@@ -230,7 +250,7 @@ def deploy(args):
             shutil.copyfile('ops/docker/frontend-static.Dockerfile', context/'Dockerfile')
             for path in [context, *context.rglob('*')]:
                 path.chmod(0o755 if path.is_dir() else 0o644)
-            run(['docker', 'build', '--build-arg', 'RUNTIME_IMAGE='+bases['frontend'], '--label',
+            run(['docker', 'build', '--build-arg', 'RUNTIME_IMAGE='+build_bases['frontend'], '--label',
                  'org.opencontainers.image.revision='+args.sha, '-t', images['frontend'], str(context)])
         run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', PYTHON, images['backend'],
              '-c', 'import pwd; assert pwd.getpwuid(20001).pw_name'])
