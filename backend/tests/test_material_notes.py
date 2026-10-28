@@ -265,7 +265,7 @@ def test_notes_contract_preserves_old_runtime_snapshots():
 @pytest.mark.parametrize("change", [
     {"version": "material-notes/v10"},
     {"version": "material-notes/v10", "summary_layout": "invalid"},
-    {"version": "material-notes/v14"},
+    {"version": "material-notes/v999"},
 ])
 def test_invalid_historical_notes_contract_is_rejected(change):
     from runtime.local_ai_config import configured_lock

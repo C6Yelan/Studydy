@@ -83,7 +83,7 @@ Studydy AI BOT也共用 Podcast 的整句混讀、台灣口音指令、原 host 
 
 ## Podcast 講稿逐段核對
 
-`ops/podcast/provider.py` 的 `/script` 改為生成後逐段核對（`source-script/v16`），核對提示存於 runtime lock 新增的 `podcast_script_review`（`podcast-script-review/v1`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash：新工作的 provenance 記錄新 hash，進行中的教材分析、筆記與題組工作沿用各自封存的 lock，不受影響。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊 backend 可接收 v16 講稿，新 backend 也可接收舊 provider 的 v13 講稿，兩者部署順序不互相依賴，backend 隨下次映像更新帶入新 lock 即可。重啟前照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。`/script` 從生成到核對完成都持有 provider 的文字鎖，每集約 60～140 秒（12 段都重寫的最壞情況約 37 次呼叫、4～5 分鐘）；期間Studydy AI BOT、卡片、主題與研究等 `/semantics` 文字請求會排隊等待（不逾時）。工作日誌 `script_review` 記實際呼叫次數。bundle 內程式與 lock 不一致時，工作日誌記 `PODCAST_REVIEW_CONTRACT_INVALID`，backend 顯示為 `PODCAST_PROVIDER_FAILED`。
+`ops/podcast/provider.py` 的 `/script` 改為生成後逐段核對（`source-script/v17`），核對提示存於 runtime lock 的 `podcast_script_review`（`podcast-script-review/v2`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash：新工作的 provenance 記錄新 hash，進行中的教材分析、筆記與題組工作沿用各自封存的 lock，不受影響。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊講稿保持可讀；本次繁中更新須先上線 provider bundle，再部署帶有新 lock 的 backend。重啟前由協調者建立 HOLD_LUNA，照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。`/script` 從生成到核對完成都持有 provider 的文字鎖，每集約 60～140 秒（12 段都重寫的最壞情況約 37 次呼叫、4～5 分鐘）；期間Studydy AI BOT、卡片、主題與研究等 `/semantics` 文字請求會排隊等待（不逾時）。工作日誌 `script_review` 記實際呼叫次數。bundle 內程式與 lock 不一致時，工作日誌記 `PODCAST_REVIEW_CONTRACT_INVALID`，backend 顯示為 `PODCAST_PROVIDER_FAILED`。
 
 ## 媒體來源（圖片、音訊、影片、YouTube）
 
@@ -294,7 +294,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 `0017_material_notes.sql` 新增筆記生成／快取及個人註記兩張表，不修改既有教材、題組或答案。套用前備份產品 DB；隔離環境由 0016 升級並逐表核對既有資料不變。新後端須與支援筆記分頁的前端一起部署。已套用後只能使用識別 0017 的相容版本或前向修復，不直接啟動舊 migration runner，也不還原 DB 丟棄新註記。
 
-本批筆記使用目前正式 Luna（gpt-5.6-luna）；雲端 Pod／Gemma 切換不屬本批，沒有新增切換抽象。筆記請求使用 runtime lock 的 `material_notes`／`material-notes/v13` 契約（v13 加入前文去重脈絡與原教材章節指涉核對；v12 改為結構化格式：有層級的小節、巢狀條列、多表格、LaTeX 公式與醒目區塊，寫作與核對提示已改，挑選提示不變；v11 取消重點整理的 A4 一頁限制）；包含寫作、摘要選點及逐段內容核對提示；原教材與題組保存的舊 lock／hash 不改寫。未完成筆記重試時若契約已不同，清除未發布的分區暫存並換用目前 lock，不接續舊契約批次。沿既有文字 provider，不修改 Podcast provider 程式或重啟其服務。
+本批筆記使用目前正式 Luna（gpt-5.6-luna）；雲端 Pod／Gemma 切換不屬本批，沒有新增切換抽象。筆記請求使用 runtime lock 的 `material_notes`／`material-notes/v14` 契約（v14 明定所有標題、條列、表格與說明繁中；v13 加入前文去重脈絡與原教材章節指涉核對；v12 改為結構化格式：有層級的小節、巢狀條列、多表格、LaTeX 公式與醒目區塊，寫作與核對提示已改，挑選提示不變；v11 取消重點整理的 A4 一頁限制）；包含寫作、摘要選點及逐段內容核對提示；原教材與題組保存的舊 lock／hash 不改寫。未完成筆記重試時若契約已不同，清除未發布的分區暫存並換用目前 lock，不接續舊契約批次。沿既有文字 provider；本次同時更新 Podcast 講稿提示，須依前述流程建立 bundle 並重啟 provider。
 
 部署後由維護程序呼叫 `runtime.material_notes.queue_existing(owner=<已授權 learner UUID>)`，僅為本人目前版本缺少的重點整理排工作；重跑不重新生成已有結果，也不建立完整筆記。回報教材份數與實際 provider 呼叫次數，不能把工作嘗試數當成模型請求數。程式失敗或容量不足時如實保留 failed，學生可手動重試。`queue_existing` 會跳過已有紀錄（包含 failed 與舊契約已發布）的教材；v11 部署不需 migration，舊契約已發布的重點整理保留到重新生成為止；只重做指定的列（failed 或要換新契約的已發布列）時，逐份對該列呼叫 `runtime.material_notes.generate(owner, material_id, revision, "summary", expected_generation=<該列 generation>)`（與 API 重新生成相同），契約不同時會換用目前 lock，已發布筆記與註記保留。
 
@@ -406,3 +406,5 @@ L1確認設定與草稿目標DELETE需與前端L1同批部署，使用既有topi
 Q4正確選項投影與前端Q4同批部署：answer-feedback/v1新增可選correct_option_id，僅已交卷題組出現，舊已交卷資料直接投影保存的私密答案。無migration或provider變更，不回寫題目／作答紀錄。
 
 S5移到新版與前端F6同批部署，套用migration0028_version_entry_state。前端F6須接受version-move-preview/v2、previous.move_id與return expected_move_id；不能單獨上線。既有材料初始化提醒狀態，不追溯自動移動；新發布才排入安全判定。
+
+新題組採 `source-span-single-choice/v2`：模型輸出繁中答案與解析、原文 `source_quote`；來源子字串檢查改查引句。進行中的 v1 題組仍以封存 lock 生成及驗證，已存 v1 題目與原 hash 維持可讀；無資料回填或 migration。

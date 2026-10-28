@@ -314,7 +314,7 @@ def _checked_review(
     """可定位的提案契約錯誤最多補正一次；不套用無法驗證的提案。"""
     localized = (
         lock.get("material_semantics", {}).get("localization_policy")
-        == LOCALIZATION_POLICY
+        in {"traditional-chinese-literals/v1", LOCALIZATION_POLICY}
     )
     translations = [
         i
@@ -820,7 +820,7 @@ def review_structure(
     uncertain_claims = _uncertain_claim_ids(unit, proposal["assignments"])
     localized = (
         lock.get("material_semantics", {}).get("localization_policy")
-        == LOCALIZATION_POLICY
+        in {"traditional-chinese-literals/v1", LOCALIZATION_POLICY}
     )
     # 整理提案不是重新匯入門檻。局部翻譯未改善時，保留已可回查的原主張，
     # 不因一筆混用外文的修正就讓整批補充失敗。

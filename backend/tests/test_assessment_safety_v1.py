@@ -33,6 +33,8 @@ def _proposal() -> dict:
         "safety": "safe",
         "prompt": "根據教材，null character 的寫法是什麼？",
         "correct_answer": "'\\0'",
+        "source_quote": "'\\0'",
+        "rationale": "教材將空字元寫作 '\\0'。",
         "supporting_evidence_ids": ["evidence:sha256:" + "2" * 64],
         "distractors": ["'\\n'", "'EOF'", "nullptr"],
     }
@@ -47,7 +49,7 @@ def test_source_span_candidate_preserves_technical_token():
 
 def test_unsupported_correct_duplicate_options_and_model_reject_are_blocked():
     unsupported = _proposal()
-    unsupported["correct_answer"] = "16 bytes"
+    unsupported["source_quote"] = "16 bytes"
     assert _candidate(unsupported, _claim(), set()) is None
 
     duplicate = _proposal()
@@ -77,6 +79,8 @@ def test_exact_duplicate_is_blocked_but_checked_item_does_not_require_novelty():
     uncertain["novelty"] = "uncertain"
     uncertain["prompt"] = "依教材，陣列有多少位元組？"
     uncertain["correct_answer"] = "8 bytes"
+    uncertain["source_quote"] = "8 bytes"
+    uncertain["rationale"] = "教材指出陣列大小為 8 bytes。"
     projected = _candidate(uncertain, _claim(), set())
     assert projected is not None
     options = sorted(projected["options"], key=str.casefold)
@@ -260,3 +264,54 @@ def test_same_answer_to_a_different_attribute_is_not_automatically_duplicate():
     selected = _checked_candidate(None, {}, _claim(), [candidate], prior, solve)
     assert selected is not None
     assert selected["compared_assessment_revisions"] == [prior[0].assessment_revision]
+
+
+@pytest.mark.parametrize("policy", ["source-span-single-choice/v1", "source-span-single-choice/v2"])
+def test_saved_policy_keeps_generation_and_stored_answers_readable(policy):
+    from learning_adaptation.assessments import (
+        _fingerprint, _normalized, _stored, assessment_response_schema,
+    )
+    lock = json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
+    lock["assessment"]["policy"] = policy
+    translated = policy.endswith("/v2")
+    proposal = _proposal()
+    if translated:
+        proposal.update(
+            prompt="依教材，陣列有多大？", correct_answer="8 位元組",
+            source_quote="8 bytes", rationale="教材指出陣列大小為 8 位元組。",
+        )
+    else:
+        proposal.pop("source_quote")
+        proposal.pop("rationale")
+    schema = assessment_response_schema(policy)["properties"]["candidates"]["items"]
+    assert set(schema["required"]) == set(proposal)
+    candidate = _candidate(proposal, _claim(), set(), policy=policy)
+    assert candidate is not None
+    options = sorted(candidate["options"], key=_normalized)
+    candidate.update(
+        verification={"options": options, "selected_option_index": options.index(candidate["correct_answer"]), "duplicate_prior_index": None},
+        quality_selection={"candidate_index": 0, "checked_candidate_count": 1, "safe_candidate_count": 1, "issues": []},
+        compared_assessment_revisions=[],
+    )
+    study = SimpleNamespace(study_session_id=uuid4(), knowledge_structure_revision="knowledge-structure:sha256:" + "4" * 64)
+    concept = ConceptContext("concept:sha256:" + "5" * 64, "空字元", (_claim(),), ())
+    public, private, provenance = _documents(study, concept, _claim(), candidate, runtime_lock=lock)
+    row = SimpleNamespace(
+        public_document=public, private_answer_document=private, generation_provenance=provenance,
+        study_session_id=study.study_session_id, knowledge_structure_revision=study.knowledge_structure_revision,
+        assessment_revision=public["assessment_revision"], question_id=public["question_id"],
+        target_concept_id=concept.concept_id, target_claim_id=_claim().claim_id,
+        semantic_identity=candidate["semantic_identity"], learning_angle=candidate["learning_angle"],
+        mastery_qualified=True, request_idempotency_key_sha256=b"x" * 32,
+        request_fingerprint=_fingerprint(study.study_session_id, study.knowledge_structure_revision, _claim().claim_id),
+    )
+    stored = _stored(row, {"policy": policy})
+    assert stored.private_answer_document == private
+    assert "source_quote" not in public
+    if translated:
+        assert private["source_quote"] == "8 bytes"
+        assert private["rationale"] == "教材指出陣列大小為 8 位元組。"
+        assert private["correct_answer"] not in _claim().evidence[0].quote
+    else:
+        assert "source_quote" not in private
+        assert private["rationale"] == _claim().evidence[0].quote

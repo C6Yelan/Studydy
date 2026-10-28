@@ -6,7 +6,7 @@ import re
 from .claim_literals import mask_literals, restore_literals, EXCERPT_PROJECTIONS, LITERAL_REPAIRS, quoted_sources
 from .semantic_projection import _expand_claim, _project_claim, spoken_handles
 
-POLICY = "traditional-chinese-literals/v1"
+POLICY = "traditional-chinese-literals/v2"
 
 
 def _chinese(text):
@@ -175,7 +175,7 @@ def localize_block(response, context, bundle, call, dropped=None):
                             elif _needs_translation(projected["text"], sources):
                                 reason = "仍含未翻譯的外文敘述，須譯成繁體中文；只有保留代號內的原文不可改寫。"
                     elif _needs_translation(value):
-                        reason = "仍含未翻譯的外文敘述，須譯成繁體中文。"
+                        reason = "仍含未翻譯的外文敘述，全部一般敘述須忠實譯成繁體中文；英文技術術語可保留原文。"
                 if reason:
                     failed[key] = {
                         **items[key],

@@ -237,3 +237,25 @@ def test_wikipedia_math_preserves_latex_once_in_reading_order():
     assert doc['text'].count('E=mc^2') == 1
     assert doc['text'].index('$E=mc^2$') < doc['text'].index('$a^2+b^2=c^2$')
     assert doc['original_sha256'] == sha256(body.encode()).hexdigest()
+
+
+def test_wikipedia_edit_citations_and_bold_preserve_teaching_content():
+    body = BODY.replace(
+        '<h1>A learning example</h1>',
+        '<h1>A learning example<span class="mw-editsection">[edit]</span></h1>',
+    ).replace(
+        '<p>This paragraph',
+        '<p><b>Learning</b> uses <strong>examples</strong>'
+        '<sup class="reference"><a href="#cite_note-1">[1]</a></sup>'
+        '<sup class="noprint Inline-Template">citation needed</sup>'
+        '<sup>citation needed</sup>.'
+        ' The value is x<sup>2</sup>.</p><p>This paragraph',
+    ).replace('return x != 0', 'return x ** 2')
+    doc = web.html_document(body.encode(), 'https://en.wikipedia.org/wiki/Learning', 'text/html')
+    assert 'edit' not in doc['text']
+    assert 'citation needed' not in doc['text']
+    assert '**Learning**' not in doc['text'] and '**examples**' not in doc['text']
+    assert 'Learning' in doc['text'] and 'examples' in doc['text']
+    assert 'x²' in doc['text'] or 'x^2' in doc['text'] or 'x2' in doc['text'] or 'x<sup>2</sup>' in doc['text']
+    assert 'return x ** 2' in doc['text']
+    assert '| Code | Meaning |' in doc['text']

@@ -100,7 +100,7 @@ def test_show_prompt_uses_host_names_series_preview_and_spoken_numbers(monkeypat
     model,calls=fake_model(candidate())
     monkeypatch.setattr(provider,'luna',model)
     result=provider.script(dialogue())
-    assert result['provider'].endswith(';source-script/v16')
+    assert result['provider'].endswith(';source-script/v17')
     prompts=[prompt for kind,prompt in calls if kind=='script']
     prompt=prompts[0]
     assert 'host「小晴」' in prompt and 'guest「阿哲」' in prompt
@@ -409,7 +409,7 @@ def test_review_contract_is_added_without_invalidating_old_runtime_snapshots():
     from runtime.material_runtime import validate_runtime_lock, MaterialAnalysisError
     from content_identity import canonical_sha256
     current=configured_lock()
-    assert current['podcast_script_review']=={'version':'podcast-script-review/v1','prompt':podcast_review.PROMPT}
+    assert current['podcast_script_review']=={'version':'podcast-script-review/v2','prompt':podcast_review.PROMPT}
     old=deepcopy(current);old.pop('podcast_script_review');old_hash=canonical_sha256(old)
     assert validate_runtime_lock(old)==old and canonical_sha256(old)==old_hash
     assert validate_runtime_lock(current)==current

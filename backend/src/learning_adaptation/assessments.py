@@ -68,7 +68,7 @@ class StoredAssessment:
     mastery_qualified: bool
 
 
-def assessment_response_schema() -> dict[str, Any]:
+def assessment_response_schema(policy="source-span-single-choice/v2") -> dict[str, Any]:
     candidate = {
         "type": "object",
         "additionalProperties": False,
@@ -100,6 +100,12 @@ def assessment_response_schema() -> dict[str, Any]:
             "safety": {"type": "string", "enum": ["safe", "reject"]},
         },
     }
+    if policy == "source-span-single-choice/v2":
+        candidate["required"].extend(["source_quote", "rationale"])
+        candidate["properties"].update({
+            "source_quote": {"type": "string", "minLength": 1},
+            "rationale": {"type": "string", "minLength": 1},
+        })
     return {
         "type": "object",
         "additionalProperties": False,
@@ -236,6 +242,8 @@ def _stored(row: Assessment, expected_provenance: dict) -> StoredAssessment:
         "correct_answer",
         "rationale",
     }
+    if provenance.get("policy") == "source-span-single-choice/v2":
+        private_fields.add("source_quote")
     provenance_fields = {
         "schema",
         "assessment_revision",
@@ -365,7 +373,10 @@ def _stored(row: Assessment, expected_provenance: dict) -> StoredAssessment:
         or not provenance["model_id"]
         or not isinstance(provenance["model_revision"], str)
         or not provenance["model_revision"]
-        or provenance["policy"] != "source-span-single-choice/v1"
+        or provenance["policy"] not in {"source-span-single-choice/v1", "source-span-single-choice/v2"}
+        or (provenance["policy"] == "source-span-single-choice/v2" and (
+            not isinstance(private["source_quote"], str) or not private["source_quote"].strip()
+        ))
         or provenance["learning_angle"] != row.learning_angle
         or not isinstance(row.learning_angle, str)
         or not row.learning_angle.strip()
@@ -534,7 +545,8 @@ def _prior_questions(
 
 
 def _candidate(
-    candidate: Any, claim: ClaimContext, used_identities: set[str]
+    candidate: Any, claim: ClaimContext, used_identities: set[str],
+    *, policy="source-span-single-choice/v2",
 ) -> dict[str, Any] | None:
     fields = {
         "learning_angle",
@@ -545,6 +557,9 @@ def _candidate(
         "supporting_evidence_ids",
         "distractors",
     }
+    translated = policy == "source-span-single-choice/v2"
+    if translated:
+        fields.update({"source_quote", "rationale"})
     if (
         not isinstance(candidate, dict)
         or set(candidate) != fields
@@ -556,6 +571,8 @@ def _candidate(
         angle = _clean(candidate["learning_angle"], 256)
         prompt = _clean(candidate["prompt"])
         correct = _exact(candidate["correct_answer"])
+        source_quote = _exact(candidate["source_quote"]) if translated else correct
+        rationale = _clean(candidate["rationale"]) if translated else None
     except AssessmentError:
         return None
     evidence = {item.evidence_id: item.quote for item in claim.evidence}
@@ -567,7 +584,8 @@ def _candidate(
         or any(not isinstance(reference, str) for reference in references)
         or len(references) != len(set(references))
         or any(reference not in evidence for reference in references)
-        or not any(correct in evidence[reference] for reference in references)
+        or not any(source_quote in evidence[reference] for reference in references)
+        or (translated and correct not in rationale)
         or not isinstance(distractors, list)
         or len(distractors) != 3
         or any(reference in prompt for reference in evidence)
@@ -596,6 +614,7 @@ def _candidate(
         "novelty": candidate["novelty"],
         "prompt": prompt,
         "correct_answer": correct,
+        **({"source_quote": source_quote, "rationale": rationale} if translated else {}),
         "supporting_evidence_ids": references,
         "options": options,
         "semantic_identity": semantic_identity,
@@ -833,12 +852,16 @@ def _documents(
         "question_id": question_id,
         "correct_option_id": correct_option_id,
         "correct_answer": candidate["correct_answer"],
-        "rationale": " ".join(
+        "rationale": candidate["rationale"]
+        if runtime_lock["assessment"]["policy"] == "source-span-single-choice/v2"
+        else " ".join(
             evidence.quote
             for evidence in claim.evidence
             if evidence.evidence_id in candidate["supporting_evidence_ids"]
         ),
     }
+    if runtime_lock["assessment"]["policy"] == "source-span-single-choice/v2":
+        private_core["source_quote"] = candidate["source_quote"]
     service = runtime_lock["semantic_service"]
     provenance_core = {
         "schema": "assessment-generation-provenance/v1",
@@ -895,7 +918,7 @@ def prepare_assessment(
             runtime_lock=runtime_lock,
             task="assessment",
             request=_request(study, concept, claim, prior),
-            response_schema=assessment_response_schema(),
+            response_schema=assessment_response_schema(runtime_lock["assessment"]["policy"]),
         )
         if (
             not isinstance(response, dict)
@@ -908,7 +931,9 @@ def prepare_assessment(
         candidates = [
             projected
             for item in response["candidates"]
-            if (projected := _candidate(item, claim, used_identities)) is not None
+            if (projected := _candidate(
+                item, claim, used_identities, policy=runtime_lock["assessment"]["policy"]
+            )) is not None
         ]
         return _checked_candidate(
             http, runtime_lock, claim, candidates, prior, semantic_call

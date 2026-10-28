@@ -108,7 +108,7 @@ def analyze_blocks(
                             response, context, job["bundle"], repair_quotes
                         )
                         block = project_block(context, job["bundle"], job["id"], response)
-                    if task.get("localization_policy") == LOCALIZATION_POLICY:
+                    if task.get("localization_policy") in {"traditional-chinese-literals/v1", LOCALIZATION_POLICY}:
 
                         def translate(request, schema):
                             nonlocal number
