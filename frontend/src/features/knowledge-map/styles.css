@@ -654,7 +654,12 @@
   font-size: 12px;
 }
 .navigator-position {
-  flex: 0 0 22px;
+  /* 三位數以上的編號不能被按鈕的 overflow-wrap 拆成兩行；寬度至少容納三位數讓名稱對齊。 */
+  flex: 0 0 auto;
+  min-width: 3ch;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  text-align: right;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }

@@ -160,3 +160,8 @@
     justify-content: space-between;
   }
 }
+
+/* 卡組卡片的狀態標籤列：同一列、同樣膠囊樣式，空的時候不佔高度。 */
+.card-set-states { display: flex; flex-wrap: wrap; gap: 6px; }
+.card-set-states:empty { display: none; }
+.card-set-states .library-state, .card-set-states .card-review-due { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; line-height: 1.4; }

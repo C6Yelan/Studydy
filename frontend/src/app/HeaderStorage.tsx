@@ -10,7 +10,7 @@ const categories = [
   { key: "podcast_audio_bytes", label: "Podcast 音訊", color: "#0f8278" },
   { key: "podcast_video_bytes", label: "Podcast 影片", color: "#b77900" },
   { key: "analysis_bytes", label: "分析資料", color: "#7c3aed" },
-  { key: "reserved_bytes", label: "處理中預留", color: "#c2416c" },
+  { key: "reserved_bytes", label: "預留空間", color: "#c2416c" },
 ] as const;
 
 export function HeaderStorage({ apiClient }: { apiClient: StudydyApiClient }) {
@@ -83,8 +83,8 @@ export function HeaderStorage({ apiClient }: { apiClient: StudydyApiClient }) {
       <dl className="storage-breakdown-legend">{categories.map(category => <div key={category.key}>
         <dt><span aria-hidden="true" style={{ backgroundColor: category.color }}/>{category.label}
           {category.key === "reserved_bytes" && storage.reserved_bytes > 0 && <span className="storage-reservation-info">
-            <button type="button" aria-label="處理中預留說明" aria-describedby={`${panelId}-reservation`}>ⓘ</button>
-            <span role="tooltip" id={`${panelId}-reservation`}>已用包含 {formatBytes(storage.reserved_bytes)} 預留給上傳中的檔案與生成中的 Podcast／影片。</span>
+            <button type="button" aria-label="預留空間說明" aria-describedby={`${panelId}-reservation`}>ⓘ</button>
+            <span role="tooltip" id={`${panelId}-reservation`}>已用包含 {formatBytes(storage.reserved_bytes)} 預留給上傳中的檔案，以及生成中或生成失敗的 Podcast／影片；刪除生成失敗的 Podcast 會釋放這部分。</span>
           </span>}
         </dt>
         <dd>{formatBytes(storage.breakdown[category.key])}</dd>

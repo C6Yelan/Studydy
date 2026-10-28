@@ -127,13 +127,18 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
                   }} />
                 {removing?.card_set_id === item.card_set_id && <InlineConfirm message="確定刪除？" label="刪除卡組確認" confirmLabel="刪除"
                   confirmAriaLabel="確認刪除卡組" busyLabel="正在刪除…" busy={busy} error={deleteError} onCancel={closeDelete} onConfirm={() => void remove()} />}
-                <p className="library-metadata">{new Date(item.created_at).toLocaleDateString()} · <CardCount key={`${item.card_set_id}:${item.version}`} item={item} apiClient={apiClient} onSaved={countSaved} /></p>
+                <p className="library-metadata">{new Date(item.created_at).toLocaleDateString()}{item.generation.status === "ready" && <> · <CardCount key={`${item.card_set_id}:${item.version}`} item={item} apiClient={apiClient} onSaved={countSaved} /></>}</p>
                 {!material && <p className="cards-library-material" title={item.material_name}>{item.material_name}</p>}
-                {!item.is_current_revision && (item.moved_to_card_set_id
-                  ? <p className="library-state is-version">已更新（保留更新前卡面）</p>
-                  // 到卡組頁查看更新入口；標籤直接帶過去。
-                  : <button type="button" className="library-state is-version" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>教材已更新 · 查看更新內容</button>)}
-                {(weak?.get(item.card_set_id) ?? 0) > 0 && <p className="card-review-due"><Icon name="refresh" size={14} />需要加強 {weak!.get(item.card_set_id)} 張</p>}
+                {/* 狀態統一成一列小標籤：生成狀態、教材版本、需要加強，依序最多各一個。 */}
+                <div className="card-set-states">
+                  {item.generation.status === "failed" && <span className="library-state is-failed">生成暫停</span>}
+                  {item.generation.status !== "ready" && item.generation.status !== "failed" && <span className="library-state">生成中 {item.generation.completed} / {item.generation.total}</span>}
+                  {!item.is_current_revision && (item.moved_to_card_set_id
+                    ? <span className="library-state is-version" title="教材更新後已另建新版卡組，這裡保留更新前的卡面">舊版卡組</span>
+                    // 到卡組頁查看更新入口；標籤直接帶過去。
+                    : <button type="button" className="library-state is-version" title="查看更新內容" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>教材已更新</button>)}
+                  {(weak?.get(item.card_set_id) ?? 0) > 0 && <span className="card-review-due"><Icon name="refresh" size={14} />需要加強 {weak!.get(item.card_set_id)} 張</span>}
+                </div>
                 <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>開始複習</button></div>
               </article>
             ))}
@@ -157,7 +162,6 @@ type CountProps = { item: CardSetSummary; apiClient: StudydyApiClient; onSaved: 
 function CardCount(props: CountProps) {
   const { item } = props;
   if (item.card_count !== null) return <span>{item.card_count} 張卡片</span>;
-  if (item.generation.status !== "ready") return <span>{item.generation.status === "failed" ? "生成暫停 · 開啟後可重試" : `生成中 · ${item.generation.completed} / ${item.generation.total} 個觀念`}</span>;
   return <UncountedCards {...props} />;
 }
 

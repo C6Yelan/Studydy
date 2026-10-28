@@ -244,8 +244,8 @@ test("password change validates input, reports a wrong current password and then
   const storage = page.getByRole("region", { name: "帳號空間" });
   await expect(storage.locator(".storage-breakdown-heading")).toHaveText("帳號空間5 GB／5 GB");
   await expect(storage).toContainText("無法上傳教材、建立 Podcast 或生成影片");
-  await storage.getByRole("button", { name: "處理中預留說明" }).focus();
-  await expect(storage.getByRole("tooltip")).toHaveText("已用包含 100 MB 預留給上傳中的檔案與生成中的 Podcast／影片。");
+  await storage.getByRole("button", { name: "預留空間說明" }).focus();
+  await expect(storage.getByRole("tooltip")).toHaveText("已用包含 100 MB 預留給上傳中的檔案，以及生成中或生成失敗的 Podcast／影片；刪除生成失敗的 Podcast 會釋放這部分。");
   await page.keyboard.press("Escape");
   // 登入裝置是帳號設定之外的獨立卡片。
   // 三個登入先顯示兩個，其餘收合。
@@ -384,7 +384,7 @@ test("storage breakdown includes reservations once and lists the three largest s
  await page.goto('/materials');
  const opener=page.getByRole('button',{name:/^帳號空間：/});await opener.click();
  const panel=page.getByRole('region',{name:'帳號空間',exact:true});
- await expect(panel.locator('dt')).toContainText(['教材原檔與轉換檔','Podcast 音訊','Podcast 影片','分析資料','處理中預留']);
+ await expect(panel.locator('dt')).toContainText(['教材原檔與轉換檔','Podcast 音訊','Podcast 影片','分析資料','預留空間']);
  await expect(panel.locator('dd')).toHaveText(['1 GB','512 MB','512 MB','256 MB','256 MB']);
  await expect(panel.locator('.storage-breakdown-heading')).toHaveText('帳號空間2.5 GB／5 GB');
  await expect(panel.getByRole('link')).toHaveText(largest.slice(0,3).map(material=>material.display_name));

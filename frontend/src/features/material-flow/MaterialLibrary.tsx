@@ -184,7 +184,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
       )}
       <div className="library-grid">
         {preparingTopics.map(topic => <article className="surface library-item" key={topic.topic_id} aria-label={topic.proposal?.title ?? topic.request}>
-          <span className="library-island is-building" aria-hidden="true"><IslandArt palette={islandPalette(topic.topic_id)} landmarks={false}/></span>
+          <span className="library-island is-building" aria-hidden="true"><IslandArt palette={islandPalette(topic.topic_id)} seed={topic.topic_id} viewBox="-40 25 1120 560" landmarks={false}/></span>
           <h2>{topic.proposal?.title ?? topic.request}</h2>
           <p className="library-metadata">從主題建立 · 準備中的教材</p>
           <p className="library-state">{topicStage(topic)}</p>
@@ -262,7 +262,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
               aria-label={item.display_name}
             >
               <span className={`library-island${structure ? "" : " is-building"}${deleting ? "" : " is-clickable"}`} aria-hidden="true" onClick={deleting ? undefined : () => { if (!pointerStartedWithMenuOpen()) openPrimary(); }}>
-                <IslandArt palette={islandPalette(item.material_id)} landmarks={!!structure} />
+                <IslandArt palette={islandPalette(item.material_id)} seed={item.material_id} viewBox="-40 25 1120 560" landmarks={!!structure} />
               </span>
               <MaterialManagement
                 onOpen={openPrimary}
