@@ -43,11 +43,11 @@ from .storage.database import database_session
 from .storage.materials import require_source_material
 
 
-def _name(value):
+def _name(value, limit=200):
     if (
         not isinstance(value, str)
         or not value.strip()
-        or len(value) > 200
+        or len(value) > limit
         or any(ord(char) < 32 or ord(char) == 127 or char in "/\\" for char in value)
     ):
         raise SourceError("REQUEST_INVALID")
@@ -60,7 +60,7 @@ def _policy(media):
 
 
 def create_draft(owner, name, key, *, dsn=None):
-    name = _name(name)
+    name = _name(name, 40)
     digest = _key_digest(key)
     fingerprint = bytes.fromhex(canonical_sha256({"name": name, "version": 1}))
     with database_session(dsn) as session:

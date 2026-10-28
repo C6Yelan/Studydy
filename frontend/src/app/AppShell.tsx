@@ -47,7 +47,7 @@ export function AppShell({
 }) {
   const [materialRunId,setMaterialRunId]=useState<string|null>(null);
   const isLearningWorkspace = (route.name === "material-run" && route.runId === materialRunId) || ["knowledge-map", "study-session", "material-sources", "material-content", "research", "podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create", "card-review"].includes(route.name);
-  // 進入單一教材後由教材頁首（返回、教材名稱、分頁、問答、頭像）取代全站頁首與手機底部導覽，內外分層。
+  // 進入單一教材後由教材頁首（返回、教材名稱、分頁、問答）取代全站頁首與手機底部導覽，內外分層。
   // 全站頁首只在教材頁首出現後才隱藏（CSS），讀取中或沒有教材頁首的畫面仍有導覽可離開。
   // 從全站「概念卡」「Podcast」直接開啟（沒有 materialId）的頁面仍屬全站。
   const isMaterialWorkspace = isLearningWorkspace && "materialId" in route && !!route.materialId && accountAction !== undefined;

@@ -1,10 +1,9 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../api/client";
 import type { CardSetSummary, LearnerProfile, LibrarySearchView, PodcastSummary } from "../api/contracts";
 import { Icon } from "../ui/Icon";
 import { writeRoute } from "./routes";
 import "./header-tools.css";
-import { useDismissibleMenu } from "../features/material-flow/useDismissibleMenu";
 
 // 名稱與頁首、首頁共用；讀取失敗時視為未設定，不阻擋其他功能。
 export function useProfile(apiClient: StudydyApiClient): LearnerProfile | null {
@@ -230,30 +229,6 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
       </Modal>
     </>
   );
-}
-
-/** 登出動作；教材頁首沒有全站的登出按鈕，由頭像選單取用。 */
-export const LogoutContext = createContext<(() => void) | null>(null);
-
-// 教材頁首的頭像選單：個人檔案、成就與登出（進入教材後不顯示全站頁首）。
-export function AccountMenu({ apiClient }: { apiClient: StudydyApiClient }) {
-  const name = useProfile(apiClient)?.display_name ?? null;
-  const logout = useContext(LogoutContext);
-  const menu = useRef<HTMLDetailsElement>(null);
-  const opener = useRef<HTMLElement>(null);
-  useDismissibleMenu(menu, opener);
-  const go = (route: Parameters<typeof writeRoute>[0]) => { if (menu.current) menu.current.open = false; writeRoute(route); };
-  return <details ref={menu} className="account-menu material-account-menu">
-    <summary ref={opener} className="account-profile" role="button" aria-label={`帳號選單：${name ?? "尚未設定名稱"}`}>
-      <span className="account-avatar" aria-hidden="true">{name ? [...name][0] : <Icon name="user" size={18} />}</span>
-    </summary>
-    <div className="account-menu-list material-account-menu-layer">
-      {name && <p className="account-menu-name">{name}</p>}
-      <button type="button" onClick={() => go({ name: "profile" })}><Icon name="user" size={18} />個人檔案</button>
-      <button type="button" onClick={() => go({ name: "achievements" })}><Icon name="sparkle" size={18} />成就</button>
-      {logout && <button type="button" onClick={() => { if (menu.current) menu.current.open = false; logout(); }}><Icon name="logout" size={18} />登出</button>}
-    </div>
-  </details>;
 }
 
 // 頁首頭像：前往個人檔案（成就與帳號設定）。

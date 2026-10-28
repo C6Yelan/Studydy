@@ -74,7 +74,7 @@ function ScopeFields({draft,onChange,busy,request,supplemental,settings,actions}
    {count===0&&<p className="form-error" role="alert">請至少保留一個要涵蓋的主題。</p>}
   </section>
   <aside className="topic-scope-review" aria-label="對照學習需求">
-   <MaterialNameField label={supplemental?'這次補充的名稱':'教材名稱'} value={draft.title} disabled={busy} onChange={title=>onChange({...draft,title})}/>
+   <MaterialNameField maxLength={supplemental?180:40} label={supplemental?'這次補充的名稱':'教材名稱'} value={draft.title} disabled={busy} onChange={title=>onChange({...draft,title})}/>
    <section><h3>原始學習需求</h3><p className="topic-original-request">{request}</p></section>
    <ScopeList label="學習目標" itemLabel="學習目標" addLabel="新增學習目標" items={draft.goals} busy={busy} onChange={goals=>onChange({...draft,goals})} error={hasGoals?undefined:'請至少保留一個學習目標。'}/>
    {draft.goals.some(item=>item.length>500)&&<p className="form-error" role="alert">每個學習目標最多 500 字，請縮短後再確認。</p>}
@@ -96,7 +96,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const alive=useRef(true),loadedVersion=useRef(''),selectionLoaded=useRef(''),createIntent=useRef<{body:string;key:string}|null>(null),approveIntent=useRef<{body:string;key:string}|null>(null);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useEffect(()=>{if(!topicId)return;let stop=false;let timer:ReturnType<typeof setTimeout>;
- const read=async()=>{try{const v=await api.studyTools<Topic>(`/v1/topics/${topicId}`);if(stop)return;viewLoaded.current=true;setView(v);if(v.proposal&&loadedVersion.current!==`${v.topic_id}/${v.version}`){setDraft(v.proposal);setLearningSettings({goal:v.learning_goal?{date:v.learning_goal.target_date,percent:v.learning_goal.target_percent}:null});loadedVersion.current=`${v.topic_id}/${v.version}`;}if(!requestLoaded.current){setRequest(v.request);requestLoaded.current=true;}
+ const read=async()=>{try{const v=await api.studyTools<Topic>(`/v1/topics/${topicId}`);if(stop)return;viewLoaded.current=true;setView(v);if(v.proposal&&loadedVersion.current!==`${v.topic_id}/${v.version}`){setDraft(v.material_id?v.proposal:{...v.proposal,title:v.proposal.title.slice(0,40)});setLearningSettings({goal:v.learning_goal?{date:v.learning_goal.target_date,percent:v.learning_goal.target_percent}:null});loadedVersion.current=`${v.topic_id}/${v.version}`;}if(!requestLoaded.current){setRequest(v.request);requestLoaded.current=true;}
  if(v.research&&selectionLoaded.current!==v.research.research_id){setSelected(v.research.selection);selectionLoaded.current=v.research.research_id;}
  if(v.status==='pending'||v.research&&(active.has(v.research.status)||v.research.run&&['pending','running'].includes(v.research.run.status)))timer=setTimeout(read,1800);
  }catch(e){if(!stop){if(isNotFound(e)&&!viewLoaded.current)setNotFound(true);else setError(errorMessage(e));}}};void read();return()=>{stop=true;clearTimeout(timer);};},[api,topicId,reload]);
@@ -142,7 +142,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  const errorNotice=error&&<p role="alert" className="form-error">{error}<button className="text-button" onClick={()=>{setError('');setReload(v=>v+1);}}>重新讀取</button></p>;
  if(notFound)return <NotFoundView title="找不到這個學習主題" description="這個主題可能已被刪除，或不屬於目前登入的帳號。" back={{label:'從主題建立教材',route:{name:'topics'}}}/>;
  const scopeReady=!!draft&&!!draft.title.trim()&&draft.topics.some(x=>x.trim())&&draft.goals.some(x=>x.trim())&&[...draft.topics,...draft.goals].every(item=>item.length<=500)&&[...draft.topics,...draft.goals].reduce((sum,item)=>sum+item.length,0)<=12000;
- const approve=()=>{if(!draft||!view)return;const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const payload={expected_version:view.version,proposal:clean,...(!view.material_id?{learning_goal:learningSettings.goal?{target_date:learningSettings.goal.date,target_percent:learningSettings.goal.percent}:null}:{})};const body=JSON.stringify(payload);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,payload,approveIntent.current.key);approveIntent.current=null;if(alive.current)writeRoute(view.material_id&&approved.research_id?{name:'research',materialId:view.material_id,researchId:approved.research_id}:{name:'materials'});});};
+ const approve=()=>{if(!draft||!view)return;const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const payload={expected_version:view.version,proposal:clean,...(!view.material_id?{learning_goal:learningSettings.goal?{target_date:learningSettings.goal.date,target_percent:learningSettings.goal.percent}:null}:{})};const body=JSON.stringify(payload);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,payload,approveIntent.current.key);approveIntent.current=null;if(alive.current){if(view.material_id&&approved.research_id)writeRoute({name:'research',materialId:view.material_id,researchId:approved.research_id});else setView(approved);}});};
  const buildTitle=work?.run_id?(removing?'正在刪除教材…':completed?'教材與知識地圖已建立':cancelled?'已取消教材處理':failed?'教材處理失敗':cancelling?'正在取消教材處理':materialRun?.status==='pending'?'等待開始處理':materialRun?'正在分析教材':'正在讀取處理狀態'):work?.deleted?'查詢已刪除':'正在建立教材';
  const buildDescription=completed?`使用你選擇的 ${work?.selection.length??0} 份來源，已完成這份教材。`:removing?'分析已停止，正在刪除 PDF 與處理紀錄。':cancelling?'已收到取消要求，會在目前進行中的步驟完成後安全停止。':cancelled?'這次分析已停止。若不再需要這份教材，可以刪除 PDF 與處理紀錄。':'取得的來源會保留，可離開頁面，稍後回來查看進度。';
  if(work?.run_id) return <section className={`flow-page processing-page task-page${analyzing?' is-processing':''}`}>
@@ -152,7 +152,6 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
   {errorNotice}
   <section aria-label="教材分析子流程">
    {runError&&<p className="form-error" role="alert">無法讀取處理狀態：{runError}<button className="text-button" onClick={()=>setRunReload(v=>v+1)}>重新讀取進度</button></p>}
-   {materialRun?.auto_retry_count===1&&<p className="run-ai-notice">已自動重試一次</p>}
    {!materialRun&&!runError&&<p role="status">正在讀取教材分析進度…</p>}
    {materialRun&&(removing?<section className="surface processing-card"><p role="status">正在停止處理並刪除這份教材，完成後會返回我的教材。</p></section>:<div className="processing-grid">
     {failed?<MaterialRunFailure apiClient={api} run={materialRun}/>:<section className="surface processing-card">

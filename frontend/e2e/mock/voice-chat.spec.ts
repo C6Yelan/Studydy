@@ -91,7 +91,15 @@ test('compact widget has one entry, chat bubbles, secondary sources and a growin
  const user=(await page.locator('.voice-question').boundingBox())!,assistant=(await page.locator('.voice-response').boundingBox())!;expect(user.x).toBeGreaterThan(assistant.x);
  await expect(page.locator('.voice-question > span')).toHaveCount(0);
  // 舊回答保留來源清單；位置與名稱直接顯示，可在右側回查原文。
- const chip=page.locator('.voice-reference-sources').getByRole('button').first();await expect(chip).toContainText('p.1');await chip.click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(panel).toBeVisible();
+ const chip=page.locator('.voice-reference-sources').getByRole('button').first();await expect(chip).toContainText('p.1');await chip.click();const sourcePanel=page.getByRole('dialog',{name:'教材來源'});await expect(sourcePanel).toBeVisible();
+ for(const width of [1440,390]){
+  await page.setViewportSize({width,height:width===390?844:900});
+  await expect.poll(async()=>{
+   const header=(await page.locator('.material-header').boundingBox())!,panel=(await sourcePanel.boundingBox())!;
+   return panel.y>=header.y+header.height;
+  }).toBe(true);
+ }
+ await page.keyboard.press('Escape');await expect(panel).toBeVisible();
  await input.fill('換行');await input.press('Shift+Enter');await input.pressSequentially('補充');await input.dispatchEvent('keydown',{key:'Enter',isComposing:true});expect(mock.questions).toHaveLength(1);await input.press('Enter');await expect.poll(()=>mock.questions.length).toBe(2);expect(mock.questions.at(-1)).toBe('換行\n補充');await expect(input).toHaveValue('');
  for(let i=0;i<3;i++){await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();await open(page);}
  await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.keyboard.press('Escape');await expect(panel).toBeVisible();await expect(page.getByRole('button',{name:'對話紀錄',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);
@@ -298,14 +306,14 @@ test('switching account releases private voice audio and never carries it into t
  await page.getByRole('switch',{name:'語音模式',exact:true}).click();await speak(page);await expect.poll(()=>mock.recorded.length).toBe(1);
  const turn=mock.recorded[0];turn.question='第一個帳號的問題';mock.reply(mock.conversations[0],turn);
  const audio=page.locator('.answer-audio audio');await expect.poll(()=>audio.evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
- await audio.evaluate(a=>{(window as any).previousVoiceAudio=a;});await page.getByRole('button',{name:/^帳號選單/}).click();await page.getByRole('button',{name:'登出',exact:true}).click();
+ await audio.evaluate(a=>{(window as any).previousVoiceAudio=a;});await page.evaluate(() => { const channel = new BroadcastChannel("studydy-account"); channel.postMessage("identity-changed"); channel.close(); });
  await expect(page.getByRole('heading',{name:'登入您的帳戶'})).toBeVisible();
  expect(await page.evaluate(()=>({paused:(window as any).previousVoiceAudio.paused,src:(window as any).previousVoiceAudio.getAttribute('src')}))).toEqual({paused:true,src:null});
  const stranger={schema:'learner-identity/v1',learner_id:'88888888-8888-4888-8888-888888888888'};
  await page.route('**/v1/session/login',r=>json(r,stranger));await page.route('**/v1/session/refresh',r=>json(r,stranger));
  await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[]}));
  await page.getByLabel('Email',{exact:true}).fill('second@example.test');await page.getByLabel('密碼',{exact:true}).fill('Synthetic password 42');await page.getByRole('button',{name:'登入',exact:true}).click();
- await expect(page.getByRole('button',{name:'登出',exact:true})).toBeVisible();
+ await expect(page.getByRole('tab',{name:'知識地圖',exact:true})).toBeVisible();
  await expect(page.locator('.voice-answer')).toHaveCount(0);await expect(page.locator('.answer-audio audio')).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).previousVoiceAudio.paused)).toBe(true);
 });

@@ -142,9 +142,9 @@ test('one material header row; map search floats on the map and only content tab
     await page.getByLabel(label,{exact:true}).waitFor();const box=(await page.getByLabel(label,{exact:true}).boundingBox())!;
     expect(box.y).toBeGreaterThanOrEqual(currentNav.y+currentNav.height);
    } else await expect(page.getByLabel('搜尋概念或關鍵字',{exact:true})).toHaveCount(0);
-   // 教材問答在教材頁首右端，緊鄰頭像選單。
-   const voice=(await page.getByRole('button',{name:'教材問答',exact:true}).boundingBox())!;const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;const account=(await page.locator('.material-learning-toolbar .account-menu').boundingBox())!;
-   expect(voice.y).toBeGreaterThanOrEqual(toolbar.y);expect(voice.y+voice.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);expect(account.x-voice.x-voice.width).toBeLessThanOrEqual(12);expect(toolbar.x+toolbar.width-account.x-account.width).toBeLessThanOrEqual(12);
+   // 教材問答在教材頁首右端。
+   const voice=(await page.getByRole('button',{name:'教材問答',exact:true}).boundingBox())!;const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;
+   expect(voice.y).toBeGreaterThanOrEqual(toolbar.y);expect(voice.y+voice.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);
    if(tab==='概念卡'||tab==='Podcast'){
     await expect(page.locator('.material-search-row').getByRole('searchbox')).toHaveCount(0);
     const create=(await page.locator('.material-search-row').getByRole('button',{name:tab==='概念卡'?'建立卡組':'建立 Podcast',exact:true}).boundingBox())!;expect(create.y).toBeGreaterThanOrEqual(currentNav.y+currentNav.height);
@@ -415,7 +415,7 @@ test('research source comparison has a single toolbar, tri-state select-all and 
 test('verified answer paragraphs keep their own citations and open source previews at the right',async({page},testInfo)=>{
  const structure=structureView();await mockKnowledgeMapApi(page,structure);
  const evidence=structure.concepts[0].claims[0].evidence[0];
- await page.route(`**/v1/artifacts/${artifactId}`,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="zh-Hant"><body style="font-family:sans-serif;padding:24px"><h1>教材來源 · 第 1 頁</h1><p>堆疊使用後進先出的順序。</p></body></html>'}));
+ await page.context().route(`**/v1/artifacts/${artifactId}`,route=>route.fulfill({contentType:'text/html; charset=utf-8',body:'<!doctype html><html lang="zh-Hant"><body style="font-family:sans-serif;padding:24px"><h1>教材來源 · 第 1 頁</h1><p>堆疊使用後進先出的順序。</p></body></html>'}));
  const answer={schema:'material-answer/v3',text:'依教材回答。補充說明。',supported:true,paragraphs:[{text:'依教材回答。',citation_ids:['verified']},{text:'補充說明。',citation_ids:[]}],citations:[{passage_id:'verified',text:evidence.quote,evidence:[evidence]}]};
  await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[conversation]}));
  await page.route(`**/v1/voice-conversations/${cid}`,r=>json(r,{...conversation,is_current_revision:true,source_resolver:structure.source_resolver,turns:[{turn_id:tid,mode:'text',question:'教材說明了什麼？',answer,status:'ready',audio_url:null,error_code:null}]}));
@@ -426,8 +426,9 @@ test('verified answer paragraphs keep their own citations and open source previe
  await expect(paragraphs.nth(1)).toHaveText('補充說明。');
  const marker=paragraphs.first().getByRole('button');await marker.hover();await expect(page.getByRole('tooltip')).toContainText(evidence.quote);
  await marker.click();const panel=page.getByRole('dialog',{name:'教材來源'});await expect(panel).toBeVisible();
- await expect(panel.locator('iframe')).toHaveAttribute('src',/#page=1$/);
- await expect(panel.frameLocator('iframe').getByRole('heading')).toHaveText('教材來源 · 第 1 頁');
+ const sourceLink=panel.getByRole('link',{name:'開啟 PDF 來源頁',exact:true});await expect(sourceLink).toHaveAttribute('href',/#page=1$/);
+ const [preview]=await Promise.all([page.waitForEvent('popup'),sourceLink.click()]);
+ await expect(preview.getByRole('heading')).toHaveText('教材來源 · 第 1 頁');await preview.close();
  for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
   await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`source-panel-${width}.png`)});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);

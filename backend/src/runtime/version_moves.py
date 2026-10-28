@@ -410,12 +410,13 @@ def _plan(session, learner, material, *, dsn, lock=False):
         blockers["unmapped_progress"] += len(not_carried)
         current = found.get(source_study.current_concept_id or "", {}).get("to")
         offered = bool(carried) or (head_study is None and source_study.last_event_number > 0)
-        if offered:
+        if offered or completed:
             study_item = {
                 "study_session_id": source_study.study_session_id,
                 "from_revision": revision,
                 "target_study_session_id": head_study.study_session_id if head_study else None,
                 "completed_count": len(completed),
+                "movable": offered,
                 "carried": [
                     {
                         "concept_id": target, "label": new_labels[target],
@@ -423,13 +424,22 @@ def _plan(session, learner, material, *, dsn, lock=False):
                     }
                     for target in carried
                 ],
+                "already_completed": [
+                    {
+                        "concept_id": target, "label": new_labels[target],
+                        "from_labels": [labels[old] for old in by_target[target] if old in completed],
+                    }
+                    for target in new_order
+                    if target in already and any(old in completed for old in by_target[target])
+                ],
                 "not_carried": not_carried,
                 "current_concept": {"concept_id": current, "label": new_labels[current]} if current else None,
             }
-            internal_study = {
-                "source": source_study, "head": head_study, "carried": carried,
-                "current": current or head_facts["first_step"],
-            }
+            if offered:
+                internal_study = {
+                    "source": source_study, "head": head_study, "carried": carried,
+                    "current": current or head_facts["first_step"],
+                }
 
     kept_podcasts = len(session.scalars(
         select(Podcast.podcast_id).where(
@@ -440,7 +450,7 @@ def _plan(session, learner, material, *, dsn, lock=False):
         )
     ).all())
     digest = None
-    if card_items or study_item:
+    if card_items or internal_study:
         digest = "version-move:sha256:" + canonical_sha256({
             "to_revision": head,
             "card_sets": [
@@ -716,8 +726,8 @@ def run_next(*, dsn=None):
         preview=preview_version_move(learner,row.material_id,dsn=dsn)
         if preview['automatic_safe']:
             cards=[item['card_set_id'] for item in preview['card_sets']]
-            if cards or preview['study']:
-                result=execute_version_move(learner,row.material_id,row.target_revision,cards,bool(preview['study']),
+            if cards or (preview['study'] and preview['study']['movable']):
+                result=execute_version_move(learner,row.material_id,row.target_revision,cards,bool(preview['study'] and preview['study']['movable']),
                     preview['preview_digest'],f'automatic:{row.material_id}:{row.target_revision}',automatic=True,dsn=dsn)
                 move_id=result['move_id']
             status='completed'

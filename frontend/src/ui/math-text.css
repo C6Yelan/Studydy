@@ -1,3 +1,5 @@
-.math-text { display:inline-block; max-width:100%; overflow-x:auto; vertical-align:middle; }
-.math-text-display { display:block; margin:.5rem 0; }
+.math-text { display:inline; white-space:normal; overflow-wrap:anywhere; vertical-align:middle; }
+.math-text-display { display:block; max-width:100%; margin:.5rem 0; }
 .math-text .katex-display { margin:0; }
+.math-text .katex-display > .katex { white-space:normal; }
+.math-text .katex-base { max-width:100%; width:auto; white-space:normal; }

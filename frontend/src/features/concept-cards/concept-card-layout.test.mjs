@@ -271,7 +271,7 @@ test("concise paragraphs match restored PDF line wraps without changing evidence
 test("designed text wrapping retains an oversized formula and its following content", () => {
   const formula = "$\\frac{abcdefghijk}{lmnopqrstuv}$";
   const wrapped = wrapCardText(`前文 ${formula} 後文`, 8, text => text.length, true);
-  assert.equal(wrapped.overflow, true);
+  assert.equal(wrapped.overflow, false);
   assert.ok(wrapped.lines.includes(formula));
   assert.ok(wrapped.lines.join("").endsWith("後文"));
 });

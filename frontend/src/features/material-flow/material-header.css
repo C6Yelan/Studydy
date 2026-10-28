@@ -1,4 +1,4 @@
-/* 教材內頁首：取代全站頁首的單列（返回＋教材＋分頁＋問答＋頭像），進入教材後內外分層。 */
+/* 教材內頁首：取代全站頁首的單列（返回＋教材＋分頁＋問答），進入教材後內外分層。 */
 :root:has(.app-shell.is-material .material-header) {
   /* 教材問答抽屜（掛在 body）：桌機從教材頁首下緣展開（位置由元件量測）；手機是幾乎全螢幕的面板。 */
   --shell-header-bottom: 8px;
@@ -126,24 +126,8 @@
   align-items: center;
   gap: 8px;
 }
-.material-header .account-profile {
-  min-height: 42px;
-  box-shadow: none;
-  background: var(--page-cool);
-}
-.material-header .account-name {
-  display: none;
-}
-.material-header .account-profile:has(.account-name) {
-  padding-right: 4px;
-}
-.material-header .account-avatar {
-  width: 34px;
-  height: 34px;
-}
-
 /* 分頁放不下時：非目前分頁只留圖示（名稱由 aria-label 提供）。 */
-/* 保留 1360px：長教材名稱（最寬 17vw）＋六個分頁名稱＋問答與頭像約需 1320px 才不需橫向捲動，套用 1280px 會在 1281–1320px 擠出捲動；依內容寬度決定。 */
+/* 保留 1360px：長教材名稱（最寬 17vw）＋六個分頁名稱＋問答約需 1320px 才不需橫向捲動，套用 1280px 會在 1281–1320px 擠出捲動；依內容寬度決定。 */
 @media (max-width: 1360px) and (min-width: 721px) {
   .material-header .material-content-nav.map-tabs > button:not(.is-active) > span {
     display: none;
@@ -165,7 +149,7 @@
     display: none;
   }
 }
-/* 手機：第一列返回＋教材名稱＋問答＋頭像，第二列分頁可橫向滑動；教材內不顯示底部導覽。 */
+/* 手機：第一列返回＋教材名稱＋問答，第二列分頁可橫向滑動；教材內不顯示底部導覽。 */
 @media (max-width: 720px) {
   .app-shell.is-material:has(.material-header) .app-main {
     padding-top: 10px;
@@ -205,8 +189,7 @@
     padding: 0 12px;
     font-size: 14px;
   }
-  .material-header .material-qa-trigger,
-  .material-header .account-profile {
+  .material-header .material-qa-trigger {
     min-height: 38px;
   }
   .material-header .material-qa-trigger {
@@ -217,64 +200,6 @@
   .material-header .material-qa-trigger > span {
     display: none;
   }
-  .material-header .account-avatar {
-    width: 30px;
-    height: 30px;
-  }
-}
-
-/* 頭像選單：個人檔案、成就與登出。 */
-.account-menu {
-  position: relative;
-}
-.account-menu > summary {
-  list-style: none;
-  cursor: pointer;
-}
-.account-menu > summary::-webkit-details-marker {
-  display: none;
-}
-.account-menu[open] > summary {
-  box-shadow: 0 0 0 2px var(--studydy-blue);
-}
-.account-menu-list {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 25;
-  display: grid;
-  gap: 2px;
-  min-width: 180px;
-  padding: 8px;
-  border-radius: 18px;
-  background: var(--surface);
-  box-shadow: 0 18px 40px -16px rgba(29, 52, 110, 0.45);
-}
-.account-menu-name {
-  margin: 4px 10px 6px;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.account-menu-list button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text-primary);
-  font-weight: 800;
-  text-align: left;
-}
-.account-menu-list button:hover,
-.account-menu-list button:focus-visible {
-  background: var(--page-cool);
 }
 
 /* 教材內概念卡／Podcast 分頁：數量摘要當作清單標題，與右側建立按鈕同一列。 */
@@ -283,14 +208,4 @@
   color: var(--text-primary);
   font-size: 16px;
   font-weight: 900;
-}
-
-/* 教材頁帳號選單開啟時才跨出內容層，避免被掛在 body 的問答抽屜擋住。 */
-@media (min-width: 721px) {
-  .app-shell.is-material .app-main:has(.material-account-menu[open]) {
-    isolation: auto;
-  }
-  .material-account-menu-layer {
-    z-index: 31;
-  }
 }

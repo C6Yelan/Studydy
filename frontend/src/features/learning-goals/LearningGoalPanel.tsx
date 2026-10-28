@@ -89,7 +89,7 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
                   try { await save({ date: suggestion.target_date, percent: suggestion.target_percent }); }
                   catch (failure) { if (active.current) setAdjustError(errorMessage(failure)); }
                   finally { if (active.current) setAdjusting(false); }
-                }}>{suggestion.kind === "extend_date" ? `延後到 ${dateText(suggestion.target_date)}` : `改成 ${suggestion.target_percent}%`} · 每天約 {suggestion.daily_points} 個</button>)}</div>
+                }}>{suggestion.kind === "extend_date" ? `延後到 ${Number(suggestion.target_date.slice(5, 7))}/${Number(suggestion.target_date.slice(8))}` : `改成 ${suggestion.target_percent}%`} · 每天約 {suggestion.daily_points} 個</button>)}</div>
                 {adjustError && <p role="alert">{adjustError}</p>}
                 <button className="text-button" type="button" disabled={adjusting} onClick={() => setEditing(true)}>自行調整目標</button>
               </div>}

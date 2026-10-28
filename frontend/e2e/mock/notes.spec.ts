@@ -203,11 +203,16 @@ test("readable math remains visible in nested bullets and table cells alongside 
   if (!("blocks" in first) || !("blocks" in second)) throw new Error("structured fixture required");
   first.blocks.push({ type: "bullets", items: [{ text: "平方根", children: [{ text: "√4 = 2" }] }] });
   second.blocks.push({ type: "table", caption: "近似值", headers: ["項目", "機率"], rows: [["甲", "≈ 0.5"]] });
+  second.blocks.push({ type: "formula", latex: Array.from({ length: 24 }, (_, index) => `a_{${index}}`).join(" + ") });
   await setup(page, view);
   await page.goto(`/materials/${materialId}/notes`);
   await expect(page.getByText(/^√4 = 2/ )).toBeVisible();
   await expect(page.getByRole("cell", { name: /^≈ 0.5/ })).toBeVisible();
-  await expect(page.locator(".note-formula .katex-display")).toBeVisible();
+  await expect(page.locator(".note-formula .katex-display").last()).toBeVisible();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.locator(".note-formula").evaluateAll(elements => elements.every(element => element.scrollWidth <= element.clientWidth))).toBe(true);
+  }
   await expect(page.locator(".note-formula .katex-error")).toHaveCount(0);
 });
 

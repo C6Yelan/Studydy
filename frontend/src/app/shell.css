@@ -870,3 +870,6 @@
 }
 
 .header-storage-progress { width:2rem; }
+
+.header-storage-panel .header-storage-material-link { color:var(--studydy-blue); font-weight:800; text-decoration:none; }
+.header-storage-panel .header-storage-material-link:hover { text-decoration:underline; }

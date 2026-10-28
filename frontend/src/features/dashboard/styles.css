@@ -336,7 +336,7 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
 }
 .goal-quest .quest-text b { overflow-wrap: anywhere; }
 .dashboard-goal-error { margin: 0; padding: 12px; color: var(--text-secondary); }
-.island-flag-text .island-goal-summary, .archipelago-list-text .island-goal-summary { color: var(--studydy-blue-deep); }
+.archipelago-list-text .island-goal-summary { color: var(--studydy-blue-deep); }
 .dashboard-quests li.is-done .quest-text b {
   color: var(--text-secondary);
   text-decoration: line-through;

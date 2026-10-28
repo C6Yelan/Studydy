@@ -16,7 +16,7 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  await page.route('**/v1/topics',r=>r.request().method()==='POST'?json(r,topic,202):json(r,{topics:[topic]}));
  await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  await page.route(`**/v1/material-processing-runs/${runId}`,r=>{const done=topic.research?.run?.status==='succeeded';return json(r,{...runFixture,status:done?'succeeded':'pending',progress_stage:done?'completed':'queued',completed_pages:done?2:0,output_binding:done?runFixture.output_binding:null,completed_at:done?runFixture.completed_at:null});});
- await page.route(`**/v1/topics/${id}/approve`,r=>{const body=r.request().postDataJSON();expect(body.expected_version).toBe(2);expect(body.proposal).toEqual(plan);approved++;topic={...topic,proposal:body.proposal,version:3,status:'approved',research_id:rid,research:{research_id:rid,material_id:null,query:'TCP',approved_scope:plan,status:'selecting',candidates:[candidate],selection:[],error_code:null,run_id:null}};return json(r,topic);});
+ await page.route(`**/v1/topics/${id}/approve`,r=>{const body=r.request().postDataJSON();expect(body.expected_version).toBe(2);expect(body.proposal).toEqual(plan);approved++;topic={...topic,proposal:body.proposal,version:3,status:'approved',research_id:rid,research:{research_id:rid,material_id:null,query:'TCP',approved_scope:plan,status:'searching',candidates:[candidate],selection:[],error_code:null,run_id:null}};return json(r,topic);});
  await page.route(`**/v1/topics/${id}/material`,r=>{expect(r.request().postDataJSON()).toEqual({selected:['source']});created++;topic.research={...topic.research,material_id:materialId,selection:['source'],status:'submitted',run_id:runId,run:{status:'pending',output_binding:null}};return json(r,{material_id:materialId,research_id:rid},202);});
  await page.goto('/topics');await expect(page.getByRole('heading',{name:'你想學什麼？'})).toBeVisible();
  const workspace=await page.locator('.topic-request').boundingBox();
@@ -25,9 +25,10 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  await expect(page.getByRole('complementary',{name:'對照學習需求'})).toContainText('原始學習需求TCP');
  await expect(page.locator('.topic-scope-confirm-actions').getByRole('button',{name:'確認範圍並搜尋'})).toBeVisible();
  await page.getByRole('button',{name:'確認範圍並搜尋'}).click();
- await expect(page).toHaveURL(/\/materials$/);await expect(page.getByRole('heading',{name:'我的教材',exact:true})).toBeVisible();
- const preparing=page.getByRole('article',{name:'TCP 入門',exact:true});await expect(preparing).toContainText('等待選取來源');
- await page.reload();await preparing.getByRole('button',{name:'選取來源',exact:true}).click();
+ await expect(page).toHaveURL(new RegExp(`/topics/${id}$`));
+ await expect(page.getByText('正在搜尋論文與官方教學。',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'停止搜尋',exact:true})).toBeVisible();
+ topic.research.status='selecting';await page.reload();
  await expect(page).toHaveURL(new RegExp(`/topics/${id}$`));await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeVisible();expect(approved).toBe(1);expect(created).toBe(0);
  await page.getByRole('checkbox',{name:'選取 TCP handshake'}).check();await page.getByRole('button',{name:'建立教材與知識地圖'}).click();
  await expect(page.getByRole('heading',{name:'等待開始處理',exact:true})).toBeVisible();
@@ -82,7 +83,7 @@ for(const width of [1920,1440,390]) test(`scope review edits preserve payload an
   return json(r,topic);
  });
  await page.goto(`/topics/${id}`);
- const title=page.getByLabel('教材名稱',{exact:true});await expect(title).toHaveValue(proposal.title);await expect(title).toHaveAttribute('maxlength','180');
+ const title=page.getByLabel('教材名稱',{exact:true});await expect(title).toHaveValue(proposal.title);await expect(title).toHaveAttribute('maxlength','40');
  await expect(page.getByLabel('學習目標 2',{exact:true})).toHaveValue(proposal.goals[1]);
  await expect(page.getByRole('button',{name:/^(編輯|完成)/})).toHaveCount(0);
  await title.fill('');await expect(page.getByText('請填寫教材名稱。')).toBeVisible();await expect(page.getByRole('button',{name:'確認範圍並搜尋'})).toBeDisabled();
@@ -100,7 +101,7 @@ for(const width of [1920,1440,390]) test(`scope review edits preserve payload an
  await page.getByRole('button',{name:'確認範圍並搜尋'}).click();await expect(page.locator('.topic-scope [role=alert]')).toBeVisible();
  const before=reads;await page.getByRole('button',{name:'重新讀取',exact:true}).click();await expect.poll(()=>reads).toBeGreaterThan(before);
  await expect(page.getByLabel('教材名稱',{exact:true})).toHaveValue('我的 RAG 教材');await expect(page.getByLabel('觀念名稱 1',{exact:true})).toHaveValue('RAG 應用架構');
- await page.getByRole('button',{name:'確認範圍並搜尋'}).click();await expect(page).toHaveURL(/\/materials$/);await expect(page.getByRole('article',{name:'我的 RAG 教材',exact:true})).toContainText('正在搜尋來源');expect(attempts).toBe(2);expect(keys[0]).toBeTruthy();expect(keys[1]).toBe(keys[0]);
+ await page.getByRole('button',{name:'確認範圍並搜尋'}).click();await expect(page).toHaveURL(new RegExp(`/topics/${id}$`));await expect(page.getByText('正在搜尋論文與官方教學。',{exact:true})).toBeVisible();expect(attempts).toBe(2);expect(keys[0]).toBeTruthy();expect(keys[1]).toBe(keys[0]);
 });
 
 test('request editing and replan keep one editable scope',async({page})=>{
@@ -165,7 +166,6 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
  await expect(page.getByText('此階段尚無可計算的工作總數。')).toBeVisible();
  await expect(page.getByRole('progressbar')).toBeVisible();await expect(page.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
  await expect(page.locator('.processing-times')).toContainText('1 分');
- await expect(page.getByText('已自動重試一次',{exact:true})).toBeVisible();
  await expect(page.locator('.learning-steps > li')).toHaveCount(4);await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('建立教材');
  await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('建立概念、關係與學習順序');
  await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
@@ -183,7 +183,6 @@ for(const status of ['failed','cancelled','partial'] as const) test(`topic mater
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));await page.route(`**/v1/material-processing-runs/${runId}`,r=>json(r,current));
  await page.goto(`/topics/${id}`);await expect(page.getByRole('heading',{name:status==='failed'?'教材處理失敗':status==='cancelled'?'已取消教材處理':'教材與知識地圖已建立',exact:true})).toBeVisible();
  await expect(page.getByRole('progressbar')).toHaveCount(0);
- await expect(page.getByText('已自動重試一次',{exact:true})).toBeVisible();
  if(status==='partial'){await expect(page.locator('.flow-chip')).toContainText('處理完成');await expect(page.getByText('由 AI 整理，每個重點都可點開原文對照。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();}
  else {await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);await expect(page.getByRole('region',{name:'教材分析子流程'})).toContainText('已處理 1 / 2 頁');}
  if(status==='failed'){await expect(page.getByText('已完成的處理進度已保存；使用相同來源與設定重試，會接續未完成的部分。')).toBeVisible();await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();}

@@ -235,6 +235,11 @@ class StudySessionLink(_Closed):
     started_at: datetime
 
 
+class SourceTranscriptView(_Closed):
+    schema_: Literal["source-transcript/v1"] = Field(alias="schema")
+    text: str
+
+
 class SourcePresentation(_Closed):
     display_name: str
     source_kind: Literal["document", "image", "audio", "video", "youtube"]
@@ -1307,7 +1312,9 @@ class VersionMoveStudy(_Closed):
     from_revision: str
     target_study_session_id: UUID | None
     completed_count: int
+    movable: bool
     carried: list[VersionMoveCarried]
+    already_completed: list[VersionMoveCarried]
     not_carried: list[VersionMoveUnmapped]
     current_concept: VersionMoveFocus | None
 

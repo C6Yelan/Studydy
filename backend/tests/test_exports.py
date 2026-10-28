@@ -103,7 +103,7 @@ def test_structured_notes_keep_outline_levels_bullets_tables_formula_and_callout
     assert '## 章節大綱' in markdown
     links = re.findall(r'- \[.*?\]\(#([^)]*)\)', markdown)
     assert len(links) == 2 and all(f'<a id="{anchor}"></a>' in markdown for anchor in links)
-    assert '## 一、國際經濟學概論' in markdown and '### 1\\.1 開放度' in markdown
+    assert '## 一、國際經濟學概論' in markdown and '### 1.1 開放度' in markdown
     assert '- 出口占比\n  - 子項\n    - 孫項' in markdown
     assert '$$\n' + view['paragraphs'][1]['blocks'][0]['latex'] + '\n$$' in markdown
     assert '> **案例研究：甲國**' in markdown and '> **重要教訓**' in markdown and '| 2020 | 1 |' in markdown
@@ -319,9 +319,9 @@ def test_markdown_groups_sources_without_losing_file_page_or_block_locations():
     view['paragraphs'][0]['evidence'] = evidence
     markdown = documents.note_markdown(view)
     sources = [line for line in markdown.splitlines() if line.startswith('來源：')]
-    assert sources == ['來源：甲\\.pdf · 第 2 頁 · 區塊 0–21、24  ',
-                       '來源：甲\\.pdf · 第 3 頁 · 區塊 0  ',
-                       '來源：乙\\.pdf · 第 2 頁 · 區塊 1  ']
+    assert sources == ['來源：甲.pdf · 第 2 頁 · 區塊 0–21、24  ',
+                       '來源：甲.pdf · 第 3 頁 · 區塊 0  ',
+                       '來源：乙.pdf · 第 2 頁 · 區塊 1  ']
     assert len(view['paragraphs'][0]['evidence']) == 26
 
 
@@ -341,3 +341,45 @@ def test_export_times_use_taipei_for_zip_pdf_and_word(monkeypatch):
         assert all(item.date_time == (2026, 10, 27, 8, 15, 30) for item in archive.infolist())
         root = ET.fromstring(archive.read('docProps/core.xml'))
         assert root.find('{http://purl.org/dc/terms/}created').text == '2026-10-27T08:15:30+08:00'
+
+
+@pytest.mark.parametrize("structured", [False, True])
+def test_note_markdown_keeps_filenames_and_hyphenated_terms_readable(structured):
+    view = structured_note() if structured else note()
+    name = "01_生成式AI基礎與機率建模.pptx"
+    view["material_name"] = name
+    paragraph = view["paragraphs"][0]
+    paragraph["evidence"][0]["source_name"] = name
+    text = "Self-attention 使用 QK^T；保留 *字面星號* 與 [引用]。"
+    if structured:
+        paragraph["blocks"] = [{"type": "text", "text": text}]
+    else:
+        paragraph["text"] = text
+    markdown = documents.note_markdown(view)
+    assert name in markdown and "Self-attention 使用 QK^T" in markdown
+    assert r"\*字面星號\*" in markdown and r"\[引用\]" in markdown
+
+
+def test_note_word_sources_are_real_footnotes_with_the_pdf_source_grouping():
+    from xml.etree import ElementTree as ET
+    view = note()
+    view["paragraphs"][0]["evidence"] = [*view["paragraphs"][0]["evidence"],
+        {"page": 13, "normalized_page": 3, "source_name": "錄音.MP3", "block_order": 3},
+        {"page": 4, "normalized_page": 4, "source_name": "課堂.pdf", "block_order": 1},
+    ]
+    data = documents.note_docx(view)
+    assert "我的想法" in "\n".join(paragraph.text for paragraph in Document(BytesIO(data)).paragraphs)
+    namespaces = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        body = ET.fromstring(archive.read("word/document.xml"))
+        notes = ET.fromstring(archive.read("word/footnotes.xml"))
+        references = body.findall(".//w:footnoteReference", namespaces)
+        assert [reference.attrib[f"{{{namespaces['w']}}}id"] for reference in references] == ["1", "2"]
+        texts = {note.attrib[f"{{{namespaces['w']}}}id"]: "".join(note.itertext()).strip() for note in notes}
+        assert texts["1"] == "錄音.MP3 · 第 3 段 · 區塊 2–3；課堂.pdf · 第 4 頁 · 區塊 1"
+        assert texts["2"] == "錄音.MP3 · 第 3 段 · 區塊 2"
+        assert len(notes.findall(".//w:footnoteRef", namespaces)) == 2
+        relationships = ET.fromstring(archive.read("word/_rels/document.xml.rels"))
+        assert any(relation.attrib["Type"].endswith("/footnotes") and relation.attrib["Target"] == "footnotes.xml" for relation in relationships)
+        content_types = ET.fromstring(archive.read("[Content_Types].xml"))
+        assert any(part.attrib.get("PartName") == "/word/footnotes.xml" and part.attrib["ContentType"].endswith(".footnotes+xml") for part in content_types)

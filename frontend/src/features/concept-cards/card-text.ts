@@ -27,6 +27,11 @@ export function wrapCardText(text: string, width: number, measure: (text: string
     }
     for (const segment of tokens) {
       if (measure(segment) > width) {
+        // 公式交由共用 KaTeX DOM 在可用寬度內換行，保留後面的文字。
+        if (mathParts(segment).some(part => part.kind === "math")) {
+          if (line) lines.push(line.trimEnd());
+          lines.push(segment); line = ""; continue;
+        }
         overflow = true;
         if (!preserveOverflow) break;
         if (line) lines.push(line.trimEnd());

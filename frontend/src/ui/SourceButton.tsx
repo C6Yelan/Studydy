@@ -67,6 +67,7 @@ export function SourceButton({
   const [source, setSource] = useState<EvidenceSourceView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
+  const [panelTop, setPanelTop] = useState(16);
   const [preview, setPreview] = useState<{left:number;top:number}|null>(null);
   const previewAt = () => { const box = opener.current?.getBoundingClientRect(); if (box) setPreview({left:Math.max(8, Math.min(box.left, window.innerWidth - Math.min(352, window.innerWidth * .75) - 8)),top:Math.min(box.bottom + 8, window.innerHeight - 240)}); };
   const previewId = useId();
@@ -79,8 +80,16 @@ export function SourceButton({
   const opener = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (opened && source) {
-      if (reference) dialog.current?.show(); else dialog.current?.showModal();
-      if (reference) dialog.current?.querySelector<HTMLButtonElement>("button")?.focus();
+      if (reference) {
+        const position = () => setPanelTop(Math.max(8, (document.querySelector(".material-header")?.getBoundingClientRect().bottom ?? 8) + 8));
+        position();
+        dialog.current?.show();
+        dialog.current?.querySelector<HTMLButtonElement>("button")?.focus();
+        window.addEventListener("resize", position);
+        window.addEventListener("scroll", position, { passive: true });
+        return () => { window.removeEventListener("resize", position); window.removeEventListener("scroll", position); };
+      }
+      dialog.current?.showModal();
     }
   }, [source, opened]);
   const load = async () => {
@@ -130,6 +139,7 @@ export function SourceButton({
         <dialog
           ref={dialog}
           className={reference ? "source-reference-panel" : "source-dialog"}
+          style={reference ? { top: panelTop, maxHeight: `calc(100dvh - ${panelTop}px - 1rem)` } : undefined}
           aria-label="教材來源"
           onCancel={(event) => {
             event.preventDefault();
@@ -181,7 +191,6 @@ export function SourceButton({
           ) : (
             source.format !== "pdf" && <p>此 PDF 由系統自動轉換，轉換品質不保證。</p>
           )}
-          {reference && !source.playback && <iframe className="source-reference-document" src={source.preview_url} title={`${name}原文`}/>}
           <div className="state-actions">
             <a
               className={source.playback ? "secondary-button" : "primary-button"}

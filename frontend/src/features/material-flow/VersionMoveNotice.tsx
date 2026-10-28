@@ -55,7 +55,7 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false }: { 
         if (cancelled || reading !== previewRead.current) return;
         setPreview(value);
         setSelected(new Set(value.card_sets.filter((item) => item.movable).map((item) => item.card_set_id)));
-        setIncludeStudy(value.study !== null);
+        setIncludeStudy(value.study?.movable === true);
         if (value.automatic_move?.status === "pending") timer = setTimeout(() => void load(), 2000);
       } catch { if (!cancelled && reading === previewRead.current) setPreview(null); }
     };
@@ -63,7 +63,10 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false }: { 
     return () => { cancelled = true; clearTimeout(timer); };
   }, [apiClient, materialId, head, reload]);
 
-  const pending = !!preview?.preview_digest && (preview.card_sets.length > 0 || preview.study !== null);
+  const pending = !!preview && (
+    !!preview.preview_digest && (preview.card_sets.length > 0 || preview.study !== null)
+    || !!preview.study && !preview.study.movable && preview.study.completed_count > 0
+  );
   const automaticPending = preview?.automatic_move?.status === "pending";
   const automaticDone = preview?.automatic_move?.status === "completed";
   const showNotice = !!preview && (pending || preview.automatic_move !== null || preview.previous !== null)
@@ -108,7 +111,7 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false }: { 
       schema: "version-move-create/v1" as const,
       to_revision: preview.to_revision,
       card_set_ids: preview.card_sets.filter((item) => selected.has(item.card_set_id)).map((item) => item.card_set_id),
-      include_study: includeStudy && preview.study !== null,
+      include_study: includeStudy && preview.study?.movable === true,
       preview_digest: preview.preview_digest,
     };
     // 同一次確認的重送沿用同一個鍵；改了選項才換新鍵。
@@ -125,7 +128,7 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false }: { 
       setBusy(false);
     }
   };
-  const chosen = selected.size > 0 || (includeStudy && !!preview?.study);
+  const chosen = selected.size > 0 || (includeStudy && preview?.study?.movable === true);
   const headStructure = material?.available_structures.find((item) => item.knowledge_structure_revision === head);
   return <>
 
@@ -203,19 +206,21 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false }: { 
         })}
         {preview.study && <fieldset className="version-move-item" disabled={busy}>
           <label className="version-move-choice">
-            <input type="checkbox" checked={includeStudy} onChange={(event) => setIncludeStudy(event.target.checked)}/>
+            <input type="checkbox" disabled={!preview.study.movable} checked={includeStudy} onChange={(event) => setIncludeStudy(event.target.checked)}/>
             <span><strong>學習進度</strong>
-              <small>{preview.study.carried.length
-                ? `更新前已完成 ${preview.study.completed_count} 個概念，其中 ${preview.study.carried.length} 個在更新後標示為已完成`
-                : preview.study.completed_count ? `更新前已完成 ${preview.study.completed_count} 個概念，沒有可直接標示完成的概念` : "在更新後接著學習"}</small>
+              <small>更新前已完成 {preview.study.completed_count} 個概念；可承接 {preview.study.carried.reduce((count, item) => count + item.from_labels.length, 0)} 個舊概念，對應更新後 {preview.study.carried.length} 個概念</small>
             </span>
           </label>
           {preview.study.carried.length > 0 && <details className="version-move-details">
             <summary>查看承接的概念</summary>
             <ul>{preview.study.carried.map((row) => <li key={row.concept_id}>{row.from_labels.join("、")}<Icon name="chevron-right" size={14}/>{row.label}</li>)}</ul>
           </details>}
+          {preview.study.already_completed.length > 0 && <details className="version-move-details">
+            <summary>{preview.study.already_completed.reduce((count, item) => count + item.from_labels.length, 0)} 個舊概念對應到更新後原本已完成的 {preview.study.already_completed.length} 個概念，維持完成</summary>
+            <ul>{preview.study.already_completed.map((row) => <li key={row.concept_id}>{row.from_labels.join("、")}<Icon name="chevron-right" size={14}/>{row.label}</li>)}</ul>
+          </details>}
           <UnmappedList title={`這 ${preview.study.not_carried.length} 個已完成的概念不會在更新後標示完成：`} items={preview.study.not_carried}/>
-          {preview.study.current_concept && <p className="version-move-note">會從「{preview.study.current_concept.label}」接著學習。</p>}
+          {preview.study.movable && preview.study.current_concept && <p className="version-move-note">會從「{preview.study.current_concept.label}」接著學習。</p>}
           <p className="version-move-note">內容沒有改寫的重點，原本的作答紀錄在更新後仍會計入。</p>
         </fieldset>}
         {preview.kept_podcasts > 0 && <p className="version-move-note">{preview.kept_podcasts} 集 Podcast 維持更新前內容，不會移動。</p>}

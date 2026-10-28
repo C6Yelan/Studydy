@@ -56,7 +56,7 @@ def test_owner_rename_is_a_unicode_setter_without_identity_changes(library_mater
 
 
 @pytest.mark.parametrize("name", [
-    "   ", "字" * 201, "title\n", "x\u0085", "\ud800",
+    "   ", "字" * 41, "title\n", "x\u0085", "\ud800",
 ], ids=[
     "whitespace", "too-long", "newline", "c1-control", "surrogate",
 ])

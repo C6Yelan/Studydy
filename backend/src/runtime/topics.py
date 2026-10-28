@@ -61,11 +61,11 @@ def _text(value, limit):
     return value.strip()
 
 
-def proposal(value):
+def proposal(value, title_limit=180):
     if not isinstance(value, dict) or set(value) != {"title", "goals", "topics"}:
         raise SourceError("REQUEST_INVALID")
     result = {
-        "title": " ".join(_text(value["title"], 180).split())
+        "title": " ".join(_text(value["title"], title_limit).split())
         .replace("/", "／")
         .replace(chr(92), "＼")
     }
@@ -206,13 +206,13 @@ def read(owner, identity, *, dsn=None):
 
 
 def approve(owner, identity, expected, edited, key, *, settings=None, dsn=None):
-    edited = proposal(edited)
     settings = settings or {}
     # 未帶設定的確認沿用既有指紋；明確 null 與未傳必須是不同的確認意圖。
-    fingerprint = canonical_sha256({"proposal": edited, "settings": settings} if settings else edited)
     digest = _key_digest(key)
     with database_session(dsn) as db:
         row = _owned(db, owner, identity, True)
+        edited = proposal(edited, 180 if row.material_id else 40)
+        fingerprint = canonical_sha256({"proposal": edited, "settings": settings} if settings else edited)
         if row.status == "approved":
             if (
                 row.approved_sha256 != fingerprint
@@ -283,7 +283,7 @@ def create_material(owner, identity, selected, *, dsn=None):
         research_workflow.validate_selection(work.candidates, selected)
         # 回應遺失也以固定建立 key 接回同一教材，不用假 PDF 或空 KS。
         identity_material = create_draft(
-            owner, row.proposal["title"], "topic:" + str(identity), dsn=dsn
+            owner, row.proposal["title"][:40], "topic:" + str(identity), dsn=dsn
         )
         material = db.get(Material, identity_material)
         material.pending_goal = deepcopy(row.learning_goal)
@@ -375,10 +375,17 @@ def step(*, dsn=None):
                         "task": "topic_scope",
                         "prompt": SCOPE_PROMPT,
                         "request": {"request": request, **context},
-                        "schema": SCOPE_SCHEMA,
+                        "schema": {
+                            **SCOPE_SCHEMA,
+                            "properties": {
+                                **SCOPE_SCHEMA["properties"],
+                                "title": {**SCOPE_SCHEMA["properties"]["title"],
+                                          "maxLength": 180 if material_id else 40},
+                            },
+                        },
                     },
                 )
-            result = proposal(generated)
+            result = proposal(generated, 180 if material_id else 40)
             producer = "codex-exec:gpt-5.6-luna;scope/v6"
             error = None
         except Exception as failure:

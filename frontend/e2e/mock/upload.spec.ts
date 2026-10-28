@@ -488,7 +488,8 @@ test('confirmation edits the default material name and saves it before starting 
  await page.getByRole('button',{name:'上傳並確認來源',exact:true}).click();
  const name=page.getByRole('textbox',{name:'教材名稱',exact:true}),start=page.getByRole('button',{name:'開始分析教材',exact:true});
  await expect(name).toHaveValue('01.機率模型');expect(state.name).toBe('01.機率模型');
- await expect(name).toHaveAttribute('maxlength','180');
+ await expect(name).toHaveAttribute('maxlength','40');
+ await name.fill('字'.repeat(41));await expect(name).toHaveValue('字'.repeat(40));
  await name.fill('   ');await expect(start).toBeDisabled();await expect(page.getByText('請填寫教材名稱。',{exact:true})).toBeVisible();
  await name.fill('自訂機率課程');
  for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){

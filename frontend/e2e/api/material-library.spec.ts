@@ -31,7 +31,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
   const newerPath = new URL(page.url()).pathname;
   await page.reload();
   await expect(page.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: /^帳號選單/ }).click();
+  await page.goto("/materials");
   await page.getByRole("button", { name: "登出", exact: true }).click();
   await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await original.close();
@@ -96,7 +96,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
   await expect(
     freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }),
   ).toBeVisible();
-  await freshPage.getByRole("button", { name: /^帳號選單/ }).click();
+  await freshPage.goto("/materials");
   await freshPage.getByRole("button", { name: "登出", exact: true }).click();
   await expect(freshPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await login(freshPage, "library_b@example.com");

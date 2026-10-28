@@ -757,9 +757,8 @@ test('saved material card review keeps the chat entry in the material tab row',a
   await showCardBack(page);
   await expect(page.locator('.visual-concept-card')).toBeVisible();
   const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
-  // 問答入口在教材頁首右端，緊鄰頭像選單。
+  // 問答入口在教材頁首右端。
   const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(toolbar.y);expect(box.y+box.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);
-  const account=(await page.locator('.material-learning-toolbar .account-menu').boundingBox())!;expect(account.x).toBeGreaterThanOrEqual(box.x+box.width);expect(account.x-box.x-box.width).toBeLessThanOrEqual(12);expect(toolbar.x+toolbar.width-account.x-account.width).toBeLessThanOrEqual(12);
  }
 });
 
@@ -879,9 +878,8 @@ test("pending visual structure cannot restore a previous account's card", async 
   await page.getByRole('navigation', { name: '選擇概念卡' }).getByRole('button', { name: view.concepts[30].label, exact: true }).click();
   await pending;
   const aborted = page.waitForEvent("requestfailed", request => request.url().includes("/cards?offset=24"));
-  // 教材內從頭像選單登出。
-  await page.getByRole("button", { name: /^帳號選單/ }).click();
-  await page.getByRole("button", { name: "登出", exact: true }).click();
+  // 另一分頁切換帳號時，立即清除私人內容。
+  await page.evaluate(() => { const channel = new BroadcastChannel("studydy-account"); channel.postMessage("identity-changed"); channel.close(); });
   await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await aborted; release();
   await expect(page.locator(".flashcard")).toHaveCount(0);
@@ -1895,7 +1893,7 @@ test("formula cards render the same math in readable details and the downloaded 
 test("a wide formula in a designed block preserves the formula and the following text", async ({page},testInfo) => {
   const fixture=await mockCards(page,{saved:true,savedCount:1});
   const design=designedCard(fixture.view,'flow',4);
-  design.pages[0].blocks[0].text=String.raw`前文 $\frac{abcdefghijklmno}{pqrstuvwxyz}$ 後文必須保留`;
+  design.pages[0].blocks[0].text=String.raw`前文 $\frac{abcdefghijklmno}{pqrstuvwxyz}$ 與 $$`+Array.from({length:24},(_,i)=>`a_{${i}}`).join(" + ")+"$$ 後文必須保留";
   fixture.setDesigns({[fixture.view.concepts[0].concept_id]:design});
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   await showCardBack(page);

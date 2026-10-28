@@ -555,14 +555,14 @@ export function versionMovePreview(value: unknown): value is VersionMovePreview 
   const focus = study && (study.current_concept === null ? true : object(study.current_concept));
   return !!study && isUuid(study.study_session_id) && revision(study.from_revision, "knowledge-structure")
     && (study.target_study_session_id === null || isUuid(study.target_study_session_id))
-    && count(study.completed_count) && !!focus
+    && count(study.completed_count) && typeof study.movable === "boolean" && !!focus
     && (study.current_concept === null || revision((focus as Json).concept_id, "concept") && typeof (focus as Json).label === "string")
     && Array.isArray(study.not_carried) && study.not_carried.every(versionMoveUnmapped)
-    && Array.isArray(study.carried) && study.carried.every((value) => {
+    && [study.carried, study.already_completed].every(rows => Array.isArray(rows) && rows.every((value) => {
       const row = object(value);
       return !!row && revision(row.concept_id, "concept") && typeof row.label === "string"
         && Array.isArray(row.from_labels) && row.from_labels.every((label) => typeof label === "string");
-    });
+    }));
 }
 
 export function versionMoveResult(value: unknown): value is VersionMoveResult {

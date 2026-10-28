@@ -21,6 +21,8 @@
 
 原檔、PDF 與 mapping 各自保存 hash。下載使用原 MIME 與 attachment，PDF 預覽使用獨立入口。解析在 Bubblewrap 子程序內執行，唯讀掛載 runtime 及輸入，僅輸出／暫存可寫。只有 DOCX／PPTX 的受控圖片準備階段可連線，實際 Office 與 PDF 解析始終在斷網沙箱；超連結保留，其他 HTTP(S) 外部素材在轉檔副本內盡力取得並內嵌，失敗或超出下載限額就略過，不因此拒絕整份文件。原檔不改寫；其餘格式仍不連線。資源限制、版本檢查與禁止的主動內容見 [converter.py](../backend/src/document_normalization/converter.py) 及 [renderer.py](../backend/src/document_normalization/renderer.py)。失敗來源按「重試轉換」時使用現行轉檔政策，已完成來源的快照保持不變。
 
+教材名稱上限為 40 字，上傳確認、從主題建立與我的教材重新命名一致；來源原檔名維持原有限制。0030 升級時將既有超長教材名稱截為前 40 字，部署前備份可找回原名。
+
 ## 帳號空間
 
 每個帳號總空間上限 5 GiB（介面標示 5 GB；`storage_usage.ACCOUNT_STORAGE_LIMIT_BYTES`）。上限是「接受新增工作」的門檻：已接受的工作產生的檔案（成品比預估大、normalized_pdf／mapping／分析檔、補充學習匯入）照常完成、不會中途中斷，但都計入已用並擋住之後的新增。
@@ -244,7 +246,7 @@ SearXNG 由 Compose 的 `research-search` 提供，只在 application 網路內�
 一般使用者分析遇到 RESTART_INTERRUPTED、語意服務暫時不可用／逾時、STORAGE_BUSY 或 SOURCE_BUSY 時，沿同一 run 與已保存 checkpoint 自動接續一次。auto_retry_count／auto_retry_reason 存在工作列，程序重啟不重設，第二次失敗才回 failed；排回 queued 時本次執行進度重新建立，已驗證 checkpoint 不刪除。取消、內容核對（REVIEW_*）、一般模型生成失敗、格式／容量錯誤及空間不足不重試。指定一次性維護 run 排除在此規則之外，仍遵守既有「恢復後再失敗不得自動重排」授權。
 ## 來源與執行摘要的顯示投影
 
-來源清單、教材列表代表來源與 Evidence resolver 共同提供 display_name、source_kind、duration_seconds、image_count、transcript_source 與 transcript_display_name。時長取已核對 mapping；YouTube 名稱只在顯示時去掉 .youtube，單張圖片去掉（圖片）.zip，多張顯示張數。新舊圖片同規則，不改ZIP上傳格式，不猜逐張原名。
+來源清單、教材列表代表來源與 Evidence resolver 共同提供 display_name、source_kind、duration_seconds、image_count、transcript_source 與 transcript_display_name。時長取已核對 mapping；新教材首個來源是 YouTube 時，預設教材名稱使用後端已取得的影片標題並取前 40 字；標題缺失保留「YouTube 影片」，自訂名稱與追加來源不覆寫教材名稱。YouTube 來源名稱只在顯示時去掉 .youtube，單張圖片去掉（圖片）.zip，多張顯示張數。新舊圖片同規則，不改ZIP上傳格式，不猜逐張原名。
 
 run 的 added_sources／existing_source_count 依固定 SourceSet 與 base 分辨新增與沿用來源。發布時把前後概念／關係數存為獨立 display_summary，再執行既有清理；不把顯示欄位寫入來源或結構 hash。舊run仍可從保留資料唯讀推導，缺前版結構時不捏造計數。
 
@@ -275,12 +277,12 @@ GET /v1/account/storage 使用 account-storage/v2，回傳教材原檔與轉換�
 
 教材列表每份source_totals彙總未移除來源：document只加已知頁數、image只加已知張數，audio／video／youtube只加已核對mapping時長；任一影音時長未知則media_seconds=null，沒有影音為0。前端null只顯示頁數／張數，不把逐字稿頁數或部分已知時長冒充教材合計。合計重用來源列表同批查詢及source_display結果，不另加SQL或重讀mapping。
 
-來源清單與確認頁以實際來源種類顯示文件頁數、圖片張數及影音時長；影音逐字稿的內部頁數不加入文件合計。教材卡片讀列表提供的來源合計；任一影音時長未知時不顯示總時長，也不估算。次要「查看逐字稿」開啟右側面板，標示已記錄的字幕／語音辨識來源並顯示原逐字稿 PDF；Esc 或關閉後焦點回原按鈕。
+來源清單與確認頁以實際來源種類顯示文件頁數、圖片張數及影音時長；影音逐字稿的內部頁數不加入文件合計。教材卡片讀列表提供的來源合計；任一影音時長未知時不顯示總時長，也不估算。次要「查看逐字稿」開啟右側面板，標示已記錄的字幕／語音辨識來源並以站內純文字顯示已保存的逐字稿；Esc 或關閉後焦點回原按鈕。
 
 教材更新完成頁依該次工作保存的前後結構計數，顯示新增來源數、概念與關係數的變化；不推估缺少的計數。若卡組或學習進度尚在更新前內容，一般提醒提供次要「更新」入口，來源分頁與卡組頁保留小字入口；安全者顯示自動承接結果；唯一主要操作為「開啟知識地圖」。概念詳情只在該概念有逐字稿疑義旗標時提醒對照原影片，不由整份教材的品質狀態推導。
 
 口語來源只把解釋原理、方法與必要條件的行動／例子列為教學主張；找照片、操作網頁、隨手試畫等離題過程不另建概念。實際說明機制或條件比較的例子仍保留。這是提示規則，不是新增拒絕發布關卡；實際效果須對照原文抽查。
 
-教材分析若由伺服器自動接續，處理頁會顯示「已自動重試一次」。沿用原本開始時間；完成或失敗後仍保留這項提示。
+教材分析由伺服器自動接續時，沿用原本開始時間。
 
 S5安全時自動承接卡組／學習，有損失則待確認；詳見[學習入口承接](learning.md)。最近一次移動前的入口快照由move_id驗證，返回不改教材head與新事件。清理只釋放無引用副本／結構，原始作答、標記、Podcast、問答、註記、研究及維護封存引用保留。

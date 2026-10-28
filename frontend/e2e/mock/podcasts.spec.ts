@@ -396,8 +396,8 @@ test('formal video player shares controls, transcript seek, pages and logout bou
   await page.getByRole('button',{name:'播放設定',exact:true}).click();await page.getByRole('button',{name:'全螢幕',exact:true}).click();
   await expect.poll(()=>page.evaluate(()=>document.fullscreenElement?.classList.contains('media-viewport'))).toBe(true);
   await page.getByRole('button',{name:'退出全螢幕',exact:true}).click();
-  // 教材內從頭像選單登出。
-  await page.getByRole('button',{name:/^帳號選單/}).click();await page.getByRole('button',{name:'登出',exact:true}).click();await expect(page.locator('video')).toHaveCount(0);
+  // 另一分頁切換帳號時，立即清除私人內容。
+  await page.evaluate(() => { const channel = new BroadcastChannel("studydy-account"); channel.postMessage("identity-changed"); channel.close(); });await expect(page.locator('video')).toHaveCount(0);
 });
 
 test('preview waits for every video and audio, including direct links',async({page})=>{
@@ -899,9 +899,8 @@ test('material podcast player keeps the chat entry in the material tab row',asyn
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/podcasts/${podcastId}`);
   await expect(page.locator('.podcast-watch-layout')).toBeVisible();
   const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
-  // 問答入口在教材頁首右端，緊鄰頭像選單。
+  // 問答入口在教材頁首右端。
   const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(toolbar.y);expect(box.y+box.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);
-  const account=(await page.locator('.material-learning-toolbar .account-menu').boundingBox())!;expect(account.x-box.x-box.width).toBeLessThanOrEqual(12);expect(toolbar.x+toolbar.width-account.x-account.width).toBeLessThanOrEqual(12);
  }
 });
 

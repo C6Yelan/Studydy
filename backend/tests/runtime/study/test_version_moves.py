@@ -7,7 +7,9 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
-from assessment_fixtures import answer, concept_fixture, create, finish
+from assessment_fixtures import answer, concept_fixture, create, finish, create_other, other_model
+from learning_adaptation import assessment_sets as sets
+from learning_adaptation.study_sessions import create_study_session
 from product_fixtures import HEADERS, ORIGIN, _app, closed_loop, publish_fixture_structure
 from learning_adaptation.learner_progress import derive_learner_progress
 from runtime import card_generation, card_reviews, card_sets, version_moves
@@ -335,3 +337,58 @@ def test_concurrent_confirmations_move_once(closed_loop):
         assert db.execute("SELECT count(*) FROM material_version_moves").fetchone() == (1,)
         assert db.execute("SELECT count(*) FROM card_set_moves").fetchone() == (1,)
         assert db.execute("SELECT count(*) FROM study_session_moves").fetchone() == (1,)
+
+
+def test_preview_explains_concepts_already_completed_in_the_new_material(closed_loop):
+    fixture, _ = learned(closed_loop)
+    other = create_other(fixture)
+    while work := sets.claim_set_work(dsn=fixture["dsn"]):
+        sets.execute_set_work(work, dsn=fixture["dsn"], semantic_call=other_model)
+    answer(fixture, other)
+    document = new_revision(fixture, "rewrite")
+    create_study_session(fixture["learner"], fixture["source"].material_id,
+                         document["revision"], "open-current-material", dsn=fixture["dsn"])
+    preview = version_moves.preview_version_move(fixture["learner"], fixture["source"].material_id, dsn=fixture["dsn"])
+    study = preview["study"]
+    assert study["completed_count"] == 2
+    assert [(row["label"], row["from_labels"]) for row in study["carried"]] == [("Signal codes", ["Signals"])]
+    assert [(row["label"], row["from_labels"]) for row in study["already_completed"]] == [("Other topic", ["Other topic"])]
+    assert study["not_carried"] == []
+
+
+@pytest.mark.parametrize("mutation", ["same", "split"])
+def test_preview_explains_read_only_study_outcomes_without_offering_a_move(closed_loop, mutation):
+    fixture, old_set = learned(closed_loop)
+    learner, material, dsn = fixture["learner"], fixture["source"].material_id, fixture["dsn"]
+    document = new_revision(fixture, mutation)
+    create_study_session(learner, material, document["revision"], "current-study", dsn=dsn)
+    preview = version_moves.preview_version_move(learner, material, dsn=dsn)
+    study = preview["study"]
+    assert study["completed_count"] == 1 and study["movable"] is False and study["carried"] == []
+    if mutation == "same":
+        assert [(row["label"], row["from_labels"]) for row in study["already_completed"]] == [("Signals", ["Signals"])]
+    else:
+        assert [(row["label"], row["reason"]) for row in study["not_carried"]] == [("Signals", "split")]
+    with pytest.raises(version_moves.VersionMoveError, match="REQUEST_INVALID"):
+        version_moves.execute_version_move(learner, material, document["revision"], [old_set], True,
+                                           preview["preview_digest"], "no-study-move", dsn=dsn)
+    result = version_moves.execute_version_move(learner, material, document["revision"], [old_set], False,
+                                               preview["preview_digest"], "cards-only", dsn=dsn)
+    assert result["study_session_id"] is None
+
+
+def test_automatic_update_with_only_read_only_progress_needs_no_move(closed_loop):
+    fixture, old_set = learned(closed_loop)
+    learner, material, dsn = fixture["learner"], fixture["source"].material_id, fixture["dsn"]
+    card_sets.delete_card_set(learner.learner_id, old_set, dsn=dsn)
+    document = new_revision(fixture, "same")
+    create_study_session(learner, material, document["revision"], "current-study", dsn=dsn)
+    preview = version_moves.preview_version_move(learner, material, dsn=dsn)
+    assert preview["card_sets"] == [] and preview["study"]["movable"] is False
+    assert preview["preview_digest"] is None
+    assert version_moves.run_next(dsn=dsn)
+    after = version_moves.preview_version_move(learner, material, dsn=dsn)
+    assert after["automatic_move"]["status"] == "completed"
+    assert after["automatic_move"]["move_id"] is None
+    with psycopg.connect(dsn) as db:
+        assert db.execute("SELECT count(*) FROM material_version_moves").fetchone() == (0,)
