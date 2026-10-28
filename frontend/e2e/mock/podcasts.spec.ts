@@ -880,8 +880,9 @@ test('watch page fills the left column with a 16:9 player, aligned title, compan
     expect(info.x).toBeCloseTo(viewport.x,0);
     await expect(page.locator('.podcast-watch-info')).not.toContainText('資料結構講義.pdf');
     if(width>720) {
-      // 影片佔滿左欄（除非高度上限先到）；右欄固定寬度。
-      expect(viewport.width).toBeGreaterThanOrEqual(Math.min(layout.width-20-companion.width,(height-165)*16/9)-2);
+      // 影片寬度＝左欄（受高度上限）；右欄吃掉剩餘寬度，兩者之間只有間距。
+      expect(viewport.width).toBeCloseTo(Math.min(layout.width-20-Math.min(400,Math.max(340,width*.26)),(height-165)*16/9),0);
+      expect(companion.x-(viewport.x+viewport.width)).toBeCloseTo(20,0);
       expect(companion.x).toBeGreaterThanOrEqual(viewport.x+viewport.width);
       expect(companion.width).toBeGreaterThanOrEqual(339);
       expect(companion.y).toBeCloseTo(viewport.y,0);
