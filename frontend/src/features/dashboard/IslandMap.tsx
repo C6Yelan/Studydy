@@ -20,6 +20,8 @@ const farZoom = 0.5;
 // 開啟時縮放不低於此值：標籤寬度 = k × 400 − 74 像素，0.35 時島名約可讀 5 個中文字；
 // 低於它（例如 16 座以上或手機寬度）改為置中在一座島，其餘讓使用者拖曳。
 const readableZoom = 0.35;
+// 聚焦模式的縮放：放大到島名較完整；地圖太矮放不下標籤時取放得下的最大值（不低於 readableZoom）。
+const focusZoom = 0.6;
 
 type View = { x: number; y: number; k: number };
 
@@ -106,14 +108,17 @@ export function IslandMap({ materials, progress, goals }: {
     return centerOn(cx, cy, k);
   };
 
-  // 開啟畫面：全部放得進畫面且不小於 readableZoom 就全部顯示；島太多時維持 readableZoom，置中在最近學習的島
+  // 開啟畫面：全部放得進畫面且不小於 readableZoom 就全部顯示；島太多時放大到 focusZoom，置中在最近學習的島
   // （沒有則取目標最緊迫的島、再沒有就維持地圖中心），讓使用者自己拖曳其餘區域。
   const overview = (): View => {
     const all = fitAll();
     if (all.k >= readableZoom) return all;
     const { islands: placed, bounds: b, focusId: id } = geometry.current;
     const target = placed.find((island) => island.material.material_id === id);
-    return target ? centerOn(target.x, target.y, readableZoom) : centerOn((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, readableZoom);
+    if (!target) return centerOn((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, readableZoom);
+    // 標籤在島上緣外約 64 像素（螢幕空間），島本身依縮放換算。
+    const fits = (size.current.h / 2 - 64) / (target.h / 2);
+    return centerOn(target.x, target.y, clamp(Math.min(focusZoom, fits), readableZoom, focusZoom));
   };
 
   const animateTo = (target: View) => {

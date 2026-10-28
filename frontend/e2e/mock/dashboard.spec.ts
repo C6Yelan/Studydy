@@ -805,8 +805,10 @@ for (const count of [3, 6, 9, 24])
       const viewport = (await page.locator(".island-map-viewport").boundingBox())!;
       const [x, y, w, h] = (await page.locator(".island-map-minimap").getAttribute("viewBox"))!.split(" ").map(Number);
       const view = await mapView(page);
-      // 全部放得進畫面時置中；島太多（縮放降到可讀下限 0.35）則改置中在最近學習的第一份教材，見 24 座島的案例。
-      if (view.k > 0.351) {
+      // 全部放得進畫面（回到全覽的縮放與開啟相同）時置中；島太多（全覽縮放 < 0.35）則聚焦在最近學習的島，見 24 座島的案例。
+      await page.getByRole("button", { name: "回到全覽" }).click();
+      await page.waitForTimeout(500);
+      if (Math.abs((await mapView(page)).k - view.k) < 0.001) {
         expect(view.x + (x + w / 2) * view.k).toBeCloseTo(viewport.width / 2, 0);
         expect(view.y + (y + h / 2) * view.k).toBeCloseTo(viewport.height / 2, 0);
       }
@@ -814,6 +816,7 @@ for (const count of [3, 6, 9, 24])
         expect(Math.min((viewport.width - 48) / w, (viewport.height - 48) / h)).toBeLessThan(0.5);
         // 開啟縮放維持可讀，「回到全覽」才把全部島放進畫面。
         expect(view.k).toBeGreaterThanOrEqual(0.35);
+        expect(view.k).toBeLessThanOrEqual(0.6);
       }
     });
   }
@@ -977,7 +980,7 @@ test("24 islands open readable on the most recently studied island and the fit b
   await page.goto("/");
   await expect(islands(page)).toHaveCount(24);
   const map = (await page.locator(".island-map-viewport").boundingBox())!;
-  expect((await mapView(page)).k).toBeGreaterThanOrEqual(0.35);
+  expect((await mapView(page)).k).toBeCloseTo(0.6, 2);
   const recent = page.locator(".map-island", { hasText: "第 17 份" });
   const inside = async () => {
     const flag = (await recent.locator(".island-flag").boundingBox())!;
