@@ -1,6 +1,7 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { StudydyApiClient } from "../../api/client";
 import type { CardReviewRating, CardReviewView } from "../../api/contracts";
+import { playCue } from "../../ui/feedback-sound";
 import { Icon, type IconName } from "../../ui/Icon";
 import "./card-review.css";
 
@@ -29,9 +30,13 @@ export function useMarkSubmit(apiClient: StudydyApiClient) {
 export function CardMarkButtons({ current, disabled, onMark, label = "標記這張卡", hotkeys = false, title }: {
   current: CardReviewRating | null; disabled?: boolean; onMark: (rating: CardReviewRating) => void; label?: string; hotkeys?: boolean; title?: string;
 }) {
-  return <div className="review-grades" role="group" aria-label={label} title={title}>
-    {cardMarks.map((mark) => <button key={mark.rating} type="button" className={`is-${mark.rating}${current === mark.rating ? " is-selected" : ""}`}
-      aria-pressed={current === mark.rating} disabled={disabled} onClick={() => onMark(mark.rating)}>
+  const [popped, setPopped] = useState<CardReviewRating | null>(null);
+  return <div className="review-grades" role="group" aria-label={label} title={title} data-silent-click>
+    {cardMarks.map((mark) => <button key={mark.rating} type="button" className={`is-${mark.rating}${current === mark.rating ? " is-selected" : ""}${popped === mark.rating ? " mark-pop" : ""}`}
+      aria-pressed={current === mark.rating} disabled={disabled} onClick={() => {
+        if (mark.rating === "remembered") { playCue("cardKnown"); setPopped(mark.rating); }
+        onMark(mark.rating);
+      }}>
       <Icon name={mark.icon} size={20} />{mark.label}{hotkeys && <kbd aria-hidden="true">{mark.rating === "forgot" ? "1" : "2"}</kbd>}
     </button>)}
   </div>;

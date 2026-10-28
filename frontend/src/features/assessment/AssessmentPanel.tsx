@@ -11,6 +11,7 @@ export function AssessmentPanel({
   completed,
   view,
   answerSelection,
+  fresh,
 }: {
   apiClient: StudydyApiClient;
   record: AssessmentRecordView;
@@ -21,6 +22,7 @@ export function AssessmentPanel({
     disabled: boolean;
     onChange: (optionId: string) => void;
   };
+  fresh?: boolean;
 }) {
   const assessment = record.assessment;
   const feedback = record.feedback;
@@ -35,7 +37,7 @@ export function AssessmentPanel({
     const evidenceLinks = sourceLinks(evidence);
     return (
       <section
-        className={`assessment-card feedback-card is-${feedback.is_correct ? "correct" : "incorrect"}`}
+        className={`assessment-card feedback-card is-${feedback.is_correct ? "correct" : "incorrect"}${fresh ? " feedback-enter" : ""}`}
         aria-live="polite"
       >
         <header className="feedback-result">

@@ -253,7 +253,7 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
 
 export function BadgeEarned({ badges, onClose }: { badges: KnownBadge[]; onClose: () => void }) {
   const shown = badges.slice(0, 3);
-  return <CelebrationDialog className="level-up badge-earned" label="獲得新徽章" onClose={onClose}>
+  return <CelebrationDialog className="level-up badge-earned" cue="badge" label="獲得新徽章" onClose={onClose}>
     <div className="level-up-card">
       <span className="level-up-burst" aria-hidden="true" />
       <img src="/assets/studydy/success-jump.png" alt="" />

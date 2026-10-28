@@ -3,6 +3,7 @@ import { InlineConfirm } from "../../ui/InlineConfirm";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AccountSession, AccountSessions } from "../../api/contracts";
 import { useProfile } from "../../app/HeaderTools";
+import { playCue, setSoundEnabled, soundEnabled } from "../../ui/feedback-sound";
 import { Icon } from "../../ui/Icon";
 
 const NAME_LIMIT = 20;
@@ -33,6 +34,27 @@ export function AccountSettings({ apiClient, onSessionsChanged }: {
       {/* 名稱讀到後才重新掛載表單，草稿從目前名稱開始。 */}
       <NameSection key={profile ? "ready" : "loading"} apiClient={apiClient} initial={profile?.display_name ?? ""} />
       <PasswordSection apiClient={apiClient} onChanged={onSessionsChanged} />
+      <SoundSection />
+    </section>
+  );
+}
+
+// 音效開關：只存在這個瀏覽器，不屬於帳號資料。
+function SoundSection() {
+  const [on, setOn] = useState(soundEnabled);
+  return (
+    <section aria-labelledby="account-sound-heading">
+      <h3 id="account-sound-heading">音效</h3>
+      <label className="sound-toggle">
+        <input type="checkbox" checked={on} onChange={(event) => {
+          const next = event.currentTarget.checked;
+          setSoundEnabled(next);
+          setOn(next);
+          if (next) playCue("click");
+        }} />
+        <span>播放操作音效</span>
+      </label>
+      <p className="profile-help">答題、升級、取得徽章與完成關卡時的提示音，只保存在這個瀏覽器。</p>
     </section>
   );
 }

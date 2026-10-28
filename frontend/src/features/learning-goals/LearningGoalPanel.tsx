@@ -85,7 +85,7 @@ export function LearningGoalPanel({ api, materialId }: { api: StudydyApiClient; 
               {goal.behind_points > 0 && <strong>落後 {goal.behind_points} 個重點</strong>}</p>}
             <section className="goal-today" aria-label="今天的關卡">
               <header><h3>今天的關卡</h3><time dateTime={view.today}>{dateText(view.today)}</time></header>
-              <DailyGoalProgress stage={goal.today_stage} />
+              <DailyGoalProgress stage={goal.today_stage} stageKey={materialId} />
               {goal.achieved && <p>學習目標已達成。</p>}
               {(goal.quota_over_limit || goal.scheduled_over_limit) && <div className="goal-warning" role="status">
                 <p>{goal.quota_over_limit ? "今日目標" : "實際安排"}超過每日建議的 {goal.daily_limit} 個重點。可延後日期或降低目標；系統不會自行修改。</p>

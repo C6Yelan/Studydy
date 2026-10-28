@@ -34,7 +34,7 @@ export function useLearningActivity(apiClient: StudydyApiClient, options: { fres
 }
 
 function LevelUp({ level, onClose }: { level: number; onClose: () => void }) {
-  return <CelebrationDialog className="level-up" label={`升級了！第 ${level} 級`} onClose={onClose}>
+  return <CelebrationDialog className="level-up" cue="levelUp" label={`升級了！第 ${level} 級`} onClose={onClose}>
     <div className="level-up-card">
       <span className="level-up-burst" aria-hidden="true" />
       <img src="/assets/studydy/success-jump.png" alt="" />

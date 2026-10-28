@@ -4,6 +4,10 @@
 
 角色與插圖為 AI 生成素材，位於 [角色素材](frontend/public/assets/Studydy_角色素材/) 與 [介面素材](frontend/public/assets/studydy/)。生成工具、適用條款及對外使用授權仍待維護者確認。
 
+## 介面音效
+
+答題、升級、取得徽章、完成關卡與按鈕點擊的提示音（木琴、水滴、浪聲與鋼鼓音色），由瀏覽器 Web Audio API 即時合成（[feedback-sound.ts](frontend/src/ui/feedback-sound.ts)）；音效為程式合成，無第三方素材，也沒有音檔。
+
 ## 測試文件
 
 [合成文件](backend/tests/fixtures/README.md) 由專案自行建立，用於轉檔、內容保留與來源定位測試。

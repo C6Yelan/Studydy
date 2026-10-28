@@ -5,12 +5,12 @@ import { Progress } from "../../ui/Progress";
 import { AssessmentPanel } from "./AssessmentPanel";
 import "./paper.css";
 
-export function AssessmentPaper({ api, records, view, completed, selections, disabled, canSubmit, busy, submitLabel, onSelect, onSubmit, history, children }: {
+export function AssessmentPaper({ api, records, view, completed, selections, disabled, canSubmit, busy, submitLabel, onSelect, onSubmit, history, fresh, children }: {
   api: StudydyApiClient; records: AssessmentRecordView[];
   view: Pick<KnowledgeStructureView, "concepts" | "source_resolver">;
   completed: boolean; selections: Record<string, string>; disabled: boolean; canSubmit: boolean;
   busy: boolean; submitLabel: string; onSelect: (revision: string, option: string) => void;
-  onSubmit: () => void; history?: ReactNode; children?: ReactNode;
+  onSubmit: () => void; history?: ReactNode; fresh?: boolean; children?: ReactNode;
 }) {
   const [index, setIndex] = useState(0);
   const card = useRef<HTMLDivElement>(null);
@@ -19,7 +19,7 @@ export function AssessmentPaper({ api, records, view, completed, selections, dis
   const move = (next: number) => { setIndex(next); card.current?.focus(); };
   const renderQuestion = (record: AssessmentRecordView, position: number) => <article className="assessment-set-item" key={record.assessment.assessment_revision} aria-label={`第 ${position + 1} 題`}>
     {completed && <p className="assessment-set-number">第 {position + 1} 題</p>}
-    <AssessmentPanel apiClient={api} record={record} completed={completed} view={view}
+    <AssessmentPanel apiClient={api} record={record} completed={completed} view={view} fresh={fresh}
       answerSelection={{ value: record.feedback?.selected_option_id ?? selections[record.assessment.assessment_revision] ?? null,
         disabled, onChange: option => onSelect(record.assessment.assessment_revision, option) }} />
   </article>;

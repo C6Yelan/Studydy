@@ -10,6 +10,7 @@ import type {
   ConceptAssessmentSetView,
   KnowledgeStructureView,
 } from "../../api/contracts";
+import { playCue } from "../../ui/feedback-sound";
 import { Icon } from "../../ui/Icon";
 import { assessmentPhase, type AssessmentPhase } from "./assessment-phase";
 import "./sets.css";
@@ -59,6 +60,7 @@ export function AssessmentSetPanel({
   const [reload, setReload] = useState(0);
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [justSubmittedSet, setJustSubmittedSet] = useState<string | null>(null);
   const [submissionNeedsRefresh, setSubmissionNeedsRefresh] = useState(false);
   const rejectedSubmission = useRef(false);
   const latestGroup = useRef<ConceptAssessmentSetView | null>(null);
@@ -297,15 +299,19 @@ export function AssessmentSetPanel({
     setBusy(true);
     setSubmissionError(null);
     try {
-      accept(
-        await apiClient.submitAssessmentSet(
-          studySessionId,
-          group.set_id,
-          intent.answers,
-          intent.version,
-          intent.key,
-        ),
+      const submitted = await apiClient.submitAssessmentSet(
+        studySessionId,
+        group.set_id,
+        intent.answers,
+        intent.version,
+        intent.key,
       );
+      if (accept(submitted)) {
+        // 整組都答對才播答對音；有答錯時只播一聲柔和提示，不逐題連響。
+        const results = submitted.items.flatMap((item) => (item.feedback ? [item.feedback.is_correct] : []));
+        if (results.length) playCue(results.every(Boolean) ? "correct" : "incorrect");
+        setJustSubmittedSet(submitted.set_id);
+      }
       // 交卷已由伺服器同交易解除；補送失敗不能把已保存成績當作交卷失敗。
       void apiClient.setAssessmentPresence(materialId, group.set_id, false).catch(() => undefined);
       submissionIntent.current = null;
@@ -365,7 +371,7 @@ export function AssessmentSetPanel({
   const total = progressGroup?.requested_count ?? 0;
   const ready = progressGroup?.verified_count ?? 0;
   const intervention = phase === "intervention";
-  const paper = group && prepared && <AssessmentPaper key={group.set_id} api={apiClient} records={questions} view={view} history={history}
+  const paper = group && prepared && <AssessmentPaper key={group.set_id} api={apiClient} records={questions} view={view} history={history} fresh={justSubmittedSet === group.set_id}
     completed={closed || completed} selections={selections} disabled={busy || !!submissionIntent.current}
     busy={busy} canSubmit={group.can_complete && !completed && !busy && !submissionNeedsRefresh && selectedCount === questions.length}
     submitLabel={busy ? "正在交卷…" : submissionError ? "重新交卷" : "交卷"}

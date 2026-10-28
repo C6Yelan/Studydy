@@ -471,7 +471,7 @@ test("profile keeps devices in their own card and fits a wide window without scr
   const devices = page.getByRole("region", { name: "登入裝置" });
   await expect(devices.getByRole("listitem")).toHaveText([/Chrome · Windows這個裝置/, /Safari · iPhone最後使用 2 小時前/]);
   const settings = page.getByRole("region", { name: "帳號設定" });
-  await expect(settings.getByRole("heading", { level: 3 })).toHaveText(["個人名稱", "修改密碼"]);
+  await expect(settings.getByRole("heading", { level: 3 })).toHaveText(["個人名稱", "修改密碼", "音效"]);
   await expect(settings.getByRole("region", { name: "登入裝置" })).toHaveCount(0);
   // 名稱下方不再有等級／XP 摘要。
   await expect(page.locator(".profile-head")).not.toContainText("XP");
@@ -1069,4 +1069,51 @@ test("an in-flight celebration remains valid when learning activity changes", as
   await expect.poll(() => calls).toBe(2);
   release();
   await expect(page.getByRole("dialog", { name: "升級了！第 3 級" })).toBeVisible();
+});
+
+test("sound switch silences cues and is remembered after reload", async ({ page }) => {
+  await mockLibrary(page, () => [withStudy()]);
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ total: 245, level: [2, 145, 150] }) }));
+  await page.route("**/v1/learning-activity/rhythm?*", (route) => route.fulfill({ json: learningRhythm({}) }));
+  await page.route("**/v1/account/sessions", (route) => route.fulfill({ json: { schema: "account-sessions/v2", sessions: [] } }));
+  // 以假的 AudioContext 計算被建立的發聲節點數。
+  await page.addInitScript(() => {
+    const w = window as unknown as { oscillators: number; AudioContext: unknown };
+    w.oscillators = 0;
+    const param = () => ({ value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
+    const node = () => ({ gain: param(), frequency: param(), Q: param(), threshold: param(), ratio: param(), delayTime: param(), connect: (next: unknown) => next });
+    w.AudioContext = class {
+      state = "running"; currentTime = 0; sampleRate = 8000; destination = {};
+      resume() { return Promise.resolve(); }
+      createGain() { return node(); }
+      createDynamicsCompressor() { return node(); }
+      createDelay() { return node(); }
+      createBiquadFilter() { return node(); }
+      createBuffer(_: number, length: number) { return { getChannelData: () => new Float32Array(length) }; }
+      createBufferSource() { return { ...node(), start() {}, stop() {} }; }
+      createOscillator() { w.oscillators++; return { ...node(), start() {}, stop() {} }; }
+    };
+  });
+  const oscillators = () => page.evaluate(() => (window as unknown as { oscillators: number }).oscillators);
+  const clickSecondaryButton = () => page.evaluate(() => {
+    const button = Object.assign(document.createElement("button"), { className: "secondary-button", type: "button", textContent: "測試" });
+    document.body.append(button);
+    button.click();
+    button.remove();
+  });
+  await page.goto("/profile");
+  const toggle = page.getByRole("checkbox", { name: "播放操作音效" });
+  await expect(toggle).toBeChecked();
+  await clickSecondaryButton();
+  expect(await oscillators()).toBeGreaterThan(0);
+  await toggle.uncheck();
+  const silent = await oscillators();
+  await clickSecondaryButton();
+  expect(await oscillators()).toBe(silent);
+  await page.reload();
+  await expect(page.getByRole("checkbox", { name: "播放操作音效" })).not.toBeChecked();
+  await clickSecondaryButton();
+  expect(await oscillators()).toBe(0);
+  await page.getByRole("checkbox", { name: "播放操作音效" }).check();
+  expect(await oscillators()).toBeGreaterThan(0);
 });

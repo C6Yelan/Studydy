@@ -1,0 +1,14 @@
+/* 關鍵回饋動畫：都在 600ms 內，答錯只做淡入，不閃爍、不晃動。 */
+.feedback-card.feedback-enter { animation: feedback-settle 0.4s ease-out both; }
+.feedback-card.feedback-enter.is-correct .feedback-icon { animation: feedback-pop 0.5s 0.05s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.review-grades button.mark-pop { animation: feedback-pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.stage-complete-pop { animation: feedback-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both; transform-origin: left center; }
+@keyframes feedback-settle { from { opacity: 0; transform: translateY(6px); } }
+@keyframes feedback-pop { from { opacity: 0.4; transform: scale(0.6); } 60% { transform: scale(1.1); } }
+@media (prefers-reduced-motion: reduce) {
+  .feedback-card.feedback-enter { animation: feedback-fade 0.2s ease-out both; }
+  .feedback-card.feedback-enter.is-correct .feedback-icon,
+  .review-grades button.mark-pop,
+  .stage-complete-pop { animation: none; }
+}
+@keyframes feedback-fade { from { opacity: 0; } }
