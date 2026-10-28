@@ -1,6 +1,6 @@
 /* 教材內頁首：取代全站頁首的單列（返回＋教材＋分頁＋問答），進入教材後內外分層。 */
 :root:has(.app-shell.is-material .material-header) {
-  /* 教材問答抽屜（掛在 body）：桌機從教材頁首下緣展開（位置由元件量測）；手機是幾乎全螢幕的面板。 */
+  /* Studydy AI BOT抽屜（掛在 body）：桌機從教材頁首下緣展開（位置由元件量測）；手機是幾乎全螢幕的面板。 */
   --shell-header-bottom: 8px;
 }
 .app-shell.is-material:has(.material-header) {

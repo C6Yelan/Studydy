@@ -1,7 +1,7 @@
 import {expect,test,type Page} from '@playwright/test';
 import {artifactId,materialId,runId,sessionId,structureRevision,structureView,mockKnowledgeMapApi,json,run} from '../fixtures/knowledge-map';
 const mapPath=`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
-const opener=(page:Page)=>page.getByRole('button',{name:'教材問答',exact:true});
+const opener=(page:Page)=>page.getByRole('button',{name:'Studydy AI BOT',exact:true});
 
 for(const width of [1920,1440,390]) test(`processing pages never mount learning chat at ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:900});await mockKnowledgeMapApi(page,structureView());
@@ -35,7 +35,7 @@ for(const width of [1920,1440,390]) test(`published workspace chat drawer stays 
   await page.locator('.app-main').evaluate(el=>Object.assign((el as HTMLElement).style,{transform:'translate(31px, 17px)',contain:'paint',isolation:'isolate',overflow:'hidden',height:'240px',maxWidth:'360px'}));
   await page.evaluate(()=>{const spacer=document.createElement('div');spacer.style.height='2000px';spacer.dataset.testScroll='true';document.body.append(spacer);window.scrollTo(0,300);});
   await expect.poll(()=>page.evaluate(()=>window.scrollY)).toBeGreaterThan(0);
-  await trigger.click();const panel=page.getByRole('dialog',{name:'教材問答',exact:true});await expect(panel).toBeVisible();await expect(page.getByRole('textbox',{name:'問題／辨識文字'})).toBeFocused();
+  await trigger.click();const panel=page.getByRole('dialog',{name:'Studydy AI BOT',exact:true});await expect(panel).toBeVisible();await expect(page.getByRole('textbox',{name:'問題／辨識文字'})).toBeFocused();
   expect(await panel.evaluate(el=>el.parentElement===document.body)).toBe(true);
   // 等面板的出現動畫結束再量位置。
   await panel.evaluate(el=>Promise.all(el.getAnimations().map(a=>a.finished)));
@@ -64,7 +64,7 @@ test('setup and unpublished material workspaces never mount learning chat',async
 test('wide screens dock the chat panel beside the content instead of covering it',async({page})=>{
  await page.setViewportSize({width:1440,height:900});await mockWorkspaces(page);
  await page.goto(mapPath);const header=page.locator('.material-header');const headerBefore=await header.boundingBox();const trigger=opener(page);await trigger.click();
- const panel=page.getByRole('dialog',{name:'教材問答',exact:true});await expect(panel).toBeVisible();
+ const panel=page.getByRole('dialog',{name:'Studydy AI BOT',exact:true});await expect(panel).toBeVisible();
  await expect(trigger).toHaveAttribute('aria-expanded','true');
  const box=(await panel.boundingBox())!;
  await expect.poll(async()=>{const main=(await page.locator('.focus-workspace').boundingBox())!;return main.x+main.width;}).toBeLessThanOrEqual(box.x);

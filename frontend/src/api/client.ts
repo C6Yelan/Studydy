@@ -58,7 +58,7 @@ const genericApiMessage = "請求無法完成，請稍後再試。";
 const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   LEARNING_GOAL_PUBLISHED: "教材已建立，請回到教材頁更改學習目標。",
   LEARNING_GOAL_STALE: "教材或目標已更新，請重新讀取學習目標。",
-  VOICE_PODCAST_CONTEXT_INVALID: "這段 Podcast 已不可用，請重新選段或改用教材問答。",
+  VOICE_PODCAST_CONTEXT_INVALID: "這段 Podcast 已不可用，請重新選段或直接向 Studydy AI BOT 提問。",
   PODCAST_CONFLICT: "Podcast 狀態已更新，請重新讀取後操作。",
   PODCAST_SOURCE_INSUFFICIENT: "所選概念缺少可回查的重點來源，請重新選擇。",
   PODCAST_SOURCE_TOO_LARGE: "單一來源重點超出本集容量，請先選擇其他概念。",
@@ -86,7 +86,7 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   PODCAST_TIMELINE_SOURCE_MISMATCH: "時間軸與本集原稿、音訊或來源不一致。",
   TOPIC_CONFLICT: "這個規劃的狀態已改變，請重新讀取後再操作。",
   TOPIC_PROVIDER_FAILED: "目前無法產生學習範圍，請重試。",
-  ASSESSMENT_IN_PROGRESS: "作答期間暫停教材問答，請交卷後再試。",
+  ASSESSMENT_IN_PROGRESS: "作答期間暫停 Studydy AI BOT，請交卷後再試。",
   VOICE_TURN_IN_PROGRESS: "請等目前提問完成，或先取消它。",
   VOICE_PROVIDER_UNAVAILABLE: "語音服務暫時無法連線，已保存的對話仍可查看。",
   VOICE_PROVIDER_FAILED: "這次問答處理失敗，請重試。",

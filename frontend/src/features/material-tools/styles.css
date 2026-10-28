@@ -9,7 +9,7 @@
 .material-learning-toolbar .material-content-nav.can-scroll-left { -webkit-mask-image:linear-gradient(90deg,transparent,#000 40px); mask-image:linear-gradient(90deg,transparent,#000 40px); }
 .material-learning-toolbar .material-content-nav.can-scroll-left.can-scroll-right { -webkit-mask-image:linear-gradient(90deg,transparent,#000 40px,#000 calc(100% - 40px),transparent); mask-image:linear-gradient(90deg,transparent,#000 40px,#000 calc(100% - 40px),transparent); }
 
-/* 教材頁首右側的教材問答入口（頁首本身見 material-flow/material-header.css）。 */
+/* 教材頁首右側的Studydy AI BOT入口（頁首本身見 material-flow/material-header.css）。 */
 .material-qa-trigger { display:inline-flex; flex:none; align-items:center; gap:8px; min-height:42px; padding:0 18px; border:0; border-radius:999px; background:var(--studydy-blue-soft); color:var(--studydy-blue); font-weight:800; }
 .material-qa-trigger:hover, .material-qa-trigger[aria-expanded="true"] { background:var(--studydy-blue); color:#fff; }
 

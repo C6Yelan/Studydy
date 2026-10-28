@@ -50,9 +50,9 @@ test("phone material tabs stay scrollable and the labelled Q&A entry never cover
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(mapPath);
   const tabs = page.getByRole("tablist", { name: "教材學習內容" });
-  const ask = page.getByRole("button", { name: "教材問答", exact: true });
+  const ask = page.getByRole("button", { name: "Studydy AI BOT", exact: true });
   await expect(ask).toBeVisible();
-  await expect(ask).toContainText("問答");
+  await expect(ask).toContainText("AI BOT");
   // 手機教材頁首：問答在第一列，分頁獨佔第二列，互不覆蓋。
   const list = (await tabs.boundingBox())!, button = (await ask.boundingBox())!;
   expect(list.y).toBeGreaterThanOrEqual(button.y + button.height - 0.5);

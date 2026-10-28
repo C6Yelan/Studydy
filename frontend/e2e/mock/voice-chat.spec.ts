@@ -41,7 +41,7 @@ async function mockVoice(page:Page) {
  await page.route('**/v1/voice-conversations/*/turns/*/audio',r=>r.fulfill({status:200,contentType:'audio/wav',body:wav()}));
  return {conversations,add,turn,answer,actions,questions,recorded,behavior,reply,finishAudio,browserIds,deletes:()=>deletes};
 }
-async function open(page:Page) {await page.getByRole('button',{name:'教材問答',exact:true}).click();await expect(page.getByRole('dialog',{name:'教材問答'})).toBeVisible();}
+async function open(page:Page) {await page.getByRole('button',{name:'Studydy AI BOT',exact:true}).click();await expect(page.getByRole('dialog',{name:'Studydy AI BOT'})).toBeVisible();}
 async function choose(page:Page,id:string) {await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${id}"]`).click();}
 async function microphone(page:Page) {
  // UI lifecycle tests inject speech events; real model classification is tested separately.
@@ -75,8 +75,8 @@ async function speak(page:Page) {
 
 test('compact widget has one entry, chat bubbles, secondary sources and a growing single composer',async({page})=>{
  await page.setViewportSize({width:1440,height:900});const mock=await mockVoice(page);await page.goto(mapPath);await open(page);
- const panel=page.getByRole('dialog',{name:'教材問答'}),input=page.getByLabel('問題／辨識文字');
- await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveAttribute('aria-expanded','true');await expect(panel.getByRole('heading',{name:'教材問答',exact:true})).toBeVisible();await expect(input).toBeFocused();
+ const panel=page.getByRole('dialog',{name:'Studydy AI BOT'}),input=page.getByLabel('問題／辨識文字');
+ await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toHaveAttribute('aria-expanded','true');await expect(panel.getByRole('heading',{name:'Studydy AI BOT',exact:true})).toBeVisible();await expect(input).toBeFocused();
  await expect(page.getByLabel('已保存的對話')).not.toBeVisible();
  const box=(await panel.boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!,composer=(await page.locator('.voice-composer').boundingBox())!;
  // 桌機改為教材頁首下方的右側抽屜。
@@ -101,7 +101,7 @@ test('compact widget has one entry, chat bubbles, secondary sources and a growin
  }
  await page.keyboard.press('Escape');await expect(panel).toBeVisible();
  await input.fill('換行');await input.press('Shift+Enter');await input.pressSequentially('補充');await input.dispatchEvent('keydown',{key:'Enter',isComposing:true});expect(mock.questions).toHaveLength(1);await input.press('Enter');await expect.poll(()=>mock.questions.length).toBe(2);expect(mock.questions.at(-1)).toBe('換行\n補充');await expect(input).toHaveValue('');
- for(let i=0;i<3;i++){await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();await open(page);}
+ for(let i=0;i<3;i++){await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toBeFocused();await open(page);}
  await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.keyboard.press('Escape');await expect(panel).toBeVisible();await expect(page.getByRole('button',{name:'對話紀錄',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);
 });
 
@@ -166,15 +166,15 @@ test('long conversations scroll independently without stealing reading position 
 test('390px chat uses the same compact header, fixed composer and keyboard focus',async({page})=>{
  await page.setViewportSize({width:390,height:844});const mock=await mockVoice(page),conversation=mock.add();for(let i=0;i<10;i++)mock.turn(conversation,`問題 ${i}`);
  await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
- const panel=page.getByRole('dialog',{name:'教材問答'}),box=(await panel.boundingBox())!;
+ const panel=page.getByRole('dialog',{name:'Studydy AI BOT'}),box=(await panel.boundingBox())!;
  // 手機是全螢幕聊天室。
  expect(box).toEqual({x:0,y:0,width:390,height:844});
- await expect(page.getByRole('button',{name:'教材問答',exact:true})).toHaveAttribute('aria-expanded','true');await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
+ await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toHaveAttribute('aria-expanded','true');await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
  await page.getByLabel('問題／辨識文字').fill('多行草稿\n'.repeat(25));const composer=(await page.locator('.voice-composer').boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!;
  await page.locator('.voice-turns').evaluate(el=>{el.scrollTop=0;});expect((await page.locator('.voice-composer').boundingBox())!.y).toBeCloseTo(composer.y,0);expect((await page.locator('.voice-header').boundingBox())!.y).toBeCloseTo(header.y,0);expect(composer.y+composer.height).toBeLessThanOrEqual(box.y+box.height);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
  await page.getByLabel('問題／辨識文字').focus();await page.keyboard.press('Tab');await expect(page.getByRole('button',{name:'送出問題',exact:true})).toBeFocused();
- await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();
+ await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toBeFocused();
 });
 
 test('text and voice share a conversation but only the current voice reply autoplays',async({page})=>{
@@ -215,7 +215,7 @@ test('blocked autoplay preserves ready state and offers explicit click-to-play',
  const turn=mock.recorded[0];turn.question='請用語音回答';mock.reply(mock.conversations[0],turn);
  await expect(page.getByText('語音回答已完成，點擊播放。',{exact:true})).toBeVisible();await expect(page.locator('.voice-answer')).toContainText(mock.answer.text);
  expect(turn.status).toBe('ready');await expect(page.getByText('本次處理未完成',{exact:true})).toHaveCount(0);
- await expect(page.getByRole('dialog',{name:'教材問答'}).getByRole('alert')).toHaveCount(0);
+ await expect(page.getByRole('dialog',{name:'Studydy AI BOT'}).getByRole('alert')).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).playCalls)).toBe(1);
  await page.evaluate(()=>(window as any).allowPlay=true);await page.getByRole('button',{name:'播放回答語音',exact:true}).click();
  await expect.poll(()=>page.locator('.answer-audio audio').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
@@ -244,7 +244,7 @@ test('reload and reopen do not replay an old voice answer, and mobile voice cont
  await page.getByRole('switch',{name:'語音模式',exact:true}).click();await speak(page);await expect.poll(()=>mock.recorded.length).toBe(1);
  const turn=mock.recorded[0];turn.question='手機上的語音問題';mock.reply(mock.conversations[0],turn);
  await expect.poll(()=>page.locator('.answer-audio audio').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
- const panel=page.getByRole('dialog',{name:'教材問答'});
+ const panel=page.getByRole('dialog',{name:'Studydy AI BOT'});
  const box=(await panel.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(390);expect(box.y+box.height).toBeLessThanOrEqual(844);expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
  const cid=mock.conversations[0].conversation_id;await page.reload();await open(page);await choose(page,cid);
  await expect(page.getByRole('switch',{name:'語音模式',exact:true})).toHaveAttribute('aria-checked','false');await expect(page.locator('.answer-audio audio')).toHaveCount(1);
@@ -509,7 +509,7 @@ test('assessment refusal keeps the question draft and can be sent after the guar
  const mock=await mockVoice(page);let blocked=true;
  await page.route('**/v1/voice-conversations/*/turns',route=>blocked?json(route,{schema:'api-error/v1',request_id:materialId,reason_code:'ASSESSMENT_IN_PROGRESS',retryable:false,message:'Request could not be completed.'},409):route.fallback());
  await page.goto(mapPath);await open(page);const input=page.getByLabel('問題／辨識文字');await input.fill('作答後再問的問題');await page.getByRole('button',{name:'送出問題',exact:true}).click();
- await expect(page.getByRole('alert')).toContainText('作答期間暫停教材問答，請交卷後再試。');await expect(input).toHaveValue('作答後再問的問題');expect(mock.questions).toHaveLength(0);
+ await expect(page.getByRole('alert')).toContainText('作答期間暫停 Studydy AI BOT，請交卷後再試。');await expect(input).toHaveValue('作答後再問的問題');expect(mock.questions).toHaveLength(0);
  blocked=false;await page.getByRole('button',{name:'送出問題',exact:true}).click();await expect(page.locator('.voice-answer')).toContainText('堆疊');expect(mock.questions).toEqual(['作答後再問的問題']);
 });
 
