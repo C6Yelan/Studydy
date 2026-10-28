@@ -27,3 +27,8 @@
   .card-study-footer > .cards-study-counter, .card-study-footer > .card-review-pages { grid-row:2; }
   .card-study-footer > .cards-study-shuffle { grid-column:2; grid-row:2; }
 }
+
+/* 卡組標題列：張數在左，需要加強、展開清單與匯出在右同一列。 */
+.cards-study-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 14px; }
+.cards-study-actions .card-practice-list-toggle { margin:0; }
+.cards-study-actions .export-entry { margin:0; }

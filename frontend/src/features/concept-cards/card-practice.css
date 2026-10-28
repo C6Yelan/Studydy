@@ -18,16 +18,16 @@
 .card-practice-layout .cards-browse-list[hidden] { display:none; }
 .card-practice-layout .card-practice-stage { max-width:58rem; margin-inline:auto; }
 .card-practice-stage { min-width:0; outline:none; }
-.card-practice-face { --card-face-max:max(33vh,calc(100vh - 490px)); width:100%; max-width:42rem; margin-inline:auto; }
+.card-practice-face { width:100%; max-width:42rem; margin-inline:auto; }
 .card-practice-front { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; width:100%; min-height:clamp(15rem,33vh,22rem); padding:24px; border:1px solid var(--border-light); border-radius:20px; background:var(--studydy-blue-soft); color:var(--text-primary); text-align:center; }
 .card-practice-front h2 { margin:0; font-size:clamp(20px,2vw,28px); overflow-wrap:anywhere; }
 .card-practice-front p { margin:0; line-height:1.7; }
 .card-practice-front span, .card-practice-front small { color:var(--text-secondary); font-size:12px; }
 .card-practice-comparison { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; gap:16px; overflow-wrap:anywhere; }
 .card-practice-comparison strong { padding:16px; border-radius:14px; background:var(--surface); }
-.card-practice-face .visual-concept-card { width:auto; max-width:100%; height:auto; max-height:calc(var(--card-face-max) - 16px); margin-inline:auto; cursor:pointer; }
+.card-practice-face .visual-concept-card { width:auto; max-width:100%; height:auto; max-height:calc(var(--card-face-max, 33vh) - 56px); margin-inline:auto; cursor:pointer; }
 .card-practice-face .visual-card-actions { margin-top:4px; }
-.card-practice-flip { display:block; margin-left:auto; min-height:28px; padding-block:2px; }
+.card-practice-flip { display:block; margin-left:auto; min-height:24px; padding-block:0; }
 .card-practice-stage .cards-study-mark { margin-top:6px; padding-top:8px; }
 .card-practice-stage .review-grades button { flex-direction:row; justify-content:center; min-height:40px; padding:6px 12px; }
 .card-practice-stage .card-review-source { white-space:normal; overflow:visible; }
@@ -43,7 +43,7 @@
 
 .card-practice-face .visual-card.is-long .visual-concept-card { max-height:none; }
 
-.card-practice-face .visual-card.is-long { max-height:var(--card-face-max); overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
+.card-practice-face .visual-card.is-long { max-height:var(--card-face-max, 33vh); overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
 .card-practice-face .visual-card-frame { position:relative; }
 .card-practice-face .visual-card.is-long.has-more { -webkit-mask-image:linear-gradient(#000 calc(100% - 64px),transparent); mask-image:linear-gradient(#000 calc(100% - 64px),transparent); }
 .visual-card-more { position:absolute; left:50%; bottom:8px; transform:translateX(-50%); padding:3px 12px; border-radius:999px; background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-size:12px; font-weight:800; pointer-events:none; box-shadow:0 1px 4px #2b456122; }
