@@ -932,7 +932,18 @@ export function librarySearch(value: unknown): value is LibrarySearchView {
       return !!c && isUuid(c.material_id) && typeof c.material_name === "string" && isUuid(c.run_id)
         && revision(c.knowledge_structure_revision, "knowledge-structure") && revision(c.concept_id, "concept")
         && typeof c.label === "string" && c.label.length > 0 && count(c.claim_count);
-    });
+    })
+    && Array.isArray(item.card_sets) && item.card_sets.every(value => {
+      const c = object(value);
+      return !!c && isUuid(c.card_set_id) && isUuid(c.material_id) && typeof c.material_name === "string"
+        && typeof c.name === "string" && (c.card_count === null || count(c.card_count));
+    })
+    && Array.isArray(item.podcasts) && item.podcasts.every(value => {
+      const p = object(value);
+      return !!p && isUuid(p.podcast_id) && isUuid(p.material_id) && typeof p.material_name === "string"
+        && typeof p.name === "string" && count(p.episode_count);
+    })
+    && !!object(item.totals) && ["materials", "concepts", "card_sets", "podcasts"].every(key => count(object(item.totals)?.[key]));
 }
 
 export function knowledgeRegions(value: unknown): value is KnowledgeRegionsView {

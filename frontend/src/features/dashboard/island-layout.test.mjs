@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cellX, layoutIslands } from "./island-layout.ts";
+import { islandShape } from "../../ui/art/island-shape.ts";
 
 const material = (index, pages = 10) => ({
   material_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
@@ -9,6 +10,13 @@ const material = (index, pages = 10) => ({
 });
 const positions = (materials) =>
   new Map(layoutIslands(materials).islands.map((island) => [island.material.material_id, [island.x, island.y]]));
+
+test("a material keeps its coastline and landmarks regardless of the other islands", () => {
+  const ids = Array.from({ length: 6 }, (_, index) => material(index).material_id);
+  const original = new Map(ids.map(id => [id, islandShape(id)]));
+  assert.equal(new Set([...original.values()].map(shape => shape.path)).size, ids.length);
+  for (const id of ids.reverse()) assert.deepEqual(islandShape(id), original.get(id));
+});
 
 test("adding a newer material keeps every existing island in place", () => {
   const items = Array.from({ length: 30 }, (_, index) => material(index));

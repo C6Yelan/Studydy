@@ -41,6 +41,8 @@ test("site pages share the top navigation and phones use the bottom tab bar", as
         await expect(desktopNav).toBeVisible();
         await expect(phoneNav).toBeHidden();
         await expect(desktopNav.getByRole("link", { name: current, exact: true })).toHaveAttribute("aria-current", "page");
+        await desktopNav.getByRole("link", { name: current, exact: true }).focus();
+        await expect(desktopNav.getByRole("tooltip", { name: current, exact: true })).toBeVisible();
       } else {
         await expect(desktopNav).toBeHidden();
         await expect(phoneNav).toBeVisible();

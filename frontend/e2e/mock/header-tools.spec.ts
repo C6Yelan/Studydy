@@ -13,7 +13,9 @@ const otherMaterial = "66666666-6666-4666-8666-666666666666";
 
 function searchResult(query: string, concepts = [{ id: secondConcept, label: "Array" }]) {
   return {
-    schema: "library-search/v1", query, concepts_truncated: concepts.length > 1,
+    schema: "library-search/v1", query, concepts_truncated: false,
+    card_sets: [] as import("../../src/api/contracts").LibrarySearchView["card_sets"], podcasts: [] as import("../../src/api/contracts").LibrarySearchView["podcasts"],
+    totals: { materials: 1, concepts: concepts.length, card_sets: 0, podcasts: 0 },
     materials: [{ material_id: otherMaterial, display_name: "Array 講義草稿.pdf", run_id: null, knowledge_structure_revision: null }],
     concepts: concepts.map(({ id, label }) => ({
       material_id: materialId, material_name: "Data structures.pdf", run_id: runId,
@@ -27,7 +29,8 @@ async function mockSearch(page: Page, respond = (query: string) => searchResult(
   await page.route("**/v1/search?*", (route) => {
     const query = new URL(route.request().url()).searchParams.get("q")!;
     queries.push(query);
-    return route.fulfill({ json: respond(query.trim()) });
+    const result = respond(query.trim());
+    return route.fulfill({ json: { ...result, totals: { materials: result.materials.length, concepts: result.concepts.length, card_sets: result.card_sets.length, podcasts: result.podcasts.length } } });
   });
   return queries;
 }
@@ -60,7 +63,7 @@ test("site search from home opens the map at the chosen concept and Enter picks 
   await page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" }).click();
   const dialog = page.getByRole("dialog", { name: "全站搜尋" });
   await dialog.getByRole("searchbox").fill("a");
-  await expect(dialog.getByText("只顯示前 2 個概念，輸入更多關鍵字可縮小範圍。")).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "概念" }).getByRole("button")).toHaveCount(2);
   await dialog.getByRole("searchbox").press("Enter");
   await expect.poll(() => new URL(page.url()).pathname).toBe(mapPath);
   await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "Stack" })).toBeVisible();
@@ -71,7 +74,7 @@ test("site search shows empty and failed results, retries, and opens unbuilt mat
   let fail = true;
   await page.route("**/v1/search?*", (route) => {
     const query = new URL(route.request().url()).searchParams.get("q")!.trim();
-    if (query === "zzz") return route.fulfill({ json: { ...searchResult(query, []), materials: [] } });
+    if (query === "zzz") return route.fulfill({ json: { ...searchResult(query, []), materials: [], totals: { materials: 0, concepts: 0, card_sets: 0, podcasts: 0 } } });
     if (fail) {
       fail = false;
       return route.fulfill({ status: 503, json: { schema: "api-error/v1", request_id: otherMaterial, reason_code: "STORAGE_UNAVAILABLE", retryable: true, message: "x" } });
@@ -82,7 +85,7 @@ test("site search shows empty and failed results, retries, and opens unbuilt mat
   await page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" }).click();
   const dialog = page.getByRole("dialog", { name: "全站搜尋" });
   await dialog.getByRole("searchbox").fill("zzz");
-  await expect(dialog.getByRole("status")).toHaveText("找不到「zzz」，試試其他關鍵字。");
+  await expect(dialog.getByRole("status").filter({ hasText: "找不到" })).toHaveText("找不到「zzz」，試試其他關鍵字。");
   await dialog.getByRole("searchbox").fill("array");
   await expect(dialog.getByRole("alert")).toBeVisible();
   await dialog.getByRole("button", { name: "重新搜尋" }).click();
@@ -98,7 +101,6 @@ test("site search shows empty and failed results, retries, and opens unbuilt mat
 
 test("site search also lists matching card sets and podcasts and opens them", async ({ page }) => {
   await mockKnowledgeMapApi(page);
-  await mockSearch(page, (query) => ({ ...searchResult(query, []), materials: [] }));
   const cardSetId = "77777777-7777-4777-8777-777777777777";
   const podcastId = "88888888-8888-4888-8888-888888888888";
   const concept = `concept:sha256:${"c".repeat(64)}`;
@@ -110,6 +112,10 @@ test("site search also lists matching card sets and podcasts and opens them", as
   await page.route("**/v1/podcasts", (route) => route.fulfill({ json: { schema: "podcast-list/v1", podcasts: [
     { ...common, podcast_id: podcastId, name: "陣列 Podcast", delivery: "solo", video_enabled: false, concept_ids: [concept], status: "ready", error_code: null, episode_count: 2, completed_episodes: 2, duration_seconds: 900 },
   ] } }));
+  await mockSearch(page, query => ({ ...searchResult(query, []), materials: [],
+    card_sets: [{ card_set_id: cardSetId, material_id: materialId, material_name: "Data structures.pdf", name: "陣列複習", card_count: 3 }],
+    podcasts: [{ podcast_id: podcastId, material_id: materialId, material_name: "Data structures.pdf", name: "陣列 Podcast", episode_count: 2 }],
+  }));
   await page.goto("/");
   await page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" }).click();
   const dialog = page.getByRole("dialog", { name: "全站搜尋" });
@@ -236,9 +242,10 @@ test("password change validates input, reports a wrong current password and then
   // 帳號空間已滿：顯示已用、剩餘，以及哪些動作會被擋下。
   await page.getByRole("button", { name: /^帳號空間：/ }).click();
   const storage = page.getByRole("region", { name: "帳號空間" });
-  await expect(storage).toContainText("已用 5 GB／上限 5 GB · 剩餘 0 B");
+  await expect(storage.locator(".storage-breakdown-heading")).toHaveText("帳號空間5 GB／5 GB");
   await expect(storage).toContainText("無法上傳教材、建立 Podcast 或生成影片");
-  await expect(storage).toContainText("已用包含 100 MB 預留給上傳中的檔案與生成中的 Podcast／影片");
+  await storage.getByRole("button", { name: "處理中預留說明" }).focus();
+  await expect(storage.getByRole("tooltip")).toHaveText("已用包含 100 MB 預留給上傳中的檔案與生成中的 Podcast／影片。");
   await page.keyboard.press("Escape");
   // 登入裝置是帳號設定之外的獨立卡片。
   // 三個登入先顯示兩個，其餘收合。
@@ -368,7 +375,7 @@ test("profile fits a 390px phone and jumps to account settings", async ({ page }
 });
 
 
-test("storage breakdown includes reservations once and lists the five supplied materials",async({page},testInfo)=>{
+test("storage breakdown includes reservations once and lists the three largest supplied materials",async({page},testInfo)=>{
  await mockKnowledgeMapApi(page);
  const gib=1024**3;
  const largest=Array.from({length:5},(_,index)=>({material_id:index===0?materialId:`77777777-7777-4777-8777-${String(index).padStart(12,'0')}`,display_name:index===0?'資料結構教材':`第 ${index+1} 份教材：機器學習的原理、實作與應用`,used_bytes:[gib,gib/2,gib*3/8,gib/4,gib/8][index]}));
@@ -377,10 +384,10 @@ test("storage breakdown includes reservations once and lists the five supplied m
  await page.goto('/materials');
  const opener=page.getByRole('button',{name:/^帳號空間：/});await opener.click();
  const panel=page.getByRole('region',{name:'帳號空間',exact:true});
- await expect(panel.locator('dt')).toHaveText(['教材原檔與轉換檔','Podcast 音訊','Podcast 影片','分析資料','處理中預留']);
+ await expect(panel.locator('dt')).toContainText(['教材原檔與轉換檔','Podcast 音訊','Podcast 影片','分析資料','處理中預留']);
  await expect(panel.locator('dd')).toHaveText(['1 GB','512 MB','512 MB','256 MB','256 MB']);
- await expect(panel.locator('.header-storage-numbers')).toContainText('已用 2.5 GB');
- await expect(panel.getByRole('link')).toHaveText(largest.map(material=>material.display_name));
+ await expect(panel.locator('.storage-breakdown-heading')).toHaveText('帳號空間2.5 GB／5 GB');
+ await expect(panel.getByRole('link')).toHaveText(largest.slice(0,3).map(material=>material.display_name));
  const bar=panel.getByRole('img',{name:'空間分類：已用 2.5 GB，剩餘 2.5 GB'});
  const sizes=await bar.evaluate(element=>Array.from(element.children).map(child=>child.getBoundingClientRect().width/element.getBoundingClientRect().width*100));
  sizes.forEach((size,index)=>expect(size).toBeCloseTo([20,10,10,5,5][index],1));
@@ -394,3 +401,58 @@ test("storage breakdown includes reservations once and lists the five supplied m
  await page.keyboard.press('Escape');await expect(opener).toBeFocused();await expect(panel).toHaveCount(0);
  await opener.click();await panel.getByRole('link',{name:'資料結構教材',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}`));
 });
+
+for (const [category, label] of [["materials", "教材"], ["concepts", "概念"], ["card_sets", "卡組"], ["podcasts", "Podcast"]] as const) {
+  test(`site search filters ${category} and pages results with the keyboard`, async ({ page }) => {
+    await mockKnowledgeMapApi(page);
+    const requests: { category: string; offset: number }[] = [];
+    const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+    await page.route("**/v1/search?*", route => {
+      const url = new URL(route.request().url());
+      const selected = url.searchParams.get("category")!;
+      const offset = Number(url.searchParams.get("offset"));
+      requests.push({ category: selected, offset });
+      const full = {
+        materials: Array.from({length:35}, (_, i) => ({material_id:id(i+1),display_name:`搜尋教材 ${i+1}`,run_id:null,knowledge_structure_revision:null})),
+        concepts: Array.from({length:35}, (_, i) => ({material_id:materialId,material_name:"搜尋教材",run_id:runId,knowledge_structure_revision:structureRevision,concept_id:`concept:sha256:${String(i).padStart(64,"0")}`,label:`搜尋概念 ${i+1}`,claim_count:2})),
+        card_sets: Array.from({length:35}, (_, i) => ({material_id:materialId,material_name:"搜尋教材",card_set_id:id(i+1),name:`搜尋卡組 ${i+1}`,card_count:5})),
+        podcasts: Array.from({length:35}, (_, i) => ({material_id:materialId,material_name:"搜尋教材",podcast_id:id(i+1),name:`搜尋節目 ${i+1}`,episode_count:2})),
+      };
+      return route.fulfill({json:{schema:"library-search/v1",query:url.searchParams.get("q"),concepts_truncated:offset===0,
+        totals:{materials:35,concepts:35,card_sets:35,podcasts:35},
+        ...Object.fromEntries(Object.entries(full).map(([key,items])=>[key,selected==="all"||selected===key?items.slice(offset,offset+30):[]])),
+      }});
+    });
+    await page.goto("/");
+    await page.getByRole("button", {name:"搜尋概念、教材、卡組或 Podcast"}).click();
+    const dialog = page.getByRole("dialog", {name:"全站搜尋"});
+    await dialog.getByRole("searchbox").fill("搜尋");
+    await expect(dialog.getByRole("tab", {name:/^全部\s*140$/,exact:true})).toBeVisible();
+    const group=dialog.getByRole("region", {name:label,exact:true});
+    await expect(group.getByRole("button")).toHaveCount(4);
+    await group.getByRole("button", {name:"看全部 35 筆"}).click();
+    await expect(group.getByRole("button")).toHaveCount(30);
+    const pagination=dialog.getByRole("navigation", {name:"搜尋結果分頁"});
+    await expect(pagination).toHaveText("上一頁第 1／2 頁下一頁");
+    await expect(pagination.getByRole("button", {name:"上一頁"})).toBeDisabled();
+    expect(requests).not.toContainEqual({category,offset:30});
+    await pagination.getByRole("button", {name:"下一頁"}).click();
+    await expect(group.getByRole("button")).toHaveCount(5);
+    await expect(group.getByRole("button").first()).toBeFocused();
+    expect(await dialog.locator(".search-results").evaluate(element=>element.scrollTop)).toBe(0);
+    await expect(pagination).toHaveText("上一頁第 2／2 頁下一頁");
+    await expect(pagination.getByRole("button", {name:"下一頁"})).toBeDisabled();
+    expect(requests).toContainEqual({category,offset:30});
+    await page.keyboard.press("PageUp");
+    await expect(group.getByRole("button")).toHaveCount(30);
+    await expect(group.getByRole("button").first()).toBeFocused();
+    await page.keyboard.press("PageDown");
+    await expect(group.getByRole("button")).toHaveCount(5);
+    await expect(group.getByRole("button").first()).toBeFocused();
+    await dialog.getByRole("tab", {name:new RegExp(`^${label}\\s*35$`)}).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(dialog.getByRole("tab", {selected:true})).toBeFocused();
+    await dialog.getByRole("searchbox").fill("搜尋新字");
+    await expect.poll(()=>requests.at(-1)?.offset).toBe(0);
+  });
+}

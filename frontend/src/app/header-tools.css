@@ -60,3 +60,13 @@
     display: none;
   }
 }
+
+.search-categories { display:flex; gap:4px; padding:12px 16px 0; flex-wrap:wrap; }
+.search-categories button { display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:6px 10px; border:0; border-radius:999px; background:var(--page-cool); color:var(--text-secondary); font-weight:800; }
+.search-categories button[aria-selected="true"] { background:var(--text-primary); color:var(--surface); }
+.search-categories button > span { font-size:.75rem; font-variant-numeric:tabular-nums; }
+.search-results .search-more { justify-content:center; color:var(--studydy-blue); font-weight:800; }
+.search-pagination { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; }
+.search-pagination button { min-height:40px; padding:6px 10px; border:0; border-radius:8px; background:var(--page-cool); color:var(--studydy-blue); font-weight:800; }
+.search-pagination button:disabled { color:var(--text-muted); cursor:default; }
+.search-pagination > span { white-space:nowrap; font-size:.875rem; font-variant-numeric:tabular-nums; }

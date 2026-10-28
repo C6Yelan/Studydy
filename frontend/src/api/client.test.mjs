@@ -1399,6 +1399,7 @@ test("library search rejects mismatched queries and malformed hits", async () =>
   const body = (change = () => undefined) => {
     const value = {
       schema: "library-search/v1", query: "堆疊", concepts_truncated: false,
+      card_sets: [], podcasts: [], totals: {materials:1,concepts:1,card_sets:0,podcasts:0},
       materials: [{ material_id: materialId, display_name: "資料結構", run_id: null, knowledge_structure_revision: null }],
       concepts: [{ material_id: materialId, material_name: "資料結構", run_id: runId, knowledge_structure_revision: structureRevision, concept_id: conceptId, label: "堆疊", claim_count: 2 }],
     };
@@ -1407,12 +1408,18 @@ test("library search rejects mismatched queries and malformed hits", async () =>
   };
   const search = (value, text = " 堆疊 ") => new StudydyApiClient(async () => Response.json(value)).searchLibrary(text);
   assert.equal((await search(body())).concepts[0].label, "堆疊");
+  let requested;
+  const paged = new StudydyApiClient(async path => { requested = path; return Response.json(body()); });
+  await paged.searchLibrary("堆疊", {category:"concepts", offset:30, limit:30});
+  assert.deepEqual(Object.fromEntries(new URL(requested, "https://local.test").searchParams), {q:"堆疊", category:"concepts", offset:"30", limit:"30"});
   await assert.rejects(search(body(), "佇列"), ApiClientError);
   for (const change of [
     (value) => { value.concepts[0].concept_id = "concept:bad"; },
     (value) => { value.concepts[0].run_id = null; },
     (value) => { value.materials[0].run_id = runId; },
     (value) => { value.concepts[0].claim_count = -1; },
+    (value) => { value.totals.concepts = -1; },
+    (value) => { value.card_sets = [{card_set_id:"bad"}]; },
   ]) await assert.rejects(search(body(change)), ApiClientError);
 });
 

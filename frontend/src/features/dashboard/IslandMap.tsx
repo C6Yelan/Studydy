@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type Keybo
 import type { MaterialLibraryItem } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { IslandArt, islandColors, islandPalette } from "../../ui/art/Island";
+import { islandShape } from "../../ui/art/island-shape";
 import { ProgressRing } from "../../ui/art/ProgressRing";
 import { Icon } from "../../ui/Icon";
 import { Bone } from "../../ui/Skeleton";
@@ -258,7 +259,7 @@ export function IslandMap({ materials, progress, goals }: {
           return <li key={material.material_id} className={`map-island is-${state}`}
             style={{ "--x": `${x}px`, "--y": `${y}px`, "--w": `${w}px`, "--h": `${h}px` } as CSSProperties}>
             <button type="button" onClick={() => openMaterial(material)} onFocus={() => reveal(x, y)} aria-label={`${material.display_name}，${status}${goalText ? `，${goalText}` : ""}`}>
-              <span className="map-island-art"><IslandArt palette={islandPalette(material.material_id)} viewBox="100 60 840 470" landmarks={state !== "building"} /></span>
+              <span className="map-island-art"><IslandArt palette={islandPalette(material.material_id)} seed={material.material_id} viewBox="100 60 840 470" landmarks={state !== "building"} /></span>
               {goal && <span className={`island-goal-flag${goal.overdue_days > 0 || goal.days_remaining <= 1 || goal.behind_points > 0 ? " is-warning" : ""}`} aria-label="目標倒數">⚑ {goal.target_percent}% · {goal.overdue_days > 0 ? `逾期 ${goal.overdue_days} 天` : goal.days_remaining <= 1 ? "今天到期" : `剩 ${goal.days_remaining} 天`}</span>}
               <span className="island-flag">
                 <ProgressRing ratio={goal ? (goal.target_points ? goal.completed_points / goal.target_points : 0) : value && value.total ? started / value.total : 0} tone={(goal ? goal.achieved : state === "completed") ? "complete" : "warning"}>
@@ -291,7 +292,8 @@ export function IslandMap({ materials, progress, goals }: {
       onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); minimapMove(event, true); }}
       onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) minimapMove(event, false); }}>
       <rect x={bounds.minX} y={bounds.minY} width={width} height={height} className="minimap-sea" />
-      {islands.map(({ material, x, y, w, h }) => <ellipse key={material.material_id} cx={x} cy={y} rx={w * 0.42} ry={h * 0.36}
+      {islands.map(({ material, x, y, w, h }) => <path key={material.material_id} d={islandShape(material.material_id).path}
+        transform={`translate(${x - w / 2} ${y - h / 2}) scale(${w / 840} ${h / 470}) translate(-100 -60)`}
         fill={islandColors(islandPalette(material.material_id)).g2} />)}
       <rect ref={minimapView} className="minimap-view" />
     </svg>}

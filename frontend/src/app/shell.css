@@ -64,9 +64,12 @@
   display: inline-flex;
   text-decoration: none;
   align-items: center;
-  gap: 8px;
+  position: relative;
+  justify-content: center;
+  flex: none;
+  width: 40px;
   min-height: 40px;
-  padding: 0 16px;
+  padding: 0;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -76,6 +79,8 @@
   white-space: nowrap;
   transition: background 0.2s, color 0.2s;
 }
+.main-nav-tooltip { display:none; position:absolute; top:calc(100% + 10px); left:50%; transform:translateX(-50%); padding:6px 10px; border-radius:8px; background:var(--text-primary); color:var(--surface); font-size:13px; pointer-events:none; }
+.main-nav a:hover .main-nav-tooltip, .main-nav a:focus-visible .main-nav-tooltip { display:block; }
 .main-nav a:hover:not([aria-current="page"]) {
   background: var(--page-cool);
   color: var(--text-primary);
@@ -151,16 +156,6 @@
 }
 .tab-bar {
   display: none;
-}
-
-/* 導覽有六個入口：寬螢幕以下非目前頁只顯示圖示，避免和左側學習進度、右側搜尋與帳號重疊或把搜尋擠成兩行。 */
-@media (max-width: 1599px) {
-  .main-nav a:not([aria-current="page"]) span {
-    display: none;
-  }
-  .main-nav a:not([aria-current="page"]) {
-    padding: 0 12px;
-  }
 }
 
 /* 手機：頂部只留品牌與帳號，主要導覽移到底部。 */
@@ -246,7 +241,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-width: 220px;
+  min-width: max-content;
   min-height: 46px;
   padding: 0 10px 0 16px;
   border: 0;
@@ -495,6 +490,8 @@
   box-shadow: 0 0 0 2px var(--studydy-blue);
 }
 @media (max-width: 1280px) {
+  .account-button { justify-content:center; width:46px; padding:0; }
+  .account-button-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   .header-search-trigger {
     min-width: 0;
     padding: 0 14px;
@@ -607,34 +604,11 @@
   line-height: 1.1;
 }
 
-/* 頁首右側隨寬度收合：登出只留圖示（保留無障礙名稱）、隱藏名稱並縮短搜尋，避免與中央導覽重疊。 */
-/* 保留 1759px：完整六個導覽名稱（約 660px）置中時，右側完整帳號區（約 494px）要到約 1760px 才放得下，依內容寬度決定。 */
-@media (max-width: 1759px) {
-  .account-button {
-    justify-content: center;
-    width: 46px;
-    padding: 0;
-  }
-  .account-button-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-  .account-name {
-    display: none;
-  }
-  .account-profile:has(.account-name) {
-    padding-right: 4px;
-  }
-}
-/* 與上方 1759px 同一門檻（依內容寬度保留）：帳號區收合時搜尋鈕維持 180px。 */
-@media (min-width: 1281px) and (max-width: 1759px) {
-  .header-search-trigger {
-    min-width: 180px;
-  }
+@media (min-width: 1281px) and (max-width: 1439px) {
+  .account-button { justify-content:center; width:46px; padding:0; }
+  .account-button-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .account-name { display:none; }
+  .account-profile:has(.account-name) { padding-right:4px; }
 }
 @media (max-width: 720px) {
   .app-header:has(.header-progress) {
@@ -823,8 +797,6 @@
 .header-storage-panel { position:absolute; top:calc(100% + 10px); left:0; z-index:10; width:min(24rem, calc(100vw - 32px)); padding:20px; display:grid; gap:10px; border:1px solid var(--border); border-radius:20px; background:var(--surface); box-shadow:var(--shadow); color:var(--text-secondary); font-size:14px; }
 .header-storage-panel h2 { margin:0; color:var(--text-primary); font-size:17px; }
 .header-storage-panel p { margin:0; }
-.header-storage-numbers { display:flex; flex-wrap:wrap; gap:4px; }
-.header-storage-numbers strong { color:var(--text-primary); }
 
 @media (max-width:1280px) {
   .header-storage-wide { display:none; }
@@ -840,20 +812,7 @@
   grid-template-columns: max-content minmax(max-content, 1fr) max-content;
   column-gap: 12px;
 }
-.app-header:has(.header-storage) { container: app-header / inline-size; }
 .app-header:has(.header-storage) .main-nav { justify-self:center; }
-.app-header:has(.header-storage) .main-nav a { padding-inline:clamp(6px, calc(2.5vw - 32px), 16px); }
-/* 帳號區在 1760px 以上展開名稱與登出文字；左側多了帳號空間後，三區完整展開約需 1740px。
-   全站頁首內容統一最寬 2200px，依頁首實際寬度（不是視窗寬度）決定是否展開，放不下時沿用 1281–1759px 的收合樣式。 */
-@media (min-width:1760px) {
-  @container app-header (max-width:1779px) {
-    .account-button { justify-content:center; width:46px; padding:0; }
-    .account-button-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-    .account-name { display:none; }
-    .account-profile:has(.account-name) { padding-right:4px; }
-    .header-search-trigger { min-width:180px; }
-  }
-}
 @media (max-width:1280px) {
   .app-header:has(.header-storage) .header-start,
   .app-header:has(.header-storage) .account-controls { gap:4px; }

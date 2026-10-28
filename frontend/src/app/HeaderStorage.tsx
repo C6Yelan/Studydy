@@ -76,29 +76,30 @@ export function HeaderStorage({ apiClient }: { apiClient: StudydyApiClient }) {
       <span className="header-storage-compact" aria-hidden="true">{percentage > 0 && percentage < 1 ? "<1" : Math.round(percentage)}%</span>
     </button>
     {open && <section id={panelId} role="region" aria-label="帳號空間" className="header-storage-panel storage-breakdown-panel">
-      <h2>帳號空間</h2>
-      <p className="header-storage-numbers"><strong>已用 {used}</strong><span>／上限 {limit} · 剩餘 {remaining}</span></p>
-      {storage.reserved_bytes > 0 && <p>已用包含 {formatBytes(storage.reserved_bytes)} 預留給上傳中的檔案與生成中的 Podcast／影片。</p>}
+      <header className="storage-breakdown-heading"><h2>帳號空間</h2><span>{used}／{limit}</span></header>
       <div className="storage-breakdown-bar" role="img" aria-label={`空間分類：已用 ${used}，剩餘 ${remaining}`}>
         {categories.map(category => <span key={category.key} aria-hidden="true" style={{ width: `${storage.breakdown[category.key] / Math.max(storage.limit_bytes, storage.used_bytes) * 100}%`, backgroundColor: category.color }} />)}
       </div>
       <dl className="storage-breakdown-legend">{categories.map(category => <div key={category.key}>
-        <dt><span aria-hidden="true" style={{ backgroundColor: category.color }}/>{category.label}</dt>
+        <dt><span aria-hidden="true" style={{ backgroundColor: category.color }}/>{category.label}
+          {category.key === "reserved_bytes" && storage.reserved_bytes > 0 && <span className="storage-reservation-info">
+            <button type="button" aria-label="處理中預留說明" aria-describedby={`${panelId}-reservation`}>ⓘ</button>
+            <span role="tooltip" id={`${panelId}-reservation`}>已用包含 {formatBytes(storage.reserved_bytes)} 預留給上傳中的檔案與生成中的 Podcast／影片。</span>
+          </span>}
+        </dt>
         <dd>{formatBytes(storage.breakdown[category.key])}</dd>
       </div>)}</dl>
       <div className="storage-largest">
-        <h3>佔用最多的教材</h3>
-        {storage.largest_materials.length ? <ol>{storage.largest_materials.map(material => <li key={material.material_id}>
+        <h3>佔用最多</h3>
+        {storage.largest_materials.length ? <ol>{storage.largest_materials.slice(0, 3).map(material => <li key={material.material_id}>
           <a className="header-storage-material-link" href={routePath({ name: "material", materialId: material.material_id })} onClick={event => {
             if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
             event.preventDefault(); setOpen(false); writeRoute({ name: "material", materialId: material.material_id });
-          }}>{material.display_name}</a>
+          }} title={material.display_name}>{material.display_name}</a>
           <span>{formatBytes(material.used_bytes)}</span>
         </li>)}</ol> : <p>目前沒有佔用空間的教材。</p>}
       </div>
-      <p className={full ? "header-storage-warning" : undefined}>{full
-        ? "空間已滿：無法上傳教材、建立 Podcast 或生成影片；已有內容仍可閱讀、播放與刪除。"
-        : "刪除教材、Podcast 或影片可釋出空間。"}</p>
+      {full && <p className="header-storage-warning">空間已滿：無法上傳教材、建立 Podcast 或生成影片；已有內容仍可閱讀、播放與刪除。</p>}
     </section>}
   </div>;
 }

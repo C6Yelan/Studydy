@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../api/client";
-import type { CardSetSummary, LearnerProfile, LibrarySearchView, PodcastSummary } from "../api/contracts";
+import type { LearnerProfile, LibrarySearchView, LibrarySearchCategory } from "../api/contracts";
 import { Icon } from "../ui/Icon";
 import { writeRoute } from "./routes";
 import "./header-tools.css";
@@ -17,8 +17,8 @@ export function useProfile(apiClient: StudydyApiClient): LearnerProfile | null {
   return profile;
 }
 
-export function Modal({ label, open, onClose, className, children }: {
-  label: string; open: boolean; onClose: () => void; className: string; children: ReactNode;
+export function Modal({ label, open, onClose, className, children, onKeyDown }: {
+  label: string; open: boolean; onClose: () => void; className: string; children: ReactNode; onKeyDown?: React.KeyboardEventHandler<HTMLDialogElement>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -33,6 +33,7 @@ export function Modal({ label, open, onClose, className, children }: {
       role="dialog"
       aria-modal="true"
       aria-label={label}
+      onKeyDown={onKeyDown}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
     >
@@ -41,7 +42,7 @@ export function Modal({ label, open, onClose, className, children }: {
   );
 }
 
-type SearchState = { query: string; result: LibrarySearchView | null; error: string | null };
+type SearchState = { query: string; category: LibrarySearchCategory; offset: number; result: LibrarySearchView | null; error: string | null };
 
 // 頁首搜尋只有一個；其他頁面（例如找不到頁面）透過這裡開啟，不模擬鍵盤事件。
 let searchOpener: { visible: () => boolean; open: () => void } | null = null;
@@ -68,7 +69,7 @@ function Highlight({ text, needle }: { text: string; needle: string }) {
 
 // 方向鍵在搜尋欄與結果之間移動焦點。
 function moveFocus(container: HTMLElement | null, from: Element | null, step: 1 | -1, input: HTMLInputElement | null) {
-  const items = [...(container?.querySelectorAll<HTMLButtonElement>("li button") ?? [])];
+  const items = [...(container?.querySelectorAll<HTMLButtonElement>('li button:not(:disabled), .search-pagination button:not(:disabled), [role="alert"] button') ?? [])];
   if (!items.length) return;
   const index = items.indexOf(from as HTMLButtonElement);
   const next = index + step;
@@ -76,38 +77,34 @@ function moveFocus(container: HTMLElement | null, from: Element | null, step: 1 
   else items[Math.min(next, items.length - 1)].focus();
 }
 
+const searchCategories = [
+  { id: "all", label: "全部" }, { id: "materials", label: "教材" }, { id: "concepts", label: "概念" },
+  { id: "card_sets", label: "卡組" }, { id: "podcasts", label: "Podcast" },
+] as const;
+
 function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
-  const [state, setState] = useState<SearchState>({ query: "", result: null, error: null });
+  const [category, setCategory] = useState<LibrarySearchCategory>("all");
+  const [offset, setOffset] = useState(0);
+  const [state, setState] = useState<SearchState>({ query: "", category: "all", offset: 0, result: null, error: null });
   const [retry, setRetry] = useState(0);
-  // 卡組與 Podcast 數量少，開啟搜尋時讀一次清單，在前端比對名稱與所屬教材；讀不到時只少這兩類結果。
-  const [lists, setLists] = useState<{ cardSets: CardSetSummary[] | null; podcasts: PodcastSummary[] | null } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const resultsBox = useRef<HTMLDivElement>(null);
   const inputBox = useRef<HTMLInputElement>(null);
+  const focusAfterPage = useRef(false);
   const query = text.trim();
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    void Promise.all([
-      apiClient.listCardSets().then((value) => value.card_sets, () => null),
-      apiClient.listPodcasts().then((value) => value.podcasts, () => null),
-    ]).then(([cardSets, podcasts]) => { if (!cancelled) setLists({ cardSets, podcasts }); });
-    return () => { cancelled = true; };
-  }, [apiClient, open]);
+  useEffect(() => { if (open) inputBox.current?.focus(); }, [open]);
   useEffect(() => {
     const opener = { visible: () => trigger.current?.checkVisibility() ?? false, open: () => setOpen(true) };
     searchOpener = opener;
     return () => { if (searchOpener === opener) searchOpener = null; };
   }, []);
   useEffect(() => {
-    // 「/」開啟搜尋；正在輸入其他欄位時不攔截。教材內隱藏全站頁首，也不開全站搜尋（教材有自己的地圖搜尋）。
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (!trigger.current?.checkVisibility()) return;
-      if (target?.closest("input, textarea, select, [contenteditable='true'], dialog")) return;
+      if (!trigger.current?.checkVisibility() || target?.closest("input, textarea, select, [contenteditable='true'], dialog")) return;
       event.preventDefault();
       setOpen(true);
     };
@@ -118,117 +115,123 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
     if (!open || !query) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void apiClient.searchLibrary(query).then(
-        (result) => { if (!cancelled) setState({ query, result, error: null }); },
-        (error) => { if (!cancelled) setState({ query, result: null, error: errorMessage(error) }); },
+      void apiClient.searchLibrary(query, { category, offset, limit: 30 }).then(
+        (page) => {
+          if (cancelled) return;
+          setState({ query, category, offset, result: page, error: null });
+        },
+        (error) => {
+          if (cancelled) return;
+          setState({ query, category, offset, result: null, error: errorMessage(error) });
+        },
       );
-    }, 200);
+    }, offset > 0 ? 0 : 200);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [apiClient, open, query, retry]);
+  }, [apiClient, open, query, category, offset, retry]);
+  useEffect(() => {
+    if (!focusAfterPage.current || state.query !== query || state.category !== category || state.offset !== offset || !state.result) return;
+    focusAfterPage.current = false;
+    resultsBox.current?.querySelector<HTMLButtonElement>("section li button")?.focus({ preventScroll: true });
+    if (resultsBox.current) resultsBox.current.scrollTop = 0;
+  }, [state, query, category, offset]);
+  const changePage = (nextOffset: number) => { focusAfterPage.current = true; setOffset(nextOffset); };
+  const selectCategory = (next: LibrarySearchCategory) => { focusAfterPage.current = false; setCategory(next); setOffset(0); };
   const close = () => {
-    setOpen(false);
-    setText("");
-    setState({ query: "", result: null, error: null });
-    setLists(null);
+    setOpen(false); setText(""); setCategory("all"); setOffset(0); focusAfterPage.current = false;
+    setState({ query: "", category: "all", offset: 0, result: null, error: null });
     trigger.current?.focus({ preventScroll: true });
   };
-  const current = state.query === query ? state : null;
+  const current = state.query === query && state.category === category && state.offset === offset ? state : null;
   const result = current?.result;
   const needle = query.toLocaleLowerCase();
-  const matches = (item: { name: string; material_name: string }) => `${item.name} ${item.material_name}`.toLocaleLowerCase().includes(needle);
-  const cardSets = lists?.cardSets?.filter(matches) ?? [];
-  const podcasts = lists?.podcasts?.filter(matches) ?? [];
-  const empty = result && !result.materials.length && !result.concepts.length && !cardSets.length && !podcasts.length;
-  return (
-    <>
-      <button ref={trigger} className="header-search-trigger" type="button" aria-haspopup="dialog" aria-label="搜尋概念、教材、卡組或 Podcast" onClick={() => setOpen(true)}>
-        <Icon name="search" size={18} />
-        <span>搜尋全部內容…</span>
-        <kbd aria-hidden="true">/</kbd>
-      </button>
-      <Modal label="全站搜尋" open={open} onClose={close} className="search-dialog">
-        <form role="search" aria-label="搜尋全部內容" onSubmit={(event) => {
-          event.preventDefault();
-          if (result?.concepts[0]) { close(); openConcept(result.concepts[0]); }
-        }}>
-          <Icon name="search" size={20} />
-          <input
-            ref={inputBox}
-            autoFocus
-            type="search"
-            aria-label="搜尋概念、教材、卡組或 Podcast"
-            placeholder="輸入概念、教材、卡組或 Podcast 名稱…"
-            maxLength={200}
-            value={text}
-            onChange={(event) => setText(event.currentTarget.value)}
-            // 搜尋欄有文字時，瀏覽器的 Escape 只會清空欄位；這裡一律直接關閉搜尋。
-            onKeyDown={(event) => {
-              if (event.key === "Escape") { event.preventDefault(); close(); }
-              if (event.key === "ArrowDown") { event.preventDefault(); moveFocus(resultsBox.current, null, 1, inputBox.current); }
-            }}
-          />
-          <button className="header-dialog-close" type="button" aria-label="關閉搜尋" onClick={close}>×</button>
-        </form>
-        <div ref={resultsBox} className="search-results" onKeyDown={(event) => {
-          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-          event.preventDefault();
-          moveFocus(resultsBox.current, document.activeElement, event.key === "ArrowDown" ? 1 : -1, inputBox.current);
-        }}>
-          {!query ? <p className="search-hint">搜尋所有教材的概念名稱與別名，以及教材、卡組與 Podcast 名稱。</p>
-            : !current ? <p role="status">正在搜尋…</p>
-            : current.error ? <p role="alert">{current.error}<button className="text-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新搜尋</button></p>
-            : empty ? <p role="status">找不到「{query}」，試試其他關鍵字。</p>
-            : result && <>
-              <p className="header-sr-only" role="status">找到 {result.materials.length} 份教材、{result.concepts.length} 個概念、{cardSets.length} 個卡組、{podcasts.length} 份 Podcast</p>
-              {result.materials.length > 0 && <section aria-label="教材">
-                <h3>教材<span>{result.materials.length}</span></h3>
-                <ul>{result.materials.map((material) => <li key={material.material_id}>
-                  <button type="button" onClick={() => {
-                    close();
-                    if (material.run_id && material.knowledge_structure_revision)
-                      writeRoute({ name: "knowledge-map", materialId: material.material_id, runId: material.run_id, structureRevision: material.knowledge_structure_revision });
-                    else writeRoute({ name: "materials" });
-                  }}>
-                    <Icon name="book" size={18} />
-                    <span><b><Highlight text={material.display_name} needle={needle} /></b><small>{material.knowledge_structure_revision ? "開啟知識地圖" : "知識地圖尚未建立"}</small></span>
+  const groups = result ? [
+    { id: "materials", label: "教材", icon: "book", items: result.materials.map(item => ({ key: item.material_id, title: item.display_name,
+      meta: item.knowledge_structure_revision ? "開啟知識地圖" : "知識地圖尚未建立", onOpen: () => {
+        if (item.run_id && item.knowledge_structure_revision) writeRoute({ name: "knowledge-map", materialId: item.material_id, runId: item.run_id, structureRevision: item.knowledge_structure_revision });
+        else writeRoute({ name: "materials" });
+      } })) },
+    { id: "concepts", label: "概念", icon: "map", items: result.concepts.map(item => ({ key: `${item.material_id}:${item.concept_id}`, title: item.label,
+      meta: `${item.claim_count} 個重點 · ${item.material_name}`, onOpen: () => openConcept(item) })) },
+    { id: "card_sets", label: "卡組", icon: "cards", items: result.card_sets.map(item => ({ key: item.card_set_id, title: item.name,
+      meta: `${item.card_count !== null ? `${item.card_count} 張卡片 · ` : ""}${item.material_name}`,
+      onOpen: () => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }) })) },
+    { id: "podcasts", label: "Podcast", icon: "headphones", items: result.podcasts.map(item => ({ key: item.podcast_id, title: item.name,
+      meta: `${item.episode_count} 集 · ${item.material_name}`,
+      onOpen: () => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id }) })) },
+  ] as const : [];
+  const total = result ? Object.values(result.totals).reduce((sum, count) => sum + count, 0) : 0;
+  const count = category === "all" ? total : result?.totals[category];
+  return <>
+    <button ref={trigger} className="header-search-trigger" type="button" aria-haspopup="dialog" aria-label="搜尋概念、教材、卡組或 Podcast" onClick={() => setOpen(true)}>
+      <Icon name="search" size={18} /><span>搜尋全部內容…</span><kbd aria-hidden="true">/</kbd>
+    </button>
+    <Modal label="全站搜尋" open={open} onClose={close} className="search-dialog" onKeyDown={event => {
+      if (category === "all" || !result || (event.key !== "PageDown" && event.key !== "PageUp")) return;
+      event.preventDefault();
+      const next = event.key === "PageDown" ? offset + 30 : offset - 30;
+      if (next >= 0 && next < result.totals[category]) changePage(next);
+    }}>
+      <div className="search-categories" role="tablist" aria-label="搜尋分類" onKeyDown={event => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const index = searchCategories.findIndex(item => item.id === category);
+        const next = (index + (event.key === "ArrowRight" ? 1 : -1) + searchCategories.length) % searchCategories.length;
+        selectCategory(searchCategories[next].id);
+        event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[next].focus();
+      }}>
+        {searchCategories.map(item => <button key={item.id} type="button" role="tab" id={`search-tab-${item.id}`} aria-selected={category === item.id}
+          aria-controls="search-results" tabIndex={category === item.id ? 0 : -1} onClick={() => selectCategory(item.id)}>
+          {item.label}{result && <span>{item.id === "all" ? total : result.totals[item.id]}</span>}
+        </button>)}
+      </div>
+      <form role="search" aria-label="搜尋全部內容" onSubmit={event => {
+        event.preventDefault();
+        if (category === "all" && result?.concepts[0]) { close(); openConcept(result.concepts[0]); return; }
+        const first = groups.find(group => (category === "all" || category === group.id) && group.items.length)?.items[0];
+        if (first) { close(); first.onOpen(); }
+      }}>
+        <Icon name="search" size={20} />
+        <input ref={inputBox} autoFocus type="search" aria-label="搜尋概念、教材、卡組或 Podcast"
+          placeholder="輸入概念、教材、卡組或 Podcast 名稱…" maxLength={200} value={text}
+          onChange={event => { setText(event.currentTarget.value); setOffset(0); focusAfterPage.current = false; }}
+          onKeyDown={event => {
+            if (event.key === "Escape") { event.preventDefault(); close(); }
+            if (event.key === "ArrowDown") { event.preventDefault(); moveFocus(resultsBox.current, null, 1, inputBox.current); }
+          }} />
+        <button className="header-dialog-close" type="button" aria-label="關閉搜尋" onClick={close}>×</button>
+      </form>
+      <div ref={resultsBox} id="search-results" role="tabpanel" aria-labelledby={`search-tab-${category}`} className="search-results" onKeyDown={event => {
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+        event.preventDefault();
+        moveFocus(resultsBox.current, document.activeElement, event.key === "ArrowDown" ? 1 : -1, inputBox.current);
+      }}>
+        {!query ? <p className="search-hint">搜尋所有教材的概念名稱與別名，以及教材、卡組與 Podcast 名稱。</p>
+          : !current ? <p role="status">正在搜尋…</p> : <>
+            {current.error && <p role="alert">{current.error}<button className="text-button" type="button" onClick={() => setRetry(value => value + 1)}>重新搜尋</button></p>}
+            {result && <>
+              <p className="header-sr-only" role="status">找到 {result.totals.materials} 份教材、{result.totals.concepts} 個概念、{result.totals.card_sets} 個卡組、{result.totals.podcasts} 份 Podcast</p>
+              {count === 0 && <p role="status">找不到「{query}」，試試其他關鍵字。</p>}
+              {groups.filter(group => category === "all" || category === group.id).map(group => group.items.length > 0 && <section key={group.id} aria-label={group.label}>
+                <h3>{group.label}<span>{result.totals[group.id]}</span></h3>
+                <ul>{(category === "all" ? group.items.slice(0, 3) : group.items).map(item => <li key={item.key}>
+                  <button type="button" onClick={() => { close(); item.onOpen(); }}><Icon name={group.icon} size={18} />
+                    <span><b><Highlight text={item.title} needle={needle} /></b><small>{item.meta}</small></span>
                   </button>
-                </li>)}</ul>
-              </section>}
-              {result.concepts.length > 0 && <section aria-label="概念">
-                <h3>概念<span>{result.concepts.length}{result.concepts_truncated ? "+" : ""}</span></h3>
-                <ul>{result.concepts.map((concept) => <li key={`${concept.material_id}:${concept.concept_id}`}>
-                  <button type="button" onClick={() => { close(); openConcept(concept); }}>
-                    <Icon name="map" size={18} />
-                    <span><b><Highlight text={concept.label} needle={needle} /></b><small>{concept.claim_count} 個重點 · {concept.material_name}</small></span>
-                  </button>
-                </li>)}</ul>
-                {result.concepts_truncated && <p className="search-hint">只顯示前 {result.concepts.length} 個概念，輸入更多關鍵字可縮小範圍。</p>}
-              </section>}
-              {cardSets.length > 0 && <section aria-label="卡組">
-                <h3>卡組<span>{cardSets.length}</span></h3>
-                <ul>{cardSets.map((item) => <li key={item.card_set_id}>
-                  <button type="button" onClick={() => { close(); writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }); }}>
-                    <Icon name="cards" size={18} />
-                    <span><b><Highlight text={item.name} needle={needle} /></b><small>{item.card_count !== null ? `${item.card_count} 張卡片 · ` : ""}{item.material_name}</small></span>
-                  </button>
-                </li>)}</ul>
-              </section>}
-              {podcasts.length > 0 && <section aria-label="Podcast">
-                <h3>Podcast<span>{podcasts.length}</span></h3>
-                <ul>{podcasts.map((item) => <li key={item.podcast_id}>
-                  <button type="button" onClick={() => { close(); writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id }); }}>
-                    <Icon name="headphones" size={18} />
-                    <span><b><Highlight text={item.name} needle={needle} /></b><small>{item.episode_count} 集 · {item.material_name}</small></span>
-                  </button>
-                </li>)}</ul>
-              </section>}
-              {lists && (!lists.cardSets || !lists.podcasts) && <p className="search-hint">無法讀取卡組或 Podcast 清單，這兩類結果暫時不顯示。</p>}
+                </li>)}
+                  {category === "all" && result.totals[group.id] > 3 && <li><button className="search-more" type="button" onClick={() => selectCategory(group.id)}>看全部 {result.totals[group.id]} 筆</button></li>}
+                </ul>
+              </section>)}
+              {category !== "all" && <nav className="search-pagination" aria-label="搜尋結果分頁">
+                <button type="button" disabled={offset === 0} onClick={() => changePage(offset - 30)}>上一頁</button>
+                <span>第 {Math.floor(offset / 30) + 1}／{Math.max(1, Math.ceil(result.totals[category] / 30))} 頁</span>
+                <button type="button" disabled={offset + 30 >= result.totals[category]} onClick={() => changePage(offset + 30)}>下一頁</button>
+              </nav>}
             </>}
-        </div>
-        <p className="search-keys" aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd> 選擇　<kbd>Enter</kbd> 開啟第一個概念　<kbd>Esc</kbd> 關閉</p>
-      </Modal>
-    </>
-  );
+          </>}
+      </div>
+      <p className="search-keys" aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd> 選擇　<kbd>Enter</kbd> 開啟　<kbd>Esc</kbd> 關閉</p>
+    </Modal>
+  </>;
 }
 
 // 頁首頭像：前往個人檔案（成就與帳號設定）。
