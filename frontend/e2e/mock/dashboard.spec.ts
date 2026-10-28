@@ -554,9 +554,9 @@ test("today quests show done state and open the matching place", async ({ page }
   await page.goto("/");
   const quests = page.getByRole("region", { name: "今日任務" });
   await expect(quests.getByText("1 / 3")).toBeVisible();
-  await expect(quests.getByRole("listitem")).toHaveText([/標記 5 張概念卡已完成 2 \/ 5/, /完成 1 次題組作答今天還沒完成/, /聽完 1 集還沒聽完的 Podcast今天已完成/]);
-  // 已完成的任務不顯示動作按鈕。
-  await expect(quests.getByRole("button")).toHaveCount(2);
+  await expect(quests.getByRole("listitem")).toHaveText([/標記 5 張概念卡2\/5/, /完成題組作答0\/1/, /聽完 1 集 Podcast1\/1/]);
+  // 每列保留進度與入口，完成後仍可回到對應內容。
+  await expect(quests.getByRole("button")).toHaveCount(3);
   await quests.getByRole("button", { name: "繼續學習：完成 1 次題組作答" }).click();
   await expect.poll(() => new URL(page.url()).pathname).toBe(studyPath);
 });

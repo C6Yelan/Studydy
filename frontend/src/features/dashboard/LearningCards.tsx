@@ -1,4 +1,3 @@
-import { DailyGoalProgress } from "../learning-goals/DailyGoalProgress";
 import type { LearningGoalSummary, LearningQuest } from "../../api/contracts";
 import { Icon, type IconName } from "../../ui/Icon";
 
@@ -25,28 +24,22 @@ export function DailyQuests({ quests, goals, onOpen, onOpenGoal }: {
       {quests.map((quest) => {
         const text = questText[quest.kind];
         const title = text.title(quest);
-        // 有入口才顯示按鈕；已完成的任務只顯示勾選。
-        const actionable = !quest.done && (quest.kind !== "continue_study" || quest.study_session_id)
-          && (quest.kind !== "finish_podcast_episode" || quest.podcast_id);
         return <li key={`${quest.kind}:${quest.material_id ?? ""}`} className={quest.done ? "is-done" : undefined}>
+          <button className="quest-row" type="button" aria-label={`${text.action}：${title}`} onClick={() => onOpen(quest)}>
           <span className="quest-icon" aria-hidden="true"><Icon name={quest.done ? "check" : text.icon} size={18} /></span>
-          <span className="quest-text">
-            <b>{title}</b>
-            <small>{quest.done ? "今天已完成" : quest.target > 1 ? `已完成 ${quest.progress} / ${quest.target}` : "今天還沒完成"}</small>
-          </span>
-          {actionable && <button className="text-button" type="button" aria-label={`${text.action}：${title}`} onClick={() => onOpen(quest)}>
-            {text.action}<Icon name="chevron-right" size={16} />
-          </button>}
+          <span className="quest-text"><b title={title}>{quest.kind === "continue_study" ? "完成題組作答" : quest.kind === "finish_podcast_episode" ? "聽完 1 集 Podcast" : title}</b></span>
+          <span className="quest-progress" aria-label={`已完成 ${quest.progress}／${quest.target}`}>{quest.progress}/{quest.target}</span>
+          <Icon name="chevron-right" size={16} />
+          </button>
         </li>;
       })}
       {goals.map(goal => <li key={`goal_stage:${goal.material_id}`} className={`goal-quest${goal.today_stage.done ? " is-done" : ""}`}>
+        <button className="quest-row" type="button" aria-label={`查看關卡：${goal.material_name}`} onClick={() => onOpenGoal(goal)}>
         <span className="quest-icon" aria-hidden="true"><Icon name={goal.today_stage.done ? "check" : "learning"} size={18} /></span>
-        <div className="quest-text"><b>今天的關卡 · {goal.material_name}</b>
-          <DailyGoalProgress stage={goal.today_stage} />
-          {goal.achieved && <small>學習目標已達成</small>}
-          {goal.assessable_points === 0 && <small>目前沒有可檢測重點</small>}
-        </div>
-        <button className="text-button" type="button" aria-label={`查看關卡：${goal.material_name}`} onClick={() => onOpenGoal(goal)}>查看關卡<Icon name="chevron-right" size={16} /></button>
+        <span className="quest-text"><b title={`關卡｜${goal.material_name}`}>關卡｜{goal.material_name}</b></span>
+        <span className="quest-progress" aria-label={`已完成 ${goal.today_stage.completed_points}／${goal.today_stage.quota_points} 個重點`}>{goal.today_stage.completed_points}/{goal.today_stage.quota_points}</span>
+        <Icon name="chevron-right" size={16} />
+        </button>
       </li>)}
     </ul>
   </section>;

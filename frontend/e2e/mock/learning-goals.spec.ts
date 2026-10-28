@@ -113,7 +113,7 @@ test("earned daily progress survives when every point later becomes unavailable"
   await page.goto("/");
   const daily = page.getByRole("region", { name: "今日任務" }).locator(".goal-quest");
   await expect(daily).toHaveClass(/is-done/);
-  await expect(daily).toContainText("已完成 4");
+  await expect(daily).toContainText("4/4");
   await daily.getByRole("button", { name: "查看關卡：資料結構" }).click();
   await page.locator(".goal-summary").click();
   const panel = page.getByRole("region", { name: "學習目標與每日關卡" });
@@ -282,8 +282,8 @@ for (const width of [1440, 390]) test(`home shows separate material goals and ta
   page.on("request", request => { if (request.url().endsWith("/study-start")) starts.push(request.url()); });
   await page.goto("/");
   const tasks = page.getByRole("region", { name: "今日任務" });
-  await expect(tasks.getByText("今天的關卡 · 資料結構", { exact: true })).toBeVisible();
-  await expect(tasks.getByText("今天的關卡 · 作業系統", { exact: true })).toBeVisible();
+  await expect(tasks.getByText("關卡｜資料結構", { exact: true })).toBeVisible();
+  await expect(tasks.getByText("關卡｜作業系統", { exact: true })).toBeVisible();
   const island = page.locator(".map-island").filter({ hasText: "資料結構" });
   const normalFlag = island.locator(".island-goal-flag");
   await expect(normalFlag).toHaveText("⚑ 80% · 剩 7 天");
