@@ -16,7 +16,7 @@ def migrations_dir(tmp_path):
     previous = tmp_path / "before_content_names"
     previous.mkdir()
     for path in DEFAULT_MIGRATIONS_DIR.glob("*.sql"):
-        if int(path.name[:4]) < 31:
+        if int(path.name[:4]) < 30:
             shutil.copy2(path, previous / path.name)
     return previous
 
@@ -48,7 +48,7 @@ def test_upgrade_truncates_all_names_and_preserves_deleted_cards(closed_loop):
                 db.execute("""INSERT INTO podcasts (podcast_id,learner_id,material_id,knowledge_structure_revision,name,mode,concept_ids,episodes,status,video_enabled,idempotency_key_sha256,request_fingerprint,created_at)
                     SELECT gen_random_uuid(),learner_id,material_id,knowledge_structure_revision,repeat('長',80),mode,concept_ids,episodes,status,video_enabled,sha256(g::text::bytea),request_fingerprint,now()
                     FROM podcasts CROSS JOIN generate_series(1,1001) g WHERE podcast_id=%s""", (identity,))
-    assert run_migrations(dsn) == (31,)
+    assert run_migrations(dsn) == (30,)
     with psycopg.connect(dsn) as db:
         for table in ("card_sets", "podcasts"):
             rows = db.execute(f"SELECT name FROM {table}").fetchall()
