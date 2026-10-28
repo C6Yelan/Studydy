@@ -568,7 +568,11 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
   .dashboard-content > .archipelago { display: flex; flex-direction: column; min-height: 0; }
   .dashboard-content > .archipelago > .island-map { flex: 1; min-height: 0; }
   .island-map-viewport { height: 100%; min-height: 380px; }
-  .dashboard-side { align-content: start; min-height: 0; overflow-y: auto; }
+}
+/* 桌機兩欄：右欄高度對齊左側地圖卡片（size containment 讓它不撐高列），超出時只在右欄內捲動。 */
+@media (min-width: 1281px) {
+  .dashboard-content { align-items: stretch; }
+  .dashboard-side { align-content: start; min-height: 0; contain: size; overflow-y: auto; scrollbar-width: thin; padding: 0 4px 4px 0; }
 }
 
 @media (max-width: 720px) {

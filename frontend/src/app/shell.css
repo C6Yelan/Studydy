@@ -809,7 +809,7 @@
 
 /* 有帳號空間時依三區內容分配寬度；教材頁首不會命中此規則。 */
 .app-header:has(.header-storage) {
-  grid-template-columns: max-content minmax(max-content, 1fr) max-content;
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
   column-gap: 12px;
 }
 .app-header:has(.header-storage) .main-nav { justify-self:center; }
