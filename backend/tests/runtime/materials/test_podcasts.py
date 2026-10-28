@@ -525,3 +525,16 @@ def test_podcast_list_batches_child_states_without_changing_summaries(closed_loo
         counts.append((size, len(statements)))
     record_property('podcast_count_list_queries', counts)
     assert len({queries for _, queries in counts}) == 1, counts
+
+
+def test_create_and_rename_enforce_forty_character_names(closed_loop):
+    from runtime.storage.materials import MaterialLibraryError
+    owner, source, _, document, dsn, _ = closed_loop
+    ids = [concept["concept_id"] for concept in document["concepts"]]
+    saved = podcasts.create_podcast(owner.learner_id, source.material_id, document["revision"], "字" * 40, ids, "name-limit", delivery="solo", dsn=dsn)
+    renamed = podcasts.change_podcast(owner.learner_id, saved["podcast_id"], "rename", saved["version"], name="🐍" * 40, dsn=dsn)
+    assert renamed["name"] == "🐍" * 40
+    with pytest.raises(MaterialLibraryError, match="REQUEST_INVALID"):
+        podcasts.create_podcast(owner.learner_id, source.material_id, document["revision"], "字" * 41, ids, "too-long", delivery="solo", dsn=dsn)
+    with pytest.raises(MaterialLibraryError, match="REQUEST_INVALID"):
+        podcasts.change_podcast(owner.learner_id, saved["podcast_id"], "rename", renamed["version"], name="字" * 41, dsn=dsn)

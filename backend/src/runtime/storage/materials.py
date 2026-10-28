@@ -56,7 +56,7 @@ def require_source_material(session, owner, material_id):
 def validate_concept_selection(name, concept_ids):
     if (
         not isinstance(name, str)
-        or not 1 <= len(name.strip()) <= 200
+        or not 1 <= len(name.strip()) <= 40
         or any(ord(char) < 32 or ord(char) == 127 for char in name)
         or not isinstance(concept_ids, list)
         or not concept_ids

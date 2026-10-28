@@ -31,7 +31,7 @@ export function PodcastManagement({ item, apiClient, onChanged, onDeleted }: {
     interacted.current = true;
     setName(item.name); setError(null); setMode(next);
   };
-  const validName = name.trim().length > 0 && Array.from(name.trim()).length <= 200 && !/[\p{Cc}\p{Cs}]/u.test(name);
+  const validName = name.trim().length > 0 && Array.from(name.trim()).length <= 40 && !/[\p{Cc}\p{Cs}]/u.test(name);
   const submit = async () => {
     if (!mode || inFlight.current || (mode === "rename" && !validName)) return;
     inFlight.current = true; setBusy(true); setError(null);

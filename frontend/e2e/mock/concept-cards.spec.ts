@@ -240,7 +240,10 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab", { name: "概念卡", exact: true }).click();
   await page.locator(".library-header").getByRole("button", { name: "建立卡組", exact: true }).click();
   await expect(page.getByRole("heading", { name: "建立概念卡組" })).toBeVisible();
-  await page.getByLabel("卡組名稱", { exact: true }).fill("我的資料結構卡組");
+  const name = page.getByLabel("卡組名稱", { exact: true });
+  await name.fill("字".repeat(41));
+  await expect(name).toHaveValue("字".repeat(40));
+  await name.fill("我的資料結構卡組");
   await page.getByRole("button", { name: "取消全選", exact: true }).click();
   await expect(page.getByRole("button", { name: "保存並開始複習" })).toBeDisabled();
   await page.getByRole("button", { name: "全選", exact: true }).click();
@@ -471,6 +474,8 @@ test("saved decks can be renamed and edited without replacing their identity", a
   await expect(page.getByRole("button", { name: "重新命名", exact: true })).toHaveCount(1);
   await page.locator(".material-management-menu[open]").getByRole("button", { name: "管理卡組", exact: true }).click();
   expect(fullReads).toEqual([]);
+  await page.getByLabel("卡組名稱", { exact: true }).fill("字".repeat(41));
+  await expect(page.getByLabel("卡組名稱", { exact: true })).toHaveValue("字".repeat(40));
   await page.getByLabel("卡組名稱", { exact: true }).fill("重新命名的卡組");
   await page.getByRole("button", { name: "保存變更", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));

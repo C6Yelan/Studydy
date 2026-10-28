@@ -58,7 +58,7 @@ def test_concurrent_replay_conflict_and_delete_cannot_resurrect(closed_loop):
         card_sets.read_card_set(owner.learner_id, identity, dsn=dsn)
 
 
-@pytest.mark.parametrize("name,ids", [(" ", None), ("x\n", None), ("x" * 201, None), ("卡組", []), ("卡組", ["concept:sha256:" + "0" * 64])])
+@pytest.mark.parametrize("name,ids", [(" ", None), ("x\n", None), ("x" * 41, None), ("卡組", []), ("卡組", ["concept:sha256:" + "0" * 64])])
 def test_invalid_selection_or_name_does_not_save(closed_loop, name, ids):
     with pytest.raises(MaterialLibraryError, match="REQUEST_INVALID"):
         create(closed_loop, name=name, ids=ids)
@@ -259,3 +259,12 @@ def test_deleting_an_unfinished_set_ends_its_generation(closed_loop):
     with database_session(dsn) as db:
         row = db.get(CardSet, identity)
         assert row.deleted_at is not None and row.status == "failed"
+
+
+def test_create_and_rename_enforce_forty_character_names(closed_loop):
+    owner, _, _, _, dsn, _ = closed_loop
+    saved = create(closed_loop, name="字" * 40)
+    renamed = card_sets.update_card_set(owner.learner_id, saved["card_set_id"], "🐍" * 40, saved["version"], dsn=dsn)
+    assert renamed["name"] == "🐍" * 40
+    with pytest.raises(MaterialLibraryError, match="REQUEST_INVALID"):
+        card_sets.update_card_set(owner.learner_id, saved["card_set_id"], "字" * 41, renamed["version"], dsn=dsn)

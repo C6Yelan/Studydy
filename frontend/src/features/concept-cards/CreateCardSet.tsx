@@ -76,7 +76,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         setView(structure);
         setMaterialId(id);
         setMaterialName(material.display_name);
-        setName(deck?.name ?? `${material.display_name.replace(/\.[^.]+$/, "").slice(0, 190)}複習`);
+        setName(deck?.name ?? `${Array.from(material.display_name.replace(/\.[^.]+$/, "")).slice(0, 38).join("")}複習`);
         setSelected(new Set((deck?.navigation ?? structure.concepts).map((item) => item.concept_id)));
         setPreviewId(deck?.navigation[0]?.concept_id ?? structure.concepts[0]?.concept_id ?? null);
       } catch (failure) {
@@ -112,7 +112,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const back = () => writeRoute(route.name === "card-set-edit"
     ? fromCollection ? { name: "concept-cards" } : { name: "card-set", cardSetId: route.cardSetId, ...(route.materialId ? { materialId: route.materialId } : {}) }
     : { ...route, name: "knowledge-map" });
-  const validName = name.trim().length > 0 && Array.from(name.trim()).length <= 200 && !/[\p{Cc}\p{Cs}]/u.test(name);
+  const validName = name.trim().length > 0 && Array.from(name.trim()).length <= 40 && !/[\p{Cc}\p{Cs}]/u.test(name);
   const save = async () => {
     if (!view || !validName || !selected.size || saving.current || conflict) return;
     const conceptIds = [...selected];
@@ -168,7 +168,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const stage = <FlowStage icon="cards" className="cards-create"
     title={editing ? "調整卡組內容" : "選擇概念"}
     description={editing ? "修改名稱或勾選要保留的概念，保存後卡組會依新內容更新。" : "勾選想做成卡片的概念，點概念名稱查看重點。"}
-    aside={<label className="creation-name">卡組名稱<input value={name} maxLength={200} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>}
+    aside={<label className="creation-name">卡組名稱<input value={name} maxLength={40} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>}
     footer={<FlowFooter
       secondary={<>
         <div className="cards-create-summary"><strong>{selected.size} 個觀念</strong><span>保存後，每個概念會生成一張或多張複習卡，依重點內容安排。</span></div>
