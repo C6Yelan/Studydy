@@ -276,6 +276,19 @@ def html_document(data, final, media):
             policy.get("license_url"),
         )
     metadata = extract_metadata(tree, default_url=final)
+    # Wikipedia 同時放 MathML 與後備圖片；以一份 LaTeX 取代整個公式容器。
+    for formula in tree.xpath(
+        '//span[contains(concat(" ", normalize-space(@class), " "), " mwe-math-element ")]'
+        ' | //math[@alttext and not(ancestor::span[contains(concat(" ", normalize-space(@class), " "), " mwe-math-element ")])]'
+    ):
+        latex = formula.get("alttext") or next(iter(formula.xpath('.//math/@alttext | .//img/@alt')), None)
+        if not latex:
+            continue
+        for child in list(formula):
+            formula.remove(child)
+        formula.tag = "span"
+        formula.attrib.clear()
+        formula.text = "$" + latex + "$"
     text = extract(
         tree,
         output_format="markdown",

@@ -227,3 +227,13 @@ def test_later_search_does_not_reactivate_an_exhausted_source():
     new={**old,'eligible':True,'reason':'New search result','access':{'status':'not_reviewed'}}
     merged=sources.merge_candidates([old],[new])[0]
     assert not merged['eligible'] and merged['access']['exhausted']
+
+
+def test_wikipedia_math_preserves_latex_once_in_reading_order():
+    body = BODY.replace('<pre>', r'<p>Energy is <span class="mwe-math-element"><math alttext="E=mc^2"><semantics>duplicate MathML</semantics></math><img alt="E=mc^2" src="formula.svg"></span> for this example.</p><p>The next formula is <math alttext="a^2+b^2=c^2"><mi>duplicate</mi></math> with its conditions.</p><pre>')
+    doc = web.html_document(body.encode(), 'https://en.wikipedia.org/wiki/Energy', 'text/html')
+    assert 'Energy is $E=mc^2$ for this example.' in doc['text']
+    assert '$a^2+b^2=c^2$' in doc['text']
+    assert doc['text'].count('E=mc^2') == 1
+    assert doc['text'].index('$E=mc^2$') < doc['text'].index('$a^2+b^2=c^2$')
+    assert doc['original_sha256'] == sha256(body.encode()).hexdigest()

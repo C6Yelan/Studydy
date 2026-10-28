@@ -610,7 +610,7 @@ test("card sources keep distinct files on the same page and recover after source
   await expect(links).toHaveCount(2);
   const positions = await links.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().y));
   expect(Math.abs(positions[0] - positions[1])).toBeLessThanOrEqual(1);
-  await page.getByRole("button", { name: "A.pdf · 第 1 頁", exact: true }).click();
+  await page.getByRole("button", { name: "A.pdf · 第 1 頁 · 引用 2 次", exact: true }).click();
   await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", `/v1/artifacts/${artifactId}#page=1`);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "B.pdf · 第 1 頁", exact: true }).click();

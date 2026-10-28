@@ -9,6 +9,14 @@ from typing import Any
 from .structure_rules import _CODE_OR_FORMULA, _id, _text
 
 
+def teaching_text(text: str) -> str:
+    """投影片製作標記不屬於教學內容；原 Evidence 與引用仍保留原字。"""
+    text = re.sub(r"(?m)^[ \t]*\[GPT\][ \t]*\[DCOURSE\][ \t]*(?:[｜|][ \t]*)?", "", text)
+    text = re.sub(r"(?m)^[ \t]*\[(?:GPT|DCOURSE)\][ \t]*(?:[｜|][ \t]*)?$", "", text)
+    text = re.sub(r"[ \t]*(?:[｜|][ \t]*)?原創數值[／/]情境示例[，,][ \t]*非模型實測", "", text)
+    return text.strip()
+
+
 def _ordered_pages(pages: Any) -> list[dict[str, Any]]:
     if (
         not isinstance(pages, list)
@@ -93,11 +101,15 @@ def _ordered_pages(pages: Any) -> list[dict[str, Any]]:
 
 
 def _non_content_evidence_ids(pages: list[dict[str, Any]]) -> set[str]:
-    """只排除有邊界位置及頁面角色依據的文字；原始 Evidence 不刪除。"""
+    """排除製作標記及有位置依據的頁眉頁尾；原始 Evidence 不刪除。"""
 
     excluded: set[str] = set()
     recurring: dict[tuple[Any, ...], list[tuple[int, str]]] = {}
     for page in pages:
+        excluded.update(
+            block["evidence_id"] for block in page["evidence_blocks"]
+            if not teaching_text(block["text"])
+        )
         bounds = page.get("geometry", {}).get("unrotated_points")
         if not bounds:
             continue

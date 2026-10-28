@@ -1,6 +1,10 @@
 .source-reference { position:relative; display:inline; }
 .source-reference-button { min-height:2.75rem; padding:.15rem .35rem; color:var(--studydy-blue); vertical-align:baseline; }
 .source-reference-list { text-align:left; overflow-wrap:anywhere; }
+.answer-source-row { min-width:0; }
+.source-reference-button.source-reference-merged { display:inline-flex; align-items:baseline; justify-content:flex-start; gap:0; max-width:100%; padding-inline:0; white-space:nowrap; }
+.source-reference-merged .source-reference-filename { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.source-reference-merged .source-reference-fixed { flex-shrink:0; white-space:pre; }
 .source-reference-preview { position:fixed; z-index:110; width:min(22rem,75vw); display:grid; gap:.5rem; padding:1rem; background:var(--surface,#fff); border:1px solid var(--border,#ccd5e4); border-radius:1rem; box-shadow:0 .5rem 2rem #1d274222; white-space:normal; overflow-wrap:anywhere; }
 .source-reference-preview > span { max-height:12rem; overflow:auto; white-space:pre-wrap; }
 .source-reference-preview iframe { width:100%; height:10rem; border:0; }

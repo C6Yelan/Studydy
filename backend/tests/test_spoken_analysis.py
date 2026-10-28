@@ -9,7 +9,7 @@ import json
 import pytest
 
 from content_identity import canonical_sha256
-from knowledge_map.claim_literals import EXCERPT_PROJECTION, EXCERPT_REPAIR
+from knowledge_map.claim_literals import EXCERPT_PROJECTION
 from knowledge_map.independent_blocks import block_request, block_schema, project_block
 from knowledge_map.localization import localize_block
 from knowledge_map.semantic_projection import SemanticState, _project_claim
@@ -94,13 +94,12 @@ def test_excerpt_rejects_cut_literals_ambiguous_and_invented_quotes(text, quote)
     assert result.rejected_claims == 1 and not next(iter(result.concepts.values()))['claims']
 
 
-def test_wrong_asr_number_is_restored_only_from_the_cited_excerpt():
+def test_wrong_asr_number_is_rejected_without_publishing_a_transcript_as_the_claim():
     text = '今天介紹 713 事件。下個議題有 9 個案例。'
     context, bundle, response = prepared(text, [('今天介紹 731 事件。', '今天介紹 713 事件。')])
     result = project_block(context, bundle, 'synthetic', response)
-    claim = next(iter(result.concepts.values()))['claims'][0]
-    assert claim['text'] == '今天介紹 713 事件。' and claim['projection'] == EXCERPT_REPAIR
-    assert result.literal_repairs == 1
+    assert not next(iter(result.concepts.values()))['claims']
+    assert result.rejected_claims == 1 and result.literal_repairs == 0
 
 
 def test_localization_uses_excerpt_and_preserves_disjoint_quotes():
@@ -508,7 +507,7 @@ def test_mixed_claim_keeps_short_pdf_evidence_through_projection_review_and_cons
 def test_unpunctuated_asr_correction_receives_actual_rejection_and_keeps_full_source(quote, reason, corrected):
     from test_independent_blocks import Archive as BlockArchive, run
     text = '重試上限為 8 次\n接著須等待 5 秒才可繼續操作'
-    context, bundle, response = prepared(text, [('重試上限為 8 次。', quote)])
+    context, bundle, response = prepared(text, [('重試上限為 8 次，接著須等待 5 秒才可繼續操作。', quote)])
     before = deepcopy(context)
     calls = []
     def model(client, **kwargs):
@@ -523,13 +522,25 @@ def test_unpunctuated_asr_correction_receives_actual_rejection_and_keeps_full_so
         return deepcopy(response)
     state = SemanticState(); progress = {'cursor': 0, 'ranges': [], 'semantic_calls': 0}
     run(context, state, progress, BlockArchive(), model)
-    assert len(calls) == progress['semantic_calls'] == (3 if corrected else 2)
+    # C3：完整的中文整理句不再走原文還原後的 localization 呼叫。
+    assert len(calls) == progress['semantic_calls'] == 2
     assert context == before
     claims = [q for concept in state.concepts.values() for q in concept['claims']]
     if corrected:
         assert state.rejected_claims == 0 and len(claims) == 1
-        # 整段回退仍保留原換行及全部數字；不能為了短主張放寬字面值保護。
+        # 全文引用保留原換行；整理後的主張保留全部數字，不直接貼回原文。
         assert claims[0]['source_spans'][0]['quote'] == text
-        assert ' '.join(claims[0]['text'].split()) == ' '.join(text.split())
+        assert claims[0]['text'] == response['concepts'][0]['c'][0]['m']
     else:
         assert not claims and state.rejected_claims == 1
+
+
+def test_spoken_claim_organizes_sentences_and_preserves_the_original_recognition_quote():
+    source = '嗯，那個，重試上限就是 8 次。'
+    meaning = '重試上限為 8 次。'
+    doc = document(source, [(meaning, source)])
+    claim = doc['concepts'][0]['claims'][0]
+    assert claim['text'] == meaning
+    assert claim['source_spans'][0]['quote'] == source
+    assert doc['evidence'][0]['exact_text'] == source
+    assert validate_knowledge_structure(doc)
