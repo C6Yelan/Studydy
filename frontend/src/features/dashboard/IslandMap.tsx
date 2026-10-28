@@ -259,11 +259,12 @@ export function IslandMap({ materials, progress, goals }: {
             style={{ "--x": `${x}px`, "--y": `${y}px`, "--w": `${w}px`, "--h": `${h}px` } as CSSProperties}>
             <button type="button" onClick={() => openMaterial(material)} onFocus={() => reveal(x, y)} aria-label={`${material.display_name}，${status}${goalText ? `，${goalText}` : ""}`}>
               <span className="map-island-art"><IslandArt palette={islandPalette(material.material_id)} viewBox="100 60 840 470" landmarks={state !== "building"} /></span>
-              <span className={`island-flag${goal && (goal.overdue_days > 0 || goal.days_remaining <= 1 || goal.behind_points > 0) ? " is-warning" : ""}`}>
+              {goal && <span className={`island-goal-flag${goal.overdue_days > 0 || goal.days_remaining <= 1 || goal.behind_points > 0 ? " is-warning" : ""}`} aria-label="目標倒數">⚑ {goal.target_percent}% · {goal.overdue_days > 0 ? `逾期 ${goal.overdue_days} 天` : goal.days_remaining <= 1 ? "今天到期" : `剩 ${goal.days_remaining} 天`}</span>}
+              <span className="island-flag">
                 <ProgressRing ratio={goal ? (goal.target_points ? goal.completed_points / goal.target_points : 0) : value && value.total ? started / value.total : 0} tone={(goal ? goal.achieved : state === "completed") ? "complete" : "warning"}>
                   {state === "building" ? <Icon name="process" size={16} /> : state === "failed" ? <Icon name="warning" size={16} /> : goal ? `${Math.round(Math.min(1, goal.target_points ? goal.completed_points / goal.target_points : 0) * 100)}%` : started}
                 </ProgressRing>
-                <span className="island-flag-text"><b>{material.display_name}</b><small>{status}</small>{goalText && <small className="island-goal-summary">{goalText}</small>}</span>
+                <span className="island-flag-text"><b>{material.display_name}</b><small>{status}</small></span>
               </span>
             </button>
           </li>;
