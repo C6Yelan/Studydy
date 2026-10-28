@@ -81,6 +81,85 @@ def test_topic_approval_then_real_source_pipeline(revisions,monkeypatch):
     with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):research.read(owner,approved['research_id'],dsn=dsn)
 
 
+def test_failed_coverage_can_create_material_from_explicit_verified_selection(closed_loop,monkeypatch):
+    from datetime import UTC, datetime
+    from fastapi.testclient import TestClient
+    import runtime.api.app as api
+    learner,_,settings,_,dsn,token=closed_loop;owner=learner.learner_id
+    view,_=prepare(owner,dsn,monkeypatch)
+    approved=topics.approve(owner,view['topic_id'],view['version'],PLAN,'approve',dsn=dsn)
+    search_to_selection(owner,approved['research_id'],dsn)
+    with database_session(dsn) as db:
+        work=db.get(MaterialResearch,approved['research_id'])
+        work.status='failed';work.error_code='RESEARCH_CONTEXT_TOO_LARGE'
+        work.lease_token=uuid4();work.lease_expires_at=datetime.now(UTC)
+        saved=deepcopy(work.search_state);saved.update(stage='following_up')
+        saved['coverage'][0].update(status='partial',reason='Only part of the requested scope is supported.')
+        work.search_state=saved
+        candidates=deepcopy(work.candidates)
+        before=db.scalar(select(func.count()).select_from(Material))
+    with pytest.raises(SourceError,match='RESOURCE_NOT_FOUND'):
+        topics.create_material(uuid4(),view['topic_id'],['paper'],dsn=dsn)
+    origin='http://127.0.0.1:4183'
+    app=api.create_app(api.ApiSettings(profile='local',public_origin=origin,secure_cookie=False,local_config=settings,dsn=dsn))
+    client=TestClient(app,base_url=origin);client.cookies.set('studydy_session',token)
+    endpoint='/v1/topics/'+str(view['topic_id'])+'/material'
+    created=client.post(endpoint,headers={'Origin':origin},json={'selected':['paper']})
+    assert created.status_code==202,created.json()
+    assert client.post(endpoint,headers={'Origin':origin},json={'selected':['paper']}).json()==created.json()
+    with database_session(dsn) as db:
+        work=db.get(MaterialResearch,approved['research_id'])
+        assert work.selection==['paper'] and work.status=='acquiring'
+        assert work.error_code is None and work.lease_token is None and work.lease_expires_at is None
+        assert work.search_state['coverage']==saved['coverage']
+        assert work.search_state['finish_reason']=='partial_delivery'
+        assert work.search_state['search_failure']=={'stage':'following_up','error_code':'RESEARCH_CONTEXT_TOO_LARGE'}
+        assert work.candidates==candidates
+        assert db.scalar(select(func.count()).select_from(Material))==before+1
+    def no_download(*args,**kwargs):pytest.fail('Use the already saved source snapshot')
+    monkeypatch.setattr(research.research_sources,'acquire',no_download)
+    assert research.step(dsn=dsn)
+    resumed=research.read(owner,approved['research_id'],dsn=dsn)
+    assert resumed['candidates'][0]['state']=='normalizing'
+    assert resumed['progress']['search_failure']['error_code']=='RESEARCH_CONTEXT_TOO_LARGE'
+    assert resumed['progress']['topics'][0]['status']=='partial'
+
+
+@pytest.mark.parametrize('invalid', ['empty','unknown','duplicate','ineligible','unreviewed','wrong_document','alias','deleted','run','wrong_stage','wrong_error'])
+def test_failed_selection_rejects_invalid_sources_and_non_search_failures(closed_loop,monkeypatch,invalid):
+    from datetime import UTC,datetime
+    learner,_,_,_,dsn,_=closed_loop;owner=learner.learner_id
+    view,_=prepare(owner,dsn,monkeypatch)
+    approved=topics.approve(owner,view['topic_id'],view['version'],PLAN,'approve',dsn=dsn)
+    search_to_selection(owner,approved['research_id'],dsn)
+    selected=['paper']
+    with database_session(dsn) as db:
+        work=db.get(MaterialResearch,approved['research_id'])
+        work.status='failed';work.error_code='RESEARCH_CONTEXT_TOO_LARGE'
+        work.search_state={**work.search_state,'stage':'following_up'}
+        candidates=deepcopy(work.candidates)
+        if invalid=='empty':selected=[]
+        elif invalid=='unknown':selected=['unknown']
+        elif invalid=='duplicate':selected=['paper','paper']
+        elif invalid=='ineligible':candidates[0]['eligible']=False
+        elif invalid=='unreviewed':candidates[0]['review']['phase']='metadata'
+        elif invalid=='wrong_document':candidates[0]['source_type_review']['document_key']='different'
+        elif invalid=='alias':candidates[0]['duplicate_of']='another'
+        elif invalid=='deleted':work.deleted_at=datetime.now(UTC)
+        elif invalid=='run':work.run_id=uuid4()
+        elif invalid=='wrong_stage':work.search_state={**work.search_state,'stage':'complete'}
+        elif invalid=='wrong_error':work.error_code='RESEARCH_SOURCE_UNAVAILABLE'
+        work.candidates=candidates
+        before=db.scalar(select(func.count()).select_from(Material))
+    code='SOURCE_NOT_READY' if invalid in {'deleted','run','wrong_stage','wrong_error'} else 'REQUEST_INVALID'
+    with pytest.raises(SourceError,match=code):
+        topics.create_material(owner,view['topic_id'],selected,dsn=dsn)
+    with database_session(dsn) as db:
+        work=db.get(MaterialResearch,approved['research_id'])
+        assert work.status=='failed' and work.selection==[] and work.material_id is None
+        assert db.scalar(select(func.count()).select_from(Material))==before
+
+
 def test_no_source_does_not_create_fake_material_or_map(closed_loop,monkeypatch):
     learner,_,_,_,dsn,_=closed_loop;owner=learner.learner_id
     view,calls=prepare(owner,dsn,monkeypatch,True)

@@ -274,11 +274,19 @@ def create_material(owner, identity, selected, *, dsn=None):
         if row.status != "approved" or not row.research_id:
             raise SourceError("TOPIC_CONFLICT")
         work = db.get(MaterialResearch, row.research_id)
+        if work.deleted_at is not None:
+            raise SourceError("SOURCE_NOT_READY")
         if work.material_id:
             if work.selection != selected:
                 raise SourceError("IDEMPOTENCY_CONFLICT")
             return {"material_id": work.material_id, "research_id": work.research_id}
-        if work.status != "selecting":
+        failed_search = (
+            work.status == "failed"
+            and work.error_code == "RESEARCH_CONTEXT_TOO_LARGE"
+            and work.search_state.get("stage") == "following_up"
+            and work.run_id is None
+        )
+        if work.status != "selecting" and not failed_search:
             raise SourceError("SOURCE_NOT_READY")
         research_workflow.validate_selection(work.candidates, selected)
         # 回應遺失也以固定建立 key 接回同一教材，不用假 PDF 或空 KS。
@@ -289,7 +297,14 @@ def create_material(owner, identity, selected, *, dsn=None):
         material.pending_goal = deepcopy(row.learning_goal)
         work.material_id = identity_material
         work.selection = list(selected)
+        if failed_search:
+            work.search_state = {
+                **work.search_state,
+                "search_failure": {"stage": "following_up", "error_code": work.error_code},
+                "finish_reason": "partial_delivery",
+            }
         work.status = "acquiring"
+        work.error_code = None
         work.lease_token = work.lease_expires_at = None
         return {"material_id": identity_material, "research_id": work.research_id}
 

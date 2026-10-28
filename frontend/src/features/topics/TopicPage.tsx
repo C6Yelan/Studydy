@@ -215,7 +215,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
     </>}
    </>}
    primary={<>
-    {!work.deleted&&work.status==='selecting'&&!hasMaterial&&<button className="primary-button" disabled={busy||!selected.length} onClick={()=>void perform(()=>api.studyTools(`/v1/topics/${view.topic_id}/material`,{selected}))}>建立教材與知識地圖<Icon name="chevron-right" size={16}/></button>}
+    {!work.deleted&&!hasMaterial&&(work.status==='selecting'||work.status==='failed'&&work.error_code==='RESEARCH_CONTEXT_TOO_LARGE'&&work.progress?.stage==='following_up')&&<button className="primary-button" disabled={busy||!selected.length} onClick={()=>void perform(()=>api.studyTools(`/v1/topics/${view.topic_id}/material`,{selected}))}>建立教材與知識地圖<Icon name="chevron-right" size={16}/></button>}
     {!work.deleted&&work.status==='failed'&&hasMaterial&&!work.run_id&&<button className="primary-button" disabled={busy||!selected.length} onClick={()=>void actResearch('acquire',selected)}>使用選取來源繼續建立</button>}
    </>}
   />}>

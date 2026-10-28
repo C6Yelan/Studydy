@@ -418,6 +418,7 @@ def validate_selection(candidates, selected):
         or any(
             identity not in known
             or not known[identity]["eligible"]
+            or known[identity].get("duplicate_of")
             or known[identity].get("review", {}).get("phase") != "body"
             or not source_allowed(known[identity])
             for identity in selected
@@ -565,6 +566,7 @@ def progress(state, candidates, *, running, topics=None, started_at=None):
         # 進度說明只描述進行中的工作；停止或完成後不再顯示舊階段的文字。
         "summary": state.get("summary", "") if running else "",
         "finish_reason": state.get("finish_reason"),
+        **({"search_failure": state["search_failure"]} if state.get("search_failure") else {}),
         "waiting_until": state.get("waiting_until"),
     }
 

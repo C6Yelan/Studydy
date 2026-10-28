@@ -240,6 +240,24 @@ test('failed sources and partial service failures remain clear',async({page})=>{
 });
 
 
+test('failed coverage search without material submits the checked sources and keeps them on rejection',async({page})=>{
+ await mockTopicApi(page);
+ const topic:any={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'TCP',approved_scope:plan,status:'failed',candidates:[candidate],selection:[],error_code:'RESEARCH_CONTEXT_TOO_LARGE',run_id:null,progress:{stage:'following_up',summary:'',finish_reason:null,waiting_until:null,topics:[]}}};
+ const bodies:unknown[]=[];let reject=true;
+ await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
+ await page.route(`**/v1/topics/${id}/material`,r=>{bodies.push(r.request().postDataJSON());if(reject)return json(r,{error:{code:'SOURCE_NOT_READY',message:'來源尚未通過核對。'}},409);topic.research={...topic.research,material_id:materialId,selection:['source'],status:'acquiring'};return json(r,{material_id:materialId,research_id:rid},202);});
+ await page.goto(`/topics/${id}`);
+ await expect(page.getByText('目前無法完成，已取得資料會保留。')).toBeVisible();
+ const create=page.getByRole('button',{name:'建立教材與知識地圖'});
+ await expect(create).toBeDisabled();
+ await page.getByRole('checkbox',{name:'選取 TCP handshake'}).check();await expect(create).toBeEnabled();
+ await create.click();await expect(page.getByRole('alert')).toBeVisible();
+ expect(bodies).toEqual([{selected:['source']}]);
+ await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toBeChecked();await expect(page.getByText('目前無法完成，已取得資料會保留。')).toBeVisible();
+ reject=false;await create.click();await expect.poll(()=>bodies.length).toBe(2);
+ expect(bodies[1]).toEqual({selected:['source']});
+});
+
 test('approval failure stays on scope and confirmed topics can be cancelled from the library',async({page})=>{
  await mockTopicApi(page);
  let topic:any={topic_id:id,request:'TCP',proposal:plan,version:2,status:'ready',research_id:null,error_code:null};
