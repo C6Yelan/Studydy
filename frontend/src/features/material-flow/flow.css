@@ -81,6 +81,7 @@
 .file-drop-icon { display:grid; place-items:center; width:60px; height:60px; border-radius:20px; background:var(--surface); color:var(--studydy-blue); box-shadow:var(--shadow); }
 .file-drop strong { color:var(--text-primary); font-size:16px; }
 .file-drop > span:last-child { font-size:13px; font-weight:600; }
+.upload-format-summary { display:grid; gap:4px; text-align:start; }
 .file-drop.has-file { padding:20px 24px; }
 .file-drop.has-file .file-drop-icon { width:44px; height:44px; border-radius:16px; }
 

@@ -84,7 +84,7 @@ export function SourceUploadPicker({capabilities,disabled,hasFiles,inputLabel,er
           <strong>
             {hasFiles ? "拖放或點擊以加入更多教材" : "將教材拖放到此處，或點擊選取"}
           </strong>
-          <span>{formatsReady ? uploadLimitSummary(capabilities!) : "正在載入上傳限制"}</span>
+          <span className="upload-format-summary">{formatsReady ? uploadLimitSummary(capabilities!).map(line => <span key={line}>{line}</span>) : "正在載入上傳限制"}</span>
         </label>
         {error && (
           <p id={errorId} className="form-error" role="alert">
@@ -97,22 +97,23 @@ export function SourceUploadPicker({capabilities,disabled,hasFiles,inputLabel,er
 }
 
 /** 依實際能力列出可選格式與上限，避免畫面與後端限制不一致。 */
-function uploadLimitSummary(capabilities: SourceCapabilities): string {
+function uploadLimitSummary(capabilities: SourceCapabilities): string[] {
   const groups: [string, string][] = [
     ["document", "文件"],
+    ["presentation", "簡報"],
     ["image", "圖片"],
     ["audio", "音訊"],
     ["video", "影片"],
   ];
   const parts = groups.flatMap(([kind, label]) => {
-    const formats = capabilities.formats.filter((format) => format.kind === kind);
+    const formats = capabilities.formats.filter((format) => ( /\.pptx?$/.test(format.extension) ? "presentation" : format.kind) === kind);
     if (!formats.length) return [];
-    const names = [...new Set(formats.map((format) => format.extension.slice(1).toUpperCase().replace("JPEG", "JPG")))].join("、");
+    const names = [...new Set(formats.map((format) => format.extension.slice(1).toUpperCase()))].join("、");
     const max = formatFileSize(Math.max(...formats.map((format) => format.max_bytes)));
     const note = kind === "image" ? `一次最多 ${capabilities.max_images} 張、合計 ${max}` : `每份最大 ${max}`;
-    return [`${label} ${names}（${note}）`];
+    return [`${label}：${names}（${note}）`];
   });
   const hours = capabilities.max_media_seconds / 3600;
   const media = capabilities.formats.some((format) => format.kind === "audio" || format.kind === "video");
-  return [...parts, ...(media ? [`音訊／影片最長 ${hours} 小時`] : []), "可選多份"].join(" · ");
+  return [...parts, ...(media ? [`音訊／影片最長 ${hours} 小時`] : []), "可選多份"];
 }
