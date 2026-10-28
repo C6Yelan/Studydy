@@ -67,7 +67,7 @@ test("inside a material one material header replaces the site header and phone t
       await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeHidden();
       await expect(header.getByRole("button", { name: path === studyPath ? "返回學習與測驗" : "回到我的教材", exact: true })).toBeVisible();
       await expect(header.getByRole("tablist", { name: "教材學習內容" })).toBeVisible();
-      await expect(header.getByRole("button", { name: "教材問答", exact: true })).toBeVisible();
+      await expect(header.getByRole("button", { name: "Studydy AI BOT", exact: true })).toBeVisible();
       const box = (await header.boundingBox())!;
       expect(box.y).toBeLessThanOrEqual(12);
       if (width > 720) expect(box.height).toBeLessThanOrEqual(60);

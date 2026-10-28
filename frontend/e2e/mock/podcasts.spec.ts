@@ -256,7 +256,7 @@ test('desktop podcast creation fills the workspace while long lists and previews
     await expect(selection.getByRole('button', {name:`查看「${view.concepts.at(-1)!.label}」重點`,exact:true})).toBeInViewport();
     const create = page.getByRole('button', {name:'開始生成 Podcast',exact:true});
     await expect(create).toBeInViewport(); await create.click({trial:true});
-    const action = (await create.boundingBox())!, voice = (await page.getByRole('button', {name:'教材問答',exact:true}).boundingBox())!;
+    const action = (await create.boundingBox())!, voice = (await page.getByRole('button', {name:'Studydy AI BOT',exact:true}).boundingBox())!;
     // 問答入口在分頁列，不與底部的生成按鈕重疊。
     expect(voice.y+voice.height).toBeLessThan(action.y);
     expect(action.y+action.height).toBeLessThan(height);
@@ -898,7 +898,7 @@ test('material podcast player keeps the chat entry in the material tab row',asyn
  for(const width of [1920,1440,390]){
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/podcasts/${podcastId}`);
   await expect(page.locator('.podcast-watch-layout')).toBeVisible();
-  const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
+  const chat=page.getByRole('button',{name:'Studydy AI BOT',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
   // 問答入口在教材頁首右端。
   const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(toolbar.y);expect(box.y+box.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);
  }

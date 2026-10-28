@@ -93,13 +93,13 @@ const specials: Record<SpecialId, { name: string; condition: string; hint: strin
   early_bird: { name: "早起的鳥兒", condition: "早上 5:00～7:59 作答累計 10 題", hint: "太陽還沒完全醒來。", icon: "sparkle", rarity: 0 },
   weekend: { name: "週末學者", condition: "同一個週末的週六與週日都有學習", hint: "別人放假的時候……", icon: "book", rarity: 0 },
   return: { name: "浪子回頭", condition: "中斷 7 天以上後重新開始學習", hint: "離開，然後回來。", icon: "route", rarity: 0 },
-  curious_10: { name: "好奇寶寶", condition: "在教材問答提出 10 個問題", hint: "有問題，就問吧。", icon: "chat", rarity: 0 },
-  curious_50: { name: "提問大師", condition: "在教材問答提出 50 個問題", hint: "問題越問越多。", icon: "chat", rarity: 1 },
+  curious_10: { name: "好奇寶寶", condition: "向 Studydy AI BOT 提出 10 個問題", hint: "有問題，就問吧。", icon: "chat", rarity: 0 },
+  curious_50: { name: "提問大師", condition: "向 Studydy AI BOT 提出 50 個問題", hint: "問題越問越多。", icon: "chat", rarity: 1 },
   researcher: { name: "追根究柢", condition: "補充研究並把新來源加入教材", hint: "教材之外，還有更多。", icon: "search", rarity: 0 },
   creator: { name: "自己動手做", condition: "建立一組概念卡和一集 Podcast", hint: "把學到的，變成自己的。", icon: "edit", rarity: 0 },
   corrected_5: { name: "知錯能改", condition: "答錯過的概念之後又答對，累計 5 個", hint: "錯過的，不會再錯。", icon: "learning", rarity: 1 },
   perfect_day: { name: "完美的一天", condition: "同一天作答 20 題以上且全部答對", hint: "一整天，一題都沒錯。", icon: "sparkle", rarity: 2 },
-  all_round_day: { name: "全能學習日", condition: "同一天作答、標記概念卡、收聽 Podcast 滿 1 分鐘並在教材問答提問", hint: "答題、卡片、耳朵、提問，一天之內……", icon: "compass", rarity: 2 },
+  all_round_day: { name: "全能學習日", condition: "同一天作答、標記概念卡、收聽 Podcast 滿 1 分鐘並向 Studydy AI BOT 提問", hint: "答題、卡片、耳朵、提問，一天之內……", icon: "compass", rarity: 2 },
   thousand_pages: { name: "千頁征服者", condition: "完成一份 500 頁以上教材的全部學習", hint: "很厚、很厚的一本。", icon: "book", rarity: 3 },
   revisit: { name: "溫故知新", condition: "教材完成 7 天以上後，又標記它的概念卡", hint: "學完了，過一陣子再回來看看。", icon: "cards", rarity: 1 },
   xp_day_300: { name: "火力全開", condition: "同一天獲得 300 XP", hint: "今天的經驗值條，好像特別長。", icon: "sparkle", rarity: 2 },
@@ -247,7 +247,7 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
       </header>
       {locked.length > 0 && <ul className="badge-grid">{locked.map((badge) => <BadgeCell key={badge.badge_id} badge={badge} />)}</ul>}
     </section>
-    <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、教材問答、目標與分天關卡、難點、筆記註記、上傳的教材、匯出、學習天數與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
+    <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、Studydy AI BOT、目標與分天關卡、難點、筆記註記、上傳的教材、匯出、學習天數與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
   </section>;
 }
 

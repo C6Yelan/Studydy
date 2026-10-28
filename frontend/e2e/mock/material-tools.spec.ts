@@ -15,20 +15,20 @@ test('material voice text flow saves, cites, reopens and closes',async({page})=>
  await page.route('**/v1/materials/*/voice-conversations',r=>{if(r.request().method()==='POST'){saved=true;return json(r,conversation,201);}return json(r,{conversations:saved?[conversation]:[]});});
  await page.route(`**/v1/voice-conversations/${cid}`,r=>json(r,{...conversation,is_current_revision:true,source_resolver:structure.source_resolver,turns}));
  await page.route(`**/v1/voice-conversations/${cid}/turns`,r=>{turns=[{turn_id:tid,question:r.request().postDataJSON().question,answer:{text:'堆疊遵循後進先出。',supported:true,citations:[structure.concepts[0].claims[0]]},status:'ready',audio_url:null,error_code:null}];return json(r,{turn_id:tid},202);});
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();
+ await page.goto(mapPath);await page.getByRole('button',{name:'Studydy AI BOT',exact:true}).click();
  await page.getByLabel('問題／辨識文字').fill('堆疊是什麼？');await page.getByRole('button',{name:'送出問題',exact:true}).click();
  await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
  await expect(page.locator('.voice-reference-sources').getByRole('button')).toContainText('p.1');
- await page.locator('.voice-reference-sources').getByRole('button').first().click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材來源'})).toHaveCount(0);await expect(page.getByRole('dialog',{name:'教材問答'})).toBeVisible();
- await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByLabel('問題／辨識文字')).toHaveCount(0);await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();
- await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
- await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材問答'})).toHaveCount(0);await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeFocused();
+ await page.locator('.voice-reference-sources').getByRole('button').first().click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材來源'})).toHaveCount(0);await expect(page.getByRole('dialog',{name:'Studydy AI BOT'})).toBeVisible();
+ await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByLabel('問題／辨識文字')).toHaveCount(0);await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toBeFocused();
+ await page.getByRole('button',{name:'Studydy AI BOT',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
+ await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'Studydy AI BOT'})).toHaveCount(0);await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toBeFocused();
 });
 
 test('late microphone permission after cancel stops tracks and sends nothing',async({page})=>{
  await mockKnowledgeMapApi(page,structureView());await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[]}));
  await page.addInitScript(()=>{let resolve:(value:MediaStream)=>void;Object.assign(window,{stopped:false,allowMic:()=>resolve({getTracks:()=>[{stop:()=>{(window as any).stopped=true;}}]} as unknown as MediaStream)});Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:()=>new Promise(r=>resolve=r)});});
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('switch',{name:'語音模式',exact:true}).click();await expect(page.locator('.voice-composer-status')).toContainText('等待麥克風權限');await page.getByRole('switch',{name:'語音模式',exact:true}).click();await page.evaluate(()=>(window as any).allowMic());await expect.poll(()=>page.evaluate(()=>(window as any).stopped)).toBe(true);
+ await page.goto(mapPath);await page.getByRole('button',{name:'Studydy AI BOT',exact:true}).click();await page.getByRole('switch',{name:'語音模式',exact:true}).click();await expect(page.locator('.voice-composer-status')).toContainText('等待麥克風權限');await page.getByRole('switch',{name:'語音模式',exact:true}).click();await page.evaluate(()=>(window as any).allowMic());await expect.poll(()=>page.evaluate(()=>(window as any).stopped)).toBe(true);
  await expect(page.getByRole('switch',{name:'語音模式',exact:true})).toHaveAttribute('aria-checked','false');
 });
 
@@ -58,7 +58,7 @@ test('closing a conversation releases every private audio element',async({page})
  await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[conversation]}));
  await page.route(`**/v1/voice-conversations/${cid}`,r=>json(r,{...conversation,is_current_revision:true,source_resolver:structure.source_resolver,turns:[0,1].map(i=>({turn_id:`turn-${i}`,question:'合成問題',answer:{text:'合成回答',supported:false,citations:[]},status:'ready',error_code:null,audio_url:`/v1/voice-conversations/${cid}/turns/${i}/audio`}))}));
  await page.route(`**/v1/voice-conversations/${cid}/turns/*/audio`,r=>r.fulfill({status:200,contentType:'audio/wav',body:wav}));
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();await expect(page.locator('.voice-turn audio')).toHaveCount(2);
+ await page.goto(mapPath);await page.getByRole('button',{name:'Studydy AI BOT',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();await expect(page.locator('.voice-turn audio')).toHaveCount(2);
  await page.evaluate(async()=>{const clips=Array.from(document.querySelectorAll<HTMLAudioElement>('.voice-turn audio'));(window as any).__clips=clips;for(const a of clips)await a.play();});
  expect(await page.evaluate(()=>(window as any).__clips[0].paused)).toBe(true);
  await page.getByRole('button',{name:'關閉',exact:true}).click();
@@ -73,7 +73,7 @@ test('late permission failure cannot stop a newer voice session',async({page})=>
    Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:()=>new Promise((resolve,reject)=>{count++;if(count===1)state.rejectOld=()=>reject(new Error('old request rejected'));else state.allowNew=()=>resolve({getTracks:()=>[{stop:()=>{state.stopped=true;}}]});})});
    (window as any).AudioContext=class{state='running';resume(){return Promise.resolve();}close(){this.state='closed';return Promise.resolve();}};
  });
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();await page.getByRole('switch',{name:'語音模式',exact:true}).click();await expect(page.locator('.voice-composer-status')).toContainText('等待麥克風權限');await page.getByRole('switch',{name:'語音模式',exact:true}).click();await page.getByRole('switch',{name:'語音模式',exact:true}).click();await expect.poll(()=>page.evaluate(()=>typeof (window as any).micRace.allowNew)).toBe('function');await page.evaluate(()=>(window as any).micRace.allowNew());await expect(page.locator('.voice-composer-status')).toContainText('正在聆聽');
+ await page.goto(mapPath);await page.getByRole('button',{name:'Studydy AI BOT',exact:true}).click();await page.getByRole('switch',{name:'語音模式',exact:true}).click();await expect(page.locator('.voice-composer-status')).toContainText('等待麥克風權限');await page.getByRole('switch',{name:'語音模式',exact:true}).click();await page.getByRole('switch',{name:'語音模式',exact:true}).click();await expect.poll(()=>page.evaluate(()=>typeof (window as any).micRace.allowNew)).toBe('function');await page.evaluate(()=>(window as any).micRace.allowNew());await expect(page.locator('.voice-composer-status')).toContainText('正在聆聽');
  await page.evaluate(()=>(window as any).micRace.rejectOld());expect(await page.evaluate(()=>(window as any).micRace.stopped)).toBe(false);
  await page.getByRole('button',{name:'關閉',exact:true}).click();expect(await page.evaluate(()=>(window as any).micRace.stopped)).toBe(true);
 });
@@ -86,7 +86,7 @@ test('supplementary input survives tab switches without submitting a search',asy
  await page.getByRole('tablist',{name:'教材學習內容'}).getByRole('tab',{name:'知識地圖',exact:true}).click();await page.getByRole('tab',{name:'補充學習',exact:true}).click();
  await expect(page.getByLabel('想多了解什麼？',{exact:true})).toHaveValue('保留尚未送出的需求');expect(searches).toBe(0);
  await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
- await expect(page.getByRole('tab',{name:'補充學習',exact:true})).toHaveAttribute('aria-selected','true');await expect(page.getByRole('button',{name:'教材問答',exact:true})).toBeVisible();
+ await expect(page.getByRole('tab',{name:'補充學習',exact:true})).toHaveAttribute('aria-selected','true');await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toBeVisible();
  await expect.poll(async()=>{const nav=await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox(),selected=await page.getByRole('tab',{name:'補充學習',exact:true}).boundingBox();return !!nav&&!!selected&&selected.x>=nav.x-1&&selected.x+selected.width<=nav.x+nav.width+1;}).toBe(true);
 });
 
@@ -142,8 +142,8 @@ test('one material header row; map search floats on the map and only content tab
     await page.getByLabel(label,{exact:true}).waitFor();const box=(await page.getByLabel(label,{exact:true}).boundingBox())!;
     expect(box.y).toBeGreaterThanOrEqual(currentNav.y+currentNav.height);
    } else await expect(page.getByLabel('搜尋概念或關鍵字',{exact:true})).toHaveCount(0);
-   // 教材問答在教材頁首右端。
-   const voice=(await page.getByRole('button',{name:'教材問答',exact:true}).boundingBox())!;const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;
+   // Studydy AI BOT在教材頁首右端。
+   const voice=(await page.getByRole('button',{name:'Studydy AI BOT',exact:true}).boundingBox())!;const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;
    expect(voice.y).toBeGreaterThanOrEqual(toolbar.y);expect(voice.y+voice.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);
    if(tab==='概念卡'||tab==='Podcast'){
     await expect(page.locator('.material-search-row').getByRole('searchbox')).toHaveCount(0);
@@ -191,10 +191,10 @@ test('Voice bubble keeps the page reachable and restores focus when dismissed',a
  await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[]}));
  await page.goto(mapPath);
  for(const width of [1920,1440,390]) {
-  await page.setViewportSize({width,height:844});const opener=page.getByRole('button',{name:'教材問答',exact:true});
+  await page.setViewportSize({width,height:844});const opener=page.getByRole('button',{name:'Studydy AI BOT',exact:true});
   const before=(await page.locator('.material-learning-toolbar').boundingBox())!;
   await page.screenshot({path:testInfo.outputPath(`qa-closed-${width}.png`)});await opener.click();
-  const bubble=page.getByRole('dialog',{name:'教材問答'});await expect(bubble).toHaveAttribute('aria-modal','false');
+  const bubble=page.getByRole('dialog',{name:'Studydy AI BOT'});await expect(bubble).toHaveAttribute('aria-modal','false');
   // 桌機從教材頁首下緣展開；手機是上緣留 8px 的全高面板。
   const box=(await bubble.boundingBox())!,header=(await page.locator('.material-learning-toolbar').boundingBox())!;
   expect(box.width).toBeLessThanOrEqual(420);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y).toBeGreaterThanOrEqual(width===390?8:header.y+header.height);
@@ -419,7 +419,7 @@ test('verified answer paragraphs keep their own citations and open source previe
  const answer={schema:'material-answer/v3',text:'依教材回答。補充說明。',supported:true,paragraphs:[{text:'依教材回答。',citation_ids:['verified']},{text:'補充說明。',citation_ids:[]}],citations:[{passage_id:'verified',text:evidence.quote,evidence:[evidence]}]};
  await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[conversation]}));
  await page.route(`**/v1/voice-conversations/${cid}`,r=>json(r,{...conversation,is_current_revision:true,source_resolver:structure.source_resolver,turns:[{turn_id:tid,mode:'text',question:'教材說明了什麼？',answer,status:'ready',audio_url:null,error_code:null}]}));
- await page.goto(mapPath);await page.getByRole('button',{name:'教材問答',exact:true}).click();
+ await page.goto(mapPath);await page.getByRole('button',{name:'Studydy AI BOT',exact:true}).click();
  await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();
  const paragraphs=page.locator('.voice-answer');
  await expect(paragraphs).toHaveCount(2);await expect(paragraphs.first().getByRole('button')).toHaveText('[1]');

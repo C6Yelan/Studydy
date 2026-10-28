@@ -79,7 +79,7 @@ export function AppShell({
             onClick={() => writeRoute({ name: "home" })}
           >
             <img src="/assets/studydy/brand-idle.png" alt="" />
-            <span>Studydy</span>
+            <span>Studydy 一點就通</span>
           </button>
           {!isMaterialWorkspace && status}
         </div>

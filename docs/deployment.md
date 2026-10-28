@@ -71,11 +71,11 @@ PyMuPDF 維持 1.28.0，renderer 的嚴格版本契約不變。此批不修改 O
 - 已核准公開 Internet 部署；Access 為 optional。沿用目前 Cloudflare 設定，不需為 rebuild
   重新建立 Tunnel、DNS 或憑證。私有 API 保留 `private, no-store`，不強制公共快取。
 
-## Podcast 與教材問答的語音流程
+## Podcast 與Studydy AI BOT的語音流程
 
 正式 Podcast 使用原參考聲線、V／W 台灣華語指令、整句中英混讀及通用接點／停頓／語速規則。處理直接作用於模型片段及 speaker 邊界，不使用人工指定秒數或 WAV 句界推測；既有音訊保留。
 
-教材問答也共用 Podcast 的整句混讀、台灣口音指令、原 host 聲線、停頓修正與音量處理。舊的中英文分段合成分支已刪除，沒有 legacy 開關；既有音訊保留，新合成與重試使用共用流程。provider 每次音訊請求啟動同一個已部署 runtime bundle 的 `ops/podcast/synthesize.py`；腳本更新需建立新 bundle 並切換 provider，不能改動正在使用的版本。
+Studydy AI BOT也共用 Podcast 的整句混讀、台灣口音指令、原 host 聲線、停頓修正與音量處理。舊的中英文分段合成分支已刪除，沒有 legacy 開關；既有音訊保留，新合成與重試使用共用流程。provider 每次音訊請求啟動同一個已部署 runtime bundle 的 `ops/podcast/synthesize.py`；腳本更新需建立新 bundle 並切換 provider，不能改動正在使用的版本。
 
 新語音統一使用 `dynamic-pauses/v1`：短句續講 250ms、一般句尾 550ms、20 字以上長句 850ms、問句與一般換人 650ms、簡短接話前 350ms、換主題 1100ms。依原講稿的文字與數字計數，短句為 6 字以內；縮寫與數值的朗讀展開不改變分類。換段優先，符合一個條件就選定停頓，不疊加；現有片段兩端靜音計入目標。固定停頓機制與臨時試聽設定已移除，`/pause-preview` 及其資產回 404。既有影音不改時間軸，新建節目以新音訊重新對齊字幕及影片。
 
@@ -83,7 +83,7 @@ PyMuPDF 維持 1.28.0，renderer 的嚴格版本契約不變。此批不修改 O
 
 ## Podcast 講稿逐段核對
 
-`ops/podcast/provider.py` 的 `/script` 改為生成後逐段核對（`source-script/v16`），核對提示存於 runtime lock 新增的 `podcast_script_review`（`podcast-script-review/v1`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash：新工作的 provenance 記錄新 hash，進行中的教材分析、筆記與題組工作沿用各自封存的 lock，不受影響。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊 backend 可接收 v16 講稿，新 backend 也可接收舊 provider 的 v13 講稿，兩者部署順序不互相依賴，backend 隨下次映像更新帶入新 lock 即可。重啟前照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。`/script` 從生成到核對完成都持有 provider 的文字鎖，每集約 60～140 秒（12 段都重寫的最壞情況約 37 次呼叫、4～5 分鐘）；期間教材問答、卡片、主題與研究等 `/semantics` 文字請求會排隊等待（不逾時）。工作日誌 `script_review` 記實際呼叫次數。bundle 內程式與 lock 不一致時，工作日誌記 `PODCAST_REVIEW_CONTRACT_INVALID`，backend 顯示為 `PODCAST_PROVIDER_FAILED`。
+`ops/podcast/provider.py` 的 `/script` 改為生成後逐段核對（`source-script/v16`），核對提示存於 runtime lock 新增的 `podcast_script_review`（`podcast-script-review/v1`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash：新工作的 provenance 記錄新 hash，進行中的教材分析、筆記與題組工作沿用各自封存的 lock，不受影響。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊 backend 可接收 v16 講稿，新 backend 也可接收舊 provider 的 v13 講稿，兩者部署順序不互相依賴，backend 隨下次映像更新帶入新 lock 即可。重啟前照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。`/script` 從生成到核對完成都持有 provider 的文字鎖，每集約 60～140 秒（12 段都重寫的最壞情況約 37 次呼叫、4～5 分鐘）；期間Studydy AI BOT、卡片、主題與研究等 `/semantics` 文字請求會排隊等待（不逾時）。工作日誌 `script_review` 記實際呼叫次數。bundle 內程式與 lock 不一致時，工作日誌記 `PODCAST_REVIEW_CONTRACT_INVALID`，backend 顯示為 `PODCAST_PROVIDER_FAILED`。
 
 ## 媒體來源（圖片、音訊、影片、YouTube）
 

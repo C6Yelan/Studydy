@@ -14,7 +14,7 @@ function Lines({ count, last = "60%" }: { count: number; last?: string }) {
     <Bone key={index} className="is-line" style={index === count - 1 ? { width: last } : undefined} />)}</>;
 }
 
-/** 教材頁首：單列的返回＋島嶼縮圖＋名稱＋分頁＋教材問答＋頭像（分頁在窄螢幕裁切，與實際頁首橫向捲動一致）。 */
+/** 教材頁首：單列的返回＋島嶼縮圖＋名稱＋分頁＋Studydy AI BOT＋頭像（分頁在窄螢幕裁切，與實際頁首橫向捲動一致）。 */
 function MaterialBar() {
   return <div className="skeleton-material-bar">
     <Bone className="is-round" /><Bone className="is-thumb" />

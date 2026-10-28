@@ -756,7 +756,7 @@ test('saved material card review keeps the chat entry in the material tab row',a
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   await showCardBack(page);
   await expect(page.locator('.visual-concept-card')).toBeVisible();
-  const chat=page.getByRole('button',{name:'教材問答',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
+  const chat=page.getByRole('button',{name:'Studydy AI BOT',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
   // 問答入口在教材頁首右端。
   const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(toolbar.y);expect(box.y+box.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);
  }

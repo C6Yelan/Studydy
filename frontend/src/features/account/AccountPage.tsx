@@ -13,7 +13,7 @@ function AccountFrame({ mode, children }: { mode: Mode; children: React.ReactNod
     <main className="auth-page">
       <div className="auth-brand">
         <img src="/assets/studydy/brand-idle.png" alt="" />
-        <span>Studydy</span>
+        <span>Studydy 一點就通</span>
       </div>
       <section
         className={`auth-card is-${mode}`}
