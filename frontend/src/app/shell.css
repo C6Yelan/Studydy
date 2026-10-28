@@ -823,8 +823,6 @@
 .header-storage-panel { position:absolute; top:calc(100% + 10px); left:0; z-index:10; width:min(24rem, calc(100vw - 32px)); padding:20px; display:grid; gap:10px; border:1px solid var(--border); border-radius:20px; background:var(--surface); box-shadow:var(--shadow); color:var(--text-secondary); font-size:14px; }
 .header-storage-panel h2 { margin:0; color:var(--text-primary); font-size:17px; }
 .header-storage-panel p { margin:0; }
-.header-storage-numbers { display:flex; flex-wrap:wrap; gap:4px; }
-.header-storage-numbers strong { color:var(--text-primary); }
 
 @media (max-width:1280px) {
   .header-storage-wide { display:none; }

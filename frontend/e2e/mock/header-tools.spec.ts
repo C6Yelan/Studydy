@@ -236,9 +236,10 @@ test("password change validates input, reports a wrong current password and then
   // 帳號空間已滿：顯示已用、剩餘，以及哪些動作會被擋下。
   await page.getByRole("button", { name: /^帳號空間：/ }).click();
   const storage = page.getByRole("region", { name: "帳號空間" });
-  await expect(storage).toContainText("已用 5 GB／上限 5 GB · 剩餘 0 B");
+  await expect(storage.locator(".storage-breakdown-heading")).toHaveText("帳號空間5 GB／5 GB");
   await expect(storage).toContainText("無法上傳教材、建立 Podcast 或生成影片");
-  await expect(storage).toContainText("已用包含 100 MB 預留給上傳中的檔案與生成中的 Podcast／影片");
+  await storage.getByRole("button", { name: "處理中預留說明" }).focus();
+  await expect(storage.getByRole("tooltip")).toHaveText("已用包含 100 MB 預留給上傳中的檔案與生成中的 Podcast／影片。");
   await page.keyboard.press("Escape");
   // 登入裝置是帳號設定之外的獨立卡片。
   // 三個登入先顯示兩個，其餘收合。
@@ -368,7 +369,7 @@ test("profile fits a 390px phone and jumps to account settings", async ({ page }
 });
 
 
-test("storage breakdown includes reservations once and lists the five supplied materials",async({page},testInfo)=>{
+test("storage breakdown includes reservations once and lists the three largest supplied materials",async({page},testInfo)=>{
  await mockKnowledgeMapApi(page);
  const gib=1024**3;
  const largest=Array.from({length:5},(_,index)=>({material_id:index===0?materialId:`77777777-7777-4777-8777-${String(index).padStart(12,'0')}`,display_name:index===0?'資料結構教材':`第 ${index+1} 份教材：機器學習的原理、實作與應用`,used_bytes:[gib,gib/2,gib*3/8,gib/4,gib/8][index]}));
@@ -377,10 +378,10 @@ test("storage breakdown includes reservations once and lists the five supplied m
  await page.goto('/materials');
  const opener=page.getByRole('button',{name:/^帳號空間：/});await opener.click();
  const panel=page.getByRole('region',{name:'帳號空間',exact:true});
- await expect(panel.locator('dt')).toHaveText(['教材原檔與轉換檔','Podcast 音訊','Podcast 影片','分析資料','處理中預留']);
+ await expect(panel.locator('dt')).toContainText(['教材原檔與轉換檔','Podcast 音訊','Podcast 影片','分析資料','處理中預留']);
  await expect(panel.locator('dd')).toHaveText(['1 GB','512 MB','512 MB','256 MB','256 MB']);
- await expect(panel.locator('.header-storage-numbers')).toContainText('已用 2.5 GB');
- await expect(panel.getByRole('link')).toHaveText(largest.map(material=>material.display_name));
+ await expect(panel.locator('.storage-breakdown-heading')).toHaveText('帳號空間2.5 GB／5 GB');
+ await expect(panel.getByRole('link')).toHaveText(largest.slice(0,3).map(material=>material.display_name));
  const bar=panel.getByRole('img',{name:'空間分類：已用 2.5 GB，剩餘 2.5 GB'});
  const sizes=await bar.evaluate(element=>Array.from(element.children).map(child=>child.getBoundingClientRect().width/element.getBoundingClientRect().width*100));
  sizes.forEach((size,index)=>expect(size).toBeCloseTo([20,10,10,5,5][index],1));
