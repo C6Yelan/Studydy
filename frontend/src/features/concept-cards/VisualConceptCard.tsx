@@ -49,6 +49,8 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
   const [result, setResult] = useState<{ artwork: typeof artwork; failed: boolean; height: number } | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadFailed, setDownloadFailed] = useState(false);
+  const reader = useRef<HTMLDivElement>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
   const ready = result?.artwork === artwork && !result.failed;
   const failed = result?.artwork === artwork && result.failed;
   useLayoutEffect(() => {
@@ -67,6 +69,16 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
     }).catch(() => { if (active) setResult({ artwork, failed: true, height: 0 }); });
     return () => { active = false; };
   }, [artworkModule, artwork, attempt, card, structure, cacheOwner, pageIndex, pages.length]);
+  const long = ready && result.height > 760;
+  // 長卡在卡片內捲動：下緣還有內容時淡出並提示，捲到底就消失。
+  useLayoutEffect(() => {
+    const element = reader.current;
+    if (!long || !element) { setMoreBelow(false); return; }
+    const update = () => setMoreBelow(element.scrollHeight - element.scrollTop - element.clientHeight > 4);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [long, result]);
   const download = async () => {
     const source = canvas.current;
     if (!ready || !source || downloading) return;
@@ -90,7 +102,8 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
       if (canvas.current === source && currentArtwork.current === artwork) setDownloading(false);
     }
   };
-  return <div className={`visual-card${ready && result.height > 760 ? " is-long" : ""}`} tabIndex={ready && result.height > 760 ? 0 : undefined}>
+  return <div className="visual-card-frame"><div ref={reader} className={`visual-card${long ? " is-long" : ""}${moreBelow ? " has-more" : ""}`} tabIndex={long ? 0 : undefined}
+    onScroll={long ? event => { const element = event.currentTarget; setMoreBelow(element.scrollHeight - element.scrollTop - element.clientHeight > 4); } : undefined}>
     <canvas ref={canvas} className="visual-concept-card" width={1200} height={760} hidden={!ready}
       onClick={onFlip} role="img" aria-label={`${card.label}視覺化概念卡`} title={`${card.label}｜概念卡${pages.length > 1 ? ` · ${pageIndex + 1}/${pages.length}` : ""}`}
       data-layout={artwork.layout.family} data-image-index={pageIndex + 1} data-image-count={pages.length} />
@@ -103,5 +116,5 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
       <DownloadButton disabled={!ready || downloading} downloading={downloading} onClick={() => void download()} />
     </div>
     {downloadFailed && <p className="form-error" role="alert">PNG 下載失敗，請再試一次。</p>}
-  </div>;
+  </div>{moreBelow && <span className="visual-card-more" aria-hidden="true">往下捲看更多 ↓</span>}</div>;
 }

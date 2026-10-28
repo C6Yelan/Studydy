@@ -11,6 +11,7 @@ import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { ProcessingTimeline } from "../material-flow/ProcessingTimeline";
+import { CardNavFrame } from "./CardNavFrame";
 import { Flashcard } from "./Flashcard";
 import { CardMarkButtons, markLabel, useMarkSubmit } from "./CardMarks";
 import { useConceptArtwork } from "./VisualConceptCard";
@@ -289,20 +290,17 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
     </nav>
       <section ref={stage} tabIndex={-1} className="cards-study-stage surface card-practice-stage" aria-label={finished ? "本輪瀏覽完成" : `第 ${absolute ?? localPage + 1} 張概念卡`}>
         {finished ? <div className="cards-complete"><h2>已瀏覽全部卡片</h2><p>{total !== null ? `這一輪看過了 ${total} 張概念卡。想再回顧一次嗎？` : "已瀏覽全部觀念與卡片，想再回顧一次嗎？"}</p><div className="state-actions"><button className="primary-button" onClick={() => restart(false)}>再看一次</button></div></div>
-          : <>{card && batch ? <Flashcard downloadName={() => cardPngName(view, card.concept_id, localPage, apiClient)} back={back} onFlip={() => setBack(value => !value)} key={`${card.concept_id}:${localPage}`} card={card} difficulty={difficulty.data?.concepts.find(item => item.concept_id === card.concept_id)} pageIndex={localPage} structure={batch.context} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
-            : <StateView title={error ? "無法讀取這批卡片" : "正在讀取卡片"} description={error ?? "正在取得這個觀念及來源。"} tone={error ? "failure" : "loading"} action={error ? <button className="primary-button" onClick={onReload}>重新讀取卡組</button> : undefined} />}
+          : <><CardNavFrame onPrev={() => move(-1)} onNext={() => move(1)} prevDisabled={!card || (!position && !localPage)} nextDisabled={!card || !artworkModule && !loadFailed}
+            nextLabel={position === order.length - 1 && localPage === localCount - 1 ? "完成本輪" : "下一張"}>{card && batch ? <Flashcard downloadName={() => cardPngName(view, card.concept_id, localPage, apiClient)} back={back} onFlip={() => setBack(value => !value)} key={`${card.concept_id}:${localPage}`} card={card} difficulty={difficulty.data?.concepts.find(item => item.concept_id === card.concept_id)} pageIndex={localPage} structure={batch.context} materialName={view.material_name} apiClient={apiClient} sourceResolver={view.source_resolver} />
+            : <StateView title={error ? "無法讀取這批卡片" : "正在讀取卡片"} description={error ?? "正在取得這個觀念及來源。"} tone={error ? "failure" : "loading"} action={error ? <button className="primary-button" onClick={onReload}>重新讀取卡組</button> : undefined} />}</CardNavFrame>
+            <div className="card-study-footer">
+              <div className="cards-study-counter"><span aria-live="polite">{loadFailed ? "張數載入失敗" : !card ? "正在讀取卡片…" : absolute !== null && total !== null ? <>第 <strong>{absolute}</strong> / {total} 張</> : `第 ${position + 1} 個觀念 · 第 ${localPage + 1} / ${localCount} 張`}</span></div>
             {card && marks && <div className="cards-study-mark">
               <span>這張卡你熟悉嗎？{currentMark && <b>目前：{markLabel(currentMark.rating)}</b>}</span>
               <CardMarkButtons current={currentMark?.rating ?? null} disabled={marking || !back} onMark={(rating) => void markCard(rating)} label={`標記「${card.label}」熟不熟`} />
               {markError && <p className="form-error" role="alert">標記尚未保存。{markError}</p>}
             </div>}
-            <div className="cards-study-toolbar" role="group" aria-label="概念卡操作">
-              <div className="cards-study-counter"><span aria-live="polite">{loadFailed ? "張數載入失敗" : !card ? "正在讀取卡片…" : absolute !== null && total !== null ? <>第 <strong>{absolute}</strong> / {total} 張</> : `第 ${position + 1} 個觀念 · 第 ${localPage + 1} / ${localCount} 張`}</span></div>
-              <div className="cards-study-controls">
-                <button className="secondary-button" disabled={!card || (!position && !localPage)} onClick={() => move(-1)}><Icon name="arrow-left" size={18} /> 上一張</button>
-                <button className="secondary-button" disabled={!card || !artworkModule && !loadFailed} onClick={() => move(1)}>{position === order.length - 1 && localPage === localCount - 1 ? "完成本輪" : "下一張"}<Icon name="chevron-right" size={18} /></button>
-              </div>
-              <button className="text-button cards-study-shuffle" disabled={order.length < 2} onClick={() => restart(true)}>洗牌重看</button>
+            <button className="text-button cards-study-shuffle" disabled={order.length < 2} onClick={() => restart(true)}>洗牌重看</button>
             </div><p className="cards-keyboard-hint">空白鍵翻面 · 1 不熟 · 2 熟悉 · ← → 切換卡片</p></>}
         {notice && <p className="cards-study-notice" role="status">{notice}</p>}
       </section>

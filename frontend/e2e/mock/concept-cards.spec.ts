@@ -535,12 +535,17 @@ test("library stays aligned and card review keeps compact content and controls",
   await showCardList(page);
   await expect(page.getByRole("navigation", {name:"選擇概念卡"})).toBeVisible();
   expect(card!.width/card!.height).toBeCloseTo(1200/Number(await page.locator(".visual-concept-card").getAttribute("height")),1);
-  expect(card!.height).toBeLessThanOrEqual(960 * .33);
+  expect(card!.height).toBeLessThanOrEqual(960 - 490);
   expect(card!.width).toBeLessThanOrEqual(760);
   await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   expect(card!.x).toBeGreaterThan((await page.locator(".cards-browse-list").boundingBox())!.x);
-  const controls = page.locator('.cards-study-toolbar');
+  // 上一張／下一張在卡片左右兩側的空白處，不佔卡片下方的高度。
+  const previous = (await page.getByRole('button', {name:'上一張', exact:true}).boundingBox())!;
+  const next = (await page.getByRole('button', {name:'下一張', exact:true}).boundingBox())!;
+  expect(previous.x + previous.width).toBeLessThanOrEqual(card!.x);
+  expect(next.x).toBeGreaterThanOrEqual(card!.x + card!.width);
+  const controls = page.locator('.card-study-footer');
   await expect(controls).toContainText('1 / 2');
   await expect(controls.getByRole('button', {name:'洗牌重看'})).toBeVisible();
   for(const button of await controls.getByRole('button').all()) {
