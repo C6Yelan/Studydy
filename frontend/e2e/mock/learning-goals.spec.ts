@@ -284,6 +284,21 @@ for (const width of [1440, 390]) test(`home shows separate material goals and ta
   const dueToday = page.locator(".map-island").filter({ hasText: "作業系統" }).locator(".island-goal-flag");
   await expect(dueToday).toContainText("今天到期");
   await expect(dueToday).toHaveClass(/is-warning/);
+  for (const flag of [normalFlag, dueToday]) {
+    await flag.locator("..").focus();
+    await expect.poll(async () => {
+      const rect = (await flag.boundingBox())!;
+      return rect.x >= 0 && rect.x + rect.width <= width;
+    }).toBe(true);
+    const box = (await flag.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(await flag.evaluate(element => getComputedStyle(element).whiteSpace)).toBe("nowrap");
+    for (const label of await page.locator(".island-flag").all()) {
+      const other = (await label.boundingBox())!;
+      expect(box.x + box.width <= other.x || other.x + other.width <= box.x || box.y + box.height <= other.y || other.y + other.height <= box.y).toBe(true);
+    }
+  }
   const normalColor = await normalFlag.evaluate(element => getComputedStyle(element).backgroundColor);
   expect(await dueToday.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(normalColor);
   Object.assign(first, { behind_points: 2 });
