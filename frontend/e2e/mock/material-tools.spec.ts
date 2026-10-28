@@ -164,7 +164,7 @@ test('published sources filter files without idle update steps and keep upload e
  await expect(page.getByRole('button',{name:'開啟目前地圖',exact:true})).toHaveCount(0);
  await page.getByLabel('搜尋教材來源',{exact:true}).fill('乙');await expect(page.locator('.source-row')).toHaveCount(1);await expect(page.locator('.source-row .source-number')).toHaveText('2');
  await page.getByRole('button',{name:'新增來源',exact:true}).click();
- await page.getByLabel('選擇新增教材',{exact:true}).setInputFiles({name:'unsupported.exe',mimeType:'application/octet-stream',buffer:Buffer.from('fixture')});await expect(page.locator('#source-selection-error')).toBeVisible();await expect(page.locator('.source-row')).toHaveCount(1);
+ await page.getByLabel('選擇新增教材',{exact:true}).setInputFiles({name:'unsupported.exe',mimeType:'application/octet-stream',buffer:Buffer.from('fixture')});await expect(page.locator('#source-selection-error')).toBeVisible();await page.getByRole('button',{name:'返回教材來源',exact:true}).click();await expect(page.locator('.source-row')).toHaveCount(2);
 });
 
 

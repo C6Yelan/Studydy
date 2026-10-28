@@ -24,6 +24,7 @@ export type AppRoute =
   | { name: "card-review"; cardSetId?: string; materialId?: string }
   | { name: "upload" }
   | { name: "material-sources"; materialId: string }
+  | { name: "material-source-upload"; materialId: string }
   | { name: "material-run"; materialId: string; runId: string }
   | { name: "knowledge-map"; materialId: string; runId: string; structureRevision: string }
   | {
@@ -128,6 +129,8 @@ export function readRoute(pathname: string): RouteRead {
     route = { name: "research", materialId, researchId: runId };
   } else if (segments.length === 3 && (resourceSegment === "concept-cards" || resourceSegment === "podcasts" || resourceSegment === "research" || resourceSegment === "notes")) {
     route = { name: "material-content", materialId, kind: resourceSegment };
+  } else if (segments.length === 4 && resourceSegment === "sources" && runId === "new") {
+    route = { name: "material-source-upload", materialId };
   } else if (segments.length === 3 && resourceSegment === "sources") {
     route = { name: "material-sources", materialId };
   } else if (resourceSegment !== "runs" || !uuidPattern.test(runId)) {
@@ -205,6 +208,10 @@ export function routePath(route: AppRoute): string {
   if (route.name === "material-content") {
     if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");
     return `/materials/${route.materialId}/${route.kind}`;
+  }
+  if (route.name === "material-source-upload") {
+    if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");
+    return `/materials/${route.materialId}/sources/new`;
   }
   if (route.name === "material-sources") {
     if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");

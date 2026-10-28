@@ -193,7 +193,7 @@ for (const width of [1536, 390]) {
     await page.getByRole("button",{name:"新增來源",exact:true}).click();
     await expect(page.getByLabel("選擇新增教材", { exact: true })).toBeEnabled();
     await page.getByLabel("選擇新增教材", { exact: true }).setInputFiles(files);
-    await page.getByRole("button", { name: "上傳新增教材", exact: true }).click();
+    await page.getByRole("button", { name: "上傳並確認來源", exact: true }).click();
     const start = page.getByRole("button", { name: "確認新增並更新地圖", exact: true });
     await expect(page.getByLabel("加入這次更新")).toHaveCount(2);
     await expect(start).toHaveCount(0);

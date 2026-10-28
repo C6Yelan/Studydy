@@ -33,7 +33,7 @@ export function SourceUploadPicker({capabilities,disabled,hasFiles,inputLabel,er
   useEffect(()=>{if(disabled)clearDrag();},[disabled]);
   return <>
         <label
-          className={`file-drop${hasFiles ? " has-file" : ""}${disabled || !formatsReady ? " is-disabled" : ""}${isDragging ? " is-dragging" : ""}`}
+          className={`file-drop upload-drop${hasFiles ? " has-file" : ""}${disabled || !formatsReady ? " is-disabled" : ""}${isDragging ? " is-dragging" : ""}`}
           onDragEnter={(event) => {
             event.preventDefault();
             if (!disabled && formatsReady && event.dataTransfer.types.includes("Files")) {
