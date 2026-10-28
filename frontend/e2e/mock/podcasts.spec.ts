@@ -865,7 +865,7 @@ test('companion tabs preserve episode playback, chapter seeking and one scrollin
   expect(await highlights.evaluate(el => getComputedStyle(el).overflowY)).toBe('auto');
 });
 
-test('watch page keeps a large 16:9 player, aligned title, companion column and controls below across screen sizes', async ({ page }, testInfo) => {
+test('watch page fills the left column with a 16:9 player, aligned title, companion column and controls below across screen sizes', async ({ page }, testInfo) => {
   await mockEpisodeVideo(page);
   for (const [width,height] of [[1536,730],[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]) {
     await page.setViewportSize({width,height}); await page.goto(`/podcasts/${podcastId}`);
@@ -880,19 +880,19 @@ test('watch page keeps a large 16:9 player, aligned title, companion column and 
     expect(info.x).toBeCloseTo(viewport.x,0);
     await expect(page.locator('.podcast-watch-info')).not.toContainText('資料結構講義.pdf');
     if(width>720) {
-      expect(viewport.width/layout.width).toBeGreaterThan(.44);
+      // 影片佔滿左欄（除非高度上限先到）；右欄固定寬度。
+      expect(viewport.width).toBeGreaterThanOrEqual(Math.min(layout.width-20-companion.width,(height-165)*16/9)-2);
       expect(companion.x).toBeGreaterThanOrEqual(viewport.x+viewport.width);
       expect(companion.width).toBeGreaterThanOrEqual(339);
       expect(companion.y).toBeCloseTo(viewport.y,0);
-      // 右欄與左欄（影片＋標題）同高，集數說明在右欄。
-      expect(companion.y+companion.height).toBeCloseTo(info.y+info.height,0);
+      // 右欄與影片＋控制列同高，標題在影片下方（可在第一屏之外）。
+      const player=(await page.locator('.media-player').boundingBox())!;
+      expect(companion.y+companion.height).toBeCloseTo(player.y+player.height,0);
       await expect(page.locator('.podcast-companion .podcast-watch-meta')).toContainText('第 1 集');
     } else {
       expect(viewport.width).toBeCloseTo(layout.width,0);
       expect(companion.y).toBeGreaterThanOrEqual(info.y+info.height);
     }
-    if(width>720&&height>=730) expect(info.y+info.height).toBeLessThanOrEqual(height);
-    if(width===1440) await expect(page.getByRole('button',{name:'匯出本集',exact:true})).toBeInViewport();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(width);
     await page.screenshot({path:testInfo.outputPath(`podcast-${width}.png`)});
   }
@@ -1217,7 +1217,7 @@ for (const mode of ['ready', 'removed'] as const) test(`mobile ${mode} player se
   await page.screenshot({path:testInfo.outputPath(`settings-${mode}-390.png`)});
 });
 
-for (const [width, height] of [[1440, 900], [1920, 1080], [1024, 768]]) test(`video and title fit the viewport in both modes at ${width}`, async ({page}) => {
+for (const [width, height] of [[1440, 900], [1920, 1080], [1024, 768]]) test(`video fits the viewport in both modes (title in first screen only in theater) at ${width}`, async ({page}) => {
   await mockEpisodeVideo(page);
   await page.setViewportSize({width, height});
   await page.goto(`/materials/${materialId}/podcasts/${podcastId}`);
@@ -1227,7 +1227,9 @@ for (const [width, height] of [[1440, 900], [1920, 1080], [1024, 768]]) test(`vi
     const screen = (await page.locator('.media-viewport').boundingBox())!;
     const info = (await page.locator('.podcast-watch-info').boundingBox())!;
     expect(screen.y).toBeGreaterThanOrEqual(0);
-    expect(info.y + info.height).toBeLessThanOrEqual(height);
+    // 一般模式影片高度不超過視窗、標題可在捲動後；劇院模式標題仍在第一屏。
+    if (theater) expect(info.y + info.height).toBeLessThanOrEqual(height);
+    else expect(screen.y + screen.height).toBeLessThanOrEqual(height);
     // 劇院模式比照 YouTube：橫跨內容寬、高度受限，比例可寬於 16:9。
     if (theater) expect(screen.width / screen.height).toBeGreaterThanOrEqual(16/9 - .01);
     else expect(screen.width / screen.height).toBeCloseTo(16/9, 2);
