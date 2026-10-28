@@ -24,7 +24,7 @@ const sourceFailures: Record<string, string> = {
   MEDIA_TOO_LONG: "超過 2 小時上限。",
   MEDIA_UNREADABLE: "無法讀取這個音訊或影片。",
   MEDIA_NO_AUDIO: "沒有聲音軌。",
-  TRANSCRIPT_EMPTY: "沒有辨識到可用的語音或字幕。",
+  TRANSCRIPT_EMPTY: "這段沒有辨識到語音",
   STT_PROVIDER_UNAVAILABLE: "本機語音辨識服務暫時無法連線，請稍後重試。",
   STT_FAILED: "語音辨識失敗，請重試。",
   IMAGE_SET_INVALID: "圖片組格式不正確，請重新選擇圖片。",
@@ -264,7 +264,8 @@ export function SourceView({
     <p>逐字稿來源：{transcript.transcript_display_name ?? "未記錄"}</p>
     {transcriptError ? <p className="form-error" role="alert">{transcriptError}</p>
       : transcriptText === null ? <p role="status">正在讀取來源…</p>
-      : <div className="source-transcript-text">{transcriptText}</div>}
+      : transcriptText.trim() ? <div className="source-transcript-text">{transcriptText}</div>
+      : <p role="status">這段沒有辨識到語音</p>}
   </dialog>;
   const allReady = displayedSources.length > 0 && displayedSources.every((source) => source.status === "ready");
   const groups = (currentStructure ? ["upload", "research"] as const : ["all"] as const).filter(group =>
@@ -297,6 +298,7 @@ export function SourceView({
                     ? "等待轉換"
                     : source.status === "running"
                       ? timedMedia.has(source.media_type) ? "正在轉成逐字稿…" : "正在轉換…"
+                      : source.error_code === "TRANSCRIPT_EMPTY" ? sourceFailures.TRANSCRIPT_EMPTY
                       : `轉換失敗${source.error_code && sourceFailures[source.error_code] ? `：${sourceFailures[source.error_code]}` : ""}`}
                 </p>
               )}
@@ -360,7 +362,7 @@ export function SourceView({
                         })
                       }
                     >
-                      重試轉換
+                      {source.error_code === "TRANSCRIPT_EMPTY" ? "重新辨識" : "重試轉換"}
                     </button>
                   )}
                   <button
