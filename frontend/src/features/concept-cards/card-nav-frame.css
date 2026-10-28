@@ -1,0 +1,34 @@
+/* 上一張／下一張貼在卡片左右兩側；展開完整重點變高時跟著畫面中央。 */
+.card-nav-frame { display:grid; grid-template-columns:72px minmax(0,42rem) 72px; justify-content:center; gap:12px; align-items:start; }
+.card-nav-body { min-width:0; }
+.card-nav-button { position:sticky; top:calc(50vh - 60px); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; width:100%; min-height:120px; padding:10px 4px; border:0; border-radius:20px; background:var(--page-cool); color:var(--studydy-blue-deep); font-size:12px; font-weight:800; white-space:nowrap; transition:background .2s; }
+.card-nav-button:not(:disabled):hover { background:var(--studydy-blue-soft); }
+.card-nav-button:disabled { opacity:.35; }
+.card-nav-button.is-prev { grid-column:1; grid-row:1; }
+.card-nav-button.is-next { grid-column:3; grid-row:1; }
+.card-nav-body { grid-column:2; grid-row:1; }
+@media (max-width:720px) {
+  .card-nav-frame { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
+  .card-nav-body { grid-column:1/-1; grid-row:1; }
+  .card-nav-button { position:static; flex-direction:row; gap:4px; min-height:44px; padding:8px; border-radius:14px; font-size:13px; }
+  .card-nav-button.is-prev { grid-column:1; grid-row:2; }
+  .card-nav-button.is-next { grid-column:2; grid-row:2; }
+  .card-nav-button svg { width:18px; height:18px; }
+}
+
+/* 頁面計數、標記與洗牌收成一列，把垂直空間留給卡片。 */
+.card-study-footer { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:6px 16px; margin-top:6px; padding-top:10px; border-top:1px solid var(--border-light); }
+.card-study-footer > .cards-study-counter, .card-study-footer > .card-review-pages { grid-column:1; grid-row:1; justify-self:start; }
+.card-practice-stage .card-study-footer > div.cards-study-mark { grid-column:2; grid-row:1; margin:0; padding:0; border:0; }
+.card-study-footer > .cards-study-shuffle { grid-column:3; grid-row:1; justify-self:end; min-height:40px; }
+@media (max-width:720px) {
+  .card-study-footer { grid-template-columns:minmax(0,1fr) auto; }
+  .card-practice-stage .card-study-footer > div.cards-study-mark { grid-column:1/-1; grid-row:1; }
+  .card-study-footer > .cards-study-counter, .card-study-footer > .card-review-pages { grid-row:2; }
+  .card-study-footer > .cards-study-shuffle { grid-column:2; grid-row:2; }
+}
+
+/* 卡組標題列：張數在左，需要加強、展開清單與匯出在右同一列。 */
+.cards-study-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 14px; }
+.cards-study-actions .card-practice-list-toggle { margin:0; }
+.cards-study-actions .export-entry { margin:0; }

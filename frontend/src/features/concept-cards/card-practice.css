@@ -25,11 +25,10 @@
 .card-practice-front span, .card-practice-front small { color:var(--text-secondary); font-size:12px; }
 .card-practice-comparison { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; gap:16px; overflow-wrap:anywhere; }
 .card-practice-comparison strong { padding:16px; border-radius:14px; background:var(--surface); }
-.card-practice-face .visual-concept-card { width:auto; max-width:100%; height:auto; max-height:33vh; margin-inline:auto; cursor:pointer; }
+.card-practice-face .visual-concept-card { width:auto; max-width:100%; height:auto; max-height:calc(var(--card-face-max, 33vh) - 56px); margin-inline:auto; cursor:pointer; }
 .card-practice-face .visual-card-actions { margin-top:4px; }
-.card-practice-flip { display:block; margin-left:auto; min-height:28px; padding-block:2px; }
+.card-practice-flip { display:block; margin-left:auto; min-height:24px; padding-block:0; }
 .card-practice-stage .cards-study-mark { margin-top:6px; padding-top:8px; }
-.card-practice-stage .cards-study-toolbar { margin-top:8px; }
 .card-practice-stage .review-grades button { flex-direction:row; justify-content:center; min-height:40px; padding:6px 12px; }
 .card-practice-stage .card-review-source { white-space:normal; overflow:visible; }
 .card-practice-stage .card-review-source > span { overflow:visible; }
@@ -44,4 +43,7 @@
 
 .card-practice-face .visual-card.is-long .visual-concept-card { max-height:none; }
 
-.card-practice-face .visual-card.is-long { max-height:33vh; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
+.card-practice-face .visual-card.is-long { max-height:var(--card-face-max, 33vh); overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
+.card-practice-face .visual-card-frame { position:relative; }
+.card-practice-face .visual-card.is-long.has-more { -webkit-mask-image:linear-gradient(#000 calc(100% - 64px),transparent); mask-image:linear-gradient(#000 calc(100% - 64px),transparent); }
+.visual-card-more { position:absolute; left:50%; bottom:8px; transform:translateX(-50%); padding:3px 12px; border-radius:999px; background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-size:12px; font-weight:800; pointer-events:none; box-shadow:0 1px 4px #2b456122; }
