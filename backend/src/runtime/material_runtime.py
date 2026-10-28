@@ -321,7 +321,7 @@ def validate_runtime_lock(lock: Any, *, assessment: bool = True) -> dict[str, An
                 if notes["summary_layout"] != "a4-12pt-18mm/v1":
                     raise ValueError
             if (set(notes) != fields
-                or notes["version"] not in {"material-notes/v10", "material-notes/v11", "material-notes/v12"}
+                or notes["version"] not in {"material-notes/v10", "material-notes/v11", "material-notes/v12", "material-notes/v13"}
                 or not isinstance(notes["prompt"], str) or not notes["prompt"].strip()
                 or not isinstance(notes["selection_prompt"], str) or not notes["selection_prompt"].strip()
                 or not isinstance(notes["review_prompt"], str) or not notes["review_prompt"].strip()

@@ -241,7 +241,7 @@ def _concepts(claim, dsn):
         return note_content.with_page_context([by_id[c] for c in path], document)
 
 
-def model_request(concepts, kind, previous_section=None):
+def model_request(concepts, kind, previous_section=None, previous_paragraphs=()):
     """請求只帶一次原文；短編號在此請求內有效，發布前還原正式身分。
     previous_section 只是前文最後的章節標題，供模型決定層級，不是來源。"""
     groups, claims, evidence = {}, {}, {}
@@ -263,6 +263,8 @@ def model_request(concepts, kind, previous_section=None):
             group["claims"].append({"claim_id": cid, "text": claim["text"], "evidence_ids": refs,
                 "context_evidence_ids": context_refs})
     return {"kind": kind, "previous_section": previous_section,
+            "previous_content": note_content.previous_content(previous_paragraphs,
+                json.dumps(list(groups.values()), ensure_ascii=False)),
             "concepts": list(groups.values()), "evidence": list(evidence.values())}, {
         "claims": {ref: original for original, ref in claims.items()},
         "evidence": {item["evidence_id"]: original for original, item in evidence.items()},
@@ -409,19 +411,20 @@ def _summary_references(response, identities, part, diagnostics):
         raise
 
 
-def generate_part(part, mode, call, diagnostics=None, previous_section=None):
+def generate_part(part, mode, call, diagnostics=None, previous_section=None, previous_paragraphs=()):
     diagnostics = [] if diagnostics is None else diagnostics
-    request, identities = model_request(part, mode, previous_section)
+    request, identities = model_request(part, mode, previous_section, previous_paragraphs)
     result = _write(request, identities, part, mode, call, diagnostics)
     if mode == "full":
-        return _check_paragraphs(result, part, call, diagnostics)
+        return _check_paragraphs(result, part, call, diagnostics, previous_paragraphs)
     # 同一份候選稿內，引用或段落刪減後請求完全相同的段落沿用已核對結果。
-    review = _remembered_review(call)
-    items = _check_summary([(p, False) for p in result], part, call, review, diagnostics)
+    review = _remembered_review(call, previous_paragraphs)
+    items = _check_summary([(p, False) for p in result], part, call, review, diagnostics, previous_paragraphs)
     missing = _unexplained_concepts(items, part)
     if missing:
         diagnostics.append({"event": "concepts_unexplained", "concepts": missing, "after_repair": False})
-        items = _check_summary(_cover_concepts(items, missing, part, call, diagnostics), part, call, review, diagnostics)
+        items = _check_summary(_cover_concepts(items, missing, part, call, diagnostics, previous_paragraphs),
+            part, call, review, diagnostics, previous_paragraphs)
         missing = _unexplained_concepts(items, part)
         if missing:
             diagnostics.append({"event": "concepts_unexplained", "concepts": missing, "after_repair": True})
@@ -438,10 +441,10 @@ def _unexplained_concepts(items, part):
     return [concept for concept, ids in claims.items() if not ids & cited]
 
 
-def _cover_concepts(items, missing, part, call, diagnostics):
+def _cover_concepts(items, missing, part, call, diagnostics, previous_paragraphs=()):
     """沒有被解說的概念只為它們局部補寫一次；新段落比照局部重寫，核對仍不符就刪段。"""
     scope = [c for c in part if c["concept_id"] in missing]
-    request, identities = model_request(scope, "summary")
+    request, identities = model_request(scope, "summary", previous_paragraphs=[*previous_paragraphs, *(p for p, _ in items)])
     request["correction"] = {"problem": "NOTE_CONCEPT_UNEXPLAINED",
         "instruction": "前次重點整理沒有實際解說這些概念。為每個概念依原文說明它最核心的重點，只把正文真正解說的重點列入 claim_ids；不要只列名稱或編號，也不要補寫原文沒有的內容。"}
     try:
@@ -465,7 +468,7 @@ def _cover_concepts(items, missing, part, call, diagnostics):
     return _summary_items(result, part)
 
 
-def _remembered_review(call):
+def _remembered_review(call, previous_paragraphs=()):
     """同一份候選稿中，核對請求完全相同就沿用已核對結果，不重送模型。"""
     responses = {}
 
@@ -477,7 +480,7 @@ def _remembered_review(call):
 
     def review(paragraph, claims, coverage_ids, related):
         return note_content.review_paragraph(paragraph, remember, claims=claims, kind="summary",
-            coverage_claim_ids=coverage_ids, related_paragraphs=related)
+            coverage_claim_ids=coverage_ids, related_paragraphs=related, previous_paragraphs=previous_paragraphs)
     return review
 
 
@@ -508,7 +511,7 @@ def _review_with_references(paragraph, part, review, diagnostics, index):
         paragraph = {**updated, "id": paragraph["id"]}
 
 
-def _check_summary(items, part, call, review, diagnostics):
+def _check_summary(items, part, call, review, diagnostics, previous_paragraphs=()):
     """重點整理逐段核對。items 為（段落, 是否已局部重寫）；未解說的重點由程式移除，
     局部重寫一次仍不符的段落整段刪除。刪除後是否仍涵蓋每個概念由呼叫端檢查。"""
     claims = {q["claim_id"]: q for c in part for q in c["claims"]}
@@ -546,7 +549,7 @@ def _check_summary(items, part, call, review, diagnostics):
             remaining = [*items[:index], *items[index+1:]]
         else:
             try:
-                replacement = _repair_paragraph(paragraph, index, issues, [p for p, _ in items[:index]],
+                replacement = _repair_paragraph(paragraph, index, issues, [*previous_paragraphs, *(p for p, _ in items[:index])],
                     part, "summary", call, diagnostics)
             except (ValueError, TypeError, KeyError) as error:
                 # 局部重寫沒有產生可用段落，等同重寫後仍不符：刪掉這一段。
@@ -565,7 +568,7 @@ def _repair_paragraph(paragraph, index, issues, previous, part, mode, call, diag
     ids = set(paragraph["claim_ids"])
     scope = [{**c, "claims": [q for q in c["claims"] if q["claim_id"] in ids]} for c in part]
     scope = [c for c in scope if c["claims"]]
-    repair, mapping = model_request(scope, mode, _previous_section(previous))
+    repair, mapping = model_request(scope, mode, _previous_section(previous), previous)
     repair["correction"] = {
         "problem": "NOTE_CONTENT_UNSUPPORTED",
         "instruction": "只修正這個小節中核對指出的不符位置或缺漏（issues 的 part 對應 paragraph.content 的位置）；其他已有來源支持的條列、表格與公式保持不變，維持原層級。先查本次 context_evidence_ids 的實際表頭、規範詞與條件，若能補足數值或片語的意義，須明確解說並把那些區塊列入 evidence_ids，不要只重複缺少對象的原片語。related_paragraphs 已說明的部分不必重複，只補本段缺漏，仍保留本次提供的所有重點編號。保持原有大致篇幅，只依原文修正，不把核對理由或其他筆記當作新來源。",
@@ -584,7 +587,7 @@ def _previous_section(paragraphs):
     return next((p["heading"] for p in reversed(paragraphs) if p.get("level") == 1), None)
 
 
-def _check_paragraphs(result, part, call, diagnostics):
+def _check_paragraphs(result, part, call, diagnostics, previous_paragraphs=()):
     """完整筆記逐段核對；不符只重生該段一次，仍不符就不發布。"""
     checked = []
     claims = {q["claim_id"]: q for c in part for q in c["claims"]}
@@ -594,19 +597,21 @@ def _check_paragraphs(result, part, call, diagnostics):
         # 同一重點可跨段；在最後一段檢查合併涵蓋，前文皆已完成事實核對。
         paragraph, issues = _review_with_references(paragraph, part,
             lambda p: note_content.review_paragraph(p, call, claims=claims, kind="full",
-                coverage_claim_ids=coverage_ids, related_paragraphs=checked), diagnostics, index)
+                coverage_claim_ids=coverage_ids, related_paragraphs=checked,
+                previous_paragraphs=previous_paragraphs), diagnostics, index)
         if not issues:
             checked.append(paragraph)
             continue
         diagnostics.append({"event": "review_rejected", "paragraph": index, "repaired": False,
             "issues": _reason_digest(issues)})
-        repaired = _repair_paragraph(paragraph, index, issues, checked, part, "full", call, diagnostics)
+        repaired = _repair_paragraph(paragraph, index, issues, [*previous_paragraphs, *checked], part, "full", call, diagnostics)
         for position, replacement in enumerate(repaired):
             remaining = {cid for p in repaired[position+1:] for cid in p["claim_ids"]}
             final_ids = [cid for cid in replacement["claim_ids"] if cid in coverage_ids and cid not in remaining]
             replacement, issues = _review_with_references(replacement, part,
                 lambda p: note_content.review_paragraph(p, call, claims=claims, kind="full",
-                    coverage_claim_ids=final_ids, related_paragraphs=[*checked, *repaired[:position]]),
+                    coverage_claim_ids=final_ids, related_paragraphs=[*checked, *repaired[:position]],
+                    previous_paragraphs=previous_paragraphs),
                 diagnostics, len(checked) + position)
             repaired[position] = replacement
             if issues:
@@ -809,8 +814,8 @@ def complete_sections(concepts, plan, call, results, on_part, diagnostics=None, 
         codes = []
         while True:
             try:
-                generated = generate_part(selected, kind, call, diagnostics,
-                    _previous_section([p for part in results for p in part]))
+                previous = [p for part in results for p in part]
+                generated = generate_part(selected, kind, call, diagnostics, _previous_section(previous), previous)
                 break
             except (ValueError, note_content.ReviewInvalid) as error:
                 if str(error) not in RETRYABLE_PART_ERRORS:
@@ -865,6 +870,7 @@ def _progress(claim, dsn, *, plan=None, part=None, stage="generating"):
 
 def _complete(claim, concepts, call, dsn, diagnostics, *, input_budget):
     kind = claim["key"][3]
+    input_budget -= note_content.PREVIOUS_CONTENT_TOKENS + 128
     concepts = fit_page_context(concepts, kind, BATCH_TOKENS if kind == "full" else input_budget, diagnostics)
     plan = claim["plan"]
     if plan is None:
