@@ -1,4 +1,5 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
+import { islandShape } from "./island-shape";
 
 // 島嶼配色只是視覺識別，依教材 ID 穩定挑選，不代表後端欄位。
 export type IslandPalette = "meadow" | "sakura" | "autumn" | "lagoon" | "sunset" | "lavender";
@@ -44,7 +45,7 @@ function random(seed: number) {
   return () => (state = (state * 16807) % 2147483647) / 2147483647;
 }
 
-function scatterTrees(spacing: number, landmarks: boolean, seed: number) {
+function scatterTrees(spacing: number, landmarks: boolean, seed: number, geometry?: ReturnType<typeof islandShape>) {
   const key = `${spacing}|${landmarks}|${seed}`;
   const cached = treeCache.get(key);
   if (cached) return cached;
@@ -53,13 +54,16 @@ function scatterTrees(spacing: number, landmarks: boolean, seed: number) {
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("style", "position:absolute;width:0;height:0;overflow:hidden");
     measurePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    measurePath.setAttribute("d", shape);
     svg.append(measurePath);
     document.body.append(svg);
   }
   const path = measurePath;
+  path.setAttribute("d", geometry?.path ?? shape);
   const inside = (x: number, y: number) => path.isPointInFill(new DOMPoint(x, y));
-  const avoid = (landmarks ? landmarkSpots.map(([, x, y]) => [x, y, 62]) : []).concat([[818, 120, 50]]);
+  const spots = geometry?.landmarks ?? landmarkSpots.map(([, x, y]) => [x, y]);
+  const avoid = (landmarks ? spots.map(([x, y]) => [x, y, 62]) : []).concat([
+    geometry ? [geometry.hill[0], geometry.hill[1], 78] : [818, 120, 50],
+  ]);
   const next = random(seed);
   const trees: [number, number, number][] = [];
   for (let y = 120; y < 490; y += spacing * 0.8) {
@@ -67,7 +71,7 @@ function scatterTrees(spacing: number, landmarks: boolean, seed: number) {
       const px = x + (next() - 0.5) * spacing * 0.8;
       const py = y + (next() - 0.5) * spacing * 0.6;
       if (![[0, 0], [26, 0], [-26, 0], [0, 22], [0, -14]].every(([dx, dy]) => inside(px + dx, py + dy))) continue;
-      const [ex, ey, erx, ery] = pond;
+      const [ex, ey, erx, ery] = geometry?.pond ?? pond;
       if (((px - ex) / erx) ** 2 + ((py - ey) / ery) ** 2 < 1.4) continue;
       if (avoid.some(([ax, ay, r]) => Math.hypot(ax - px, ay - py) < r)) continue;
       if (next() < 0.22) continue;
@@ -132,34 +136,51 @@ function LandmarkArt({ kind, x, y }: { kind: Landmark; x: number; y: number }) {
 }
 
 /** 島嶼插畫；sea 決定是否畫海面，landmarks 決定是否畫建築。 */
-export const IslandArt = memo(function IslandArt({ palette, sea = false, landmarks = true, viewBox = "70 50 880 480", className }: {
-  palette: IslandPalette; sea?: boolean; landmarks?: boolean; viewBox?: string; className?: string;
+export const IslandArt = memo(function IslandArt({ palette, seed, sea = false, landmarks = true, viewBox = "70 50 880 480", className }: {
+  palette: IslandPalette; seed?: string; sea?: boolean; landmarks?: boolean; viewBox?: string; className?: string;
 }) {
   const p = palettes[palette];
-  const id = `island-${palette}-${sea ? "s" : "n"}`;
-  const trees = scatterTrees(64, landmarks, 3);
-  return <svg viewBox={viewBox} preserveAspectRatio="xMidYMid meet" className={`island-art ${id}${className ? ` ${className}` : ""}`} aria-hidden="true" focusable="false">
+  const geometry = useMemo(() => seed ? islandShape(seed) : undefined, [seed]);
+  const coast = geometry?.path ?? shape;
+  const [lakeX, lakeY] = geometry?.pond ?? pond;
+  const spots = geometry ? landmarkSpots.map(([kind], index) => [kind, ...geometry.landmarks[index]] as [Landmark, number, number]) : landmarkSpots;
+  const id = `island-${palette}-${sea ? "s" : "n"}${geometry ? `-${geometry.seed}` : ""}`;
+  const trees = scatterTrees(geometry ? 58 : 64, landmarks, geometry?.seed ?? 3, geometry);
+  return <svg viewBox={viewBox} preserveAspectRatio="xMidYMid meet" style={geometry ? { overflow: "visible" } : undefined} className={`island-art ${id}${className ? ` ${className}` : ""}`} aria-hidden="true" focusable="false">
     <defs>
       <linearGradient id={`${id}-sea`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={p.sea1} /><stop offset="1" stopColor={p.sea2} /></linearGradient>
       <style>{`.${id} .c1{fill:${p.c1}}.${id} .c2{fill:${p.c2}}.${id} .c3{fill:${p.c3}}.${id} .roof{fill:${p.roof}}`}</style>
     </defs>
     {sea && <rect x="-500" y="-500" width="2000" height="1600" fill={`url(#${id}-sea)`} />}
+    {geometry ? <>
+      <path d={coast} fill={p.sea1} stroke={p.sea1} strokeWidth="64" opacity=".2" />
+      <path d={coast} fill={p.sea1} stroke={p.sea1} strokeWidth="32" opacity=".4" />
+      <path d={coast} transform="translate(0 40)" fill="#0b3b6b" opacity=".18" />
+      <path d={coast} transform="translate(0 26) translate(520 286) scale(1.045) translate(-520 -286)" fill={p.sand} />
+      <path d={coast} transform="translate(0 24)" fill={p.cliff2} />
+      <path d={coast} transform="translate(0 14)" fill={p.cliff} />
+      <path d={coast} fill={p.sand} stroke={p.sand} strokeWidth="8" />
+      <path d={coast} transform="translate(520 300) scale(.94) translate(-520 -300)" fill={p.g2} />
+    </> : <>
     <path d={shape} transform="translate(520 300) scale(1.09) translate(-520 -300)" fill="#fff" opacity={sea ? 0.28 : 0.35} />
     <path d={shape} transform="translate(0 40)" fill="#0b3b6b" opacity=".18" />
     <path d={shape} transform="translate(0 26) translate(520 300) scale(1.045) translate(-520 -300)" fill={p.sand} />
     <path d={shape} transform="translate(0 24)" fill={p.cliff2} />
     <path d={shape} transform="translate(0 14)" fill={p.cliff} />
     <path d={shape} fill={p.g2} />
-    <path d={shape} transform="translate(500 286) scale(.86) translate(-520 -300)" fill={p.g1} opacity=".55" />
-    <ellipse cx="420" cy="420" rx="120" ry="40" fill={p.g3} opacity=".22" />
-    <ellipse cx="395" cy="300" rx="50" ry="22" fill={p.sand} />
-    <ellipse cx="395" cy="298" rx="43" ry="17" fill={p.sea1} />
-    <path d="M375 294 q8 -4 16 0" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" opacity=".8" />
+    </>}
+    <path d={coast} transform="translate(500 286) scale(.86) translate(-520 -300)" fill={p.g1} opacity=".55" />
+    {!geometry && <ellipse cx="420" cy="420" rx="120" ry="40" fill={p.g3} opacity=".22" />}
+    <ellipse cx={lakeX} cy={lakeY} rx="50" ry="22" fill={p.sand} />
+    <ellipse cx={lakeX} cy={lakeY - 2} rx="43" ry="17" fill={p.sea1} />
+    <path d={`M${lakeX - 20} ${lakeY - 6} q8 -4 16 0`} stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" opacity=".8" />
+    <g transform={geometry ? `translate(${geometry.hill.join(" ")}) translate(-818 -180)` : undefined}>
     <path d="M700 232 C732 165 772 104 818 100 C866 104 892 172 908 238 C850 256 758 254 700 232 Z" fill={p.g3} />
     <path d="M700 232 C732 165 772 104 818 100 C800 140 790 200 795 250 C760 250 725 244 700 232 Z" fill={p.g2} />
     <path d="M818 100 l0 -30" stroke="#5b4636" strokeWidth="3" />
     <path d="M818 70 l22 7 -22 7z" fill="#ff6b5e" />
-    {landmarks && landmarkSpots.map(([kind, x, y]) => <LandmarkArt key={kind} kind={kind} x={x} y={y} />)}
+    </g>
+    {landmarks && spots.map(([kind, x, y]) => <LandmarkArt key={kind} kind={kind} x={x} y={y} />)}
     {trees.map(([x, y, s], index) => <Tree key={index} x={x} y={y} s={s} pine={p.pine && index % 3 === 1} />)}
   </svg>;
 });
