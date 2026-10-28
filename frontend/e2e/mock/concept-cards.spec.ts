@@ -922,6 +922,7 @@ test("whole PNG card exports grounded content and preserves reading navigation",
   await showCardBack(page);
   expect(await drawnText(page)).not.toMatch(/STUDYDY|教材版本待複核|概念關係/);
   await expectCardTextFits(page);
+  const dimensions = await image.evaluate((canvas: HTMLCanvasElement) => [canvas.width, canvas.height]);
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "下載 PNG" }).click();
   const download = await downloaded;
@@ -936,7 +937,7 @@ test("whole PNG card exports grounded content and preserves reading navigation",
     image.src = `data:image/png;base64,${base64}`;
     await image.decode();
     return [image.naturalWidth, image.naturalHeight];
-  }, png.toString("base64"))).toEqual([1200, 760]);
+  }, png.toString("base64"))).toEqual(dimensions);
   await showCardBack(page);
   await page.locator(".concept-card-details > summary").click();
   await expect(page.locator(".flashcard-content")).toContainText("最後一個條件不可遺漏：x != 0。");
@@ -1609,6 +1610,7 @@ for (const [layout, count] of [['focus', 1], ['focus', 2], ['compare', 2], ['flo
 
 for (const [layout, count] of [['focus', 1], ['compare', 2], ['grid', 4], ['flow', 4]] as const) {
   test(`model-designed ${layout} wraps long text without truncation or fixed-height rejection`, async ({ page }) => {
+    await page.setViewportSize({width:1440,height:900});
     const fixture = await mockCards(page, { saved: true });
     const design = designedCard(fixture.view, layout, count);
     design.pages[0].title = '長標題依照實際字型量測換行並保留完整內容'.repeat(3);
@@ -1627,6 +1629,17 @@ for (const [layout, count] of [['focus', 1], ['compare', 2], ['grid', 4], ['flow
     expect(text).toContain(design.pages[0].takeaway.text);
     expect(text).toContain(design.pages[0].blocks[0].text);
     expect(await page.locator('canvas.visual-concept-card').evaluate((canvas: HTMLCanvasElement) => canvas.height)).toBeGreaterThan(760);
+    const reading = page.locator('.visual-card.is-long');
+    for (const bottom of [false, true]) {
+      if (bottom) await reading.evaluate(element => { element.scrollTop = element.scrollHeight; });
+      const size = await reading.evaluate(element => ({overflow:element.scrollWidth > element.clientWidth,scrollable:element.scrollHeight > element.clientHeight}));
+      expect(size).toEqual({overflow:false,scrollable:true});
+      for (const name of ['翻回正面','上一張','下一張']) {
+        const bounds = (await page.getByRole('button',{name,exact:true}).boundingBox())!;
+        expect(bounds.y).toBeGreaterThanOrEqual(0);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+      }
+    }
     const downloading = page.waitForEvent('download');
     await page.getByRole('button', { name: '下載 PNG', exact: true }).click();
     expect(await (await downloading).failure()).toBeNull();
@@ -1989,4 +2002,27 @@ test("strengthening previous crosses to the last face of the preceding concept",
   await page.locator(".card-practice-stage").press("ArrowLeft");
   await showCardBack(page);
   await expect(page.locator("canvas.visual-concept-card")).toHaveAttribute("data-image-index", "2");
+});
+
+
+test("saved text page identities still name and download every larger-font page", async ({page}) => {
+  const fixture=await mockCards(page,{saved:true,long:true,savedCount:5});
+  fixture.view.relations=[];
+  fixture.view.concepts[0].claims[0].evidence[0].quote=fixture.view.concepts[0].claims[0].text;
+  await page.route(`**/v1/card-sets/${cardSetId}/study`,route=>{
+    const study=fixture.study();
+    study.navigation.forEach((entry,index)=>{entry.page_count=index===0?4:1;});
+    return json(route,study);
+  });
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await showCardBack(page);
+  await expect(page.locator('canvas.visual-concept-card')).toHaveAttribute('data-image-count','4');
+  for(let index=0;index<4;index++){
+    await showCardBack(page);
+    expect(await drawnText(page)).not.toContain('原文節錄');
+    const download=page.waitForEvent('download');
+    await page.getByRole('button',{name:'下載 PNG',exact:true}).click();
+    expect(await(await download).failure()).toBeNull();
+    if(index<3)await page.getByRole('button',{name:'下一張',exact:true}).click();
+  }
 });

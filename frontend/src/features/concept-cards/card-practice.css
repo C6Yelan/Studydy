@@ -41,3 +41,7 @@
 }
 
 .card-picker-option button::after { content:""; position:absolute; inset:0; border-radius:inherit; }
+
+.card-practice-face .visual-card.is-long .visual-concept-card { max-height:none; }
+
+.card-practice-face .visual-card.is-long { max-height:33vh; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
