@@ -967,8 +967,13 @@ export class StudydyApiClient {
     }, validate.accountSessions);
   }
 
-  searchLibrary(text: string): Promise<LibrarySearchView> {
+  searchLibrary(text: string, options?: { category: import("./contracts").LibrarySearchCategory; offset?: number; limit?: number }): Promise<LibrarySearchView> {
     const query = new URLSearchParams({ q: text });
+    if (options) {
+      query.set("category", options.category);
+      query.set("offset", String(options.offset ?? 0));
+      query.set("limit", String(options.limit ?? 30));
+    }
     return this.json(`/v1/search?${query}`, { method: "GET" },
       (value): value is LibrarySearchView => validate.librarySearch(value) && value.query === text.trim());
   }

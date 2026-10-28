@@ -115,12 +115,38 @@ class LibrarySearchConceptView(_Closed):
     claim_count: int
 
 
+class LibrarySearchCardSetView(_Closed):
+    card_set_id: UUID
+    material_id: UUID
+    material_name: str
+    name: str
+    card_count: int | None
+
+
+class LibrarySearchPodcastView(_Closed):
+    podcast_id: UUID
+    material_id: UUID
+    material_name: str
+    name: str
+    episode_count: int
+
+
+class LibrarySearchTotals(_Closed):
+    materials: int
+    concepts: int
+    card_sets: int
+    podcasts: int
+
+
 class LibrarySearchView(_Closed):
     schema_: Literal["library-search/v1"] = Field(alias="schema")
     query: str
     materials: list[LibrarySearchMaterialView]
     concepts: list[LibrarySearchConceptView]
     concepts_truncated: bool
+    card_sets: list[LibrarySearchCardSetView]
+    podcasts: list[LibrarySearchPodcastView]
+    totals: LibrarySearchTotals
 
 
 class MaterialOutputBindingView(_Closed):

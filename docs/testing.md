@@ -388,3 +388,5 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 T2 的 `test_media_sources.py` 以真實逐字稿 PDF→native Evidence 驗證段界與合字展開；`test_ocr_page_evidence.py` 以真實 PDF 驗證中文詞內換行與公式字面值保留。`test_spoken_analysis.py` 核對疑義還原僅回到原引用、保留 needs_review 而不把診斷加進重點。這些測試不代替隔離重分析的語意品質比較。
 
 `test_version_entry_state.py` 以隔離DB驗證真發布後安全自動移動、三類不安全留手動、返回保留新標記與head、提醒跨瀏覽器、同head分次移動用move_id判過期、無引用副本清理且原始事件／最小收據保留及migration套用回滾；原test_version_moves保護手動預覽／冪等／XP不重算。S5不在正式站測清理或部署。
+
+`runtime/study/test_library_search.py` 使用隔離 DB 驗證四類搜尋的 30＋5 筆分頁、精確總數、穩定順序、跨帳號與刪除過濾，以及既有不帶分頁參數的回應。`header-tools.spec.ts` 驗證分類數量、全部預覽、鍵盤分類切換、分頁邊界、按需讀取、換頁捲動與首筆焦點，並保留概念與卡組開啟、失敗重試與輸入焦點。

@@ -64,3 +64,55 @@ def test_library_search_ranks_concepts_and_stays_owner_scoped(closed_loop, tmp_p
     assert client.get("/v1/search", params={"q": "a", "learner_id": str(uuid4())}).status_code == 400
     client.cookies.clear()
     assert client.get("/v1/search", params={"q": "topic"}).status_code == 401
+
+
+def test_library_search_pages_all_categories_with_exact_totals(closed_loop, tmp_path, monkeypatch):
+    from copy import deepcopy
+    from hashlib import sha256
+    from runtime import card_sets, podcasts
+
+    fixture = concept_fixture(closed_loop, 3)
+    owner, source, document, dsn = fixture["learner"], fixture["source"], fixture["document"], fixture["dsn"]
+    client = _client(fixture, tmp_path, monkeypatch)
+    with database_session(dsn) as db:
+        db.execute(text("UPDATE materials SET display_name='搜尋教材' WHERE material_id=:m"), {"m": source.material_id})
+        db.execute(text("""INSERT INTO materials
+            (material_id, learner_id, display_name, upload_idempotency_key_sha256, upload_request_fingerprint, created_at)
+            VALUES (:id, :owner, '搜尋教材', :key, :key, now())"""),
+            [{"id": uuid4(), "owner": owner.learner_id, "key": sha256(str(i).encode()).digest()} for i in range(34)])
+        outline = db.execute(text("SELECT outline FROM knowledge_read_indexes WHERE material_id=:m AND structure_revision=:r"),
+                             {"m": source.material_id, "r": document["revision"]}).scalar_one()
+        concept = outline["concepts"][0]
+        outline = {**outline, "concepts": [{**deepcopy(concept), "concept_id": "concept:sha256:" + sha256(str(i).encode()).hexdigest(),
+                                          "label": f"搜尋概念 {i}"} for i in range(35)]}
+        import json
+        db.execute(text("UPDATE knowledge_read_indexes SET outline=CAST(:outline AS jsonb) WHERE material_id=:m AND structure_revision=:r"),
+                   {"outline": json.dumps(outline), "m": source.material_id, "r": document["revision"]})
+    selected = [document["concepts"][0]["concept_id"]]
+    for i in range(36):
+        card = card_sets.create_card_set(owner.learner_id, source.material_id, document["revision"], f"搜尋卡組 {i}", selected, str(i), dsn=dsn)
+        podcast = podcasts.create_podcast(owner.learner_id, source.material_id, document["revision"], f"搜尋節目 {i}", selected, str(i), delivery="solo", dsn=dsn)
+    card_sets.delete_card_set(owner.learner_id, card["card_set_id"], dsn=dsn)
+    podcasts.delete_podcast(owner.learner_id, podcast["podcast_id"], dsn=dsn)
+    categories = {"materials": "material_id", "concepts": "concept_id", "card_sets": "card_set_id", "podcasts": "podcast_id"}
+    legacy = client.get("/v1/search", params={"q": "搜尋"}).json()
+    assert len(legacy["materials"]) == 10 and len(legacy["concepts"]) == 30
+    first = client.get("/v1/search", params={"q": "搜尋", "category": "all", "limit": 30}).json()
+    assert first["totals"] == {category: 35 for category in categories}
+    assert all(len(first[category]) == 30 for category in categories)
+    for category, identity in categories.items():
+        pages = [client.get("/v1/search", params={"q": "搜尋", "category": category, "offset": offset, "limit": 30}).json()
+                 for offset in (0, 30, 60)]
+        assert [len(page[category]) for page in pages] == [30, 5, 0]
+        assert all(page["totals"] == first["totals"] for page in pages)
+        assert len({item[identity] for page in pages for item in page[category]}) == 35
+        assert all(not page[other] for page in pages for other in categories if other != category)
+    for params in ({"category": "bad"}, {"offset": -1}, {"limit": 0}, {"limit": 31}):
+        assert client.get("/v1/search", params={"q": "搜尋", **params}).status_code == 400
+    stranger = register_account(f"pages_{uuid4().hex[:8]}@example.com", "Synthetic test password 42", dsn=dsn)
+    foreign = _client(fixture, tmp_path, monkeypatch, token=stranger.raw_token).get("/v1/search", params={"q": "搜尋", "category": "all"}).json()
+    assert foreign["totals"] == {category: 0 for category in categories}
+    with database_session(dsn) as db:
+        db.execute(text("UPDATE materials SET discard_requested_at=now() WHERE material_id=:m"), {"m": source.material_id})
+    hidden = client.get("/v1/search", params={"q": "搜尋", "category": "all"}).json()
+    assert hidden["totals"] == {"materials": 34, "concepts": 0, "card_sets": 0, "podcasts": 0}

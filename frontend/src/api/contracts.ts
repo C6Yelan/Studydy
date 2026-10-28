@@ -110,7 +110,8 @@ export type AccountSession = {
 // 本人目前仍有效的登入：目前這個裝置排第一，其餘依最後使用時間由新到舊。
 export type AccountSessions = { schema: "account-sessions/v2"; sessions: AccountSession[] };
 
-// 全站搜尋：只查教材名稱與各教材目前版本的概念名稱／別名。
+// 全站搜尋：本人教材、目前版本概念、卡組與 Podcast。
+export type LibrarySearchCategory = "all" | "materials" | "concepts" | "card_sets" | "podcasts";
 export type LibrarySearchView = {
   schema: "library-search/v1"; query: string;
   materials: { material_id: string; display_name: string; run_id: string | null; knowledge_structure_revision: string | null }[];
@@ -119,6 +120,9 @@ export type LibrarySearchView = {
     concept_id: string; label: string; claim_count: number;
   }[];
   concepts_truncated: boolean;
+  card_sets: { card_set_id: string; material_id: string; material_name: string; name: string; card_count: number | null }[];
+  podcasts: { podcast_id: string; material_id: string; material_name: string; name: string; episode_count: number }[];
+  totals: Record<Exclude<LibrarySearchCategory, "all">, number>;
 };
 
 export type MaterialOutputBinding = {

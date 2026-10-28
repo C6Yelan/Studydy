@@ -164,14 +164,17 @@ def install(app, settings):
         tags=["review"],
     )
     def search_library(
-        request: Request, q: str = Query(min_length=1, max_length=200)
+        request: Request, q: str = Query(min_length=1, max_length=200),
+        category: Literal["all", "materials", "concepts", "card_sets", "podcasts"] | None = None,
+        offset: int = Query(default=0, ge=0),
+        limit: int | None = Query(default=None, ge=1, le=30),
     ):
-        request_context.require_query(request, {"q"})
+        request_context.require_query(request, {"q", "category", "offset", "limit"})
         if not q.strip():
             raise request_context.ApiFailure("REQUEST_INVALID")
         learner = request_context.trusted_learner(request, settings)
         with database_session(settings.dsn) as db:
-            return knowledge_reads.search_library(db, learner.learner_id, q)
+            return knowledge_reads.search_library(db, learner.learner_id, q, category=category, offset=offset, limit=limit)
 
     @app.get(
         "/v1/learning-activity",
