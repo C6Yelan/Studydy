@@ -731,6 +731,21 @@ def test_skipped_gap_read_restores_saved_evidence_and_clears_the_read_queue():
     assert result['search_state']['read_queue']==[] and result['search_state']['stage']=='following_up'
 
 
+def test_oversized_evidence_keeps_its_topic_missing_and_other_sources_continue(monkeypatch):
+    monkeypatch.setattr(flow,'FOLLOW_UP_EVIDENCE_TOKENS',8000)
+    value=state();value['search_state'].update(stage='following_up',topics=['Agent tools','Agent memory'])
+    for i,quote in enumerate(['🧑‍💻'*2000,'Agent memory stores observations.']):
+        source=inspect(candidate(str(i)))
+        source['review']={'phase':'body','scope':'full','relevance':'direct','reason':'Saved',
+            'topics':[i],'evidence_policy':flow.EVIDENCE_POLICY,'quotes':[{'topic':i,'quote':quote}]}
+        value['candidates'].append(source)
+    original=deepcopy(value['candidates'])
+    result=flow.advance(value,review_provider)
+    assert [c['status'] for c in result['search_state']['coverage']]==['missing','covered']
+    assert result['search_state']['coverage'][1]['source_ids']==['1']
+    assert result['candidates']==original
+
+
 def test_read_request_reloads_released_text_instead_of_looping_between_stages(monkeypatch):
     value=state();source=candidate()
     source.update(screening={'decision':'read','basis':'gap_followup','reason':'Gap'},
@@ -981,6 +996,102 @@ def test_changed_topic_rechecks_old_and_new_evidence_without_reassessing_other_t
     assert seen==[[0,1],[0]]
     assert done['search_state']['coverage'][1]==unchanged
     assert done['search_state']['stage']=='organizing'
+
+
+def test_follow_up_reserves_complete_request_space_and_resumes_exact_evidence():
+    import json
+    from runtime.text_budget import estimate_prompt_tokens, estimate_o200k_tokens
+    value=state();value['query']='Required context. '*6500
+    value['search_state'].update(stage='following_up',topics=['Agent tools'])
+    quotes=[{'topic':0,'quote':f'Section {i}: '+('Agent execution requires verified observations. '*60)} for i in range(100)]
+    source=inspect(candidate());source.update(
+        review={'phase':'body','scope':'full','relevance':'direct','reason':'Saved','topics':[0],
+                'evidence_policy':flow.EVIDENCE_POLICY,'quotes':quotes})
+    value['candidates']=[source];seen=[];sizes=[]
+    def provider(path,body):
+        size=estimate_prompt_tokens(body['prompt'],body['request'])+estimate_o200k_tokens(json.dumps(body['schema'],ensure_ascii=False))
+        assert size<=flow.RESEARCH_INPUT_TOKENS
+        sizes.append(size)
+        seen.extend(e['text'] for item in body['request']['items'] for e in item['evidence'])
+        return review_provider(path,body)
+    for _ in range(20):
+        value={**value,**flow.advance(value,provider)}
+        if value['search_state']['stage']!='following_up':break
+    assert len(sizes)>1
+    assert len(seen)==len(quotes) and set(seen)=={q['quote'] for q in quotes}
+    assert value['candidates'][0]['review']['quotes']==quotes
+    assert value['search_state']['coverage'][0]['source_ids']==['one']
+    assert value['search_state']['stage']=='organizing'
+
+
+def test_source_metadata_is_batched_with_its_evidence_without_reindexing():
+    value=state();value['search_state'].update(stage='following_up',topics=['Agent memory'])
+    for i in range(550):
+        source=inspect(candidate(str(i),'Agent memory tool observations'))
+        source['review']={'phase':'body','scope':'full','relevance':'direct','reason':'Saved',
+            'topics':[0],'evidence_policy':flow.EVIDENCE_POLICY,
+            'quotes':[{'topic':0,'quote':'Verified observation number '+str(i)}]}
+        value['candidates'].append(source)
+    original=deepcopy(value['candidates']);seen=[];batches=[]
+    def provider(path,body):
+        request=body['request'];batches.append([item['index'] for item in request['items']])
+        for item in request['items']:
+            assert item['evidence']
+            assert item['url']==original[item['index']]['url']
+            assert item['evidence'][0]['text']==original[item['index']]['review']['quotes'][0]['quote']
+            seen.append(item['index'])
+        return review_provider(path,body)
+    for _ in range(10):
+        value={**value,**flow.advance(value,provider)}
+        if value['search_state']['stage']!='following_up':break
+    assert len(batches)>1 and sorted(seen)==list(range(550))
+    assert set(value['search_state']['coverage'][0]['source_ids'])=={c['id'] for c in original}
+    assert value['candidates']==original
+    assert value['search_state']['stage']=='organizing'
+
+
+@pytest.mark.parametrize('repeats',[200,1500])
+def test_follow_up_keeps_planning_text_when_complete_request_fits(repeats):
+    value=state();source=inspect(candidate())
+    title='Agent memory and tools. '*200
+    reason='Check agent permissions and conditions. '*repeats
+    sections=[{'start':0,'end':100,'headings':['Agent methods '*150,'Permissions '*150],
+               'reason':'Methods not yet inspected. '*200}]
+    source.update(title=title,screening={'decision':'read','basis':'abstract','reason':reason},
+        review={'phase':'body','scope':'sections','relevance':'direct','reason':'Saved','topics':[0],
+                'evidence_policy':flow.EVIDENCE_POLICY,'quotes':[{'topic':0,'quote':'Agent memory stores observations.'}],
+                'skipped_sections':sections})
+    warning='A saved research warning. '*200
+    value['candidates']=[source]
+    value['search_state'].update(stage='following_up',topics=['Agent memory'],warnings=[warning])
+    def provider(path,body):
+        assert flow._input_tokens(body)<=flow.RESEARCH_INPUT_TOKENS
+        item=body['request']['unread'][0]
+        assert item['title']==title
+        assert item['reason']==reason
+        assert item['skipped_sections']==[{'headings':sections[0]['headings'],'reason':sections[0]['reason']}]
+        assert body['request']['warnings']==[warning]
+        return review_provider(path,body)
+    flow.advance(value,provider)
+
+
+def test_oversized_unread_clue_uses_bounded_planning_excerpt_and_keeps_source():
+    import json
+    from runtime.text_budget import estimate_o200k_tokens
+    value=large_reference_pool();value['candidates']=value['candidates'][:1]
+    source=value['candidates'][0]
+    source['screening']['reason']='Agent tools and permissions. '*10000
+    original=deepcopy(source)
+    def provider(path,body):
+        item=body['request']['unread'][0]
+        assert item['url']==source['url']
+        assert estimate_o200k_tokens(json.dumps(body['request']['unread'],ensure_ascii=False))<=flow.FOLLOW_UP_UNREAD_TOKENS
+        assert item['reason'].endswith('…（規劃摘錄）')
+        return {'coverage':[],'read_next':[0],'searches':[]}
+    result=flow.advance(value,provider)
+    assert result['search_state']['read_queue']==[source['id']]
+    assert value['candidates'][0]==original
+    assert result['candidates'][0]['review']==original['review']
 
 
 def test_topic_evidence_and_complete_request_share_the_input_budget():
