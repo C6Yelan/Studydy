@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { MaterialLibraryItem, StudySessionLink } from "../../src/api/contracts";
+import { goalSummary, goalView } from "../fixtures/learning-goals";
 import { emptyCelebrationClaim, learningActivity, learningRhythm } from "../fixtures/learning-activity";
 
 const uuid = (seed: number) => `00000000-0000-4000-8000-${String(seed).padStart(12, "0")}`;
@@ -804,12 +805,15 @@ for (const count of [3, 6, 9, 24])
       const viewport = (await page.locator(".island-map-viewport").boundingBox())!;
       const [x, y, w, h] = (await page.locator(".island-map-minimap").getAttribute("viewBox"))!.split(" ").map(Number);
       const view = await mapView(page);
-      expect(view.x + (x + w / 2) * view.k).toBeCloseTo(viewport.width / 2, 0);
-      expect(view.y + (y + h / 2) * view.k).toBeCloseTo(viewport.height / 2, 0);
+      // 全部放得進畫面時置中；島太多（縮放降到可讀下限 0.35）則改置中在最近學習的第一份教材，見 24 座島的案例。
+      if (view.k > 0.351) {
+        expect(view.x + (x + w / 2) * view.k).toBeCloseTo(viewport.width / 2, 0);
+        expect(view.y + (y + h / 2) * view.k).toBeCloseTo(viewport.height / 2, 0);
+      }
       if (count === 24) {
         expect(Math.min((viewport.width - 48) / w, (viewport.height - 48) / h)).toBeLessThan(0.5);
-        // 島太多時縮到全部放得進畫面，不再停在 0.5。
-        expect(view.k).toBeLessThan(0.5);
+        // 開啟縮放維持可讀，「回到全覽」才把全部島放進畫面。
+        expect(view.k).toBeGreaterThanOrEqual(0.35);
       }
     });
   }
@@ -960,6 +964,58 @@ test("home at 1536×730 opens with every island label inside the map and the que
   }
   const quests = (await page.getByRole("region", { name: "今日任務" }).boundingBox())!;
   expect(quests.y + quests.height).toBeLessThanOrEqual(730);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
+});
+
+test("24 islands open readable on the most recently studied island and the fit button still shows all", async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const items = manyMaterials(24);
+  // 最近學習的是第 17 份，不是第一份或最新建立的。
+  items[16] = { ...items[16], study_sessions: [{ ...active, started_at: "2026-10-01T00:00:00Z" }] };
+  items[0] = { ...items[0], study_sessions: [{ ...active, started_at: "2026-09-01T00:00:00Z" }] };
+  await mockLibrary(page, () => items);
+  await page.goto("/");
+  await expect(islands(page)).toHaveCount(24);
+  const map = (await page.locator(".island-map-viewport").boundingBox())!;
+  expect((await mapView(page)).k).toBeGreaterThanOrEqual(0.35);
+  const recent = page.locator(".map-island", { hasText: "第 17 份" });
+  const inside = async () => {
+    const flag = (await recent.locator(".island-flag").boundingBox())!;
+    const goalFlag = (await recent.locator(".island-flag-text").boundingBox())!;
+    for (const box of [flag, goalFlag]) {
+      expect(box.x).toBeGreaterThanOrEqual(map.x); expect(box.y).toBeGreaterThanOrEqual(map.y);
+      expect(box.x + box.width).toBeLessThanOrEqual(map.x + map.width); expect(box.y + box.height).toBeLessThanOrEqual(map.y + map.height);
+    }
+  };
+  await inside();
+  await page.getByRole("button", { name: "回到全覽" }).click();
+  await expect.poll(async () => (await mapView(page)).k).toBeLessThan(0.5);
+  for (const flag of await page.locator(".map-island:not(.is-new) .island-flag").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON())) as { x: number; y: number; right: number; bottom: number }[]) {
+    expect(flag.x).toBeGreaterThanOrEqual(map.x); expect(flag.y).toBeGreaterThanOrEqual(map.y);
+    expect(flag.right).toBeLessThanOrEqual(map.x + map.width); expect(flag.bottom).toBeLessThanOrEqual(map.y + map.height);
+  }
+});
+
+test("1536×730 with five daily tasks scrolls inside the right column and not the page", async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const items = manyMaterials(9);
+  await mockLibrary(page, () => items);
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    quests: [{ kind: "mark_cards", progress: 0, target: 5, done: false }, { kind: "continue_study", progress: 0, target: 1, done: false }],
+  }) }));
+  await page.route(/\/v1\/learning-goals/, (route) => route.fulfill({ json: { schema: "learning-goals/v1", today: "2026-10-24",
+    goals: [0, 1, 2].map((index) => goalSummary(goalView(items[index].material_id, revision, runId, `concept:sha256:${"b".repeat(64)}`), items[index].display_name)) } }));
+  await page.goto("/");
+  await expect(page.locator(".dashboard-quests .quest-row")).toHaveCount(5);
+  const side = page.locator(".dashboard-side");
+  const [map, column] = await Promise.all([page.locator(".archipelago").boundingBox(), side.boundingBox()]);
+  expect(column!.y + column!.height).toBeLessThanOrEqual(map!.y + map!.height + 1);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
+  const metrics = await side.evaluate((element) => ({ scroll: element.scrollHeight, client: element.clientHeight }));
+  expect(metrics.scroll).toBeGreaterThan(metrics.client);
+  await expect(quick(page)).not.toBeInViewport({ ratio: 1 });
+  await side.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+  await expect(quick(page)).toBeInViewport({ ratio: 1 });
   expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
 });
 
