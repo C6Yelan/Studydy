@@ -39,7 +39,7 @@ export function AssessmentPaper({ api, records, view, completed, selections, dis
     <header className="question-paper-heading">
       <strong>{view.concepts.find(concept => concept.concept_id === current.assessment.target_concept_id)?.label}</strong>
       <span>第 {index + 1}／{records.length} 題</span>
-      <Progress size="small" value={index + 1} max={records.length} aria-label="作答題目進度" />
+      <Progress value={index + 1} max={records.length} aria-label="作答題目進度" />
       {history}
     </header>
     <div ref={card} className="question-paper-card" tabIndex={-1}>{renderQuestion(current, index)}</div>

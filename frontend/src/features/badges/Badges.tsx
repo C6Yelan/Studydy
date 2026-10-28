@@ -170,7 +170,7 @@ export function BadgeMedal({ badge, size = 56 }: { badge: KnownBadge; size?: num
 
 function BadgeProgress({ badge }: { badge: KnownBadge }) {
   return <span className="badge-progress">
-    <Progress size="small" value={badge.progress} max={badge.target} aria-label={`${nameOf(badge)}進度`} aria-valuetext={progressText(badge)} />
+    <Progress value={badge.progress} max={badge.target} aria-label={`${nameOf(badge)}進度`} aria-valuetext={progressText(badge)} />
     <span>{progressText(badge)}</span>
   </span>;
 }

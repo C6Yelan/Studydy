@@ -70,7 +70,7 @@ export function HeaderStorage({ apiClient }: { apiClient: StudydyApiClient }) {
         <ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0" />
       </svg>
       <span className="header-storage-wide" aria-hidden="true">
-        <Progress className="header-storage-progress" size="small" tone={full ? "warning" : "default"} value={storage.used_bytes} max={storage.limit_bytes} aria-label="已用帳號空間" />
+        <Progress className="header-storage-progress" tone={full ? "warning" : "default"} value={storage.used_bytes} max={storage.limit_bytes} aria-label="已用帳號空間" />
         <span>{used}／{limit}</span>
       </span>
       <span className="header-storage-compact" aria-hidden="true">{percentage > 0 && percentage < 1 ? "<1" : Math.round(percentage)}%</span>

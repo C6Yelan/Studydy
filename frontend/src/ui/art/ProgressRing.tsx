@@ -1,9 +1,9 @@
-import { progressThickness } from "../Progress";
+import "../progress.css";
 /** 圓形進度；ratio 為 0–1，children 顯示在圓心。 */
 export function ProgressRing({ ratio, tone = "default", size = 38, children }: {
   ratio: number; tone?: "default" | "warning" | "complete"; size?: number; children?: React.ReactNode;
 }) {
-  const stroke = progressThickness.small;
+  const stroke = 5;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const filled = Math.max(0, Math.min(1, ratio)) * circumference;
