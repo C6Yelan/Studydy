@@ -1,4 +1,3 @@
-import { SelectionToggle } from "../../ui/SelectionToggle";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { KnowledgeOutlineView } from "../../api/contracts";
@@ -20,7 +19,7 @@ export function CreatePodcast({ apiClient, route }: {
   const [video, setVideo] = useState(false);
   const [selected, setSelected] = useState(new Set<string>());
   const [activePanel, setActivePanel] = useState<"selection" | "settings">("selection");
-  const [onlySelected, setOnlySelected] = useState(false);
+  const [selectionFilter, setSelectionFilter] = useState<"all" | "selected" | "unselected">("all");
   const [query, setQuery] = useState("");
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +66,7 @@ export function CreatePodcast({ apiClient, route }: {
     description={error ?? "正在讀取概念與來源。"} tone={error ? "failure" : "loading"} live={!error} skeleton="page"
     action={error ? <button type="button" onClick={() => setReload((v) => v + 1)}>重新讀取</button> : undefined} /></section>;
   const matches = view.concepts.filter(c => `${c.label} ${c.aliases.join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  const visible = matches.filter(c => !onlySelected || selected.has(c.concept_id));
+  const visible = matches.filter(c => selectionFilter === "all" || selected.has(c.concept_id) === (selectionFilter === "selected"));
   const preview = previewRead.context?.concepts.find(c => c.concept_id === previewId);
   const claimCount = view.concepts.filter(c => selected.has(c.concept_id)).reduce((sum, c) => sum + c.claim_count, 0);
   const selectVisible = (choose: boolean) => setSelected(previous => {
@@ -91,13 +90,15 @@ export function CreatePodcast({ apiClient, route }: {
         <div className="cards-selection-heading">
           <input className="cards-concept-search" type="search" aria-label="搜尋 Podcast 概念" placeholder="搜尋概念…" value={query} onChange={e => setQuery(e.target.value)} />
           <div className="cards-selection-actions"><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(true)}>{query.trim() ? "選取搜尋結果" : "全選"}</button><span>／</span><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(false)}>{query.trim() ? "取消搜尋結果" : "取消全選"}</button></div>
-          <SelectionToggle pressed={onlySelected} onChange={setOnlySelected}>已選 {selected.size} / {view.concepts.length}</SelectionToggle>
+          <div className="concept-selection-filters">
+            {([["all", "全部", view.concepts.length], ["selected", "已選", selected.size], ["unselected", "未選", view.concepts.length - selected.size]] as const).map(([filter, label, count]) => <button key={filter} type="button" className="secondary-button" aria-pressed={selectionFilter === filter} onClick={() => setSelectionFilter(filter)}>{label} {count}</button>)}
+          </div>
         </div>
         <div className="podcast-concept-list">{visible.map(concept => <div className={`podcast-concept-option${selected.has(concept.concept_id) ? " is-selected" : ""}`} key={concept.concept_id}>
           <label><input type="checkbox" disabled={busy} checked={selected.has(concept.concept_id)} onChange={() => toggle(concept.concept_id)} />
             <span><strong title={concept.label}>{concept.label}</strong><small>{concept.claim_count} 個重點</small></span></label>
           <button type="button" className="text-button" aria-label={`查看「${concept.label}」重點`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(previewId === concept.concept_id ? null : concept.concept_id)}>預覽</button>
-        </div>)}{visible.length === 0 && <p className="cards-no-results">{onlySelected ? "目前篩選範圍沒有已選概念。" : "找不到符合的概念。"}</p>}</div>
+        </div>)}{visible.length === 0 && <p className="cards-no-results">{"找不到符合的概念。"}</p>}</div>
         {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : previewId && !preview ? <p className="cards-preview-status" role="status">正在讀取概念重點…</p> : null}
         {preview && <section className="podcast-concept-preview" aria-label={`${preview.label}重點預覽`}><header><strong>{preview.label}</strong><button type="button" className="text-button" onClick={() => setPreviewId(null)}>關閉預覽</button></header><div>{preview.claims.map(claim => <p className="podcast-claim-text" key={claim.claim_id}>{claimText(claim)}</p>)}</div></section>}
       </section>

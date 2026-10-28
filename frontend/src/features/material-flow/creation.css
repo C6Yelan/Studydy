@@ -119,3 +119,6 @@
 /* 步驟列獨立占一排後，講解設定也必須能縮至剩餘高度並自行捲動，避免蓋到頁尾。 */
 .creation-stacked-steps > .learning-steps { flex-shrink:0; }
 .creation-stacked-steps .podcast-settings { min-height:0; max-height:100%; overflow-y:auto; }
+
+.concept-selection-filters { display:flex; flex-wrap:wrap; gap:8px; width:100%; }
+.concept-selection-filters button[aria-pressed=true] { background:var(--studydy-blue-soft); border-color:var(--studydy-blue); color:var(--studydy-blue); }

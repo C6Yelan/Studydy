@@ -211,12 +211,15 @@ test("card creation fits a desktop viewport and preserves selections across page
   await manual.getByRole("searchbox", { name: "搜尋概念" }).fill("");
   await manual.getByRole("button", { name: "預覽「堆疊（Stack）」" }).click();
   await expect(page.getByRole("region", { name: "這個概念的重點" })).toContainText("最後一個條件不可遺漏");
-  await expect(manual).toContainText('已選 3 / 31 個觀念');
-  const onlySelected = manual.getByRole("button", { name: "已選 3 / 31 個觀念" });
+  await expect(manual).toContainText('已選 3');
+  const onlySelected = manual.getByRole("button", { name: "已選 3", exact:true });
   await onlySelected.click();
   await expect(onlySelected).toHaveAttribute("aria-pressed", "true");
   await expect(manual.getByRole("checkbox")).toHaveCount(3);
-  await onlySelected.press("Space");
+  const unselected = manual.getByRole("button", {name:"未選 28", exact:true});
+  await unselected.click();
+  await expect(manual.getByRole("checkbox").first()).not.toBeChecked();
+  await manual.getByRole("button", {name:"全部 31", exact:true}).press("Space");
   await expect(onlySelected).toHaveAttribute("aria-pressed", "false");
   await expect(manual.getByRole("checkbox").first()).toBeChecked();
 
@@ -1280,7 +1283,7 @@ test("selection counts concepts while saved library and study count generated pa
   await expect(page.locator('.cards-study-counter')).toContainText('1 / 3');
   await openSavedCardManagement(page);
   await expect(page.locator('.cards-create-summary strong')).toHaveText('2 個觀念');
-  await expect(page.locator('.cards-selection-heading')).toContainText('已選 2 / 2 個觀念');
+  await expect(page.locator('.cards-selection-heading')).toContainText('已選 2');
   await page.getByRole('checkbox').first().uncheck();
   await expect(page.locator('.cards-create-summary strong')).toHaveText('1 個觀念');
   await page.getByRole('button', { name: '保存變更', exact: true }).click();
