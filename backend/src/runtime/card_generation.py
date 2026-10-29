@@ -72,7 +72,8 @@ def progress(row):
     return {
         "status": row.status,
         "stage": state.get("stage", "complete"),
-        "completed": sum(identity in results for identity in row.concept_ids),
+        "completed": sum(identity in results or identity in state.get("skipped", {})
+            for identity in row.concept_ids),
         "total": len(row.concept_ids),
         "error_code": state.get("error_code"),
         "retained_original": sum(item.get("rejected", 0) for item in results.values()),
@@ -131,6 +132,10 @@ def _save(claim, state, status, dsn):
             or material.discard_requested_at is not None
         ):
             return
+        if status == "ready" and state.get("skipped"):
+            state["selected_concept_ids"] = list(row.concept_ids)
+            row.concept_ids = [identity for identity in row.concept_ids
+                if identity in state["results"]]
         row.generation = state
         row.status = status
         row.lease_token = None
@@ -190,13 +195,31 @@ def _prepare(claim, state, dsn):
     remaining = [
         identity
         for identity in claim["concept_ids"]
-        if identity not in state["results"]
+        if identity not in state["results"] and identity not in state.get("skipped", {})
     ]
     if not remaining:
         state["stage"] = "complete"
         return
     state["current"] = {"concept_id": remaining[0]}
     state["stage"] = "designing"
+
+
+def skip_rejected(state, concept_ids):
+    """有可發布成果或尚有其他概念時繼續；全數不符仍保留最後候選供重試。"""
+    current = state["current"]
+    identity = current["concept_id"]
+    if not state["results"] and not any(
+        candidate != identity and candidate not in state.get("skipped", {})
+        for candidate in concept_ids
+    ):
+        return False
+    state.setdefault("skipped", {})[identity] = {
+        "error_code": "CARD_DESIGN_REVIEW_FAILED",
+        "issues": list(current["feedback"]),
+    }
+    del state["current"]
+    state["stage"] = "preparing"
+    return True
 
 
 def _request(claim, state, prompt, payload, schema, dsn, call):
@@ -323,6 +346,8 @@ def _advance(claim, state, dsn, call):
             state["stage"] = "designing"
             if not current.get("repair_attempts"):
                 current["repair_attempts"] = 1
+                return
+            if skip_rejected(state, claim["concept_ids"]):
                 return
             raise design.CardDesignError("CARD_DESIGN_REVIEW_FAILED")
         state["results"][current["concept_id"]] = {
