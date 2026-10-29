@@ -2,6 +2,8 @@
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 
+import pytest
+import product_fixtures as fixtures
 from product_fixtures import closed_loop
 from runtime import card_generation, card_sets
 from runtime.storage.tables import CardSet
@@ -15,7 +17,7 @@ def create(fixture, key='cards'):
 
 
 def finish(dsn, call):
-    for _ in range(12):
+    for _ in range(24):
         if not card_generation.step(dsn=dsn, call=call): return
     raise AssertionError('generation did not settle')
 
@@ -28,6 +30,84 @@ def response(path, body):
     return {'pages': [{'title': '堆疊的取出順序', 'layout': 'focus',
         'takeaway': {'text': '最後放入的元素最先取出。', 'source_refs': refs},
         'blocks': [{'heading': 'LIFO', 'text': '依後進先出順序取出元素。', 'icon': 'list-check', 'source_refs': refs}], 'links': []}], 'details_refs': []}
+
+
+@pytest.fixture
+def multiple_concepts(monkeypatch, request):
+    def structure(run_id, source_sha256, lock, **kwargs):
+        context = fixtures.build_document_context([fixtures._page(source_sha256)], page_count=1)
+        state = fixtures.SemanticState()
+        fixtures.apply_semantic_response({
+            'concepts': [{'k': f'stack{i}', 'l': f'Stack {i}', 'a': [],
+                'c': [{'m': None, 's': [0]}]} for i in range(3)], 'relations': [],
+        }, context=context, bundle={'sections': context['sections'], 'evidence': context['evidence']}, state=state)
+        return fixtures.build_knowledge_structure(context, state,
+            source_sha256=source_sha256, run_id=run_id, produced_at='2026-09-05T00:00:00+00:00',
+            runtime_lock_sha256=fixtures.canonical_sha256(lock),
+            model_id=lock['semantic_service']['model_id'], model_revision=lock['semantic_service']['revision'],
+            semantic_calls=1, ocr_calls=0)
+    monkeypatch.setattr(fixtures, '_structure', structure)
+    return request.getfixturevalue('closed_loop')
+
+
+@pytest.mark.parametrize('rejected_index', [0, 1, 2])
+def test_rejected_concept_is_recorded_and_other_cards_publish(multiple_concepts, rejected_index):
+    owner, material, _, document, dsn, _ = multiple_concepts
+    selected = [c['concept_id'] for c in document['concepts']]
+    rejected = document['concepts'][rejected_index]
+    identity = card_sets.create_card_set(owner.learner_id, material.material_id, document['revision'],
+        '部分可用', selected, 'partial', dsn=dsn)['card_set_id']
+    calls = []
+    def call(path, body):
+        calls.append(body['request']['concept'])
+        if 'design' in body['request'] and body['request']['concept'] == rejected['label']:
+            return {'supported': False, 'core_preserved': True, 'issues': ['來源不支持此關係']}
+        return response(path, body)
+    finish(dsn, call)
+    passed = [c for c in selected if c != rejected['concept_id']]
+    view = card_sets.read_card_study(owner.learner_id, identity, dsn=dsn)
+    assert view['card_count'] == 2
+    assert [c['concept_id'] for c in view['navigation']] == passed
+    assert [c['concept_id'] for c in view['batch']['cards']] == passed
+    assert view['batch']['total'] == 2
+    assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['status'] == 'ready'
+    with database_session(dsn) as db:
+        row = db.get(CardSet, identity)
+        assert row.concept_ids == passed
+        assert row.generation['selected_concept_ids'] == selected
+        assert row.generation['skipped'] == {rejected['concept_id']: {
+            'error_code': 'CARD_DESIGN_REVIEW_FAILED', 'issues': ['來源不支持此關係']}}
+        assert set(row.page_counts) == set(passed)
+    assert calls.count(rejected['label']) == 4
+    assert all(calls.count(c['label']) == 2 for c in document['concepts'] if c != rejected)
+
+
+def test_legacy_review_failure_retry_keeps_passed_cards_and_continues(multiple_concepts):
+    owner, material, _, document, dsn, _ = multiple_concepts
+    selected = [c['concept_id'] for c in document['concepts']]
+    identity = card_sets.create_card_set(owner.learner_id, material.material_id, document['revision'],
+        '接續舊失敗', selected, 'legacy-failure', dsn=dsn)['card_set_id']
+    for _ in range(5):
+        assert card_generation.step(dsn=dsn, call=response)
+    with database_session(dsn) as db:
+        row = db.get(CardSet, identity)
+        state = deepcopy(row.generation)
+        saved = deepcopy(state['results'])
+        assert list(saved) == selected[:1]
+        assert state['current']['concept_id'] == selected[1]
+        state['current'].update(repair_attempts=1, feedback=['來源不支持此關係'])
+        state.update(stage='designing', error_code='CARD_DESIGN_REVIEW_FAILED')
+        row.generation, row.status = state, 'failed'
+    card_sets.generation_status(owner.learner_id, identity, retry=True, dsn=dsn)
+    def remaining_only(path, body):
+        assert body['request']['concept'] == document['concepts'][2]['label']
+        return response(path, body)
+    finish(dsn, remaining_only)
+    with database_session(dsn) as db:
+        row = db.get(CardSet, identity)
+        assert row.status == 'ready' and row.concept_ids == [selected[0], selected[2]]
+        assert row.generation['results'][selected[0]] == saved[selected[0]]
+        assert selected[1] in row.generation['skipped']
 
 
 def test_durable_design_cache_counts_and_original_sources(closed_loop):

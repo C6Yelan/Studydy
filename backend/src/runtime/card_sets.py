@@ -6,6 +6,7 @@ from .storage.materials import (
     MaterialLibraryError,
 )
 
+from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -267,7 +268,10 @@ def generation_status(owner, card_set_id, *, retry=False, dsn=None):
     with database_session(dsn) as session:
         row, _ = _owned_card(session, owner, card_set_id, read=not retry)
         if retry and row.status == "failed":
-            row.generation = {**row.generation, "error_code": None, "luna_attempt": str(uuid4())}
+            state = deepcopy(row.generation)
+            if state.get("error_code") == "CARD_DESIGN_REVIEW_FAILED":
+                card_generation.skip_rejected(state, row.concept_ids)
+            row.generation = {**state, "error_code": None, "luna_attempt": str(uuid4())}
             row.status = "pending"
             restarted = True
         result = card_generation.progress(row)
