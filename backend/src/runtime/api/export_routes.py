@@ -78,7 +78,7 @@ def install(app, settings):
              kind: Literal['summary', 'full'], format: Literal['md', 'pdf', 'docx']):
         learner = owner(request)
         view = material_notes.read(learner, material_id, revision, kind, dsn=settings.dsn)
-        if not view['paragraphs']:
+        if view['content_generation'] is None:
             raise request_context.ApiFailure('RESOURCE_NOT_FOUND')
         view['knowledge_structure_revision'] = view['content_revision']
         view['paragraphs'] = note_marks.apply(view['paragraphs'],
@@ -87,7 +87,7 @@ def install(app, settings):
         with database_session(settings.dsn) as db:
             view['material_name'] = material_name(db, learner, material_id)
         render = {'md': export_documents.note_markdown, 'pdf': export_documents.note_pdf, 'docx': export_documents.note_docx}[format]
-        title = "重點整理" if kind == "summary" else "完整筆記"
+        title = "複習速覽" if kind == "summary" else "完整筆記"
         response = download(render(view), f'{file_stem(view["material_name"], "筆記")}-{title}.{format}', format)
         record_export(learner, 'notes', dsn=settings.dsn)
         return response

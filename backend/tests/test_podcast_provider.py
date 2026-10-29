@@ -663,8 +663,8 @@ def test_audio_only_rule_is_shared_by_generation_review_and_rewrite(monkeypatch)
     assert '只作口頭回顧' in podcast_review.PROMPT
 
 
-@pytest.mark.parametrize('failed_count,expected_failure', [(1,False),(2,False),(3,True)])
-def test_omission_threshold_uses_unique_selected_claims(monkeypatch, failed_count, expected_failure):
+@pytest.mark.parametrize('failed_count', [1, 2, 3])
+def test_verified_segments_publish_even_when_most_claims_are_omitted(monkeypatch, failed_count):
     request=body()
     request['claims']=[{**deepcopy(request['claims'][0]),'claim_id':f'claim-{i}'} for i in range(4)]
     opening={'title':'開場','turns':[{'speaker':'host','text':'大家好，今天一起學習。','source_indices':[]}]}
@@ -674,17 +674,13 @@ def test_omission_threshold_uses_unique_selected_claims(monkeypatch, failed_coun
         return verdict(r, {'turn.0'} if 1 <= r['segment_index'] <= failed_count else set())
     model,calls=fake_model(value,reviews=[review_result]*12,rewrites=value['segments'][1:failed_count+1])
     monkeypatch.setattr(provider,'luna',model)
-    if expected_failure:
-        with pytest.raises(RuntimeError,match='^PODCAST_SCRIPT_NEEDS_REVIEW$'):
-            provider.script(request)
-    else:
-        result=provider.script(request)
-        assert len(result['omitted_content'])==failed_count
-        assert [b['beat_id'] for b in result['segments']]==[f'beat-{i}' for i in range(6-failed_count)]
-        assert {ref['source_index'] for b in result['segments'] for t in b['turns'] for p in t['parts'] for ref in p['source_refs']}==set(range(failed_count,4))
+    result=provider.script(request)
+    assert len(result['omitted_content'])==failed_count
+    assert [b['beat_id'] for b in result['segments']]==[f'beat-{i}' for i in range(6-failed_count)]
+    assert {ref['source_index'] for b in result['segments'] for t in b['turns'] for p in t['parts'] for ref in p['source_refs']}==set(range(failed_count,4))
 
 
-def test_duplicate_selected_claim_identity_counts_once_for_threshold(monkeypatch):
+def test_omitted_claim_identities_are_unique(monkeypatch):
     request,value=show()
     request['claims'].append(deepcopy(request['claims'][1]))
     value['segments'][2]['turns'][0]['source_indices']=[1,2]

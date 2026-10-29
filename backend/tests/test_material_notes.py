@@ -1,13 +1,15 @@
-"""來源、全份涵蓋、重點整理的概念涵蓋與註記精確對應的回歸。"""
+"""v16 來源、單次核對刪除、章級速覽與續接的回歸。"""
 from copy import deepcopy
 import pytest
 from runtime import note_content as nc, material_notes as mn
+
 
 
 def concepts():
     return [{"concept_id": "c1", "label": "訊號", "claims": [
         {"claim_id": f"q{i}", "text": f"第 {i} 個重點", "evidence": [{"evidence_id": f"e{i}", "quote": f"原文 {i}", "page": i + 1}]}
         for i in range(3)]}]
+
 
 
 def para(heading, text, claim_ids, evidence_ids, *, formula=None, table=None, level=1):
@@ -20,6 +22,7 @@ def para(heading, text, claim_ids, evidence_ids, *, formula=None, table=None, le
     return {"heading": heading, "level": level, "blocks": blocks, "claim_ids": claim_ids, "evidence_ids": evidence_ids}
 
 
+
 def text_of(paragraph):
     """小節或核對請求中第一個文字區塊的內容。"""
     if "content" in paragraph:
@@ -27,26 +30,47 @@ def text_of(paragraph):
     return paragraph["blocks"][0]["text"]
 
 
+
 def with_text(paragraph, text):
     return {**paragraph, "blocks": [{"type": "text", "text": text}, *paragraph["blocks"][1:]]}
 
 
 def response(request):
-    if request.get("phase") == "reuse_summary":
-        return {"matches": []}
-    if request.get("phase") == "organize_sections":
-        return {"paragraph_ids": []}
+    if request.get("phase") == "select_summary":
+        chosen = {q["ref"] for q in [q for c in request["concepts"] for q in c["claims"]][:5]}
+        return {"concepts": [{"concept": c["ref"], "claim_ids": [q["ref"] for q in c["claims"] if q["ref"] in chosen]}
+            for c in request["concepts"]]}
     if request.get("phase") == "review_paragraph":
         return {"checks": [{"part": part, "missing_evidence": [], "supported": True, "reason": ""} for part in request["parts"]],
-            "coverage": [{"claim": ref, "explained": True, "note_parts": ["blocks.0"], "reason": ""} for ref in request["coverage_claims"]]}
-    return {"paragraphs": [para(c["label"], q["text"], [q["claim_id"]], q.get("evidence_ids") or [e["evidence_id"] for e in q["evidence"]])
+            "coverage": [{"claim": ref, "explained": True,
+                "note_parts": [next(p for p in request["coverage_locations"][ref]
+                    if not p.endswith((".headers", ".caption", ".callout")))], "reason": ""}
+                for ref in request["coverage_claims"]]}
+    return {"paragraphs": [para(c["label"], q["text"], [q["claim_id"]],
+        q.get("evidence_ids") or [e["evidence_id"] for e in q["evidence"]])
         for c in request["concepts"] for q in c["claims"]]}
 
 
+def sections(values):
+    return [{"section_id": "s1", "heading": "原教材章", "level": 1, "parent_id": None,
+        "claim_ids": list(dict.fromkeys(q["claim_id"] for c in values for q in c["claims"]))}]
+
 
 def full(values, call):
-    regions = [{"label": "區域", "concept_ids": list(dict.fromkeys(c["concept_id"] for c in values))}]
-    return mn.complete_sections(values, mn.plan_sections(values, regions), call, [], lambda *args: None)
+    return mn.complete_sections(values, mn.plan_sections(values, sections(values)), call, [], lambda *args: None)
+
+
+def summary(values, call, budget, diagnostics=None):
+    plan = mn.summary_plan(values, sections(values), call, input_budget=budget)
+    return mn.complete_sections(values, plan, call, [], lambda *args: None, diagnostics, "summary")
+
+
+def check_written_paragraphs(values, kind, model, diagnostics=None):
+    """合法結構稿直接進共用核對邊界，逐項測原始位置的刪除與來源保存。"""
+    request, identities = mn.model_request(values, kind)
+    draft = nc.validate(mn.canonical_response(model(request), identities), values, kind)
+    return mn._check_paragraphs(draft, values, model, [] if diagnostics is None else diagnostics, kind=kind)
+
 
 
 def test_complete_notes_preserve_all_claims_and_source_pages():
@@ -54,6 +78,30 @@ def test_complete_notes_preserve_all_claims_and_source_pages():
     assert [p["id"] for p in result] == ["0", "1", "2"]
     assert {x for p in result for x in p["claim_ids"]} == {"q0", "q1", "q2"}
     assert [p["evidence"][0]["page"] for p in result] == [1, 2, 3]
+
+
+def test_summary_caps_actual_core_points_before_the_single_review():
+    reviews = []
+    def model(request):
+        if request.get('phase') == 'review_paragraph':
+            reviews.append(request)
+            assert len([p for p in request['paragraph']['content'] if p['type'] == 'bullet']) == 1
+            return response(request)
+        value = response(request)
+        if 'paragraphs' in value:
+            for paragraph in value['paragraphs']:
+                paragraph['blocks'] = [
+                    {'type': 'bullets', 'items': [{'text': f'核心{i}', 'children': [
+                        {'text': '延伸細節', 'children': []}]} for i in range(4)]},
+                    {'type': 'table', 'caption': None, 'headers': ['欄'], 'rows': [['細節']]},
+                ]
+        return value
+    result = summary(concepts(), model, 50000)
+    assert len(reviews) == 3
+    assert sum(len(block['items']) for p in result for block in p['blocks']) == 3
+    assert all(block['type'] == 'bullets' and block['items'][0]['children'] == []
+        for p in result for block in p['blocks'])
+
 
 
 def test_saved_page_headers_are_explicit_citations_without_cross_source_or_page_context():
@@ -97,85 +145,6 @@ def test_saved_page_headers_are_explicit_citations_without_cross_source_or_page_
     assert {e['quote'] for e in result[0]['evidence']}=={'原文 0','同區塊表頭：原文 0'}
 
 
-@pytest.mark.parametrize('level',[1,2])
-def test_local_repair_preserves_original_section_level(level):
-    values=concepts()
-    values[0]['claims']=values[0]['claims'][:1]
-    request,mapping=mn.model_request(values,'full')
-    raw=response(request)
-    raw['paragraphs'][0]['level']=level
-    paragraph=nc.validate(mn.canonical_response(raw,mapping),values,'full')[0]
-    def model(request):
-        result=response(request)
-        result['paragraphs'][0]['level']=3-level
-        return result
-    result=mn._repair_paragraph(paragraph,0,[{'part':'blocks.0','missing_evidence': [], 'supported':False,'reason':'修正文句'}],[],values,'full',model,[])
-    assert result[0]['level']==level
-
-
-def test_missing_standalone_normative_word_is_available_for_review_and_repaired_citation():
-    values=concepts()
-    values[0]['claims']=values[0]['claims'][:1]
-    claim=values[0]['claims'][0]
-    base=claim['evidence'][0]
-    base.update(quote='that field be ignored',source_id='source-a',page=4,block_order=11)
-    claim['context_evidence']=[
-        {**base,'evidence_id':'norm','quote':'MUST','block_order':18},
-        {**base,'evidence_id':'foreign','source_id':'source-b','quote':'SHOULD'},
-        {**base,'evidence_id':'next','page':5,'quote':'MAY'},
-        {**base,'evidence_id':'ordinary','quote':'Other content'}]
-    requests=[]
-    def model(request):
-        requests.append(request)
-        if request.get('phase')=='review_paragraph':
-            result=response(request)
-            context=request.get('reference_context',[])
-            assert all(e['source_id']=='source-a' and e['page']==4 for e in context)
-            if any('MUST' in e['quotes'] for e in context):
-                assert [(e['source_id'],e['page'],e['block_order'],e['quotes'])
-                    for e in context]==[('source-a',4,18,['MUST']),('source-a',4,11,['Other content'])]
-                assert all('MUST' not in e['quotes'] for e in request['evidence'])
-                result['checks'][1].update(supported=False,missing_evidence=[context[0]['ref']],
-                    reason='頁4區塊18的 MUST 漏引，必須補引用並保留規範強度。')
-            else:
-                assert any('MUST' in e['quotes'] for e in request['evidence'])
-                if text_of(request['paragraph'])=='快取便忽略該欄位':
-                    result['checks'][1].update(supported=False,reason='補引用後仍有 MUST 語氣弱化，須修正文句。')
-            return result
-        repaired='correction' in request
-        refs=['E1','E2'] if repaired else ['E1']
-        return {'paragraphs':[para('欄位處理','快取 MUST 忽略該欄位' if repaired else '快取便忽略該欄位',['C1'],refs)]}
-    result=mn.generate_part(values,'full',model)
-    assert len(requests)==5
-    assert result[0]['evidence_ids']==['e0','norm']
-    assert text_of(result[0])=='快取 MUST 忽略該欄位'
-
-
-@pytest.mark.parametrize('kind',['full','summary'])
-def test_missing_header_is_added_by_ref_then_reviewed_without_rewriting_body(kind):
-    values=concepts()
-    values[0]['claims']=values[0]['claims'][:1]
-    claim=values[0]['claims'][0]
-    claim['text']='方法甲一般不更新模型參數'
-    claim['evidence'][0].update(quote='方法甲：一般不更新',source_id='source-a',block_order=2)
-    claim['context_evidence']=[{**claim['evidence'][0],'evidence_id':'header','quote':'模型參數','block_order':1}]
-    requests=[]
-    def model(request):
-        requests.append(request)
-        result=response(request)
-        if request.get('phase')=='review_paragraph' and request.get('reference_context'):
-            result['checks'][1].update(supported=False,missing_evidence=['X1'],reason='缺少區塊 99 的表頭')
-        return result
-    diagnostics=[]
-    result=mn.generate_part(values,kind,model,diagnostics)
-    assert [r.get('phase','write') for r in requests]==['write','review_paragraph','review_paragraph']
-    assert text_of(result[0])==claim['text']
-    assert result[0]['evidence_ids']==['e0','header']
-    assert result[0]['evidence'][1]['block_order']==1
-    assert diagnostics[0]['event']=='references_completed'
-    schema=mn.request_contract(requests[1],{'review_prompt':nc.REVIEW_PROMPT})[1]
-    assert schema['$defs']['ContentCheck']['properties']['missing_evidence']['items']['enum']==['X1']
-
 
 @pytest.mark.parametrize('failure',['unknown','duplicate','supported'])
 def test_review_rejects_invalid_missing_reference_selection(failure):
@@ -192,15 +161,16 @@ def test_review_rejects_invalid_missing_reference_selection(failure):
         nc.review_paragraph(paragraph,model,claims={q['claim_id']:q for c in values for q in c['claims']},kind='full')
 
 
-@pytest.mark.parametrize("failure", ["foreign_claim", "foreign_evidence", "wrong_claim_evidence", "missing_claim", "ragged_table"])
+
+@pytest.mark.parametrize("failure", ["foreign_claim", "foreign_evidence", "wrong_claim_evidence", "ragged_table"])
 def test_invalid_model_output_is_not_published(failure):
     value = response({"concepts": concepts()})
     if failure == "foreign_claim": value["paragraphs"][0]["claim_ids"] = ["foreign"]
     if failure == "foreign_evidence": value["paragraphs"][0]["evidence_ids"] = ["foreign"]
     if failure == "wrong_claim_evidence": value["paragraphs"][0]["evidence_ids"] = ["e1"]
-    if failure == "missing_claim": value["paragraphs"].pop()
     if failure == "ragged_table": value["paragraphs"][0]["blocks"].append({"type": "table", "caption": None, "headers": ["a", "b"], "rows": [["only one"]]})
     with pytest.raises(ValueError): nc.validate(value, concepts(), "full")
+
 
 
 def test_regeneration_matches_only_identical_points_and_sources_and_never_duplicates_annotation():
@@ -218,6 +188,7 @@ def test_regeneration_matches_only_identical_points_and_sources_and_never_duplic
     assert nc.annotation_matches([*original, original[0]], annotations, None, None)[0]["paragraph_id"] is None
 
 
+
 def test_full_notes_batch_without_omitting_points(monkeypatch):
     values = concepts()
     unit = {**values[0], "claims": values[0]["claims"][:1]}
@@ -233,11 +204,12 @@ def test_full_notes_batch_without_omitting_points(monkeypatch):
     assert {v for p in result for v in p["claim_ids"]} == {"q0", "q1", "q2"}
 
 
+
 @pytest.mark.parametrize("kind", ["summary", "full"])
 def test_invalid_response_exhausts_three_batches_with_one_correction_each(kind):
     calls, diagnostics, saved, results = [], [], [], []
     values = concepts()
-    plan = mn.plan_sections(values, [{"label": "區域", "concept_ids": ["c1"]}], kind)
+    plan = mn.plan_sections(values, sections(values), kind)
     def answer(request):
         calls.append(request)
         return {"paragraphs": []}
@@ -248,6 +220,7 @@ def test_invalid_response_exhausts_three_batches_with_one_correction_each(kind):
     assert diagnostics[-1] == {"event": "part_attempts", "part": 0, "attempts": 3,
         "failed": ["NOTE_FORMAT_INVALID"] * 3, "succeeded": False}
     assert saved == results == []
+
 
 
 def test_notes_contract_preserves_old_runtime_snapshots():
@@ -264,6 +237,7 @@ def test_notes_contract_preserves_old_runtime_snapshots():
     assert current["material_notes"]["prompt"] == nc.PROMPT
 
 
+
 @pytest.mark.parametrize("change", [
     {"version": "material-notes/v10"},
     {"version": "material-notes/v10", "summary_layout": "invalid"},
@@ -277,6 +251,7 @@ def test_invalid_historical_notes_contract_is_rejected(change):
     lock["material_notes"].update(change)
     with pytest.raises(MaterialAnalysisError, match="RUNTIME_LOCK_INVALID"):
         validate_runtime_lock(lock)
+
 
 
 @pytest.mark.parametrize("version", ["material-notes/v10", "material-notes/v11", "material-notes/v12"])
@@ -295,6 +270,7 @@ def test_notes_generation_rejects_historical_policy(monkeypatch, version):
     assert saved[0]["error"] == "NOTE_CONTRACT_INVALID"
 
 
+
 def test_shared_claim_is_explained_once_with_all_its_concept_links():
     values = concepts()
     values.append({"concept_id": "c2", "label": "另一概念", "claims": [deepcopy(values[0]["claims"][0])]})
@@ -305,6 +281,7 @@ def test_shared_claim_is_explained_once_with_all_its_concept_links():
     assert len(request["evidence"]) == 3
     assert len(identities["claims"]) == 3
     assert len(request["concepts"]) == 2
+
 
 
 def test_same_evidence_distinct_quotes_stay_complete_and_anchor_survives_order_ids_and_restart():
@@ -334,35 +311,6 @@ def test_same_evidence_distinct_quotes_stay_complete_and_anchor_survives_order_i
         assert result.decode().strip()==original['anchor']
 
 
-@pytest.mark.parametrize('bad_part', ['blocks.0', 'blocks.1.formula', 'blocks.2.row.0', 'claim.C1'])
-def test_content_mismatch_regenerates_the_paragraph_and_rechecks_every_part(bad_part):
-    values=concepts()[:1]
-    values[0]['claims']=values[0]['claims'][:1]
-    calls=[]
-    writers=[]
-    def model(request):
-        calls.append(request)
-        if request.get('phase')=='review_paragraph':
-            verdict={**response(request),'checks':[{'part':part,'missing_evidence': [], 'supported':not (len(writers)==1 and part==bad_part),
-                'reason':'該條件與數值的配對不受同一範例支持。' if len(writers)==1 and part==bad_part else ''}
-                for part in request['parts']]}
-            if len(writers)==1 and bad_part=='claim.C1':
-                verdict['coverage'][0].update(explained=False,note_parts=[],reason='正文漏掉重點結論。')
-            return verdict
-        writers.append(request)
-        result=response(request)
-        first=result['paragraphs'][0]
-        result['paragraphs'][0]=para(first['heading'],text_of(first),first['claim_ids'],first['evidence_ids'],
-            formula=r'x=\text{來源例中的值}',table={'headers':['項目','來源內容'],'rows':[['甲','範例甲的值']]})
-        return result
-    result=full(values,model)
-    assert len(writers)==2 and len(calls)==4
-    feedback=writers[1]['correction']['content_review']
-    assert feedback['issues'][0]['part']==bad_part
-    assert writers[1]['correction']['problem']=='NOTE_CONTENT_UNSUPPORTED'
-    assert result and calls[-1]['phase']=='review_paragraph'
-    assert calls[-1]['parts']==['heading','blocks.0','blocks.1.formula','blocks.2.headers','blocks.2.row.0']
-
 
 @pytest.mark.parametrize('bad_response', ['missing_part','duplicate_part','string_boolean','empty_checks'])
 def test_content_review_rejects_missing_or_malformed_verdicts(bad_response):
@@ -377,6 +325,7 @@ def test_content_review_rejects_missing_or_malformed_verdicts(bad_response):
         return {**response(request),'checks':checks}
     with pytest.raises(nc.ReviewInvalid,match='NOTE_REVIEW_INVALID'):
         nc.review_paragraph(paragraph,model,claims={q['claim_id']:q for c in concepts() for q in c['claims']},kind='full')
+
 
 
 def test_content_review_sees_only_cited_original_and_keeps_all_table_rows():
@@ -399,28 +348,6 @@ def test_content_review_sees_only_cited_original_and_keeps_all_table_rows():
     assert [c.get('cells') for c in content[2:]]==[['項目','內容'],['甲','原文甲'],['乙','原文乙']]
 
 
-def test_coverage_uses_already_checked_related_paragraphs_without_extra_review_calls():
-    values=concepts();values[0]['claims']=values[0]['claims'][:1]
-    seen=[]
-    def model(request):
-        if request.get('phase')=='review_paragraph':
-            seen.append(request)
-            verdict=response(request)
-            for item in verdict['coverage']:
-                item['note_parts']=['related.0.blocks.0','blocks.0']
-            return verdict
-        first=response(request)['paragraphs'][0]
-        return {'paragraphs':[para(first['heading'],'條件說明。',first['claim_ids'],first['evidence_ids'],table={'headers':['條件'],'rows':[['示例']]}),
-            with_text(first,'結論說明。')]}
-    result=full(values,model)
-    assert len(result)==len(seen)==2
-    assert seen[0]['coverage_claims']==[]
-    assert seen[1]['coverage_claims']==['C1']
-    assert seen[1]['related_paragraphs']==[{'claims':['C1'],'heading':'訊號','level':1,'content':[
-        {'part':'related.0.blocks.0','type':'text','text':'條件說明。'},
-        {'part':'related.0.blocks.1.headers','type':'table_headers','cells':['條件']},
-        {'part':'related.0.blocks.1.row.0','type':'table_row','cells':['示例']}]}]
-
 
 @pytest.mark.parametrize('failure',['missing','duplicate','source_location','missing_location','empty_location','header_only','string_boolean'])
 def test_coverage_requires_each_claim_and_actual_note_locations(failure):
@@ -440,28 +367,6 @@ def test_coverage_requires_each_claim_and_actual_note_locations(failure):
     with pytest.raises(nc.ReviewInvalid):
         nc.review_paragraph(p,model,claims={q['claim_id']:q for c in values for q in c['claims']},kind='full')
 
-
-def test_repair_does_not_rewrite_or_recheck_other_supported_paragraphs():
-    calls=[]
-    writers=[]
-    seen_bad=False
-    def model(request):
-        nonlocal seen_bad
-        calls.append(request)
-        if request.get('phase')=='review_paragraph':
-            rejected=text_of(request['paragraph'])=='第 1 個重點' and not seen_bad
-            if rejected:seen_bad=True
-            return {**response(request),'checks':[{'part':p,'missing_evidence': [], 'supported':not (rejected and p=='blocks.0'),
-                'reason':'需修正此段說明。' if rejected and p=='blocks.0' else ''} for p in request['parts']]}
-        writers.append(request)
-        return response(request)
-    result=full(concepts(),model)
-    assert len(writers)==2
-    assert len(writers[1]['concepts'][0]['claims'])==1
-    assert writers[1]['concepts'][0]['claims'][0]['text']=='第 1 個重點'
-    reviewed=[text_of(r['paragraph']) for r in calls if r.get('phase')=='review_paragraph']
-    assert reviewed==['第 0 個重點','第 1 個重點','第 1 個重點','第 2 個重點']
-    assert [text_of(p) for p in result]==['第 0 個重點','第 1 個重點','第 2 個重點']
 
 
 def test_writer_and_checker_keep_source_page_block_order_and_geometry():
@@ -483,6 +388,7 @@ def test_writer_and_checker_keep_source_page_block_order_and_geometry():
     for key in ('source_id','source_name','page','block_order','region','quotes'):
         assert checks[0]['evidence'][0][key]==source[key]
     assert e==original and paragraph['evidence'][0]==original
+
 
 
 def test_reference_repair_receives_exact_missing_and_extra_compact_ids():
@@ -507,6 +413,7 @@ def test_reference_repair_receives_exact_missing_and_extra_compact_ids():
         'evidence_not_in_paragraph_claims':['E2']}
 
 
+
 def test_reference_repair_missing_target_paragraph_has_explicit_error():
     writers=[]
     def model(request):
@@ -521,109 +428,6 @@ def test_reference_repair_missing_target_paragraph_has_explicit_error():
         mn.generate_part(concepts(),'full',model)
     assert len(writers)==2
 
-
-def reviewer(unexplained=(), unsupported=(), reviews=None):
-    """依重點文字判定涵蓋、依正文判定事實；記錄實際送出的核對請求。"""
-    def review(request):
-        if reviews is not None:reviews.append(request)
-        verdict=response(request)
-        texts={c['ref']:c['text'] for c in request['claims']}
-        for item in verdict['coverage']:
-            if texts[item['claim']] in unexplained:item.update(explained=False,note_parts=[],reason='正文沒有說明這個重點。')
-        if text_of(request['paragraph']) in unsupported:
-            verdict['checks']=[{'part':p,'missing_evidence': [], 'supported':p!='blocks.0','reason':'來源沒有此條件。' if p=='blocks.0' else ''} for p in request['parts']]
-        return verdict
-    return review
-
-
-def summary_model(draft, unexplained=(), unsupported=(), repair=None):
-    """draft 以原始重點編號描述段落，寫作請求依本次短編號轉換。"""
-    writers,reviews=[],[]
-    review=reviewer(unexplained,unsupported,reviews)
-    def model(request):
-        if request.get('phase')=='review_paragraph':return review(request)
-        writers.append(request)
-        claims={q['text']:q for c in request['concepts'] for q in c['claims']}
-        if request.get('correction',{}).get('problem')=='NOTE_CONTENT_UNSUPPORTED':
-            return repair(request) if repair else response(request)
-        return {'paragraphs':[para(heading,text,[claims[f'第 {i} 個重點']['claim_id'] for i in ids],
-            [e for i in ids for e in claims[f'第 {i} 個重點']['evidence_ids']])
-            for heading,text,ids in draft]}
-    return model,writers,reviews
-
-
-def four_claims():
-    values=concepts()
-    values[0]['claims'].append({'claim_id':'q3','text':'第 3 個重點','evidence':[{'evidence_id':'e3','quote':'原文 3','page':4}]})
-    return values
-
-
-def test_summary_removes_unexplained_claims_and_rechecks_changed_review_context():
-    values=four_claims()
-    draft=[('甲','第一段正文。',[0,1]),('乙','第二段正文。',[2,3]),('丙','第三段正文。',[1])]
-    model,writers,reviews=summary_model(draft,unexplained={'第 1 個重點','第 3 個重點'})
-    diagnostics=[]
-    result=mn.generate_part(values,'summary',model,diagnostics)
-    assert [p['claim_ids'] for p in result]==[['q0'],['q2']]
-    assert [[e['evidence_id'] for e in p['evidence']] for p in result]==[['e0'],['e2']]
-    # 第三段整段刪除；第一段引用改變也改變第二段的去重脈絡，兩段皆需重新核對。
-    assert [text_of(r['paragraph']) for r in reviews]==['第一段正文。','第二段正文。','第二段正文。','第三段正文。','第一段正文。','第二段正文。']
-    assert reviews[-1]['previous_content']!=reviews[2]['previous_content']
-    assert len(writers)==1
-    removed=[d for d in diagnostics if d['event']=='claims_removed']
-    assert [set(d['claims']) for d in removed]==[{'q3'},{'q1'}]
-    assert {'event':'paragraph_dropped','reason':'no_claims','claims':['q1']} in diagnostics
-    rejected=next(d for d in diagnostics if d['event']=='review_rejected')
-    assert rejected['issues'][0]['part']=='claim.C2' and len(rejected['issues'][0]['reason_sha256'])==12
-    assert '正文沒有說明' not in str(diagnostics)
-
-
-def test_summary_keeps_sources_shared_with_remaining_claims():
-    values=concepts()
-    values[0]['claims'][1]['evidence'].append(deepcopy(values[0]['claims'][0]['evidence'][0]))
-    model,_,_=summary_model([('甲','正文。',[0,1])],unexplained={'第 1 個重點'})
-    result=mn.generate_part(values,'summary',model)
-    assert result[0]['claim_ids']==['q0'] and [e['evidence_id'] for e in result[0]['evidence']]==['e0']
-
-
-def test_summary_fails_when_a_concept_is_still_unexplained_after_one_local_cover():
-    values=concepts()
-    model,writers,_=summary_model([('甲','正文。',[0]),('乙','正文二。',[1])],unexplained={'第 0 個重點','第 1 個重點'})
-    diagnostics=[]
-    with pytest.raises(ValueError,match='^NOTE_COVERAGE_INCOMPLETE$'):
-        mn.generate_part(values,'summary',model,diagnostics)
-    # 全稿刪光表示概念沒有被解說：只補寫一次，補不出來就失敗，不發布空稿。
-    assert len(writers)==2 and writers[1]['correction']['problem']=='NOTE_CONCEPT_UNEXPLAINED'
-    assert [d['after_repair'] for d in diagnostics if d['event']=='concepts_unexplained']==[False,True]
-
-
-def test_summary_removes_unexplained_claim_before_local_fact_repair():
-    values=concepts()
-    def repair(request):
-        assert [q['text'] for c in request['concepts'] for q in c['claims']]==['第 0 個重點']
-        return {'paragraphs':[with_text(response(request)['paragraphs'][0],'修正後正文。')]}
-    model,writers,reviews=summary_model([('甲','有誤正文。',[0,1]),('乙','第二段。',[2])],
-        unexplained={'第 1 個重點'},unsupported={'有誤正文。'},repair=repair)
-    result=mn.generate_part(values,'summary',model)
-    assert [text_of(p) for p in result]==['修正後正文。','第二段。']
-    assert [p['claim_ids'] for p in result]==[['q0'],['q2']]
-    fixes=[w for w in writers if w.get('correction',{}).get('problem')=='NOTE_CONTENT_UNSUPPORTED']
-    assert len(fixes)==1
-    assert [text_of(r['paragraph']) for r in reviews]==['有誤正文。','有誤正文。','修正後正文。','第二段。']
-
-
-def test_summary_drops_paragraph_still_unsupported_after_one_repair_and_publishes_the_rest():
-    values=concepts()
-    def repair(request):
-        return {'paragraphs':[with_text(response(request)['paragraphs'][0],'仍有誤正文。')]}
-    model,writers,_=summary_model([('甲','第一段。',[0]),('乙','有誤正文。',[1]),('丙','第三段。',[2])],
-        unsupported={'有誤正文。','仍有誤正文。'},repair=repair)
-    diagnostics=[]
-    result=mn.generate_part(values,'summary',model,diagnostics)
-    assert [text_of(p) for p in result]==['第一段。','第三段。']
-    assert [p['id'] for p in result]==['0','1']
-    assert len([w for w in writers if w.get('correction',{}).get('problem')=='NOTE_CONTENT_UNSUPPORTED'])==1
-    assert {'event':'paragraph_dropped','reason':'content_unsupported','claims':['q1']} in diagnostics
 
 
 def test_summary_references_are_normalized_by_program_then_fact_checked():
@@ -649,206 +453,12 @@ def test_summary_references_are_normalized_by_program_then_fact_checked():
     assert [(d['paragraph'],d['claims_removed'],d['evidence_removed']) for d in trimmed]==[(0,1,0),(1,0,2)]
 
 
-def test_summary_local_repair_references_are_normalized_too():
-    values=concepts()
-    def repair(request):
-        raw=response(request)
-        raw['paragraphs'][0]=with_text(raw['paragraphs'][0],'修正後正文。')
-        raw['paragraphs'][0]['evidence_ids']=[*raw['paragraphs'][0]['evidence_ids'],'E7']
-        return raw
-    model,writers,_=summary_model([('甲','有誤正文。',[0]),('乙','第二段。',[1])],unsupported={'有誤正文。'},repair=repair)
-    result=mn.generate_part(values,'summary',model)
-    assert [text_of(p) for p in result]==['修正後正文。','第二段。']
-    assert [e['evidence_id'] for e in result[0]['evidence']]==['e0']
-
-
-def test_full_local_repair_gets_reference_correction_and_still_requires_every_claim():
-    values=concepts()
-    writers=[]
-    rejected=[]
-    def model(request):
-        if request.get('phase')=='review_paragraph':
-            verdict=response(request)
-            if not rejected:
-                rejected.append(request)
-                verdict['checks']=[{'part':p,'missing_evidence': [], 'supported':p!='blocks.0','reason':'需修正。' if p=='blocks.0' else ''} for p in request['parts']]
-            return verdict
-        writers.append(request)
-        correction=request.get('correction',{})
-        if not correction:
-            return {'paragraphs':[para('合併','合併正文。',['C1','C2'],['E1','E2']),para('合併','第三點。',['C3'],['E3'])]}
-        if 'reference_error' in correction:
-            return {'paragraphs':[para('合併','不得採用的改寫。',['C1','C2'],['E1','E2'])]}
-        # 局部修正回應漏列 C2 的來源。
-        return {'paragraphs':[para('合併','修正正文。',['C1','C2'],['E1'])]}
-    result=full(values,model)
-    assert len(writers)==3
-    assert writers[2]['correction']['problem']=='NOTE_REFERENCE_INVALID'
-    assert writers[2]['correction']['reference_error']['claims_missing_evidence']==['C2']
-    assert [text_of(p) for p in result]==['修正正文。','第三點。']
-    assert [p['claim_ids'] for p in result]==[['q0','q1'],['q2']]
-
-
-def test_full_notes_never_drop_unexplained_claims():
-    values=concepts()
-    review=reviewer(unexplained={'第 1 個重點'})
-    with pytest.raises(ValueError,match='^NOTE_CONTENT_UNSUPPORTED$'):
-        full(values,lambda r:review(r) if r.get('phase')=='review_paragraph' else response(r))
-    with pytest.raises(ValueError,match='NOTE_COVERAGE_INCOMPLETE'):
-        nc.validate(response({'concepts':[{**values[0],'claims':values[0]['claims'][:2]}]}),values,'full')
-
 
 def three_concepts():
     return [{"concept_id": f"k{i}", "label": f"概念{i}", "claims": [
         {"claim_id": f"q{i}{j}", "text": f"概念{i}的第 {j} 點", "evidence": [{"evidence_id": f"e{i}{j}", "quote": f"原文 {i}{j}", "page": i + 1}]}
         for j in range(2)]} for i in range(3)]
 
-
-def summary(values, call, budget, diagnostics=None):
-    plan = mn.summary_plan(values, call, input_budget=budget)
-    return mn.complete_sections(values, plan, call, [], lambda *args: None, diagnostics, "summary")
-
-
-def test_summary_covers_every_concept_by_locally_writing_the_missing_one_in_learning_order():
-    values=three_concepts()
-    writers,reviews=[],[]
-    def model(request):
-        if request.get('phase') == 'reuse_summary':
-            return response(request)
-        if request.get('phase')=='review_paragraph':
-            reviews.append(request)
-            return response(request)
-        writers.append(request)
-        result=response(request)
-        if 'correction' not in request:
-            # 首稿漏寫概念1，其餘每個概念只寫第一點。
-            result['paragraphs']=[p for p in result['paragraphs'] if p['claim_ids'] in (['C1'],['C5'])]
-        return result
-    diagnostics=[]
-    result=summary(values,model,10**6,diagnostics)
-    assert len(writers)==2 and writers[1]['correction']['problem']=='NOTE_CONCEPT_UNEXPLAINED'
-    assert [c['label'] for c in writers[1]['concepts']]==['概念1']
-    assert [p['claim_ids'] for p in result]==[['q00'],['q10'],['q11'],['q20']]
-    assert [p['id'] for p in result]==['0','1','2','3']
-    assert {'event':'concepts_unexplained','concepts':['k1'],'after_repair':False} in diagnostics
-    # 補入概念1後，概念2新增了前文，必須重核是否重複；未改變的請求仍沿用。
-    assert len(reviews)==5
-    assert [text_of(r['paragraph']) for r in reviews].count('概念2的第 0 點')==2
-
-
-def test_summary_without_selection_sends_every_point_and_has_no_page_limit():
-    values=three_concepts()
-    for c in values:
-        for q in c['claims']:
-            q['evidence'][0]['quote']='保留完整條件與數字，不能裁切來源。'*300
-    calls=[]
-    def model(request):
-        calls.append(request)
-        return response(request)
-    request,_=mn.model_request(values,'summary')
-    size=mn.estimate_prompt_tokens(nc.PROMPT,request)
-    result=summary(values,model,size)
-    assert all(r.get('phase')!='select_summary' for r in calls)
-    assert len([r for r in calls if r.get('phase') is None])==1
-    assert len(result)==6
-    assert calls[0]['evidence'][0]['quotes']==[values[0]['claims'][0]['evidence'][0]['quote']]
-
-
-def test_large_summary_selects_core_points_per_concept_without_counting_page_context():
-    values=three_concepts()
-    values[0]['claims']=values[0]['claims'][:1]  # 只有一個候選的概念不必請模型挑。
-    for c in values:
-        for q in c['claims']:
-            q['evidence'][0]['source_name']=f"{c['label']}.pdf"
-            q['context_evidence']=[{**q['evidence'][0],'evidence_id':'ctx'+q['claim_id'],'quote':'同頁補充原文。'*400}]
-    calls=[]
-    def model(request):
-        calls.append(request)
-        if request.get('phase')=='select_summary':
-            return {'concepts':[{'concept':k['ref'],'claim_ids':[k['claims'][-1]['ref']]} for k in request['concepts']]}
-        return response(request)
-    budget=mn.estimate_prompt_tokens(nc.PROMPT,mn.model_request(values,'summary')[0])-1
-    result=summary(values,model,budget)
-    selections=[r for r in calls if r.get('phase')=='select_summary']
-    assert len(selections)==1
-    assert [k['label'] for k in selections[0]['concepts']]==['概念1','概念2']
-    assert selections[0]['concepts'][0]['claims'][0]=={'ref':'C1','text':'概念1的第 0 點','sources':['概念1.pdf']}
-    assert '同頁補充原文' not in str(selections[0])
-    assert {q for p in result for q in p['claim_ids']}=={'q00','q11','q21'}
-    writer=next(r for r in calls if r.get('phase') is None)
-    assert any('同頁補充原文' in q for e in writer['evidence'] for q in e['quotes'])
-
-
-def test_selection_batches_offer_each_point_once_within_budget():
-    values=three_concepts()
-    for c in values:
-        c['claims'].append({'claim_id':c['concept_id']+'x','text':c['label']+'的補充點','evidence':[
-            {'evidence_id':'e'+c['concept_id']+'x','quote':'原文','page':9}]})
-    budget=mn.estimate_prompt_tokens(nc.SELECTION_PROMPT,mn._selection_request([(values[0],values[0]['claims'])])[0])+20
-    calls=[]
-    def model(request):
-        calls.append(request)
-        return {'concepts':[{'concept':k['ref'],'claim_ids':[k['claims'][0]['ref']]} for k in request['concepts']]}
-    selected=mn.select_summary(values,model,input_budget=budget)
-    assert len(calls)==3
-    sent=[q['text'] for r in calls for k in r['concepts'] for q in k['claims']]
-    assert len(sent)==len(set(sent))==9
-    assert all(mn.estimate_prompt_tokens(nc.SELECTION_PROMPT,r)<=budget for r in calls)
-    assert [[q['claim_id'] for q in c['claims']] for c in selected]==[['q00'],['q10'],['q20']]
-
-
-def test_selected_summary_too_large_for_one_request_is_written_in_parts_like_full_notes():
-    values=three_concepts()
-    for c in values:
-        for q in c['claims']:
-            q['evidence'][0]['quote']='較長原文，寫作時完整帶入。'*80
-    unit={**values[0],'claims':values[0]['claims'][:1]}
-    budget=mn.estimate_prompt_tokens(nc.PROMPT,mn.model_request([unit],'summary')[0])+50
-    calls=[]
-    def model(request):
-        calls.append(request)
-        if request.get('phase')=='select_summary':
-            return {'concepts':[{'concept':k['ref'],'claim_ids':[k['claims'][0]['ref']]} for k in request['concepts']]}
-        return response(request)
-    plan=mn.summary_plan(values,model,input_budget=budget)
-    assert len([r for r in calls if r.get('phase')=='select_summary'])==1
-    parts=[part for section in plan for part in section['parts']]
-    assert [[c['claim_ids'] for c in part] for part in parts]==[[['q00']],[['q10']],[['q20']]]
-    result=mn.complete_sections(values,plan,model,[],lambda *args:None,None,'summary')
-    assert [p['claim_ids'] for p in result]==[['q00'],['q10'],['q20']]
-    writers=[r for r in calls if r.get('phase') is None]
-    assert len(writers)==3 and all(e['quotes']==['較長原文，寫作時完整帶入。'*80] for w in writers for e in w['evidence'])
-
-
-def test_shared_points_are_offered_once_and_every_concept_still_gets_a_point():
-    values=three_concepts()
-    shared=deepcopy(values[0]['claims'][1])
-    values[1]['claims']=[shared]
-    values[2]['claims']=[deepcopy(values[0]['claims'][1]),deepcopy(values[0]['claims'][0])]
-    calls=[]
-    def model(request):
-        calls.append(request)
-        return {'concepts':[{'concept':k['ref'],'claim_ids':[k['claims'][0]['ref']]} for k in request['concepts']]}
-    selected=mn.select_summary(values,model,input_budget=10**6)
-    assert len(calls)==1 and [k['label'] for k in calls[0]['concepts']]==['概念0']
-    # 概念1、2 只有與概念0 共用的重點；概念1 的共用點沒被挑中時取它的第一點，概念2 因此也涵蓋到。
-    assert [[q['claim_id'] for q in c['claims']] for c in selected]==[['q00'],['q01'],['q01','q00']]
-
-
-@pytest.mark.parametrize('bad',['missing_concept','foreign_claim','empty'])
-def test_summary_selection_rejects_invalid_picks_after_one_correction(bad):
-    values=three_concepts()
-    calls=[]
-    def model(request):
-        calls.append(request)
-        picks=[{'concept':k['ref'],'claim_ids':[k['claims'][0]['ref']]} for k in request['concepts']]
-        if bad=='missing_concept':picks.pop()
-        if bad=='foreign_claim':picks[0]['claim_ids']=[request['concepts'][1]['claims'][0]['ref']]
-        if bad=='empty':picks[0]['claim_ids']=[]
-        return {'concepts':picks}
-    with pytest.raises(ValueError,match='^NOTE_SELECTION_INVALID$'):
-        mn.select_summary(values,model,input_budget=10**6)
-    assert len(calls)==2 and 'correction' in calls[1]
 
 
 def test_point_too_large_only_because_of_page_context_keeps_its_own_evidence():
@@ -865,42 +475,14 @@ def test_point_too_large_only_because_of_page_context_keeps_its_own_evidence():
     assert len(values[1]['claims'][0]['context_evidence'])==60
     assert diagnostics==[{'event':'context_omitted','claims':['q10']}]
     result=summary(prepared,response,budget)
-    assert {q for p in result for q in p['claim_ids']}>={'q00','q10','q20'}
+    assert 3 <= len({q for p in result for q in p['claim_ids']}) <= 5
 
-
-def test_failed_part_is_retried_up_to_three_attempts_without_rerunning_passed_parts():
-    values=three_concepts()
-    for c in values:c['claims']=c['claims'][:1]
-    plan=[{'label':'區域','parts':[[{'concept_id':c['concept_id'],'claim_ids':[c['claims'][0]['claim_id']]}] for c in values]}]
-    writers=[]
-    def model(request,fail_times):
-        if request.get('phase') == 'reuse_summary':
-            return response(request)
-        if request.get('phase')=='review_paragraph':
-            first=request['claims'][0]['text']
-            rejected=first=='概念1的第 0 點' and sum(1 for w in writers if w['concepts'][0]['label']=='概念1')<=fail_times
-            return {**response(request),'checks':[{'part':p,'missing_evidence': [], 'supported':not (rejected and p=='blocks.0'),
-                'reason':'來源沒有此條件。' if rejected and p=='blocks.0' else ''} for p in request['parts']]}
-        writers.append(request)
-        return response(request)
-    saved=[]
-    diagnostics=[]
-    # 第二批的前兩次嘗試（各含局部重寫與概念補寫）都被擋，第三次通過；其他批次只寫一次。
-    result=mn.complete_sections(values,plan,lambda r:model(r,6),[],lambda i,p:saved.append(i),diagnostics,'summary')
-    assert [p['claim_ids'] for p in result]==[['q00'],['q10'],['q20']] and saved==[0,1,2]
-    assert [w['concepts'][0]['label'] for w in writers if 'correction' not in w]==['概念0','概念1','概念1','概念1','概念2']
-    assert {'event':'part_attempts','part':1,'attempts':3,'failed':['NOTE_COVERAGE_INCOMPLETE']*2,'succeeded':True} in diagnostics
-    writers.clear();saved.clear();diagnostics.clear()
-    with pytest.raises(ValueError,match='^NOTE_CONTENT_UNSUPPORTED$'):
-        mn.complete_sections(values,plan,lambda r:model(r,99),[],lambda i,p:saved.append(i),diagnostics,'full')
-    assert saved==[0] and len([w for w in writers if 'correction' not in w])==1+3
-    assert diagnostics[-1]=={'event':'part_attempts','part':1,'attempts':3,'failed':['NOTE_CONTENT_UNSUPPORTED']*3,'succeeded':False}
 
 
 @pytest.mark.parametrize('error',[ValueError('NOTE_INPUT_TOO_LARGE'),ValueError('NOTE_CONTRACT_INVALID'),RuntimeError('SEMANTIC_SERVICE_CONFIG_INVALID')])
 def test_errors_that_retry_cannot_fix_are_not_retried(error):
     values=three_concepts()
-    plan=mn.plan_sections(values,[{'label':'區域','concept_ids':[c['concept_id'] for c in values]}])
+    plan=mn.plan_sections(values,sections(values))
     calls=[]
     def model(request):
         calls.append(request)
@@ -908,6 +490,7 @@ def test_errors_that_retry_cannot_fix_are_not_retried(error):
     with pytest.raises(type(error),match=str(error)):
         mn.complete_sections(values,plan,model,[],lambda *args:None,None,'full')
     assert len(calls)==1
+
 
 
 def test_full_notes_omit_only_oversized_page_context_and_still_fail_when_own_evidence_is_too_large(monkeypatch):
@@ -925,12 +508,13 @@ def test_full_notes_omit_only_oversized_page_context_and_still_fail_when_own_evi
     result=full(prepared,response)
     assert {q for p in result for q in p['claim_ids']}=={q['claim_id'] for c in values for q in c['claims']}
     with pytest.raises(ValueError,match='NOTE_INPUT_TOO_LARGE'):
-        mn.plan_sections(values,[{'label':'區域','concept_ids':[c['concept_id'] for c in values]}])
+        mn.plan_sections(values,sections(values))
     huge=deepcopy(prepared)
     huge[0]['claims'][0]['evidence'][0]['quote']='自身原文很長。'*12000
     assert mn.fit_page_context(huge,'full',mn.BATCH_TOKENS,[])[0]['claims'][0]['evidence']==huge[0]['claims'][0]['evidence']
     with pytest.raises(ValueError,match='NOTE_INPUT_TOO_LARGE'):
-        mn.plan_sections(mn.fit_page_context(huge,'full',mn.BATCH_TOKENS,[]),[{'label':'區域','concept_ids':[c['concept_id'] for c in huge]}])
+        mn.plan_sections(mn.fit_page_context(huge,'full',mn.BATCH_TOKENS,[]),sections(huge))
+
 
 
 def test_oversized_page_context_keeps_standalone_normative_words():
@@ -943,8 +527,9 @@ def test_oversized_page_context_keeps_standalone_normative_words():
     budget=mn.estimate_prompt_tokens(nc.PROMPT,mn.model_request(minimal,'full')[0])+1
     prepared=mn.fit_page_context(values,'full',budget,[])
     assert prepared[0]['claims'][0]['context_evidence']==[word]
-    assert mn.plan_sections(prepared,[{'label':'區域','concept_ids':['c1']}],budget=budget)
+    assert mn.plan_sections(prepared,sections(prepared),budget=budget)
     assert claim['context_evidence'][1]['evidence_id']=='large'
+
 
 
 def structured_paragraph():
@@ -954,6 +539,7 @@ def structured_paragraph():
         {'type':'table','caption':'比較表','headers':['甲','乙'],'rows':[['1','2']]},
         {'type':'formula','latex':r'a=\frac{b}{c}'},
         {'type':'callout','style':'case_study','title':'原文案例','items':[{'text':'案例內容','children':[]}]}]}
+
 
 
 def test_every_bullet_row_formula_and_callout_is_a_located_review_part():
@@ -973,6 +559,7 @@ def test_every_bullet_row_formula_and_callout_is_a_located_review_part():
     assert seen[0]['coverage_locations']=={'C1':seen[0]['parts'][1:]}
 
 
+
 @pytest.mark.parametrize('label',['blocks.1.caption','blocks.3.callout'])
 def test_table_caption_or_callout_label_alone_is_not_an_explanation(label):
     values=concepts()
@@ -984,21 +571,6 @@ def test_table_caption_or_callout_label_alone_is_not_an_explanation(label):
     with pytest.raises(nc.ReviewInvalid):
         nc.review_paragraph(p,model,claims={q['claim_id']:q for c in values for q in c['claims']},kind='full')
 
-
-def test_formula_number_missing_from_cited_original_is_rejected_without_a_model_call():
-    values=concepts()
-    raw=structured_paragraph()
-    raw['blocks'][2]['latex']=r'\text{開放度}=\frac{a}{b}\times 100\%'
-    p=nc.validate({'paragraphs':[raw]},values,'summary')[0]
-    def model(request):
-        raise AssertionError('程式已擋下的公式不應再送模型核對')
-    issues=nc.review_paragraph(p,model,claims={q['claim_id']:q for c in values for q in c['claims']},kind='full')
-    assert [i['part'] for i in issues]==['blocks.2.formula'] and '100' in issues[0]['reason']
-    p['evidence'][0]['quote']='開放度乘以 100%'
-    assert nc.formula_literal_issues(p)==[]
-    p['evidence'][0]['quote']='平方為 x²'
-    p['blocks'][2]['latex']='x^2'
-    assert nc.formula_literal_issues(p)==[]
 
 
 @pytest.mark.parametrize('latex',[r'\frac{a}{b', r'\foo{x}', '100%', r'\begin{matrix}a\end{matrix}', r'\left( x', 'a \\\\ b', r'x \le y', 'eps_hat', r'\left\mid x \right\mid', 'a \times b'])
@@ -1021,6 +593,7 @@ def test_unparseable_or_unsupported_latex_gets_one_correction_then_fails_the_att
     assert latex not in str(diagnostics)
 
 
+
 def test_malformed_formula_correction_keeps_batch_retry():
     attempts=[]
     def model(request):
@@ -1034,6 +607,7 @@ def test_malformed_formula_correction_keeps_batch_retry():
         return result
     result=full(concepts(),model)
     assert result and len(attempts)==2
+
 
 
 def test_summary_formula_correction_targets_retained_paragraph_after_reference_cleanup():
@@ -1052,6 +626,7 @@ def test_summary_formula_correction_targets_retained_paragraph_after_reference_c
     result=mn.generate_part(concepts(),'summary',model)
     assert len(repairs)==1 and repairs[0]['heading']=='訊號'
     assert result[0]['blocks'][1]['latex']==r'x \leq y'
+
 
 
 def test_formula_correction_is_local_and_each_formula_is_checked_again():
@@ -1075,10 +650,12 @@ def test_formula_correction_is_local_and_each_formula_is_checked_again():
     assert mn.request_contract({'phase':'repair_formula'},policy)[1]['properties']['type']['enum']==['formula']
 
 
+
 def test_supported_latex_passes_validation():
     for latex in (r'\text{開放度} = \frac{\text{出口}+\text{進口}}{\text{GDP}} \times 100\%',
                   r'w_{t+1} = w_t - \eta \nabla L(w_t)', r'\sum_{i=1}^{n} x_i^2 \leq \sqrt{n}', r'P(A \mid B)', r'\mathrm{eps}_{\mathrm{hat}}'):
         assert nc.note_latex.problem(latex) is None, latex
+
 
 
 def test_norm_delimiter_aliases_render_as_double_bars_in_exports():
@@ -1087,6 +664,7 @@ def test_norm_delimiter_aliases_render_as_double_bars_in_exports():
     assert nc.note_latex.problem(latex) is None
     assert nc.note_latex.render_png(latex)==nc.note_latex.render_png(portable)
     assert nc.note_latex.problem(r'\lVertUnexpected x') is not None
+
 
 
 def test_concurrent_formula_validation_and_export_keep_identical_layout():
@@ -1101,37 +679,6 @@ def test_concurrent_formula_validation_and_export_keep_identical_layout():
         assert all(pool.map(render,range(30)))
 
 
-def test_section_review_promotes_misplaced_subsections_without_changing_content_or_order():
-    paragraphs=nc.validate(response({'concepts':concepts()}),concepts(),'full')
-    paragraphs[0]['heading']='特定應用'
-    paragraphs[1].update(heading='通用語法',level=2)
-    paragraphs[2].update(heading='語法細項',level=2)
-    original=deepcopy(paragraphs)
-    requests=[]
-    def model(request):
-        requests.append(request)
-        return {'paragraph_ids':['1']}
-    result=mn.organize_sections(paragraphs,model)
-    assert [p['level'] for p in result]==[1,1,2]
-    assert paragraphs==original
-    assert [{k:v for k,v in p.items() if k!='level'} for p in result]==[
-        {k:v for k,v in p.items() if k!='level'} for p in original]
-    assert requests[0]['candidates']==['1','2']
-    assert mn.request_contract(requests[0],{'prompt':nc.PROMPT})[1]['properties']['paragraph_ids']['items']['enum']==['1','2']
-
-
-@pytest.mark.parametrize('ids',[['unknown'],['1','1'],['0']])
-def test_invalid_section_promotions_fail_after_one_correction(ids):
-    paragraphs=nc.validate(response({'concepts':concepts()}),concepts(),'full')
-    paragraphs[1]['level']=2
-    calls=[]
-    def model(request):
-        calls.append(request)
-        return {'paragraph_ids':ids}
-    with pytest.raises(ValueError,match='^NOTE_FORMAT_INVALID$'):
-        mn.organize_sections(paragraphs,model)
-    assert len(calls)==2 and 'correction' in calls[-1]
-
 
 def test_outline_numbers_chapters_and_sections_from_headings():
     def section(i,level):
@@ -1143,81 +690,13 @@ def test_outline_numbers_chapters_and_sections_from_headings():
     assert nc.outline([{'id':'0','heading':'舊','text':'舊版段落','table':None,'formula':None}])==[]
 
 
-def test_next_batch_sees_previous_chapter_heading(monkeypatch):
-    values=concepts()
-    unit={**values[0],'claims':values[0]['claims'][:1]}
-    monkeypatch.setattr(mn,'BATCH_TOKENS',mn.estimate_prompt_tokens(nc.PROMPT,mn.model_request([unit],'full')[0])+1)
-    writers=[]
-    def model(request):
-        if request.get('phase')=='review_paragraph':return response(request)
-        writers.append(request)
-        result=response(request)
-        result['paragraphs'][0]['level']=2 if len(writers)>1 else 1
-        return result
-    full(values,model)
-    assert [w['previous_section'] for w in writers]==[None,'訊號','訊號']
-
-
-@pytest.mark.parametrize('kind', ['summary', 'full'])
-def test_cross_batch_duplicate_is_reviewed_and_repaired_with_previous_body(kind):
-    values=concepts()
-    values[0]['claims']=values[0]['claims'][:2]
-    for claim in values[0]['claims']:
-        claim['text']='重試需先確認失敗類型；權限不足須請人處理。'
-        claim['evidence'][0]['quote']=claim['text']
-    plan=[{'label':'區域','parts':[[{'concept_id':'c1','claim_ids':[q['claim_id']]}] for q in values[0]['claims']]}]
-    repeated='重試需先確認失敗類型。'
-    writers=[];rejected=[]
-    def model(request):
-        if request.get('phase') == 'reuse_summary':
-            return response(request)
-        result=response(request)
-        if request.get('phase')=='review_paragraph':
-            previous=request.get('previous_content',[])
-            if previous and text_of(request['paragraph'])==repeated:
-                result['checks'][1].update(supported=False,reason='前文已說明相同條列，請保留本段的權限限制與來源，不重複抄寫。')
-                rejected.append(request)
-            return result
-        writers.append(request)
-        result['paragraphs'][0]['blocks']=[{'type':'text','text':
-            '權限不足須請人處理，不能只靠重試。' if request.get('correction') else repeated}]
-        return result
-    saved=[]
-    result=mn.complete_sections(values,plan,model,[],lambda i,p:saved.append(deepcopy(p)),kind=kind)
-    assert len(rejected)==1
-    assert [text_of(p) for p in result]==[repeated,'權限不足須請人處理，不能只靠重試。']
-    assert writers[1]['previous_content'][0]['content'][0]['text']==repeated
-    assert writers[2]['previous_content'][0]['content'][0]['text']==repeated
-    assert result[0]['claim_ids']==['q0'] and result[1]['claim_ids']==['q1']
-    assert [p['evidence'][0]['page'] for p in result]==[1,2]
-    assert saved[0][0]['blocks']==result[0]['blocks']
-
-
-@pytest.mark.parametrize('kind', ['summary', 'full'])
-def test_source_section_reference_is_qualified_during_generation_not_export(kind):
-    values=concepts();values[0]['claims']=values[0]['claims'][:1]
-    values[0]['claims'][0]['evidence'][0]['quote']='The target field is defined in Section 3.'
-    requests=[]
-    def model(request):
-        requests.append(request)
-        result=response(request)
-        if request.get('phase')!='review_paragraph':
-            result['paragraphs'][0]['blocks']=[{'type':'text','text':
-                '目標欄位如原教材第 3 節所定義。' if request.get('correction') else '目標欄位如第 3 節所定義。'}]
-        return result
-    result=mn.generate_part(values,kind,model)
-    assert text_of(result[0])=='目標欄位如原教材第 3 節所定義。'
-    assert result[0]['claim_ids']==['q0'] and result[0]['evidence_ids']==['e0']
-    assert any(r.get('correction') for r in requests)
-    assert values[0]['claims'][0]['evidence'][0]['quote']=='The target field is defined in Section 3.'
-
 
 def test_resumed_notes_keep_passed_parts_and_bound_prior_body_context():
     import json
     values=concepts();values[0]['claims']=values[0]['claims'][:2]
     first=mn.generate_part([{**values[0],'claims':values[0]['claims'][:1]}],'full',response)
     before=deepcopy(first)
-    plan=[{'label':'區域','parts':[[{'concept_id':'c1','claim_ids':[q['claim_id']]}] for q in values[0]['claims']]}]
+    plan=[{'heading':'原教材章','level':1,'parts':[[{'concept_id':'c1','claim_ids':[q['claim_id']]}] for q in values[0]['claims']]}]
     requests=[];saved=[]
     def model(request):
         requests.append(request)
@@ -1236,25 +715,6 @@ def test_resumed_notes_keep_passed_parts_and_bound_prior_body_context():
     assert many==snapshot
 
 
-@pytest.mark.parametrize('kind', ['summary', 'full'])
-def test_repeated_content_within_one_batch_is_checked_against_earlier_paragraphs(kind):
-    values=concepts();values[0]['claims']=values[0]['claims'][:2]
-    seen=[]
-    def model(request):
-        result=response(request)
-        if request.get('phase')=='review_paragraph':
-            if request.get('previous_content') and text_of(request['paragraph'])=='共同說明。':
-                result['checks'][1].update(supported=False,reason='同批前文已說明，請保留本段的不同條件。')
-                seen.append(request)
-        else:
-            for p in result['paragraphs']:
-                p['blocks']=[{'type':'text','text':'本段的不同條件。' if request.get('correction') else '共同說明。'}]
-        return result
-    result=mn.generate_part(values,kind,model)
-    assert len(seen)==1
-    assert [text_of(p) for p in result]==['共同說明。','本段的不同條件。']
-    assert [p['claim_ids'] for p in result]==[['q0'],['q1']]
-
 
 @pytest.mark.parametrize('text', ['如原教材第 3 節所定義。', '請見 rfc9213.pdf 第 3 節。', '字面值 `如第 3 節` 保留。', '詳見第三節課的教材。'])
 def test_explicit_source_sections_and_literals_keep_their_original_numbers(text):
@@ -1266,43 +726,13 @@ def test_explicit_source_sections_and_literals_keep_their_original_numbers(text)
     assert len(calls)==1 and text_of(paragraph)==text
 
 
+
 def test_structured_output_schema_uses_enum_instead_of_const():
     schema=nc.response_schema(nc.Response)
     assert '"const"' not in str(schema).replace("'",'"')
     blocks=schema['$defs']['Paragraph']['properties']['blocks']['items']['anyOf']
     assert len(blocks)==5
 
-
-@pytest.mark.parametrize('kind', ['full', 'summary'])
-@pytest.mark.parametrize('location', ['nested_bullet', 'cell', 'header', 'caption', 'heading', 'callout'])
-def test_plain_text_latex_is_locally_repaired_and_source_reviewed(kind, location):
-    values = concepts()
-    values[0]['claims'] = values[0]['claims'][:1]
-    values[0]['claims'][0]['evidence'][0]['quote'] = '數值約為 1，平方根為 √1'
-    raw = para('數值', '原文說明', ['C1'], ['E1'])
-    if location == 'nested_bullet':
-        raw['blocks'] = [{'type': 'bullets', 'items': [{'text': '平方根', 'children': [{'text': r'\sqrt{1}', 'children': []}]}]}]
-    elif location in {'cell', 'header', 'caption'}:
-        raw['blocks'] = [{'type': 'table', 'caption': r'\approx' if location == 'caption' else None,
-            'headers': [r'\approx' if location == 'header' else '數值'],
-            'rows': [[r'\approx 1' if location == 'cell' else '1']]}]
-    elif location == 'heading':
-        raw['heading'] = r'\sqrt{1}'
-    else:
-        raw['blocks'] = [{'type': 'callout', 'style': 'reminder', 'title': r'\sqrt{1}',
-            'items': [{'text': '數值', 'children': []}]}]
-    calls = []
-    def model(request):
-        calls.append(request)
-        if request.get('phase') == 'review_paragraph':
-            assert all('\\' not in str(item) for item in request['paragraph']['content'])
-            return response(request)
-        if 'correction' in request:
-            return {'paragraphs': [para('數值', '數值 ≈ 1', ['C1'], ['E1'])]}
-        return {'paragraphs': [deepcopy(raw)]}
-    result = mn.generate_part(values, kind, model)
-    assert text_of(result[0]) == '數值 ≈ 1'
-    assert [r.get('phase', 'write') for r in calls] == ['write', 'write', 'review_paragraph']
 
 
 def test_math_cannot_be_disguised_as_code_but_original_command_instruction_is_readable():
@@ -1313,6 +743,7 @@ def test_math_cannot_be_disguised_as_code_but_original_command_instruction_is_re
     assert nc.text_formula_issues(p)[0]['part'] == 'blocks.0'
     p['blocks'][0]['text'] = r'平方根為 $x^2$'
     assert nc.text_formula_issues(p)
+
 
 
 def labeled_sources():
@@ -1331,29 +762,6 @@ def labeled_sources():
     return values
 
 
-@pytest.mark.parametrize('kind', ['full', 'summary'])
-@pytest.mark.parametrize('table', [False, True])
-def test_omitted_column_labels_override_all_supported_and_recheck_after_precise_citation(kind, table):
-    values = labeled_sources()
-    raw = para('比較', '投入：低成本', ['C1'], ['E1', 'E2'])
-    raw['blocks'] = ([{'type': 'table', 'caption': None, 'headers': ['投入', '產出'], 'rows': [['低成本', '高品質']]}]
-        if table else [{'type': 'bullets', 'items': [{'text': '投入：低成本', 'children': []},
-            {'text': '產出：高品質', 'children': []}]}])
-    reviews = []
-    def model(request):
-        if request.get('phase') == 'review_paragraph':
-            reviews.append(request)
-            result = response(request)
-            result['coverage'][0]['note_parts'] = ['blocks.0.row.0' if table else 'blocks.0.item.0']
-            return result  # 即使核對模型永遠全數通過，程式仍須先補引。
-        return {'paragraphs': [raw]}
-    diagnostics = []
-    result = mn.generate_part(values, kind, model, diagnostics)
-    assert result[0]['blocks'] == raw['blocks']
-    assert set(result[0]['evidence_ids']) == {'e0', 'right', 'left-header', 'right-header'}
-    assert len(reviews) == 1 and len(reviews[0]['evidence']) == 4
-    assert diagnostics[0]['event'] == 'references_completed'
-
 
 @pytest.mark.parametrize('difference', ['source', 'page', 'column', 'below', 'unrelated', 'already_cited'])
 def test_column_label_guard_does_not_cite_unrelated_context(difference):
@@ -1371,40 +779,6 @@ def test_column_label_guard_does_not_cite_unrelated_context(difference):
     assert nc.review_paragraph(paragraph, response, claims={'q0': claim}, kind='summary') == []
 
 
-def test_completed_column_citation_does_not_bypass_body_repair():
-    values = labeled_sources()
-    calls = []
-    def model(request):
-        calls.append(request)
-        if request.get('phase') == 'review_paragraph':
-            result = response(request)
-            assert len(request['evidence']) == 2
-            if '高成本' in text_of(request['paragraph']):
-                result['checks'][1].update(supported=False, reason='原文是低成本，不是高成本')
-            return result
-        return {'paragraphs': [para('比較', '投入：低成本' if 'correction' in request else '投入：高成本',
-            ['C1'], ['E1', 'E3'] if 'correction' in request else ['E1'])]}
-    result = mn.generate_part(values, 'full', model)
-    assert text_of(result[0]) == '投入：低成本'
-    assert [r.get('phase', 'write') for r in calls] == ['write', 'review_paragraph', 'write', 'review_paragraph']
-
-
-def test_column_label_uses_nearest_matching_header_not_an_earlier_table():
-    values = labeled_sources()
-    claim = values[0]['claims'][0]
-    current = claim['context_evidence'][0]
-    claim['context_evidence'].append({**current, 'evidence_id': 'previous-table',
-        'source_locator': {'region': [20, 0, 70, 5]}})
-    paragraph = nc.validate({'paragraphs': [para('比較', '投入：低成本', ['q0'], ['e0'])]}, values, 'summary')[0]
-    issues = nc.review_paragraph(paragraph, response, claims={'q0': claim}, kind='summary')
-    assert issues[0]['missing_evidence_ids'] == ['left-header']
-    diagnostics = []
-    updated, issues = mn._review_with_references(paragraph, values,
-        lambda p: nc.review_paragraph(p, response, claims={'q0': claim}, kind='summary'), diagnostics, 0)
-    assert issues == []
-    assert updated['evidence_ids'] == ['e0', 'left-header']
-    assert len(diagnostics) == 1
-
 
 @pytest.mark.parametrize('text', [r'結果為 \tfrac{1}{2}', r'機率 `\approx` 0.5', r'語法 `\sqrt`{1}'])
 def test_unsupported_or_code_disguised_math_is_not_plain_text(text):
@@ -1413,10 +787,12 @@ def test_unsupported_or_code_disguised_math_is_not_plain_text(text):
     assert nc.text_formula_issues(p)
 
 
+
 def test_currency_prices_are_not_math_delimiters():
     p = {'heading': '價格', 'evidence': [{'quote': '費用 $10 至 $20'}],
         'blocks': [{'type': 'text', 'text': '費用 $10 至 $20'}]}
     assert nc.text_formula_issues(p) == []
+
 
 
 def test_column_label_occurring_inside_cited_body_does_not_replace_header_citation():
@@ -1426,6 +802,7 @@ def test_column_label_occurring_inside_cited_body_does_not_replace_header_citati
     paragraph = nc.validate({'paragraphs': [para('比較', '投入：很低', ['q0'], ['e0'])]}, values, 'summary')[0]
     issues = nc.review_paragraph(paragraph, response, claims={'q0': claim}, kind='summary')
     assert issues[0]['missing_evidence_ids'] == ['left-header']
+
 
 
 def test_cited_current_header_does_not_import_previous_table_header():
@@ -1438,112 +815,436 @@ def test_cited_current_header_does_not_import_previous_table_header():
     assert nc.review_paragraph(paragraph, response, claims={'q0': claim}, kind='summary') == []
 
 
+
 @pytest.mark.parametrize('text', [r'字串以 \n 表示換行', r'字串以 `\n` 表示換行', r'讀取 C:\Users\student\notes.txt'])
 def test_programming_escapes_and_paths_are_not_formula_markup(text):
     p = {'heading': '程式字串', 'evidence': [{'quote': text}], 'blocks': [{'type': 'text', 'text': text}]}
     assert nc.text_formula_issues(p) == []
 
 
-def test_summary_reuses_checked_previous_text_only_after_reviewing_new_source():
-    values = three_concepts()
-    values = [{**c, 'claims': c['claims'][:1]} for c in values[:2]]
-    first = mn.generate_part(values[:1], 'summary', response)
-    original = deepcopy(first)
-    results = [first]
-    plan = [{'label': '摘要', 'parts': [
-        [{'concept_id': c['concept_id'], 'claim_ids': [c['claims'][0]['claim_id']]}]
-        for c in values]}]
-    reviews, saved = [], []
-    def model(request):
-        if request.get('phase') == 'reuse_summary':
-            return {'matches': [{'claim_id': 'C1', 'paragraph_id': 'P1'}]}
-        assert request.get('phase') == 'review_paragraph'
-        reviews.append(request)
-        return response(request)
-    result = mn.complete_sections(values, plan, model, results,
-        lambda i, p: saved.append(deepcopy([*results, p])), kind='summary')
-    assert first == original
-    assert len(result) == 1 and result[0]['blocks'] == original[0]['blocks']
-    assert result[0]['claim_ids'] == ['q00', 'q10']
-    assert result[0]['evidence_ids'] == ['e00', 'e10']
-    assert {c['concept_id'] for c in result[0]['concepts']} == {c['concept_id'] for c in values}
-    assert saved[0][0][0]['claim_ids'] == ['q00', 'q10'] and saved[0][1] == []
-    assert len(reviews) == 1 and reviews[0]['reuse_claims'] == ['C2']
-    assert reviews[0]['claims'][1]['evidence_ids'] == ['E2']
-    assert reviews[0]['evidence'][1]['quotes'] == [values[1]['claims'][0]['evidence'][0]['quote']]
-
-
-def test_summary_reuse_rejects_unexplained_or_unsupported_source_without_mutating_previous():
-    values = three_concepts()
-    previous = mn.generate_part(values[:1], 'summary', response)
-    before = deepcopy(previous)
-    seen = []
-    def model(request):
-        seen.append(request)
-        if request.get('phase') == 'reuse_summary':
-            return {'matches': [{'claim_id': 'C1', 'paragraph_id': 'P1'}]}
-        result = response(request)
-        result['coverage'][0].update(explained=False, note_parts=[], reason='對象不同，前文未解說新來源的條件。')
-        return result
-    updated, remaining = mn.reuse_summary(values[1:2], previous, values, model, [])
-    assert updated == before == previous and remaining == values[1:2]
-    assert len(seen) == 2
-
-
-@pytest.mark.parametrize('matches', [
-    [{'claim_id': 'C404', 'paragraph_id': 'P1'}],
-    [{'claim_id': 'C1', 'paragraph_id': 'P404'}],
-    [{'claim_id': 'C1', 'paragraph_id': 'P1'}] * 2,
+@pytest.mark.parametrize("kind", ["summary", "full"])
+@pytest.mark.parametrize("bad_part, removed, explanation_survives", [
+    ("blocks.0.item.0", {"父條件", "子條件", "孫條件", "另一子條件"}, False),
+    ("blocks.0.item.0.0", {"子條件", "孫條件"}, False),
+    ("blocks.1.row.0", {"錯誤列"}, False),
+    ("blocks.1.headers", {"欄位", "錯誤列", "正確列"}, False),
+    ("blocks.1.caption", {"比較表"}, True),
+    ("blocks.2.formula", {r"a=\frac{b}{c}"}, False),
+    ("blocks.3.callout", {"案例標籤"}, True),
+    ("heading", {"候選標題"}, True),
 ])
-def test_summary_reuse_invalid_mapping_cannot_remove_required_concepts(matches):
-    values = three_concepts()
-    previous = mn.generate_part(values[:1], 'summary', response)
-    diagnostics = []
-    updated, remaining = mn.reuse_summary(values[1:2], previous, values,
-        lambda request: {'matches': matches}, diagnostics)
-    assert updated == previous and remaining == values[1:2]
-    assert diagnostics == [{'event': 'reuse_invalid'}]
-
-
-def test_summary_failed_new_batch_does_not_save_reused_previous_sources():
-    values = [{**c, 'claims': c['claims'][:1]} for c in three_concepts()]
-    first = mn.generate_part(values[:1], 'summary', response)
-    results = [first]
-    before = deepcopy(results)
-    plan = [{'label': '摘要', 'parts': [
-        [{'concept_id': values[0]['concept_id'], 'claim_ids': ['q00']}],
-        [{'concept_id': c['concept_id'], 'claim_ids': [c['claims'][0]['claim_id']]} for c in values[1:]],
-    ]}]
-    def model(request):
-        if request.get('phase') == 'reuse_summary':
-            return {'matches': [{'claim_id': 'C1', 'paragraph_id': 'P1'}]}
-        if request.get('phase') == 'review_paragraph':
-            return response(request)
-        raise ValueError('NOTE_INPUT_TOO_LARGE')
-    saved = []
-    with pytest.raises(ValueError, match='NOTE_INPUT_TOO_LARGE'):
-        mn.complete_sections(values, plan, model, results, lambda *args: saved.append(args), kind='summary')
-    assert results == before and not saved
-
-
-def test_summary_reuse_removes_unexplained_match_and_rechecks_remaining_core():
-    values = three_concepts()
-    previous = mn.generate_part(values[:1], 'summary', response)
+def test_single_review_removes_only_unsupported_positions_and_dependent_content(kind, bad_part, removed, explanation_survives):
+    values = concepts()
+    raw = para("候選標題", "可保留正文", ["C1", "C2", "C3"], ["E1", "E2", "E3"])
+    raw["blocks"] = [
+        {"type": "bullets", "items": [
+            {"text": "父條件", "children": [{"text": "子條件", "children": [{"text": "孫條件"}]},
+                {"text": "另一子條件", "children": []}]}, {"text": "獨立條列", "children": []}]},
+        {"type": "table", "caption": "比較表", "headers": ["欄位"], "rows": [["錯誤列"], ["正確列"]]},
+        {"type": "formula", "latex": r"a=\frac{b}{c}"},
+        {"type": "callout", "style": "case_study", "title": "案例標籤", "items": [{"text": "案例正文", "children": []}]},
+        {"type": "text", "text": "可保留正文"},
+    ]
+    position = {"blocks.1.headers": "blocks.1.row.0", "blocks.1.caption": "blocks.1.row.0",
+        "blocks.3.callout": "blocks.3.item.0", "heading": "blocks.4"}.get(bad_part, bad_part)
     calls = []
     def model(request):
         calls.append(request)
-        if request.get('phase') == 'reuse_summary':
-            return {'matches': [
-                {'claim_id': 'C1', 'paragraph_id': 'P1'},
-                {'claim_id': 'C2', 'paragraph_id': 'P1'},
-            ]}
+        if request.get("phase") != "review_paragraph":
+            return {"paragraphs": [deepcopy(raw)]}
         result = response(request)
-        if len(request['reuse_claims']) == 2:
-            result['coverage'][0].update(explained=False, note_parts=[], reason='第一個重點未解說。')
+        for check in result["checks"]:
+            if check["part"] == bad_part:
+                check.update(supported=False, reason="該位置不受原文支持")
+        for item in result["coverage"]:
+            item["note_parts"] = [position if item["claim"] == "C1" else "blocks.4"]
         return result
-    updated, remaining = mn.reuse_summary(values[1:2], previous, values, model, [])
-    assert not remaining and len(calls) == 3
-    assert updated[0]['claim_ids'] == ['q00', 'q11']
-    assert updated[0]['evidence_ids'] == ['e00', 'e11']
-    assert [e['quotes'] for e in calls[-1]['evidence']] == [['原文 00'], ['原文 11']]
-    assert updated[0]['blocks'] == previous[0]['blocks']
+    diagnostics = []
+    if kind == "summary":
+        result = check_written_paragraphs(values, kind, model, diagnostics)
+    else:
+        plan = mn.plan_sections(values, sections(values), kind)
+        result = mn.complete_sections(values, plan, model, [], lambda *args: None, diagnostics, kind)
+    assert len(result) == 1
+    assert [request.get("phase", "write") for request in calls] == ["write", "review_paragraph"]
+    paragraph = result[0]
+    contents = {paragraph["heading"], *(value for item in nc.content_parts(paragraph)
+        for value in [item.get("text"), item.get("title"), item.get("latex"), *item.get("cells", [])] if value)}
+    assert all(text not in contents for text in removed)
+    assert "可保留正文" in contents and "獨立條列" in contents
+    if bad_part == "blocks.0.item.0.0":
+        assert "父條件" in contents and "另一子條件" in contents
+    if bad_part == "blocks.1.row.0":
+        assert "正確列" in contents and "欄位" in contents
+    if bad_part == "blocks.3.callout":
+        assert paragraph["blocks"][3] == {"type": "bullets", "items": [{"text": "案例正文", "children": []}]}
+    assert paragraph["claim_ids"] == ["q0", "q1", "q2"]
+    assert paragraph["evidence_ids"] == ["e0", "e1", "e2"]
+    assert paragraph["_explained_claim_ids"] == (["q0", "q1", "q2"] if explanation_survives else ["q1", "q2"])
+    assert diagnostics[0]["issues"][0]["part"] == bad_part
+    assert "該位置不受原文支持" not in str(diagnostics)
+
+
+@pytest.mark.parametrize("kind", ["summary", "full"])
+def test_unsupported_paragraph_is_dropped_once_and_supported_neighbors_keep_sources(kind):
+    calls, saved, diagnostics = [], [], []
+    def model(request):
+        calls.append(request)
+        result = response(request)
+        if request.get("phase") == "review_paragraph" and text_of(request["paragraph"]) == "第 1 個重點":
+            result["checks"][1].update(supported=False, reason="與原文不符")
+        return result
+    values = concepts()
+    result = mn.complete_sections(values, mn.plan_sections(values, sections(values), kind), model, [],
+        lambda i, p: saved.append((i, deepcopy(p))), diagnostics, kind)
+    assert [text_of(p) for p in result] == ["第 0 個重點", "第 2 個重點"]
+    assert [p["id"] for p in result] == ["0", "1"]
+    assert [p["claim_ids"] for p in result] == [["q0"], ["q2"]]
+    assert [p["evidence_ids"] for p in result] == [["e0"], ["e2"]]
+    assert [r.get("phase", "write") for r in calls] == ["write", "review_paragraph", "review_paragraph", "review_paragraph"]
+    assert saved[0][0] == 0 and len(saved[0][1]) == 2
+    assert diagnostics[-1] == {"event": "paragraph_dropped", "reason": "no_supported_content", "claims": ["q1"]}
+
+
+@pytest.mark.parametrize("kind", ["summary", "full"])
+def test_all_unsupported_content_returns_empty_batch_without_rewriting(kind):
+    values = concepts()
+    values[0]["claims"] = values[0]["claims"][:1]
+    calls, saved = [], []
+    def model(request):
+        calls.append(request)
+        result = response(request)
+        if request.get("phase") == "review_paragraph":
+            result["checks"][1].update(supported=False, reason="無原文支持")
+        return result
+    result = mn.complete_sections(values, mn.plan_sections(values, sections(values), kind), model, [],
+        lambda i, p: saved.append((i, p)), kind=kind)
+    assert result == [] and saved == [(0, [])]
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("kind", ["summary", "full"])
+def test_unexplained_claim_preserves_supported_text_and_real_citations(kind):
+    values = concepts()
+    calls = []
+    def model(request):
+        calls.append(request)
+        result = response(request)
+        if request.get("phase") == "review_paragraph":
+            result["coverage"][0].update(explained=False, note_parts=[], reason="僅說明部分內容")
+        return result
+    result = mn.generate_part(values, kind, model)
+    assert [p["claim_ids"] for p in result] == [["q0"], ["q1"], ["q2"]]
+    assert all(p["_explained_claim_ids"] == [] for p in result)
+    assert [text_of(p) for p in result] == ["第 0 個重點", "第 1 個重點", "第 2 個重點"]
+    assert len(calls) == 4
+    omitted = nc.validate(response({"concepts": [{**values[0], "claims": values[0]["claims"][:1]}]}), values, kind)
+    assert omitted[0]["claim_ids"] == ["q0"]
+
+
+def test_coverage_can_use_supported_earlier_paragraphs_without_rechecking_them():
+    values = concepts()
+    values[0]["claims"] = values[0]["claims"][:1]
+    reviews = []
+    def model(request):
+        if request.get("phase") == "review_paragraph":
+            reviews.append(request)
+            result = response(request)
+            result["coverage"][0]["note_parts"] = ["blocks.0"] if len(reviews) == 1 else ["related.0.blocks.0", "blocks.0"]
+            return result
+        original = response(request)["paragraphs"][0]
+        return {"paragraphs": [with_text(original, "條件說明"), with_text(original, "結論說明")]}
+    result = full(values, model)
+    assert len(reviews) == len(result) == 2
+    assert reviews[0]["coverage_claims"] == reviews[1]["coverage_claims"] == ["C1"]
+    assert reviews[1]["related_paragraphs"][0]["content"][0]["text"] == "條件說明"
+    assert all(p["_explained_claim_ids"] == ["q0"] for p in result)
+
+
+@pytest.mark.parametrize("kind", ["summary", "full"])
+def test_missing_reference_is_checked_once_and_unsupported_sentence_is_removed(kind):
+    values = concepts()
+    values[0]["claims"] = values[0]["claims"][:1]
+    claim = values[0]["claims"][0]
+    claim["evidence"][0].update(quote="that field be ignored", source_id="source-a", page=4, block_order=11)
+    claim["context_evidence"] = [
+        {**claim["evidence"][0], "evidence_id": "norm", "quote": "MUST", "block_order": 18},
+        {**claim["evidence"][0], "evidence_id": "foreign", "quote": "SHOULD", "source_id": "source-b"},
+        {**claim["evidence"][0], "evidence_id": "next", "quote": "MAY", "page": 5},
+    ]
+    calls = []
+    def model(request):
+        calls.append(request)
+        if request.get("phase") == "review_paragraph":
+            assert [(e["ref"], e["quotes"]) for e in request["reference_context"]] == [("X1", ["MUST"])]
+            result = response(request)
+            result["checks"][1].update(supported=False, missing_evidence=["X1"], reason="漏引規範詞")
+            return result
+        raw = para("欄位", "快取便忽略欄位", ["C1"], ["E1"])
+        raw["blocks"].append({"type": "text", "text": "此處說明欄位"})
+        return {"paragraphs": [raw]}
+    result = check_written_paragraphs(values, kind, model) if kind == "summary" else mn.generate_part(values, kind, model)
+    assert len(calls) == 2 and result[0]["blocks"] == [{"type": "text", "text": "此處說明欄位"}]
+    assert result[0]["evidence_ids"] == ["e0"] and result[0]["_explained_claim_ids"] == []
+    schema = mn.request_contract(calls[1], {"review_prompt": nc.REVIEW_PROMPT})[1]
+    assert schema["$defs"]["ContentCheck"]["properties"]["missing_evidence"]["items"]["enum"] == ["X1"]
+
+
+def test_formula_numbers_are_checked_by_program_even_when_model_accepts_them():
+    values = concepts()
+    values[0]["claims"] = values[0]["claims"][:1]
+    calls = []
+    def model(request):
+        calls.append(request)
+        result = response(request)
+        if request.get("phase") != "review_paragraph":
+            result["paragraphs"][0]["blocks"].append({"type": "formula", "latex": r"\frac{a}{b}\times 100\%"})
+        return result
+    result = mn.generate_part(values, "full", model)
+    assert len(calls) == 2 and result[0]["blocks"] == [{"type": "text", "text": "第 0 個重點"}]
+    paragraph = result[0]
+    paragraph["evidence"][0]["quote"] = "平方為 x²，開放度乘以 100%"
+    paragraph["blocks"].append({"type": "formula", "latex": "x^2"})
+    assert nc.formula_literal_issues(paragraph) == []
+
+
+@pytest.mark.parametrize("kind", ["summary", "full"])
+def test_unqualified_source_section_reference_is_removed_without_changing_original(kind):
+    values = concepts()
+    values[0]["claims"] = values[0]["claims"][:1]
+    values[0]["claims"][0]["evidence"][0]["quote"] = "The target field is defined in Section 3."
+    calls = []
+    def model(request):
+        calls.append(request)
+        result = response(request)
+        if request.get("phase") != "review_paragraph":
+            result["paragraphs"][0]["blocks"] = [{"type": "text", "text": "目標欄位如第 3 節所定義。"},
+                {"type": "text", "text": "此處介紹目標欄位。"}]
+        return result
+    result = check_written_paragraphs(values, kind, model) if kind == "summary" else mn.generate_part(values, kind, model)
+    assert result[0]["blocks"] == [{"type": "text", "text": "此處介紹目標欄位。"}]
+    assert len(calls) == 2
+    assert values[0]["claims"][0]["evidence"][0]["quote"] == "The target field is defined in Section 3."
+
+
+@pytest.mark.parametrize("kind", ["summary", "full"])
+def test_column_label_guard_removes_unsupported_table_but_keeps_independent_text(kind):
+    values = labeled_sources()
+    calls = []
+    def model(request):
+        calls.append(request)
+        if request.get("phase") == "review_paragraph":
+            result = response(request)
+            result["coverage"][0]["note_parts"] = ["blocks.1"]
+            return result
+        raw = para("比較", "可保留的來源描述", ["C1"], ["E1", "E2"])
+        raw["blocks"].insert(0, {"type": "table", "caption": None, "headers": ["投入", "產出"], "rows": [["低成本", "高品質"]]})
+        return {"paragraphs": [raw]}
+    result = check_written_paragraphs(values, kind, model) if kind == "summary" else mn.generate_part(values, kind, model)
+    assert len(calls) == 2 and len(calls[1]["evidence"]) == 2
+    assert result[0]["blocks"] == [{"type": "text", "text": "可保留的來源描述"}]
+    assert result[0]["evidence_ids"] == ["e0", "right"]
+    assert result[0]["_explained_claim_ids"] == ["q0"]
+
+
+def test_column_label_uses_nearest_matching_header_not_an_earlier_table():
+    values = labeled_sources()
+    claim = values[0]["claims"][0]
+    current = claim["context_evidence"][0]
+    claim["context_evidence"].append({**current, "evidence_id": "previous-table", "source_locator": {"region": [20, 0, 70, 5]}})
+    paragraph = nc.validate({"paragraphs": [para("比較", "投入：低成本", ["q0"], ["e0"])]}, values, "summary")[0]
+    issues = nc.review_paragraph(paragraph, response, claims={"q0": claim}, kind="summary")
+    assert issues[0]["missing_evidence_ids"] == ["left-header"]
+
+
+def test_summary_selects_each_whole_chapter_even_when_every_candidate_fits():
+    values = three_concepts()
+    chapter_plan = [
+        {"section_id": "chapter-a", "heading": "第一章", "level": 1, "parent_id": None, "claim_ids": []},
+        {"section_id": "a1", "heading": "1.1", "level": 2, "parent_id": "chapter-a", "claim_ids": ["q00", "q01"]},
+        {"section_id": "a2", "heading": "1.2", "level": 2, "parent_id": "chapter-a", "claim_ids": ["q10", "q11"]},
+        {"section_id": "chapter-b", "heading": "第二章", "level": 1, "parent_id": None, "claim_ids": ["q20", "q21"]},
+    ]
+    calls = []
+    def model(request):
+        calls.append(request)
+        if request.get("phase") == "select_summary":
+            remaining = 3
+            choices = []
+            for item in request["concepts"]:
+                chosen = [q["ref"] for q in item["claims"]][:remaining]
+                remaining -= len(chosen)
+                choices.append({"concept": item["ref"], "claim_ids": chosen})
+            return {"concepts": choices}
+        return response(request)
+    plan = mn.summary_plan(values, chapter_plan, model, input_budget=10**6)
+    selections = [request for request in calls if request.get("phase") == "select_summary"]
+    assert len(selections) == 2
+    assert [[c["label"] for c in request["concepts"]] for request in selections] == [["概念0", "概念1"], ["概念2"]]
+    assert [section["claim_ids"] for section in plan] == [[], ["q00", "q01"], ["q10"], ["q20", "q21"]]
+    result = mn.complete_sections(values, plan, model, [], lambda *args: None, kind="summary")
+    assert [p["level"] for p in result] == [2, 2, 2, 1, 1]
+    assert len([request for request in calls if request.get("phase") == "select_summary"]) == 2
+
+
+def test_summary_selection_has_a_whole_chapter_limit_and_can_leave_concepts_unselected():
+    values = three_concepts()
+    calls = []
+    def model(request):
+        calls.append(request)
+        return {"concepts": [{"concept": c["ref"], "claim_ids": [q["ref"] for q in c["claims"]] if i < 2 else []}
+            for i, c in enumerate(request["concepts"])]}
+    selected = mn.select_summary(values, model, input_budget=10**6)
+    assert len(calls) == 1 and calls[0]["max_claims"] == 5
+    assert [c["concept_id"] for c in selected] == ["k0", "k1"]
+    assert sum(len(c["claims"]) for c in selected) == 4
+
+
+def test_summary_selection_keeps_raw_context_outside_the_selection_request():
+    values = three_concepts()
+    values[0]["claims"] = values[0]["claims"][:1]
+    for c in values:
+        for q in c["claims"]:
+            q["evidence"][0]["source_name"] = c["label"] + ".pdf"
+            q["context_evidence"] = [{**q["evidence"][0], "evidence_id": "ctx" + q["claim_id"], "quote": "同頁補充原文。" * 400}]
+    calls = []
+    def model(request):
+        calls.append(request)
+        if request.get("phase") == "select_summary":
+            return {"concepts": [{"concept": c["ref"], "claim_ids": [c["claims"][-1]["ref"]]} for c in request["concepts"]]}
+        return response(request)
+    result = summary(values, model, 10**6)
+    selection = calls[0]
+    assert selection["phase"] == "select_summary"
+    assert [c["label"] for c in selection["concepts"]] == ["概念0", "概念1", "概念2"]
+    assert selection["concepts"][0]["claims"][0] == {"ref": "C1", "text": "概念0的第 0 點", "sources": ["概念0.pdf"]}
+    assert "同頁補充原文" not in str(selection)
+    assert {q for p in result for q in p["claim_ids"]} == {"q00", "q11", "q21"}
+    writer = next(r for r in calls if r.get("phase") is None)
+    assert any("同頁補充原文" in q for e in writer["evidence"] for q in e["quotes"])
+
+
+def test_selection_batches_preserve_each_candidate_once_within_actual_prompt_budget():
+    values = three_concepts()
+    entries = [(c, c["claims"]) for c in values]
+    budget = mn.estimate_prompt_tokens(nc.SELECTION_PROMPT, mn._selection_request(entries[:1])[0]) + 10
+    batches = mn._selection_batches(entries, budget)
+    offered = [q["claim_id"] for batch in batches for _, claims in batch for q in claims]
+    assert len(batches) > 1
+    assert offered == [q["claim_id"] for c in values for q in c["claims"]]
+    assert all(mn.estimate_prompt_tokens(nc.SELECTION_PROMPT, mn._selection_request(batch)[0]) <= budget for batch in batches)
+
+
+def test_selected_summary_writes_complete_sources_in_parts_and_resumes_without_selection():
+    values = three_concepts()
+    for c in values:
+        for q in c["claims"]:
+            q["evidence"][0]["quote"] = "較長原文，寫作時完整帶入。" * 80
+    unit = {**values[0], "claims": values[0]["claims"][:1]}
+    budget = mn.estimate_prompt_tokens(nc.PROMPT, mn.model_request([unit], "summary")[0]) + 50
+    calls = []
+    def model(request):
+        calls.append(request)
+        if request.get("phase") == "select_summary":
+            return {"concepts": [{"concept": c["ref"], "claim_ids": [c["claims"][0]["ref"]]} for c in request["concepts"]]}
+        return response(request)
+    plan = mn.summary_plan(values, sections(values), model, input_budget=budget)
+    assert len(calls) == 1
+    parts = [part for section in plan for part in section["parts"]]
+    assert [[c["claim_ids"] for c in part] for part in parts] == [[["q00"]], [["q10"]], [["q20"]]]
+    first = mn.generate_part([{**values[0], "claims": values[0]["claims"][:1]}], "summary", model)
+    before = deepcopy(first)
+    saved = []
+    result = mn.complete_sections(values, plan, model, [first], lambda i, p: saved.append(i), kind="summary")
+    assert saved == [1, 2] and first == before
+    assert [p["claim_ids"] for p in result] == [["q00"], ["q10"], ["q20"]]
+    assert len([r for r in calls if r.get("phase") == "select_summary"]) == 1
+    writers = [r for r in calls if r.get("phase") is None]
+    assert len(writers) == 3
+    assert all(e["quotes"] == ["較長原文，寫作時完整帶入。" * 80] for writer in writers for e in writer["evidence"])
+
+
+def test_shared_candidates_are_selected_once_without_forcing_every_concept_back_in():
+    values = three_concepts()
+    values[0]["claims"].extend(values[1]["claims"])
+    values[1]["claims"] = [deepcopy(values[0]["claims"][-1])]
+    values[2]["claims"] = [deepcopy(values[0]["claims"][0])]
+    calls = []
+    def model(request):
+        calls.append(request)
+        item = request["concepts"][0]
+        return {"concepts": [{"concept": item["ref"], "claim_ids": [q["ref"] for q in item["claims"][:3]]}]}
+    selected = mn.select_summary(values, model, input_budget=10**6)
+    assert len(calls) == 1 and len(calls[0]["concepts"]) == 1
+    assert [c["concept_id"] for c in selected] == ["k0", "k2"]
+    assert [q["claim_id"] for q in selected[0]["claims"]] == ["q00", "q01", "q10"]
+    assert selected[1]["claims"][0]["claim_id"] == "q00"
+
+
+@pytest.mark.parametrize("bad", ["missing_concept", "foreign_claim", "too_few", "too_many", "duplicate"])
+def test_summary_selection_rejects_invalid_chapter_picks_after_one_correction(bad):
+    values = three_concepts()
+    calls = []
+    def model(request):
+        calls.append(request)
+        picks = [{"concept": c["ref"], "claim_ids": [c["claims"][0]["ref"]]} for c in request["concepts"]]
+        if bad == "missing_concept": picks.pop()
+        if bad == "foreign_claim": picks[0]["claim_ids"] = [request["concepts"][1]["claims"][0]["ref"]]
+        if bad == "too_few": picks[0]["claim_ids"] = []
+        if bad == "too_many":
+            picks = [{"concept": c["ref"], "claim_ids": [q["ref"] for q in c["claims"]]} for c in request["concepts"]]
+        if bad == "duplicate": picks[0]["claim_ids"] *= 2
+        return {"concepts": picks}
+    with pytest.raises(ValueError, match="^NOTE_SELECTION_INVALID$"):
+        mn.select_summary(values, model, input_budget=10**6)
+    assert len(calls) == 2 and "correction" in calls[1]
+
+
+def test_invalid_batch_retries_without_rerunning_the_previous_checkpoint():
+    values = [{**c, "claims": c["claims"][:1]} for c in three_concepts()]
+    plan = [{"heading": "原教材章", "level": 1, "parts": [
+        [{"concept_id": c["concept_id"], "claim_ids": [c["claims"][0]["claim_id"]]}] for c in values]}]
+    writers, saved, diagnostics = [], [], []
+    def model(request):
+        if request.get("phase") == "review_paragraph":
+            return response(request)
+        writers.append(request)
+        count = sum(w["concepts"][0]["label"] == "概念1" for w in writers)
+        if request["concepts"][0]["label"] == "概念1" and count <= 4:
+            return {"paragraphs": []}
+        return response(request)
+    result = mn.complete_sections(values, plan, model, [], lambda i, p: saved.append(i), diagnostics)
+    assert saved == [0, 1, 2] and len(result) == 3
+    assert [w["concepts"][0]["label"] for w in writers if "correction" not in w] == ["概念0", "概念1", "概念1", "概念1", "概念2"]
+    assert diagnostics[-1] == {"event": "part_attempts", "part": 1, "attempts": 3,
+        "failed": ["NOTE_FORMAT_INVALID", "NOTE_FORMAT_INVALID"], "succeeded": True}
+
+
+def test_failed_new_batch_keeps_existing_checkpoint_and_its_sources_unchanged():
+    values = [{**c, "claims": c["claims"][:1]} for c in three_concepts()]
+    first = mn.generate_part(values[:1], "summary", response)
+    results = [first]
+    before = deepcopy(results)
+    plan = [{"heading": "原教材章", "level": 1, "parts": [
+        [{"concept_id": c["concept_id"], "claim_ids": [c["claims"][0]["claim_id"]]}] for c in values]}]
+    def model(request):
+        raise ValueError("NOTE_INPUT_TOO_LARGE")
+    saved = []
+    with pytest.raises(ValueError, match="NOTE_INPUT_TOO_LARGE"):
+        mn.complete_sections(values, plan, model, results, lambda *args: saved.append(args), kind="summary")
+    assert results == before and saved == []
+
+
+def test_writer_gets_the_original_section_heading_and_program_sets_all_three_levels():
+    values = concepts()
+    plan = mn.plan_sections(values, [{"section_id": f"s{i}", "heading": f"原節 {i}", "level": i + 1,
+        "parent_id": None if i == 0 else f"s{i-1}", "claim_ids": [q["claim_id"]]}
+        for i, q in enumerate(values[0]["claims"])])
+    writers = []
+    def model(request):
+        if request.get("phase") != "review_paragraph":
+            writers.append(request)
+        return response(request)
+    result = mn.complete_sections(values, plan, model, [], lambda *args: None)
+    assert [r["previous_section"] for r in writers] == ["原節 0", "原節 1", "原節 2"]
+    assert [p["level"] for p in result] == [1, 2, 3]

@@ -350,7 +350,7 @@ def recap_counts(segment):
 
 
 def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics):
-    """逐段核對；重寫後仍不符的段落略過，超過半數選定重點受影響才失敗。"""
+    """逐段核對；仍不符的段落略過，不因涵蓋比例拒發其餘已核對講稿。"""
     material = material_text(claims, pages)
     omitted = []
     rejected_indices = set()
@@ -398,9 +398,6 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
         kept = self_naming(script["segments"][index], hosts, material, script)
         if kept:
             diagnostics.append({"segment": index, "self_naming_after_rewrite": [i["part"] for i in kept]})
-    omitted_claims = {identity for item in omitted for identity in item["claim_ids"]}
-    if len(omitted_claims) * 2 > len({claim["claim_id"] for claim in claims}):
-        raise RuntimeError("PODCAST_SCRIPT_NEEDS_REVIEW")
     if omitted:
         kept = [beat for i, beat in enumerate(script["segments"]) if i not in rejected_indices]
         if not kept:

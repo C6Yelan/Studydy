@@ -6,12 +6,12 @@ import json
 import logging
 
 from pydantic import ValidationError
-from sqlalchemy import select, or_, text
+from sqlalchemy import select, or_, text, func
 from sqlalchemy.dialects.postgresql import insert
 
 from content_identity import canonical_sha256
 
-from . import note_anchors, note_content, luna_calls, luna_test
+from . import note_anchors, note_content, note_sections, luna_calls, luna_test
 from .errors import SourceError
 from .generation_jobs import JobCancelled, WORKER_LEASE_TTL, lease_is_current
 from .local_ai_config import configured_lock
@@ -52,7 +52,7 @@ def read(owner, material_id, revision, kind, *, dsn=None):
         meta = knowledge_reads.metadata(db, owner, material_id, revision)
         row = db.get(MaterialNotes, (owner, material_id, revision, kind))
         structure = db.get(KnowledgeStructure, (owner, material_id, revision))
-        content = row if row and row.paragraphs else None
+        content = row if row and row.generation > 0 and row.paragraphs is not None else None
         if content is None:
             content = db.scalar(select(MaterialNotes).join(KnowledgeStructure,
                 (KnowledgeStructure.learner_id == MaterialNotes.learner_id)
@@ -65,6 +65,7 @@ def read(owner, material_id, revision, kind, *, dsn=None):
         content_revision = content.structure_revision if content else None
         content_meta = knowledge_reads.metadata(db, owner, material_id, content_revision) if content else meta
         paragraphs = deepcopy(content.paragraphs) if content else []
+        published = content.published_metadata or {} if content else {}
         annotations = [{"annotation_id": str(a.annotation_id), "anchor": a.anchor,
             "body": a.body, "original_revision": a.structure_revision,
             "original_paragraph": a.paragraph_snapshot, "updated_at": a.updated_at.isoformat(),
@@ -81,6 +82,8 @@ def read(owner, material_id, revision, kind, *, dsn=None):
             "kind": kind, "source_status": content_meta["status"], "status": row.status if row else "not_generated",
             "generation": row.generation if row else 0, "paragraphs": paragraphs,
             "outline": note_content.outline(paragraphs),
+            "sections": published.get("sections", []),
+            "unorganized_concepts": published.get("unorganized_concepts", []),
             "annotations": note_content.annotation_matches(paragraphs, annotations, content_revision,
                 content.generation if content else None),
             "source_resolver": content_meta["source_resolver"], "error_code": row.error_code if row else None,
@@ -153,7 +156,7 @@ def annotate(owner, material_id, revision, kind, annotation_id, body,
 
 
 def queue_existing(*, owner, dsn=None):
-    """部署後只補本人尚無重點整理的目前版本；重跑不重生既有結果。"""
+    """部署後只補本人尚無複習速覽的目前版本；重跑不重生既有結果。"""
     queued = 0
     with database_session(dsn) as db:
         for m in db.scalars(select(Material).where(Material.learner_id == owner,
@@ -212,15 +215,26 @@ def _check(claim, dsn, stop=None, *, count_call=False):
             row.calls += 1
 
 
-def _save(claim, dsn, *, paragraphs=None, error=None, stopping=False, diagnostics=None):
+def _save(claim, dsn, *, paragraphs=None, metadata=None, error=None, stopping=False, diagnostics=None):
     with database_session(dsn) as db:
         material = db.scalar(select(Material).where(Material.material_id == claim["key"][1],
             Material.learner_id == claim["key"][0]).with_for_update())
         row = db.get(MaterialNotes, claim["key"], with_for_update=True)
         if material is None or material.discard_requested_at is not None or row is None or row.status != "running" or not lease_is_current(row, claim["token"], now=datetime.now(UTC)):
             return
+        if paragraphs == []:
+            old_content = db.scalar(select(MaterialNotes.material_id).where(
+                MaterialNotes.learner_id == row.learner_id, MaterialNotes.material_id == row.material_id,
+                MaterialNotes.kind == row.kind, MaterialNotes.generation > 0,
+                func.jsonb_array_length(MaterialNotes.paragraphs) > 0).limit(1))
+            if old_content is not None:
+                paragraphs, error = None, "NOTE_NO_SUPPORTED_CONTENT"
+                row.section_plan = row.section_results = None
+                diagnostics = {"code": error, "events": (diagnostics or {}).get("events", [])}
         if paragraphs is not None:
-            row.paragraphs, row.generation = paragraphs, row.generation + 1
+            row.paragraphs = [{k: v for k, v in p.items() if k != "_explained_claim_ids"} for p in paragraphs]
+            row.generation += 1
+            row.published_metadata = metadata
             row.section_results = None
             row.progress_stage = "completed"
         row.status = "pending" if stopping else "failed" if error else "ready"
@@ -249,7 +263,7 @@ def _concepts(claim, dsn):
 
 def model_request(concepts, kind, previous_section=None, previous_paragraphs=()):
     """請求只帶一次原文；短編號在此請求內有效，發布前還原正式身分。
-    previous_section 只是前文最後的章節標題，供模型決定層級，不是來源。"""
+    previous_section 是程式選定的原教材章節標題，不代替 Evidence。"""
     groups, claims, evidence = {}, {}, {}
     for concept in concepts:
         group = groups.setdefault(concept["concept_id"], {"label": concept["label"], "claims": []})
@@ -290,9 +304,12 @@ def canonical_response(response, identities):
 
 def batches(concepts, kind, budget):
     """按學習順序以完整重點切批，單一重點不裁切來源。"""
-    result, current = [], []
+    result, current, seen = [], [], set()
     for concept in concepts:
         for claim in concept["claims"]:
+            if claim["claim_id"] in seen:
+                continue
+            seen.add(claim["claim_id"])
             unit = {"concept_id": concept["concept_id"], "label": concept["label"], "claims": [claim]}
             if estimate_prompt_tokens(note_content.PROMPT, model_request([unit], kind)[0]) > budget:
                 raise ValueError("NOTE_INPUT_TOO_LARGE")
@@ -307,7 +324,7 @@ def batches(concepts, kind, budget):
 
 def _write(request, identities, part, mode, call, diagnostics):
     """取得一份可用的寫作回應：格式錯誤補正一次；完整筆記的引用錯誤逐段請模型補正一次，
-    重點整理的引用由程式整理後交給內容核對。"""
+    複習速覽的引用由程式整理後交給內容核對。"""
     format_retried = False
     reference_repair = None
     repaired_references = set()
@@ -388,7 +405,7 @@ def _claim_sources(claim):
 
 
 def _summary_references(response, identities, part, diagnostics):
-    """重點整理的引用由程式整理：重點沒引用自己的來源就移除該重點，
+    """複習速覽的引用由程式整理：重點沒引用自己的來源就移除該重點，
     來源不屬於本段保留的重點就移除該來源；失去來源支持的文字交給後續核對。"""
     claims = {q["claim_id"]: q for c in part for q in c["claims"]}
     kept = []
@@ -421,276 +438,62 @@ def generate_part(part, mode, call, diagnostics=None, previous_section=None, pre
     diagnostics = [] if diagnostics is None else diagnostics
     request, identities = model_request(part, mode, previous_section, previous_paragraphs)
     result = _write(request, identities, part, mode, call, diagnostics)
-    if mode == "full":
-        return _check_paragraphs(result, part, call, diagnostics, previous_paragraphs)
-    # 同一份候選稿內，引用或段落刪減後請求完全相同的段落沿用已核對結果。
-    review = _remembered_review(call, previous_paragraphs)
-    items = _check_summary([(p, False) for p in result], part, call, review, diagnostics, previous_paragraphs)
-    missing = _unexplained_concepts(items, part)
-    if missing:
-        # 同批其他段落也可能已解說相同概念；補寫前先核對並接回原來源。
-        reused, _ = reuse_summary([c for c in part if c["concept_id"] in missing],
-            [p for p, _ in items], part, call, diagnostics)
-        items = [(p, flag) for p, (_, flag) in zip(reused, items)]
-        missing = _unexplained_concepts(items, part)
-    if missing:
-        diagnostics.append({"event": "concepts_unexplained", "concepts": missing, "after_repair": False})
-        items = _check_summary(_cover_concepts(items, missing, part, call, diagnostics, previous_paragraphs),
-            part, call, review, diagnostics, previous_paragraphs)
-        missing = _unexplained_concepts(items, part)
-        if missing:
-            diagnostics.append({"event": "concepts_unexplained", "concepts": missing, "after_repair": True})
-            raise ValueError("NOTE_COVERAGE_INCOMPLETE")
-    return [p for p, _ in items]
-
-
-def reuse_summary(part, previous, concepts, call, diagnostics):
-    """前文配對只是提案；以新重點原來源重核後才接上引用，正文保持不變。"""
-    if not previous or not part:
-        return list(previous), part
-    entries, refs = [], {}
-    for concept in part:
-        entries.append({"label": concept["label"], "claims": [
-            {"claim_id": refs.setdefault(q["claim_id"], f"C{len(refs)+1}"), "text": q["text"]}
-            for q in concept["claims"]]})
-    candidates = note_content.previous_content(previous, json.dumps(entries, ensure_ascii=False),
-        include_ids=True, budget=BATCH_TOKENS)
-    if not candidates:
-        return list(previous), part
-    request = {"phase": "reuse_summary", "concepts": entries, "previous_content": candidates}
-    identities = {ref: cid for cid, ref in refs.items()}
-    positions = {p["paragraph_id"]: int(p["paragraph_id"][1:]) - 1 for p in candidates}
-    response = call(request)
-    try:
-        matches = note_content.SummaryReuse.model_validate(response).matches
-        if (len({m.claim_id for m in matches}) != len(matches)
-            or any(m.claim_id not in identities or m.paragraph_id not in positions for m in matches)):
-            raise ValueError("NOTE_REFERENCE_INVALID")
-    except ValueError:
-        diagnostics.append({"event": "reuse_invalid"})
-        return list(previous), part
-    grouped = {}
-    for match in matches:
-        grouped.setdefault(positions[match.paragraph_id], []).append(identities[match.claim_id])
-    claims = {q["claim_id"]: q for c in concepts for q in c["claims"]}
-    updated = list(previous)
-    for index, ids in grouped.items():
-        original = previous[index]
-        missing = _unexplained_concepts([(p, False) for p in updated], part)
-        needed = {q["claim_id"] for c in part if c["concept_id"] in missing for q in c["claims"]}
-        ids = [cid for cid in ids if cid in needed and cid not in original["claim_ids"]]
-        while ids:
-            raw = {k: original[k] for k in note_content.Paragraph.model_fields}
-            raw["claim_ids"] = [*raw["claim_ids"], *ids]
-            raw["evidence_ids"] = list(dict.fromkeys([*raw["evidence_ids"],
-                *(e["evidence_id"] for cid in ids for e in claims[cid]["evidence"])]))
-            paragraph = note_content.validate({"paragraphs": [raw]}, concepts, "summary")[0]
-            paragraph, issues = _review_with_references(paragraph, concepts,
-                lambda p: note_content.review_paragraph(p, call, claims=claims, kind="summary",
-                    coverage_claim_ids=ids, reuse=True), diagnostics, index)
-            if not issues:
-                updated[index] = {**paragraph, "id": original["id"]}
-                diagnostics.append({"event": "summary_reused", "paragraph": index, "claims": ids})
-                break
-            diagnostics.append({"event": "reuse_rejected", "paragraph": index,
-                "claims": ids, "issues": _reason_digest(issues)})
-            refs = {f"claim.C{i+1}": cid for i, cid in enumerate(paragraph["claim_ids"])}
-            unexplained = {refs[issue["part"]] for issue in issues if issue["part"] in refs}
-            if not unexplained:
-                break
-            # 只移除沒有解說的新重點及其來源，再核對其餘配對；不丟掉已獲支持的核心。
-            ids = [cid for cid in ids if cid not in unexplained]
-    missing = _unexplained_concepts([(p, False) for p in updated], part)
-    return updated, [c for c in part if c["concept_id"] in missing]
-
-
-def _unexplained_concepts(items, part):
-    """每個概念至少要有一個重點留在已核對的段落中（核對已確認段內列出的重點都有實質解說）。"""
-    cited = {cid for p, _ in items for cid in p["claim_ids"]}
-    claims = {}
-    for c in part:
-        claims.setdefault(c["concept_id"], set()).update(q["claim_id"] for q in c["claims"])
-    return [concept for concept, ids in claims.items() if not ids & cited]
-
-
-def _cover_concepts(items, missing, part, call, diagnostics, previous_paragraphs=()):
-    """沒有被解說的概念只為它們局部補寫一次；新段落比照局部重寫，核對仍不符就刪段。"""
-    scope = [c for c in part if c["concept_id"] in missing]
-    request, identities = model_request(scope, "summary", previous_paragraphs=[*previous_paragraphs, *(p for p, _ in items)])
-    request["correction"] = {"problem": "NOTE_CONCEPT_UNEXPLAINED",
-        "instruction": "前次重點整理沒有實際解說這些概念。為每個概念依原文說明它最核心的重點，只把正文真正解說的重點列入 claim_ids；不要只列名稱或編號，也不要補寫原文沒有的內容。"}
-    try:
-        added = _write(request, identities, scope, "summary", call, diagnostics)
-    except (ValueError, TypeError, KeyError) as error:
-        diagnostics.append({"event": "cover_invalid",
-            "code": str(error) if str(error).startswith("NOTE_") else "NOTE_FORMAT_INVALID"})
-        return items
-    order = {}
-    for index, c in enumerate(part):
-        for q in c["claims"]:
-            order.setdefault(q["claim_id"], index)
-
-    def position(paragraph):
-        return min(order[cid] for cid in paragraph["claim_ids"])
-    result = list(items)
-    for paragraph in added:
-        # 依學習順序插在第一個較後面的段落之前，不改動既有段落的順序。
-        index = next((i for i, (p, _) in enumerate(result) if position(p) > position(paragraph)), len(result))
-        result.insert(index, (paragraph, True))
-    return _summary_items(result, part)
-
-
-def _remembered_review(call, previous_paragraphs=()):
-    """同一份候選稿中，核對請求完全相同就沿用已核對結果，不重送模型。"""
-    responses = {}
-
-    def remember(payload):
-        key = canonical_sha256(payload)
-        if key not in responses:
-            responses[key] = call(payload)
-        return responses[key]
-
-    def review(paragraph, claims, coverage_ids, related):
-        return note_content.review_paragraph(paragraph, remember, claims=claims, kind="summary",
-            coverage_claim_ids=coverage_ids, related_paragraphs=related, previous_paragraphs=previous_paragraphs)
-    return review
-
-
-def _summary_items(items, part):
-    """移除引用或段落後重新驗證，重建段落編號、錨點與來源節錄。"""
-    paragraphs = note_content.validate({"paragraphs": [{k: p[k] for k in note_content.Paragraph.model_fields}
-        for p, _ in items]}, part, "summary")
-    return [(p, repaired) for p, (_, repaired) in zip(paragraphs, items)]
+    if mode == "summary":
+        # 挑選已按整章限3～5個重點；每個重點最多承載一條核心，刪減後才核對。
+        used, compact = set(), []
+        for paragraph in result:
+            slots = len(set(paragraph["claim_ids"]) - used)
+            blocks, core = [], 0
+            for block in paragraph["blocks"]:
+                if block["type"] == "formula":
+                    blocks.append(block)
+                    continue
+                if block["type"] == "text":
+                    if core < slots:
+                        blocks.append(block)
+                        core += 1
+                    continue
+                items = block["items"] if block["type"] in ("bullets", "callout") else []
+                kept = [{"text": item["text"], "children": []} for item in items[:slots - core]] if core < slots else []
+                if kept:
+                    blocks.append({"type": "bullets", "items": kept})
+                    core += len(kept)
+            if blocks != paragraph["blocks"]:
+                diagnostics.append({"event": "summary_compacted", "claims": paragraph["claim_ids"]})
+            if blocks:
+                compact.append({**paragraph, "blocks": blocks})
+                if core:
+                    used.update(paragraph["claim_ids"])
+        result = compact
+    return _check_paragraphs(result, part, call, diagnostics, previous_paragraphs, kind=mode)
 
 
 def _reason_digest(issues):
-    # 只保存核對理由的摘要碼與位置，不保存可能含教材內容的理由全文。
+    # 只保存位置與摘要碼，不將教材或核對理由全文寫入一般日誌。
     return [{"part": i["part"], "reason_sha256": canonical_sha256(i["reason"])[:12]} for i in issues]
 
 
-def _review_with_references(paragraph, part, review, diagnostics, index):
-    """按核對回覆的合法來源 ref 補引用再核對，正文不重寫，也不把未核對的補充當作支持。"""
-    while True:
-        issues = review(paragraph)
-        needed = list(dict.fromkeys(eid for issue in issues for eid in issue.get("missing_evidence_ids", [])))
-        if not needed:
-            return paragraph, issues
-        raw = {k: paragraph[k] for k in note_content.Paragraph.model_fields}
-        raw["evidence_ids"] = list(dict.fromkeys([*raw["evidence_ids"], *needed]))
-        updated = note_content.validate({"paragraphs": [raw]}, part, "summary")[0]
-        diagnostics.append({"event": "references_completed", "paragraph": index,
-            "evidence_ids": needed, "issues": _reason_digest(issues)})
-        paragraph = {**updated, "id": paragraph["id"]}
-
-
-def _check_summary(items, part, call, review, diagnostics, previous_paragraphs=()):
-    """重點整理逐段核對。items 為（段落, 是否已局部重寫）；未解說的重點由程式移除，
-    局部重寫一次仍不符的段落整段刪除。刪除後是否仍涵蓋每個概念由呼叫端檢查。"""
-    claims = {q["claim_id"]: q for c in part for q in c["claims"]}
-    while True:
-        for index, (paragraph, repaired) in enumerate(items):
-            later = {cid for p, _ in items[index+1:] for cid in p["claim_ids"]}
-            # 同一重點可跨段；在最後一段檢查合併涵蓋，前文皆已完成事實核對。
-            coverage_ids = [cid for cid in paragraph["claim_ids"] if cid not in later]
-            paragraph, issues = _review_with_references(paragraph, part,
-                lambda p: review(p, claims, coverage_ids, [q for q, _ in items[:index]]), diagnostics, index)
-            items[index] = (paragraph, repaired)
-            if issues:
-                break
-        else:
-            return items
-        refs = {f"claim.C{i+1}": cid for i, cid in enumerate(paragraph["claim_ids"])}
-        unexplained = {refs[i["part"]] for i in issues if i["part"] in refs}
-        diagnostics.append({"event": "review_rejected", "paragraph": index, "repaired": repaired,
-            "issues": _reason_digest(issues)})
-        if unexplained:
-            # 未解說表示全稿都沒說明：移除全稿所有出現處及只屬於它的來源，引用改變的段落重新核對。
-            diagnostics.append({"event": "claims_removed", "claims": sorted(unexplained)})
-            remaining = []
-            for p, flag in items:
-                ids = [cid for cid in p["claim_ids"] if cid not in unexplained]
-                if not ids:
-                    diagnostics.append({"event": "paragraph_dropped", "reason": "no_claims", "claims": p["claim_ids"]})
-                    continue
-                allowed = set().union(*(_claim_sources(claims[cid]) for cid in ids))
-                remaining.append(({**p, "claim_ids": ids,
-                    "evidence_ids": [eid for eid in p["evidence_ids"] if eid in allowed]}, flag))
-        elif repaired:
-            diagnostics.append({"event": "paragraph_dropped", "reason": "content_unsupported",
-                "claims": paragraph["claim_ids"]})
-            remaining = [*items[:index], *items[index+1:]]
-        else:
-            try:
-                replacement = _repair_paragraph(paragraph, index, issues, [*previous_paragraphs, *(p for p, _ in items[:index])],
-                    part, "summary", call, diagnostics)
-            except (ValueError, TypeError, KeyError) as error:
-                # 局部重寫沒有產生可用段落，等同重寫後仍不符：刪掉這一段。
-                diagnostics.append({"event": "paragraph_dropped", "reason": "repair_invalid",
-                    "code": str(error) if str(error).startswith("NOTE_") else "NOTE_FORMAT_INVALID",
-                    "claims": paragraph["claim_ids"]})
-                replacement = []
-            remaining = [*items[:index], *((p, True) for p in replacement), *items[index+1:]]
-        if not remaining:
-            return []
-        items = _summary_items(remaining, part)
-
-
-def _repair_paragraph(paragraph, index, issues, previous, part, mode, call, diagnostics):
-    """只重生不符段落，避免把已核對的其他段落重新改寫並引入新錯誤。"""
-    ids = set(paragraph["claim_ids"])
-    scope = [{**c, "claims": [q for q in c["claims"] if q["claim_id"] in ids]} for c in part]
-    scope = [c for c in scope if c["claims"]]
-    repair, mapping = model_request(scope, mode, _previous_section(previous), previous)
-    repair["correction"] = {
-        "problem": "NOTE_CONTENT_UNSUPPORTED",
-        "instruction": "只修正這個小節中核對指出的不符位置或缺漏（issues 的 part 對應 paragraph.content 的位置）；其他已有來源支持的條列、表格與公式保持不變，維持原層級。先查本次 context_evidence_ids 的實際表頭、規範詞與條件，若能補足數值或片語的意義，須明確解說並把那些區塊列入 evidence_ids，不要只重複缺少對象的原片語。related_paragraphs 已說明的部分不必重複，只補本段缺漏，仍保留本次提供的所有重點編號。保持原有大致篇幅，只依原文修正，不把核對理由或其他筆記當作新來源。",
-        "content_review": {"paragraph_index": index,
-            "paragraph": note_content.located(paragraph),
-            "issues": issues, "related_paragraphs": [
-                note_content.located(p) for p in previous if ids.intersection(p["claim_ids"])]},
-    }
-    # 完整筆記的修正須保留本段所有重點；重點整理沿用程式整理引用，交給後續核對。
-    result = _write(repair, mapping, scope, "full" if mode == "full" else "summary", call, diagnostics)
-    # 局部修文不能改變章節歸屬；這是既有結構，不交給重寫模型重新決定。
-    return [{**p, "level": paragraph["level"]} for p in result]
-
-
-def _previous_section(paragraphs):
-    return next((p["heading"] for p in reversed(paragraphs) if p.get("level") == 1), None)
-
-
-def _check_paragraphs(result, part, call, diagnostics, previous_paragraphs=()):
-    """完整筆記逐段核對；不符只重生該段一次，仍不符就不發布。"""
+def _check_paragraphs(result, part, call, diagnostics, previous_paragraphs=(), *, kind="full"):
+    """每段核對一次；移除不符位置及依賴它的子項，已支持內容不重寫。"""
     checked = []
     claims = {q["claim_id"]: q for c in part for q in c["claims"]}
     for index, paragraph in enumerate(result):
-        later = {cid for p in result[index+1:] for cid in p["claim_ids"]}
-        coverage_ids = [cid for cid in paragraph["claim_ids"] if cid not in later]
-        # 同一重點可跨段；在最後一段檢查合併涵蓋，前文皆已完成事實核對。
-        paragraph, issues = _review_with_references(paragraph, part,
-            lambda p: note_content.review_paragraph(p, call, claims=claims, kind="full",
-                coverage_claim_ids=coverage_ids, related_paragraphs=checked,
-                previous_paragraphs=previous_paragraphs), diagnostics, index)
-        if not issues:
-            checked.append(paragraph)
+        coverage = {}
+        issues = note_content.review_paragraph(paragraph, call, claims=claims, kind=kind,
+            related_paragraphs=checked, previous_paragraphs=previous_paragraphs, coverage_details=coverage)
+        if issues:
+            diagnostics.append({"event": "review_rejected", "paragraph": index,
+                "issues": _reason_digest(issues)})
+        trimmed, retained = note_content.remove_unsupported(paragraph, issues)
+        if not trimmed["blocks"]:
+            diagnostics.append({"event": "paragraph_dropped", "reason": "no_supported_content",
+                "claims": paragraph["claim_ids"]})
             continue
-        diagnostics.append({"event": "review_rejected", "paragraph": index, "repaired": False,
-            "issues": _reason_digest(issues)})
-        repaired = _repair_paragraph(paragraph, index, issues, [*previous_paragraphs, *checked], part, "full", call, diagnostics)
-        for position, replacement in enumerate(repaired):
-            remaining = {cid for p in repaired[position+1:] for cid in p["claim_ids"]}
-            final_ids = [cid for cid in replacement["claim_ids"] if cid in coverage_ids and cid not in remaining]
-            replacement, issues = _review_with_references(replacement, part,
-                lambda p: note_content.review_paragraph(p, call, claims=claims, kind="full",
-                    coverage_claim_ids=final_ids, related_paragraphs=[*checked, *repaired[:position]],
-                    previous_paragraphs=previous_paragraphs),
-                diagnostics, len(checked) + position)
-            repaired[position] = replacement
-            if issues:
-                diagnostics.append({"event": "review_rejected", "paragraph": len(checked) + position,
-                    "repaired": True, "issues": _reason_digest(issues)})
-                raise ValueError("NOTE_CONTENT_UNSUPPORTED")
-        checked.extend(repaired)
+        # 被刪掉的解說位置不能繼續算涵蓋；引用仍保留作正文的來源，不冒充已解說。
+        explained = [cid for cid, locations in coverage.items()
+            if locations and all(location.startswith("related.") or location in retained for location in locations)]
+        trimmed["_explained_claim_ids"] = explained
+        checked.append(trimmed)
     return checked
 
 
@@ -713,42 +516,45 @@ def fit_page_context(concepts, kind, budget, diagnostics):
     return result
 
 
-def summary_plan(concepts, call, *, input_budget):
-    """重點整理的分批計畫：一次寫得下就全部交給寫作；否則先以概念為單位挑核心重點。
-    計畫保存選中的重點，接續時不重新挑選；寫作批次沿用完整筆記的切批方式。"""
-    if not concepts or not any(c["claims"] for c in concepts):
-        raise ValueError("NOTE_SOURCE_EMPTY")
-    if estimate_prompt_tokens(note_content.PROMPT, model_request(concepts, "summary")[0]) > input_budget:
-        concepts = select_summary(concepts, call, input_budget=input_budget)
-    return plan_sections(concepts, [{"label": "重點整理", "concept_ids": [c["concept_id"] for c in concepts]}],
-        "summary", input_budget)
+def summary_plan(concepts, sections, call, *, input_budget):
+    """每一來源章都挑選核心，候選少仍執行挑選，不強求每個概念都有內容。"""
+    selected = set()
+    chapter = []
+    for section in [*sections, {"level": 1, "claim_ids": []}]:
+        if section["level"] == 1 and chapter:
+            ids = {cid for item in chapter for cid in item["claim_ids"]}
+            scope = [{**c, "claims": [q for q in c["claims"] if q["claim_id"] in ids]} for c in concepts]
+            scope = [c for c in scope if c["claims"]]
+            if scope:
+                selected.update(q["claim_id"] for c in select_summary(scope, call, input_budget=input_budget)
+                    for q in c["claims"])
+            chapter = []
+        chapter.append(section)
+    return plan_sections(concepts, [{**section, "claim_ids": [cid for cid in section["claim_ids"] if cid in selected]}
+        for section in sections], "summary", input_budget)
 
 
 def select_summary(concepts, call, *, input_budget):
-    """每個概念挑出核心重點；挑選只看知識結構與來源檔名，不計原文與同頁補充原文。
-    共用重點只在第一個所屬概念出現一次；每個重點只送進一次挑選請求。"""
+    """整章挑3～5個核心重點；大章先分批挑選，再從候選中收斂到整章上限。"""
     owner = {}
     for c in concepts:
         for q in c["claims"]:
             owner.setdefault(q["claim_id"], c["concept_id"])
-    chosen, entries = set(), []
-    for c in concepts:
-        own = [q for q in c["claims"] if owner[q["claim_id"]] == c["concept_id"]]
-        if len(own) == 1:
-            chosen.add(own[0]["claim_id"])  # 只有一個候選，不必請模型挑。
-        elif own:
-            entries.append((c, own))
-    for batch in _selection_batches(entries, input_budget):
-        chosen |= _select_batch(batch, call)
-    selected = []
-    for c in concepts:
-        claims = [q for q in c["claims"] if q["claim_id"] in chosen]
-        if not claims:
-            # 只有與前面概念共用的重點且都沒被挑中：取第一個，確保這個概念也會寫到。
-            claims = c["claims"][:1]
-            chosen.add(claims[0]["claim_id"])
-        selected.append({**c, "claims": claims})
-    return selected
+    entries = [(c, [q for q in c["claims"] if owner[q["claim_id"]] == c["concept_id"]]) for c in concepts]
+    entries = [(c, claims) for c, claims in entries if claims]
+    while entries:
+        chosen = set()
+        for batch in _selection_batches(entries, input_budget):
+            chosen.update(_select_batch(batch, call))
+        if len(chosen) <= 5:
+            return [{**c, "claims": kept} for c in concepts
+                if (kept := [q for q in c["claims"] if q["claim_id"] in chosen])]
+        reduced = [(c, [q for q in claims if q["claim_id"] in chosen]) for c, claims in entries]
+        reduced = [(c, claims) for c, claims in reduced if claims]
+        if sum(len(claims) for _, claims in reduced) == sum(len(claims) for _, claims in entries):
+            raise ValueError("NOTE_INPUT_TOO_LARGE")
+        entries = reduced
+    raise ValueError("NOTE_SOURCE_EMPTY")
 
 
 def _selection_request(batch):
@@ -760,7 +566,7 @@ def _selection_request(batch):
             items.append({"ref": ref, "text": q["text"], "sources": list(dict.fromkeys(
                 e["source_name"] for e in q["evidence"] if e.get("source_name")))})
         concepts.append({"ref": f"K{len(concepts) + 1}", "label": concept["label"], "claims": items})
-    return {"phase": "select_summary", "concepts": concepts}, {ref: cid for cid, ref in refs.items()}
+    return {"phase": "select_summary", "concepts": concepts, "max_claims": 5}, {ref: cid for cid, ref in refs.items()}
 
 
 def _selection_batches(entries, budget):
@@ -815,63 +621,43 @@ def _select_batch(batch, call):
         try:
             picks = note_content.SummarySelection.model_validate(response).concepts
             if (sorted(p.concept for p in picks) != sorted(expected)
-                or any(len(p.claim_ids) != len(set(p.claim_ids)) or not set(p.claim_ids) <= expected[p.concept] for p in picks)):
+                or any(len(p.claim_ids) != len(set(p.claim_ids)) or not set(p.claim_ids) <= expected[p.concept] for p in picks)
+                or not min(3, len(refs)) <= sum(len(p.claim_ids) for p in picks) <= 5):
                 raise ValueError("NOTE_SELECTION_INVALID")
             return {refs[ref] for p in picks for ref in p.claim_ids}
         except ValueError:
             if attempt:
                 raise ValueError("NOTE_SELECTION_INVALID") from None
             request = {**request, "correction": {
-                "instruction": "修正前次選取結果：每個概念 ref 恰好回覆一次；claim_ids 只能選該概念自己的候選 ref，至少一個且不重複。",
+                "instruction": "修正前次選取結果：每個概念 ref 恰好回覆一次，claim_ids 可為空；全章合計選3～5個（候選不足3個則全選），只能選各概念自己的候選，不重複。",
                 "previous_response": response,
             }}
 
 
 def finalize(paragraphs, concepts, kind):
-    return note_content.validate({"paragraphs": [{k: p[k] for k in note_content.Paragraph.model_fields}
+    if not paragraphs:
+        return []
+    checked = note_content.validate({"paragraphs": [{k: p[k] for k in note_content.Paragraph.model_fields}
         for p in paragraphs]}, concepts, kind)
+    return [{**p, "_explained_claim_ids": original.get("_explained_claim_ids", [])}
+        for p, original in zip(checked, paragraphs)]
 
 
-def organize_sections(paragraphs, call):
-    """用整份標題脈絡檢查錯掛小節；只可提升章節，不讓整理階段改寫正文或來源。"""
-    paragraphs = [{**p, "level": 1} if i == 0 else p for i, p in enumerate(paragraphs)]
-    candidates = [p["id"] for p in paragraphs if p["level"] == 2]
-    if not candidates:
-        return paragraphs
-    request = {"phase": "organize_sections", "candidates": candidates,
-        "paragraphs": [{"paragraph_id": p["id"], "heading": p["heading"], "level": p["level"],
-            "concepts": [c["label"] for c in p["concepts"]],
-            "sources": list(dict.fromkeys((e.get("source_name"), e.get("normalized_page", e["page"]))
-                for e in p["evidence"]))} for p in paragraphs]}
-    for attempt in range(2):
-        response = call(request)
-        try:
-            ids = note_content.SectionPromotions.model_validate(response).paragraph_ids
-            if len(ids) != len(set(ids)) or not set(ids) <= set(candidates):
-                raise ValueError("NOTE_FORMAT_INVALID")
-            return [{**p, "level": 1} if p["id"] in ids else p for p in paragraphs]
-        except ValueError:
-            if attempt:
-                raise ValueError("NOTE_FORMAT_INVALID") from None
-            request = {**request, "correction": {"problem": "NOTE_FORMAT_INVALID",
-                "instruction": "只回傳需提升的候選 paragraph_ids，不重複、不新增編號，不修改正文。",
-                "previous_response": response}}
+def plan_sections(concepts, sections, kind="full", budget=None):
+    """來源章節可拆開同一概念的重點；只在章內按容量分批。"""
+    result = []
+    for section in sections:
+        selected = [{**c, "claims": kept} for c in concepts
+            if (kept := [q for q in c["claims"] if q["claim_id"] in section["claim_ids"]])]
+        result.append({**section, "label": section["heading"], "parts": [
+            [{"concept_id": c["concept_id"], "claim_ids": [q["claim_id"] for q in c["claims"]]} for c in part]
+            for part in batches(selected, kind, budget or BATCH_TOKENS)]})
+    return result
 
 
-def plan_sections(concepts, regions, kind="full", budget=None):
-    """凍結區域／章節順序與各批重點；區內再依輸入容量切批，不設總呼叫上限。"""
-    by_id = {c["concept_id"]: c for c in concepts}
-    flat = [cid for region in regions for cid in region["concept_ids"]]
-    if len(flat) != len(set(flat)) or set(flat) != by_id.keys():
-        raise ValueError("NOTE_SECTION_PLAN_INVALID")
-    return [{"label": region["label"], "parts": [
-        [{"concept_id": c["concept_id"], "claim_ids": [q["claim_id"] for q in c["claims"]]} for c in part]
-        for part in batches([by_id[c] for c in region["concept_ids"]], kind, budget or BATCH_TOKENS)]} for region in regions]
-
-
-# 模型回應被格式、引用或內容核對擋下時，同一批換一份新稿重試；核對標準不變。
+# 格式、引用、公式或核對回應格式不合法時才重試批次；語意否定只刪內容。
 # 契約、容量、provider 等重試也不會改變的錯誤不在此列，直接失敗。
-RETRYABLE_PART_ERRORS = {"NOTE_CONTENT_UNSUPPORTED", "NOTE_COVERAGE_INCOMPLETE", "NOTE_FORMAT_INVALID",
+RETRYABLE_PART_ERRORS = {"NOTE_FORMAT_INVALID",
     "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_FORMULA_INVALID", "NOTE_REVIEW_INVALID"}
 PART_ATTEMPTS = 3
 
@@ -879,18 +665,18 @@ PART_ATTEMPTS = 3
 def complete_sections(concepts, plan, call, results, on_part, diagnostics=None, kind="full"):
     diagnostics = [] if diagnostics is None else diagnostics
     by_id = {c["concept_id"]: c for c in concepts}
-    parts = [part for section in plan for part in section["parts"]]
+    parts = [(section, part) for section in plan for part in section["parts"]]
     for index in range(len(results), len(parts)):
+        section, batch = parts[index]
         selected = [{**by_id[c["concept_id"]], "claims": [q for q in by_id[c["concept_id"]]["claims"]
-            if q["claim_id"] in c["claim_ids"]]} for c in parts[index]]
+            if q["claim_id"] in c["claim_ids"]]} for c in batch]
         codes = []
         previous = [p for part in results for p in part]
-        if kind == "summary":
-            previous, selected = reuse_summary(selected, previous, concepts, call, diagnostics)
         while True:
             try:
-                generated = (generate_part(selected, kind, call, diagnostics, _previous_section(previous), previous)
+                generated = (generate_part(selected, kind, call, diagnostics, section["heading"], previous)
                     if selected else [])
+                generated = [{**p, "level": section["level"]} for p in generated]
                 break
             except (ValueError, note_content.ReviewInvalid) as error:
                 if str(error) not in RETRYABLE_PART_ERRORS:
@@ -904,11 +690,6 @@ def complete_sections(concepts, plan, call, results, on_part, diagnostics=None, 
             # 只有一次就通過的批次不另記，沒有刪減或重試的成功仍保存為 NULL。
             diagnostics.append({"event": "part_attempts", "part": index, "attempts": len(codes) + 1,
                 "failed": codes, "succeeded": True})
-        # 新批通過才連同前文新增的來源關係一起保存；失敗不改已完成批次。
-        offset = 0
-        for position, part in enumerate(results):
-            results[position] = previous[offset:offset + len(part)]
-            offset += len(part)
         on_part(index, generated)
         results.append(generated)
     return finalize([p for part in results for p in part], concepts, kind)
@@ -954,18 +735,17 @@ def _complete(claim, concepts, call, dsn, diagnostics, *, input_budget):
     concepts = fit_page_context(concepts, kind, BATCH_TOKENS if kind == "full" else input_budget, diagnostics)
     plan = claim["plan"]
     if plan is None:
-        if kind == "full":
-            with database_session(dsn) as db:
-                regions = knowledge_reads.regions(db, *claim["key"][:3])["regions"]
-            plan = plan_sections(concepts, regions)
-        else:
-            # 重點整理不設頁數；大教材依模型上下文分批，並與完整筆記同樣保存已核對的批次。
-            plan = summary_plan(concepts, call, input_budget=input_budget)
+        with database_session(dsn) as db:
+            document = knowledge_structures._read_verified_document(db, *claim["key"][:2], revision=claim["key"][2])
+            regions = knowledge_reads.regions(db, *claim["key"][:3])["regions"]
+        sections = note_sections.plan(document, concepts, regions)
+        plan = (summary_plan(concepts, sections, call, input_budget=input_budget) if kind == "summary"
+            else plan_sections(concepts, sections))
         _progress(claim, dsn, plan=plan)
     result = complete_sections(concepts, plan, call, claim["results"],
         lambda index, paragraphs: _progress(claim, dsn, part=(index, paragraphs), previous=claim["results"]), diagnostics, kind)
     _progress(claim, dsn, stage="validating")
-    return organize_sections(result, call)
+    return result, note_sections.published(plan, result, concepts)
 
 
 def request_contract(payload, policy):
@@ -977,10 +757,6 @@ def request_contract(payload, policy):
         prompt, schema = policy["prompt"], note_content.FormulaBlock
     elif phase == "select_summary":
         prompt, schema = policy["selection_prompt"], note_content.SummarySelection
-    elif phase == "organize_sections":
-        prompt, schema = policy["prompt"], note_content.SectionPromotions
-    elif phase == "reuse_summary":
-        prompt, schema = policy["prompt"], note_content.SummaryReuse
     else:
         prompt, schema = policy["prompt"], note_content.Response
     response_schema = note_content.response_schema(schema)
@@ -999,18 +775,12 @@ def request_contract(payload, policy):
             response_schema["$defs"]["ClaimCoverage"]["properties"]["claim"]["enum"] = refs
             response_schema["$defs"]["ClaimCoverage"]["properties"]["note_parts"]["items"]["enum"] = list(dict.fromkeys(
                 location for values in payload["coverage_locations"].values() for location in values))
-    elif phase == "organize_sections":
-        response_schema["properties"]["paragraph_ids"]["items"]["enum"] = payload["candidates"]
     elif phase == "select_summary":
         refs = [k["ref"] for k in payload["concepts"]]
         response_schema["properties"]["concepts"].update(minItems=len(refs), maxItems=len(refs))
         fields = response_schema["$defs"]["ConceptSelection"]["properties"]
         fields["concept"]["enum"] = refs
         fields["claim_ids"]["items"]["enum"] = [q["ref"] for k in payload["concepts"] for q in k["claims"]]
-    elif phase == "reuse_summary":
-        fields = response_schema["$defs"]["SummaryReuseMatch"]["properties"]
-        fields["claim_id"]["enum"] = list(dict.fromkeys(q["claim_id"] for c in payload["concepts"] for q in c["claims"]))
-        fields["paragraph_id"]["enum"] = [p["paragraph_id"] for p in payload["previous_content"]]
     return prompt, response_schema
 
 
@@ -1053,7 +823,7 @@ def step(*, dsn=None, call=None, stop=None):
                     cancellation_check=lambda: _check(claim, dsn, stop))
 
         concepts = _concepts(claim, dsn)
-        result = _complete(claim, concepts, request, dsn, diagnostics,
+        result, metadata = _complete(claim, concepts, request, dsn, diagnostics,
             input_budget=lock["semantic_service"]["max_model_len"] - policy["max_tokens"])
         _check(claim, dsn, stop)
         summary = {"events": diagnostics} if diagnostics else None
@@ -1061,15 +831,15 @@ def step(*, dsn=None, call=None, stop=None):
             # 發布前刪掉的重點／段落只記編號、位置與理由摘要碼；日誌與 DB 存同一份。
             logging.getLogger(__name__).warning("NOTE_GENERATION_ADJUSTED kind=%s diagnostics=%s",
                 claim["key"][3], json.dumps(summary, ensure_ascii=False))
-        _save(claim, dsn, paragraphs=result, diagnostics=summary)
+        _save(claim, dsn, paragraphs=result, metadata=metadata, diagnostics=summary)
     except WorkerStopping:
         _save(claim, dsn, stopping=True)
     except JobCancelled:
         luna_calls.completed("cancelled")
     except Exception as error:
         code = error.reason_code if isinstance(error, SemanticServiceError) else str(error)
-        if code not in {"NOTE_FORMAT_INVALID", "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_FORMULA_INVALID", "NOTE_COVERAGE_INCOMPLETE",
-            "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID", "NOTE_CONTENT_UNSUPPORTED", "NOTE_REVIEW_INVALID"} and not isinstance(error, SemanticServiceError):
+        if code not in {"NOTE_FORMAT_INVALID", "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_FORMULA_INVALID",
+            "NOTE_INPUT_TOO_LARGE", "NOTE_SOURCE_EMPTY", "NOTE_CONTRACT_INVALID", "NOTE_SECTION_PLAN_INVALID", "NOTE_SELECTION_INVALID", "NOTE_REVIEW_INVALID"} and not isinstance(error, SemanticServiceError):
             code = "NOTE_GENERATION_FAILED"
         summary = {"code": code, "error_type": type(error).__name__, "events": diagnostics}
         luna_calls.rejected({"reason": str(error), "diagnostics": diagnostics})

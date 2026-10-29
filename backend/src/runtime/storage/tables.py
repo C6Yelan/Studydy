@@ -1048,6 +1048,7 @@ class MaterialNotes(Base):
     status: Mapped[str] = mapped_column(Text)
     generation: Mapped[int] = mapped_column(Integer)
     paragraphs: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    published_metadata: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     runtime_lock: Mapped[dict] = mapped_column(JSONB)
     calls: Mapped[int] = mapped_column(Integer)
     attempts: Mapped[int] = mapped_column(Integer)
