@@ -315,11 +315,16 @@ def test_terminal_worker_failure_saves_rejected_candidate_privately(closed_loop,
     assert saved['status'] == 'failed' and saved['error_code']
     assert not module.step(dsn=dsn)
     documents = failures(tmp_path)
-    assert len(documents) == 1
-    assert documents[0]['tags']['work_id'] == str(identity)
-    assert documents[0]['reason'] == saved['error_code']
-    assert documents[0]['rejections'] and documents[0]['candidate_available']
-    assert secret in json.dumps(documents[0], ensure_ascii=False)
+    assert len(documents) == (2 if feature == 'voice' else 1)
+    if feature == 'voice':
+        attempts = [document['tags']['attempt_id'].rsplit(':', 1) for document in documents]
+        assert {suffix for _, suffix in attempts} == {'1', '2'}
+        assert len({lease for lease, _ in attempts}) == 1
+    for document in documents:
+        assert document['tags']['work_id'] == str(identity)
+        assert document['reason'] == saved['error_code']
+        assert document['rejections'] and document['candidate_available']
+        assert secret in json.dumps(document, ensure_ascii=False)
     assert secret not in caplog.text
     assert secret not in (tmp_path / 'luna-calls.jsonl').read_text()
 

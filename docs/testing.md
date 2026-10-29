@@ -381,7 +381,7 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 `test_podcast_generation_steps.py` 以隔離 DB 驗證步驟與實際領取／發布、分鏡／影片工作一致，略過身分保存及 migration 套用回滾；`test_podcast_process.py` 以真鎖驗證排隊與執行。provider 受控回應另驗證少量、半數與過半略過仍發布，以及略過重點去重，不呼叫真模型。
 
-`test_voice_sentences.py` 使用真DB與合成PCM驗證完整核對後切句、句序、第一句先可讀、未完成整份不下載、取消拒絕遲到結果、失敗重試不重做已完成句、最後串接及migration套用回滾。`test_voice_audio_timings.py` 使用真HTTP與真provider鎖驗證實測等待／合成header；問答回歸驗證三段階段量測，不呼叫模型。離線量測只證明計時與生命周期，不作真實回答延遲改善宣稱。
+`test_voice_sentences.py` 使用真DB與合成PCM驗證完整核對後切句、句序、第一句先可讀、未完成整份不下載、取消拒絕遲到結果、失敗重試不重做已完成句、最後串接及migration套用回滾。`test_voice_audio_timings.py` 使用真HTTP與真provider鎖驗證實測等待／合成header；問答回歸驗證三段階段量測，不呼叫模型。`runtime/materials/test_voice_retry.py` 核對一次驗證重試、每輪原始候選私有保存，以及截斷／provider錯誤／取消不重播；`test_luna_call_tags_workflows.py` 保護兩個嘗試的 `:1`／`:2` 身分及候選與原因。離線量測只證明計時與生命周期，不作真實回答延遲改善宣稱。
 
 T2 的 `test_media_sources.py` 以真實逐字稿 PDF→native Evidence 驗證段界與合字展開；`test_ocr_page_evidence.py` 以真實 PDF 驗證中文詞內換行與公式字面值保留。`test_spoken_analysis.py` 核對疑義還原僅回到原引用、保留 needs_review 而不把診斷加進重點。這些測試不代替隔離重分析的語意品質比較。
 

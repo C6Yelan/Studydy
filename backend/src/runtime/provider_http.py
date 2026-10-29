@@ -177,5 +177,8 @@ def provider(path, body, *, timings=None):
     if path in {"/semantics", "/script", "/scene-check", "/video"}:
         from . import luna_calls
 
-        luna_calls.capture(deepcopy(result), call_tags=body.get("tags"))
+        luna_calls.capture(
+            deepcopy(result) if path == "/semantics" and body.get("task") == "material_qa" else result,
+            call_tags=body.get("tags"),
+        )
     return result
