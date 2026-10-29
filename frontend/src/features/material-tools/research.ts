@@ -40,6 +40,6 @@ export function researchTaskInfo(record: ResearchSummary) {
   }
   const tone = researchActive.has(record.status) ? 'processing' : record.status === 'failed' ? 'attention' : record.status === 'cancelled' ? 'muted' : 'pending';
   const cta = researchActive.has(record.status) ? '查看處理進度' : record.status === 'ready' ? '確認加入來源' : ['failed', 'cancelled'].includes(record.status) ? '接續處理' : '選擇補充來源';
-  const description = record.status === 'ready' ? '來源已準備，但尚未納入目前知識地圖；確認加入後才會分析。' : record.status === 'selecting' ? '挑選想加入教材的來源，再確認加入。' : researchActive.has(record.status) ? '處理結果會保存在這筆查詢，可先進行其他搜尋。' : record.status === 'cancelled' ? '此查詢已停止，不會繼續搜尋或加入教材；結果留存供查看。' : '開啟這筆查詢，查看已保留的結果與下一步。';
+  const description = record.status === 'ready' ? '來源已準備，但尚未納入目前知識地圖；確認加入後才會分析。' : record.status === 'selecting' ? '挑選想加入教材的來源，再確認加入。' : researchActive.has(record.status) ? '處理結果會保存在這筆查詢，可先進行其他搜尋。' : record.status === 'cancelled' ? '此查詢已停止，結果已保留；可接續處理未完成的部分。' : '開啟這筆查詢，查看已保留的結果與下一步。';
   return { label: labels[record.status] ?? '等待更新', tone, cta, description };
 }

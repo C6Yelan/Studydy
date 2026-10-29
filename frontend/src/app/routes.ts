@@ -7,7 +7,7 @@ export type AppRoute =
   | { name: "topics" }
   | { name: "profile" }
   | { name: "achievements" }
-  | { name: "topic"; topicId: string }
+  | { name: "topic"; topicId: string; materialId?: string }
   | { name: "materials" }
   | { name: "material-content"; materialId: string; kind: "concept-cards" | "podcasts" | "research" | "notes" }
   | { name: "research"; materialId: string; researchId: string }
@@ -125,6 +125,9 @@ export function readRoute(pathname: string): RouteRead {
     route = resourceSegment === "podcasts" ? { name: "podcast", podcastId: runId, materialId }
       : structureSegment === "review" ? { name: "card-review", cardSetId: runId, materialId }
       : { name: segments.length === 5 ? "card-set-edit" : "card-set", cardSetId: runId, materialId };
+  } else if (resourceSegment === "research" && runId === "scopes" && segments.length === 5 && uuidPattern.test(structureSegment)) {
+    // 教材補充學習的範圍確認頁：在教材頁首內顯示。
+    route = { name: "topic", topicId: structureSegment, materialId };
   } else if (resourceSegment === "research" && segments.length === 4 && uuidPattern.test(runId)) {
     route = { name: "research", materialId, researchId: runId };
   } else if (segments.length === 3 && (resourceSegment === "concept-cards" || resourceSegment === "podcasts" || resourceSegment === "research" || resourceSegment === "notes")) {
@@ -184,7 +187,10 @@ export function routePath(route: AppRoute): string {
   if (route.name === "topics") return "/topics";
   if (route.name === "profile") return "/profile";
   if (route.name === "achievements") return "/achievements";
-  if (route.name === "topic") { if (!uuidPattern.test(route.topicId)) throw new Error("ROUTE_INVALID"); return `/topics/${route.topicId}`; }
+  if (route.name === "topic") {
+    if (!uuidPattern.test(route.topicId) || (route.materialId && !uuidPattern.test(route.materialId))) throw new Error("ROUTE_INVALID");
+    return route.materialId ? `/materials/${route.materialId}/research/scopes/${route.topicId}` : `/topics/${route.topicId}`;
+  }
   if (route.name === "materials") return "/materials";
   if (route.name === "podcast-new") return "/podcasts/new";
   if (route.name === "card-set-new") return "/concept-cards/new";

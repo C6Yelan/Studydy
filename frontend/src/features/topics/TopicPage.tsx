@@ -65,7 +65,7 @@ function ScopeFields({draft,onChange,busy,request,supplemental,settings,actions}
        onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();if(index===draft.topics.length-1)onChange({...draft,topics:[...draft.topics,'']});setFocusIndex(index+1);}}}/>
       <button type="button" className="flow-icon-button" disabled={busy} aria-label={`移除主題 ${index+1}`} onClick={()=>{onChange({...draft,topics:draft.topics.filter((_,i)=>i!==index)});setFocusIndex(draft.topics.length>1?Math.min(index,draft.topics.length-2):draft.topics.length);}}><Icon name="close" size={18}/></button>
      </div>
-     <label className="topic-concept-detail"><span>想了解的細節</span><textarea rows={3} aria-label={`想了解的細節 ${index+1}`} value={detail} disabled={busy}
+     <label className="topic-concept-detail"><textarea rows={1} aria-label={`想了解的細節 ${index+1}`} placeholder="想了解的細節" value={detail} disabled={busy}
       onChange={event=>update(name+(event.target.value?(separator<0?'：':topic[separator])+event.target.value:''))}/></label>
      {topic.length>500&&<p className="form-error" role="alert">觀念名稱與細節合計最多 500 字，請縮短後再確認。</p>}
     </li>;
@@ -74,18 +74,20 @@ function ScopeFields({draft,onChange,busy,request,supplemental,settings,actions}
    {count===0&&<p className="form-error" role="alert">請至少保留一個要涵蓋的主題。</p>}
   </section>
   <aside className="topic-scope-review" aria-label="對照學習需求">
-   <MaterialNameField maxLength={supplemental?180:40} label={supplemental?'這次補充的名稱':'教材名稱'} value={draft.title} disabled={busy} onChange={title=>onChange({...draft,title})}/>
+   {/* 由上到下：不可改的原始需求→名稱→學習目標→摘要與確認；寬螢幕時整欄跟著捲動停在畫面上。 */}
    <section><h3>原始學習需求</h3><p className="topic-original-request">{request}</p></section>
+   <MaterialNameField maxLength={supplemental?180:40} label={supplemental?'這次補充的名稱':'教材名稱'} value={draft.title} disabled={busy} onChange={title=>onChange({...draft,title})}/>
    <ScopeList label="學習目標" itemLabel="學習目標" addLabel="新增學習目標" items={draft.goals} busy={busy} onChange={goals=>onChange({...draft,goals})} error={hasGoals?undefined:'請至少保留一個學習目標。'}/>
    {draft.goals.some(item=>item.length>500)&&<p className="form-error" role="alert">每個學習目標最多 500 字，請縮短後再確認。</p>}
    {totalLength>12000&&<p className="form-error" role="alert">觀念與學習目標合計最多 12000 字，請縮短後再確認。</p>}
-   <div className="topic-scope-learning"><p className="topic-scope-count">將搜尋 {count} 個觀念</p>{settings}</div>
+   <div className="topic-scope-learning"><p className="topic-scope-count">將搜尋 {count} 個觀念、{draft.goals.filter(x=>x.trim()).length} 個學習目標</p>{settings}</div>
    <div className="topic-scope-confirm-actions">{actions}</div>
   </aside>
  </div>;
 }
 
-export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
+/** embedded：教材補充學習在教材頁首內顯示，返回由教材頁首負責。 */
+export function TopicPage({api,topicId,embedded=false}:{api:StudydyApiClient;topicId?:string;embedded?:boolean}){
  const [request,setRequest]=useState(''),[view,setView]=useState<Topic|null>(null),[draft,setDraft]=useState<Scope|null>(null),[selected,setSelected]=useState<string[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
  const [learningSettings,setLearningSettings]=useState<CreationSettings>({goal:null});
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -101,12 +103,14 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
  if(v.status==='pending'||v.research&&(active.has(v.research.status)||v.research.run&&['pending','running'].includes(v.research.run.status)))timer=setTimeout(read,1800);
  }catch(e){if(!stop){if(isNotFound(e)&&!viewLoaded.current)setNotFound(true);else setError(errorMessage(e));}}};void read();return()=>{stop=true;clearTimeout(timer);};},[api,topicId,reload]);
  const perform=async(fn:()=>Promise<unknown>)=>{setBusy(true);setError('');try{await fn();if(alive.current)setReload(v=>v+1);}catch(e){if(alive.current)setError(errorMessage(e));}finally{if(alive.current)setBusy(false);}};
- const generate=()=>perform(async()=>{const payload={request,...(view?.material_id?{material_id:view.material_id}:{})};const body=JSON.stringify(payload);if(createIntent.current?.body!==body)createIntent.current={body,key:crypto.randomUUID()};const t=await api.studyTools<Topic>('/v1/topics',payload,createIntent.current.key);createIntent.current=null;if(alive.current)writeRoute({name:'topic',topicId:t.topic_id});});
+ const generate=()=>perform(async()=>{const payload={request,...(view?.material_id?{material_id:view.material_id}:{})};const body=JSON.stringify(payload);if(createIntent.current?.body!==body)createIntent.current={body,key:crypto.randomUUID()};const t=await api.studyTools<Topic>('/v1/topics',payload,createIntent.current.key);createIntent.current=null;if(alive.current)writeRoute({name:'topic',topicId:t.topic_id,...(t.material_id?{materialId:t.material_id}:{})});});
  const actResearch=(action:string,ids?:string[])=>perform(async()=>{
   const result=await api.studyTools<Research>(`/v1/research/${view?.research_id}/actions`,{action,...(ids?{selected:ids}:{})});
   if(alive.current)setView(previous=>previous?.research_id===result.research_id?{...previous,research:result}:previous);
  });
  const work=view?.research,working=!!work&&active.has(work.status);
+ // 舊網址 /topics/{id} 開到教材補充學習時，換成教材內網址。
+ useEffect(()=>{if(view?.material_id&&!embedded)writeRoute({name:'topic',topicId:view.topic_id,materialId:view.material_id},true);},[view?.material_id,embedded]);
  useEffect(()=>{if(view?.material_id&&view.status==='approved'&&view.research_id)writeRoute({name:'research',materialId:view.material_id,researchId:view.research_id});},[view?.material_id,view?.status,view?.research_id]);
  const back=()=>writeRoute(view?.material_id?{name:'material-content',materialId:view.material_id,kind:'research'}:{name:'materials'});
 
@@ -175,7 +179,7 @@ export function TopicPage({api,topicId}:{api:StudydyApiClient;topicId?:string}){
   </section>
  </section>;
  return <section className={`flow-page topic-page${confirmingScope?" topic-scope-confirmation":searchingSources?" topic-search-page":""}`}>
- <FlowHeader className={confirmingScope?'topic-scope-page-header':searchingSources?'topic-search-page-header':undefined} back={<BackLink label={view?.material_id?'返回補充學習':'返回我的教材'} onClick={back}/>} title={view?.status==='approved'?(view.proposal?.title??'搜尋教材來源'):view?.material_id?'確認補充學習需求':'從主題建立教材'} description={view?.status==='approved'?'依已確認的學習範圍查看來源與處理進度。':'先確認想查找的觀念與細節，再搜尋並核對來源。'}/>
+ <FlowHeader className={confirmingScope?'topic-scope-page-header':searchingSources?'topic-search-page-header':undefined} back={embedded?undefined:<BackLink label={view?.material_id?'返回補充學習':'返回我的教材'} onClick={back}/>} title={view?.status==='approved'?(view.proposal?.title??'搜尋教材來源'):view?.material_id?'確認補充學習需求':'從主題建立教材'} description={view?.status==='approved'?'依已確認的學習範圍查看來源與處理進度。':'先確認想查找的觀念與細節，再搜尋並核對來源。'}/>
  <LearningSteps labels={view?.material_id?[...topicSteps.slice(0,-1),'補充教材']:topicSteps} current={step}/>
  {(inputStage||view?.status!=='ready')&&errorNotice}
  {inputStage&&<FlowStage className="topic-request" icon="sparkle" title="你想學什麼？" description="可以是一個主題、一個問題，或想完成的學習目標。"

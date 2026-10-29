@@ -53,7 +53,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
       if (alive.current) {
         intent.current = null;
         onDraftChange?.({query:'',tasks:tasks.current});
-        writeRoute({name:'topic',topicId:result.topic_id});
+        writeRoute({name:'topic',topicId:result.topic_id,materialId});
       }
     } catch (error) { if (alive.current) setSearchError(errorMessage(error)); }
     finally { creating.current = false; if (alive.current) setBusy(false); }
@@ -70,7 +70,6 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
     } catch (error) { if (alive.current) setListError(errorMessage(error)); }
     finally { if (alive.current) setRemovingScope(null); }
   };
-  const stopped = list?.filter(item => item.status === 'cancelled') ?? [];
   const renderRecord = (item: ResearchSummary) => {
         const info = researchTaskInfo(item), route = {name:'research' as const,materialId,researchId:item.research_id};
         return <article className={`surface library-item research-record is-${info.tone}`} key={item.research_id} aria-label={item.query}>
@@ -103,13 +102,9 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
         {searchError && <p className="form-error" role="alert">{searchError}</p>}
       </section>
       {listError && <p className="form-error" role="alert">{listError}<button className="text-button" type="button" onClick={() => void refresh().catch(error => setListError(errorMessage(error)))}>重新讀取查詢</button></p>}
-      {scopes.map(scope=><article className="surface research-record research-scope" key={scope.topic_id}><h2 title={scope.request}>{scope.request}</h2><p>{scope.status==='pending'?'正在整理觀念與細節，尚未搜尋。':scope.status==='failed'?'需求規劃未完成，可重試。':'待確認搜尋範圍，尚未搜尋。'}</p>{confirmingScope===scope.topic_id?<InlineConfirm message="取消這個補充規劃？不會刪除教材或其他查詢。" cancelLabel="保留" confirmLabel="取消規劃" busyLabel="正在取消…" busy={removingScope===scope.topic_id} onCancel={()=>setConfirmingScope(null)} onConfirm={()=>void removeScope(scope)}/>:<div className="tool-footer-secondary"><button className="primary-button" disabled={removingScope!==null} onClick={()=>writeRoute({name:'topic',topicId:scope.topic_id})}>查看搜尋範圍</button><button className="text-button" data-inline-confirm-trigger disabled={removingScope!==null} onClick={()=>setConfirmingScope(scope.topic_id)}>取消這個規劃</button></div>}</article>)}
+      {scopes.map(scope=><article className="surface research-record research-scope" key={scope.topic_id}><h2 title={scope.request}>{scope.request}</h2><p>{scope.status==='pending'?'正在整理觀念與細節，尚未搜尋。':scope.status==='failed'?'需求規劃未完成，可重試。':'待確認搜尋範圍，尚未搜尋。'}</p>{confirmingScope===scope.topic_id?<InlineConfirm message="取消這個補充規劃？不會刪除教材或其他查詢。" cancelLabel="保留" confirmLabel="取消規劃" busyLabel="正在取消…" busy={removingScope===scope.topic_id} onCancel={()=>setConfirmingScope(null)} onConfirm={()=>void removeScope(scope)}/>:<div className="tool-footer-secondary"><button className="primary-button" disabled={removingScope!==null} onClick={()=>writeRoute({name:'topic',topicId:scope.topic_id,materialId})}>查看搜尋範圍</button><button className="text-button" data-inline-confirm-trigger disabled={removingScope!==null} onClick={()=>setConfirmingScope(scope.topic_id)}>取消這個規劃</button></div>}</article>)}
       {list?.length === 0 && scopes.length===0 && <EmptyState title="還沒有補充查詢" description="在上方輸入想多了解的內容；建立查詢後，可從卡片開啟來源與處理進度。" />}
-      <div className="library-grid research-records" role="region" tabIndex={0} aria-label="補充搜尋紀錄">{list?.filter(item => item.status !== 'cancelled').map(renderRecord)}</div>
-      {!!stopped.length && <details className="research-stopped">
-        <summary>已停止的查詢 · {stopped.length} 筆</summary>
-        <div className="library-grid research-records">{stopped.map(renderRecord)}</div>
-      </details>}
+      <div className="library-grid research-records" role="region" tabIndex={0} aria-label="補充搜尋紀錄">{/* 已停止的查詢與其他紀錄放在一起，只以狀態標籤區分，排在最後。 */}{list && [...list.filter(item => item.status !== 'cancelled'), ...list.filter(item => item.status === 'cancelled')].map(renderRecord)}</div>
     </div>
   </section>;
 }

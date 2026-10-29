@@ -67,6 +67,7 @@ function MaterialFlowBody({
 }) {
   if (route.name === "not-found") return <NotFoundView />;
   if (route.name === "material") return <MaterialEntry key={route.materialId} apiClient={apiClient} materialId={route.materialId} />;
+  if (route.name === "topic" && route.materialId) return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind="research"><TopicPage key={route.topicId} api={apiClient} topicId={route.topicId} embedded/></MaterialContent>;
   if (route.name === "topics" || route.name === "topic") return <TopicPage key={route.name === "topic" ? route.topicId : "new"} api={apiClient} topicId={route.name === "topic" ? route.topicId : undefined}/>;
   if ("materialId" in route && route.materialId && ["podcast", "podcast-create", "card-set", "card-set-edit", "card-set-create", "card-review"].includes(route.name)) {
     const kind = route.name.startsWith("podcast") ? "podcasts" : "concept-cards";

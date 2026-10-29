@@ -87,9 +87,16 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
   return <section className="cards-page supplementary-page research-detail">
     {contentNavigation}
     <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
-      <header className="research-scope-header"><div><h1 className="research-scope-title">{view?.approved_scope?.title ?? '補充學習'}</h1>
-        {view && <details><summary>本次補充範圍</summary><p>{view.query}</p>{view.approved_scope && <ul>{view.approved_scope.topics.map((topic,i)=><li key={i}>{topic}</li>)}</ul>}</details>}
-      </div>{view && <LearningSteps labels={[...topicSteps.slice(0,-1),'補充教材']} current={completed?4:currentStage===2?3:2} label="補充學習流程"/>}</header>
+      {/* 版型比照其他流程頁：標題、獨立一列的步驟條，補充範圍是可展開的卡片（平常只列主題名稱）。 */}
+      <header className="research-scope-header"><h1 className="research-scope-title">{view?.approved_scope?.title ?? '補充學習'}</h1>
+        {view && <LearningSteps labels={[...topicSteps.slice(0,-1),'補充教材']} current={completed?4:currentStage===2?3:2} label="補充學習流程"/>}
+        {view && <details className="surface research-scope-card"><summary>
+          <strong>本次補充範圍</strong>{view.approved_scope && <span className="research-scope-count">{view.approved_scope.topics.length} 個主題</span>}
+          {view.approved_scope && <span className="research-scope-chips">{view.approved_scope.topics.map((topic,i)=><span key={i}>{topic.split('：')[0]}</span>)}</span>}</summary>
+          <p className="research-scope-query">{view.query}</p>
+          {view.approved_scope && <ol className="research-scope-topics">{view.approved_scope.topics.map((topic,i)=>{ const [name,...rest]=topic.split('：'); return <li key={i}>{rest.length ? <><strong>{name}</strong><span>{rest.join('：')}</span></> : topic}</li>; })}</ol>}
+        </details>}
+      </header>
       {!view ? <StateView title={error ? '無法讀取查詢' : '正在讀取查詢'} description={error || '正在載入來源與處理進度。'} tone={error ? 'failure' : 'loading'} live={!error} skeleton="page"
         action={error ? <button type="button" className="secondary-button" onClick={() => setReload(value => value + 1)}>重新讀取</button> : undefined}/> : <>
         {error && <p className="form-error" role="alert">{error}</p>}

@@ -303,7 +303,7 @@ test('supplement requires editable scope confirmation before creating research',
  await page.route(`**/v1/topics/${tid}/approve`,r=>{searches++;expect(r.request().postDataJSON().proposal.topics[1]).toBe('停止：重試沒有進展時交由人類判斷');scope={...scope,status:'approved',research_id:cid,version:3};return json(r,scope);});
  await page.route(`**/v1/research/${cid}`,r=>json(r,work));
  await page.goto(`/materials/${materialId}/research`);await page.getByLabel('想多了解什麼？',{exact:true}).fill(scope.request);await page.getByRole('button',{name:'產生搜尋範圍',exact:true}).click();
- await expect(page).toHaveURL(new RegExp(`/topics/${tid}$`));await expect(page.getByRole('heading',{name:'確認學習範圍',exact:true})).toBeVisible();expect(plans).toBe(1);expect(searches).toBe(0);
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/research/scopes/${tid}$`));await expect(page.getByRole('heading',{name:'確認學習範圍',exact:true})).toBeVisible();expect(plans).toBe(1);expect(searches).toBe(0);
  await page.reload();await expect(page.getByLabel('想了解的細節 2',{exact:true})).toHaveValue('何時結束重試');expect(searches).toBe(0);
  await page.getByLabel('想了解的細節 2',{exact:true}).fill('重試沒有進展時交由人類判斷');
  await page.getByRole('button',{name:'確認範圍並搜尋',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/research/${cid}$`));expect(searches).toBe(1);
@@ -311,7 +311,7 @@ test('supplement requires editable scope confirmation before creating research',
  await expect(page.getByRole('button',{name:'查看搜尋範圍',exact:true})).toHaveCount(0);
 });
 
-test('compact research panels keep desktop actions on screen and scroll only history or sources',async({page})=>{
+test('research history scrolls inside its list and detail actions remain reachable through page scrolling',async({page})=>{
  await mockKnowledgeMapApi(page,structureView());
  const candidates=Array.from({length:24},(_,i)=>({id:`source-${i}`,kind:'official',title:`補充來源 ${i+1}`,authors:'Fixture',year:2026,url:'https://docs.python.org/3/',doi:null,license:'PSF-2.0',license_url:null,version:'3',eligible:true,reason:'fixture',state:'ready'}));
  let status='selecting';
@@ -330,18 +330,13 @@ test('compact research panels keep desktop actions on screen and scroll only his
   for(const next of ['selecting','ready','normalizing','submitted']) {
    status=next;await page.goto(`/materials/${materialId}/research/${cid}`);
    await expect(page.locator('.research-candidates article')).toHaveCount(10);
-   const body=(await page.locator('.research-detail-body').boundingBox())!;
-   expect(body.y+body.height).toBeLessThanOrEqual(height-72);
-   expect(await page.evaluate(()=>document.documentElement.scrollHeight)).toBeLessThanOrEqual(height);
    const sources=page.locator('.research-candidates');
-   expect(await sources.evaluate(el=>el.clientHeight)).toBeGreaterThan(80);
-   const overflow=await sources.evaluate(el=>el.scrollHeight-el.clientHeight);
-   await sources.evaluate(el=>{el.scrollTop=el.scrollHeight;});
-   expect(await sources.evaluate(el=>el.scrollTop)).toBeCloseTo(Math.max(0,overflow),0);
-   expect(await page.evaluate(()=>scrollY)).toBe(0);
+   await sources.locator('article').last().scrollIntoViewIfNeeded();
+   await expect(sources.locator('article').last()).toBeInViewport();
    const action=page.getByRole('button',{name:next==='ready'?'確認加入教材':next==='submitted'?'查看教材分析':next==='normalizing'?'停止處理':'取得選取的 0 份來源',exact:true});
-   const button=(await action.boundingBox())!;
-   expect(button.y+button.height).toBeLessThanOrEqual(height-72);
+   await action.scrollIntoViewIfNeeded();
+   await expect(action).toBeInViewport();
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(width);
    if(next==='ready') await expect(page.getByLabel('我了解加入後不可逆')).toBeVisible();
   }
  }
@@ -425,8 +420,8 @@ test('verified answer paragraphs keep their own citations and open source previe
  const paragraphs=page.locator('.voice-answer');
  await expect(paragraphs).toHaveCount(2);await expect(paragraphs.first().getByRole('button')).toHaveText('[1]');
  await expect(paragraphs.nth(1)).toHaveText('補充說明。');
- const marker=paragraphs.first().getByRole('button');await marker.hover();await expect(page.getByRole('tooltip')).toContainText(evidence.quote);
- await marker.click();const panel=page.getByRole('dialog',{name:'教材來源'});await expect(panel).toBeVisible();
+ const marker=paragraphs.first().getByRole('button');await marker.click();await expect(page.getByRole('dialog',{name:'教材來源'})).toContainText(evidence.quote);
+ const panel=page.getByRole('dialog',{name:'教材來源'});await expect(panel).toBeVisible();
  const sourceLink=panel.getByRole('link',{name:'開啟 PDF 來源頁',exact:true});await expect(sourceLink).toHaveAttribute('href',/#page=1$/);
  const [preview]=await Promise.all([page.waitForEvent('popup'),sourceLink.click()]);
  await expect(preview.getByRole('heading')).toHaveText('教材來源 · 第 1 頁');await preview.close();

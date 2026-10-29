@@ -332,7 +332,11 @@ for(const supplemental of [false,true])test(`six scope concepts preserve the req
  await expect(page.getByLabel('觀念名稱 6',{exact:true})).toHaveValue('輸出與逐步生成');await expect(page.getByLabel('想了解的細節 6',{exact:true})).toHaveValue('');
  for(const [width,height] of [[1440,900],[1300,900],[1280,900],[1200,900],[1024,768],[390,844]]){
   await page.setViewportSize({width,height});await page.evaluate(()=>window.scrollTo(0,0));
-  if(width>=1280){for(const card of await page.locator('.topic-concept-card').all())await expect(card).toBeInViewport({ratio:1});await expect(page.getByRole('button',{name:'確認範圍並搜尋',exact:true})).toBeInViewport({ratio:1});}
+  for(const card of await page.locator('.topic-concept-card').all()){
+   await card.scrollIntoViewIfNeeded();await expect(card).toBeInViewport({ratio:1});
+  }
+  const confirm=page.getByRole('button',{name:'確認範圍並搜尋',exact:true});
+  await confirm.scrollIntoViewIfNeeded();await expect(confirm).toBeInViewport({ratio:1});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath(`scope-six-${supplemental?'supplement':'new'}-${width}.png`),animations:'disabled'});
  }

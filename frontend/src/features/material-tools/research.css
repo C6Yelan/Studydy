@@ -156,8 +156,6 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .research-status.is-pending, .research-status.is-processing { background:var(--studydy-blue-soft); color:var(--studydy-blue); }
 .research-status.is-complete { background:var(--success-soft); color:#087a45; }
 .research-status.is-attention { background:var(--warning-soft); color:#7a5300; }
-.research-stopped { margin-top:16px; color:var(--text-secondary); font-size:13px; }
-.research-stopped > summary { margin-bottom:12px; font-weight:800; cursor:pointer; }
 @media(max-width:720px) {
   .research-library .research-head { flex-direction:column; align-items:flex-start; gap:8px; }
   .research-library .research-records { grid-template-columns:minmax(0,1fr); }
@@ -214,6 +212,9 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
   .research-detail-body > .source-picker { flex:1; min-height:0; }
   .research-detail .source-picker > :not(.research-candidates) { flex-shrink:0; }
   .research-detail .source-picker .research-candidates { flex:1; min-height:0; max-height:none; overflow-y:auto; }
+  /* 查詢詳情改為整頁自然捲動，來源清單完整展開，不在小框內捲動；只有查詢紀錄列表維持一屏。 */
+  .material-content:has(.research-detail) { height:auto; }
+  .research-detail .research-workspace, .research-detail .research-detail-body, .research-detail-body > .source-picker, .research-detail .source-picker .research-candidates { flex:none; overflow:visible; }
 }
 
 .research-scope-title { margin:0; font-size:1.25rem; overflow-wrap:anywhere; }
@@ -233,11 +234,20 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 @media(max-width:720px) { .research-topic-statuses { grid-template-columns:1fr; } }
 
 .research-scope-header { display:grid; gap:.75rem; margin-bottom:.75rem; }
-.research-scope-header > div { min-width:0; }
-.research-scope-header details { margin-top:.35rem; font-size:.8125rem; color:var(--text-secondary); overflow-wrap:anywhere; }
-.research-scope-header summary { cursor:pointer; font-weight:700; }
+.research-scope-card { padding:12px 16px; }
+.research-scope-card > summary { display:flex; align-items:center; gap:10px; min-width:0; cursor:pointer; list-style:none; }
+.research-scope-card > summary::-webkit-details-marker { display:none; }
+.research-scope-card > summary > strong { flex-shrink:0; font-size:15px; }
+.research-scope-count { flex-shrink:0; padding:2px 10px; border-radius:999px; background:var(--studydy-blue-soft); color:var(--studydy-blue); font-size:12px; font-weight:800; }
+.research-scope-chips { display:flex; flex:1; gap:6px; min-width:0; overflow:hidden; }
+.research-scope-chips > span { flex-shrink:0; padding:3px 10px; border-radius:999px; background:var(--page-cool); color:var(--text-secondary); font-size:12px; white-space:nowrap; }
+.research-scope-card[open] .research-scope-chips { visibility:hidden; }
+.research-scope-query { margin:12px 0 8px; color:var(--text-secondary); font-size:14px; overflow-wrap:anywhere; }
+.research-scope-topics { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px 24px; margin:0; padding-left:1.25rem; font-size:14px; line-height:1.6; }
+.research-scope-topics strong { display:block; color:var(--text-primary); }
+.research-scope-topics span { color:var(--text-secondary); }
+@media(max-width:720px) { .research-scope-topics { grid-template-columns:1fr; } .research-scope-chips { display:none; } }
 @media(min-width:1280px) {
- .research-scope-header { grid-template-columns:minmax(10rem,.3fr) minmax(0,1fr); align-items:center; }
  .research-topic-progress:has(.research-found-sources) { display:grid; grid-template-columns:minmax(0,1fr) minmax(16rem,.7fr); align-items:start; gap:1rem; }
  .research-topic-progress .research-found-sources { margin:0; }
 }
