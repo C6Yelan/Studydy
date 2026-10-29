@@ -289,9 +289,6 @@ export function SourceView({
                 {source.source_kind === "document" && source.analysis_mode === "selected" && source.analysis_page_count != null && <span>依學習需求選讀 {source.analysis_page_count} 頁中的相關段落</span>}
                 {currentStructure && <span className={source.included ? "is-included" : undefined}>{source.included ? "目前地圖使用中" : "尚未納入目前地圖"}</span>}
               </div>
-              {source.normalized_artifact_id && timedMedia.has(source.media_type) && <button
-                type="button" className="text-button source-transcript-link" disabled={removing}
-                onClick={event => { transcriptOpener.current = event.currentTarget; setTranscript(source); }}>查看逐字稿</button>}
               {source.status !== "ready" && (
                 <p className={source.status === "failed" ? "form-error" : "source-progress"} role="status">
                   {source.status === "pending"
@@ -310,6 +307,10 @@ export function SourceView({
               )}
             </div>
             <div className="source-row-actions">
+              {/* 音訊／影片／YouTube 的逐字稿與其他教材的「預覽 PDF」放在同一排按鈕。 */}
+              {source.normalized_artifact_id && timedMedia.has(source.media_type) && <button
+                type="button" className="text-button" disabled={removing}
+                onClick={event => { transcriptOpener.current = event.currentTarget; setTranscript(source); }}>查看逐字稿</button>}
               {source.normalized_artifact_id && !timedMedia.has(source.media_type) && (
                 <a
                   className="text-button"

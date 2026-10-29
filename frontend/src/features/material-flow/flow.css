@@ -152,8 +152,8 @@
 .source-content .form-error { margin:4px 0 0; font-size:12px; }
 .source-technical { margin-top:4px; color:var(--text-secondary); font-size:12px; }
 .source-row-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:6px; flex:none; max-width:55%; }
-.source-row-actions :is(a.text-button, .source-remove) { display:inline-flex; align-items:center; min-height:32px; padding:0 12px; border-radius:999px; background:var(--surface); color:var(--studydy-blue); font-size:13px; text-decoration:none; }
-.source-row-actions a.text-button:hover { background:var(--studydy-blue); color:#fff; }
+.source-row-actions :is(a.text-button, button.text-button, .source-remove) { display:inline-flex; align-items:center; min-height:32px; padding:0 12px; border-radius:999px; background:var(--surface); color:var(--studydy-blue); font-size:13px; text-decoration:none; }
+.source-row-actions .text-button:hover:not(:disabled) { background:var(--studydy-blue); color:#fff; }
 .source-row-actions .source-download { color:var(--text-secondary); }
 .source-row-actions .source-remove { color:var(--error); }
 .source-row-actions .source-remove:hover:not(:disabled) { background:var(--error-soft); }
