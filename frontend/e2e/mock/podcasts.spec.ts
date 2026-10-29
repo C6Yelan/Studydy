@@ -89,13 +89,14 @@ test("management menu renames with conflict recovery; deletion needs confirmatio
 
 test('unfinished Podcasts show only saved progress, cancel and retry',async({page})=>{
  const fixture=await mockPodcasts(page);
- fixture.view.generation={active:true,completed_videos:0,failed_videos:0,steps:[{episode_index:1,step:'script',status:'running',started_at:null,elapsed_seconds:12,queue_ahead:null}]};
+ fixture.view.generation={active:true,completed_videos:0,failed_videos:0,steps:[{episode_index:0,step:'script',status:'completed',started_at:null,elapsed_seconds:12,queue_ahead:null},{episode_index:1,step:'script',status:'running',started_at:null,elapsed_seconds:12,queue_ahead:null}]};
  await page.goto(`/podcasts/${podcastId}`);
  const progress=page.getByRole('region',{name:'Podcast 生成進度'});
- await expect(progress.getByRole('status')).toHaveText('第 2 / 3 集 · 寫講稿 · 進行中');
+ await expect(progress.getByRole('heading',{name:'第 2 / 3 集'})).toBeVisible();
+ await expect(progress.locator('.status-timeline .is-active')).toHaveText('寫講稿進行中');
  await expect(page.locator('video,audio,.media-playback-controls')).toHaveCount(0);
- fixture.view.episodes[1].script=fixture.script;fixture.view.generation!.steps![0].step='audio';
- await expect(progress.getByRole('status')).toHaveText('第 2 / 3 集 · 配音 · 進行中');
+ fixture.view.episodes[1].script=fixture.script;fixture.view.generation!.steps![1].step='audio';
+ await expect(progress.locator('.status-timeline .is-active')).toHaveText('配音進行中');
  fixture.view.status='cancelled';
  await expect(progress.getByRole('button',{name:'接續生成'})).toBeVisible();
  await expect(page.locator('video,audio,.media-playback-controls')).toHaveCount(0);
@@ -303,14 +304,12 @@ test("saved dialogue transcripts keep roles and switch with the selected episode
   await page.getByRole('tab', { name: '逐字稿', exact:true }).click();
   await page.locator('#podcast-transcript-panel').evaluate(element => {element.scrollTop = element.scrollHeight;});
   expect(await page.locator('#podcast-transcript-panel').evaluate(element => element.scrollTop)).toBeGreaterThan(0);
-  await page.getByRole('tab',{name:'分集',exact:true}).click();
   await page.getByRole('complementary', { name: '分集清單' }).getByRole('button').nth(1).click();
   await page.getByRole('tab',{name:'逐字稿',exact:true}).click();
   const second = page.locator('.podcast-transcript');
   await expect(second).toContainText('第二集的說明。');
   await expect(second).not.toContainText('第一集');
   expect(await page.locator('#podcast-transcript-panel').evaluate(element => element.scrollTop)).toBe(0);
-  await page.getByRole('tab',{name:'分集',exact:true}).click();
   await page.getByRole('complementary', { name: '分集清單' }).getByRole('button').nth(2).click();
   await page.getByRole('tab',{name:'逐字稿',exact:true}).click();
   await expect(page.locator('.podcast-transcript')).toContainText('這是合成的教材講解。');
@@ -393,15 +392,17 @@ test('formal video player shares controls, transcript seek, pages and logout bou
   const video=page.locator('video');await expect(video).toHaveCount(1);await expect(page.locator('audio')).toHaveCount(0);
   await expect(page.getByRole('button',{name:'播放',exact:true})).toBeEnabled();
   const display=(await page.locator('.media-display').boundingBox())!,controls=(await page.locator('.media-playback-controls').boundingBox())!;
-  // 控制列在播放器內、影片下方。
-  await expect(page.locator('.podcast-controls-bar')).toBeVisible();expect(controls.y).toBeGreaterThanOrEqual(display.y+display.height);
+  // 有影片時控制列比照 YouTube 疊在影片底部，不另占一排。
+  expect(controls.y+controls.height).toBeLessThanOrEqual(display.y+display.height+1);
+  await page.getByRole('tab',{name:'章節',exact:true}).click();
   await page.getByRole('navigation',{name:'本集章節'}).getByRole('button',{name:/後半說明/}).click();
   await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeCloseTo(6,1);
+  await page.getByRole('tab',{name:'逐字稿',exact:true}).click();
   const transcript=page.getByRole('tabpanel',{name:'逐字稿',exact:true});
   await expect(transcript.getByRole('button',{name:/後半段/})).toHaveAttribute('aria-current','true');
   await transcript.getByRole('button',{name:/前半段/}).click();await page.getByRole('button',{name:'播放',exact:true}).click();
   await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeGreaterThan(.2);
-  await page.getByRole('button',{name:'播放設定',exact:true}).click();await page.getByRole('button',{name:'1.5×',exact:true}).click();
+  await page.getByRole('button',{name:'播放設定',exact:true}).click();await page.getByRole('button',{name:'1.5',exact:true}).click();
   expect(await video.evaluate((v:HTMLVideoElement)=>v.playbackRate)).toBe(1.5);
   await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
   await page.getByRole('button',{name:'播放設定',exact:true}).click();await page.getByRole('button',{name:'全螢幕',exact:true}).click();
@@ -415,7 +416,8 @@ test('preview waits for every video and audio, including direct links',async({pa
   const mock=await mockEpisodeVideo(page,'pending');await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByRole('region',{name:'Podcast 生成進度'})).toBeVisible();
   await expect(page.locator('video,audio,.podcast-watch-layout')).toHaveCount(0);
-  await expect(page.getByText('音訊 3 / 3 集 · 影片 1 / 3 集', {exact:false})).toBeVisible();
+  await expect(page.getByRole('heading', {name:'整體進度',exact:true})).toBeVisible();
+  await expect(page.getByText('已完成 0 / 3 集；全部完成後對齊字幕並開啟預覽。', {exact:true})).toBeVisible();
   mock.ready();
   await expect(page.locator('video')).toHaveCount(1);
   await expect(page.locator('audio')).toHaveCount(0);
@@ -486,7 +488,6 @@ test('deleting one episode video keeps its audio, transcript and other episodes'
   await page.goto(`/podcasts/${podcastId}`);
   const media=page.locator('video');
   await expect(media).toHaveAttribute('src',/\/episodes\/0\/video\/media$/);
-  await page.getByLabel('更多本集操作').click();
   await page.getByRole('button',{name:'刪除本集影片'}).click();
   const confirm=page.getByRole('group',{name:'刪除影片確認'});
   await expect(confirm).toContainText('音訊、逐字稿與收聽進度都會保留');
@@ -498,7 +499,6 @@ test('deleting one episode video keeps its audio, transcript and other episodes'
   expect(deletes).toHaveLength(1);expect(deletes[0]).toMatch(/^0:http/);
   await expect(page.getByRole('button',{name:'刪除本集影片'})).toHaveCount(0);
   await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByRole('button',{name:/前半段/})).toBeVisible();
-  await page.getByRole('tab',{name:'分集',exact:true}).click();
   await page.getByRole('navigation',{name:'分集清單'}).or(page.getByRole('complementary',{name:'分集清單'})).getByRole('button').nth(1).click();
   await page.getByRole('tab',{name:'逐字稿',exact:true}).click();
   await expect(media).toHaveAttribute('src',/\/episodes\/1\/video\/media$/);
@@ -516,7 +516,6 @@ test('a ready episode video can be deleted while other episodes are still prepar
   });
   await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByRole('region',{name:'Podcast 生成進度'})).toBeVisible();
-  await page.getByLabel('更多本集操作').click();
   await page.getByRole('button',{name:'刪除本集影片'}).click();
   await page.getByRole('group',{name:'刪除影片確認'}).getByRole('button',{name:'刪除影片'}).click();
   await expect(page.getByRole('button',{name:'刪除本集影片'})).toHaveCount(0);
@@ -532,8 +531,7 @@ test('video progress counts only episodes that will have a video',async({page})=
   // 勾選影片的舊節目：只有 1 集缺影片工作待補，其餘已完成或已刪除。
   fixture.view.generation={active:false,preview_ready:false,retryable_videos:true,completed_videos:1,failed_videos:0,expected_videos:2};
   await page.goto(`/podcasts/${podcastId}`);
-  await expect(page.getByText('音訊 3 / 3 集 · 影片 1 / 2 集',{exact:false})).toBeVisible();
-  await expect(page.getByRole('progressbar',{name:'已完成影音集數'})).toHaveAttribute('aria-valuemax','5');
+  await expect(page.getByRole('heading',{name:'整體進度'})).toBeVisible();
   await expect(page.getByRole('button',{name:'接續生成'})).toBeVisible();
   await page.goto('/podcasts');
   await expect(page.getByText(/影片 1 \/ 2 集/)).toBeVisible();
@@ -601,8 +599,8 @@ test('Podcast keeps teaching transcript and removes retired interaction surfaces
   await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true})).toContainText('第二個來源比較');
   for(const name of ['問目前播放這一段','問這一段','查看這段來源','同步圖卡','檢測 Podcast 涵蓋的概念']) await expect(page.getByText(name,{exact:true})).toHaveCount(0);
   await expect(page.locator('video track')).toHaveCount(1);
-  await expect(page.locator('.podcast-companion > .surface')).toHaveCount(1);
-  await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByRole('navigation',{name:'本集章節'})).toBeVisible();
+  await expect(page.locator('.podcast-companion-stack')).toHaveCount(1);
+  await expect(page.getByRole('tab',{name:'章節',exact:true})).toBeVisible();
   await expect(page.getByRole('tab',{name:'逐字稿',exact:true})).toHaveAttribute('aria-selected','true');
   await expect(page.getByRole('tabpanel',{name:'本集重點',exact:true})).toHaveCount(0);
 });
@@ -624,19 +622,20 @@ test('video surface toggles once and controls recover from idle with keyboard an
 
 test.describe('touch playback',()=>{
  test.use({hasTouch:true,isMobile:true,viewport:{width:390,height:844}});
- // 控制列在影片下方，播放中也可操作；點影片仍可暫停。
- test('taps toggle once and inline controls remain visible below the video',async({page})=>{
+ // 控制列在影片內，閒置收起；點影片仍可暫停並喚回操作。
+ test('taps toggle once and reveal overlay controls after idle',async({page})=>{
   // 時鐘照常走，快轉越過 2.5 秒閒置計時，不必真的等待。
   await page.clock.install();
   await mockEpisodeVideo(page);await page.goto(`/podcasts/${podcastId}`);
   const video=page.locator('video'),controls=page.locator('.media-playback-controls');
+  await expect(page.getByRole('button',{name:'播放',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'播放',exact:true}).tap();
   await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.paused)).toBe(false);
   await page.clock.fastForward(2800);
-  await expect(controls).toHaveCSS('opacity','1');
-  // 教材內沒有手機底部導覽，影片下方的控制列完整可見。
+  await expect(controls).toHaveCSS('opacity','0');
+  // 教材內沒有手機底部導覽，影片內控制列可喚回操作。
   await expect(page.getByRole('navigation',{name:'手機導覽'})).toBeHidden();
-  const dockBox=(await page.locator('.podcast-controls-bar').boundingBox())!;
+  const dockBox=(await page.locator('.media-viewport').boundingBox())!;
   expect(dockBox.y+dockBox.height).toBeLessThanOrEqual(844-8);
   const display=(await page.locator('.media-display').boundingBox())!;
   await page.touchscreen.tap(display.x+80,display.y+20);
@@ -645,9 +644,8 @@ test.describe('touch playback',()=>{
   await page.getByLabel('播放進度',{exact:true}).fill('0');
   await page.getByRole('button',{name:'播放設定',exact:true}).tap();
   await expect(page.getByRole('group',{name:'播放設定選單'}).getByLabel('自動播放下一集')).toBeVisible();
-  await page.getByRole('button',{name:'0.5×',exact:true}).tap();
+  await page.getByRole('slider',{name:'播放速度',exact:true}).fill('0.5');
   expect(await video.evaluate((v:HTMLVideoElement)=>v.playbackRate)).toBe(0.5);
-  await page.getByRole('button',{name:'播放設定',exact:true}).tap();
   await page.getByLabel('設定音量',{exact:true}).fill('0.5');
   expect(await video.evaluate((v:HTMLVideoElement)=>v.volume)).toBe(0.5);
   await page.getByRole('button',{name:'前進 10 秒',exact:true}).tap();
@@ -660,7 +658,7 @@ test.describe('touch playback',()=>{
   await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>v.currentTime)).toBeCloseTo(6,0);
   await page.getByRole('button',{name:'下一集',exact:true}).tap();
   await expect(page.getByRole('region',{name:'第 2 集播放器'})).toBeVisible();
-  const frame=(await page.locator('.podcast-controls-bar').boundingBox())!;
+  const frame=(await page.locator('.media-viewport').boundingBox())!;
   for(const button of await page.locator('.media-controls button:visible').all()) {
     const box=(await button.boundingBox())!;
     expect(box.width).toBeGreaterThanOrEqual(40);
@@ -670,21 +668,21 @@ test.describe('touch playback',()=>{
 });
 
 // 影片維持16:9；下方控制列維持一列。
-test('video keeps 16:9 and the inline controls stay one compact row at desktop, laptop and mobile widths', async ({ page }) => {
+test('video keeps 16:9 and the overlay controls stay one compact row at desktop, laptop and mobile widths', async ({ page }) => {
   await mockEpisodeVideo(page);
   await page.goto(`/podcasts/${podcastId}`);
   await expect(page.getByRole('button', { name: '播放', exact: true })).toBeEnabled();
   for (const [width, height] of [[1920, 1080], [1366, 768], [390, 844]]) {
     await page.setViewportSize({ width, height });
     const viewport = page.locator('.media-viewport');
-    const frame = (await page.locator('.podcast-controls-bar').boundingBox())!;
+    const frame = (await page.locator('.media-viewport').boundingBox())!;
     const display = (await page.locator('.media-display').boundingBox())!;
     const video = (await viewport.boundingBox())!;
     const controls = (await page.locator('.media-playback-controls').boundingBox())!;
     expect(display.width / display.height).toBeCloseTo(16 / 9, 2);
     expect(display.height).toBeCloseTo(video.height, 0);
-    await expect(page.locator('.podcast-controls-bar')).toHaveCSS('position', 'relative');
-    await expect(page.locator('.podcast-watch-meta')).toContainText('第 1 集');
+    await expect(page.locator('.media-playback-controls')).toHaveCSS('position', 'absolute');
+    await expect(page.locator('.podcast-episodes [aria-current="true"] .podcast-episode-number')).toHaveText('01');
     expect(controls.y + controls.height).toBeLessThanOrEqual(height);
     expect(controls.height).toBeLessThanOrEqual(110);
     const play = (await page.getByRole('button', { name: '播放', exact: true }).boundingBox())!;
@@ -732,12 +730,17 @@ test('overlay timeline, volume, speeds, episode navigation and fullscreen preser
   await page.getByRole('button', { name: '靜音', exact: true }).click();
   expect(await video.evaluate((v: HTMLVideoElement) => v.muted)).toBe(true);
   await page.getByRole('button', { name: '取消靜音', exact: true }).click();
-  for (const [label, rate] of [['0.5×', 0.5], ['正常', 1], ['2×', 2]] as const) {
-    await page.getByRole('button', { name: '播放設定', exact: true }).click();
+  // 速度選單比照 YouTube：選了常用速度或按加減後選單保留，可連續調整。
+  await page.getByRole('button', { name: '播放設定', exact: true }).click();
+  for (const [label, rate] of [['0.75', 0.75], ['1.0 正常', 1], ['2.0', 2]] as const) {
     await page.getByRole('button', { name: label, exact: true }).click();
     expect(await video.evaluate((v: HTMLVideoElement) => v.playbackRate)).toBe(rate);
     expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
   }
+  await page.getByRole('button', { name: '減慢', exact: true }).click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.playbackRate)).toBeCloseTo(1.95);
+  await page.getByRole('button', { name: '1.0 正常', exact: true }).click();
+  await page.getByRole('button', { name: '播放設定', exact: true }).click();
   await viewport.focus();
   await page.keyboard.press('ArrowLeft');
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBe(0);
@@ -810,11 +813,11 @@ test('companion tabs preserve episode playback, chapter seeking and one scrollin
   const video = page.locator('video');
   await expect(page.getByRole('button', { name: '播放', exact: true })).toBeEnabled();
   await expect(transcript.getByRole('button').first()).toBeEnabled();
-  await expect(companion.locator(':scope > .surface')).toHaveCount(1);
+  await expect(companion.locator(':scope > .podcast-companion-stack')).toHaveCount(1);
   await expect(transcriptTab).toHaveAttribute('aria-selected', 'true');
   await expect(companion.getByRole('tabpanel')).toHaveCount(1);
   const tabBox = (await transcriptTab.boundingBox())!;
-  await expect(page.getByRole('tabpanel', { name: '逐字稿', exact: true }).getByRole('navigation', { name: '本集章節' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '章節', exact: true })).toBeVisible();
   await transcript.evaluate(el => { el.scrollTop = 300; });
   expect(await transcript.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
   expect((await transcriptTab.boundingBox())!.y).toBeCloseTo(tabBox.y, 0);
@@ -832,10 +835,11 @@ test('companion tabs preserve episode playback, chapter seeking and one scrollin
   await expect(transcriptTab).toBeFocused();
   await expect(transcriptTab).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('End'); await expect(highlightsTab).toBeFocused();
-  await page.keyboard.press('Home'); await expect(page.getByRole('tab', {name:'分集',exact:true})).toBeFocused();
-  await transcriptTab.click();
+  await page.keyboard.press('Home'); await expect(page.getByRole('tab', {name:'章節',exact:true})).toBeFocused();
+  await page.getByRole('tab', {name:'章節',exact:true}).click();
   await page.getByRole('navigation', { name: '本集章節' }).getByRole('button', { name: /後半說明/ }).click();
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(6, 1);
+  await transcriptTab.click();
   const activeCue = transcript.getByRole('button', { name: /後半段/ });
   await expect(activeCue).toHaveAttribute('aria-current', 'true');
   await page.getByRole('button', { name: '播放', exact: true }).click();
@@ -844,7 +848,6 @@ test('companion tabs preserve episode playback, chapter seeking and one scrollin
   expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(false);
   await transcriptTab.click();
   await expect(activeCue).toHaveAttribute('aria-current', 'true');
-  await page.getByRole('tab',{name:'分集',exact:true}).click();
   await episodes.getByRole('button').nth(1).click();
   await expect(episodes.getByRole('button').nth(1)).toHaveAttribute('aria-current', 'true');
   await expect(video).toHaveAttribute('src', /episodes\/1\/video\/media$/);
@@ -858,14 +861,14 @@ test('companion tabs preserve episode playback, chapter seeking and one scrollin
   await expect.poll(() => transcript.evaluate(el => el.scrollHeight - el.clientHeight)).toBeGreaterThan(100);
   await expect(page.locator('.media-player')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
-  await expect(companion.locator(':scope > .surface')).toHaveCount(1);
+  await expect(companion.locator(':scope > .podcast-companion-stack')).toHaveCount(1);
   await highlightsTab.click();
   await expect(page.getByRole('tabpanel', { name: '本集重點', exact: true })).toBeVisible();
   // 重點同樣在固定高度內捲動。
   expect(await highlights.evaluate(el => getComputedStyle(el).overflowY)).toBe('auto');
 });
 
-test('watch page fills the left column with a 16:9 player, aligned title, companion column and controls below across screen sizes', async ({ page }, testInfo) => {
+test('watch page fills the left column with a 16:9 player, aligned title, companion column and overlay controls across screen sizes', async ({ page }, testInfo) => {
   await mockEpisodeVideo(page);
   for (const [width,height] of [[1536,730],[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]) {
     await page.setViewportSize({width,height}); await page.goto(`/podcasts/${podcastId}`);
@@ -881,15 +884,15 @@ test('watch page fills the left column with a 16:9 player, aligned title, compan
     await expect(page.locator('.podcast-watch-info')).not.toContainText('資料結構講義.pdf');
     if(width>720) {
       // 影片寬度＝左欄（受高度上限）；右欄吃掉剩餘寬度，兩者之間只有間距。
-      expect(viewport.width).toBeCloseTo(Math.min(layout.width-20-Math.min(400,Math.max(340,width*.26)),(height-165)*16/9),0);
+      expect(viewport.width).toBeCloseTo(Math.min(layout.width-20-Math.min(400,Math.max(340,width*.26)),(height-230)*16/9),0);
       expect(companion.x-(viewport.x+viewport.width)).toBeCloseTo(20,0);
       expect(companion.x).toBeGreaterThanOrEqual(viewport.x+viewport.width);
       expect(companion.width).toBeGreaterThanOrEqual(339);
       expect(companion.y).toBeCloseTo(viewport.y,0);
-      // 右欄與影片＋控制列同高，標題在影片下方（可在第一屏之外）。
+      // 右欄與播放器同高，標題在影片下方（可在第一屏之外）。
       const player=(await page.locator('.media-player').boundingBox())!;
       expect(companion.y+companion.height).toBeCloseTo(player.y+player.height,0);
-      await expect(page.locator('.podcast-companion .podcast-watch-meta')).toContainText('第 1 集');
+      await expect(page.locator('.podcast-companion .podcast-episodes [aria-current="true"] .podcast-episode-number')).toHaveText('01');
     } else {
       expect(viewport.width).toBeCloseTo(layout.width,0);
       expect(companion.y).toBeGreaterThanOrEqual(info.y+info.height);
@@ -939,10 +942,10 @@ test('video subtitles follow media time, toggle and switch with the episode', as
   await video.evaluate((v:HTMLVideoElement)=>{v.currentTime=7;});
   await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>(v.textTracks[0]?.activeCues?.[0] as VTTCue)?.text)).toBe('後半段');
   await page.getByRole('button',{name:'播放設定',exact:true}).click();
-  const toggle=page.getByRole('button',{name:'字幕',exact:true});
-  await toggle.click();await expect(toggle).toHaveAttribute('aria-pressed','false');
+  const toggle=page.getByRole('switch',{name:'字幕',exact:true});
+  await toggle.click();await expect(toggle).toHaveAttribute('aria-checked','false');
   await expect(page.locator('.media-subtitles')).toHaveCount(0);
-  await toggle.click();await expect(toggle).toHaveAttribute('aria-pressed','true');
+  await toggle.click();await expect(toggle).toHaveAttribute('aria-checked','true');
   await expect(page.locator('.media-subtitles')).toContainText('後半段');
   await video.evaluate((v:HTMLVideoElement)=>{v.currentTime=1;});
   await expect.poll(()=>video.evaluate((v:HTMLVideoElement)=>(v.textTracks[0]?.activeCues?.[0] as VTTCue)?.text)).toBe('前半段');
@@ -985,9 +988,12 @@ test('cancel and delete removes unfinished podcast instead of retaining a paused
 
 for(const entry of ['library','player']) test(`audio ready does not hide remaining generation or cancellation from ${entry}`,async({page})=>{
  const mock=await mockEpisodeVideo(page,'ready');
- mock.fixture.view.generation={active:true,completed_videos:1,failed_videos:0,steps:[{episode_index:1,step:'video',status:'running',started_at:null,elapsed_seconds:45,queue_ahead:null}]};
+ mock.fixture.view.generation={active:true,completed_videos:1,failed_videos:0,steps:[{episode_index:0,step:'video',status:'completed',started_at:null,elapsed_seconds:45,queue_ahead:null},{episode_index:1,step:'video',status:'running',started_at:null,elapsed_seconds:45,queue_ahead:null}]};
  await page.goto(entry==='library'?'/podcasts':`/podcasts/${podcastId}`);
- if(entry==='player')await expect(page.getByRole('region',{name:'Podcast 生成進度'}).getByRole('status')).toHaveText('第 2 / 3 集 · 製作影片 · 進行中');
+ if(entry==='player'){
+  await expect(page.getByRole('heading',{name:'第 2 / 3 集'})).toBeVisible();
+  await expect(page.locator('.status-timeline .is-active')).toHaveText('製作影片進行中');
+ }
  else await expect(page.getByText(/影片.*生成中/)).toBeVisible();
  await expect(page.locator('video,audio')).toHaveCount(0);
  if(entry==='library')await expect(page.getByRole('button',{name:'開啟播放'})).toHaveCount(0);
@@ -1110,11 +1116,12 @@ test("transcript export appears after alignment without reloading the page", asy
     headers: { "Content-Disposition": "attachment; filename*=UTF-8''episode.md" }, body: "saved transcript" }));
   await page.goto(`/podcasts/${podcastId}`);
   const controls = page.getByRole("group", { name: "匯出本集" });
-  await expect(controls.getByRole("button", { name: "匯出本集（MP3）", exact: true })).toBeVisible();
+  await expect(controls.getByRole("button", { name: "匯出本集", exact: true })).toBeVisible();
   await expect.poll(() => reads).toBeGreaterThan(0);
   // 初次影片狀態讀取已結束，後續更新只能來自時間軸輪詢。
   await page.waitForTimeout(2500);
   aligned = true;
+  await expect(controls.getByRole("button", { name: "匯出本集", exact: true })).toHaveAttribute("aria-haspopup", "menu");
   await controls.getByRole("button", { name: "匯出本集", exact: true }).click();
   const dialog = page.getByRole("menu", { name: "匯出本集" });
   const download = page.waitForEvent("download");
@@ -1145,7 +1152,7 @@ for (const reason of ["PODCAST_TIMELINE_UNAVAILABLE", "PODCAST_TIMELINE_SOURCE_M
     });
     await page.goto(`/podcasts/${podcastId}`);
     const controls = page.getByRole("group", { name: "匯出本集" });
-    await expect(controls.getByRole("button", { name: "匯出本集（MP3）", exact: true })).toBeVisible();
+    await expect(controls.getByRole("button", { name: "匯出本集", exact: true })).toBeVisible();
     await (await firstTimeline).finished();
     // 先完成版本 0 的初讀，再讓影片版本 1 到達；這次正常重讀不算錯誤輪詢。
     releaseVideo();
@@ -1153,12 +1160,12 @@ for (const reason of ["PODCAST_TIMELINE_UNAVAILABLE", "PODCAST_TIMELINE_SOURCE_M
     const settled = reads;
     await page.waitForTimeout(2500);
     expect(reads).toBe(settled);
-    await expect(controls.getByRole("button", { name: "匯出本集（MP3）", exact: true })).toBeVisible();
+    await expect(controls.getByRole("button", { name: "匯出本集", exact: true })).toBeVisible();
   });
 }
 
 
-test('podcast generation shows actual steps, elapsed time and observed queue without a single-episode zero percentage',async({page},testInfo)=>{
+test('podcast generation follows the upload processing layout with overall progress and current episode steps',async({page},testInfo)=>{
  const {view}=await mockPodcasts(page);
  view.episodes=[view.episodes[1]];view.episode_count=1;view.completed_episodes=0;view.video_enabled=false;
  const steps:NonNullable<PodcastView['generation']>['steps']=[
@@ -1169,17 +1176,17 @@ test('podcast generation shows actual steps, elapsed time and observed queue wit
  view.episodes[0].script={provider:'synthetic',segments:view.episodes[0].claims.map(c=>({claim_id:c.claim_id,turns:[{speaker:'host',text:'已核對的合成內容。'}]}))};
  view.generation={active:true,completed_videos:0,failed_videos:0,expected_videos:0,steps};
  await page.goto(`/podcasts/${podcastId}`);
- const region=page.getByRole('region',{name:'各集製作步驟'}), audio=region.getByRole('listitem').filter({hasText:'配音'});
- await expect(region.getByRole('listitem').filter({hasText:'寫講稿'})).toContainText('已完成');
- await expect(audio).toContainText('排隊中');await expect(audio).toContainText('已耗時 1 分 5 秒');
- await expect(page.getByRole('progressbar',{name:'已完成音訊集數'})).not.toHaveAttribute('aria-valuenow');
- expect(await region.getByRole('listitem').allTextContents()).toEqual(['✓ 寫講稿已完成已耗時 0 分 53 秒','配音排隊中已耗時 1 分 5 秒','對齊字幕尚未開始']);
+ await expect(page.getByRole('heading',{name:'第 1 / 1 集',exact:true})).toBeVisible();
+ await expect(page.getByRole('progressbar',{name:'整體進度 33%'})).toHaveAttribute('aria-valuenow','33');
+ await expect(page.locator('.progress-estimate-note')).toContainText('已完成 0 / 1 集');
+ await expect(page.locator('.processing-timeline li').nth(1)).toContainText('排隊中');
+ await expect(page.locator('.processing-timeline li').nth(2)).toContainText('尚未開始');
+ await expect(page.locator('.processing-timeline li.is-complete')).toHaveText(/寫講稿/);
  for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
   await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`podcast-steps-${width}.png`),animations:'disabled'});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }
- steps[1].queue_ahead=3;await expect(audio).toContainText('排隊中，前面還有 3 個');
- steps[1].status='running';steps[1].queue_ahead=null;await expect(audio).toContainText('進行中');
+ steps[1].status='running';await expect(page.locator('.processing-times')).toContainText('最近更新');
  view.status='failed';view.error_code='PODCAST_SCRIPT_NEEDS_REVIEW';steps[1].status='failed';
  await expect(page.getByRole('alert')).toHaveText('本集大部分重點無法核對原文，因此尚未發布音訊。可接續生成重試。');
  await expect(page.getByRole('button',{name:'接續生成'})).toBeVisible();
@@ -1210,7 +1217,7 @@ for (const mode of ['ready', 'removed'] as const) test(`mobile ${mode} player se
   expect(box.y+box.height).toBeLessThanOrEqual(player.y+player.height);
   await menu.getByLabel('設定音量',{exact:true}).fill('0.4');
   expect(await page.locator('video').evaluate((v:HTMLVideoElement)=>v.volume)).toBeCloseTo(.4);
-  await menu.getByRole('button',{name:'0.5×',exact:true}).click();
+  await menu.getByRole('slider',{name:'播放速度',exact:true}).fill('0.5');
   expect(await page.locator('video').evaluate((v:HTMLVideoElement)=>v.playbackRate)).toBe(.5);
   await page.getByRole('button',{name:'播放設定',exact:true}).click();
   await page.screenshot({path:testInfo.outputPath(`settings-${mode}-390.png`)});

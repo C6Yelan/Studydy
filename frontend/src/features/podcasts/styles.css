@@ -84,11 +84,25 @@
 .media-settings { display:flex; align-items:center; gap:4px; margin-left:auto; position:relative; flex-shrink:0; }
 .media-settings-toggle { width: auto; gap: 8px; padding: 0 8px; font-size: 13px; }
 .media-settings-toggle svg { width: 18px; height: 18px; }
-.media-settings-panel { position: absolute; z-index: 5; right: 0; bottom: 48px; width: 260px; padding: 18px; border: 1px solid var(--border); border-radius: 14px; color: var(--text-primary); background: var(--surface); box-shadow: 0 8px 28px #0002; }
-.media-settings-panel strong { font-size: 14px; }
-.media-speed-options { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin: 12px 0 17px; }
-.media-speed-options button { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text-secondary); padding: 8px 3px; min-height:40px; font-size: 12px; }
-.media-speed-options button[aria-pressed=true] { background: var(--studydy-blue-soft); border-color: var(--studydy-blue); color: var(--studydy-blue); }
+/* 設定選單比照 YouTube：深色半透明面板、字幕開關、速度數值＋滑桿＋常用速度。 */
+.media-settings-panel { position: absolute; z-index: 5; right: 0; bottom: 48px; width: 300px; padding: 12px 16px 16px; border-radius: 12px; color: #fff; background: rgba(28, 28, 28, .92); box-shadow: 0 8px 28px #0004; }
+.media-menu-row { display: flex; align-items: center; justify-content: space-between; min-height: 40px; font-size: 14px; font-weight: 700; }
+.media-switch { position: relative; width: 36px; height: 20px; padding: 0; border: 0; border-radius: 999px; background: #ffffff4d; cursor: pointer; }
+.media-switch > span { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.media-switch[aria-checked=true] { background: var(--studydy-blue); }
+.media-switch[aria-checked=true] > span { transform: translateX(16px); }
+.media-speed { display: grid; gap: 10px; margin-top: 8px; padding-top: 12px; border-top: 1px solid #ffffff26; }
+.media-speed > strong { font-size: 14px; }
+.media-speed > output { justify-self: center; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.media-speed-slider { display: flex; align-items: center; gap: 10px; }
+.media-speed-slider input { flex: 1; min-width: 0; accent-color: #fff; }
+.media-speed-slider button { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: #ffffff26; color: #fff; font-size: 18px; cursor: pointer; }
+.media-speed-slider button:disabled { opacity: .4; cursor: default; }
+.media-speed-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.media-speed-options button { display: grid; justify-items: center; min-width: 46px; padding: 6px 10px; border: 0; border-radius: 999px; background: #ffffff1f; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }
+.media-speed-options button small { font-size: 10px; font-weight: 500; opacity: .75; }
+.media-speed-options button[aria-pressed=true] { background: #fff; color: #111; }
+.media-settings-panel .text-button { color: #fff; }
 .media-autoplay { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
 .media-autoplay input { accent-color: var(--studydy-blue); width: 16px; height: 16px; margin: 0; }
 .media-feedback { font-size: 12px; margin: 8px 0 0; }
@@ -199,37 +213,25 @@
 .podcast-controls-bar .media-play:hover:not(:disabled) { background: var(--studydy-blue-hover); }
 .podcast-controls-bar .media-time, .podcast-controls-bar .media-autoplay { color: var(--text-secondary); }
 .podcast-controls-bar .media-settings-panel { max-height: min(60dvh, calc(56.25cqw - 24px)); overflow-y: auto; }
-.podcast-generation-episode h3 { margin:var(--space-4) 0 var(--space-2); font-size:.95rem; }
-.podcast-generation-episode ol { list-style:none; padding:0; margin:var(--space-3) 0; display:grid; gap:var(--space-3); }
-.podcast-generation-episode li { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:var(--space-1) var(--space-2); font-size:.875rem; }
-.podcast-generation-episode li > span { color:var(--text-secondary); }
-.podcast-generation-episode li > small { grid-column:1 / -1; color:var(--text-secondary); }
-.podcast-generation-episode li[data-status="completed"] > strong { color:var(--success); }
-.podcast-generation-episode li[data-status="running"] > strong { color:var(--studydy-blue); }
-.podcast-generation-episode li[data-status="failed"] > strong { color:var(--error); }
 .podcast-omission-note { padding:var(--space-3); border-radius:var(--radius-input); background:var(--page-cool); color:var(--text-secondary); line-height:1.6; }
 
 /* 比照 YouTube：左欄影片與標題同一條左緣，右欄（集數說明、分集、逐字稿）與左欄同高。 */
-.podcast-watch-layout { display:grid; grid-template-columns:minmax(0,calc((100dvh - 165px) * 16 / 9)) minmax(clamp(340px,26vw,400px),1fr); grid-template-areas:"player companion" "info info"; grid-template-rows:auto auto; align-content:start; align-items:start; gap:0 20px; width:100%; }
-/* 影片佔滿左欄；左欄上限為視窗扣掉頁首與控制列的高度換算寬度，被限制時多出的寬度由右欄吃掉。 */
+.podcast-watch-layout { display:grid; grid-template-columns:minmax(0,calc((100dvh - 230px) * 16 / 9)) minmax(clamp(340px,26vw,400px),1fr); grid-template-areas:"player companion" "info ."; grid-template-rows:auto auto; align-content:start; align-items:start; gap:0 20px; width:100%; }
+/* 左欄上限為視窗扣掉頁首、控制列與下方標題列的高度換算寬度，第一屏就看得到標題；多出的寬度由右欄吃掉。 */
 .podcast-watch-layout > .media-player { grid-area:player; }
 .podcast-watch-layout > .podcast-watch-info { grid-area:info; }
 .podcast-watch-layout .podcast-companion { grid-area:companion; align-self:stretch; position:relative; min-width:0; min-height:320px; }
-.podcast-watch-layout .podcast-reading-area { position:absolute; inset:0; }
-.podcast-watch-episode { flex-shrink:0; padding:14px 16px 2px; }
-.podcast-watch-episode p { margin:0; }
-.podcast-watch-episode .podcast-watch-meta { margin:0; font-weight:700; color:var(--text-primary); }
-.podcast-watch-episode .podcast-meta-note { margin-top:4px; }
+/* 右欄以絕對定位跟左欄同高：分集（多集時）在上、本集內容分頁在下，各自捲動。 */
+.podcast-companion-stack { position:absolute; inset:0; display:flex; flex-direction:column; gap:12px; }
+.podcast-episode-panel { flex:0 1 auto; max-height:40%; min-height:0; overflow-y:auto; padding:0; }
 .podcast-watch-layout .podcast-reading-area { margin:0; box-shadow:none; }
 .podcast-watch-info { padding:16px 0; min-width:0; }
-.podcast-watch-heading h1 { margin:0; font-size:1.4rem; line-height:1.5; overflow-wrap:anywhere; }
-.podcast-watch-meta { margin:8px 0; color:var(--text-secondary); }
+.podcast-watch-title { margin:0; font-size:1.4rem; line-height:1.5; overflow-wrap:anywhere; }
+.podcast-watch-row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.podcast-watch-row > .podcast-watch-title { min-width:0; }
+.podcast-watch-actions { flex-shrink:0; }
+.podcast-watch-actions .icon-button { display:grid; place-items:center; width:40px; height:40px; min-height:0; padding:0; border-radius:50%; }
 .podcast-watch-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
-.podcast-watch-more { position:relative; }
-.podcast-watch-more > summary { cursor:pointer; list-style:none; padding:8px 14px; border-radius:var(--radius-input); background:var(--surface); font-weight:800; }
-.podcast-watch-more > summary::-webkit-details-marker { display:none; }
-.podcast-watch-more[open] { flex-basis:100%; }
-.podcast-watch-more[open] > summary { width:fit-content; margin-bottom:8px; }
 /* 劇院模式：影片橫跨整個內容寬、高度不超出第一屏，標題與右欄接在下方。 */
 .podcast-watch-layout.is-theater { grid-template-columns:minmax(0,1fr) 380px; grid-template-areas:"player player" "info companion"; }
 .podcast-watch-layout.is-theater .podcast-companion { height:60dvh; min-height:360px; align-self:start; }
@@ -242,6 +244,6 @@
 }
 
 @media (max-width:720px) { .podcast-controls-bar .media-theater-toggle { display:none; } }
-.podcast-controls-bar .media-settings-panel > .text-button { display:block; margin-bottom:12px; }
-.podcast-controls-bar .media-settings-panel > strong { display:block; }
 
+.podcast-delete-video { position:relative; }
+.podcast-delete-popover { position:absolute; top:calc(100% + 8px); right:0; z-index:20; width:min(360px, calc(100vw - 32px)); padding:12px; border-radius:var(--radius-card); background:var(--surface); box-shadow:var(--shadow); }

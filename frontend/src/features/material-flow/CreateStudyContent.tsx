@@ -8,14 +8,13 @@ import { Icon } from "../../ui/Icon";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { BackLink } from "../../ui/BackLink";
 import { EmptyState } from "../../ui/EmptyState";
-import { FlowHeader, FlowStage, LearningSteps } from "./Flow";
+import { FlowHeader, FlowStage, LearningSteps, podcastSteps } from "./Flow";
 import "./creation.css";
 
 type CreationRoute = Extract<AppRoute, { name: "podcast-new" | "podcast-create" | "card-set-new" | "card-set-create" }>;
 
 /** 建立卡組／Podcast 的三個步驟：選教材 → 挑概念 → 保存後在卡組／節目頁生成。 */
 const cardSetSteps = ["選擇教材", "挑選概念", "開始複習"];
-const podcastSteps = ["選擇教材", "挑選概念與形式", "生成 Podcast"];
 
 export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApiClient; route: CreationRoute }) {
   const podcast = route.name.startsWith("podcast");

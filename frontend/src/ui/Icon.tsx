@@ -23,6 +23,7 @@ export type IconName =
   | "process"
   | "refresh"
   | "upload"
+  | "download"
   | "warning"
   | "sparkle"
   | "plus"
@@ -142,6 +143,13 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M20 6v5h-5" />
       <path d="M4 18v-5h5" />
       <path d="M18.5 9A7 7 0 0 0 6 6.5L4 9M5.5 15A7 7 0 0 0 18 17.5l2-2.5" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 4v12" />
+      <path d="m7 11 5 5 5-5" />
+      <path d="M5 20h14" />
     </>
   ),
   upload: (

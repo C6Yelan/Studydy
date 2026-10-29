@@ -29,7 +29,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const [actionError, setActionError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [readingTab, setReadingTab] = useState<"episodes" | "transcript" | "highlights">("transcript");
+  const [readingTab, setReadingTab] = useState<"chapters" | "transcript" | "highlights">("transcript");
   const [theater, setTheater] = useState(false);
   const media = useRef<HTMLMediaElement | null>(null);
   const workspace = useRef<HTMLDivElement>(null);
@@ -141,28 +141,29 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
   const episode = view.episodes[index];
   const previewReady = podcastPreviewReady(view);
   const groups = [...new Set(episode.claims.map(c => c.concept_id))].map(id => ({ label: episode.claims.find(c => c.concept_id === id)!.label, claims: episode.claims.filter(c => c.concept_id === id) }));
-  const episodeNote = <div className="podcast-watch-episode">
-    <p className="podcast-watch-meta">第 {index + 1} 集 · {episode.delivery === "dialogue" ? "雙人對談" : "單人講解"}{episode.audio && ` · ${duration(episode.audio.duration_seconds)}`}</p>
-    {!view.is_current_revision && <p className="podcast-meta-note">保留建立時的教材內容</p>}
-  </div>;
+  // 章節、逐字稿、本集重點各自一個分頁；沒有影片章節時不顯示章節分頁。
+  const chapters = videoState.state?.video?.pages ?? [];
+  const tabs = ([['chapters', '章節'], ['transcript', '逐字稿'], ['highlights', '本集重點']] as const).filter(([tab]) => tab !== 'chapters' || chapters.length > 0);
   const metadata = <div className="podcast-watch-info">
-    <header className="podcast-watch-heading"><div>
-      <h1>{view.name}</h1>
-    </div></header>
+    {/* 比照 YouTube：影片下方是本集標題，操作圖示放在標題右側。 */}
+    <div className="podcast-watch-row">
+    <h1 className="podcast-watch-title">{episode.title || episodeTitle(episode.claims.map(c => c.label))}</h1>
     {view.status === "ready" && <div className="podcast-watch-actions">
       {!previewReady && <label>匯出集數<select aria-label="匯出集數" value={index} onChange={e => setIndex(Number(e.target.value))}>
         {view.episodes.map((e, i) => <option key={i} value={i}>第 {i + 1} 集 · {e.title ?? ""}</option>)}
       </select></label>}
       <PodcastExports key={`export-${podcastId}-${index}`} api={apiClient} view={view} index={index}
         videoReady={videoState.state?.status === "ready"} timelineReady={!!timelineState.timeline} />
-      {videoState.state?.status === "ready" && <details className="podcast-watch-more"><summary className="podcast-more-trigger" aria-label="更多本集操作">⋯</summary><DeleteVideoControl key={`delete-video-${podcastId}-${index}`} api={apiClient} podcastId={podcastId} index={index} onDeleted={() => { videoState.reload(); setReload((v) => v + 1); }} /></details>}
+      {videoState.state?.status === "ready" && <DeleteVideoControl key={`delete-video-${podcastId}-${index}`} api={apiClient} podcastId={podcastId} index={index} onDeleted={() => { videoState.reload(); setReload((v) => v + 1); }} />}
     </div>}
+    </div>
   </div>;
   return <section className="cards-page podcast-page">
     {back}
 
     {actionError && <p className="form-error" role="alert">{actionError}</p>}
     {!previewReady && <PodcastProgress view={view} busy={busy} onAction={action => void act(action)} />}
+    {!previewReady && metadata}
     {previewReady && !videoState.state && <StateView title={videoState.error ? "無法載入影片" : "正在載入影片"} description={videoState.error || "正在確認本集影片。"} tone={videoState.error ? "failure" : "loading"} action={<button type="button" className="secondary-button" onClick={videoState.reload}>重新讀取</button>} />}
     {previewReady && !!videoState.state && progress !== undefined && <div ref={workspace} className={`podcast-watch-layout${theater ? " is-theater" : ""}`}>
         <PodcastPlayer key={`${podcastId}/${index}`} view={view} index={index} videoState={videoState} timelineReady={!!timelineState.timeline} theater={theater} onTheater={() => setTheater(v => !v)} mediaRef={media} storageKey={storageKey}
@@ -170,28 +171,30 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
           if (autoAdvance && index + 1 < view.episodes.length) { autoPlayNext.current = true; setIndex(index + 1); }
         }} />
       {metadata}
-      <div className="podcast-companion">
+      <div className="podcast-companion"><div className="podcast-companion-stack">
+        {/* 分集是切換集數的操作區，與本集內容分開；只有一集時不顯示。 */}
+        {view.episodes.length > 1 && <section className="surface podcast-episode-panel" aria-label="分集">
+      <aside ref={episodeList} className="podcast-episodes" aria-label="分集清單"><h2>分集清單</h2>{view.episodes.map((e, i) => <button type="button" key={i} aria-current={index === i ? "true" : undefined} onClick={() => { autoPlayNext.current = view.status === "ready" && !!media.current && !media.current.paused; setIndex(i); }}>
+      <span className="podcast-episode-number">{String(i + 1).padStart(2, "0")}</span><span className="podcast-episode-summary"><strong title={[...new Set(e.claims.map(c => c.label))].join(" · ")}>{e.title || episodeTitle(e.claims.map(c => c.label))}</strong><small>{e.audio ? duration(e.audio.duration_seconds) : ["failed", "cancelled"].includes(view.status) ? "尚未完成" : view.episodes.findIndex(episode => !episode.audio) === i && view.status === "running" ? (e.script ? "製作音訊中" : "整理內容中") : "等待處理"}</small></span></button>)}</aside>
+        </section>}
         <section className="surface podcast-reading-area" aria-label="本集內容">
-          {episodeNote}
           <div className="podcast-content-tabs" role="tablist" aria-label="本集內容">
-            {([['episodes', '分集'], ['transcript', '逐字稿'], ['highlights', '本集重點']] as const).map(([tab, label]) => <button
+            {tabs.map(([tab, label]) => <button
               key={tab} id={`podcast-${tab}-tab`} type="button" role="tab" aria-selected={readingTab === tab}
               aria-controls={`podcast-${tab}-panel`} tabIndex={readingTab === tab ? 0 : -1}
               onClick={() => setReadingTab(tab)} onKeyDown={event => {
                 if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
                 event.preventDefault();
-                const tabs = ['episodes', 'transcript', 'highlights'] as const;
-                const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[2] : tabs[(tabs.indexOf(tab) + (event.key === 'ArrowRight' ? 1 : 2)) % tabs.length];
+                const ids = tabs.map(([id]) => id), at = ids.indexOf(tab);
+                const next = event.key === 'Home' ? ids[0] : event.key === 'End' ? ids[ids.length - 1] : ids[(at + (event.key === 'ArrowRight' ? 1 : ids.length - 1)) % ids.length];
                 setReadingTab(next);
                 document.getElementById(`podcast-${next}-tab`)?.focus();
               }}>{label}</button>)}
           </div>
-          <div id="podcast-episodes-panel" className="podcast-content-panel" role="tabpanel" aria-labelledby="podcast-episodes-tab" hidden={readingTab !== 'episodes'}>
-      <aside ref={episodeList} className="podcast-episodes" aria-label="分集清單"><h2>分集清單</h2>{view.episodes.map((e, i) => <button type="button" key={i} aria-current={index === i ? "true" : undefined} onClick={() => { autoPlayNext.current = view.status === "ready" && !!media.current && !media.current.paused; setIndex(i); }}>
-      <span className="podcast-episode-number">{String(i + 1).padStart(2, "0")}</span><span className="podcast-episode-summary"><strong title={[...new Set(e.claims.map(c => c.label))].join(" · ")}>{e.title || episodeTitle(e.claims.map(c => c.label))}</strong><small>{e.audio ? duration(e.audio.duration_seconds) : ["failed", "cancelled"].includes(view.status) ? "尚未完成" : view.episodes.findIndex(episode => !episode.audio) === i && view.status === "running" ? (e.script ? "製作音訊中" : "整理內容中") : "等待處理"}</small></span></button>)}</aside>
+          <div id="podcast-chapters-panel" className="podcast-content-panel" role="tabpanel" aria-labelledby="podcast-chapters-tab" hidden={readingTab !== 'chapters'}>
+            <nav className="podcast-chapters" aria-label="本集章節">{chapters.map((page, i) => <button type="button" key={i} title={page.title} onClick={() => { if (media.current && media.current.readyState > 0) media.current.currentTime = page.start; }}><time>{duration(page.start)}</time><span>{page.title}</span></button>)}</nav>
           </div>
           <div id="podcast-transcript-panel" className="podcast-content-panel" role="tabpanel" aria-labelledby="podcast-transcript-tab" hidden={readingTab !== 'transcript'}>
-            {!!videoState.state?.video?.pages.length && <nav className="podcast-chapters" aria-label="本集章節">{videoState.state.video.pages.map((page, i) => <button type="button" key={i} title={page.title} onClick={() => { if (media.current && media.current.readyState > 0) media.current.currentTime = page.start; }}><time>{duration(page.start)}</time><span>{page.title}</span></button>)}</nav>}
             <div className="podcast-transcript" tabIndex={0}>
               <PodcastTranscript view={view} index={index} media={media} active={readingTab === 'transcript'} timelineState={timelineState} />
             </div>
@@ -202,9 +205,9 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
             </div>
           </div>
         </section>
-      </div>
+      </div></div>
     </div>}
-    {(!previewReady || !videoState.state || progress === undefined) && <>{metadata}{episodeNote}</>}
+    {previewReady && (!videoState.state || progress === undefined) && metadata}
   </section>;
 }
 

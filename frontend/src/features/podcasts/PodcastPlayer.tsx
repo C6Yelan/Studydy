@@ -13,22 +13,27 @@ export function formatTime(seconds: number): string {
   const value = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
   return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`;
 }
-const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+// 比照 YouTube：滑桿 0.25～2 倍、每格 0.05，下方是常用速度。
+const speedRange = { min: 0.25, max: 2, step: 0.05 };
+const speedPresets = [0.75, 1, 1.25, 1.5, 2];
+// 以 0.05 為單位取整後再固定兩位小數，避免 0.7000000000000001 這類浮點誤差。
+const clampSpeed = (value: number) => Number(Math.min(speedRange.max, Math.max(speedRange.min, Math.round(value / speedRange.step) * speedRange.step)).toFixed(2));
 type Settings = { speed: number; volume: number; muted: boolean; autoAdvance: boolean };
 function readSettings(key: string): Settings {
   try {
     const v = JSON.parse(localStorage.getItem(key) ?? "null");
-    if (v && speeds.includes(v.speed) && typeof v.volume === "number" && v.volume >= 0 && v.volume <= 1
-      && typeof v.muted === "boolean" && typeof v.autoAdvance === "boolean") return v;
+    if (v && typeof v.speed === "number" && v.speed >= speedRange.min && v.speed <= speedRange.max && typeof v.volume === "number" && v.volume >= 0 && v.volume <= 1
+      && typeof v.muted === "boolean" && typeof v.autoAdvance === "boolean") return { ...v, speed: clampSpeed(v.speed) };
   } catch { /* 使用預設播放設定。 */ }
   return { speed: 1, volume: 1, muted: false, autoAdvance: true };
 }
-function ControlIcon({ name }: { name: "play" | "pause" | "previous" | "next" | "volume" | "muted" | "settings" | "rewind" | "forward" | "fullscreen" }) {
+function ControlIcon({ name }: { name: "play" | "pause" | "previous" | "next" | "volume" | "muted" | "settings" | "rewind" | "forward" | "fullscreen" | "exit-fullscreen" }) {
   return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {name === "rewind" || name === "forward" ? <><g transform={name === "forward" ? "translate(24 0) scale(-1 1)" : undefined}><path d="M4 7V3M4 7h4M4 7a9 9 0 1 1-1 9" /></g><text x="12" y="15" textAnchor="middle" fill="currentColor" stroke="none" fontSize="8" fontWeight="600">10</text></> : name === "play" ? <path d="m8 5 11 7-11 7Z" fill="currentColor" stroke="none" /> : name === "pause" ? <><path d="M8 5v14M16 5v14" strokeWidth="4" /></>
       : name === "previous" ? <><path d="M5 5v14M18 5 8 12l10 7Z" /></> : name === "next" ? <><path d="M19 5v14M6 5l10 7-10 7Z" /></>
       : name === "settings" ? <><path d="m9 3-1 3-3 1-2 3 2 3v4l3 1 2 3h4l2-3 3-1v-4l2-3-2-3-3-1-1-3Z" /><circle cx="12" cy="12" r="3" /></>
       : name === "fullscreen" ? <path d="M9 3H3v6M15 3h6v6M3 15v6h6M21 15v6h-6" />
+      : name === "exit-fullscreen" ? <path d="M3 9h6V3M21 9h-6V3M3 15h6v6M21 15h-6v6" />
       : <><path d="M3 9h4l5-4v14l-5-4H3Z" />{name === "muted" ? <path d="m17 9 5 6m0-6-5 6" /> : <><path d="M16 8a6 6 0 0 1 0 8M19 5a10 10 0 0 1 0 14" /></>}</>}
   </svg>;
 }
@@ -127,10 +132,11 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     for (const track of tracks) track.mode = "hidden";
     setCaption(showSubtitles ? tracks.flatMap(track => Array.from(track.activeCues ?? []))
       .map(cue => (cue as VTTCue).getCueAsHTML().textContent ?? "").join("\n") : "");
-    // 一般模式的控制列在播放器下方；全螢幕時字幕須讓開疊在畫面上的控制列。
-    const controlsHeight = controlsVisible && fullscreen ? viewport.current?.querySelector(".media-playback-controls")?.getBoundingClientRect().height ?? 0 : 0;
+    // 有影片時控制列疊在畫面上（比照 YouTube）；顯示控制列時字幕須讓開。
+    const overlay = fullscreen || video;
+    const controlsHeight = controlsVisible && overlay ? viewport.current?.querySelector(".media-playback-controls")?.getBoundingClientRect().height ?? 0 : 0;
     setCaptionBottom(controlsHeight + 12);
-  }, [media, showSubtitles, controlsVisible, fullscreen]);
+  }, [media, showSubtitles, controlsVisible, fullscreen, video]);
   useEffect(() => {
     const element = media.current;
     const tracks = Array.from(element?.textTracks ?? []);
@@ -236,16 +242,25 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
         <input type="range" aria-label="音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))} /></div>
       <span className="media-time" aria-live="off">{formatTime(time)} / {formatTime(length)}</span>
       <div className="media-settings" ref={menu}><label className="media-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><button ref={gear} type="button" className="media-icon media-settings-toggle" aria-label="播放設定" title="播放設定" aria-expanded={menuOpen} aria-controls="podcast-player-settings" onClick={() => setMenuOpen(v => !v)}><span>{settings.speed}×</span><ControlIcon name="settings" /></button>
-        {menuOpen && <div id="podcast-player-settings" className="media-settings-panel" role="group" aria-label="播放設定選單"><label className="media-menu-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><div className="media-menu-seek"><button type="button" className="text-button" disabled={!ready} onClick={() => seek(time - 10)}><ControlIcon name="rewind" />後退 10 秒</button><button type="button" className="text-button" disabled={!ready} onClick={() => seek(time + 10)}><ControlIcon name="forward" />前進 10 秒</button></div>{<button type="button" className="text-button" aria-label="字幕" aria-pressed={showSubtitles} onClick={() => setShowSubtitles(value => !value)}>字幕：{showSubtitles ? "開啟" : "關閉"}</button>}<strong>播放速度</strong><div className="media-speed-options">{speeds.map(speed => <button type="button" key={speed} aria-pressed={settings.speed === speed} onClick={() => {setSettings(s => ({ ...s, speed }));setMenuOpen(false)}}>{speed === 1 ? "正常" : `${speed}×`}</button>)}</div><label className="media-menu-volume">音量<input type="range" aria-label="設定音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))}/></label></div>}
+        {menuOpen && <div id="podcast-player-settings" className="media-settings-panel" role="group" aria-label="播放設定選單"><label className="media-menu-autoplay"><input type="checkbox" aria-label="自動播放下一集" checked={settings.autoAdvance} onChange={e => setSettings(s => ({ ...s, autoAdvance: e.target.checked }))} />自動接續</label><div className="media-menu-seek"><button type="button" className="text-button" disabled={!ready} onClick={() => seek(time - 10)}><ControlIcon name="rewind" />後退 10 秒</button><button type="button" className="text-button" disabled={!ready} onClick={() => seek(time + 10)}><ControlIcon name="forward" />前進 10 秒</button></div><label className="media-menu-row">字幕<button type="button" role="switch" className="media-switch" aria-label="字幕" aria-checked={showSubtitles} onClick={() => setShowSubtitles(value => !value)}><span /></button></label>
+          <section className="media-speed" aria-label="播放速度"><strong>播放速度</strong><output aria-live="polite">{settings.speed.toFixed(2)}×</output>
+            <div className="media-speed-slider"><button type="button" aria-label="減慢" disabled={settings.speed <= speedRange.min} onClick={() => setSettings(s => ({ ...s, speed: clampSpeed(s.speed - speedRange.step) }))}>−</button>
+              <input type="range" aria-label="播放速度" min={speedRange.min} max={speedRange.max} step={speedRange.step} value={settings.speed} onChange={e => { const speed = clampSpeed(Number(e.target.value)); setSettings(s => ({ ...s, speed })); }} />
+              <button type="button" aria-label="加快" disabled={settings.speed >= speedRange.max} onClick={() => setSettings(s => ({ ...s, speed: clampSpeed(s.speed + speedRange.step) }))}>+</button></div>
+            <div className="media-speed-options">{speedPresets.map(speed => <button type="button" key={speed} aria-pressed={Math.abs(settings.speed - speed) < 0.001} onClick={() => setSettings(s => ({ ...s, speed }))}>{speed % 1 ? speed : speed.toFixed(1)}{speed === 1 && <small>正常</small>}</button>)}</div>
+          </section><label className="media-menu-volume">音量<input type="range" aria-label="設定音量" min={0} max={1} step={0.05} value={settings.muted ? 0 : settings.volume} onChange={e => changeVolume(Number(e.target.value))}/></label></div>}
         {!fullscreen && <button type="button" className="media-icon media-theater-toggle" aria-label="劇院模式" aria-pressed={theater} title="劇院模式" onClick={onTheater}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/></svg></button>}
-        {video && <button type="button" className="media-icon" aria-label={fullscreen ? "退出全螢幕" : "全螢幕"} title={fullscreen ? "退出全螢幕" : "全螢幕"} onClick={() => void toggleFullscreen()}><ControlIcon name="fullscreen" /></button>}
+        {video && <button type="button" className="media-icon" aria-label={fullscreen ? "退出全螢幕" : "全螢幕"} title={fullscreen ? "退出全螢幕" : "全螢幕"} onClick={() => void toggleFullscreen()}><ControlIcon name={fullscreen ? "exit-fullscreen" : "fullscreen"} /></button>}
       </div>
     </div>
       </div>
   </>;
   return <section className="media-player" aria-label={`第 ${index + 1} 集播放器`} onKeyDown={e => { if (e.key === "Escape" && menuOpen) { e.stopPropagation(); setMenuOpen(false); gear.current?.focus(); } }}>
     <div className={`media-viewport${video ? " has-video" : " audio-only"}${controlsVisible ? "" : " controls-idle"}`} ref={viewport}
-      onPointerMove={showControls} onPointerDown={e => {
+      onPointerMove={showControls}
+      // 滑鼠離開播放區就立即收起控制列；設定選單開著或拖曳進度時保留。
+      onPointerLeave={() => { if (menuOpen || adjustingRange.current || keyboardFocus.current) return; clearTimeout(idle.current); setControlsVisible(false); }}
+      onPointerDown={e => {
         keyboardFocus.current = false;
         adjustingRange.current = (e.target as HTMLElement).matches('input[type="range"]');
         showControls();
@@ -274,9 +289,9 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
         </div>}
       </div>
       {caption && <div className="media-subtitles" aria-hidden="true" style={{ bottom: captionBottom }}>{caption}</div>}
-      {fullscreen && controls}
+      {(fullscreen || video) && controls}
     </div>
-    {!fullscreen && <div className="podcast-controls-bar" role="region" aria-label="播放列">{controls}</div>}
+    {!fullscreen && !video && <div className="podcast-controls-bar" role="region" aria-label="播放列">{controls}</div>}
     {error && <p className="form-error media-feedback" role="alert">{error}{!ready && <button type="button" className="text-button" onClick={() => { setError(null); media.current?.load(); }}>重新載入媒體</button>}</p>}
     {storageError && <p className="media-feedback">瀏覽器目前無法保存播放位置或設定。</p>}
   </section>;

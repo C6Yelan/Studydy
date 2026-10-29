@@ -1,11 +1,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { errorMessage } from "../../api/client";
+import { Icon, type IconName } from "../../ui/Icon";
 import "./styles.css";
 
 type Option = { value: string; label: string; hint?: string };
 // 匯出入口：多種格式時在按鈕下方展開小視窗，點格式就直接匯出；只有一種格式時按鈕直接下載。
-export function ExportControls({ label, triggerLabel = label, options, download }: {
-  label: string; triggerLabel?: string; options: Option[]; download: (format: string) => Promise<void>;
+// icon 有值時入口只顯示圖示，文字改放在 aria-label 與提示。
+export function ExportControls({ label, triggerLabel = label, options, download, icon }: {
+  label: string; triggerLabel?: string; options: Option[]; download: (format: string) => Promise<void>; icon?: IconName;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -41,10 +43,11 @@ export function ExportControls({ label, triggerLabel = label, options, download 
   };
   const single = options.length === 1;
   return <div ref={entry} className="export-entry" role="group" aria-label={label}>
-    <button ref={trigger} type="button" className="secondary-button" disabled={!!busy && single}
+    <button ref={trigger} type="button" className={icon ? "secondary-button icon-button" : "secondary-button"} disabled={!!busy && single}
+      aria-label={icon ? triggerLabel : undefined} title={icon ? triggerLabel : undefined} aria-busy={!!busy}
       aria-haspopup={single ? undefined : "menu"} aria-expanded={single ? undefined : open} aria-controls={single ? undefined : menuId}
       onClick={() => { setError(""); if (single) void start(options[0].value); else setOpen(value => !value); }}>
-      {single ? (busy ? "正在匯出…" : `${triggerLabel}（${options[0].value.toUpperCase()}）`) : triggerLabel}
+      {icon ? <Icon name={icon} size={20} /> : single ? (busy ? "正在匯出…" : `${triggerLabel}（${options[0].value.toUpperCase()}）`) : triggerLabel}
     </button>
     {/* 單一格式不另起一行顯示進度（會把所在標題列撐開）；進度寫在按鈕上，只有錯誤才另外顯示。 */}
     {single && error && <p role="alert" className="form-error">{error}</p>}
