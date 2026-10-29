@@ -2,11 +2,13 @@ import { MathText } from "../../ui/MathText";
 import { Icon } from "../../ui/Icon";
 import { Progress } from "../../ui/Progress";
 import { ExportControls } from "../exports/ExportControls";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { MaterialNotesView, NoteAnnotation, NoteBlock, NoteCalloutStyle, NoteItem, NoteKind, NoteOutlineEntry, NoteParagraph } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
+import { NotesProgress } from "./NotesProgress";
+import { pendingNoteTarget, useLocateParagraph, type NoteTarget } from "./note-location";
 import "./styles.css";
 
 const calloutLabels: Record<NoteCalloutStyle, string> = {
@@ -145,7 +147,7 @@ const failureMessages: Record<string, string> = {
   NOTE_SOURCE_EMPTY: "這份教材目前沒有可用來寫筆記的重點來源。",
 };
 
-function NotesContent({ api, materialId, revision, kind, changeKind }: { api: StudydyApiClient; materialId: string; revision: string; kind: NoteKind; changeKind: (kind: NoteKind) => void }) {
+function NotesContent({ api, materialId, revision, kind, changeKind, target, openProgress }: { api: StudydyApiClient; materialId: string; revision: string; kind: NoteKind; changeKind: (kind: NoteKind) => void; target: NoteTarget | null; openProgress: () => void }) {
   const [view, setView] = useState<MaterialNotesView | null>(null);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
@@ -165,6 +167,7 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
   });
   const [now, setNow] = useState(Date.now());
   const pending = view?.status === "pending" || view?.status === "running";
+  useLocateParagraph(view, target);
   useEffect(() => {
     if (!pending || !view?.started_at) return;
     setNow(Date.now());
@@ -276,9 +279,10 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
       {pending && <section className="note-progress" aria-label="完整筆記分區進度" aria-live="polite">
         <span>{view.paragraphs.length > 0 ? "正在更新筆記，完成後自動替換" : view.status === "pending" ? "筆記已排入生成佇列。" : "正在撰寫並逐段核對筆記內容…"}</span>
         <span>{view.status === "pending" ? "正在等待開始" : view.progress?.stage === "validating" ? "正在核對完整筆記…" : `正在整理：${view.progress?.current_section ?? "教材"}`}</span>
-        <Progress aria-label="已完成分區" value={view.progress && view.progress.completed_parts > 0 ? view.progress.completed_sections : undefined} max={Math.max(1, view.progress?.total_sections ?? 1)}/>
-        {view.progress && <span>已完成 {view.progress.completed_sections} / {view.progress.total_sections} 個分區</span>}
+        <Progress aria-label="已完成批次" value={view.progress && view.progress.completed_parts > 0 ? view.progress.completed_parts : undefined} max={Math.max(1, view.progress?.total_parts ?? 1)}/>
+        {view.progress && <span>已完成 {view.progress.completed_parts} / {view.progress.total_parts} 批</span>}
         {elapsed !== null && <span>已耗時 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒</span>}
+        <button type="button" className="text-button" onClick={openProgress}>查看進度</button>
       </section>}
       {view.status === "failed" && view.progress && view.progress.completed_parts > 0 && <p>已完成部分已保存，重試時會從未完成部分接續。</p>}
       {view.paragraphs.map(p => { const number = numbers.get(p.id); return <section key={`${view.content_revision}:${view.content_generation}:${p.id}`} id={`note-section-${p.id}`} tabIndex={-1}
@@ -314,8 +318,24 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
 }
 
 export function Notes({ api, materialId, revision }: { api: StudydyApiClient; materialId: string; revision: string }) {
-  const [kind, setKind] = useState<NoteKind>("summary");
+  const [target] = useState(pendingNoteTarget);
+  const [kind, setKind] = useState<NoteKind>(target?.kind ?? "summary");
+  // 進度頁用 ?view=progress 區分網址：重新整理停在進度頁，上一頁回筆記。
+  const readProgress = () => new URLSearchParams(window.location.search).get("view") === "progress";
+  const [progressOpen, setProgressOpen] = useState(readProgress);
+  useEffect(() => {
+    const sync = () => setProgressOpen(readProgress());
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
+  const openProgress = () => { window.history.pushState(window.history.state, "", `${window.location.pathname}?view=progress`); setProgressOpen(true); };
+  // 完成、失敗或按返回時用 replaceState，上一頁不會又回到進度頁。
+  const closeProgress = useCallback(() => { window.history.replaceState(window.history.state, "", window.location.pathname); setProgressOpen(false); }, []);
   return <div className="notes-page">
-    <NotesContent key={`${materialId}:${revision}:${kind}`} api={api} materialId={materialId} revision={revision} kind={kind} changeKind={setKind}/>
+    <div hidden={progressOpen} className="notes-page">
+      <NotesContent key={`${materialId}:${revision}:${kind}`} api={api} materialId={materialId} revision={revision} kind={kind} changeKind={setKind}
+        target={target} openProgress={openProgress}/>
+    </div>
+    {progressOpen && <NotesProgress api={api} materialId={materialId} revision={revision} kind={kind} close={closeProgress}/>}
   </div>;
 }

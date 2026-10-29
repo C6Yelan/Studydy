@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { json, mockKnowledgeMapApi, artifactId, materialId, runId, structureRevision, structureView } from "../fixtures/knowledge-map";
+import { json, mockKnowledgeMapApi, openMapConcept, artifactId, materialId, runId, structureRevision, structureView } from "../fixtures/knowledge-map";
 import { outlineView } from "../fixtures/knowledge-read-views.mjs";
 import type { MaterialNotesView, NoteKind } from "../../src/api/contracts";
 
@@ -95,7 +95,7 @@ test("full notes require a click and failed regeneration keeps content and previ
   await expect(page.getByRole("button", { name: "生成完整筆記", exact: true })).toBeVisible();
   expect(state.writes).toEqual([]);
   await page.getByRole("button", { name: "生成完整筆記", exact: true }).click();
-  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "已完成批次" })).toBeVisible();
   expect(state.writes).toEqual(["generate"]);
 });
 
@@ -124,10 +124,10 @@ test("full notes show restored section progress and retain completed work on ret
   await page.getByRole("button", { name: "完整筆記", exact: true }).click();
   await expect(page.getByText(/重試時會從未完成部分接續/)).toBeVisible();
   await page.getByRole("button", { name: "重試生成", exact: true }).click();
-  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toBeVisible();
-  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("aria-valuenow", "1");
-  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("aria-valuemax", "3");
-  await expect(page.getByText("已完成 1 / 3 個分區", { exact: true })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "已完成批次" })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "已完成批次" })).toHaveAttribute("aria-valuenow", "2");
+  await expect(page.getByRole("progressbar", { name: "已完成批次" })).toHaveAttribute("aria-valuemax", "6");
+  await expect(page.getByText("已完成 2 / 6 批", { exact: true })).toBeVisible();
 });
 
 
@@ -276,11 +276,11 @@ test("updating notes retain readable content, real elapsed time and section prog
   await page.goto(`/materials/${materialId}/notes`);
   await expect(page.getByText("正在更新筆記，完成後自動替換", { exact: true })).toBeVisible();
   await expect(page.getByText(/已耗時 1 分/)).toBeVisible();
-  await expect(page.getByRole("progressbar", { name: "已完成分區" })).not.toHaveAttribute("aria-valuenow");
+  await expect(page.getByRole("progressbar", { name: "已完成批次" })).not.toHaveAttribute("aria-valuenow");
   await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
   state.setSummary({ ...initial, progress: { ...initial.progress, completed_sections: 1, completed_parts: 2 } });
-  await expect(page.getByRole("progressbar", { name: "已完成分區" })).toHaveAttribute("aria-valuenow", "1");
-  await expect(page.getByText("已完成 1 / 4 個分區", { exact: true })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "已完成批次" })).toHaveAttribute("aria-valuenow", "2");
+  await expect(page.getByText("已完成 2 / 10 批", { exact: true })).toBeVisible();
   const completed = notes();
   completed.paragraphs[0].heading = "更新後的堆疊"; completed.outline[0].heading = "更新後的堆疊";
   state.setSummary(completed);
@@ -389,4 +389,56 @@ test("existing full content remains readable while an update is available", asyn
   await page.getByRole("button", { name: "完整筆記", exact: true }).click();
   await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
   expect(state.writes).toEqual([]);
+});
+
+test("progress page follows the upload layout, keeps the old draft readable and returns when finished", async ({ page }) => {
+  const initial = { ...notes(), status: "running" as const, updating: true, started_at: new Date(Date.now() - 65000).toISOString(), updated_at: new Date().toISOString(),
+    progress: { stage: "generating" as const, completed_sections: 0, total_sections: 4, completed_parts: 3, total_parts: 10, current_section: "堆疊" } };
+  const state = await setup(page, initial);
+  await page.goto(`/materials/${materialId}/notes`);
+  await page.getByRole("button", { name: "查看進度", exact: true }).click();
+  const progress = page.getByRole("region", { name: "筆記生成進度" });
+  await expect(progress.getByRole("heading", { name: "正在更新重點整理", level: 1 })).toBeVisible();
+  await expect(progress.getByRole("heading", { name: "整體進度" })).toBeVisible();
+  await expect(progress.getByText("已完成 3 / 10 批。完成後自動開啟筆記。")).toBeVisible();
+  for (const step of ["規劃分批", "逐批撰寫", "逐段核對", "整理章節", "發布"]) await expect(progress.getByText(step, { exact: true })).toBeVisible();
+  await expect(progress.getByText("已完成 3 / 10 批・堆疊", { exact: true })).toBeVisible();
+  await expect(progress.getByText(/1 分/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expect(page).toHaveURL(/\/notes\?view=progress$/);
+  await page.reload();
+  await expect(progress).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
+  await page.goForward();
+  await expect(progress).toBeVisible();
+  await progress.getByRole("button", { name: "返回筆記" }).click();
+  await expect(page).toHaveURL(/\/notes$/);
+  await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
+  await page.getByRole("button", { name: "查看進度", exact: true }).click();
+  const completed = notes();
+  completed.paragraphs[0].heading = "更新後的堆疊"; completed.outline[0].heading = "更新後的堆疊";
+  state.setSummary(completed);
+  await expect(page.getByRole("region", { name: "筆記生成進度" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "一、更新後的堆疊" })).toBeVisible();
+  await expect(page).toHaveURL(/\/notes$/);
+});
+
+test("knowledge map concept opens the first note section that cites it", async ({ page }) => {
+  await setup(page);
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  await page.getByRole("tab", { name: "知識地圖" }).click();
+  await openMapConcept(page);
+  await page.getByRole("dialog", { name: "概念詳情", exact: true }).getByRole("button", { name: "在筆記中查看" }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/notes$`));
+  await expect(page.locator("#note-section-0")).toHaveClass(/note-paragraph-located/);
+  await expect(page.locator("#note-section-0")).toBeFocused();
+});
+
+test("knowledge map hides the note link when notes do not cite the concept", async ({ page }) => {
+  await setup(page, { ...notes(), paragraphs: [], outline: [] });
+  await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
+  await page.getByRole("tab", { name: "知識地圖" }).click();
+  await openMapConcept(page);
+  await expect(page.getByRole("dialog", { name: "概念詳情", exact: true }).getByRole("button", { name: "在筆記中查看" })).toHaveCount(0);
 });

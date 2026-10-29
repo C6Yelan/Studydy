@@ -1232,3 +1232,4 @@
   .map-corner-legend:not(.is-expanded) > .relation-legend { display:none; }
   .map-annotations.map-corner-legend > .relation-legend { flex-wrap:wrap; overflow:visible; max-width:250px; padding:12px; }
 }
+.detail-note-link { align-self: flex-start; margin-block: 8px; }
