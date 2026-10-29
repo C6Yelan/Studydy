@@ -204,10 +204,12 @@ test("timed sources show segments and the dialog plays from the cited time", asy
   await expect(dialog.getByRole("link", { name: "下載原檔" })).toBeVisible();
   await dialog.getByRole("button", { name: "關閉" }).click();
   current = 1;
+  await page.reload();
+  await openMapConcept(page, "Stack");
   await page.getByRole("button", { name: /查看第 1 頁來源/ }).click();
   await expect(dialog.locator("iframe")).toHaveAttribute(
     "src",
-    "https://www.youtube-nocookie.com/embed/iG9CE55wbtY?start=0&autoplay=1&rel=0",
+    "https://www.youtube-nocookie.com/embed/iG9CE55wbtY?start=0&rel=0",
   );
   await expect(dialog.getByRole("link", { name: "在 YouTube 開啟" })).toHaveAttribute(
     "href",

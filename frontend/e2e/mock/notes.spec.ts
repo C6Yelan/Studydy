@@ -221,8 +221,8 @@ for (const format of ['audio','images'] as const) test(`note references use veri
  await page.route(`**/v1/artifacts/${artifactId}`,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="zh-Hant"><body style="font-family:sans-serif;background:#e8efff;padding:24px"><h1>堆疊示意圖</h1><p>最後放入，最先取出。</p></body></html>'}));
  await page.goto(`/materials/${materialId}/notes`);
  const marker=page.locator('.note-sources .source-reference-button').first();await expect(marker).toHaveText(format==='audio'?'[▶ 04:02]':'[第 3 張圖片]');
- await marker.hover();await expect(page.getByRole('tooltip')).toContainText(format==='audio'?'課堂錄音':'投影片圖片');
- if(format==='images')await expect(page.getByRole('tooltip').locator('iframe')).toBeVisible();
+ await marker.click();await expect(page.getByRole('dialog',{name:'教材來源'})).toContainText(format==='audio'?'課堂錄音':'投影片圖片');
+ await page.getByRole('dialog',{name:'教材來源'}).getByRole('button',{name:'關閉'}).click();
  for(const [width,height] of [[1440,900],[1024,768],[390,844]]){
   await page.setViewportSize({width,height});await marker.scrollIntoViewIfNeeded();await marker.hover();
   await page.screenshot({path:testInfo.outputPath(`note-${format}-${width}.png`)});
@@ -259,29 +259,14 @@ test("older visible notes keep annotation and export requests on their content r
 });
 
 
-test("full notes regeneration confirms before writing and updated materials offer an update", async ({ page }) => {
+test("updated materials offer a full notes update", async ({ page }) => {
   const state = await setup(page);
-  state.setFull(notes("full"));
-  await page.goto(`/materials/${materialId}/notes`);
-  await page.getByRole("button", { name: "完整筆記", exact: true }).click();
-  await page.getByLabel("更多筆記操作").click();
-  await page.getByRole("button", { name: "重新生成", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "重新生成完整筆記" });
-  await expect(dialog).toContainText("將重新撰寫整份筆記，可能需要數分鐘");
-  expect(state.writes).toEqual([]);
-  await dialog.getByRole("button", { name: "取消", exact: true }).click();
-  await expect(page.getByRole("button", { name: "重新生成", exact: true })).toBeFocused();
-  await page.getByRole("button", { name: "重新生成", exact: true }).click();
-  await dialog.getByRole("button", { name: "確認重新生成" }).click();
-  await expect(page.getByText("正在更新筆記，完成後自動替換", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
-  expect(state.writes).toEqual(["generate"]);
   state.setFull({ ...notes("full"), update_available: true });
-  await page.reload();
+  await page.goto(`/materials/${materialId}/notes`);
   await page.getByRole("button", { name: "完整筆記", exact: true }).click();
   await expect(page.getByText("教材已更新，要更新完整筆記嗎？", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "更新完整筆記", exact: true }).click();
-  expect(state.writes).toEqual(["generate", "generate"]);
+  expect(state.writes).toEqual(["generate"]);
 });
 
 test("updating notes retain readable content, real elapsed time and section progress until replacement", async ({ page }) => {
@@ -397,19 +382,11 @@ test("paragraph actions appear on hover and keyboard focus, with inline source m
   await expect(paragraph.locator(".note-callout li .note-sources .source-reference-button")).toHaveCount(1);
 });
 
-test("both note kinds expose regeneration and existing full content remains readable", async ({ page }) => {
+test("existing full content remains readable while an update is available", async ({ page }) => {
   const state = await setup(page);
   state.setFull({ ...notes("full"), status: "not_generated", update_available: true });
   await page.goto(`/materials/${materialId}/notes`);
-  await page.getByLabel("更多筆記操作").click();
-  await page.getByRole("button", { name: "重新生成", exact: true }).click();
-  const confirmation = page.getByRole("dialog", { name: "重新生成重點整理" });
-  await expect(confirmation).toBeVisible();
-  await confirmation.getByRole("button", { name: "取消", exact: true }).click();
   await page.getByRole("button", { name: "完整筆記", exact: true }).click();
   await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
-  await page.getByLabel("更多筆記操作").click();
-  await page.getByRole("button", { name: "重新生成", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "重新生成完整筆記" })).toBeVisible();
   expect(state.writes).toEqual([]);
 });

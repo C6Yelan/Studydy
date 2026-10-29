@@ -294,8 +294,7 @@ for (const viewport of [
           `${decodeURIComponent(apiMapPath)}/evidence/${encodeURIComponent(representative.evidence_id)}/source`,
         );
         await expect(
-          source.getByRole("heading", {
-            name: representative.source_name ?? "Synthetic.pdf",
+          source.getByText(`教材來源 · ${representative.source_name ?? "Synthetic.pdf"}`, {
             exact: true,
           }),
         ).toBeVisible();

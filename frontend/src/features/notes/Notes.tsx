@@ -45,6 +45,31 @@ function Block({ block, heading, tail }: { block: NoteBlock; heading: string; ta
   }
 }
 
+/**
+ * 比照文件編輯器的邊欄：滑過或聚焦段落時，右側出現「新增註記」與「在地圖查看」圖示，
+ * 不在正文下方插入一排文字連結；多個概念時點地圖圖示展開清單。
+ */
+function ParagraphActions({ concepts, openConcept, annotate }: {
+  concepts: NoteParagraph["concepts"]; openConcept: (id: string) => void; annotate: (opener: HTMLButtonElement) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
+  return <div ref={root} className="note-paragraph-actions" data-open={open || undefined}>
+    <button type="button" className="note-action" aria-label="新增註記" title="新增註記" onClick={e => annotate(e.currentTarget)}><Icon name="edit" size={18}/></button>
+    {concepts.length === 1 ? <button type="button" className="note-action" aria-label={`${concepts[0].label} · 查看地圖`} title={`在地圖查看「${concepts[0].label}」`} onClick={() => openConcept(concepts[0].concept_id)}><Icon name="map" size={18}/></button>
+      : concepts.length > 1 && <>
+        <button type="button" className="note-action" aria-label="在地圖查看" title="在地圖查看" aria-expanded={open} onClick={() => setOpen(v => !v)}><Icon name="map" size={18}/></button>
+        {open && <div className="note-concept-menu" role="group" aria-label="在地圖查看">{concepts.map(c => <button type="button" key={c.concept_id} aria-label={`${c.label} · 查看地圖`} onClick={() => { setOpen(false); openConcept(c.concept_id); }}>{c.label}</button>)}</div>}
+      </>}
+  </div>;
+}
+
 function ParagraphBody({ paragraph: p, number, sources }: { paragraph: NoteParagraph; number?: NoteOutlineEntry; sources?: ReactNode }) {
   if (!("blocks" in p)) {
     // v11 以前的段落格式，重新生成前仍可閱讀。
@@ -110,13 +135,13 @@ function AnnotationEditor({ api, editor, close, saved }: { api: StudydyApiClient
 }
 
 const failureMessages: Record<string, string> = {
-  NOTE_FORMAT_INVALID: "筆記回應格式不完整，尚未發布。可重新生成。",
+  NOTE_FORMAT_INVALID: "筆記回應格式不完整，尚未發布。可重試生成。",
   NOTE_CONTENT_UNSUPPORTED: "筆記內容與引用原文不符，重新生成後仍未通過核對，尚未發布。",
   NOTE_REVIEW_INVALID: "筆記內容核對未完成，尚未發布。請稍後重試。",
-  NOTE_CONTRACT_INVALID: "筆記生成規則已更新，請重新生成。已完成的筆記與註記仍保留。",
-  NOTE_COVERAGE_INCOMPLETE: "筆記仍有遺漏或未說明的重點，尚未發布。可重新生成。",
+  NOTE_CONTRACT_INVALID: "筆記生成規則已更新，請重試生成。已完成的筆記與註記仍保留。",
+  NOTE_COVERAGE_INCOMPLETE: "筆記仍有遺漏或未說明的重點，尚未發布。可重試生成。",
   NOTE_INPUT_TOO_LARGE: "教材內容超出這次筆記生成容量，尚未發布。",
-  NOTE_REFERENCE_INVALID: "筆記的來源引用未通過驗證，尚未發布。可重新生成。",
+  NOTE_REFERENCE_INVALID: "筆記的來源引用未通過驗證，尚未發布。可重試生成。",
   NOTE_SOURCE_EMPTY: "這份教材目前沒有可用來寫筆記的重點來源。",
 };
 
@@ -131,8 +156,6 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
   const outlineDialog = useRef<HTMLDialogElement>(null);
   const outlineTrigger = useRef<HTMLButtonElement>(null);
   const jumpAfterClose = useRef<string | null>(null);
-  const confirmDialog = useRef<HTMLDialogElement>(null);
-  const regenerateTrigger = useRef<HTMLButtonElement>(null);
   const [outlineExpanded, setOutlineExpanded] = useState(true);
   const [outlineDrawerOpen, setOutlineDrawerOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("");
@@ -234,10 +257,6 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
         {!!view?.paragraphs.length && <ExportControls label="匯出筆記" options={[
           { value: "pdf", label: "PDF" }, { value: "md", label: "Markdown" }, { value: "docx", label: "Word（.docx）" },
         ]} download={format => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${view.content_revision}/notes/${kind}/export/${format}`)} />}
-        {!!view?.paragraphs.length && <details className="note-more">
-          <summary className="note-more-trigger" aria-label="更多筆記操作">⋯</summary>
-          <div><button ref={regenerateTrigger} type="button" className="text-button" disabled={busy || pending} onClick={() => confirmDialog.current?.showModal()}>重新生成</button></div>
-        </details>}
       </div>
     </div>
     <div className={`note-reading-layout${outlineExpanded && view?.outline.length ? " has-outline" : ""}`}>
@@ -265,8 +284,7 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
       {view.paragraphs.map(p => { const number = numbers.get(p.id); return <section key={`${view.content_revision}:${view.content_generation}:${p.id}`} id={`note-section-${p.id}`} tabIndex={-1}
         className={`note-paragraph${number?.level === 2 ? " note-subsection" : ""}`} aria-label={number ? numberedHeading(number) : p.heading}>
         <ParagraphBody paragraph={p} number={number} sources={<span className="note-sources" aria-label="段落來源">{sourceLinks(p.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e} reference={{quote:e.quote}}/>)}</span>}/>
-        <div className="note-paragraph-actions"><div className="note-concepts">{p.concepts.map(c => <button className="text-button" key={c.concept_id} onClick={() => void openConcept(c.concept_id)}>{c.label} · 查看地圖</button>)}</div>
-        <button className="text-button" onClick={e => edit(e.currentTarget, p.id)}>新增註記</button></div>
+        <ParagraphActions concepts={p.concepts} openConcept={id => void openConcept(id)} annotate={opener => edit(opener, p.id)}/>
         {view.annotations.filter(a => a.paragraph_id === p.id).map(annotationItem)}
       </section>; })}
       {orphaned.length > 0 && <section className="note-previous" aria-labelledby="previous-notes-title"><h2 id="previous-notes-title">先前段落的註記</h2>
@@ -290,12 +308,6 @@ function NotesContent({ api, materialId, revision, kind, changeKind }: { api: St
     }}>
       <button type="button" className="secondary-button" onClick={() => outlineDialog.current?.close()}>關閉目錄</button>
       {outlineDrawerOpen && <Outline entries={view?.outline ?? []} active={activeSection} jump={id => { jumpAfterClose.current = id; outlineDialog.current?.close(); }}/>}
-    </dialog>
-    <dialog ref={confirmDialog} className="note-regenerate-dialog" aria-labelledby="note-regenerate-title" onClose={() => regenerateTrigger.current?.focus()}>
-      <h2 id="note-regenerate-title">{kind === "full" ? "重新生成完整筆記" : "重新生成重點整理"}</h2>
-      <p>將重新撰寫整份筆記，可能需要數分鐘</p>
-      <div className="state-actions"><button type="button" className="secondary-button" onClick={() => confirmDialog.current?.close()}>取消</button>
-        <button type="button" className="primary-button" onClick={() => { confirmDialog.current?.close(); void generate(); }}>確認重新生成</button></div>
     </dialog>
     {editor && <AnnotationEditor key={editor.id} api={api} editor={editor} close={() => setEditor(null)} saved={update}/>}
   </div>;
