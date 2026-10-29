@@ -1,4 +1,5 @@
 import { MapExports } from "../exports/MapExports";
+import { openNoteTarget, useConceptNoteTarget } from "../notes/note-location";
 import { relationStyles } from "./map-appearance";
 import { DifficultyBadge, LearningDiagnosis, useLearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { GoalEditorHost, LearningGoalBlock, TodayConceptsBlock, useLearningGoal } from "../learning-goals/LearningGoalPanel";
@@ -175,6 +176,7 @@ function ConceptDetail({
 }) {
   const read = useConceptContext(apiClient, view.material_id, view.knowledge_structure_revision, [concept.concept_id]);
   const full = read.context?.concepts.find(c => c.concept_id === concept.concept_id);
+  const noteTarget = useConceptNoteTarget(apiClient, view.material_id, view.knowledge_structure_revision, concept.concept_id);
   return (
     <DetailPanel label="概念詳情" focusKey={concept.concept_id} close={close}>
       <header>
@@ -197,6 +199,7 @@ function ConceptDetail({
           : full ? <ConceptContent claims={full.claims} apiClient={apiClient} sourceResolver={view.source_resolver} />
           : <p role="status">正在讀取概念與來源…</p>}
       </section>
+      {noteTarget && <button type="button" className="secondary-button detail-note-link" onClick={() => openNoteTarget(view.material_id, noteTarget)}>在筆記中查看</button>}
       {studyAction}
     </DetailPanel>
   );

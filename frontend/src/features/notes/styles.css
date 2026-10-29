@@ -105,3 +105,5 @@
   .note-paragraph h2 { font-size: 1.4rem; }
   .note-editor { padding: 20px 16px; }
 }
+.notes-progress-scroll { height: 100%; overflow-y: auto; min-width: 0; }
+.note-paragraph-located { background: #ffedb0; box-shadow: 0 0 0 6px #ffedb0; border-radius: var(--radius-input); transition: background .4s, box-shadow .4s; }
