@@ -16,8 +16,8 @@ test("real notes save an annotation, reopen its source and generate full notes o
   await page.getByRole("button", { name: "儲存註記", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
   await page.reload();
-  // 第一則個人註記會取得新徽章（寫下心得），先關閉提示才能繼續操作。
-  await page.getByRole("dialog", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
+  // 第一則個人註記會取得新徽章（寫下心得），顯示頁面內通知。
+  await page.getByRole("status", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
   await expect(page.getByText("真 API 保存我的複習想法", { exact: true })).toBeVisible();
   const controls = page.getByRole("menu", { name: "匯出筆記" });
   for (const format of ["md", "pdf", "docx"]) {

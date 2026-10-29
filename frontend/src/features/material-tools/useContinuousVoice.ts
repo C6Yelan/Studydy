@@ -38,7 +38,7 @@ export function useContinuousVoice({enabled, paused, onRecording, onSpeech, onEr
     let operations = Promise.resolve();
     const allowed = () => !cancelled && !submitted && !latest.current.paused;
     const fail = (failure: unknown) => {
-      if (!cancelled) latest.current.onError(failure instanceof Error ? failure.message : '無法啟動語音辨識，請重新開啟語音模式或使用文字提問。');
+      if (!cancelled) latest.current.onError(failure instanceof DOMException && failure.name === 'NotFoundError' ? '找不到麥克風，請確認已連接麥克風，或改用文字提問。' : failure instanceof Error ? failure.message : '無法啟動語音辨識，請重新開啟語音模式或使用文字提問。');
     };
     // 暫停、恢復與銷毀依序執行，避免快速切換模式時留下麥克風或送出舊錄音。
     const synchronize = () => {

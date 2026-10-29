@@ -56,7 +56,7 @@ test("a real goal leads through source reading and answers without completing th
   expect((await page.request.get(sourceUrl)).status()).toBe(200);
   await page.keyboard.press("Escape");
 
-  const badgeNotice = page.getByRole("dialog", { name: "獲得新徽章" });
+  const badgeNotice = page.getByRole("status", { name: "獲得新徽章" });
   if (await badgeNotice.isVisible()) await badgeNotice.getByRole("button", { name: "太好了", exact: true }).click();
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   await expect(goalPanel.getByText("學習目標已達成。", { exact: true })).toBeVisible();

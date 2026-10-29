@@ -60,10 +60,12 @@ test("wrong points directly form groups and survive lost create responses", asyn
     expect(response.status()).toBe(202);
     await route.abort();
   });
-  // 第一次交卷會跳出新徽章（初次作答、第一份題組），先關閉才能繼續操作。
-  await page.getByRole("dialog", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
+  // 新徽章通知顯示時仍可使用交卷後的主要補強操作。
+  const badgeNotice = page.getByRole("status", { name: "獲得新徽章" });
+  await expect(badgeNotice).toBeVisible();
   await page.getByRole("button", { name: "補強這 2 個重點", exact: true }).click();
   await expect(page.getByRole("button", { name: "重新讀取題組", exact: true })).toBeVisible();
+  await badgeNotice.getByRole("button", { name: "太好了" }).click();
   await page.getByRole("button", { name: "重新讀取題組", exact: true }).click();
   await page.getByRole("button", { name: "接續補強", exact: true }).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
@@ -88,7 +90,7 @@ test("wrong points directly form groups and survive lost create responses", asyn
   await page.getByRole("button",{name:"補強這 1 個重點",exact:true}).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   // 上一次交卷讓 Signals 的錯誤率降到一半以下，進入補強題組時讀到新徽章（突破難點），先關閉提示。
-  await page.getByRole("dialog", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
+  await page.getByRole("status", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
   const childUrl=page.url();
   await card(page,1).getByRole("radio",{name:/\bcode2\b/}).check();
   await page.getByRole("button",{name:"交卷",exact:true}).click();

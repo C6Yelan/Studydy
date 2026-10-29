@@ -707,13 +707,13 @@ test("new badge notice shows only server-claimed badges once", async ({ page }) 
   // 伺服器已標記歷史徽章；首次讀取不補播。
   await page.goto("/");
   await expect(page.locator(".header-progress")).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "獲得新徽章" })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "獲得新徽章" })).toHaveCount(0);
   await expect.poll(() => claims).toBe(1);
   pending = ["first_concept", "future_badge"];
   earned = { ...earned, first_concept: { earned_on: "2026-10-22" } };
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();
-  const notice = page.getByRole("dialog", { name: "獲得新徽章" });
+  const notice = page.getByRole("status", { name: "獲得新徽章" });
   await expect(notice).toContainText("點亮概念");
   await expect(notice).not.toContainText("初次作答");
   await expect(notice.locator(".badge-medal")).toHaveCSS("animation-name", "none");
@@ -721,10 +721,10 @@ test("new badge notice shows only server-claimed badges once", async ({ page }) 
   await expect(notice).toHaveCount(0);
   await page.reload();
   await expect(page.locator(".header-progress")).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "獲得新徽章" })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "獲得新徽章" })).toHaveCount(0);
 });
 
-test("level-up and badge dialogs open one after another, close by Escape or backdrop and return focus", async ({ page }) => {
+test("level-up closes by Escape and badge notice leaves page controls usable", async ({ page }) => {
   let level = 2;
   let earned: Record<string, { earned_on: string }> = { first_answer: { earned_on: "2026-10-16" } };
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ total: level * 100, level: [level, 0, 300], badges: earned }) }));
@@ -749,7 +749,7 @@ test("level-up and badge dialogs open one after another, close by Escape or back
   await page.clock.runFor(31_000);
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   const levelDialog = page.getByRole("dialog", { name: "升級了！第 3 級" });
-  const badgeDialog = page.getByRole("dialog", { name: "獲得新徽章" });
+  const badgeDialog = page.getByRole("status", { name: "獲得新徽章" });
   await expect(levelDialog).toHaveAttribute("aria-modal", "true");
   await expect(levelDialog.getByRole("button", { name: "太好了" })).toBeFocused();
   // 同時升級與取得徽章時，先只顯示升級。
@@ -761,11 +761,11 @@ test("level-up and badge dialogs open one after another, close by Escape or back
   await page.keyboard.press("Escape");
   await expect(levelDialog).toHaveCount(0);
   await expect(badgeDialog).toContainText("點亮概念");
-  await expect(badgeDialog.getByRole("button", { name: "太好了" })).toBeFocused();
-  // 點卡片外的背景關閉，焦點回到開啟前的頁首按鈕。
-  await page.mouse.click(5, 5);
-  await expect(badgeDialog).toHaveCount(0);
   await expect(progress).toBeFocused();
+  await progress.click();
+  await expect(page).toHaveURL(/achievements/);
+  await badgeDialog.getByRole("button", { name: "太好了" }).click();
+  await expect(badgeDialog).toHaveCount(0);
 });
 
 test("dashboard hides learning numbers when learning activity is unavailable", async ({ page }) => {

@@ -177,7 +177,21 @@
 .badge-medal.is-special.is-locked .badge-glyph { color: #7a6fc0; font-size: 20px; font-weight: 900; }
 .badge-medal.is-special .badge-star { fill: #c9b6ff; }
 
-/* 取得徽章的一次性提示（沿用升級動畫外框） */
+/* 徽章通知占用頁面空間，不覆蓋教材或鎖住主要操作。 */
+.badge-earned {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px var(--shell-gutter);
+  padding: 12px 16px;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.badge-notice-title { margin: 0; font-weight: 800; }
+.badge-earned > button { margin-left: auto; }
+
 .badge-earned-list {
   display: flex;
   flex-wrap: wrap;

@@ -128,7 +128,7 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
                   }} />
                 {removing?.card_set_id === item.card_set_id && <InlineConfirm message="確定刪除？" label="刪除卡組確認" confirmLabel="刪除"
                   confirmAriaLabel="確認刪除卡組" busyLabel="正在刪除…" busy={busy} error={deleteError} onCancel={closeDelete} onConfirm={() => void remove()} />}
-                <p className="library-metadata">{new Date(item.created_at).toLocaleDateString()}{item.generation.status === "ready" && <> · <CardCount key={`${item.card_set_id}:${item.version}`} item={item} apiClient={apiClient} onSaved={countSaved} /></>}</p>
+                <p className="library-metadata">{new Date(item.created_at).toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei" })}{item.generation.status === "ready" && <> · <CardCount key={`${item.card_set_id}:${item.version}`} item={item} apiClient={apiClient} onSaved={countSaved} /></>}</p>
                 {!material && <p className="cards-library-material" title={item.material_name}>{item.material_name}</p>}
                 {/* 狀態統一成一列小標籤：生成狀態、教材版本、需要加強，依序最多各一個。 */}
                 <div className="card-set-states">

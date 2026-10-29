@@ -1,6 +1,8 @@
 import { Progress } from "../../ui/Progress";
 import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../../api/contracts";
-import { CelebrationDialog } from "../../ui/CelebrationDialog";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { playCue } from "../../ui/feedback-sound";
 import { Icon, type IconName } from "../../ui/Icon";
 import "./styles.css";
 
@@ -253,20 +255,21 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
 
 export function BadgeEarned({ badges, onClose }: { badges: KnownBadge[]; onClose: () => void }) {
   const shown = badges.slice(0, 3);
-  return <CelebrationDialog className="level-up badge-earned" cue="badge" label="獲得新徽章" onClose={onClose}>
-    <div className="level-up-card">
-      <span className="level-up-burst" aria-hidden="true" />
-      <img src="/assets/studydy/success-jump.png" alt="" />
-      <p className="level-up-eyebrow">獲得新徽章！</p>
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setSlot(document.getElementById("badge-notice-slot"));
+    playCue("badge");
+  }, []);
+  return slot && createPortal(<section className="badge-earned" role="status" aria-label="獲得新徽章">
+      <p className="badge-notice-title">獲得新徽章！</p>
       <ul className="badge-earned-list">
         {shown.map((badge) => <li key={badge.badge_id}>
-          <BadgeMedal badge={badge} size={64} />
+          <BadgeMedal badge={badge} size={40} />
           <b>{nameOf(badge)}</b>
           <small>{conditionText(badge)}</small>
         </li>)}
       </ul>
       {badges.length > shown.length && <p>另外還有 {badges.length - shown.length} 個新徽章，到「成就」頁查看。</p>}
       <button className="primary-button" type="button" onClick={onClose}>太好了</button>
-    </div>
-  </CelebrationDialog>;
+  </section>, slot);
 }

@@ -19,7 +19,7 @@
 .app-shell.is-material.is-switching-tab > .tab-bar {
   display: none;
 }
-/* 頁首進度不顯示，升級與徽章動畫（固定定位的彈窗）照常出現。 */
+/* 頁首進度不顯示，升級彈窗照常出現；徽章通知放在頁面內獨立容器。 */
 .material-shell-status > :not(.level-up) {
   display: none;
 }

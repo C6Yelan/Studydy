@@ -364,6 +364,17 @@ test('sources use structured references without rewriting numeric literals and h
  await expect(page.locator('.voice-history select')).toHaveCount(0);
 });
 
+test('missing microphone explains recovery in Chinese and leaves text usable',async({page})=>{
+ await mockVoice(page);
+ await page.addInitScript(()=>Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:()=>Promise.reject(new DOMException('Requested device not found','NotFoundError'))}));
+ await page.goto(mapPath);await open(page);await page.getByRole('switch',{name:'語音模式'}).click();
+ await expect(page.getByRole('alert')).toContainText('找不到麥克風，請確認已連接麥克風，或改用文字提問。');
+ await expect(page.getByRole('switch',{name:'語音模式'})).toHaveAttribute('aria-checked','false');
+ await page.getByLabel('問題／辨識文字').fill('堆疊是什麼？');
+ await page.getByRole('button',{name:'送出問題',exact:true}).click();
+ await expect(page.locator('.voice-answer')).toContainText('堆疊採用後進先出');
+});
+
 test('microphone permission denial turns voice mode off and leaves text usable',async({page})=>{
  await mockVoice(page);
  await page.addInitScript(()=>Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:()=>Promise.reject(new DOMException('Permission denied','NotAllowedError'))}));

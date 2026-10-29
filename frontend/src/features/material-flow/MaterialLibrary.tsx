@@ -285,7 +285,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                 }}
               />
               <p className="library-metadata">
-                {new Date(item.created_at).toLocaleDateString()} ·{" "}
+                {new Date(item.created_at).toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei" })} ·{" "}
                 {(item.source_count ?? 1) > 1
                   ? `${item.source_count} 個檔案`
                   : formatFileSize(item.size_bytes)}
