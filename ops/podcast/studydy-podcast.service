@@ -6,6 +6,8 @@ After=network-online.target
 Type=simple
 WorkingDirectory=/home/jerry/project/Studydy/main
 EnvironmentFile=/home/jerry/project/Studydy/main/data/podcast/provider.env
+Environment=TMPDIR=/home/jerry/project/Studydy/main/data/podcast/tmp
+ExecStartPre=/usr/bin/mkdir -p /home/jerry/project/Studydy/main/data/podcast/tmp
 ExecStart=/home/jerry/project/Studydy/main/data/podcast/runtime/bin/python /home/jerry/project/Studydy/main/ops/podcast/provider.py
 Restart=on-failure
 RestartSec=5

@@ -142,7 +142,9 @@ provider 使用 `data/podcast/runtime/`；語音使用 `data/podcast/cosyvoice-b
 
 私有 `data/podcast/provider.env` 設定 `STUDYDY_PODCAST_TTS_PYTHON`（保留 venv Python 入口）、`STUDYDY_COSYVOICE_SOURCE_DIR`、`STUDYDY_COSYVOICE_MODEL_DIR`、`STUDYDY_COSYVOICE_VOICES_DIR`、`STUDYDY_COSYVOICE_NORMALIZER_CACHE` 及主機 CUDA 12.8 的 `LD_LIBRARY_PATH`。既有 Podcast 保留原音訊；需新建 Podcast 才能完整使用新講稿與聲線。公開比較頁已移除。
 
-主機服務設定見 [studydy-podcast.service](../ops/podcast/studydy-podcast.service)，載入私有 `data/podcast/provider.env`。正式版 `.env` 的 `STUDYDY_PODCAST_PROVIDER_URL` 指向 `http://host.docker.internal:18010`，`STUDYDY_PODCAST_PROVIDER_TOKEN` 與主機服務的 token 相同；至少 32 字元。provider 只監聽 Docker gateway `172.17.0.1`，不公開 port，也不经过 Cloudflare。不同主機須核對 gateway 與 service 中的絕對路徑。
+主機服務設定見 [studydy-podcast.service](../ops/podcast/studydy-podcast.service)，載入私有 `data/podcast/provider.env`。服務啟動前建立 `data/podcast/tmp/`，以 `TMPDIR` 指向此硬碟目錄；provider 與其子程序的音訊、講稿、STT 及對齊暫存共用此設定，避免 WSL 的 `/tmp` tmpfs 佔用記憶體。正式版 `.env` 的 `STUDYDY_PODCAST_PROVIDER_URL` 指向 `http://host.docker.internal:18010`，`STUDYDY_PODCAST_PROVIDER_TOKEN` 與主機服務的 token 相同；至少 32 字元。provider 只監聽 Docker gateway `172.17.0.1`，不公開 port，也不经过 Cloudflare。不同主機須核對 gateway 與 service 中的絕對路徑。
+
+既有安裝更新此 service 時，將檔案更新至 `~/.config/systemd/user/studydy-podcast.service`，保留現有 drop-in（包含部署 bundle 的 `ExecStart`），執行 `systemctl --user daemon-reload`。取得部署放行並等待進行中的工作清空後，才重啟 provider；僅更新 repo 內檔案不會改變正在執行的服務。
 
 Podcast 的講稿、音訊、字幕與影片工作會將工作 ID／本次 lease 傳給 provider。介面的「取消並刪除」與刪除使用相同流程：停止整份 Podcast，刪除所有分集的講稿、音訊與影片，原教材保留，不留下暫停項目。worker 會通知 `/jobs/cancel`，provider 會中斷等候資源鎖的請求並終止整個子程序群組。清單與播放器另外呈現影片／字幕工作，避免音訊已完成時隱藏尚在生成的工作。失敗重試使用新 lease，舊取消訊號不會停止新工作。Podcast 音訊連線建立後不設固定等待期限，工作租約在 worker 存活時續期；15 分鐘租約只用來回收失聯 worker，不是生成時間上限。更新此協定時先更新 provider，再更新 backend；部署前等待進行中的工作清空並確認舊服務沒有殘留程序；不取消使用者工作，等待超過一小時停止並詢問。這不代表遠端模型服務已受理的請求一定能撤銷計費。
 
