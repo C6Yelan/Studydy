@@ -133,6 +133,40 @@ def test_durable_design_cache_counts_and_original_sources(closed_loop):
     assert card_sets.generation_status(owner.learner_id, cached, dsn=dsn)['cached'] == 1
 
 
+def test_invalid_design_concept_is_skipped_and_other_cards_publish(multiple_concepts):
+    owner, material, _, document, dsn, _ = multiple_concepts
+    selected = [c['concept_id'] for c in document['concepts']]
+    bad = document['concepts'][0]
+    identity = card_sets.create_card_set(owner.learner_id, material.material_id, document['revision'],
+        '設計不合格', selected, 'invalid-design', dsn=dsn)['card_set_id']
+    def call(path, body):
+        result = response(path, body)
+        if 'pages' in body['schema']['properties'] and body['request']['concept'] == bad['label']:
+            result['pages'][0]['blocks'][0]['source_refs'] = [99]
+        return result
+    finish(dsn, call)
+    assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['status'] == 'ready'
+    with database_session(dsn) as db:
+        row = db.get(CardSet, identity)
+        assert row.concept_ids == selected[1:]
+        assert list(row.generation['skipped']) == [bad['concept_id']]
+        assert row.generation['skipped'][bad['concept_id']]['error_code'] == 'CARD_DESIGN_INVALID'
+        assert 'source_refs' in row.generation['skipped'][bad['concept_id']]['issues'][0]
+
+
+def test_all_designs_invalid_stays_failed(closed_loop):
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)
+    def call(path, body):
+        result = response(path, body)
+        if 'pages' in body['schema']['properties']:
+            result['pages'][0]['blocks'][0]['source_refs'] = [99]
+        return result
+    finish(dsn, call)
+    progress = card_sets.generation_status(owner.learner_id, identity, dsn=dsn)
+    assert progress['status'] == 'failed' and progress['error_code'] == 'CARD_DESIGN_INVALID'
+
+
 def test_review_failure_stays_failed_and_retry_receives_feedback(closed_loop):
     owner, _, _, _, dsn, _ = closed_loop
     identity = create(closed_loop)

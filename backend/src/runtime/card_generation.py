@@ -204,7 +204,7 @@ def _prepare(claim, state, dsn):
     state["stage"] = "designing"
 
 
-def skip_rejected(state, concept_ids):
+def skip_rejected(state, concept_ids, error_code="CARD_DESIGN_REVIEW_FAILED"):
     """有可發布成果或尚有其他概念時繼續；全數不符仍保留最後候選供重試。"""
     current = state["current"]
     identity = current["concept_id"]
@@ -214,7 +214,7 @@ def skip_rejected(state, concept_ids):
     ):
         return False
     state.setdefault("skipped", {})[identity] = {
-        "error_code": "CARD_DESIGN_REVIEW_FAILED",
+        "error_code": error_code,
         "issues": list(current["feedback"]),
     }
     del state["current"]
@@ -314,6 +314,8 @@ def _advance(claim, state, dsn, call):
             current["feedback"] = [error.detail or "請修正卡面格式與來源對應。"]
             if not current.get("repair_attempts"):
                 current["repair_attempts"] = 1
+                return
+            if skip_rejected(state, claim["concept_ids"], error.args[0]):
                 return
             raise
         current["source_digest"] = digest
