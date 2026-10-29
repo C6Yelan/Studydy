@@ -92,6 +92,24 @@ def test_full_reanalysis_keeps_old_version_and_has_one_budget(maintained):
     assert maintenance.status(dsn=dsn)["budget"]["reserved_calls"] == len(sent) + 2
 
 
+def test_maintenance_run_may_publish_a_replaced_source_set(revisions, maintained):
+    # 一次性維護腳本可替換來源後全量重分析；來源綁定仍由該 run 自己的 source set 驗證。
+    owner, material, settings, dsn, execute, original, sent = maintained
+    add, start = revisions[4], revisions[5]
+    replacement = add("B.pdf", "A queue removes the earliest inserted element first.")
+    run_id = start([replacement], "replaced-sources", original["revision"]).run_id
+    with database_session(dsn) as session:
+        session.get(MaterialProcessingRun, run_id).maintenance = {
+            "mode": "demo-full-reanalysis/v1", "limit": 2000, "reserved_calls": 0}
+    completed = execute()
+    assert completed.status == "succeeded", completed.error_code
+    document = read_knowledge_structure(owner.learner_id, material, run_id=run_id, dsn=dsn).document
+    assert document["source_set_sha256"] != original["source_set_sha256"]
+    with database_session(dsn) as session:
+        assert session.get(Material, material).head_revision == document["revision"]
+        assert session.get(MaterialProcessingRun, run_id).maintenance["reserved_calls"] == len(sent) > 0
+
+
 def test_exhaustion_preserves_head_and_cannot_reset_through_retry(maintained):
     owner, material, settings, dsn, execute, original, sent = maintained
     run_id = maintenance.enqueue(settings, dsn=dsn)
