@@ -4,7 +4,8 @@ import { Progress } from "../../ui/Progress";
 import { ExportControls } from "../exports/ExportControls";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { MaterialNotesView, NoteAnnotation, NoteBlock, NoteCalloutStyle, NoteItem, NoteKind, NoteOutlineEntry, NoteParagraph } from "../../api/contracts";
+import type { MaterialNotesView, NoteBlock, NoteCalloutStyle, NoteItem, NoteKind, NoteOutlineEntry, NoteParagraph } from "../../api/contracts";
+import { MarkupParagraph, NoteMarkup, NoteText } from "./NoteMarkup";
 import { writeRoute } from "../../app/routes";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { NotesProgress } from "./NotesProgress";
@@ -20,70 +21,45 @@ export function numberedHeading(entry: NoteOutlineEntry) {
   return entry.number + (entry.level === 1 ? "" : " ") + entry.heading;
 }
 
-function Items({ items, tail }: { items: NoteItem[]; tail?: ReactNode }) {
-  return <ul className="note-bullets">{items.map((item, i) => <li key={i}><MathText text={item.text}/>{item.children?.length ? <Items items={item.children} tail={i === items.length - 1 ? tail : undefined}/> : i === items.length - 1 ? tail : null}</li>)}</ul>;
+function Items({ items, tail, path }: { items: NoteItem[]; tail?: ReactNode; path: (string | number)[] }) {
+  return <ul className="note-bullets">{items.map((item, i) => <li key={i}><NoteText text={item.text} path={[...path, i, "text"]}/>{item.children?.length ? <Items items={item.children} path={[...path, i, "children"]} tail={i === items.length - 1 ? tail : undefined}/> : i === items.length - 1 ? tail : null}</li>)}</ul>;
 }
 
-function Table({ label, caption, headers, rows, tail }: { tail?: ReactNode; label: string; caption: string | null; headers: string[]; rows: string[][] }) {
+function Table({ label, caption, headers, rows, tail, path }: { tail?: ReactNode; label: string; caption: string | null; headers: string[]; rows: string[][]; path: (string | number)[] }) {
   return <div className="note-table-scroll" role="region" aria-label={caption ?? label} tabIndex={0}><table>
     {caption && <caption>{caption}</caption>}
     <thead><tr>{headers.map((cell, i) => <th key={i} scope="col"><MathText text={cell}/></th>)}</tr></thead>
-    <tbody>{rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}><MathText text={cell}/>{i === rows.length - 1 && j === row.length - 1 && tail}</td>)}</tr>)}</tbody>
+    <tbody>{rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}><NoteText text={cell} path={[...path, "rows", i, j]}/>{i === rows.length - 1 && j === row.length - 1 && tail}</td>)}</tr>)}</tbody>
   </table></div>;
 }
 
-function Block({ block, heading, tail }: { block: NoteBlock; heading: string; tail?: ReactNode }) {
+function Block({ block, heading, tail, path }: { block: NoteBlock; heading: string; tail?: ReactNode; path: (string | number)[] }) {
   switch (block.type) {
-    case "text": return <p className="note-prose"><MathText text={block.text}/>{tail}</p>;
-    case "bullets": return <Items items={block.items} tail={tail}/>;
-    case "table": return <Table label={`${heading}表格`} caption={block.caption} headers={block.headers} rows={block.rows} tail={tail}/>;
-    case "formula": return <div className="note-formula"><MathText text={`$$${block.latex}$$`}/>{tail}</div>;
+    case "text": return <p className="note-prose"><NoteText text={block.text} path={[...path, "text"]}/>{tail}</p>;
+    case "bullets": return <Items items={block.items} path={[...path, "items"]} tail={tail}/>;
+    case "table": return <Table label={`${heading}表格`} caption={block.caption} headers={block.headers} rows={block.rows} path={path} tail={tail}/>;
+    case "formula": return <div className="note-formula" data-note-formula="true"><MathText text={`$$${block.latex}$$`}/>{tail}</div>;
     case "callout": {
       const label = calloutLabels[block.style];
       return <aside className={`note-callout note-callout-${block.style}`} aria-label={label}>
-        <p className="note-callout-title">{label}{block.title && `：${block.title}`}</p><Items items={block.items} tail={tail}/>
+        <p className="note-callout-title">{label}{block.title && `：${block.title}`}</p><Items items={block.items} path={[...path, "items"]} tail={tail}/>
       </aside>;
     }
   }
 }
 
-/**
- * 比照文件編輯器的邊欄：滑過或聚焦段落時，右側出現「新增註記」與「在地圖查看」圖示，
- * 不在正文下方插入一排文字連結；多個概念時點地圖圖示展開清單。
- */
-function ParagraphActions({ concepts, openConcept, annotate }: {
-  concepts: NoteParagraph["concepts"]; openConcept: (id: string) => void; annotate: (opener: HTMLButtonElement) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener("pointerdown", outside);
-    return () => document.removeEventListener("pointerdown", outside);
-  }, [open]);
-  return <div ref={root} className="note-paragraph-actions" data-open={open || undefined}>
-    <button type="button" className="note-action" aria-label="新增註記" title="新增註記" onClick={e => annotate(e.currentTarget)}><Icon name="edit" size={18}/></button>
-    {concepts.length === 1 ? <button type="button" className="note-action" aria-label={`${concepts[0].label} · 查看地圖`} title={`在地圖查看「${concepts[0].label}」`} onClick={() => openConcept(concepts[0].concept_id)}><Icon name="map" size={18}/></button>
-      : concepts.length > 1 && <>
-        <button type="button" className="note-action" aria-label="在地圖查看" title="在地圖查看" aria-expanded={open} onClick={() => setOpen(v => !v)}><Icon name="map" size={18}/></button>
-        {open && <div className="note-concept-menu" role="group" aria-label="在地圖查看">{concepts.map(c => <button type="button" key={c.concept_id} aria-label={`${c.label} · 查看地圖`} onClick={() => { setOpen(false); openConcept(c.concept_id); }}>{c.label}</button>)}</div>}
-      </>}
-  </div>;
-}
-
 function ParagraphBody({ paragraph: p, number, sources }: { paragraph: NoteParagraph; number?: NoteOutlineEntry; sources?: ReactNode }) {
   if (!("blocks" in p)) {
     // v11 以前的段落格式，重新生成前仍可閱讀。
-    return <><h3>{p.heading}</h3><p className="note-prose"><MathText text={p.text}/>{!p.formula && !p.table && sources}</p>
-      {p.formula && <p className="note-formula-text"><MathText text={p.formula}/>{!p.table && sources}</p>}
-      {p.table && <Table label={`${p.heading}表格`} caption={null} headers={p.table.headers} rows={p.table.rows} tail={sources}/>}
+    return <><h3>{p.heading}</h3><p className="note-prose"><NoteText text={p.text} path={["text"]}/>{!p.formula && !p.table && sources}</p>
+      {p.formula && <p className="note-formula-text" data-note-formula="true"><MathText text={p.formula}/>{!p.table && sources}</p>}
+      {p.table && <Table label={`${p.heading}表格`} caption={null} headers={p.table.headers} rows={p.table.rows} path={["table"]} tail={sources}/>}
     </>;
   }
   const level = number?.level ?? p.level;
   const Heading = level === 1 ? "h2" : "h3";
   return <><Heading>{number ? numberedHeading(number) : p.heading}</Heading>
-    {p.blocks.map((block, i) => <Block key={i} block={block} heading={p.heading} tail={i === p.blocks.length - 1 ? sources : undefined}/>)}
+    {p.blocks.map((block, i) => <Block key={i} block={block} path={["blocks", i]} heading={p.heading} tail={i === p.blocks.length - 1 ? sources : undefined}/>)}
   </>;
 }
 
@@ -106,36 +82,6 @@ function Outline({ entries, active, jump }: { entries: NoteOutlineEntry[]; activ
   </nav>;
 }
 
-type Editor = { view: MaterialNotesView; paragraphId: string | null; annotation?: NoteAnnotation; id: string; opener: HTMLButtonElement };
-
-function AnnotationEditor({ api, editor, close, saved }: { api: StudydyApiClient; editor: Editor; close: () => void; saved: (view: MaterialNotesView) => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const [body, setBody] = useState(editor.annotation?.body ?? "");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { dialog.current?.showModal(); }, []);
-  const save = async (remove = false) => {
-    if (busy) return;
-    setBusy(true); setError("");
-    try {
-      const result = await api.saveNoteAnnotation(editor.view, editor.id, editor.paragraphId, remove ? "" : body);
-      saved(result); dialog.current?.close();
-    } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
-  };
-  return <dialog ref={dialog} className="note-editor" aria-labelledby="note-editor-title" onCancel={e => { if (busy) e.preventDefault(); }} onClose={() => { editor.opener.focus(); close(); }}>
-    <form onSubmit={e => { e.preventDefault(); void save(); }}>
-      <h2 id="note-editor-title">{editor.annotation ? "編輯個人註記" : "新增個人註記"}</h2>
-      <label>個人註記<textarea autoFocus rows={7} maxLength={10000} value={body} onChange={e => setBody(e.target.value)} disabled={busy}/></label>
-      {error && <p role="alert" className="form-error">{error}</p>}
-      <div className="state-actions">
-        <button className="primary-button" disabled={busy || !body.trim()} type="submit">{busy ? "正在儲存…" : "儲存註記"}</button>
-        <button className="secondary-button" disabled={busy} type="button" onClick={() => dialog.current?.close()}>取消</button>
-        {editor.annotation && <button className="text-button" disabled={busy} type="button" onClick={() => void save(true)}>刪除註記</button>}
-      </div>
-    </form>
-  </dialog>;
-}
-
 const failureMessages: Record<string, string> = {
   NOTE_FORMAT_INVALID: "筆記回應格式不完整，尚未發布。可重試生成。",
   NOTE_CONTENT_UNSUPPORTED: "筆記內容與引用原文不符，重新生成後仍未通過核對，尚未發布。",
@@ -152,7 +98,6 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [editor, setEditor] = useState<Editor | null>(null);
   const sequence = useRef(0);
   const readingBody = useRef<HTMLDivElement>(null);
   const outlineDialog = useRef<HTMLDialogElement>(null);
@@ -227,12 +172,6 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
     try { update(await api.generateNotes(materialId, revision, kind, view.generation)); }
     catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   };
-  const edit = (opener: HTMLButtonElement, paragraphId: string | null, annotation?: NoteAnnotation) => {
-    if (view) setEditor({ view, paragraphId, annotation, id: annotation?.annotation_id ?? crypto.randomUUID(), opener });
-  };
-  const annotationItem = (a: NoteAnnotation) => <aside key={a.annotation_id} className="note-annotation" aria-label="個人註記"><p>{a.body}</p>
-    <button className="text-button" onClick={e => edit(e.currentTarget, a.paragraph_id, a)}>編輯註記</button></aside>;
-  const orphaned = view?.annotations.filter(a => a.paragraph_id === null) ?? [];
   const numbers = new Map((view?.outline ?? []).map(o => [o.paragraph_id, o]));
   const elapsed = view?.started_at ? Math.max(0, Math.floor((now - Date.parse(view.started_at)) / 1000)) : null;
   const openConcept = async (concept: string) => {
@@ -285,19 +224,12 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
         <button type="button" className="text-button" onClick={openProgress}>查看進度</button>
       </section>}
       {view.status === "failed" && view.progress && view.progress.completed_parts > 0 && <p>已完成部分已保存，重試時會從未完成部分接續。</p>}
-      {view.paragraphs.map(p => { const number = numbers.get(p.id); return <section key={`${view.content_revision}:${view.content_generation}:${p.id}`} id={`note-section-${p.id}`} tabIndex={-1}
+      <NoteMarkup api={api} view={view} saved={update} openConcept={id => void openConcept(id)} renderPrevious={(paragraph, originalRevision) => <ParagraphBody paragraph={paragraph} sources={<span className="note-sources">{sourceLinks(paragraph.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} evidence={e} reference={{ quote: e.quote }} resolver={`/v1/materials/${materialId}/knowledge-structures/${originalRevision}/evidence`}/>)}</span>}/> }>
+      {view.paragraphs.map(p => { const number = numbers.get(p.id); return <MarkupParagraph key={`${view.content_revision}:${view.content_generation}:${p.id}`} paragraph={p}><section id={`note-section-${p.id}`} tabIndex={-1}
         className={`note-paragraph${number?.level === 2 ? " note-subsection" : ""}`} aria-label={number ? numberedHeading(number) : p.heading}>
         <ParagraphBody paragraph={p} number={number} sources={<span className="note-sources" aria-label="段落來源">{sourceLinks(p.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e} reference={{quote:e.quote}}/>)}</span>}/>
-        <ParagraphActions concepts={p.concepts} openConcept={id => void openConcept(id)} annotate={opener => edit(opener, p.id)}/>
-        {view.annotations.filter(a => a.paragraph_id === p.id).map(annotationItem)}
-      </section>; })}
-      {orphaned.length > 0 && <section className="note-previous" aria-labelledby="previous-notes-title"><h2 id="previous-notes-title">先前段落的註記</h2>
-        <p>以下註記的來源與重點無法精確對應目前段落，已保留當時內容。</p>
-        {orphaned.map(a => <div key={a.annotation_id} className="note-previous-item"><details><summary>當時段落：{a.original_paragraph.heading}</summary>
-          <ParagraphBody paragraph={a.original_paragraph} sources={<span className="note-sources">{sourceLinks(a.original_paragraph.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} evidence={e} reference={{quote:e.quote}}
-            resolver={`/v1/materials/${materialId}/knowledge-structures/${a.original_revision}/evidence`}/>)}</span>}/>
-        </details>{annotationItem(a)}</div>)}
-      </section>}
+      </section></MarkupParagraph>; })}
+      </NoteMarkup>
     </>}
       </div></div>
     </div>
@@ -313,7 +245,6 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
       <button type="button" className="secondary-button" onClick={() => outlineDialog.current?.close()}>關閉目錄</button>
       {outlineDrawerOpen && <Outline entries={view?.outline ?? []} active={activeSection} jump={id => { jumpAfterClose.current = id; outlineDialog.current?.close(); }}/>}
     </dialog>
-    {editor && <AnnotationEditor key={editor.id} api={api} editor={editor} close={() => setEditor(null)} saved={update}/>}
   </div>;
 }
 

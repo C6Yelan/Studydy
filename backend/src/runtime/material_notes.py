@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from content_identity import canonical_sha256
 
-from . import note_content, luna_calls, luna_test
+from . import note_anchors, note_content, luna_calls, luna_test
 from .errors import SourceError
 from .generation_jobs import JobCancelled, WORKER_LEASE_TTL, lease_is_current
 from .local_ai_config import configured_lock
@@ -67,7 +67,8 @@ def read(owner, material_id, revision, kind, *, dsn=None):
         paragraphs = deepcopy(content.paragraphs) if content else []
         annotations = [{"annotation_id": str(a.annotation_id), "anchor": a.anchor,
             "body": a.body, "original_revision": a.structure_revision,
-            "original_paragraph": a.paragraph_snapshot, "updated_at": a.updated_at.isoformat()}
+            "original_paragraph": a.paragraph_snapshot, "updated_at": a.updated_at.isoformat(),
+            "block_path": a.block_path, "start": a.start_offset, "end": a.end_offset, "quote": a.quote, "_generation": a.generation}
             for a in db.scalars(select(NoteAnnotation).where(NoteAnnotation.learner_id == owner,
                 NoteAnnotation.material_id == material_id, NoteAnnotation.kind == kind)
                 .order_by(NoteAnnotation.created_at, NoteAnnotation.annotation_id))]
@@ -80,7 +81,8 @@ def read(owner, material_id, revision, kind, *, dsn=None):
             "kind": kind, "source_status": content_meta["status"], "status": row.status if row else "not_generated",
             "generation": row.generation if row else 0, "paragraphs": paragraphs,
             "outline": note_content.outline(paragraphs),
-            "annotations": note_content.annotation_matches(paragraphs, annotations),
+            "annotations": note_content.annotation_matches(paragraphs, annotations, content_revision,
+                content.generation if content else None),
             "source_resolver": content_meta["source_resolver"], "error_code": row.error_code if row else None,
             "progress": section_progress(row) if row else None}
 
@@ -119,7 +121,7 @@ def generate(owner, material_id, revision, kind, expected_generation, *, dsn=Non
 
 
 def annotate(owner, material_id, revision, kind, annotation_id, body,
-             paragraph_id, expected_generation, *, dsn=None):
+             paragraph_id, expected_generation, *, selection=None, dsn=None):
     with database_session(dsn) as db:
         _material(db, owner, material_id, lock=True)
         knowledge_reads.metadata(db, owner, material_id, revision)
@@ -138,11 +140,15 @@ def annotate(owner, material_id, revision, kind, annotation_id, body,
             paragraph = next((p for p in row.paragraphs or [] if p["id"] == paragraph_id), None)
             if paragraph is None:
                 raise SourceError("REQUEST_INVALID")
+            path, start, end, quote = selection or (None,) * 4
+            if selection and not note_anchors.valid_range(paragraph, path, start, end, quote):
+                raise SourceError("REQUEST_INVALID")
             now = datetime.now(UTC)
             db.add(NoteAnnotation(annotation_id=annotation_id, learner_id=owner,
                 material_id=material_id, kind=kind, structure_revision=revision,
                 anchor=paragraph["anchor"], paragraph_snapshot=deepcopy(paragraph), body=body,
-                created_at=now, updated_at=now))
+                block_path=path, start_offset=start, end_offset=end, quote=quote,
+                generation=None if quote is None else row.generation, created_at=now, updated_at=now))
     return read(owner, material_id, revision, kind, dsn=dsn)
 
 

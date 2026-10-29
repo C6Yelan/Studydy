@@ -208,14 +208,14 @@ def test_regeneration_matches_only_identical_points_and_sources_and_never_duplic
     annotations = [{"anchor": original[0]["anchor"], "body": "我的想法", "original_paragraph": deepcopy(original[0])}]
     new = deepcopy(original)
     new[0] = with_text(new[0], "重新組織的說明")
-    assert nc.annotation_matches(new, annotations)[0]["paragraph_id"] == "0"
+    assert nc.annotation_matches(new, annotations, None, None)[0]["paragraph_id"] == "0"
     changed = concepts()
     changed[0]["claims"][0]["text"] += "新增條件"
     replaced = full(changed, response)
-    orphaned = nc.annotation_matches(replaced, annotations)[0]
+    orphaned = nc.annotation_matches(replaced, annotations, None, None)[0]
     assert orphaned["paragraph_id"] is None
     assert orphaned["body"] == "我的想法" and orphaned["original_paragraph"] == original[0]
-    assert nc.annotation_matches([*original, original[0]], annotations)[0]["paragraph_id"] is None
+    assert nc.annotation_matches([*original, original[0]], annotations, None, None)[0]["paragraph_id"] is None
 
 
 def test_full_notes_batch_without_omitting_points(monkeypatch):

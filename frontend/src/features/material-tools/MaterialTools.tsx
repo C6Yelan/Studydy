@@ -7,6 +7,7 @@ import './styles.css';
 
 export function MaterialTools({ api, materialId, revision }: { api: StudydyApiClient; materialId: string; revision?: string }) {
  const [open, setOpen] = useState(false);
+ const [prefill, setPrefill] = useState<{ text: string; id: string }>();
  const [top, setTop] = useState<number | null>(null);
  const panel = useRef<HTMLElement>(null);
  const trigger = useRef<HTMLButtonElement>(null);
@@ -23,6 +24,16 @@ export function MaterialTools({ api, materialId, revision }: { api: StudydyApiCl
  };
  const close = () => setOpen(false);
  useEffect(() => {
+  const fill = (event: Event) => {
+   const detail = (event as CustomEvent<{ materialId: string; text: string }>).detail;
+   if (detail.materialId !== materialId) return;
+   setPrefill({ text: detail.text, id: crypto.randomUUID() });
+   show();
+  };
+  window.addEventListener('studydy:ask-note', fill);
+  return () => window.removeEventListener('studydy:ask-note', fill);
+ }, [materialId]);
+ useEffect(() => {
   if (open) { opened.current = true; panel.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus(); }
   else if (opened.current) trigger.current?.focus();
   // 寬螢幕時問答固定在右側，主內容讓出空間，不蓋住地圖或教材。
@@ -33,7 +44,7 @@ export function MaterialTools({ api, materialId, revision }: { api: StudydyApiCl
  return <>
   <button ref={trigger} className="material-qa-trigger" type="button" onClick={open ? close : show} aria-expanded={open} aria-controls="voice-conversation" aria-label="Studydy AI BOT"><Icon name="chat" size={18} /><span>Studydy AI BOT</span></button>
   {open && createPortal(<section ref={panel} id="voice-conversation" className="material-qa-drawer" style={top === null ? undefined : { top }} role="dialog" aria-modal="false" aria-label="Studydy AI BOT" onKeyDown={e => { if (e.key === 'Escape' && !(e.target as HTMLElement).closest('dialog')) { e.stopPropagation(); close(); } }}>
-   <VoicePanel api={api} materialId={materialId} revision={revision} onClose={close}/>
+   <VoicePanel api={api} materialId={materialId} revision={revision} prefill={prefill} onClose={close}/>
   </section>, document.body)}
  </>;
 }
