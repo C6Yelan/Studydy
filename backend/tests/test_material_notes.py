@@ -1,4 +1,4 @@
-"""v16 來源、單次核對刪除、章級速覽與續接的回歸。"""
+"""來源核對、完整筆記有限補寫、章級速覽與續接的回歸。"""
 from copy import deepcopy
 import pytest
 from runtime import note_content as nc, material_notes as mn
@@ -907,7 +907,7 @@ def test_unsupported_paragraph_is_dropped_once_and_supported_neighbors_keep_sour
 
 
 @pytest.mark.parametrize("kind", ["summary", "full"])
-def test_all_unsupported_content_returns_empty_batch_without_rewriting(kind):
+def test_all_unsupported_content_stops_after_full_notes_supplement(kind):
     values = concepts()
     values[0]["claims"] = values[0]["claims"][:1]
     calls, saved = [], []
@@ -920,7 +920,57 @@ def test_all_unsupported_content_returns_empty_batch_without_rewriting(kind):
     result = mn.complete_sections(values, mn.plan_sections(values, sections(values), kind), model, [],
         lambda i, p: saved.append((i, p)), kind=kind)
     assert result == [] and saved == [(0, [])]
-    assert len(calls) == 2
+    assert len(calls) == (4 if kind == "full" else 2)
+
+
+@pytest.mark.parametrize("recovered", [True, False])
+def test_full_notes_supplement_only_missing_concepts_and_checkpoint_the_result(recovered):
+    values = [{**c, "claims": c["claims"][:1]} for c in three_concepts()]
+    writers, checkpoints = [], []
+    def model(request):
+        result = response(request)
+        if request.get("phase") != "review_paragraph":
+            writers.append(request)
+        elif text_of(request["paragraph"]) == values[1]["claims"][0]["text"]:
+            if len(writers) == 1 or not recovered:
+                for item in result["coverage"]:
+                    item.update(explained=False, note_parts=[], reason="尚未解說")
+        return result
+    plan = mn.plan_sections(values, sections(values))
+    saved = []
+    result = mn.complete_sections(values, plan, model, saved,
+        lambda i, p: checkpoints.append(deepcopy(p)))
+    assert len(writers) == 2
+    assert [c["label"] for c in writers[1]["concepts"]] == [values[1]["label"]]
+    assert [p["claim_ids"] for p in result[:3]] == [[c["claims"][0]["claim_id"]] for c in values]
+    assert result[1]["_explained_claim_ids"] == []
+    assert result[-1]["_explained_claim_ids"] == ([values[1]["claims"][0]["claim_id"]] if recovered else [])
+    assert len(checkpoints) == 1 and len(checkpoints[0]) == 4
+    def no_more_calls(request):
+        pytest.fail("completed batch must not repeat its supplement")
+    assert mn.complete_sections(values, plan, no_more_calls, saved, lambda *args: None) == result
+
+
+def test_supplement_format_retry_keeps_supported_initial_draft():
+    values = [{**c, "claims": c["claims"][:1]} for c in three_concepts()]
+    writers = []
+    def model(request):
+        if request.get("phase") != "review_paragraph":
+            writers.append(request)
+            if len(writers) == 2:
+                raise ValueError("NOTE_REVIEW_INVALID")
+        result = response(request)
+        if request.get("phase") == "review_paragraph" and len(writers) == 1:
+            if text_of(request["paragraph"]) == values[1]["claims"][0]["text"]:
+                for item in result["coverage"]:
+                    item.update(explained=False, note_parts=[], reason="尚未解說")
+        return result
+    result = full(values, model)
+    assert [[c["label"] for c in request["concepts"]] for request in writers] == [
+        [c["label"] for c in values], [values[1]["label"]], [values[1]["label"]]]
+    assert [p["claim_ids"] for p in result[:3]] == [[c["claims"][0]["claim_id"]] for c in values]
+    assert result[1]["_explained_claim_ids"] == []
+    assert result[-1]["_explained_claim_ids"] == [values[1]["claims"][0]["claim_id"]]
 
 
 @pytest.mark.parametrize("kind", ["summary", "full"])

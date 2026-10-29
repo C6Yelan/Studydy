@@ -66,6 +66,13 @@ def read(owner, material_id, revision, kind, *, dsn=None):
         content_meta = knowledge_reads.metadata(db, owner, material_id, content_revision) if content else meta
         paragraphs = deepcopy(content.paragraphs) if content else []
         published = content.published_metadata or {} if content else {}
+        unorganized = published.get("unorganized_concepts", [])
+        if kind == "summary":
+            full = db.get(MaterialNotes, (owner, material_id, content_revision, "full")) if content else None
+            full_missing = ((full.published_metadata or {}).get("unorganized_concepts", [])
+                if full and full.generation > 0 and full.paragraphs is not None else [])
+            missing_ids = {c["concept_id"] for c in full_missing}
+            unorganized = [c for c in unorganized if c["concept_id"] in missing_ids]
         annotations = [{"annotation_id": str(a.annotation_id), "anchor": a.anchor,
             "body": a.body, "original_revision": a.structure_revision,
             "original_paragraph": a.paragraph_snapshot, "updated_at": a.updated_at.isoformat(),
@@ -83,7 +90,7 @@ def read(owner, material_id, revision, kind, *, dsn=None):
             "generation": row.generation if row else 0, "paragraphs": paragraphs,
             "outline": note_content.outline(paragraphs),
             "sections": published.get("sections", []),
-            "unorganized_concepts": published.get("unorganized_concepts", []),
+            "unorganized_concepts": unorganized,
             "annotations": note_content.annotation_matches(note_anchors.targets(paragraphs, published.get("sections", [])), annotations, content_revision,
                 content.generation if content else None),
             "source_resolver": content_meta["source_resolver"], "error_code": row.error_code if row else None,
@@ -655,7 +662,7 @@ def plan_sections(concepts, sections, kind="full", budget=None):
     return result
 
 
-# 格式、引用、公式或核對回應格式不合法時才重試批次；語意否定只刪內容。
+# 格式、引用、公式或核對回應格式不合法時才重試批次；完整筆記另補寫未涵蓋概念一次。
 # 契約、容量、provider 等重試也不會改變的錯誤不在此列，直接失敗。
 RETRYABLE_PART_ERRORS = {"NOTE_FORMAT_INVALID",
     "NOTE_REFERENCE_INVALID", "NOTE_TABLE_INVALID", "NOTE_FORMULA_INVALID", "NOTE_REVIEW_INVALID"}
@@ -672,10 +679,23 @@ def complete_sections(concepts, plan, call, results, on_part, diagnostics=None, 
             if q["claim_id"] in c["claim_ids"]]} for c in batch]
         codes = []
         previous = [p for part in results for p in part]
+        generated = None
         while True:
             try:
-                generated = (generate_part(selected, kind, call, diagnostics, section["heading"], previous)
-                    if selected else [])
+                if generated is None:
+                    generated = (generate_part(selected, kind, call, diagnostics, section["heading"], previous)
+                        if selected else [])
+                if kind == "full":
+                    explained = {cid for p in [*previous, *generated]
+                        for cid in p.get("_explained_claim_ids", [])}
+                    missing = [c for c in selected
+                        if not any(q["claim_id"] in explained
+                            for q in by_id[c["concept_id"]]["claims"])]
+                    if missing:
+                        diagnostics.append({"event": "coverage_supplement", "part": index,
+                            "concepts": [c["concept_id"] for c in missing]})
+                        generated.extend(generate_part(missing, kind, call, diagnostics,
+                            section["heading"], [*previous, *generated]))
                 generated = [{**p, "level": section["level"]} for p in generated]
                 break
             except (ValueError, note_content.ReviewInvalid) as error:

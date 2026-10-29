@@ -11,7 +11,7 @@ from content_identity import canonical_sha256
 
 from . import note_anchors, note_latex, note_marks
 
-POLICY = "material-notes/v16"
+POLICY = "material-notes/v17"
 PREVIOUS_CONTENT_TOKENS = 2400
 NORMATIVE_WORDS = frozenset({"MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
     "RECOMMENDED", "NOT RECOMMENDED", "MAY", "OPTIONAL"})
@@ -83,7 +83,7 @@ claims 是可能抽錯的範圍提綱，不是標準答案；原文的規範強�
 明確反例：Claim 把原文的 SHOULD 誤寫成 MUST／必須，而原文與候選都寫 SHOULD，該敘述 supported 應為 true；若受原文支持的核心內容及必要條件已解說，coverage.explained 也應為 true，不能要求補回錯誤的 MUST。反過來，候選照抄錯誤 Claim 才須拒絕。Claim 把原文的可能原因改成確定結論、或擴大適用範圍時，同樣不能跟著它加強；仍只評估受原文支持的部分。
 只依 evidence.quotes 與同一引用的原文位置逐段核對，不使用外部常識、未引用內容或自行計算來替候選補證據。
 reference_context 若有提供，列出同檔同頁尚未被本節引用、但屬於本節重點可用範圍的原文，只用來檢查是否漏引必要表頭、規範詞或適用條件，不能用它替候選判定 supported=true。
-缺少正式引用時，checks.missing_evidence 必須列出需要補入的 reference_context ref（X 編號，不是頁碼或區塊號），並回 supported=false；沒有缺引用就回空陣列。程式會刪除不符位置，不補寫或再次核對。必須一次列出該位置所有缺少的必要引用；不能把無關同頁內容補入。
+缺少正式引用時，checks.missing_evidence 必須列出需要補入的 reference_context ref（X 編號，不是頁碼或區塊號），並回 supported=false；沒有缺引用就回空陣列。本次核對只刪除不符位置，不直接修補該位置；完整筆記可另對尚未涵蓋概念補寫一次，新稿仍須同標準核對。必須一次列出該位置所有缺少的必要引用；不能把無關同頁內容補入。
 須依 source_id、page、block_order 與 region 對照已引用句身或表格的原文位置；若候選必須依靠其中的表頭、規範詞或條件才能成立，該位置須 supported=false，reason 指出原檔頁碼／區塊及缺少的內容，該位置會被刪除。候選保留了 MUST 語氣但漏引獨立 MUST 區塊也須拒絕。與候選無關的同頁內容不能任意套用。
 source_id、page、block_order、region=[左,上,右,下] 是原檔、頁碼、區塊順序及原頁位置。
 paragraph.content 依閱讀順序列出候選小節的每個位置（part）：bullet 是條列項，depth 為層級，子項須連同上層項目理解，callout 欄表示位於醒目區塊內；
