@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from product_fixtures import closed_loop, seed_run
 from runtime.maintenance_reanalysis import reserve_call, semantic_call_for_revision
@@ -40,3 +41,19 @@ def test_ordinary_revision_has_no_budget_wrapper(closed_loop):
     learner, source, _settings, structure, dsn, _token = closed_loop
     assert semantic_call_for_revision(learner.learner_id, source.material_id,
         structure["revision"], dsn=dsn) is None
+
+
+def test_run_limit_can_exceed_300_but_stays_bounded(closed_loop):
+    learner, source, settings, _structure, dsn, _token = closed_loop
+    run = seed_run(learner.learner_id, source.material_id, "budget-wide", settings, dsn=dsn)
+    with database_session(dsn) as session:
+        session.get(MaterialProcessingRun, run.run_id).maintenance = {
+            "mode": "demo-full-reanalysis/v1", "limit": 2000, "reserved_calls": 300}
+    reserve_call(run.run_id, dsn=dsn)
+    with database_session(dsn) as session:
+        assert session.get(MaterialProcessingRun, run.run_id).maintenance["reserved_calls"] == 301
+    for maintenance in ({"mode": "demo-full-reanalysis/v1", "limit": 2001, "reserved_calls": 0},
+            {"mode": "demo-full-reanalysis/v1", "limit": 500, "reserved_calls": 501}):
+        with pytest.raises(IntegrityError, match="demo_reanalysis_budget"):
+            with database_session(dsn) as session:
+                session.get(MaterialProcessingRun, run.run_id).maintenance = maintenance
