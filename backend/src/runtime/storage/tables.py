@@ -1072,5 +1072,28 @@ class NoteAnnotation(Base):
     anchor: Mapped[str] = mapped_column(Text)
     paragraph_snapshot: Mapped[dict] = mapped_column(JSONB)
     body: Mapped[str] = mapped_column(Text)
+    block_path: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    start_offset: Mapped[int | None] = mapped_column(Integer)
+    end_offset: Mapped[int | None] = mapped_column(Integer)
+    quote: Mapped[str | None] = mapped_column(Text)
+    generation: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class NoteHighlight(Base):
+    __tablename__ = "note_highlights"
+    highlight_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
+    learner_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    material_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    kind: Mapped[str] = mapped_column(Text)
+    structure_revision: Mapped[str] = mapped_column(Text)
+    generation: Mapped[int] = mapped_column(Integer)
+    paragraph_id: Mapped[str] = mapped_column(Text)
+    block_path: Mapped[list] = mapped_column(JSONB)
+    start_offset: Mapped[int] = mapped_column(Integer)
+    end_offset: Mapped[int] = mapped_column(Integer)
+    quote: Mapped[str] = mapped_column(Text)
+    style: Mapped[str] = mapped_column(Text)
+    paragraph_snapshot: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

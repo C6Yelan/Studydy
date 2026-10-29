@@ -1939,6 +1939,28 @@ class NoteAnnotationView(_Closed):
     original_paragraph: NoteSectionView | NoteParagraphView
     paragraph_id: str | None
     updated_at: datetime
+    block_path: list[str | int] | None
+    start: int | None
+    end: int | None
+    quote: str | None
+
+
+class NoteHighlightView(_Closed):
+    highlight_id: UUID
+    paragraph_id: str | None
+    block_path: list[str | int] | None
+    start: int | None
+    end: int | None
+    quote: str
+    style: Literal["yellow", "green", "blue", "pink", "bold", "underline", "strikethrough"]
+    created_at: datetime
+    original_revision: str
+    original_generation: int
+    original_paragraph: NoteSectionView | NoteParagraphView
+
+
+class NoteHighlightListView(_Closed):
+    highlights: list[NoteHighlightView]
 
 
 class NoteProgressView(_Closed):

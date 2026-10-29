@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 from content_identity import canonical_sha256
 
-from . import note_latex
+from . import note_anchors, note_latex, note_marks
 
 POLICY = "material-notes/v15"
 PREVIOUS_CONTENT_TOKENS = 2400
@@ -611,10 +611,23 @@ def validate(response, concepts, kind):
     return result
 
 
-def annotation_matches(paragraphs, annotations):
+def annotation_matches(paragraphs, annotations, content_revision=None, content_generation=None):
+    """有選取範圍 quote 的註記依 quote 對回（失配不猜段落）；舊註記沿用段落 anchor 唯一比對。"""
     counts = Counter(p["anchor"] for p in paragraphs)
     ids = {p["anchor"]: p["id"] for p in paragraphs}
-    return [{**a, "paragraph_id": ids.get(a["anchor"]) if counts[a["anchor"]] == 1 else None} for a in annotations]
+    result = []
+    for a in annotations:
+        generation = a.pop("_generation", None)
+        if a.get("quote") is None:
+            result.append({**a, "paragraph_id": ids.get(a["anchor"]) if counts[a["anchor"]] == 1 else None})
+            continue
+        found = note_anchors.locate(paragraphs, {"original_revision": a["original_revision"],
+            "paragraph_id": a["original_paragraph"]["id"], "anchor": a["anchor"], "block_path": a["block_path"],
+            "start": a["start"], "end": a["end"], "quote": a["quote"], "original_generation": generation},
+            content_revision, content_generation)
+        paragraph_id, path, start, end = found or (None, None, None, None)
+        result.append({**a, "paragraph_id": paragraph_id, "block_path": path, "start": start, "end": end})
+    return result
 
 
 def _chinese(number):
@@ -649,7 +662,7 @@ def numbered_heading(entry):
 
 
 def _items_html(items):
-    return "<ul>" + "".join(f'<li>{escape(i["text"])}{_items_html(i["children"]) if i.get("children") else ""}</li>'
+    return "<ul>" + "".join(f'<li>{note_marks.html(i["text"])}{_items_html(i["children"]) if i.get("children") else ""}</li>'
         for i in items) + "</ul>"
 
 
@@ -658,14 +671,14 @@ def blocks_html(blocks, images):
     for block in blocks:
         kind = block["type"]
         if kind == "text":
-            parts.append(f'<p>{escape(block["text"])}</p>')
+            parts.append(f'<p>{note_marks.html(block["text"])}</p>')
         elif kind == "bullets":
             parts.append(_items_html(block["items"]))
         elif kind == "table":
             if block["caption"]:
                 parts.append(f'<p class="caption">{escape(block["caption"])}</p>')
             parts.append("<table><tr>" + "".join(f"<th>{escape(c)}</th>" for c in block["headers"]) + "</tr>")
-            parts.extend("<tr>" + "".join(f"<td>{escape(c)}</td>" for c in row) + "</tr>" for row in block["rows"])
+            parts.extend("<tr>" + "".join(f"<td>{note_marks.html(c)}</td>" for c in row) + "</tr>" for row in block["rows"])
             parts.append("</table>")
         elif kind == "formula":
             data, width, height = note_latex.render_png(block["latex"])
@@ -691,7 +704,7 @@ def body_html(paragraphs, images, *, numbered=True):
     for p in paragraphs:
         if "blocks" not in p:
             # 舊版段落格式：保留可讀，直到重新生成。
-            parts.extend([f'<h2>{escape(p["heading"])}</h2>', f'<p>{escape(p["text"])}</p>'])
+            parts.extend([f'<h2>{escape(p["heading"])}</h2>', f'<p>{note_marks.html(p["text"])}</p>'])
             if p.get("formula"):
                 parts.append(f'<p>{escape(p["formula"])}</p>')
             if p.get("table"):
