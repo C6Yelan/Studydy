@@ -145,7 +145,7 @@ def model_for(fixture, *, fail=(), calls=None):
                 "prompt": f"Which code does Signal {number} use?",
                 "correct_answer": f"code{number}",
                 **({"source_quote": f"code{number}", "rationale": f"教材指出 Signal {number} 使用 code{number}。"}
-                   if kwargs["runtime_lock"]["assessment"]["policy"] == "source-span-single-choice/v2" else {}),
+                   if kwargs["runtime_lock"]["assessment"]["policy"] in {"source-span-single-choice/v2", "source-span-single-choice/v3"} else {}),
                 "supporting_evidence_ids": [request["claim"]["evidence"][0]["evidence_id"]],
                 "distractors": [f"wrong{number}a", f"wrong{number}b", f"wrong{number}c"],
             }
@@ -214,7 +214,7 @@ def other_model(_client, **kwargs):
             "prompt": "Which code does the other topic use?",
             "correct_answer": "EXTERNAL",
             **({"source_quote": "EXTERNAL", "rationale": "教材指出使用 EXTERNAL。"}
-               if kwargs["runtime_lock"]["assessment"]["policy"] == "source-span-single-choice/v2" else {}),
+               if kwargs["runtime_lock"]["assessment"]["policy"] in {"source-span-single-choice/v2", "source-span-single-choice/v3"} else {}),
             "supporting_evidence_ids": [claim["evidence"][0]["evidence_id"]],
             "distractors": ["INTERNAL", "NATIVE", "SIGNAL"],
         }

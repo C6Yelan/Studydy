@@ -266,14 +266,14 @@ def test_same_answer_to_a_different_attribute_is_not_automatically_duplicate():
     assert selected["compared_assessment_revisions"] == [prior[0].assessment_revision]
 
 
-@pytest.mark.parametrize("policy", ["source-span-single-choice/v1", "source-span-single-choice/v2"])
+@pytest.mark.parametrize("policy", ["source-span-single-choice/v1", "source-span-single-choice/v2", "source-span-single-choice/v3"])
 def test_saved_policy_keeps_generation_and_stored_answers_readable(policy):
     from learning_adaptation.assessments import (
         _fingerprint, _normalized, _stored, assessment_response_schema,
     )
     lock = json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
     lock["assessment"]["policy"] = policy
-    translated = policy.endswith("/v2")
+    translated = policy in {"source-span-single-choice/v2", "source-span-single-choice/v3"}
     proposal = _proposal()
     if translated:
         proposal.update(

@@ -68,7 +68,7 @@ class StoredAssessment:
     mastery_qualified: bool
 
 
-def assessment_response_schema(policy="source-span-single-choice/v2") -> dict[str, Any]:
+def assessment_response_schema(policy="source-span-single-choice/v3") -> dict[str, Any]:
     candidate = {
         "type": "object",
         "additionalProperties": False,
@@ -100,7 +100,7 @@ def assessment_response_schema(policy="source-span-single-choice/v2") -> dict[st
             "safety": {"type": "string", "enum": ["safe", "reject"]},
         },
     }
-    if policy == "source-span-single-choice/v2":
+    if policy in {"source-span-single-choice/v2", "source-span-single-choice/v3"}:
         candidate["required"].extend(["source_quote", "rationale"])
         candidate["properties"].update({
             "source_quote": {"type": "string", "minLength": 1},
@@ -242,7 +242,7 @@ def _stored(row: Assessment, expected_provenance: dict) -> StoredAssessment:
         "correct_answer",
         "rationale",
     }
-    if provenance.get("policy") == "source-span-single-choice/v2":
+    if provenance.get("policy") in {"source-span-single-choice/v2", "source-span-single-choice/v3"}:
         private_fields.add("source_quote")
     provenance_fields = {
         "schema",
@@ -373,8 +373,8 @@ def _stored(row: Assessment, expected_provenance: dict) -> StoredAssessment:
         or not provenance["model_id"]
         or not isinstance(provenance["model_revision"], str)
         or not provenance["model_revision"]
-        or provenance["policy"] not in {"source-span-single-choice/v1", "source-span-single-choice/v2"}
-        or (provenance["policy"] == "source-span-single-choice/v2" and (
+        or provenance["policy"] not in {"source-span-single-choice/v1", "source-span-single-choice/v2", "source-span-single-choice/v3"}
+        or (provenance["policy"] in {"source-span-single-choice/v2", "source-span-single-choice/v3"} and (
             not isinstance(private["source_quote"], str) or not private["source_quote"].strip()
         ))
         or provenance["learning_angle"] != row.learning_angle
@@ -546,7 +546,7 @@ def _prior_questions(
 
 def _candidate(
     candidate: Any, claim: ClaimContext, used_identities: set[str],
-    *, policy="source-span-single-choice/v2",
+    *, policy="source-span-single-choice/v3",
 ) -> dict[str, Any] | None:
     fields = {
         "learning_angle",
@@ -557,7 +557,7 @@ def _candidate(
         "supporting_evidence_ids",
         "distractors",
     }
-    translated = policy == "source-span-single-choice/v2"
+    translated = policy in {"source-span-single-choice/v2", "source-span-single-choice/v3"}
     if translated:
         fields.update({"source_quote", "rationale"})
     if (
@@ -853,14 +853,14 @@ def _documents(
         "correct_option_id": correct_option_id,
         "correct_answer": candidate["correct_answer"],
         "rationale": candidate["rationale"]
-        if runtime_lock["assessment"]["policy"] == "source-span-single-choice/v2"
+        if runtime_lock["assessment"]["policy"] in {"source-span-single-choice/v2", "source-span-single-choice/v3"}
         else " ".join(
             evidence.quote
             for evidence in claim.evidence
             if evidence.evidence_id in candidate["supporting_evidence_ids"]
         ),
     }
-    if runtime_lock["assessment"]["policy"] == "source-span-single-choice/v2":
+    if runtime_lock["assessment"]["policy"] in {"source-span-single-choice/v2", "source-span-single-choice/v3"}:
         private_core["source_quote"] = candidate["source_quote"]
     service = runtime_lock["semantic_service"]
     provenance_core = {
