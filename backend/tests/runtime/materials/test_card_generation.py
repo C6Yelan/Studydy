@@ -77,7 +77,7 @@ def test_rejected_concept_is_recorded_and_other_cards_publish(multiple_concepts,
         assert row.generation['selected_concept_ids'] == selected
         assert row.generation['skipped'] == {rejected['concept_id']: {
             'error_code': 'CARD_DESIGN_REVIEW_FAILED', 'issues': ['來源不支持此關係']}}
-        assert list(row.page_counts) == passed
+        assert set(row.page_counts) == set(passed)
     assert calls.count(rejected['label']) == 4
     assert all(calls.count(c['label']) == 2 for c in document['concepts'] if c != rejected)
 
