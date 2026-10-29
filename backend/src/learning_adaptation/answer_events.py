@@ -199,7 +199,9 @@ def _feedback(event: StoredAnswerEvent, assessment: Assessment, *, include_answe
             "selected_option_id": event.selected_option_id,
             **({"correct_option_id": assessment.private_answer_document["correct_option_id"]} if include_answer_key else {}),
             "is_correct": event.is_correct,
-            "rationale": assessment.private_answer_document["rationale"],
+            "rationale": assessment.private_answer_document["rationale"]
+            if assessment.generation_provenance["policy"] in {"source-span-single-choice/v2", "source-span-single-choice/v3"}
+            else "",
             "source_evidence_ids": assessment.public_document["source_evidence_ids"],
             "event_number": event.event_number,
             "created_at": event.created_at,

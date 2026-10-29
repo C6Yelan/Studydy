@@ -48,7 +48,7 @@ for (const width of [1440, 1300, 1200, 1024, 390]) {
     fixture.setStage("completed"); await page.reload();
     await expect(page.locator(".feedback-card")).toHaveCount(3);
     expect(await page.locator(".feedback-card").evaluateAll(nodes => nodes.every(element => element.scrollWidth <= element.clientWidth))).toBe(true);
-    await expect(page.locator(".feedback-evidence").first()).toContainText(fixture.knowledgeStructure.concepts[0].claims[0].text);
+    await expect(page.locator(".feedback-evidence").first()).toContainText("請依照教材描述的通訊角色判斷。");
     const source = page.locator(".feedback-evidence button").first();
     await expect(source).toContainText("網路服務角色");
     expect(await source.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);

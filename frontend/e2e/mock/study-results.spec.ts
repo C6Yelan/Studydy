@@ -13,7 +13,7 @@ for (const width of [1440, 390]) test(`result summary, full answers, source and 
     for (const label of ["你的答案", "正確答案", "解析"]) await expect(card.getByRole("heading", { name: label, exact: true })).toBeVisible();
   }
   const first = review.locator(".feedback-card").first();
-  await expect(first.locator(".feedback-evidence")).toContainText(fixture.knowledgeStructure.concepts[0].claims[0].text);
+  await expect(first.locator(".feedback-evidence")).toContainText("請依照教材描述的通訊角色判斷。");
   await review.getByRole("button", { name: /第 1 頁/ }).first().click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
   await page.keyboard.press("Escape");
@@ -35,7 +35,7 @@ for (const [name, scenario, expected] of [
 test("older feedback without a correct option remains readable", async ({ page }) => {
   const fixture = await studyLayoutFixture(page, "completed", { missingCorrectOption: true }); await fixture.open();
   await expect(page.locator(".feedback-card").first()).toContainText("這份作答紀錄尚未提供正確答案。");
-  await expect(page.locator(".feedback-evidence").first()).toContainText(fixture.knowledgeStructure.concepts[0].claims[0].text);
+  await expect(page.locator(".feedback-evidence").first()).toContainText("請依照教材描述的通訊角色判斷。");
 });
 
 test("history includes published results and resumes selected group", async ({ page }) => {
@@ -44,4 +44,10 @@ test("history includes published results and resumes selected group", async ({ p
   await expect(history.locator("li")).toHaveCount(1);
   await history.locator("li button").click();
   await expect(page.locator(".assessment-cycle")).toBeVisible();
+});
+
+test("legacy v1 feedback with empty rationale keeps the original claim", async ({ page }) => {
+  const fixture = await studyLayoutFixture(page, "completed", { emptyRationale: true });
+  await fixture.open();
+  await expect(page.locator(".feedback-evidence").first()).toContainText(fixture.knowledgeStructure.concepts[0].claims[0].text);
 });

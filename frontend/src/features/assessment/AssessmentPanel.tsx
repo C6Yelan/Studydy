@@ -32,6 +32,7 @@ export function AssessmentPanel({
   const canAnswer = !completed && record.can_submit;
   if (feedback && completed) {
     const claim = view.concepts.flatMap(item => item.claims).find(item => item.claim_id === assessment.target_claim_id);
+    const rationale = feedback.rationale || claim?.text;
     const evidence = view.concepts
       .flatMap((item) => item.claims)
       .flatMap((claim) => claim.evidence)
@@ -59,10 +60,9 @@ export function AssessmentPanel({
           <h3>正確答案</h3>
           <p><MathText text={(feedback.correct_option_id ? optionText(feedback.correct_option_id) : undefined) ?? "這份作答紀錄尚未提供正確答案。"}/></p>
         </section>
-        {/* 解析只顯示對應重點（整理過的文字）；教材原文改由下方來源按鈕查看，不直接堆在卡片上。 */}
         <section className="feedback-section feedback-evidence">
           <h3>解析</h3>
-          {claim && <p><MathText text={claim.text}/></p>}
+          {rationale && <p><MathText text={rationale}/></p>}
           {evidenceLinks.map((item) => (
             <SourceButton
               apiClient={apiClient}

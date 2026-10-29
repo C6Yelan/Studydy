@@ -315,3 +315,14 @@ def test_saved_policy_keeps_generation_and_stored_answers_readable(policy):
     else:
         assert "source_quote" not in private
         assert private["rationale"] == _claim().evidence[0].quote
+
+    from learning_adaptation.answer_events import _feedback
+    event = SimpleNamespace(
+        answer_event_id=uuid4(), study_session_id=study.study_session_id,
+        assessment_revision=public["assessment_revision"], question_id=public["question_id"],
+        selected_option_id=private["correct_option_id"], is_correct=True,
+        event_number=1, created_at=datetime.now(UTC),
+    )
+    for include_answer_key in (False, True):
+        feedback = _feedback(event, row, include_answer_key=include_answer_key)
+        assert feedback.rationale == ("教材指出陣列大小為 8 位元組。" if translated else "")

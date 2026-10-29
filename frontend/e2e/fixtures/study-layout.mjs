@@ -147,7 +147,7 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
       selected_option_id: selectedOptionId,
       ...(scenario?.missingCorrectOption ? {} : { correct_option_id: assessment.options[0].option_id }),
       is_correct: isCorrect,
-      rationale:
+      rationale: scenario?.emptyRationale ? "" :
         "請依照教材描述的通訊角色判斷。" +
         (scenario?.longContent && index === 0
           ? "判斷時要檢查請求的方向及對應服務，不以裝置名稱或硬體外形決定角色。".repeat(6)
