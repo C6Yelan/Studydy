@@ -1036,9 +1036,16 @@ export type NoteLegacyParagraph = NoteSource & {
 export type NoteParagraph = NoteSection | NoteLegacyParagraph;
 export type NoteOutlineEntry = { paragraph_id: string; level: 1 | 2; number: string; heading: string };
 export type NoteAnnotation = {
+  block_path?: (string | number)[] | null; start?: number | null; end?: number | null; quote?: string | null;
   annotation_id: string; anchor: string; body: string;
   original_revision: string; original_paragraph: NoteParagraph;
   paragraph_id: string | null; updated_at: string;
+};
+export type NoteSelection = { paragraph_id: string; block_path: (string | number)[]; start: number; end: number; quote: string };
+export type HighlightStyle = "yellow" | "green" | "blue" | "pink" | "bold" | "underline" | "strikethrough";
+export type NoteHighlight = Omit<NoteSelection, "paragraph_id" | "block_path" | "start" | "end"> & {
+  highlight_id: string; paragraph_id: string | null; block_path: (string | number)[] | null; start: number | null; end: number | null;
+  style: HighlightStyle; created_at: string; original_revision: string; original_generation: number; original_paragraph: NoteParagraph;
 };
 export type MaterialNotesView = {
   schema: "material-notes/v3"; material_id: string; knowledge_structure_revision: string;

@@ -1,6 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 test.skip(process.env.STUDYDY_E2E_NOTES !== "true", "Requires isolated notes API/DB fixture");
 const data = JSON.parse(process.env.STUDYDY_E2E_NOTES_DATA ?? "{}");
+async function selectText(page: Page) {
+  const text = page.locator(".note-paragraph [data-note-text]").first();
+  await expect(text).toBeVisible();
+  await text.evaluate(element => {
+    const range = document.createRange(); range.selectNodeContents(element);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+}
 test("real notes save an annotation, reopen its source and generate full notes only on demand", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", e => errors.push(e.message));
@@ -11,14 +20,16 @@ test("real notes save an annotation, reopen its source and generate full notes o
   await expect(page.locator(".dashboard-content")).toBeVisible();
   await page.goto(`/materials/${data.material}/notes`);
   await expect(page.locator(".note-paragraph")).toHaveCount(3);
+  await selectText(page);
+  await page.getByRole("button", { name: "標記黃色", exact: true }).click();
+  await expect(page.locator(".note-mark-yellow")).toBeVisible();
   await page.getByRole("button", { name: "新增註記", exact: true }).first().click();
-  await page.getByLabel("個人註記", { exact: true }).fill("真 API 保存我的複習想法");
+  await page.getByRole("textbox", { name: "個人註記", exact: true }).fill("真 API 保存我的複習想法");
   await page.getByRole("button", { name: "儲存註記", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
   await page.reload();
-  // 第一則個人註記會取得新徽章（寫下心得），顯示頁面內通知。
-  await page.getByRole("status", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
   await expect(page.getByText("真 API 保存我的複習想法", { exact: true })).toBeVisible();
+  await expect(page.locator(".note-mark-yellow")).toBeVisible();
   const controls = page.getByRole("menu", { name: "匯出筆記" });
   for (const format of ["md", "pdf", "docx"]) {
     await page.getByRole("button", { name: "匯出筆記", exact: true }).click();
@@ -31,19 +42,18 @@ test("real notes save an annotation, reopen its source and generate full notes o
   await page.locator(".note-sources button").first().click();
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
   await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute("href", /page=1/);
-  await page.getByRole("button", { name: "關閉", exact: true }).click();
+  await page.getByRole("dialog", { name: "教材來源" }).getByRole("button", { name: "關閉", exact: true }).click();
   await page.getByRole("button", { name: "完整筆記", exact: true }).click();
   await expect(page.getByRole("button", { name: "生成完整筆記", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "生成完整筆記", exact: true }).click();
   await expect(page.locator(".note-paragraph")).toHaveCount(3);
+  await selectText(page);
   await page.getByRole("button", { name: "新增註記", exact: true }).first().click();
-  await page.getByLabel("個人註記", { exact: true }).fill("完整筆記的複習想法");
+  await page.getByRole("textbox", { name: "個人註記", exact: true }).fill("完整筆記的複習想法");
   await page.getByRole("button", { name: "儲存註記", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
-  await page.getByLabel("更多筆記操作").click();
-  await page.getByRole("button", { name: "重新生成", exact: true }).click();
-  await page.getByRole("button", { name: "確認重新生成", exact: true }).click();
-  await expect(page.getByRole("button", { name: "重新生成", exact: true })).toBeEnabled();
+  await page.reload();
+  await page.getByRole("button", { name: "完整筆記", exact: true }).click();
   await expect(page.getByText("完整筆記的複習想法", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "重點整理", exact: true }).click();
   await expect(page.getByText("真 API 保存我的複習想法", { exact: true })).toBeVisible();

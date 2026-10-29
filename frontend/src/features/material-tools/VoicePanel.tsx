@@ -33,12 +33,13 @@ export function suggestedQuestions(outline: Pick<KnowledgeOutlineView,'concepts'
  return questions;
 }
 
-export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,onClose}:{
- api:StudydyApiClient;materialId:string;revision?:string;podcastContext?:PodcastContext;podcastMedia?:RefObject<HTMLMediaElement|null>;onClose:()=>void;
+export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,prefill,onClose}:{
+ api:StudydyApiClient;materialId:string;revision?:string;podcastContext?:PodcastContext;podcastMedia?:RefObject<HTMLMediaElement|null>;prefill?:{text:string;id:string};onClose:()=>void;
 }) {
  const [list,setList]=useState<Conversation[]>([]),[id,setId]=useState<string|null>(null),[detail,setView]=useState<VoiceView|null>(null);
  const view=detail?.conversation_id===id?detail:null;
  const [question,setQuestion]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
+ useEffect(()=>{if(prefill){setQuestion(prefill.text);}},[prefill]);
  // 刪除對話在對話紀錄面板內原位置確認；換到別段對話時收起。
  const [confirmingDelete,setConfirmingDelete]=useState(false);
  useEffect(()=>setConfirmingDelete(false),[id]);

@@ -26,20 +26,11 @@
 .note-outline-3 { padding-left: 2em; }
 .note-outline [aria-current="location"] { background: var(--studydy-blue-soft); color: var(--text-primary); }
 .note-reading-body { min-height: 0; min-width: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.note-reading-column { width: min(100%, 48rem); margin-inline: auto; padding: 16px 64px 64px 32px; }
+.note-reading-column { width: min(100%, 68rem); margin-inline: auto; padding: 16px 32px 64px; }
 .note-paragraph { position: relative; padding: 20px 0 12px; scroll-margin-top: 16px; }
 .note-paragraph h2 { font-size: 1.65rem; line-height: 1.4; margin: 0 0 16px; }
 .note-paragraph h3 { font-size: 1.2rem; line-height: 1.5; margin: 0 0 12px; }
 .note-paragraph.note-subsection { padding-top: 16px; }
-/* 段落操作放在正文欄右側邊欄、與標題同高，滑過或聚焦才顯示，不占正文版面。 */
-.note-paragraph-actions { position: absolute; top: 20px; right: -52px; display: flex; flex-direction: column; gap: 4px; opacity: 0; transition: opacity .12s; }
-.note-paragraph:hover .note-paragraph-actions, .note-paragraph:focus-within .note-paragraph-actions, .note-paragraph-actions[data-open] { opacity: 1; }
-.note-action { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--surface); color: var(--text-secondary); box-shadow: var(--shadow); cursor: pointer; }
-.note-action:hover, .note-action[aria-expanded=true] { color: var(--studydy-blue); background: var(--studydy-blue-soft); }
-.note-concept-menu { position: absolute; top: 0; right: calc(100% + 8px); z-index: 5; display: grid; min-width: max-content; padding: 6px; border-radius: var(--radius-input); background: var(--surface); box-shadow: var(--shadow); }
-.note-concept-menu button { padding: 8px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text-primary); font: inherit; font-size: .875rem; text-align: left; cursor: pointer; }
-.note-concept-menu button:hover { background: var(--page-cool); }
-.note-concepts { display: contents; }
 .note-sources { display: inline; margin-left: .3em; white-space: normal; }
 .note-status:empty { display: none; }
 .note-status { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; color: var(--text-secondary); font-size: .875rem; }
@@ -53,7 +44,7 @@
 .note-outline-drawer > button { align-self: flex-start; flex: none; }
 .note-outline-drawer .note-outline { min-height: 0; margin-top: 12px; padding-inline: 0; }
 .note-outline-drawer::backdrop { background: rgb(29 39 66 / 45%); }
-.note-prose, .note-formula-text, .note-annotation p { white-space: pre-wrap; line-height: 1.8; }
+.note-prose, .note-formula-text { white-space: pre-wrap; line-height: 1.8; }
 .note-prose { margin: 0 0 16px; }
 .note-formula-text { padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-input); }
 /* 公式沿用共用換行，保留文件框的閱讀寬度。 */
@@ -76,19 +67,52 @@
 .note-table-scroll td, .note-table-scroll th { padding: 10px 12px; border: 1px solid var(--border); text-align: left; min-width: 100px; }
 .note-table-scroll th { background: var(--surface); }
 .note-table-scroll caption { caption-side: top; text-align: left; font-weight: 700; padding: 0 0 8px; }
-.note-annotation { border-left: 3px solid var(--studydy-blue); padding: 4px 16px; margin: 16px 0; background: var(--studydy-blue-soft); }
-.note-annotation p { margin: 8px 0; }
 .note-previous { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 24px; }
 .note-previous-item { padding: 16px 0; }
 .note-previous summary { cursor: pointer; padding: 12px 0; }
-.note-editor { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius-panel); color: var(--text-primary); background: var(--surface); }
-.note-editor::backdrop { background: rgb(29 39 66 / 45%); }
-.note-editor label { display: grid; gap: 8px; }
-.note-editor textarea { width: 100%; min-width: 0; padding: 12px; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-input); resize: vertical; }
-.note-editor .state-actions { margin-top: 16px; }
-
+.note-markup { position: relative; min-width: 0; }
+.note-markup-prose { min-width: 0; max-width: 48rem; margin-inline: auto; }
+.note-markup.has-comments:not(.is-narrow) { display: grid; grid-template-columns: minmax(0, 1fr) 16rem; gap: 24px; }
+.note-markup.is-narrow.has-comments .note-markup-prose { padding-right: 32px; }
+.note-markup:not(.has-comments) .note-comment-lane { display: none; }
+.note-comment-lane { position: relative; min-width: 0; }
+.note-comment-lane > div { position: absolute; width: 100%; }
+.note-comment-card { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-input); background: var(--surface); font-size: .8125rem; box-shadow: var(--shadow); }
+.note-comment-card.is-active { border-color: var(--studydy-blue); background: var(--studydy-blue-soft); }
+.note-comment-card header { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--text-secondary); }
+.note-comment-card time { font-size: .7rem; }
+.note-comment-card p { white-space: pre-wrap; line-height: 1.7; }
+.note-comment-card blockquote { margin: 12px 0; padding-left: 8px; border-left: 2px solid var(--studydy-blue); white-space: pre-wrap; }
+.note-comment-card label { display: grid; gap: 8px; }
+.note-comment-card textarea { width: 100%; padding: 8px; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-input); font: inherit; resize: vertical; }
+.note-comment-card .state-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.note-comment-card .state-actions button { padding: 8px; min-height: 36px; font-size: .8125rem; }
+.note-comment-menu { position: relative; margin-left: auto; }
+.note-comment-menu summary { cursor: pointer; padding: 4px 8px; list-style: none; }
+.note-comment-menu > div { position: absolute; z-index: 3; right: 0; display: grid; width: max-content; padding: 4px; background: var(--surface); box-shadow: var(--shadow); border: 1px solid var(--border); border-radius: var(--radius-input); }
+.note-comment-menu button { padding: 8px; border: 0; color: var(--text-primary); background: transparent; font: inherit; cursor: pointer; }
+.note-comment-pin { position: absolute; right: 0; display: grid; place-items: center; padding: 6px; border: 1px solid var(--border); border-radius: 50%; background: var(--studydy-blue-soft); color: var(--studydy-blue); cursor: pointer; }
+.note-comments-drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(24rem, 100%); height: 100dvh; max-height: 100dvh; padding: 20px; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); }
+.note-comments-drawer::backdrop { background: rgb(29 39 66 / 45%); }
+.note-comments-drawer > button { margin-bottom: 16px; }
+.note-mark-yellow, .note-style-yellow span { background: #fff0a3; }
+.note-mark-green, .note-style-green span { background: #c4efcc; }
+.note-mark-blue, .note-style-blue span { background: #c5e3ff; }
+.note-mark-pink, .note-style-pink span { background: #ffd1e3; }
+.note-mark-comment { background: var(--studydy-blue-soft); border-bottom: 1px solid var(--studydy-blue); cursor: pointer; }
+.note-mark-comment.is-active { outline: 2px solid var(--studydy-blue); }
+.note-selection-toolbar { position: fixed; z-index: 80; display: grid; gap: 4px; width: min(37.5rem, calc(100vw - 16px)); padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-input); color: var(--text-primary); background: var(--surface); box-shadow: var(--shadow); }
+.note-selection-styles, .note-selection-actions, .note-selection-concepts { display: flex; flex-wrap: wrap; gap: 4px; }
+.note-selection-toolbar button { min-height: 36px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: .8125rem; cursor: pointer; }
+.note-selection-toolbar button:hover { background: var(--page-cool); }
+.note-selection-toolbar button:disabled { opacity: .5; cursor: default; }
+.note-selection-styles button > span { display: block; width: 20px; height: 20px; border: 1px solid rgb(0 0 0 / 15%); border-radius: 50%; }
+.note-style-bold { font-weight: 700; }
+.note-style-underline { text-decoration: underline; }
+.note-style-strikethrough { text-decoration: line-through; }
+.note-selection-toolbar small { color: var(--text-secondary); }
+.note-selection-concepts { border-top: 1px solid var(--border); padding-top: 4px; }
 @media (max-width: 1280px) { .note-source-notice span { display: none; } }
-@media (hover: none) { .note-paragraph-actions { opacity: 1; } }
 @media (max-width: 720px) {
   .note-reading-toolbar { gap: 0; padding: 4px; }
   .note-reading-controls, .note-kinds, .note-reading-actions { gap: 0; }
@@ -101,9 +125,7 @@
   .note-outline-mobile-toggle { display: grid; }
   .note-reading-layout.has-outline { grid-template-columns: minmax(0, 1fr); }
   .note-reading-column { padding: 12px 16px 64px; }
-  .note-paragraph-actions { position: static; flex-direction: row; justify-content: flex-end; margin-top: 8px; }
   .note-paragraph h2 { font-size: 1.4rem; }
-  .note-editor { padding: 20px 16px; }
 }
 .notes-progress-scroll { height: 100%; overflow-y: auto; min-width: 0; }
 .note-paragraph-located { background: #ffedb0; box-shadow: 0 0 0 6px #ffedb0; border-radius: var(--radius-input); transition: background .4s, box-shadow .4s; }

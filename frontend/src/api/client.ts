@@ -1,7 +1,7 @@
 import { browserId } from "./browser-id.ts";
 import * as validate from "./response-validation.ts";
 import type {
-  MaterialNotesView, NoteKind, AssessmentPresence, CelebrationClaim,
+  MaterialNotesView, NoteKind, NoteHighlight, NoteSelection, HighlightStyle, AssessmentPresence, CelebrationClaim,
   LearningGoalView, LearningGoalsView,
   StudyStartView,
   LearningDiagnosisView, ConceptDifficultyView,
@@ -818,10 +818,25 @@ export class StudydyApiClient {
     }, (v): v is MaterialNotesView => validate.materialNotes(v) && v.material_id === materialId && v.knowledge_structure_revision === revision && v.kind === kind);
   }
 
-  async saveNoteAnnotation(view: MaterialNotesView, id: string, paragraphId: string | null, body: string): Promise<MaterialNotesView> {
+  async getNoteHighlights(view: MaterialNotesView): Promise<{ highlights: NoteHighlight[] }> {
+    return this.json(`/v1/materials/${view.material_id}/knowledge-structures/${view.content_revision}/notes/${view.kind}/highlights`, { method: "GET" }, validate.noteHighlights);
+  }
+
+  async addNoteHighlight(view: MaterialNotesView, selection: NoteSelection, style: HighlightStyle): Promise<NoteHighlight> {
+    return this.json(`/v1/materials/${view.material_id}/knowledge-structures/${view.content_revision}/notes/${view.kind}/highlights`, {
+      method: "POST", headers: { Origin: origin(), "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_generation: view.content_generation, ...selection, style }),
+    }, validate.noteHighlight);
+  }
+
+  async removeNoteHighlight(view: MaterialNotesView, id: string): Promise<void> {
+    await this.request(`/v1/materials/${view.material_id}/knowledge-structures/${view.content_revision}/notes/${view.kind}/highlights/${id}`, { method: "DELETE", headers: { Origin: origin() } });
+  }
+
+  async saveNoteAnnotation(view: MaterialNotesView, id: string, paragraphId: string | null, body: string, selection?: NoteSelection): Promise<MaterialNotesView> {
     const saved = await this.json(`/v1/materials/${view.material_id}/knowledge-structures/${view.content_revision}/notes/${view.kind}/annotations/${id}`, {
       method: "PUT", headers: { Origin: origin(), "Content-Type": "application/json" },
-      body: JSON.stringify({ expected_generation: view.content_generation, paragraph_id: paragraphId, body }),
+      body: JSON.stringify({ expected_generation: view.content_generation, paragraph_id: paragraphId, body, ...selection }),
     }, (v): v is MaterialNotesView => validate.materialNotes(v) && v.material_id === view.material_id && v.knowledge_structure_revision === view.content_revision && v.kind === view.kind);
     // 舊稿註記寫回舊內容後，重新讀取目前請求，避免把畫面切成舊教材。
     return view.content_revision === view.knowledge_structure_revision ? saved : this.getNotes(view.material_id, view.knowledge_structure_revision, view.kind);
