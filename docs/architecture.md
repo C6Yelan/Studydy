@@ -36,7 +36,7 @@ Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；wor
 
 `material_notes`（0017）按擁有者、教材版本與種類保存正文、模型契約與生成租約。v16 依原教材章節分批，`published_metadata` 保存原章節、大綱與缺漏概念，隨正文原子發布。複習速覽每章挑 3～5 個核心，核對前限制實際核心條列數；完整筆記盡力整理全部重點。寫作與核對保留引用的原檔／頁碼、區塊順序及位置。程式保留格式、引用與公式檢查，模型每段核對一次，不符位置直接刪除，沒有內容才刪段，不局部重寫或補涵蓋。刪除後未實際解說的概念獨立列於末尾；全空且有舊稿時保留舊稿並明確結束，首次空稿則發布缺漏清單。兩種筆記都保存固定計畫與已核對批次，相同契約中斷後接續；契約變更只清未發布暫存。過期 lease 不得發布。`generation_diagnostics`（0018）只保存最近刪減／失敗摘要，與日誌同一份，不含教材或理由全文，不經 API 回傳。舊稿讀取使用一致唯讀 snapshot，不觸發工作。
 
-`note_annotations` 隨教材保存；0031 增加 nullable 區塊路徑、Unicode code point 起訖與 quote，既有資料不搬移。`note_highlights`（0031）按 owner／教材／kind 保存各種標記、原 revision／generation、位置、quote 與完整段落快照。讀取時由 note_anchors 在可標記正文中重新對應；同稿原位置仍符合時保留，重生後只有全篇唯一 quote 才對回。公式、表格標題與表頭除外，失配位置回 null 並保留原稿，前端分列先前標記／註記。沒有選句的舊註記沿用來源／重點對應並對齊段首。API 沿用 owner／Origin 檢查，寫入綁定可見稿的 content_revision／content_generation，不呼叫模型。PDF／Word 匯出帶全部標記，Markdown 帶粗體及刪除線，註記另列被註記原句。標記與註記不受重生取代，有其引用的舊教材版本不得清理。
+`note_annotations` 隨教材保存；0031 增加 nullable 區塊路徑、Unicode code point 起訖與 quote，既有資料不搬移。`note_highlights`（0031）按 owner／教材／kind 保存各種標記、原 revision／generation、位置、quote 與完整段落快照。讀取時由 note_anchors 在可標記正文中重新對應；同稿原位置仍符合時保留，重生後只有全篇唯一 quote 才對回。正文標題、表格標題、表頭與整條公式同樣可標記及註記；章節以獨立 section 目標與快照保存，不依賴首段也不偽造來源。失配位置回 null 並保留原稿，前端分列先前標記／註記。沒有選句的舊註記沿用來源／重點對應並對齊段首。API 沿用 owner／Origin 檢查，寫入綁定可見稿的 content_revision／content_generation，不呼叫模型。PDF／Word 匯出帶文字標記及公式整條底色，Markdown 帶文字粗體及刪除線並略過公式標記格式，註記另列被註記原句。標記與註記不受重生取代，有其引用的舊教材版本不得清理。
 
 後端管理本機 OCR 子程序。外部語意模型獨立運行；模型離線時仍可登入及讀取已保存內容。
 

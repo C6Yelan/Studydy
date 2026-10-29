@@ -151,15 +151,15 @@ Demo 的 POST-03 修復另有[指定教材一次性維護指令](deployment.md#�
 
 筆記可匯出 PDF、Markdown 與 Word（.docx），保留原教材章節、每章大綱、暫未整理概念、層級標題、巢狀條列、全部表格、公式、醒目區塊、來源檔名／頁碼／區塊及個人註記。Markdown 提供可點擊章節大綱與章節 anchor，公式原樣寫成 `$$…$$`；PDF 與 Word 以 matplotlib mathtext 排成 300 dpi 圖片（中文用 Noto Sans CJK TC），PDF 與 Word 的長公式依可用頁寬等比例縮放，Word 的替代文字保留 LaTeX 原式，公式在 Word 中不是可編輯的方程式物件。無法對應目前段落的註記連同原版本與段落快照匯出。PDF 使用章節目錄、層級標題與完整正文，來源編號對應同頁頁尾註腳，個人註記緊接所屬段落；兩種筆記都依內容自然分頁、標題使用中文粗體字型，標題與正文開頭同頁，長段落與條列照常跨頁；匯出只讀取已發布內容，重生中或失敗時仍可匯出上一份筆記。筆記畫面沿用舊稿時，來源、地圖跳轉、註記與匯出綁定實際內容的 content_revision；註記的 expected_generation 使用 content_generation，避免把舊段落寫到新內容。尚無已發布內容時不提供匯出。Word 匯出會移除 XML 不允許的控制字元，保留 tab 與換行，作者標為 Studydy；原筆記不變。
 
-正文選取工具列提供黃／綠／藍／粉螢光筆、粗體、底線、刪除線及移除重疊標記，另有 AI BOT 預填（不送出）、新增註記、概念地圖與複製文字及來源頁碼。多個概念時展開清單，單一概念直接開啟。桌機工具列在選取上方，手機在下方；選取後 Tab 可進工具列。公式（含行內公式）、表格標題及表頭不可標記，表格資料格可以。跨區塊標記分別儲存；新增註記限同一可標記文字區塊，跨區塊停用並提示「註記請選取同一段內的文字」。
+正文選取工具列提供黃／綠／藍／粉螢光筆、粗體、底線、刪除線及移除重疊標記，另有 AI BOT 預填（不送出）、新增註記、概念地圖與複製文字及來源頁碼。多個概念時展開清單，單一概念直接開啟。桌機工具列在選取上方，手機在下方；選取後 Tab 可進工具列。正文標題（含舊稿章節編號）、表頭、表格標題、格子與醒目區塊標籤／標題都可標記及註記。公式（含行內公式）以整條原文為單位，可點選或以 Enter／空白鍵選取，拖曳碰到公式也整條納入；不以 KaTeX 產生的文字計算位置。目錄、大綱連結、未整理清單、來源連結及工具列排除。跨區塊標記分別儲存；新增註記限同一可標記文字區塊，跨區塊停用並提示「註記請選取同一段內的文字」。
 
 選句註記以淡色底連到右側卡片，卡片對齊選句並向下錯開，卡內輸入與儲存；顯示時間，「⋯」提供編輯及刪除。點正文底色亮起卡片，點卡片捲回正文。窄螢幕改以正文旁圖示開啟側欄。註記欄隨正文縮放，與右側原文面板並排。既有無選句錨點註記對齊段首，原資料不搬移。
 
-0031 migration 新增私人的 `note_highlights`，保存 owner、教材、revision／generation、kind、段落快照、區塊路徑、Unicode code point 起訖、quote、樣式與建立時間；註記只增加 nullable 選句欄位。`notes/{kind}/highlights` 提供 GET／POST，`highlights/{id}` 提供 DELETE，沿用 owner 與 Origin 邊界。POST 使用可見稿的 content_revision 與 content_generation；格式錯誤回 400 REQUEST_INVALID。註記寫入沿用 PUT，選句欄位為 block_path／start／end／quote；編輯不傳錨點時保留原錨點。
+0031 migration 新增私人的 `note_highlights`，保存 owner、教材、revision／generation、kind、段落快照、區塊路徑、Unicode code point 起訖、quote、樣式與建立時間；註記只增加 nullable 選句欄位。`notes/{kind}/highlights` 提供 GET／POST，`highlights/{id}` 提供 DELETE，沿用 owner 與 Origin 邊界。POST 使用可見稿的 content_revision 與 content_generation；格式錯誤回 400 REQUEST_INVALID。註記寫入沿用 PUT，選句欄位為 block_path／start／end／quote；編輯不傳錨點時保留原錨點。章節標題以 `section:<section_id>` 與 `["heading"]` 錨定，包含沒有段落的章節；快照新增明確 section 型別，不偽造來源。舊稿編號標題使用衍生 `display_heading`，醒目區塊類型標籤使用衍生 `label`；既有段落路徑與資料不變，不需資料搬移。
 
 同 revision／generation 的原位置與 quote 相符時直接保留；重生或教材更新後，quote 在全部可標記文字中唯一相符才重新對回，重複或缺失不猜位置。失配回傳 paragraph_id／block_path／start／end 為 null，原句及原段落快照保留，分列「先前的標記」與「先前的註記」，可展開當時段落及來源。無 quote 的舊註記沿用原來源與重點的唯一對應。新稿完成前或生成失敗時，仍可閱讀舊稿、標記與註記；不改寫已保存的來源關係。
 
-PDF／Word 匯出保留四色螢光筆、粗體、底線與刪除線；Markdown 只保留粗體及刪除線。重疊顏色採最後建立者，其他樣式可疊加。標記只套用目前對應位置，失配標記另列；註記維持段後呈現，另列「被註記原句」。
+PDF／Word 匯出保留四色螢光筆、粗體、底線與刪除線；Markdown 只保留粗體及刪除線。重疊顏色採最後建立者，其他樣式可疊加。標記只套用目前對應位置，失配標記另列；註記維持段後呈現，章節註記接在標題後，另列「被註記原句」。公式整條標記在 PDF／Word 以底色呈現，Markdown 保留公式原文及註記，略過公式標記樣式。
 
 ## 概念難度
 

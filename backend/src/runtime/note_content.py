@@ -704,8 +704,8 @@ def blocks_html(blocks, images):
             parts.append(_items_html(block["items"]))
         elif kind == "table":
             if block["caption"]:
-                parts.append(f'<p class="caption">{escape(block["caption"])}</p>')
-            parts.append("<table><tr>" + "".join(f"<th>{escape(c)}</th>" for c in block["headers"]) + "</tr>")
+                parts.append(f'<p class="caption">{note_marks.html(block["caption"])}</p>')
+            parts.append("<table><tr>" + "".join(f"<th>{note_marks.html(c)}</th>" for c in block["headers"]) + "</tr>")
             parts.extend("<tr>" + "".join(f"<td>{note_marks.html(c)}</td>" for c in row) + "</tr>" for row in block["rows"])
             parts.append("</table>")
         elif kind == "formula":
@@ -713,11 +713,13 @@ def blocks_html(blocks, images):
             name = f"formula-{len(images)}.png"
             images.append((data, name))
             # Story 會把段落內圖片縮到頁尾剩餘高度；表格列先計算完整高度，再整列換頁。
-            parts.append(f'<table class="formula"><tr><td><img src="{name}" '
+            fill = note_marks.formula_fill(block["latex"])
+            style = f' style="background-color:#{fill}"' if fill else ''
+            parts.append(f'<table class="formula"><tr><td{style}><img src="{name}" '
                 f'style="width:{width}pt;height:{height}pt"/></td></tr></table>')
         else:
-            title = CALLOUT_LABELS[block["style"]] + (f'：{block["title"]}' if block["title"] else "")
-            parts.append(f'<div class="callout callout-{block["style"]}"><p class="callout-title">{escape(title)}</p>'
+            title = note_marks.html(block.get("label", CALLOUT_LABELS[block["style"]])) + (f'：{note_marks.html(block["title"])}' if block["title"] else "")
+            parts.append(f'<div class="callout callout-{block["style"]}"><p class="callout-title">{title}</p>'
                 f'{_items_html(block["items"])}</div>')
     return "".join(parts)
 
@@ -730,17 +732,20 @@ def body_html(paragraphs, images, *, numbered=True):
         parts.append('<h2>章節大綱</h2><div class="outline">' + "".join(
             f'<p class="outline-{o["level"]}">{escape(numbered_heading(o))}</p>' for o in numbers.values()) + "</div>")
     for p in paragraphs:
+        if p.get("target_type") == "section":
+            parts.append(f'<h{p["level"] + 1}>{note_marks.html(p["heading"])}</h{p["level"] + 1}>')
+            continue
         if "blocks" not in p:
             # 舊版段落格式：保留可讀，直到重新生成。
-            parts.extend([f'<h2>{escape(p["heading"])}</h2>', f'<p>{note_marks.html(p["text"])}</p>'])
+            parts.extend([f'<h2>{note_marks.html(p["heading"])}</h2>', f'<p>{note_marks.html(p["text"])}</p>'])
             if p.get("formula"):
-                parts.append(f'<p>{escape(p["formula"])}</p>')
+                parts.append(f'<p>{note_marks.html(p["formula"])}</p>')
             if p.get("table"):
                 parts.append(blocks_html([{"type": "table", "caption": None, **p["table"]}], images))
             continue
         number = numbers.get(p["id"])
         level = number["level"] if number else p["level"]
         heading = numbered_heading(number) if number else p["heading"]
-        parts.append(f'<h{level + 1}>{escape(heading)}</h{level + 1}>')
+        parts.append(f'<h{level + 1}>{note_marks.html(heading)}</h{level + 1}>')
         parts.append(blocks_html(p["blocks"], images))
     return "".join(parts)

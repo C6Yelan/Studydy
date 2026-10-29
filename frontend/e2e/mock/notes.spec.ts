@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { json, mockKnowledgeMapApi, openMapConcept, artifactId, materialId, runId, structureRevision, structureView } from "../fixtures/knowledge-map";
 import { outlineView } from "../fixtures/knowledge-read-views.mjs";
-import type { MaterialNotesView, NoteHighlight, NoteKind } from "../../src/api/contracts";
+import type { MaterialNotesView, NoteHighlight, NoteKind, NoteMarkupTarget } from "../../src/api/contracts";
 
 const formula = String.raw`\text{大小} = \text{推入次數} - \text{取出次數}`;
 
@@ -97,10 +97,15 @@ async function setup(page: Parameters<typeof mockKnowledgeMapApi>[0], initial = 
     if (!request.url().includes("/v1/")) return route.fallback();
     const kind = request.url().includes("/notes/full") ? "full" : "summary";
     let view = kind === "full" ? full : summary;
+    const target = (id: string): NoteMarkupTarget => {
+      const section = view.sections.find(s => `section:${s.section_id}` === id);
+      return section ? { target_type: "section", id, anchor: id, heading: section.heading, level: section.level }
+        : view.paragraphs.find(p => p.id === id)!;
+    };
     if (request.url().includes("/highlights")) {
       if (request.method() === "POST") {
         const body = request.postDataJSON();
-        const highlight = { ...body, highlight_id: crypto.randomUUID(), created_at: new Date().toISOString(), original_revision: structureRevision, original_generation: 1, original_paragraph: view.paragraphs.find(p => p.id === body.paragraph_id)! };
+        const highlight = { ...body, highlight_id: crypto.randomUUID(), created_at: new Date().toISOString(), original_revision: structureRevision, original_generation: 1, original_paragraph: target(body.paragraph_id) };
         highlights.push(highlight);
         return json(route, highlight, 201);
       }
@@ -112,8 +117,8 @@ async function setup(page: Parameters<typeof mockKnowledgeMapApi>[0], initial = 
       writes.push("annotation");
       const body = request.postDataJSON();
       const id = request.url().split("/").pop()!;
-      view = { ...view, annotations: [...view.annotations.filter(a => a.annotation_id !== id), ...(body.body ? [{ annotation_id: id, anchor: view.paragraphs[0].anchor, body: body.body,
-        original_revision: structureRevision, original_paragraph: view.paragraphs[0], paragraph_id: "0", block_path: body.block_path, start: body.start, end: body.end, quote: body.quote, updated_at: "2026-10-25T01:00:00Z" }] : [])] };
+      view = { ...view, annotations: [...view.annotations.filter(a => a.annotation_id !== id), ...(body.body ? [{ annotation_id: id, anchor: target(body.paragraph_id).anchor, body: body.body,
+        original_revision: structureRevision, original_paragraph: target(body.paragraph_id), paragraph_id: body.paragraph_id, block_path: body.block_path, start: body.start, end: body.end, quote: body.quote, updated_at: "2026-10-25T01:00:00Z" }] : [])] };
     }
     if (kind === "full") full = view; else summary = view;
     return json(route, view);
@@ -121,7 +126,7 @@ async function setup(page: Parameters<typeof mockKnowledgeMapApi>[0], initial = 
   return { writes, setSummary: (v: MaterialNotesView) => { summary = v; }, setFull: (v: MaterialNotesView) => { full = v; } };
 }
 
-async function selectText(page: Parameters<typeof mockKnowledgeMapApi>[0], selector = "#note-section-0 [data-note-text]") {
+async function selectText(page: Parameters<typeof mockKnowledgeMapApi>[0], selector = "#note-section-0 .note-bullets [data-note-text]") {
   const text = page.locator(selector).first();
   await expect(text).toBeVisible();
   await text.evaluate(element => {
@@ -524,9 +529,66 @@ test("selected text retains highlight styles after reload and removes overlappin
   await expect(page.locator(".note-mark-yellow")).toHaveText("堆疊使用後進先出");
   await selectText(page);
   await page.getByRole("button", { name: "移除標記", exact: true }).click();
-  await expect(page.locator("#note-section-0 [data-note-text]").first()).toHaveCSS("font-weight", "400");
+  await expect(page.locator("#note-section-0 .note-bullets [data-note-text]").first()).toHaveCSS("font-weight", "400");
   await page.reload();
-  await expect(page.locator("#note-section-0 [data-note-text]").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(page.locator("#note-section-0 .note-bullets [data-note-text]").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+});
+
+test("all note headings, table labels and whole formulas retain marks and comments", async ({ page }) => {
+  const view = notes();
+  view.sections = [
+    { section_id: "empty", heading: "第一章 資料結構", level: 1, parent_id: null, paragraph_ids: [], outline: [] },
+    { section_id: "content", heading: "1.1 堆疊", level: 2, parent_id: "empty", paragraph_ids: ["0", "1"], outline: [] },
+  ];
+  await setup(page, view);
+  await page.goto(`/materials/${materialId}/notes`);
+  const selectors = ["#note-section-empty h2 [data-note-text]", "#note-section-content h3 [data-note-text]",
+    "#note-section-0 h4 [data-note-text]", "#note-section-0 caption [data-note-text]",
+    "#note-section-0 th [data-note-text]", "#note-section-0 .note-callout-title [data-note-text]"];
+  for (const selector of selectors) {
+    await selectText(page, selector);
+    await page.getByRole("button", { name: "標記黃色", exact: true }).click();
+    await expect(page.locator(selector).first()).toHaveClass(/note-mark-yellow/);
+  }
+  await selectText(page, selectors[0]);
+  await page.getByRole("button", { name: "新增註記", exact: true }).click();
+  await page.getByRole("textbox", { name: "個人註記", exact: true }).fill("空章節也能寫心得");
+  await page.getByRole("button", { name: "儲存註記", exact: true }).click();
+  await expect(page.getByText("空章節也能寫心得", { exact: true })).toBeVisible();
+  const math = page.locator("#note-section-1 .note-mark-formula");
+  await math.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "標記藍色", exact: true }).click();
+  await expect(math).toHaveClass(/note-mark-blue/);
+  await page.getByRole("button", { name: "新增註記", exact: true }).click();
+  await page.getByRole("textbox", { name: "個人註記", exact: true }).fill("公式整條註記");
+  await page.getByRole("button", { name: "儲存註記", exact: true }).click();
+  await expect(page.getByText("公式整條註記", { exact: true })).toBeVisible();
+  await page.reload();
+  for (const selector of selectors) await expect(page.locator(selector).first()).toHaveClass(/note-mark-yellow/);
+  await expect(math).toHaveClass(/note-mark-blue/);
+  await expect(math).toHaveAttribute("data-note-source", formula);
+  await expect(page.getByText("空章節也能寫心得", { exact: true })).toBeVisible();
+  await expect(page.getByText("公式整條註記", { exact: true })).toBeVisible();
+});
+
+test("inline math expands to the whole formula while keeping surrounding text in one annotation block", async ({ page }) => {
+  const view = notes();
+  view.paragraphs[0] = { ...view.paragraphs[0], blocks: [{ type: "text", text: "計算 $x^2$ 結果" }] };
+  await setup(page, view);
+  await page.goto(`/materials/${materialId}/notes`);
+  const prose = page.locator("#note-section-0 .note-prose");
+  await expect(prose).toBeVisible();
+  await prose.evaluate(element => {
+    const range = document.createRange(); range.selectNodeContents(element);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+  await expect(page.getByRole("button", { name: "新增註記", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "標記綠色", exact: true }).click();
+  await page.reload();
+  await expect(prose.locator(".note-mark-green")).toHaveCount(3);
+  await expect(prose.locator(".note-mark-formula")).toHaveAttribute("data-note-source", "$x^2$");
 });
 
 test("selection opens a BOT draft without submitting a question", async ({ page }) => {

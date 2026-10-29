@@ -1774,6 +1774,13 @@ function noteParagraph(value: unknown): boolean {
     && (p.table === null || noteTable(object(p.table)));
 }
 
+function noteSnapshot(value: unknown): boolean {
+  const s = object(value);
+  if (s?.target_type === "section") return typeof s.id === "string" && s.id.startsWith("section:")
+    && s.anchor === s.id && typeof s.heading === "string" && (s.level === 1 || s.level === 2 || s.level === 3);
+  return noteParagraph(value);
+}
+
 function noteOutline(value: unknown): value is unknown[] {
   return Array.isArray(value) && value.every(v => {
     const o = object(v);
@@ -1804,7 +1811,7 @@ export function noteHighlight(value: unknown): value is NoteHighlight {
     && noteAnchor(x) && typeof x.quote === "string"
     && ["yellow", "green", "blue", "pink", "bold", "underline", "strikethrough"].includes(String(x.style))
     && timestamp(x.created_at) && revision(x.original_revision, "knowledge-structure")
-    && count(x.original_generation) && noteParagraph(x.original_paragraph);
+    && count(x.original_generation) && noteSnapshot(x.original_paragraph);
 }
 
 export function noteHighlights(value: unknown): value is { highlights: NoteHighlight[] } {
@@ -1840,7 +1847,7 @@ export function materialNotes(value: unknown): value is MaterialNotesView {
       : count(v.content_generation))
     && Array.isArray(v.annotations) && v.annotations.every(a => { const x = object(a); return !!x
       && isUuid(x.annotation_id) && typeof x.anchor === "string" && typeof x.body === "string" && noteAnchor(x)
-      && revision(x.original_revision, "knowledge-structure") && noteParagraph(x.original_paragraph)
+      && revision(x.original_revision, "knowledge-structure") && noteSnapshot(x.original_paragraph)
       && (x.paragraph_id === null || typeof x.paragraph_id === "string") && timestamp(x.updated_at); });
 }
 

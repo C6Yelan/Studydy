@@ -84,7 +84,7 @@ def read(owner, material_id, revision, kind, *, dsn=None):
             "outline": note_content.outline(paragraphs),
             "sections": published.get("sections", []),
             "unorganized_concepts": published.get("unorganized_concepts", []),
-            "annotations": note_content.annotation_matches(paragraphs, annotations, content_revision,
+            "annotations": note_content.annotation_matches(note_anchors.targets(paragraphs, published.get("sections", [])), annotations, content_revision,
                 content.generation if content else None),
             "source_resolver": content_meta["source_resolver"], "error_code": row.error_code if row else None,
             "progress": section_progress(row) if row else None}
@@ -140,7 +140,7 @@ def annotate(owner, material_id, revision, kind, annotation_id, body,
             row = db.get(MaterialNotes, (owner, material_id, revision, kind), with_for_update=True)
             if row is None or row.generation != expected_generation:
                 raise SourceError("REVISION_CONFLICT")
-            paragraph = next((p for p in row.paragraphs or [] if p["id"] == paragraph_id), None)
+            paragraph = next((p for p in note_anchors.targets(row.paragraphs or [], (row.published_metadata or {}).get("sections", [])) if p["id"] == paragraph_id), None)
             if paragraph is None:
                 raise SourceError("REQUEST_INVALID")
             path, start, end, quote = selection or (None,) * 4
@@ -149,7 +149,7 @@ def annotate(owner, material_id, revision, kind, annotation_id, body,
             now = datetime.now(UTC)
             db.add(NoteAnnotation(annotation_id=annotation_id, learner_id=owner,
                 material_id=material_id, kind=kind, structure_revision=revision,
-                anchor=paragraph["anchor"], paragraph_snapshot=deepcopy(paragraph), body=body,
+                anchor=paragraph["anchor"], paragraph_snapshot=deepcopy({k: v for k, v in paragraph.items() if k != "display_heading"}), body=body,
                 block_path=path, start_offset=start, end_offset=end, quote=quote,
                 generation=None if quote is None else row.generation, created_at=now, updated_at=now))
     return read(owner, material_id, revision, kind, dsn=dsn)

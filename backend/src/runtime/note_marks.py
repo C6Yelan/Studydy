@@ -36,6 +36,9 @@ def apply(paragraphs, highlights):
             parent = p
             for key in path[:-1]:
                 parent = parent[key]
+            if path[-1] == "label":
+                from .note_content import CALLOUT_LABELS
+                parent["label"] = CALLOUT_LABELS[parent["style"]]
             text = Marked(parent[path[-1]])
             text.runs = _runs(text, spans)
             parent[path[-1]] = text
@@ -56,6 +59,15 @@ def html(text):
             out = f'<span style="{style}">{out}</span>'
         parts.append(f"<b>{out}</b>" if "bold" in flags else out)
     return "".join(parts)
+
+
+def formula_fill(text):
+    """排版成圖片的整條公式，以底色保留標記（字樣標記用黃色）。"""
+    if isinstance(text, Marked):
+        styles = [(color, flags) for _, color, flags in text.runs if color or flags]
+        if styles:
+            return FILL[next((color for color, _ in reversed(styles) if color), "yellow")]
+    return None
 
 
 def markdown(text, escaper):

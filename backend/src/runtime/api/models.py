@@ -1946,12 +1946,20 @@ class NoteSourceSectionView(_Closed):
     outline: list[NoteSourceOutlineView]
 
 
+class NoteSectionSnapshotView(_Closed):
+    target_type: Literal["section"]
+    id: str
+    anchor: str
+    heading: str
+    level: Literal[1, 2, 3]
+
+
 class NoteAnnotationView(_Closed):
     annotation_id: UUID
     anchor: str
     body: str
     original_revision: str
-    original_paragraph: NoteSectionView | NoteParagraphView
+    original_paragraph: NoteSectionView | NoteParagraphView | NoteSectionSnapshotView
     paragraph_id: str | None
     updated_at: datetime
     block_path: list[str | int] | None
@@ -1971,7 +1979,7 @@ class NoteHighlightView(_Closed):
     created_at: datetime
     original_revision: str
     original_generation: int
-    original_paragraph: NoteSectionView | NoteParagraphView
+    original_paragraph: NoteSectionView | NoteParagraphView | NoteSectionSnapshotView
 
 
 class NoteHighlightListView(_Closed):
