@@ -214,3 +214,13 @@ def test_exports_apply_marks_and_list_annotated_sentence(closed_loop, tmp_path, 
     for tag in ("<w:b/>", "<w:u ", "<w:strike/>"):
         assert tag in docx
     assert "被註記原句：黃色字" in docx
+
+
+def test_old_structure_version_is_kept_while_a_highlight_references_it(closed_loop, tmp_path, monkeypatch):
+    from test_version_moves import new_revision
+    f, client, path, view = ready(closed_loop, tmp_path, monkeypatch)
+    assert post(client, path, view, 0, 6).status_code == 201
+    new_revision(f, "rewrite")
+    drain(f)
+    assert client.get(path + "/summary/highlights").status_code == 200
+    assert client.get(path + "/summary").status_code == 200

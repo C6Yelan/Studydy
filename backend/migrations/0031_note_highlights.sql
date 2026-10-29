@@ -28,4 +28,5 @@ ALTER TABLE note_annotations
     ADD COLUMN generation integer,
     ADD CONSTRAINT note_annotations_anchor_complete CHECK (
         (block_path IS NULL AND generation IS NULL AND start_offset IS NULL AND end_offset IS NULL AND quote IS NULL)
-        OR (block_path IS NOT NULL AND generation IS NOT NULL AND start_offset >= 0 AND end_offset > start_offset AND quote IS NOT NULL));
+        OR (block_path IS NOT NULL AND generation IS NOT NULL AND start_offset IS NOT NULL AND end_offset IS NOT NULL
+            AND start_offset >= 0 AND end_offset > start_offset AND quote IS NOT NULL));

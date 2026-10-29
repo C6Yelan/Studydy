@@ -611,7 +611,7 @@ def validate(response, concepts, kind):
     return result
 
 
-def annotation_matches(paragraphs, annotations, content_revision=None, content_generation=None):
+def annotation_matches(paragraphs, annotations, content_revision, content_generation):
     """有選取範圍 quote 的註記依 quote 對回（失配不猜段落）；舊註記沿用段落 anchor 唯一比對。"""
     counts = Counter(p["anchor"] for p in paragraphs)
     ids = {p["anchor"]: p["id"] for p in paragraphs}

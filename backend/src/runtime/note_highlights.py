@@ -11,7 +11,6 @@ from .storage import knowledge_reads
 from .storage.database import database_session
 from .storage.tables import MaterialNotes, NoteHighlight
 
-STYLES = ("yellow", "green", "blue", "pink", "bold", "underline", "strikethrough")
 
 
 def resolve(view, rows):

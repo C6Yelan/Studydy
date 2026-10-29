@@ -69,7 +69,7 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
     from .tables import (
         CardSet,
         MaterialResearch,
-        NoteAnnotation, MaterialNotes,
+        NoteAnnotation, NoteHighlight, MaterialNotes,
         Podcast,
         StudySession,
         VoiceConversation,
@@ -169,8 +169,12 @@ def _prune_unreferenced_structures(session, owner, material_id, head):
         annotation = session.scalar(select(NoteAnnotation.annotation_id).where(
             NoteAnnotation.learner_id == owner, NoteAnnotation.material_id == material_id,
             NoteAnnotation.structure_revision == row.structure_revision).limit(1))
+        highlight = session.scalar(select(NoteHighlight.highlight_id).where(
+            NoteHighlight.learner_id == owner, NoteHighlight.material_id == material_id,
+            NoteHighlight.structure_revision == row.structure_revision).limit(1))
         if (
             annotation is None
+            and highlight is None
             and referenced is None
             and active is None
             and card_set is None

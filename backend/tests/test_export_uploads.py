@@ -185,6 +185,7 @@ def test_card_stream_releases_generation_slot_but_keeps_temporary_files_locked(m
     exported = []
     monkeypatch.setattr(export_routes, 'record_export', lambda learner, kind, **_: exported.append((learner, kind)))
     monkeypatch.setattr(export_routes.material_notes, 'read', lambda *_args, **_kwargs: {'paragraphs': [{}], 'content_revision': 1})
+    monkeypatch.setattr(export_routes.note_highlights, 'listing', lambda *_args, **_kwargs: [])
     from contextlib import nullcontext
     from runtime.storage import database
     monkeypatch.setattr(database, 'database_session', lambda *_: nullcontext())
