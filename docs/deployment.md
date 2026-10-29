@@ -300,6 +300,8 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 v16新增 `0032_note_source_sections.sql` 的 `material_notes.published_metadata`；同交易保存原章節與缺漏清單。需與理解 `sections`／`unorganized_concepts` 的前端一起部署。舊稿兩欄回空陣列；首次全空稿仍ready，有舊稿則以 NOTE_NO_SUPPORTED_CONTENT 保留舊稿。
 
+公式匯出仍需 `backend/pyproject.toml`／`uv.lock` 鎖定的 `matplotlib==3.11.2` 與映像既有 `fonts-noto-cjk`；輕量更新以 `uv sync` 安裝依賴，首次排版會在 `$HOME/.config/matplotlib`（backend HOME為/tmp tmpfs）建立字型快取，部署後核對套件版本並匯出一份含公式的筆記。
+
 部署後只對已授權帳號呼叫 `runtime.material_notes.generate(owner, material_id, revision, kind, expected_generation=...)` 重生指定稿，既有發布內容到新稿完成前保持可讀；`queue_existing` 只補本人缺少的複習速覽，不重生已存在工作。記錄真實provider呼叫數，不把worker嘗試數當模型次數。
 
 ## 0018 筆記生成診斷摘要碼

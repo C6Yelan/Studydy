@@ -745,7 +745,7 @@ def _complete(claim, concepts, call, dsn, diagnostics, *, input_budget):
     result = complete_sections(concepts, plan, call, claim["results"],
         lambda index, paragraphs: _progress(claim, dsn, part=(index, paragraphs), previous=claim["results"]), diagnostics, kind)
     _progress(claim, dsn, stage="validating")
-    return result, note_sections.published(plan, result, concepts)
+    return result, note_sections.published(plan, result, concepts, kind=kind)
 
 
 def request_contract(payload, policy):

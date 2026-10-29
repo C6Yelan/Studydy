@@ -148,7 +148,7 @@ v7 新增目標與分天關卡、克服難點、筆記與個人註記、多元�
 | 一次就懂 | `first_try_material` 一次就懂 1（公開的挑戰成就，後端列在 `SPECIAL_BADGES`） | 完成的教材中，完成當天以前每個作答過的概念第一次作答都答對 |
 | 目標與關卡 | `first_goal` 立下目標 1；`first_stage` 第一關 1；`stages_10` 十關闖將 10；`stages_50` 五十關攻略 50 | `learning_goals.created_at`（第一次設定，修改不變）；`goal_milestones` 的分天關卡（每份教材每天一關，規則同 XP） |
 | 克服難點（累計個數） | `first_difficulty` 突破難點 1；`difficulties_5` 難點剋星 5；`difficulties_20` 難不倒我 20 | 與 XP「克服難點」相同的作答重播 |
-| 筆記 | `first_note` 第一份筆記 1 | 狀態 ready 的完整筆記（`material_notes` kind `full`，由學生按下才生成；重點整理是教材分析後自動生成，不計），以請求生成的日期計 |
+| 筆記 | `first_note` 第一份筆記 1 | 狀態 ready 的完整筆記（`material_notes` kind `full`，由學生按下才生成；複習速覽是教材分析後自動生成，不計），以請求生成的日期計 |
 | 個人註記（段落數） | `first_annotation` 寫下心得 1；`annotations_10` 筆記達人 10；`annotations_50` 眉批大師 50 | `note_annotations`；同一教材、筆記種類與段落多則註記只算一段（避免同段灌註記），日期取該段第一則；刪除註記後重新判定 |
 | 多元教材 | `upload_image` 圖片教材、`upload_audio` 聲音教材、`upload_video` 影片教材、`upload_youtube` YouTube 教材，各 1 | `material_sources.media_type`（圖片組 zip、mp3／m4a／wav、mp4 影片〔只存音軌但來源仍記為影片〕、YouTube 參照），未移除的來源 |
 | 匯出與整理（種類數） | `first_export` 帶著走 1（任一種，含學習診斷）；`export_kinds_4` 整理收藏家 4（筆記、概念卡組、Podcast、知識地圖） | `learner_exports`：每種第一次匯出成功的時間，只記種類與時間；匯出不屬於單一教材，刪除教材不收回 |

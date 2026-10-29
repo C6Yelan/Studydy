@@ -99,6 +99,24 @@ def test_published_keeps_empty_parent_and_separates_real_explanation_from_citati
     assert all("claim_ids" not in s for s in output["sections"])
 
 
+def test_summary_keeps_written_sections_and_ancestors_in_original_order():
+    doc = document(["A"], [("A", title) for title in ("1 原理", "1.1 基礎", "1.1.1 核心", "1.2 細節", "2 應用")])
+    values = [concept("c1", ("q1", ["e2"])), concept("c2", ("q2", ["e3"]))]
+    plan = note_sections.plan(doc, values, [])
+    paragraphs = [{"id": "p1", "claim_ids": ["q1"], "_explained_claim_ids": ["q1"]}]
+    before = deepcopy(plan)
+    full = note_sections.published(plan, paragraphs, values, kind="full")
+    summary = note_sections.published(plan, paragraphs, values, kind="summary")
+    assert [s["section_id"] for s in full["sections"]] == ["s0", "s1", "s2", "s3", "s4"]
+    assert [s["section_id"] for s in summary["sections"]] == ["s0", "s1", "s2", "s4"]
+    assert summary["sections"][0]["outline"] == [
+        {"section_id": "s1", "heading": "1.1 基礎", "level": 2},
+        {"section_id": "s2", "heading": "1.1.1 核心", "level": 3}]
+    assert summary["sections"][2]["paragraph_ids"] == ["p1"]
+    assert summary["unorganized_concepts"] == full["unorganized_concepts"] == [{"concept_id": "c2", "label": "C2"}]
+    assert plan == before
+
+
 def test_empty_body_lists_all_missing_concepts_and_shared_explanation_covers_both():
     doc = document(["A"], [("A", "1 原理")])
     values = [concept("c1", ("q", ["e0"])), concept("c2", ("q", ["e0"]))]

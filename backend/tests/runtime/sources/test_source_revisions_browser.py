@@ -59,7 +59,7 @@ def test_real_initial_multiple_sources_browser(revisions, monkeypatch, tmp_path)
         raise AssertionError("MODEL_NOT_ALLOWED")
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", reject)
-    # 發布後自動排入的重點整理另由筆記測試驗證；這裡只驗教材分析不外呼模型。
+    # 發布後自動排入的複習速覽另由筆記測試驗證；這裡只驗教材分析不外呼模型。
     from runtime import knowledge_publication
     monkeypatch.setattr(knowledge_publication, "enqueue_notes", lambda *args: None)
     with psycopg.connect(dsn) as connection:

@@ -40,8 +40,10 @@ def maintained(revisions, monkeypatch, request):
         if "chapter_count" in request:
             return {"chapters": [{"title": "堆疊操作方式", "start": 0},
                 {"title": "佇列操作方式", "start": 1}]}
-        if request.get("phase") == "organize_sections":
-            return {"paragraph_ids": []}
+        if request.get("phase") == "select_summary":
+            chosen = {q["ref"] for q in [q for c in request["concepts"] for q in c["claims"]][:5]}
+            return {"concepts": [{"concept": c["ref"], "claim_ids": [q["ref"] for q in c["claims"] if q["ref"] in chosen]}
+                for c in request["concepts"]]}
         if request.get("phase") == "review_paragraph":
             return {"checks": [{"part": p, "missing_evidence": [], "supported": True, "reason": ""}
                 for p in request["parts"]], "coverage": [{"claim": c, "explained": True,

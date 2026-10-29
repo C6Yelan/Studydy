@@ -98,7 +98,20 @@ def plan(document, concepts, regions):
     return result
 
 
-def published(sections, paragraphs, concepts):
+def compact_sections(sections):
+    """速覽省略無正文小節，保留原文父章與順序；一級檔名章仍可辨認缺漏。"""
+    by_id = {section["section_id"]: section for section in sections}
+    keep = {section["section_id"] for section in sections if section["level"] == 1 or section["paragraph_ids"]}
+    for identity in list(keep):
+        parent = by_id[identity]["parent_id"]
+        while parent is not None:
+            keep.add(parent)
+            parent = by_id[parent]["parent_id"]
+    return [{**section, "outline": [item for item in section["outline"] if item["section_id"] in keep]}
+        for section in sections if section["section_id"] in keep]
+
+
+def published(sections, paragraphs, concepts, *, kind="full"):
     """章節大綱與缺漏清單只從本次已核對正文投影，不再請模型整理。"""
     result = [{key: section[key] for key in ("section_id", "heading", "level", "parent_id")}
               | {"paragraph_ids": [], "outline": []} for section in sections]
@@ -116,4 +129,4 @@ def published(sections, paragraphs, concepts):
                  for identity in paragraph.get("_explained_claim_ids", paragraph["claim_ids"])}
     missing = [{"concept_id": concept["concept_id"], "label": concept["label"]}
                for concept in concepts if not any(claim["claim_id"] in explained for claim in concept["claims"])]
-    return {"sections": result, "unorganized_concepts": missing}
+    return {"sections": compact_sections(result) if kind == "summary" else result, "unorganized_concepts": missing}
