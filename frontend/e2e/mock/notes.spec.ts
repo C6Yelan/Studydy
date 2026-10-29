@@ -467,7 +467,7 @@ test("progress page follows the upload layout, keeps the old draft readable and 
   await page.goto(`/materials/${materialId}/notes`);
   await page.getByRole("button", { name: "查看進度", exact: true }).click();
   const progress = page.getByRole("region", { name: "筆記生成進度" });
-  await expect(progress.getByRole("heading", { name: "正在更新重點整理", level: 1 })).toBeVisible();
+  await expect(progress.getByRole("heading", { name: "正在更新複習速覽", level: 1 })).toBeVisible();
   await expect(progress.getByRole("heading", { name: "整體進度" })).toBeVisible();
   await expect(progress.getByText("已完成 3 / 10 批。完成後自動開啟筆記。")).toBeVisible();
   for (const step of ["規劃分批", "逐批撰寫", "逐段核對", "整理章節", "發布"]) await expect(progress.getByText(step, { exact: true })).toBeVisible();
