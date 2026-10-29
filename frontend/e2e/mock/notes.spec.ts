@@ -524,15 +524,17 @@ test("touch selection changes reveal the mobile toolbar below the selected text"
   await expect(page.getByRole("textbox", { name: "個人註記", exact: true })).toBeFocused();
 });
 
-test("overlapping comments align to the same quote and cycle their active cards", async ({ page }) => {
+test("overlapping comments align to the same quote and cycle their active cards", async ({ page }, testInfo) => {
   const initial = notes();
+  initial.paragraphs = [{ ...initial.paragraphs[0], blocks: [{ type: "bullets", items: [{ text: "最上面的盤子最先拿走" }] }] }];
+  initial.outline = initial.outline.slice(0, 1);
   initial.annotations = ["第一則想法", "第二則想法"].map((body, i) => ({
     annotation_id: `55555555-5555-4555-8555-${String(i + 1).padStart(12, "0")}`, anchor: "stable-anchor", body,
-    paragraph_id: "0", block_path: ["blocks", 2, "items", 0, "text"], start: 0, end: 11, quote: "最上面的盤子最先拿走",
+    paragraph_id: "0", block_path: ["blocks", 0, "items", 0, "text"], start: 0, end: 11, quote: "最上面的盤子最先拿走",
     original_revision: structureRevision, original_paragraph: initial.paragraphs[0], updated_at: "2026-10-25T01:00:00Z",
   }));
   await setup(page, initial);
-  await page.setViewportSize({ width: 1536, height: 900 });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/materials/${materialId}/notes`);
   const quote = page.locator(".note-mark-comment").first();
   await quote.click();
@@ -543,4 +545,17 @@ test("overlapping comments align to the same quote and cycle their active cards"
   const first = (await cards.nth(0).boundingBox())!, second = (await cards.nth(1).boundingBox())!;
   expect(first.y).toBeGreaterThanOrEqual((await quote.boundingBox())!.y - 2);
   expect(second.y).toBeGreaterThanOrEqual(first.y + first.height);
+  const widths = await page.locator(".note-markup").evaluate(element => ({
+    column: parseFloat(getComputedStyle(element).gridTemplateColumns),
+    prose: element.querySelector(".note-markup-prose")!.getBoundingClientRect().width,
+  }));
+  expect(widths.prose).toBeCloseTo(widths.column, 1);
+  await page.screenshot({ path: testInfo.outputPath("notes-comments-1440.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const pins = page.getByRole("button", { name: "開啟註記", exact: true });
+  await expect(pins).toHaveCount(2);
+  await expect.poll(async () => {
+    const first = (await pins.nth(0).boundingBox())!, second = (await pins.nth(1).boundingBox())!;
+    return (second.y - first.y) / first.height;
+  }).toBeLessThan(2);
 });

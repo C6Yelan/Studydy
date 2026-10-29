@@ -77,7 +77,8 @@ export function NoteMarkup({ api, view, saved, openConcept, renderPrevious, chil
     const element = root.current;
     if (!element) return;
     const measure = () => {
-      setNarrow(element.clientWidth < 720);
+      const isNarrow = element.clientWidth < 720;
+      setNarrow(isNarrow);
       const top = element.getBoundingClientRect().top;
       let bottom = 0;
       const next: Record<string, number> = {};
@@ -88,7 +89,9 @@ export function NoteMarkup({ api, view, saved, openConcept, renderPrevious, chil
       }).sort((a, b) => a.top - b.top);
       for (const card of ordered) {
         next[card.id] = Math.max(card.top, bottom);
-        bottom = next[card.id] + (cardRefs.current.get(card.id)?.offsetHeight ?? 160) + 12;
+        const height = isNarrow ? (element.querySelector<HTMLElement>(".note-comment-pin")?.offsetHeight ?? 32)
+          : (cardRefs.current.get(card.id)?.offsetHeight ?? 160);
+        bottom = next[card.id] + height + 12;
       }
       setPositions(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };

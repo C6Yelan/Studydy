@@ -68,11 +68,11 @@
 .note-table-scroll th { background: var(--surface); }
 .note-table-scroll caption { caption-side: top; text-align: left; font-weight: 700; padding: 0 0 8px; }
 .note-previous { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 24px; }
-.note-previous-item { padding: 16px 0; }
 .note-previous summary { cursor: pointer; padding: 12px 0; }
 .note-markup { position: relative; min-width: 0; }
 .note-markup-prose { min-width: 0; max-width: 48rem; margin-inline: auto; }
 .note-markup.has-comments:not(.is-narrow) { display: grid; grid-template-columns: minmax(0, 1fr) 16rem; gap: 24px; }
+.note-markup.has-comments:not(.is-narrow) > .note-markup-prose { margin-inline: 0; }
 .note-markup.is-narrow.has-comments .note-markup-prose { padding-right: 32px; }
 .note-markup:not(.has-comments) .note-comment-lane { display: none; }
 .note-comment-lane { position: relative; min-width: 0; }
@@ -89,6 +89,7 @@
 .note-comment-card .state-actions button { padding: 8px; min-height: 36px; font-size: .8125rem; }
 .note-comment-menu { position: relative; margin-left: auto; }
 .note-comment-menu summary { cursor: pointer; padding: 4px 8px; list-style: none; }
+.note-comment-menu > summary::before { content: none; }
 .note-comment-menu > div { position: absolute; z-index: 3; right: 0; display: grid; width: max-content; padding: 4px; background: var(--surface); box-shadow: var(--shadow); border: 1px solid var(--border); border-radius: var(--radius-input); }
 .note-comment-menu button { padding: 8px; border: 0; color: var(--text-primary); background: transparent; font: inherit; cursor: pointer; }
 .note-comment-pin { position: absolute; right: 0; display: grid; place-items: center; padding: 6px; border: 1px solid var(--border); border-radius: 50%; background: var(--studydy-blue-soft); color: var(--studydy-blue); cursor: pointer; }
