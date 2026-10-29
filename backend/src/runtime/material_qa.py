@@ -9,6 +9,7 @@ import re
 from knowledge_map.retrieval import rank_texts
 from .text_budget import estimate_o200k_tokens
 from .errors import SourceError
+from . import luna_calls
 
 
 INPUT_TOKENS = 12000
@@ -188,7 +189,7 @@ def history_context(history, memory, call, metrics):
             or len(value) > 1800
             or _count(value) > SUMMARY_TOKENS
         ):
-            raise SourceError("VOICE_ANSWER_INVALID")
+            raise _invalid_answer("history_summary_invalid")
         summary = value.strip()
         last = batch[-1]
         updated = {
@@ -207,6 +208,11 @@ def history_context(history, memory, call, metrics):
     return context(), updated
 
 
+def _invalid_answer(reason):
+    luna_calls.rejected(reason)
+    return SourceError("VOICE_ANSWER_INVALID")
+
+
 def _request(call, prompt, payload, schema, metrics):
     estimate = estimate_o200k_tokens(
         prompt + "\nINPUT:\n" + json.dumps(payload, ensure_ascii=False)
@@ -220,7 +226,7 @@ def _request(call, prompt, payload, schema, metrics):
         {"task": "material_qa", "prompt": prompt, "request": payload, "schema": schema},
     )
     if not isinstance(result, dict):
-        raise SourceError("VOICE_ANSWER_INVALID")
+        raise _invalid_answer("response_not_object")
     return result
 
 
@@ -251,7 +257,7 @@ def _search_plan(value):
         or not isinstance(missing, str)
         or len(missing) > 300
     ):
-        raise SourceError("VOICE_ANSWER_INVALID")
+        raise _invalid_answer("search_plan_invalid")
     return queries, missing
 
 
@@ -267,9 +273,9 @@ def _segments(value, count):
             for term in speech_terms
         )
     ):
-        raise SourceError("VOICE_ANSWER_INVALID")
+        raise _invalid_answer("speech_terms_invalid")
     if not isinstance(segments, list) or len(segments) > 8:
-        raise SourceError("VOICE_ANSWER_INVALID")
+        raise _invalid_answer("segments_invalid")
     for segment in segments:
         if (
             not isinstance(segment, dict)
@@ -282,13 +288,13 @@ def _segments(value, count):
                 for index in segment["citations"]
             )
         ):
-            raise SourceError("VOICE_ANSWER_INVALID")
+            raise _invalid_answer("segment_text_or_citations_invalid")
         # 模型偶爾夾帶供其他介面使用的引用標記；本介面只使用已驗證的 citations 欄位。
         segment["text"] = re.sub(
             r"\ue200(?:cite|filecite)\ue202[^\ue201]*\ue201", "", segment["text"]
         ).strip()
         if not segment["text"]:
-            raise SourceError("VOICE_ANSWER_INVALID")
+            raise _invalid_answer("segment_empty_after_citation_cleanup")
     return segments, queries, missing
 
 
@@ -410,7 +416,7 @@ def _review_segments(
         )
         or sorted(item["index"] for item in items) != list(range(len(segments)))
     ):
-        raise SourceError("VOICE_ANSWER_INVALID")
+        raise _invalid_answer("review_items_invalid")
     checked = []
     for item in items:
         segment = segments[item["index"]]
@@ -420,7 +426,7 @@ def _review_segments(
                 r"\ue200(?:cite|filecite)\ue202[^\ue201]*\ue201", "", text
             ).strip()
             if not text:
-                raise SourceError("VOICE_ANSWER_INVALID")
+                raise _invalid_answer("review_text_empty_after_citation_cleanup")
             checked.append(
                 {
                     "text": text,
@@ -591,14 +597,14 @@ def answer(
                 not isinstance(q, str) or not q.strip() or len(q) > 240 for q in queries
             )
         ):
-            raise SourceError("VOICE_ANSWER_INVALID")
+            raise _invalid_answer("retrieval_queries_invalid")
         if spoken:
             interpreted = plan.get("interpreted_question")
             if (
                 not isinstance(interpreted, str)
                 or not 1 <= len(interpreted.strip()) <= 4000
             ):
-                raise SourceError("VOICE_ANSWER_INVALID")
+                raise _invalid_answer("interpreted_question_invalid")
             # 辨識後的語境修正不能改掉明示的數值與技術識別字。
             literals = lambda text: re.findall(
                 r"[A-Za-z0-9]+(?:[_.-][A-Za-z0-9]+)*|[!<>≤≥≠=]+", text

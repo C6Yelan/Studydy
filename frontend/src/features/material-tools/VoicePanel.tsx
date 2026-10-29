@@ -1,7 +1,7 @@
 import { MathText } from "../../ui/MathText";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { InlineConfirm } from '../../ui/InlineConfirm';
-import { ApiClientError, errorMessage, type StudydyApiClient } from '../../api/client';
+import { ApiClientError, errorMessage, safeMessage, type StudydyApiClient } from '../../api/client';
 import { AnswerSourceList, SourceButton } from '../../ui/SourceButton';
 import type { Conversation, VoiceTurn, VoiceView } from './types';
 import { Icon } from '../../ui/Icon';
@@ -234,7 +234,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
       {turn.status!=='ready'&&<div className="voice-turn-status">{(!waiting||turn.answer)&&<small>{turn.status==='failed'&&turn.answer?'文字回答已完成':waitingLabel}</small>}
        {waiting&&<button className="text-button" disabled={busy} onClick={()=>turnAction(turn,'cancel')}>取消這次提問</button>}
       </div>}
-      {turn.status==='failed'&&<div className="voice-turn-status is-failed"><p className="voice-inline-note">{turn.answer?'語音製作未完成，文字與來源已保留。':'目前無法完成處理。'}{turn.error_code==='VOICE_TRANSCRIPT_INVALID'?'沒有辨識到清楚語音，請重新錄音。':turn.error_code==='VOICE_PODCAST_CONTEXT_INVALID'||turn.error_code==='RESOURCE_NOT_FOUND'?'原 Podcast 已不可用，請直接向 Studydy AI BOT 提問。':''}</p>{turn.question&&<button className="text-button" disabled={busy||working} onClick={()=>turnAction(turn,'retry')}>重試{turn.answer?'語音':'回答'}</button>}</div>}
+      {turn.status==='failed'&&<div className="voice-turn-status is-failed"><p className="voice-inline-note">{turn.answer?'語音製作未完成，文字與來源已保留。':turn.error_code==='VOICE_ANSWER_INVALID'?safeMessage(turn.error_code):'目前無法完成處理。'}{turn.error_code==='VOICE_TRANSCRIPT_INVALID'?'沒有辨識到清楚語音，請重新錄音。':turn.error_code==='VOICE_PODCAST_CONTEXT_INVALID'||turn.error_code==='RESOURCE_NOT_FOUND'?'原 Podcast 已不可用，請直接向 Studydy AI BOT 提問。':''}</p>{turn.question&&<button className="text-button" disabled={busy||working} onClick={()=>turnAction(turn,'retry')}>重試{turn.answer?'語音':'回答'}</button>}</div>}
      </article>;
     })}
     {showOutgoing&&<article className="voice-turn is-sending"><div className="voice-question" aria-label="你的提問"><p>{outgoing?.text}</p></div><div className="voice-reply"><img className="voice-avatar" src={mascot} alt=""/><div className="voice-response"><p className="voice-typing"><span aria-hidden="true"><i/><i/><i/></span>正在送出問題…</p></div></div></article>}

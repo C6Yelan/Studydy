@@ -259,3 +259,56 @@ def test_wikipedia_edit_citations_and_bold_preserve_teaching_content():
     assert 'x²' in doc['text'] or 'x^2' in doc['text'] or 'x2' in doc['text'] or 'x<sup>2</sup>' in doc['text']
     assert 'return x ** 2' in doc['text']
     assert '| Code | Meaning |' in doc['text']
+
+
+def test_wikipedia_hidden_mathml_preserves_formula_without_svg_duplicate():
+    formula = r'{\displaystyle P(T)=P(T|G)P(G)+P(T|B)P(B)}'
+    body = BODY.replace(
+        '<pre><code>',
+        '<p>By total probability, '
+        '<span class="mwe-math-element mwe-math-element-inline">'
+        '<span class="mwe-math-mathml-a11y" style="display: none;">'
+        f'<math xmlns="http://www.w3.org/1998/Math/MathML" alttext="{formula}">'
+        '<semantics><mrow><mi>P</mi></mrow>'
+        f'<annotation encoding="application/x-tex">{formula}</annotation>'
+        '</semantics></math></span>'
+        f'<img class="mwe-math-fallback-image-inline" aria-hidden="true" alt="{formula}" src="math.svg">'
+        '</span>, so the evidence probability is 0.8.</p>'
+        '<p><img src="unrelated.png" alt="unrelated image description"></p>'
+        '<pre><code>',
+    )
+    raw = body.encode()
+    doc = web.html_document(raw, 'https://en.wikipedia.org/wiki/Posterior_probability', 'text/html')
+    assert doc['text'].count(formula) == 1
+    assert 'By total probability, ' in doc['text']
+    assert ', so the evidence probability is 0.8.' in doc['text']
+    assert 'unrelated image description' not in doc['text']
+    assert doc['original_sha256'] == sha256(raw).hexdigest()
+    assert doc['license_snapshot_sha256'] == sha256(raw).hexdigest()
+
+
+def test_wikipedia_truncated_annotation_uses_complete_alttext_once():
+    prefix = r'{\displaystyle \log {\mathcal {L}}(\theta'
+    remainder = r';{\mathbf {x} })=-N\cdot H(p,q_{\theta }).}'
+    formula = prefix + ' ' + remainder
+    body = BODY.replace(
+        '<pre><code>',
+        '<p>Taking the logarithm gives:</p>'
+        '<span class="mwe-math-element mwe-math-element-block">'
+        '<span class="mwe-math-mathml-a11y" style="display: none;">'
+        f'<math display="block" alttext="{formula}">'
+        '<semantics><mrow><mi>L</mi></mrow>'
+        f'<annotation encoding="application/x-tex">{prefix}</annotation>'
+        '</semantics></math><span typeof="mw:DisplaySpace"> </span>'
+        f'{remainder}</span>'
+        f'<img class="mwe-math-fallback-image-display" alt="{formula}" src="math.svg">'
+        '</span> Since the logarithm is monotonic, the maximizing value is unchanged.'
+        '<pre><code>',
+    )
+    raw = body.encode()
+    doc = web.html_document(raw, 'https://en.wikipedia.org/wiki/Cross-entropy', 'text/html')
+    assert f'$$\n{formula}\n$$' in doc['text']
+    assert doc['text'].count(prefix) == 1
+    assert doc['text'].count(remainder) == 1
+    assert doc['text'].count('Since the logarithm is monotonic, the maximizing value is unchanged.') == 1
+    assert doc['original_sha256'] == sha256(raw).hexdigest()

@@ -58,7 +58,7 @@ MEDIA_POLICY = {
 }
 POLICY = {
     "schema": "normalization-policy/v1",
-    "version": 3,
+    "version": 4,
     "olefile": "0.47",
     "max_file_bytes": MAX_FILE_BYTES,
     "libreoffice": "26.2.5.2",

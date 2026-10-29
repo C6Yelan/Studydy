@@ -276,7 +276,9 @@ def html_document(data, final, media):
             policy.get("license_url"),
         )
     metadata = extract_metadata(tree, default_url=final)
-    # Wikipedia 同時放 MathML 與後備圖片；以一份 LaTeX 取代整個公式容器。
+    # 先暫代完整公式，避免截斷的 annotation 或 Markdown 轉義改寫技術字面。
+    digest = sha256(data).hexdigest()
+    formulas = {}
     for formula in tree.xpath(
         '//span[contains(concat(" ", normalize-space(@class), " "), " mwe-math-element ")]'
         ' | //math[@alttext and not(ancestor::span[contains(concat(" ", normalize-space(@class), " "), " mwe-math-element ")])]'
@@ -284,11 +286,12 @@ def html_document(data, final, media):
         latex = formula.get("alttext") or next(iter(formula.xpath('.//math/@alttext | .//img/@alt')), None)
         if not latex:
             continue
-        for child in list(formula):
-            formula.remove(child)
+        math = formula if formula.tag == "math" else formula.find(".//math")
+        token = f"STUDYDYFORMULA{digest[:16]}N{len(formulas)}END"
+        formulas[token] = f"\n$$\n{latex}\n$$\n" if math is not None and math.get("display") == "block" else f"${latex}$"
+        formula.clear(keep_tail=True)
         formula.tag = "span"
-        formula.attrib.clear()
-        formula.text = "$" + latex + "$"
+        formula.text = token
     # 移除網頁編輯與引註標記，保留一般數學上標與程式碼字面值。
     for node in tree.xpath(
         '//*[contains(concat(" ", normalize-space(@class), " "), " mw-editsection ")]'
@@ -311,6 +314,8 @@ def html_document(data, final, media):
     )
     if not text or not text.strip():
         raise SourceError("RESEARCH_FORMAT_UNSUPPORTED")
+    for token, formula in formulas.items():
+        text = text.replace(token, formula)
     page_title = title
     title = (metadata.title if metadata else None) or title
     # 擷取結果若只有頁面題名，代表尚未取得正文；不以字數門檻判斷短文。
@@ -330,7 +335,6 @@ def html_document(data, final, media):
     author = (
         None if wikipedia_article(final) else metadata.author if metadata else None
     ) or urlsplit(final).hostname
-    digest = sha256(data).hexdigest()
     return {
         "url": final,
         "title": title,
