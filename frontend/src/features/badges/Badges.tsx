@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { playCue } from "../../ui/feedback-sound";
 import { Icon, type IconName } from "../../ui/Icon";
+import { writeRoute } from "../../app/routes";
 import "./styles.css";
 
 // 徽章（規則 badge-rules/v8）：取得與進度全部來自學習活動 API，這裡只負責名稱、說明、圖示與稀有度。
@@ -253,23 +254,21 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
   </section>;
 }
 
+/** 左下角浮動通知：不推動版面、不擋主要操作，6 秒後自動收起，可按「查看」到成就頁。 */
 export function BadgeEarned({ badges, onClose }: { badges: KnownBadge[]; onClose: () => void }) {
   const shown = badges.slice(0, 3);
-  const [slot, setSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
-    setSlot(document.getElementById("badge-notice-slot"));
     playCue("badge");
-  }, []);
-  return slot && createPortal(<section className="badge-earned" role="status" aria-label="獲得新徽章">
-      <p className="badge-notice-title">獲得新徽章！</p>
-      <ul className="badge-earned-list">
-        {shown.map((badge) => <li key={badge.badge_id}>
-          <BadgeMedal badge={badge} size={40} />
-          <b>{nameOf(badge)}</b>
-          <small>{conditionText(badge)}</small>
-        </li>)}
-      </ul>
-      {badges.length > shown.length && <p>另外還有 {badges.length - shown.length} 個新徽章，到「成就」頁查看。</p>}
-      <button className="primary-button" type="button" onClick={onClose}>太好了</button>
-  </section>, slot);
+    const timer = window.setTimeout(onClose, 6000);
+    return () => window.clearTimeout(timer);
+  }, [onClose]);
+  return createPortal(<section className="badge-earned" role="status" aria-label="獲得新徽章">
+    <span className="badge-earned-medals" aria-hidden="true">{shown.map((badge) => <BadgeMedal key={badge.badge_id} badge={badge} size={36} />)}</span>
+    <span className="badge-earned-text">
+      <b>獲得新徽章</b>
+      <small>{shown.map(nameOf).join("、")}{badges.length > shown.length && ` 等 ${badges.length} 個`}</small>
+    </span>
+    <button className="text-button" type="button" onClick={() => { onClose(); writeRoute({ name: "achievements" }); }}>查看</button>
+    <button className="badge-earned-close" type="button" aria-label="關閉" onClick={onClose}><Icon name="close" size={16} /></button>
+  </section>, document.body);
 }

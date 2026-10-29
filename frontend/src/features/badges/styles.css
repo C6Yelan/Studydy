@@ -177,52 +177,41 @@
 .badge-medal.is-special.is-locked .badge-glyph { color: #7a6fc0; font-size: 20px; font-weight: 900; }
 .badge-medal.is-special .badge-star { fill: #c9b6ff; }
 
-/* 徽章通知占用頁面空間，不覆蓋教材或鎖住主要操作。 */
+/* 徽章通知比照 YouTube 浮在左下角：不推動版面，也不擋頁首與右上角的主要操作。 */
 .badge-earned {
+  position: fixed;
+  bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  left: max(24px, env(safe-area-inset-left, 0px));
+  z-index: 60;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 12px;
-  margin: 12px var(--shell-gutter);
-  padding: 12px 16px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 12px 10px 14px;
   border-radius: var(--radius-panel);
   background: var(--surface);
   box-shadow: var(--shadow);
+  animation: badge-slide 0.25s ease-out both;
 }
-.badge-notice-title { margin: 0; font-weight: 800; }
-.badge-earned > button { margin-left: auto; }
-
-.badge-earned-list {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 12px;
-  margin: 4px 0 8px;
-  padding: 0;
-  list-style: none;
-}
-.badge-earned-list li {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  max-width: 140px;
-}
-.badge-earned-list b {
-  color: var(--text-primary);
-  font-size: 17px;
-}
-.badge-earned-list small {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
+.badge-earned-medals { display: flex; flex-shrink: 0; }
+.badge-earned-medals > * + * { margin-left: -10px; }
+.badge-earned-text { display: grid; min-width: 0; }
+.badge-earned-text b { color: var(--text-primary); font-size: 14px; }
+.badge-earned-text small { overflow: hidden; color: var(--text-secondary); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.badge-earned > .text-button { flex-shrink: 0; }
+.badge-earned-close { display: grid; flex-shrink: 0; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.badge-earned-close:hover { background: var(--page-cool); }
 .badge-earned .badge-medal {
   animation: badge-pop 0.6s 0.15s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+@keyframes badge-slide {
+  from { opacity: 0; transform: translateY(8px); }
 }
 @keyframes badge-pop {
   from { opacity: 0; transform: scale(0.4) rotate(-20deg); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .badge-earned .badge-medal {
+  .badge-earned, .badge-earned .badge-medal {
     animation: none;
   }
 }
