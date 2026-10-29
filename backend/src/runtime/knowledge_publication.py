@@ -116,8 +116,6 @@ def publish_knowledge_structure(
                     == base.get("source_set_sha256")
                     and "material_review" in locked_run.runtime_lock_document
                 )
-                if full_reanalysis and document.get("source_set_sha256") != base.get("source_set_sha256"):
-                    raise KnowledgeStructureStoreError("SOURCE_BINDING_INVALID")
                 if not review_only and not full_reanalysis and not any(
                     added_evidence.intersection(claim["evidence_refs"])
                     for concept in document["concepts"]
