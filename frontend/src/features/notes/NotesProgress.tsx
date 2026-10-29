@@ -13,7 +13,7 @@ const stages: { label: string; icon: IconName }[] = [
   { label: "規劃分批", icon: "route" }, { label: "逐批撰寫", icon: "edit" }, { label: "逐段核對", icon: "search" },
   { label: "整理章節", icon: "book" }, { label: "發布", icon: "check" },
 ];
-const kindLabels: Record<NoteKind, string> = { summary: "重點整理", full: "完整筆記" };
+const kindLabels: Record<NoteKind, string> = { summary: "複習速覽", full: "完整筆記" };
 
 /** 筆記生成或更新的進度頁，版面比照上傳教材處理頁；生成中舊稿仍可從「返回筆記」閱讀。 */
 export function NotesProgress({ api, materialId, revision, kind, close }: {

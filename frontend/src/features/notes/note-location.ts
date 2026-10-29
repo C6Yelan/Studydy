@@ -6,7 +6,7 @@ import { writeRoute } from "../../app/routes";
 /** 知識地圖帶到筆記頁的目標：哪一種筆記的哪一段。 */
 export type NoteTarget = { kind: NoteKind; paragraphId: string };
 
-/** 筆記中引用這個概念的第一段；先找重點整理，再找完整筆記。沒有就回傳 null。 */
+/** 筆記中引用這個概念的第一段；先找複習速覽，再找完整筆記。沒有就回傳 null。 */
 export function useConceptNoteTarget(api: StudydyApiClient, materialId: string, revision: string, conceptId: string) {
   const [target, setTarget] = useState<NoteTarget | null>(null);
   useEffect(() => {
