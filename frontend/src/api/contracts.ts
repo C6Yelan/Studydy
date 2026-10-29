@@ -1028,13 +1028,17 @@ export type NoteBlock =
 type NoteSource = { id: string; anchor: string; heading: string; claim_ids: string[]; evidence_ids: string[];
   concepts: { concept_id: string; label: string }[]; evidence: EvidenceView[] };
 /** material-notes/v12 起的小節：有層級的標題與條列、表格、公式、醒目區塊。 */
-export type NoteSection = NoteSource & { level: 1 | 2; blocks: NoteBlock[] };
+export type NoteSection = NoteSource & { level: 1 | 2 | 3; blocks: NoteBlock[] };
 /** v11 以前的段落格式；重新生成前仍可閱讀。 */
 export type NoteLegacyParagraph = NoteSource & {
   text: string; table: { headers: string[]; rows: string[][] } | null; formula: string | null;
 };
 export type NoteParagraph = NoteSection | NoteLegacyParagraph;
-export type NoteOutlineEntry = { paragraph_id: string; level: 1 | 2; number: string; heading: string };
+export type NoteOutlineEntry = { paragraph_id: string; level: 1 | 2 | 3; number: string; heading: string };
+export type NoteSourceSection = {
+  section_id: string; heading: string; level: 1 | 2 | 3; parent_id: string | null; paragraph_ids: string[];
+  outline: { section_id: string; heading: string; level: 2 | 3 }[];
+};
 export type NoteAnnotation = {
   block_path?: (string | number)[] | null; start?: number | null; end?: number | null; quote?: string | null;
   annotation_id: string; anchor: string; body: string;
@@ -1052,6 +1056,8 @@ export type MaterialNotesView = {
   run_id: string; kind: NoteKind; status: "not_generated" | "pending" | "running" | "ready" | "failed";
   generation: number; source_status: KnowledgeStructureView["status"]; paragraphs: NoteParagraph[]; annotations: NoteAnnotation[];
   outline: NoteOutlineEntry[];
+  sections: NoteSourceSection[];
+  unorganized_concepts: { concept_id: string; label: string }[];
   content_revision: string | null; content_generation: number | null;
   update_available: boolean; updating: boolean; started_at: string | null; updated_at: string | null;
   source_resolver: string; error_code: string | null;

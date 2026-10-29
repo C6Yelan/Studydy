@@ -22,7 +22,7 @@ h1 { font-size: 18pt; } h2 { font-size: 14pt; margin: 8pt 0 4pt; }
 p { margin: 0 0 6pt; white-space: pre-wrap; overflow-wrap: anywhere; }
 table { border-collapse: collapse; width: 100%; margin: 0 0 6pt; }
 td, th { border: .5pt solid #555; padding: 3pt; }
-h3 { font-size: 13pt; margin: 6pt 0 3pt; }
+h3, h4 { font-size: 13pt; margin: 6pt 0 3pt; }
 ul { margin: 0 0 6pt; padding-left: 14pt; } li { margin: 0 0 2pt; }
 .caption, .callout-title { font-weight: bold; margin: 6pt 0 3pt; }
 .formula { text-align: center; margin: 6pt 0; }
@@ -66,7 +66,7 @@ def pdf(html, images=(), *, keep_headings=False, footnotes=None):
         node = story.body.first_child
         while node is not None:
             following = node.next
-            if keep_headings and node.tagname in ('h1', 'h2', 'h3') and following is not None and following.tagname in ('p', 'ul', 'table', 'div'):
+            if keep_headings and node.tagname in ('h1', 'h2', 'h3', 'h4') and following is not None and following.tagname in ('p', 'ul', 'table', 'div'):
                 index = len(pairs)
                 heading_id, body_id = f'note-heading-{index}', f'note-body-{index}'
                 node.set_id(heading_id)
@@ -131,7 +131,7 @@ def md_text(value):
 
 
 def _note_title(view):
-    return '重點整理' if view['kind'] == 'summary' else '完整筆記'
+    return '複習速覽' if view['kind'] == 'summary' else '完整筆記'
 
 
 def document_metadata(view):
@@ -216,13 +216,21 @@ def _docx_quote(doc, a):
         doc.add_paragraph(xml_text('被註記原句：' + a['quote']))
 
 
+def _note_groups(view):
+    """原章節與正文分開保存；舊稿仍沿原段落大綱匯出。"""
+    if not view.get('sections'):
+        return [(None, view['paragraphs'])]
+    paragraphs = {p['id']: p for p in view['paragraphs']}
+    return [(section, [paragraphs[pid] for pid in section['paragraph_ids']]) for section in view['sections']]
+
+
 def note_markdown(view):
     lines = [f'# {_note_title(view)}', '', *(md_text(line) for line in document_metadata(view)), '']
     if _source_notice(view):
         lines += ['> 教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。', '']
     numbers = {o['paragraph_id']: o for o in outline(view['paragraphs'])}
     anchors, used = {}, set()
-    if view['paragraphs']:
+    if view['paragraphs'] and not view.get('sections'):
         lines.extend(['## 章節大綱', ''])
         for p in view['paragraphs']:
             number = numbers.get(p['id'])
@@ -238,7 +246,7 @@ def note_markdown(view):
             lines.append(f'{indent}- [{md_text(heading)}](#{anchor})')
         lines.append('')
 
-    def paragraph(p, number=None):
+    def paragraph(p, number=None, source_section=None):
         if 'blocks' not in p:
             # 舊版段落格式：保留可讀，直到重新生成。
             lines.extend([f'## {md_text(p["heading"])}', '', note_marks.markdown(p['text'], md_text), ''])
@@ -250,17 +258,37 @@ def note_markdown(view):
         else:
             depth = 1 + (number['level'] if number else p['level'])
             heading = numbered_heading(number) if number else p['heading']
-            lines.extend([f'{"#" * depth} {md_text(heading)}', '', *_md_blocks(p['blocks'])])
+            if source_section is not None:
+                depth = source_section['level'] + 1
+                if heading:
+                    lines.extend([f'**{md_text(heading)}**', ''])
+                lines.extend(_md_blocks(p['blocks']))
+            else:
+                lines.extend([f'{"#" * depth} {md_text(heading)}', '', *_md_blocks(p['blocks'])])
         lines.extend(f'來源：{md_text(label)}  ' for label in _note_sources(p['evidence']))
         lines.append('')
         return depth
 
-    for p in view['paragraphs']:
-        lines.extend([f'<a id="{anchors[p["id"]]}"></a>', ''])
-        depth = paragraph(p, numbers.get(p['id']))
-        for a in view['annotations']:
-            if a['paragraph_id'] == p['id']:
-                lines.extend([f'{"#" * (depth + 1)} 個人註記', '', md_text(a['body']), '', *_md_quote(a)])
+    for section, paragraphs in _note_groups(view):
+        if section:
+            lines.extend([f'<a id="{escape(section["section_id"], quote=True)}"></a>', '',
+                f'{"#" * (section["level"] + 1)} {md_text(section["heading"])}', ''])
+            if section['outline']:
+                lines.extend(['**章節大綱**', ''])
+                lines.extend(f'{"  " * (item["level"] - 2)}- [{md_text(item["heading"])}](#{item["section_id"]})'
+                    for item in section['outline'])
+                lines.append('')
+        for p in paragraphs:
+            if not section:
+                lines.extend([f'<a id="{anchors[p["id"]]}"></a>', ''])
+            depth = paragraph(p, None if section else numbers.get(p['id']), section)
+            for a in view['annotations']:
+                if a['paragraph_id'] == p['id']:
+                    lines.extend([f'{"#" * (depth + 1)} 個人註記', '', md_text(a['body']), '', *_md_quote(a)])
+    if view.get('unorganized_concepts'):
+        lines.extend(['## 以下概念暫未整理', ''])
+        lines.extend(f'- {md_text(c["label"])}' for c in view['unorganized_concepts'])
+        lines.append('')
     orphaned = [a for a in view['annotations'] if a['paragraph_id'] is None]
     if orphaned:
         lines.extend(['# 先前段落的註記', '', '以下註記未能精確對應目前段落，保留當時內容。', ''])
@@ -275,19 +303,35 @@ def note_pdf(view):
     images, footnotes = [], {}
     parts = [f'<h1>{_note_title(view)}</h1>', '<p>' + escape('\n'.join(document_metadata(view))) + '</p>']
     numbers = {o['paragraph_id']: o for o in outline(view['paragraphs'])}
-    if view['paragraphs']:
+    if view['paragraphs'] and not view.get('sections'):
         parts.append('<h2>章節大綱</h2><div>' + ''.join(
             f'<p>{escape(numbered_heading(numbers[p["id"]]) if p["id"] in numbers else p["heading"])}</p>'
             for p in view['paragraphs']) + '</div>')
-    for p in view['paragraphs']:
-        heading = numbered_heading(numbers[p['id']]) if p['id'] in numbers else p['heading']
-        parts.append(body_html([{**p, 'heading':heading}], images, numbered=False))
-        if p['evidence']:
-            number = len(footnotes) + 1
-            marker = f'source-{number}'
-            footnotes[marker] = f'[{number}] ' + '；'.join(_note_sources(p['evidence']))
-            parts.append(f'<p id="{marker}">[{number}]</p>')
-        parts.extend(f'<p>個人註記：{escape(a["body"])}</p>{_pdf_quote(a)}' for a in view['annotations'] if a['paragraph_id'] == p['id'])
+    for section, paragraphs in _note_groups(view):
+        if section:
+            level = section['level'] + 1
+            parts.append(f'<h{level}>{escape(section["heading"])}</h{level}>')
+            if section['outline']:
+                parts.append('<p><b>章節大綱</b></p><ul>' + ''.join(
+                    f'<li>{escape(item["heading"])}</li>' for item in section['outline']) + '</ul>')
+        for p in paragraphs:
+            if section:
+                from .note_content import blocks_html
+                if p['heading']:
+                    parts.append(f'<p><b>{escape(p["heading"])}</b></p>')
+                parts.append(blocks_html(p['blocks'], images))
+            else:
+                heading = numbered_heading(numbers[p['id']]) if p['id'] in numbers else p['heading']
+                parts.append(body_html([{**p, 'heading':heading}], images, numbered=False))
+            if p['evidence']:
+                number = len(footnotes) + 1
+                marker = f'source-{number}'
+                footnotes[marker] = f'[{number}] ' + '；'.join(_note_sources(p['evidence']))
+                parts.append(f'<p id="{marker}">[{number}]</p>')
+            parts.extend(f'<p>個人註記：{escape(a["body"])}</p>{_pdf_quote(a)}' for a in view['annotations'] if a['paragraph_id'] == p['id'])
+    if view.get('unorganized_concepts'):
+        parts.append('<h2>以下概念暫未整理</h2><ul>' + ''.join(
+            f'<li>{escape(c["label"])}</li>' for c in view['unorganized_concepts']) + '</ul>')
     orphaned = [a for a in view['annotations'] if a['paragraph_id'] is None]
     if orphaned:
         parts.append('<h1>先前段落的註記</h1><p>以下註記未能精確對應目前段落，保留當時內容。</p>')
@@ -447,7 +491,7 @@ def note_docx(view):
     if _source_notice(view):
         doc.add_paragraph('教材仍有待核對或尚未完整處理的內容，請配合段落來源閱讀。')
     numbers = {o['paragraph_id']: o for o in outline(view['paragraphs'])}
-    if view['paragraphs']:
+    if view['paragraphs'] and not view.get('sections'):
         doc.add_heading('章節大綱', 1)
         for p in view['paragraphs']:
             number = numbers.get(p['id'])
@@ -456,7 +500,7 @@ def note_docx(view):
                 item.paragraph_format.left_indent = Pt(18)
 
 
-    def paragraph(p, number=None):
+    def paragraph(p, number=None, source_section=None):
         if 'blocks' not in p:
             # 舊版段落格式：保留可讀，直到重新生成。
             doc.add_heading(xml_text(p['heading']), 1)
@@ -468,19 +512,36 @@ def note_docx(view):
             level = 1
         else:
             level = number['level'] if number else p['level']
-            doc.add_heading(xml_text(numbered_heading(number) if number else p['heading']), level)
+            if source_section is not None:
+                level = source_section['level']
+                if p['heading']:
+                    doc.add_paragraph().add_run(xml_text(p['heading'])).bold = True
+            else:
+                doc.add_heading(xml_text(numbered_heading(number) if number else p['heading']), level)
             _docx_blocks(doc, p['blocks'])
         if p['evidence']:
             source_footnote(p['evidence'])
         return level
 
-    for p in view['paragraphs']:
-        level = paragraph(p, numbers.get(p['id']))
-        for a in view['annotations']:
-            if a['paragraph_id'] == p['id']:
-                doc.add_heading('個人註記', level + 1)
-                doc.add_paragraph(xml_text(a['body']))
-                _docx_quote(doc, a)
+    for section, paragraphs in _note_groups(view):
+        if section:
+            doc.add_heading(xml_text(section['heading']), section['level'])
+            if section['outline']:
+                doc.add_paragraph().add_run('章節大綱').bold = True
+                for item in section['outline']:
+                    line = doc.add_paragraph(xml_text(item['heading']))
+                    line.paragraph_format.left_indent = Pt(18 * (item['level'] - 2))
+        for p in paragraphs:
+            level = paragraph(p, None if section else numbers.get(p['id']), section)
+            for a in view['annotations']:
+                if a['paragraph_id'] == p['id']:
+                    doc.add_heading('個人註記', level + 1)
+                    doc.add_paragraph(xml_text(a['body']))
+                    _docx_quote(doc, a)
+    if view.get('unorganized_concepts'):
+        doc.add_heading('以下概念暫未整理', 1)
+        for concept in view['unorganized_concepts']:
+            doc.add_paragraph(xml_text(concept['label']), style='List Bullet')
     orphaned = [a for a in view['annotations'] if a['paragraph_id'] is None]
     if orphaned:
         doc.add_heading('先前段落的註記', 1)

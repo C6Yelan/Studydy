@@ -1768,7 +1768,7 @@ function noteParagraph(value: unknown): boolean {
     || !strings(p.claim_ids) || !strings(p.evidence_ids)
     || !Array.isArray(p.concepts) || !p.concepts.every(c => { const x = object(c); return x && typeof x.concept_id === "string" && typeof x.label === "string"; })
     || !Array.isArray(p.evidence) || !p.evidence.length || !p.evidence.every(cardEvidence)) return false;
-  if ("blocks" in p) return (p.level === 1 || p.level === 2) && Array.isArray(p.blocks) && p.blocks.length > 0 && p.blocks.every(noteBlock);
+  if ("blocks" in p) return (p.level === 1 || p.level === 2 || p.level === 3) && Array.isArray(p.blocks) && p.blocks.length > 0 && p.blocks.every(noteBlock);
   // v11 以前的段落格式。
   return typeof p.text === "string" && (p.formula === null || typeof p.formula === "string")
     && (p.table === null || noteTable(object(p.table)));
@@ -1777,7 +1777,7 @@ function noteParagraph(value: unknown): boolean {
 function noteOutline(value: unknown): value is unknown[] {
   return Array.isArray(value) && value.every(v => {
     const o = object(v);
-    return !!o && typeof o.paragraph_id === "string" && (o.level === 1 || o.level === 2)
+    return !!o && typeof o.paragraph_id === "string" && (o.level === 1 || o.level === 2 || o.level === 3)
       && typeof o.number === "string" && typeof o.heading === "string";
   });
 }
@@ -1826,6 +1826,16 @@ export function materialNotes(value: unknown): value is MaterialNotesView {
     && (v.error_code === null || typeof v.error_code === "string")
     && knowledgeStatus(v.source_status) && noteProgress(v.progress) && Array.isArray(v.paragraphs) && v.paragraphs.every(noteParagraph)
     && noteOutline(v.outline)
+    && Array.isArray(v.sections) && v.sections.every(section => {
+      const s = object(section);
+      return !!s && typeof s.section_id === "string" && typeof s.heading === "string"
+        && (s.level === 1 || s.level === 2 || s.level === 3)
+        && (s.parent_id === null || typeof s.parent_id === "string") && strings(s.paragraph_ids)
+        && Array.isArray(s.outline) && s.outline.every(entry => { const e = object(entry); return !!e
+          && typeof e.section_id === "string" && typeof e.heading === "string" && (e.level === 2 || e.level === 3); });
+    })
+    && Array.isArray(v.unorganized_concepts) && v.unorganized_concepts.every(concept => { const c = object(concept); return !!c
+      && typeof c.concept_id === "string" && typeof c.label === "string"; })
     && (v.content_revision === null ? v.content_generation === null && v.paragraphs.length === 0 && v.outline.length === 0
       : count(v.content_generation))
     && Array.isArray(v.annotations) && v.annotations.every(a => { const x = object(a); return !!x

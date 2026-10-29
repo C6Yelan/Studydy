@@ -1901,7 +1901,7 @@ class NoteSectionView(_Closed):
     id: str
     anchor: str
     heading: str
-    level: Literal[1, 2]
+    level: Literal[1, 2, 3]
     blocks: list[Annotated[NoteTextBlockView | NoteBulletsBlockView | NoteTableBlockView
         | NoteFormulaBlockView | NoteCalloutBlockView, Field(discriminator="type")]]
     claim_ids: list[str]
@@ -1926,9 +1926,24 @@ class NoteParagraphView(_Closed):
 
 class NoteOutlineView(_Closed):
     paragraph_id: str
-    level: Literal[1, 2]
+    level: Literal[1, 2, 3]
     number: str
     heading: str
+
+
+class NoteSourceOutlineView(_Closed):
+    section_id: str
+    heading: str
+    level: Literal[2, 3]
+
+
+class NoteSourceSectionView(_Closed):
+    section_id: str
+    heading: str
+    level: Literal[1, 2, 3]
+    parent_id: str | None
+    paragraph_ids: list[str]
+    outline: list[NoteSourceOutlineView]
 
 
 class NoteAnnotationView(_Closed):
@@ -1990,6 +2005,8 @@ class MaterialNotesView(_Closed):
     progress: NoteProgressView | None
     paragraphs: list[NoteSectionView | NoteParagraphView]
     outline: list[NoteOutlineView]
+    sections: list[NoteSourceSectionView]
+    unorganized_concepts: list[NoteConceptView]
     annotations: list[NoteAnnotationView]
     source_resolver: str
     error_code: str | None

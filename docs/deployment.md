@@ -146,6 +146,8 @@ ops/deploy --sha "$(git rev-parse HEAD)" --storage-state /tmp/studydy-auth/state
 
 等待持久工作及有效租約清空後，停止後端寫入、再次確認佇列為空，再備份 DB、建置、套用 migration 與切換。這段期間站台 API 暫停；不取消任何工作。`--wait-timeout` 預設1800秒，逾時就停止。dump 的077 umask只作用於備份，不影響前端建置。部署一律使用已建映像及 `--no-build`，不管理 cloudflared／DNS／競賽版或主機 provider。
 
+已明確接受中斷風險時可加 `--no-queue-wait`，跳過等待及停機後佇列檢查；進行中工作可能失敗，需由使用者重試，不保證租約到期後自動完成。release 的 `queue.preflight` 保存部署前各表工作數及工作表名、id、狀態與 `account`（demo／try／c6yelan，其餘為 null）；帳號對照讀本機私有 `~/.config/studydy-deploy/accounts.json`，紀錄不含 email、密碼或 cookie。既有工作恢復政策不變，備份與部署驗證仍執行。
+
 公開檢查前以 `ip monitor link address route` 等待網路事件連續靜默3秒（總期限30秒），涵蓋Docker建立介面後延遲的IPv6位址發布與本機實測約2秒的Chromium網路通知。等待結果寫入release紀錄；需有主機既有的 `ip` 指令。期限耗盡或監看失敗直接失敗；穩定後仍只執行原本一次完整檢查，不略過公開HTTPS、HTTP200或登入要求，也不重試其他錯誤。回復後檢查沿用同一條件。
 
 `--dry-run` 只做前置檢查、讀正式映像、等佇列及建置／映像驗證，不備份、不停止或切換正式容器。正式執行記錄於 `data/deployments/<名稱>-<UTC>/release.json`，包含映像ID、前版映像、migration前後版號、備份位置與檢查結果；同目錄有 `compose.update.yaml`／`compose.rollback.yaml`。`--name` 預設 `app-update`。
@@ -294,13 +296,13 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 `0017_material_notes.sql` 新增筆記生成／快取及個人註記兩張表，不修改既有教材、題組或答案。套用前備份產品 DB；隔離環境由 0016 升級並逐表核對既有資料不變。新後端須與支援筆記分頁的前端一起部署。已套用後只能使用識別 0017 的相容版本或前向修復，不直接啟動舊 migration runner，也不還原 DB 丟棄新註記。
 
-筆記使用目前正式 Luna（gpt-5.6-luna）；雲端 Pod／Gemma 切換不屬本次調整。筆記請求使用 runtime lock 的 `material_notes`／`material-notes/v15` 契約，沿用 v12 結構化格式與繁中輸出、逐段來源核對及前文去重。重複概念可在重新核對其原來源與實質解說後沿用前文，新增概念／來源關係與新批次一併保存；不改已發布舊筆記。原教材與題組保存的舊 lock／hash 不改寫。未完成筆記重試時若契約已不同，清除未發布的分區暫存並換用目前 lock，不接續舊契約批次。runtime lock 更新須依前述流程建立 provider bundle 並重啟，再部署後端。
+筆記使用目前正式Luna，生成契約為 `material-notes/v16`。新稿依原教材章節，模型核對一次後刪除不符內容；複習速覽每章挑3～5條核心，缺漏概念明列。舊發布稿、Evidence與已保存lock/hash不改寫，契約變更重試只清除未發布暫存。runtime lock更新先建立同版provider bundle，再部署backend。
 
-部署後由維護程序呼叫 `runtime.material_notes.queue_existing(owner=<已授權 learner UUID>)`，僅為本人目前版本缺少的重點整理排工作；重跑不重新生成已有結果，也不建立完整筆記。回報教材份數與實際 provider 呼叫次數，不能把工作嘗試數當成模型請求數。程式失敗或容量不足時如實保留 failed，學生可手動重試。`queue_existing` 會跳過已有紀錄（包含 failed 與舊契約已發布）的教材；v11 部署不需 migration，舊契約已發布的重點整理保留到重新生成為止；只重做指定的列（failed 或要換新契約的已發布列）時，逐份對該列呼叫 `runtime.material_notes.generate(owner, material_id, revision, "summary", expected_generation=<該列 generation>)`（與 API 重新生成相同），契約不同時會換用目前 lock，已發布筆記與註記保留。
+v16新增 `0032_note_source_sections.sql` 的 `material_notes.published_metadata`；同交易保存原章節與缺漏清單。需與理解 `sections`／`unorganized_concepts` 的前端一起部署。舊稿兩欄回空陣列；首次全空稿仍ready，有舊稿則以 NOTE_NO_SUPPORTED_CONTENT 保留舊稿。
 
-### 結構化筆記（v12 格式、v15 生成契約）
+公式匯出仍需 `backend/pyproject.toml`／`uv.lock` 鎖定的 `matplotlib==3.11.2` 與映像既有 `fonts-noto-cjk`；輕量更新以 `uv sync` 安裝依賴，首次排版會在 `$HOME/.config/matplotlib`（backend HOME為/tmp tmpfs）建立字型快取，部署後核對套件版本並匯出一份含公式的筆記。
 
-`material_notes.paragraphs` 與註記快照仍是 jsonb，新舊段落格式並存；API 現為 `material-notes/v3`，保留 `outline` 並提供實際內容的 `content_revision`／`content_generation` 與更新狀態。前端僅接受 v3，須與 B3.3 的 `learning-goal/v2`、`learning-diagnosis/v2` 同批部署。後端新增 `matplotlib==3.11.2`（連帶 contourpy、cycler、kiwisolver、pyparsing，numpy／Pillow 由 test extra 轉為正式依賴，版本不變），記在 `backend/pyproject.toml`／`uv.lock`；沒有新系統套件，輕量更新的 `uv sync` 即會安裝。公式排版使用映像內既有的 `fonts-noto-cjk`，matplotlib 第一次排版時在 `$HOME/.config/matplotlib`（backend 的 HOME 為 /tmp tmpfs）建立字型快取，約需數秒；部署後在容器內核對 `import matplotlib` 版本並匯出一份含公式的筆記。前端使用 `katex@0.18.11`（MIT）；同批 F1c 將公式排版共用於教材內容與概念卡。runtime lock 的 `material_notes` 現為 v15；沒有新增 migration，v10／v11／v12／v13／v14 的歷史 lock 與已保存筆記不改寫。未完成的舊提示工作重試時依既有規則清除未發布批次並換用目前契約。章節整理在所有批次通過後執行，只調整層級；缺引用會精確補入並重核，不放寬內容檢查。已發布的 v11 筆記保留可讀與匯出，重新生成後才換成新格式。
+部署後只對已授權帳號呼叫 `runtime.material_notes.generate(owner, material_id, revision, kind, expected_generation=...)` 重生指定稿，既有發布內容到新稿完成前保持可讀；`queue_existing` 只補本人缺少的複習速覽，不重生已存在工作。記錄真實provider呼叫數，不把worker嘗試數當模型次數。
 
 ## 0018 筆記生成診斷摘要碼
 

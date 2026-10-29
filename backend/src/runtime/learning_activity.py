@@ -658,7 +658,7 @@ def _feature_records(session, owner, zone, today, *, answer_events, concept_time
         if data.get('stages'):
             stages[day] = stages.get(day, 0) + data['stages']
     overcome = overcome_difficulties(answer_events)
-    # 完整筆記由使用者按下才生成（重點整理是教材分析後自動生成），以請求生成的日期計。
+    # 完整筆記由使用者按下才生成（複習速覽是教材分析後自動生成），以請求生成的日期計。
     notes = [local(at).date() for (at,) in rows(f"""
         SELECT n.created_at FROM material_notes n {alive.format('n')}
         WHERE n.learner_id = :owner AND n.kind = 'full' AND n.status = 'ready'

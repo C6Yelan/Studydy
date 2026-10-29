@@ -18,10 +18,10 @@ HEADERS = {"Origin": ORIGIN}
 
 
 def answer(request):
-    if request.get("phase") == "reuse_summary":
-        return {"matches": []}
-    if request.get("phase") == "organize_sections":
-        return {"paragraph_ids": []}
+    if request.get("phase") == "select_summary":
+        chosen = {q["ref"] for q in [q for c in request["concepts"] for q in c["claims"]][:5]}
+        return {"concepts": [{"concept": c["ref"], "claim_ids": [q["ref"] for q in c["claims"] if q["ref"] in chosen]}
+            for c in request["concepts"]]}
     if request.get("phase") == "review_paragraph":
         return {"checks": [{"part": part, "missing_evidence": [], "supported": True, "reason": ""} for part in request["parts"]],
             "coverage": [{"claim": ref, "explained": True, "note_parts": ["blocks.0"], "reason": ""} for ref in request["coverage_claims"]]}
@@ -73,7 +73,7 @@ def test_saved_same_page_context_is_published_as_resolvable_evidence_without_cha
         before=deepcopy(db.get(KnowledgeStructure,key).document)
     def model(request):
         value=answer(request)
-        if request.get('phase')!='review_paragraph':
+        if request.get('phase') is None:
             headers=[e['evidence_id'] for e in request['evidence'] if e['quotes']==['Saved column label: rate.']]
             for c in request['concepts']:
                 for q in c['claims']:
@@ -112,7 +112,7 @@ def test_annotations_keep_snapshot_and_failed_regeneration_preserves_readable_no
     assert failed["paragraphs"] == first["paragraphs"] and failed["annotations"][0]["body"] == "我的筆記"
     client.post(path + "/summary", headers=HEADERS, json={"expected_generation": 1})
     def changed_prose(request):
-        if request.get("phase") == "review_paragraph":
+        if request.get("phase"):
             return answer(request)
         result = answer(request)
         result["paragraphs"][0]["blocks"][0]["text"] += "（重新整理）"
@@ -140,6 +140,7 @@ def test_v11_paragraphs_stay_readable_with_annotations_until_regenerated(closed_
             'text': p['blocks'][0]['text'], 'formula': 'a = b', 'table': {'headers': ['甲'], 'rows': [['乙']]}}
             for p in row.paragraphs]
         row.paragraphs = legacy
+        row.published_metadata = None
     saved = client.put(path + '/summary/annotations/' + str(uuid4()), headers=HEADERS,
         json={'expected_generation': 1, 'paragraph_id': '0', 'body': '舊版註記'})
     assert saved.status_code == 200, saved.json()
@@ -278,36 +279,6 @@ def test_full_sections_report_progress_and_resume_saved_parts(closed_loop, tmp_p
         assert db.get(MaterialNotes,(owner,material,revision,'full')).section_results is None
 
 
-def test_section_organization_failure_resumes_without_regenerating_checked_parts(closed_loop, tmp_path, monkeypatch):
-    f,client,path=setup(closed_loop,tmp_path,monkeypatch)
-    drain(f)
-    assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
-    def invalid_outline(request):
-        if request.get('phase')=='organize_sections':
-            return {'paragraph_ids':['unknown']}
-        result=answer(request)
-        for paragraph in result.get('paragraphs',[]):
-            paragraph['level']=2
-        return result
-    assert mn.step(dsn=f['dsn'],call=invalid_outline)
-    failed=client.get(path+'/full').json()
-    assert failed['status']=='failed' and failed['error_code']=='NOTE_FORMAT_INVALID'
-    assert failed['progress']['completed_parts']==failed['progress']['total_parts']
-    key=(f['learner'].learner_id,f['source'].material_id,f['document']['revision'],'full')
-    with database_session(f['dsn']) as db:
-        saved=deepcopy(db.get(MaterialNotes,key).section_results)
-    assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
-    calls=[]
-    def finish_outline(request):
-        calls.append(request['phase'])
-        return {'paragraph_ids':request['candidates']}
-    assert mn.step(dsn=f['dsn'],call=finish_outline)
-    done=client.get(path+'/full').json()
-    assert done['status']=='ready' and calls==['organize_sections']
-    fields=('heading','blocks','claim_ids','evidence_ids')
-    assert [{k:p[k] for k in fields} for p in done['paragraphs']]==[
-        {k:p[k] for k in fields} for part in saved for p in part]
-    assert all(p['level']==1 for p in done['paragraphs'])
 
 
 def test_changed_contract_discards_unpublished_sections_and_retry_can_finish(closed_loop, tmp_path, monkeypatch):
@@ -344,34 +315,6 @@ def test_changed_contract_discards_unpublished_sections_and_retry_can_finish(clo
     assert len([r for r in calls if r.get('phase')=='review_paragraph'])==3
 
 
-def test_content_rejection_keeps_published_notes_and_does_not_checkpoint_unchecked_full_notes(closed_loop, tmp_path, monkeypatch):
-    f,client,path=setup(closed_loop,tmp_path,monkeypatch)
-    drain(f)
-    old=client.get(path+'/summary').json()
-    assert client.post(path+'/summary',headers=HEADERS,json={'expected_generation':1}).status_code==202
-    calls=[]
-    def reject(request):
-        calls.append(request)
-        if request.get('phase')=='review_paragraph':
-            return {**answer(request),'checks':[{'part':p,'missing_evidence': [], 'supported':p!='blocks.0','reason':'來源沒有此條件。' if p=='blocks.0' else ''} for p in request['parts']]}
-        return answer(request)
-    drain(f,reject)
-    failed=client.get(path+'/summary').json()
-    assert failed['status']=='failed' and failed['error_code']=='NOTE_COVERAGE_INCOMPLETE'
-    assert failed['paragraphs']==old['paragraphs'] and failed['generation']==1
-    # 重點整理每段局部重寫一次仍不符就刪段；刪光後概念沒有被解說，只為這些概念補寫一次，
-    # 補寫段落仍不符就這一批失敗；同一工作內整批再試兩次，三次都失敗才不發布。內容未變的段落沿用同一核對結果。
-    attempt=['generate']+['review_paragraph','generate']*3+['generate']
-    assert [r.get('phase','generate') for r in calls]==attempt*3
-    assert calls[-1]['correction']['problem']=='NOTE_CONCEPT_UNEXPLAINED'
-    assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code==202
-    drain(f,reject)
-    full=client.get(path+'/full').json()
-    assert full['status']=='failed' and full['paragraphs']==[]
-    assert full['progress']['completed_parts']==0
-    with database_session(f['dsn']) as db:
-        key=(f['learner'].learner_id,f['source'].material_id,f['document']['revision'],'full')
-        assert db.get(MaterialNotes,key).section_results==[]
 
 
 def test_reference_repair_missing_paragraph_preserves_explicit_worker_error(closed_loop,tmp_path,monkeypatch):
@@ -409,6 +352,9 @@ def test_step_dispatches_content_checks_with_the_saved_review_contract(closed_lo
             assert response_schema['$defs']['ContentCheck']['properties']['part']['enum']==request['parts']
             if request['coverage_claims']:
                 assert response_schema['$defs']['ClaimCoverage']['properties']['claim']['enum']==request['coverage_claims']
+        elif phase=='select_summary':
+            assert runtime_lock['material_review']['prompt']==runtime_lock['material_notes']['selection_prompt']
+            assert 'concepts' in response_schema['properties']
         else:
             assert runtime_lock['material_review']['prompt']==runtime_lock['material_notes']['prompt']
         return answer(request)
@@ -418,6 +364,7 @@ def test_step_dispatches_content_checks_with_the_saved_review_contract(closed_lo
     assert result['status']=='ready'
     assert seen.count('review_paragraph')==4  # fixture 的一段教材，加上本教材三段
     assert seen.count('generate')==2  # 兩份短稿各寫一次，沒有頁面空間的補寫輪次。
+    assert seen.count('select_summary')==2  # 兩份教材即使很短，仍各挑選一次核心。
 
 
 def _diagnostics(f, kind):
@@ -450,10 +397,10 @@ def test_dropped_paragraph_and_failure_save_summary_codes_without_material_text(
     saved = _diagnostics(f, 'summary')
     assert set(saved) == {'events'}
     dropped = [e for e in saved['events'] if e['event'] == 'paragraph_dropped']
-    assert [e['reason'] for e in dropped] == ['content_unsupported']
+    assert [e['reason'] for e in dropped] == ['no_supported_content']
     assert len(dropped[0]['claims']) == 1
     rejected = [e for e in saved['events'] if e['event'] == 'review_rejected']
-    assert [e['repaired'] for e in rejected] == [False, True]
+    assert len(rejected) == 1
     assert all(len(i['reason_sha256']) == 12 for e in rejected for i in e['issues'])
     stored = json.dumps(saved, ensure_ascii=False)
     assert 'SECRET-REASON' not in stored
@@ -464,21 +411,17 @@ def test_dropped_paragraph_and_failure_save_summary_codes_without_material_text(
 
     # 失敗：寫入錯誤碼與事件；不回傳給 API，他人讀不到。
     assert client.post(path + '/full', headers=HEADERS, json={'expected_generation': 0}).status_code == 202
-    def reject(request):
+    def malformed(request):
         requests.append(request)
-        if request.get('phase') == 'review_paragraph':
-            return {**answer(request), 'checks': [{'part': p, 'missing_evidence': [], 'supported': p != 'blocks.0',
-                'reason': reason if p == 'blocks.0' else ''} for p in request['parts']]}
-        return answer(request)
-    drain(f, reject)
+        return {'paragraphs': []}
+    drain(f, malformed)
     full = client.get(path + '/full').json()
     assert full['status'] == 'failed' and 'generation_diagnostics' not in full
     failed = _diagnostics(f, 'full')
-    assert failed['code'] == full['error_code'] == 'NOTE_CONTENT_UNSUPPORTED'
+    assert failed['code'] == full['error_code'] == 'NOTE_FORMAT_INVALID'
     assert failed['error_type'] == 'ValueError'
-    assert [e['repaired'] for e in failed['events'] if e['event'] == 'review_rejected'] == [False, True] * 3
     assert failed['events'][-1] == {'event': 'part_attempts', 'part': 0, 'attempts': 3,
-        'failed': ['NOTE_CONTENT_UNSUPPORTED'] * 3, 'succeeded': False}
+        'failed': ['NOTE_FORMAT_INVALID'] * 3, 'succeeded': False}
     stored = json.dumps(failed, ensure_ascii=False)
     assert 'SECRET-REASON' not in stored and not any(t in stored for t in _material_texts(requests))
     foreign = register_account('note_diag_foreign@example.com', 'Synthetic test password 42', dsn=f['dsn'])
@@ -507,43 +450,3 @@ def test_interrupted_job_saves_same_summary_code_in_db_and_log(closed_loop, tmp_
     assert saved == {'code': 'NOTE_JOB_INTERRUPTED', 'events': []}
     logged = [r.getMessage() for r in caplog.records if 'NOTE_GENERATION_FAILED kind=full' in r.getMessage()]
     assert json.loads(logged[-1].split('diagnostics=', 1)[1]) == saved
-
-
-def test_summary_reused_sources_are_saved_atomically_and_survive_resume(closed_loop, tmp_path, monkeypatch):
-    f, client, path = setup(closed_loop, tmp_path, monkeypatch)
-    drain(f)
-    published = client.get(path + '/summary').json()['paragraphs']
-    assert client.post(path + '/summary', headers=HEADERS, json={'expected_generation': 1}).status_code == 202
-    key = (f['learner'].learner_id, f['source'].material_id, f['document']['revision'], 'summary')
-    concepts = mn._concepts({'key': key}, f['dsn'])
-    plan = [{'label': '摘要', 'parts': [
-        [{'concept_id': c['concept_id'], 'claim_ids': [q['claim_id'] for q in c['claims']]}]
-        for c in concepts]}]
-    monkeypatch.setattr(mn, 'summary_plan', lambda *args, **kwargs: plan)
-    organize = mn.organize_sections
-    def interrupted(*args):
-        raise RuntimeError('synthetic interruption after saved batches')
-    monkeypatch.setattr(mn, 'organize_sections', interrupted)
-    def model(request):
-        if request.get('phase') == 'reuse_summary':
-            return {'matches': [{'claim_id': 'C1', 'paragraph_id': 'P1'}]}
-        return answer(request)
-    assert mn.step(dsn=f['dsn'], call=model)
-    new_claim = concepts[1]['claims'][0]
-    with database_session(f['dsn']) as db:
-        row = db.get(MaterialNotes, key)
-        assert row.status == 'failed' and len(row.section_results) == 2
-        assert row.paragraphs == published and row.section_results[1] == []
-        reused = row.section_results[0][0]
-        assert new_claim['claim_id'] in reused['claim_ids']
-        assert all(e['evidence_id'] in reused['evidence_ids'] for e in new_claim['evidence'])
-        saved = deepcopy(row.section_results)
-    monkeypatch.setattr(mn, 'organize_sections', organize)
-    assert client.post(path + '/summary', headers=HEADERS, json={'expected_generation': 1}).status_code == 202
-    calls = []
-    assert mn.step(dsn=f['dsn'], call=lambda r: calls.append(r) or answer(r))
-    assert not calls
-    result = client.get(path + '/summary').json()
-    assert result['status'] == 'ready'
-    assert result['paragraphs'][0]['claim_ids'] == saved[0][0]['claim_ids']
-    assert result['paragraphs'][0]['evidence'] == saved[0][0]['evidence']

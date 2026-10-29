@@ -96,7 +96,7 @@ def test_regeneration_remaps_unique_quote_and_keeps_duplicate_or_missing_unmappe
 
     def regenerated(request):
         value = answer(request)
-        if request.get("phase") == "review_paragraph":
+        if request.get("phase") is not None:
             return value
         paragraphs = value["paragraphs"]
         paragraphs[0]["blocks"][0]["text"] = "新增前言。" + paragraphs[0]["blocks"][0]["text"]  # 移位但仍唯一
@@ -145,7 +145,7 @@ def test_annotation_anchor_roundtrip_legacy_and_remap(closed_loop, tmp_path, mon
     client.post(path + "/summary", headers=HEADERS, json={"expected_generation": 1})
     def changed(request):
         value = answer(request)
-        if request.get("phase") != "review_paragraph":
+        if request.get("phase") is None:
             value["paragraphs"][0]["blocks"][0]["text"] = "完全不同"
         return value
     drain(f, changed)

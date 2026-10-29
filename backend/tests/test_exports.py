@@ -97,6 +97,35 @@ def structured_note():
     return view
 
 
+def test_source_chapters_and_unorganized_concepts_export_in_all_formats():
+    view = structured_note()
+    view['paragraphs'] = [view['paragraphs'][0]]
+    view['annotations'] = []
+    view['sections'] = [
+        {'section_id': 'chapter', 'heading': '原教材第一章', 'level': 1, 'parent_id': None,
+         'paragraph_ids': [], 'outline': [
+             {'section_id': 'section', 'heading': '原教材小節', 'level': 2},
+             {'section_id': 'detail', 'heading': '原教材細節', 'level': 3}]},
+        {'section_id': 'section', 'heading': '原教材小節', 'level': 2, 'parent_id': 'chapter',
+         'paragraph_ids': [], 'outline': []},
+        {'section_id': 'detail', 'heading': '原教材細節', 'level': 3, 'parent_id': 'section',
+         'paragraph_ids': ['0'], 'outline': []},
+    ]
+    view['unorganized_concepts'] = [{'concept_id': 'missing', 'label': '尚未整理的概念'}]
+    md = documents.note_markdown(view)
+    assert '## 原教材第一章' in md and '### 原教材小節' in md and '#### 原教材細節' in md
+    assert '[原教材細節](#detail)' in md and '<a id="detail"></a>' in md
+    word = Document(BytesIO(documents.note_docx(view)))
+    text = '\n'.join(p.text for p in word.paragraphs)
+    assert [(p.text, p.style.name) for p in word.paragraphs if p.style.name.startswith('Heading')][:3] == [
+        ('原教材第一章', 'Heading 1'), ('原教材小節', 'Heading 2'), ('原教材細節', 'Heading 3')]
+    with pymupdf.open(stream=documents.note_pdf(view), filetype='pdf') as pdf:
+        pdf_text = unicodedata.normalize('NFKC', ''.join(page.get_text() for page in pdf))
+    for output in (md, text, pdf_text):
+        assert all(label in output for label in ('複習速覽', '原教材第一章', '章節大綱', '出口占比',
+            '以下概念暫未整理', '尚未整理的概念'))
+
+
 def test_structured_notes_keep_outline_levels_bullets_tables_formula_and_callouts_in_every_format():
     view = structured_note()
     markdown = documents.note_markdown(view)
