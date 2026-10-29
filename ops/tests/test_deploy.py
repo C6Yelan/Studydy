@@ -1,7 +1,12 @@
 """部署失敗後不可用舊映像啟動已升級的資料庫。"""
 import importlib.machinery
 import importlib.util
+import argparse
+import hashlib
+import json
+import os
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -56,6 +61,70 @@ class QueueDeadlineTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'QUEUE_TIMEOUT'):
                 deploy.drain(1)
         query.assert_called_once_with(timeout=.75)
+
+
+class ForcedQueueTests(unittest.TestCase):
+    def test_snapshot_classifies_accounts_without_recording_private_identity(self):
+        accounts = {name: {'email': name+'@example.test', 'password': 'private'}
+                    for name in ('demo', 'try', 'c6yelan')}
+        rows = [{'table': 'material_notes', 'id': {'material_id': str(i), 'kind': 'summary',
+                  'structure_revision': 'revision'}, 'status': 'running',
+                 'owner_key': hashlib.sha256((name+'@example.test').encode()).hexdigest()}
+                for i, name in enumerate(('demo', 'try', 'c6yelan', 'other'))]
+        with patch.object(deploy.Path, 'read_text', return_value=json.dumps(accounts)), \
+             patch.object(deploy, 'sql', return_value='\n'.join(json.dumps(row) for row in rows)) as query:
+            snapshot = deploy.queue_snapshot()
+        self.assertEqual(snapshot['active_jobs'], 4)
+        self.assertEqual(snapshot['tables']['material_notes'], 4)
+        self.assertEqual([row['account'] for row in snapshot['jobs']], ['demo', 'try', 'c6yelan', None])
+        self.assertNotIn('owner_key', json.dumps(snapshot))
+        self.assertNotIn('@example.test', json.dumps(snapshot))
+        statement = query.call_args.args[0]
+        self.assertIn('JOIN podcasts p ON p.podcast_id=j.podcast_id', statement)
+        self.assertIn('JOIN voice_conversations c', statement)
+        self.assertIn("t.status='approved' AND t.material_id IS NULL", statement)
+
+    def test_force_skips_both_waits_but_keeps_backup_and_release_record(self):
+        snapshot = {'active_jobs': 1, 'tables': {'podcast_videos': 1}, 'wait_seconds': 0,
+                    'jobs': [{'table': 'podcast_videos', 'id': {'video_id': 'video'},
+                              'status': 'running', 'account': 'demo'}]}
+        sha = 'a'*40
+        def run(command, **kwargs):
+            if command[:2] == ['git', 'status']:
+                return ''
+            if command[:2] == ['git', 'branch']:
+                return 'dev'
+            if command[:2] == ['git', 'rev-parse']:
+                return sha
+            return 'old-image'
+        with tempfile.TemporaryDirectory() as temporary:
+            original = Path.cwd()
+            os.chdir(temporary)
+            try:
+                state = Path('private-state')
+                state.write_text('{}')
+                args = argparse.Namespace(sha=sha, name='forced', dry_run=False,
+                    storage_state=str(state), min_free_gib=20, no_queue_wait=True, wait_timeout=10)
+                with patch.object(deploy, 'LOCK', Path('deploy.lock')), \
+                     patch.object(deploy, 'run', side_effect=run), \
+                     patch.object(deploy, 'disk', return_value={}), \
+                     patch.object(deploy, 'schema', return_value=30), \
+                     patch.object(deploy, 'verify'), patch.object(deploy, 'recover'), \
+                     patch.object(deploy, 'queue_snapshot', return_value=snapshot) as capture, \
+                     patch.object(deploy, 'drain') as drain, patch.object(deploy, 'queues') as queues, \
+                     patch.object(deploy.subprocess, 'run', side_effect=RuntimeError('BACKUP_PROBE')) as backup:
+                    with self.assertRaisesRegex(RuntimeError, 'BACKUP_PROBE'):
+                        deploy.deploy(args)
+                capture.assert_called_once_with()
+                drain.assert_not_called()
+                queues.assert_not_called()
+                self.assertIn('pg_dump', backup.call_args.args[0][-1])
+                record = json.loads(next(Path('data/deployments').glob('*/release.json')).read_text())
+                self.assertTrue(record['queue']['wait_skipped'])
+                self.assertEqual(record['queue']['preflight'], snapshot)
+                self.assertIn('db_backup', record)
+            finally:
+                os.chdir(original)
 
 
 class NetworkStabilityTests(unittest.TestCase):

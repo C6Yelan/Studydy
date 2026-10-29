@@ -146,6 +146,8 @@ ops/deploy --sha "$(git rev-parse HEAD)" --storage-state /tmp/studydy-auth/state
 
 等待持久工作及有效租約清空後，停止後端寫入、再次確認佇列為空，再備份 DB、建置、套用 migration 與切換。這段期間站台 API 暫停；不取消任何工作。`--wait-timeout` 預設1800秒，逾時就停止。dump 的077 umask只作用於備份，不影響前端建置。部署一律使用已建映像及 `--no-build`，不管理 cloudflared／DNS／競賽版或主機 provider。
 
+已明確接受中斷風險時可加 `--no-queue-wait`，跳過等待及停機後佇列檢查；進行中工作可能失敗，需由使用者重試，不保證租約到期後自動完成。release 的 `queue.preflight` 保存部署前各表工作數及工作表名、id、狀態與 `account`（demo／try／c6yelan，其餘為 null）；帳號對照讀本機私有 `~/.config/studydy-deploy/accounts.json`，紀錄不含 email、密碼或 cookie。既有工作恢復政策不變，備份與部署驗證仍執行。
+
 公開檢查前以 `ip monitor link address route` 等待網路事件連續靜默3秒（總期限30秒），涵蓋Docker建立介面後延遲的IPv6位址發布與本機實測約2秒的Chromium網路通知。等待結果寫入release紀錄；需有主機既有的 `ip` 指令。期限耗盡或監看失敗直接失敗；穩定後仍只執行原本一次完整檢查，不略過公開HTTPS、HTTP200或登入要求，也不重試其他錯誤。回復後檢查沿用同一條件。
 
 `--dry-run` 只做前置檢查、讀正式映像、等佇列及建置／映像驗證，不備份、不停止或切換正式容器。正式執行記錄於 `data/deployments/<名稱>-<UTC>/release.json`，包含映像ID、前版映像、migration前後版號、備份位置與檢查結果；同目錄有 `compose.update.yaml`／`compose.rollback.yaml`。`--name` 預設 `app-update`。

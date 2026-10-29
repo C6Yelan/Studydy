@@ -106,6 +106,44 @@ def drain(timeout):
         time.sleep(min(10, timeout-elapsed))
 
 
+def queue_snapshot():
+    """強制部署只記工作身分及測試帳號別名，不記帳密或教材內容。"""
+    accounts = json.loads((Path.home()/'.config/studydy-deploy/accounts.json').read_text())
+    aliases = {hashlib.sha256(accounts[name]['email'].strip().lower().encode()).hexdigest(): name
+               for name in ('demo', 'try', 'c6yelan')}
+    keys = {name: [key] for name, key in (
+        ('material_processing_runs', 'run_id'), ('source_normalizations', 'normalization_id'),
+        ('card_sets', 'card_set_id'), ('podcasts', 'podcast_id'), ('podcast_scenes', 'scene_id'),
+        ('podcast_videos', 'video_id'), ('assessment_sets', 'set_id'), ('voice_turns', 'turn_id'),
+        ('topic_scopes', 'topic_id'), ('material_research', 'research_id'))}
+    keys.update(material_notes=['material_id', 'structure_revision', 'kind'],
+                knowledge_chapters=['material_id', 'structure_revision'])
+    queries = []
+    for table, fields in keys.items():
+        join, owner = '', 'j.learner_id'
+        if table in ('podcast_scenes', 'podcast_videos'):
+            join, owner = ' JOIN podcasts p ON p.podcast_id=j.podcast_id', 'p.learner_id'
+        elif table == 'voice_turns':
+            join, owner = ' JOIN voice_conversations c ON c.conversation_id=j.conversation_id', 'c.learner_id'
+        if table == 'material_research':
+            join += ' LEFT JOIN topic_scopes t ON t.topic_id=j.topic_id'
+            condition = ("j.status IN ('searching','acquiring','normalizing') OR "
+                         "(j.status='ready' AND t.status='approved' AND t.material_id IS NULL)")
+        else:
+            condition = f"j.status IN ({','.join(repr(s) for s in JOBS[table])})"
+        identity = ','.join(f"'{field}',j.{field}" for field in fields)
+        queries.append(f"SELECT json_build_object('table','{table}','id',json_build_object({identity}),"
+            "'status',j.status,'owner_key',encode(sha256(convert_to(l.email,'UTF8')),'hex')) "
+            f"FROM {table} j{join} JOIN learners l ON l.learner_id={owner} "
+            f"WHERE ({condition}) OR j.lease_expires_at > clock_timestamp()")
+    jobs = [json.loads(line) for line in sql(' UNION ALL '.join(queries)).splitlines()]
+    counts = dict.fromkeys(keys, 0)
+    for job in jobs:
+        job['account'] = aliases.get(job.pop('owner_key'))
+        counts[job['table']] += 1
+    return {'active_jobs': len(jobs), 'tables': counts, 'wait_seconds': 0, 'jobs': jobs}
+
+
 def disk(minimum):
     result = {}
     for path in (Path.cwd(), Path('/mnt/e')):
@@ -204,8 +242,9 @@ def deploy(args):
             bases[service] = f'studydy-{service}-runtime:{record["name"]}'
             run(['docker', 'tag', image_id, bases[service]])
             images[service] = f'studydy-{service}:{record["name"]}'
-        # 3：只等工作與有效租約，不取消；備份前停 backend，再查一次避免最後瞬間入列。
-        record['queue']['preflight'] = drain(args.wait_timeout)
+        # 強制模式接受既有中斷／重試政策，只記部署前快照，不改工作狀態。
+        record['queue']['wait_skipped'] = args.no_queue_wait
+        record['queue']['preflight'] = queue_snapshot() if args.no_queue_wait else drain(args.wait_timeout)
         if not args.dry_run:
             release = Path('data/deployments')/record['name']
             release.mkdir(parents=True, mode=0o700)
@@ -220,9 +259,10 @@ def deploy(args):
             verify({s: v['image_id'] for s, v in record['previous'].items()}, args.storage_state)
             stopped = True
             run([*compose, 'stop', 'backend'])
-            record['queue']['after_stop'] = queues()
-            if any(record['queue']['after_stop'].values()):
-                raise RuntimeError('QUEUE_CHANGED_BEFORE_BACKUP')
+            if not args.no_queue_wait:
+                record['queue']['after_stop'] = queues()
+                if any(record['queue']['after_stop'].values()):
+                    raise RuntimeError('QUEUE_CHANGED_BEFORE_BACKUP')
             # 4：只有 dump 開檔期間使用 077，前端建置不繼承此 umask。
             backup = Path('data/backups')/record['name']/'database.dump'
             backup.parent.mkdir(parents=True, mode=0o700)
@@ -306,6 +346,7 @@ if __name__ == '__main__':
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--storage-state', help='已登入正式站的 Playwright storage state 私有檔案')
     parser.add_argument('--wait-timeout', type=float, default=1800)
+    parser.add_argument('--no-queue-wait', action='store_true', help='不等佇列；進行中工作可能失敗，需手動重試')
     parser.add_argument('--min-free-gib', type=float, default=20, help='不得低於20；提高可模擬容量不足')
     parser.add_argument('--check-url', help='部署後額外檢查位址；失敗時依 migration 結果處理')
     args = parser.parse_args()
