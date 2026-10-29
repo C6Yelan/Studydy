@@ -1,4 +1,4 @@
-"""網站 Luna 工作的歸屬及終態診斷；候選只在最終失敗後寫入私人目錄。"""
+"""網站 Luna 工作的歸屬與私人診斷；每次失敗嘗試保留候選，後續重試成功也不移除。"""
 
 from contextvars import ContextVar
 from dataclasses import dataclass, field

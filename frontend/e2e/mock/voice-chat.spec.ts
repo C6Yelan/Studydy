@@ -617,3 +617,12 @@ test(`answer source lists merge ten citations in one line: ${filename === 'Lesso
  await expect(page.getByRole('dialog',{name:'教材來源'})).toContainText(evidence.quote);
 });
 }
+
+test('answer validation failure explains the issue in Chinese without showing rejected candidates',async({page})=>{
+ const mock=await mockVoice(page),conversation=mock.add();
+ const turn=mock.turn(conversation,'Stack 是什麼？','failed',false,'text');turn.error_code='VOICE_ANSWER_INVALID';
+ await page.goto(mapPath);await open(page);await choose(page,conversation.conversation_id);
+ await expect(page.getByText('回答未通過教材核對，請縮小範圍或換個問法再試。',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'重試回答',exact:true})).toBeVisible();
+ expect(mock.questions).toHaveLength(0);
+});

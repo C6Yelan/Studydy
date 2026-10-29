@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 from contextvars import ContextVar
+from copy import deepcopy
 from http.client import HTTPConnection, HTTPSConnection
 from io import BytesIO
 import json
@@ -176,5 +177,5 @@ def provider(path, body, *, timings=None):
     if path in {"/semantics", "/script", "/scene-check", "/video"}:
         from . import luna_calls
 
-        luna_calls.capture(result, call_tags=body.get("tags"))
+        luna_calls.capture(deepcopy(result), call_tags=body.get("tags"))
     return result
