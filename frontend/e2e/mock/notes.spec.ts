@@ -30,6 +30,20 @@ function legacyParagraph(view: MaterialNotesView) {
     table: { headers: ["操作", "順序"], rows: [["推入", "加入頂端"]] } };
 }
 
+test("paragraphs without a short heading retain content and sources under their source chapter", async ({ page }) => {
+  const view = notes();
+  view.paragraphs = [view.paragraphs[0]];
+  view.paragraphs[0].heading = "";
+  view.sections = [{ section_id: "chapter", heading: "原教材章節", level: 1, parent_id: null, paragraph_ids: ["0"], outline: [] }];
+  await setup(page, view);
+  await page.goto(`/materials/${materialId}/notes`);
+  await expect(page.getByRole("heading", { name: "原教材章節", level: 2 })).toBeVisible();
+  const paragraph = page.locator("#note-section-0");
+  await expect(paragraph.getByRole("heading")).toHaveCount(0);
+  await expect(paragraph).toContainText("堆疊使用後進先出");
+  await expect(paragraph.locator(".source-reference-button")).toHaveCount(1);
+});
+
 test("an empty update keeps the published notes and explains the retained content", async ({ page }) => {
   await setup(page, { ...notes(), status: "failed", error_code: "NOTE_NO_SUPPORTED_CONTENT" });
   await page.goto(`/materials/${materialId}/notes`);
@@ -56,6 +70,7 @@ test("source chapters preserve three levels, chapter outlines and missing concep
     await expect(page.getByRole("button", { name: "複習速覽", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("heading", { name: "第一章 資料結構", level: 2 })).toBeVisible();
     const chapter = page.getByRole("navigation", { name: "第一章 資料結構章節大綱", exact: true });
+    await page.screenshot({ path: testInfo.outputPath(`source-chapters-top-${width}.png`) });
     await chapter.getByRole("button", { name: "1.1.1 大小", exact: true }).click();
     await expect(page.locator("#note-section-subsection")).toBeFocused();
     await expect(page.getByRole("heading", { name: "1.1.1 大小", level: 4 })).toBeInViewport();

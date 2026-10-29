@@ -52,14 +52,14 @@ function Block({ block, heading, tail, path }: { block: NoteBlock; heading: stri
 function ParagraphBody({ paragraph: p, number, sources, sourceLevel }: { paragraph: NoteParagraph; number?: NoteOutlineEntry; sources?: ReactNode; sourceLevel?: 1 | 2 | 3 }) {
   if (!("blocks" in p)) {
     // v11 以前的段落格式，重新生成前仍可閱讀。
-    return <><h3>{p.heading}</h3><p className="note-prose"><NoteText text={p.text} path={["text"]}/>{!p.formula && !p.table && sources}</p>
+    return <>{p.heading && <h3>{p.heading}</h3>}<p className="note-prose"><NoteText text={p.text} path={["text"]}/>{!p.formula && !p.table && sources}</p>
       {p.formula && <p className="note-formula-text" data-note-formula="true"><MathText text={p.formula}/>{!p.table && sources}</p>}
       {p.table && <Table label={`${p.heading}表格`} caption={null} headers={p.table.headers} rows={p.table.rows} path={["table"]} tail={sources}/>}
     </>;
   }
   const level = number?.level ?? p.level;
   const Heading = sourceLevel === 3 ? "h5" : sourceLevel === 2 ? "h4" : sourceLevel === 1 ? "h3" : level === 1 ? "h2" : level === 2 ? "h3" : "h4";
-  return <><Heading>{number ? numberedHeading(number) : p.heading}</Heading>
+  return <>{p.heading && <Heading>{number ? numberedHeading(number) : p.heading}</Heading>}
     {p.blocks.map((block, i) => <Block key={i} block={block} path={["blocks", i]} heading={p.heading} tail={i === p.blocks.length - 1 ? sources : undefined}/>)}
   </>;
 }
