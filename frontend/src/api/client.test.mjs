@@ -1761,7 +1761,7 @@ test("v2 diagnosis requests material scope and validates the supplied completion
 
 test("v3 note annotations write the visible content revision and generation then reload the requested revision", async () => {
   const contentRevision=`knowledge-structure:sha256:${'f'.repeat(64)}`;
-  const value={schema:"material-notes/v3",material_id:materialId,run_id:runId,knowledge_structure_revision:structureRevision,kind:"summary",status:"running",generation:4,source_status:structureView().status,paragraphs:[],outline:[],annotations:[],source_resolver:`/v1/materials/${materialId}/knowledge-structures/${contentRevision}/evidence`,error_code:null,progress:null,content_revision:contentRevision,content_generation:2,update_available:true,updating:true,started_at:"2026-10-27T00:00:00Z",updated_at:null};
+  const value={schema:"material-notes/v3",sections:[],unorganized_concepts:[],material_id:materialId,run_id:runId,knowledge_structure_revision:structureRevision,kind:"summary",status:"running",generation:4,source_status:structureView().status,paragraphs:[],outline:[],annotations:[],source_resolver:`/v1/materials/${materialId}/knowledge-structures/${contentRevision}/evidence`,error_code:null,progress:null,content_revision:contentRevision,content_generation:2,update_available:true,updating:true,started_at:"2026-10-27T00:00:00Z",updated_at:null};
   const calls=[];
   const client=new StudydyApiClient(async(url,init)=>{
     calls.push({url,method:init.method});
@@ -1777,6 +1777,10 @@ test("v3 note annotations write the visible content revision and generation then
   assert.deepEqual(calls.map(call=>call.method),['PUT','GET']);
   for(const invalid of [{...value,schema:'material-notes/v2'},{...value,source_resolver:`/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`}])
     await assert.rejects(new StudydyApiClient(async()=>Response.json(invalid)).getNotes(materialId,structureRevision,'summary'),error=>error.kind==='schema');
+  for (const invalid of [
+    { ...value, sections: [{ section_id: "chapter", heading: "第四層", level: 4, parent_id: null, paragraph_ids: [], outline: [] }] },
+    { ...value, unorganized_concepts: [{ concept_id: conceptId }] },
+  ]) await assert.rejects(new StudydyApiClient(async () => Response.json(invalid)).getNotes(materialId, structureRevision, "summary"), error => error.kind === "schema");
 });
 
 

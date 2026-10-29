@@ -10,7 +10,7 @@ function notes(kind: NoteKind = "summary"): MaterialNotesView {
   const source = { claim_ids: [c.claims[0].claim_id], evidence_ids: [c.claims[0].evidence[0].evidence_id], concepts: [{ concept_id: c.concept_id, label: c.label }], evidence: c.claims[0].evidence };
   return { schema: "material-notes/v3", material_id: materialId, run_id: runId, knowledge_structure_revision: structureRevision,
     kind, status: "ready", generation: 1, source_status: { processing: "succeeded", quality: "accepted", decision: "retain", reason_codes: [] }, source_resolver: `/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`, error_code: null,
-    progress: null, annotations: [], content_revision: structureRevision, content_generation: 1,
+    progress: null, sections: [], unorganized_concepts: [], annotations: [], content_revision: structureRevision, content_generation: 1,
     update_available: false, updating: false, started_at: null, updated_at: null,
     outline: [{ paragraph_id: "0", level: 1, number: "一、", heading: "堆疊的順序" }, { paragraph_id: "1", level: 2, number: "1.1", heading: "堆疊大小" }],
     paragraphs: [
@@ -29,6 +29,47 @@ function legacyParagraph(view: MaterialNotesView) {
   return { ...rest, heading: "先前的段落", text: "舊版段落正文。", formula: "大小 = 推入次數 − 取出次數",
     table: { headers: ["操作", "順序"], rows: [["推入", "加入頂端"]] } };
 }
+
+test("an empty update keeps the published notes and explains the retained content", async ({ page }) => {
+  await setup(page, { ...notes(), status: "failed", error_code: "NOTE_NO_SUPPORTED_CONTENT" });
+  await page.goto(`/materials/${materialId}/notes`);
+  await expect(page.locator(".note-status p")).toHaveText("本次沒有可保留的筆記內容，已保留先前筆記。");
+  await expect(page.getByRole("heading", { name: "一、堆疊的順序", exact: true })).toBeVisible();
+});
+
+test("source chapters preserve three levels, chapter outlines and missing concept map links", async ({ page }, testInfo) => {
+  const view = notes();
+  const missing = structureView().concepts[1];
+  view.sections = [
+    { section_id: "chapter", heading: "第一章 資料結構", level: 1, parent_id: null, paragraph_ids: [], outline: [
+      { section_id: "section", heading: "1.1 堆疊", level: 2 },
+      { section_id: "subsection", heading: "1.1.1 大小", level: 3 },
+    ] },
+    { section_id: "section", heading: "1.1 堆疊", level: 2, parent_id: "chapter", paragraph_ids: ["0"], outline: [] },
+    { section_id: "subsection", heading: "1.1.1 大小", level: 3, parent_id: "section", paragraph_ids: ["1"], outline: [] },
+  ];
+  view.unorganized_concepts = [{ concept_id: missing.concept_id, label: missing.label }];
+  await setup(page, view);
+  for (const width of [1536, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/materials/${materialId}/notes`);
+    await expect(page.getByRole("button", { name: "複習速覽", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("heading", { name: "第一章 資料結構", level: 2 })).toBeVisible();
+    const chapter = page.getByRole("navigation", { name: "第一章 資料結構章節大綱", exact: true });
+    await chapter.getByRole("button", { name: "1.1.1 大小", exact: true }).click();
+    await expect(page.locator("#note-section-subsection")).toBeFocused();
+    await expect(page.getByRole("heading", { name: "1.1.1 大小", level: 4 })).toBeInViewport();
+    await expect(page.getByRole("heading", { name: "堆疊大小", level: 5 })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "章節大綱", exact: true }).getByRole("button")).toHaveCount(3);
+    await expect(page.locator("#note-section-0 .source-reference-button")).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    await page.screenshot({ path: testInfo.outputPath(`source-chapters-${width}.png`) });
+  }
+  await page.getByRole("button", { name: `${missing.label} · 在地圖查看`, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${runId}/knowledge-structures/`));
+  expect(decodeURIComponent(page.url())).toContain(structureRevision);
+  await expect(page.getByRole("dialog", { name: "概念詳情", exact: true })).toContainText(missing.label);
+});
 
 async function setup(page: Parameters<typeof mockKnowledgeMapApi>[0], initial = notes()) {
   await mockKnowledgeMapApi(page);
