@@ -57,7 +57,8 @@
 .note-formula-text { padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-input); }
 /* 公式沿用共用換行，保留文件框的閱讀寬度。 */
 .note-formula { display: flex; align-items: center; justify-content: center; gap: 4px; max-width: 100%; margin: 12px 0; padding: 2px 0; }
-.note-formula > .math-text { min-width: 0; flex: 1; }
+.note-formula > .math-text, .note-formula > .note-mark-formula { min-width: 0; flex: 1; }
+.note-mark-formula { display: inline-block; max-width: 100%; cursor: pointer; }
 .note-formula > .note-sources { flex-shrink: 0; }
 .note-bullets { margin: 0 0 16px; padding-left: 1.4em; line-height: 1.8; }
 .note-bullets .note-bullets { margin: 2px 0 4px; }

@@ -1,4 +1,3 @@
-import { MathText } from "../../ui/MathText";
 import { Icon } from "../../ui/Icon";
 import { Progress } from "../../ui/Progress";
 import { ExportControls } from "../exports/ExportControls";
@@ -28,8 +27,8 @@ function Items({ items, tail, path }: { items: NoteItem[]; tail?: ReactNode; pat
 
 function Table({ label, caption, headers, rows, tail, path }: { tail?: ReactNode; label: string; caption: string | null; headers: string[]; rows: string[][]; path: (string | number)[] }) {
   return <div className="note-table-scroll" role="region" aria-label={caption ?? label} tabIndex={0}><table>
-    {caption && <caption>{caption}</caption>}
-    <thead><tr>{headers.map((cell, i) => <th key={i} scope="col"><MathText text={cell}/></th>)}</tr></thead>
+    {caption && <caption><NoteText text={caption} path={[...path, "caption"]}/></caption>}
+    <thead><tr>{headers.map((cell, i) => <th key={i} scope="col"><NoteText text={cell} path={[...path, "headers", i]}/></th>)}</tr></thead>
     <tbody>{rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}><NoteText text={cell} path={[...path, "rows", i, j]}/>{i === rows.length - 1 && j === row.length - 1 && tail}</td>)}</tr>)}</tbody>
   </table></div>;
 }
@@ -39,11 +38,11 @@ function Block({ block, heading, tail, path }: { block: NoteBlock; heading: stri
     case "text": return <p className="note-prose"><NoteText text={block.text} path={[...path, "text"]}/>{tail}</p>;
     case "bullets": return <Items items={block.items} path={[...path, "items"]} tail={tail}/>;
     case "table": return <Table label={`${heading}表格`} caption={block.caption} headers={block.headers} rows={block.rows} path={path} tail={tail}/>;
-    case "formula": return <div className="note-formula" data-note-formula="true"><MathText text={`$$${block.latex}$$`}/>{tail}</div>;
+    case "formula": return <div className="note-formula"><NoteText text={block.latex} path={[...path, "latex"]} formula display={`$$${block.latex}$$`}/>{tail}</div>;
     case "callout": {
       const label = calloutLabels[block.style];
       return <aside className={`note-callout note-callout-${block.style}`} aria-label={label}>
-        <p className="note-callout-title">{label}{block.title && `：${block.title}`}</p><Items items={block.items} path={[...path, "items"]} tail={tail}/>
+        <p className="note-callout-title"><NoteText text={label} path={[...path, "label"]}/>{block.title && <>：<NoteText text={block.title} path={[...path, "title"]}/></>}</p><Items items={block.items} path={[...path, "items"]} tail={tail}/>
       </aside>;
     }
   }
@@ -52,14 +51,14 @@ function Block({ block, heading, tail, path }: { block: NoteBlock; heading: stri
 function ParagraphBody({ paragraph: p, number, sources, sourceLevel }: { paragraph: NoteParagraph; number?: NoteOutlineEntry; sources?: ReactNode; sourceLevel?: 1 | 2 | 3 }) {
   if (!("blocks" in p)) {
     // v11 以前的段落格式，重新生成前仍可閱讀。
-    return <>{p.heading && <h3>{p.heading}</h3>}<p className="note-prose"><NoteText text={p.text} path={["text"]}/>{!p.formula && !p.table && sources}</p>
-      {p.formula && <p className="note-formula-text" data-note-formula="true"><MathText text={p.formula}/>{!p.table && sources}</p>}
+    return <>{p.heading && <h3><NoteText text={p.heading} path={["heading"]}/></h3>}<p className="note-prose"><NoteText text={p.text} path={["text"]}/>{!p.formula && !p.table && sources}</p>
+      {p.formula && <p className="note-formula-text"><NoteText text={p.formula} path={["formula"]} formula/>{!p.table && sources}</p>}
       {p.table && <Table label={`${p.heading}表格`} caption={null} headers={p.table.headers} rows={p.table.rows} path={["table"]} tail={sources}/>}
     </>;
   }
   const level = number?.level ?? p.level;
   const Heading = sourceLevel === 3 ? "h5" : sourceLevel === 2 ? "h4" : sourceLevel === 1 ? "h3" : level === 1 ? "h2" : level === 2 ? "h3" : "h4";
-  return <>{p.heading && <Heading>{number ? numberedHeading(number) : p.heading}</Heading>}
+  return <>{p.heading && <Heading><NoteText text={number ? numberedHeading(number) : p.heading} path={[number ? "display_heading" : "heading"]}/></Heading>}
     {p.blocks.map((block, i) => <Block key={i} block={block} path={["blocks", i]} heading={p.heading} tail={i === p.blocks.length - 1 ? sources : undefined}/>)}
   </>;
 }
@@ -192,7 +191,7 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
   const paragraph = (p: NoteParagraph, sourceLevel?: 1 | 2 | 3) => {
     if (!view) return null;
     const number = sourceLevel ? undefined : numbers.get(p.id);
-    return <MarkupParagraph key={`${view.content_revision}:${view.content_generation}:${p.id}`} paragraph={p}><section id={`note-section-${p.id}`} tabIndex={-1}
+    return <MarkupParagraph key={`${view.content_revision}:${view.content_generation}:${p.id}`} paragraph={p}><section id={`note-section-${p.id}`} data-note-target={p.id} tabIndex={-1}
       className={`note-paragraph${sourceLevel ? " note-source-paragraph" : (number?.level ?? 1) > 1 ? " note-subsection" : ""}`} aria-label={number ? numberedHeading(number) : p.heading}>
       <ParagraphBody paragraph={p} number={number} sourceLevel={sourceLevel} sources={<span className="note-sources" aria-label="段落來源">{sourceLinks(p.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e} reference={{quote:e.quote}}/>)}</span>}/>
     </section></MarkupParagraph>;
@@ -237,12 +236,13 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
         <button type="button" className="text-button" onClick={openProgress}>查看進度</button>
       </section>}
       {view.status === "failed" && view.progress && view.progress.completed_parts > 0 && <p>已完成部分已保存，重試時會從未完成部分接續。</p>}
-      <NoteMarkup api={api} view={view} saved={update} openConcept={id => void openConcept(id)} renderPrevious={(paragraph, originalRevision) => <ParagraphBody paragraph={paragraph} sources={<span className="note-sources">{sourceLinks(paragraph.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} evidence={e} reference={{ quote: e.quote }} resolver={`/v1/materials/${materialId}/knowledge-structures/${originalRevision}/evidence`}/>)}</span>}/> }>
+      <NoteMarkup api={api} view={view} saved={update} openConcept={id => void openConcept(id)} renderPrevious={(paragraph, originalRevision) => "target_type" in paragraph ? <p>{paragraph.heading}</p> : <ParagraphBody paragraph={paragraph} sources={<span className="note-sources">{sourceLinks(paragraph.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} evidence={e} reference={{ quote: e.quote }} resolver={`/v1/materials/${materialId}/knowledge-structures/${originalRevision}/evidence`}/>)}</span>}/> }>
       {view.sections.length ? view.sections.map(section => {
         const Heading = section.level === 1 ? "h2" : section.level === 2 ? "h3" : "h4";
-        return <section key={section.section_id} id={`note-section-${section.section_id}`} tabIndex={-1}
+        const target = { target_type: "section" as const, id: `section:${section.section_id}`, anchor: `section:${section.section_id}`, heading: section.heading, level: section.level };
+        return <section key={section.section_id} id={`note-section-${section.section_id}`} data-note-target={target.id} tabIndex={-1}
           className={`note-source-section note-source-level-${section.level}`} aria-label={section.heading}>
-          <Heading>{section.heading}</Heading>
+          <MarkupParagraph paragraph={target}><Heading><NoteText text={section.heading} path={["heading"]}/></Heading></MarkupParagraph>
           {!!section.outline.length && <nav className="note-chapter-outline" aria-label={`${section.heading}章節大綱`}>
             <p>章節大綱</p><ul>{section.outline.map(entry => <li key={entry.section_id} className={`note-outline-${entry.level}`}>
               <button type="button" className="text-button" onClick={() => jump(entry.section_id)}>{entry.heading}</button>

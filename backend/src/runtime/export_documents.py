@@ -191,14 +191,14 @@ def _md_blocks(blocks):
             lines.extend([*_md_items(block['items']), ''])
         elif kind == 'table':
             if block['caption']:
-                lines.extend([f'**{md_text(block["caption"])}**', ''])
+                lines.extend([f'**{note_marks.markdown(block["caption"], md_text)}**', ''])
             lines.extend(_md_table(block['headers'], block['rows']))
         elif kind == 'formula':
             # 公式以 LaTeX 原樣輸出，不做 Markdown 跳脫。
             lines.extend(['$$', block['latex'], '$$', ''])
         else:
-            title = CALLOUT_LABELS[block['style']] + (f'：{block["title"]}' if block['title'] else '')
-            lines.extend([f'> **{md_text(title)}**', '>', *(f'> {line}' for line in _md_items(block['items'])), ''])
+            title = note_marks.markdown(block.get('label', CALLOUT_LABELS[block['style']]), md_text) + (f'：{note_marks.markdown(block["title"], md_text)}' if block['title'] else '')
+            lines.extend([f'> **{title}**', '>', *(f'> {line}' for line in _md_items(block['items'])), ''])
     return lines
 
 
@@ -247,9 +247,13 @@ def note_markdown(view):
         lines.append('')
 
     def paragraph(p, number=None, source_section=None):
+        if p.get('target_type') == 'section':
+            depth = p['level'] + 1
+            lines.extend([f'{"#" * depth} {md_text(p["heading"])}', ''])
+            return depth
         if 'blocks' not in p:
             # 舊版段落格式：保留可讀，直到重新生成。
-            lines.extend([f'## {md_text(p["heading"])}', '', note_marks.markdown(p['text'], md_text), ''])
+            lines.extend([f'## {note_marks.markdown(p["heading"], md_text)}', '', note_marks.markdown(p['text'], md_text), ''])
             if p.get('formula'):
                 lines.extend([md_text(p['formula']), ''])
             if p.get('table'):
@@ -257,14 +261,14 @@ def note_markdown(view):
             depth = 2
         else:
             depth = 1 + (number['level'] if number else p['level'])
-            heading = numbered_heading(number) if number else p['heading']
+            heading = p.get('display_heading', numbered_heading(number)) if number else p['heading']
             if source_section is not None:
                 depth = source_section['level'] + 1
                 if heading:
-                    lines.extend([f'**{md_text(heading)}**', ''])
+                    lines.extend([f'**{note_marks.markdown(heading, md_text)}**', ''])
                 lines.extend(_md_blocks(p['blocks']))
             else:
-                lines.extend([f'{"#" * depth} {md_text(heading)}', '', *_md_blocks(p['blocks'])])
+                lines.extend([f'{"#" * depth} {note_marks.markdown(heading, md_text)}', '', *_md_blocks(p['blocks'])])
         lines.extend(f'來源：{md_text(label)}  ' for label in _note_sources(p['evidence']))
         lines.append('')
         return depth
@@ -272,7 +276,10 @@ def note_markdown(view):
     for section, paragraphs in _note_groups(view):
         if section:
             lines.extend([f'<a id="{escape(section["section_id"], quote=True)}"></a>', '',
-                f'{"#" * (section["level"] + 1)} {md_text(section["heading"])}', ''])
+                f'{"#" * (section["level"] + 1)} {note_marks.markdown(section["heading"], md_text)}', ''])
+            for a in view['annotations']:
+                if a['paragraph_id'] == 'section:' + section['section_id']:
+                    lines.extend(['個人註記：' + md_text(a['body']), '', *_md_quote(a)])
             if section['outline']:
                 lines.extend(['**章節大綱**', ''])
                 lines.extend(f'{"  " * (item["level"] - 2)}- [{md_text(item["heading"])}](#{item["section_id"]})'
@@ -310,7 +317,9 @@ def note_pdf(view):
     for section, paragraphs in _note_groups(view):
         if section:
             level = section['level'] + 1
-            parts.append(f'<h{level}>{escape(section["heading"])}</h{level}>')
+            parts.append(f'<h{level}>{note_marks.html(section["heading"])}</h{level}>')
+            parts.extend(f'<p>個人註記：{escape(a["body"])}</p>{_pdf_quote(a)}' for a in view['annotations']
+                if a['paragraph_id'] == 'section:' + section['section_id'])
             if section['outline']:
                 parts.append('<p><b>章節大綱</b></p><ul>' + ''.join(
                     f'<li>{escape(item["heading"])}</li>' for item in section['outline']) + '</ul>')
@@ -318,10 +327,10 @@ def note_pdf(view):
             if section:
                 from .note_content import blocks_html
                 if p['heading']:
-                    parts.append(f'<p><b>{escape(p["heading"])}</b></p>')
+                    parts.append(f'<p><b>{note_marks.html(p["heading"])}</b></p>')
                 parts.append(blocks_html(p['blocks'], images))
             else:
-                heading = numbered_heading(numbers[p['id']]) if p['id'] in numbers else p['heading']
+                heading = p.get('display_heading', numbered_heading(numbers[p['id']])) if p['id'] in numbers else p['heading']
                 parts.append(body_html([{**p, 'heading':heading}], images, numbered=False))
             if p['evidence']:
                 number = len(footnotes) + 1
@@ -338,7 +347,7 @@ def note_pdf(view):
         for a in orphaned:
             p = a['original_paragraph']
             parts.append(f'<p>原版本：{escape(a["original_revision"].rsplit(":", 1)[-1][:8])}</p>' + body_html([p], images, numbered=False))
-            if p['evidence']:
+            if p.get('evidence'):
                 number = len(footnotes) + 1
                 marker = f'source-{number}'
                 footnotes[marker] = f'[{number}] ' + '；'.join(_note_sources(p['evidence']))
@@ -362,7 +371,7 @@ def _docx_table(doc, headers, rows):
     table = doc.add_table(rows=1, cols=len(headers))
     table.style = 'Table Grid'
     for cell, value in zip(table.rows[0].cells, headers):
-        cell.text = xml_text(value)
+        note_marks.docx_runs(cell.paragraphs[0], value, xml_text)
     for row in rows:
         for cell, value in zip(table.add_row().cells, row):
             note_marks.docx_runs(cell.paragraphs[0], value, xml_text)
@@ -383,7 +392,10 @@ def _docx_blocks(doc, blocks):
             _docx_items(doc, block['items'])
         elif kind == 'table':
             if block['caption']:
-                doc.add_paragraph().add_run(xml_text(block['caption'])).bold = True
+                caption = doc.add_paragraph()
+                note_marks.docx_runs(caption, block['caption'], xml_text)
+                for run in caption.runs:
+                    run.bold = True
             _docx_table(doc, block['headers'], block['rows'])
         elif kind == 'formula':
             # Word 不能直接顯示 LaTeX；嵌入與 PDF 相同的排版圖，替代文字保留 LaTeX 原式。
@@ -393,6 +405,11 @@ def _docx_blocks(doc, blocks):
             section = doc.sections[-1]
             page_width = section.page_width - section.left_margin - section.right_margin
             paragraph.add_run().add_picture(BytesIO(data), width=min(Pt(width), page_width))
+            fill = note_marks.formula_fill(block['latex'])
+            if fill:
+                shading = OxmlElement('w:shd')
+                shading.set(qn('w:fill'), fill)
+                paragraph._p.get_or_add_pPr().append(shading)
             paragraph._p.xpath('.//wp:docPr')[0].set('descr', xml_text(block['latex']))
         else:
             box = doc.add_table(rows=1, cols=1)
@@ -402,8 +419,12 @@ def _docx_blocks(doc, blocks):
             shading.set(qn('w:val'), 'clear')
             shading.set(qn('w:fill'), 'F3F7FC')
             cell._tc.get_or_add_tcPr().append(shading)
-            title = CALLOUT_LABELS[block['style']] + (f'：{block["title"]}' if block['title'] else '')
-            cell.paragraphs[0].add_run(xml_text(title)).bold = True
+            note_marks.docx_runs(cell.paragraphs[0], block.get('label', CALLOUT_LABELS[block['style']]), xml_text)
+            if block['title']:
+                cell.paragraphs[0].add_run('：')
+                note_marks.docx_runs(cell.paragraphs[0], block['title'], xml_text)
+            for run in cell.paragraphs[0].runs:
+                run.bold = True
             _docx_items(cell, block['items'])
             doc.add_paragraph()
 
@@ -501,12 +522,15 @@ def note_docx(view):
 
 
     def paragraph(p, number=None, source_section=None):
+        if p.get('target_type') == 'section':
+            doc.add_heading(xml_text(p['heading']), p['level'])
+            return p['level']
         if 'blocks' not in p:
             # 舊版段落格式：保留可讀，直到重新生成。
-            doc.add_heading(xml_text(p['heading']), 1)
+            note_marks.docx_runs(doc.add_heading('', 1), p['heading'], xml_text)
             note_marks.docx_runs(doc.add_paragraph(), p['text'], xml_text)
             if p.get('formula'):
-                doc.add_paragraph(xml_text(p['formula']))
+                note_marks.docx_runs(doc.add_paragraph(), p['formula'], xml_text)
             if p.get('table'):
                 _docx_table(doc, p['table']['headers'], p['table']['rows'])
             level = 1
@@ -515,9 +539,13 @@ def note_docx(view):
             if source_section is not None:
                 level = source_section['level']
                 if p['heading']:
-                    doc.add_paragraph().add_run(xml_text(p['heading'])).bold = True
+                    heading = doc.add_paragraph()
+                    note_marks.docx_runs(heading, p['heading'], xml_text)
+                    for run in heading.runs:
+                        run.bold = True
             else:
-                doc.add_heading(xml_text(numbered_heading(number) if number else p['heading']), level)
+                heading = p.get('display_heading', numbered_heading(number)) if number else p['heading']
+                note_marks.docx_runs(doc.add_heading('', level), heading, xml_text)
             _docx_blocks(doc, p['blocks'])
         if p['evidence']:
             source_footnote(p['evidence'])
@@ -525,7 +553,11 @@ def note_docx(view):
 
     for section, paragraphs in _note_groups(view):
         if section:
-            doc.add_heading(xml_text(section['heading']), section['level'])
+            note_marks.docx_runs(doc.add_heading('', section['level']), section['heading'], xml_text)
+            for a in view['annotations']:
+                if a['paragraph_id'] == 'section:' + section['section_id']:
+                    doc.add_paragraph(xml_text('個人註記：' + a['body']))
+                    _docx_quote(doc, a)
             if section['outline']:
                 doc.add_paragraph().add_run('章節大綱').bold = True
                 for item in section['outline']:

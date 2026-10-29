@@ -75,14 +75,18 @@ def test_highlight_crud_owner_origin_and_validation(closed_loop, tmp_path, monke
     assert client.get(path + "/summary/highlights").json() == {"highlights": []}
 
 
-def test_highlight_cannot_cover_inline_formula(closed_loop, tmp_path, monkeypatch):
+def test_highlight_covers_whole_inline_formula_only(closed_loop, tmp_path, monkeypatch):
     f, client, path, view = ready(closed_loop, tmp_path, monkeypatch)
     set_blocks(f, [{"type": "text", "text": "甲乙 $x^2$ 丙丁"}])
     view = client.get(path + "/summary").json()
     ok = client.post(path + "/summary/highlights", headers=HEADERS, json={
         "expected_generation": 1, "paragraph_id": "0", "block_path": TEXT, "start": 0, "end": 2, "quote": "甲乙", "style": "green"})
     assert ok.status_code == 201
-    for start, end in ((3, 8), (0, 6), (4, 6)):
+    for start, end in ((3, 8), (0, 8), (0, 11)):
+        assert client.post(path + "/summary/highlights", headers=HEADERS, json={
+            "expected_generation": 1, "paragraph_id": "0", "block_path": TEXT, "start": start, "end": end,
+            "quote": "甲乙 $x^2$ 丙丁"[start:end], "style": "green"}).status_code == 201
+    for start, end in ((0, 6), (4, 6)):
         assert client.post(path + "/summary/highlights", headers=HEADERS, json={
             "expected_generation": 1, "paragraph_id": "0", "block_path": TEXT, "start": start, "end": end,
             "quote": "甲乙 $x^2$ 丙丁"[start:end], "style": "green"}).status_code == 400
@@ -155,7 +159,7 @@ def test_annotation_anchor_roundtrip_legacy_and_remap(closed_loop, tmp_path, mon
     assert after[legacy["annotation_id"]]["paragraph_id"] == "1"
 
 
-def test_v16_blocks_nested_items_and_table_cells_are_markable_headers_and_formulas_are_not():
+def test_all_visible_blocks_are_markable_and_formulas_require_whole_range():
     paragraph = {"id": "0", "anchor": "a", "heading": "標題", "level": 1, "blocks": [
         {"type": "text", "text": "正文"},
         {"type": "bullets", "items": [{"text": "一", "children": [{"text": "一之一", "children": [{"text": "深層"}]}]}]},
@@ -163,14 +167,19 @@ def test_v16_blocks_nested_items_and_table_cells_are_markable_headers_and_formul
         {"type": "formula", "latex": "x"},
         {"type": "callout", "style": "reminder", "title": "標", "items": [{"text": "提醒", "children": []}]}]}
     assert note_anchors.markable(paragraph) == {
+        ("heading",): "標題", ("blocks", 2, "caption"): "表題", ("blocks", 2, "headers", 0): "表頭",
+        ("blocks", 3, "latex"): "x", ("blocks", 4, "title"): "標", ("blocks", 4, "label"): "重要提醒",
         ("blocks", 0, "text"): "正文", ("blocks", 1, "items", 0, "text"): "一",
         ("blocks", 1, "items", 0, "children", 0, "text"): "一之一",
         ("blocks", 1, "items", 0, "children", 0, "children", 0, "text"): "深層",
         ("blocks", 2, "rows", 0, 0): "甲", ("blocks", 2, "rows", 0, 1): "乙",
         ("blocks", 4, "items", 0, "text"): "提醒"}
     legacy = {"id": "0", "anchor": "a", "heading": "h", "text": "舊", "table": {"headers": ["頭"], "rows": [["格"]]}}
-    assert note_anchors.markable(legacy) == {("text",): "舊", ("table", "rows", 0, 0): "格"}
-    assert not note_anchors.valid_range(paragraph, ["blocks", 2, "headers", 0], 0, 2, "表頭")
+    assert note_anchors.markable(legacy) == {("heading",): "h", ("text",): "舊", ("table", "headers", 0): "頭", ("table", "rows", 0, 0): "格"}
+    assert note_anchors.valid_range(paragraph, ["blocks", 2, "headers", 0], 0, 2, "表頭")
+    paragraph['blocks'][3]['latex'] = 'x+1'
+    assert note_anchors.valid_range(paragraph, ['blocks', 3, 'latex'], 0, 3, 'x+1')
+    assert not note_anchors.valid_range(paragraph, ['blocks', 3, 'latex'], 0, 1, 'x')
     # quote 同時出現在正文與表格 → 不唯一
     item = {"original_revision": "r0", "paragraph_id": "9", "anchor": "x", "block_path": ["blocks", 0, "text"],
             "start": 0, "end": 1, "quote": "甲", "original_generation": 1}
@@ -224,3 +233,77 @@ def test_old_structure_version_is_kept_while_a_highlight_references_it(closed_lo
     drain(f)
     assert client.get(path + "/summary/highlights").status_code == 200
     assert client.get(path + "/summary").status_code == 200
+
+
+def test_all_targets_roundtrip_export_and_section_remap(closed_loop, tmp_path, monkeypatch):
+    f, client, path, view = ready(closed_loop, tmp_path, monkeypatch)
+    set_blocks(f, [{"type": "table", "caption": "表題", "headers": ["表頭"], "rows": [["儲存格"]]},
+                   {"type": "formula", "latex": "x+1"},
+                   {"type": "callout", "style": "reminder", "title": "醒目標題", "items": [{"text": "提醒內容", "children": []}]}])
+    key = (f['learner'].learner_id, f['source'].material_id, f['document']['revision'], 'summary')
+    with database_session(f['dsn']) as db:
+        row = db.get(MaterialNotes, key)
+        row.published_metadata = {**(row.published_metadata or {}), 'sections': [
+            {'section_id': 'empty', 'heading': '空章節', 'level': 1, 'parent_id': None, 'paragraph_ids': [], 'outline': []},
+            {'section_id': 'body', 'heading': '內容章節', 'level': 1, 'parent_id': None,
+             'paragraph_ids': [p['id'] for p in row.paragraphs], 'outline': []}]}
+    view = client.get(path + '/summary').json()
+    selections = [('section:empty', ['heading'], '空章節'), ('0', ['heading'], view['paragraphs'][0]['heading']),
+                  ('0', ['blocks', 0, 'caption'], '表題'), ('0', ['blocks', 0, 'headers', 0], '表頭'),
+                  ('0', ['blocks', 1, 'latex'], 'x+1'), ('0', ['blocks', 2, 'label'], '重要提醒'),
+                  ('0', ['blocks', 2, 'title'], '醒目標題')]
+    for pid, block_path, quote in selections:
+        selection = {'expected_generation': 1, 'paragraph_id': pid, 'block_path': block_path,
+                     'start': 0, 'end': len(quote), 'quote': quote}
+        saved = client.post(path + '/summary/highlights', headers=HEADERS, json={**selection, 'style': 'green'})
+        assert saved.status_code == 201, saved.text
+        annotated = client.put(path + f'/summary/annotations/{uuid4()}', headers=HEADERS,
+                               json={**selection, 'body': '註記' + quote})
+        assert annotated.status_code == 200, annotated.text
+    highlights = client.get(path + '/summary/highlights').json()['highlights']
+    assert len(highlights) == len(selections)
+    assert highlights[0]['original_paragraph'] == {'target_type': 'section', 'id': 'section:empty',
+        'anchor': 'section:empty', 'heading': '空章節', 'level': 1}
+    markdown = client.get(path + '/summary/export/md').text
+    assert '註記空章節' in markdown and '被註記原句：x+1' in markdown
+    pdf_response = client.get(path + '/summary/export/pdf')
+    assert pdf_response.status_code == 200
+    pdf = pymupdf.open(stream=pdf_response.content, filetype='pdf')
+    assert any(d.get('fill') and tuple(round(c * 255) for c in d['fill']) == (165, 214, 167)
+               for page in pdf for d in page.get_drawings())
+    docx_response = client.get(path + '/summary/export/docx')
+    assert docx_response.status_code == 200
+    docx = zipfile.ZipFile(BytesIO(docx_response.content)).read('word/document.xml').decode()
+    assert docx.count('w:fill="A5D6A7"') >= len(selections)
+    assert '註記空章節' in docx and '被註記原句：x+1' in docx
+    with database_session(f['dsn']) as db:
+        row = db.get(MaterialNotes, key)
+        sections = deepcopy(row.published_metadata['sections'])
+        sections[0]['section_id'] = 'moved'
+        row.published_metadata = {**row.published_metadata, 'sections': sections}
+        row.generation += 1
+    moved = client.get(path + '/summary/highlights').json()['highlights'][0]
+    assert moved['paragraph_id'] == 'section:moved'
+    with database_session(f['dsn']) as db:
+        row = db.get(MaterialNotes, key)
+        sections = deepcopy(row.published_metadata['sections'])
+        sections[0]['heading'] = '全新章節'
+        row.published_metadata = {**row.published_metadata, 'sections': sections}
+        row.generation += 1
+    assert client.get(path + '/summary/highlights').json()['highlights'][0]['paragraph_id'] is None
+    for format in ('md', 'pdf', 'docx'):
+        response = client.get(path + '/summary/export/' + format)
+        assert response.status_code == 200, response.text[:200]
+
+
+def test_legacy_numbered_heading_is_derived_without_changing_snapshot():
+    p = {'id': 'p', 'anchor': 'a', 'level': 1, 'heading': '標題', 'blocks': []}
+    target = note_anchors.targets([p])[0]
+    assert note_anchors.valid_range(target, ['display_heading'], 0, 3, '一、標')
+    assert 'display_heading' not in p
+    section = {'section_id': 's', 'heading': '唯一章節', 'level': 1}
+    targets = note_anchors.targets([p], [section])
+    item = {'original_revision': 'old', 'original_generation': 1, 'paragraph_id': 'section:old',
+            'anchor': 'section:old', 'block_path': ['heading'], 'start': 0, 'end': 4, 'quote': '唯一章節'}
+    assert note_anchors.locate(targets, item, 'new', 2) == ('section:s', ['heading'], 0, 4)
+    assert note_anchors.locate(targets + [{**targets[-1], 'id': 'section:other'}], item, 'new', 2) is None

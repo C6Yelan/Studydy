@@ -17,7 +17,7 @@ def resolve(view, rows):
     """依目前可見筆記內容產生回應；無法對應的標記位置為 None，其餘資料保留。"""
     result = []
     for h in rows:
-        found = note_anchors.locate(view["paragraphs"], {
+        found = note_anchors.locate(note_anchors.targets(view["paragraphs"], view.get("sections", [])), {
             "original_revision": h.structure_revision, "paragraph_id": h.paragraph_id,
             "anchor": h.paragraph_snapshot["anchor"], "block_path": h.block_path,
             "start": h.start_offset, "end": h.end_offset, "quote": h.quote, "original_generation": h.generation},
@@ -50,13 +50,13 @@ def add(owner, material_id, revision, kind, expected_generation, paragraph_id, b
         row = db.get(MaterialNotes, (owner, material_id, revision, kind))
         if row is None or row.generation != expected_generation:
             raise SourceError("REVISION_CONFLICT")
-        paragraph = next((p for p in row.paragraphs or [] if p["id"] == paragraph_id), None)
+        paragraph = next((p for p in note_anchors.targets(row.paragraphs or [], (row.published_metadata or {}).get("sections", [])) if p["id"] == paragraph_id), None)
         if paragraph is None or not note_anchors.valid_range(paragraph, block_path, start, end, quote):
             raise SourceError("REQUEST_INVALID")
         highlight = NoteHighlight(highlight_id=uuid4(), learner_id=owner, material_id=material_id,
             kind=kind, structure_revision=revision, generation=row.generation, paragraph_id=paragraph_id,
             block_path=block_path, start_offset=start, end_offset=end, quote=quote, style=style,
-            paragraph_snapshot=deepcopy(paragraph), created_at=datetime.now(UTC))
+            paragraph_snapshot=deepcopy({k: v for k, v in paragraph.items() if k != "display_heading"}), created_at=datetime.now(UTC))
         db.add(highlight)
         db.flush()
         return {"highlight_id": str(highlight.highlight_id), "paragraph_id": paragraph_id,

@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 test.skip(process.env.STUDYDY_E2E_NOTES !== "true", "Requires isolated notes API/DB fixture");
 const data = JSON.parse(process.env.STUDYDY_E2E_NOTES_DATA ?? "{}");
 async function selectText(page: Page) {
-  const text = page.locator(".note-paragraph [data-note-text]").first();
+  const text = page.locator(".note-paragraph :is(h2, h3, h4, h5) [data-note-text]").first();
   await expect(text).toBeVisible();
   await text.evaluate(element => {
     const range = document.createRange(); range.selectNodeContents(element);
