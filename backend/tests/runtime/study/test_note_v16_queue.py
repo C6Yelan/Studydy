@@ -1,4 +1,4 @@
-"""真實隔離 DB：v16 章節與正文同時發布，核對全空仍保護已發布稿。"""
+"""真實隔離 DB：發布快照、速覽與完整筆記缺漏交集、空稿保護。"""
 from copy import deepcopy
 
 from assessment_fixtures import concept_fixture
@@ -54,7 +54,7 @@ def test_published_source_metadata_survives_empty_regeneration(closed_loop):
         assert db.get(MaterialNotes, key).published_metadata == saved
 
 
-def test_first_empty_notes_publish_missing_concepts_and_can_be_read(closed_loop):
+def test_summary_hides_missing_until_full_notes_are_published(closed_loop):
     fixture = concept_fixture(closed_loop, 2)
     key = (fixture['learner'].learner_id, fixture['source'].material_id, fixture['document']['revision'], 'summary')
     while notes.step(dsn=fixture['dsn'], call=lambda request: model(request, supported=False)):
@@ -63,5 +63,43 @@ def test_first_empty_notes_publish_missing_concepts_and_can_be_read(closed_loop)
     assert result['status'] == 'ready', result['error_code']
     assert result['generation'] == 1 and result['content_revision'] == key[2]
     assert result['paragraphs'] == [] and result['sections']
-    assert {c['concept_id'] for c in result['unorganized_concepts']} == {
-        c['concept_id'] for c in fixture['document']['concepts']}
+    assert result['unorganized_concepts'] == []
+    with database_session(fixture['dsn']) as db:
+        missing = deepcopy(db.get(MaterialNotes, key).published_metadata['unorganized_concepts'])
+    assert {c['concept_id'] for c in missing} == {c['concept_id'] for c in fixture['document']['concepts']}
+    full_key = (*key[:3], 'full')
+    notes.generate(*full_key, 0, dsn=fixture['dsn'])
+    assert notes.read(*key, dsn=fixture['dsn'])['unorganized_concepts'] == []
+    while notes.step(dsn=fixture['dsn'], call=model):
+        pass
+    with database_session(fixture['dsn']) as db:
+        full = db.get(MaterialNotes, full_key)
+        full.published_metadata = {**full.published_metadata, 'unorganized_concepts': missing[:1]}
+    assert notes.read(*key, dsn=fixture['dsn'])['unorganized_concepts'] == missing[:1]
+    full_view = notes.read(*full_key, dsn=fixture['dsn'])
+    notes.generate(*full_key, full_view['generation'], dsn=fixture['dsn'])
+    assert notes.read(*key, dsn=fixture['dsn'])['unorganized_concepts'] == missing[:1]
+    with database_session(fixture['dsn']) as db:
+        db.get(MaterialNotes, full_key).published_metadata = None
+    assert notes.read(*key, dsn=fixture['dsn'])['unorganized_concepts'] == []
+
+
+def test_summary_coverage_uses_displayed_revision_not_requested_revision(closed_loop):
+    from test_version_moves import new_revision
+    fixture = concept_fixture(closed_loop, 2)
+    key = (fixture['learner'].learner_id, fixture['source'].material_id, fixture['document']['revision'], 'summary')
+    notes.generate(*key[:3], 'full', 0, dsn=fixture['dsn'])
+    while notes.step(dsn=fixture['dsn'], call=lambda request: model(request, supported=False)):
+        pass
+    original = notes.read(*key, dsn=fixture['dsn'])
+    assert original['unorganized_concepts']
+    newer = new_revision(fixture, 'rewrite')
+    new_key = (*key[:2], newer['revision'], 'summary')
+    fallback = notes.read(*new_key, dsn=fixture['dsn'])
+    assert fallback['content_revision'] == key[2]
+    assert fallback['unorganized_concepts'] == original['unorganized_concepts']
+    while notes.step(dsn=fixture['dsn'], call=lambda request: model(request, supported=False)):
+        pass
+    current = notes.read(*new_key, dsn=fixture['dsn'])
+    assert current['content_revision'] == newer['revision']
+    assert current['unorganized_concepts'] == []

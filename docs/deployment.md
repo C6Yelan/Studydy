@@ -296,7 +296,7 @@ docker compose --env-file .env -p studydy -f compose.yaml -f compose.tunnel.yaml
 
 `0017_material_notes.sql` 新增筆記生成／快取及個人註記兩張表，不修改既有教材、題組或答案。套用前備份產品 DB；隔離環境由 0016 升級並逐表核對既有資料不變。新後端須與支援筆記分頁的前端一起部署。已套用後只能使用識別 0017 的相容版本或前向修復，不直接啟動舊 migration runner，也不還原 DB 丟棄新註記。
 
-筆記使用目前正式Luna，生成契約為 `material-notes/v16`。新稿依原教材章節，模型核對一次後刪除不符內容；複習速覽每章挑3～5條核心，缺漏概念明列。舊發布稿、Evidence與已保存lock/hash不改寫，契約變更重試只清除未發布暫存。runtime lock更新先建立同版provider bundle，再部署backend。
+筆記使用目前正式Luna，生成契約為 `material-notes/v17`。新稿依原教材章節，模型核對一次後刪除不符內容，完整筆記每批對未涵蓋概念補寫並核對一次；複習速覽每章挑3～5條核心，缺漏概念明列。舊發布稿、Evidence與已保存lock/hash不改寫，契約變更重試只清除未發布暫存。runtime lock更新先建立同版provider bundle，再部署backend。
 
 v16新增 `0032_note_source_sections.sql` 的 `material_notes.published_metadata`；同交易保存原章節與缺漏清單。需與理解 `sections`／`unorganized_concepts` 的前端一起部署。舊稿兩欄回空陣列；首次全空稿仍ready，有舊稿則以 NOTE_NO_SUPPORTED_CONTENT 保留舊稿。
 
