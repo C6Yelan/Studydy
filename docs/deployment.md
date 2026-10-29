@@ -13,6 +13,8 @@ ops/reanalyze-demo-material
 
 分析、審查、合併、新版章節與首次自動摘要共用 300 次額度，每次外送前在 DB 原子保留。`budget.reserved_calls` 是保守的已保留請求上限，連線失敗與不確定是否受理的請求不退額，不等於外部計費明細。重啟與首次摘要重試沿用同一計數；耗盡回報 `MATERIAL_MODEL_BUDGET_EXHAUSTED`，不得改上限或重建 run。首次摘要完成後的手動重生、完整筆記與其他教材不使用本次額度。
 
+`0033_maintenance_budget_range.sql` 把 DB 約束 `demo_reanalysis_budget` 改為每個維護 run 自訂上限（`limit` 1～2000，`reserved_calls` 不超過該 run 的 `limit`）；本入口建立的工作仍是 300，已存在的 run 不變。其他經使用者授權的一次性維護重分析可在建立 run 時設定較高上限，仍在外送前原子保留、不得超支。
+
 使用者另行授權原失敗工作 `257bef38-6c08-4baf-aedc-641d53a26795` 再恢復一次。此修正合併部署後才可執行：
 
 ```bash
