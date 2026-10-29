@@ -32,6 +32,8 @@ def with_text(paragraph, text):
 
 
 def response(request):
+    if request.get("phase") == "reuse_summary":
+        return {"matches": []}
     if request.get("phase") == "organize_sections":
         return {"paragraph_ids": []}
     if request.get("phase") == "review_paragraph":
@@ -711,6 +713,8 @@ def test_summary_covers_every_concept_by_locally_writing_the_missing_one_in_lear
     values=three_concepts()
     writers,reviews=[],[]
     def model(request):
+        if request.get('phase') == 'reuse_summary':
+            return response(request)
         if request.get('phase')=='review_paragraph':
             reviews.append(request)
             return response(request)
@@ -870,6 +874,8 @@ def test_failed_part_is_retried_up_to_three_attempts_without_rerunning_passed_pa
     plan=[{'label':'區域','parts':[[{'concept_id':c['concept_id'],'claim_ids':[c['claims'][0]['claim_id']]}] for c in values]}]
     writers=[]
     def model(request,fail_times):
+        if request.get('phase') == 'reuse_summary':
+            return response(request)
         if request.get('phase')=='review_paragraph':
             first=request['claims'][0]['text']
             rejected=first=='概念1的第 0 點' and sum(1 for w in writers if w['concepts'][0]['label']=='概念1')<=fail_times
@@ -1163,6 +1169,8 @@ def test_cross_batch_duplicate_is_reviewed_and_repaired_with_previous_body(kind)
     repeated='重試需先確認失敗類型。'
     writers=[];rejected=[]
     def model(request):
+        if request.get('phase') == 'reuse_summary':
+            return response(request)
         result=response(request)
         if request.get('phase')=='review_paragraph':
             previous=request.get('previous_content',[])
@@ -1434,3 +1442,108 @@ def test_cited_current_header_does_not_import_previous_table_header():
 def test_programming_escapes_and_paths_are_not_formula_markup(text):
     p = {'heading': '程式字串', 'evidence': [{'quote': text}], 'blocks': [{'type': 'text', 'text': text}]}
     assert nc.text_formula_issues(p) == []
+
+
+def test_summary_reuses_checked_previous_text_only_after_reviewing_new_source():
+    values = three_concepts()
+    values = [{**c, 'claims': c['claims'][:1]} for c in values[:2]]
+    first = mn.generate_part(values[:1], 'summary', response)
+    original = deepcopy(first)
+    results = [first]
+    plan = [{'label': '摘要', 'parts': [
+        [{'concept_id': c['concept_id'], 'claim_ids': [c['claims'][0]['claim_id']]}]
+        for c in values]}]
+    reviews, saved = [], []
+    def model(request):
+        if request.get('phase') == 'reuse_summary':
+            return {'matches': [{'claim_id': 'C1', 'paragraph_id': 'P1'}]}
+        assert request.get('phase') == 'review_paragraph'
+        reviews.append(request)
+        return response(request)
+    result = mn.complete_sections(values, plan, model, results,
+        lambda i, p: saved.append(deepcopy([*results, p])), kind='summary')
+    assert first == original
+    assert len(result) == 1 and result[0]['blocks'] == original[0]['blocks']
+    assert result[0]['claim_ids'] == ['q00', 'q10']
+    assert result[0]['evidence_ids'] == ['e00', 'e10']
+    assert {c['concept_id'] for c in result[0]['concepts']} == {c['concept_id'] for c in values}
+    assert saved[0][0][0]['claim_ids'] == ['q00', 'q10'] and saved[0][1] == []
+    assert len(reviews) == 1 and reviews[0]['reuse_claims'] == ['C2']
+    assert reviews[0]['claims'][1]['evidence_ids'] == ['E2']
+    assert reviews[0]['evidence'][1]['quotes'] == [values[1]['claims'][0]['evidence'][0]['quote']]
+
+
+def test_summary_reuse_rejects_unexplained_or_unsupported_source_without_mutating_previous():
+    values = three_concepts()
+    previous = mn.generate_part(values[:1], 'summary', response)
+    before = deepcopy(previous)
+    seen = []
+    def model(request):
+        seen.append(request)
+        if request.get('phase') == 'reuse_summary':
+            return {'matches': [{'claim_id': 'C1', 'paragraph_id': 'P1'}]}
+        result = response(request)
+        result['coverage'][0].update(explained=False, note_parts=[], reason='對象不同，前文未解說新來源的條件。')
+        return result
+    updated, remaining = mn.reuse_summary(values[1:2], previous, values, model, [])
+    assert updated == before == previous and remaining == values[1:2]
+    assert len(seen) == 2
+
+
+@pytest.mark.parametrize('matches', [
+    [{'claim_id': 'C404', 'paragraph_id': 'P1'}],
+    [{'claim_id': 'C1', 'paragraph_id': 'P404'}],
+    [{'claim_id': 'C1', 'paragraph_id': 'P1'}] * 2,
+])
+def test_summary_reuse_invalid_mapping_cannot_remove_required_concepts(matches):
+    values = three_concepts()
+    previous = mn.generate_part(values[:1], 'summary', response)
+    diagnostics = []
+    updated, remaining = mn.reuse_summary(values[1:2], previous, values,
+        lambda request: {'matches': matches}, diagnostics)
+    assert updated == previous and remaining == values[1:2]
+    assert diagnostics == [{'event': 'reuse_invalid'}]
+
+
+def test_summary_failed_new_batch_does_not_save_reused_previous_sources():
+    values = [{**c, 'claims': c['claims'][:1]} for c in three_concepts()]
+    first = mn.generate_part(values[:1], 'summary', response)
+    results = [first]
+    before = deepcopy(results)
+    plan = [{'label': '摘要', 'parts': [
+        [{'concept_id': values[0]['concept_id'], 'claim_ids': ['q00']}],
+        [{'concept_id': c['concept_id'], 'claim_ids': [c['claims'][0]['claim_id']]} for c in values[1:]],
+    ]}]
+    def model(request):
+        if request.get('phase') == 'reuse_summary':
+            return {'matches': [{'claim_id': 'C1', 'paragraph_id': 'P1'}]}
+        if request.get('phase') == 'review_paragraph':
+            return response(request)
+        raise ValueError('NOTE_INPUT_TOO_LARGE')
+    saved = []
+    with pytest.raises(ValueError, match='NOTE_INPUT_TOO_LARGE'):
+        mn.complete_sections(values, plan, model, results, lambda *args: saved.append(args), kind='summary')
+    assert results == before and not saved
+
+
+def test_summary_reuse_removes_unexplained_match_and_rechecks_remaining_core():
+    values = three_concepts()
+    previous = mn.generate_part(values[:1], 'summary', response)
+    calls = []
+    def model(request):
+        calls.append(request)
+        if request.get('phase') == 'reuse_summary':
+            return {'matches': [
+                {'claim_id': 'C1', 'paragraph_id': 'P1'},
+                {'claim_id': 'C2', 'paragraph_id': 'P1'},
+            ]}
+        result = response(request)
+        if len(request['reuse_claims']) == 2:
+            result['coverage'][0].update(explained=False, note_parts=[], reason='第一個重點未解說。')
+        return result
+    updated, remaining = mn.reuse_summary(values[1:2], previous, values, model, [])
+    assert not remaining and len(calls) == 3
+    assert updated[0]['claim_ids'] == ['q00', 'q11']
+    assert updated[0]['evidence_ids'] == ['e00', 'e11']
+    assert [e['quotes'] for e in calls[-1]['evidence']] == [['原文 00'], ['原文 11']]
+    assert updated[0]['blocks'] == previous[0]['blocks']

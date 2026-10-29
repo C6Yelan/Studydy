@@ -18,6 +18,8 @@ HEADERS = {"Origin": ORIGIN}
 
 
 def answer(request):
+    if request.get("phase") == "reuse_summary":
+        return {"matches": []}
     if request.get("phase") == "organize_sections":
         return {"paragraph_ids": []}
     if request.get("phase") == "review_paragraph":
@@ -505,3 +507,43 @@ def test_interrupted_job_saves_same_summary_code_in_db_and_log(closed_loop, tmp_
     assert saved == {'code': 'NOTE_JOB_INTERRUPTED', 'events': []}
     logged = [r.getMessage() for r in caplog.records if 'NOTE_GENERATION_FAILED kind=full' in r.getMessage()]
     assert json.loads(logged[-1].split('diagnostics=', 1)[1]) == saved
+
+
+def test_summary_reused_sources_are_saved_atomically_and_survive_resume(closed_loop, tmp_path, monkeypatch):
+    f, client, path = setup(closed_loop, tmp_path, monkeypatch)
+    drain(f)
+    published = client.get(path + '/summary').json()['paragraphs']
+    assert client.post(path + '/summary', headers=HEADERS, json={'expected_generation': 1}).status_code == 202
+    key = (f['learner'].learner_id, f['source'].material_id, f['document']['revision'], 'summary')
+    concepts = mn._concepts({'key': key}, f['dsn'])
+    plan = [{'label': '摘要', 'parts': [
+        [{'concept_id': c['concept_id'], 'claim_ids': [q['claim_id'] for q in c['claims']]}]
+        for c in concepts]}]
+    monkeypatch.setattr(mn, 'summary_plan', lambda *args, **kwargs: plan)
+    organize = mn.organize_sections
+    def interrupted(*args):
+        raise RuntimeError('synthetic interruption after saved batches')
+    monkeypatch.setattr(mn, 'organize_sections', interrupted)
+    def model(request):
+        if request.get('phase') == 'reuse_summary':
+            return {'matches': [{'claim_id': 'C1', 'paragraph_id': 'P1'}]}
+        return answer(request)
+    assert mn.step(dsn=f['dsn'], call=model)
+    new_claim = concepts[1]['claims'][0]
+    with database_session(f['dsn']) as db:
+        row = db.get(MaterialNotes, key)
+        assert row.status == 'failed' and len(row.section_results) == 2
+        assert row.paragraphs == published and row.section_results[1] == []
+        reused = row.section_results[0][0]
+        assert new_claim['claim_id'] in reused['claim_ids']
+        assert all(e['evidence_id'] in reused['evidence_ids'] for e in new_claim['evidence'])
+        saved = deepcopy(row.section_results)
+    monkeypatch.setattr(mn, 'organize_sections', organize)
+    assert client.post(path + '/summary', headers=HEADERS, json={'expected_generation': 1}).status_code == 202
+    calls = []
+    assert mn.step(dsn=f['dsn'], call=lambda r: calls.append(r) or answer(r))
+    assert not calls
+    result = client.get(path + '/summary').json()
+    assert result['status'] == 'ready'
+    assert result['paragraphs'][0]['claim_ids'] == saved[0][0]['claim_ids']
+    assert result['paragraphs'][0]['evidence'] == saved[0][0]['evidence']
