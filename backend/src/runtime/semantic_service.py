@@ -4,7 +4,9 @@ from collections.abc import Callable, Mapping
 from copy import deepcopy
 import json
 import os
+import re
 import socket
+import time
 from threading import Event, Lock, Thread
 from typing import Any
 from urllib.parse import urlsplit
@@ -32,6 +34,12 @@ MIN_OUTPUT_TOKENS = {
 }
 # 候選目錄最多占 8K tokens；原始來源與最低輸出空間仍各自檢查。
 MAX_MATERIAL_CATALOG_TOKENS = 8192
+# 截斷多半是模型在字串內重複到上限；重試一次並縮小該次輸出上限，讓重複較早停止。
+TRUNCATION_RETRY_MAX_TOKENS = 8192
+# 模型服務暫時中斷（連線失敗或 5xx）時原地等待，總時長有上限，不讓整份工作立即失敗。
+SERVICE_WAIT_SECONDS = 600
+SERVICE_WAIT_FIRST_DELAY = 5
+SERVICE_WAIT_MAX_DELAY = 120
 
 
 class SemanticServiceError(RuntimeError):
@@ -99,7 +107,39 @@ def semantic_client(*, environment: Mapping[str, str] | None = None) -> httpx.Cl
     )
 
 
+def _wait_for_service(send, cancellation_check=None):
+    """連線失敗或 5xx 時指數退避重送；4xx 與其他錯誤照原樣交給呼叫端。"""
+    deadline = time.monotonic() + SERVICE_WAIT_SECONDS
+    delay = SERVICE_WAIT_FIRST_DELAY
+    while True:
+        failure = None
+        try:
+            response = send()
+            if response.status_code < 500:
+                return response
+        except httpx.TransportError as error:
+            failure = error
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if failure is not None:
+                raise failure
+            return response
+        wake = time.monotonic() + min(delay, remaining)
+        while (left := wake - time.monotonic()) > 0:
+            if cancellation_check is not None:
+                cancellation_check()
+            time.sleep(min(left, 1))
+        delay = min(delay * 2, SERVICE_WAIT_MAX_DELAY)
+
+
 def _post(client, url, *, json, cancellation_check=None):
+    return _wait_for_service(
+        lambda: _post_once(client, url, json=json, cancellation_check=cancellation_check),
+        cancellation_check,
+    )
+
+
+def _post_once(client, url, *, json, cancellation_check=None):
     """取消時解除本地 socket wait；不宣稱遠端 generation 已停止。"""
     if cancellation_check is None:
         return client.post(url, json=json)
@@ -200,9 +240,10 @@ def preflight_semantic_service(
     owned = client is None
     http = semantic_client() if client is None else client
     try:
-        health = http.get(
+        # 服務重啟中先等 /health 恢復，其餘身分檢查仍各送一次。
+        health = _wait_for_service(lambda: http.get(
             f"{service['base_url']}/health", timeout=PREFLIGHT_TIMEOUT_SECONDS
-        )
+        ))
         version = http.get(
             f"{service['base_url']}/version", timeout=PREFLIGHT_TIMEOUT_SECONDS
         )
@@ -314,7 +355,53 @@ def _token_count(
     return body["count"]
 
 
-def request_semantics(
+# 失控輸出的特徵：相鄰重複的詞（「分布分布」「matching matching」）與思考殘字。
+# 「一個一個」這類 ABAB 是正常中文；原文本來就有的寫法也不算。
+_REPEATED_TEXT = re.compile(
+    r"(?<![A-Za-z])([A-Za-z]{2,30})(?:\s+\1)+(?![A-Za-z])"
+    r"|((?!一)[\u3400-\u9fff]{2,12})\2",
+    re.IGNORECASE,
+)
+_STRAY_TOKENS = re.compile(r"(?:^|[^A-Za-z\s])\s*own\s*(?:$|[^A-Za-z\s])|thought:")
+
+
+def _degenerate_text(value: Any, source: str) -> bool:
+    """模型產出中有原文沒有的疊字或思考殘字時回傳 True。"""
+    if isinstance(value, dict):
+        return any(_degenerate_text(item, source) for item in value.values())
+    if isinstance(value, list):
+        return any(_degenerate_text(item, source) for item in value)
+    if not isinstance(value, str):
+        return False
+    for pattern in (_REPEATED_TEXT, _STRAY_TOKENS):
+        for match in pattern.finditer(value):
+            if match.group(0).strip().casefold() not in source.casefold():
+                return True
+    return False
+
+
+def request_semantics(client: httpx.Client, **arguments: Any) -> dict[str, Any]:
+    """透過共用 HTTP 邊界請求語意結果。
+
+    輸出截斷，或出現原文沒有的疊字／思考殘字時，以較小輸出上限重試一次；
+    重試仍有疊字就交回該結果，由各功能既有的驗證決定是否採用。
+    """
+
+    try:
+        result = _request_semantics_once(client, **arguments)
+    except SemanticServiceError as error:
+        if error.reason_code != "SEMANTIC_OUTPUT_TRUNCATED":
+            raise
+    else:
+        source = canonical_bytes(arguments["request"]).decode("utf-8")
+        if not _degenerate_text(result, source):
+            return result
+    return _request_semantics_once(
+        client, **arguments, max_tokens_cap=TRUNCATION_RETRY_MAX_TOKENS
+    )
+
+
+def _request_semantics_once(
     client: httpx.Client,
     *,
     runtime_lock: dict[str, Any],
@@ -325,9 +412,8 @@ def request_semantics(
     usage: dict[str, int] | None = None,
     before_request: Callable[[], None] | None = None,
     tags: dict | None = None,
+    max_tokens_cap: int | None = None,
 ) -> dict[str, Any]:
-    """透過共用 HTTP 邊界請求語意結果。"""
-
     from .luna_test import enabled
 
     if before_request is not None and not enabled(runtime_lock):
@@ -419,6 +505,8 @@ def request_semantics(
         max_tokens = _output_budget(
             task, max_tokens, input_tokens, service["max_model_len"]
         )
+        if max_tokens_cap is not None:
+            max_tokens = min(max_tokens, max_tokens_cap)
         response = _post(
             client,
             f"{service['base_url']}{CHAT_PATH}",

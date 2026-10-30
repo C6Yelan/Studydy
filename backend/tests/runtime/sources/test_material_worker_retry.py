@@ -15,7 +15,8 @@ from test_note_queue import setup as notes_setup, answer
 
 @pytest.mark.parametrize('reason,retryable', [
     ('SEMANTIC_SERVICE_TIMEOUT', True), ('SEMANTIC_SERVICE_UNAVAILABLE', True),
-    ('STORAGE_BUSY', True), ('SOURCE_BUSY', True), ('REVIEW_CONTRACT_INVALID', False),
+    ('STORAGE_BUSY', True), ('SOURCE_BUSY', True), ('SEMANTIC_OUTPUT_TRUNCATED', True),
+    ('REVIEW_CONTRACT_INVALID', False),
     ('SEMANTIC_GENERATION_FAILED', False), ('STORAGE_QUOTA_EXCEEDED', False),
     ('MATERIAL_MODEL_BUDGET_EXHAUSTED', False),
 ])

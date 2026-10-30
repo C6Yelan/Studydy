@@ -161,7 +161,7 @@ def test_material_packing_and_generation_share_exact_token_budget(count, fits):
         requests.append((request.url.path, body))
         if request.url.path == "/tokenize":
             return httpx.Response(200, json={"count": count, "max_model_len": 32768})
-        assert body["max_tokens"] == 8192
+        assert body["max_tokens"] == 8192  # 第一次與截斷後的重試都在 8192 上限內
         return httpx.Response(200, json={"choices": [{
             "finish_reason": "length", "message": {"content": '{"concepts":[]}'},
         }]})
@@ -182,7 +182,7 @@ def test_material_packing_and_generation_share_exact_token_budget(count, fits):
     assert requests[1][1]["chat_template_kwargs"] == template
     if fits:
         assert requests[2][1]["chat_template_kwargs"] == template
-    assert sum(path == "/v1/chat/completions" for path, _ in requests) == int(fits)
+    assert sum(path == "/v1/chat/completions" for path, _ in requests) == 2 * int(fits)
 
 
 @pytest.mark.parametrize("fresh_count,fits", [(1536, True), (1537, False)])
@@ -216,7 +216,8 @@ def test_material_bundle_budget_excludes_existing_catalog(fresh_count, fits):
     ("timeout", "SEMANTIC_SERVICE_TIMEOUT"),
     ("http503", "SEMANTIC_SERVICE_UNAVAILABLE"),
 ])
-def test_offline_ai_requests_report_fixed_service_error(failure, reason):
+def test_offline_ai_requests_report_fixed_service_error(failure, reason, monkeypatch):
+    monkeypatch.setattr("runtime.semantic_service.SERVICE_WAIT_SECONDS", 0)
     def respond(request):
         if failure == "offline":
             raise httpx.ConnectError("offline", request=request)
@@ -380,9 +381,109 @@ def test_truncation_archives_only_safe_phase_and_token_metadata(monkeypatch):
     saved = {}
     monkeypatch.setattr(AnalysisArchive, '_write', lambda self, name, value, **kwargs: saved.update({name: value}))
     AnalysisArchive.__new__(AnalysisArchive).save_failure(caught.value)
+    # 失敗紀錄來自截斷後以 8192 上限重試的那一次。
     assert saved['failure.json']['semantic_request'] == {
-        'task': 'material_review', 'input_tokens': 12000, 'max_tokens': 20768,
+        'task': 'material_review', 'input_tokens': 12000, 'max_tokens': 8192,
         'finish_reason': 'length', 'prompt_tokens': 12000,
         'completion_tokens': 20768, 'total_tokens': 32768,
     }
     assert secret not in json.dumps(saved)
+
+
+def _chat(contents, requests, *, count=12000):
+    def respond(request):
+        if request.url.path == '/tokenize':
+            return httpx.Response(200, json={'count': count, 'max_model_len': 32768})
+        body = json.loads(request.content)
+        requests.append(body['max_tokens'])
+        finish, content = contents[len(requests) - 1]
+        return httpx.Response(200, json={'choices': [{'finish_reason': finish, 'message': {'content': content}}]})
+    return httpx.Client(transport=httpx.MockTransport(respond))
+
+
+def test_truncation_retries_once_with_smaller_output_ceiling():
+    requests = []
+    with _chat([('length', '{"a":"研究研究'), ('stop', '{"ok":true}')], requests) as client:
+        result = request_semantics(client, runtime_lock=_lock(), task='material_review',
+                                   request={}, response_schema={})
+    assert result == {'ok': True}
+    assert requests == [20768, 8192]
+
+
+@pytest.mark.parametrize('text, source, retried', [
+    ('資料分布分布', '資料分布', True),
+    ('matching matching rule', 'matching rule', True),
+    ('資料own分布', '資料分布', True),
+    ('thought: 先列出', '先列出', True),
+    ('資料分布分布', '原文寫作資料分布分布', False),
+    ('一個一個處理', '處理', False),
+    ('their own way', 'way', False),
+])
+def test_repeated_or_stray_text_retries_once_unless_in_source(text, source, retried):
+    requests = []
+    first = json.dumps({'text': text}, ensure_ascii=False)
+    with _chat([('stop', first), ('stop', '{"text":"ok"}')], requests) as client:
+        result = request_semantics(client, runtime_lock=_lock(), task='material_review',
+                                   request={'source': source}, response_schema={})
+    assert len(requests) == (2 if retried else 1)
+    assert result == ({'text': 'ok'} if retried else {'text': text})
+
+
+def test_repeated_text_after_retry_is_returned_to_feature_validation():
+    requests = []
+    bad = '{"text":"分布分布"}'
+    with _chat([('stop', bad), ('stop', bad)], requests) as client:
+        result = request_semantics(client, runtime_lock=_lock(), task='assessment',
+                                   request={}, response_schema={})
+    assert result == {'text': '分布分布'} and len(requests) == 2
+
+
+def test_unavailable_service_waits_with_backoff_then_continues(monkeypatch):
+    import runtime.semantic_service as service
+    clock = [0.0]
+    monkeypatch.setattr(service.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(service.time, 'sleep', lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    failures = []
+    checks = []
+
+    def respond(request):
+        if len(failures) < 3:
+            failures.append(clock[0])
+            raise httpx.ConnectError('down', request=request)
+        if request.url.path == '/tokenize':
+            return httpx.Response(200, json={'count': 10, 'max_model_len': 32768})
+        return httpx.Response(200, json={'choices': [{'finish_reason': 'stop', 'message': {'content': '{"ok":true}'}}]})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        assert request_semantics(client, runtime_lock=_lock(), task='assessment', request={},
+                                 response_schema={}, cancellation_check=lambda: checks.append(1)) == {'ok': True}
+    assert failures == [0, 5, 15]
+    assert checks
+
+
+def test_unavailable_service_gives_up_after_wait_ceiling(monkeypatch):
+    import runtime.semantic_service as service
+    clock = [0.0]
+    monkeypatch.setattr(service.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(service.time, 'sleep', lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    attempts = []
+
+    def respond(request):
+        attempts.append(clock[0])
+        return httpx.Response(503)
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(SemanticServiceError, match='SEMANTIC_SERVICE_UNAVAILABLE'):
+            request_semantics(client, runtime_lock=_lock(), task='assessment', request={}, response_schema={})
+    assert attempts[-1] == service.SERVICE_WAIT_SECONDS
+    assert max(b - a for a, b in zip(attempts, attempts[1:])) == service.SERVICE_WAIT_MAX_DELAY
+
+
+def test_client_errors_are_not_waited_on(monkeypatch):
+    attempts = []
+
+    def respond(request):
+        attempts.append(1)
+        return httpx.Response(400)
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(SemanticServiceError, match='SEMANTIC_SERVICE_UNAVAILABLE'):
+            request_semantics(client, runtime_lock=_lock(), task='assessment', request={}, response_schema={})
+    assert attempts == [1]

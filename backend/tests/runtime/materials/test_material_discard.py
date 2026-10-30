@@ -498,3 +498,23 @@ def test_active_run_is_cancelled_and_new_revision_cannot_start(unused):
         processing._record_progress(run.run_id,'publishing',1,1,dsn=unused.dsn)
     assert discard.purge_discarded_material(unused.learner.learner_id,unused.source.material_id,dsn=unused.dsn)
     assert_removed(unused)
+
+
+def test_first_analysis_can_be_cancelled_without_discarding_material(unused, monkeypatch):
+    monkeypatch.setattr(api_app, 'runtime_binding', lambda _: {})
+    app = api_app.create_app(api_app.ApiSettings(profile='local', public_origin=ORIGIN, secure_cookie=False, local_config=unused.settings, dsn=unused.dsn))
+    client = TestClient(app, base_url=ORIGIN)
+    client.cookies.set('studydy_session', unused.token)
+    run = create(unused); claim(unused)
+    assert read(unused, run).base_revision is None
+    url = f'/v1/material-processing-runs/{run.run_id}/cancel'
+    body = {'schema': 'material-revision-cancel/v1', 'base_revision': None}
+    mismatch = {**body, 'base_revision': 'knowledge-structure:sha256:' + '0' * 64}
+    assert client.post(url, json=mismatch, headers={'Origin': ORIGIN}).status_code == 400
+    response = client.post(url, json=body, headers={'Origin': ORIGIN})
+    assert response.status_code == 200 and response.json()['cancel_requested_at'] is not None
+    processing._record_failure(run.run_id, 'IN_FLIGHT_ERROR', dsn=unused.dsn)
+    assert read(unused, run).status == 'cancelled'
+    with database_session(unused.dsn) as session:
+        material = session.get(Material, unused.source.material_id)
+        assert material is not None and material.discard_requested_at is None

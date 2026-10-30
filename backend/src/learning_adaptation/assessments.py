@@ -68,6 +68,13 @@ class StoredAssessment:
     mastery_qualified: bool
 
 
+# 只擋重複失控；Luna 時期題幹最長約 80 字、選項約 50 字。解析是 Gemma 後新增欄位，
+# 需完整包含正確答案，上限放寬。
+PROMPT_MAX_LENGTH = 1000
+OPTION_MAX_LENGTH = 500
+RATIONALE_MAX_LENGTH = 2000
+
+
 def assessment_response_schema(policy="source-span-single-choice/v3") -> dict[str, Any]:
     candidate = {
         "type": "object",
@@ -83,18 +90,18 @@ def assessment_response_schema(policy="source-span-single-choice/v3") -> dict[st
         ],
         "properties": {
             "learning_angle": {"type": "string", "minLength": 1},
-            "correct_answer": {"type": "string", "minLength": 1},
+            "correct_answer": {"type": "string", "minLength": 1, "maxLength": OPTION_MAX_LENGTH},
             "supporting_evidence_ids": {
                 "type": "array",
                 "minItems": 1,
                 "items": {"type": "string"},
             },
-            "prompt": {"type": "string", "minLength": 1},
+            "prompt": {"type": "string", "minLength": 1, "maxLength": PROMPT_MAX_LENGTH},
             "distractors": {
                 "type": "array",
                 "minItems": 3,
                 "maxItems": 3,
-                "items": {"type": "string", "minLength": 1},
+                "items": {"type": "string", "minLength": 1, "maxLength": OPTION_MAX_LENGTH},
             },
             "novelty": {"type": "string", "enum": ["distinct", "uncertain"]},
             "safety": {"type": "string", "enum": ["safe", "reject"]},
@@ -104,7 +111,7 @@ def assessment_response_schema(policy="source-span-single-choice/v3") -> dict[st
         candidate["required"].extend(["source_quote", "rationale"])
         candidate["properties"].update({
             "source_quote": {"type": "string", "minLength": 1},
-            "rationale": {"type": "string", "minLength": 1},
+            "rationale": {"type": "string", "minLength": 1, "maxLength": RATIONALE_MAX_LENGTH},
         })
     return {
         "type": "object",

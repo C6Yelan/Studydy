@@ -628,7 +628,7 @@ def test_failed_initial_source_can_be_removed_and_reuploaded_without_rewriting_h
         remove_staged_source(owner, material, source, dsn=dsn)
     with monkeypatch.context() as patch:
         def fail(*args, **kwargs):
-            raise MaterialAnalysisError('SEMANTIC_OUTPUT_TRUNCATED')
+            raise MaterialAnalysisError('SEMANTIC_OUTPUT_INVALID')  # 截斷已改為可自動重試
         patch.setattr(processing, 'analyze_material', fail)
         assert execute().status == 'failed'
     with database_session(dsn) as session:

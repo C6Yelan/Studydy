@@ -326,3 +326,12 @@ def test_saved_policy_keeps_generation_and_stored_answers_readable(policy):
     for include_answer_key in (False, True):
         feedback = _feedback(event, row, include_answer_key=include_answer_key)
         assert feedback.rationale == ("教材指出陣列大小為 8 位元組。" if translated else "")
+
+
+def test_assessment_schema_bounds_free_text():
+    from learning_adaptation import assessments
+    candidate = assessments.assessment_response_schema()["properties"]["candidates"]["items"]["properties"]
+    assert candidate["prompt"]["maxLength"] == assessments.PROMPT_MAX_LENGTH
+    assert candidate["correct_answer"]["maxLength"] == assessments.OPTION_MAX_LENGTH
+    assert candidate["distractors"]["items"]["maxLength"] == assessments.OPTION_MAX_LENGTH
+    assert candidate["rationale"]["maxLength"] == assessments.RATIONALE_MAX_LENGTH

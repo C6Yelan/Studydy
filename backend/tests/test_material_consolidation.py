@@ -367,3 +367,14 @@ def test_single_group_over_capacity_stays_unmerged_and_needs_review(monkeypatch)
     assert result['concepts'] == doc['concepts'] and result['status']['quality'] == 'needs_review'
     blocked = archive.values['consolidation/result']['blocked_changes']
     assert blocked and all(b['findings'] == {'reason_code': 'SEMANTIC_INPUT_TOO_LARGE'} for b in blocked)
+
+
+def test_consolidation_schema_bounds_checks_and_reasons():
+    from runtime.material_consolidation import _response_schema
+    schema = _response_schema("consolidation_check", {"check_concepts": [0, 2]}, merge.Checks)
+    assert schema["properties"]["checks"]["maxItems"] == 2
+    assert schema["$defs"]["Check"]["properties"]["reason"]["maxLength"] == merge.REASON_MAX_LENGTH
+    with pytest.raises(Exception):
+        merge.Check(concept=0, equivalent_concepts=True, preserves_unique_information=True,
+                    sources_support_text=True, duplicates_removed=True,
+                    reason="x" * (merge.REASON_MAX_LENGTH + 1))
