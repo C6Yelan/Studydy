@@ -620,25 +620,47 @@ def _selection_batches(entries, budget):
     return [part for batch in result for part in fit(batch)]
 
 
+def _repair_selection(response, request):
+    """Gemma 常違反選取規則；能讀出結構時以確定性規則修補，不讓整份速覽失敗。
+
+    重複或不屬於該概念的 id 移除、重複概念合併、缺少的概念視為空選取；
+    超過 5 個依模型順序截斷，不足 3 個依候選原順序補足。結構讀不出時回傳 None。
+    """
+    picks = response.get("concepts") if isinstance(response, dict) else None
+    if not isinstance(picks, list) or not all(
+        isinstance(p, dict) and isinstance(p.get("concept"), str)
+        and isinstance(p.get("claim_ids"), list) and all(isinstance(i, str) for i in p["claim_ids"])
+        for p in picks
+    ):
+        return None
+    expected = {k["ref"]: [q["ref"] for q in k["claims"]] for k in request["concepts"]}
+    chosen = []
+    for pick in picks:
+        allowed = expected.get(pick["concept"], [])
+        chosen.extend(ref for ref in pick["claim_ids"] if ref in allowed and ref not in chosen)
+    chosen = chosen[:request["max_claims"]]
+    candidates = list(dict.fromkeys(ref for refs in expected.values() for ref in refs))
+    for ref in candidates:
+        if len(chosen) >= min(3, len(candidates)):
+            break
+        if ref not in chosen:
+            chosen.append(ref)
+    return chosen
+
+
 def _select_batch(batch, call):
     request, refs = _selection_request(batch)
-    expected = {k["ref"]: {q["ref"] for q in k["claims"]} for k in request["concepts"]}
     for attempt in range(2):
         response = call(request)
-        try:
-            picks = note_content.SummarySelection.model_validate(response).concepts
-            if (sorted(p.concept for p in picks) != sorted(expected)
-                or any(len(p.claim_ids) != len(set(p.claim_ids)) or not set(p.claim_ids) <= expected[p.concept] for p in picks)
-                or not min(3, len(refs)) <= sum(len(p.claim_ids) for p in picks) <= 5):
-                raise ValueError("NOTE_SELECTION_INVALID")
-            return {refs[ref] for p in picks for ref in p.claim_ids}
-        except ValueError:
-            if attempt:
-                raise ValueError("NOTE_SELECTION_INVALID") from None
-            request = {**request, "correction": {
-                "instruction": "修正前次選取結果：每個概念 ref 恰好回覆一次，claim_ids 可為空；全章合計選3～5個（候選不足3個則全選），只能選各概念自己的候選，不重複。",
-                "previous_response": response,
-            }}
+        chosen = _repair_selection(response, request)
+        if chosen is not None:
+            return {refs[ref] for ref in chosen}
+        if attempt:
+            raise ValueError("NOTE_SELECTION_INVALID")
+        request = {**request, "correction": {
+            "instruction": "修正前次選取結果：回覆 {\"concepts\": [{\"concept\": 概念 ref, \"claim_ids\": [候選 ref]}]}；每個概念 ref 恰好回覆一次，claim_ids 可為空；全章合計選3～5個（候選不足3個則全選），只能選各概念自己的候選，不重複。",
+            "previous_response": response,
+        }}
 
 
 def finalize(paragraphs, concepts, kind):
