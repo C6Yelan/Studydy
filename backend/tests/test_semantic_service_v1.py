@@ -438,6 +438,16 @@ def test_repeated_text_after_retry_is_returned_to_feature_validation():
     assert result == {'text': '分布分布'} and len(requests) == 2
 
 
+def test_repeated_text_retry_keeps_budget_and_falls_back_when_retry_fails():
+    requests = []
+    first = '{"text":"分布分布"}'
+    with _chat([('stop', first), ('length', '{"text":"分')], requests) as client:
+        result = request_semantics(client, runtime_lock=_lock(), task='material_review',
+                                   request={}, response_schema={})
+    assert result == {'text': '分布分布'}
+    assert requests == [20768, 20768]
+
+
 def test_unavailable_service_waits_with_backoff_then_continues(monkeypatch):
     import runtime.semantic_service as service
     clock = [0.0]

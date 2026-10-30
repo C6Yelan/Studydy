@@ -383,8 +383,9 @@ def _degenerate_text(value: Any, source: str) -> bool:
 def request_semantics(client: httpx.Client, **arguments: Any) -> dict[str, Any]:
     """透過共用 HTTP 邊界請求語意結果。
 
-    輸出截斷，或出現原文沒有的疊字／思考殘字時，以較小輸出上限重試一次；
-    重試仍有疊字就交回該結果，由各功能既有的驗證決定是否採用。
+    輸出截斷時以較小輸出上限重試一次。出現原文沒有的疊字／思考殘字時以原輸出上限
+    重試一次；重試失敗就交回第一次的結果，重試仍有疊字就交回重試結果，
+    都由各功能既有的驗證決定是否採用。
     """
 
     try:
@@ -392,13 +393,17 @@ def request_semantics(client: httpx.Client, **arguments: Any) -> dict[str, Any]:
     except SemanticServiceError as error:
         if error.reason_code != "SEMANTIC_OUTPUT_TRUNCATED":
             raise
-    else:
-        source = canonical_bytes(arguments["request"]).decode("utf-8")
-        if not _degenerate_text(result, source):
-            return result
-    return _request_semantics_once(
-        client, **arguments, max_tokens_cap=TRUNCATION_RETRY_MAX_TOKENS
-    )
+        return _request_semantics_once(
+            client, **arguments, max_tokens_cap=TRUNCATION_RETRY_MAX_TOKENS
+        )
+    source = canonical_bytes(arguments["request"]).decode("utf-8")
+    if not _degenerate_text(result, source):
+        return result
+    # 第一次已是完整可解析的結果；重試只為換掉疊字，不能讓它把可用結果變成失敗。
+    try:
+        return _request_semantics_once(client, **arguments)
+    except SemanticServiceError:
+        return result
 
 
 def _request_semantics_once(
