@@ -177,7 +177,7 @@ def test_material_semantics_thinking_switch_is_the_only_generation_freedom(think
     from runtime.material_runtime import validate_runtime_lock
 
     lock = json.loads((Path(__file__).parents[4] / 'local_ai/runtime-lock.json').read_text())
-    assert lock['material_review']['generation']['chat_template_kwargs'] == {'enable_thinking': True}
+    assert lock['material_review']['generation']['chat_template_kwargs'] == {'enable_thinking': False}
     lock['material_semantics']['generation']['chat_template_kwargs']['enable_thinking'] = thinking
     validate_runtime_lock(lock)
     for task, key, value in (

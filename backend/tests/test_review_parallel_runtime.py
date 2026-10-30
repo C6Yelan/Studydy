@@ -21,9 +21,12 @@ def config(luna=True):
             'material_review': {'prompt': 'synthetic'}}
 
 
-@pytest.mark.parametrize('flag,luna,width', [('0', True, 1), ('1', False, 1), ('1', True, 2)])
-def test_real_coordinator_parallelism_is_opt_in_and_luna_only(tmp_path, monkeypatch, flag, luna, width):
+@pytest.mark.parametrize('flag,luna,configured,width', [('0', True, None, 1), ('1', False, None, 1), ('1', True, None, 2),
+    ('0', False, '4', 4), ('1', True, '4', 2)])
+def test_real_coordinator_parallelism_is_opt_in(tmp_path, monkeypatch, flag, luna, configured, width):
     monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', flag)
+    if configured: monkeypatch.setenv('STUDYDY_MATERIAL_REVIEW_CONCURRENCY', configured)
+    else: monkeypatch.delenv('STUDYDY_MATERIAL_REVIEW_CONCURRENCY', raising=False)
     view, units = inputs(4)
     before = deepcopy(view)
     gate, mutex = Barrier(width), Lock()
@@ -224,3 +227,11 @@ def test_single_concept_still_too_large_is_left_unreviewed_when_skipping_is_allo
     # 未允許略過時維持原本的整體失敗。
     with pytest.raises(SemanticServiceError, match='SEMANTIC_INPUT_TOO_LARGE'):
         _review_units(view, [oversized], config(), Archive(tmp_path / 'other'), lambda: None, lambda *p: None)
+
+
+@pytest.mark.parametrize('value', ['0', 'x'])
+def test_invalid_review_concurrency_is_rejected(monkeypatch, value):
+    from runtime.material_review import review_concurrency
+    monkeypatch.setenv('STUDYDY_MATERIAL_REVIEW_CONCURRENCY', value)
+    with pytest.raises(ValueError, match='MATERIAL_REVIEW_CONCURRENCY_INVALID'):
+        review_concurrency()

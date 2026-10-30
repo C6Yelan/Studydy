@@ -1298,3 +1298,99 @@ def test_writer_gets_the_original_section_heading_and_program_sets_all_three_lev
     result = mn.complete_sections(values, plan, model, [], lambda *args: None)
     assert [r["previous_section"] for r in writers] == ["原節 0", "原節 1", "原節 2"]
     assert [p["level"] for p in result] == [1, 2, 3]
+
+
+def chapter_plan():
+    """兩個一級章；第一章含一個二級小節，第二章的批次跨用第一章概念的另一重點。"""
+    part = lambda concept, claim: [{"concept_id": concept, "claim_ids": [claim]}]
+    return [{"heading": "第一章", "level": 1, "parts": [part("k0", "q00"), part("k0", "q01")]},
+        {"heading": "1.1", "level": 2, "parts": [part("k1", "q10")]},
+        {"heading": "第二章", "level": 1, "parts": [part("k2", "q20"), part("k1", "q11")]}]
+
+
+PART_TEXTS = ["概念0的第 0 點", "概念0的第 1 點", "概念1的第 0 點", "概念2的第 0 點", "概念1的第 1 點"]
+
+
+def writer_part(request):
+    return PART_TEXTS.index(request["concepts"][0]["claims"][0]["text"])
+
+
+def test_chapter_concurrency_one_keeps_part_order_and_whole_prior_context():
+    values, writers, saved = three_concepts(), [], []
+    def model(request):
+        if request.get("phase") != "review_paragraph":
+            writers.append(request)
+        return response(request)
+    result = mn.complete_sections(values, chapter_plan(), model, [], lambda i, p: saved.append(i), concurrency=1)
+    assert [writer_part(r) for r in writers] == saved == [0, 1, 2, 3, 4]
+    assert {text_of(p) for p in writers[3]["previous_content"]} == set(PART_TEXTS[:3])
+    assert [text_of(p) for p in result] == PART_TEXTS
+
+
+def test_chapters_run_in_parallel_keep_inner_order_and_assemble_by_part():
+    import threading
+    values, writers, saved, results = three_concepts(), [], [], []
+    second_chapter_started = threading.Event()
+    def model(request):
+        if request.get("phase") != "review_paragraph":
+            index = writer_part(request)
+            writers.append(index)
+            if index == 3:
+                second_chapter_started.set()
+            if index == 0:
+                # 第一章第一批要等到第二章已送出請求，證明兩章同時進行。
+                assert second_chapter_started.wait(5)
+        return response(request)
+    result = mn.complete_sections(values, chapter_plan(), model, results, lambda i, p: saved.append(i), concurrency=2)
+    assert [i for i in writers if i < 3] == [0, 1, 2] and [i for i in writers if i >= 3] == [3, 4]
+    assert sorted(saved) == [0, 1, 2, 3, 4] and None not in results
+    assert result == mn.complete_sections(values, chapter_plan(), response, [], lambda *args: None)
+
+
+def test_parallel_failure_stops_other_chapters_keeps_finished_parts_and_resumes_gaps():
+    import threading, time
+    values, saved, results, diagnostics = three_concepts(), [], [], []
+    first_saved, failed = threading.Event(), threading.Event()
+    writers = []
+    def on_part(index, paragraphs):
+        saved.append(index)
+        first_saved.set()
+    def model(request):
+        if request.get("phase") != "review_paragraph":
+            index = writer_part(request)
+            writers.append(index)
+            if index == 3:
+                assert first_saved.wait(5)
+                failed.set()
+                raise RuntimeError("provider down")
+            if index == 1:
+                assert failed.wait(5)
+                time.sleep(0.2)
+        return response(request)
+    with pytest.raises(RuntimeError, match="provider down"):
+        mn.complete_sections(values, chapter_plan(), model, results, on_part, diagnostics, concurrency=2)
+    assert saved == [0] and results[0] is not None and results[1:] in ([], [None] * 4)
+    assert 2 not in writers
+    resumed = []
+    def finish(request):
+        if request.get("phase") != "review_paragraph":
+            resumed.append(writer_part(request))
+        return response(request)
+    result = mn.complete_sections(values, chapter_plan(), finish, results, lambda *args: None, concurrency=2)
+    assert sorted(resumed) == [1, 2, 3, 4]
+    assert [text_of(p) for p in result] == PART_TEXTS
+
+
+def test_section_progress_counts_parallel_gaps():
+    from types import SimpleNamespace
+    plan = [{**s, "label": s["heading"]} for s in chapter_plan()]
+    row = SimpleNamespace(section_plan=plan, progress_stage="generating", section_results=[[], None, None, [], []])
+    assert mn.section_progress(row) == {"stage": "generating", "completed_sections": 1, "total_sections": 3,
+        "completed_parts": 3, "total_parts": 5, "current_section": "第一章"}
+
+
+def test_invalid_chapter_concurrency_is_rejected(monkeypatch):
+    for value in ("0", "x"):
+        monkeypatch.setenv("STUDYDY_NOTES_CHAPTER_CONCURRENCY", value)
+        with pytest.raises(ValueError, match="^NOTES_CHAPTER_CONCURRENCY_INVALID$"):
+            mn.chapter_concurrency()

@@ -68,6 +68,22 @@ def test_eight_calls_are_parallel_and_global_state_has_no_key_collisions():
     assert any(s['progress']['ranges'] for s in snapshots)
 
 
+def test_small_material_that_fits_one_request_is_split_to_use_all_lanes():
+    def analyze(delay):
+        gate=Barrier(8);calls=[]
+        def call(client,**kwargs):
+            rows=kwargs['request']['sections'][0]['evidence'];calls.append(len(rows))
+            gate.wait(timeout=10);time.sleep(delay(rows[0][0]))
+            return response(kwargs)
+        state=SemanticState();progress={'cursor':0,'semantic_calls':0,'ranges':[]}
+        assert analyze_blocks(context(16),state,progress,lock=_runtime_lock(),fits=lambda r:True,
+            semantic_call=call,archive=Archive(),checkpoint=lambda:None,report=lambda *_:None,check_cancel=lambda:None)
+        assert calls==[2]*8 and progress['cursor']==16
+        return state
+    forward=analyze(lambda handle:handle*.003);backward=analyze(lambda handle:(16-handle)*.003)
+    assert forward==backward
+
+
 def test_failed_gap_resume_does_not_repeat_completed_out_of_order_blocks():
     archive=Archive();state=SemanticState();progress={'cursor':0,'semantic_calls':0,'ranges':[]};gate=Barrier(8)
     first_attempt=set();mutex=Lock()
@@ -216,10 +232,11 @@ def test_pipeline_restores_old_checkpoint_without_extracting_completed_pdf(tmp_p
         calls.extend(e[0] for s in kwargs['request']['sections'] for e in s['evidence'])
         return response(kwargs)
     result=pipeline.analyze_material([_request(source)],{'source_set_digest':'1'*64},settings,client=Client(),analysis_archive=archive,semantic_call=call)
-    assert calls==[7,8,9]
+    # 10 個區塊按 8 路分攤成每批最多 2 個，剩餘的 7～9 分兩批並行。
+    assert sorted(calls)==[7,8,9]
     assert archive.saved['state']['concepts']['old']==saved['state']['concepts']['old']
     assert archive.saved['cursor']==10 and archive.saved['complete']
-    assert result['metrics']['ocr_calls']==4 and result['metrics']['semantic_calls']==252
+    assert result['metrics']['ocr_calls']==4 and result['metrics']['semantic_calls']==253
 
 
 def test_confirmed_learning_scope_is_bound_only_to_sources_in_the_block():

@@ -97,7 +97,7 @@ def test_tasks_share_configured_http_wire(task, budget):
         body = json.loads(request.content)
         requests.append((request.url.path, body))
         assert body['model'] == 'example/semantic-model'
-        assert body['chat_template_kwargs'] == {'enable_thinking': True}
+        assert body['chat_template_kwargs'] == {'enable_thinking': task != 'material_review'}
         if request.url.path == '/tokenize':
             return httpx.Response(200, json={'count': 50, 'max_model_len': 32768})
         assert body['max_tokens'] == budget
