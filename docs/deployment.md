@@ -365,6 +365,8 @@ Migration 0022 新增 material_processing_runs.auto_retry_count／auto_retry_rea
 
 STUDYDY_MATERIAL_WORKERS 預設 1，需多教材時由管理者在本機 .env 設定正整數後更新後端。provider 的教材分析／審查依 call-tags feature 分流，章節和其他文字功能仍用單一文字槽；STUDYDY_LUNA_PARALLEL_TEST=1 時教材分析與審查共用兩槽，增加 worker 不增加 provider 槽數。指定維護 run 不使用一般分析的自動重試。
 
+STUDYDY_NOTES_CHAPTER_CONCURRENCY 設定一份完整筆記同時生成的一級章數，預設 1（逐批依序）。大於 1 時各章並行、章內依序；前文只看當下已完成且位置在前的批次，跨章重述的攔截較少。速覽不受影響。同時請求數約為教材 worker 數乘以此值，須小於模型服務的 `--max-num-seqs`。
+
 ## 學習紀錄與永久徽章
 
 新增 learning_retained_days、learning_awards、learning_celebrations，原教材／作答／標記的資料格式不變。刪除先在同一交易保留每日統計與去重身分，再依原流程清內容；部署前已刪除而沒有紀錄的活動不能回補。既有帳號首次計算時保存目前已得徽章並將等級／徽章標記已看過，新帳號按原子領取端點取得新事件。

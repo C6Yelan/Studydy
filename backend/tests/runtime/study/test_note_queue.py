@@ -281,6 +281,52 @@ def test_full_sections_report_progress_and_resume_saved_parts(closed_loop, tmp_p
 
 
 
+def test_parallel_chapters_save_finished_parts_by_position_and_resume_the_gap(closed_loop, tmp_path, monkeypatch):
+    import threading, time
+    from runtime.storage.tables import KnowledgeChapters
+    monkeypatch.setenv('STUDYDY_NOTES_CHAPTER_CONCURRENCY', '2')
+    f, client, path = setup(closed_loop, tmp_path, monkeypatch)
+    drain(f)
+    owner, material, revision = f['learner'].learner_id, f['source'].material_id, f['document']['revision']
+    key = (owner, material, revision, 'full')
+    concepts = f['document']['concepts']
+    with database_session(f['dsn']) as db:
+        chapters = db.get(KnowledgeChapters, (owner, material, revision))
+        chapters.status = 'ready'
+        chapters.chapters = [{'title': f'章節 {i+1}', 'concept_ids': [c['concept_id']], 'fallback': False}
+            for i, c in enumerate(concepts)]
+    assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code == 202
+    def first_chapter_saved():
+        with database_session(f['dsn']) as db:
+            return (db.get(MaterialNotes, key).section_results or [None])[0] is not None
+    def second_chapter_fails(request):
+        if request.get('phase') != 'review_paragraph' and request['concepts'][0]['label'] == concepts[1]['label']:
+            # 第二章等第一章存檔後才失敗，證明另一章的已完成批次依位置保存。
+            deadline = time.monotonic() + 10
+            while not first_chapter_saved():
+                assert time.monotonic() < deadline
+                time.sleep(0.05)
+            raise RuntimeError('synthetic provider failure')
+        return answer(request)
+    assert mn.step(dsn=f['dsn'], call=second_chapter_fails)
+    failed = client.get(path+'/full').json()
+    assert failed['status'] == 'failed'
+    assert failed['progress']['completed_parts'] == 1 and failed['progress']['current_section'] == '章節 2'
+    with database_session(f['dsn']) as db:
+        saved = db.get(MaterialNotes, key).section_results
+        assert saved[0] is not None and all(part is None for part in saved[1:])
+    assert client.post(path+'/full',headers=HEADERS,json={'expected_generation':0}).status_code == 202
+    resumed = []
+    def finish(request):
+        if request.get('phase') != 'review_paragraph':
+            resumed.append(request['concepts'][0]['label'])
+        return answer(request)
+    assert mn.step(dsn=f['dsn'], call=finish)
+    done = client.get(path+'/full').json()
+    assert done['status'] == 'ready' and resumed == [concepts[1]['label']]
+    assert len(done['paragraphs']) == 3
+
+
 def test_changed_contract_discards_unpublished_sections_and_retry_can_finish(closed_loop, tmp_path, monkeypatch):
     f, client, path=setup(closed_loop,tmp_path,monkeypatch)
     drain(f)

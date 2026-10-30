@@ -2,8 +2,12 @@
 from copy import deepcopy
 from datetime import UTC, datetime
 from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+from threading import Event, Lock
 import json
 import logging
+import os
 
 from pydantic import ValidationError
 from sqlalchemy import select, or_, text, func
@@ -669,16 +673,45 @@ RETRYABLE_PART_ERRORS = {"NOTE_FORMAT_INVALID",
 PART_ATTEMPTS = 3
 
 
-def complete_sections(concepts, plan, call, results, on_part, diagnostics=None, kind="full"):
+def chapter_concurrency():
+    """完整筆記同時生成的章數；1 時與逐批依序完全相同。"""
+    try:
+        value = int(os.environ.get("STUDYDY_NOTES_CHAPTER_CONCURRENCY", "1"))
+        if value < 1:
+            raise ValueError
+    except ValueError:
+        raise ValueError("NOTES_CHAPTER_CONCURRENCY_INVALID") from None
+    return value
+
+
+class _ChapterStopped(Exception):
+    """別章已失敗，本章不再送出新的模型請求。"""
+
+
+def complete_sections(concepts, plan, call, results, on_part, diagnostics=None, kind="full", concurrency=1):
+    """章內依序；concurrency>1 時各一級章並行，前文取當下已完成、位置在前的批次。
+    results 依批次位置保存，並行時未完成的位置為 None。"""
     diagnostics = [] if diagnostics is None else diagnostics
     by_id = {c["concept_id"]: c for c in concepts}
     parts = [(section, part) for section in plan for part in section["parts"]]
-    for index in range(len(results), len(parts)):
+    chapters = []
+    offset = 0
+    for section in plan:
+        if section["level"] == 1 or not chapters:
+            chapters.append([])
+        chapters[-1].extend(range(offset, offset + len(section["parts"])))
+        offset += len(section["parts"])
+    pending = [[i for i in chapter if i >= len(results) or results[i] is None] for chapter in chapters]
+    lock = Lock()
+    failed = Event()
+
+    def run_part(index, call, diagnostics):
         section, batch = parts[index]
         selected = [{**by_id[c["concept_id"]], "claims": [q for q in by_id[c["concept_id"]]["claims"]
             if q["claim_id"] in c["claim_ids"]]} for c in batch]
         codes = []
-        previous = [p for part in results for p in part]
+        with lock:
+            previous = [p for part in results[:index] if part is not None for p in part]
         generated = None
         while True:
             try:
@@ -711,7 +744,46 @@ def complete_sections(concepts, plan, call, results, on_part, diagnostics=None, 
             diagnostics.append({"event": "part_attempts", "part": index, "attempts": len(codes) + 1,
                 "failed": codes, "succeeded": True})
         on_part(index, generated)
-        results.append(generated)
+        with lock:
+            results.extend([None] * (index + 1 - len(results)))
+            results[index] = generated
+
+    if concurrency == 1:
+        for chapter in pending:
+            for index in chapter:
+                run_part(index, call, diagnostics)
+    else:
+        def guarded(payload):
+            if failed.is_set():
+                raise _ChapterStopped()
+            return call(payload)
+
+        def run_chapter(chapter, chapter_diagnostics):
+            for index in chapter:
+                if failed.is_set():
+                    return
+                try:
+                    run_part(index, guarded, chapter_diagnostics)
+                except _ChapterStopped:
+                    return
+                except Exception as error:
+                    with lock:
+                        errors.append(error)
+                    failed.set()
+                    return
+
+        errors, logs = [], [[] for _ in pending]
+        try:
+            # 模型呼叫的歸屬記錄在 contextvar；每章複製一份才接得上同一個工作。
+            with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="note-chapter") as pool:
+                for chapter, log in zip(pending, logs):
+                    if chapter:
+                        pool.submit(copy_context().run, run_chapter, chapter, log)
+        finally:
+            for log in logs:
+                diagnostics.extend(log)
+        if errors:
+            raise errors[0]
     return finalize([p for part in results for p in part], concepts, kind)
 
 
@@ -719,11 +791,14 @@ def section_progress(row):
     if row.section_plan is None:
         return None
     total = sum(len(s["parts"]) for s in row.section_plan)
-    completed = total if row.progress_stage == "completed" else len(row.section_results or [])
+    done = [part is not None for part in row.section_results or []]
+    completed = total if row.progress_stage == "completed" else sum(done)
     offset, sections, current = 0, 0, None
     for section in row.section_plan:
+        # 無批次的小節沿用前段全部完成才算完成；有批次的小節看自己的批次。
+        indices = range(offset if section["parts"] else 0, offset + len(section["parts"]))
         offset += len(section["parts"])
-        if offset <= completed:
+        if row.progress_stage == "completed" or all(i < len(done) and done[i] for i in indices):
             sections += 1
         elif current is None:
             current = section["label"]
@@ -732,7 +807,7 @@ def section_progress(row):
             "total_parts": total, "current_section": current}
 
 
-def _progress(claim, dsn, *, plan=None, part=None, previous=None, stage="generating"):
+def _progress(claim, dsn, *, plan=None, part=None, stage="generating"):
     with database_session(dsn) as db:
         _material(db, *claim["key"][:2], lock=True)
         row = db.get(MaterialNotes, claim["key"], with_for_update=True)
@@ -742,9 +817,13 @@ def _progress(claim, dsn, *, plan=None, part=None, previous=None, stage="generat
             row.section_plan, row.section_results = plan, []
         if part is not None:
             index, paragraphs = part
-            if len(row.section_results or []) != index:
+            saved = list(row.section_results or [])
+            # 並行章節會跳號完成；同一位置已有結果代表另一個 worker 接手過。
+            if index < len(saved) and saved[index] is not None:
                 raise JobCancelled()
-            row.section_results = [*(previous if previous is not None else row.section_results or []), paragraphs]
+            saved.extend([None] * (index + 1 - len(saved)))
+            saved[index] = paragraphs
+            row.section_results = saved
         row.progress_stage = stage
         row.updated_at = datetime.now(UTC)
 
@@ -763,7 +842,8 @@ def _complete(claim, concepts, call, dsn, diagnostics, *, input_budget):
             else plan_sections(concepts, sections))
         _progress(claim, dsn, plan=plan)
     result = complete_sections(concepts, plan, call, claim["results"],
-        lambda index, paragraphs: _progress(claim, dsn, part=(index, paragraphs), previous=claim["results"]), diagnostics, kind)
+        lambda index, paragraphs: _progress(claim, dsn, part=(index, paragraphs)), diagnostics, kind,
+        chapter_concurrency() if kind == "full" else 1)
     _progress(claim, dsn, stage="validating")
     return result, note_sections.published(plan, result, concepts, kind=kind)
 

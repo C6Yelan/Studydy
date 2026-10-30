@@ -35,6 +35,7 @@ chmod 600 .env
 | STUDYDY_SEMANTIC_BASE_URL | 模型 origin，不含 /v1、帳密、query 或 fragment |
 | VLLM_API_KEY | 選用模型 Bearer token；空值不送 Authorization |
 | STUDYDY_MATERIAL_WORKERS | 教材處理執行緒數，正整數，預設 1；不改 provider 模型槽數 |
+| STUDYDY_NOTES_CHAPTER_CONCURRENCY | 一份完整筆記同時生成的一級章數，正整數，預設 1（逐批依序） |
 | COMPOSE_PROFILES | 直接 HTTP／HTTPS 留空；使用 SSH 設 ssh |
 
 容器的 127.0.0.1 指向自己。模型在主機時可使用 host.docker.internal，但服務須監聽容器可達介面；其他容器或遠端服務使用其可達 origin。

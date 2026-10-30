@@ -139,6 +139,7 @@ class RuntimeWorkers:
                 raise ValueError
         except ValueError:
             raise ValueError("MATERIAL_WORKER_COUNT_INVALID") from None
+        material_notes.chapter_concurrency()
         # lease／checkpoint 負責中斷恢復，阻塞的 I/O 不應卡住程序退出。
         self._thread = Thread(
             target=self._loop, name="studydy-material-worker", daemon=True
