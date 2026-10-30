@@ -184,7 +184,7 @@ def test_card_stream_releases_generation_slot_but_keeps_temporary_files_locked(m
     # 成就用的匯出紀錄寫在 DB；這些案例沒有 DB，只記下呼叫。
     exported = []
     monkeypatch.setattr(export_routes, 'record_export', lambda learner, kind, **_: exported.append((learner, kind)))
-    monkeypatch.setattr(export_routes.material_notes, 'read', lambda *_args, **_kwargs: {'paragraphs': [{}], 'content_revision': 1, 'content_generation': 1})
+    monkeypatch.setattr(export_routes.material_notes, 'read', lambda *_args, **_kwargs: {'paragraphs': [{'id': 'p1', 'text': ''}], 'content_revision': 1, 'content_generation': 1})
     monkeypatch.setattr(export_routes.note_highlights, 'listing', lambda *_args, **_kwargs: [])
     from contextlib import nullcontext
     from runtime.storage import database
