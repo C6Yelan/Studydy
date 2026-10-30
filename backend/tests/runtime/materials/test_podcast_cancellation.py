@@ -19,8 +19,56 @@ from test_podcast_process import provider_server, provider, wait_until, alive
 from runtime.generation_jobs import cancellable_job
 
 
+# 講稿與集名在後端經 semantic_service 呼叫；以阻塞的模型 HTTP 驗證取消（不需 Gemma，直接走 vLLM 邊界）。
 @pytest.mark.parametrize('action', ['cancel', 'delete'])
-@pytest.mark.parametrize('stage', ['script', 'audio'])
+@pytest.mark.parametrize('stage', ['script', 'title'])
+def test_cancel_or_delete_running_text_job_unblocks_next(closed_loop, monkeypatch, action, stage):
+    from runtime import podcast_worker, semantic_service
+    from test_inference_controlled_exit import blocked_http
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)['podcast_id']
+    next_id = create(closed_loop, key='next-job')['podcast_id']
+    blocked = False
+    def generate_script(body, **kwargs):
+        nonlocal blocked
+        assert set(body['hosts']) == {'host'} and body['series']['episode_number'] == 1
+        if stage == "script" and not blocked:
+            blocked = True
+            semantic_service.generate('synthetic', {'type': 'object'})
+        return script({'episode': {'claims': body['claims']}})
+    monkeypatch.setattr(podcast_worker, 'script', generate_script)
+    original_title = podcast_worker.podcast_titles.generate
+    title_started = False
+    def generate_title(*args, **kwargs):
+        nonlocal title_started
+        if stage == "title" and not title_started:
+            title_started = True
+            return original_title(*args, **kwargs)
+        return None
+    monkeypatch.setattr(podcast_worker.podcast_titles, 'generate', generate_title)
+    with blocked_http(monkeypatch) as server:
+        worker = BackgroundWorker(partial(step, dsn=dsn), name='test-podcast', error_code='PODCAST_WORKER_FAILED').start()
+        try:
+            assert server.entered.wait(5)
+            view = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
+            if action == 'cancel':
+                podcasts.change_podcast(owner.learner_id, identity, 'cancel', view['version'], dsn=dsn)
+            else:
+                podcasts.delete_podcast(owner.learner_id, identity, dsn=dsn)
+            # 下一筆的講稿完成即表示 worker 已解鎖；配音不在此案例範圍。
+            wait_until(lambda: podcasts.read_podcast(owner.learner_id, next_id, dsn=dsn)['episodes'][0]['script'], timeout=8)
+            with database_session(dsn) as db:
+                row = db.get(Podcast, identity)
+                assert row.status == 'deleted' and row.lease_token is None
+        finally:
+            server.release.set()
+            worker.stop()
+            worker.thread.join(timeout=7)
+            assert not worker.thread.is_alive()
+
+
+@pytest.mark.parametrize('action', ['cancel', 'delete'])
+@pytest.mark.parametrize('stage', ['audio'])
 def test_cancel_or_delete_running_job_kills_child_and_unblocks_next(closed_loop, provider_server, monkeypatch, tmp_path, action, stage):
     owner, _, _, _, dsn, _ = closed_loop
     identity = create(closed_loop)['podcast_id']
@@ -39,18 +87,17 @@ def test_cancel_or_delete_running_job_kills_child_and_unblocks_next(closed_loop,
                 'import os,time,pathlib,sys;pathlib.Path(sys.argv[1]).write_text(str(os.getpid()));time.sleep(60)', str(marker)],
                 timeout=65, cancelled=cancelled)
 
-    def generate_script(body, *, cancelled=None, diagnostics=None):
-        # provider 以 diagnostics 收集逐段核對次數；替身不核對，只接受同一個呼叫介面。
-        # worker 必須送出主持人名字與系列位置，provider 才能寫開場與預告。
-        assert set(body['hosts']) == {'host'} and body['series']['episode_number'] == 1
-        wait_first('script', cancelled)
+    def generate_script(body, **kwargs):
+        # 下一筆節目的講稿替身；本案例只阻塞配音。
         return script({'episode': {'claims': body['claims']}})
 
     def generate_audio(body, *, cancelled=None, **kwargs):
         wait_first('audio', cancelled)
         return wav(), None
 
-    monkeypatch.setattr(provider, 'script', generate_script)
+    from runtime import podcast_worker
+    monkeypatch.setattr(podcast_worker, 'script', generate_script)
+    monkeypatch.setattr(podcast_worker.podcast_titles, 'generate', lambda *a, **k: None)
     monkeypatch.setattr(provider, 'audio', generate_audio)
     worker = BackgroundWorker(
         partial(step, dsn=dsn), name="test-podcast", error_code="PODCAST_WORKER_FAILED"

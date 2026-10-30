@@ -3,7 +3,7 @@ from threading import Event
 from uuid import uuid4
 
 from test_podcast_process import provider_server, wait_until
-from test_podcast_provider import provider
+from test_podcast_provider import host as provider
 from runtime import podcast_process, provider_http
 
 

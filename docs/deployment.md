@@ -85,7 +85,7 @@ Studydy AI BOT也共用 Podcast 的整句混讀、台灣口音指令、原 host 
 
 ## Podcast 講稿逐段核對
 
-`ops/podcast/provider.py` 的 `/script` 改為生成後逐段核對（`source-script/v17`），核對提示存於 runtime lock 的 `podcast_script_review`（`podcast-script-review/v2`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash：新工作的 provenance 記錄新 hash，進行中的教材分析、筆記與題組工作沿用各自封存的 lock，不受影響。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊講稿保持可讀；本次繁中更新須先上線 provider bundle，再部署帶有新 lock 的 backend。重啟前由協調者建立 HOLD_LUNA，照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。`/script` 從生成到核對完成都持有 provider 的文字鎖，每集約 60～140 秒（12 段都重寫的最壞情況約 37 次呼叫、4～5 分鐘）；期間Studydy AI BOT、卡片、主題與研究等 `/semantics` 文字請求會排隊等待（不逾時）。工作日誌 `script_review` 記實際呼叫次數。bundle 內程式與 lock 不一致時，工作日誌記 `PODCAST_REVIEW_CONTRACT_INVALID`，backend 顯示為 `PODCAST_PROVIDER_FAILED`。
+Podcast 講稿（現由 backend 的 `podcast_script_generation.py` 依 runtime lock 呼叫文字模型）生成後逐段核對（`source-script/v17`），核對提示存於 runtime lock 的 `podcast_script_review`（`podcast-script-review/v2`）；已保存的 lock、知識結構與講稿 hash 不改寫，舊 lock 沒有此項仍有效。新增 lock 項目會改變目前 lock 的整份 hash：新工作的 provenance 記錄新 hash，進行中的教材分析、筆記與題組工作沿用各自封存的 lock，不受影響。provider 以新 bundle（含同版 `local_ai/runtime-lock.json`）更新並重啟即生效，不需 migration；backend 的 worker 與錯誤碼不變，舊講稿保持可讀；本次繁中更新須先上線 provider bundle，再部署帶有新 lock 的 backend。重啟前由協調者建立 HOLD_LUNA，照「免費通用搜尋」一節的規則等正在執行的 Podcast／影片／問答工作完成。Luna 通道下每次生成、核對與重寫各自經 provider `/semantics` 排入文字鎖，不再整集持有；backend 的 `podcast_script_review` 日誌記實際呼叫次數。程式與 lock 不一致時記 `PODCAST_REVIEW_CONTRACT_INVALID`，節目顯示為 `PODCAST_PROVIDER_FAILED`。
 
 ## 媒體來源（圖片、音訊、影片、YouTube）
 

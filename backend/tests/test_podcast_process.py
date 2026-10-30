@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import pytest
 from runtime import podcast_process, provider_http
-from test_podcast_provider import provider
+from test_podcast_provider import host as provider
 
 
 def wait_until(predicate, timeout=6):
@@ -62,7 +62,7 @@ def provider_server(monkeypatch, tmp_path):
         thread.join(timeout=2)
 
 
-@pytest.mark.parametrize('stage', ['script', 'audio', 'align'])
+@pytest.mark.parametrize('stage', ['audio', 'align'])
 def test_http_cancel_stops_process_releases_lock_and_isolates_new_lease(provider_server, monkeypatch, tmp_path, stage):
     marker = tmp_path / 'started'
     job = {'job_id': str(uuid4()), 'job_token': str(uuid4())}
@@ -258,7 +258,7 @@ def test_cancel_releases_local_http_wait_even_when_provider_cancel_delivery_fail
     def run():
         try:
             with generation_jobs.provider_job(check):
-                provider_http.provider('/semantics', {})
+                provider_http._host('/semantics', {})
         except Exception as error:
             errors.append(error)
         finally:

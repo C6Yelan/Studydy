@@ -20,7 +20,8 @@ from urllib.parse import urlencode, urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "backend/src"), str(ROOT / "ops/podcast")]
 from runtime.research_sources import fetch
-from provider import luna, object_schema
+from provider import luna
+from runtime.podcast_script_generation import object_schema
 from egress import Gate
 
 

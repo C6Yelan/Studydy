@@ -117,7 +117,7 @@ Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文�
 
 ## 教材檢索與選讀
 
-從主題建立教材與補充學習共用 `topic_scopes`：先以 Luna 整理可編輯的觀念與具體重點／細節，確認前不建立研究工作、不查外部來源。補充規劃綁定原教材與 revision；確認時再次核對，教材已更新便要求重新規劃。`POST /v1/materials/{id}/research` 已移除，兩種入口都由 `POST /v1/topics` 建立規劃，再由 approve 建立研究。
+從主題建立教材與補充學習共用 `topic_scopes`：先以文字模型（依 runtime lock 走 Luna 或 Gemma）整理可編輯的觀念與具體重點／細節，確認前不建立研究工作、不查外部來源。補充規劃綁定原教材與 revision；確認時再次核對，教材已更新便要求重新規劃。`POST /v1/materials/{id}/research` 已移除，兩種入口都由 `POST /v1/topics` 建立規劃，再由 approve 建立研究。
 
 新研究使用 `material-research/v3`；舊查詢與已核對來源保留供查看及選用，但舊搜尋狀態不能接回新 worker 執行，須重新確認需求後建立新研究。沒有自動轉接、舊搜尋開關或另一套建立入口。
 

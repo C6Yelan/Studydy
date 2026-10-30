@@ -229,10 +229,8 @@ def capture_candidate(value, *, failed=False):
     request = _current.get()
     if request is None or request["tags"] is None:
         return
-    # 正常教材回覆已由 backend 封存；解析／CLI 失敗的輸出先留記憶體等終態交回。
-    if scope_key(request["tags"])[1] == "material" and not failed:
-        return
-    if failed or request["path"] in {"/script", "/video"}:
+    # 成功回覆由 backend 保留候選；解析／CLI 失敗的輸出先留記憶體等終態交回。
+    if failed:
         store = request["store"]
         with store.lock:
             entry = store.pending.setdefault(scope_key(request["tags"]), {"at": store.now(), "candidates": [], "rejections": []})

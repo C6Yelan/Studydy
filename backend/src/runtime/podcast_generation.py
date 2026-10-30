@@ -42,8 +42,9 @@ def steps(row, children):
                 if episode.get(step):
                     status = 'completed'
                 elif index == current and step == active_step:
-                    status = {'pending': 'queued', 'running': 'queued', 'failed': 'failed',
-                              'cancelled': 'skipped'}.get(row.status, 'waiting')
+                    # 講稿在 backend 依 runtime lock 生成；配音在 provider 排隊，實際狀態由 live progress 覆寫。
+                    status = {'pending': 'queued', 'running': 'running' if step == 'script' else 'queued',
+                              'failed': 'failed', 'cancelled': 'skipped'}.get(row.status, 'waiting')
                     if row.status == 'running':
                         job_id, token = row.podcast_id, row.lease_token
             else:

@@ -23,13 +23,18 @@ PLAN = {'title': '佇列入門', 'goals': ['理解 FIFO'], 'topics': ['佇列的
 @pytest.fixture
 def cli_workflow(closed_loop, provider_server, fake_codex, monkeypatch, tmp_path):
     monkeypatch.setenv('STUDYDY_TEXT_TEST_PROVIDER', 'codex-exec-luna')
-    actual = provider_http.provider
+    # Luna 文字請求一律經 request_semantics → provider 本機傳輸 _host。
+    actual = provider_http._host
 
     def answer(model):
         def call(path, body):
             if path != '/semantics':
                 return actual(path, body)
-            monkeypatch.setenv('SYNTHETIC_RESPONSE_JSON', json.dumps(model(path, body), ensure_ascii=False))
+            value = model(path, body)
+            if value is None:
+                monkeypatch.delenv('SYNTHETIC_RESPONSE_JSON', raising=False)
+            else:
+                monkeypatch.setenv('SYNTHETIC_RESPONSE_JSON', json.dumps(value, ensure_ascii=False))
             return actual(path, body)
         return call
 
@@ -58,7 +63,7 @@ def failures(tmp_path):
 def test_cards_real_caller_keeps_attempt_across_steps_and_reuses_cache(closed_loop, cli_workflow, monkeypatch, tmp_path, fake_codex):
     owner, _, _, _, dsn, _ = closed_loop
     actual = cli_workflow(card_response)
-    monkeypatch.setattr(provider_http, 'provider', actual)
+    monkeypatch.setattr(provider_http, '_host', actual)
     identity = create_cards(closed_loop)
     finish_cards(dsn, None)
     assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['status'] == 'ready'
@@ -85,7 +90,7 @@ def test_cards_only_terminal_rejection_saves_private_candidate(closed_loop, cli_
         else:
             result = {'supported': False, 'core_preserved': False, 'issues': ['合成私密退回理由']}
         return result
-    monkeypatch.setattr(provider_http, 'provider', cli_workflow(reject))
+    monkeypatch.setattr(provider_http, '_host', cli_workflow(reject))
     identity = create_cards(closed_loop)
     finish_cards(dsn, None)
     assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['status'] == 'failed'
@@ -149,7 +154,7 @@ def test_cards_intermediate_rejection_then_success_does_not_save_candidates(clos
             if len(reviews) == 1:
                 return {'supported': False, 'core_preserved': False, 'issues': ['合成私密補正理由']}
         return result
-    monkeypatch.setattr(provider_http, 'provider', cli_workflow(repaired))
+    monkeypatch.setattr(provider_http, '_host', cli_workflow(repaired))
     identity = create_cards(closed_loop)
     finish_cards(dsn, None)
     assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['status'] == 'ready'
@@ -166,23 +171,24 @@ def test_podcast_workers_real_calls_for_script_title_and_video(closed_loop, cli_
     import subprocess
     import sys
     import video_service
-    from test_podcast_provider import provider
+    from test_podcast_provider import host as provider
     from test_podcasts import create, wav
     from test_podcast_videos import bundle
     from runtime import podcast_worker, podcasts, podcast_scenes, podcast_videos
     from runtime.scene_alignment import normalized
 
     owner, _, _, _, dsn, _ = closed_loop
-    actual = provider_http.provider
+    actual = provider_http._host
     def title(path, body):
-        if path != '/semantics':
+        # 講稿與核對也走 /semantics；只有集名請求帶 concepts。
+        if path != '/semantics' or 'concepts' not in body['request']:
             return actual(path, body)
         monkeypatch.setenv('SYNTHETIC_RESPONSE_JSON', json.dumps({'title': '堆疊的取出順序'}))
         try:
             return actual(path, body)
         finally:
             monkeypatch.delenv('SYNTHETIC_RESPONSE_JSON')
-    monkeypatch.setattr(provider_http, 'provider', title)
+    monkeypatch.setattr(provider_http, '_host', title)
     identity = create(closed_loop, video=True)['podcast_id']
     podcast_worker.step(dsn=dsn)
     saved = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)
@@ -247,7 +253,7 @@ def test_podcast_workers_real_calls_for_script_title_and_video(closed_loop, cli_
 
 @pytest.mark.parametrize('malformed', [False, True])
 def test_legacy_flow_scene_worker_uses_real_tagged_source_check(closed_loop, cli_workflow, monkeypatch, tmp_path, caplog, malformed):
-    from test_podcast_provider import provider
+    from test_podcast_provider import host as provider
     from test_podcasts import create, complete
     from runtime import podcasts, podcast_scenes
     from runtime.scene_alignment import normalized
@@ -341,7 +347,8 @@ def test_podcast_terminal_rejection_persists_provider_candidate_and_reason(close
     assert saved['status'] == 'failed'
     assert saved['error_code'] == 'PODCAST_SCRIPT_NEEDS_REVIEW'
     assert saved['episodes'][0]['script'] is None
-    paths = list((tmp_path / 'failures').glob('*.json'))
+    # 講稿在後端逐次呼叫；終態失敗的候選由後端失敗紀錄保存。
+    paths = list((tmp_path / 'artifacts' / 'failures').glob('*.json'))
     assert len(paths) == 1
     private = paths[0].read_text()
     assert '空堆疊不可 pop' in private and '私密核對理由' in private
@@ -358,7 +365,7 @@ def test_podcast_terminal_rejection_persists_provider_candidate_and_reason(close
 def test_video_terminal_invalid_candidate_is_private_and_keeps_audio(closed_loop, cli_workflow, monkeypatch, tmp_path, caplog):
     import sys
     import video_service
-    from test_podcast_provider import provider
+    from test_podcast_provider import host as provider
     from test_podcast_videos import ready, bundle
     from runtime import podcasts, podcast_videos
 
@@ -374,11 +381,13 @@ def test_video_terminal_invalid_candidate_is_private_and_keeps_audio(closed_loop
     monkeypatch.setenv('SYNTHETIC_RESPONSE_JSON', json.dumps({'sections': [], 'private_candidate': secret}, ensure_ascii=False))
     assert podcast_videos.step(dsn=dsn)
     saved = podcast_videos.read(owner.learner_id, identity, 0, dsn=dsn)
-    assert saved['status'] == 'failed' and saved['error_code'] == 'VIDEO_PROVIDER_FAILED'
+    # 分鏡在後端生成與核對；候選由後端失敗紀錄保存。
+    assert saved['status'] == 'failed' and saved['error_code'] == 'VIDEO_STORYBOARD_INVALID'
     assert podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)['episodes'][0]['audio'] == episode['audio']
-    paths = list((tmp_path / 'failures').glob('*.json'))
-    assert len(paths) == 1
-    assert secret in paths[0].read_text() and 'VIDEO_STORYBOARD_INVALID:section count does not match narration' in paths[0].read_text()
+    documents = failures(tmp_path)
+    assert len(documents) == 1
+    private = json.dumps(documents[0], ensure_ascii=False)
+    assert secret in private and 'VIDEO_STORYBOARD_INVALID:section count does not match narration' in private
     assert secret not in caplog.text and secret not in (tmp_path / 'luna-calls.jsonl').read_text()
     assert len(records(tmp_path, 'podcast_video')) == 1
     assert not podcast_videos.step(dsn=dsn)
@@ -390,7 +399,8 @@ def test_title_invalid_candidate_is_private_and_preserves_successful_script(clos
 
     owner, _, _, _, dsn, _ = closed_loop
     secret = '合成私密集名錯誤候選' * 4
-    monkeypatch.setattr(provider_http, 'provider', cli_workflow(lambda *_: {'title': secret}))
+    monkeypatch.setattr(provider_http, '_host', cli_workflow(
+        lambda path, body: {'title': secret} if 'concepts' in body['request'] else None))
     identity = create(closed_loop)['podcast_id']
     podcast_worker.step(dsn=dsn)
     saved = podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)

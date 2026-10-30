@@ -24,6 +24,8 @@ def test_answer_retry_keeps_original_private_candidate(closed_loop, provider_ser
         calls.append(body)
         return deepcopy(candidate) if len(calls) <= invalid_attempts else qa_model(body)
 
+    # 文字請求依 runtime lock 分流；本案例驗證 Luna 通道（真 provider HTTP＋替身 CLI）。
+    monkeypatch.setenv('STUDYDY_TEXT_TEST_PROVIDER', 'codex-exec-luna')
     monkeypatch.setattr(http_provider, 'luna', luna)
     voice.add_turn(owner, cid, 'retry-candidate', 'Stack LIFO', dsn=dsn)
     assert voice.step(dsn=dsn)
@@ -56,10 +58,13 @@ def test_truncated_provider_failure_and_cancelled_work_are_not_replayed(closed_l
         voice.action(owner, cid, turn['turn_id'], 'cancel', dsn=dsn)
         return {'segments': [None], 'queries': [], 'missing': ''}
 
+    # 文字請求依 runtime lock 分流；本案例驗證 Luna 通道（真 provider HTTP＋替身 CLI）。
+    monkeypatch.setenv('STUDYDY_TEXT_TEST_PROVIDER', 'codex-exec-luna')
     monkeypatch.setattr(http_provider, 'luna', luna)
     assert voice.step(dsn=dsn)
     saved = voice.read(owner, cid, dsn=dsn)['turns'][0]
     assert len(calls) == 1
     assert saved['status'] == ('cancelled' if failure == 'cancelled' else 'failed')
     if failure != 'cancelled':
-        assert saved['error_code'] == ('VOICE_PROVIDER_FAILED' if failure == 'truncated' else 'LUNA_GENERATION_TIMEOUT')
+        # 文字模型失敗經 semantic_service 回報，回答工作統一記為 VOICE_PROVIDER_FAILED。
+        assert saved['error_code'] == 'VOICE_PROVIDER_FAILED'
