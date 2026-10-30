@@ -82,6 +82,7 @@ def _response_schema(operation, payload, model):
         schema["$defs"]["Check"]["properties"]["concept"]["enum"] = payload[
             "check_concepts"
         ]
+        schema["properties"]["checks"]["maxItems"] = len(payload["check_concepts"])
     return schema
 
 

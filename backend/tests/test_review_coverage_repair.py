@@ -415,3 +415,22 @@ def test_missing_alias_source_cannot_be_filled_from_existing_concept(tmp_path, m
         run(archive, monkeypatch, [wire, wire])
     assert len(archive.requests) == 2
     assert not any(name.startswith('cache-') for name in archive.writes)
+
+
+def test_identical_duplicate_edits_are_merged_without_correction(tmp_path, monkeypatch):
+    duplicated = proposal()
+    edit = {'relation': 0, 'action': 'reverse', 'relation_type': None, 'evidence': [0, 1],
+            'reason': 'Synthetic direction edit.'}
+    duplicated['relation_edits'] = [edit, deepcopy(edit)]
+    (_, count), calls = run(Archive(tmp_path), monkeypatch, [duplicated])
+    assert count == len(calls) == 1
+    assert len(validate_proposal(prepare(), duplicated).relation_edits) == 1
+
+
+def test_review_reason_has_length_ceiling():
+    from knowledge_map.material_review import response_schema
+    assert response_schema()['$defs']['RelationEdit']['properties']['reason']['maxLength'] == 1000
+    long = proposal()
+    long['assignments'][0]['reason'] = 'x' * 1001
+    with pytest.raises(ReviewError, match='REVIEW_RESPONSE_INVALID'):
+        validate_proposal(prepare(), long)

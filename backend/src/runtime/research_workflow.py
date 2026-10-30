@@ -28,11 +28,12 @@ EVIDENCE_POLICY = "research-evidence/v5"
 COVERAGE_POLICY = "research-coverage/v3"
 
 
-TEXT = {"type": "string"}
+# 上限只擋模型重複失控；Luna 時期最長的說明約 560 字、查詢詞約 340 字、單次規劃 7 筆查詢。
+TEXT = {"type": "string", "maxLength": 4000}
 INDICES = {"type": "array", "items": {"type": "integer", "minimum": 0}}
 CHANNEL = {"type": "string", "enum": ["papers", "wikipedia"]}
 SEARCH = obj({"query": TEXT, "topics": INDICES, "reason": TEXT, "channel": CHANNEL})
-PLAN = obj({"summary": TEXT, "searches": {"type": "array", "items": SEARCH}})
+PLAN = obj({"summary": TEXT, "searches": {"type": "array", "maxItems": 30, "items": SEARCH}})
 RELEVANCE = {"type": "string", "enum": ["direct", "related", "unrelated"]}
 
 

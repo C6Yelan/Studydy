@@ -1292,7 +1292,8 @@ class RevisionCreate(_Closed):
 
 class RevisionCancel(_Closed):
     schema_: Literal["material-revision-cancel/v1"] = Field(alias="schema")
-    base_revision: str = Field(pattern=r"^knowledge-structure:sha256:[0-9a-f]{64}$")
+    # 第一次分析沒有 base_revision，送 null；仍須與該 run 一致。
+    base_revision: str | None = Field(pattern=r"^knowledge-structure:sha256:[0-9a-f]{64}$")
 
 
 class VersionMoveConcept(_Closed):

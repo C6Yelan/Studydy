@@ -25,7 +25,7 @@ def test_failed_initial_source_can_be_replaced_in_browser(revisions, monkeypatch
     create_revision(learner.learner_id, material, [source['normalization_id']], str(uuid4()), settings, dsn=dsn)
     with monkeypatch.context() as patch:
         def fail(*args, **kwargs):
-            raise MaterialAnalysisError('SEMANTIC_OUTPUT_TRUNCATED')
+            raise MaterialAnalysisError('SEMANTIC_OUTPUT_INVALID')  # 截斷已改為可自動重試
         patch.setattr(processing, 'analyze_material', fail)
         assert execute().status == 'failed'
     recovery = tmp_path / 'Recovery.pdf'

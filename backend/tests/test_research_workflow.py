@@ -1439,3 +1439,10 @@ def test_coverage_keeps_each_fitting_topic_together_instead_of_splitting_it_acro
     done,_=drive(value,provider)
     assert calls==[0,1]
     assert all(c['status']=='covered' for c in done['search_state']['coverage'])
+
+
+def test_research_text_fields_have_length_ceiling():
+    # 正式版研究結果沒有本地 schema 驗證；上限由 vLLM structured output 執行。
+    assert flow.TEXT["maxLength"] == 4000
+    assert flow.PLAN["properties"]["searches"]["items"]["properties"]["reason"]["maxLength"] == 4000
+    assert flow.PLAN["properties"]["searches"]["maxItems"] == 30

@@ -36,7 +36,8 @@ class _Closed(BaseModel):
 
 class _Supported(_Closed):
     evidence: list[int] = Field(min_length=1)
-    reason: str = Field(min_length=1)
+    # 只擋重複失控；Luna 時期各類 reason 最長約 160 字。
+    reason: str = Field(min_length=1, max_length=1000)
 
 
 class Assignment(_Supported):
@@ -336,6 +337,12 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
         proposal = Proposal.model_validate(value)
     except ValidationError:
         raise ReviewError("REVIEW_RESPONSE_INVALID") from None
+    # 模型偶爾逐字重複同一筆修改；完全相同只保留一筆，同一編號內容不同仍拒絕。
+    for name in ("alias_edits", "claim_edits", "relation_edits"):
+        unique = {}
+        for edit in getattr(proposal, name):
+            unique.setdefault(canonical_sha256(edit.model_dump()), edit)
+        setattr(proposal, name, list(unique.values()))
     assignments = {a.concept: a for a in proposal.assignments}
     if len(assignments) != len(proposal.assignments) or set(assignments) != set(
         range(len(unit.concepts))

@@ -16,6 +16,8 @@ from .structure_validation import validate_knowledge_structure
 
 
 POLICY = "source-preserving-consolidation/v1"
+# 只擋重複失控；Luna 時期合併與檢查的 reason 最長約 400 字。
+REASON_MAX_LENGTH = 1500
 
 
 class _Closed(BaseModel):
@@ -24,7 +26,7 @@ class _Closed(BaseModel):
 
 class Candidate(_Closed):
     concepts: list[int] = Field(min_length=2)
-    reason: str = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=REASON_MAX_LENGTH)
 
 
 class Candidates(_Closed):
@@ -41,7 +43,7 @@ class Concept(_Closed):
     concepts: list[int] = Field(min_length=1)
     title_from: int
     claims: list[Claim] = Field(min_length=1)
-    reason: str = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=REASON_MAX_LENGTH)
 
 
 class Proposal(_Closed):
@@ -54,7 +56,7 @@ class Check(_Closed):
     preserves_unique_information: bool
     sources_support_text: bool
     duplicates_removed: bool
-    reason: str = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=REASON_MAX_LENGTH)
 
 
 class Checks(_Closed):

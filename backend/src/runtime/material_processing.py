@@ -263,9 +263,7 @@ def _request_cancellation_locked(
         raise MaterialProcessingError("MATERIAL_RUN_INVALID")
     if row.cancel_requested_at is not None or row.status not in {"pending", "running"}:
         return
-    if material.discard_requested_at is None and not (
-        update_only and row.base_revision is not None
-    ):
+    if material.discard_requested_at is None and not update_only:
         raise MaterialProcessingError("MATERIAL_RUN_INVALID")
     now = session.scalar(select(func.clock_timestamp()))
     row.cancel_requested_at = row.updated_at = now
@@ -277,7 +275,7 @@ def _request_cancellation_locked(
 def request_material_processing_cancellation(
     learner_id: UUID, run_id: UUID, *, update_only: bool = False, dsn: str | None = None
 ) -> MaterialProcessingRun:
-    """追加 run 可單獨取消；其他 run 的取消須來自整份教材刪除意圖。"""
+    """分析 run（含第一次分析）可單獨取消；其他取消須來自整份教材刪除意圖。"""
     try:
         with database_session(dsn) as session:
             material = session.scalar(
@@ -358,7 +356,7 @@ def _retry_or_fail(row, reason, now):
     retryable = reason in {
         "RESTART_INTERRUPTED", "SEMANTIC_SERVICE_TIMEOUT", "SEMANTIC_SERVICE_UNAVAILABLE",
         "LUNA_GENERATION_TIMEOUT", "GENERATION_PROVIDER_UNAVAILABLE", "VOICE_PROVIDER_UNAVAILABLE",
-        "STORAGE_BUSY", "SOURCE_BUSY",
+        "STORAGE_BUSY", "SOURCE_BUSY", "SEMANTIC_OUTPUT_TRUNCATED",
     }
     row.updated_at = now
     if retryable and row.auto_retry_count == 0 and row.maintenance is None:
