@@ -36,6 +36,7 @@ chmod 600 .env
 | VLLM_API_KEY | 選用模型 Bearer token；空值不送 Authorization |
 | STUDYDY_MATERIAL_WORKERS | 教材處理執行緒數，正整數，預設 1；不改 provider 模型槽數 |
 | STUDYDY_NOTES_CHAPTER_CONCURRENCY | 一份完整筆記同時生成的一級章數，正整數，預設 1（逐批依序） |
+| STUDYDY_CARD_WORKERS、STUDYDY_PODCAST_WORKERS、STUDYDY_RESEARCH_WORKERS | 卡組、Podcast、主題研究的背景執行緒數，正整數，預設 1 |
 | STUDYDY_MATERIAL_REVIEW_CONCURRENCY | 一份教材同時送出的複核批次數，正整數，預設 1；Luna 並行測試時固定 2 |
 | COMPOSE_PROFILES | 直接 HTTP／HTTPS 留空；使用 SSH 設 ssh |
 

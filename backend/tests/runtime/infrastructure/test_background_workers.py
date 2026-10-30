@@ -93,3 +93,55 @@ def test_background_stop_reports_a_thread_still_running():
         release.set()
         worker.thread.join(timeout=2)
         worker.stop()
+
+
+def test_configured_worker_counts_start_and_stop_every_thread(monkeypatch):
+    from threading import Event
+    from runtime import card_generation, podcast_worker, research, topics
+
+    release = Event()
+    monkeypatch.setenv("STUDYDY_CARD_WORKERS", "3")
+    monkeypatch.setenv("STUDYDY_PODCAST_WORKERS", "2")
+    monkeypatch.delenv("STUDYDY_RESEARCH_WORKERS", raising=False)
+    for module in (card_generation, podcast_worker, research, topics):
+        monkeypatch.setattr(module, "step", lambda **_: release.wait(0.05) and False)
+
+    class Runtime:
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def is_alive(self):
+            return True
+
+    monkeypatch.setattr(workers, "RuntimeWorkers", lambda *_: Runtime())
+    started = []
+    original = workers.BackgroundWorker.start
+
+    def record(self):
+        started.append(self)
+        return original(self)
+
+    monkeypatch.setattr(workers.BackgroundWorker, "start", record)
+    with workers.run_workers(None, {}) as ready:
+        assert ready()
+        names = sorted(worker.thread.name for worker in started)
+        assert [n for n in names if n.startswith("studydy-cards")] == [
+            "studydy-cards", "studydy-cards-2", "studydy-cards-3"]
+        assert [n for n in names if n.startswith("studydy-podcast-worker")] == [
+            "studydy-podcast-worker", "studydy-podcast-worker-2"]
+        assert [n for n in names if n.startswith("studydy-research")] == ["studydy-research"]
+    release.set()
+    assert all(not worker.thread.is_alive() for worker in started)
+
+
+@pytest.mark.parametrize("key", ["CARD", "PODCAST", "RESEARCH"])
+@pytest.mark.parametrize("value", ["0", "-1", "two", ""])
+def test_invalid_worker_count_is_rejected_before_start(monkeypatch, key, value):
+    monkeypatch.setenv(f"STUDYDY_{key}_WORKERS", value)
+    monkeypatch.setattr(workers, "RuntimeWorkers", lambda *_: pytest.fail("started"))
+    with pytest.raises(ValueError, match=f"^{key}_WORKER_COUNT_INVALID$"):
+        with workers.run_workers(None, {}):
+            pass

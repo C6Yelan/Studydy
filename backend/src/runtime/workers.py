@@ -76,6 +76,15 @@ def run_workers(dsn, local_config):
     from . import card_generation, podcast_scenes, podcast_videos, podcast_worker
     from . import knowledge_chapters, research, topics, voice
 
+    counts = {}
+    for key in ("research", "card", "podcast"):
+        try:
+            counts[key] = int(os.environ.get(f"STUDYDY_{key.upper()}_WORKERS", "1"))
+            if counts[key] < 1:
+                raise ValueError
+        except ValueError:
+            raise ValueError(f"{key.upper()}_WORKER_COUNT_INVALID") from None
+
     research_config = deepcopy(local_config)
 
     def research_step():
@@ -94,12 +103,15 @@ def run_workers(dsn, local_config):
             ("card", partial(card_generation.step, dsn=dsn), "studydy-cards"),
             ("podcast", partial(podcast_worker.step, dsn=dsn), "studydy-podcast-worker"),
         ):
-            active[key] = BackgroundWorker(
-                step,
-                name=name,
-                error_code=f"{key.upper()}_WORKER_FAILED",
-                drain=key in {"research", "card"},
-            ).start()
+            # 卡組、Podcast、研究以 SKIP LOCKED／教材列鎖加 lease 領取工作，可多條並行。
+            for index in range(counts.get(key, 1)):
+                suffix = f"-{index + 1}" if index else ""
+                active[key + suffix] = BackgroundWorker(
+                    step,
+                    name=name + suffix,
+                    error_code=f"{key.upper()}_WORKER_FAILED",
+                    drain=key in {"research", "card"},
+                ).start()
         # 章節分區：一次一份，教材分析進行中時等待；關閉時把進行中的工作放回佇列。
         chapters = BackgroundWorker(
             lambda: knowledge_chapters.step(dsn=dsn, stop=chapters.stop_event),
@@ -114,8 +126,9 @@ def run_workers(dsn, local_config):
             for key in reversed(
                 ("chapters", "podcast", "scene", "video", "research", "card", "voice", "runtime")
             ):
-                if key in active:
-                    shutdown.callback(active[key].stop)
+                for name in active:
+                    if name == key or name.startswith(key + "-"):
+                        shutdown.callback(active[name].stop)
 
 
 @dataclass

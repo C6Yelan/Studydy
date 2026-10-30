@@ -26,7 +26,7 @@ flowchart LR
 
 Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；worker 執行轉檔、分析／檢核與題組準備。PostgreSQL 保存狀態與 metadata，檔案位於 STUDYDY_DATA_DIR/artifacts。
 
-教材處理由 STUDYDY_MATERIAL_WORKERS 設定執行緒數（預設 1），題組準備與定期資料復原各維持一條執行緒，不依賴模型種類或 Luna 測試旗標。啟動復原只執行一次，完成後額外教材執行緒才開始領取；來源正規化與筆記沿用資料庫互斥領取，章節 request_gate 互斥保留；每個領取與發布仍須通過原有 PG lease／token 與來源版本檢查。這項排程隔離不代表模型能同時推論，實際容量仍由既有 provider 控制。
+教材處理由 STUDYDY_MATERIAL_WORKERS 設定執行緒數（預設 1），卡組、Podcast、主題研究由 STUDYDY_CARD_WORKERS／STUDYDY_PODCAST_WORKERS／STUDYDY_RESEARCH_WORKERS 設定（預設 1），題組準備與定期資料復原各維持一條執行緒，不依賴模型種類或 Luna 測試旗標。啟動復原只執行一次，完成後額外教材執行緒才開始領取；來源正規化與筆記沿用資料庫互斥領取，章節 request_gate 互斥保留；每個領取與發布仍須通過原有 PG lease／token 與來源版本檢查。這項排程隔離不代表模型能同時推論，實際容量仍由既有 provider 控制。
 
 概念難度與學習診斷在讀取時由既有教材、學習計畫及作答事件計算。難度只使用先備關係與重點數；診斷使用確定性模板。診斷只保留教材範圍，提供完整重點與真實累計／補強連對進度；公開查詢核對擁有者及固定教材版本，不寫入額外快取或事件。
 
