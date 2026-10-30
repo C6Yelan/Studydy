@@ -194,7 +194,7 @@ def _validate_material_contract(material, semantic):
         )
         or (type(material["max_tokens"]) is not int)
         or (not 1 <= material["max_tokens"] <= semantic["max_model_len"])
-        # 只有 material_semantics 可關思考（W3 對照：F1 不變、耗時降低）；其他欄位維持固定。
+        # 教材分析與審查可關思考（W3、R0 對照：品質未見差異、耗時降低）；其他欄位維持固定。
         or (
             material["generation"]
             not in (
