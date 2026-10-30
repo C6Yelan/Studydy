@@ -194,14 +194,18 @@ def _validate_material_contract(material, semantic):
         )
         or (type(material["max_tokens"]) is not int)
         or (not 1 <= material["max_tokens"] <= semantic["max_model_len"])
+        # 只有 material_semantics 可關思考（W3 對照：F1 不變、耗時降低）；其他欄位維持固定。
         or (
             material["generation"]
-            != {
-                "temperature": 1.0,
-                "top_p": 0.95,
-                "top_k": 64,
-                "chat_template_kwargs": {"enable_thinking": True},
-            }
+            not in (
+                {
+                    "temperature": 1.0,
+                    "top_p": 0.95,
+                    "top_k": 64,
+                    "chat_template_kwargs": {"enable_thinking": thinking},
+                }
+                for thinking in (True, False)
+            )
         )
         or (not isinstance(material["prompt"], str))
         or (not material["prompt"])
@@ -274,6 +278,17 @@ def _validate_assessment_contract(assessment_settings, semantic):
         raise ValueError
 
 
+def _without_thinking(generation):
+    return {
+        **generation,
+        "chat_template_kwargs": {
+            k: v
+            for k, v in generation["chat_template_kwargs"].items()
+            if k != "enable_thinking"
+        },
+    }
+
+
 def _validate_review_contract(lock):
     review = lock["material_review"]
     if (
@@ -288,7 +303,10 @@ def _validate_review_contract(lock):
         or (not review["prompt"].strip())
         or (type(review["max_tokens"]) is not int)
         or (not 1 <= review["max_tokens"] <= lock["semantic_service"]["max_model_len"])
-        or (review["generation"] != lock["material_semantics"]["generation"])
+        or (
+            _without_thinking(review["generation"])
+            != _without_thinking(lock["material_semantics"]["generation"])
+        )
     ):
         raise ValueError
 

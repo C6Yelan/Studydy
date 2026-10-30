@@ -169,3 +169,23 @@ def test_unusable_prior_runtime_is_skipped_and_reanalysis_preserves_its_archive(
     completed = _material_directory(learner.learner_id, material) / retry.run_id.hex
     receipt = json.loads((completed / 'completion.json').read_text())
     assert receipt['reused_from_run'] is None and receipt['evidence_reused_from_runs'] == []
+
+
+@pytest.mark.parametrize('thinking', [True, False])
+def test_material_semantics_thinking_switch_is_the_only_generation_freedom(thinking):
+    from pathlib import Path
+    from runtime.material_runtime import validate_runtime_lock
+
+    lock = json.loads((Path(__file__).parents[4] / 'local_ai/runtime-lock.json').read_text())
+    assert lock['material_review']['generation']['chat_template_kwargs'] == {'enable_thinking': True}
+    lock['material_semantics']['generation']['chat_template_kwargs']['enable_thinking'] = thinking
+    validate_runtime_lock(lock)
+    for task, key, value in (
+        ('material_semantics', 'temperature', 0.7),
+        ('material_semantics', 'top_k', 32),
+        ('material_review', 'top_p', 0.9),
+    ):
+        changed = deepcopy(lock)
+        changed[task]['generation'][key] = value
+        with pytest.raises(Exception):
+            validate_runtime_lock(changed)
