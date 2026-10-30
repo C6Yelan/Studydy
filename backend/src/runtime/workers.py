@@ -20,7 +20,7 @@ from .media_sources import cleanup_stale_uploads
 from .storage_usage import release_stale_upload_reservations
 from .export_cards import cleanup_stale_uploads as cleanup_exports
 
-from . import material_notes, version_moves
+from . import material_notes, material_review, version_moves
 from .source_normalization import normalize_next
 from .storage.artifacts import reconcile_new_artifacts
 from .storage.analysis_archive import (
@@ -140,6 +140,7 @@ class RuntimeWorkers:
         except ValueError:
             raise ValueError("MATERIAL_WORKER_COUNT_INVALID") from None
         material_notes.chapter_concurrency()
+        material_review.review_concurrency()
         # lease／checkpoint 負責中斷恢復，阻塞的 I/O 不應卡住程序退出。
         self._thread = Thread(
             target=self._loop, name="studydy-material-worker", daemon=True

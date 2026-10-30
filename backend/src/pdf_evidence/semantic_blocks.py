@@ -51,11 +51,22 @@ def analyze_blocks(
         previous = end
     task = lock["material_semantics"]
     handles = {e["evidence_id"]: i for i, e in enumerate(context["evidence"])}
+    excluded = set(context.get("non_content_evidence_ids", []))
+    content = sum(
+        1
+        for e in context["evidence"]
+        if e["evidence_id"] not in excluded and e["page"] >= minimum_page
+    )
+    # 小教材整份放得進少數幾批時只剩幾條並行線；每批最多分到 1/max_concurrency 的區塊。
+    # 以全部內容區塊計算（不看 cursor），續跑時重新規劃的批次邊界與原本相同。
+    share = -(-content // task["max_concurrency"])
     stream = iter(
         build_semantic_bundles(
             context,
             state=SemanticState(),
-            fits=fits,
+            fits=lambda request: sum(len(s["evidence"]) for s in request["sections"])
+            <= share
+            and fits(request),
             minimum_page=minimum_page,
             minimum_evidence_index=cursor,
         )

@@ -613,6 +613,17 @@ def _review_part(view, unit, concepts, title, *, cited_pages_only=False):
     return part
 
 
+def review_concurrency():
+    """一份教材同時送出的複核批次數；各批只讀自己的輸入，套用順序由概念位置固定。"""
+    try:
+        value = int(os.environ.get("STUDYDY_MATERIAL_REVIEW_CONCURRENCY", "1"))
+        if value < 1:
+            raise ValueError
+    except ValueError:
+        raise ValueError("MATERIAL_REVIEW_CONCURRENCY_INVALID") from None
+    return value
+
+
 def _review_units(
     view, units, lock, archive, check_cancel, progress, wait_cancellation_check=None,
     skipped=None, semantic_call=None,
@@ -627,7 +638,7 @@ def _review_units(
     width = (
         2
         if os.environ.get("STUDYDY_LUNA_PARALLEL_TEST") == "1" and enabled(lock)
-        else 1
+        else review_concurrency()
     )
     units = list(units)
     reviews, calls, split_units, cursor = {}, 0, 0, 0
