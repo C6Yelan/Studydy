@@ -1231,8 +1231,16 @@ def test_shared_candidates_are_selected_once_without_forcing_every_concept_back_
     assert selected[1]["claims"][0]["claim_id"] == "q00"
 
 
-@pytest.mark.parametrize("bad", ["missing_concept", "foreign_claim", "too_few", "too_many", "duplicate"])
-def test_summary_selection_rejects_invalid_chapter_picks_after_one_correction(bad):
+@pytest.mark.parametrize("bad, expected", [
+    ("valid", {"q00", "q10", "q20"}),
+    ("missing_concept", {"q00", "q01", "q10"}),
+    ("foreign_claim", {"q00", "q10", "q20"}),
+    ("too_few", {"q00", "q10", "q20"}),
+    ("too_many", {"q00", "q01", "q10", "q11", "q20"}),
+    ("duplicate", {"q00", "q10", "q20"}),
+    ("duplicate_concept", {"q00", "q01", "q10"}),
+])
+def test_summary_selection_repairs_invalid_chapter_picks_without_correction(bad, expected):
     values = three_concepts()
     calls = []
     def model(request):
@@ -1244,9 +1252,30 @@ def test_summary_selection_rejects_invalid_chapter_picks_after_one_correction(ba
         if bad == "too_many":
             picks = [{"concept": c["ref"], "claim_ids": [q["ref"] for q in c["claims"]]} for c in request["concepts"]]
         if bad == "duplicate": picks[0]["claim_ids"] *= 2
+        if bad == "duplicate_concept":
+            first = request["concepts"][0]
+            picks = [picks[0], {"concept": first["ref"], "claim_ids": [first["claims"][1]["ref"]]}, picks[1]]
         return {"concepts": picks}
-    with pytest.raises(ValueError, match="^NOTE_SELECTION_INVALID$"):
-        mn.select_summary(values, model, input_budget=10**6)
+    selected = mn.select_summary(values, model, input_budget=10**6)
+    assert {q["claim_id"] for c in selected for q in c["claims"]} == expected
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("recovers", [True, False])
+def test_unreadable_summary_selection_keeps_one_correction(recovers):
+    values = three_concepts()
+    calls = []
+    def model(request):
+        calls.append(request)
+        if len(calls) == 2 and recovers:
+            return {"concepts": [{"concept": c["ref"], "claim_ids": [c["claims"][0]["ref"]]} for c in request["concepts"]]}
+        return {"concepts": "not a list"}
+    if recovers:
+        selected = mn.select_summary(values, model, input_budget=10**6)
+        assert {q["claim_id"] for c in selected for q in c["claims"]} == {"q00", "q10", "q20"}
+    else:
+        with pytest.raises(ValueError, match="^NOTE_SELECTION_INVALID$"):
+            mn.select_summary(values, model, input_budget=10**6)
     assert len(calls) == 2 and "correction" in calls[1]
 
 
