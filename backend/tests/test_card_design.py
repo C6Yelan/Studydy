@@ -76,7 +76,7 @@ def lock():
 def test_gemma_uses_existing_pod_endpoint_not_luna(monkeypatch):
     monkeypatch.delenv('STUDYDY_TEXT_TEST_PROVIDER', raising=False)
     monkeypatch.setenv('STUDYDY_SEMANTIC_BASE_URL', 'http://model-bridge:18000')
-    monkeypatch.setattr(provider_http, 'provider', lambda *_: pytest.fail('Gemma must not call Luna provider'))
+    monkeypatch.setattr(provider_http, '_host', lambda *_: pytest.fail('Gemma must not call Luna provider'))
     calls = []; runtime_lock = lock()
     def respond(request):
         calls.append(request.url.path)
@@ -102,7 +102,7 @@ def test_luna_remains_explicit_temporary_route(monkeypatch):
         calls.append(path)
         assert body['task'] == 'concept_card' and body['schema'] == DESIGN_SCHEMA
         return plan()
-    monkeypatch.setattr(provider_http, 'provider', provider)
+    monkeypatch.setattr(provider_http, '_host', provider)
     with httpx.Client(transport=httpx.MockTransport(lambda _: pytest.fail('Luna must not call the Pod'))) as client:
         result = request_semantics(client, runtime_lock=luna_test.test_lock(lock()), task='concept_card', request={'sources': []}, response_schema=DESIGN_SCHEMA)
     assert result == plan() and calls == ['/semantics']

@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from test_podcast_process import provider_server, post
-from test_podcast_provider import provider, body as script_body
+from test_podcast_provider import host as provider, body as script_body
 from luna_call_log import CallLog, CallRecord, FEATURES, call_records, read_events
 from luna_report import report
 
@@ -60,9 +60,9 @@ elif 'failed-cli' in prompt:
 elif 'invalid-json' in prompt:
     output.write_text('私密候選：這不是 JSON')
 elif 'checks' in properties:
-    request = json.loads(prompt.split('\nINPUT:\n', 1)[1])
+    request = json.loads(prompt.split('\nINPUT:\n')[1])
     mode = os.environ.get('SYNTHETIC_REJECT')
-    reject = mode == '1' or (mode == 'once' and sum('\nINPUT:\n' in json.loads(line)['stdin'] for line in pathlib.Path(os.environ['SYNTHETIC_CLI_STARTS']).read_text().splitlines()) == 1)
+    reject = mode == '1' or (mode == 'once' and sum('"coverage_claims"' in json.loads(line)['stdin'] for line in pathlib.Path(os.environ['SYNTHETIC_CLI_STARTS']).read_text().splitlines()) == 1)
     output.write_text(json.dumps({
         'checks': [{'part': p, 'supported': not reject, 'reason': '私密核對理由' if reject else ''} for p in request['parts']],
         'coverage': [{'claim': c, 'explained': not reject, 'script_parts': [] if reject else request['coverage_locations'][c][:1], 'reason': '私密涵蓋理由' if reject else ''} for c in request['coverage_claims']]
@@ -109,47 +109,46 @@ def test_all_feature_labels_survive_real_http_and_real_fake_process(provider_ser
 
 
 
-def test_script_internal_calls_are_individual_and_candidates_wait_for_terminal_failure(provider_server, fake_codex, monkeypatch, tmp_path, caplog):
+def luna_script(monkeypatch, metadata):
+    """後端講稿以 Luna lock 經真 provider /semantics 呼叫假 Codex；回傳失敗碼與後端保留的候選。"""
+    from runtime import luna_calls, podcast_script_generation
+
+    monkeypatch.setenv("STUDYDY_TEXT_TEST_PROVIDER", "codex-exec-luna")
+    monkeypatch.setattr(luna_calls, "tags", lambda **_: metadata)
+    work = luna_calls.Work(metadata)
+    token = luna_calls._current.set(work)
+    try:
+        podcast_script_generation.script(script_body())
+        error = None
+    except Exception as failure:
+        error = str(failure)
+    finally:
+        luna_calls._current.reset(token)
+    return error, work.candidates
+
+
+def test_script_internal_calls_are_individual_and_candidates_stay_in_backend(provider_server, fake_codex, monkeypatch, tmp_path, caplog):
+    # 講稿在後端執行：每次核對都是獨立 /semantics 呼叫，候選由後端工作保留到終態，provider 不另存。
     monkeypatch.setenv("SYNTHETIC_REJECT", "1")
     metadata = tags("podcast_script")
-    status, response = post(provider_server, "/script", {**script_body(), "tags": metadata})
-    assert (status, response) == (502, {"error_code": "PODCAST_SCRIPT_NEEDS_REVIEW"})
+    error, candidates = luna_script(monkeypatch, metadata)
+    assert error == "PODCAST_SCRIPT_NEEDS_REVIEW"
     records = call_records(tmp_path / "luna-calls.jsonl")
     assert len(records) == 4 and len(fake_codex.read_text().splitlines()) == 4
-    assert not (tmp_path / "failures").exists()
-    status, receipt = post(provider_server, "/jobs/luna-result", {"tags": metadata, "outcome": "failed", "reason": "PODCAST_SCRIPT_NEEDS_REVIEW"})
-    assert status == 200 and receipt["saved"] and receipt["candidate_available"]
-    directory = tmp_path / "failures"
-    saved, = directory.glob("*.json")
-    assert directory.stat().st_mode & 0o777 == 0o700 and saved.stat().st_mode & 0o777 == 0o600
-    private = saved.read_text()
+    assert all(row["tags"] == metadata for row in records)
+    assert len(candidates) == 4 and all(c["tags"] == metadata for c in candidates)
+    private = json.dumps(candidates, ensure_ascii=False)
     assert "空堆疊不可 pop" in private and "私密核對理由" in private
-    assert "PODCAST_SCRIPT_NEEDS_REVIEW" in private
+    assert not (tmp_path / "failures").exists()
     for public in ((tmp_path / "luna-calls.jsonl").read_text(), caplog.text):
         assert "空堆疊" not in public and "私密核對理由" not in public
-
-
-@pytest.mark.parametrize("outcome", ["succeeded", "cancelled"])
-def test_success_and_cancel_discard_in_memory_candidates(provider_server, fake_codex, tmp_path, outcome):
-    metadata = tags("podcast_script")
-    assert post(provider_server, "/script", {**script_body(), "tags": metadata})[0] == 200
-    assert not (tmp_path / "failures").exists()
-    response = post(provider_server, "/jobs/luna-result", {"tags": metadata, "outcome": outcome, "reason": None})
-    assert response[0] == 200 and not response[1]["saved"] and response[1]["candidate_available"]
-    assert not (tmp_path / "failures").exists()
-    # 清除後沒有模型候選，不得宣稱重送通知已保存。
-    receipt = post(provider_server, "/jobs/luna-result", {"tags": metadata, "outcome": "failed", "reason": "SYNTHETIC_FAILED"})[1]
-    assert not receipt["saved"] and not receipt["candidate_available"]
 
 
 def test_intermediate_rejection_then_success_leaves_no_private_failure(provider_server, fake_codex, monkeypatch, tmp_path):
     monkeypatch.setenv("SYNTHETIC_REJECT", "once")
     metadata = tags("podcast_script")
-    assert post(provider_server, "/script", {**script_body(), "tags": metadata})[0] == 200
+    assert luna_script(monkeypatch, metadata)[0] is None
     assert len(fake_codex.read_text().splitlines()) == 4
-    assert not (tmp_path / "failures").exists()
-    receipt = post(provider_server, "/jobs/luna-result", {"tags": metadata, "outcome": "succeeded", "reason": None})[1]
-    assert receipt["candidate_available"] and not receipt["saved"]
     assert not (tmp_path / "failures").exists()
 
 
@@ -177,11 +176,15 @@ def test_real_video_flow_uses_one_cli_call_and_preserves_tag_isolation(provider_
             output.with_suffix(".mp4").write_bytes(b"synthetic video")
         return 0
     monkeypatch.setattr(video_service, "_process", media_process)
+    from runtime import luna_calls, podcast_videos
+
     metadata = tags("podcast_video")
-    payload = {"tags": metadata, "job_id": str(uuid4()), "job_token": str(uuid4()),
-               "episode": episode, "audio": base64.b64encode(audio).decode(), "source_context": {},
-               "podcast_id": "podcast-1", "episode_index": 0, "source_resolver": "/source"}
-    assert post(provider_server, "/video", payload)[0] == 200
+    monkeypatch.setenv("STUDYDY_TEXT_TEST_PROVIDER", "codex-exec-luna")
+    monkeypatch.setattr(luna_calls, "tags", lambda **_: metadata)
+    state = {"episode": episode, "source_context": {}, "source_resolver": "/source",
+             "podcast_id": "podcast-1", "index": 0, "video_id": str(uuid4()), "token": str(uuid4())}
+    # 後端兩段呼叫真 provider：對齊切頁 → Luna 分鏡（/semantics）→ 渲染。
+    assert podcast_videos.provider(state, audio)["model"] == "codex-cli/gpt-5.6-luna;semantic-layout/v4"
     records = call_records(tmp_path / "luna-calls.jsonl")
     assert len(records) == len(fake_codex.read_text().splitlines()) == 1
     assert records[0]["tags"] == metadata
@@ -308,7 +311,7 @@ def test_legacy_requests_without_tags_remain_compatible(provider_server, fake_co
     assert all(row["tags"] is None for row in call_records(tmp_path / "luna-calls.jsonl"))
 
 
-@pytest.mark.parametrize("endpoint", ["/audio", "/align", "/transcribe", "/media-transcribe", "/scene-check", "/video"])
+@pytest.mark.parametrize("endpoint", ["/audio", "/align", "/transcribe", "/media-transcribe", "/video"])
 def test_tags_are_stripped_before_each_body_forwarding_path(provider_server, fake_codex, monkeypatch, endpoint):
     observed = []
     def generated(body, **kwargs):
@@ -320,14 +323,9 @@ def test_tags_are_stripped_before_each_body_forwarding_path(provider_server, fak
         monkeypatch.setattr(provider, method, generated)
     elif endpoint == "/video":
         import video_service
-        monkeypatch.setattr(video_service, "produce", generated)
-    else:
-        payload["items"] = [{"synthetic": True}]
+        monkeypatch.setattr(video_service, "render", generated)
     assert post(provider_server, endpoint, payload)[0] == 200
-    if observed:
-        assert "tags" not in observed[0]
-    else:
-        assert "tags" not in fake_codex.read_text()
+    assert "tags" not in observed[0]
 
 
 def test_report_reads_completed_and_interrupted_calls_once_after_restart(tmp_path):
@@ -382,8 +380,8 @@ def test_report_cli_filters_and_counts_same_records_as_actual_cli(provider_serve
 def test_failure_write_error_is_reported_and_keeps_candidate_for_retry(tmp_path, monkeypatch):
     store = CallLog(tmp_path / "luna-calls.jsonl")
     metadata = tags("podcast_script")
-    with store.request(metadata, "/script"):
-        provider.luna_call_log.capture_candidate({"synthetic": "private"})
+    with store.request(metadata, "/semantics"):
+        provider.luna_call_log.capture_candidate({"synthetic": "private"}, failed=True)
     original = os.open
     def denied(path, *args, **kwargs):
         if str(path).endswith(".tmp"):

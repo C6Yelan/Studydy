@@ -79,7 +79,7 @@ def test_title_request_uses_the_luna_text_channel(closed_loop, monkeypatch):
         sent.append((path, body))
         return {"title": "有依據的回答"}
 
-    monkeypatch.setattr(provider_http, "provider", provider)
+    monkeypatch.setattr(provider_http, "_host", provider)
     assert podcast_titles.generate({**claim["episode"], "script": script(claim)}) == "有依據的回答"
     path, body = sent[0]
     assert path == "/semantics" and body["task"] == "material_review" and body["prompt"] == podcast_titles.PROMPT

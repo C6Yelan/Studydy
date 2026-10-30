@@ -34,7 +34,7 @@ class ReviewInvalid(RuntimeError):
     """核對模型沒有逐項回覆；不能把殘缺回應當成通過。"""
 
     def __init__(self):
-        super().__init__("LUNA_GENERATION_FAILED")
+        super().__init__("SEMANTIC_GENERATION_FAILED")
 
 
 def _object(properties):

@@ -9,6 +9,7 @@ from runtime import topics,research
 from runtime.storage.materials import MaterialLibraryError
 from research_fixtures import review_provider,search_to_selection
 from runtime.source_normalization import normalize_next
+from runtime.local_ai_config import configured_lock
 from runtime.errors import SourceError
 from runtime.material_discard import request_material_discard
 from runtime.storage.tables import TopicScope, MaterialResearch, Material
@@ -212,7 +213,7 @@ def test_topic_api_requires_identity_origin_and_exact_scope(closed_loop,monkeypa
     r=client.post('/v1/topics',headers=headers,json={'request':'佇列'});assert r.status_code==202
     identity=r.json()['topic_id'];topics.step(dsn=dsn)
     assert client.post('/v1/materials/'+str(closed_loop[1].material_id)+'/research',headers=headers,json={'query':'bypass','mode':'review'}).status_code==405
-    view=client.get('/v1/topics/'+identity).json();assert view['generation_provider']=='codex-exec:gpt-5.6-luna;scope/v6'
+    view=client.get('/v1/topics/'+identity).json();assert view['generation_provider']=='vllm:'+configured_lock()['semantic_service']['model_id']+';scope/v6'
     assert client.post('/v1/topics/'+identity+'/approve',headers=headers,json={'expected_version':view['version'],'proposal':{**PLAN,'title':'字'*41}}).status_code == 400
     r=client.post('/v1/topics/'+identity+'/approve',headers=headers,json={'expected_version':view['version'],'proposal':PLAN})
     assert r.status_code==200 and r.json()['approved_at']

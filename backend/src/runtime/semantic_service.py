@@ -335,7 +335,7 @@ def request_semantics(
     if enabled(runtime_lock):
         if task not in MIN_OUTPUT_TOKENS:
             raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
-        from .provider_http import provider
+        from .provider_http import _host as provider
 
         if cancellation_check:
             cancellation_check()
@@ -630,3 +630,39 @@ def material_request_fits(
     except (httpx.HTTPError, UnicodeError, ValueError) as error:
         raise SemanticServiceError("SEMANTIC_SERVICE_UNAVAILABLE") from error
     return new_count <= task["max_new_input_tokens"]
+
+
+def generate(prompt, schema, *, request=None, cancellation_check=None, cancelled=None):
+    """Podcast 講稿、畫面核對與分鏡共用的文字呼叫；依 runtime lock 走 Luna provider 或 vLLM。"""
+    from .local_ai_config import configured_lock
+    from . import podcast_process
+    from .provider_http import _cancellation
+
+    lock = deepcopy(configured_lock())
+    lock["material_review"] = {**lock["material_review"], "prompt": prompt}
+    # 外層工作的取消狀態；Luna 路徑另開 provider 工作時仍靠這裡轉達取消。
+    active = _cancellation.get()
+
+    def check():
+        if active is not None:
+            active.check()
+        podcast_process.check(cancelled)
+        if cancellation_check is not None:
+            cancellation_check()
+
+    with semantic_client() as client:
+        return request_semantics(
+            client, runtime_lock=lock, task="material_review",
+            request=request or {}, response_schema=schema, cancellation_check=check,
+        )
+
+
+def text_model_label(luna_prefix="codex-cli/"):
+    """成品保存的文字模型身分；Luna 沿用各功能原本的標記前綴。"""
+    from .local_ai_config import configured_lock
+    from .luna_test import MODEL, enabled
+
+    lock = configured_lock()
+    if enabled(lock):
+        return f"{luna_prefix}{MODEL}"
+    return f"vllm:{lock['semantic_service']['model_id']}"

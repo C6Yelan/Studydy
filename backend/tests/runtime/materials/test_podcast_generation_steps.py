@@ -18,7 +18,7 @@ def test_generation_steps_follow_queue_lock_and_published_results(closed_loop, m
         return podcasts.read_podcast(owner.learner_id, identity, dsn=dsn)['generation']['steps']
     assert [s['status'] for s in view()]==['queued','waiting','waiting','waiting']
     state=podcasts.claim_step(dsn=dsn)
-    assert view()[0]['status']=='queued' and view()[0]['started_at']
+    assert view()[0]['status']=='running' and view()[0]['started_at']
     metadata={'job_id':str(identity),'job_token':str(state['token'])}
     # 使用真 provider 工作註冊表，僅替換 HTTP 傳輸。
     def local_progress(jobs):

@@ -5,8 +5,10 @@ from pathlib import Path
 from copy import deepcopy
 import pytest
 
+from runtime import podcast_script_generation as provider
+
 spec=importlib.util.spec_from_file_location('podcast_provider',Path(__file__).resolve().parents[2]/'ops/podcast/provider.py')
-provider=importlib.util.module_from_spec(spec);spec.loader.exec_module(provider)
+host=importlib.util.module_from_spec(spec);spec.loader.exec_module(host)
 
 
 def body():
@@ -57,7 +59,7 @@ def test_passing_script_uses_one_generation_and_one_review_per_segment(monkeypat
     request=body()
     value=candidate('必要條件保留。'*80, [0,0])
     model,calls=fake_model(value)
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     diagnostics={}
     result=provider.script(request,diagnostics=diagnostics)
     assert [kind for kind,_ in calls]==['script','review'] and 'review' not in result
@@ -71,26 +73,26 @@ def test_passing_script_uses_one_generation_and_one_review_per_segment(monkeypat
 def test_script_rejects_foreign_or_invalid_references_without_retry(monkeypatch,index):
     calls=[]
     def model(*args,**kwargs):calls.append(args);return candidate(sources=[index])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     with pytest.raises(RuntimeError,match='PODCAST_SCRIPT_INVALID'):provider.script(body())
     assert len(calls)==1
 
 
 def test_empty_script_is_not_published(monkeypatch):
-    monkeypatch.setattr(provider,'luna',lambda *_,**kwargs:{'segments':[]})
+    monkeypatch.setattr(provider,'generate',lambda *_,**kwargs:{'segments':[]})
     with pytest.raises(RuntimeError,match='PODCAST_SCRIPT_INVALID'):provider.script(body())
 
 
 def test_same_claim_ids_keep_distinct_source_positions(monkeypatch):
     request=body();request['claims'].append({**deepcopy(request['claims'][0]),'concept_id':'c1','evidence':[{'evidence_id':'e1'}]})
-    monkeypatch.setattr(provider,'luna',fake_model(candidate(sources=[0,1]))[0])
+    monkeypatch.setattr(provider,'generate',fake_model(candidate(sources=[0,1]))[0])
     refs=provider.script(request)['segments'][0]['turns'][0]['parts'][0]['source_refs']
     assert refs==[{'source_index':0,'evidence_ids':['e0']},{'source_index':1,'evidence_ids':['e1']}]
 
 
 def test_source_free_questions_and_consecutive_speakers_are_allowed(monkeypatch):
     value=candidate();value['segments'][0]['turns'].insert(0,{'speaker':'host','text':'為什麼？','source_indices':[]})
-    monkeypatch.setattr(provider,'luna',fake_model(value)[0])
+    monkeypatch.setattr(provider,'generate',fake_model(value)[0])
     result=provider.script(dialogue())
     assert [t['speaker'] for t in result['segments'][0]['turns']]==['host','host']
     assert result['segments'][0]['turns'][0]['parts'][0]['source_refs']==[]
@@ -98,7 +100,7 @@ def test_source_free_questions_and_consecutive_speakers_are_allowed(monkeypatch)
 
 def test_show_prompt_uses_host_names_series_preview_and_spoken_numbers(monkeypatch):
     model,calls=fake_model(candidate())
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     result=provider.script(dialogue())
     assert result['provider'].endswith(';source-script/v17')
     prompts=[prompt for kind,prompt in calls if kind=='script']
@@ -134,7 +136,7 @@ def show():
 def test_each_segment_is_checked_against_its_cited_original_and_same_page_headers(monkeypatch):
     request,script=show()
     model,calls=fake_model(script)
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     result=provider.script(request)
     reviews=[r for kind,r in calls if kind=='review']
     assert [kind for kind,_ in calls]==['script']+['review']*4
@@ -157,7 +159,7 @@ def test_claim_explained_across_segments_is_judged_at_its_last_teaching_segment(
     request,script=show()
     script['segments'][2]['turns'][1]['source_indices']=[0]
     model,calls=fake_model(script)
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     provider.script(request)
     reviews=[r for kind,r in calls if kind=='review']
     # 非空檢查跨第 1、2 段，在第 2 段合併前段判斷；收尾回顧不判斷涵蓋。
@@ -171,7 +173,7 @@ def test_claim_only_recapped_is_assigned_to_a_body_segment_and_must_be_cited(mon
     script['segments'][2]['turns'][0]['source_indices']=[]
     fixed=deepcopy(script['segments'][2]);fixed['turns'][0]['source_indices']=[1]
     model,calls=fake_model(script,rewrites=[fixed])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     diagnostics={}
     result=provider.script(request,diagnostics=diagnostics)
     # 學習率只在收尾一句帶過：沒有同概念的正文段落，分到最後一個正文段落重寫。
@@ -190,7 +192,7 @@ def test_uncited_claim_goes_to_the_last_body_segment_of_its_concept(monkeypatch)
         'text':'pop 前先確認非空。','evidence':[{'evidence_id':'e2','page_ref':'p0','quote':'pop 前先確認非空。'}]})
     fixed=deepcopy(script['segments'][1]);fixed['turns'].append({'speaker':'guest','text':'pop 前先確認非空。','source_indices':[2]})
     model,calls=fake_model(script,rewrites=[fixed])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     result=provider.script(request)
     assert [kind for kind,_ in calls]==['script','review','review','rewrite','review','review','review']
     correction=json.loads(calls[3][1][calls[3][1].index('{"series"'):])['correction']
@@ -202,7 +204,7 @@ def test_rewrite_that_leaves_half_the_claims_uncited_omits_the_segment(monkeypat
     request,script=show()
     script['segments'][2]['turns'][0]['source_indices']=[]
     model,calls=fake_model(script,rewrites=[script['segments'][2]])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     result=provider.script(request)
     assert result['omitted_content'][0]['claim_ids']==[request['claims'][1]['claim_id']]
     assert [kind for kind,_ in calls]==['script','review','review','review','rewrite','review']
@@ -212,7 +214,7 @@ def test_unsupported_segment_is_rewritten_alone_and_checked_again(monkeypatch):
     request,script=show()
     fixed={'title':'學習率','turns':[{'speaker':'guest','text':'表中學習率 0.1 對應損失 0.16。','source_indices':[1]}]}
     model,calls=fake_model(script,reviews=[None,None,lambda r:verdict(r,{'turn.0'})],rewrites=[fixed])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     diagnostics={}
     result=provider.script(request,diagnostics=diagnostics)
     assert [kind for kind,_ in calls]==['script','review','review','review','rewrite','review','review']
@@ -234,21 +236,20 @@ def test_half_unsupported_after_rewrite_is_omitted_and_other_segments_publish(mo
     request,script=show()
     model,calls=fake_model(script,reviews=[None,lambda r:verdict(r,{'turn.0'}),lambda r:verdict(r,{'turn.0'})],
         rewrites=[script['segments'][1]])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     diagnostics={}
     result=provider.script(request,diagnostics=diagnostics)
     assert result['omitted_content']==[{'segment_index':1,'claim_ids':[request['claims'][0]['claim_id']],'reason':'source_check_failed'}]
     assert len(result['segments'])==3
     assert [kind for kind,_ in calls]==['script','review','review','rewrite','review','review','review']
     assert diagnostics['rewrites']==[{'segment':1,'rejected':['turn.0']},{'segment':1,'rejected_after_rewrite':['turn.0']}]
-    assert provider.failure_code(RuntimeError('PODCAST_SCRIPT_NEEDS_REVIEW'))=='PODCAST_SCRIPT_NEEDS_REVIEW'
 
 
 def test_unsupported_opening_is_omitted_without_affecting_claim_threshold(monkeypatch):
     request,script=show()
     script['segments'][0]['turns'][0]['text']='歡迎，我是小晴。學習率 0.5 時損失會變成 36。'
     model,calls=fake_model(script,reviews=[lambda r:verdict(r,{'turn.0'})]*2,rewrites=[script['segments'][0]])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     result=provider.script(request)
     assert result['omitted_content']==[{'segment_index':0,'claim_ids':[],'reason':'source_check_failed'}]
     reviews=[r for kind,r in calls if kind=='review']
@@ -260,7 +261,7 @@ def test_missing_explanation_is_reported_by_source_index_and_rewrite_cannot_drop
     script['segments'][3]['turns'][0]['source_indices']=[0]
     dropped={'title':'學習率','turns':[{'speaker':'guest','text':'接著看步伐大小。','source_indices':[]}]}
     model,calls=fake_model(script,reviews=[None,None,lambda r:verdict(r,{'C1'})],rewrites=[dropped])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     diagnostics={}
     result=provider.script(request,diagnostics=diagnostics)
     assert result['omitted_content'][0]['claim_ids']==[request['claims'][1]['claim_id']]
@@ -283,7 +284,7 @@ def test_explanation_located_in_lines_about_another_claim_counts_as_missing(monk
         answer['coverage']=[{**c,'script_parts':['related.0.turn.0']} if c['claim']=='C2' else c for c in answer['coverage']]
         return answer
     model,calls=fake_model(script,reviews=[None,None,elsewhere],rewrites=[fixed])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     result=provider.script(request)
     rewrite=calls[4][1]
     correction=json.loads(rewrite[rewrite.index('{"series"'):])['correction']
@@ -299,7 +300,7 @@ def test_host_calling_themself_by_name_is_rewritten_while_introductions_and_part
     script['segments'][2]['turns'][1]['text']='小晴幫大家整理：所以步伐要合適。'
     fixed=deepcopy(script['segments'][2]);fixed['turns'][1]['text']='我幫大家整理：所以步伐要合適。'
     model,calls=fake_model(script,rewrites=[fixed])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     diagnostics={}
     result=provider.script(request,diagnostics=diagnostics)
     # 自稱由程式檢查：開場自我介紹與叫對方名字不算，只有第三人稱自稱的那句交給同一段重寫。
@@ -315,7 +316,7 @@ def test_self_naming_left_after_rewrite_is_published_and_only_its_position_logge
     request,script=show()
     script['segments'][1]['turns'][0]['text']='阿哲覺得：空堆疊不可 pop。'
     model,calls=fake_model(script,rewrites=[script['segments'][1]])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     diagnostics={}
     result=provider.script(request,diagnostics=diagnostics)
     # 只剩自稱時仍重核事實，通過就照常發布；診斷只記位置，不記台詞。
@@ -328,7 +329,7 @@ def test_self_naming_with_unsupported_facts_after_rewrite_is_omitted(monkeypatch
     request,script=show()
     script['segments'][1]['turns'][0]['text']='阿哲覺得：空堆疊不可 pop。'
     model,calls=fake_model(script,reviews=[None,None,lambda r:verdict(r,{'turn.0'})],rewrites=[script['segments'][1]])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     diagnostics={}
     result=provider.script(request,diagnostics=diagnostics)
     assert result['omitted_content'][0]['segment_index']==1
@@ -354,7 +355,7 @@ def test_words_containing_a_host_name_and_show_introductions_are_not_self_naming
     request['claims'][0]['text']='小型語言模型在低資源語種上也要先確認非空。'
     script['segments'][0]['turns'][0]['text']=text
     model,calls=fake_model(script)
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     provider.script(request)
     assert 'rewrite' not in [kind for kind,_ in calls]
 
@@ -373,7 +374,7 @@ def test_host_name_used_as_own_subject_is_sent_to_rewrite(monkeypatch,text):
     script['segments'][0]['turns'][0]['text']=text
     fixed=deepcopy(script['segments'][0]);fixed['turns'][0]['text']='歡迎收聽，我是小安。'
     model,calls=fake_model(script,rewrites=[fixed])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     diagnostics={}
     provider.script(request,diagnostics=diagnostics)
     assert diagnostics['rewrites'][0]=={'segment':0,'rejected':['turn.0']}
@@ -388,19 +389,19 @@ def test_host_name_used_as_own_subject_is_sent_to_rewrite(monkeypatch,text):
 def test_incomplete_review_response_is_a_failure_not_a_pass(monkeypatch,broken):
     request,script=show()
     model,calls=fake_model(script,reviews=[None,None,broken])
-    monkeypatch.setattr(provider,'luna',model)
-    with pytest.raises(RuntimeError,match='^LUNA_GENERATION_FAILED$'):provider.script(request)
+    monkeypatch.setattr(provider,'generate',model)
+    with pytest.raises(RuntimeError,match='^SEMANTIC_GENERATION_FAILED$'):provider.script(request)
     assert 'rewrite' not in [kind for kind,_ in calls]
 
 
 def test_review_contract_must_match_the_runtime_lock_before_any_model_call(monkeypatch):
     from runtime import local_ai_config
     calls=[]
-    monkeypatch.setattr(provider,'luna',lambda *a,**k:calls.append(a) or candidate())
+    monkeypatch.setattr(provider,'generate',lambda *a,**k:calls.append(a) or candidate())
     lock=local_ai_config.configured_lock()
     monkeypatch.setattr(local_ai_config,'configured_lock',lambda:{**lock,'podcast_script_review':{**lock['podcast_script_review'],'prompt':'舊提示'}})
     with pytest.raises(RuntimeError) as error:provider.script(body())
-    assert provider.failure_code(error.value)=='PODCAST_REVIEW_CONTRACT_INVALID' and calls==[]
+    assert str(error.value)=='PODCAST_REVIEW_CONTRACT_INVALID' and calls==[]
 
 
 def test_review_contract_is_added_without_invalidating_old_runtime_snapshots():
@@ -418,16 +419,6 @@ def test_review_contract_is_added_without_invalidating_old_runtime_snapshots():
         with pytest.raises(MaterialAnalysisError):validate_runtime_lock({**current,'podcast_script_review':broken})
 
 
-def test_script_review_diagnostics_are_logged_without_script_text(caplog):
-    import logging, time
-    from uuid import uuid4
-    caplog.set_level(logging.INFO, logger='studydy.podcast.jobs')
-    review={'model_calls':7,'rewrites':[{'segment':2,'rejected':['turn.0','source.1']}]}
-    provider.record_job('/script',{'job_id':str(uuid4()),'claims':'do-not-log-material'},time.monotonic(),None,review)
-    message=caplog.records[-1].getMessage()
-    assert json.loads(message)['script_review']==review and 'do-not-log' not in message
-
-
 @pytest.mark.parametrize('change',[
     lambda b:b.pop('hosts'),
     lambda b:b['hosts'].pop('guest'),
@@ -441,7 +432,7 @@ def test_script_review_diagnostics_are_logged_without_script_text(caplog):
 ])
 def test_show_input_is_validated_before_calling_the_model(monkeypatch,change):
     calls=[]
-    monkeypatch.setattr(provider,'luna',lambda *a,**k:calls.append(a) or candidate())
+    monkeypatch.setattr(provider,'generate',lambda *a,**k:calls.append(a) or candidate())
     request=dialogue();change(request)
     with pytest.raises(ValueError,match='REQUEST_INVALID'):provider.script(request)
     assert calls==[]
@@ -463,7 +454,7 @@ def test_model_schema_only_exposes_current_source_indices():
 def test_source_capacity_stays_aligned_with_episode_planner(monkeypatch):
     from runtime.podcast_script import MAX_EPISODE_CLAIMS
     request=body();request['claims']*=MAX_EPISODE_CLAIMS
-    monkeypatch.setattr(provider,'luna',fake_model(candidate(sources=list(range(MAX_EPISODE_CLAIMS))))[0])
+    monkeypatch.setattr(provider,'generate',fake_model(candidate(sources=list(range(MAX_EPISODE_CLAIMS))))[0])
     assert len(provider.script(request)['segments'][0]['turns'][0]['parts'][0]['source_refs'])==MAX_EPISODE_CLAIMS
     request['claims'].append(deepcopy(request['claims'][0]))
     with pytest.raises(ValueError,match='REQUEST_INVALID'):provider.script(request)
@@ -477,8 +468,8 @@ def test_audio_failure_never_returns_partial_file_or_falls_back(monkeypatch, pur
         assert kwargs['timeout'] == None
         assert 'STUDYDY_PODCAST_PROVIDER_TOKEN' not in kwargs['env']
         return SimpleNamespace(returncode=1)
-    monkeypatch.setattr(provider.podcast_process,'run',failed)
-    with pytest.raises(RuntimeError,match='PODCAST_AUDIO_INVALID'):provider.audio({'script':candidate(), 'purpose':purpose})
+    monkeypatch.setattr(host.podcast_process,'run',failed)
+    with pytest.raises(RuntimeError,match='PODCAST_AUDIO_INVALID'):host.audio({'script':candidate(), 'purpose':purpose})
 
 
 def test_luna_timeout_has_fixed_reason_and_task_specific_deadline(monkeypatch):
@@ -486,10 +477,10 @@ def test_luna_timeout_has_fixed_reason_and_task_specific_deadline(monkeypatch):
     def expired(args,**kwargs):
         calls.append(args)
         assert kwargs['timeout']==300 and kwargs['input']=='synthetic prompt'
-        raise provider.subprocess.TimeoutExpired('codex',300)
-    monkeypatch.setattr(provider.podcast_process,'run',expired)
+        raise host.subprocess.TimeoutExpired('codex',300)
+    monkeypatch.setattr(host.podcast_process,'run',expired)
     with pytest.raises(RuntimeError,match='^LUNA_GENERATION_TIMEOUT$'):
-        provider.luna('synthetic prompt',{'type':'object'},timeout=300)
+        host.luna('synthetic prompt',{'type':'object'},timeout=300)
     assert len(calls) == 1
 
 
@@ -516,7 +507,7 @@ def test_retrieved_original_is_not_repeated_in_claim_and_quote(monkeypatch):
     request = body()
     request['source_context'] = {'p0': {'blocks': [{'evidence_id': 'e0', 'text': '空堆疊不可 pop。'}]}}
     model, calls = fake_model(candidate())
-    monkeypatch.setattr(provider, 'luna', model)
+    monkeypatch.setattr(provider, 'generate', model)
     provider.script(request)
     prompts = [prompt for kind, prompt in calls if kind == 'script']
     assert prompts[0].count('空堆疊不可 pop。') == 1
@@ -529,7 +520,7 @@ def test_job_diagnostics_exclude_private_input_and_exception_text(caplog):
     from uuid import uuid4
     caplog.set_level(logging.INFO, logger='studydy.podcast.jobs')
     body={'job_id':str(uuid4()),'job_token':'do-not-log-token','episode_index':3,'script':'do-not-log-material'}
-    provider.record_job('/audio',body,time.monotonic(),ValueError('do-not-log-exception'))
+    host.record_job('/audio',body,time.monotonic(),ValueError('do-not-log-exception'))
     message=caplog.records[-1].getMessage();value=json.loads(message)
     assert value['job_id']==body['job_id'] and value['episode_index']==3
     assert value['result']=='PODCAST_PROVIDER_FAILED' and value['error_type']=='ValueError'
@@ -539,7 +530,7 @@ def test_job_diagnostics_exclude_private_input_and_exception_text(caplog):
 @pytest.mark.parametrize('metadata',[None,{'policy':'podcast-mastering/v1','integrated_lufs':-19,'true_peak_dbtp':-2,'loudness_range_lu':5}])
 def test_voice_and_podcast_responses_use_the_same_dynamic_pause_identity(metadata):
     from io import BytesIO
-    handler=object.__new__(provider.Handler)
+    handler=object.__new__(host.Handler)
     handler.path='/audio';handler.wfile=BytesIO()
     handler.audio_queued_at=handler.audio_started_at=0.0
     headers={}
@@ -579,14 +570,14 @@ def test_media_transcription_runs_isolated_gpu_script_and_reports_failure(monkey
         assert kwargs['timeout'] is None and 'STUDYDY_PODCAST_PROVIDER_TOKEN' not in kwargs['env']
         Path(args[3]).write_text('{"segments":[{"start":0,"end":1,"text":"堆疊"}],"language":"zh"}')
         return SimpleNamespace(returncode=0)
-    monkeypatch.setattr(provider.podcast_process,'run',run)
+    monkeypatch.setattr(host.podcast_process,'run',run)
     body={'audio':base64.b64encode(b'OggS-speech').decode()}
-    assert provider.media_transcribe(body)['segments'][0]['text']=='堆疊'
+    assert host.media_transcribe(body)['segments'][0]['text']=='堆疊'
     # 暫存音訊在回傳前刪除。
     assert not Path(calls[0][2]).exists()
-    monkeypatch.setattr(provider.podcast_process,'run',lambda args,**kwargs:SimpleNamespace(returncode=1))
-    with pytest.raises(RuntimeError,match='MEDIA_TRANSCRIPT_FAILED'):provider.media_transcribe(body)
-    with pytest.raises(ValueError,match='REQUEST_INVALID'):provider.media_transcribe({'audio':''})
+    monkeypatch.setattr(host.podcast_process,'run',lambda args,**kwargs:SimpleNamespace(returncode=1))
+    with pytest.raises(RuntimeError,match='MEDIA_TRANSCRIPT_FAILED'):host.media_transcribe(body)
+    with pytest.raises(ValueError,match='REQUEST_INVALID'):host.media_transcribe({'audio':''})
 
 
 
@@ -608,7 +599,7 @@ def test_recap_count_matches_numbered_source_turns_without_extra_calls(monkeypat
     value = candidate()
     value['segments'].append(recap(declared))
     model, calls = fake_model(value)
-    monkeypatch.setattr(provider, 'luna', model)
+    monkeypatch.setattr(provider, 'generate', model)
     provider.script(dialogue())
     assert [kind for kind, _ in calls] == ['script', 'review', 'review']
 
@@ -627,7 +618,7 @@ def test_recap_mismatch_rewrites_only_the_closing_segment(monkeypatch, bad_recap
     else:
         fixed['turns'][0]['text'] = fixed['turns'][0]['text'].replace('4 個', '3 個')
     model, calls = fake_model(value, rewrites=[fixed])
-    monkeypatch.setattr(provider, 'luna', model)
+    monkeypatch.setattr(provider, 'generate', model)
     result = provider.script(dialogue())
     assert [kind for kind, _ in calls] == ['script', 'review', 'review', 'rewrite', 'review']
     assert result['segments'][0]['turns'][0]['text'] == value['segments'][0]['turns'][0]['text']
@@ -641,7 +632,7 @@ def test_recap_mismatch_after_rewrite_is_not_published(monkeypatch):
     bad = recap(unnumbered_fourth=True)
     value['segments'].append(bad)
     model, calls = fake_model(value, rewrites=[bad])
-    monkeypatch.setattr(provider, 'luna', model)
+    monkeypatch.setattr(provider, 'generate', model)
     result=provider.script(dialogue())
     assert result['omitted_content']==[{'segment_index':1,'claim_ids':[],'reason':'source_check_failed'}]
     assert len(result['segments'])==1
@@ -653,7 +644,7 @@ def test_audio_only_rule_is_shared_by_generation_review_and_rewrite(monkeypatch)
     original = candidate('請看下方的本集重點。')
     replacement = candidate()['segments'][0]
     model, calls = fake_model(original, reviews=[lambda r: verdict(r, ('turn.0',)), None], rewrites=[replacement])
-    monkeypatch.setattr(provider, 'luna', model)
+    monkeypatch.setattr(provider, 'generate', model)
     result = provider.script(body())
     assert result['segments'][0]['turns'][0]['text'] == '空堆疊不可 pop。'
     for kind, prompt in calls:
@@ -673,7 +664,7 @@ def test_verified_segments_publish_even_when_most_claims_are_omitted(monkeypatch
     def review_result(r):
         return verdict(r, {'turn.0'} if 1 <= r['segment_index'] <= failed_count else set())
     model,calls=fake_model(value,reviews=[review_result]*12,rewrites=value['segments'][1:failed_count+1])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     result=provider.script(request)
     assert len(result['omitted_content'])==failed_count
     assert [b['beat_id'] for b in result['segments']]==[f'beat-{i}' for i in range(6-failed_count)]
@@ -685,6 +676,6 @@ def test_omitted_claim_identities_are_unique(monkeypatch):
     request['claims'].append(deepcopy(request['claims'][1]))
     value['segments'][2]['turns'][0]['source_indices']=[1,2]
     model,_=fake_model(value,reviews=[None,None,lambda r:verdict(r,{'turn.0'}),lambda r:verdict(r,{'turn.0'})],rewrites=[value['segments'][2]])
-    monkeypatch.setattr(provider,'luna',model)
+    monkeypatch.setattr(provider,'generate',model)
     result=provider.script(request)
     assert result['omitted_content'][0]['claim_ids']==[request['claims'][1]['claim_id']]

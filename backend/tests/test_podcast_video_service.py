@@ -1,4 +1,4 @@
-"""取消須終止渲染並阻止後續模型請求；不使用真實教材或模型。"""
+"""影片拆成 provider 對齊切頁、後端生成分鏡、provider 渲染；取消須終止渲染並阻止後續模型請求。不使用真實教材或模型。"""
 import importlib.util
 from pathlib import Path
 import sys
@@ -21,12 +21,29 @@ def model_design(schema, kind='comparison'):
                        'relations': []}]} for _ in range(schema['properties']['sections']['minItems'])]}
 
 
+def run(monkeypatch, body, model, align):
+    """後端 provider() 實際組裝兩段請求；HTTP 改為同程序呼叫 provider 端的 prepare／render。"""
+    from threading import Event, Lock
+    from runtime import podcast_videos, semantic_service
+
+    def call(request):
+        if request['stage'] == 'prepare':
+            return service.prepare(request, align=align, asr_lock=Lock(), cancelled=Event())
+        return service.render(request, cancelled=Event())
+    monkeypatch.setattr(podcast_videos, '_video_call', call)
+    monkeypatch.setattr(semantic_service, 'generate', model)
+    state = {key: body[key] for key in ('episode', 'source_context', 'source_resolver')}
+    state.update(podcast_id='p', index=0, video_id=str(uuid4()), token=str(uuid4()))
+    import base64
+    return podcast_videos.provider(state, base64.b64decode(body['audio']))
+
+
 def test_cancel_before_start_never_calls_model():
     body={'job_id':str(uuid4()),'job_token':str(uuid4())}
     service.podcast_process.cancel(body)
     with pytest.raises(ValueError,match='PODCAST_CANCELLED'):
         with service.podcast_process.job(body) as cancelled:
-            service.produce(body,luna=lambda *_:pytest.fail('cancelled job called model'),model='synthetic',align=None,text_lock=None,asr_lock=None,cancelled=cancelled)
+            service.prepare(body,align=None,asr_lock=None,cancelled=cancelled)
 
 
 def test_cancel_running_renderer_stops_child():
@@ -59,7 +76,6 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
     for beat in episode['script']['segments']:beat['title']='同名標題'
     calls=[];rendered=[]
     def model(prompt,schema,**kwargs):
-        assert kwargs['timeout'] is None
         assert set(schema['properties'])=={'sections'}
         assert schema['properties']['sections']['minItems']==2
         source = json.loads(prompt[prompt.index('{"source":'):])['source']
@@ -92,14 +108,15 @@ def test_one_storyboard_call_without_quality_review_or_rewrite(tmp_path,monkeypa
         return 0
     monkeypatch.setattr(service,'_process',process)
     body={'episode':episode,'audio':base64.b64encode(audio).decode(),'source_context':context,'podcast_id':'p','episode_index':0,'source_resolver':'/source'}
-    kwargs=dict(luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
+    align=lambda *a,**k:alignment
     if failure:
         with pytest.raises(ValueError,match='VIDEO_LAYOUT_INVALID' if failure=='layout' else 'VIDEO_RENDER_FAILED'):
-            service.produce(body,**kwargs)
+            run(monkeypatch,body,model,align)
         assert not rendered
     else:
-        result=service.produce(body,**kwargs)
+        result=run(monkeypatch,body,model,align)
         assert 'review' not in result and rendered==[True]
+        assert result['model'].endswith(';semantic-layout/v4')
     assert len(calls)==1 and not list(tmp_path.iterdir())
 
 
@@ -126,5 +143,5 @@ def test_measured_grouping_reaches_storyboard_and_render_without_dropping_turns(
         if args[-1]!='--validate':result.with_suffix('.mp4').write_bytes(b'synthetic')
         return 0
     monkeypatch.setattr(service,'_process',process)
-    result=service.produce({'episode':episode,'audio':base64.b64encode(raw).decode(),'source_context':{},'podcast_id':'p','episode_index':0,'source_resolver':'/source'},luna=model,model='synthetic',align=lambda *a,**k:alignment,text_lock=Lock(),asr_lock=Lock(),cancelled=Event())
+    result=run(monkeypatch,{'episode':episode,'audio':base64.b64encode(raw).decode(),'source_context':{},'podcast_id':'p','episode_index':0,'source_resolver':'/source'},model,lambda *a,**k:alignment)
     assert len(result['cues'])==1 and 'groups' not in result['alignment']

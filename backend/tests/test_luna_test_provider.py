@@ -35,6 +35,8 @@ def test_luna_semantics_and_preflight_never_call_gemma(monkeypatch):
         calls.append((path,body))
         return {'model':'gpt-5.6-luna'} if path=='/luna-health' else {'concepts':[],'relations':[]}
     monkeypatch.setattr(provider_http,'provider',provider)
+    # Luna 語意請求走 provider 本機傳輸；preflight 仍走 provider()。
+    monkeypatch.setattr(provider_http,'_host',provider)
     class NoGemma:
         def __getattr__(self,name):raise AssertionError('Gemma must not be called')
     preflight_semantic_service(lock,client=NoGemma())
@@ -104,7 +106,7 @@ def test_luna_all_semantic_tasks_block_before_provider_at_shared_64k_limit(monke
     count = 65536 - reserve
     monkeypatch.setattr(service, 'estimate_prompt_tokens', lambda *_: count)
     calls = []
-    monkeypatch.setattr(provider_http, 'provider', lambda *args: calls.append(args) or {'ok': True})
+    monkeypatch.setattr(provider_http, '_host', lambda *args: calls.append(args) or {'ok': True})
     arguments = dict(runtime_lock=lock, task=task, request={}, response_schema={})
     assert request_semantics(None, **arguments) == {'ok': True}
     count += 1
@@ -119,7 +121,7 @@ def test_luna_rejects_returned_output_over_remaining_budget(monkeypatch, output_
     lock = luna_lock(_runtime_lock())
     monkeypatch.setattr(service, 'estimate_prompt_tokens', lambda *_: 57344)
     monkeypatch.setattr(service, 'estimate_o200k_tokens', lambda *_: output_tokens)
-    monkeypatch.setattr(provider_http, 'provider', lambda *_: {'ok': True})
+    monkeypatch.setattr(provider_http, '_host', lambda *_: {'ok': True})
     arguments = dict(runtime_lock=lock, task='material_semantics', request={}, response_schema={})
     if accepted:
         assert request_semantics(None, **arguments) == {'ok': True}

@@ -13,7 +13,8 @@ from sqlalchemy import select
 
 from .storage.database import database_session
 from .storage.tables import Podcast
-from . import luna_calls
+from . import luna_calls, luna_test
+from .local_ai_config import configured_lock
 
 MAX_TITLE_LENGTH = 18
 PROMPT = (
@@ -51,9 +52,10 @@ def validate(response):
 
 
 def semantic_call():
-    """正式呼叫：沿用教材複核的 Luna 文字通道，只換提示與輸出上限。"""
+    """正式呼叫：沿用教材複核的文字通道（依 lock 走 Luna 或 vLLM），只換提示與輸出上限。"""
     from .knowledge_chapters import configured_lock
     from .semantic_service import request_semantics, semantic_client
+    from .provider_http import _cancellation
 
     lock = deepcopy(configured_lock())
 
@@ -63,6 +65,8 @@ def semantic_call():
             or {"generation": lock["material_semantics"]["generation"]}
         )
         task_lock.update(prompt=PROMPT, max_tokens=512)
+        # 節目取消時中斷集名請求，worker 才能接下一筆。
+        cancellation = _cancellation.get()
         with semantic_client() as client:
             return request_semantics(
                 client,
@@ -70,6 +74,7 @@ def semantic_call():
                 task="material_review",
                 request=request,
                 response_schema=_SCHEMA,
+                cancellation_check=cancellation.check if cancellation is not None else None,
             )
 
     return call
@@ -82,6 +87,7 @@ def generate(episode, call=None, *, claim=None):
     trace = luna_calls.start(
         "podcast_title", (claim["podcast_id"], claim["index"]), claim["token"],
         claim["material_id"], claim["owner"], defer_to_parent=True,
+        enabled=luna_test.enabled(configured_lock()),
     ) if claim is not None else None
     try:
         result = validate((call or semantic_call())(build_request(episode)))

@@ -10,6 +10,7 @@ from knowledge_map.retrieval import rank_texts
 from .text_budget import estimate_o200k_tokens
 from .errors import SourceError
 from . import luna_calls
+from .semantic_service import text_model_label
 
 
 INPUT_TOKENS = 12000
@@ -767,5 +768,5 @@ def answer(
             else {}
         ),
         "retrieval": metrics,
-        "provider": "codex-exec:gpt-5.6-luna",
+        "provider": text_model_label("codex-exec:"),
     }

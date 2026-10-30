@@ -401,7 +401,9 @@ def step(*, dsn=None):
                     },
                 )
             result = proposal(generated, 180 if material_id else 40)
-            producer = "codex-exec:gpt-5.6-luna;scope/v6"
+            from .semantic_service import text_model_label
+
+            producer = f"{text_model_label('codex-exec:')};scope/v6"
             error = None
         except Exception as failure:
             luna_calls.rejected(str(failure))

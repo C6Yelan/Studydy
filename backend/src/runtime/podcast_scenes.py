@@ -11,7 +11,8 @@ from content_identity import canonical_sha256
 from .podcast_access import _locked
 from .errors import SourceError
 from .storage.tables import PodcastScenes as Scenes, Podcast, Material
-from . import luna_calls
+from . import luna_calls, luna_test
+from .local_ai_config import configured_lock
 from .storage.database import database_session
 from .storage.knowledge_structures import _read_verified_document
 from .provider_http import provider
@@ -572,7 +573,7 @@ def step(*, dsn=None):
     if not state:
         return False
     trace = luna_calls.start("podcast_scenes", state["scene_id"], state["lease_token"],
-        state["material_id"], state["owner"])
+        state["material_id"], state["owner"], enabled=luna_test.enabled(configured_lock()))
     try:
         with cancellable_job(
             Scenes, state["scene_id"], state["lease_token"], dsn=dsn
