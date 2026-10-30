@@ -109,7 +109,7 @@ def provider_request(path, body, *, unavailable):
     """統一既有 provider 的位址、認證與 JSON；錯誤語意由呼叫功能決定。"""
     from . import luna_calls
 
-    if path in {"/semantics", "/script", "/scene-check", "/video"}:
+    if path in {"/semantics", "/video"}:
         call_tags = body.get("tags") or luna_calls.tags()
         if call_tags is not None:
             body = {**body, "tags": call_tags}
@@ -197,7 +197,7 @@ def _host(path, body, *, timings=None):
     if len(data) > 20 * 1024 * 1024:
         raise SourceError("VOICE_PROVIDER_FAILED")
     result = data if path == "/audio" else json.loads(data)
-    if path in {"/semantics", "/script", "/scene-check", "/video"}:
+    if path in {"/semantics", "/video"}:
         from . import luna_calls
 
         luna_calls.capture(
