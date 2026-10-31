@@ -38,6 +38,8 @@ import { useConceptContext } from "../material-flow/useConceptContext";
 import { errorMessage } from "../../api/client";
 import { ConceptContent } from "../../ui/ConceptContent";
 import { Icon } from "../../ui/Icon";
+import { MathText } from "../../ui/MathText";
+import { mathPlainText } from "../../ui/math-text";
 import { Progress } from "../../ui/Progress";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
@@ -182,7 +184,7 @@ function ConceptDetail({
       <header>
         <div>
           <span className="detail-kicker">{region ? `教材概念 · ${region}` : "教材概念"}</span>
-          <h2>{concept.label}</h2>
+          <h2><MathText text={concept.label} notation={false} /></h2>
         </div>
         <button aria-label="關閉概念詳情" className="panel-close" type="button" onClick={close}>
           ×
@@ -316,7 +318,7 @@ function LearningNavigator({
     const stateLabel =
       status === "completed" ? "已完成" : status === "needs_review" ? "需要加強" : "";
     const name = [
-      `第 ${step.position} 個，${concept.label}`,
+      `第 ${step.position} 個，${mathPlainText(concept.label)}`,
       learningCurrent && "目前學習",
       stateLabel,
       next && "下一步",
@@ -345,7 +347,7 @@ function LearningNavigator({
             {step.position}
           </span>
           <span className="navigator-concept">
-            <span className="navigator-label">{concept.label}</span>
+            <span className="navigator-label"><MathText text={concept.label} notation={false} /></span>
             {(learningCurrent || next) && (
               <span className="navigator-notes">
                 {learningCurrent ? (
@@ -399,9 +401,9 @@ function LearningNavigator({
           >
             <option value="" disabled>選擇章節（{regions!.regions.length} 章）</option>
             {regions!.groups.map((group) => (
-              <optgroup key={group.id} label={group.label}>
+              <optgroup key={group.id} label={mathPlainText(group.label)}>
                 {group.regionIndexes.map((index) => (
-                  <option key={index} value={index}>{regions!.regions[index].label}</option>
+                  <option key={index} value={index}>{mathPlainText(regions!.regions[index].label)}</option>
                 ))}
               </optgroup>
             ))}
@@ -420,16 +422,16 @@ function LearningNavigator({
             <ul className="navigator-regions">
               {islandGroups(regions!, groupSlices(groups, shown)).map(({ group, slices }) => (
                 <li key={group.id} className="navigator-region navigator-island-group">
-                  <h3 title={group.label}>
+                  <h3 title={mathPlainText(group.label)}>
                     <i style={{ background: islandColors(regionPalette(view.material_id, group.index)).c2 }} aria-hidden="true" />
-                    <span>{group.label}</span>
+                    <span><MathText text={group.label} notation={false} /></span>
                     <small>{group.regionIndexes.length} 章 · {group.conceptCount} 個</small>
                   </h3>
                   <ul className="navigator-chapters">
                     {slices.map(({ group: chapter, slice }) => (
                       <li key={chapter.id} className="navigator-region">
-                        <h4 title={chapter.label}>
-                          <span>{chapter.label}</span>
+                        <h4 title={mathPlainText(chapter.label)}>
+                          <span><MathText text={chapter.label} notation={false} /></span>
                           <small>{chapter.items.length} 個</small>
                         </h4>
                         <ul>{slice.map(renderItem)}</ul>
@@ -443,9 +445,9 @@ function LearningNavigator({
           <ul className="navigator-regions">
             {groupSlices(groups, shown).map(({ group, slice }) => (
               <li key={group.id} className="navigator-region">
-                <h3 title={group.label}>
+                <h3 title={mathPlainText(group.label)}>
                   <i style={{ background: islandColors(regionPalette(view.material_id, regionColorIndex(regions!, group.index))).c2 }} aria-hidden="true" />
-                  <span>{group.label}</span>
+                  <span><MathText text={group.label} notation={false} /></span>
                   <small>{group.items.length} 個</small>
                 </h3>
                 <ul>{slice.map(renderItem)}</ul>
@@ -621,7 +623,7 @@ function MapGraph({
               <span className="island-sign">
                 {position.has(node.id) && <em aria-hidden="true">{position.get(node.id)}</em>}
                 <span>
-                  <strong>{concept.label}</strong>
+                  <strong><MathText text={concept.label} notation={false} /></strong>
                   <small>
                     <LearningBadge conceptId={concept.concept_id} progress={progress} />
                     <DifficultyBadge concept={difficulty?.concepts.find(item => item.concept_id === concept.concept_id)} />
@@ -634,11 +636,11 @@ function MapGraph({
           ),
         },
         className: `concept-flow-node is-${states.get(node.id) ?? "not_started"}${current ? " is-focus" : ""}${node.depth === 2 ? " is-secondary" : ""}`,
-        ariaLabel: `教材概念：${concept.label}`,
+        ariaLabel: `教材概念：${mathPlainText(concept.label)}`,
         ariaRole: "button",
         domAttributes: nodeKeyboardAction(
           () => openConcept(node.id, () => restoreGraphFocus(node.id)),
-          `${concept.label}：查看概念與教材來源`,
+          `${mathPlainText(concept.label)}：查看概念與教材來源`,
         ),
         draggable: false,
         focusable: true,
@@ -669,7 +671,7 @@ function MapGraph({
         labelBgPadding: [7, 3],
         labelBgBorderRadius: 999,
         className: `concept-flow-edge is-relation is-${relation.type}`,
-        ariaLabel: `${label}：${previewRead.context?.relations.find(r => r.relation_id === relation.relation_id)?.learner_reason ?? `${conceptById.get(relation.source_concept_id)?.label} → ${conceptById.get(relation.target_concept_id)?.label}`}`,
+        ariaLabel: `${label}：${previewRead.context?.relations.find(r => r.relation_id === relation.relation_id)?.learner_reason ?? `${mathPlainText(conceptById.get(relation.source_concept_id)?.label ?? "")} → ${mathPlainText(conceptById.get(relation.target_concept_id)?.label ?? "")}`}`,
         focusable: true,
         domAttributes: {
           onKeyDown: (event: KeyboardEvent<SVGGElement>) => {
@@ -749,7 +751,7 @@ function MapGraph({
       <div
         className="focus-graph surface"
         ref={graphElement}
-        aria-label={`「${selected.label}」的兩層相關概念`}
+        aria-label={`「${mathPlainText(selected.label)}」的兩層相關概念`}
       >
         <ReactFlow
           nodeTypes={nodeTypes}
@@ -882,7 +884,7 @@ function RelationDetail({
             {index === 1 && <span aria-hidden="true">↓</span>}
             <button className="detail-related" type="button" onClick={() => openConcept(id)}>
               <small>{index === 0 ? "來源概念" : "目標概念"}</small>
-              <strong>{view.concepts.find((concept) => concept.concept_id === id)?.label}</strong>
+              <strong><MathText text={view.concepts.find((concept) => concept.concept_id === id)?.label ?? ""} notation={false} /></strong>
             </button>
           </div>
         ))}
@@ -927,7 +929,7 @@ function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadi
           <span>已完成 {completedCount}／{view.concepts.length} 個概念</span>
           <Progress value={completedCount} max={view.concepts.length || 1} aria-label="概念學習進度" />
         </div>}
-        <p className="review-next-concept">{nextLearningConcept ? `接下來：${nextLearningConcept.label}` : progress ? "目前路線已完成，可再次練習。" : "從第一個概念開始學習。"}</p>
+        <p className="review-next-concept">{nextLearningConcept ? <>接下來：<MathText text={nextLearningConcept.label} notation={false} /></> : progress ? "目前路線已完成，可再次練習。" : "從第一個概念開始學習。"}</p>
         {startId && <button className="primary-button" type="button" disabled={isStartingStudy} onClick={() => onStartStudy(startId)}>{isStartingStudy ? "正在接續學習…" : "繼續學習"}</button>}
       </>}
     </section>
@@ -1247,7 +1249,7 @@ export function KnowledgeMapWorkspace({
                   type="button"
                   onClick={() => chooseSearchResult(concept.concept_id)}
                 >
-                  <strong>{concept.label}</strong>
+                  <strong><MathText text={concept.label} notation={false} /></strong>
                   <small>{concept.claim_count} 個重點</small>
                 </button>
               ))}
