@@ -39,6 +39,29 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  await page.getByRole('button',{name:'開啟知識地圖',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/runs/${runId}/knowledge-structures/`));
 });
 
+for(const width of [1536,1024,390]) test(`verified topic source pagination follows long titles at ${width}px`,async({page})=>{
+ await page.setViewportSize({width,height:width===390?844:1024});
+ await mockTopicApi(page);
+ const sources=Array.from({length:13},(_,i)=>({...candidate,id:`source-${i}`,kind:'paper',title:i%3===0?'Исследование вероятностных моделей и механизмов обучения с очень длинным названием '.repeat(4):`核對來源 ${i+1}`}));
+ const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,
+  research:{research_id:rid,material_id:null,query:'TCP',approved_scope:plan,status:'searching',candidates:sources,selection:[],error_code:null,run_id:null,
+   progress:{stage:'reading',summary:'',finish_reason:null,waiting_until:null,topics:[],total_topics:3,completed_topics:1}}};
+ await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));
+ await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
+ await page.goto(`/topics/${id}`);
+ const found=page.getByRole('region',{name:'已核對來源',exact:true});
+ const cards=found.getByRole('article'),pagination=found.getByRole('navigation',{name:'來源分頁'});
+ await expect(cards).toHaveCount(10);
+ await expect(pagination).toBeVisible();
+ const bounds=await cards.evaluateAll(elements=>elements.map(element=>element.getBoundingClientRect().bottom));
+ expect((await pagination.boundingBox())!.y).toBeGreaterThanOrEqual(Math.max(...bounds));
+ await pagination.getByRole('button',{name:'下一頁',exact:true}).click();
+ await expect(cards).toHaveCount(3);
+ await expect(cards.first()).toContainText(sources[10].title);
+ await expect(pagination).toContainText('11–13 / 已載入 13 份');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(width);
+});
+
 test('empty source search offers no fake map or enabled create action',async({page})=>{
  await mockTopicApi(page);const topic={topic_id:id,request:'空結果',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'空結果',approved_scope:plan,status:'selecting',candidates:[],selection:[],error_code:null,run_id:null}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MathText } from "../../ui/MathText";
 
 export type CardListItem = { key: string; label: string; current: boolean; status: string | null };
 
@@ -24,7 +25,7 @@ export function CardList({ items, disabled, onSelect }: { items: CardListItem[];
     <div ref={scroller} className="card-list-scroll">
       {shown.map(({ item, index }) => <button type="button" key={item.key} disabled={disabled} aria-current={item.current ? "true" : undefined} onClick={() => onSelect(index)}>
         <i className="card-list-dot" data-status={item.status ?? undefined} {...(item.status ? { role: "img", "aria-label": item.status } : { "aria-hidden": true })} />
-        <span className="card-list-no" aria-hidden="true">{index + 1}</span><span className="card-list-label">{item.label}</span>
+        <span className="card-list-no" aria-hidden="true">{index + 1}</span><span className="card-list-label"><MathText text={item.label} /></span>
       </button>)}
       {needle && !shown.length && <p>找不到符合的概念。</p>}
     </div>

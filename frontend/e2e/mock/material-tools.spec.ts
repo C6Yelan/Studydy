@@ -254,6 +254,29 @@ test('research collection cards open scoped detail pages and retain task drafts 
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
 });
 
+for (const width of [1536, 1024, 390]) test(`verified source pagination follows every long title at ${width}px`, async ({ page }) => {
+ await page.setViewportSize({width,height:width===390?844:1024});
+ await mockKnowledgeMapApi(page,structureView());
+ const work={research_id:cid,material_id:materialId,query:'已核對來源分頁',status:'searching',selection:[],run_id:null,error_code:null,created_at:'2026-10-01T00:00:00Z',
+  candidates:Array.from({length:13},(_,i)=>({id:`source-${i}`,kind:'paper',title:i%3===0?'Исследование вероятностных моделей и механизмов обучения с очень длинным названием '.repeat(4):`核對來源 ${i+1}`,authors:'Test',year:2026,url:`https://example.org/paper/${i}`,license:'CC BY',license_url:null,eligible:true,state:'candidate'})),
+  progress:{stage:'reading',summary:'',finish_reason:null,waiting_until:null,topics:[],total_topics:3,completed_topics:1}};
+ await page.route(`**/v1/research/${cid}`,r=>json(r,work));
+ await page.goto(`/materials/${materialId}/research/${cid}`);
+ const found=page.getByRole('region',{name:'已核對來源',exact:true});
+ const cards=found.getByRole('article'),pagination=found.getByRole('navigation',{name:'來源分頁'});
+ await expect(cards).toHaveCount(10);
+ await expect(pagination).toBeVisible();
+ const bounds=await cards.evaluateAll(elements=>elements.map(element=>element.getBoundingClientRect().bottom));
+ expect((await pagination.boundingBox())!.y).toBeGreaterThanOrEqual(Math.max(...bounds));
+ await pagination.getByRole('button',{name:'下一頁',exact:true}).click();
+ await expect(cards).toHaveCount(3);
+ await expect(cards.first()).toContainText(work.candidates[10].title);
+ await expect(pagination).toContainText('11–13 / 已載入 13 份');
+ await pagination.getByRole('button',{name:'上一頁',exact:true}).click();
+ await expect(cards).toHaveCount(10);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(width);
+});
+
 test('research deletion follows the shared menu pattern, cancels safely and cannot be resurrected by a late list',async({page})=>{
  await mockKnowledgeMapApi(page,structureView());
  const work={research_id:cid,material_id:materialId,query:'待刪除查詢',status:'searching',selection:[] as string[],run_id:null,candidates:[],mode:'review',created_at:'2026-10-06T00:00:00Z'};

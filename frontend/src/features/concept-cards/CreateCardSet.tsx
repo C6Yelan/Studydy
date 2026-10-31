@@ -190,7 +190,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         <div className="cards-concept-list card-picker-grid" ref={conceptList}>
           {pageConcepts.map((concept) => <div className={`card-picker-option ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>
             <input type="checkbox" aria-label={concept.label} checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} />
-            <button type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(concept.concept_id)}><strong>{concept.label}</strong><small>{concept.claim_count} 個重點</small></button>
+            <button type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(concept.concept_id)}><strong><MathText text={concept.label} /></strong><small>{concept.claim_count} 個重點</small></button>
           </div>)}
           {visible.length === 0 && <p className="cards-no-results">找不到符合的概念。</p>}
         </div>
@@ -203,7 +203,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
       <section className="cards-preview card-picker-preview" aria-label="這個概念的重點">
         <h3>這個概念的重點</h3>
         {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p role="status">正在讀取概念與來源…</p> : null}
-        {preview && <><h4>{preview.label}</h4><ol>{preview.claims.map(claim => <li key={claim.claim_id}>
+        {preview && <><h4><MathText text={preview.label} /></h4><ol>{preview.claims.map(claim => <li key={claim.claim_id}>
           <MathText text={claimText(claim)} code={claim.evidence.some(item => item.kind === "code")} />
           <div className="flashcard-source-links">{sourceLinks(claim.evidence).map(evidence => <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={view.source_resolver} evidence={evidence} />)}</div>
         </li>)}</ol></>}
