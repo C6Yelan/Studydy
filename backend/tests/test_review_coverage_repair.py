@@ -207,8 +207,7 @@ def test_alias_case_mismatch_gets_one_grounded_correction(tmp_path, monkeypatch,
 
 
 @pytest.mark.parametrize('removals,evidence', [
-    (['EFFECTIVENESS'], [4]), (['Effectiveness', 'Effectiveness'], [4]),
-    (['Effectiveness'], [0]),
+    (['EFFECTIVENESS'], [4]), (['Effectiveness'], [0]),
 ])
 def test_invalid_alias_correction_stops_without_normalizing_or_caching(tmp_path, monkeypatch, removals, evidence):
     invalid = proposal()
@@ -219,6 +218,16 @@ def test_invalid_alias_correction_stops_without_normalizing_or_caching(tmp_path,
         run(archive, monkeypatch, [invalid, invalid])
     assert len(archive.requests) == 2
     assert not any(key.startswith('cache-') for key in archive.writes)
+
+
+def test_duplicate_alias_removal_drops_only_that_edit():
+    # Gemma 實例：remove=['UDP','User Datagram Protocol','UDP']；別名維持原樣，其他審查照常套用。
+    value = proposal()
+    value['alias_edits'] = [{'concept': 4, 'remove': ['Effectiveness', 'Effectiveness'],
+        'evidence': [4], 'reason': '合成重複刪除'}]
+    result = validate_proposal(prepare(), value)
+    assert result.alias_edits == []
+    assert len(result.assignments) == len(value['assignments'])
 
 
 def test_saved_wrong_concept_support_is_repaired_without_renumbering(tmp_path, monkeypatch):
