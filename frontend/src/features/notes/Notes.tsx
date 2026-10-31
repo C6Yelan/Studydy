@@ -1,5 +1,7 @@
 import { Icon } from "../../ui/Icon";
 import { Progress } from "../../ui/Progress";
+import { MathText } from "../../ui/MathText";
+import { mathPlainText } from "../../ui/math-text";
 import { ExportControls } from "../exports/ExportControls";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
@@ -77,7 +79,7 @@ function Outline({ entries, active, jump }: { entries: NoteOutlineEntry[]; activ
   return <nav ref={navigation} className="note-outline" aria-label="章節大綱">
     <ul>{entries.map(o => <li key={o.paragraph_id} className={`note-outline-${o.level}`}>
       <button type="button" className="text-button" aria-current={active === o.paragraph_id ? "location" : undefined}
-        title={numberedHeading(o)} onClick={() => jump(o.paragraph_id)}>{numberedHeading(o)}</button>
+        title={mathPlainText(numberedHeading(o))} onClick={() => jump(o.paragraph_id)}><MathText text={numberedHeading(o)} notation={false}/></button>
     </li>)}</ul>
   </nav>;
 }
@@ -192,7 +194,7 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
     if (!view) return null;
     const number = sourceLevel ? undefined : numbers.get(p.id);
     return <MarkupParagraph key={`${view.content_revision}:${view.content_generation}:${p.id}`} paragraph={p}><section id={`note-section-${p.id}`} data-note-target={p.id} tabIndex={-1}
-      className={`note-paragraph${sourceLevel ? " note-source-paragraph" : (number?.level ?? 1) > 1 ? " note-subsection" : ""}`} aria-label={number ? numberedHeading(number) : p.heading}>
+      className={`note-paragraph${sourceLevel ? " note-source-paragraph" : (number?.level ?? 1) > 1 ? " note-subsection" : ""}`} aria-label={mathPlainText(number ? numberedHeading(number) : p.heading)}>
       <ParagraphBody paragraph={p} number={number} sourceLevel={sourceLevel} sources={<span className="note-sources" aria-label="段落來源">{sourceLinks(p.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e} reference={{quote:e.quote}}/>)}</span>}/>
     </section></MarkupParagraph>;
   };
@@ -241,11 +243,11 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
         const Heading = section.level === 1 ? "h2" : section.level === 2 ? "h3" : "h4";
         const target = { target_type: "section" as const, id: `section:${section.section_id}`, anchor: `section:${section.section_id}`, heading: section.heading, level: section.level };
         return <section key={section.section_id} id={`note-section-${section.section_id}`} data-note-target={target.id} tabIndex={-1}
-          className={`note-source-section note-source-level-${section.level}`} aria-label={section.heading}>
+          className={`note-source-section note-source-level-${section.level}`} aria-label={mathPlainText(section.heading)}>
           <MarkupParagraph paragraph={target}><Heading><NoteText text={section.heading} path={["heading"]}/></Heading></MarkupParagraph>
-          {!!section.outline.length && <nav className="note-chapter-outline" aria-label={`${section.heading}章節大綱`}>
+          {!!section.outline.length && <nav className="note-chapter-outline" aria-label={`${mathPlainText(section.heading)}章節大綱`}>
             <p>章節大綱</p><ul>{section.outline.map(entry => <li key={entry.section_id} className={`note-outline-${entry.level}`}>
-              <button type="button" className="text-button" onClick={() => jump(entry.section_id)}>{entry.heading}</button>
+              <button type="button" className="text-button" onClick={() => jump(entry.section_id)}><MathText text={entry.heading} notation={false}/></button>
             </li>)}</ul>
           </nav>}
           {section.paragraph_ids.map(id => paragraph(view.paragraphs.find(p => p.id === id)!, section.level))}
