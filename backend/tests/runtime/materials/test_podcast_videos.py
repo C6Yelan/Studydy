@@ -113,6 +113,37 @@ def test_expired_request_is_failed_without_replaying_provider(closed_loop):
     assert not videos.finish(claim,bundle=bundle(claim),dsn=dsn)
 
 
+def test_video_workers_claim_distinct_episodes_up_to_the_configured_limit(closed_loop):
+    from threading import Barrier
+    from concurrent.futures import ThreadPoolExecutor
+    owner,_,_,_,dsn,_=closed_loop
+    identities=[]
+    for key in ('video-a','video-b','video-c'):
+        identities.append(create(closed_loop,key=key,video=True)['podcast_id']);complete(dsn)
+    # 預設 1 條：與原本相同，已有一集在跑就不再領。
+    first=videos.claim(dsn=dsn);assert videos.claim(dsn=dsn) is None
+    with database_session(dsn) as db:
+        row=db.get(PodcastVideo,first['video_id']);row.status='pending';row.lease_token=row.lease_expires_at=None
+    barrier=Barrier(2)
+    def worker(_):
+        barrier.wait()
+        for _ in range(100):
+            # advisory lock 被另一條拿走時回 None，實際 worker 下一輪再領。
+            if (state:=videos.claim(dsn=dsn,workers=2)):return state
+    with ThreadPoolExecutor(max_workers=2) as pool:a,b=pool.map(worker,range(2))
+    assert a and b and a['video_id']!=b['video_id']
+    assert videos.claim(dsn=dsn,workers=2) is None
+    with database_session(dsn) as db:
+        db.get(PodcastVideo,a['video_id']).lease_expires_at=datetime.now(UTC)-timedelta(seconds=1)
+    # 過期租約不再占名額：先依原規則標為中斷，再由空出的名額領最後一集，不碰仍在跑的那集。
+    assert videos.claim(dsn=dsn,workers=2) is None
+    assert videos.read(owner.learner_id,a['podcast_id'],0,dsn=dsn)['error_code']=='VIDEO_INTERRUPTED'
+    c=videos.claim(dsn=dsn,workers=2)
+    assert {a['podcast_id'],b['podcast_id'],c['podcast_id']}==set(identities)
+    assert videos.read(owner.learner_id,b['podcast_id'],0,dsn=dsn)['status']=='running'
+    assert videos.finish(b,bundle=bundle(b),dsn=dsn) and videos.finish(c,bundle=bundle(c),dsn=dsn)
+
+
 def test_stale_source_does_not_publish(closed_loop):
     owner,_,_,_,dsn,_=closed_loop;identity=ready(closed_loop);claim=videos.claim(dsn=dsn)
     with database_session(dsn) as db:

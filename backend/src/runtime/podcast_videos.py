@@ -10,7 +10,7 @@ import logging
 import math
 from urllib.error import HTTPError
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, or_, select, text
 from content_identity import canonical_sha256
 from .podcast_access import _locked
 from .podcast_video_plan import (
@@ -279,26 +279,31 @@ def discard(db, podcast_id):
     return artifacts
 
 
-def claim(*, dsn=None):
+def claim(*, dsn=None, workers=1):
     with database_session(dsn) as db:
         if not db.scalar(
             text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": WORK_LOCK}
         ):
             return None
         now = datetime.now(UTC)
-        # 多個 API 程序共用同一條影片工作列，不同時占用 CPU 或重複呼叫模型。
-        if db.scalar(
-            select(Video.video_id)
+        # 多個 API 程序共用同一條影片工作列；同時渲染的集數不超過設定的影片 worker 數。
+        running = db.scalar(
+            select(func.count())
+            .select_from(Video)
             .where(Video.status == "running", Video.lease_expires_at > now)
-            .limit(1)
-        ):
+        )
+        if running >= workers:
             return None
         candidate = db.execute(
             select(Video.video_id, Podcast.learner_id, Podcast.podcast_id)
             .join(Podcast, Podcast.podcast_id == Video.podcast_id)
             .join(Material, Material.material_id == Podcast.material_id)
             .where(
-                Video.status.in_(("pending", "running")),
+                # 不領別條 worker 租約仍有效的集數；過期的 running 交由下方標為中斷。
+                or_(
+                    Video.status == "pending",
+                    (Video.status == "running") & (Video.lease_expires_at <= now),
+                ),
                 Podcast.status != "deleted",
                 Material.discard_requested_at.is_(None),
             )
@@ -529,8 +534,8 @@ def provider(state, audio):
     return result
 
 
-def step(*, dsn=None):
-    state = claim(dsn=dsn)
+def step(*, dsn=None, workers=1):
+    state = claim(dsn=dsn, workers=workers)
     if state is None:
         return False
     trace = luna_calls.start("podcast_video", state["video_id"], state["token"],

@@ -77,7 +77,7 @@ def run_workers(dsn, local_config):
     from . import knowledge_chapters, research, topics, voice
 
     counts = {}
-    for key in ("research", "card", "podcast"):
+    for key in ("research", "card", "podcast", "video"):
         try:
             counts[key] = int(os.environ.get(f"STUDYDY_{key.upper()}_WORKERS", "1"))
             if counts[key] < 1:
@@ -98,12 +98,13 @@ def run_workers(dsn, local_config):
         for key, step, name in (
             ("voice", partial(voice.step, dsn=dsn), "studydy-voice"),
             ("scene", partial(podcast_scenes.step, dsn=dsn), "studydy-scenes"),
-            ("video", partial(podcast_videos.step, dsn=dsn), "podcast-video-worker"),
+            ("video", partial(podcast_videos.step, dsn=dsn, workers=counts["video"]), "podcast-video-worker"),
             ("research", research_step, "studydy-research"),
             ("card", partial(card_generation.step, dsn=dsn), "studydy-cards"),
             ("podcast", partial(podcast_worker.step, dsn=dsn, workers=counts["podcast"]), "studydy-podcast-worker"),
         ):
-            # 卡組、Podcast、研究以 SKIP LOCKED／教材列鎖加 lease 領取工作，可多條並行。
+            # 卡組、Podcast、研究以 SKIP LOCKED／教材列鎖加 lease 領取工作，可多條並行；
+            # 影片以 advisory lock 互斥領取，同時執行數由 claim 依 worker 數限制。
             for index in range(1 if key == "podcast" else counts.get(key, 1)):
                 suffix = f"-{index + 1}" if index else ""
                 active[key + suffix] = BackgroundWorker(

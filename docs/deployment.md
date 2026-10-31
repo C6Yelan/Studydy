@@ -369,6 +369,8 @@ STUDYDY_CARD_WORKERS、STUDYDY_RESEARCH_WORKERS 設定卡組、主題研究的�
 
 Podcast 由單一協調 worker 持有整份租約；`STUDYDY_PODCAST_WORKERS`（預設 1）控制同份 Podcast 各集製作，以及各集第一輪段落核對的並行數。文字請求共用同一數量的槽，不因集數與段落兩層並行相乘。各集完成即保存，整批結束才釋放租約；中斷後從未完成的步驟接續。前段修正影響後段核對依據時，後段會重新核對。語音服務的 GPU 鎖維持原樣。
 
+影片由 `STUDYDY_VIDEO_WORKERS`（預設 1）條 worker 領取，同時渲染的集數不超過此數，可跨 Podcast 或同份 Podcast 的不同集；provider.env 須設相同值，provider 的影片槽數依此設定。
+
 STUDYDY_NOTES_CHAPTER_CONCURRENCY 設定一份完整筆記同時生成的一級章數，預設 1（逐批依序）。大於 1 時各章並行、章內依序；前文只看當下已完成且位置在前的批次，跨章重述的攔截較少。速覽不受影響。同時請求數約為教材 worker 數乘以此值，須小於模型服務的 `--max-num-seqs`。
 
 STUDYDY_MATERIAL_REVIEW_CONCURRENCY 設定一份教材同時送出的複核批次數，預設 1；各批只讀自己的輸入，跨批套用順序固定依原地圖概念順序，續跑以批次內容快取接續，不受完成順序影響。STUDYDY_LUNA_PARALLEL_TEST=1 且使用 Luna 時仍固定 2。整併（去重）維持逐次。同時請求數約為教材 worker 數乘以此值。
