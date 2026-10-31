@@ -895,8 +895,10 @@ def request_contract(payload, policy):
         response_schema["properties"]["coverage"].update(minItems=len(refs), maxItems=len(refs))
         if refs:
             response_schema["$defs"]["ClaimCoverage"]["properties"]["claim"]["enum"] = refs
-            response_schema["$defs"]["ClaimCoverage"]["properties"]["note_parts"]["items"]["enum"] = list(dict.fromkeys(
+            positions = response_schema["$defs"]["ClaimCoverage"]["properties"]["note_parts"]
+            positions["items"]["enum"] = list(dict.fromkeys(
                 location for values in payload["coverage_locations"].values() for location in values))
+            positions["maxItems"] = len(positions["items"]["enum"])
     elif phase == "select_summary":
         refs = [k["ref"] for k in payload["concepts"]]
         response_schema["properties"]["concepts"].update(minItems=len(refs), maxItems=len(refs))

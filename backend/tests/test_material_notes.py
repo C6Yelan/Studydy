@@ -1423,3 +1423,19 @@ def test_invalid_chapter_concurrency_is_rejected(monkeypatch):
         monkeypatch.setenv("STUDYDY_NOTES_CHAPTER_CONCURRENCY", value)
         with pytest.raises(ValueError, match="^NOTES_CHAPTER_CONCURRENCY_INVALID$"):
             mn.chapter_concurrency()
+
+
+def test_review_contract_bounds_coverage_locations_to_available_positions():
+    payload = {
+        "phase": "review_paragraph",
+        "parts": ["heading", "blocks.0", "blocks.1"],
+        "coverage_claims": ["C1", "C2"],
+        "coverage_locations": {
+            "C1": ["blocks.0", "related.0.blocks.0"],
+            "C2": ["blocks.0", "blocks.1"],
+        },
+    }
+    _, schema = mn.request_contract(payload, {"review_prompt": nc.REVIEW_PROMPT})
+    positions = schema["$defs"]["ClaimCoverage"]["properties"]["note_parts"]
+    assert positions["items"]["enum"] == ["blocks.0", "related.0.blocks.0", "blocks.1"]
+    assert positions["maxItems"] == 3
