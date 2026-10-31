@@ -52,7 +52,13 @@ def problem(latex):
     if re.search(r"(?<!\\)[$&%#]", latex):
         return "不可含未跳脫的 $、&、%、#；百分號寫成 \\%"
     if re.search(r"(?<!\\)[_^][A-Za-z0-9]{2,}", latex):
-        return "多字元上下標須使用大括號；命名變數與文字下標可用 \\mathrm{}"
+        return (
+            r"先依引用原文分辨識別符的字面底線與真正的數學上下標。"
+            r"識別符 score_name 須完整保留為 \mathrm{score\_name}；字面底線必須用 \_，"
+            r"只包 \mathrm{score_name} 仍是錯誤。不可刪除底線、縮短名稱，或擅自改成 score_{name}。"
+            r"只有原文表示數學上下標時才用 _ 或 ^，多字元須加大括號，例如 x_{ab}、x^{10}。"
+            r"保留原式所有識別符、大小寫、數值與運算符；JSON 中反斜線仍須跳脫。"
+        )
     for match in re.finditer(r"\\([A-Za-z]+|.)", latex, re.S):
         name = match.group(1)
         if (name not in COMMANDS) if name[0].isalpha() else (name not in ESCAPES):

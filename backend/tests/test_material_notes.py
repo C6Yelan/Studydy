@@ -1439,3 +1439,39 @@ def test_review_contract_bounds_coverage_locations_to_available_positions():
     positions = schema["$defs"]["ClaimCoverage"]["properties"]["note_parts"]
     assert positions["items"]["enum"] == ["blocks.0", "related.0.blocks.0", "blocks.1"]
     assert positions["maxItems"] == 3
+
+
+
+def test_literal_underscore_repair_keeps_names_and_reaches_source_review():
+    original = 'joined_score = mix × scaled_left7_score + (1 - mix) × scaled_right_score'
+    repaired = (r'\mathrm{joined\_score} = \mathrm{mix} \times \mathrm{scaled\_left7\_score}'
+                r' + (1 - \mathrm{mix}) \times \mathrm{scaled\_right\_score}')
+    values = concepts()[:1]
+    values[0]['claims'] = [values[0]['claims'][0]]
+    values[0]['claims'][0]['evidence'][0]['quote'] = original
+    calls = []
+
+    def model(request):
+        calls.append(deepcopy(request))
+        if request.get('phase') == 'repair_formula':
+            instruction = request['correction']['instruction']
+            assert r'\mathrm{score\_name}' in instruction
+            assert '字面底線' in instruction
+            assert request['latex'] == original
+            return {'type': 'formula', 'latex': repaired}
+        result = response(request)
+        if request.get('phase') != 'review_paragraph':
+            result['paragraphs'][0]['blocks'].append({'type': 'formula', 'latex': original})
+        return result
+
+    result = mn.generate_part(values, 'full', model)
+    assert result[0]['blocks'][1]['latex'] == repaired
+    review = next(c for c in calls if c.get('phase') == 'review_paragraph')
+    assert next(c for c in review['paragraph']['content'] if c['type'] == 'formula')['latex'] == repaired
+    assert result[0]['evidence'][0]['quote'] == original
+    assert nc.formula_literal_issues(result[0]) == []
+    corrupted = deepcopy(result[0])
+    corrupted['blocks'][1]['latex'] = repaired.replace('1 -', '2 -')
+    assert nc.formula_literal_issues(corrupted)
+    assert nc.note_latex.problem(r'\mathrm{score_name}') is not None
+    assert nc.note_latex.problem(r'x_{ab} + x_i^2') is None
