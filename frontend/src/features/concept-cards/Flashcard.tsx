@@ -55,7 +55,7 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
           <article className="flashcard-details" aria-label={`${card.label}的重點`}>
             <span className="flashcard-kicker">概念重點</span>
             {review && <span className="flashcard-review">教材版本待複核</span>}
-            <h2>{card.label}</h2>
+            <h2><MathText text={card.label} /></h2>
             {card.claims.some(claim => !claim.evidence.length || claim.evidence.some(e => !hasCardEvidence(e))) && <p className="flashcard-review">部分重點缺少可回查來源。</p>}
             <div className="flashcard-content" tabIndex={0} aria-label="卡片重點內容">
               {card.claims.map((claim, index) => (
@@ -69,7 +69,7 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
               ))}
               {relations.map(relation => <section key={relation.relation.relation_id} className="flashcard-relation" aria-label="圖卡關係與來源">
                 <h3>教材關係</h3>
-                <p>{relation.source.label} ／ {relation.target.label}</p>
+                <p><MathText text={relation.source.label} /> ／ <MathText text={relation.target.label} /></p>
                 <p>{relation.relation.learner_reason}</p>
                 <div className="flashcard-source-links">{sourceLinks(relation.evidence).map(evidence => <SourceButton key={evidence.evidence_id}
                   apiClient={apiClient} resolver={sourceResolver} evidence={evidence} label={`關係來源 · ${evidencePlace(evidence)}`} />)}</div>
@@ -102,7 +102,7 @@ export function Flashcard({ card, structure, materialName, apiClient, sourceReso
       <div className="card-face-flip" tabIndex={0} role="group" aria-label={back ? "概念卡反面，按 Enter 翻回正面" : "概念卡正面，按 Enter 翻到背面"}
         onClick={flip} onKeyDown={event => { if (event.key === "Enter" && event.target === event.currentTarget) { event.preventDefault(); onFlip(); } }}>
         {!back ? <div className="card-practice-front">
-          <span>先回想，再翻面</span><h2>{card.label}</h2>
+          <span>先回想，再翻面</span><h2><MathText text={card.label} /></h2>
           {headings.length > 0 ? <div className="card-practice-comparison">{headings.map((heading, i) => <strong key={i}><MathText text={heading} /></strong>)}</div>
             : <p>這個概念的重點是什麼？先在心裡說說看</p>}
         </div> : <>

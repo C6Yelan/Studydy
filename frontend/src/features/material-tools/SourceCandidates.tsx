@@ -130,7 +130,7 @@ export function SourceCandidates({ candidates, selected, disabled, onChange, rea
         <SelectionToggle pressed={onlySelected} onChange={setOnlySelected}>已選 {selected.length} 個</SelectionToggle>
       </div>}
     </>}
-    <div ref={list} className="research-candidates" tabIndex={0} aria-label={previewOnly ? '搜尋中已核對的來源' : readOnly ? '已選來源' : '來源搜尋結果'}>
+    <div ref={list} className={`research-candidates${previewOnly ? ' research-preview-candidates' : ''}`} tabIndex={0} aria-label={previewOnly ? '搜尋中已核對的來源' : readOnly ? '已選來源' : '來源搜尋結果'}>
       {pageItems.map(c => {
         if(previewOnly)return <article key={c.id} className="research-source-preview">
           <button type="button" aria-haspopup="dialog" onClick={()=>setDetail(c)}>

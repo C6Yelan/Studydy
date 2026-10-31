@@ -228,6 +228,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .research-search-method summary { cursor:pointer; font-weight:700; }
 .research-found-sources { margin-top:.75rem; }
 .research-found-sources h3 { font-size:1rem; margin:0 0 .5rem; }
+.source-picker.is-readonly .research-preview-candidates { flex:none; max-height:none; overflow:visible; }
 .research-source-preview > button { display:flex; width:100%; min-height:2.75rem; align-items:center; gap:.6rem; padding:0; border:0; background:transparent; color:var(--text-primary); text-align:left; cursor:pointer; }
 .research-source-preview > button > span { flex:1; min-width:0; overflow-wrap:anywhere; }
 .research-source-preview small { display:block; color:var(--text-secondary); }

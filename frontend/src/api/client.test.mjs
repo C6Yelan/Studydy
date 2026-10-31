@@ -1138,6 +1138,40 @@ test("podcast playback rejects mismatched scripts, foreign sources and incomplet
   }
 });
 
+test("podcast accepts a completed script while its audio is still being produced", async () => {
+  const value = podcastView();
+  value.status = "running";
+  value.completed_episodes = 0;
+  value.duration_seconds = null;
+  value.episodes[0].audio = null;
+  const result = await new StudydyApiClient(async () => Response.json(value)).getPodcast(setId);
+  assert.deepEqual(result.episodes[0].script, value.episodes[0].script);
+  assert.equal(result.episodes[0].audio, null);
+  assert.equal(result.completed_episodes, 0);
+});
+
+test("failed podcasts retain partial audio and reject inconsistent completion counts", async () => {
+  const value = podcastView();
+  const scripted = { ...structuredClone(value.episodes[0]), audio: null };
+  value.episodes.push(scripted, { ...structuredClone(scripted), script: null });
+  value.episode_count = 3;
+  value.status = "failed";
+  value.error_code = "PODCAST_SCRIPT_INVALID";
+  value.duration_seconds = null;
+  const read = () => new StudydyApiClient(async () => Response.json(value)).getPodcast(setId);
+  const result = await read();
+  assert.equal(result.completed_episodes, 1);
+  assert.deepEqual(result.episodes[0].audio, value.episodes[0].audio);
+  assert.deepEqual(result.episodes[1].script, scripted.script);
+  assert.equal(result.episodes[1].audio, null);
+  assert.equal(result.episodes[2].script, null);
+  value.completed_episodes = 2;
+  await assert.rejects(read(), error => error.kind === "schema");
+  value.completed_episodes = 1;
+  value.status = "ready";
+  await assert.rejects(read(), error => error.kind === "schema");
+});
+
 test("dialogue podcast reads two speakers while rejecting incomplete or mismatched turns", async () => {
   const value = podcastView();
   value.delivery = value.episodes[0].delivery = "dialogue";

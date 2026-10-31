@@ -1901,6 +1901,25 @@ for (const [reason, status, message] of [
 }
 
 
+test("formula labels render in card navigation, both faces and concept previews", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true, savedCount: 2 });
+  const label = String.raw`$p_\theta(x \mid c)$`;
+  view.concepts[0].label = label;
+  await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
+  await expect(page.locator(".card-list-label").first().locator(".katex")).toHaveCount(1);
+  await expect(page.locator(".card-practice-front h2 .katex")).toHaveCount(1);
+  await showCardBack(page);
+  await openSources(page);
+  await expect(page.locator(".flashcard-details h2 .katex")).toHaveCount(1);
+  await expect(page.locator(".flashcard-relation").first().locator(".katex")).toHaveCount(1);
+  await page.goto(mapPath + "/create-cards");
+  const preview = page.getByRole("button", { name: `預覽「${label}」`, exact: true });
+  await expect(preview.locator("strong .katex")).toHaveCount(1);
+  await preview.click();
+  await expect(page.locator(".cards-preview h4 .katex")).toHaveCount(1);
+  await expect(page.getByRole("checkbox", { name: label, exact: true })).toBeChecked();
+});
+
 test("formula cards render the same math in readable details and the downloaded PNG", async ({page},testInfo) => {
   const fixture=await mockCards(page,{saved:true,savedCount:1});
   fixture.view.concepts[0].claims[0].text=String.raw`連乘 product_i、標準差 sqrt(d_k)、累積係數 alpha_bar_t、轉置 QK^T。公式 $\frac{a}{b}$。`;
