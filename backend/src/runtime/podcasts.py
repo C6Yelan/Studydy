@@ -445,7 +445,7 @@ def claim_step(*, dsn=None, parallel=False):
             row.lease_expires_at = now + WORKER_LEASE_TTL
             row.version += 1
             index = next(i for i, e in enumerate(row.episodes) if not e.get("audio"))
-            if row.episodes[index]["script"] is None and "hosts" not in row.episodes[index]:
+            if any(e["script"] is None and "hosts" not in e for e in row.episodes):
                 # 節目化前建立、尚未寫完的 Podcast：補一組主持人給還沒有名字的集數，已完成集數不改。
                 hosts = _pick_hosts(row.episodes[index]["delivery"])
                 row.episodes = [

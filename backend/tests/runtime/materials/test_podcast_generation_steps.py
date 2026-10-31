@@ -144,3 +144,22 @@ def test_worker_produces_episodes_concurrently(closed_loop, monkeypatch):
     with database_session(dsn) as db:
         row = db.get(Podcast, identity)
         assert row.status == "pending" and all(e["script"] for e in row.episodes)
+
+
+def test_parallel_resume_fills_legacy_hosts_after_saved_script(closed_loop):
+    from copy import deepcopy
+    from runtime.storage.tables import Podcast
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)["podcast_id"]
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        pending = deepcopy(row.episodes[0])
+        pending.pop("hosts")
+        saved = {**deepcopy(pending), "script": script({"episode": pending})}
+        row.episodes = [saved, pending]
+    claims = podcasts.claim_step(dsn=dsn, parallel=True)
+    assert claims[0]["episode"]["script"] == saved["script"]
+    assert "hosts" not in claims[0]["episode"]
+    assert claims[1]["episode"]["script"] is None
+    assert set(claims[1]["episode"]["hosts"]) == {"host"}
+    assert claims[1]["episode"]["hosts"]["host"]
