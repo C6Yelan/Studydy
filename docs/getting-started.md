@@ -37,6 +37,7 @@ chmod 600 .env
 | STUDYDY_MATERIAL_WORKERS | 教材處理執行緒數，正整數，預設 1；不改 provider 模型槽數 |
 | STUDYDY_NOTES_CHAPTER_CONCURRENCY | 一份完整筆記同時生成的一級章數，正整數，預設 1（逐批依序） |
 | STUDYDY_CARD_WORKERS、STUDYDY_PODCAST_WORKERS、STUDYDY_RESEARCH_WORKERS | 卡組、主題研究的背景執行緒數及 Podcast 製作並行數，正整數，預設 1 |
+| STUDYDY_VIDEO_WORKERS | Podcast 影片同時渲染的集數，正整數，預設 1；provider.env 設相同值 |
 | STUDYDY_MATERIAL_REVIEW_CONCURRENCY | 一份教材同時送出的複核批次數，正整數，預設 1；Luna 並行測試時固定 2 |
 | COMPOSE_PROFILES | 直接 HTTP／HTTPS 留空；使用 SSH 設 ssh |
 
@@ -208,7 +209,7 @@ Luna 的後端總額度為 65,536 tokens，包含輸入與輸出，使用與 pro
 
 影片對齊不設固定字數門檻。完整匹配沿用整體順序；部分匹配需能區分原稿與辨識中的位置。錨點仍逐字對回原稿，所有起點取自實際 ASR 詞時間，拒絕空白、倒序或越界的時間。共用詞時間的片段可以合併後重新核對，不按字數猜時間。字幕優先切成較短讀句；細字幕無法可靠切分時，沿用已驗證的教學段落時間，以 paragraph-captions/v1 記錄，不讓細字幕失敗阻止整集影片。主段落對齊失敗仍不發布影片，音訊不重製。
 
-渲染環境依賴見 `ops/podcast/video-render-requirements.txt`，字型為 Noto Sans CJK。provider.env 設定 `STUDYDY_VIDEO_PYTHON`（獨立渲染環境）、`STUDYDY_VIDEO_WORK_DIR`（暫存目錄）、`STUDYDY_VIDEO_MIN_FREE_BYTES`（最低可用容量）及可選的 `STUDYDY_VIDEO_HOST_FREE_PATH`（宿主磁碟容量檢查）。`STUDYDY_VIDEO_ENCODER` 選擇 `libx264`（預設）或 `h264_nvenc`；後者需要設定 `STUDYDY_VIDEO_FFMPEG` 指向含 NVENC 的 FFmpeg，以及可用的 NVIDIA 驅動。WSL 主機的 `LD_LIBRARY_PATH` 須包含 `/usr/lib/wsl/lib`。目前正式主機已設定為 `h264_nvenc`。編碼器失敗直接回報，不靜默退回 CPU。相同視覺狀態的頁面使用最多兩頁快取；動畫與進度仍由原媒體時間決定，不降低影格率。Linux 影格 pipe 使用 1 MiB 緩衝以減少傳送切換成本。影片工作串行，暫存檔處理後清除；不用下載影片生成模型。來源不足或驗證失敗會保留失敗狀態，不視為通過。
+渲染環境依賴見 `ops/podcast/video-render-requirements.txt`，字型為 Noto Sans CJK。provider.env 設定 `STUDYDY_VIDEO_PYTHON`（獨立渲染環境）、`STUDYDY_VIDEO_WORK_DIR`（暫存目錄）、`STUDYDY_VIDEO_MIN_FREE_BYTES`（最低可用容量）及可選的 `STUDYDY_VIDEO_HOST_FREE_PATH`（宿主磁碟容量檢查）。`STUDYDY_VIDEO_ENCODER` 選擇 `libx264`（預設）或 `h264_nvenc`；後者需要設定 `STUDYDY_VIDEO_FFMPEG` 指向含 NVENC 的 FFmpeg，以及可用的 NVIDIA 驅動。WSL 主機的 `LD_LIBRARY_PATH` 須包含 `/usr/lib/wsl/lib`。目前正式主機已設定為 `h264_nvenc`。編碼器失敗直接回報，不靜默退回 CPU。相同視覺狀態的頁面使用最多兩頁快取；動畫與進度仍由原媒體時間決定，不降低影格率。Linux 影格 pipe 使用 1 MiB 緩衝以減少傳送切換成本。影片同時渲染的集數由 `STUDYDY_VIDEO_WORKERS`（預設 1）限制，每集暫存檔處理後清除；不用下載影片生成模型。來源不足或驗證失敗會保留失敗狀態，不視為通過。
 
 已認可的原節奏樣片可保留實際來源與時間軸作為既有產物；單一樣片不代表任意教材均已驗收。Gemma 分鏡尚未驗證。臨時比較頁及專用產生腳本已移除。
 
