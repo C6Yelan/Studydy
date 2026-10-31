@@ -44,7 +44,7 @@ test("wrong points directly form groups and survive lost create responses", asyn
   await page.getByRole("button", { name: "交卷", exact: true }).click();
   const reviews = page.locator(".feedback-card.is-incorrect .feedback-evidence");
   await expect(reviews).toHaveCount(2);
-  await expect(reviews.nth(0)).toContainText("Signal 1 uses code1.");
+  await expect(reviews.nth(0)).toContainText("教材指出 Signal 1 使用 code1。");
   await expect(reviews.nth(1)).toContainText("Signal 2 uses code2.");
   await expect(page.getByRole("button", { name: "補強這 2 個重點", exact: true })).toBeVisible();
   await page.reload();
