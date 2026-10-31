@@ -97,8 +97,6 @@ def validate(script, episode):
                 or not set(item["claim_ids"]) <= ids):
                 raise ValueError()
             seen_segments.add(item["segment_index"])
-        if len({identity for item in omissions for identity in item["claim_ids"]}) * 2 > len(ids):
-            raise ValueError()
         total_size = 0
         for i, beat in enumerate(beats):
             if not (
@@ -168,7 +166,9 @@ def validate(script, episode):
         # 沿用原六來源 × 1600 字的全集預算，分段自由不擴大 TTS／cue 容量。
         if total_size > 9600:
             raise ValueError()
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError) as error:
+        from . import luna_calls
+        luna_calls.validation_failed(error)
         raise ValueError("PODCAST_SCRIPT_INVALID") from None
     return deepcopy(script)
 

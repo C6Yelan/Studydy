@@ -84,3 +84,27 @@ def test_title_request_uses_the_luna_text_channel(closed_loop, monkeypatch):
     path, body = sent[0]
     assert path == "/semantics" and body["task"] == "material_review" and body["prompt"] == podcast_titles.PROMPT
     assert set(body["request"]) == {"segments", "concepts"}
+
+
+def test_title_keeps_512_and_length_schema_and_saves_truncation(tmp_path, monkeypatch):
+    from copy import deepcopy
+    import json
+    from runtime import semantic_service, knowledge_chapters, luna_calls
+    from test_semantic_service_v1 import _chat, _lock
+    original = _lock()
+    snapshot = deepcopy(original)
+    monkeypatch.setattr(knowledge_chapters, "configured_lock", lambda: original)
+    monkeypatch.setenv("STUDYDY_ARTIFACT_ROOT", str(tmp_path))
+    requests = []
+    contents = [("length", '{"title":"'), ("length", '{"title":"')]
+    monkeypatch.setattr(semantic_service, "semantic_client", lambda: _chat(contents, requests))
+    assert podcast_titles._SCHEMA["properties"]["title"]["maxLength"] == 18
+    claim = {"podcast_id": "synthetic", "index": 0, "token": "attempt", "material_id": "material", "owner": "owner"}
+    episode = {"script": {"segments": [{"title": "合成標題"}]}, "claims": [{"label": "合成概念"}]}
+    assert podcast_titles.generate(episode, claim=claim) is None
+    assert original == snapshot
+    assert requests == [512, 512]
+    path, = (tmp_path / "failures").glob("*.json")
+    records = json.loads(path.read_text())["candidates"]
+    assert len(records) == 2
+    assert all(r["candidate"]["finish_reason"] == "length" and r["candidate"]["max_tokens"] == 512 for r in records)

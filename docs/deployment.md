@@ -365,7 +365,9 @@ Migration 0022 新增 material_processing_runs.auto_retry_count／auto_retry_rea
 
 STUDYDY_MATERIAL_WORKERS 預設 1，需多教材時由管理者在本機 .env 設定正整數後更新後端。provider 的教材分析／審查依 call-tags feature 分流，章節和其他文字功能仍用單一文字槽；STUDYDY_LUNA_PARALLEL_TEST=1 時教材分析與審查共用兩槽，增加 worker 不增加 provider 槽數。指定維護 run 不使用一般分析的自動重試。
 
-STUDYDY_CARD_WORKERS、STUDYDY_PODCAST_WORKERS、STUDYDY_RESEARCH_WORKERS 設定卡組、Podcast、主題研究的背景執行緒數，預設 1；依模型服務的並行能力調整（如 A100 可調高、本機維持 1）。這些工作以 SKIP LOCKED／教材列鎖加 lease 領取，可多條並行；Podcast 配音在語音服務端共用 GPU 鎖，多條 worker 只會讓講稿生成並行，配音仍逐份進行。
+STUDYDY_CARD_WORKERS、STUDYDY_RESEARCH_WORKERS 設定卡組、主題研究的背景執行緒數，預設 1；依模型服務的並行能力調整。這些工作以 SKIP LOCKED／教材列鎖加 lease 領取，可多條並行。
+
+Podcast 由單一協調 worker 持有整份租約；`STUDYDY_PODCAST_WORKERS`（預設 1）控制同份 Podcast 各集製作，以及各集第一輪段落核對的並行數。文字請求共用同一數量的槽，不因集數與段落兩層並行相乘。各集完成即保存，整批結束才釋放租約；中斷後從未完成的步驟接續。前段修正影響後段核對依據時，後段會重新核對。語音服務的 GPU 鎖維持原樣。
 
 STUDYDY_NOTES_CHAPTER_CONCURRENCY 設定一份完整筆記同時生成的一級章數，預設 1（逐批依序）。大於 1 時各章並行、章內依序；前文只看當下已完成且位置在前的批次，跨章重述的攔截較少。速覽不受影響。同時請求數約為教材 worker 數乘以此值，須小於模型服務的 `--max-num-seqs`。
 

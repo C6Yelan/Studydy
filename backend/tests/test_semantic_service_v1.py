@@ -429,23 +429,29 @@ def test_repeated_or_stray_text_retries_once_unless_in_source(text, source, retr
     assert result == ({'text': 'ok'} if retried else {'text': text})
 
 
-def test_repeated_text_after_retry_is_returned_to_feature_validation():
+def test_repeated_text_after_retry_is_rejected():
     requests = []
     bad = '{"text":"分布分布"}'
     with _chat([('stop', bad), ('stop', bad)], requests) as client:
-        result = request_semantics(client, runtime_lock=_lock(), task='assessment',
-                                   request={}, response_schema={})
-    assert result == {'text': '分布分布'} and len(requests) == 2
+        with pytest.raises(SemanticServiceError, match='SEMANTIC_GENERATION_FAILED'):
+            request_semantics(client, runtime_lock=_lock(), task='assessment', request={}, response_schema={})
+    assert len(requests) == 2
 
 
-def test_repeated_text_retry_keeps_budget_and_falls_back_when_retry_fails():
+def test_repeated_text_retry_keeps_budget_and_propagates_failure():
     requests = []
-    first = '{"text":"分布分布"}'
-    with _chat([('stop', first), ('length', '{"text":"分')], requests) as client:
-        result = request_semantics(client, runtime_lock=_lock(), task='material_review',
-                                   request={}, response_schema={})
-    assert result == {'text': '分布分布'}
+    with _chat([('stop', '{"text":"分布分布"}'), ('length', '{"text":"分')], requests) as client:
+        with pytest.raises(SemanticServiceError, match='SEMANTIC_OUTPUT_TRUNCATED'):
+            request_semantics(client, runtime_lock=_lock(), task='material_review', request={}, response_schema={})
     assert requests == [20768, 20768]
+
+
+def test_truncation_retry_rejects_degenerate_result():
+    requests = []
+    with _chat([('length', '{'), ('stop', '{"text":"分布分布"}')], requests) as client:
+        with pytest.raises(SemanticServiceError, match='SEMANTIC_GENERATION_FAILED'):
+            request_semantics(client, runtime_lock=_lock(), task='material_review', request={}, response_schema={})
+    assert requests == [20768, 8192]
 
 
 def test_unavailable_service_waits_with_backoff_then_continues(monkeypatch):
@@ -532,3 +538,30 @@ def test_read_budget_and_per_attempt_diagnostics_preserve_failed_candidates(fini
         'max_tokens': 8192, 'finish_reason': finish, 'usage': {'completion_tokens': 42},
         'candidate': content, 'request_id': 'fixture-call',
     } for entry in diagnostics)
+
+
+def test_episode_and_review_requests_share_worker_limit(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
+    from threading import Barrier, BoundedSemaphore, Lock
+    import runtime.semantic_service as service
+    barrier, lock = Barrier(2), Lock()
+    active = maximum = 0
+    def once(*args, **kwargs):
+        nonlocal active, maximum
+        with lock:
+            active += 1
+            maximum = max(maximum, active)
+        barrier.wait(timeout=5)
+        with lock:
+            active -= 1
+        return {"ok": True}
+    monkeypatch.setattr(service, "_request_semantics_once", once)
+    token = service._request_slots.set(BoundedSemaphore(2))
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(copy_context().run, service.request_semantics, None, request={}) for _ in range(4)]
+            assert all(f.result() == {"ok": True} for f in futures)
+    finally:
+        service._request_slots.reset(token)
+    assert maximum == 2

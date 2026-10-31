@@ -101,10 +101,10 @@ def run_workers(dsn, local_config):
             ("video", partial(podcast_videos.step, dsn=dsn), "podcast-video-worker"),
             ("research", research_step, "studydy-research"),
             ("card", partial(card_generation.step, dsn=dsn), "studydy-cards"),
-            ("podcast", partial(podcast_worker.step, dsn=dsn), "studydy-podcast-worker"),
+            ("podcast", partial(podcast_worker.step, dsn=dsn, workers=counts["podcast"]), "studydy-podcast-worker"),
         ):
             # 卡組、Podcast、研究以 SKIP LOCKED／教材列鎖加 lease 領取工作，可多條並行。
-            for index in range(counts.get(key, 1)):
+            for index in range(1 if key == "podcast" else counts.get(key, 1)):
                 suffix = f"-{index + 1}" if index else ""
                 active[key + suffix] = BackgroundWorker(
                     step,

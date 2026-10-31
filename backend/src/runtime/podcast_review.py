@@ -1,5 +1,8 @@
 """Podcast 講稿逐段對照引用原文；沿用筆記逐段核對的請求形式，只用標準庫供主機 provider 載入。"""
 
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+import os
 import re
 
 VERSION = "podcast-script-review/v2"
@@ -354,11 +357,21 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
     material = material_text(claims, pages)
     omitted = []
     rejected_indices = set()
+    requests = [segment_request(script, i, claims, pages, hosts=hosts, series=series,
+                                related_indices=list(range(i)))
+                for i in range(len(script["segments"]))]
+    responses = None
+    workers = int(os.environ.get("STUDYDY_PODCAST_WORKERS", "1"))
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(copy_context().run, review, request) for request in requests]
+            responses = [future.result() for future in futures]
     for index in range(len(script["segments"])):
         related = [i for i in range(index) if i not in rejected_indices]
         request = segment_request(script, index, claims, pages, hosts=hosts, series=series, related_indices=related)
         # 自稱名字由程式檢查，與原文核對的不符項目合併成同一次重寫。
-        found = issues(request, review(request)) + self_naming(script["segments"][index], hosts, material, script)
+        response = responses[index] if responses is not None and request == requests[index] else review(request)
+        found = issues(request, response) + self_naming(script["segments"][index], hosts, material, script)
         if index == len(script["segments"]) - 1:
             found += recap_counts(script["segments"][index])
         # 沒被正文引用的重點由程式判定缺漏，沿用同一段的重寫與重核；全部有引用時不增加呼叫。
@@ -385,7 +398,7 @@ def verify(script, claims, pages, *, hosts, series, review, rewrite, diagnostics
         if found:
             diagnostics.append({"segment": index, "rejected_after_rewrite": [i["part"] for i in found]})
             rejected_indices.add(index)
-            # 只有正文影響重點門檻；開場與收尾的失敗仍略過，但不計入重點數。
+            # 只有正文影響省略重點統計；開場與收尾的失敗仍略過，但不計入重點數。
             is_body = index < len(script["segments"]) - 1 and (index > 0 or len(script["segments"]) <= 2)
             if len(script["segments"]) == 1:
                 is_body = True

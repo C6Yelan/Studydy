@@ -36,9 +36,11 @@ chmod 600 .env
 | VLLM_API_KEY | 選用模型 Bearer token；空值不送 Authorization |
 | STUDYDY_MATERIAL_WORKERS | 教材處理執行緒數，正整數，預設 1；不改 provider 模型槽數 |
 | STUDYDY_NOTES_CHAPTER_CONCURRENCY | 一份完整筆記同時生成的一級章數，正整數，預設 1（逐批依序） |
-| STUDYDY_CARD_WORKERS、STUDYDY_PODCAST_WORKERS、STUDYDY_RESEARCH_WORKERS | 卡組、Podcast、主題研究的背景執行緒數，正整數，預設 1 |
+| STUDYDY_CARD_WORKERS、STUDYDY_PODCAST_WORKERS、STUDYDY_RESEARCH_WORKERS | 卡組、主題研究的背景執行緒數及 Podcast 製作並行數，正整數，預設 1 |
 | STUDYDY_MATERIAL_REVIEW_CONCURRENCY | 一份教材同時送出的複核批次數，正整數，預設 1；Luna 並行測試時固定 2 |
 | COMPOSE_PROFILES | 直接 HTTP／HTTPS 留空；使用 SSH 設 ssh |
+
+Podcast 由單一協調 worker 持有整份租約；`STUDYDY_PODCAST_WORKERS`（預設 1）控制同份 Podcast 各集製作，以及各集第一輪段落核對的並行數。文字請求共用同一數量的槽，不因集數與段落兩層並行相乘。各集完成即保存，整批結束才釋放租約；中斷後從未完成的步驟接續。前段修正影響後段核對依據時，後段會重新核對。語音服務的 GPU 鎖維持原樣。
 
 容器的 127.0.0.1 指向自己。模型在主機時可使用 host.docker.internal，但服務須監聽容器可達介面；其他容器或遠端服務使用其可達 origin。
 

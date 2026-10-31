@@ -418,7 +418,7 @@ def delete_podcast(owner, identity, *, expected_version=None, dsn=None):
     return {"schema": "podcast-deleted/v1", "podcast_id": identity}
 
 
-def claim_step(*, dsn=None):
+def claim_step(*, dsn=None, parallel=False):
     now = datetime.now(UTC)
     with database_session(dsn) as db:
         candidates = db.execute(
@@ -454,50 +454,59 @@ def claim_step(*, dsn=None):
                     else {**e, "hosts": dict(hosts)}
                     for e in row.episodes
                 ]
-            episodes = deepcopy(row.episodes)
-            step = "audio" if episodes[index]["script"] else "script"
-            episodes[index].setdefault("step_times", {})[step] = {"started_at": now.isoformat(), "finished_at": None}
-            row.episodes = episodes
-            episode = deepcopy(row.episodes[index])
-            following = row.episodes[index + 1] if index + 1 < len(row.episodes) else None
-            context = {}
-            try:
-                if episode["script"] is None:
-                    context = source_context(
-                        db,
-                        owner,
-                        row.material_id,
-                        row.knowledge_structure_revision,
-                        episode,
-                    )
-                else:
-                    retrieval._scope(
-                        db, owner, row.material_id, row.knowledge_structure_revision
-                    )
-            except (PodcastError, SourceError) as error:
-                row.status = "failed"
-                row.error_code = str(error)
-                row.lease_token = row.lease_expires_at = None
-                continue
-            return {
-                "podcast_id": row.podcast_id,
-                "material_id": row.material_id,
-                "owner": owner,
-                "token": row.lease_token,
-                "index": index,
-                "episode": episode,
-                "source_context": context,
-                # 講稿開場與下集預告所需的系列位置；不送下一集的原文。
-                "series": {
-                    "episode_number": index + 1,
-                    "episode_count": len(row.episodes),
-                    "next_concepts": list(
-                        dict.fromkeys(c["label"] for c in following["claims"])
-                    )
-                    if following
-                    else [],
-                },
-            }
+            claims = []
+            indices = [i for i, e in enumerate(row.episodes) if not e.get("audio")] if parallel else [index]
+            for index in indices:
+                episodes = deepcopy(row.episodes)
+                step = "audio" if episodes[index]["script"] else "script"
+                episodes[index].setdefault("step_times", {})[step] = {"started_at": now.isoformat(), "finished_at": None}
+                row.episodes = episodes
+                episode = deepcopy(row.episodes[index])
+                following = row.episodes[index + 1] if index + 1 < len(row.episodes) else None
+                context = {}
+                try:
+                    if episode["script"] is None:
+                        context = source_context(
+                            db,
+                            owner,
+                            row.material_id,
+                            row.knowledge_structure_revision,
+                            episode,
+                        )
+                    else:
+                        retrieval._scope(
+                            db, owner, row.material_id, row.knowledge_structure_revision
+                        )
+                except (PodcastError, SourceError) as error:
+                    row.status = "failed"
+                    row.error_code = str(error)
+                    row.lease_token = row.lease_expires_at = None
+                    return None
+                claims.append({
+                    "podcast_id": row.podcast_id,
+                    "material_id": row.material_id,
+                    "owner": owner,
+                    "token": row.lease_token,
+                    "index": index,
+                    "episode": episode,
+                    "source_context": context,
+                    # 講稿開場與下集預告所需的系列位置；不送下一集的原文。
+                    "series": {
+                        "episode_number": index + 1,
+                        "episode_count": len(row.episodes),
+                        "next_concepts": list(
+                            dict.fromkeys(c["label"] for c in following["claims"])
+                        )
+                        if following
+                        else [],
+                    },
+                })
+            if parallel:
+                for claim in claims:
+                    claim["parallel"] = True
+                return claims
+            return claims[0]
+
     return None
 
 
@@ -611,9 +620,25 @@ def finish_step(
                 from .podcast_scenes import enqueue as enqueue_alignment
 
                 enqueue_alignment(db, row, claim["index"])
-            row.status = "ready" if all(e.get("audio") for e in episodes) else "pending"
-        row.lease_token = row.lease_expires_at = None
+            if not claim.get("parallel"):
+                row.status = "ready" if all(e.get("audio") for e in episodes) else "pending"
+        if error or not claim.get("parallel"):
+            row.lease_token = row.lease_expires_at = None
         row.version += 1
     if script is not None or error:
         luna_calls.completed("failed" if error else "succeeded", error)
     return True
+
+
+def finish_batch(claim, *, dsn=None):
+    """整批結束才釋放共用租約；取消或失去租約時不復活工作。"""
+    with database_session(dsn) as db:
+        try:
+            row, _ = _locked(db, claim["owner"], claim["podcast_id"])
+        except RuntimeError:
+            return
+        if row.status != "running" or not lease_is_current(row, claim["token"]):
+            return
+        row.status = "ready" if all(e.get("audio") for e in row.episodes) else "pending"
+        row.lease_token = row.lease_expires_at = None
+        row.version += 1

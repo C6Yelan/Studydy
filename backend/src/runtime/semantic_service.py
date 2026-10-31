@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from copy import deepcopy
+from contextlib import nullcontext
+from contextvars import ContextVar
 import json
 import os
 import re
@@ -16,6 +18,8 @@ import httpx
 from .text_budget import estimate_o200k_tokens, estimate_prompt_tokens
 from content_identity import canonical_bytes
 
+
+_request_slots = ContextVar("podcast_request_slots", default=None)
 
 API_KEY_ENV = "VLLM_API_KEY"
 SERVICE_URL_ENV = "STUDYDY_SEMANTIC_BASE_URL"
@@ -381,28 +385,27 @@ def _degenerate_text(value: Any, source: str) -> bool:
 
 
 def request_semantics(client: httpx.Client, **arguments: Any) -> dict[str, Any]:
-    """透過共用 HTTP 邊界請求語意結果。
-
-    輸出截斷時以較小輸出上限重試一次。出現原文沒有的疊字／思考殘字時以原輸出上限
-    重試一次；重試失敗就交回第一次的結果，重試仍有疊字就交回重試結果，
-    都由各功能既有的驗證決定是否採用。
-    """
-
-    try:
-        result = _request_semantics_once(client, **arguments)
-    except SemanticServiceError as error:
-        if error.reason_code != "SEMANTIC_OUTPUT_TRUNCATED":
-            raise
-        return _request_semantics_once(
-            client, **arguments, max_tokens_cap=TRUNCATION_RETRY_MAX_TOKENS
-        )
-    source = canonical_bytes(arguments["request"]).decode("utf-8")
-    if not _degenerate_text(result, source):
-        return result
-    # 第一次已是完整可解析的結果；重試只為換掉疊字，不能讓它把可用結果變成失敗。
-    try:
-        return _request_semantics_once(client, **arguments)
-    except SemanticServiceError:
+    """截斷或疊字最多重試一次；重試仍污染或失敗就拒收。"""
+    with _request_slots.get() or nullcontext():
+        source = canonical_bytes(arguments["request"]).decode("utf-8")
+        retried = False
+        try:
+            result = _request_semantics_once(client, **arguments)
+        except SemanticServiceError as error:
+            if error.reason_code != "SEMANTIC_OUTPUT_TRUNCATED":
+                raise
+            result = _request_semantics_once(
+                client, **arguments, max_tokens_cap=TRUNCATION_RETRY_MAX_TOKENS
+            )
+            retried = True
+        if _degenerate_text(result, source):
+            if not retried:
+                result = _request_semantics_once(client, **arguments)
+            if _degenerate_text(result, source):
+                from . import luna_calls
+                luna_calls.capture(result)
+                luna_calls.rejected("SEMANTIC_GENERATION_FAILED")
+                raise SemanticServiceError("SEMANTIC_GENERATION_FAILED")
         return result
 
 
@@ -766,11 +769,20 @@ def generate(prompt, schema, *, request=None, cancellation_check=None, cancelled
         if cancellation_check is not None:
             cancellation_check()
 
-    with semantic_client() as client:
-        return request_semantics(
-            client, runtime_lock=lock, task="material_review",
-            request=request or {}, response_schema=schema, cancellation_check=check,
-        )
+    from . import luna_calls, luna_test
+    diagnostics = []
+    try:
+        with semantic_client() as client:
+            return request_semantics(
+                client, runtime_lock=lock, task="material_review",
+                request=request or {}, response_schema=schema, cancellation_check=check,
+                diagnostics=diagnostics,
+            )
+    finally:
+        # Luna 的 HTTP 邊界已逐次保存候選，不重複記錄同一回應。
+        if not luna_test.enabled(lock):
+            for diagnostic in diagnostics:
+                luna_calls.capture(diagnostic)
 
 
 def text_model_label(luna_prefix="codex-cli/"):

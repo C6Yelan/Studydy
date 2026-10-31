@@ -398,7 +398,7 @@ def test_title_invalid_candidate_is_private_and_preserves_successful_script(clos
     from runtime import podcast_worker, podcasts
 
     owner, _, _, _, dsn, _ = closed_loop
-    secret = '合成私密集名錯誤候選' * 4
+    secret = '合成私密集名錯誤候選，包含過長但不重複的主題描述。'
     monkeypatch.setattr(provider_http, '_host', cli_workflow(
         lambda path, body: {'title': secret} if 'concepts' in body['request'] else None))
     identity = create(closed_loop)['podcast_id']
