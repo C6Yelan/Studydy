@@ -1481,6 +1481,7 @@ def test_read_rejects_repeated_or_out_of_bounds_indices(supports):
     ({'language': 'en', 'title': 'Economics α β γ'}, True),
     ({'title': 'Экономические исследования инфляции', 'description': ''}, False),
     ({'url': 'https://ru.wikipedia.org/wiki/Test'}, False),
+    ({'url': 'https://simple.wikipedia.org/wiki/Test'}, True),
     ({'title': '中文教材與 English terms'}, True),
     ({'title': 'Entropy α β', 'description': ''}, True),
     ({'title': 'XYZ', 'description': ''}, True),
