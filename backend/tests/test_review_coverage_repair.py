@@ -5,8 +5,40 @@ from copy import deepcopy
 import pytest
 
 from knowledge_map.material_review import ReviewError, validate_proposal
-from runtime.material_review import _checked_review
-from test_material_review import prepare, proposal, wire_proposal
+from runtime.material_review import _checked_review, _review_response_schema
+from test_material_review import prepare, proposal, wire_proposal, view
+
+
+def assignment_variants(schema, handle):
+    def expand(value):
+        if '$ref' in value:
+            return expand(schema['$defs'][value['$ref'].split('/')[-1]])
+        if 'anyOf' in value:
+            return [variant for choice in value['anyOf'] for variant in expand(choice)]
+        return [value]
+    return expand(schema['properties']['assignments']['properties'][str(handle)]['properties']['decision'])
+
+
+@pytest.mark.parametrize('single_concept', [False, True])
+def test_assignment_schema_excludes_self_as_group_or_example_target(single_concept):
+    source = view()
+    if single_concept:
+        source['concepts'] = source['concepts'][:1]
+        source['relations'] = []
+        source['initial_learning_path'] = source['initial_learning_path'][:1]
+    unit = prepare(source)
+    schema = _review_response_schema(unit)
+    for handle in range(len(unit.concepts)):
+        grouped = [v['properties'] for v in assignment_variants(schema, handle)
+                   if 'group' in v['properties']['action']['enum']]
+        if single_concept:
+            assert grouped == []
+        else:
+            assert len(grouped) == 1
+            assert grouped[0]['action']['enum'] == ['group', 'example']
+            assert grouped[0]['target'] == {
+                'type': 'integer', 'enum': [other for other in range(len(unit.concepts)) if other != handle],
+            }
 
 
 class Archive:
@@ -68,7 +100,7 @@ def test_missing_coverage_is_repaired_once_with_full_context_and_strict_validati
     assignments = schema["properties"]["assignments"]
     assert assignments['type'] == 'object' and assignments['additionalProperties'] is False
     assert assignments['required'] == list(assignments['properties']) == list(map(str, range(5)))
-    assert all('concept' not in v['properties'] for v in schema['$defs']['Assignment']['anyOf'])
+    assert all('concept' not in v['properties'] for v in assignment_variants(schema, 0))
     assert archive.writes["call-000001/response"] == invalid
     assert archive.writes["call-000001-repair-01/response"] == proposal()
     assert len([key for key in archive.writes if key.startswith("cache-")]) == 1
@@ -167,12 +199,12 @@ def test_other_single_batch_contract_errors_repair_once(tmp_path, monkeypatch, k
 
 def test_assignment_schema_rejects_inconsistent_actions(tmp_path, monkeypatch):
     (_, _), calls = run(Archive(tmp_path), monkeypatch, [proposal()])
-    variants = calls[0]['response_schema']['$defs']['Assignment']['anyOf']
+    variants = assignment_variants(calls[0]['response_schema'], 0)
     metadata = next(v['properties'] for v in variants if v['properties']['action']['enum'] == ['metadata'])
     assert metadata['issue']['enum'] == ['author', 'layout', 'scale']
     assert metadata['target'] == {'type': 'null'}
     grouped = next(v['properties'] for v in variants if 'group' in v['properties']['action']['enum'])
-    assert grouped['target'] == {'type': 'integer', 'enum': list(range(5))}
+    assert grouped['target'] == {'type': 'integer', 'enum': list(range(1, 5))}
 
 
 def test_null_response_is_repaired_and_never_cached_as_success(tmp_path, monkeypatch):
