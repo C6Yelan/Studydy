@@ -162,7 +162,6 @@ def test_invalid_wire_identity_is_rejected_without_relabelling(tmp_path, monkeyp
 
 @pytest.mark.parametrize('kind,code', [
     ('metadata', 'REVIEW_METADATA_REASON_INVALID'),
-    ('target', 'REVIEW_TARGET_INVALID'),
     ('cycle', 'REVIEW_GROUPING_CYCLE'),
     ('evidence', 'REVIEW_EVIDENCE_INVALID'),
     ('claim', 'REVIEW_CLAIM_EDIT_INVALID'),
@@ -172,8 +171,6 @@ def test_other_single_batch_contract_errors_repair_once(tmp_path, monkeypatch, k
     invalid = proposal()
     if kind == 'metadata':
         invalid['assignments'][0].update(action='metadata', issue='none')
-    elif kind == 'target':
-        invalid['assignments'][0].update(action='group', target=0)
     elif kind == 'cycle':
         invalid['assignments'][0].update(action='group', target=1)
         invalid['assignments'][1].update(action='group', target=0)
@@ -476,3 +473,15 @@ def test_review_reason_has_length_ceiling():
     long['assignments'][0]['reason'] = 'x' * 1001
     with pytest.raises(ReviewError, match='REVIEW_RESPONSE_INVALID'):
         validate_proposal(prepare(), long)
+
+
+def test_cached_invalid_target_is_reused_without_model_repair(tmp_path, monkeypatch):
+    saved = proposal()
+    saved['assignments'][0].update(action='group', target=0)
+    archive = Archive(tmp_path, saved=saved)
+    (result, count), calls = run(archive, monkeypatch, [])
+    assert result == saved
+    assert count == 0 and calls == []
+    unit = prepare()
+    assert validate_proposal(unit, result).assignments[0].action == 'keep'
+    assert unit.blocked_changes[0]['reason'] == 'REVIEW_TARGET_INVALID'
