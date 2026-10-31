@@ -407,6 +407,8 @@ def _language_allowed(candidate):
     host = urlsplit(candidate.get("url", "")).hostname or ""
     if not language and host.endswith(".wikipedia.org"):
         language = host.split(".")[0]
+        if language == "simple":
+            language = "en"
     if language and language not in {"und", "unknown", "mul", "www"}:
         return language in {"en", "eng", "zh", "zho", "chi"}
     # 無語言 metadata 時只排除明顯以其他文字為主的內容；拉丁字母的未知語言留待核對。
