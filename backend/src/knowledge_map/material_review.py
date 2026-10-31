@@ -344,6 +344,9 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
         for edit in getattr(proposal, name):
             unique.setdefault(canonical_sha256(edit.model_dump()), edit)
         setattr(proposal, name, list(unique.values()))
+    # xgrammar 無法禁止陣列重複；同一別名列兩次的刪除不可靠（實例：想改標題譯名卻刪掉正確別名），
+    # 只捨棄這筆別名修改、別名維持原樣，不讓整份審查失敗。
+    proposal.alias_edits = [e for e in proposal.alias_edits if len(set(e.remove)) == len(e.remove)]
     assignments = {a.concept: a for a in proposal.assignments}
     if len(assignments) != len(proposal.assignments) or set(assignments) != set(
         range(len(unit.concepts))
@@ -404,8 +407,7 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
             refs = support(edit)
             if key == "concept":
                 if (
-                    len(set(edit.remove)) != len(edit.remove)
-                    or not set(edit.remove) <= set(unit.concepts[handle]["aliases"])
+                    not set(edit.remove) <= set(unit.concepts[handle]["aliases"])
                     or not refs & owned[handle]
                 ):
                     raise ReviewError("REVIEW_ALIAS_EDIT_INVALID")
