@@ -359,29 +359,27 @@ def _token_count(
     return body["count"]
 
 
-# 失控輸出的特徵：相鄰重複的詞（「分布分布」「matching matching」）與思考殘字。
-# 「一個一個」這類 ABAB 是正常中文；原文本來就有的寫法也不算。
+# 失控輸出的特徵：同一個詞相鄰重複三次以上（「分布分布分布」「matching matching matching」）。
+# 兩次相鄰可能是正常中文斷詞（「可以使用使用者」），「一個一個」這類也正常；原文本來就有的寫法也不算。
+# 思考殘字由 vLLM reasoning parser 分離，開機健康檢查會拒絕外露，不在這裡逐字過濾。
 _REPEATED_TEXT = re.compile(
-    r"(?<![A-Za-z])([A-Za-z]{2,30})(?:\s+\1)+(?![A-Za-z])"
-    r"|((?!一)[\u3400-\u9fff]{2,12})\2",
+    r"(?<![A-Za-z])([A-Za-z]{2,30})(?:\s+\1){2,}(?![A-Za-z])"
+    r"|((?!一)[\u3400-\u9fff]{2,12})\2{2,}",
     re.IGNORECASE,
 )
-# 只在 own 緊貼中文或字串邊界時視為殘字；全形括號內引用的 own-price 等術語不算。
-_STRAY_TOKENS = re.compile(r"(?:^|[\u3400-\u9fff])\s*own\s*(?:$|[\u3400-\u9fff])|thought:")
 
 
 def _degenerate_text(value: Any, source: str) -> bool:
-    """模型產出中有原文沒有的疊字或思考殘字時回傳 True。"""
+    """模型產出中有原文沒有的失控疊字時回傳 True。"""
     if isinstance(value, dict):
         return any(_degenerate_text(item, source) for item in value.values())
     if isinstance(value, list):
         return any(_degenerate_text(item, source) for item in value)
     if not isinstance(value, str):
         return False
-    for pattern in (_REPEATED_TEXT, _STRAY_TOKENS):
-        for match in pattern.finditer(value):
-            if match.group(0).strip().casefold() not in source.casefold():
-                return True
+    for match in _REPEATED_TEXT.finditer(value):
+        if match.group(0).strip().casefold() not in source.casefold():
+            return True
     return False
 
 
