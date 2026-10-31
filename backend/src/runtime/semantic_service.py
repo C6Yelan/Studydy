@@ -366,7 +366,8 @@ _REPEATED_TEXT = re.compile(
     r"|((?!一)[\u3400-\u9fff]{2,12})\2",
     re.IGNORECASE,
 )
-_STRAY_TOKENS = re.compile(r"(?:^|[^A-Za-z\s])\s*own\s*(?:$|[^A-Za-z\s])|thought:")
+# 只在 own 緊貼中文或字串邊界時視為殘字；全形括號內引用的 own-price 等術語不算。
+_STRAY_TOKENS = re.compile(r"(?:^|[\u3400-\u9fff])\s*own\s*(?:$|[\u3400-\u9fff])|thought:")
 
 
 def _degenerate_text(value: Any, source: str) -> bool:

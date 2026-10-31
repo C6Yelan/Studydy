@@ -418,6 +418,8 @@ def test_truncation_retries_once_with_smaller_output_ceiling():
     ('資料分布分布', '原文寫作資料分布分布', False),
     ('一個一個處理', '處理', False),
     ('their own way', 'way', False),
+    # Gemma 在全形括號內引用英文術語不是殘字。
+    ('自身價格彈性（own-price elasticities）', 'The elasticities are', False),
 ])
 def test_repeated_or_stray_text_retries_once_unless_in_source(text, source, retried):
     requests = []
