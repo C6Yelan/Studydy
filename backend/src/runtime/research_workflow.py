@@ -1257,7 +1257,7 @@ def _assess_sections(workflow, candidates, state, context, call, retrieve_existi
                     "minimum": 0,
                     "maximum": len(workflow["topics"]) - 1,
                 },
-                "passages": {**_indices(len(passages)), "maxItems": len(passages), "uniqueItems": True},
+                "passages": {**_indices(len(passages)), "maxItems": len(passages)},
             }
         )
         schema = obj(
@@ -1265,7 +1265,7 @@ def _assess_sections(workflow, candidates, state, context, call, retrieve_existi
                 "relevance": RELEVANCE,
                 "reason": TEXT,
                 "supports": {"type": "array", "items": support,
-                             "maxItems": len(workflow["topics"]), "uniqueItems": True},
+                             "maxItems": len(workflow["topics"])},
             }
         )
         result = _call(
