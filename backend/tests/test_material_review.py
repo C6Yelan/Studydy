@@ -665,3 +665,50 @@ def test_numbered_section_topic_is_not_removed_as_layout(prefix):
     assert "c0" not in result["metadata_concept_ids"]
     assert result["blocked_changes"][0]["reason"] == "PROTECTED_TOPIC_OR_PREREQUISITE"
     assert source["document_tree"]["sections"][0]["title"] == prefix + "角色分類"
+
+
+@pytest.mark.parametrize('handles', [[*range(1, 12), 0, 0], [*range(12), 11]])
+@pytest.mark.parametrize('difference', [None, 'action', 'reason', 'evidence', 'relation_type'])
+def test_repeated_relation_proposals_preserve_only_conflicting_relation(handles, difference):
+    document = view()
+    document['relations'] = [
+        {**document['relations'][0], 'relation_id': f'r{i}'} for i in range(12)
+    ]
+    before = deepcopy(document)
+    response = proposal()
+    response['relation_edits'] = [
+        {'relation': handle, 'action': 'retype', 'relation_type': 'example',
+         'reason': 'Synthetic correction', 'evidence': [0, 1]} for handle in handles
+    ]
+    if difference:
+        response['relation_edits'][-1].update({
+            'action': {'action': 'remove', 'relation_type': None},
+            'reason': {'reason': 'Another justification'},
+            'evidence': {'evidence': [1]},
+            'relation_type': {'relation_type': 'contrast'},
+        }[difference])
+    unit = prepare(document)
+    validated = validate_proposal(unit, response)
+    assert len(validated.relation_edits) == (11 if difference else 12)
+    result = project_review(document, unit, response)
+    assert document == before
+    conflict = f'r{handles[-1]}' if difference else None
+    for row in result['relations']:
+        assert row['type'] == ('part_of' if row['original_relation_id'] == conflict else 'example')
+    assert result['blocked_changes'] == ([{
+        'relation_id': conflict, 'reason': 'CONFLICTING_REVIEW_EDITS_PRESERVED_ORIGINAL',
+    }] if difference else [])
+    merged, combined = combine_reviews(document, [(unit, response)])
+    assert project_review(document, merged, combined) == result
+
+
+@pytest.mark.parametrize('invalid', ['relation', 'evidence'])
+def test_conflicting_relation_edits_do_not_hide_invalid_identifiers(invalid):
+    response = proposal()
+    response['relation_edits'] = [
+        {'relation': 0, 'action': 'reverse', 'relation_type': None, 'reason': 'A', 'evidence': [0]},
+        {'relation': 0, 'action': 'remove', 'relation_type': None, 'reason': 'B', 'evidence': [0]},
+    ]
+    response['relation_edits'][-1][invalid] = 99 if invalid == 'relation' else [99]
+    with pytest.raises(ReviewError, match='REVIEW_EDIT_ID_INVALID|REVIEW_EVIDENCE_INVALID'):
+        validate_proposal(prepare(), response)

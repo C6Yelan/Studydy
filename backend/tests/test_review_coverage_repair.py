@@ -337,24 +337,25 @@ def test_oversized_correction_reports_only_prior_model_call(tmp_path, monkeypatc
     assert failure.value.request_metadata['review_model_calls'] == 1
 
 
-def test_duplicate_relation_edit_reuses_saved_rejection_for_one_grounded_correction(tmp_path, monkeypatch):
-    unit = prepare()
-    invalid = proposal()
-    invalid['relation_edits'] = [
+def test_conflicting_relation_edits_are_archived_and_reused_without_model_repair(tmp_path, monkeypatch):
+    from knowledge_map.material_review import project_review
+    from test_material_review import view
+    response = proposal()
+    response['relation_edits'] = [
         {'relation': 0, 'action': 'reverse', 'relation_type': None, 'evidence': [0, 1], 'reason': 'Synthetic direction edit.'},
         {'relation': 0, 'action': 'retype', 'relation_type': 'example', 'evidence': [0, 1], 'reason': 'Synthetic type edit.'},
     ]
-    archive = Archive(tmp_path, rejected=invalid)
-    (_, count), calls = run(archive, monkeypatch, [proposal()])
-    assert count == 1
-    correction = calls[0]['request']['review_correction']
-    assert correction['error'] == 'REVIEW_EDIT_ID_INVALID'
-    assert correction['edit_id_issues']['relation_edits'] == {'duplicates': [0], 'unexpected': []}
-    schema = calls[0]['response_schema']
-    choices = schema['properties']['relation_edits']['items']['anyOf']
-    assert sorted({schema['$defs'][c['properties']['relation']['$ref'].split('/')[-1]]['enum'][0]
-                   for c in choices}) == list(range(len(unit.relations)))
-    assert 'at most once' in schema['properties']['relation_edits']['description']
+    archive = Archive(tmp_path)
+    (result, count), calls = run(archive, monkeypatch, [response])
+    assert count == len(calls) == 1
+    assert result == response
+    assert archive.writes['call-000001/response'] == response
+    audit = project_review(view(), prepare(), result)
+    assert audit['blocked_changes'] == [{
+        'relation_id': 'r0', 'reason': 'CONFLICTING_REVIEW_EDITS_PRESERVED_ORIGINAL',
+    }]
+    (reused, count), calls = run(Archive(tmp_path, saved=response), monkeypatch, [])
+    assert reused == response and count == 0 and calls == []
 
 
 def test_relation_schema_binds_each_edit_to_its_own_sources_and_action_type(tmp_path, monkeypatch):

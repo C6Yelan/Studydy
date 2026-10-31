@@ -526,3 +526,48 @@ def test_view_sends_only_learner_facing_fields(closed_loop,monkeypatch):
             for v in value:yield from keys(v)
     # 已核准範圍是使用者自己的規劃，其 topics 鍵不屬於內部欄位。
     assert not forbidden & set(keys({k:v for k,v in view.items() if k!='approved_scope'}))
+
+
+def test_assessing_long_step_renews_lease_with_isolated_clock(closed_loop, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+    from threading import Condition
+    from runtime import generation_jobs
+
+    learner, source, _, _, dsn, _ = closed_loop
+    identity = create_confirmed_research(learner.learner_id, source.material_id, 'queue', 'lease', dsn=dsn)['research_id']
+    claimed = research.claim(dsn=dsn)
+    assert claimed['research_id'] == identity
+    with database_session(dsn) as db:
+        row = db.get(MaterialResearch, identity)
+        row.search_state = {**row.search_state, 'stage': 'assessing'}
+        initial_expiry = row.lease_expires_at
+    now = initial_expiry - timedelta(minutes=30)
+    class Clock:
+        @classmethod
+        def now(cls, zone):
+            assert zone is UTC
+            return now
+    monkeypatch.setattr(generation_jobs, 'datetime', Clock)
+    checked = Condition()
+    completed = []
+    original = generation_jobs.check_job
+    def observe(*args, **kwargs):
+        original(*args, **kwargs)
+        with checked:
+            completed.append(now)
+            checked.notify_all()
+    monkeypatch.setattr(generation_jobs, 'check_job', observe)
+    expiries = []
+    with generation_jobs.cancellable_job(MaterialResearch, identity, claimed['lease_token'], dsn=dsn, statuses=('searching',)):
+        for minutes in (23, 31, 39, 47):
+            now = initial_expiry - timedelta(minutes=30) + timedelta(minutes=minutes)
+            with checked:
+                assert checked.wait_for(lambda: now in completed, timeout=3)
+            with database_session(dsn) as db:
+                row = db.get(MaterialResearch, identity)
+                assert row.search_state['stage'] == 'assessing'
+                assert row.lease_token == claimed['lease_token']
+                assert row.lease_expires_at == now + generation_jobs.WORKER_LEASE_TTL
+                expiries.append(row.lease_expires_at)
+    assert expiries == sorted(set(expiries))
+    assert expiries[-1] > initial_expiry + timedelta(minutes=30)
