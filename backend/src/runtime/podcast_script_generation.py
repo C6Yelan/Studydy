@@ -286,7 +286,9 @@ sources 列出本集必須講解的概念與重點；block_indices 對應 page_c
             },
             episode,
         )
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError) as error:
+        from . import luna_calls
+        luna_calls.validation_failed(error)
         raise RuntimeError("PODCAST_SCRIPT_INVALID") from None
 
     def model_beat(beat):
@@ -332,7 +334,9 @@ sources 列出本集必須講解的概念與重點；block_indices 對應 page_c
             beat = compile_beats({"segments": [replacement]}, claims)[0]
             segments = [*beats[:index], {**beat, "beat_id": f"beat-{index}"}, *beats[index + 1 :]]
             return validate({**current, "segments": segments}, episode)
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError) as error:
+            from . import luna_calls
+            luna_calls.validation_failed(error)
             raise RuntimeError("PODCAST_SCRIPT_INVALID") from None
 
     def review(request):
@@ -345,7 +349,7 @@ sources 列出本集必須講解的概念與重點；block_indices 對應 page_c
         podcast_process.check(cancelled)
         return response
 
-    # 逐段對照引用原文；不符只重生該段，仍不符依選定重點門檻略過。
+    # 逐段對照引用原文；不符只重生該段，仍不符就略過並列出省略重點。
     return podcast_review.verify(
         result,
         claims,

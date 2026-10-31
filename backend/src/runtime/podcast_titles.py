@@ -13,8 +13,7 @@ from sqlalchemy import select
 
 from .storage.database import database_session
 from .storage.tables import Podcast
-from . import luna_calls, luna_test
-from .local_ai_config import configured_lock
+from . import luna_calls
 
 MAX_TITLE_LENGTH = 18
 PROMPT = (
@@ -67,15 +66,22 @@ def semantic_call():
         task_lock.update(prompt=PROMPT, max_tokens=512)
         # 節目取消時中斷集名請求，worker 才能接下一筆。
         cancellation = _cancellation.get()
-        with semantic_client() as client:
-            return request_semantics(
-                client,
-                runtime_lock={**lock, "material_review": task_lock},
-                task="material_review",
-                request=request,
-                response_schema=_SCHEMA,
-                cancellation_check=cancellation.check if cancellation is not None else None,
-            )
+        diagnostics = []
+        try:
+            with semantic_client() as client:
+                return request_semantics(
+                    client,
+                    runtime_lock={**lock, "material_review": task_lock},
+                    task="material_review",
+                    request=request,
+                    response_schema=_SCHEMA,
+                    diagnostics=diagnostics,
+                    cancellation_check=cancellation.check if cancellation is not None else None,
+                )
+        finally:
+            for diagnostic in diagnostics:
+                luna_calls.capture(diagnostic)
+
 
     return call
 
@@ -87,10 +93,10 @@ def generate(episode, call=None, *, claim=None):
     trace = luna_calls.start(
         "podcast_title", (claim["podcast_id"], claim["index"]), claim["token"],
         claim["material_id"], claim["owner"], defer_to_parent=True,
-        enabled=luna_test.enabled(configured_lock()),
     ) if claim is not None else None
     try:
-        result = validate((call or semantic_call())(build_request(episode)))
+        candidate = (call or semantic_call())(build_request(episode))
+        result = validate(luna_calls.capture(candidate))
         if trace is not None:
             luna_calls.completed("succeeded" if result else "failed", None if result else "PODCAST_TITLE_INVALID")
         return result

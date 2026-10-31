@@ -143,3 +143,44 @@ def test_parallel_semantics_preserves_tags_and_runtime_lock(provider_server, fak
     assert all(record["tags"]["stage"] == "analysis" and record["tags"]["work_id"] == "work" for record in records)
     assert lock == original
     assert all("tags" not in json.loads(line)["stdin"] and "learner" not in json.loads(line)["stdin"] for line in fake_codex.read_text().splitlines())
+
+
+def test_podcast_failure_masks_secrets_and_keeps_validation_location(tmp_path, monkeypatch):
+    from runtime.podcast_script import validate
+    monkeypatch.setenv("STUDYDY_PODCAST_PROVIDER_TOKEN", "private-provider-secret")
+    work = start(feature="podcast_script")
+    luna_calls.capture({"title": "private-provider-secret", "authorization": "unknown-secret",
+                        "raw": "Bearer raw-secret"})
+    with pytest.raises(ValueError):
+        validate({"schema": "podcast-script/v2", "provider": "test", "segments": []}, {"claims": []})
+    luna_calls.completed("failed", "PODCAST_SCRIPT_INVALID")
+    luna_calls.close(work)
+    path, = (tmp_path / "artifacts/failures").glob("*.json")
+    saved = path.read_text()
+    assert "private-provider-secret" not in saved and "unknown-secret" not in saved and "raw-secret" not in saved
+    document = json.loads(saved)
+    assert document["rejections"][0]["file"] == "podcast_script.py"
+    assert document["rejections"][0]["function"] == "validate"
+    assert document["rejections"][0]["line"] > 0
+
+
+def test_gemma_generate_preserves_all_attempt_diagnostics_on_failure(tmp_path, monkeypatch):
+    from runtime import semantic_service, local_ai_config
+    monkeypatch.setattr(local_ai_config, "configured_lock", lambda: {"material_review": {}})
+    def once(client, **arguments):
+        attempt = len(arguments["diagnostics"])
+        arguments["diagnostics"].append({"max_tokens": 512, "finish_reason": "stop" if not attempt else "length",
+                                         "candidate": '{"text":"分布分布"}' if not attempt else '{', "usage": {}})
+        if attempt:
+            raise semantic_service.SemanticServiceError("SEMANTIC_OUTPUT_TRUNCATED")
+        return {"text": "分布分布"}
+    monkeypatch.setattr(semantic_service, "_request_semantics_once", once)
+    work = start(feature="podcast_script")
+    with pytest.raises(semantic_service.SemanticServiceError):
+        semantic_service.generate("synthetic", {})
+    luna_calls.completed("failed", "PODCAST_SCRIPT_INVALID")
+    luna_calls.close(work)
+    path, = (tmp_path / "artifacts/failures").glob("*.json")
+    records = json.loads(path.read_text())["candidates"]
+    assert [r["candidate"]["finish_reason"] for r in records] == ["stop", "length"]
+    assert all(r["candidate"]["candidate"] for r in records)

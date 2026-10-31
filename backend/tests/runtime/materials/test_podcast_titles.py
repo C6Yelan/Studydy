@@ -84,3 +84,27 @@ def test_title_request_uses_the_luna_text_channel(closed_loop, monkeypatch):
     path, body = sent[0]
     assert path == "/semantics" and body["task"] == "material_review" and body["prompt"] == podcast_titles.PROMPT
     assert set(body["request"]) == {"segments", "concepts"}
+
+
+def test_title_keeps_512_and_length_schema_and_saves_truncation(tmp_path, monkeypatch):
+    from copy import deepcopy
+    import json
+    from runtime import semantic_service, knowledge_chapters, luna_calls
+    original = {"material_review": {"generation": {"chat_template_kwargs": {"enable_thinking": False}}, "max_tokens": 32768}}
+    snapshot = deepcopy(original)
+    monkeypatch.setattr(knowledge_chapters, "configured_lock", lambda: original)
+    monkeypatch.setenv("STUDYDY_ARTIFACT_ROOT", str(tmp_path))
+    def once(client, **args):
+        assert args["runtime_lock"]["material_review"]["max_tokens"] == 512
+        assert args["response_schema"]["properties"]["title"]["maxLength"] == 18
+        args["diagnostics"].append({"max_tokens": 512, "finish_reason": "length", "candidate": '{"title":"', "usage": {}})
+        raise semantic_service.SemanticServiceError("SEMANTIC_OUTPUT_TRUNCATED")
+    monkeypatch.setattr(semantic_service, "_request_semantics_once", once)
+    claim = {"podcast_id": "synthetic", "index": 0, "token": "attempt", "material_id": "material", "owner": "owner"}
+    episode = {"script": {"segments": [{"title": "合成標題"}]}, "claims": [{"label": "合成概念"}]}
+    assert podcast_titles.generate(episode, claim=claim) is None
+    assert original == snapshot
+    path, = (tmp_path / "failures").glob("*.json")
+    records = json.loads(path.read_text())["candidates"]
+    assert len(records) == 2
+    assert all(r["candidate"]["finish_reason"] == "length" and r["candidate"]["max_tokens"] == 512 for r in records)

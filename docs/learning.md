@@ -329,7 +329,7 @@ Podcast 依選定概念及關係規劃分集，透過同一索引取得各集引
 
 ### Podcast 製作步驟與略過提示
 
-生成頁直接讀取各集 generation.steps 的 script／audio／alignment／video 狀態及 elapsed_seconds；未知排隊數不估填，未選影片不自行補步驟。單集未完成使用不確定進度，多集以已完成集數計數，步驟不折算百分比。omitted_content 只用於逐字稿與本集重點的固定略過提示，不呈現未核對台詞；過半失敗門檻由後端判定，前端沿用 PODCAST_SCRIPT_NEEDS_REVIEW 並說明原因。
+生成頁直接讀取各集 generation.steps 的 script／audio／alignment／video 狀態及 elapsed_seconds；未知排隊數不估填，未選影片不自行補步驟。單集未完成使用不確定進度，多集以已完成集數計數，步驟不折算百分比。omitted_content 只用於逐字稿與本集重點的固定略過提示，不呈現未核對台詞；不因省略比例拒發已核對段落；整集沒有可保留段落時回報 PODCAST_SCRIPT_NEEDS_REVIEW。
 
 ### 語音逐句播放與實際耗時
 

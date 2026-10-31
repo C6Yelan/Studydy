@@ -1,28 +1,45 @@
 """逐集產生與核對講稿，再交本機語音 provider 配音；不佔用教材／題組 worker。"""
 
 from runtime.errors import PodcastError
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 import json
 import logging
+from threading import BoundedSemaphore
 from urllib.error import HTTPError
 
-from . import podcast_titles, podcasts, luna_calls, luna_test
+from . import podcast_titles, podcasts, luna_calls
 from .generation_jobs import cancellable_job
-from .local_ai_config import configured_lock
 from .podcast_script_generation import script
 from .provider_http import _cancellation, generation_response, provider_request, provider_error_code
 from .storage.tables import Podcast
 
 
-def step(*, dsn=None):
-    claim = podcasts.claim_step(dsn=dsn)
-    if claim is None:
+def step(*, dsn=None, workers=1):
+    claims = podcasts.claim_step(dsn=dsn, parallel=True)
+    if claims is None:
         return
+    claim = claims[0]
+    from .semantic_service import _request_slots
+    token = _request_slots.set(BoundedSemaphore(workers))
+    try:
+        with cancellable_job(Podcast, claim["podcast_id"], claim["token"], dsn=dsn):
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(copy_context().run, _episode, item, dsn=dsn) for item in claims]
+                for future in futures:
+                    future.result()
+            podcasts.finish_batch(claim, dsn=dsn)
+    finally:
+        _request_slots.reset(token)
+
+
+def _episode(claim, *, dsn):
     if claim["episode"]["script"]:
         _audio(claim, dsn=dsn)
         return
     trace = luna_calls.start(
         "podcast_script", (claim["podcast_id"], claim["index"]), claim["token"],
-        claim["material_id"], claim["owner"], enabled=luna_test.enabled(configured_lock()),
+        claim["material_id"], claim["owner"],
     )
     try:
         with cancellable_job(Podcast, claim["podcast_id"], claim["token"], dsn=dsn):

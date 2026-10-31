@@ -666,6 +666,8 @@ def test_verified_segments_publish_even_when_most_claims_are_omitted(monkeypatch
     model,calls=fake_model(value,reviews=[review_result]*12,rewrites=value['segments'][1:failed_count+1])
     monkeypatch.setattr(provider,'generate',model)
     result=provider.script(request)
+    from runtime.podcast_script import validate_script
+    assert validate_script(result, request) == result
     assert len(result['omitted_content'])==failed_count
     assert [b['beat_id'] for b in result['segments']]==[f'beat-{i}' for i in range(6-failed_count)]
     assert {ref['source_index'] for b in result['segments'] for t in b['turns'] for p in t['parts'] for ref in p['source_refs']}==set(range(failed_count,4))
@@ -679,3 +681,48 @@ def test_omitted_claim_identities_are_unique(monkeypatch):
     monkeypatch.setattr(provider,'generate',model)
     result=provider.script(request)
     assert result['omitted_content'][0]['claim_ids']==[request['claims'][1]['claim_id']]
+
+
+def test_parallel_review_rechecks_after_earlier_segment_changes(monkeypatch):
+    from threading import Barrier
+    from runtime import podcast_review, luna_calls
+    from runtime.podcast_script_generation import compile_beats
+    monkeypatch.setenv("STUDYDY_PODCAST_WORKERS", "2")
+    request = body()
+    raw = candidate()
+    raw["segments"] = raw["segments"] * 3
+    script = {"segments": compile_beats(raw, request["claims"])}
+    barrier = Barrier(2)
+    calls = []
+    trace = luna_calls.start("podcast_script", "parallel-test", "attempt", None, None)
+    def review(value):
+        index = value["segment_index"]
+        calls.append(value)
+        assert luna_calls.tags()["work_id"] == "parallel-test"
+        if len([v for v in calls if v["segment_index"] == index]) == 1 and index < 2:
+            barrier.wait(timeout=5)
+        return verdict(value, {"turn.0"} if index == 0 else set())
+    try:
+        result = podcast_review.verify(script, request["claims"], {}, hosts=request["hosts"],
+            series=request["series"], review=review, rewrite=lambda current, *_: current, diagnostics=[])
+    finally:
+        luna_calls.close(trace)
+    second = [v for v in calls if v["segment_index"] == 1]
+    assert len(second) == 2
+    assert second[0]["related_segments"] and not second[1]["related_segments"]
+    assert len(result["segments"]) == 2
+
+
+def test_three_kept_segments_with_29_of_31_omissions_pass_save_validation():
+    from runtime.podcast_script import validate_script, SCHEMA
+    from runtime.podcast_script_generation import compile_beats
+    request = body()
+    request["claims"] = [{**deepcopy(request["claims"][0]), "claim_id": f"claim-{i}"} for i in range(31)]
+    raw = {"segments": [candidate(sources=[29])["segments"][0],
+                         candidate(sources=[30])["segments"][0],
+                         candidate(sources=[])["segments"][0]]}
+    value = {"schema": SCHEMA, "provider": "synthetic", "segments": compile_beats(raw, request["claims"]),
+             "omitted_content": [{"segment_index": i + 2, "reason": "source_check_failed",
+                                  "claim_ids": [f"claim-{j}" for j in indices]}
+                                 for i, indices in enumerate((range(10), range(10, 20), range(20, 29)))]}
+    assert validate_script(value, request) == value

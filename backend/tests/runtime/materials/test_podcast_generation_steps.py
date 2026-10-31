@@ -91,3 +91,56 @@ def test_step_time_migration_applies_and_rolls_back(clean_database_dsn, migratio
             db.execute('SELECT started_at,finished_at FROM podcast_scenes')
         assert db.execute("SELECT count(*) FROM information_schema.columns WHERE table_name='podcast_scenes' AND column_name='started_at'").fetchone()==(0,)
     assert run_migrations(clean_database_dsn,migrations_dir=migrations_dir)==tuple(m.version for m in migrations[25:])
+
+
+def test_parallel_episodes_keep_lease_and_resume_saved_scripts(closed_loop, monkeypatch):
+    from copy import deepcopy
+    from datetime import timedelta
+    from runtime.storage.tables import Podcast
+    from runtime.generation_jobs import check_job
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)["podcast_id"]
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        row.episodes = [deepcopy(row.episodes[0]), deepcopy(row.episodes[0])]
+    claims = podcasts.claim_step(dsn=dsn, parallel=True)
+    assert [c["index"] for c in claims] == [0, 1]
+    assert claims[0]["token"] == claims[1]["token"]
+    assert podcasts.finish_step(claims[1], script=script(claims[1]), dsn=dsn)
+    check_job(Podcast, identity, claims[0]["token"], dsn=dsn)
+    assert podcasts.claim_step(dsn=dsn) is None
+    # 模擬程序中斷：已保存第二集講稿，未保存第一集；舊 lease 不得再發布。
+    with database_session(dsn) as db:
+        db.get(Podcast, identity).lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    resumed = podcasts.claim_step(dsn=dsn, parallel=True)
+    assert resumed[0]["episode"]["script"] is None
+    assert resumed[1]["episode"]["script"] is not None
+    assert not podcasts.finish_step(claims[0], script=script(claims[0]), dsn=dsn)
+    assert podcasts.finish_step(resumed[0], script=script(resumed[0]), dsn=dsn)
+    podcasts.finish_batch(resumed[0], dsn=dsn)
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        assert row.status == "pending" and row.lease_token is None
+        assert all(e["script"] for e in row.episodes)
+
+
+def test_worker_produces_episodes_concurrently(closed_loop, monkeypatch):
+    from copy import deepcopy
+    from threading import Barrier
+    from runtime import podcast_worker
+    from runtime.storage.tables import Podcast
+    owner, _, _, _, dsn, _ = closed_loop
+    identity = create(closed_loop)["podcast_id"]
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        row.episodes = [deepcopy(row.episodes[0]), deepcopy(row.episodes[0])]
+    barrier = Barrier(2)
+    def generate(body, **kwargs):
+        barrier.wait(timeout=5)
+        return script({"episode": body})
+    monkeypatch.setattr(podcast_worker, "script", generate)
+    monkeypatch.setattr(podcast_worker.podcast_titles, "generate", lambda *a, **kw: None)
+    podcast_worker.step(dsn=dsn, workers=2)
+    with database_session(dsn) as db:
+        row = db.get(Podcast, identity)
+        assert row.status == "pending" and all(e["script"] for e in row.episodes)
