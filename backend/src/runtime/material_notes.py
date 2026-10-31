@@ -8,6 +8,7 @@ from threading import Event, Lock
 import json
 import logging
 import os
+import re
 
 from pydantic import ValidationError
 from sqlalchemy import select, or_, text, func
@@ -374,10 +375,22 @@ def _write(request, identities, part, mode, call, diagnostics):
                 # 只送該公式與本節引用，不重送整批教材與前稿；內容仍由後續逐段核對。
                 pi, bi = formula_position
                 paragraph = response["paragraphs"][pi]
+                cited = [e for e in request["evidence"] if e["evidence_id"] in paragraph["evidence_ids"]]
+                # 純文字公式中的完整識別符只做排版跳脫；不把已存在的 LaTeX 或單字母下標改成文字。
+                identifier_pattern = r"(?<!\w)[A-Za-z]{2}[A-Za-z0-9]*(?:_[A-Za-z0-9]+)+(?!\w)"
+                names = set(re.findall(identifier_pattern, error.latex))
+                quoted = "\n".join(q for e in cited for q in e["quotes"])
+                if (not any(c in error.latex for c in "\\{}") and names
+                    and all(re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", quoted) for name in names)):
+                    response["paragraphs"][pi]["blocks"][bi]["latex"] = re.sub(
+                        identifier_pattern,
+                        lambda m: r"\mathrm{" + m.group().replace("_", r"\_") + "}", error.latex)
+                    diagnostics.append({"event": "formula_identifiers_escaped", "paragraph": pi, "block": bi})
+                    continue
                 correction = call({
                     "phase": "repair_formula", "latex": error.latex,
                     "heading": paragraph["heading"],
-                    "evidence": [e for e in request["evidence"] if e["evidence_id"] in paragraph["evidence_ids"]],
+                    "evidence": cited,
                     "correction": {"problem": code, "instruction": error.detail},
                 })
                 try:
