@@ -131,7 +131,9 @@ def test_configured_worker_counts_start_and_stop_every_thread(monkeypatch):
         assert [n for n in names if n.startswith("studydy-cards")] == [
             "studydy-cards", "studydy-cards-2", "studydy-cards-3"]
         assert [n for n in names if n.startswith("studydy-podcast-worker")] == [
-            "studydy-podcast-worker", "studydy-podcast-worker-2"]
+            "studydy-podcast-worker"]
+        coordinator = next(w for w in started if w.thread.name == "studydy-podcast-worker")
+        assert coordinator.step.keywords["workers"] == 2
         assert [n for n in names if n.startswith("studydy-research")] == ["studydy-research"]
     release.set()
     assert all(not worker.thread.is_alive() for worker in started)

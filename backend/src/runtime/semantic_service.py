@@ -769,7 +769,7 @@ def generate(prompt, schema, *, request=None, cancellation_check=None, cancelled
         if cancellation_check is not None:
             cancellation_check()
 
-    from . import luna_calls
+    from . import luna_calls, luna_test
     diagnostics = []
     try:
         with semantic_client() as client:
@@ -779,8 +779,10 @@ def generate(prompt, schema, *, request=None, cancellation_check=None, cancelled
                 diagnostics=diagnostics,
             )
     finally:
-        for diagnostic in diagnostics:
-            luna_calls.capture(diagnostic)
+        # Luna 的 HTTP 邊界已逐次保存候選，不重複記錄同一回應。
+        if not luna_test.enabled(lock):
+            for diagnostic in diagnostics:
+                luna_calls.capture(diagnostic)
 
 
 def text_model_label(luna_prefix="codex-cli/"):

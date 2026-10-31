@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from .storage.database import database_session
 from .storage.tables import Podcast
-from . import luna_calls
+from . import luna_calls, luna_test
 
 MAX_TITLE_LENGTH = 18
 PROMPT = (
@@ -79,8 +79,9 @@ def semantic_call():
                     cancellation_check=cancellation.check if cancellation is not None else None,
                 )
         finally:
-            for diagnostic in diagnostics:
-                luna_calls.capture(diagnostic)
+            if not luna_test.enabled(lock):
+                for diagnostic in diagnostics:
+                    luna_calls.capture(diagnostic)
 
 
     return call
@@ -96,7 +97,9 @@ def generate(episode, call=None, *, claim=None):
     ) if claim is not None else None
     try:
         candidate = (call or semantic_call())(build_request(episode))
-        result = validate(luna_calls.capture(candidate))
+        if call is not None:
+            luna_calls.capture(candidate)
+        result = validate(candidate)
         if trace is not None:
             luna_calls.completed("succeeded" if result else "failed", None if result else "PODCAST_TITLE_INVALID")
         return result
