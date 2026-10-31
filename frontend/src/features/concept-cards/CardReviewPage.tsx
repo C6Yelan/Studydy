@@ -139,7 +139,8 @@ function ReviewCard({ apiClient, item, list, onMarked, processed, processedCount
   }, [apiClient, item, retry]);
   const pages = useMemo(() => loaded && artworkModule ? artworkModule.conceptCardPages(loaded.card, loaded.context).length : 1, [loaded, artworkModule]);
   const localPage = pageIndex < 0 ? pages - 1 : pageIndex;
-  useEffect(() => { setBack(false); }, [localPage]);
+  // -1 表示末頁；真正頁數載入後的 localPage 變動不算使用者換頁，不撤銷翻面。
+  useEffect(() => { setBack(false); }, [pageIndex]);
   const mark = useCallback(async (rating: CardReviewRating) => {
     if (busy || processed || !back) return;
     setBusy(true); onBusy(true); setMarkError(null);

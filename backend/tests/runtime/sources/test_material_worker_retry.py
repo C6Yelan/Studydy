@@ -10,7 +10,7 @@ from product_fixtures import closed_loop, seed_run
 from runtime import material_processing as processing, workers, source_normalization as sources, material_notes
 from runtime.storage.database import database_session
 from runtime.storage.tables import MaterialProcessingRun, SourceNormalization
-from test_note_queue import setup as notes_setup, answer
+from backend.tests.runtime.study.test_note_queue import setup as notes_setup, answer
 
 
 @pytest.mark.parametrize('reason,retryable', [

@@ -22,15 +22,18 @@ export function useConceptArtwork() {
 
 // pageRef：卡面右下角的「教材第 X 頁」；details：點開後從卡片下方滑出的完整重點與來源。
 type SourceLayerProps = { pageRef: string; details: ReactNode };
+type SourceLayerState = { open: boolean; onOpenChange: (open: boolean) => void };
 export function VisualConceptCard({ card, structure, pageIndex, cacheOwner, pageRef, details, downloadName }: {
   card: ConceptCard; structure: ConceptCardContext; pageIndex: number; cacheOwner: object; downloadName: () => Promise<string>;
 } & SourceLayerProps) {
   const { artworkModule, loadFailed } = useConceptArtwork();
+  // 載入前後的來源面板位於不同元件，開啟狀態留在此處，避免圖卡到達後自動關閉。
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const pages = useMemo(() => artworkModule?.conceptCardPages(card, structure) ?? [], [artworkModule, card, structure]);
   if (!artworkModule) return <><div className="visual-card"><p role="status">{loadFailed ? "圖卡載入失敗，重新整理後再試。仍可從右下角查看完整重點。" : "正在載入圖卡…"}</p></div>
-    <SourceLayer pageRef={pageRef} details={details} download={<DownloadButton disabled />} /></>;
+    <SourceLayer open={sourcesOpen} onOpenChange={setSourcesOpen} pageRef={pageRef} details={details} download={<DownloadButton disabled />} /></>;
   // 複習時由卡組的單一導覽控制目前頁。
-  return <CardImage key={pageIndex} card={card} structure={structure} cacheOwner={cacheOwner} artworkModule={artworkModule} pages={pages} pageIndex={pageIndex} pageRef={pageRef} details={details} downloadName={downloadName} />;
+  return <CardImage key={pageIndex} open={sourcesOpen} onOpenChange={setSourcesOpen} card={card} structure={structure} cacheOwner={cacheOwner} artworkModule={artworkModule} pages={pages} pageIndex={pageIndex} pageRef={pageRef} details={details} downloadName={downloadName} />;
 }
 
 function DownloadButton({ disabled, downloading = false, onClick }: { disabled: boolean; downloading?: boolean; onClick?: () => void }) {
@@ -40,22 +43,21 @@ function DownloadButton({ disabled, downloading = false, onClick }: { disabled: 
 }
 
 // 卡片右下角的頁數小字與抽屜；點擊只展開／關閉來源，不翻面（面板由外層點擊翻面時略過按鈕）。
-function SourceLayer({ pageRef, details, download }: SourceLayerProps & { download: ReactNode }) {
-  const [open, setOpen] = useState(false);
+function SourceLayer({ pageRef, details, download, open, onOpenChange }: SourceLayerProps & SourceLayerState & { download: ReactNode }) {
   return <>
-    <button type="button" className="card-page-ref" aria-expanded={open} aria-controls="card-source-drawer" title="查看完整重點與教材來源" onClick={() => setOpen(value => !value)}>{pageRef}</button>
+    <button type="button" className="card-page-ref" aria-expanded={open} aria-controls="card-source-drawer" title="查看完整重點與教材來源" onClick={() => onOpenChange(!open)}>{pageRef}</button>
     {open && <section id="card-source-drawer" className="card-source-drawer" aria-label="完整重點與來源"
-      onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setOpen(false); } }}>
-      <header><h3>完整重點與來源</h3>{download}<button type="button" className="text-button" onClick={() => setOpen(false)}>關閉</button></header>
+      onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onOpenChange(false); } }}>
+      <header><h3>完整重點與來源</h3>{download}<button type="button" className="text-button" onClick={() => onOpenChange(false)}>關閉</button></header>
       <div className="card-source-drawer-body">{details}</div>
     </section>}
   </>;
 }
 
-function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageIndex, pageRef, details, downloadName }: {
+function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageIndex, pageRef, details, downloadName, open, onOpenChange }: {
   card: ConceptCard; structure: ConceptCardContext; cacheOwner: object; downloadName: () => Promise<string>;
   artworkModule: ArtworkModule; pages: ReturnType<ArtworkModule["conceptCardPages"]>; pageIndex: number;
-} & SourceLayerProps) {
+} & SourceLayerProps & SourceLayerState) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const artwork = useMemo(() => ({ card, layout: pages[pageIndex], pageIndex }), [card, pages, pageIndex]);
   const currentArtwork = useRef(artwork);
@@ -132,5 +134,5 @@ function CardImage({ card, structure, cacheOwner, artworkModule, pages, pageInde
         : <p role="status">正在繪製圖卡…</p>}
     </div>}
   </div>{moreBelow && <span className="visual-card-more" aria-hidden="true">往下捲看更多 ↓</span>}</div>
-  <SourceLayer pageRef={pageRef} details={details} download={<>{downloadFailed && <span className="form-error" role="alert">PNG 下載失敗，請再試一次。</span>}<DownloadButton disabled={!ready || downloading} downloading={downloading} onClick={() => void download()} /></>} /></>;
+  <SourceLayer open={open} onOpenChange={onOpenChange} pageRef={pageRef} details={details} download={<>{downloadFailed && <span className="form-error" role="alert">PNG 下載失敗，請再試一次。</span>}<DownloadButton disabled={!ready || downloading} downloading={downloading} onClick={() => void download()} /></>} /></>;
 }

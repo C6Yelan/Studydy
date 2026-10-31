@@ -259,7 +259,7 @@ export function PodcastPlayer({ view, index, storageKey, settingsKey, rememberPo
     <div className={`media-viewport${video ? " has-video" : " audio-only"}${controlsVisible ? "" : " controls-idle"}`} ref={viewport}
       onPointerMove={showControls}
       // 滑鼠離開播放區就立即收起控制列；設定選單開著或拖曳進度時保留。
-      onPointerLeave={() => { if (menuOpen || adjustingRange.current || keyboardFocus.current) return; clearTimeout(idle.current); setControlsVisible(false); }}
+      onPointerLeave={event => { if (event.pointerType !== "mouse" || menuOpen || adjustingRange.current || keyboardFocus.current) return; clearTimeout(idle.current); setControlsVisible(false); }}
       onPointerDown={e => {
         keyboardFocus.current = false;
         adjustingRange.current = (e.target as HTMLElement).matches('input[type="range"]');

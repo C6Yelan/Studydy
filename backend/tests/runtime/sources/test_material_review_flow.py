@@ -10,7 +10,7 @@ from knowledge_map.structure import validate_knowledge_structure
 from runtime.source_revisions import SourceError, create_revision, retry_revision
 from runtime.storage.knowledge_structures import read_knowledge_structure
 from product_fixtures import closed_loop
-from test_source_revisions import revisions
+from backend.tests.runtime.sources.test_source_revisions import revisions
 
 
 def enable_review(settings, *, consolidation=False):

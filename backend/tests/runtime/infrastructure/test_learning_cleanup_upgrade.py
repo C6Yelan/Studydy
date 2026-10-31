@@ -19,7 +19,7 @@ from runtime import version_moves
 from runtime.learning_activity import learning_activity
 from runtime.storage.database import database_session
 from runtime.storage.migrations import DEFAULT_MIGRATIONS_DIR, load_migrations, run_migrations
-from test_version_moves import new_revision
+from backend.tests.runtime.study.test_version_moves import new_revision
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def migrations_dir(tmp_path):
 
 def test_empty_upgrade_keeps_single_concept_constraints(clean_database_dsn, migrations_dir):
     run_migrations(clean_database_dsn, migrations_dir=migrations_dir)
-    assert run_migrations(clean_database_dsn) == (29,)
+    assert run_migrations(clean_database_dsn) == (29, 30, 31, 32, 33)
     assert run_migrations(clean_database_dsn) == ()
     with psycopg.connect(clean_database_dsn) as db:
         assert db.execute("SELECT is_nullable FROM information_schema.columns WHERE table_name='assessment_sets' AND column_name='target_concept_id'").fetchone() == ('NO',)
@@ -60,7 +60,7 @@ def test_upgrade_preserves_normal_answers_goals_and_only_supported_moved_complet
     target_study = UUID(moved['study_session_id'])
     other_old = next(c['concept_id'] for c in f['document']['concepts'] if c['label']=='Other topic')
     other_new = next(c['concept_id'] for c in head['concepts'] if c['label']=='Other topic')
-    upgraded_sql = load_migrations()[-1].sql
+    upgraded_sql = next(migration.sql for migration in load_migrations() if migration.version == 29)
     old_sql = sorted(DEFAULT_MIGRATIONS_DIR.glob('0014_*.sql'))[0].read_text()
     kind = re.findall(r"'([^']+)'",re.search(r'CHECK \(kind IN \(([^)]+)\)',old_sql)[1])[-1]
     level_column = re.search(r'materials ADD COLUMN (\w+)',old_sql)[1]
@@ -91,7 +91,7 @@ def test_upgrade_preserves_normal_answers_goals_and_only_supported_moved_complet
         db.execute("INSERT INTO assessment_sets (set_id,learner_id,material_id,study_session_id,knowledge_structure_revision,target_concept_id,kind,target_plan,requested_count,runtime_lock_document,status,idempotency_key_sha256,request_fingerprint,created_at,updated_at) SELECT %s,learner_id,material_id,%s,%s,NULL,kind,target_plan,0,runtime_lock_document,'failed',%s,%s,now(),now() FROM assessment_sets WHERE set_id=%s",
             (uuid4(),target_study,head['revision'],bytes([4])*32,bytes([5])*32,retired))
         kept_group = db.execute('SELECT * FROM assessment_sets WHERE set_id=%s',(kept,)).fetchone()
-    assert run_migrations(dsn) == (29,)
+    assert run_migrations(dsn) == (29, 30, 31, 32, 33)
     with psycopg.connect(dsn) as db:
         assert db.execute('SELECT answer_event_id,assessment_revision,is_correct FROM answer_events WHERE material_id=%s',(material,)).fetchall()==kept_events
         assert db.execute('SELECT event_number FROM answer_events WHERE material_id=%s',(material,)).fetchall()==[(1,)]
@@ -135,7 +135,7 @@ def test_upgrade_preserves_finished_study_when_only_unassessable_concept_remains
             (uuid4(),kind,bytes([4])*32,bytes([5])*32,kept))
         before = db.execute('SELECT status,completed_at,last_event_number FROM study_sessions WHERE study_session_id=%s',(study,)).fetchone()
     assert before[0]=='completed' and before[1] is not None and before[2]==1
-    assert run_migrations(dsn)==(29,)
+    assert run_migrations(dsn)==(29,30,31,32,33)
     with psycopg.connect(dsn) as db:
         assert db.execute('SELECT status,completed_at,last_event_number FROM study_sessions WHERE study_session_id=%s',(study,)).fetchone()==before
     progress = derive_learner_progress(f['learner'],study,dsn=dsn)
