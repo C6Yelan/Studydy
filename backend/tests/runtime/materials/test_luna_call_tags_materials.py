@@ -12,9 +12,9 @@ import pytest
 
 from assessment_fixtures import concept_fixture, create, model_for, read
 from product_fixtures import closed_loop
-from test_source_revisions import revisions
-from test_independent_block_archive import analyze_with, fake_response
-from test_material_review_flow import enable_review, keep_response
+from backend.tests.runtime.sources.test_source_revisions import revisions
+from backend.tests.runtime.sources.test_independent_block_archive import analyze_with, fake_response
+from backend.tests.runtime.sources.test_material_review_flow import enable_review, keep_response
 from test_material_consolidation import keep, approved
 from test_podcast_process import provider_server
 from test_luna_call_log import fake_codex

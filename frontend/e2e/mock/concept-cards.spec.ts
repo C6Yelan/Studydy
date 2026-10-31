@@ -1993,6 +1993,9 @@ test("strengthening can skip and revisit, but records each concept once and comp
 });
 
 test("PNG names include material and deck order with cleaned concept titles", async ({ page }) => {
+  let releaseArtwork!: () => void;
+  const artwork = new Promise<void>(resolve => { releaseArtwork = resolve; });
+  await page.route("**/assets/ConceptCardArtwork-*.js", async route => { await artwork; await route.continue(); });
   const fixture = await mockCards(page, { saved: true });
   fixture.view.relations = [];
   fixture.view.concepts[0].label = ' .A:/ ';
@@ -2002,6 +2005,9 @@ test("PNG names include material and deck order with cleaned concept titles", as
     await showCardBack(page);
     const download = page.waitForEvent("download");
     await openSources(page);
+    releaseArtwork();
+    await expect(page.locator("canvas.visual-concept-card")).toBeVisible();
+    await expect(page.getByRole("region", { name: "完整重點與來源" })).toBeVisible();
     await page.getByRole("button", { name: "下載 PNG", exact: true }).click();
     expect((await download).suggestedFilename()).toBe(name);
     if (name === "資料結構講義-01-A.png") await page.getByRole("button", { name: "下一張", exact: true }).click();
@@ -2020,6 +2026,9 @@ test("comparison front reveals its headings before the full saved design", async
 
 
 test("strengthening previous crosses to the last face of the preceding concept", async ({ page }) => {
+  let releaseArtwork!: () => void;
+  const artwork = new Promise<void>(resolve => { releaseArtwork = resolve; });
+  await page.route("**/assets/ConceptCardArtwork-*.js", async route => { await artwork; await route.continue(); });
   const fixture = await mockCards(page, { saved: true });
   fixture.view.relations = [];
   const concept = fixture.view.concepts[0];
@@ -2030,6 +2039,7 @@ test("strengthening previous crosses to the last face of the preceding concept",
   await page.getByRole("navigation", { name: "選擇概念卡" }).getByRole("button", { name: fixture.view.concepts[1].label }).click();
   await page.locator(".cards-study-stage").press("ArrowLeft");
   await showCardBack(page);
+  releaseArtwork();
   await expect(page.locator("canvas.visual-concept-card")).toHaveAttribute("data-image-index", "2");
 });
 

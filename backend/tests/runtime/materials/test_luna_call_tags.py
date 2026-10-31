@@ -9,8 +9,8 @@ import pytest
 
 from assessment_fixtures import concept_fixture
 from product_fixtures import closed_loop
-from test_note_queue import setup, drain, answer, HEADERS
-from test_knowledge_chapter_queue import _answer, _key, _row, _drain_others
+from backend.tests.runtime.study.test_note_queue import setup, drain, answer, HEADERS
+from backend.tests.runtime.study.test_knowledge_chapter_queue import _answer, _key, _row, _drain_others
 from test_podcast_process import provider_server
 from test_luna_call_log import fake_codex
 from luna_call_log import call_records

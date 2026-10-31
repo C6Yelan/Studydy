@@ -137,9 +137,11 @@ npm --prefix frontend run build -- --outDir "$STUDYDY_E2E_FRONTEND_DIST" --empty
 env -u STUDYDY_TEST_POSTGRES_DSN -u STUDYDY_DATABASE_DSN \
   -u PGHOST -u PGHOSTADDR -u PGPORT -u PGSERVICE -u PGSERVICEFILE \
   -u PGSYSCONFDIR -u PGDATABASE -u PGUSER -u PGPASSWORD -u PGPASSFILE \
-  PYTHONPATH=backend/src:backend/tests:backend/tests/runtime/materials:backend/tests/runtime/study:backend/tests/runtime/sources:local_ai/src \
+  PYTHONPATH=backend/src:backend/tests:backend/tests/runtime/materials:local_ai/src \
   backend/.venv/bin/python -m pytest -q backend/tests --durations=10
 ~~~
+
+跨目錄的測試 helper 使用完整模組名稱（例如 `backend.tests.runtime.study.test_note_queue`），避免依賴 pytest 收集順序。
 
 這個命令會收集 Office 案例；主機 LibreOffice 版本不同時，這些案例失敗是預期的環境不符，不能放寬版本檢查或改成 skip。依下節容器指令完成十二項 Office 驗證，分別保留主機整套與 Office 容器的摘要；其他失敗仍須調查。主機命令有失敗時仍回傳非零，不應記成整套通過。
 

@@ -356,10 +356,10 @@ for(const supplemental of [false,true])test(`six scope concepts preserve the req
  for(const [width,height] of [[1440,900],[1300,900],[1280,900],[1200,900],[1024,768],[390,844]]){
   await page.setViewportSize({width,height});await page.evaluate(()=>window.scrollTo(0,0));
   for(const card of await page.locator('.topic-concept-card').all()){
-   await card.scrollIntoViewIfNeeded();await expect(card).toBeInViewport({ratio:1});
+   await card.evaluate(element=>element.scrollIntoView({block:'center',inline:'center',behavior:'instant'}));await expect(card).toBeInViewport({ratio:1});
   }
   const confirm=page.getByRole('button',{name:'確認範圍並搜尋',exact:true});
-  await confirm.scrollIntoViewIfNeeded();await expect(confirm).toBeInViewport({ratio:1});
+  await confirm.evaluate(element=>element.scrollIntoView({block:'center',inline:'center',behavior:'instant'}));await expect(confirm).toBeInViewport({ratio:1});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath(`scope-six-${supplemental?'supplement':'new'}-${width}.png`),animations:'disabled'});
  }
