@@ -166,17 +166,14 @@ def test_podcast_failure_masks_secrets_and_keeps_validation_location(tmp_path, m
 
 def test_gemma_generate_preserves_all_attempt_diagnostics_on_failure(tmp_path, monkeypatch):
     from runtime import semantic_service, local_ai_config
-    monkeypatch.setattr(local_ai_config, "configured_lock", lambda: {"material_review": {}})
-    def once(client, **arguments):
-        attempt = len(arguments["diagnostics"])
-        arguments["diagnostics"].append({"max_tokens": 512, "finish_reason": "stop" if not attempt else "length",
-                                         "candidate": '{"text":"分布分布"}' if not attempt else '{', "usage": {}})
-        if attempt:
-            raise semantic_service.SemanticServiceError("SEMANTIC_OUTPUT_TRUNCATED")
-        return {"text": "分布分布"}
-    monkeypatch.setattr(semantic_service, "_request_semantics_once", once)
+    from test_semantic_service_v1 import _chat, _lock
+    monkeypatch.setattr(local_ai_config, "configured_lock", _lock)
+    requests = []
+    monkeypatch.setenv("VLLM_API_KEY", "private-provider-secret")
+    contents = [('stop', '{"text":"分布分布 private-provider-secret"}'), ('length', '{')]
+    monkeypatch.setattr(semantic_service, "semantic_client", lambda: _chat(contents, requests))
     work = start(feature="podcast_script")
-    with pytest.raises(semantic_service.SemanticServiceError):
+    with pytest.raises(semantic_service.SemanticServiceError, match="SEMANTIC_OUTPUT_TRUNCATED"):
         semantic_service.generate("synthetic", {})
     luna_calls.completed("failed", "PODCAST_SCRIPT_INVALID")
     luna_calls.close(work)
@@ -184,3 +181,5 @@ def test_gemma_generate_preserves_all_attempt_diagnostics_on_failure(tmp_path, m
     records = json.loads(path.read_text())["candidates"]
     assert [r["candidate"]["finish_reason"] for r in records] == ["stop", "length"]
     assert all(r["candidate"]["candidate"] for r in records)
+    assert requests == [20768, 20768]
+    assert "private-provider-secret" not in path.read_text()
