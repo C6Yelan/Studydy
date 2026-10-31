@@ -411,17 +411,16 @@ def test_truncation_retries_once_with_smaller_output_ceiling():
 
 
 @pytest.mark.parametrize('text, source, retried', [
-    ('資料分布分布', '資料分布', True),
-    ('matching matching rule', 'matching rule', True),
-    ('資料own分布', '資料分布', True),
-    ('thought: 先列出', '先列出', True),
-    ('資料分布分布', '原文寫作資料分布分布', False),
+    ('資料分布分布分布', '資料分布', True),
+    ('matching matching matching rule', 'matching rule', True),
+    ('資料分布分布分布', '原文寫作資料分布分布分布', False),
     ('一個一個處理', '處理', False),
     ('their own way', 'way', False),
-    # Gemma 在全形括號內引用英文術語不是殘字。
+    # 兩次相鄰是正常斷詞：may use the User Datagram Protocol → 可以使用使用者數據報協定。
+    ('可以使用使用者數據報協定', 'may use the User Datagram Protocol', False),
     ('自身價格彈性（own-price elasticities）', 'The elasticities are', False),
 ])
-def test_repeated_or_stray_text_retries_once_unless_in_source(text, source, retried):
+def test_runaway_repetition_retries_once_unless_in_source(text, source, retried):
     requests = []
     first = json.dumps({'text': text}, ensure_ascii=False)
     with _chat([('stop', first), ('stop', '{"text":"ok"}')], requests) as client:
@@ -433,7 +432,7 @@ def test_repeated_or_stray_text_retries_once_unless_in_source(text, source, retr
 
 def test_repeated_text_after_retry_is_rejected():
     requests = []
-    bad = '{"text":"分布分布"}'
+    bad = '{"text":"分布分布分布"}'
     with _chat([('stop', bad), ('stop', bad)], requests) as client:
         with pytest.raises(SemanticServiceError, match='SEMANTIC_GENERATION_FAILED'):
             request_semantics(client, runtime_lock=_lock(), task='assessment', request={}, response_schema={})
@@ -442,7 +441,7 @@ def test_repeated_text_after_retry_is_rejected():
 
 def test_repeated_text_retry_keeps_budget_and_propagates_failure():
     requests = []
-    with _chat([('stop', '{"text":"分布分布"}'), ('length', '{"text":"分')], requests) as client:
+    with _chat([('stop', '{"text":"分布分布分布"}'), ('length', '{"text":"分')], requests) as client:
         with pytest.raises(SemanticServiceError, match='SEMANTIC_OUTPUT_TRUNCATED'):
             request_semantics(client, runtime_lock=_lock(), task='material_review', request={}, response_schema={})
     assert requests == [20768, 20768]
@@ -450,7 +449,7 @@ def test_repeated_text_retry_keeps_budget_and_propagates_failure():
 
 def test_truncation_retry_rejects_degenerate_result():
     requests = []
-    with _chat([('length', '{'), ('stop', '{"text":"分布分布"}')], requests) as client:
+    with _chat([('length', '{'), ('stop', '{"text":"分布分布分布"}')], requests) as client:
         with pytest.raises(SemanticServiceError, match='SEMANTIC_GENERATION_FAILED'):
             request_semantics(client, runtime_lock=_lock(), task='material_review', request={}, response_schema={})
     assert requests == [20768, 8192]
