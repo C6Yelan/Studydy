@@ -238,3 +238,17 @@ def test_openalex_semantic_search_preserves_meaning_rank_and_same_version_locati
     assert rows[0]['eligible'] and rows[0]['download_url']=='https://example.org/paper.pdf'
     assert page==2
     assert sources.openalex_search(question,3)[1] is None
+
+
+def test_openalex_language_survives_merging_a_previously_discovered_paper(monkeypatch):
+    monkeypatch.setattr(sources, '_json', lambda *args, **kwargs: {
+        'results': [{'id': 'oa', 'title': 'Translated title', 'doi': '10.1234/example',
+                     'language': 'ru', 'abstract_inverted_index': {'Translated': [0]}}],
+        'meta': {'count': 1},
+    })
+    incoming, _ = sources.openalex_search('economics', 1)
+    merged = sources.merge_candidates([paper()], incoming)
+    assert len(merged) == 1 and merged[0]['id'] == 'one'
+    assert merged[0]['language'] == 'ru'
+    from runtime.research_workflow import _language_allowed
+    assert not _language_allowed(merged[0])

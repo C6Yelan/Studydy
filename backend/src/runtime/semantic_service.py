@@ -418,9 +418,20 @@ def _request_semantics_once(
     before_request: Callable[[], None] | None = None,
     tags: dict | None = None,
     max_tokens_cap: int | None = None,
+    diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     from .luna_test import enabled
 
+    diagnostic = {
+        "task": task, "request": deepcopy(request), "input_tokens": None,
+        "max_tokens": None, "finish_reason": None, "usage": {},
+        "candidate": None, "request_id": None,
+    }
+    if diagnostics is not None:
+        diagnostics.append(diagnostic)
+    # read 每次只讀約 6000 字，輸出為至多 4000 字說明與有界索引，不重抄正文。
+    # 8192 tokens 容納說明及索引，同時避免沿用整份教材審查的 32K 輸出。
+    read_cap = 8192 if task == "material_review" and request.get("task") == "read" else None
     if before_request is not None and not enabled(runtime_lock):
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
     if enabled(runtime_lock):
@@ -437,10 +448,14 @@ def _request_semantics_once(
         # 舊工作保留封存的 272K lock，但不得繞過現行後端的 64K 上限。
         output_budget = _output_budget(
             task,
-            task_lock[prefix + "max_tokens"],
+            min(task_lock[prefix + "max_tokens"], read_cap or task_lock[prefix + "max_tokens"]),
             input_tokens,
             min(65536, runtime_lock["semantic_service"]["max_model_len"]),
         )
+        if max_tokens_cap is not None:
+            output_budget = min(output_budget, max_tokens_cap)
+        # Luna provider 不回報實送 token 上限；不能把本地驗收預算冒稱實測 metadata。
+        diagnostic["input_tokens"] = input_tokens
         if before_request is not None:
             before_request()
         from . import luna_calls
@@ -475,6 +490,7 @@ def _request_semantics_once(
             raise SemanticServiceError(code) from None
         if cancellation_check:
             cancellation_check()
+        diagnostic["candidate"] = deepcopy(result)
         if (
             estimate_o200k_tokens(json.dumps(result, ensure_ascii=False))
             > output_budget
@@ -508,10 +524,11 @@ def _request_semantics_once(
             cancellation_check,
         )
         max_tokens = _output_budget(
-            task, max_tokens, input_tokens, service["max_model_len"]
+            task, min(max_tokens, read_cap or max_tokens), input_tokens, service["max_model_len"]
         )
         if max_tokens_cap is not None:
             max_tokens = min(max_tokens, max_tokens_cap)
+        diagnostic.update(input_tokens=input_tokens, max_tokens=max_tokens)
         response = _post(
             client,
             f"{service['base_url']}{CHAT_PATH}",
@@ -556,6 +573,12 @@ def _request_semantics_once(
                 }
             )
         choice = api_body["choices"][0]
+        diagnostic.update(
+            finish_reason=choice.get("finish_reason"),
+            usage=deepcopy(api_body.get("usage") or {}),
+            candidate=choice.get("message", {}).get("content"),
+            request_id=api_body.get("id"),
+        )
         if choice.get("finish_reason") != "stop":
             error = SemanticServiceError("SEMANTIC_OUTPUT_TRUNCATED")
             finish_reason = choice.get("finish_reason")

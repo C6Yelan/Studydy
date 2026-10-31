@@ -497,3 +497,38 @@ def test_client_errors_are_not_waited_on(monkeypatch):
         with pytest.raises(SemanticServiceError, match='SEMANTIC_SERVICE_UNAVAILABLE'):
             request_semantics(client, runtime_lock=_lock(), task='assessment', request={}, response_schema={})
     assert attempts == [1]
+
+
+@pytest.mark.parametrize('finish,content,error', [
+    ('stop', '{"ok":true}', None),
+    ('length', '{"ok":', 'SEMANTIC_OUTPUT_TRUNCATED'),
+    ('stop', '{"ok":', 'SEMANTIC_RESPONSE_INVALID'),
+])
+def test_read_budget_and_per_attempt_diagnostics_preserve_failed_candidates(finish, content, error):
+    from copy import deepcopy
+    lock = _lock()
+    before = deepcopy(lock)
+    diagnostics = []
+    payload = {'task': 'read', 'source': {'url': 'https://en.wikipedia.org/wiki/Test'},
+               'window': {'start': 62773, 'end': 67814, 'index': 6}}
+    def respond(request):
+        if request.url.path == '/tokenize':
+            return httpx.Response(200, json={'count': 100, 'max_model_len': 32768})
+        assert json.loads(request.content)['max_tokens'] == 8192
+        return httpx.Response(200, json={'id': 'fixture-call', 'usage': {'completion_tokens': 42},
+            'choices': [{'finish_reason': finish, 'message': {'content': content}}]})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        args = dict(runtime_lock=lock, task='material_review', request=payload,
+                    response_schema={}, diagnostics=diagnostics)
+        if error:
+            with pytest.raises(SemanticServiceError, match=error):
+                request_semantics(client, **args)
+        else:
+            assert request_semantics(client, **args) == {'ok': True}
+    assert lock == before
+    assert len(diagnostics) == (2 if finish == 'length' else 1)
+    assert all(entry == {
+        'task': 'material_review', 'request': payload, 'input_tokens': 100,
+        'max_tokens': 8192, 'finish_reason': finish, 'usage': {'completion_tokens': 42},
+        'candidate': content, 'request_id': 'fixture-call',
+    } for entry in diagnostics)

@@ -355,6 +355,7 @@ def openalex_search(query, cursor):
             )
         )
         rows[-1]["description_kind"] = "abstract"
+        rows[-1]["language"] = work.get("language")
     # semantic search 最多回傳 50 篇，不能沿普通搜尋 cursor 無限翻頁。
     count = min(50, response.get("meta", {}).get("count", 0))
     return rows, page + 1 if rows and page * 20 < count else None
@@ -436,6 +437,8 @@ def merge_candidates(existing, incoming):
             ids[row["id"]] = row
             continue
         kept = known.get(key) or ids[row["id"]]
+        if not kept.get("language") and row.get("language"):
+            kept["language"] = row["language"]
         kept["discovered_by"] = list(
             dict.fromkeys(kept.get("discovered_by", []) + row.get("discovered_by", []))
         )

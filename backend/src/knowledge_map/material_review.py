@@ -106,6 +106,7 @@ class ReviewUnit:
     evidence: list[dict]
     relations: list[dict]
     conflicting_claim_ids: list[str] = field(default_factory=list)
+    conflicting_relation_ids: list[str] = field(default_factory=list)
 
 
 def _pack_review(
@@ -315,7 +316,7 @@ def combine_reviews(
                 ]
                 proposal[kind].append(row)
     # 概念範圍互不重疊，仍可能共用同一 canonical Claim。只協調跨段提案；
-    # 單一模型回應內的重複編號仍由上方 validate_proposal 拒絕。
+    # 單一模型回應內的 Claim 重複編號仍由 validate_proposal 拒絕。
     claim_edits = {}
     for row in proposal["claim_edits"]:
         claim_edits.setdefault(row["claim"], []).append(row)
@@ -337,7 +338,7 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
         proposal = Proposal.model_validate(value)
     except ValidationError:
         raise ReviewError("REVIEW_RESPONSE_INVALID") from None
-    # 模型偶爾逐字重複同一筆修改；完全相同只保留一筆，同一編號內容不同仍拒絕。
+    # 完全相同只保留一筆；關係的不同提案在來源檢查後整組略過。
     for name in ("alias_edits", "claim_edits", "relation_edits"):
         unique = {}
         for edit in getattr(proposal, name):
@@ -397,7 +398,7 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
         seen = set()
         for edit in changes:
             handle = getattr(edit, key)
-            if handle not in range(limit) or handle in seen:
+            if handle not in range(limit) or (handle in seen and key != "relation"):
                 raise ReviewError("REVIEW_EDIT_ID_INVALID")
             seen.add(handle)
             refs = support(edit)
@@ -445,6 +446,16 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
                 )
                 if not refs & endpoint_refs or not refs <= allowed_refs or invalid_type:
                     raise ReviewError("REVIEW_RELATION_EDIT_INVALID")
+    relation_edits = {}
+    for edit in proposal.relation_edits:
+        relation_edits.setdefault(edit.relation, []).append(edit)
+    unit.conflicting_relation_ids = [
+        unit.relations[handle]["relation_id"]
+        for handle, edits in relation_edits.items() if len(edits) > 1
+    ]
+    proposal.relation_edits = [
+        edits[0] for edits in relation_edits.values() if len(edits) == 1
+    ]
     return proposal
 
 
@@ -506,6 +517,9 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
     blocked = [
         {"claim_id": claim_id, "reason": "CONFLICTING_REVIEW_EDITS_PRESERVED_ORIGINAL"}
         for claim_id in unit.conflicting_claim_ids
+    ] + [
+        {"relation_id": relation_id, "reason": "CONFLICTING_REVIEW_EDITS_PRESERVED_ORIGINAL"}
+        for relation_id in unit.conflicting_relation_ids
     ]
     findings = []
     assignments = []

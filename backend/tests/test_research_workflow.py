@@ -1446,3 +1446,59 @@ def test_research_text_fields_have_length_ceiling():
     assert flow.TEXT["maxLength"] == 4000
     assert flow.PLAN["properties"]["searches"]["items"]["properties"]["reason"]["maxLength"] == 4000
     assert flow.PLAN["properties"]["searches"]["maxItems"] == 30
+
+
+@pytest.mark.parametrize('supports', [
+    [{'topic': 0, 'passages': [0, 0]}],
+    [{'topic': 0, 'passages': [0]}, {'topic': 0, 'passages': [0]}],
+    [{'topic': 0, 'passages': [0]}, {'topic': 0, 'passages': []}],
+    [{'topic': 0, 'passages': [1]}],
+    [{'topic': 2, 'passages': [0]}],
+])
+def test_read_rejects_repeated_or_out_of_bounds_indices(supports):
+    c = inspect(candidate())
+    text = c['_reading_text']
+    c.update(screening={'decision': 'read'}, _read_plan=[[0, len(text)]], _read_plan_cursor=0)
+    value = state()
+    value['candidates'] = [c]
+    value['search_state'].update(stage='assessing', topics=['Agent memory', 'Tools'])
+    def provider(path, body):
+        schema = body['schema']['properties']['supports']
+        assert schema['maxItems'] == 2 and schema['uniqueItems']
+        passages = schema['items']['properties']['passages']
+        assert passages['maxItems'] == 1 and passages['uniqueItems']
+        assert body['request']['window'] == {'start': 0, 'end': len(text), 'index': 0}
+        return {'relevance': 'direct', 'reason': 'Synthetic', 'supports': supports}
+    with pytest.raises(SourceError, match='RESEARCH_REVIEW_FAILED'):
+        flow.advance(value, provider)
+    assert c['_read_plan_cursor'] == 0
+
+
+@pytest.mark.parametrize('fields,allowed', [
+    ({'language': 'ru', 'title': 'English translated title'}, False),
+    ({'language': 'fr'}, False),
+    ({'language': 'zh-TW', 'title': '經濟學研究'}, True),
+    ({'language': 'en', 'title': 'Economics α β γ'}, True),
+    ({'title': 'Экономические исследования инфляции', 'description': ''}, False),
+    ({'url': 'https://ru.wikipedia.org/wiki/Test'}, False),
+    ({'title': '中文教材與 English terms'}, True),
+    ({'title': 'Entropy α β', 'description': ''}, True),
+    ({'title': 'XYZ', 'description': ''}, True),
+])
+def test_source_language_policy_preserves_unknown_and_excludes_known_other_languages(fields, allowed):
+    c = {**candidate(), **fields}
+    assert flow._language_allowed(c) is allowed
+    assert flow.source_allowed(c) is allowed
+    value = state()
+    value['candidates'] = [c]
+    value['search_state'].update(stage='screening', topics=['Agent memory'])
+    c['preview'] = {'kind': 'abstract'}
+    calls = []
+    def provider(path, body):
+        calls.append(body)
+        return review_provider(path, body)
+    result = flow.advance(value, provider)
+    if not allowed:
+        assert calls == []
+        assert not result['candidates'][0]['eligible']
+        assert result['candidates'][0]['screening']['basis'] == 'language'

@@ -6,6 +6,7 @@ from collections import Counter
 import json
 import re
 import time
+import unicodedata
 from urllib.parse import urlsplit
 
 from . import research_sources
@@ -401,10 +402,25 @@ def _document_key(candidate):
     return fingerprint
 
 
+def _language_allowed(candidate):
+    language = str(candidate.get("language") or "").lower().replace("_", "-").split("-")[0]
+    host = urlsplit(candidate.get("url", "")).hostname or ""
+    if not language and host.endswith(".wikipedia.org"):
+        language = host.split(".")[0]
+    if language and language not in {"und", "unknown", "mul", "www"}:
+        return language in {"en", "eng", "zh", "zho", "chi"}
+    # 無語言 metadata 時只排除明顯以其他文字為主的內容；拉丁字母的未知語言留待核對。
+    text = " ".join(str(candidate.get(key) or "") for key in ("title", "description", "_preview_text"))
+    letters = [unicodedata.name(char, "") for char in text if char.isalpha()]
+    other = sum(not any(script in name for script in ("LATIN", "CJK", "IDEOGRAPH")) for name in letters)
+    return not (other >= 10 and other > len(letters) / 2)
+
+
 def source_allowed(candidate):
     review = candidate.get("source_type_review", {})
     return bool(
-        review.get("type") in ("paper", "wikipedia")
+        _language_allowed(candidate)
+        and review.get("type") in ("paper", "wikipedia")
         and review.get("document_key")
         and review["document_key"] == _document_key(candidate)
     )
@@ -1239,14 +1255,15 @@ def _assess_sections(workflow, candidates, state, context, call, retrieve_existi
                     "minimum": 0,
                     "maximum": len(workflow["topics"]) - 1,
                 },
-                "passages": _indices(len(passages)),
+                "passages": {**_indices(len(passages)), "maxItems": len(passages), "uniqueItems": True},
             }
         )
         schema = obj(
             {
                 "relevance": RELEVANCE,
                 "reason": TEXT,
-                "supports": {"type": "array", "items": support},
+                "supports": {"type": "array", "items": support,
+                             "maxItems": len(workflow["topics"]), "uniqueItems": True},
             }
         )
         result = _call(
@@ -1256,6 +1273,7 @@ def _assess_sections(workflow, candidates, state, context, call, retrieve_existi
             "source.verified_type 是前一步依整份文件核對的來源類型；不得因本片段沒有摘要或出版資訊、存放在儲存庫、內容是架構提案而重新判為非論文並清空 supports。仍須分清作者提案與實證結果，不把提案當成已證實的效果。"
             "只核對本篇能支援的知識，不要求每篇涵蓋全部子題，也不要求本文證明來源總數、授權或多來源已齊備。"
             "supports 指向原文 passages 的 index，由系統保留原文，不要自行抄寫、改寫引用。"
+            "每個 topic 最多一筆 supports；同一子題的 passages 合併列出，編號不得重複。"
             "選取真正說明原理、步驟、限制或案例的段落；可以用多個相鄰段落支持同一子題。"
             "選中的原文將作為實際教材分析範圍；請一起指出必要定義、條件、步驟與圖表說明，不要只挑一句結論。"
             "supports 表示對理解子題有用的原文，包括支持、反例、相反結果及適用限制，不只收正面結論。研究方法或樣本條件會影響結論時，也選入相應段落。"
@@ -1282,6 +1300,7 @@ def _assess_sections(workflow, candidates, state, context, call, retrieve_existi
                     ),
                 },
                 "previous_notes": notes,
+                "window": {"start": offset, "end": end, "index": c.get("_read_plan_cursor", 0)},
                 "related_content": comparison,
                 "passages": [
                     {"index": i, "text": passage} for i, passage in enumerate(passages)
@@ -1297,9 +1316,19 @@ def _assess_sections(workflow, candidates, state, context, call, retrieve_existi
             metrics.get("max_previous_notes_unbounded_tokens", 0), note_tokens
         )
         quotes = []
-        for support in result["supports"]:
+        supports = result.get("supports")
+        if not isinstance(supports, list) or len(supports) > len(workflow["topics"]):
+            raise SourceError("RESEARCH_REVIEW_FAILED")
+        seen_topics = set()
+        for support in supports:
             _topics([support["topic"]], workflow["topics"])
-            for number in _topics(support["passages"], passages):
+            if support["topic"] in seen_topics:
+                raise SourceError("RESEARCH_REVIEW_FAILED")
+            seen_topics.add(support["topic"])
+            numbers = _topics(support["passages"], passages)
+            if len(numbers) != len(support["passages"]):
+                raise SourceError("RESEARCH_REVIEW_FAILED")
+            for number in numbers:
                 quotes.append({"topic": support["topic"], "quote": passages[number]})
         chunks = c.setdefault("_review_chunks", [])
         chunks.append(
@@ -2047,6 +2076,13 @@ def advance(state, call, *, read_document=None, retrieve_existing=None):
         if any(c.get("_prior_review") for c in candidates):
             workflow["stage"] = "reading"
     provider_call = call
+
+    for candidate in candidates:
+        if not _language_allowed(candidate):
+            candidate.update(eligible=False, screening={
+                "decision": "exclude", "basis": "language",
+                "reason": "來源可判定為非中文或英文，不納入本次研究。",
+            })
 
     def call(path, body):
         from .text_budget import estimate_o200k_tokens
