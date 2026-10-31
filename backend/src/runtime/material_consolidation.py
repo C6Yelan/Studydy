@@ -248,10 +248,7 @@ def consolidate_structure(
 
         def validate(parsed, _):
             for group in parsed.groups:
-                if (
-                    len(set(group.concepts)) != len(group.concepts)
-                    or not set(group.concepts) <= allowed
-                ):
+                if not set(group.concepts) <= allowed:
                     raise ReviewError("CONSOLIDATION_CANDIDATE_INVALID")
 
         try:
@@ -261,7 +258,12 @@ def consolidate_structure(
                 merge.Candidates,
                 validate,
             )
-            candidates.extend(group.concepts for group in parsed.groups)
+            # schema 要求至少 2 項卻無法要求不重複（xgrammar 不支援 uniqueItems），模型會用 [n, n]
+            # 標出單一概念；候選只是合併提示，去重後不足 2 項就略過，不讓整份分析失敗。
+            for group in parsed.groups:
+                concepts = list(dict.fromkeys(group.concepts))
+                if len(concepts) >= 2:
+                    candidates.append(concepts)
         except SemanticServiceError as error:
             if error.reason_code != "SEMANTIC_INPUT_TOO_LARGE" or len(rows) < 3:
                 raise
