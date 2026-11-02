@@ -267,7 +267,7 @@ def test_claim_correction_preserves_direction_and_inequality(source_text, propos
     assert _corrected_claim(edit, evidence) is None
 
 
-@pytest.mark.parametrize("bad", ["missing", "duplicate", "unknown_evidence", "cycle", "self"])
+@pytest.mark.parametrize("bad", ["missing", "duplicate", "unknown_evidence", "cycle"])
 def test_invalid_scope_or_unsafe_grouping_is_rejected(bad):
     response = proposal()
     if bad == "missing":
@@ -276,8 +276,6 @@ def test_invalid_scope_or_unsafe_grouping_is_rejected(bad):
         response["assignments"][-1] = deepcopy(response["assignments"][0])
     elif bad == "unknown_evidence":
         response["assignments"][0]["evidence"] = [99]
-    elif bad == "self":
-        response["assignments"][0].update(action="group", target=0)
     else:
         response["assignments"][1].update(action="group", target=0, evidence=[0, 1])
         response["assignments"][0].update(action="group", target=1, evidence=[0, 1])
@@ -712,3 +710,31 @@ def test_conflicting_relation_edits_do_not_hide_invalid_identifiers(invalid):
     response['relation_edits'][-1][invalid] = 99 if invalid == 'relation' else [99]
     with pytest.raises(ReviewError, match='REVIEW_EDIT_ID_INVALID|REVIEW_EVIDENCE_INVALID'):
         validate_proposal(prepare(), response)
+
+
+@pytest.mark.parametrize("action,target", [("group", 99), ("example", -1), ("group", None),
+                                          ("group", 1), ("example", 3), ("keep", 0)])
+def test_invalid_assignment_target_preserves_other_changes_and_diagnostics(action, target):
+    document = view()
+    unit = prepare(document)
+    response = proposal()
+    response["assignments"][1].update(action=action, target=target)
+    response["assignments"][2].update(action="group", target=0)
+    response["assignments"][3].update(action="metadata", issue="author")
+    response["alias_edits"] = [{"concept": 4, "remove": ["Effectiveness"],
+                                "reason": "來源不支持這個別名。", "evidence": [4]}]
+    before = deepcopy(response)
+    # 真實流程會先驗證，再合併小節，最後投影；診斷不可在其中遺失。
+    validated = validate_proposal(unit, response)
+    assert validated.assignments[1].action == "keep"
+    assert validated.assignments[1].target is None
+    merged, combined = combine_reviews(document, [(unit, response)])
+    result = project_review(document, merged, combined)
+    assert response == before
+    assert result["assignments"][1]["action"] == "keep"
+    assert result["learning_units"][0]["member_concept_ids"] == ["c0", "c2"]
+    assert result["alias_changes"][0]["remove"] == ["Effectiveness"]
+    assert [row for row in result["blocked_changes"] if row["reason"] == "REVIEW_TARGET_INVALID"] == [{
+        "concept_id": "c1", "reason": "REVIEW_TARGET_INVALID",
+        "proposed_action": action, "proposed_target": target,
+    }]

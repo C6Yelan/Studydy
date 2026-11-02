@@ -36,7 +36,8 @@ TEST_BACKGROUND_SLOTS = (
     BoundedSemaphore(2) if os.environ.get("STUDYDY_LUNA_PARALLEL_TEST") == "1" else None
 )
 ASR_LOCK = Lock()
-VIDEO_LOCK = Lock()
+# 與後端影片 worker 數一致；同時渲染的集數各自使用 NVENC。
+VIDEO_LOCK = BoundedSemaphore(int(os.environ.get("STUDYDY_VIDEO_WORKERS", "1")))
 CALL_LOG_LOCK = Lock()
 
 

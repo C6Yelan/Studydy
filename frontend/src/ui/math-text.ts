@@ -9,10 +9,14 @@ export function notationLatex(text: string): string {
     .replace(/\^([A-Za-z0-9]+)/g, "^{$1}");
 }
 
-export function mathParts(text: string): MathPart[] {
+// 程式區塊與 inline code 優先匹配，不能將裡面的運算式改成排版標記。
+const delimitedPattern = /```[\s\S]*?```|`[^`\n]*`|\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^$\n]+?)\$/;
+const notationPattern = /\bproduct_[A-Za-z0-9]+\b|\bsqrt\([^()\n]+\)|\b(?:alpha|beta|gamma|theta|sigma|mu|eta|epsilon|lambda|[A-Za-z])_bar_[A-Za-z0-9]+\b|\b[A-Za-z][A-Za-z0-9_]*\^[A-Za-z0-9]+/;
+
+/** notation=false 只排版明確定界的公式（如標題），未標記的 ASCII 記法維持原文。 */
+export function mathParts(text: string, notation = true): MathPart[] {
   const parts: MathPart[] = [];
-  // 程式區塊與 inline code 優先匹配，不能將裡面的運算式改成排版標記。
-  const pattern = /```[\s\S]*?```|`[^`\n]*`|\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$([^$\n]+?)\$|\bproduct_[A-Za-z0-9]+\b|\bsqrt\([^()\n]+\)|\b(?:alpha|beta|gamma|theta|sigma|mu|eta|epsilon|lambda|[A-Za-z])_bar_[A-Za-z0-9]+\b|\b[A-Za-z][A-Za-z0-9_]*\^[A-Za-z0-9]+/g;
+  const pattern = new RegExp(notation ? `${delimitedPattern.source}|${notationPattern.source}` : delimitedPattern.source, "g");
   let end = 0;
   for (const match of text.matchAll(pattern)) {
     if (match.index! > end) parts.push({ kind: "text", text: text.slice(end, match.index) });
@@ -24,4 +28,9 @@ export function mathParts(text: string): MathPart[] {
   }
   if (end < text.length) parts.push({ kind: "text", text: text.slice(end) });
   return parts;
+}
+
+/** 搜尋、ARIA 與 title 用的純文字：去掉公式定界符號，保留公式原文。 */
+export function mathPlainText(text: string): string {
+  return mathParts(text, false).map(part => part.kind === "math" ? part.latex! : part.text).join("");
 }

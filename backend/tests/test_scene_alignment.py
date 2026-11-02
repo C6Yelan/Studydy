@@ -145,3 +145,12 @@ def test_ambiguous_partial_matches_do_not_invent_cue_identity():
     texts=['甲明確主題一','乙明確主題二']
     words=[{'word':'明確主題','start':1,'end':2},{'word':'明確主題','start':3,'end':4}]
     with pytest.raises(ValueError,match='SCENE_ALIGNMENT_FAILED'):align_texts(texts,words,5)
+
+
+def test_repeated_sentence_uses_the_occurrence_between_reliable_anchors():
+    texts=['同一個服務埠可以服務多條連線。','接著確認另一段完整說明。','同一個服務埠可以服務多條連線。']
+    words=[{'word':texts[0],'start':.4,'end':3},{'word':texts[1],'start':4,'end':6},
+           {'word':'同一個服務鋪可以服務多條連線','start':7,'end':9}]
+    result=align_texts(texts,words,10)
+    assert result['starts']==[0,4,7]
+    assert result['anchors'][2]['text'] in normalized(texts[2])

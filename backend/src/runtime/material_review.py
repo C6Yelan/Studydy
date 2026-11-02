@@ -163,7 +163,16 @@ def _review_response_schema(unit):
                 "enum": ["author", "layout", "scale"],
             }
         variants.append(variant)
-    schema["$defs"]["Assignment"] = {"anyOf": variants}
+    schema["$defs"]["Assignment"] = {"anyOf": [variants[0], variants[2]]}
+    # 分組不能指向自己；只有一個概念時不提供沒有合法目標的分組動作。
+    for concept in unit.payload["concepts"]:
+        targets = [handle for handle in range(len(unit.concepts)) if handle != concept["h"]]
+        if targets:
+            grouped = deepcopy(variants[1])
+            grouped["properties"]["target"]["enum"] = targets
+            schema["properties"]["assignments"]["properties"][str(concept["h"])]["properties"]["decision"] = {
+                "anyOf": [{"$ref": "#/$defs/Assignment"}, grouped],
+            }
     for collection, definition, field, count in (
         ("alias_edits", "AliasEdit", "concept", len(unit.concepts)),
         ("claim_edits", "ClaimEdit", "claim", len(unit.claims)),

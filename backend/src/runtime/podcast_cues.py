@@ -27,6 +27,9 @@ def split_text(text, limit, preferred):
                 before = re.search(r"[A-Za-z0-9_]+$", text[:end])
                 if before and before.start():
                     end = before.start()
+        # 只剩標點的尾段（如「）。」）沒有可辨識字元，取不到 ASR 錨點；併入前段最後一字。
+        while end > 1 and not any(c.isalnum() for c in text[end:]):
+            end -= 1
         yield text[:end]
         text = text[end:]
     if text:

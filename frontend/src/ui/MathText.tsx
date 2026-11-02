@@ -8,9 +8,9 @@ export function mathHtml(latex: string, display = false): string | null {
   catch { return null; }
 }
 
-export function MathText({ text, code = false }: { text: string; code?: boolean }) {
+export function MathText({ text, code = false, notation = true }: { text: string; code?: boolean; notation?: boolean }) {
   if (code) return <>{text}</>;
-  return <>{mathParts(text).map((part, i) => {
+  return <>{mathParts(text, notation).map((part, i) => {
     if (part.kind !== "math") return part.text;
     const html = mathHtml(part.latex!, part.display);
     return html === null ? part.text : <span key={i} className={part.display ? "math-text math-text-display" : "math-text"} dangerouslySetInnerHTML={{ __html: html }}/>;

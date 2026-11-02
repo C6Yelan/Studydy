@@ -97,13 +97,14 @@ def test_background_stop_reports_a_thread_still_running():
 
 def test_configured_worker_counts_start_and_stop_every_thread(monkeypatch):
     from threading import Event
-    from runtime import card_generation, podcast_worker, research, topics
+    from runtime import card_generation, podcast_videos, podcast_worker, research, topics
 
     release = Event()
     monkeypatch.setenv("STUDYDY_CARD_WORKERS", "3")
     monkeypatch.setenv("STUDYDY_PODCAST_WORKERS", "2")
+    monkeypatch.setenv("STUDYDY_VIDEO_WORKERS", "3")
     monkeypatch.delenv("STUDYDY_RESEARCH_WORKERS", raising=False)
-    for module in (card_generation, podcast_worker, research, topics):
+    for module in (card_generation, podcast_videos, podcast_worker, research, topics):
         monkeypatch.setattr(module, "step", lambda **_: release.wait(0.05) and False)
 
     class Runtime:
@@ -135,11 +136,15 @@ def test_configured_worker_counts_start_and_stop_every_thread(monkeypatch):
         coordinator = next(w for w in started if w.thread.name == "studydy-podcast-worker")
         assert coordinator.step.keywords["workers"] == 2
         assert [n for n in names if n.startswith("studydy-research")] == ["studydy-research"]
+        video = [w for w in started if w.thread.name.startswith("podcast-video-worker")]
+        assert sorted(w.thread.name for w in video) == [
+            "podcast-video-worker", "podcast-video-worker-2", "podcast-video-worker-3"]
+        assert all(w.step.keywords["workers"] == 3 for w in video)
     release.set()
     assert all(not worker.thread.is_alive() for worker in started)
 
 
-@pytest.mark.parametrize("key", ["CARD", "PODCAST", "RESEARCH"])
+@pytest.mark.parametrize("key", ["CARD", "PODCAST", "RESEARCH", "VIDEO"])
 @pytest.mark.parametrize("value", ["0", "-1", "two", ""])
 def test_invalid_worker_count_is_rejected_before_start(monkeypatch, key, value):
     monkeypatch.setenv(f"STUDYDY_{key}_WORKERS", value)

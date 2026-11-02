@@ -107,6 +107,7 @@ class ReviewUnit:
     relations: list[dict]
     conflicting_claim_ids: list[str] = field(default_factory=list)
     conflicting_relation_ids: list[str] = field(default_factory=list)
+    blocked_changes: list[dict] = field(default_factory=list)
 
 
 def _pack_review(
@@ -294,7 +295,11 @@ def combine_reviews(
         for key in ["assignments", "alias_edits", "claim_edits", "relation_edits"]
     }
     for unit, response in reviews:
-        for kind, rows in response.items():
+        validated = validate_proposal(unit, response)
+        merged.blocked_changes.extend(deepcopy(unit.blocked_changes))
+        for kind, rows in {**response, "assignments": [
+            row.model_dump() for row in validated.assignments
+        ]}.items():
             for item in rows:
                 row = deepcopy(item)
                 if "concept" in row:
@@ -344,6 +349,9 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
         for edit in getattr(proposal, name):
             unique.setdefault(canonical_sha256(edit.model_dump()), edit)
         setattr(proposal, name, list(unique.values()))
+    # xgrammar 無法禁止陣列重複；同一別名列兩次的刪除不可靠（實例：想改標題譯名卻刪掉正確別名），
+    # 只捨棄這筆別名修改、別名維持原樣，不讓整份審查失敗。
+    proposal.alias_edits = [e for e in proposal.alias_edits if len(set(e.remove)) == len(e.remove)]
     assignments = {a.concept: a for a in proposal.assignments}
     if len(assignments) != len(proposal.assignments) or set(assignments) != set(
         range(len(unit.concepts))
@@ -370,15 +378,21 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
         refs = support(a)
         if not refs & owned[a.concept]:
             raise ReviewError("REVIEW_CONCEPT_SUPPORT_INVALID")
-        if a.action in {"group", "example"}:
-            if (
-                a.target not in assignments
-                or a.target == a.concept
-                or assignments[a.target].action == "metadata"
-            ):
-                raise ReviewError("REVIEW_TARGET_INVALID")
-        elif a.target is not None:
-            raise ReviewError("REVIEW_TARGET_INVALID")
+        invalid_target = (
+            a.target not in assignments
+            or a.target == a.concept
+            or assignments[a.target].action == "metadata"
+        ) if a.action in {"group", "example"} else a.target is not None
+        if invalid_target:
+            blocked = {
+                "concept_id": unit.concepts[a.concept]["concept_id"],
+                "reason": "REVIEW_TARGET_INVALID",
+                "proposed_action": a.action,
+                "proposed_target": a.target,
+            }
+            if blocked not in unit.blocked_changes:
+                unit.blocked_changes.append(blocked)
+            a.action, a.target = "keep", None
         if a.action == "metadata" and a.issue not in {"author", "layout", "scale"}:
             raise ReviewError("REVIEW_METADATA_REASON_INVALID")
     # 模型偶爾提出多層歸屬。循環無法解釋，拒絕；非循環的父節點則在投影時保留，
@@ -404,8 +418,7 @@ def validate_proposal(unit: ReviewUnit, value: dict) -> Proposal:
             refs = support(edit)
             if key == "concept":
                 if (
-                    len(set(edit.remove)) != len(edit.remove)
-                    or not set(edit.remove) <= set(unit.concepts[handle]["aliases"])
+                    not set(edit.remove) <= set(unit.concepts[handle]["aliases"])
                     or not refs & owned[handle]
                 ):
                     raise ReviewError("REVIEW_ALIAS_EDIT_INVALID")
@@ -514,7 +527,7 @@ def project_review(view: dict, unit: ReviewUnit, value: dict) -> dict:
     concepts = {c["concept_id"]: c for c in view["concepts"]}
     teaching_root = {key: key for key in concepts}
     roles = {key: "keep" for key in concepts}
-    blocked = [
+    blocked = deepcopy(unit.blocked_changes) + [
         {"claim_id": claim_id, "reason": "CONFLICTING_REVIEW_EDITS_PRESERVED_ORIGINAL"}
         for claim_id in unit.conflicting_claim_ids
     ] + [

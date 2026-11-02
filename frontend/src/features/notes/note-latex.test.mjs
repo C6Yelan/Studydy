@@ -39,3 +39,12 @@ test("shared math preserves code and unknown notation", () => {
   assert.equal(mathParts(text).some(part => part.kind === "math"), false);
   assert.equal(mathParts(text).map(part => part.text).join(""), text);
 });
+const { mathPlainText } = await import("../../ui/math-text.ts");
+test("titles typeset only delimited math and keep ASCII notation as written", () => {
+  const ascii = "softmax(QK^T / sqrt(d_k) + M)V";
+  assert.deepEqual(mathParts(ascii, false), [{ kind: "text", text: ascii }]);
+  const parts = mathParts(String.raw`條件機率分布 $p_\theta(x | c)$`, false);
+  assert.deepEqual(parts.map(p => p.kind), ["text", "math"]);
+  assert.equal(mathPlainText(String.raw`條件機率分布 $p_\theta(x | c)$`), String.raw`條件機率分布 p_\theta(x | c)`);
+  assert.equal(mathPlainText(ascii), ascii);
+});

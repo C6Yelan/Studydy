@@ -1464,9 +1464,9 @@ def test_read_rejects_repeated_or_out_of_bounds_indices(supports):
     value['search_state'].update(stage='assessing', topics=['Agent memory', 'Tools'])
     def provider(path, body):
         schema = body['schema']['properties']['supports']
-        assert schema['maxItems'] == 2 and schema['uniqueItems']
+        assert schema['maxItems'] == 2 and 'uniqueItems' not in schema
         passages = schema['items']['properties']['passages']
-        assert passages['maxItems'] == 1 and passages['uniqueItems']
+        assert passages['maxItems'] == 1 and 'uniqueItems' not in passages
         assert body['request']['window'] == {'start': 0, 'end': len(text), 'index': 0}
         return {'relevance': 'direct', 'reason': 'Synthetic', 'supports': supports}
     with pytest.raises(SourceError, match='RESEARCH_REVIEW_FAILED'):

@@ -62,21 +62,19 @@ def align_texts(texts, words, duration):
     matches = SequenceMatcher(
         None, ref_sounds, obs_sounds, autojunk=False
     ).get_matching_blocks()
-    ref_search = "\0" + "\0".join(ref_sounds) + "\0"
-    obs_search = "\0" + "\0".join(obs_sounds) + "\0"
+    search = lambda sounds: "\0" + "\0".join(sounds) + "\0"
+    whole = (search(ref_sounds), search(obs_sounds))
 
-    def unique(sound_slice):
-        needle = "\0" + "\0".join(sound_slice) + "\0"
+    def unique(sound_slice, haystacks=whole):
+        needle = search(sound_slice)
         return all(
             (first := haystack.find(needle)) >= 0
             and haystack.find(needle, first + 1) < 0
-            for haystack in (ref_search, obs_search)
+            for haystack in haystacks
         )
 
-    starts = []
-    anchors = []
-    complete = []
-    for index, (left, right) in enumerate(ranges):
+    found = []
+    for left, right in ranges:
         pieces = []
         matched = 0
         for block in matches:
@@ -94,6 +92,24 @@ def align_texts(texts, words, duration):
             for piece in pieces
             if fully_matched or unique(ref_sounds[piece[0] : piece[1]])
         ]
+        found.append((pieces, matched, fully_matched, candidates))
+    starts = []
+    anchors = []
+    complete = []
+    for index, (left, right) in enumerate(ranges):
+        pieces, matched, fully_matched, candidates = found[index]
+        if not candidates and matched:
+            # 講稿重複出現同一句時全域不唯一；只在前後已有可靠錨點夾住的區間內要求唯一，
+            # 順序比對不可能把這段配到區間外的另一次出現。可靠鄰居只取第一輪就成立的錨點。
+            before = next((found[i][3][0] for i in range(index - 1, -1, -1) if found[i][3]), None)
+            after = next((found[i][3][0] for i in range(index + 1, len(found)) if found[i][3]), None)
+            window = (
+                search(ref_sounds[before[0] if before else 0 : after[0] if after else None]),
+                search(obs_sounds[before[2] if before else 0 : after[2] if after else None]),
+            )
+            candidates = [
+                piece for piece in pieces if unique(ref_sounds[piece[0] : piece[1]], window)
+            ]
         if not candidates:
             raise AlignmentError(
                 (index,), fully_matched=fully_matched, can_group=matched > 0

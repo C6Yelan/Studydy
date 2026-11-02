@@ -129,15 +129,26 @@ def test_metadata_still_excluded_without_absorbing_other_members():
     assert audit['metadata_concept_ids'] == [doc['concepts'][3]['concept_id']]
 
 
-@pytest.mark.parametrize('invalid', ['unknown_target', 'wrong_source', 'metadata_target'])
-def test_teaching_proposal_guards_still_apply(invalid):
+def test_teaching_proposal_rejects_wrong_source():
     _, _, unit, response = _fixture()
-    response['assignments'][0].update(action='group', target=1)
-    if invalid == 'unknown_target':
-        response['assignments'][0]['target'] = 99
-    elif invalid == 'wrong_source':
-        response['assignments'][0]['evidence'] = [1]
-    else:
-        response['assignments'][1].update(action='metadata', issue='layout')
+    response['assignments'][0].update(action='group', target=1, evidence=[1])
     with pytest.raises(ReviewError):
         validate_proposal(unit, response)
+
+
+@pytest.mark.parametrize('invalid', ['unknown_target', 'metadata_target'])
+def test_invalid_target_keeps_identity_and_other_teaching_assignments(invalid):
+    doc, view, unit, response = _fixture()
+    response['assignments'][0].update(action='group', target=99 if invalid == 'unknown_target' else 1)
+    response['assignments'][2].update(action='group', target=0)
+    if invalid == 'metadata_target':
+        response['assignments'][1].update(action='metadata', issue='layout')
+    result, audit = apply_review(doc, view, unit, response)
+    assert validate_knowledge_structure(result)
+    assert result['evidence'] == doc['evidence']
+    assert result['concepts'][0] == doc['concepts'][0]
+    assert audit['assignments'][0]['action'] == 'keep'
+    assert audit['assignments'][0]['target_concept_id'] is None
+    assert audit['blocked_changes'][0]['reason'] == 'REVIEW_TARGET_INVALID'
+    group = next(u for u in audit['learning_units'] if u['concept_id'] == doc['concepts'][0]['concept_id'])
+    assert group['member_concept_ids'] == [doc['concepts'][i]['concept_id'] for i in (0, 2)]

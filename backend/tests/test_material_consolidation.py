@@ -378,3 +378,19 @@ def test_consolidation_schema_bounds_checks_and_reasons():
         merge.Check(concept=0, equivalent_concepts=True, preserves_unique_information=True,
                     sources_support_text=True, duplicates_removed=True,
                     reason="x" * (merge.REASON_MAX_LENGTH + 1))
+
+
+def test_self_repeated_candidate_group_is_ignored(monkeypatch):
+    doc = document()
+    def model(_client, **kw):
+        request = kw['request']
+        if request['operation'] == 'consolidation_candidates':
+            # Gemma 實際輸出：用 [n, n] 標出單一概念，與正常候選混在同一批。
+            return {'groups': [{'concepts': [1, 1], 'reason': '單一概念。'},
+                               {'concepts': [0, 1], 'reason': '同一重試上限。'}]}
+        if request['operation'] == 'consolidation_rewrite':
+            return proposal(doc)
+        return approved(request)
+    monkeypatch.setattr('runtime.material_consolidation.request_semantics', model)
+    result = consolidate_structure(doc, config(), Archive(), lambda: None, lambda *a: None)
+    assert len(result['concepts']) == 2 and validate_knowledge_structure(result)

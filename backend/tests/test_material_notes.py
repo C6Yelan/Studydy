@@ -1423,3 +1423,101 @@ def test_invalid_chapter_concurrency_is_rejected(monkeypatch):
         monkeypatch.setenv("STUDYDY_NOTES_CHAPTER_CONCURRENCY", value)
         with pytest.raises(ValueError, match="^NOTES_CHAPTER_CONCURRENCY_INVALID$"):
             mn.chapter_concurrency()
+
+
+def test_review_contract_bounds_coverage_locations_to_available_positions():
+    payload = {
+        "phase": "review_paragraph",
+        "parts": ["heading", "blocks.0", "blocks.1"],
+        "coverage_claims": ["C1", "C2"],
+        "coverage_locations": {
+            "C1": ["blocks.0", "related.0.blocks.0"],
+            "C2": ["blocks.0", "blocks.1"],
+        },
+    }
+    _, schema = mn.request_contract(payload, {"review_prompt": nc.REVIEW_PROMPT})
+    positions = schema["$defs"]["ClaimCoverage"]["properties"]["note_parts"]
+    assert positions["items"]["enum"] == ["blocks.0", "related.0.blocks.0", "blocks.1"]
+    assert positions["maxItems"] == 3
+
+
+
+def test_literal_underscore_repair_keeps_names_and_reaches_source_review():
+    source = 'joined_score = mix × scaled_left7_score + (1 - mix) × scaled_right_score'
+    original = source.replace('joined_score', r'\mathrm{joined_score}')
+    repaired = (r'\mathrm{joined\_score} = \mathrm{mix} \times \mathrm{scaled\_left7\_score}'
+                r' + (1 - \mathrm{mix}) \times \mathrm{scaled\_right\_score}')
+    values = concepts()[:1]
+    values[0]['claims'] = [values[0]['claims'][0]]
+    values[0]['claims'][0]['evidence'][0]['quote'] = source
+    calls = []
+
+    def model(request):
+        calls.append(deepcopy(request))
+        if request.get('phase') == 'repair_formula':
+            instruction = request['correction']['instruction']
+            assert r'\mathrm{score\_name}' in instruction
+            assert '字面底線' in instruction
+            assert request['latex'] == original
+            return {'type': 'formula', 'latex': repaired}
+        result = response(request)
+        if request.get('phase') != 'review_paragraph':
+            result['paragraphs'][0]['blocks'].append({'type': 'formula', 'latex': original})
+        return result
+
+    result = mn.generate_part(values, 'full', model)
+    assert result[0]['blocks'][1]['latex'] == repaired
+    review = next(c for c in calls if c.get('phase') == 'review_paragraph')
+    assert next(c for c in review['paragraph']['content'] if c['type'] == 'formula')['latex'] == repaired
+    assert result[0]['evidence'][0]['quote'] == source
+    assert nc.formula_literal_issues(result[0]) == []
+    corrupted = deepcopy(result[0])
+    corrupted['blocks'][1]['latex'] = repaired.replace('1 -', '2 -')
+    assert nc.formula_literal_issues(corrupted)
+    assert nc.note_latex.problem(r'\mathrm{score_name}') is not None
+    assert nc.note_latex.problem(r'x_{ab} + x_i^2') is None
+
+
+
+@pytest.mark.parametrize('original,expected', [
+    ('joined_score = mix × scaled_left7_score + (1 - mix) × scaled_right_score',
+     r'\mathrm{joined\_score} = mix × \mathrm{scaled\_left7\_score} + (1 - mix) × \mathrm{scaled\_right\_score}'),
+    ('named_value = x_i^2 + ratio_count', r'\mathrm{named\_value} = x_i^2 + \mathrm{ratio\_count}'),
+])
+def test_cited_plain_identifiers_get_formatting_before_the_same_source_review(original, expected):
+    values = concepts()
+    values[0]['claims'][0]['evidence'][0]['quote'] = original
+    calls = []
+    def model(request):
+        calls.append(deepcopy(request))
+        assert request.get('phase') != 'repair_formula', '已確認的完整識別符只需跳脫，不交給模型猜寫'
+        result = response(request)
+        if request.get('phase') != 'review_paragraph':
+            result['paragraphs'][0]['blocks'].append({'type':'formula', 'latex':original})
+        return result
+    diagnostics = []
+    result = mn.generate_part(values, 'full', model, diagnostics)
+    assert result[0]['blocks'][1]['latex'] == expected
+    assert result[0]['evidence'][0]['quote'] == original
+    review = next(c for c in calls if c.get('phase') == 'review_paragraph')
+    assert next(b for b in review['paragraph']['content'] if b['type'] == 'formula')['latex'] == expected
+    assert {'event':'formula_identifiers_escaped','paragraph':0,'block':1} in diagnostics
+    assert nc.note_latex.problem(original) is not None
+
+
+def test_formula_identifiers_cannot_borrow_uncited_or_partial_source_names():
+    for quote in ('another_named_value = 1', 'named_value_extra = 1'):
+        values = concepts()
+        values[0]['claims'][0]['evidence'][0]['quote'] = quote
+        values[0]['claims'][1]['evidence'][0]['quote'] = 'named_value = 1'
+        repairs = []
+        def model(request):
+            if request.get('phase') == 'repair_formula':
+                repairs.append(request)
+                return {'type':'formula','latex':request['latex']}
+            result = response(request)
+            result['paragraphs'][0]['blocks'].append({'type':'formula','latex':'named_value = 1'})
+            return result
+        with pytest.raises(ValueError, match='^NOTE_FORMULA_INVALID$'):
+            mn.generate_part(values, 'full', model)
+        assert len(repairs) == 1

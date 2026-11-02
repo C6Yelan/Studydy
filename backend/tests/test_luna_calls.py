@@ -170,7 +170,7 @@ def test_gemma_generate_preserves_all_attempt_diagnostics_on_failure(tmp_path, m
     monkeypatch.setattr(local_ai_config, "configured_lock", _lock)
     requests = []
     monkeypatch.setenv("VLLM_API_KEY", "private-provider-secret")
-    contents = [('stop', '{"text":"分布分布 private-provider-secret"}'), ('length', '{')]
+    contents = [('stop', '{"text":"分布分布分布 private-provider-secret"}'), ('length', '{')]
     monkeypatch.setattr(semantic_service, "semantic_client", lambda: _chat(contents, requests))
     work = start(feature="podcast_script")
     with pytest.raises(semantic_service.SemanticServiceError, match="SEMANTIC_OUTPUT_TRUNCATED"):
