@@ -2,7 +2,7 @@
 
 章節是既有知識結構版本的衍生資料，不產生新版本，也不改卡片、進度、XP 或徽章。
 新版本發布時排入 knowledge_chapters 佇列，由背景 worker 一次處理一份；教材分析
-進行中時先等待，模型請求經共用語意邊界送出（Luna provider 的文字工作本身也是依序執行）。
+進行中時先等待，模型請求經共用語意邊界送出。
 
 每次請求的「輸入估算＋輸出上限」≤ 32K tokens；概念太多時依學習順序切窗。
 每窗不合格時帶具體原因補正一次，仍不合格只有該窗退回來源檔分區，不無限重試。
@@ -26,7 +26,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from .local_ai_config import configured_lock
-from . import luna_calls, luna_test
+from . import model_calls
 from .generation_jobs import WORKER_LEASE_TTL, JobCancelled, lease_is_current
 from .semantic_service import SemanticServiceError, request_semantics, semantic_client
 from .storage import knowledge_reads
@@ -465,7 +465,7 @@ def _semantic_call(claim, dsn, stop):
                 raise WorkerStopping()
         try:
             check()
-            # 沿用教材複核的文字工作通道（Luna provider 依序執行），只換提示與輸出上限。
+            # 沿用教材複核的文字工作通道，只換提示與輸出上限。
             task_lock = deepcopy(
                 lock.get("material_review")
                 or {"generation": lock["material_semantics"]["generation"]}
@@ -505,7 +505,7 @@ def _save(claim, values, dsn):
             )
         )
     if saved.rowcount and values["status"] in {"ready", "fallback", "failed"}:
-        luna_calls.completed("failed" if values["status"] == "failed" else "succeeded", values.get("error_code"))
+        model_calls.completed("failed" if values["status"] == "failed" else "succeeded", values.get("error_code"))
 
 
 def step(*, dsn=None, call=None, model_id=None, stop=None):
@@ -518,9 +518,8 @@ def step(*, dsn=None, call=None, model_id=None, stop=None):
         return False
     if claim.get("skipped"):
         return True
-    trace = luna_calls.start(
-        "chapters", claim["key"], claim["token"], claim["key"][1], claim["key"][0],
-        enabled=luna_test.enabled(configured_lock()),
+    trace = model_calls.start(
+        "chapters", claim["key"], claim["token"], claim["key"][1], claim["key"][0]
     )
     try:
         if call is None:
@@ -548,15 +547,15 @@ def step(*, dsn=None, call=None, model_id=None, stop=None):
         )
         return True
     except JobCancelled:
-        luna_calls.completed("cancelled")
+        model_calls.completed("cancelled")
         return True
     except Exception as error:
         code = error.reason_code if isinstance(error, SemanticServiceError) else "CHAPTER_JOB_FAILED"
         logging.getLogger(__name__).warning(
             "CHAPTER_JOB_FAILED error_type=%s", type(error).__name__
         )
-        luna_calls.rejected(str(error))
+        model_calls.rejected(str(error))
         _save(claim, {"status": "failed", "error_code": code, "chapters": None}, dsn)
     finally:
-        luna_calls.close(trace)
+        model_calls.close(trace)
     return True

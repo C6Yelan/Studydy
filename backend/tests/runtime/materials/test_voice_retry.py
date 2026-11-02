@@ -8,7 +8,8 @@ import pytest
 from product_fixtures import closed_loop
 from qa_fixtures import qa_model
 from runtime import voice
-from test_podcast_process import provider_server, provider as http_provider
+from test_podcast_process import provider_server
+from model_fixtures import model_transport
 from test_voice import setup
 
 
@@ -19,14 +20,11 @@ def test_answer_retry_keeps_original_private_candidate(closed_loop, provider_ser
     candidate = {'segments': [{'text': '\ue200cite\ue202private\ue201', 'citations': [0]}], 'queries': [], 'missing': ''}
     calls = []
 
-    def luna(prompt, schema, **kwargs):
-        body = {'request': json.loads(prompt.split('\nINPUT:\n', 1)[1]), 'schema': schema}
+    def model(path, body):
         calls.append(body)
         return deepcopy(candidate) if len(calls) <= invalid_attempts else qa_model(body)
 
-    # 文字請求依 runtime lock 分流；本案例驗證 Luna 通道（真 provider HTTP＋替身 CLI）。
-    monkeypatch.setenv('STUDYDY_TEXT_TEST_PROVIDER', 'codex-exec-luna')
-    monkeypatch.setattr(http_provider, 'luna', luna)
+    model_transport(monkeypatch, model)
     voice.add_turn(owner, cid, 'retry-candidate', 'Stack LIFO', dsn=dsn)
     assert voice.step(dsn=dsn)
     turn = voice.read(owner, cid, dsn=dsn)['turns'][0]
@@ -49,18 +47,16 @@ def test_truncated_provider_failure_and_cancelled_work_are_not_replayed(closed_l
     turn = voice.add_turn(owner, cid, 'do-not-replay', 'Stack LIFO', dsn=dsn)
     calls = []
 
-    def luna(prompt, schema, **kwargs):
-        calls.append(prompt)
+    def model(path, body):
+        calls.append(body)
         if failure == 'truncated':
             return json.loads('{"segments": [{"text": "unfinished')
         if failure == 'provider':
-            raise RuntimeError('LUNA_GENERATION_TIMEOUT')
+            raise __import__('httpx').ReadTimeout('synthetic timeout')
         voice.action(owner, cid, turn['turn_id'], 'cancel', dsn=dsn)
         return {'segments': [None], 'queries': [], 'missing': ''}
 
-    # 文字請求依 runtime lock 分流；本案例驗證 Luna 通道（真 provider HTTP＋替身 CLI）。
-    monkeypatch.setenv('STUDYDY_TEXT_TEST_PROVIDER', 'codex-exec-luna')
-    monkeypatch.setattr(http_provider, 'luna', luna)
+    model_transport(monkeypatch, model)
     assert voice.step(dsn=dsn)
     saved = voice.read(owner, cid, dsn=dsn)['turns'][0]
     assert len(calls) == 1

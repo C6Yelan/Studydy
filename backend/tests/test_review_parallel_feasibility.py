@@ -1,13 +1,10 @@
-"""教材審查共用合成資料、暫存 archive 與真實 HTTP 預設單槽行為。"""
-from concurrent.futures import ThreadPoolExecutor
+"""教材審查共用合成資料與暫存 archive。"""
 from copy import deepcopy
 from threading import Event, Lock
-from uuid import uuid4
 import json
 
 from knowledge_map.material_review import _pack_review
-from test_material_review import view, proposal, wire_proposal
-from test_podcast_process import provider_server, provider, post, wait_until
+from test_material_review import view
 
 
 def inputs(groups=16):
@@ -73,34 +70,3 @@ class Archive:
             path = self.root / (name + '.json')
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(data))
-
-
-def test_isolated_http_review_lock_capacity(provider_server, monkeypatch):
-    slots = 1
-    release, mutex = Event(), Lock()
-    active = peak = entered = 0
-    def generate(prompt, schema, **kwargs):
-        nonlocal active, peak, entered
-        with mutex:
-            active += 1
-            entered += 1
-            peak = max(peak, active)
-        try:
-            assert release.wait(8)
-            return wire_proposal(proposal())
-        finally:
-            with mutex:
-                active -= 1
-    monkeypatch.setattr(provider, 'luna', generate)
-    def call():
-        return post(provider_server, '/semantics', {'job_id': str(uuid4()), 'job_token': str(uuid4()),
-            'task': 'material_review', 'prompt': 'synthetic', 'request': {}, 'schema': {}})
-    with ThreadPoolExecutor(max_workers=9) as pool:
-        pending = [pool.submit(call) for _ in range(9)]
-        try:
-            wait_until(lambda: entered == slots)
-            assert active == peak == slots
-        finally:
-            release.set()
-        assert all(f.result()[0] == 200 for f in pending)
-    assert entered == 9 and peak == slots

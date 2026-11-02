@@ -23,7 +23,7 @@ from .storage.knowledge_structures import (
 from .storage.tables import CardSet, Material
 from .storage.database import database_session
 from .storage import card_sources, knowledge_reads
-from . import card_generation, luna_calls
+from . import card_generation, model_calls
 
 
 class CardSetError(MaterialLibraryError):
@@ -259,7 +259,7 @@ def delete_card_set(owner, card_set_id, *, dsn=None):
             _prune_unreferenced_structures(
                 session, owner, material_id, material.head_revision
             )
-    luna_calls.discard("cards", card_set_id, owner)
+    model_calls.discard("cards", card_set_id, owner)
     return {"schema": "card-set-deleted/v1", "card_set_id": card_set_id}
 
 
@@ -276,7 +276,7 @@ def generation_status(owner, card_set_id, *, retry=False, dsn=None):
             restarted = True
         result = card_generation.progress(row)
     if restarted:
-        luna_calls.discard("cards", card_set_id, owner)
+        model_calls.discard("cards", card_set_id, owner)
     return result
 
 

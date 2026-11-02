@@ -1,4 +1,4 @@
-"""依來源產生並逐段核對 Podcast 講稿；文字模型經 semantic_service 依 runtime lock 分流（Luna／vLLM）。"""
+"""依來源產生並逐段核對 Podcast 講稿；文字模型經 semantic_service 依 runtime lock 呼叫 Gemma。"""
 
 import json
 
@@ -287,8 +287,8 @@ sources 列出本集必須講解的概念與重點；block_indices 對應 page_c
             episode,
         )
     except (KeyError, TypeError, ValueError) as error:
-        from . import luna_calls
-        luna_calls.validation_failed(error)
+        from . import model_calls
+        model_calls.validation_failed(error)
         raise RuntimeError("PODCAST_SCRIPT_INVALID") from None
 
     def model_beat(beat):
@@ -335,8 +335,8 @@ sources 列出本集必須講解的概念與重點；block_indices 對應 page_c
             segments = [*beats[:index], {**beat, "beat_id": f"beat-{index}"}, *beats[index + 1 :]]
             return validate({**current, "segments": segments}, episode)
         except (KeyError, TypeError, ValueError) as error:
-            from . import luna_calls
-            luna_calls.validation_failed(error)
+            from . import model_calls
+            model_calls.validation_failed(error)
             raise RuntimeError("PODCAST_SCRIPT_INVALID") from None
 
     def review(request):

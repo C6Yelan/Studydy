@@ -636,7 +636,7 @@ def same_material_runtime(first_lock, first_binding, second_lock, second_binding
         second_lock["semantic_service"],
     )
     if first_service != second_service:
-        # Luna 舊 272K 工作可沿用已驗證批次；後續請求仍由後端強制檢查 64K。
+        # 保留舊 272K 快照與已驗證批次的比較語意；舊協定的新請求由語意入口拒絕。
         # 其餘同模型、同 provider 僅擴大容量時可接續，舊 hash 保持原值。
         if not (
             first_service.get("api_protocol") == second_service.get("api_protocol")

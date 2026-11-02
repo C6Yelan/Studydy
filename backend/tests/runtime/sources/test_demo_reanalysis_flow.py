@@ -9,7 +9,7 @@ from product_fixtures import closed_loop
 from test_source_revisions import revisions
 from test_material_review_flow import enable_review, keep_response
 from runtime import maintenance_reanalysis as maintenance
-from runtime.luna_test import test_lock as luna_lock
+from model_fixtures import model_transport
 from runtime.source_revisions import retry_revision, SourceError
 from runtime.storage.database import database_session
 from runtime.storage.knowledge_structures import read_knowledge_structure, _prune_unreferenced_structures
@@ -27,14 +27,12 @@ def maintained(revisions, monkeypatch, request):
         assert prior.status == "succeeded"
         original = read_knowledge_structure(owner.learner_id, material, run_id=prior.run_id, dsn=dsn).document
     enable_review(settings)
-    settings["runtime_lock"] = luna_lock(settings["runtime_lock"])
     monkeypatch.setattr(maintenance, "MATERIAL_ID", material)
-    monkeypatch.setenv("STUDYDY_TEXT_TEST_PROVIDER", "codex-exec-luna")
     monkeypatch.setattr("runtime.material_processing.analyze_material", analyze_material)
     sent = []
 
     def provider(path, body):
-        assert path == "/semantics"
+        assert path == "/v1/chat/completions"
         request = body["request"]
         sent.append(deepcopy(request))
         if "chapter_count" in request:
@@ -60,7 +58,7 @@ def maintained(revisions, monkeypatch, request):
         return {"concepts": [{"k": f"new_{row[0]}", "l": f"Concept {row[0]}", "a": [],
             "c": [{"m": None, "s": [row[0]]}]} for row in rows], "relations": []}
 
-    monkeypatch.setattr("runtime.provider_http.provider", provider)
+    model_transport(monkeypatch, provider)
     return owner, material, settings, dsn, execute, original, sent
 
 
@@ -125,14 +123,6 @@ def test_exhaustion_preserves_head_and_cannot_reset_through_retry(maintained):
     assert maintenance.enqueue(settings, dsn=dsn) == run_id
     with pytest.raises(SourceError, match="REQUEST_INVALID"):
         retry_revision(owner.learner_id, run_id, "cannot-reset-budget", settings, dsn=dsn)
-
-
-def test_cli_refuses_non_luna_before_enqueuing(revisions, monkeypatch):
-    _owner, material, settings, dsn, *_ = revisions
-    monkeypatch.setattr(maintenance, "MATERIAL_ID", material)
-    with pytest.raises(ValueError, match="DEMO_REANALYSIS_REQUIRES_LUNA"):
-        maintenance.enqueue(settings, dsn=dsn)
-    assert maintenance.status(dsn=dsn) == {"state": "not_started"}
 
 
 @pytest.mark.parametrize("maintained", [2], indirect=True)

@@ -48,12 +48,9 @@ def semantic_call_for_revision(owner, material_id, revision, *, dsn=None):
 
 
 def enqueue(config, *, dsn=None):
-    from .luna_test import enabled
     from .source_revisions import create_revision
     from .storage.artifacts import _key_digest
 
-    if not enabled(config["runtime_lock"]):
-        raise ValueError("DEMO_REANALYSIS_REQUIRES_LUNA")
     with database_session(dsn) as session:
         material = session.get(Material, MATERIAL_ID)
         if material is None or material.head_revision is None or material.discard_requested_at is not None:
@@ -71,11 +68,8 @@ def enqueue(config, *, dsn=None):
 
 def resume_once(config, *, dsn=None):
     """只恢復這次獲授權的失敗工作一次；原額度、來源與封存身分全部沿用。"""
-    from .luna_test import enabled
     from .storage.artifacts import _key_digest
 
-    if not enabled(config["runtime_lock"]):
-        raise ValueError("DEMO_REANALYSIS_REQUIRES_LUNA")
     with database_session(dsn) as session:
         # 與來源更新／發布相同，先鎖教材，再鎖工作。
         material = session.scalar(select(Material).where(
@@ -88,6 +82,8 @@ def resume_once(config, *, dsn=None):
             MaterialProcessingRun.learner_id == material.learner_id,
             MaterialProcessingRun.idempotency_key_sha256 == _key_digest(KEY),
         ).with_for_update())
+        if run is not None and run.runtime_lock_document["semantic_service"]["api_protocol"] != "openai-chat-completions/v1":
+            raise ValueError("DEMO_REANALYSIS_RESUME_UNAVAILABLE")
         budget = run.maintenance if run is not None else None
         if not budget or budget.get("mode") != "demo-full-reanalysis/v1":
             raise ValueError("DEMO_REANALYSIS_RESUME_UNAVAILABLE")
@@ -144,7 +140,7 @@ def main():
     import os
     parser = argparse.ArgumentParser(description="部署後對指定數學教材重分析一次；預設只查狀態。")
     action = parser.add_mutually_exclusive_group()
-    action.add_argument("--enqueue", action="store_true", help="建立唯一工作；分析與章節／摘要合計最多300次Luna")
+    action.add_argument("--enqueue", action="store_true", help="建立唯一工作；分析與章節／摘要合計最多300次模型呼叫")
     action.add_argument("--resume-once", action="store_true", help="只恢復指定失敗工作一次；沿用原300次額度")
     args = parser.parse_args()
     # docker compose exec 是新程序，不繼承 API 啟動程序組出的 DSN。

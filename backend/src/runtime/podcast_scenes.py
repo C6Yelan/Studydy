@@ -11,8 +11,7 @@ from content_identity import canonical_sha256
 from .podcast_access import _locked
 from .errors import SourceError
 from .storage.tables import PodcastScenes as Scenes, Podcast, Material
-from . import luna_calls, luna_test
-from .local_ai_config import configured_lock
+from . import model_calls
 from .storage.database import database_session
 from .storage.knowledge_structures import _read_verified_document
 from .provider_http import provider
@@ -439,7 +438,7 @@ def action(owner, podcast_id, index, action, version, *, dsn=None):
         row.version += 1
         row.lease_token = row.lease_expires_at = None
         scene_id = row.scene_id
-    luna_calls.discard("podcast_scenes", scene_id, owner)
+    model_calls.discard("podcast_scenes", scene_id, owner)
     return read(owner, podcast_id, dsn=dsn)
 
 
@@ -547,7 +546,7 @@ def finish(state, alignment=None, error=None, checks=None, *, dsn=None):
             row.manifest = build_manifest(podcast, episode, document, alignment, checks)
             row.status = "ready"
             row.error_code = None
-    luna_calls.completed("failed" if error else "succeeded", error)
+    model_calls.completed("failed" if error else "succeeded", error)
 
 
 def save_checks(state, checks, *, dsn=None):
@@ -572,8 +571,8 @@ def step(*, dsn=None):
     state = claim(dsn=dsn)
     if not state:
         return False
-    trace = luna_calls.start("podcast_scenes", state["scene_id"], state["lease_token"],
-        state["material_id"], state["owner"], enabled=luna_test.enabled(configured_lock()))
+    trace = model_calls.start("podcast_scenes", state["scene_id"], state["lease_token"],
+        state["material_id"], state["owner"])
     try:
         with cancellable_job(
             Scenes, state["scene_id"], state["lease_token"], dsn=dsn
@@ -621,7 +620,7 @@ def step(*, dsn=None):
                     return True
             finish(state, alignment, checks=checks, dsn=dsn)
     except Exception as error:
-        luna_calls.rejected(str(error))
+        model_calls.rejected(str(error))
         code = (
             str(error) if isinstance(error, SourceError) else "SCENE_PREPARATION_FAILED"
         )
@@ -633,5 +632,5 @@ def step(*, dsn=None):
 
                 logging.getLogger(__name__).warning("SCENE_RESULT_SAVE_FAILED")
     finally:
-        luna_calls.close(trace)
+        model_calls.close(trace)
     return True

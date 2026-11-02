@@ -1,4 +1,4 @@
-"""網站 Luna 工作的歸屬與私人診斷；每次失敗嘗試保留候選，後續重試成功也不移除。"""
+"""網站 模型 工作的歸屬及終態診斷；候選只在最終失敗後寫入私人目錄。"""
 
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -13,7 +13,7 @@ import re
 import traceback
 
 
-_current = ContextVar("luna_work", default=None)
+_current = ContextVar("model_work", default=None)
 _logger = logging.getLogger(__name__)
 _pending = {}
 _pending_lock = Lock()
@@ -35,7 +35,6 @@ class Work:
     children: list = field(default_factory=list)
     candidates: list = field(default_factory=list)
     reasons: list = field(default_factory=list)
-    notified_tags: dict = field(default_factory=dict)
     lock: Lock = field(default_factory=Lock)
     outcome: str | None = None
     reason: str | None = None
@@ -63,7 +62,6 @@ def start(feature, work_id, attempt_id, material_id, learner_id, *,
             if previous is not None:
                 work.candidates = previous.candidates
                 work.reasons = previous.reasons
-                work.notified_tags = previous.notified_tags
                 work.lock = previous.lock
             _pending[_key(work.tags)] = work
     if defer_to_parent:
@@ -91,18 +89,12 @@ def tags(*, feature=None, stage=None):
     return value
 
 
-def sent(value):
-    work = _current.get()
-    if work is not None and value is not None:
-        with work.lock:
-            work.notified_tags[_key(value)] = value
-
-
-def capture(candidate, *, call_tags=None):
+def capture(candidate, *, call_tags=None, request_metadata=None):
     work = _current.get()
     if work is not None and work.archive is None:
         with work.lock:
-            work.candidates.append({"tags": call_tags or tags(), "candidate": candidate})
+            work.candidates.append({"tags": call_tags or tags(), "candidate": candidate,
+                                    **({"request_metadata": request_metadata} if request_metadata is not None else {})})
     return candidate
 
 
@@ -174,7 +166,7 @@ def cleanup():
             if path.stat().st_mtime < cutoff:
                 path.unlink()
     except OSError:
-        _logger.warning("LUNA_FAILURE_CLEANUP_FAILED")
+        _logger.warning("MODEL_FAILURE_CLEANUP_FAILED")
 
 
 def _finalize(work):
@@ -203,30 +195,15 @@ def _finalize(work):
                 with os.fdopen(descriptor, "w", encoding="utf-8") as output:
                     json.dump(_redact(document), output, ensure_ascii=False)
             except (OSError, TypeError, ValueError):
-                _logger.warning("LUNA_FAILURE_RECORD_FAILED")
+                _logger.warning("MODEL_FAILURE_RECORD_FAILED")
         archive_candidates = list(work.candidates) if work.archive is not None and work.outcome == "failed" else []
-        if work.notified_tags:
-            from .provider_http import provider
-
-            for value in work.notified_tags.values():
-                try:
-                    result = provider("/jobs/luna-result", {
-                        "tags": value,
-                        "outcome": work.outcome,
-                        "reason": work.reason,
-                    })
-                    if work.archive is not None and work.outcome == "failed":
-                        archive_candidates.extend(result.get("candidates", []))
-                except Exception:
-                    # 終態已提交，不回滾產品結果；診斷失敗必須如實回報，不能宣稱保存成功。
-                    _logger.warning("LUNA_FAILURE_NOTIFICATION_FAILED")
         if archive_candidates:
             try:
                 if work.archive_writer is None:
-                    raise RuntimeError("LUNA_ARCHIVE_UNAVAILABLE")
+                    raise RuntimeError("MODEL_ARCHIVE_UNAVAILABLE")
                 work.archive_writer(archive_candidates)
             except Exception:
-                _logger.warning("LUNA_FAILURE_RECORD_FAILED")
+                _logger.warning("MODEL_FAILURE_RECORD_FAILED")
         for child in work.children:
             if work.outcome == "cancelled":
                 child.outcome, child.reason = "cancelled", None

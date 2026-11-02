@@ -226,13 +226,10 @@ def test_worker_stop_reports_busy_and_stops_before_claiming_next_work(monkeypatc
     assert not claimed
 
 
-@pytest.mark.parametrize('luna', [True, False])
-@pytest.mark.parametrize('parallel_flag', ['0', '1'])
-def test_assessment_and_maintenance_continue_during_material_generation(monkeypatch, luna, parallel_flag):
+def test_assessment_and_maintenance_continue_during_material_generation(monkeypatch):
     from itertools import count
     from threading import Event
     entered, release, assessed, recovered, discarded = (Event() for _ in range(5))
-    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', parallel_flag)
     clock = count(0, 20)
     monkeypatch.setattr(workers_module, 'monotonic', lambda: next(clock))
     for name in ('reconcile_new_artifacts', 'reconcile_removed_material_analysis',
@@ -247,7 +244,7 @@ def test_assessment_and_maintenance_continue_during_material_generation(monkeypa
     monkeypatch.setattr(workers_module, 'run_next_set', lambda **_: entered.is_set() and assessed.set())
     monkeypatch.setattr(workers_module, 'reconcile_new_artifacts', lambda **_: entered.is_set() and recovered.set())
     monkeypatch.setattr(workers_module, 'finish_material_discards', lambda **_: entered.is_set() and discarded.set())
-    config = {'runtime_lock': {'semantic_service': {'api_protocol': 'codex-exec-luna/v1' if luna else 'openai/v1'}}}
+    config = {'runtime_lock': {'semantic_service': {'api_protocol': 'openai-chat-completions/v1'}}}
     worker = workers_module.RuntimeWorkers(None, config)
     worker.start()
     try:

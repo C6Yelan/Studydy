@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
-from runtime import luna_calls, luna_test
+from runtime import model_calls
 from runtime.material_runtime import validate_runtime_lock
 from content_identity import canonical_sha256
 from runtime.learner_session import TrustedLearner
@@ -603,9 +603,8 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
                     if point.claim_id == item.target_claim_id
                 )
                 lock = deepcopy(group.runtime_lock_document)
-                trace = luna_calls.start(
-                    "assessment", (work.set_id, work.ordinal), work.token, study.material_id, work.learner_id,
-                    enabled=luna_test.enabled(lock),
+                trace = model_calls.start(
+                    "assessment", (work.set_id, work.ordinal), work.token, study.material_id, work.learner_id
                 )
                 study_data = SimpleNamespace(
                     study_session_id=study.study_session_id,
@@ -641,7 +640,7 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
                 check_wait()
                 with database_session(dsn) as session:
                     _leased(session, work)
-                return luna_calls.capture(result) if semantic_call is not request_semantics else result
+                return model_calls.capture(result) if semantic_call is not request_semantics else result
 
             chosen = assessments.prepare_assessment(
                 study_data,
@@ -686,7 +685,7 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
                 "SEMANTIC_OUTPUT_TRUNCATED",
                 "ASSESSMENT_STORE_FAILED",
             }
-            luna_calls.rejected(str(error))
+            model_calls.rejected(str(error))
             reason = str(error) if str(error) in allowed else "ASSESSMENT_GENERATION_FAILED"
         except Exception:
             reason = "ASSESSMENT_GENERATION_FAILED"
@@ -709,7 +708,7 @@ def execute_set_work(work, *, dsn=None, semantic_call=request_semantics, shutdow
 
     finally:
         if trace is not None:
-            luna_calls.close(trace)
+            model_calls.close(trace)
 
 
 def _commit_prepared(work, prepared, reason, *, dsn):
@@ -741,7 +740,7 @@ def _commit_prepared(work, prepared, reason, *, dsn):
         _touch_diagnostic(session, group)
         session.flush()
         _settle(session, study, group, _items(session, group))
-    luna_calls.completed("succeeded" if prepared is not None else "failed", reason)
+    model_calls.completed("succeeded" if prepared is not None else "failed", reason)
 
 
 def run_next_set(*, dsn=None, shutdown=None):

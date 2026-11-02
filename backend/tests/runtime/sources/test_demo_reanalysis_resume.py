@@ -17,18 +17,18 @@ from runtime.storage.tables import MaterialProcessingRun, Material
 
 @pytest.fixture
 def failed_maintenance(maintained, monkeypatch):
-    import runtime.provider_http as http
+    import runtime.semantic_service as http
     owner, material, settings, dsn, execute, original, sent = maintained
-    provider = http.provider
+    provider = http._post
     failed_calls = []
 
-    def fail_review(path, body):
-        if body['task'] == 'material_review':
-            failed_calls.append(body['task'])
-            raise ValueError('GENERATION_PROVIDER_UNAVAILABLE')
-        return provider(path, body)
+    def fail_review(client, url, *, json, cancellation_check=None):
+        if json.get('response_format', {}).get('json_schema', {}).get('name') == 'material_review':
+            failed_calls.append('material_review')
+            raise __import__('httpx').ConnectError('synthetic unavailable')
+        return provider(client, url, json=json, cancellation_check=cancellation_check)
 
-    monkeypatch.setattr(http, 'provider', fail_review)
+    monkeypatch.setattr(http, '_post', fail_review)
     run_id = maintenance.enqueue(settings, dsn=dsn)
     failed = execute()
     assert failed.status == 'failed' and failed.error_code == 'SEMANTIC_SERVICE_UNAVAILABLE'
@@ -37,7 +37,7 @@ def failed_maintenance(maintained, monkeypatch):
         run = session.get(MaterialProcessingRun, run_id)
         run.maintenance = {**run.maintenance, 'reserved_calls': 11}
     monkeypatch.setattr(maintenance, 'RESUME_RUN_ID', run_id)
-    monkeypatch.setattr(http, 'provider', provider)
+    monkeypatch.setattr(http, '_post', provider)
     return owner, material, settings, dsn, execute, original, sent, run_id, fail_review, failed_calls
 
 
@@ -74,9 +74,9 @@ def test_resume_preserves_budget_identity_and_completes_with_same_run(failed_mai
 
 
 def test_second_failure_cannot_resume_or_reset_budget(failed_maintenance, monkeypatch):
-    import runtime.provider_http as http
+    import runtime.semantic_service as http
     _owner, material, settings, dsn, execute, original, sent, run_id, fail, failed_calls = failed_maintenance
-    monkeypatch.setattr(http, 'provider', fail)
+    monkeypatch.setattr(http, '_post', fail)
     maintenance.resume_once(settings, dsn=dsn)
     start, failed_start = len(sent), len(failed_calls)
     result = execute()

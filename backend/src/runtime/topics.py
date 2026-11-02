@@ -14,7 +14,7 @@ from .storage.artifacts import _key_digest
 from .storage.tables import TopicScope, MaterialResearch, Learner, Material
 from .storage.database import database_session
 from .provider_http import provider
-from . import luna_calls
+from . import model_calls
 from .generation_jobs import cancellable_job, lease_is_current
 
 
@@ -362,7 +362,7 @@ def step(*, dsn=None):
             row.base_revision,
             row.learner_id,
         )
-    trace = luna_calls.start("topic", identity, token, material_id, owner)
+    trace = model_calls.start("topic", identity, token, material_id, owner)
     try:
         try:
             with cancellable_job(
@@ -403,10 +403,10 @@ def step(*, dsn=None):
             result = proposal(generated, 180 if material_id else 40)
             from .semantic_service import text_model_label
 
-            producer = f"{text_model_label('codex-exec:')};scope/v6"
+            producer = f"{text_model_label()};scope/v6"
             error = None
         except Exception as failure:
-            luna_calls.rejected(str(failure))
+            model_calls.rejected(str(failure))
             result = None
             producer = None
             error = "TOPIC_PROVIDER_FAILED"
@@ -424,7 +424,7 @@ def step(*, dsn=None):
                 row.version += 1
                 row.lease_token = row.lease_expires_at = None
         if saved:
-            luna_calls.completed("failed" if error else "succeeded", error)
+            model_calls.completed("failed" if error else "succeeded", error)
         return True
     finally:
-        luna_calls.close(trace)
+        model_calls.close(trace)

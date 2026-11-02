@@ -28,7 +28,7 @@ from .storage.database import database_session
 from .podcast_script import digest, validate_script
 from .podcast_access import _locked
 from .podcast_sources import plan_episodes, source_context, _context_pages
-from . import retrieval, luna_calls
+from . import retrieval, model_calls
 from .errors import SourceError, PodcastError
 from .audio import FLAC_MEDIA_TYPE, validate_audio, wav_to_flac
 from .storage_usage import (
@@ -626,7 +626,7 @@ def finish_step(
             row.lease_token = row.lease_expires_at = None
         row.version += 1
     if script is not None or error:
-        luna_calls.completed("failed" if error else "succeeded", error)
+        model_calls.completed("failed" if error else "succeeded", error)
     return True
 
 

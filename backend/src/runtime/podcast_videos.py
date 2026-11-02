@@ -27,8 +27,7 @@ from .audio import episode_wav
 from .podcast_sources import source_context
 from .podcast_script import digest
 from .provider_http import generation_response, provider_request, provider_error_code
-from . import luna_calls, luna_test
-from .local_ai_config import configured_lock
+from . import model_calls
 from .semantic_service import SemanticServiceError
 from .storage.artifacts import (
     quarantine_artifact,
@@ -206,7 +205,7 @@ def action(owner, podcast_id, index, action, version, *, dsn=None):
         row.lease_token = row.lease_expires_at = None
         row.version += 1
         result, video_id = _view(podcast, index, row), row.video_id
-    luna_calls.discard("podcast_video", video_id, owner)
+    model_calls.discard("podcast_video", video_id, owner)
     return result
 
 
@@ -460,7 +459,7 @@ def finish(state, *, bundle=None, error=None, dsn=None):
         release(db, podcast_id=row.podcast_id, kind="podcast_video", episode_index=row.episode_index)
         row.lease_token = row.lease_expires_at = None
         row.version += 1
-    luna_calls.completed("failed" if error else "succeeded", error)
+    model_calls.completed("failed" if error else "succeeded", error)
     return True
 
 
@@ -530,7 +529,7 @@ def provider(state, audio):
     })
     result["model"] = f"{text_model_label()};semantic-layout/v4"
     # 影片 bytes 不作候選重複保存。
-    luna_calls.capture({key: value for key, value in result.items() if key not in {"video", "audio"}})
+    model_calls.capture({key: value for key, value in result.items() if key not in {"video", "audio"}})
     return result
 
 
@@ -538,8 +537,8 @@ def step(*, dsn=None, workers=1):
     state = claim(dsn=dsn, workers=workers)
     if state is None:
         return False
-    trace = luna_calls.start("podcast_video", state["video_id"], state["token"],
-        state["material_id"], state["owner"], enabled=luna_test.enabled(configured_lock()))
+    trace = model_calls.start("podcast_video", state["video_id"], state["token"],
+        state["material_id"], state["owner"])
     saving = False
     try:
         with cancellable_job(Video, state["video_id"], state["token"], dsn=dsn):
@@ -548,7 +547,7 @@ def step(*, dsn=None, workers=1):
             saving = True
             finish(state, bundle=bundle, dsn=dsn)
     except Exception as error:
-        luna_calls.rejected(str(error))
+        model_calls.rejected(str(error))
         if isinstance(error, (SourceError, ValueError, SemanticServiceError)) and str(error).startswith(
             ("VIDEO_", "SCENE_", "SEMANTIC_")
         ):
@@ -560,5 +559,5 @@ def step(*, dsn=None, workers=1):
         except Exception:
             logging.getLogger(__name__).warning("VIDEO_RESULT_SAVE_FAILED")
     finally:
-        luna_calls.close(trace)
+        model_calls.close(trace)
     return True

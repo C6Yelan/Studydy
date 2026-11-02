@@ -16,15 +16,13 @@ def response(request):
         'alias_edits': [], 'claim_edits': [], 'relation_edits': []}
 
 
-def config(luna=True):
-    return {'semantic_service': {'api_protocol': 'codex-exec-luna/v1' if luna else 'openai/v1'},
+def config():
+    return {'semantic_service': {'api_protocol': 'openai-chat-completions/v1'},
             'material_review': {'prompt': 'synthetic'}}
 
 
-@pytest.mark.parametrize('flag,luna,configured,width', [('0', True, None, 1), ('1', False, None, 1), ('1', True, None, 2),
-    ('0', False, '4', 4), ('1', True, '4', 2)])
-def test_real_coordinator_parallelism_is_opt_in(tmp_path, monkeypatch, flag, luna, configured, width):
-    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', flag)
+@pytest.mark.parametrize('configured,width', [(None, 1), ('4', 4)])
+def test_real_coordinator_parallelism_is_opt_in(tmp_path, monkeypatch, configured, width):
     if configured: monkeypatch.setenv('STUDYDY_MATERIAL_REVIEW_CONCURRENCY', configured)
     else: monkeypatch.delenv('STUDYDY_MATERIAL_REVIEW_CONCURRENCY', raising=False)
     view, units = inputs(4)
@@ -44,18 +42,18 @@ def test_real_coordinator_parallelism_is_opt_in(tmp_path, monkeypatch, flag, lun
     monkeypatch.setattr('runtime.material_review.request_semantics', model)
     archive = Archive(tmp_path / 'archive')
     progress = []
-    reviews, calls = _review_units(view, units, config(luna), archive, lambda: None, lambda *p: progress.append(p))
+    reviews, calls = _review_units(view, units, config(), archive, lambda: None, lambda *p: progress.append(p))
     assert peak == width and calls == 4
     assert [u.payload['title'] for u, _ in reviews] == [u.payload['title'] for u in units]
     merged, proposal = combine_reviews(view, reviews)
     project_review(view, merged, proposal)
     assert view == before and progress[-1] == ('review', 4, 4)
     monkeypatch.setattr('runtime.material_review.request_semantics', lambda *a, **k: pytest.fail('cache replayed'))
-    assert _review_units(view, units, config(luna), archive, lambda: None, lambda *p: None)[1] == 0
+    assert _review_units(view, units, config(), archive, lambda: None, lambda *p: None)[1] == 0
 
 
 def test_parallel_capacity_splits_keep_full_evidence_and_unique_calls(tmp_path, monkeypatch):
-    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', '1')
+    monkeypatch.setenv('STUDYDY_MATERIAL_REVIEW_CONCURRENCY', '2')
     view, units = inputs(2)
     def model(client, **kwargs):
         request = kwargs['request']
@@ -76,7 +74,7 @@ def test_parallel_capacity_splits_keep_full_evidence_and_unique_calls(tmp_path, 
 
 
 def test_parallel_cancel_stops_both_requests_before_more_dispatch(tmp_path, monkeypatch):
-    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', '1')
+    monkeypatch.setenv('STUDYDY_MATERIAL_REVIEW_CONCURRENCY', '2')
     view, units = inputs(4)
     gate = Barrier(2)
     cancelled = Event()

@@ -20,6 +20,20 @@ def _lock() -> dict:
     return lock
 
 
+def test_saved_legacy_identity_is_readable_but_cannot_send_new_requests():
+    from copy import deepcopy
+    from legacy_model_lock import test_lock
+    from runtime.material_runtime import validate_runtime_lock
+
+    lock = test_lock(_lock())
+    original = deepcopy(lock)
+    validate_runtime_lock(lock)
+    with httpx.Client(transport=httpx.MockTransport(lambda _: pytest.fail("legacy work sent"))) as client:
+        with pytest.raises(SemanticServiceError, match="SEMANTIC_SERVICE_CONFIG_INVALID"):
+            request_semantics(client, runtime_lock=lock, task="material_semantics", request={}, response_schema={})
+    assert lock == original
+
+
 def test_gemma_64k_capacity_upgrade_preserves_old_binding_and_rejects_downgrade():
     from copy import deepcopy
     from runtime.material_runtime import runtime_binding, runtime_binding_is_valid, same_material_runtime
@@ -386,6 +400,7 @@ def test_truncation_archives_only_safe_phase_and_token_metadata(monkeypatch):
         'task': 'material_review', 'input_tokens': 12000, 'max_tokens': 8192,
         'finish_reason': 'length', 'prompt_tokens': 12000,
         'completion_tokens': 20768, 'total_tokens': 32768,
+        'response_validation': 'candidate_output_truncated',
     }
     assert secret not in json.dumps(saved)
 
