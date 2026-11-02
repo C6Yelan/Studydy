@@ -92,7 +92,7 @@ def test_failed_checkpoint_resumes_after_settings_update_without_repeating_model
     elif update == 'context_capacity':
         settings['runtime_lock']['semantic_service']['max_model_len'] = 32768
     elif update == 'luna_capacity':
-        from runtime.luna_test import test_lock as luna_lock
+        from legacy_model_lock import test_lock as luna_lock
         settings['runtime_lock'] = luna_lock(settings['runtime_lock'])
         settings['runtime_lock']['semantic_service']['max_model_len'] = 272000
     run = start([second], 'before-update-failed', old['revision'])

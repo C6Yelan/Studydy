@@ -88,21 +88,15 @@ def test_hidden_key_collision_does_not_merge_old_concept_or_redirect_relations()
     assert len(state.relations) == 1 and state.rejected_relations == 1
 
 
-@pytest.mark.parametrize('provider', ['luna', 'gemma'])
 @pytest.mark.parametrize('catalog_tokens,expected', [(8192, True), (8193, False)])
-def test_catalog_token_budget_applies_even_to_single_evidence(monkeypatch, provider, catalog_tokens, expected):
+def test_catalog_token_budget_applies_even_to_single_evidence(monkeypatch, catalog_tokens, expected):
     from runtime import semantic_service as service
     from test_semantic_service_v1 import _lock as _runtime_lock
-    from runtime.luna_test import test_lock
     lock = _runtime_lock()
-    if provider == 'luna':
-        lock = test_lock(lock)
-        monkeypatch.setattr(service, 'estimate_prompt_tokens', lambda prompt, request: 100 + (catalog_tokens if request['existing_concepts'] else 0))
-    else:
-        import json
-        def count(client, config, messages, template, check):
-            request = json.loads(messages[-1]['content'].split('\nINPUT:\n', 1)[1])
-            return 100 + (catalog_tokens if request['existing_concepts'] else 0)
-        monkeypatch.setattr(service, '_token_count', count)
+    import json
+    def count(client, config, messages, template, check):
+        request = json.loads(messages[-1]['content'].split('\nINPUT:\n', 1)[1])
+        return 100 + (catalog_tokens if request['existing_concepts'] else 0)
+    monkeypatch.setattr(service, '_token_count', count)
     request = {'existing_concepts': [{'k': 'tcp', 'l': 'TCP', 'a': []}], 'sections': [{'evidence': [[0, 1, 'paragraph', 'TCP fact.']]}]}
     assert service.material_request_fits(None, lock, request) is expected

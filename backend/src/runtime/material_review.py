@@ -23,7 +23,7 @@ from knowledge_map.claim_literals import language_correction_template, restore_l
 from knowledge_map.structure import build_knowledge_structure_view, _revision
 from knowledge_map.structure_rules import RELATION_TYPES
 from content_identity import canonical_sha256
-from . import luna_calls
+from . import model_calls
 from .semantic_service import SemanticServiceError, request_semantics, semantic_client
 
 
@@ -409,7 +409,7 @@ def _checked_review(
                 client,
                 runtime_lock=lock,
                 task="material_review",
-                tags=luna_calls.tags(feature="material_review", stage="review"),
+                tags=model_calls.tags(feature="material_review", stage="review"),
                 request=request,
                 response_schema=schema,
                 cancellation_check=wait_cancellation_check or check_cancel,
@@ -642,13 +642,7 @@ def _review_units(
     skipped 傳入時，只剩單一概念且收斂來源後仍超過容量的批次不複核（保留草稿原樣），
     概念 ID 記在 skipped；未傳入時沿用整體失敗。
     """
-    from .luna_test import enabled
-
-    width = (
-        2
-        if os.environ.get("STUDYDY_LUNA_PARALLEL_TEST") == "1" and enabled(lock)
-        else review_concurrency()
-    )
+    width = review_concurrency()
     units = list(units)
     reviews, calls, split_units, cursor = {}, 0, 0, 0
     stopped = Event()

@@ -26,7 +26,7 @@ flowchart LR
 
 Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；worker 執行轉檔、分析／檢核與題組準備。PostgreSQL 保存狀態與 metadata，檔案位於 STUDYDY_DATA_DIR/artifacts。
 
-教材處理由 STUDYDY_MATERIAL_WORKERS 設定執行緒數（預設 1），卡組與主題研究的執行緒數由 STUDYDY_CARD_WORKERS／STUDYDY_RESEARCH_WORKERS 設定（預設 1），題組準備與定期資料復原各維持一條執行緒，不依賴模型種類或 Luna 測試旗標。啟動復原只執行一次，完成後額外教材執行緒才開始領取；來源正規化與筆記沿用資料庫互斥領取，章節 request_gate 互斥保留；每個領取與發布仍須通過原有 PG lease／token 與來源版本檢查。這項排程隔離不代表模型能同時推論，實際容量仍由既有 provider 控制。
+教材處理由 STUDYDY_MATERIAL_WORKERS 設定執行緒數（預設 1），卡組與主題研究的執行緒數由 STUDYDY_CARD_WORKERS／STUDYDY_RESEARCH_WORKERS 設定（預設 1），題組準備與定期資料復原各維持一條執行緒，不依賴模型種類。啟動復原只執行一次，完成後額外教材執行緒才開始領取；來源正規化與筆記沿用資料庫互斥領取，章節 request_gate 互斥保留；每個領取與發布仍須通過原有 PG lease／token 與來源版本檢查。這項排程隔離不代表模型能同時推論，實際容量仍由既有 provider 控制。
 
 Podcast 由單一協調 worker 持有整份租約；`STUDYDY_PODCAST_WORKERS`（預設 1）控制同份 Podcast 各集製作，以及各集第一輪段落核對的並行數。文字請求共用同一數量的槽，不因集數與段落兩層並行相乘。各集完成即保存，整批結束才釋放租約；中斷後從未完成的步驟接續。前段修正影響後段核對依據時，後段會重新核對。語音服務的 GPU 鎖維持原樣。
 
@@ -117,15 +117,15 @@ Migration runner 核對 [SQL序列](../backend/migrations/) 與 checksum，每�
 
 新資料庫初始化時寫入 `schema_baseline` 標記；每次啟動核對 baseline 身分與前七份初始化 SQL 的 digest，再驗證 migration 帳本並套用後續版本。已發布的初始化 SQL 不得改寫。
 
-Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文容量分配剩餘輸出；Luna 暫用路徑以 o200k 估算，並受 64K 上限限制。分析／教材檢核至少預留 8K 輸出，出題／題目檢核至少預留 16K（若明確設定較小上限則依該值）。只變更額度時可接續已驗證的分析 checkpoint，原工作快照維持不變。截斷失敗僅保存階段、結束原因與 token 數供排查。
+Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文容量分配剩餘輸出。分析／教材檢核至少預留 8K 輸出，出題／題目檢核至少預留 16K（若明確設定較小上限則依該值）。只變更額度時可接續已驗證的分析 checkpoint，原工作快照維持不變。截斷失敗的一般錯誤摘要僅保存階段、固定驗證原因、結束原因與 token 數；原始候選與請求只進入私人失敗診斷，不混入一般摘要。
 
 ## 教材檢索與選讀
 
-從主題建立教材與補充學習共用 `topic_scopes`：先以文字模型（依 runtime lock 走 Luna 或 Gemma）整理可編輯的觀念與具體重點／細節，確認前不建立研究工作、不查外部來源。補充規劃綁定原教材與 revision；確認時再次核對，教材已更新便要求重新規劃。`POST /v1/materials/{id}/research` 已移除，兩種入口都由 `POST /v1/topics` 建立規劃，再由 approve 建立研究。
+從主題建立教材與補充學習共用 `topic_scopes`：先以文字模型（依 runtime lock 使用 Gemma）整理可編輯的觀念與具體重點／細節，確認前不建立研究工作、不查外部來源。補充規劃綁定原教材與 revision；確認時再次核對，教材已更新便要求重新規劃。`POST /v1/materials/{id}/research` 已移除，兩種入口都由 `POST /v1/topics` 建立規劃，再由 approve 建立研究。
 
 新研究使用 `material-research/v3`；舊查詢與已核對來源保留供查看及選用，但舊搜尋狀態不能接回新 worker 執行，須重新確認需求後建立新研究。沒有自動轉接、舊搜尋開關或另一套建立入口。
 
-研究逐項沿用確認過的 topics，不再由搜尋模型另拆一份範圍。初始查詢一律優先論文，以自然語言問題呼叫 OpenAlex `search.semantic`，先篩開放取得且有摘要的作品；實際全文授權與版本仍依 locations 核對。優先初篩已知有授權取得位置的候選，同組保留索引的語意排序；Luna 再依摘要評估用途，取得正文後才判斷支持程度。正文區段由模型逐批定位，不以標題或字面排名排除同義內容。搜尋範圍限定論文與英文 Wikipedia，不納入一般網站、部落格或官方技術文件。涵蓋判定不能跳過已排定搜尋、初篩、應讀正文或限流重試；背景與排除來源不必全部深讀。缺口檢查選定的覆核優先執行；沒有可行新方向或持續無新增證據時，整理部分成果並如實保留缺口。
+研究逐項沿用確認過的 topics，不再由搜尋模型另拆一份範圍。初始查詢一律優先論文，以自然語言問題呼叫 OpenAlex `search.semantic`，先篩開放取得且有摘要的作品；實際全文授權與版本仍依 locations 核對。優先初篩已知有授權取得位置的候選，同組保留索引的語意排序；模型再依摘要評估用途，取得正文後才判斷支持程度。正文區段由模型逐批定位，不以標題或字面排名排除同義內容。搜尋範圍限定論文與英文 Wikipedia，不納入一般網站、部落格或官方技術文件。涵蓋判定不能跳過已排定搜尋、初篩、應讀正文或限流重試；背景與排除來源不必全部深讀。缺口檢查選定的覆核優先執行；沒有可行新方向或持續無新增證據時，整理部分成果並如實保留缺口。
 
 已移除 Crossref 的泛關鍵字搜尋、標題詞數加權與混合管道；Crossref DOI 摘要查詢仍供缺摘要的論文使用。論文先試正式 metadata／原頁公布的同版本全文入口；第一次閱讀前若仍取不到，可採索引已列明且有適當授權的其他版本，記錄實際版本與原先版本，不把作者稿冒充出版版。已讀原檔及明確綁定的 arXiv 版本不能因此換檔，也不請模型猜下載網址。OpenAlex 語意搜尋最多 50 筆，`locations.license` 不被該端點接受；目前使用 `is_oa:true,has_abstract:true`，不能將 HTTP 200 或開放取得標記當作已核對全文授權。API key 可提高免費額度，設定仍透過既有環境變數，不進入來源紀錄。
 
@@ -139,7 +139,7 @@ Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文�
 
 涵蓋快取綁定判讀政策；續接舊研究時若政策不同，只清除涵蓋與停滯判斷的快取，保留原檔、已讀引用與來源，再按目前規則重核。既有完成紀錄不自動背景重寫。
 
-知識結構發布前建立 `material_retrieval_indexes` 與 `material_passages`。PostgreSQL GIN 索引使用中文雙字、技術術語、概念名稱與別名；它是可重建的取材投影，不是第二份教材事實來源，也沒有另啟 embedding 模型。問答、研究規劃與 Podcast 共用此索引。問答用 Luna 補查術語以處理不同用詞，最多再取一次來源；每個查詢都固定 owner、教材與 revision。
+知識結構發布前建立 `material_retrieval_indexes` 與 `material_passages`。PostgreSQL GIN 索引使用中文雙字、技術術語、概念名稱與別名；它是可重建的取材投影，不是第二份教材事實來源，也沒有另啟 embedding 模型。問答、研究規劃與 Podcast 共用此索引。問答使用文字模型補查術語以處理不同用詞，最多再取一次來源；每個查詢都固定 owner、教材與 revision。
 
 索引與知識結構同一交易發布，索引失敗不更新教材 head。索引階段可沿已保存的分析與檢核結果重試，不必重新呼叫模型。新來源綁定為 `structure-input-binding/v2`／`source-set/v2`／`bundle-manifest/v2`；舊格式不轉接、不自動遷移，原始檔案不刪除。
 

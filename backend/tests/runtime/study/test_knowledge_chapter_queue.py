@@ -217,17 +217,17 @@ def test_migration_enforces_status_and_cascades_with_the_structure(closed_loop):
         ).fetchone() == (0,)
 
 
-def test_worker_sends_the_chapter_prompt_through_the_luna_text_channel(closed_loop, monkeypatch):
+def test_worker_sends_the_chapter_prompt_through_the_gemma_text_channel(closed_loop, monkeypatch):
     import json
     from pathlib import Path
 
     from runtime import provider_http
-    from runtime.luna_test import test_lock
+    from model_fixtures import model_transport
 
     fixture = concept_fixture(closed_loop, 3)
     _drain_others(fixture)
     lock = json.loads((Path(__file__).parents[4] / "local_ai/runtime-lock.json").read_text())
-    monkeypatch.setattr(kc, "configured_lock", lambda: test_lock(lock))
+    monkeypatch.setattr(kc, "configured_lock", lambda: lock)
     sent = []
 
     def provider(path, body):
@@ -236,11 +236,11 @@ def test_worker_sends_the_chapter_prompt_through_the_luna_text_channel(closed_lo
         sent.append((path, body))
         return _answer(body["request"], body["schema"], kc.CONTEXT_LIMIT - kc.estimate_prompt_tokens(body["prompt"], body["request"]))
 
-    monkeypatch.setattr(provider_http, "provider", provider)
+    model_transport(monkeypatch, provider)
     assert kc.step(dsn=fixture["dsn"], stop=Event())
     assert not kc.request_gate.locked()
     row = _row(fixture)
-    assert row["status"] == "ready" and row["model_id"] == "gpt-5.6-luna" and row["calls"] == 1
+    assert row["status"] == "ready" and row["model_id"] == lock["semantic_service"]["model_id"] and row["calls"] == 1
     path, body = sent[0]
-    assert path == "/semantics" and body["task"] == "material_review" and body["prompt"] == kc.PROMPT
+    assert path == "/v1/chat/completions" and body["task"] == "material_review" and body["prompt"] == kc.PROMPT
     assert set(body["request"]) == {"sources", "concepts", "chapter_count"}

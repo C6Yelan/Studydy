@@ -16,7 +16,7 @@ from .structure_validation import validate_knowledge_structure
 
 
 POLICY = "source-preserving-consolidation/v1"
-# 只擋重複失控；Luna 時期合併與檢查的 reason 最長約 400 字。
+# 只擋重複失控；既有樣本合併與檢查的 reason 最長約 400 字。
 REASON_MAX_LENGTH = 1500
 
 

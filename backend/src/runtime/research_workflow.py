@@ -23,13 +23,13 @@ READ_CHARS = 6000
 READ_WINDOW_CANDIDATES = 8
 FOLLOW_UP_UNREAD_TOKENS = 6000
 FOLLOW_UP_EVIDENCE_TOKENS = 32000
-# Luna 的 64k 上下文保留至少 16k 給輸出；原文、需求、線索與 schema 共用輸入預算。
+# 文字模型的 64k 上下文保留至少 16k 給輸出；原文、需求、線索與 schema 共用輸入預算。
 RESEARCH_INPUT_TOKENS = 48000
 EVIDENCE_POLICY = "research-evidence/v5"
 COVERAGE_POLICY = "research-coverage/v3"
 
 
-# 上限只擋模型重複失控；Luna 時期最長的說明約 560 字、查詢詞約 340 字、單次規劃 7 筆查詢。
+# 上限只擋模型重複失控；既有樣本最長的說明約 560 字、查詢詞約 340 字、單次規劃 7 筆查詢。
 TEXT = {"type": "string", "maxLength": 4000}
 INDICES = {"type": "array", "items": {"type": "integer", "minimum": 0}}
 CHANNEL = {"type": "string", "enum": ["papers", "wikipedia"]}

@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import re
 from sqlalchemy import and_, or_, select, func, case
 from sqlalchemy.orm import object_session
-from . import research_sources, luna_calls
+from . import research_sources, model_calls
 from .source_normalization import upload_source
 from .errors import SourceError
 from .source_revisions import create_revision
@@ -208,7 +208,7 @@ def delete(owner, identity, *, dsn=None):
             row.lease_token = row.lease_expires_at = None
             research_documents.discard(db, row.research_id)
         result = {"research_id": row.research_id, "status": "deleted"}
-    luna_calls.discard("research", identity, owner)
+    model_calls.discard("research", identity, owner)
     return result
 
 
@@ -304,7 +304,7 @@ def action(owner, identity, action, selected=None, *, dsn=None):
         row.lease_token = row.lease_expires_at = None
         result = _view(row, db)
     if action in {"cancel", "retry"}:
-        luna_calls.discard("research", identity, owner)
+        model_calls.discard("research", identity, owner)
     return result
 
 
@@ -371,7 +371,7 @@ def submit(owner, identity, config, *, dsn=None, attempt_token=None):
     )
     with database_session(dsn) as db:
         research_documents.discard(db, identity, keep_sha256=keep_snapshots)
-    luna_calls.discard("research", identity, owner, outcome="succeeded")
+    model_calls.discard("research", identity, owner, outcome="succeeded")
     return read(owner, identity, dsn=dsn)
 
 
@@ -491,7 +491,7 @@ def save(state, mutate, *, dsn=None, release=True):
         outcome = row.status
         error_code = row.error_code
     if outcome in {"submitted", "failed", "cancelled"}:
-        luna_calls.completed("failed" if outcome == "failed" else "cancelled" if outcome == "cancelled" else "succeeded", error_code)
+        model_calls.completed("failed" if outcome == "failed" else "cancelled" if outcome == "cancelled" else "succeeded", error_code)
     return True
 
 
@@ -675,7 +675,7 @@ def step(*, dsn=None, config=None):
     state = claim(dsn=dsn)
     if not state:
         return False
-    trace = luna_calls.start(
+    trace = model_calls.start(
         "research", state["research_id"], state["search_state"]["luna_attempt"],
         state["material_id"], state["owner"],
     )
@@ -707,7 +707,7 @@ def step(*, dsn=None, config=None):
         error_code = (
             str(error) if isinstance(error, SourceError) else "RESEARCH_SEARCH_FAILED"
         )
-        luna_calls.rejected(str(error))
+        model_calls.rejected(str(error))
 
         def failed(row):
             row.status = "failed"
@@ -715,5 +715,5 @@ def step(*, dsn=None, config=None):
 
         save(state, failed, dsn=dsn)
     finally:
-        luna_calls.close(trace)
+        model_calls.close(trace)
     return True

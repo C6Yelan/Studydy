@@ -15,7 +15,6 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .text_budget import estimate_o200k_tokens, estimate_prompt_tokens
 from content_identity import canonical_bytes
 
 
@@ -53,6 +52,19 @@ class SemanticServiceError(RuntimeError):
         super().__init__(reason_code)
         self.reason_code = reason_code
         self.request_metadata: dict[str, Any] | None = None
+
+
+def _invalid_candidate(error, content, reason, diagnostic):
+    if isinstance(content, str):
+        from . import model_calls
+
+        error.request_metadata = {**(error.request_metadata or {}), "response_validation": reason}
+        model_calls.capture(content, request_metadata={
+            **error.request_metadata,
+            **{key: value for key, value in diagnostic.items() if key != "candidate"},
+        })
+        model_calls.rejected(reason, candidate=content)
+    return error
 
 
 def _output_budget(task: str, ceiling: int, input_tokens: int, context: int) -> int:
@@ -205,6 +217,7 @@ def _service(lock: Any) -> dict[str, Any]:
         origin = _origin(service["base_url"])
         if (
             lock["python"] != "3.12"
+            or service["api_protocol"] != "openai-chat-completions/v1"
             or not isinstance(service["model_id"], str)
             or not service["model_id"].strip()
             or not isinstance(service["revision"], str)
@@ -226,20 +239,8 @@ def _service(lock: Any) -> dict[str, Any]:
 def preflight_semantic_service(
     runtime_lock: dict[str, Any], *, client: httpx.Client | None = None
 ) -> None:
-    """核對 vLLM 版本、模型及 32K tokenizer 契約。"""
+    """核對 vLLM 版本、模型及 runtime lock 的 tokenizer 容量。"""
 
-    from .luna_test import enabled
-
-    if enabled(runtime_lock):
-        from .provider_http import provider
-
-        try:
-            result = provider("/luna-health", {})
-        except Exception:
-            raise SemanticServiceError("SEMANTIC_SERVICE_UNAVAILABLE") from None
-        if result.get("model") != runtime_lock["semantic_service"]["model_id"]:
-            raise SemanticServiceError("SEMANTIC_SERVICE_IDENTITY_MISMATCH")
-        return
     service = _service(runtime_lock)
     owned = client is None
     http = semantic_client() if client is None else client
@@ -384,7 +385,15 @@ def _degenerate_text(value: Any, source: str) -> bool:
 
 
 def request_semantics(client: httpx.Client, **arguments: Any) -> dict[str, Any]:
-    """截斷或疊字最多重試一次；重試仍污染或失敗就拒收。"""
+    """截斷或疊字最多重試一次；每個候選只保存一次並附上對應請求診斷。"""
+    from . import model_calls
+
+    arguments.setdefault("diagnostics", [])
+
+    def metadata():
+        diagnostics = arguments.get("diagnostics")
+        return {k: v for k, v in diagnostics[-1].items() if k != "candidate"} if diagnostics else {}
+
     with _request_slots.get() or nullcontext():
         source = canonical_bytes(arguments["request"]).decode("utf-8")
         retried = False
@@ -393,18 +402,20 @@ def request_semantics(client: httpx.Client, **arguments: Any) -> dict[str, Any]:
         except SemanticServiceError as error:
             if error.reason_code != "SEMANTIC_OUTPUT_TRUNCATED":
                 raise
-            result = _request_semantics_once(
-                client, **arguments, max_tokens_cap=TRUNCATION_RETRY_MAX_TOKENS
-            )
+            result = _request_semantics_once(client, **{**arguments, "max_tokens_cap": TRUNCATION_RETRY_MAX_TOKENS})
             retried = True
         if _degenerate_text(result, source):
+            model_calls.capture(result, request_metadata=metadata())
+            model_calls.rejected("candidate_degenerate_text")
             if not retried:
                 result = _request_semantics_once(client, **arguments)
-            if _degenerate_text(result, source):
-                from . import luna_calls
-                luna_calls.capture(result)
-                luna_calls.rejected("SEMANTIC_GENERATION_FAILED")
-                raise SemanticServiceError("SEMANTIC_GENERATION_FAILED")
+                if not _degenerate_text(result, source):
+                    model_calls.capture(deepcopy(result), request_metadata=metadata())
+                    return result
+                model_calls.capture(result, request_metadata=metadata())
+            model_calls.rejected("SEMANTIC_GENERATION_FAILED")
+            raise SemanticServiceError("SEMANTIC_GENERATION_FAILED")
+        model_calls.capture(deepcopy(result), request_metadata=metadata())
         return result
 
 
@@ -422,8 +433,6 @@ def _request_semantics_once(
     max_tokens_cap: int | None = None,
     diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    from .luna_test import enabled
-
     diagnostic = {
         "task": task, "request": deepcopy(request), "input_tokens": None,
         "max_tokens": None, "finish_reason": None, "usage": {},
@@ -431,75 +440,8 @@ def _request_semantics_once(
     }
     if diagnostics is not None:
         diagnostics.append(diagnostic)
-    # read 每次只讀約 6000 字，輸出為至多 4000 字說明與有界索引，不重抄正文。
-    # 8192 tokens 容納說明及索引，同時避免沿用整份教材審查的 32K 輸出。
+    # read 每次約 6000 字，最多 4000 字說明與有界索引，8192 tokens 足以容納；不沿用整份審查的 32K。
     read_cap = 8192 if task == "material_review" and request.get("task") == "read" else None
-    if before_request is not None and not enabled(runtime_lock):
-        raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
-    if enabled(runtime_lock):
-        if task not in MIN_OUTPUT_TOKENS:
-            raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
-        from .provider_http import _host as provider
-
-        if cancellation_check:
-            cancellation_check()
-        task_lock = runtime_lock["assessment" if task == "assessment_check" else task]
-        prefix = "check_" if task == "assessment_check" else ""
-        prompt = task_lock[prefix + "prompt"]
-        input_tokens = estimate_prompt_tokens(prompt, request)
-        # 舊工作保留封存的 272K lock，但不得繞過現行後端的 64K 上限。
-        output_budget = _output_budget(
-            task,
-            min(task_lock[prefix + "max_tokens"], read_cap or task_lock[prefix + "max_tokens"]),
-            input_tokens,
-            min(65536, runtime_lock["semantic_service"]["max_model_len"]),
-        )
-        if max_tokens_cap is not None:
-            output_budget = min(output_budget, max_tokens_cap)
-        # Luna provider 不回報實送 token 上限；不能把本地驗收預算冒稱實測 metadata。
-        diagnostic["input_tokens"] = input_tokens
-        if before_request is not None:
-            before_request()
-        from . import luna_calls
-
-        if tags is None:
-            tags = luna_calls.tags()
-        try:
-            from .generation_jobs import provider_job
-
-            with provider_job(cancellation_check or (lambda: None)) as job:
-                result = provider(
-                    "/semantics",
-                    {
-                        **job,
-                        **({"tags": tags} if tags is not None else {}),
-                        "task": task,
-                        "prompt": prompt,
-                        "request": request,
-                        "schema": response_schema,
-                    },
-                )
-        except Exception as error:
-            if cancellation_check:
-                cancellation_check()
-            code = (
-                "SEMANTIC_SERVICE_TIMEOUT" if str(error) == "LUNA_GENERATION_TIMEOUT"
-                else "SEMANTIC_SERVICE_UNAVAILABLE" if str(error) in {
-                    "VOICE_PROVIDER_UNAVAILABLE", "GENERATION_PROVIDER_UNAVAILABLE"
-                } or isinstance(error, (ConnectionError, TimeoutError, OSError))
-                else "SEMANTIC_GENERATION_FAILED"
-            )
-            raise SemanticServiceError(code) from None
-        if cancellation_check:
-            cancellation_check()
-        diagnostic["candidate"] = deepcopy(result)
-        if (
-            estimate_o200k_tokens(json.dumps(result, ensure_ascii=False))
-            > output_budget
-        ):
-            luna_calls.rejected("SEMANTIC_OUTPUT_TOO_LARGE", candidate=result, call_tags=tags)
-            raise SemanticServiceError("SEMANTIC_OUTPUT_TOO_LARGE")
-        return result
     service = _service(runtime_lock)
     try:
         task_lock = runtime_lock["assessment" if task == "assessment_check" else task]
@@ -531,6 +473,8 @@ def _request_semantics_once(
         if max_tokens_cap is not None:
             max_tokens = min(max_tokens, max_tokens_cap)
         diagnostic.update(input_tokens=input_tokens, max_tokens=max_tokens)
+        if before_request is not None:
+            before_request()
         response = _post(
             client,
             f"{service['base_url']}{CHAT_PATH}",
@@ -559,6 +503,7 @@ def _request_semantics_once(
         raise SemanticServiceError("SEMANTIC_SERVICE_UNAVAILABLE") from error
     if not response.content or len(response.content) > MAX_RESPONSE_BYTES:
         raise SemanticServiceError("SEMANTIC_RESPONSE_INVALID")
+    content = None
     try:
         api_body = json.loads(
             response.content.decode("utf-8"),
@@ -575,11 +520,11 @@ def _request_semantics_once(
                 }
             )
         choice = api_body["choices"][0]
+        content = choice["message"]["content"]
         diagnostic.update(
             finish_reason=choice.get("finish_reason"),
             usage=deepcopy(api_body.get("usage") or {}),
-            candidate=choice.get("message", {}).get("content"),
-            request_id=api_body.get("id"),
+            candidate=content, request_id=api_body.get("id"),
         )
         if choice.get("finish_reason") != "stop":
             error = SemanticServiceError("SEMANTIC_OUTPUT_TRUNCATED")
@@ -611,19 +556,24 @@ def _request_semantics_once(
                         if type(usage.get(key)) is int and usage[key] >= 0
                     }
                 )
-            raise error
-        content = choice["message"]["content"]
+            raise _invalid_candidate(error, content, "candidate_output_truncated", diagnostic)
         result = json.loads(
             content,
             object_pairs_hook=_unique_object,
             parse_constant=_reject_constant,
         )
-    except SemanticServiceError:
+    except SemanticServiceError as error:
+        if error.reason_code == "SEMANTIC_RESPONSE_INVALID":
+            raise _invalid_candidate(error, content, "candidate_json_invalid", diagnostic)
         raise
     except (IndexError, KeyError, TypeError, UnicodeError, ValueError) as error:
-        raise SemanticServiceError("SEMANTIC_RESPONSE_INVALID") from error
+        raise _invalid_candidate(
+            SemanticServiceError("SEMANTIC_RESPONSE_INVALID"), content, "candidate_json_invalid", diagnostic
+        ) from error
     if not isinstance(result, dict):
-        raise SemanticServiceError("SEMANTIC_RESPONSE_INVALID")
+        raise _invalid_candidate(
+            SemanticServiceError("SEMANTIC_RESPONSE_INVALID"), content, "candidate_not_object", diagnostic
+        )
     return result
 
 
@@ -636,8 +586,6 @@ def material_request_fits(
 ) -> bool:
     """以模型服務 tokenizer 計算分批容量；不截斷單一來源區塊。"""
 
-    from .luna_test import enabled
-
     task = runtime_lock["material_semantics"]
     if task["bundle_policy"] == "independent-evidence-blocks/v1":
         from knowledge_map.independent_blocks import request_view
@@ -646,34 +594,27 @@ def material_request_fits(
         fixed = {**request, "sections": [], "source_pages": []}
         if cancellation_check:
             cancellation_check()
-        if enabled(runtime_lock):
-            count = estimate_prompt_tokens(task["prompt"], request)
-            base_count = estimate_prompt_tokens(task["prompt"], fixed)
-            context_limit = min(
-                65536, runtime_lock["semantic_service"]["max_model_len"]
+        service = _service(runtime_lock)
+        try:
+            count = _token_count(
+                client,
+                service,
+                _messages(task["prompt"], request),
+                task["generation"]["chat_template_kwargs"],
+                cancellation_check,
             )
-        else:
-            service = _service(runtime_lock)
-            try:
-                count = _token_count(
-                    client,
-                    service,
-                    _messages(task["prompt"], request),
-                    task["generation"]["chat_template_kwargs"],
-                    cancellation_check,
-                )
-                base_count = _token_count(
-                    client,
-                    service,
-                    _messages(task["prompt"], fixed),
-                    task["generation"]["chat_template_kwargs"],
-                    cancellation_check,
-                )
-            except httpx.TimeoutException:
-                raise SemanticServiceError("SEMANTIC_SERVICE_TIMEOUT") from None
-            except (httpx.HTTPError, UnicodeError, ValueError):
-                raise SemanticServiceError("SEMANTIC_SERVICE_UNAVAILABLE") from None
-            context_limit = service["max_model_len"]
+            base_count = _token_count(
+                client,
+                service,
+                _messages(task["prompt"], fixed),
+                task["generation"]["chat_template_kwargs"],
+                cancellation_check,
+            )
+        except httpx.TimeoutException:
+            raise SemanticServiceError("SEMANTIC_SERVICE_TIMEOUT") from None
+        except (httpx.HTTPError, UnicodeError, ValueError):
+            raise SemanticServiceError("SEMANTIC_SERVICE_UNAVAILABLE") from None
+        context_limit = service["max_model_len"]
         single = sum(len(section["evidence"]) for section in request["sections"]) == 1
         # 不截斷單一 Evidence；保留完整輸出預算及包裝餘裕。
         reserve = min(
@@ -682,33 +623,6 @@ def material_request_fits(
         return (
             single or count - base_count <= task["max_new_input_tokens"]
         ) and count + reserve + 4096 <= context_limit
-    if enabled(runtime_lock):
-        if cancellation_check:
-            cancellation_check()
-        fresh = {**request, "existing_concepts": []}
-        task = runtime_lock["material_semantics"]
-        count = estimate_prompt_tokens(task["prompt"], request)
-        fresh_count = (
-            estimate_prompt_tokens(task["prompt"], fresh)
-            if request.get("existing_concepts")
-            else count
-        )
-        if count - fresh_count > MAX_MATERIAL_CATALOG_TOKENS:
-            return False
-        try:
-            _output_budget(
-                "material_semantics",
-                task["max_tokens"],
-                count,
-                min(65536, runtime_lock["semantic_service"]["max_model_len"]),
-            )
-        except SemanticServiceError:
-            return False
-        return (
-            sum(len(s["evidence"]) for s in request["sections"]) == 1
-            or len(json.dumps(fresh, ensure_ascii=False)) <= 6000
-        )
-
     service = _service(runtime_lock)
     task = runtime_lock["material_semantics"]
     try:
@@ -751,14 +665,14 @@ def material_request_fits(
 
 
 def generate(prompt, schema, *, request=None, cancellation_check=None, cancelled=None):
-    """Podcast 講稿、畫面核對與分鏡共用的文字呼叫；依 runtime lock 走 Luna provider 或 vLLM。"""
+    """共用具來源核對的文字任務，沿用模型設定、輸出預算與取消邊界。"""
     from .local_ai_config import configured_lock
     from . import podcast_process
     from .provider_http import _cancellation
 
     lock = deepcopy(configured_lock())
     lock["material_review"] = {**lock["material_review"], "prompt": prompt}
-    # 外層工作的取消狀態；Luna 路徑另開 provider 工作時仍靠這裡轉達取消。
+
     active = _cancellation.get()
 
     def check():
@@ -768,28 +682,17 @@ def generate(prompt, schema, *, request=None, cancellation_check=None, cancelled
         if cancellation_check is not None:
             cancellation_check()
 
-    from . import luna_calls, luna_test
     diagnostics = []
-    try:
-        with semantic_client() as client:
-            return request_semantics(
-                client, runtime_lock=lock, task="material_review",
-                request=request or {}, response_schema=schema, cancellation_check=check,
-                diagnostics=diagnostics,
-            )
-    finally:
-        # Luna 的 HTTP 邊界已逐次保存候選，不重複記錄同一回應。
-        if not luna_test.enabled(lock):
-            for diagnostic in diagnostics:
-                luna_calls.capture(diagnostic)
+    with semantic_client() as client:
+        result = request_semantics(
+            client, runtime_lock=lock, task="material_review",
+            request=request or {}, response_schema=schema, cancellation_check=check,
+            diagnostics=diagnostics,
+        )
+    return result
 
 
-def text_model_label(luna_prefix="codex-cli/"):
-    """成品保存的文字模型身分；Luna 沿用各功能原本的標記前綴。"""
+def text_model_label():
     from .local_ai_config import configured_lock
-    from .luna_test import MODEL, enabled
 
-    lock = configured_lock()
-    if enabled(lock):
-        return f"{luna_prefix}{MODEL}"
-    return f"vllm:{lock['semantic_service']['model_id']}"
+    return f"vllm:{configured_lock()['semantic_service']['model_id']}"

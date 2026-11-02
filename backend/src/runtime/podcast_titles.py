@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from .storage.database import database_session
 from .storage.tables import Podcast
-from . import luna_calls, luna_test
+from . import model_calls
 
 MAX_TITLE_LENGTH = 18
 PROMPT = (
@@ -51,7 +51,7 @@ def validate(response):
 
 
 def semantic_call():
-    """正式呼叫：沿用教材複核的文字通道（依 lock 走 Luna 或 vLLM），只換提示與輸出上限。"""
+    """正式呼叫：沿用教材複核的文字模型通道，只換提示與輸出上限。"""
     from .knowledge_chapters import configured_lock
     from .semantic_service import request_semantics, semantic_client
     from .provider_http import _cancellation
@@ -64,25 +64,19 @@ def semantic_call():
             or {"generation": lock["material_semantics"]["generation"]}
         )
         task_lock.update(prompt=PROMPT, max_tokens=512)
-        # 節目取消時中斷集名請求，worker 才能接下一筆。
         cancellation = _cancellation.get()
         diagnostics = []
-        try:
-            with semantic_client() as client:
-                return request_semantics(
-                    client,
-                    runtime_lock={**lock, "material_review": task_lock},
-                    task="material_review",
-                    request=request,
-                    response_schema=_SCHEMA,
-                    diagnostics=diagnostics,
-                    cancellation_check=cancellation.check if cancellation is not None else None,
-                )
-        finally:
-            if not luna_test.enabled(lock):
-                for diagnostic in diagnostics:
-                    luna_calls.capture(diagnostic)
-
+        with semantic_client() as client:
+            result = request_semantics(
+                client,
+                runtime_lock={**lock, "material_review": task_lock},
+                task="material_review",
+                request=request,
+                response_schema=_SCHEMA,
+                diagnostics=diagnostics,
+                cancellation_check=cancellation.check if cancellation is not None else None,
+            )
+        return result
 
     return call
 
@@ -91,29 +85,29 @@ def generate(episode, call=None, *, claim=None):
     """回傳集名；模型失敗或不合格時回傳 None，不中斷 Podcast 製作。"""
     if not episode.get("script"):
         return None
-    trace = luna_calls.start(
+    trace = model_calls.start(
         "podcast_title", (claim["podcast_id"], claim["index"]), claim["token"],
         claim["material_id"], claim["owner"], defer_to_parent=True,
     ) if claim is not None else None
     try:
         candidate = (call or semantic_call())(build_request(episode))
         if call is not None:
-            luna_calls.capture(candidate)
+            model_calls.capture(candidate)
         result = validate(candidate)
         if trace is not None:
-            luna_calls.completed("succeeded" if result else "failed", None if result else "PODCAST_TITLE_INVALID")
+            model_calls.completed("succeeded" if result else "failed", None if result else "PODCAST_TITLE_INVALID")
         return result
     except Exception as error:
         if trace is not None:
-            luna_calls.rejected(str(error))
-            luna_calls.completed("failed", "PODCAST_TITLE_FAILED")
+            model_calls.rejected(str(error))
+            model_calls.completed("failed", "PODCAST_TITLE_FAILED")
         logging.getLogger(__name__).warning(
             "PODCAST_TITLE_FAILED error_type=%s", type(error).__name__
         )
         return None
     finally:
         if trace is not None:
-            luna_calls.close(trace)
+            model_calls.close(trace)
 
 
 def fill_missing(*, dsn=None, call=None, limit=None):

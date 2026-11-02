@@ -237,9 +237,11 @@ def test_repair_uses_current_issues_and_latest_failed_candidate(closed_loop):
 
 def test_provider_switch_does_not_mix_luna_and_gemma_results(closed_loop, monkeypatch):
     owner, _, _, _, dsn, _ = closed_loop
-    monkeypatch.setenv('STUDYDY_TEXT_TEST_PROVIDER', 'codex-exec-luna')
+    from legacy_model_lock import test_lock
+    original = card_generation.configured_lock()
+    monkeypatch.setattr(card_generation, 'configured_lock', lambda: test_lock(original))
     identity = create(closed_loop)
-    monkeypatch.delenv('STUDYDY_TEXT_TEST_PROVIDER')
+    monkeypatch.setattr(card_generation, 'configured_lock', lambda: original)
     finish(dsn, lambda *_: (_ for _ in ()).throw(AssertionError('must not call a different provider')))
     assert card_sets.generation_status(owner.learner_id, identity, dsn=dsn)['error_code'] == 'CARD_PROVIDER_CHANGED'
     identity = create(closed_loop, key='current-provider')

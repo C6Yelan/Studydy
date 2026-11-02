@@ -48,7 +48,6 @@ def post(base, path, body, token='synthetic-provider-token'):
 @pytest.fixture
 def provider_server(monkeypatch, tmp_path):
     monkeypatch.setenv('STUDYDY_PODCAST_PROVIDER_TOKEN', 'synthetic-provider-token')
-    monkeypatch.setenv('STUDYDY_LUNA_CALL_LOG', str(tmp_path / 'luna-calls.jsonl'))
     server = ThreadingHTTPServer(('127.0.0.1', 0), provider.Handler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -140,7 +139,7 @@ time.sleep(60)
         assert all(not alive(pid) for pid in pids)
 
 
-@pytest.mark.parametrize('stage', ['luna', 'audio', 'align', 'transcribe'])
+@pytest.mark.parametrize('stage', ['audio', 'align', 'transcribe'])
 def test_real_provider_entry_points_pass_cancellation_to_child(stage, monkeypatch, tmp_path):
     marker = tmp_path / 'started'
     executable = tmp_path / 'synthetic-worker'
@@ -150,9 +149,7 @@ def test_real_provider_entry_points_pass_cancellation_to_child(stage, monkeypatc
         monkeypatch.setenv(name, str(executable))
     cancelled = Event()
     with ThreadPoolExecutor() as pool:
-        if stage == 'luna':
-            future = pool.submit(provider.luna, 'synthetic', {'type': 'object'}, cancelled=cancelled)
-        elif stage == 'audio':
+        if stage == 'audio':
             future = pool.submit(provider.audio, {'script': {}, 'purpose':'podcast'}, cancelled=cancelled)
         elif stage == 'transcribe':
             import base64
@@ -330,15 +327,14 @@ def test_cancel_during_connect_does_not_send_generation_or_affect_the_next_scope
         assert generated == [True]
 
 
-def test_resource_queue_has_no_default_deadline_and_health_does_not_queue(provider_server, monkeypatch):
+def test_resource_queue_has_no_default_deadline(monkeypatch):
     import threading
     cancelled = Event()
     with ThreadPoolExecutor() as pool:
-        provider.TEXT_LOCK.acquire()
+        provider.LOCK.acquire()
         try:
-            assert post(provider_server, '/luna-health', {})[0] == 200
             def acquire():
-                with podcast_process.locked(provider.TEXT_LOCK, cancelled): pass
+                with podcast_process.locked(provider.LOCK, cancelled): pass
             future = pool.submit(acquire)
             original = time.monotonic
             monkeypatch.setattr(podcast_process.time, 'monotonic', lambda: original() + 86400)
@@ -348,7 +344,7 @@ def test_resource_queue_has_no_default_deadline_and_health_does_not_queue(provid
             with pytest.raises(ValueError, match='PODCAST_CANCELLED'): future.result(timeout=3)
         finally:
             cancelled.set()
-            provider.TEXT_LOCK.release()
+            provider.LOCK.release()
 
 
 @pytest.mark.parametrize('binary', [False, True])

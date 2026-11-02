@@ -1,4 +1,4 @@
-"""以既有 Luna 整理已保存的地圖，包含跨來源等義與翻譯後重複。"""
+"""以文字模型整理已保存的地圖，包含跨來源等義與翻譯後重複。"""
 
 from copy import deepcopy
 import time
@@ -9,7 +9,7 @@ from knowledge_map import consolidation as merge
 from knowledge_map.material_review import ReviewError, _name
 from knowledge_map.structure_rules import _revision
 from content_identity import canonical_sha256
-from . import luna_calls
+from . import model_calls
 from .semantic_service import SemanticServiceError, request_semantics, semantic_client
 
 
@@ -209,7 +209,7 @@ def consolidate_structure(
                     client,
                     runtime_lock=lock,
                     task="material_review",
-                    tags=luna_calls.tags(feature="material_consolidation", stage="consolidation"),
+                    tags=model_calls.tags(feature="material_consolidation", stage="consolidation"),
                     request=request_payload,
                     response_schema=schema,
                     cancellation_check=wait_cancellation_check or check_cancel,

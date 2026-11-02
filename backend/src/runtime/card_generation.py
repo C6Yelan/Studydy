@@ -1,4 +1,4 @@
-"""可續接的整卡內容與版面設計；Luna 暫用與 Gemma 正常通道共用語意入口。"""
+"""可續接的整卡內容與版面設計；使用 Gemma 共通語意入口。"""
 
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -10,7 +10,7 @@ from uuid import uuid4
 from sqlalchemy import or_, select
 
 from content_identity import canonical_sha256
-from . import card_design as design, luna_calls, luna_test
+from . import card_design as design, model_calls
 from .local_ai_config import configured_lock
 from .generation_jobs import WORKER_LEASE_TTL, check_job, lease_is_current
 from .semantic_service import request_semantics, semantic_client, SemanticServiceError
@@ -147,7 +147,7 @@ def _save(claim, state, status, dsn):
             }
             row.card_count = sum(row.page_counts.values())
     if status in {"ready", "failed"}:
-        luna_calls.completed("failed" if status == "failed" else "succeeded", state.get("error_code"))
+        model_calls.completed("failed" if status == "failed" else "succeeded", state.get("error_code"))
 
 
 def _inputs(claim, identity, dsn):
@@ -279,7 +279,7 @@ def _request(claim, state, prompt, payload, schema, dsn, call):
     state["saved_output_tokens"] += estimate_o200k_tokens(
         json.dumps(result, ensure_ascii=False)
     )
-    return luna_calls.capture(result) if call is not None else result
+    return model_calls.capture(result) if call is not None else result
 
 
 def _advance(claim, state, dsn, call):
@@ -374,9 +374,8 @@ def step(*, dsn=None, call=None):
     if state.get("policy") != design.POLICY:
         previous_attempt = state["luna_attempt"]
         state = {**initial(previous=state), "luna_attempt": previous_attempt}
-    trace = luna_calls.start(
-        "cards", claim["id"], state["luna_attempt"], claim["material_id"], claim["owner"],
-        enabled=luna_test.enabled(configured_lock()),
+    trace = model_calls.start(
+        "cards", claim["id"], state["luna_attempt"], claim["material_id"], claim["owner"]
     )
     try:
         _advance(claim, state, dsn, call)
@@ -388,7 +387,7 @@ def step(*, dsn=None, call=None):
             else "CARD_GENERATION_FAILED"
         )
         state["error_code"] = code
-        luna_calls.rejected({"reason": str(error), "current": state.get("current")})
+        model_calls.rejected({"reason": str(error), "current": state.get("current")})
         try:
             _save(claim, state, "failed", dsn)
         except Exception:
@@ -406,5 +405,5 @@ def step(*, dsn=None, call=None):
             "CARD_GENERATION_FAILED type=%s", type(error).__name__
         )
     finally:
-        luna_calls.close(trace)
+        model_calls.close(trace)
     return True

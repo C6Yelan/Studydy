@@ -9,7 +9,7 @@ import re
 from knowledge_map.retrieval import rank_texts
 from .text_budget import estimate_o200k_tokens
 from .errors import SourceError
-from . import luna_calls
+from . import model_calls
 from .semantic_service import text_model_label
 
 
@@ -210,7 +210,7 @@ def history_context(history, memory, call, metrics):
 
 
 def _invalid_answer(reason):
-    luna_calls.rejected(reason)
+    model_calls.rejected(reason)
     return SourceError("VOICE_ANSWER_INVALID")
 
 
@@ -768,5 +768,5 @@ def answer(
             else {}
         ),
         "retrieval": metrics,
-        "provider": text_model_label("codex-exec:"),
+        "provider": text_model_label(),
     }

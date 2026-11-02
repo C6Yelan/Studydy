@@ -7,11 +7,12 @@ from runtime.semantic_service import SemanticServiceError, request_semantics
 
 
 def test_exhausted_budget_never_reaches_provider(monkeypatch):
-    import runtime.provider_http as provider_http
+    import runtime.semantic_service as service
     lock = read_local_ai_config_from_environment(
-        {"STUDYDY_TEXT_TEST_PROVIDER": "codex-exec-luna"})["runtime_lock"]
+        {})["runtime_lock"]
     sent = []
-    monkeypatch.setattr(provider_http, "provider", lambda *args: sent.append(args))
+    monkeypatch.setattr(service, "_token_count", lambda *args: 100)
+    monkeypatch.setattr(service, "_post", lambda *args, **kwargs: sent.append(args))
 
     def exhausted():
         raise SemanticServiceError("MATERIAL_MODEL_BUDGET_EXHAUSTED")

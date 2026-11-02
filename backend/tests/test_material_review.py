@@ -225,7 +225,7 @@ def test_local_translation_issue_preserves_original_without_blocking_other_revie
     archive = Archive(tmp_path / 'archive'); archive.review_reuses = []
     lock = {'material_review': {'prompt': 'synthetic'},
             'material_semantics': {'localization_policy': 'traditional-chinese-literals/v1'},
-            'semantic_service': {'api_protocol': 'codex-exec-luna/v1'}}
+            'semantic_service': {'api_protocol': 'openai-chat-completions/v1'}}
     result = review_structure(doc, lock, archive, lambda: None, lambda *args: None)
     assert len(calls) == 1
     assert validate_knowledge_structure(result)

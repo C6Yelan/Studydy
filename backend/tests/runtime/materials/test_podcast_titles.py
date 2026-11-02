@@ -61,35 +61,35 @@ def test_backfill_names_only_untitled_episodes_once(closed_loop):
     assert episode["title"] == "補上的集名" and episode["audio"] and episode["script"]
 
 
-def test_title_request_uses_the_luna_text_channel(closed_loop, monkeypatch):
+def test_title_request_uses_the_gemma_text_channel(closed_loop, monkeypatch):
     import json
     from pathlib import Path
 
     from runtime import knowledge_chapters, provider_http
-    from runtime.luna_test import test_lock
+    from model_fixtures import model_transport
 
     _, _, _, _, dsn, _ = closed_loop
     create(closed_loop)
     claim = podcasts.claim_step(dsn=dsn)
     lock = json.loads((Path(__file__).parents[4] / "local_ai/runtime-lock.json").read_text())
-    monkeypatch.setattr(knowledge_chapters, "configured_lock", lambda: test_lock(lock))
+    monkeypatch.setattr(knowledge_chapters, "configured_lock", lambda: lock)
     sent = []
 
     def provider(path, body):
         sent.append((path, body))
         return {"title": "有依據的回答"}
 
-    monkeypatch.setattr(provider_http, "_host", provider)
+    model_transport(monkeypatch, provider)
     assert podcast_titles.generate({**claim["episode"], "script": script(claim)}) == "有依據的回答"
     path, body = sent[0]
-    assert path == "/semantics" and body["task"] == "material_review" and body["prompt"] == podcast_titles.PROMPT
+    assert path == "/v1/chat/completions" and body["task"] == "material_review" and body["prompt"] == podcast_titles.PROMPT
     assert set(body["request"]) == {"segments", "concepts"}
 
 
 def test_title_keeps_512_and_length_schema_and_saves_truncation(tmp_path, monkeypatch):
     from copy import deepcopy
     import json
-    from runtime import semantic_service, knowledge_chapters, luna_calls
+    from runtime import semantic_service, knowledge_chapters, model_calls
     from test_semantic_service_v1 import _chat, _lock
     original = _lock()
     snapshot = deepcopy(original)
@@ -107,4 +107,5 @@ def test_title_keeps_512_and_length_schema_and_saves_truncation(tmp_path, monkey
     path, = (tmp_path / "failures").glob("*.json")
     records = json.loads(path.read_text())["candidates"]
     assert len(records) == 2
-    assert all(r["candidate"]["finish_reason"] == "length" and r["candidate"]["max_tokens"] == 512 for r in records)
+    assert all(r["candidate"] == '{"title":"' and r["request_metadata"]["finish_reason"] == "length"
+               and r["request_metadata"]["max_tokens"] == 512 for r in records)
