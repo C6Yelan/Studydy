@@ -8,7 +8,7 @@
 
 `test_podcast_align.py` 驗證字幕漏辨句首時，只採用局部音訊重新辨識到的句首時間；未辨識到開頭、時間重疊或無關音訊都不會產生猜測的修正。字幕文字與教學段落時鐘保持不變。
 
-`test_podcast_audio_repair.py` 檢查孤立脈衝、子音接母音、短有聲字詞、淡化邊緣時保留內部樣本、複數與字母音節，以及不依句子身分的調速；另涵蓋整句英文冠詞、中英縮寫、數字／單位、短回覆、換人停頓與變速失敗。正式處理使用模型原始片段與講稿／speaker 邊界，再統一正規化音量。合成訊號只驗證保護條件；不同講稿、弱音、換人、英文與單位的效果仍需真人聽評。
+同一個 `test_podcast_audio_repair.py` 也檢查孤立脈衝、子音接母音、短有聲字詞、淡化邊緣時保留內部樣本、複數與字母音節，以及不依句子身分的調速；另涵蓋整句英文冠詞、中英縮寫、數字／單位、短回覆、換人停頓與變速失敗。正式處理使用模型原始片段與講稿／speaker 邊界，再統一正規化音量。合成訊號只驗證保護條件；不同講稿、弱音、換人、英文與單位的效果仍需真人聽評。
 
 長音訊的細字幕對齊失敗時，會以含前後文的短音訊視窗重辨識長段 ASR 空缺；詞時間仍來自實際音訊。補入結果須通過完整原稿覆蓋與時間錨點驗證，失敗仍保留已驗證的段落時序。`test_podcast_align.py` 驗證重疊視窗不重複收取核心詞時間；實際語音與畫面另行核對，不以合成測試宣稱聽感通過。
 
@@ -38,7 +38,7 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 `runtime/materials/test_podcast_storage.py` 使用隔離 DB 與合成音訊（含 FFmpeg 形式的 LIST 區塊），不呼叫模型：FLAC 解碼還原原 WAV、損毀拒絕；沒勾影片不建立影片工作、播放與 Range 回 `audio/flac`、MP3 匯出與收聽進度；勾選影片時 provider 收到原 WAV、刪除單集影片只移除影片 artifact 與檔案且時間軸、音訊不變、不被接續生成重建；串流 Range 只在首次整檔核對、檔案改寫後重新核對並拒絕；帳號空間計入 artifacts／分析目錄、分段上傳以宣告大小保留（上限比已用多 1000 bytes 時，兩份宣告 800 bytes 的分段上傳只接受一份，後續段不得超過宣告大小）、慢速寫入不持有帳號鎖（另一份教材的上傳不被拖過 5 秒）、帳號鎖被占用時回可重試的 `STORAGE_BUSY`、同 key 同時重送只建立一份來源、保留額度在接受時固定（全站平均變動不重新定價）且在成品寫入的同一交易刪除、冪等重送不因額滿失敗、failed／cancelled 節目接續生成補建缺少的影片並先核對保留、cancelled 影片恢復前核對額度，上傳、建立 Podcast、生成／重試／補建影片超過上限時回 `STORAGE_QUOTA_EXCEEDED`，閱讀、播放與刪除照常；勾選影片的節目按接續生成補建缺少的影片工作、沒勾選的不補；WAV→FLAC 維護腳本的 dry-run 不改任何資料、正式轉換備份與逐位元核對、損毀檔保留原狀並回報、DB 更新失敗還原 WAV、中斷後下次執行收尾、另一程序持有執行鎖時不動任何暫存、fsync 失敗不留 `.tmp`、峰值空間預檢（同盤合併、分盤各自核對）、每檔落地前依實際 FLAC 大小核對剩餘空間並停在不足的那一檔，且影片、分鏡對齊、時間軸與進度前後相同。`e2e/mock/podcasts.spec.ts` 覆蓋建立表單的影片選項、純音訊播放、刪除單集影片（含其他分集仍在製作時）、只計預期影片的進度分母，以及列表對待補影片的舊節目顯示「影片待補」；`e2e/api/podcast-interaction.spec.ts` 由真 API 確認 Chromium 載入 FLAC。
 
-第三次複查的回歸案例另覆蓋：同 key 跨普通／分段入口與不同大小意圖不能沿用舊保留；同意圖並行重送只有一個寫入者、另一個回可重試的 `STORAGE_BUSY`；上傳、建立 Podcast、prepare 交錯時遵循帳號鎖在前並完成；分段重新宣告超額後舊檔與保留不變；A 建立空 metadata 後在拿鎖前暫停、B 同 key 先接受 800 bytes、A 的 1100-byte 宣告再被拒時，B 的 metadata／檔案／保留仍完整且可續傳；failed／cancelled 節目接續時同時恢復 failed 影片；同來源 cancelled 影片 prepare 不排隊也不占額度；不存在教材的普通／分段上傳回 `RESOURCE_NOT_FOUND`。新增租約接手回歸：A 過期、B 接手後，A 遲到失敗或嘗試發布不刪 B 保留，C 仍因額滿被拒，B 可完成；維護清除後的舊單次請求不能發布、舊分段須重新開始。鎖序案例驗證新順序可完成，不宣稱測試本身重現舊版死鎖。
+回歸案例另覆蓋：同 key 跨普通／分段入口與不同大小意圖不能沿用舊保留；同意圖並行重送只有一個寫入者、另一個回可重試的 `STORAGE_BUSY`；上傳、建立 Podcast、prepare 交錯時遵循帳號鎖在前並完成；分段重新宣告超額後舊檔與保留不變；A 建立空 metadata 後在拿鎖前暫停、B 同 key 先接受 800 bytes、A 的 1100-byte 宣告再被拒時，B 的 metadata／檔案／保留仍完整且可續傳；failed／cancelled 節目接續時同時恢復 failed 影片；同來源 cancelled 影片 prepare 不排隊也不占額度；不存在教材的普通／分段上傳回 `RESOURCE_NOT_FOUND`。新增租約接手回歸：A 過期、B 接手後，A 遲到失敗或嘗試發布不刪 B 保留，C 仍因額滿被拒，B 可完成；維護清除後的舊單次請求不能發布、舊分段須重新開始。鎖序案例驗證新順序可完成，不宣稱測試本身重現舊版死鎖。
 
 ## 媒體來源
 
@@ -53,8 +53,6 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 `test_material_notes.py` 另覆蓋同檔同頁核對上下文、獨立規範詞漏引、異檔／異頁排除、未知／重複／與支持判定矛盾的來源 ref 拒絕，以及容量不足時仍保留獨立規範詞。明示的條列標籤或表頭若只存在於未引用的同欄上方原文，程式仍會拒絕對應內容，即使模型回覆支持也直接移除不符位置。回歸保護最近的匹配表頭、無關來源排除與其餘正文保留；不再補引用後重核或局部重寫。
 
 `test_notes_browser.py`／`e2e/api/notes.spec.ts` 使用隔離 DB 與受控模型走真 UI：選句註記、重載、查來源、按需生成完整筆記及筆記更新後依 quote 重新對應註記。`runtime/study/test_note_highlights.py` 驗證標記 CRUD、owner／Origin、錯誤範圍與格式回 400、公式整條範圍（行內公式不得部分保存）、Unicode code point、重生唯一／重複／缺失對應、舊註記以及三種匯出樣式與被註記原句。`e2e/mock/notes.spec.ts` 涵蓋進度頁（批次數、步驟、完成後返回筆記、?view=progress）、知識地圖「在筆記中查看」跳段落、原教材三級章節與章節大綱、複習速覽分頁、末尾未整理概念的地圖連結，以及章節／段落標題、表頭、caption、空章節註記、整條公式的鍵盤選取與重載保存、含行內公式的單區塊選取、選取工具列、標記保存與移除、跨區塊標記及註記限制、BOT 預填不送出、Word 式旁註卡片、手機與鍵盤、失配快照（含 v11 格式）、舊稿寫入、大綱跳轉、巢狀條列、多表格、KaTeX 公式與醒目區塊。修改共用 client 或共用教材分頁列時另跑完整 mock，含 global-layout／shell-layout。部署後用專用測試帳號在正式站 1536／1440 實際選取、保存、重載、開啟 BOT 草稿與註記，並檢查 PDF／Word 匯出。這些介面與合成案例不代表模型內容品質。
-
-真實 v16 驗證另對同份 demo 教材量測複習速覽／完整筆記的篇幅、時間與 Luna 呼叫數，必須實際 ready 並確認原章節、來源與地圖連結；使用者要求保留這些測試分析與教材，名稱加「[測試] 用途 日期」。既有失敗與未驗證項如實記錄。
 
 ## 選擇範圍
 
@@ -341,7 +339,6 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 完整重建後端映像後，以 `python3 -B ops/tests/backend_identity.py <映像>` 核對執行 UID 有 passwd 身分、HOME 為 /tmp，且比照 OCR 子程序的清空環境仍可匯入 transformers、torch inductor cache 與 matplotlib 設定落在 /tmp。腳本以唯讀 rootfs、無網路執行，不 build／pull、不掛產品資料、不載入模型；UID 依 `STUDYDY_BACKEND_UID`（預設20001）。
 
-
 ## 學習資料匯出
 
 筆記與地圖大綱匯出顯示教材真名、教材及版本的 8 碼識別；地圖大綱包含完整重點與原文頁碼、每章 Mermaid。筆記 Markdown 將同檔同頁來源合併為一行，仍列出全部引用區塊。公式由可整列換頁的無框表格承載，避免 PDF 在頁尾縮小；`test_exports.py` 逐張核對跨頁公式與 DOCX 尺寸，並驗證教材標示、註記舊版本短碼及來源合併的頁碼／區塊保存。
@@ -351,7 +348,6 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 受影響的 notes、concept-cards、knowledge-map-viewport、learning-diagnosis、podcasts mock specs 驗證下載格式、整組分批、地圖渲染、失敗訊息與原介面；notes 真 API browser 同時驗證筆記三種下載。共用 client 的二進位下載沿用帳號失效／請求取消，因此仍需完整 mock 套件與 global-layout／shell-layout。這些驗證不宣稱重新驗收生成內容；匯出本身不呼叫模型。
 
 `test_export_uploads.py` 以 148 個合成概念、1200×760 PNG 實際分批送 HTTP，累計 payload 超過舊 90 MiB 上限，核對單批大小、整組 ZIP、下載後清理、逾時清理與鎖定中的工作保留。另以 44 個並行檔案回應、僅 4 個工作執行緒驗證非同步排隊不會死鎖，同時最多佔兩個產檔槽位；Anki 測試禁止在工作目錄外建立 SQLite 暫存。concept-cards browser 案例用實際 Canvas 繪製 148 個概念，核對每批最多兩張與完整下載。
-
 
 卡組暫存上限測試涵蓋並行建立時每人最多兩份、另一位 owner 不受影響、取消後釋放名額，以及總位元組／每概念頁數超限整批不寫入。真 API 與 client 測試核對三種明確錯誤。慢速卡組下載測試確認產檔名額已釋放，暫存仍存在且持鎖，其他匯出可完成，對同一下載的重複下載／取消會立即回忙碌且不占名額；MP4 在兩個產檔名額都被占用時仍可直接下載。
 
@@ -363,30 +359,27 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 `runtime/sources/test_material_runtime.py` 與 `test_source_revisions.py` 核對舊失敗工作在分析提示／OCR 設定變更後，新 run 會略過整份及逐頁 checkpoint、重新擷取與推論並發布；舊 runtime 與所有封存檔案逐位元保留，completion 記錄沒有重用。舊 runtime binding 無法核對時也不讀取其快照；相容快照仍正常接續，入選快照內容損毀仍明確失敗。
 
-
 `test_ocr_page_evidence.py` 驗證頁底大字的編號章節標題，以及下一頁定義歸入該節；無編號頁尾不因此變成標題。`test_material_review.py` 驗證帶數字編號的章節名稱仍保護對應概念，metadata提案不能將它刪除。這些離線回歸不代替指定教材部署後的真實重分析。
 
 `runtime/sources/test_demo_reanalysis_budget.py` 使用隔離 PostgreSQL 驗證並行保留只使用剩餘額度、新連線不重設、一般版本不套維護額度。`test_demo_reanalysis_flow.py` 以受控 provider 驗證同來源全量重分析、固定指令冪等、舊版保留、耗盡不外送且不換 head、章節與首次摘要共用額度、首次摘要失敗重試不重設，以及首次完成後手動重生不受本次限額。`test_demo_reanalysis_boundary.py` 驗證外送前阻擋及 Compose 新程序的 DSN 初始化；不使用真實教材或模型，不代替部署後指定教材驗收。
 
-
-`test_demo_reanalysis_resume.py` 使用隔離DB與受控provider，驗證指定失敗run只恢復一次、原11/300與來源/runtime身分保留、並行只有一次成功、實際worker在同run重新執行並逐次累計請求，並拒絕取消、head改變、其他活躍工作、耗盡、非指定run及非授權錯誤。恢復後再次失敗維持failed，不能再排或重設額度；CLI分派測試確認`--resume-once`不建立新工作。這些測試不執行正式恢復或真實模型。
+`test_demo_reanalysis_resume.py` 使用隔離DB與受控provider，驗證指定失敗run只恢復一次、原額度與來源/runtime身分保留、並行只有一次成功、實際worker在同run重新執行並逐次累計請求，並拒絕取消、head改變、其他活躍工作、耗盡、非指定run及非授權錯誤。恢復後再次失敗維持failed，不能再排或重設額度；CLI分派測試確認`--resume-once`不建立新工作。這些測試不執行正式恢復或真實模型。
 
 ## 刪除後的學習統計與慶祝
 
 `runtime/study/test_learning_retention.py` 以真 DB 驗證教材／卡組／Podcast 刪除前後 XP、等級、作答數、連續日與學習節奏保留；跨卡時間間隔、重複刪除、卡片／收聽／關卡每日上限、兩個同帳號請求的原子領取，以及既有帳號 migration 套用與交易回滾。`test_learning_rewards.py`、`test_learning_badges.py` 和 `test_version_moves.py` 保留既有計分與移版去重回歸，已取得徽章改為永久保存。測試無真實模型與產品資料。
-## 隔夜來源、筆記與匯出投影
+## 來源、筆記與匯出投影
 
 `test_overnight_material_projection.py` 驗證固定來源新增數、持久前後計數及從歷史審查封存唯讀投影疑義，結構hash不變。`test_overnight_goal_notes.py` 驗證草稿／主題選擇持久化、發布排程、可達建議套用與舊筆記來源，配合 media_source_flow、learning_insights、material_qa、topics、note_queue 回歸。匯出測試實際產生PDF／DOCX／ZIP，頁尾註腳、公式與完整長文不裁切；Mermaid另在獨立瀏覽器以合成中文／特殊字元樣本渲染，不外送教材。
 
 `runtime/materials/test_storage_breakdown.py` 使用真DB與隔離分析目錄，核對單一SQL、每個目錄只掃一次、五類加總、包含預留與分析資料的前五教材、未知歸屬檔案仍計總量。相關podcast_storage容量／保留案例保護原接受規則。
 
-
 `test_podcast_generation_steps.py` 以隔離 DB 驗證步驟與實際領取／發布、分鏡／影片工作一致，略過身分保存及 migration 套用回滾；`test_podcast_process.py` 以真鎖驗證排隊與執行。provider 受控回應另驗證少量、半數與過半略過仍發布，以及略過重點去重，不呼叫真模型。
 
 `test_voice_sentences.py` 使用真DB與合成PCM驗證完整核對後切句、句序、第一句先可讀、未完成整份不下載、取消拒絕遲到結果、失敗重試不重做已完成句、最後串接及migration套用回滾。`test_voice_audio_timings.py` 使用真HTTP與真provider鎖驗證實測等待／合成header；問答回歸驗證三段階段量測，不呼叫模型。`runtime/materials/test_voice_retry.py` 核對一次驗證重試、每輪原始候選私有保存，以及截斷／provider錯誤／取消不重播；`test_luna_call_tags_workflows.py` 保護兩個嘗試的 `:1`／`:2` 身分及候選與原因。離線量測只證明計時與生命周期，不作真實回答延遲改善宣稱。
 
-T2 的 `test_media_sources.py` 以真實逐字稿 PDF→native Evidence 驗證段界與合字展開；`test_ocr_page_evidence.py` 以真實 PDF 驗證中文詞內換行與公式字面值保留。`test_spoken_analysis.py` 核對疑義還原僅回到原引用、保留 needs_review 而不把診斷加進重點。這些測試不代替隔離重分析的語意品質比較。
+`test_media_sources.py` 以真實逐字稿 PDF→native Evidence 驗證段界與合字展開；`test_ocr_page_evidence.py` 以真實 PDF 驗證中文詞內換行與公式字面值保留。`test_spoken_analysis.py` 核對疑義還原僅回到原引用、保留 needs_review 而不把診斷加進重點。這些測試不代替隔離重分析的語意品質比較。
 
-`test_version_entry_state.py` 以隔離DB驗證真發布後安全自動移動、三類不安全留手動、返回保留新標記與head、提醒跨瀏覽器、同head分次移動用move_id判過期、無引用副本清理且原始事件／最小收據保留及migration套用回滾；原test_version_moves保護手動預覽／冪等／XP不重算。S5不在正式站測清理或部署。
+`test_version_entry_state.py` 以隔離DB驗證真發布後安全自動移動、三類不安全留手動、返回保留新標記與head、提醒跨瀏覽器、同head分次移動用move_id判過期、無引用副本清理且原始事件／最小收據保留及migration套用回滾；原test_version_moves保護手動預覽／冪等／XP不重算。
 
 `runtime/study/test_library_search.py` 使用隔離 DB 驗證四類搜尋的 30＋5 筆分頁、精確總數、穩定順序、跨帳號與刪除過濾，以及既有不帶分頁參數的回應。`header-tools.spec.ts` 驗證分類數量、全部預覽、鍵盤分類切換、分頁邊界、按需讀取、換頁捲動與首筆焦點，並保留概念與卡組開啟、失敗重試與輸入焦點。

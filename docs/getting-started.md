@@ -41,8 +41,6 @@ chmod 600 .env
 | STUDYDY_MATERIAL_REVIEW_CONCURRENCY | 一份教材同時送出的複核批次數，正整數，預設 1；Luna 並行測試時固定 2 |
 | COMPOSE_PROFILES | 直接 HTTP／HTTPS 留空；使用 SSH 設 ssh |
 
-Podcast 由單一協調 worker 持有整份租約；`STUDYDY_PODCAST_WORKERS`（預設 1）控制同份 Podcast 各集製作，以及各集第一輪段落核對的並行數。文字請求共用同一數量的槽，不因集數與段落兩層並行相乘。各集完成即保存，整批結束才釋放租約；中斷後從未完成的步驟接續。前段修正影響後段核對依據時，後段會重新核對。語音服務的 GPU 鎖維持原樣。
-
 容器的 127.0.0.1 指向自己。模型在主機時可使用 host.docker.internal，但服務須監聽容器可達介面；其他容器或遠端服務使用其可達 origin。
 
 ## 建置與服務管理
@@ -136,7 +134,7 @@ Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排�
 
 講稿採節目形式（`source-script/v17`）：開場引子＋本集路線、段落串場，結尾 3～5 點回顧；宣告點數與逐輪編號由程式核對，每個有來源的回顧項目各用一輪，不一致沿用逐段重寫，重寫仍錯只略過該收尾；並依下一集的概念名稱預告；系列最後一集不預告。雙人時 host 帶節奏（開場、串場、生活例子、替聽眾整理、收尾），guest 深入說明，兩人都懂內容，一起為聽眾講解，不是逐點一問一答；單人由一位主持人講完整集，套用相同結構。數字與公式口語只講做什麼、為什麼與結果並保留關鍵數字，需要的解釋直接說清楚，不引導聽眾看畫面或點擊介面；口頭回顧仍可說「本集重點」。prompt 禁止補來源沒有的邊界／等號條件、替未標示的數值加標籤、跨範例混用數值，來源互相矛盾的數字不念。生成後由 backend 以同一文字模型逐段對照引用原文再核對一次（見[測試](testing.md#podcast-現行驗證範圍)）：不符只重生該段並重核，仍不符只略過該段；不因略過重點比例而拒發其餘已核對部分；只有沒有任何可保留段落才以 `PODCAST_SCRIPT_NEEDS_REVIEW` 失敗，開場與收尾不計入門檻，可接續生成重試；每集模型呼叫為 1 次生成＋每段 1 次核對，另加每次重生 2 次。建立 Podcast 時從 `podcasts.HOST_PAIRS` 抽一組主持人名字存入每集 `hosts`（host 對應女聲 host.wav、guest 對應男聲 guest.wav，單人只存 host），同系列各集相同；worker 生成講稿時帶入 `hosts` 與 `series`（集數、總集數、下一集概念名稱）。節目化前已建立但尚未寫稿的集數，在領取時補抽一組名字，已完成的集數不改寫。主持人只在「我是某某」的自我介紹說出自己的名字，其餘自稱用「我」，可以叫對方的名字；以名字自稱的台詞由逐段核對列為不符並重寫該段；重寫後只剩自稱時照常發布，只在工作日誌記位置。整集仍以 9600 字、12 個 beat 為上限，開場與收尾也算在內；模型輸出的每個 beat 至多 12 輪，與語音合成的上限一致。
 
-Podcast 在 `synthesize.py` 接收模型的已知句子邊界，交給 `dialogue_audio_repair.py` 處理。句首孤立非週期脈衝只在符合保護條件時移除，短有聲字詞及緊接母音的子音保留；10／20ms 淡入淡出消除硬接點。語速依中文發音量及 CMU 英文音節與實際音訊估計，小幅拉近偏離本集長句中位數的部分，保留音高；短語氣詞及未知發音不調速。句尾／問句／換人或 beat 使用 .24／.26／.32 秒停頓目標，扣除音訊本身的安靜區，不疊加靜音。規則不依賴特定字句、來源 ID 或時間點。
+Podcast 在 `synthesize.py` 接收模型的已知句子邊界，交給 `dialogue_audio_repair.py` 處理。句首孤立非週期脈衝只在符合保護條件時移除，短有聲字詞及緊接母音的子音保留；10／20ms 淡入淡出消除硬接點。語速依中文發音量及 CMU 英文音節與實際音訊估計，小幅拉近偏離本集長句中位數的部分，保留音高；短語氣詞及未知發音不調速。句界停頓採 `dynamic-pauses/v2`（`pause_seconds`，數值見[部署文件](deployment.md#podcast-與-studydy-ai-bot-的語音流程)），扣除音訊本身的安靜區，不疊加靜音。規則不依賴特定字句、來源 ID 或時間點。
 
 最終 WAV 仍由 `audio_mastering.py` two-pass FFmpeg loudnorm 處理，目標 −19 LUFS／−2 dBTP，成品容許 ±1 LU、true peak ≤ −1.9 dBTP。mastering schema／policy 不變；音訊 provider 身分包含 `rl-reference-vw;spoken-input/v15;dynamic-pauses/v2;podcast-mastering/v1`。失敗不發布部分檔案，所有字幕與畫面對齊仍以最終 WAV 為準。原音訊不批次改寫；需新建 Podcast 才會採用新版。
 
@@ -146,17 +144,15 @@ FFmpeg 優先使用本機 executable 或 imageio-ffmpeg，否則由既有 `STUDY
 
 provider 使用 `data/podcast/runtime/`；語音使用 `data/podcast/cosyvoice-b-runtime/`，其 `.pth` 沿用唯讀的原 `cosyvoice-runtime` 依賴並加入 [requirements.txt](../ops/podcast/requirements.txt) 的 B 正規化套件，不修改兩版共用 `backend/.venv`。每次子程序結束釋放 GPU；Podcast 音訊生成不設固定完成期限，失敗不發布部分音訊。權重、官方 source、B 參考聲線與正規化快取位於 `data/models/podcast/` 的 `cosyvoice3/`、`cosyvoice-source/`、`cosyvoice-b-voices/`、`normalizer/`。模型與 source 來源：[CosyVoice 官方 repository](https://github.com/QwenAudio/CosyVoice)。
 
-私有 `data/podcast/provider.env` 設定 `STUDYDY_PODCAST_TTS_PYTHON`（保留 venv Python 入口）、`STUDYDY_COSYVOICE_SOURCE_DIR`、`STUDYDY_COSYVOICE_MODEL_DIR`、`STUDYDY_COSYVOICE_VOICES_DIR`、`STUDYDY_COSYVOICE_NORMALIZER_CACHE` 及主機 CUDA 12.8 的 `LD_LIBRARY_PATH`。既有 Podcast 保留原音訊；需新建 Podcast 才能完整使用新講稿與聲線。公開比較頁已移除。
+私有 `data/podcast/provider.env` 設定 `STUDYDY_PODCAST_TTS_PYTHON`（保留 venv Python 入口）、`STUDYDY_COSYVOICE_SOURCE_DIR`、`STUDYDY_COSYVOICE_MODEL_DIR`、`STUDYDY_COSYVOICE_VOICES_DIR`、`STUDYDY_COSYVOICE_NORMALIZER_CACHE` 及主機 CUDA 12.8 的 `LD_LIBRARY_PATH`。既有 Podcast 保留原音訊；需新建 Podcast 才能完整使用新講稿與聲線。
 
 主機服務設定見 [studydy-podcast.service](../ops/podcast/studydy-podcast.service)，載入私有 `data/podcast/provider.env`。服務啟動前建立 `data/podcast/tmp/`，以 `TMPDIR` 指向此硬碟目錄；provider 與其子程序的音訊、講稿、STT 及對齊暫存共用此設定，避免 WSL 的 `/tmp` tmpfs 佔用記憶體。正式版 `.env` 的 `STUDYDY_PODCAST_PROVIDER_URL` 指向 `http://host.docker.internal:18010`，`STUDYDY_PODCAST_PROVIDER_TOKEN` 與主機服務的 token 相同；至少 32 字元。provider 只監聽 Docker gateway `172.17.0.1`，不公開 port，也不经过 Cloudflare。不同主機須核對 gateway 與 service 中的絕對路徑。
 
 既有安裝更新此 service 時，將檔案更新至 `~/.config/systemd/user/studydy-podcast.service`，保留現有 drop-in（包含部署 bundle 的 `ExecStart`），執行 `systemctl --user daemon-reload`。取得部署放行並等待進行中的工作清空後，才重啟 provider；僅更新 repo 內檔案不會改變正在執行的服務。
 
-Podcast 的講稿、音訊、字幕與影片工作會將工作 ID／本次 lease 傳給 provider。介面的「取消並刪除」與刪除使用相同流程：停止整份 Podcast，刪除所有分集的講稿、音訊與影片，原教材保留，不留下暫停項目。worker 會通知 `/jobs/cancel`，provider 會中斷等候資源鎖的請求並終止整個子程序群組。清單與播放器另外呈現影片／字幕工作，避免音訊已完成時隱藏尚在生成的工作。失敗重試使用新 lease，舊取消訊號不會停止新工作。Podcast 音訊連線建立後不設固定等待期限，工作租約在 worker 存活時續期；15 分鐘租約只用來回收失聯 worker，不是生成時間上限。講稿、核對與分鏡改由 backend 依 runtime lock 呼叫文字模型、影片 `/video` 改為 prepare／render 兩段後，舊 backend 與新 provider（`/script`、`/scene-check` 已移除）或新 backend 與舊 provider（不認 `stage`）都會失敗，因此 backend 與 provider 須在同一停機時段一起更新；部署前等待進行中的工作清空並確認舊服務沒有殘留程序；不取消使用者工作，等待超過一小時停止並詢問。這不代表遠端模型服務已受理的請求一定能撤銷計費。
+Podcast 的講稿、音訊、字幕與影片工作會將工作 ID／本次 lease 傳給 provider。介面的「取消並刪除」與刪除使用相同流程：停止整份 Podcast，刪除所有分集的講稿、音訊與影片，原教材保留，不留下暫停項目。worker 會通知 `/jobs/cancel`，provider 會中斷等候資源鎖的請求並終止整個子程序群組。清單與播放器另外呈現影片／字幕工作，避免音訊已完成時隱藏尚在生成的工作。失敗重試使用新 lease，舊取消訊號不會停止新工作。Podcast 音訊連線建立後不設固定等待期限，工作租約在 worker 存活時續期；15 分鐘租約只用來回收失聯 worker，不是生成時間上限。講稿、核對與分鏡由 backend 依 runtime lock 呼叫文字模型，影片 `/video` 分 prepare／render 兩段；backend 與 provider 介面須相符，因此兩者須在同一停機時段一起更新；部署前等待進行中的工作清空並確認舊服務沒有殘留程序；不取消使用者工作，等待超過一小時停止並詢問。這不代表遠端模型服務已受理的請求一定能撤銷計費。
 
 Provider 將工作 ID、分集索引、操作、耗時、固定原因碼與例外類型寫入本機 `data/podcast/job-events.jsonl`，每份最多 1 MiB，輪替保留兩份備份。講稿工作的 `script_review`（模型呼叫次數、被退回的台詞位置或來源編號）由 backend 的 `podcast_script_review` 日誌事件記錄。不記錄教材、講稿台詞、核對理由、工作 token、憑證或例外原文。
-
-
 
 ```bash
 systemctl --user status studydy-podcast.service
@@ -203,7 +199,7 @@ Luna 的後端總額度為 65,536 tokens，包含輸入與輸出，使用與 pro
 
 `backend/src/runtime/podcast_video_render.py` 沿用有限圖形與 1920×1080／60fps MP4（CPU 繪圖，H.264 可選 CPU／NVENC 編碼），不執行模型程式碼。reveals 由語意目標的 cue 編譯、同 cue 合併，顯示後保留至頁尾；相關節點不晚於連線出現，單位與必要條件仍由內容審查核對。v4 聚焦頁的卡片在下一張開始時短暫交叉淡化，章節列同步改變狀態；重點詞以同字級、同斷行的卡片主色字加淡色底呈現，於所屬卡片被講到時淡入。v4 文字行距為 1.5 倍字級，v2／v3 維持原行距。comparison／exchange 與 v3 相同，由 `podcast_video_motion.py` 以 manifest、實測 timeline 與目前媒體秒數直接計算狀態：節點及文字淡入、線條／箭頭 draw-on、焦點明暗與淡底平滑轉移，已出現的次要內容仍保留。flow／exchange 指示沿既有箭頭一次性推進並移交節點焦點；不循環、不表示實際封包速度。同一 anchor 的目標同時聚焦，不編造更細的先後。v3 relation 不再疊加第二個 trace 指示。換頁後使用短 crossfade，舊頁以邊界前的確定畫格計算，底部提示與進度仍取目前時間。固定的視覺時長上限皆受實測窗口限制；seek／倍速沒有前一影格的殘留狀態。舊 underline／outline／trace 圖形契約保留可讀，標記不設必填配額。
 
-此 v4 格式升級順序為先更新可接受 v4 的 backend，再更新／重啟 video provider（`video_service.py` 與 `podcast_video_*` 編譯／繪製模組同一份 checkout）。backend 在保存結果時仍接受 v2／v3 storyboard。provider 會直接載入同一份 checkout 的編譯模組，所以更新 checkout 後要立即重啟 provider；重啟前仍在執行的舊行程產生的分鏡會被新編譯器以 `VIDEO_STORYBOARD_INVALID` 拒絕，該集標為失敗、需重試，不會寫入壞資料。已完成影片的 MP4、timeline 與保存的 storyboard 讀取時不重新驗證，也不掃描、重排或重製 ready 產物。
+分鏡格式升級時先更新可接受新格式的 backend，再更新／重啟 video provider（`video_service.py` 與 `podcast_video_*` 編譯／繪製模組同一份 checkout）。backend 在保存結果時仍接受 v2／v3 storyboard。provider 會直接載入同一份 checkout 的編譯模組，所以更新 checkout 後要立即重啟 provider；重啟前仍在執行的舊行程產生的分鏡會被新編譯器以 `VIDEO_STORYBOARD_INVALID` 拒絕，該集標為失敗、需重試，不會寫入壞資料。已完成影片的 MP4、timeline 與保存的 storyboard 讀取時不重新驗證，也不掃描、重排或重製 ready 產物。
 
 新影片底部只放短焦點提示，完整字幕保留 WebVTT，由播放器設定中的字幕按鈕切換。播放器沿用瀏覽器 VTT cue 的實測時序，在可換行的字幕區呈現；字幕底緣依控制列高度與 viewport 調整，避免手機長字幕裁切或被播放控制遮住。既有 MP4、`flat-report/v3`／`v4` manifest 與原顯示方式不自動重製；來源、音訊、script hash、ownership 與晚到結果隔離仍沿用原規則。
 
@@ -211,8 +207,7 @@ Luna 的後端總額度為 65,536 tokens，包含輸入與輸出，使用與 pro
 
 渲染環境依賴見 `ops/podcast/video-render-requirements.txt`，字型為 Noto Sans CJK。provider.env 設定 `STUDYDY_VIDEO_PYTHON`（獨立渲染環境）、`STUDYDY_VIDEO_WORK_DIR`（暫存目錄）、`STUDYDY_VIDEO_MIN_FREE_BYTES`（最低可用容量）及可選的 `STUDYDY_VIDEO_HOST_FREE_PATH`（宿主磁碟容量檢查）。`STUDYDY_VIDEO_ENCODER` 選擇 `libx264`（預設）或 `h264_nvenc`；後者需要設定 `STUDYDY_VIDEO_FFMPEG` 指向含 NVENC 的 FFmpeg，以及可用的 NVIDIA 驅動。WSL 主機的 `LD_LIBRARY_PATH` 須包含 `/usr/lib/wsl/lib`。目前正式主機已設定為 `h264_nvenc`。編碼器失敗直接回報，不靜默退回 CPU。相同視覺狀態的頁面使用最多兩頁快取；動畫與進度仍由原媒體時間決定，不降低影格率。Linux 影格 pipe 使用 1 MiB 緩衝以減少傳送切換成本。影片同時渲染的集數由 `STUDYDY_VIDEO_WORKERS`（預設 1）限制，每集暫存檔處理後清除；不用下載影片生成模型。來源不足或驗證失敗會保留失敗狀態，不視為通過。
 
-已認可的原節奏樣片可保留實際來源與時間軸作為既有產物；單一樣片不代表任意教材均已驗收。Gemma 分鏡尚未驗證。臨時比較頁及專用產生腳本已移除。
-
+已認可的原節奏樣片可保留實際來源與時間軸作為既有產物；單一樣片不代表任意教材均已驗收。Gemma 分鏡尚未驗證。
 
 ## Podcast 互動與升級邊界
 
