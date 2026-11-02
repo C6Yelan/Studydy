@@ -26,7 +26,7 @@ flowchart LR
 
 Nginx 代理同源/v1 API。API 處理身分、讀寫邊界及建立工作；worker 執行轉檔、分析／檢核與題組準備。PostgreSQL 保存狀態與 metadata，檔案位於 STUDYDY_DATA_DIR/artifacts。
 
-教材處理由 STUDYDY_MATERIAL_WORKERS 設定執行緒數（預設 1），卡組與主題研究的執行緒數由 STUDYDY_CARD_WORKERS／STUDYDY_RESEARCH_WORKERS 設定（預設 1），題組準備與定期資料復原各維持一條執行緒，不依賴模型種類。啟動復原只執行一次，完成後額外教材執行緒才開始領取；來源正規化與筆記沿用資料庫互斥領取，章節 request_gate 互斥保留；每個領取與發布仍須通過原有 PG lease／token 與來源版本檢查。這項排程隔離不代表模型能同時推論，實際容量仍由既有 provider 控制。
+教材處理由 STUDYDY_MATERIAL_WORKERS 設定執行緒數（預設 1），卡組與主題研究的執行緒數由 STUDYDY_CARD_WORKERS／STUDYDY_RESEARCH_WORKERS 設定（預設 1），題組準備與定期資料復原各維持一條執行緒，不依賴模型種類。啟動復原只執行一次，完成後額外教材執行緒才開始領取；來源正規化與筆記沿用資料庫互斥領取，章節 request_gate 互斥保留；每個領取與發布仍須通過原有 PG lease／token 與來源版本檢查。這項排程隔離不代表模型能同時推論，實際容量仍由 vLLM 服務端控制。
 
 Podcast 由單一協調 worker 持有整份租約；`STUDYDY_PODCAST_WORKERS`（預設 1）控制同份 Podcast 各集製作，以及各集第一輪段落核對的並行數。文字請求共用同一數量的槽，不因集數與段落兩層並行相乘。各集完成即保存，整批結束才釋放租約；中斷後從未完成的步驟接續。前段修正影響後段核對依據時，後段會重新核對。語音服務的 GPU 鎖維持原樣。
 
@@ -142,13 +142,3 @@ Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文�
 知識結構發布前建立 `material_retrieval_indexes` 與 `material_passages`。PostgreSQL GIN 索引使用中文雙字、技術術語、概念名稱與別名；它是可重建的取材投影，不是第二份教材事實來源，也沒有另啟 embedding 模型。問答、研究規劃與 Podcast 共用此索引。問答使用文字模型補查術語以處理不同用詞，最多再取一次來源；每個查詢都固定 owner、教材與 revision。
 
 索引與知識結構同一交易發布，索引失敗不更新教材 head。索引階段可沿已保存的分析與檢核結果重試，不必重新呼叫模型。新來源綁定為 `structure-input-binding/v2`／`source-set/v2`／`bundle-manifest/v2`；舊格式不轉接、不自動遷移，原始檔案不刪除。
-
-## 附屬狀態表
-
-作答 presence 存於 PostgreSQL `assessment_presence`，鍵為 learner/material/browser，題組刪除以外鍵 cascade 清理。問答 API 以可信登入帳號及對話教材檢查，並連接題組即時狀態；交卷與回答在同交易完成，completed 題組不再阻擋提問。
-
-Podcast 步驟時間：講稿／音訊放在分集 step_times，對齊／影片使用工作表 started_at／finished_at。只讀 provider `/jobs/progress` 用 job_id＋job_token 對應活動請求，觀測真正等待鎖／持鎖狀態；回應不含教材、帳號或台詞。段落略過只改發布取捨，不改核對提示或 runtime lock。
-
-逐句語音回答的 voice_sentences 由 voice_turns 外鍵 cascade 管理，保存句序、原文、狀態、WAV 及時長；只有已核對回答能建立句列，租約仍由原 turn 持有，取消與遲到結果沿用原檢查。provider 回傳 X-Studydy-Audio-Timings 供排隊／合成量測，不改 GPU 鎖或朗讀前處理規則。
-
-教材新版承接使用 material_version_state 保存教材更新前 head、目標 head、帳號提醒、最近一次移動入口快照及自動工作結果。發布交易排入 pending，教材 worker 在發布完成後計算安全預覽，以既有教材鎖／移動冪等鍵建立入口；不在未 commit 的新版上讀學習進度。清理保護原始事件及移版身分鏈，只釋放無引用副本。

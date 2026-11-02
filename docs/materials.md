@@ -35,6 +35,8 @@
 
 會新增檔案的入口在帳號層級的 PostgreSQL advisory lock 內以短交易完成「再次辨識冪等 key＋核對額度＋建立保留」，檔案落盤在鎖外：上傳教材以「已用＋本次大小 > 上限」判斷；分段上傳在第一段以「已用＋宣告大小」判斷；加入 YouTube 在空間已滿時拒絕（參照很小，不另保留）；建立 Podcast 以「已用＋集數 ×（音訊估值＋勾選影片時的影片估值）」判斷；生成、重試或補建影片以「已用＋待保留集數 × 影片估值」判斷（已有保留的分集不重複計）。上傳保留綁定入口（普通／分段）、帳號、教材、Idempotency-Key 及請求意圖（檔名、媒體類型、宣告大小；單次上傳另含內容雜湊）。不同入口的同 key 會重新核對額度；普通上傳同 key 不同意圖依既有冪等規則回 `IDEMPOTENCY_CONFLICT`；同意圖已完成的重送回傳原結果，不因額滿失敗，普通上傳進行中的並行重送回可重試的 `STORAGE_BUSY`（HTTP 503），不另行寫入。分段請求由檔案鎖依序處理，第一段代表重新宣告。分段重開先核准新宣告，再移除舊分段與 metadata；拒絕時保留舊狀態，不刪除作為檔案鎖的 metadata，以免影響另一個已接受或等鎖的請求；初次拒絕留下的空檔沿用一天後的暫存清理。接受前先核對教材權限與狀態；同時需要帳號鎖與教材鎖的交易一律先取帳號鎖，再取教材鎖（包含外鍵需要的鎖），只有教材鎖的背景成品寫入／刪除不取帳號鎖。超過上限回 `STORAGE_QUOTA_EXCEEDED`（HTTP 409），回應附 `storage.used_bytes／limit_bytes`；帳號鎖等待超過 5 秒回可重試的 `STORAGE_BUSY`（HTTP 503）。已有內容照常閱讀、播放、匯出與刪除。卡組匯出暫存由維護程序清除、Podcast MP3／Markdown 匯出在記憶體產生，不計入。`GET /v1/account/storage`（`account-storage/v2`）回傳已用（含保留）、保留、上限、剩餘、五類細項與依用量排序的前 5 大教材，顯示於全站頁首經驗條右邊：大於 1280px 為儲存圖示、細進度條與已用／上限；1280px 以下為圖示與整數百分比（已用大於零但不足 1% 顯示「<1%」）。點按展開已用、上限、剩餘與預留說明、分類分色堆疊條及各類大小，並可從佔用最多的教材清單進入教材（API 回傳前 5 份，面板顯示前 3 份）；細項合計等於已用，預留不重複加總。空間已滿以警示色與警告文字呈現。教材工作區不顯示。
 
+`account-storage/v2` 的五項 breakdown 為教材原檔與轉換檔、Podcast 音訊、Podcast 影片、分析資料、處理中保留額度。largest_materials 的用量包含各自分析資料與保留額度。同一次 SQL 取得檔案／保留／教材名稱，同一次目錄掃描取得分析總量與教材歸屬；不宣稱 DB 和磁碟為原子快照。無法對應現存教材的分析檔仍計入總量，不提供失效教材連結。
+
 ## 圖片、音訊、影片與 YouTube
 
 圖片組在瀏覽器依目前順序打包成不壓縮的 ZIP（`0001.png`、`0002.jpg`…），原檔即此壓縮檔。沙箱以 PyMuPDF／PyAV 將每張圖排成一頁（長邊 842 pt，JPEG 依 EXIF 轉正），mapping 記錄 `image_number`；之後與掃描 PDF 相同，由 Unlimited-OCR 建立 Evidence。嵌入 PDF 的一律是壓縮影像：不超過 1.5 MiB 且長邊不超過 2,500 px 的 JPEG 原樣嵌入，其餘縮到長邊 2,500 px（OCR 繪製約 2,340 px 已足夠）後以 PNG 或 JPEG 嵌入；50 張 1,200 萬畫素手機照片（合計 88 MiB）轉成約 30 MB 的 PDF。HEIC 不支援：PyAV 無法組合 iPhone 照片常用的圖塊格式。
@@ -83,8 +85,6 @@ Evidence 保留教材、1-based 頁碼、區塊、定位及技術字面值。換
 
 審查修正也會檢查混入中文敘述中的外語詞；局部修字時保護其餘文字與公式。Claim 修正以套用後實際保留的「原引用＋模型選取引用」核對支持，避免誤判原有公式沒有來源；審查紀錄仍分別保留模型真正選取的引用，不把原引用冒稱為新增選取。
 
-舊 `contiguous-evidence-new-input/v1` 的 run 與 hash 原樣保留；本次已知 v1 → 獨立子圖策略允許在新的 retry 工作中沿用已保存的 Evidence、概念與游標，只處理剩餘來源。不允許反向降級或藉此換模型／任意改提示。provider 的教材語意請求使用八個槽位，其他文字功能保留原串行鎖；GPU 服務端仍有自己的實際併行上限。
-
 分批容量探測從 8 個 Evidence 起逐倍擴大，遇到上限後縮小搜尋範圍，避免每批先把所有剩餘教材送到 tokenizer。最後仍核對實際請求容量、保留輸出空間，並盡量沿章節邊界切分；單一 Evidence 不截斷，放不下時如實失敗。
 
 單一尚未被 Claim／Relation 引用的 OCR 區塊超過輸入額度時，可從原 PDF 的同一區域裁切後重辨識一次。新文字建立新的 Evidence ID，保留原頁、區域與閱讀順序；新工作保存重辨識紀錄及 checkpoint，原失敗工作不改寫。仍放不下、已被引用、原文非 OCR 或儲存失敗時如實停止。OCR 次數包含這次區域重辨識，因此可能大於頁數。現行 OCR 防重複窗口為 256，並拒絕未正常 EOS 結束的生成；這是執行恢復機制，並非內容品質驗收。
@@ -123,11 +123,13 @@ Evidence 保留教材、1-based 頁碼、區塊、定位及技術字面值。換
 
 有可用新增內容的 partial／needs_review 結果可發布；無可用新增內容、取消或失敗時保留目前 head。一般產品介面沒有重新分析或只重新檢核目前版本的入口；學生產生新版本須從教材來源頁開啟獨立的「新增來源」頁（`/materials/{material_id}/sources/new`），沿用上傳頁的選檔、上傳與確認步驟，返回同一教材確認來源後更新地圖（或由補充學習追加來源）。新內容發布後，安全時由伺服器自動承接卡組與學習；有無法帶過去的項目時，在教材頁按「更新」預覽並確認（見[學習與評量](learning.md#更新卡組與學習進度)）。
 
-指定教材可另用[一次性維護重分析指令](deployment.md#一次性維護重分析)。它使用原來源建立全量分析工作，保留原版本與學習紀錄；分析、審查、合併、新版章節及首次自動摘要共用該 run 的模型請求額度，重啟、失敗與首次摘要重試不重設額度。首次摘要完成後的手動重生及完整筆記不屬於維護範圍。此維護模式沒有公開 API，不改一般新增來源流程；指定失敗 run 只能以 `--resume-once` 恢復一次，再次失敗不得重設額度再排。
-
 ## 文字筆記
 
 教材的「筆記」提供「複習速覽」與「完整筆記」，新生成契約為 `material-notes/v17`。章節依已保存原教材標題與原文順序，最多三層；可辨認的原章節編號決定父子層級，無編號標題不猜層級，超深標題攤平到第三層。多檔教材依來源清單一檔一章，檔內放原小節；單檔沒有可用標題時，以知識地圖分區作章節。每個重點按最早直接 Evidence 的來源、頁碼及區塊歸屬章節，全部引用仍保留。每章開頭的大綱由程式列出小節，不請模型另寫或重新安排章節。不加 emoji，正文不可直接編輯。
+
+筆記 API 的回應格式為 `material-notes/v3`，與生成契約 `material-notes/v17` 分開。content_revision／content_generation 指目前真正顯示的舊稿，source_resolver 跟該稿走；請求 revision 的 status／generation／progress 描述新稿。新版尚無已發布筆記時，讀取最近較舊的同種類已發布稿；started_at／updated_at／updating 供進度顯示。兩種筆記皆提供分區進度，第一批完成前以不確定狀態呈現。既有清理保護兩種筆記各自最近可讀稿的來源，沒有新增清理入口。
+
+筆記小節的來源標記依原本小節綁定放在末尾，不推測逐句來源；預覽顯示檔名、位置與原文節錄，點擊在右側查看原文。舊段落註記仍使用當時的來源定位。
 
 兩種筆記的段落保留 claim、Evidence 與概念關係，可開啟原文或在地圖查看。`sections` 只負責章節標題、層級、大綱與段落位置，不冒充有來源的正文。章節與缺漏清單保存於 `material_notes.published_metadata`，隨正文在同一交易發布；更新中仍使用舊稿的完整 metadata。已發布舊契約稿在更新或重新生成前保持原樣，v11以前格式仍可閱讀與匯出。
 
@@ -243,11 +245,10 @@ SearXNG 由 Compose 的 `research-search` 提供，只在 application 網路內�
 
 新格式不保留舊版讀取轉接。舊教材或舊回答無法使用時顯示明確訊息，可從保留的原檔重新建立；不會背景重分析、覆寫舊版本或刪除原檔。
 
-歷史 `material-notes/v10`（含原 `summary_layout`）與 v11／v12 runtime lock 仍可通過結構驗證供教材分析續接，不改寫封存內容或 hash；筆記生成仍嚴格要求現行 `material-notes/v17` 契約及其提示，不執行舊版生成。
-
 ## 分析暫時失敗與自動接續
 
-一般使用者分析遇到 RESTART_INTERRUPTED、語意服務暫時不可用／逾時、STORAGE_BUSY 或 SOURCE_BUSY 時，沿同一 run 與已保存 checkpoint 自動接續一次。auto_retry_count／auto_retry_reason 存在工作列，程序重啟不重設，第二次失敗才回 failed；排回 queued 時本次執行進度重新建立，已驗證 checkpoint 不刪除。取消、內容核對（REVIEW_*）、一般模型生成失敗、格式／容量錯誤及空間不足不重試。指定一次性維護 run 排除在此規則之外，仍遵守既有「恢復後再失敗不得自動重排」授權。
+一般使用者分析遇到 RESTART_INTERRUPTED、語意服務暫時不可用／逾時、STORAGE_BUSY 或 SOURCE_BUSY 時，沿同一 run 與已保存 checkpoint 自動接續一次。auto_retry_count／auto_retry_reason 存在工作列，程序重啟不重設，第二次失敗才回 failed；排回 queued 時本次執行進度重新建立，已驗證 checkpoint 不刪除。取消、內容核對（REVIEW_*）、一般模型生成失敗、格式／容量錯誤及空間不足不重試。
+
 ## 來源與執行摘要的顯示投影
 
 來源清單、教材列表代表來源與 Evidence resolver 共同提供 display_name、source_kind、duration_seconds、image_count、transcript_source 與 transcript_display_name。時長取已核對 mapping；新教材首個來源是 YouTube 時，預設教材名稱使用後端已取得的影片標題並取前 40 字；標題缺失保留「YouTube 影片」，自訂名稱與追加來源不覆寫教材名稱。YouTube 來源名稱只在顯示時去掉 .youtube，單張圖片去掉（圖片）.zip，多張顯示張數。新舊圖片同規則，不改ZIP上傳格式，不猜逐張原名。
@@ -256,19 +257,13 @@ run 的 added_sources／existing_source_count 依固定 SourceSet 與 base 分�
 
 公開概念 uncertain 旗標只從同run已驗證審查封存的 issue=uncertain、口語來源與 review／consolidation 明確映射推導；新舊教材都適用。無法精確對應就不標，unchanged 的概念身分可沿base繼承；原canonical結構與 needs_review 狀態不變。
 
-筆記 API 為 material-notes/v3。content_revision／content_generation 指目前真正顯示的舊稿，source_resolver 跟該稿走；請求revision的status／generation／progress描述新稿。新版尚無已發布筆記時，讀取最近較舊的同種類已發布稿；started_at／updated_at／updating供進度顯示。兩種筆記皆提供分區進度，第一批完成前以不確定狀態呈現。既有清理保護兩種筆記各自最近可讀稿的來源，沒有新增清理入口。
-
 補充研究 progress 依已確認觀念提供 topic_progress／completed_topics／total_topics／started_at，只列正文與來源類型均已核對且可用的候選；逐觀念來源數亦採同口徑，不增加模型請求。完成且找到零份仍如實顯示0。
-
-筆記小節的來源標記依原本小節綁定放在末尾，不推測逐句來源；預覽顯示檔名、位置與原文節錄，點擊在右側查看原文。舊段落註記仍使用當時的來源定位。
-
-## 帳號空間細項
-
-`account-storage/v2` 的五項 breakdown 為教材原檔與轉換檔、Podcast音訊、Podcast影片、分析資料、處理中保留額度。largest_materials列最多五份佔用最大的本人教材，含各自分析資料與保留額度。同一次SQL取得檔案／保留／教材名稱，同一次目錄掃描取得分析總量與教材歸屬；不宣稱DB和磁碟為原子快照。無法對應現存教材的分析檔仍計入總量，不提供失效教材連結。
 
 ## 作答中問答限制
 
 `PUT /v1/materials/{id}/assessment-presence` 接受 `assessment-presence/v1`、`assessment_set_id`、`active`。與問答文字、錄音、retry 共用必填 UUID header `X-Studydy-Browser-Id`，缺漏或不合法回 `REQUEST_INVALID`。只接受本人同教材已封題、ready/in_progress 的題組；每 20 秒回報延長至 60 秒。限制範圍為帳號＋教材＋瀏覽器，另一瀏覽器可問。活動期間三入口回 409 `ASSESSMENT_IN_PROGRESS`，不排入模型工作；取消與既有回答不受影響。交卷後題組 completed 立即使 presence 失效，離頁停止回報後到期；讀取不續期。這是介面約束，並非裝置驗證。
+
+瀏覽器 ID 以 localStorage 保存並跨分頁共用，只在 presence、文字提問、錄音與重試附上。作答時移除問答入口，被拒絕時保留問題草稿。
 
 ### Podcast 步驟與部分略過
 
@@ -285,8 +280,6 @@ run 的 added_sources／existing_source_count 依固定 SourceSet 與 base 分�
 教材更新完成頁依該次工作保存的前後結構計數，顯示新增來源數、概念與關係數的變化；不推估缺少的計數。若卡組或學習進度尚在更新前內容，一般提醒提供次要「更新」入口，來源分頁與卡組頁保留小字入口；安全者顯示自動承接結果；唯一主要操作為「開啟知識地圖」。概念詳情只在該概念有逐字稿疑義旗標時提醒對照原影片，不由整份教材的品質狀態推導。
 
 口語來源只把解釋原理、方法與必要條件的行動／例子列為教學主張；找照片、操作網頁、隨手試畫等離題過程不另建概念。實際說明機制或條件比較的例子仍保留。這是提示規則，不是新增拒絕發布關卡；實際效果須對照原文抽查。
-
-教材新版發布後，安全時自動承接卡組／學習，有損失則待確認；詳見[學習入口承接](learning.md#更新卡組與學習進度)。最近一次移動前的入口快照由move_id驗證，返回不改教材head與新事件。清理只釋放無引用副本／結構，原始作答、標記、Podcast、問答、註記、研究及維護封存引用保留。
 
 補充網頁在新擷取時移除 Wikipedia 編輯連結與上標引註（含 citation needed），粗體只保留文字、不輸出 Markdown 粗體標記；數學上標、公式與程式碼的 `**` 運算子維持原文。已保存的來源不重寫。
 
