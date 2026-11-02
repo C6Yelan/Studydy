@@ -34,7 +34,7 @@ chmod 600 .env
 | POSTGRES_DB／POSTGRES_USER／POSTGRES_PASSWORD | 本部署資料庫與認證 |
 | STUDYDY_SEMANTIC_BASE_URL | 模型 origin，不含 /v1、帳密、query 或 fragment |
 | VLLM_API_KEY | 選用模型 Bearer token；空值不送 Authorization |
-| STUDYDY_MATERIAL_WORKERS | 教材處理執行緒數，正整數，預設 1；不改 provider 模型槽數 |
+| STUDYDY_MATERIAL_WORKERS | 教材處理執行緒數，正整數，預設 1 |
 | STUDYDY_NOTES_CHAPTER_CONCURRENCY | 一份完整筆記同時生成的一級章數，正整數，預設 1（逐批依序） |
 | STUDYDY_CARD_WORKERS、STUDYDY_PODCAST_WORKERS、STUDYDY_RESEARCH_WORKERS | 卡組、主題研究的背景執行緒數及 Podcast 製作並行數，正整數，預設 1 |
 | STUDYDY_VIDEO_WORKERS | Podcast 影片同時渲染的集數，正整數，預設 1；provider.env 設相同值 |
@@ -59,11 +59,11 @@ download-ocr 下載 runtime lock 指定的 Unlimited-OCR snapshot，不載入模
 
 網站：http://127.0.0.1:4173。Nginx 代理同源 /v1 API；[OpenAPI](http://127.0.0.1:4173/v1/openapi.json)提供實際契約。模型、套件與請求設定以 [runtime-lock.json](../local_ai/runtime-lock.json) 為準。
 
-Gemma 的專案預設 context 為 65,536 tokens，包含輸入與輸出；服務端須配置相同的 `--max-model-len 65536`，preflight／tokenize 仍核對服務實際回報。新教材分析採獨立子圖，每批新增輸入目標為 4,096 tokens、最多八路併行，單一原文 block 不截斷；已保存的 v1 工作仍保留原 1,536-token 契約。輸出上限維持 32,768，教材至少保留 8,192、評量至少保留 16,384 tokens 的輸出空間。同模型與相同契約僅從 32K 擴為 64K，可重用舊分析 checkpoint，舊 hash 不改寫；降容量或換模型不能沿用此例外。這是專案容量設定，不代表遠端 GPU 已重啟或 VRAM 滿載驗收通過。
+Gemma 的專案預設 context 為 65,536 tokens，包含輸入與輸出；服務端須配置相同的 `--max-model-len 65536`，preflight／tokenize 仍核對服務實際回報。新教材分析採獨立子圖，每批新增輸入目標為 4,096 tokens、最多八路併行，單一原文 block 不截斷；已保存的 v1 工作仍保留原 1,536-token 契約。輸出上限維持 32,768，教材至少保留 8,192、評量至少保留 16,384 tokens 的輸出空間。這是專案容量設定，不代表遠端 GPU 已重啟或 VRAM 滿載驗收通過。
 
 init 建立資料目錄及權限；後端依序核對 migration checksum、套用待執行版本，再啟動 API 與 worker。重跑不重建已有帳號或清空資料。登入、已保存資料讀取、上傳與轉檔不需語意模型。
 
-初始化 SQL 的 0001–0007 為身份／教材、來源／分析、學習／評量、研究、卡片／媒體、讀取索引與跨領域外鍵，直接建立所需結構，不重播歷史資料轉換。後續 0008–0015 分別加入個人顯示名稱、概念卡學習標記、Podcast 收聽進度、教材新版承接、知識章節、登入裝置清單、學習開始收據與學習目標；實際檔案以 [migration 目錄](../backend/migrations/) 為準。
+0001–0007 為初始化 baseline，後續以 [migration 目錄](../backend/migrations/) 為準。
 
 新初始化 prefix 一經發布便固定，後續 Schema 變更繼續追加 SQL。
 
@@ -166,7 +166,7 @@ systemctl --user restart studydy-podcast.service
 文字生成僅使用 runtime lock 指定的 Gemma；GPU 主機離線時 AI 生成不可用，登入、閱讀已存內容及作答仍可使用。已保存內容的模型身分、來源、快照與 hash 保持不變；舊模型工作不得冒用新模型身分續送。
 
 
-語音問答共用 Podcast 的 CosyVoice TTS；本機 STT 使用 faster-whisper large-v3-turbo（CPU int8）。provider.env 以 `STUDYDY_STT_PYTHON`、`STUDYDY_STT_MODEL_DIR` 指定獨立環境與模型；錄音在 worker 處理後清除；回答音訊保存在資料庫，經需登入的問答音訊端點讀取。問答與研究各有獨立 worker；文字、TTS、STT／對齊依 provider 的槽位與鎖排程，取消須傳至在途子程序，失敗如實回報。
+語音問答共用 Podcast 的 CosyVoice TTS；本機 STT 使用 faster-whisper large-v3-turbo（CPU int8）。provider.env 以 `STUDYDY_STT_PYTHON`、`STUDYDY_STT_MODEL_DIR` 指定獨立環境與模型；錄音在 worker 處理後清除；回答音訊保存在資料庫，經需登入的問答音訊端點讀取。問答與研究各有獨立 worker；TTS、STT／對齊依 provider 的鎖排程，取消須傳至在途子程序，失敗如實回報。
 
 教材的音訊、影片音軌與沒有上傳者字幕的 YouTube 也用同一個 STT 環境與模型，由 provider 的 `/media-transcribe` 啟動 [transcribe_media.py](../ops/podcast/transcribe_media.py)：顯示卡 `int8_float16`、批次 8，與 CosyVoice 共用 GPU 鎖，不佔用語音問答的 CPU 辨識鎖。子程序需要 provider.env 既有的 CUDA `LD_LIBRARY_PATH`。音訊在 provider 暫存目錄處理完即刪除。後端以 base64 傳送 16 kHz Opus（2 小時約 40 MB），provider 對此路徑接受最大 66 MB 請求。
 
@@ -198,7 +198,7 @@ systemctl --user restart studydy-podcast.service
 
 `backend/src/runtime/podcast_video_render.py` 沿用有限圖形與 1920×1080／60fps MP4（CPU 繪圖，H.264 可選 CPU／NVENC 編碼），不執行模型程式碼。reveals 由語意目標的 cue 編譯、同 cue 合併，顯示後保留至頁尾；相關節點不晚於連線出現，單位與必要條件仍由內容審查核對。v4 聚焦頁的卡片在下一張開始時短暫交叉淡化，章節列同步改變狀態；重點詞以同字級、同斷行的卡片主色字加淡色底呈現，於所屬卡片被講到時淡入。v4 文字行距為 1.5 倍字級，v2／v3 維持原行距。comparison／exchange 與 v3 相同，由 `podcast_video_motion.py` 以 manifest、實測 timeline 與目前媒體秒數直接計算狀態：節點及文字淡入、線條／箭頭 draw-on、焦點明暗與淡底平滑轉移，已出現的次要內容仍保留。flow／exchange 指示沿既有箭頭一次性推進並移交節點焦點；不循環、不表示實際封包速度。同一 anchor 的目標同時聚焦，不編造更細的先後。v3 relation 不再疊加第二個 trace 指示。換頁後使用短 crossfade，舊頁以邊界前的確定畫格計算，底部提示與進度仍取目前時間。固定的視覺時長上限皆受實測窗口限制；seek／倍速沒有前一影格的殘留狀態。舊 underline／outline／trace 圖形契約保留可讀，標記不設必填配額。
 
-分鏡格式升級時先更新可接受新格式的 backend，再更新／重啟 video provider（`video_service.py` 與 `podcast_video_*` 編譯／繪製模組同一份 checkout）。backend 在保存結果時仍接受 v2／v3 storyboard。provider 會直接載入同一份 checkout 的編譯模組，所以更新 checkout 後要立即重啟 provider；重啟前仍在執行的舊行程產生的分鏡會被新編譯器以 `VIDEO_STORYBOARD_INVALID` 拒絕，該集標為失敗、需重試，不會寫入壞資料。已完成影片的 MP4、timeline 與保存的 storyboard 讀取時不重新驗證，也不掃描、重排或重製 ready 產物。
+已完成影片的 MP4、timeline 與保存的 storyboard 讀取時不重新驗證，也不掃描、重排或重製 ready 產物。
 
 新影片底部只放短焦點提示，完整字幕保留 WebVTT，由播放器設定中的字幕按鈕切換。播放器沿用瀏覽器 VTT cue 的實測時序，在可換行的字幕區呈現；字幕底緣依控制列高度與 viewport 調整，避免手機長字幕裁切或被播放控制遮住。既有 MP4、`flat-report/v3`／`v4` manifest 與原顯示方式不自動重製；來源、音訊、script hash、ownership 與晚到結果隔離仍沿用原規則。
 
