@@ -38,7 +38,7 @@ chmod 600 .env
 | STUDYDY_NOTES_CHAPTER_CONCURRENCY | 一份完整筆記同時生成的一級章數，正整數，預設 1（逐批依序） |
 | STUDYDY_CARD_WORKERS、STUDYDY_PODCAST_WORKERS、STUDYDY_RESEARCH_WORKERS | 卡組、主題研究的背景執行緒數及 Podcast 製作並行數，正整數，預設 1 |
 | STUDYDY_VIDEO_WORKERS | Podcast 影片同時渲染的集數，正整數，預設 1；provider.env 設相同值 |
-| STUDYDY_MATERIAL_REVIEW_CONCURRENCY | 一份教材同時送出的複核批次數，正整數，預設 1；Luna 並行測試時固定 2 |
+| STUDYDY_MATERIAL_REVIEW_CONCURRENCY | 一份教材同時送出的複核批次數，正整數，預設 1 |
 | COMPOSE_PROFILES | 直接 HTTP／HTTPS 留空；使用 SSH 設 ssh |
 
 容器的 127.0.0.1 指向自己。模型在主機時可使用 host.docker.internal，但服務須監聽容器可達介面；其他容器或遠端服務使用其可達 origin。
@@ -114,11 +114,11 @@ docker compose exec backend /app/backend/.venv/bin/python -m runtime.local_runti
 
 ## 本機 Podcast provider
 
-Luna 呼叫標籤協定須先更新相容舊請求的 provider，再更新 backend。標籤只在請求最外層，不送入模型。呼叫紀錄預設為 provider 資料目錄的 `luna-calls.jsonl`（可由 `STUDYDY_LUNA_CALL_LOG` 指定），保留 90 天。CLI 異常結束時，呼叫紀錄的 `failure` 只保存固定原因類別（`usage_limit`、`auth`、`rate_limit`、`context_window`、`server_error`、`connection`、`timeout`、`signal`、`no_error_message`、`unclassified` 等）與結束碼，類別只依 CLI 以 error 開頭的行判斷，原文不落地；`usage_limit`、`auth`、`context_window`、`timeout`（含 HTTP 504）不重試，混合錯誤訊息優先採不可重試原因，已辨識的不可重試原因也不會被 signal／output_missing 的退路分類覆蓋；取消、程序逾時與無效 JSON 也不重試。其餘 CLI 失敗在檢查取消後最多自動重試一次，每次實際啟動各記一對 `started`／`finished`，報表按每次啟動計數並保留相同工作標籤。使用 `python ops/podcast/luna_report.py --help` 查看本機報表篩選參數；報表的 `failure_causes` 依類別計數，不顯示教材或模型候選。最終失敗診斷分別保存在 provider 的 `failures/` 與 backend artifact root 的 `failures/`，30 天清理；教材只保存既有 archive 參照。
+模型診斷由 backend 的 `model_calls` 統一管理，依功能、教材、使用者、工作與嘗試歸屬。只有工作最終失敗才將候選與原因寫入 artifact root 的私人 `failures/`，保留 30 天；教材保存既有 archive 參照。成功與取消清除暫存候選，不提供逐次成功呼叫報表。
 
 Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排程。帳號內保存固定版本的選材、逐字稿與分集音訊；provider 交回的 24 kHz PCM WAV 由 backend 無損壓成 FLAC（WAV 標頭以 `riff` foreign metadata 保存，可逐位元還原）後存入私人 artifact store，分集 `audio.sha256` 仍是該 WAV 的雜湊。建立後自動生成，選擇單人解說或雙人對談，以及是否同時生成影片（預設不勾），分集保留全部所選重點，每集講稿須由正文段落引用並講解該集全部重點（逐段核對判定），內容較多自動拆集。失敗可接續已保存進度；取消會刪除整份 Podcast。分集沿用所選概念順序，在每集最多 32 個 claim／2,400 來源字元的硬容量內，優先保留完整概念及既有 Relation／Evidence 的連續性，再考慮集數和容量平衡；不重排或刪減來源。單一 claim 超過容量時明確拒絕，不截斷它。
 
-講稿、核對與分鏡由 backend 經 `semantic_service` 依 runtime lock 呼叫文字模型：設定 `STUDYDY_TEXT_TEST_PROVIDER=codex-exec-luna` 時走主機 provider 的 Luna `/semantics`，否則直連 lock 的 Gemma（vLLM），與教材分析同一套分流。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。模型每句只輸出 `speaker`、`text` 與 `source_indices`；程式核對編號範圍，依重點帶入該 claim 全部的 `evidence_ids`，保存的 turn 文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須由正文段落引用並經逐段核對判定已講解，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。
+講稿、核對與分鏡由 backend 經 `semantic_service` 依 runtime lock 呼叫文字模型：透過 model-bridge 呼叫 lock 的 Gemma（vLLM），與教材分析共用語意入口。新稿為 `podcast-script/v2`：`segments` 是 teaching beats，一個 beat 可整合多個相關 claim，同 claim 也可跨 beat 延續。模型每句只輸出 `speaker`、`text` 與 `source_indices`；程式核對編號範圍，依重點帶入該 claim 全部的 `evidence_ids`，保存的 turn 文字 parts 引用 episode 的 `source_index` 與所屬 `evidence_ids`，朗讀 `text` 由 parts 串接並核對一致；不能以 claim ID 合併不同來源位置。全部來源須由正文段落引用並經逐段核對判定已講解，KS／claims／Evidence 仍是 canonical authority。頁面 context 只補原引用的表格標題或主語，不能加入 claim 外的知識。
 
 新稿依來源內容量使用同一套整集字數與 beat 上限；雙人只增加交接所需的 turn 空間，不額外放大字數。英文依詞而非逐字母估量，同一長段被多個 claim 引用時不重複增加預算；這只影響容量，全部來源仍須由正文段落講解。篇幅容量包含具體推演、例子與自然問答，不再以接近來源摘要的長度壓縮講解。生成提示提供完整教學的參考字數／時長，驗收不以湊滿字數為準，上限也不是最低篇幅。新稿保存前由 backend 再檢查統一預算，已保存的 v2／legacy 講稿不重新套用。建立 API 不再接收 `mode`，列表與詳情也不回傳 Quick／Full；DB 的舊欄位只保留歷史資料，新建固定儲存值，不參與生成或審查決策，沒有資料搬移或重製既有產物。
 
@@ -126,7 +126,7 @@ Podcast 使用獨立 worker，避免語音生成佔用教材分析／題組排�
 
 寫稿與核對只取得已引用的原始區塊、必要符號定義及孤立數值同欄上方的短標題，供欄位消歧義；不能因能讀到同頁其他段落，就擴寫未選的機制。表格標題、合理同義改述與直接整合可以使用；新增技術條件、保證或錯誤數值由逐段核對退回。
 
-講稿生成後由同一個文字模型逐段核對（見[測試](testing.md#podcast-現行驗證範圍)），不做獨立教學品質評分；不符只重生該段並重核一次，仍不符不得發布。文字請求不設固定期限，可由取消中止。Luna 通道的 CLI 使用既有登入、ephemeral、唯讀空目錄並停用工具，不改寫原教材 Gemma binding；真實模型呼叫仍須有當次素材及費用授權。來源不足、provider／儲存失敗不視為成功。舊 turns 腳本保留原 bytes／hash，由唯讀來源投影相容，不批次改寫舊 JSON。
+講稿生成後由同一個文字模型逐段核對（見[測試](testing.md#podcast-現行驗證範圍)），不做獨立教學品質評分；不符只重生該段並重核一次，仍不符不得發布。文字請求不設固定期限，可由取消中止。真實模型呼叫須有當次素材及費用授權。來源不足、provider／儲存失敗不視為成功。舊 turns 腳本保留原 bytes／hash，由唯讀來源投影相容，不批次改寫舊 JSON。
 
 語音在本機執行 CosyVoice 3（`FunAudioLLM/Fun-CosyVoice3-0.5B-2512`）官方 RL 權重，輸出 24 kHz PCM WAV。Podcast 沿用原 host／guest 參考錄音與固定角色 seed，採用已選定的 V／W `inference_instruct2` 台灣華語指令。`spoken-input/v15` 把同一句的中文、英文與縮寫一起合成，不再因語言切換而改用另一種聲音生成模式；英文冠詞 a 保留，縮寫依通用字母名稱處理，千分位與毫秒先正規化。MB／Mb 仍區分 megabytes／megabits，速率讀 per second。原講稿、來源與引用不改；未知識別符、byte／bit 與其他術語仍須真實聽評。Podcast 與語音問答共用的文字前處理會把可辨識的英文複合詞連字號當作詞間分隔，不再插入 hyphen；代碼、縮寫與數值的符號仍保留。明確公式 `QK^T`、`√d_k` 轉成口語；加號、等號、右箭頭分別讀加、等於、到。數值分數按分母／分子讀，資訊速率仍讀 per second；只有「二選一」明示的斜線選項讀或，其他協定、比值與路徑不猜語意。頓號、分號、冒號與括號轉成逗號停頓；程式碼及路徑保留符號。RAG、DDPM 使用明列的逐字母念法。
 
@@ -161,11 +161,10 @@ systemctl --user restart studydy-podcast.service
 
 未設定 provider 或服務不可達時，新生成會如實失敗，既有保存內容仍可讀取。啟動與健康檢查不代表文字或語音品質驗收；來源的 `needs_review` 狀態及缺頁提示仍保留。播放位置與收聽秒數存在伺服器（migration 0010），同帳號可跨裝置接續；瀏覽器舊有位置只在伺服器沒有紀錄時上傳一次。登出／換帳號會停止音訊並移除播放器來源；刪除 Podcast 會刪除其音訊與逐字稿，不刪原教材。刪除教材則同時移除其 Podcast。
 
-## Luna 設定與語音問答
+## 模型可用性與語音問答
 
-設定 `STUDYDY_TEXT_TEST_PROVIDER=codex-exec-luna` 時，新教材分析、檢核及題組文字請求使用主機 provider 的 `/semantics`。新工作保存 `gpt-5.6-luna`／`codex-exec:luna-test/v1` 身分與獨立 lock hash，不覆寫既有 Gemma 的來源、快照或 hash；移除此設定可恢復原模型設定，但未完成 Luna 工作不能以 Gemma 身分接續。
+文字生成僅使用 runtime lock 指定的 Gemma；GPU 主機離線時 AI 生成不可用，登入、閱讀已存內容及作答仍可使用。已保存內容的模型身分、來源、快照與 hash 保持不變；舊模型工作不得冒用新模型身分續送。
 
-Luna 的後端總額度為 65,536 tokens，包含輸入與輸出，使用與 provider 相同的 JSON 序列化及 o200k 估算。送出前保留教材至少 8,192、評量至少 16,384 tokens 的輸出空間；回傳 JSON 超過剩餘額度時回報 `SEMANTIC_OUTPUT_TOO_LARGE`，不保存為成功。這是送出內容及回傳 JSON 的估算限制，不是 CLI 內部提示、schema、隱藏推理 token 或費用的精確總量；可沿用的舊工作 hash 與 checkpoint 不改寫，後續請求仍受現行容量檢查。
 
 語音問答共用 Podcast 的 CosyVoice TTS；本機 STT 使用 faster-whisper large-v3-turbo（CPU int8）。provider.env 以 `STUDYDY_STT_PYTHON`、`STUDYDY_STT_MODEL_DIR` 指定獨立環境與模型；錄音在 worker 處理後清除；回答音訊保存在資料庫，經需登入的問答音訊端點讀取。問答與研究各有獨立 worker；文字、TTS、STT／對齊依 provider 的槽位與鎖排程，取消須傳至在途子程序，失敗如實回報。
 

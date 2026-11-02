@@ -95,17 +95,9 @@ CI 使用 Python 3.12.14、Node 24 與 lock file；uv、npm、Docker build cache
 
 `test_office_external_resources.py` 以隔離 HTTP server 與固定的合成公網 DNS 驗證圖片取得、逐次 redirect／目的 IP 核對、TLS hostname、大小／時間上限及原檔保留，測試不連到真實內部服務。真實 Office 案例另核對內網圖片不送出請求、下載後的圖片仍可離線轉檔，以及只有圖片準備階段能連網。`test_normalization_cancellation.py` 驗證多執行緒取消、啟動失敗與限額；由既有 `prlimit` 在 exec 後設定 AS／FSIZE／NOFILE／NPROC，沒有 Python `preexec_fn`。
 
-## 本機 Luna 呼叫診斷
+## 模型呼叫診斷
 
-以下五份測試使用合成資料、真正的 provider HTTP server 與假的 Codex 執行檔，不呼叫真模型；runtime 案例沿用一次性 PostgreSQL 與獨立 artifact root，不連產品 DB。
-
-| 測試檔（相對於 backend/tests） | 覆蓋 |
-| --- | --- |
-| `test_luna_call_log.py` | 實際子程序呼叫紀錄、講稿內部呼叫、標籤隔離、舊請求相容、90 天清理及報表；失敗候選與退回理由的私人保存 |
-| `test_luna_calls.py` | 跨步候選、成功／取消清除、提交後終態、0700／0600、30 天清理、教材 archive 交接與 context 傳遞 |
-| `runtime/materials/test_luna_call_tags.py` | 摘要、完整筆記與章節的真 worker 標籤、被退回候選及最終失敗紀錄 |
-| `runtime/materials/test_luna_call_tags_materials.py` | 題目／複核、教材分析／複核／整合、平行標籤、checkpoint 重用、lock 不變，以及真 DB 的 failed archive 寫入邊界、後端容量驗證退回候選 |
-| `runtime/materials/test_luna_call_tags_workflows.py` | 概念卡、問答、主題、研究、Podcast 講稿／集名／分鏡／影片的工作歸屬、最終失敗候選與完整理由、一般 log 不洩漏及報表核對 |
+`test_model_calls.py` 驗證跨步候選、成功／取消清除、提交後終態、0700／0600、30 天清理、教材 archive 交接、metadata 與 context 傳遞。模型回應使用受控輸入，不呼叫真實模型。
 
 依下節環境執行所需檔案即可；這些測試不代表真模型內容品質或正式站部署已驗收。在本 WSL 工作站，worktree 與測試暫存須使用持久的 `/home/jerry/.studydy-worktrees/`；以 `mktemp -d -p /home/jerry/.studydy-worktrees/.tmp` 建立每次執行目錄，供 `TMPDIR`、pytest `--basetemp` 或獨立瀏覽器 profile 使用。不要依賴重開機會清空的 `/tmp` 保存未提交成果；測試完成後只清除自己建立的暫存目錄。
 
@@ -209,9 +201,9 @@ PYTEST
 
 Podcast 的可重跑入口為 `backend/tests/runtime/materials/test_podcasts.py`（隔離 DB／API／音訊保存與取消）及 `backend/tests/test_podcast_provider.py`（無模型的生成、逐段核對與單段重生、格式與合法來源綁定）。前端 client 測試包含錯來源腳本與不完整音訊 manifest 的拒絕。provider 的容器測試使用 `compose.test.yaml`，不需安裝 TTS 或呼叫模型。
 
-語音問答與研究：`backend/tests/runtime/materials/test_voice.py`、`test_research.py` 驗證真 DB、權限、重送、取消晚到結果、來源追加與版本衝突；`backend/tests/test_research_sources.py` 驗證下載目標與授權邊界；`test_luna_test_provider.py` 確認替代身分及不呼叫 Gemma。介面入口為 `frontend/e2e/mock/material-tools.spec.ts`，涵蓋文字問答、回查來源、錄音權限晚到取消，以及超過三份來源的選取與不可逆確認。這些合成測試不代表實體麥克風、跨瀏覽器或教材回答品質已驗收。
+語音問答與研究：`backend/tests/runtime/materials/test_voice.py`、`test_research.py` 驗證真 DB、權限、重送、取消晚到結果、來源追加與版本衝突；`backend/tests/test_research_sources.py` 驗證下載目標與授權邊界。介面入口為 `frontend/e2e/mock/material-tools.spec.ts`，涵蓋文字問答、回查來源、錄音權限晚到取消，以及超過三份來源的選取與不可逆確認。這些合成測試不代表實體麥克風、跨瀏覽器或教材回答品質已驗收。
 
-主題建立：`backend/tests/runtime/materials/test_topics.py` 驗證確認前無研究工作、選取前無空教材、批准重送、過期版本、跨帳號、取消晚到及刪除後不復活，並使用隔離 DB 沿原 publisher 建立地圖。`frontend/e2e/mock/topics.spec.ts` 驗證可修改範圍、選取後才建立、重開與零來源處理；這些替身測試與公開站真實 Luna／來源流程的證據分開記錄。
+主題建立：`backend/tests/runtime/materials/test_topics.py` 驗證確認前無研究工作、選取前無空教材、批准重送、過期版本、跨帳號、取消晚到及刪除後不復活，並使用隔離 DB 沿原 publisher 建立地圖。`frontend/e2e/mock/topics.spec.ts` 驗證可修改範圍、選取後才建立、重開與零來源處理；這些替身測試與公開站真實模型／來源流程的證據分開記錄。
 
 場景對齊：`backend/tests/test_scene_alignment.py` 驗證測得時間點、同音字不改稿、不可杜撰時間及流程條件；`backend/tests/runtime/materials/test_podcast_scenes.py` 驗證真 DB 的依賴身分、準備重送、取消晚到、刪除與音訊不變。`frontend/e2e/mock/podcasts.spec.ts` 的同步案例使用測試 WAV 的實際 media clock，檢查暫停、seek、2× 倍速及版面；媒體時鐘與畫格同步量測只驗證播放器呈現，不能代替 ASR 精度、實際對齊或真人聽評。
 
@@ -253,7 +245,7 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 
 ## 搜尋、網頁正文與研究閱讀
 
-`test_research_web.py` 與 `test_research_sources.py` 驗證免費搜尋接線、中英文結果交錯、網址去重、查詢／正文快取、同站節流、Retry-After、拒絕存取後冷卻、頁面授權範圍、正文的表格／程式碼字面值，以及取得時重新核對頁面身分。`test_luna_test_provider.py` 以替身驗證一個生成請求回傳多行關鍵詞，不呼叫真實模型。Runtime 的 `materials/test_research.py`／`test_topics.py` 使用隔離 DB，網頁正文沿既有 normalization／來源流程；不把搜尋摘要當 Evidence。
+`test_research_web.py` 與 `test_research_sources.py` 驗證免費搜尋接線、中英文結果交錯、網址去重、查詢／正文快取、同站節流、Retry-After、拒絕存取後冷卻、頁面授權範圍、正文的表格／程式碼字面值，以及取得時重新核對頁面身分。Runtime 的 `materials/test_research.py`／`test_topics.py` 使用隔離 DB，網頁正文沿既有 normalization／來源流程；不把搜尋摘要當 Evidence。
 
 `test_research_reading.py`、`test_research_preview.py` 與 `test_research_workflow.py` 核對逐步保存、正文引用、依缺口補查、來源去重、403 替代入口、限流等待、摘要分流、選讀引用與取消後拒絕晚到結果。`research-background.spec.ts` 與來源分頁案例涵蓋階段進度、取消接續、參考來源與桌機／手機版面。
 
@@ -267,11 +259,11 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 
 ## 八路獨立子圖
 
-`test_independent_blocks.py` 驗證八路併行、取消、亂序完成後只補缺口、checkpoint 後已完成回應重播、舊策略升級及來源／索引邊界；`test_material_provider_parallel.py` 使用真 HTTP 驗證第九個教材請求會等待槽位，不呼叫模型。`runtime/sources/test_independent_block_archive.py` 使用隔離 DB 驗證舊進度升級、artifact 已保存但 checkpoint 寫入失敗時不重做 inference，以及取消後拒絕晚到寫入。舊策略 fixture 僅包含公開 runtime 契約，沒有私人教材或模型回應。
+`test_independent_blocks.py` 驗證八路併行、取消、亂序完成後只補缺口、checkpoint 後已完成回應重播、舊策略升級及來源／索引邊界。`runtime/sources/test_independent_block_archive.py` 使用隔離 DB 驗證舊進度升級、artifact 已保存但 checkpoint 寫入失敗時不重做 inference，以及取消後拒絕晚到寫入。舊策略 fixture 僅包含公開 runtime 契約，沒有私人教材或模型回應。
 
 ## 選段分析、RAG 與問答
 
-`test_analysis_scope.py`、`test_material_retrieval.py`、`test_material_qa.py` 檢查原文範圍、去重、輸入預算、補查及逐段核對。`runtime/sources/test_research_selected_scope.py` 使用合成十頁 PDF，驗證只分析第七頁並回查原始第七頁，以及索引儲存失敗不發布新 head。`runtime/materials/test_retrieval.py` 保護 owner／revision 邊界與相鄰來源範圍。這些測試不代表真實 Luna 品質。
+`test_analysis_scope.py`、`test_material_retrieval.py`、`test_material_qa.py` 檢查原文範圍、去重、輸入預算、補查及逐段核對。`runtime/sources/test_research_selected_scope.py` 使用合成十頁 PDF，驗證只分析第七頁並回查原始第七頁，以及索引儲存失敗不發布新 head。`runtime/materials/test_retrieval.py` 保護 owner／revision 邊界與相鄰來源範圍。這些測試不代表真實模型品質。
 
 研究重用 staged 原檔時，bytes 與分析範圍必須同時相同。`test_research_selected_scope.py` 以兩個有效研究租約驗證同範圍重播可重用；引文、區域或全文／局部模式不同時回報既有 `DUPLICATE_SOURCE`，不修改來源範圍或新增 Artifact／正規化工作。
 
@@ -285,7 +277,7 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 
 ## 概念卡整理、版面設計與持久進度
 
-`test_card_design.py` 核對來源編號、整卡合併與詳情分流、容量及有向連線限制，以及 Luna 暫用與 Gemma／既有 Pod endpoint 的路由隔離；Gemma 的這項檢查使用 HTTP 替身，不宣稱遠端模型品質通過。Runtime 的 `test_card_generation.py` 使用隔離 DB 驗證分步保存、同版本與模型快取、定向修正、部分概念核對失敗時其餘卡發布、略過記錄及原選取保存、舊版失敗接續不重做已通過卡、全數不符仍失敗、重新整理的版本衝突、租約回收與刪除後不得發布。瀏覽器檢查各設計版型的實際文字邊界、引用入口、原文保留、Canvas 顯示與 PNG 下載；真實 Luna 的整理品質另以授權教材生成後人工檢查，不把 JSON 合法或模型核對結果單獨當成品質通過。
+`test_card_design.py` 核對來源編號、整卡合併與詳情分流、容量及有向連線限制，以及 Gemma／既有 Pod endpoint 的請求契約；Gemma 的這項檢查使用 HTTP 替身，不宣稱遠端模型品質通過。Runtime 的 `test_card_generation.py` 使用隔離 DB 驗證分步保存、同版本與模型快取、定向修正、部分概念核對失敗時其餘卡發布、略過記錄及原選取保存、舊版失敗接續不重做已通過卡、全數不符仍失敗、重新整理的版本衝突、租約回收與刪除後不得發布。瀏覽器檢查各設計版型的實際文字邊界、引用入口、原文保留、Canvas 顯示與 PNG 下載；真實模型的整理品質另以授權教材生成後人工檢查，不把 JSON 合法或模型核對結果單獨當成品質通過。
 
 大型教材讀取的回歸包含 JSONB 的 NUL 無損還原、來源驗證邊界，以及同一工作階段內目前地圖與舊版卡組的兩份不可變結構快取。登出、帳號失效與刪除教材會清除快取，失敗請求可重試；快取不寫入瀏覽器持久儲存。以實際網路回應與功能可用狀態量測，不能把固定等待時間當成完成時間。
 
@@ -299,7 +291,7 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 
 ## 跨語言學習內容
 
-`test_spoken_analysis.py` 驗證同區塊的獨立主張切分、句／子句邊界、至少 4 個非空白／非標點字元（含整段）、單字拒收、否定不可被從句中裁掉、無標點整段回退、唯一原文節錄、失敗引用的單次重選與呼叫記帳、技術值切斷／錯字引用拒絕、翻譯／審查／概念整理保留精確引用，以及 `uncertain` 保留原文並排除去重改寫；疑義改述僅可撤回原節錄，涵蓋 PDF 詞內換行與外文保留代號的核對。同一概念內的逐字稿、PDF 與混合引用 Claim 分別核對，混合引用中的 PDF 短標題仍可發布，語言例外與去重只保護逐字稿 Claim。新契約與舊 checkpoint 隔離，舊投影不放寬。`runtime/sources/test_media_source_flow.py` 以受控模型驗證 mapping 的字幕／ASR 身分經來源集合傳到分析，來源頁碼與時間回查不變；`runtime/study/test_knowledge_reads.py` 保護完整關係來源。這些不代表真實語音辨識品質；Luna 的授權樣本比較只報實際呼叫及觀察結論。
+`test_spoken_analysis.py` 驗證同區塊的獨立主張切分、句／子句邊界、至少 4 個非空白／非標點字元（含整段）、單字拒收、否定不可被從句中裁掉、無標點整段回退、唯一原文節錄、失敗引用的單次重選與呼叫記帳、技術值切斷／錯字引用拒絕、翻譯／審查／概念整理保留精確引用，以及 `uncertain` 保留原文並排除去重改寫；疑義改述僅可撤回原節錄，涵蓋 PDF 詞內換行與外文保留代號的核對。同一概念內的逐字稿、PDF 與混合引用 Claim 分別核對，混合引用中的 PDF 短標題仍可發布，語言例外與去重只保護逐字稿 Claim。新契約與舊 checkpoint 隔離，舊投影不放寬。`runtime/sources/test_media_source_flow.py` 以受控模型驗證 mapping 的字幕／ASR 身分經來源集合傳到分析，來源頁碼與時間回查不變；`runtime/study/test_knowledge_reads.py` 保護完整關係來源。這些不代表真實語音辨識品質；模型的授權樣本比較只報實際呼叫及觀察結論。
 
 `test_cross_language_claims.py`、`test_material_localization.py`、`test_review_language.py` 覆蓋原文引用不變、數值／單位／程式保護、跨段公式邊界、代號遺漏與重複、混入外語詞及修正後保留的完整來源。子圖語言補正失敗會阻止該批完成；Review 的局部語言修正無法核對時保留原文並標記 `needs_review`，其他合法修改仍可套用，保留代號遺漏或重複的提案則仍拒絕。獨立子圖與審查回歸另核對呼叫計數、已完成結果重用及舊工作提示不可被新政策覆蓋。
 
@@ -376,7 +368,7 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 `test_podcast_generation_steps.py` 以隔離 DB 驗證步驟與實際領取／發布、分鏡／影片工作一致，略過身分保存及 migration 套用回滾；`test_podcast_process.py` 以真鎖驗證排隊與執行。provider 受控回應另驗證少量、半數與過半略過仍發布，以及略過重點去重，不呼叫真模型。
 
-`test_voice_sentences.py` 使用真DB與合成PCM驗證完整核對後切句、句序、第一句先可讀、未完成整份不下載、取消拒絕遲到結果、失敗重試不重做已完成句、最後串接及migration套用回滾。`test_voice_audio_timings.py` 使用真HTTP與真provider鎖驗證實測等待／合成header；問答回歸驗證三段階段量測，不呼叫模型。`runtime/materials/test_voice_retry.py` 核對一次驗證重試、每輪原始候選私有保存，以及截斷／provider錯誤／取消不重播；`test_luna_call_tags_workflows.py` 保護兩個嘗試的 `:1`／`:2` 身分及候選與原因。離線量測只證明計時與生命周期，不作真實回答延遲改善宣稱。
+`test_voice_sentences.py` 使用真DB與合成PCM驗證完整核對後切句、句序、第一句先可讀、未完成整份不下載、取消拒絕遲到結果、失敗重試不重做已完成句、最後串接及migration套用回滾。`test_voice_audio_timings.py` 使用真HTTP與真provider鎖驗證實測等待／合成header；問答回歸驗證三段階段量測，不呼叫模型。`runtime/materials/test_voice_retry.py` 核對一次驗證重試、每輪原始候選私有保存，以及截斷／provider錯誤／取消不重播。離線量測只證明計時與生命周期，不作真實回答延遲改善宣稱。
 
 `test_media_sources.py` 以真實逐字稿 PDF→native Evidence 驗證段界與合字展開；`test_ocr_page_evidence.py` 以真實 PDF 驗證中文詞內換行與公式字面值保留。`test_spoken_analysis.py` 核對疑義還原僅回到原引用、保留 needs_review 而不把診斷加進重點。這些測試不代替隔離重分析的語意品質比較。
 
