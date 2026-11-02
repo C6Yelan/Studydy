@@ -143,14 +143,12 @@ Gemma 路徑以服務端 tokenizer 核算輸入，依 runtime lock 的上下文�
 
 索引與知識結構同一交易發布，索引失敗不更新教材 head。索引階段可沿已保存的分析與檢核結果重試，不必重新呼叫模型。新來源綁定為 `structure-input-binding/v2`／`source-set/v2`／`bundle-manifest/v2`；舊格式不轉接、不自動遷移，原始檔案不刪除。
 
-來源顯示、run完成摘要與概念疑義為獨立公開投影，不改已發布結構hash。草稿目標在教材發布時建立排程；跨版筆記以content_revision回查真正顯示稿件的來源。
+## 附屬狀態表
 
-帳號空間細項與總量使用同一次SQL及同一次分析目錄掃描，回應內加總一致；DB／磁碟不是跨系統原子快照。
+作答 presence 存於 PostgreSQL `assessment_presence`，鍵為 learner/material/browser，題組刪除以外鍵 cascade 清理。問答 API 以可信登入帳號及對話教材檢查，並連接題組即時狀態；交卷與回答在同交易完成，completed 題組不再阻擋提問。
 
-作答 presence 存於 PostgreSQL `assessment_presence`，鍵為 learner/material/browser。問答 API 以可信登入帳號及對話教材檢查，並連接題組即時狀態；交卷與回答在同交易完成，completed 題組不再阻擋提問。題組刪除以外鍵 cascade 清理 presence。
+Podcast 步驟時間：講稿／音訊放在分集 step_times，對齊／影片使用工作表 started_at／finished_at。只讀 provider `/jobs/progress` 用 job_id＋job_token 對應活動請求，觀測真正等待鎖／持鎖狀態；回應不含教材、帳號或台詞。段落略過只改發布取捨，不改核對提示或 runtime lock。
 
-Podcast 步驟時間：講稿／音訊放在分集 step_times，對齊／影片使用工作表 started_at／finished_at。只讀 provider /jobs/progress 用 job_id＋job_token 對應活動請求，觀測真正等待鎖／持鎖狀態；回應不含教材、帳號或台詞。段落略過只改發布取捨，不改核對提示或 runtime lock。
+逐句語音回答的 voice_sentences 由 voice_turns 外鍵 cascade 管理，保存句序、原文、狀態、WAV 及時長；只有已核對回答能建立句列，租約仍由原 turn 持有，取消與遲到結果沿用原檢查。provider 回傳 X-Studydy-Audio-Timings 供排隊／合成量測，不改 GPU 鎖或朗讀前處理規則。
 
-V2 的 voice_sentences 由 voice_turns 外鍵 cascade 管理，保存句序、原文、狀態、WAV及時長；只有已核對回答能建立句列，租約仍由原turn持有，取消與遲到結果沿用原檢查。查詢中的語音stage共用provider真實鎖狀態；provider回傳X-Studydy-Audio-Timings供排隊／合成量測，不改GPU鎖或PC6可念化規則。
-
-S5 使用 material_version_state 保存教材更新前head、目標head、帳號提醒、最近一次移動入口快照及自動工作結果。發布交易排入pending，教材worker在發布完成後計算安全預覽，以既有教材鎖／移動冪等鍵建立入口；不在未commit的新版上讀學習進度。清理保護原始事件及移版身分鏈，只釋放無引用副本。
+教材新版承接使用 material_version_state 保存教材更新前 head、目標 head、帳號提醒、最近一次移動入口快照及自動工作結果。發布交易排入 pending，教材 worker 在發布完成後計算安全預覽，以既有教材鎖／移動冪等鍵建立入口；不在未 commit 的新版上讀學習進度。清理保護原始事件及移版身分鏈，只釋放無引用副本。

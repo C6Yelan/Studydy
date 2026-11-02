@@ -1,6 +1,6 @@
 # 公開來源取得比較
 
-`ops/research/` 保留開發比較工具，不是產品取得器。產品沿用 direct HTTP／provider API 與 metadata-only fallback，HTML 正文由 `runtime.research_web` 擷取；現行來源範圍見 [教材文件](materials.md)。
+`ops/research/` 保留開發比較工具，不是產品取得器。產品沿用 direct HTTP／provider API 與 metadata-only fallback，HTML 正文由 `runtime.research_web` 擷取；現行來源範圍見 [教材文件](../../docs/materials.md)。
 
 ## 範圍與可重跑入口
 
