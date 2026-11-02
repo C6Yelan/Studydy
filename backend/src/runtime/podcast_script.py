@@ -167,8 +167,8 @@ def validate(script, episode):
         if total_size > 9600:
             raise ValueError()
     except (KeyError, TypeError, ValueError) as error:
-        from . import luna_calls
-        luna_calls.validation_failed(error)
+        from . import model_calls
+        model_calls.validation_failed(error)
         raise ValueError("PODCAST_SCRIPT_INVALID") from None
     return deepcopy(script)
 

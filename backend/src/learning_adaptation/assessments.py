@@ -12,7 +12,7 @@ from uuid import UUID
 from sqlalchemy import case, or_, select
 
 from content_identity import canonical_sha256
-from runtime import luna_calls
+from runtime import model_calls
 from runtime.semantic_service import request_semantics, semantic_client
 from runtime.storage.tables import (
     Assessment,
@@ -68,7 +68,7 @@ class StoredAssessment:
     mastery_qualified: bool
 
 
-# 只擋重複失控；Luna 時期題幹最長約 80 字、選項約 50 字。解析是 Gemma 後新增欄位，
+# 只擋重複失控；既有樣本題幹最長約 80 字、選項約 50 字。解析是 Gemma 後新增欄位，
 # 需完整包含正確答案，上限放寬。
 PROMPT_MAX_LENGTH = 1000
 OPTION_MAX_LENGTH = 500
@@ -701,7 +701,7 @@ def _checked_candidate(client, runtime_lock, claim, candidates, prior, semantic_
         client,
         runtime_lock=runtime_lock,
         task="assessment_check",
-        tags=luna_calls.tags(feature="assessment_check"),
+        tags=model_calls.tags(feature="assessment_check"),
         request={
             "schema": "assessment-check-request/v1",
             "claim": claim.text,

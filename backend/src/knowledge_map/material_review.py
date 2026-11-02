@@ -36,7 +36,7 @@ class _Closed(BaseModel):
 
 class _Supported(_Closed):
     evidence: list[int] = Field(min_length=1)
-    # 只擋重複失控；Luna 時期各類 reason 最長約 160 字。
+    # 只擋重複失控；既有樣本各類 reason 最長約 160 字。
     reason: str = Field(min_length=1, max_length=1000)
 
 

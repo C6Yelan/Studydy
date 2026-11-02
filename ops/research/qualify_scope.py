@@ -1,4 +1,4 @@
-"""以真實公開來源／Luna 驗證已確認需求的研究流程；不讀寫產品 DB。"""
+"""以真實公開來源／Gemma 驗證已確認需求的研究流程；不讀寫產品 DB。"""
 
 import argparse
 from copy import deepcopy

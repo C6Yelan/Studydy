@@ -3,7 +3,7 @@
 from .storage.materials import require_material
 
 from .provider_http import provider
-from . import luna_calls, voice_sentences
+from . import model_calls, voice_sentences
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -365,7 +365,7 @@ def action(owner, identity, turn_id, action, *, dsn=None):
         else:
             raise SourceError("REQUEST_INVALID")
         status = turn.status
-    luna_calls.discard("voice", turn_id, owner)
+    model_calls.discard("voice", turn_id, owner)
     return {"ok": True, "status": status}
 
 
@@ -597,11 +597,11 @@ def _save_answer(db, turn, state, result):
         or type(supported) is not bool
         or (supported and not citations)
     ):
-        luna_calls.rejected("answer_text_supported_or_citations_invalid")
+        model_calls.rejected("answer_text_supported_or_citations_invalid")
         raise SourceError("VOICE_ANSWER_INVALID")
     for citation in citations:
         if not isinstance(citation, dict):
-            luna_calls.rejected("citation_not_object")
+            model_calls.rejected("citation_not_object")
             raise SourceError("VOICE_ANSWER_INVALID")
         passage = state["retrieved"].get(citation.get("passage_id"))
         if (
@@ -614,7 +614,7 @@ def _save_answer(db, turn, state, result):
                 for reference in citation["evidence"]
             )
         ):
-            luna_calls.rejected("citation_not_bound_to_retrieved_source")
+            model_calls.rejected("citation_not_bound_to_retrieved_source")
             raise SourceError("VOICE_ANSWER_INVALID")
     turn.answer = {**result, "schema": "material-answer/v3"}
     memory = state.get("memory_update")
@@ -668,7 +668,7 @@ def finish(state, result=None, error=None, *, dsn=None):
                     timings[key] = (timings.get(key) or 0) + measured[key] + extra
             turn.timings = timings
     if state["status"] == "answering":
-        luna_calls.completed("failed" if error else "succeeded", error)
+        model_calls.completed("failed" if error else "succeeded", error)
 
 
 def _record_stage(state, stage, *, dsn):
@@ -692,7 +692,7 @@ def step(*, dsn=None):
     if not state:
         return False
     for attempt in range(2 if state["status"] == "answering" else 1):
-        trace = luna_calls.start("voice", state["turn_id"], f"{state['lease_token']}:{attempt + 1}",
+        trace = model_calls.start("voice", state["turn_id"], f"{state['lease_token']}:{attempt + 1}",
             state["material_id"], state["owner"], enabled=state["status"] == "answering")
         try:
             with cancellable_job(
@@ -760,25 +760,25 @@ def step(*, dsn=None):
                         timings=state["audio_timings"],
                     )
                 if state["status"] == "answering":
-                    luna_calls.capture(deepcopy(result))
+                    model_calls.capture(deepcopy(result))
                 finish(state, result, dsn=dsn)
             break
         except Exception as error:
             if state.get("_stage"):
                 _record_stage(state, None, dsn=dsn)
-            luna_calls.rejected(str(error))
+            model_calls.rejected(str(error))
             code = str(error) if isinstance(error, SourceError) else "VOICE_PROVIDER_FAILED"
             if state["status"] == "answering" and code == "VOICE_ANSWER_INVALID" and attempt == 0:
                 try:
                     check_job(Turn, state["turn_id"], state["lease_token"], dsn=dsn, statuses=("answering",))
                 except JobCancelled:
                     break
-                luna_calls.completed("failed", code)
+                model_calls.completed("failed", code)
                 state["retrieved"] = {}
                 state.pop("memory_update", None)
                 continue
             finish(state, error=code, dsn=dsn)
             break
         finally:
-            luna_calls.close(trace)
+            model_calls.close(trace)
     return True

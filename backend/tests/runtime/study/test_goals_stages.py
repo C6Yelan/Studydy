@@ -1,6 +1,7 @@
 """目標進度只用真實重點證據；規劃不建立學習或假造承接進度。"""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -54,7 +55,7 @@ def test_carried_concept_completion_does_not_invent_goal_point_evidence(closed_l
     assert concept["completed_points"] == 0
     assert concept["remaining_points"] == concept["manual_review_points"] == 2
     from learning_adaptation.learning_goals import set_goal
-    goal = set_goal(old["learner"], material, date.today(), 100, dsn=old["dsn"])["goal"]
+    goal = set_goal(old["learner"], material, datetime.now(ZoneInfo('Asia/Taipei')).date(), 100, dsn=old["dsn"])["goal"]
     other = next(c for c in document["concepts"] if c["label"] == "Other topic")
     extra = next(c for c in document["concepts"] if c["label"] == "Extra topic")
     assert goal["today_stage"]["concepts"] == [

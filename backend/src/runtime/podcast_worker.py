@@ -8,7 +8,7 @@ import logging
 from threading import BoundedSemaphore
 from urllib.error import HTTPError
 
-from . import podcast_titles, podcasts, luna_calls
+from . import podcast_titles, podcasts, model_calls
 from .generation_jobs import cancellable_job
 from .podcast_script_generation import script
 from .provider_http import _cancellation, generation_response, provider_request, provider_error_code
@@ -37,7 +37,7 @@ def _episode(claim, *, dsn):
     if claim["episode"]["script"]:
         _audio(claim, dsn=dsn)
         return
-    trace = luna_calls.start(
+    trace = model_calls.start(
         "podcast_script", (claim["podcast_id"], claim["index"]), claim["token"],
         claim["material_id"], claim["owner"],
     )
@@ -62,7 +62,7 @@ def _episode(claim, *, dsn):
             title = podcast_titles.generate({**episode, "script": result}, claim=claim)
             podcasts.finish_step(claim, script=result, title=title, dsn=dsn)
     except Exception as error:
-        luna_calls.rejected(str(error))
+        model_calls.rejected(str(error))
         code = str(error) if str(error) in {
             "PODCAST_SCRIPT_INVALID", "PODCAST_SCRIPT_NEEDS_REVIEW", "PODCAST_CANCELLED",
             "SEMANTIC_SERVICE_UNAVAILABLE", "SEMANTIC_SERVICE_TIMEOUT", "SEMANTIC_GENERATION_FAILED",
@@ -73,7 +73,7 @@ def _episode(claim, *, dsn):
         except Exception:
             logging.getLogger(__name__).warning("PODCAST_RESULT_SAVE_FAILED")
     finally:
-        luna_calls.close(trace)
+        model_calls.close(trace)
 
 
 def _audio(claim, *, dsn):

@@ -1,4 +1,4 @@
-"""本輪明確啟用的 Luna 替代測試；新工作保存真實 provider 身分。"""
+"""舊 Luna runtime 的唯讀相容測試資料；不得用於新工作。"""
 
 from copy import deepcopy
 
@@ -16,7 +16,3 @@ def test_lock(lock):
         server=deepcopy(SERVER),
     )
     return result
-
-
-def enabled(lock):
-    return lock.get("semantic_service", {}).get("api_protocol") == "codex-exec-luna/v1"

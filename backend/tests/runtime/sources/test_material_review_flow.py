@@ -362,13 +362,13 @@ def test_parallel_database_archive_keeps_successes_across_failed_batch(revisions
     from threading import Barrier, Lock
     from collections import Counter
     from runtime import material_review as review
-    from runtime.luna_test import test_lock
+    from legacy_model_lock import test_lock
     from runtime.storage.analysis_archive import _material_directory
     from learning_adaptation.study_sessions import create_study_session
     owner, material, settings, dsn, add, start, execute, first, original, requests = revisions
     create_study_session(owner, material, original['revision'], 'preserve-parallel-base', dsn=dsn)
     enable_review(settings)
-    monkeypatch.setenv('STUDYDY_LUNA_PARALLEL_TEST', '1')
+    monkeypatch.setenv('STUDYDY_MATERIAL_REVIEW_CONCURRENCY', '2')
     actual = review._review_units
     monkeypatch.setattr(review, '_review_units', lambda view, units, lock, *a, **k: actual(view, units, test_lock(lock), *a, **k))
     b = add('B.pdf', 'A queue removes the first inserted element first.')

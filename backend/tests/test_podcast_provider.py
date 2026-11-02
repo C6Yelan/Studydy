@@ -472,16 +472,6 @@ def test_audio_failure_never_returns_partial_file_or_falls_back(monkeypatch, pur
     with pytest.raises(RuntimeError,match='PODCAST_AUDIO_INVALID'):host.audio({'script':candidate(), 'purpose':purpose})
 
 
-def test_luna_timeout_has_fixed_reason_and_task_specific_deadline(monkeypatch):
-    calls = []
-    def expired(args,**kwargs):
-        calls.append(args)
-        assert kwargs['timeout']==300 and kwargs['input']=='synthetic prompt'
-        raise host.subprocess.TimeoutExpired('codex',300)
-    monkeypatch.setattr(host.podcast_process,'run',expired)
-    with pytest.raises(RuntimeError,match='^LUNA_GENERATION_TIMEOUT$'):
-        host.luna('synthetic prompt',{'type':'object'},timeout=300)
-    assert len(calls) == 1
 
 
 
@@ -685,7 +675,7 @@ def test_omitted_claim_identities_are_unique(monkeypatch):
 
 def test_parallel_review_rechecks_after_earlier_segment_changes(monkeypatch):
     from threading import Barrier
-    from runtime import podcast_review, luna_calls
+    from runtime import podcast_review, model_calls
     from runtime.podcast_script_generation import compile_beats
     monkeypatch.setenv("STUDYDY_PODCAST_WORKERS", "2")
     request = body()
@@ -694,11 +684,11 @@ def test_parallel_review_rechecks_after_earlier_segment_changes(monkeypatch):
     script = {"segments": compile_beats(raw, request["claims"])}
     barrier = Barrier(2)
     calls = []
-    trace = luna_calls.start("podcast_script", "parallel-test", "attempt", None, None)
+    trace = model_calls.start("podcast_script", "parallel-test", "attempt", None, None)
     def review(value):
         index = value["segment_index"]
         calls.append(value)
-        assert luna_calls.tags()["work_id"] == "parallel-test"
+        assert model_calls.tags()["work_id"] == "parallel-test"
         if len([v for v in calls if v["segment_index"] == index]) == 1 and index < 2:
             barrier.wait(timeout=5)
         return verdict(value, {"turn.0"} if index == 0 else set())
@@ -706,7 +696,7 @@ def test_parallel_review_rechecks_after_earlier_segment_changes(monkeypatch):
         result = podcast_review.verify(script, request["claims"], {}, hosts=request["hosts"],
             series=request["series"], review=review, rewrite=lambda current, *_: current, diagnostics=[])
     finally:
-        luna_calls.close(trace)
+        model_calls.close(trace)
     second = [v for v in calls if v["segment_index"] == 1]
     assert len(second) == 2
     assert second[0]["related_segments"] and not second[1]["related_segments"]

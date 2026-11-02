@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from runtime.card_design import CardDesignError, DESIGN_SCHEMA, POLICY, checked_design, resolve_plan, source_input, validate_plan
-from runtime import card_generation, luna_test, provider_http
+from runtime import card_generation, provider_http
 from runtime.semantic_service import request_semantics
 
 
@@ -73,10 +73,9 @@ def lock():
     return value
 
 
-def test_gemma_uses_existing_pod_endpoint_not_luna(monkeypatch):
-    monkeypatch.delenv('STUDYDY_TEXT_TEST_PROVIDER', raising=False)
+def test_gemma_uses_existing_pod_endpoint(monkeypatch):
     monkeypatch.setenv('STUDYDY_SEMANTIC_BASE_URL', 'http://model-bridge:18000')
-    monkeypatch.setattr(provider_http, '_host', lambda *_: pytest.fail('Gemma must not call Luna provider'))
+    monkeypatch.setattr(provider_http, '_host', lambda *_: pytest.fail('Gemma must use the model endpoint'))
     calls = []; runtime_lock = lock()
     def respond(request):
         calls.append(request.url.path)
@@ -93,17 +92,3 @@ def test_gemma_uses_existing_pod_endpoint_not_luna(monkeypatch):
     assert result == plan() and calls == ['/tokenize', '/v1/chat/completions']
     assert usage['total_tokens'] == 300
     assert card_generation.provider_identity(card_generation.configured_lock())['api_protocol'] == 'openai-chat-completions/v1'
-
-
-def test_luna_remains_explicit_temporary_route(monkeypatch):
-    monkeypatch.setenv('STUDYDY_TEXT_TEST_PROVIDER', 'codex-exec-luna')
-    calls = []
-    def provider(path, body):
-        calls.append(path)
-        assert body['task'] == 'concept_card' and body['schema'] == DESIGN_SCHEMA
-        return plan()
-    monkeypatch.setattr(provider_http, '_host', provider)
-    with httpx.Client(transport=httpx.MockTransport(lambda _: pytest.fail('Luna must not call the Pod'))) as client:
-        result = request_semantics(client, runtime_lock=luna_test.test_lock(lock()), task='concept_card', request={'sources': []}, response_schema=DESIGN_SCHEMA)
-    assert result == plan() and calls == ['/semantics']
-    assert card_generation.provider_identity(card_generation.configured_lock())['api_protocol'] == 'codex-exec-luna/v1'

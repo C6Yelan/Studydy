@@ -45,7 +45,7 @@ test("wrong points directly form groups and survive lost create responses", asyn
   const reviews = page.locator(".feedback-card.is-incorrect .feedback-evidence");
   await expect(reviews).toHaveCount(2);
   await expect(reviews.nth(0)).toContainText("教材指出 Signal 1 使用 code1。");
-  await expect(reviews.nth(1)).toContainText("Signal 2 uses code2.");
+  await expect(reviews.nth(1)).toContainText("教材指出 Signal 2 使用 code2。");
   await expect(page.getByRole("button", { name: "補強這 2 個重點", exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("button", { name: "補強這 2 個重點", exact: true })).toBeVisible();
@@ -65,7 +65,7 @@ test("wrong points directly form groups and survive lost create responses", asyn
   await expect(badgeNotice).toBeVisible();
   await page.getByRole("button", { name: "補強這 2 個重點", exact: true }).click();
   await expect(page.getByRole("button", { name: "重新讀取題組", exact: true })).toBeVisible();
-  await badgeNotice.getByRole("button", { name: "太好了" }).click();
+  await badgeNotice.getByRole("button", { name: "關閉", exact: true }).click();
   await page.getByRole("button", { name: "重新讀取題組", exact: true }).click();
   await page.getByRole("button", { name: "接續補強", exact: true }).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
@@ -90,7 +90,7 @@ test("wrong points directly form groups and survive lost create responses", asyn
   await page.getByRole("button",{name:"補強這 1 個重點",exact:true}).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   // 上一次交卷讓 Signals 的錯誤率降到一半以下，進入補強題組時讀到新徽章（突破難點），先關閉提示。
-  await page.getByRole("status", { name: "獲得新徽章" }).getByRole("button", { name: "太好了" }).click();
+  await page.getByRole("status", { name: "獲得新徽章" }).getByRole("button", { name: "關閉", exact: true }).click();
   const childUrl=page.url();
   await card(page,1).getByRole("radio",{name:/\bcode2\b/}).check();
   await page.getByRole("button",{name:"交卷",exact:true}).click();
