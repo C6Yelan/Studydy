@@ -15,6 +15,110 @@
   --map-gray: #dfe5ee;
   --map-muted: #51607a;
 }
+/* 地圖載入中、讀取失敗、找不到、空白地圖：海面上的一張闖關風格卡片（文字維持白話，只換樣式）。 */
+.quest-state {
+  --map-ink: #14213d;
+  --map-yellow: #ffc93c;
+  --map-sky: #e6eefc;
+  --map-muted: #51607a;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  box-sizing: border-box;
+  min-height: min(70dvh, 620px);
+  padding: clamp(24px, 8vh, 72px) 16px;
+  border-radius: 28px;
+  background: #9fd6f2;
+  color: var(--map-ink);
+}
+.quest-state > .state-view,
+.quest-state > .not-found,
+.quest-state-card {
+  box-sizing: border-box;
+  width: min(640px, 100%);
+  max-width: 640px;
+  margin: 0;
+  padding: 28px 28px 32px;
+  border: 4px solid var(--map-ink);
+  border-radius: 28px;
+  background: #fff;
+  box-shadow: 0 8px 0 var(--map-ink);
+  text-align: center;
+}
+.quest-state h1 {
+  margin: 0 0 8px;
+  color: var(--map-ink);
+  font-size: clamp(1.5rem, 4vw, 1.9rem);
+  font-weight: 900;
+}
+.quest-state p {
+  margin-inline: auto;
+  color: var(--map-muted);
+  font-weight: 700;
+}
+.quest-state .state-view__icon {
+  border: 3px solid var(--map-ink);
+  background: var(--map-yellow);
+  color: var(--map-ink);
+}
+.quest-state .primary-button,
+.quest-state .secondary-button,
+.quest-state .text-button {
+  min-height: 44px;
+  padding: 0 20px;
+  border: 3px solid var(--map-ink);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 5px 0 var(--map-ink);
+  color: var(--map-ink);
+  font-weight: 900;
+}
+.quest-state .primary-button {
+  background: var(--map-yellow);
+}
+.quest-state .primary-button:hover:not(:disabled),
+.quest-state .secondary-button:hover:not(:disabled) {
+  background: var(--map-sky);
+}
+.quest-state .primary-button:active:not(:disabled),
+.quest-state .secondary-button:active:not(:disabled) {
+  box-shadow: 0 2px 0 var(--map-ink);
+  transform: translateY(3px);
+}
+.quest-state .state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+/* 載入中的進度條：只是示意在動，沒有真實進度。 */
+.quest-state-bar {
+  height: 20px;
+  margin-top: 18px;
+  overflow: hidden;
+  border: 3px solid var(--map-ink);
+  border-radius: 999px;
+  background: var(--map-sky);
+}
+.quest-state-bar::after {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-right: 3px solid var(--map-ink);
+  background: #22b573;
+  content: "";
+  animation: quest-state-slide 1.4s ease-in-out infinite alternate;
+}
+@keyframes quest-state-slide {
+  from { transform: translateX(-10%); }
+  to { transform: translateX(150%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-state-bar::after {
+    animation: none;
+    transform: translateX(60%);
+  }
+}
 .map-start-error {
   padding: 12px;
   color: #a32626;
@@ -255,6 +359,13 @@
 .concept-flow-edge:focus-visible .react-flow__edge-path {
   filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 2px #fff);
 }
+/* 被點的線：標籤套上黃色光圈（只加選取樣式，線本身不動）。stroke 先畫、底色蓋在上面，光圈才不會吃掉標籤。 */
+.concept-flow-edge.selected .react-flow__edge-textbg {
+  stroke: var(--map-yellow, #ffc93c);
+  stroke-width: 14px;
+  paint-order: stroke;
+  filter: drop-shadow(2px 0 0 #14213d) drop-shadow(-2px 0 0 #14213d) drop-shadow(0 2px 0 #14213d) drop-shadow(0 -2px 0 #14213d);
+}
 .concept-flow-edge .react-flow__edge-text {
   pointer-events: none;
 }
@@ -317,10 +428,138 @@
 .focus-graph.has-navigator > .detail-panel {
   left: 280px;
 }
-/* 關係卡第 4 段才換版面；先沿用原本的直排內容，在卡片內捲動。 */
+/* 關係卡：左右各留 150px（示意圖 03），內容過高時在卡內捲動，關閉鈕才不會被裁掉。 */
 .focus-graph > .detail-panel.relation-card {
-  max-width: 560px;
+  right: 150px;
+  left: 150px;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  container: relation-card / inline-size;
+}
+.focus-graph.has-navigator > .detail-panel.relation-card {
+  left: 280px;
+}
+.relation-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
   overflow-y: auto;
+}
+.relation-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  /* 讓出騎在右上角的關閉鈕。 */
+  padding-right: 36px;
+}
+.relation-kind {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 14px;
+  border: 3px solid var(--map-ink);
+  border-radius: 999px;
+  background: var(--map-cream);
+  font-size: 15px;
+  font-weight: 900;
+}
+.relation-title h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.relation-direction {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 16px;
+}
+.relation-direction.is-undirected {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.relation-arrow {
+  align-self: center;
+  color: var(--map-ink);
+}
+/* 卡片變窄（平板、關卡路線與來源面板同時打開、手機）：兩端上下排，箭頭轉向下。 */
+@container relation-card (max-width: 440px) {
+  .relation-direction,
+  .relation-direction.is-undirected {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .relation-arrow {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+}
+.relation-end {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 3px solid var(--map-ink);
+  border-radius: 18px;
+  background: var(--map-sky);
+  color: var(--map-ink);
+  font-family: inherit;
+  line-height: 1.3;
+  text-align: left;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.relation-end.is-first {
+  background: var(--map-cream);
+}
+.relation-end small {
+  color: var(--map-muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+.relation-end.is-first small {
+  color: #8a4500;
+}
+.relation-end strong {
+  font-size: 19px;
+  font-weight: 900;
+}
+.relation-end:hover {
+  background: #fff;
+}
+.relation-why {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px 18px;
+}
+.relation-reason {
+  flex: 1 1 420px;
+  margin: 0;
+  color: #24324f;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.relation-reason > b {
+  margin-right: 1em;
+  color: var(--map-ink);
+  font-weight: 900;
+}
+.relation-no-source {
+  flex: 0 1 auto;
+  margin: 0;
+  color: var(--map-muted);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 44px;
 }
 /* 任務卡：左欄名稱、重點、出處（過長時在左欄內捲動），右欄答題紀錄與主按鈕。 */
 .quest-card {
@@ -563,77 +802,6 @@
   box-shadow: 0 6px 0 var(--map-ink);
   font-size: 20px;
 }
-.detail-panel > header {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 8px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-}
-.detail-panel h2 {
-  margin: 4px 0 0;
-  font-size: 20px;
-  overflow-wrap: anywhere;
-}
-.detail-kicker {
-  font-size: 12px;
-  color: var(--studydy-blue);
-}
-.panel-close {
-  flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: var(--radius-input);
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 24px;
-}
-.panel-close:hover {
-  background: #f8fafc;
-}
-.detail-panel > section {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-.detail-panel h3 {
-  margin: 0 0 12px;
-  font-size: 16px;
-}
-.detail-panel .concept-claim p {
-  font-size: 14px;
-  margin: 0;
-  color: var(--text-secondary);
-}
-.detail-related {
-  display: block;
-  width: 100%;
-  padding: 10px;
-  margin-top: 8px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-input);
-  background: var(--surface);
-  color: var(--text-primary);
-  text-align: left;
-  overflow-wrap: anywhere;
-  background: var(--page-cool); border-radius: 16px;
-}
-.detail-related small,
-.detail-related strong {
-  display: block;
-}
-.detail-related small {
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-.relation-direction > div > span {
-  display: block;
-  text-align: center;
-  color: var(--studydy-blue);
-}
-
 .detail-panel::backdrop {
   background: rgba(15, 23, 42, 0.28);
 }
@@ -659,6 +827,13 @@
   white-space: nowrap;
 }
 /* 樣本只是示意，顏色接近畫布上的橋與線；線本身的畫法不在這裡。 */
+/* 被點的航線在橋說明裡對應的那一列。 */
+.relation-legend > span.is-current {
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: var(--map-cream);
+}
 .relation-swatch {
   display: inline-block;
   flex: none;
@@ -968,6 +1143,15 @@
     max-width: none;
     max-height: calc(100dvh - 24px);
     overflow-y: auto;
+  }
+  .focus-graph > .detail-panel.relation-card,
+  .focus-graph.has-navigator > .detail-panel.relation-card {
+    left: auto;
+    right: 12px;
+    display: block;
+  }
+  .relation-body {
+    overflow: visible;
   }
   .quest-body {
     flex-direction: column;

@@ -157,12 +157,13 @@ export default function KnowledgeMap({
     if (!isLoadingProgress) void launch.start({ ...route, conceptId });
   };
 
-  if (notFound === "material") return <NotFoundView {...materialNotFound} />;
+  if (notFound === "material") return <div className="quest-state"><NotFoundView {...materialNotFound} /></div>;
   if (notFound === "version")
-    return <NotFoundView title="找不到這個版本的知識地圖" description="網址中的地圖版本已不存在，可以開啟這份教材目前的知識地圖。"
-      back={{ label: "開啟目前的知識地圖", route: { name: "material", materialId: route.materialId } }} />;
+    return <div className="quest-state"><NotFoundView title="找不到這個版本的知識地圖" description="網址中的地圖版本已不存在，可以開啟這份教材目前的知識地圖。"
+      back={{ label: "開啟目前的知識地圖", route: { name: "material", materialId: route.materialId } }} /></div>;
   if (message)
     return (
+      <div className="quest-state">
       <StateView
         action={
           <div className="state-actions">
@@ -187,16 +188,17 @@ export default function KnowledgeMap({
         title="無法讀取知識地圖"
         tone="failure"
       />
+      </div>
     );
   if (!view)
     return (
-      <StateView
-        description="正在載入教材概念與學習順序。"
-        live
-        skeleton="map"
-        title="正在讀取知識地圖"
-        tone="loading"
-      />
+      <div className="quest-state">
+        <section className="quest-state-card" role="status" aria-label="正在讀取知識地圖">
+          <h1>正在展開地圖…</h1>
+          <p>正在載入教材概念與學習順序。</p>
+          <div className="quest-state-bar" aria-hidden="true" />
+        </section>
+      </div>
     );
   return (
     <KnowledgeMapWorkspace

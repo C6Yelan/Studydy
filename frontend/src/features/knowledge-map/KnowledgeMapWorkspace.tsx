@@ -7,7 +7,7 @@ import { DailyGoalProgress } from "../learning-goals/DailyGoalProgress";
 import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import type { AppRoute } from "../../app/routes";
 import { SourceButton, evidencePlace, evidenceSourceTitle, sourceLinks } from "../../ui/SourceButton";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type KeyboardEvent } from "react";
 import {
   Background,
   MarkerType,
@@ -28,6 +28,7 @@ import "@xyflow/react/dist/style.css";
 
 import type { StudydyApiClient } from "../../api/client";
 import type {
+  RelationType,
   KnowledgeOutlineView,
   KnowledgeRegionsView,
   MapProgressView,
@@ -880,6 +881,49 @@ function MapGraph({
     });
     return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
   }, [initialized, canvasReady, graph, selected.concept_id, previewRead.context, previewRead.error, layout]);
+  // 開啟關係卡時（鏡頭不因點線而重框）：被點的線和兩端的島若被下方卡片蓋住，才把它們平移到卡片上方；
+  // 卡片的說明和出處是非同步載入的，高度變了也要重新確認。
+  useEffect(() => {
+    if (!highlightedRelation) return;
+    const element = graphElement.current!;
+    const card = element.querySelector<HTMLElement>(".relation-card");
+    // 手機是 modal 浮層，不在畫布下方。
+    if (!card || getComputedStyle(card).position !== "absolute") return;
+    const ids = [highlightedRelation.source_concept_id, highlightedRelation.target_concept_id];
+    let frame = 0;
+    const reveal = () => {
+      const bounds = element.getBoundingClientRect();
+      const cardTop = card.getBoundingClientRect().top;
+      const gap = 24;
+      const covered = [
+        ...ids.map((id) => element.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`)),
+        element.querySelector(".concept-flow-edge.selected .react-flow__edge-textbg"),
+      ].some((item) => item && item.getBoundingClientRect().bottom > cardTop - gap / 2);
+      if (!covered) return;
+      const box = (selector: string) => element.querySelector(selector)?.getBoundingClientRect();
+      const top = Math.max(0, ...[box(".map-hud"), box(".map-toolbar")].map((item) => item ? item.bottom - bounds.top : 0));
+      const right = Math.max(0, ...[box(".react-flow__controls"), box(".map-annotations")].map((item) => item ? bounds.right - item.left : 0));
+      const navigator = box("#map-navigator:not([hidden])");
+      void graph.fitView({
+        ...fitViewOptions,
+        // 只平移或縮小，不為了框兩座島而放大。
+        maxZoom: graph.getZoom(),
+        nodes: ids.map((id) => ({ id })),
+        padding: {
+          top: `${top + gap}px`,
+          right: `${right + gap}px`,
+          bottom: `${bounds.bottom - cardTop + gap}px`,
+          left: `${(navigator ? navigator.right - bounds.left : 0) + gap}px`,
+        },
+      });
+    };
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(reveal);
+    });
+    observer.observe(card);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  }, [highlightedRelation?.relation_id, graph]);
   return (
     <section className="focus-workspace" aria-label="知識地圖工作區">
       <div
@@ -967,7 +1011,7 @@ function MapGraph({
           <button type="button" className="map-round-button map-legend-toggle" aria-label="顯示橋的說明" aria-expanded={legendOpen} onClick={() => setLegendOpen(value => !value)}>?</button>
           <div className="relation-legend" aria-label="橋的說明">
             {Object.entries(relationStyles).map(([type, { bridge, meaning }]) => (
-              <span key={type}>
+              <span key={type} className={highlightedRelation?.type === type ? "is-current" : undefined}>
                 <i className={`relation-swatch is-${type}`} aria-hidden="true" />
                 {bridge}：{meaning}
               </span>
@@ -985,6 +1029,17 @@ function MapGraph({
   );
 }
 
+/** 關係卡標題的一句話；方向照後端定義：先備 source 先學、組成 source 是部分、應用 source 是概念 target 是用途、例子 source 是抽象概念。 */
+function relationSentence(type: RelationType, from: string, to: string) {
+  switch (type) {
+    case "prerequisite": return <>先學「{from}」，再學「{to}」</>;
+    case "part_of": return <>「{from}」是「{to}」的一部分</>;
+    case "application": return <>學會「{from}」，到「{to}」就會用到</>;
+    case "example": return <>「{to}」是「{from}」的例子</>;
+    case "contrast": return <>「{from}」和「{to}」可以拿來比較</>;
+  }
+}
+
 function RelationDetail({
   relation,
   view,
@@ -1000,47 +1055,68 @@ function RelationDetail({
 }) {
   const read = useConceptContext(apiClient, view.material_id, view.knowledge_structure_revision, [relation.source_concept_id]);
   const full = read.context?.relations.find(item => item.relation_id === relation.relation_id);
-  const evidence = (read.context?.relation_evidence ?? []).filter(item => full?.evidence_refs.includes(item.evidence_id));
+  const evidence = sourceLinks((read.context?.relation_evidence ?? []).filter(item => full?.evidence_refs.includes(item.evidence_id)));
+  const style = relationStyles[relation.type];
+  // 兩端依後端的來源／目標順序；對岸沒有方向，只是不畫箭頭。
+  const ends = [relation.source_concept_id, relation.target_concept_id].map(id => view.concepts.find(concept => concept.concept_id === id)!);
+  const [from, to] = ends.map(concept => mathPlainText(concept.label));
   return (
     <DetailPanel label="關係詳情" className="relation-card" focusKey={relation.relation_id} close={close}>
-      <header>
-        <div>
-          <span className="detail-kicker">概念之間的關係</span>
-          <h2>{relationStyles[relation.type].label}</h2>
+      <button aria-label="關閉關係詳情" className="quest-close" type="button" onClick={close}>
+        <Icon name="close" size={22} />
+      </button>
+      <div className="relation-body">
+        <header className="relation-title">
+          <span className="relation-kind">
+            <i className={`relation-swatch is-${relation.type}`} aria-hidden="true" />
+            {style.bridge}：{style.meaning}
+          </span>
+          <h2>{relationSentence(relation.type, from, to)}</h2>
+        </header>
+        <section className={`relation-direction${relation.type === "contrast" ? " is-undirected" : ""}`} aria-label="這條航線連起來的兩座島">
+          {ends.map((concept, index) => (
+            <Fragment key={index}>
+              {index === 1 && relation.type !== "contrast" && (
+                <svg className="relation-arrow" aria-hidden="true" width="36" height="24" viewBox="0 0 36 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12h28" /><path d="M23 4l8 8-8 8" />
+                </svg>
+              )}
+              <button className={`relation-end is-${index === 0 ? "first" : "second"}`} type="button"
+                aria-label={`${index === 0 ? "這一頭" : "另一頭"}：${index === 0 ? from : to}`}
+                onClick={() => openConcept(concept.concept_id)}>
+                <small>{index === 0 ? "這一頭" : "另一頭"}</small>
+                <strong><MathText text={concept.label} notation={false} /></strong>
+              </button>
+            </Fragment>
+          ))}
+        </section>
+        <div className="relation-why">
+          <p className="relation-reason">
+            <b>為什麼連在一起？</b>
+            {read.error ? "說明現在讀不到，等一下再試。"
+              : full ? full.learner_reason
+              : <span role="status">正在找說明…</span>}
+          </p>
+          {read.error && <button type="button" className="quest-link" onClick={read.retry}>重新讀取</button>}
+          {full && (evidence.length === 0
+            ? <p className="relation-no-source">點兩端的島可以看相關教材。</p>
+            : (
+              <div className="quest-sources">
+                {evidence.map((item) => (
+                  <SourceButton
+                    key={item.evidence_id}
+                    apiClient={apiClient}
+                    resolver={view.source_resolver}
+                    evidence={item}
+                    label={evidence.length === 1 ? "看教材怎麼說" : `看原文：${evidencePlace(item)}`}
+                    title={evidenceSourceTitle(item)}
+                    ariaLabel={`${evidence.length === 1 ? "看教材怎麼說" : "看原文"}：${evidenceSourceTitle(item)}`}
+                  />
+                ))}
+              </div>
+            ))}
         </div>
-        <button className="panel-close" type="button" aria-label="關閉關係詳情" onClick={close}>
-          ×
-        </button>
-      </header>
-      <section className="relation-direction">
-        {[relation.source_concept_id, relation.target_concept_id].map((id, index) => (
-          <div key={index}>
-            {index === 1 && <span aria-hidden="true">↓</span>}
-            <button className="detail-related" type="button" onClick={() => openConcept(id)}>
-              <small>{index === 0 ? "來源概念" : "目標概念"}</small>
-              <strong><MathText text={view.concepts.find((concept) => concept.concept_id === id)?.label ?? ""} notation={false} /></strong>
-            </button>
-          </div>
-        ))}
-      </section>
-      <section>
-        <h3>為什麼有這個關係？</h3>
-        <p className="claim-text">{full?.learner_reason ?? (read.error ? "暫時無法讀取關係說明。" : "正在讀取關係說明…")}</p>
-      </section>
-      <section>
-        <h3>教材來源</h3>
-        {sourceLinks(evidence).map((item) => (
-          <SourceButton
-            key={item.evidence_id}
-            apiClient={apiClient}
-            resolver={view.source_resolver}
-            evidence={item}
-          />
-        ))}
-        {read.error ? <p role="alert">{read.error}<button type="button" onClick={read.retry}>重新讀取</button></p>
-          : !read.context ? <p role="status">正在讀取關係來源…</p>
-          : evidence.length === 0 && <p>可從來源與目標概念查看相關教材。</p>}
-      </section>
+      </div>
     </DetailPanel>
   );
 }
@@ -1215,6 +1291,7 @@ export function KnowledgeMapWorkspace({
 
   if (view.concepts.length === 0)
     return (
+      <div className="quest-state">
       <StateView
         action={
           <div className="state-actions">
@@ -1229,6 +1306,7 @@ export function KnowledgeMapWorkspace({
         title="知識地圖目前是空的"
         tone="empty"
       />
+      </div>
     );
   const rememberOpener = (restoreFocus?: RestoreFocus) => {
     // 快速關閉再開啟詳情時，不讓前一次延遲恢復搶走新面板的焦點。

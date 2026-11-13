@@ -189,13 +189,28 @@ test("parallel relations retain separate labels, paths and details in both direc
   for (const relation of view.relations) {
     await page.locator(`.concept-flow-edge.is-${relation.type} .react-flow__edge-textbg`).click();
     await expect(relationDialog).toContainText(relation.learner_reason);
+    const [from, to] = [relation.source_concept_id, relation.target_concept_id].map(
+      (id) => view.concepts.find((concept) => concept.concept_id === id)!.label,
+    );
+    await expect(relationDialog.getByRole("heading")).toHaveText(
+      {
+        prerequisite: `先學「${from}」，再學「${to}」`,
+        part_of: `「${from}」是「${to}」的一部分`,
+        application: `學會「${from}」，到「${to}」就會用到`,
+        example: `「${to}」是「${from}」的例子`,
+        contrast: `「${from}」和「${to}」可以拿來比較`,
+      }[relation.type],
+    );
+    // 被點的線標籤套上光圈，右上橋說明對應那一列也標出來。
+    await expect(page.locator(`.concept-flow-edge.is-${relation.type}.selected`)).toHaveCount(1);
+    await expect(page.locator(".relation-legend > .is-current")).toHaveCount(1);
     await expect(relationDialog.locator(".relation-direction strong")).toHaveText([
       view.concepts.find((concept) => concept.concept_id === relation.source_concept_id)!.label,
       view.concepts.find((concept) => concept.concept_id === relation.target_concept_id)!.label,
     ]);
     await assertSeparate();
     if (relation.type === "prerequisite") {
-      await relationDialog.getByRole("button", { name: /目標概念/ }).click();
+      await relationDialog.getByRole("button", { name: /另一頭/ }).click();
       await expect(
         page
           .getByRole("dialog", { name: "概念詳情" })
