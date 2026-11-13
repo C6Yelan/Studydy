@@ -1,13 +1,13 @@
 import { MapExports } from "../exports/MapExports";
 import { openNoteTarget, useConceptNoteTarget } from "../notes/note-location";
 import { relationStyles } from "./map-appearance";
-import { DifficultyBadge, LearningDiagnosis, useLearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
+import { LearningDiagnosis, useLearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { GoalEditorHost, LearningGoalBlock, TodayConceptsBlock, useLearningGoal } from "../learning-goals/LearningGoalPanel";
 import { DailyGoalProgress } from "../learning-goals/DailyGoalProgress";
 import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import type { AppRoute } from "../../app/routes";
-import { SourceButton, sourceLinks } from "../../ui/SourceButton";
-import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
+import { SourceButton, evidencePlace, evidenceSourceTitle, sourceLinks } from "../../ui/SourceButton";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type KeyboardEvent } from "react";
 import {
   Background,
   MarkerType,
@@ -50,13 +50,8 @@ type Mode = "focus" | "review";
 type RestoreFocus = () => void;
 
 const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
-
-const learningLabels = {
-  not_started: "尚未開始",
-  in_progress: "進行中",
-  needs_review: "需要加強",
-  completed: "已完成",
-} as const;
+// 任務卡最高佔畫布高度的比例；選中概念時的視野一律預留這麼高，卡片內容晚到變高也不會蓋住島。
+const QUEST_CARD_SHARE = 0.45;
 
 // 島牌：底色＋旗子高度表示狀態，文字只放在節點的 aria-label。
 const islandStates = {
@@ -85,29 +80,15 @@ function MapProgressHud({ view, progress, regions, conceptId }: {
   );
 }
 
-function LearningBadge({
-  conceptId,
-  progress,
-}: {
-  conceptId: string;
-  progress: MapProgressView | null;
-}) {
-  const state = progress?.concept_states.find((item) => item.concept_id === conceptId);
-  const label = state?.status !== "completed" && state?.assessable === false
-    ? "此概念目前無法提供可靠檢測"
-    : state ? learningLabels[state.status] : null;
-  return state && label ? (
-    <span className={`map-learning-badge is-${state.status}`}>{label}</span>
-  ) : null;
-}
-
 function DetailPanel({
   label,
+  className,
   focusKey,
   close,
   children,
 }: {
   label: string;
+  className: string;
   focusKey: string;
   close: () => void;
   children: ReactNode;
@@ -115,8 +96,9 @@ function DetailPanel({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const panel = ref.current!;
-    // 平板斷點（styles.css 共用斷點；與 knowledge-map/styles.css 的浮層詳情同一門檻）：詳情改用 modal 浮層。
-    const mobile = window.matchMedia("(max-width: 1024px)");
+    // 桌機與平板：卡片疊在畫布下方（非 modal），地圖照常可操作。
+    // 手機斷點（styles.css 共用斷點；與 knowledge-map/styles.css 的浮層詳情同一門檻）：改用 modal 浮層。
+    const mobile = window.matchMedia("(max-width: 720px)");
     const update = () => {
       if (panel.open) panel.close();
       if (mobile.matches) panel.showModal();
@@ -139,7 +121,7 @@ function DetailPanel({
   return (
     <dialog
       ref={ref}
-      className="detail-panel"
+      className={`detail-panel ${className}`}
       aria-label={label}
       tabIndex={-1}
       onCancel={(event) => {
@@ -186,51 +168,152 @@ function ConceptDetail({
   close,
   view,
   progress,
-  studyAction,
   isLoadingProgress,
   progressMessage,
-  region,
   difficulty,
+  isStartingStudy,
+  onStartStudy,
+  openConcept,
 }: {
   view: KnowledgeOutlineView;
   progress: MapProgressView | null;
   apiClient: StudydyApiClient;
   concept: Concept;
-  region: string | null;
   difficulty: ConceptDifficultyView | null;
   close: () => void;
-  studyAction: ReactNode;
   isLoadingProgress: boolean;
   progressMessage: string | null;
+  isStartingStudy: boolean;
+  onStartStudy: (conceptId: string) => void;
+  openConcept: (id: string) => void;
 }) {
   const read = useConceptContext(apiClient, view.material_id, view.knowledge_structure_revision, [concept.concept_id]);
   const full = read.context?.concepts.find(c => c.concept_id === concept.concept_id);
   const noteTarget = useConceptNoteTarget(apiClient, view.material_id, view.knowledge_structure_revision, concept.concept_id);
+  const route = useMemo(() => learningNavigationItems(view), [view]);
+  const state = progress?.concept_states.find((item) => item.concept_id === concept.concept_id);
+  // 出不了題的旗標和學習狀態並存；已插旗的島照常顯示已插旗。
+  const unassessable = !!state && state.status !== "completed" && !state.assessable;
+  const status = state?.status ?? "not_started";
+  const look = islandStates[status];
+  const statusText = progress
+    ? unassessable ? "暫時出不了題" : look.label
+    : isLoadingProgress ? "讀取學習狀態…" : progressMessage ? "學習狀態暫時無法讀取" : look.label;
+  const record = difficulty?.concepts.find((item) => item.concept_id === concept.concept_id);
+  // 「先去下一站」：學習路線上的下一座島；已經是最後一座就不顯示。
+  const routeIndex = route.findIndex((item) => item.concept.concept_id === concept.concept_id);
+  const nextOnRoute = route[routeIndex + 1]?.concept;
+  const busyLabel = isLoadingProgress ? "讀取學習進度…" : isStartingStudy ? "正在開始…" : null;
+  const studyLabel = busyLabel ?? (status === "completed" ? "再練一次" : status === "in_progress" ? "繼續練習" : "開始練習");
   return (
-    <DetailPanel label="概念詳情" focusKey={concept.concept_id} close={close}>
-      <header>
-        <div>
-          <span className="detail-kicker">{region ? `教材概念 · ${region}` : "教材概念"}</span>
-          <h2><MathText text={concept.label} notation={false} /></h2>
+    <DetailPanel label="概念詳情" className="quest-card" focusKey={concept.concept_id} close={close}>
+      <button aria-label="關閉概念詳情" className="quest-close" type="button" onClick={close}>
+        <Icon name="close" size={22} />
+      </button>
+      <div className="quest-body">
+        {/* 換概念時重建，左欄捲動回到頂端。 */}
+        <div className="quest-main" key={concept.concept_id}>
+          <header className="quest-title">
+            <h2><MathText text={concept.label} notation={false} /></h2>
+            <span className={`quest-status is-${progress ? status : "unknown"}${unassessable ? " is-unassessable" : ""}`}>
+              {progress && !unassessable && look.flag && <Icon name={look.flag} size={16} />}
+              {statusText}
+            </span>
+            {record?.level === "hard" && <span className="quest-sticker is-hard" title={record.reason}>可能比較難</span>}
+            {record?.personal_difficulty && <span className="quest-sticker is-personal">你常在這裡卡關</span>}
+          </header>
+          {full?.uncertain === true && <p className="flow-notice">影片逐字稿可能有聽錯的詞，建議對照原影片</p>}
+          {read.error ? <p role="alert">{read.error}<button type="button" onClick={read.retry}>重新讀取</button></p>
+            : full ? <ConceptContent claims={full.claims} apiClient={apiClient} sourceResolver={view.source_resolver} showSources={false} />
+            : <p role="status">正在讀取概念與來源…</p>}
+          {(full || noteTarget) && (
+            <div className="quest-links">
+              {full && (
+                <section className="quest-sources" aria-label="教材來源">
+                  {sourceLinks(full.claims.flatMap((claim) => claim.evidence)).map((evidence) => (
+                    <SourceButton
+                      key={evidence.evidence_id}
+                      apiClient={apiClient}
+                      resolver={view.source_resolver}
+                      evidence={evidence}
+                      label={`看原文：${evidencePlace(evidence)}`}
+                      title={evidenceSourceTitle(evidence)}
+                      ariaLabel={`看原文：${evidenceSourceTitle(evidence)}`}
+                    />
+                  ))}
+                </section>
+              )}
+              {noteTarget && <button type="button" className="quest-link" onClick={() => openNoteTarget(view.material_id, noteTarget)}>看筆記怎麼寫</button>}
+            </div>
+          )}
         </div>
-        <button aria-label="關閉概念詳情" className="panel-close" type="button" onClick={close}>
-          ×
-        </button>
-      </header>
-      {progress ? <LearningBadge conceptId={concept.concept_id} progress={progress} /> : (
-        <span className="map-learning-badge">{isLoadingProgress ? "讀取學習狀態…" : progressMessage ? "學習狀態暫時無法讀取" : "尚未開始"}</span>
-      )}
-      <DifficultyBadge concept={difficulty?.concepts.find(item => item.concept_id === concept.concept_id)} detail />
-      {full?.uncertain === true && <p className="flow-notice">影片逐字稿可能有聽錯的詞，建議對照原影片</p>}
-      <section>
-        <h3>教材重點</h3>
-        {read.error ? <p role="alert">{read.error}<button type="button" onClick={read.retry}>重新讀取</button></p>
-          : full ? <ConceptContent claims={full.claims} apiClient={apiClient} sourceResolver={view.source_resolver} />
-          : <p role="status">正在讀取概念與來源…</p>}
-      </section>
-      {noteTarget && <button type="button" className="secondary-button detail-note-link" onClick={() => openNoteTarget(view.material_id, noteTarget)}>在筆記中查看</button>}
-      {studyAction}
+        <section className="quest-action" aria-label="學習入口">
+          {unassessable ? (
+            <>
+              <p>這座島暫時出不了題，不是你的問題</p>
+              {nextOnRoute && (
+                <button className="quest-primary is-plain" type="button" onClick={() => openConcept(nextOnRoute.concept_id)}>
+                  先去下一站
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {record && record.answer_count > 0 && (
+                <p>
+                  答過 {record.answer_count} 題，{record.incorrect_count ? `錯了 ${record.incorrect_count} 題` : "全部答對"}
+                  {status === "needs_review" && "，再挑戰一次"}
+                </p>
+              )}
+              <button
+                className={`quest-primary${status === "completed" && !busyLabel ? " is-plain" : ""}`}
+                disabled={isStartingStudy || isLoadingProgress}
+                type="button"
+                onClick={() => onStartStudy(concept.concept_id)}
+              >
+                {studyLabel}
+              </button>
+            </>
+          )}
+        </section>
+      </div>
     </DetailPanel>
+  );
+}
+
+/** 沒點任何島時的小卡：帶你去下一站；路線全部插旗後帶回第一站。 */
+function NextStationCard({
+  view,
+  progress,
+  open,
+}: {
+  view: KnowledgeOutlineView;
+  progress: MapProgressView | null;
+  open: (id: string) => void;
+}) {
+  const nextId = nextStationId(view, progress);
+  const id = nextId ?? learningNavigationItems(view)[0]?.concept.concept_id;
+  const concept = view.concepts.find((item) => item.concept_id === id);
+  if (!concept) return null;
+  const state = progress?.concept_states.find((item) => item.concept_id === concept.concept_id);
+  const unassessable = !!state && state.status !== "completed" && !state.assessable;
+  return (
+    <section className="map-next-card" aria-label="接下來">
+      <div>
+        <p>
+          <span>{nextId ? "接下來" : "這片海都插滿旗了"}</span>
+          <strong>
+            <MathText text={concept.label} notation={false} />
+            {nextId && state && (
+              <small className={`is-${unassessable ? "unassessable" : state.status}`}>
+                {unassessable ? "暫時出不了題" : islandStates[state.status].label}
+              </small>
+            )}
+          </strong>
+        </p>
+        <button className="quest-primary" type="button" onClick={() => open(concept.concept_id)}>帶我去</button>
+      </div>
+    </section>
   );
 }
 
@@ -506,6 +589,7 @@ function MapGraph({
   hereConceptId,
 }: {
   apiClient: StudydyApiClient;
+  /** 疊在畫布下方的任務卡或關係卡；沒有時顯示「接下來」小卡。 */
   detail: ReactNode;
   /** 詳情打開的那座島（「你在這裡」）；沒點任何島時為 null。 */
   hereConceptId: string | null;
@@ -767,20 +851,41 @@ function MapGraph({
       // 按需文字到達後，先讓節點量測更新，再計算第一次視野。
       secondFrame = requestAnimationFrame(() => {
         fittedConcept.current = selected.concept_id;
+        const element = graphElement.current!;
+        const firstHop = layout.filter((node) => node.depth < 2).map((node) => ({ id: node.id }));
         // 畫布本身太窄（依畫布寬度而非視窗斷點），初次視野只框住中心與第一層，其餘可平移或縮小查看。
-        const narrow = graphElement.current!.clientWidth < 600;
-        void graph.fitView(narrow ? { ...fitViewOptions, minZoom: 0.5, nodes: layout.filter((node) => node.depth < 2).map((node) => ({ id: node.id })) } : fitViewOptions);
+        if (element.clientWidth < 600) {
+          void graph.fitView({ ...fitViewOptions, minZoom: 0.5, nodes: firstHop });
+          return;
+        }
+        // 疊在畫布上的進度條、圓鈕、橋的說明、縮放鈕、關卡路線與下方卡片都算進留白，島落在沒被擋住的地方。
+        const bounds = element.getBoundingClientRect();
+        const box = (selector: string) => element.querySelector(selector)?.getBoundingClientRect();
+        const gap = 24;
+        const top = Math.max(0, ...[box(".map-hud"), box(".map-toolbar")].map((item) => item ? item.bottom - bounds.top : 0));
+        const right = Math.max(0, ...[box(".react-flow__controls"), box(".map-annotations")].map((item) => item ? bounds.right - item.left : 0));
+        const navigator = box("#map-navigator:not([hidden])");
+        const left = navigator ? navigator.right - bounds.left : 0;
+        const card = element.querySelector<HTMLElement>(".detail-panel");
+        const next = box(".map-next-card > div");
+        // 卡片內容是非同步載入的，先照最高高度預留；打開卡片時只框住選中的島和第一層鄰居。
+        const bottom = card
+          ? bounds.bottom - card.getBoundingClientRect().bottom + bounds.height * QUEST_CARD_SHARE
+          : next ? bounds.bottom - next.top : 0;
+        void graph.fitView({
+          ...fitViewOptions,
+          padding: { top: `${top + gap}px`, right: `${right + gap}px`, bottom: `${bottom + gap}px`, left: `${left + gap}px` },
+          ...(card && { nodes: firstHop }),
+        });
       });
     });
     return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
   }, [initialized, canvasReady, graph, selected.concept_id, previewRead.context, previewRead.error, layout]);
   return (
-    <section
-      className={`focus-workspace${detail ? " has-inspector" : ""}`}
-      aria-label="知識地圖工作區"
-    >
+    <section className="focus-workspace" aria-label="知識地圖工作區">
       <div
-        className="focus-graph surface"
+        className={`focus-graph surface${navigatorOpen ? " has-navigator" : ""}`}
+        style={{ "--quest-card-max": `${QUEST_CARD_SHARE * 100}%` } as CSSProperties}
         ref={graphElement}
         aria-label={`「${mathPlainText(selected.label)}」的兩層相關概念`}
       >
@@ -873,12 +978,8 @@ function MapGraph({
             </p>
           )}
         </div>
+        {detail ?? <NextStationCard view={view} progress={progress} open={(id) => openConcept(id, () => restoreGraphFocus(id))} />}
       </div>
-      {detail && (
-        <aside className="focus-context surface" aria-label="地圖詳情">
-          {detail}
-        </aside>
-      )}
     </section>
   );
 }
@@ -900,7 +1001,7 @@ function RelationDetail({
   const full = read.context?.relations.find(item => item.relation_id === relation.relation_id);
   const evidence = (read.context?.relation_evidence ?? []).filter(item => full?.evidence_refs.includes(item.evidence_id));
   return (
-    <DetailPanel label="關係詳情" focusKey={relation.relation_id} close={close}>
+    <DetailPanel label="關係詳情" className="relation-card" focusKey={relation.relation_id} close={close}>
       <header>
         <div>
           <span className="detail-kicker">概念之間的關係</span>
@@ -1105,8 +1206,6 @@ export function KnowledgeMapWorkspace({
     return () => { cancelled = true; };
   }, [apiClient, view.material_id, view.knowledge_structure_revision]);
   const regions = useMemo(() => mapRegions(view, regionsView), [view, regionsView]);
-  const regionLabel = (id: string) =>
-    regions && regions.regions.length > 1 ? regions.regions[regions.byConcept.get(id)!].label : null;
 
   if (view.concepts.length === 0)
     return (
@@ -1180,26 +1279,6 @@ export function KnowledgeMapWorkspace({
     setRelationId(null);
     window.requestAnimationFrame(() => tabs.current.get(nextMode)?.focus());
   };
-  const busyStudyLabel = isLoadingProgress ? "讀取學習進度…" : isStartingStudy ? "正在開始…" : null;
-  const focusStudyConceptId = selectedConceptId;
-  const focusStudyButtonLabel =
-    busyStudyLabel ??
-    (progress?.concept_states.find(state => state.concept_id === focusStudyConceptId)?.status === "completed"
-      ? "再次練習"
-      : "檢測這個概念");
-  const focusStudyAction = (
-    <section className="concept-study-action" aria-label="學習入口">
-      <button
-        className="primary-button"
-        disabled={isStartingStudy || isLoadingProgress}
-        type="button"
-        onClick={() => onStartStudy(focusStudyConceptId)}
-      >
-        <Icon name="learning" />
-        {focusStudyButtonLabel}
-      </button>
-    </section>
-  );
   const detail =
     selectedRelation || selectedConcept ? (
       <>
@@ -1218,12 +1297,13 @@ export function KnowledgeMapWorkspace({
             close={closeDetail}
             view={view}
             concept={selectedConcept}
-            studyAction={focusStudyAction}
             progress={progress}
             isLoadingProgress={isLoadingProgress}
             progressMessage={progressMessage}
-            region={regionLabel(selectedConcept.concept_id)}
             difficulty={difficulty.data}
+            isStartingStudy={isStartingStudy}
+            onStartStudy={onStartStudy}
+            openConcept={openConceptDetail}
           />
         )}
       </>

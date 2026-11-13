@@ -408,7 +408,7 @@ for (const width of [1536, 390])
     await page.keyboard.press("Enter");
     const detail = page.getByRole("dialog", { name: "概念詳情" });
     await expect(detail.getByRole("heading", { name: target.label, exact: true })).toBeVisible();
-    await expect(detail.getByRole("heading", { name: "教材重點", exact: true })).toBeVisible();
+    await expect(detail.getByRole("region", { name: "教材重點 1", exact: true })).toBeVisible();
     await expect(page.locator(".concept-flow-node.is-focus")).toHaveAttribute(
       "data-id",
       target.concept_id,

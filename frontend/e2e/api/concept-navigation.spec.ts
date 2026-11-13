@@ -49,7 +49,7 @@ test("unfinished A does not block B and switching back resumes A", async ({ page
   const secondSetId = (await createSecondSetResponse.json()).set_id;
   await page
     .getByRole("region", { name: "學習入口" })
-    .getByRole("button", { name: "檢測這個概念", exact: true })
+    .getByRole("button", { name: "開始練習", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "Other topic", level: 1, exact: true }),

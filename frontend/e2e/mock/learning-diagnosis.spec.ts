@@ -13,8 +13,10 @@ for (const width of [1366, 390]) {
     await page.goto(mapPath);
     // 島牌不放難度標籤，難度顯示在概念詳情。
     await openMapConcept(page, "Stack");
-    await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("預估偏難");
-    await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText(hard.reason);
+    // 地圖限定的貼紙文字；結構難度的原因放在貼紙的 title。
+    const sticker = page.getByRole("dialog", { name: "概念詳情" }).locator(".quest-sticker");
+    await expect(sticker).toHaveText(["可能比較難"]);
+    await expect(sticker).toHaveAttribute("title", hard.reason);
     await page.keyboard.press("Escape");
     await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
     await page.getByRole("region", { name: "測驗紀錄" }).getByRole("button", { name: /^待加強 / }).click();
@@ -29,8 +31,8 @@ test("personal difficulty is independent of structural difficulty", async ({ pag
     concepts: [{ ...hard, level: "standard", reason: "包含 1 個重點。", personal_difficulty: true, incorrect_count: 2, answer_count: 3 }] }));
   await page.goto(mapPath);
   await openMapConcept(page, "Stack");
-  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".difficulty-badge")).toHaveText(["你的難點"]);
-  await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("答錯率 67%（2 / 3 題）");
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".quest-sticker")).toHaveText(["你常在這裡卡關"]);
+  await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("答過 3 題，錯了 2 題");
   await page.keyboard.press("Escape");
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
   const difficulties = page.getByRole("region", { name: "測驗紀錄" });

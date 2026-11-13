@@ -52,6 +52,7 @@ export function SourceButton({
   evidence,
   label,
   title,
+  ariaLabel,
   reference,
 }: {
   apiClient: StudydyApiClient;
@@ -60,6 +61,8 @@ export function SourceButton({
   label?: string;
   /** 按鈕文字較短時，提示完整來源。 */
   title?: string;
+  /** 按鈕文字省略了來源名稱時，讀屏用的完整名稱。 */
+  ariaLabel?: string;
   reference?: { number?: number; numbers?: number[]; list?: boolean; quote: string };
 }) {
   const [source, setSource] = useState<EvidenceSourceView | null>(null);
@@ -107,7 +110,7 @@ export function SourceButton({
         type="button"
         disabled={busy}
         onClick={() => void open()}
-        aria-label={reference ? `${reference.number ? `來源 ${reference.number}：` : ""}${name} · ${place}` : undefined}
+        aria-label={reference ? `${reference.number ? `來源 ${reference.number}：` : ""}${name} · ${place}` : ariaLabel}
         title={title ?? label}
       >
         {reference ? (reference.list ? mergedReference ? <>

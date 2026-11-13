@@ -503,7 +503,7 @@ test("knowledge map concept opens the first note section that cites it", async (
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
   await page.getByRole("tab", { name: "知識地圖" }).click();
   await openMapConcept(page);
-  await page.getByRole("dialog", { name: "概念詳情", exact: true }).getByRole("button", { name: "在筆記中查看" }).click();
+  await page.getByRole("dialog", { name: "概念詳情", exact: true }).getByRole("button", { name: "看筆記怎麼寫" }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/notes$`));
   await expect(page.locator("#note-section-0")).toHaveClass(/note-paragraph-located/);
   await expect(page.locator("#note-section-0")).toBeFocused();
@@ -514,7 +514,7 @@ test("knowledge map hides the note link when notes do not cite the concept", asy
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
   await page.getByRole("tab", { name: "知識地圖" }).click();
   await openMapConcept(page);
-  await expect(page.getByRole("dialog", { name: "概念詳情", exact: true }).getByRole("button", { name: "在筆記中查看" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "概念詳情", exact: true }).getByRole("button", { name: "看筆記怎麼寫" })).toHaveCount(0);
 });
 
 test("selected text retains highlight styles after reload and removes overlapping marks", async ({ page }) => {

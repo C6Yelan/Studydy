@@ -70,7 +70,13 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
       await page.getByRole("button", { name: /^複習/ }).first().click();
     } else {
       await openMapConcept(page, "伺服器");
-      await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
+      if (stage === "no-safe") {
+        // 出不了題的島不給練習鈕；改從「學習與測驗」接續原本的學習。
+        await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("這座島暫時出不了題，不是你的問題");
+        await expect(page.getByRole("region", { name: "學習入口" }).getByRole("button", { name: "開始練習" })).toHaveCount(0);
+        await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+        await page.getByRole("button", { name: "繼續學習", exact: true }).click();
+      } else await page.getByRole("button", { name: "開始練習", exact: true }).click();
     }
     await expect(page).toHaveURL(new RegExp(`/study-sessions/${sid}`));
     await page.reload();
@@ -95,7 +101,7 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
     }
     await page.getByRole("tab", { name: "知識地圖", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "伺服器", exact: true })).toBeVisible();
-    if (stage === "ready") await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("已完成");
+    if (stage === "ready") await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("已插旗");
   });
 }
 
@@ -141,7 +147,7 @@ for (const stage of ["completed"] as const) {
   else await openMapConcept(page, '伺服器');
   await expect(page).not.toHaveURL(/study-sessions/);
   if(stage==='completed')await page.getByRole('region',{name:'測驗紀錄'}).getByRole('button',{name:/^全部 /}).click();
-  await page.getByRole('button',{name:stage==='completed'?'查看與練習':'檢測這個概念',exact:true}).first().click();
+  await page.getByRole('button',{name:stage==='completed'?'查看與練習':'開始練習',exact:true}).first().click();
   await expect(page).toHaveURL(/assessment-sets/);
   await expect(page.getByRole('progressbar',{name:'準備進度'})).toBeVisible();
   await expect(page.locator('.current-concept-card')).not.toBeVisible();
@@ -170,7 +176,7 @@ for (const destination of ["leave", "material", "run", "structure"] as const) {
     });
     await page.goto(mapPath);
     await openMapConcept(page, "Array");
-    await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
+    await page.getByRole("button", { name: "開始練習", exact: true }).click();
     await expect.poll(() => starts.length).toBe(1);
     const nextPath = destination === "leave" ? "/materials"
       : destination === "material" ? mapPath.replace(materialId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")

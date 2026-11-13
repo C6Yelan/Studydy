@@ -10,10 +10,13 @@ export function ConceptContent({
   claims,
   apiClient,
   sourceResolver,
+  showSources = true,
 }: {
   claims: Claim[];
   apiClient: StudydyApiClient;
   sourceResolver: string;
+  /** 知識地圖任務卡把來源改成「看原文」按鈕列，自己排版，不用這裡的來源清單。 */
+  showSources?: boolean;
 }) {
   const references = sourceLinks(claims.flatMap((claim) => claim.evidence));
   return (
@@ -36,7 +39,7 @@ export function ConceptContent({
           </section>
         );
       })}
-      <section className="concept-sources" aria-label="教材來源">
+      {showSources && <section className="concept-sources" aria-label="教材來源">
         <h3>教材來源</h3>
         <div className="claim-sources">
           {references.map((evidence) => (
@@ -48,7 +51,7 @@ export function ConceptContent({
             />
           ))}
         </div>
-      </section>
+      </section>}
     </>
   );
 }

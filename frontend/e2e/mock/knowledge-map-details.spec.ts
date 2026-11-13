@@ -57,7 +57,7 @@ test("map opens concept details and preserves each source on demand", async ({ p
   await page.keyboard.press("Escape");
   await expect(edge).toBeFocused();
   await openMapConcept(page, "Stack");
-  await page.getByRole("button", { name: /查看第 1 頁來源/ }).click();
+  await page.getByRole("button", { name: "看原文：教材 · 第 1 頁", exact: true }).click();
   const popup = page.waitForEvent("popup");
   await page.getByRole("link", { name: "開啟 PDF 來源頁" }).click();
   const source = await popup;
@@ -66,14 +66,14 @@ test("map opens concept details and preserves each source on demand", async ({ p
   await page.keyboard.press("Escape");
   // Array 的 Evidence 在第 2 頁，回查不能再沿用 Stack 的第 1 頁。
   await openMapConcept(page, "Array");
-  await page.getByRole("button", { name: /查看第 2 頁來源/ }).click();
+  await page.getByRole("button", { name: "看原文：教材 · 第 2 頁", exact: true }).click();
   await expect(page.getByRole("link", { name: "開啟 PDF 來源頁" })).toHaveAttribute(
     "href",
     `/v1/artifacts/${artifactId}#page=2`,
   );
   await page.keyboard.press("Escape");
   await openMapConcept(page, "Stack");
-  await expect(page.getByRole("button", { name: "檢測這個概念", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "開始練習", exact: true })).toBeEnabled();
 });
 
 test("mobile map has a modal detail drawer with keyboard focus and source links", async ({
@@ -86,7 +86,7 @@ test("mobile map has a modal detail drawer with keyboard focus and source links"
   await openMapConcept(page);
   const dialog = page.getByRole("dialog", { name: "概念詳情" });
   await expect(dialog).toBeInViewport();
-  await expect(dialog.getByRole("button", { name: /查看第 1 頁來源/ })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "看原文：教材 · 第 1 頁", exact: true })).toBeVisible();
   await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
   await page.keyboard.press("Tab");
   await expect
@@ -270,9 +270,9 @@ for (const viewport of [
       await search.press("Enter");
       const detail = page.getByRole("dialog", { name: "概念詳情", exact: true });
       await expect(detail.getByRole("heading", { name: "主機", exact: true })).toBeVisible();
-      await expect(detail.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
+      await expect(detail.getByRole("region", { name: "教材來源", exact: true })).toBeVisible();
       await expect(detail.getByRole("region", { name: /^教材重點 / })).toHaveCount(2);
-      await expect(detail.getByRole("button", { name: "檢測這個概念", exact: true })).toBeEnabled();
+      await expect(detail.getByRole("button", { name: "開始練習", exact: true })).toBeEnabled();
       await expect(detail).not.toContainText(
         /對照教材原文|教材中的其他名稱|延伸探索|Extraction text|Host|sha256/,
       );
@@ -358,7 +358,7 @@ for (const width of [1536, 390])
     await page.goto(mapPath);
     await page.getByRole("button", { name: "適應畫面", exact: true }).click();
     await page.getByRole("button", { name: /^教材概念：Stack(，|$)/ }).click();
-    await page.getByRole("button", { name: "查看第 1 頁來源", exact: true }).click();
+    await page.getByRole("button", { name: "看原文：教材 · 第 1 頁", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "教材來源", exact: true });
     await expect(dialog).toContainText("轉換後第 1 頁");
     await expect(dialog).toContainText("可能對應多處");
@@ -377,7 +377,7 @@ for (const width of [1536, 390])
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole("dialog", { name: "概念詳情", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "查看第 1 頁來源", exact: true })).toBeFocused();
+    await expect(page.getByRole("button", { name: "看原文：教材 · 第 1 頁", exact: true })).toBeFocused();
     expect(reads).toBe(1);
   });
 
