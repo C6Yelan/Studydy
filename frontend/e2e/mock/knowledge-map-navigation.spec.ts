@@ -36,7 +36,7 @@ for (const [action, marksNext] of [
     const view = learningMap(8);
     await mockLearningMapApi(page, view, true, action);
     await page.goto(mapPath);
-    await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+    await page.getByRole("button", { name: "關卡路線", exact: true }).click();
     await expect(page.locator(".navigator-current")).toHaveCount(1);
     await openMapConcept(page, view.concepts[5].label);
     const nav = page.getByRole("navigation", { name: "學習導覽", includeHidden: true });
@@ -80,7 +80,7 @@ test("sectionless concepts remain selectable through navigation", async ({ page 
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
   await expect(page.getByRole("tab", { name: "總覽", exact: true })).toHaveCount(0);
   await expect(page.getByRole("tabpanel", { name: "知識地圖", exact: true })).toBeVisible();
-  const toggle = page.getByRole("button", { name: "學習導覽", exact: true });
+  const toggle = page.getByRole("button", { name: "關卡路線", exact: true });
   await toggle.click();
   await expect(page.locator(".navigator-label")).toHaveText(["Stack", "Array"]);
   await navigationConcept(page, "Array").click();
@@ -110,7 +110,7 @@ for (const width of [1536, 390])
         writes.push(request.url());
     });
     await page.goto(mapPath);
-    await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+    await page.getByRole("button", { name: "關卡路線", exact: true }).click();
     const nav = page.getByRole("navigation", { name: "學習導覽", includeHidden: true });
     const current = nav.locator(".is-learning-current .navigator-label");
     const suggested = nav.locator(".is-next-suggested .navigator-label");
@@ -132,7 +132,7 @@ for (const width of [1536, 390])
     await expect(suggested).toHaveText(view.concepts[4].label);
     await page.keyboard.press("Escape");
     await expect(page.getByRole("search", { name: "搜尋教材概念" })).toBeVisible();
-    const searchToggle = page.getByRole("button", { name: "開啟概念搜尋" });
+    const searchToggle = page.getByRole("button", { name: "找一座島" });
     if (await searchToggle.isVisible()) await searchToggle.click();
     const search = page.getByRole("searchbox", { name: "搜尋概念或關鍵字" });
     await search.fill(view.concepts[30].label);
@@ -156,7 +156,7 @@ for (const width of [1536, 390])
     const view = workspaceView(100, true);
     await mockKnowledgeMapApi(page, view);
     await page.goto(mapPath);
-    await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+    await page.getByRole("button", { name: "關卡路線", exact: true }).click();
     const list = page.locator(".navigator-list");
     const nav = page.getByRole("navigation", { name: "學習導覽", exact: true });
     await expect(nav.getByRole("button")).toHaveCount(view.concepts.length);
@@ -187,7 +187,7 @@ for (const width of [1536, 390])
         .getByRole("heading", { name: lastConcept.label, exact: true }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+    await page.getByRole("button", { name: "關卡路線", exact: true }).click();
     await expect(nav.locator('[aria-current="true"]')).toBeInViewport();
     await nav.getByRole("button").first().focus();
     await expect.poll(() => list.evaluate((e) => e.scrollTop)).toBe(0);
@@ -250,8 +250,10 @@ test("reload restores map presentation while local interaction does not restart 
   await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "Array", exact: true })).toHaveText("Array");
   await page.getByRole("tab", { name: "知識地圖", exact: true }).click();
   await openMapConcept(page, "Array");
+  await page.getByRole("button", { name: "找一座島" }).click();
   await page.getByRole("searchbox").fill("Stack");
   await page.reload();
+  await expect(page.getByRole("searchbox")).toBeVisible();
   await expect(page.getByRole("searchbox")).toHaveValue("Stack");
   await expect(
     page
@@ -279,7 +281,7 @@ test("learning navigator groups concepts by region and the detail names the regi
     ],
   } }));
   await page.goto(mapPath);
-  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  await page.getByRole("button", { name: "關卡路線", exact: true }).click();
   const nav = page.getByRole("navigation", { name: "學習導覽" });
   await expect(nav.getByRole("heading", { level: 3 })).toHaveText([
     "01_從生成到推論5 個", "02_模型評估2 個", "補充｜Adaptive Reliability-Aware Reasoning for Large Language Model Agents1 個",
@@ -306,7 +308,7 @@ test("learning navigator stays flat when regions do not match the map", async ({
     regions: [{ region_id: "region:1", label: "第 1–4 個概念", source_id: null, concept_ids: ids.slice(0, 4) }],
   } }));
   await page.goto(mapPath);
-  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  await page.getByRole("button", { name: "關卡路線", exact: true }).click();
   const nav = page.getByRole("navigation", { name: "學習導覽" });
   await expect(nav.getByRole("button")).toHaveCount(8);
   await expect(nav.getByRole("heading", { level: 3 })).toHaveCount(0);
@@ -325,7 +327,7 @@ test("chapter regions stay one level for a demo-sized material", async ({ page }
     ],
   } }));
   await page.goto(mapPath);
-  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  await page.getByRole("button", { name: "關卡路線", exact: true }).click();
   const nav = page.getByRole("navigation", { name: "學習導覽" });
   await expect(nav.getByRole("heading", { level: 3 })).toHaveText(["生成模型基礎5 個", "推論與評估3 個"]);
   await expect(nav.getByRole("heading", { level: 4 })).toHaveCount(0);
@@ -355,7 +357,7 @@ for (const width of [1536, 390])
       })),
     } }));
     await page.goto(mapPath);
-    await page.getByRole("button", { name: "學習導覽" }).click();
+    await page.getByRole("button", { name: "關卡路線" }).click();
     const nav = page.getByRole("navigation", { name: "學習導覽" });
     await expect(nav.getByRole("heading", { level: 3 })).toHaveText([
       "01_從生成到推論10 章 · 30 個",

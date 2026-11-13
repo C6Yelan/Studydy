@@ -27,10 +27,10 @@ test("fresh profiles reopen the current head and read exact historical versions"
   await expect(first).toContainText("知識地圖建立失敗");
   await expect(page.getByText("B 的私人教材.pdf", { exact: true })).toHaveCount(0);
   await first.getByRole("link", { name: "開啟知識地圖", exact: true }).click();
-  await expect(page.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^教材概念：Stack(，|$)/ })).toBeVisible();
   const newerPath = new URL(page.url()).pathname;
   await page.reload();
-  await expect(page.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^教材概念：Stack(，|$)/ })).toBeVisible();
   await page.goto("/materials");
   await page.getByRole("button", { name: "登出", exact: true }).click();
   await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
@@ -47,7 +47,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
   await freshPage.getByRole("link", { name: "開啟知識地圖", exact: true }).click();
   await expect(freshPage).toHaveURL(`${browserOrigin}${newerPath}`);
   await expect(
-    freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }),
+    freshPage.getByRole("button", { name: /^教材概念：Stack(，|$)/ }),
   ).toBeVisible();
   // 工作區顯示目前 head；歷史版本仍須能由 API 精確讀取，不能以相同概念名稱冒充版本驗證。
   const library: MaterialLibraryView = await (
@@ -77,7 +77,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
       `/materials/${material.material_id}/runs/${structure.run_id}/knowledge-structures/${encodeURIComponent(revision)}`,
     );
     await expect(
-      freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }),
+      freshPage.getByRole("button", { name: /^教材概念：Stack(，|$)/ }),
     ).toBeVisible();
     await expect(freshPage).toHaveURL(`${browserOrigin}${headPath}`);
   }
@@ -94,7 +94,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
     .click();
   await expect(freshPage).toHaveURL(`${browserOrigin}${newerPath}`);
   await expect(
-    freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }),
+    freshPage.getByRole("button", { name: /^教材概念：Stack(，|$)/ }),
   ).toBeVisible();
   await freshPage.goto("/materials");
   await freshPage.getByRole("button", { name: "登出", exact: true }).click();
@@ -106,7 +106,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
   await expect(freshPage.getByText("堆疊講義.pdf", { exact: true })).toHaveCount(0);
   expect((await fresh.request.get(`${browserOrigin}${pdfUrl}`)).status()).toBe(404);
   await freshPage.goBack();
-  await expect(freshPage.getByRole("button", { name: "教材概念：Stack", exact: true })).toHaveCount(
+  await expect(freshPage.getByRole("button", { name: /^教材概念：Stack(，|$)/ })).toHaveCount(
     0,
   );
   await fresh.close();

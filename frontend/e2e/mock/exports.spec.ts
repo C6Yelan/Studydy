@@ -13,9 +13,11 @@ test("outline download retains errors and allows retry from the export button", 
       : route.fulfill({ status: 200, contentType: "text/markdown", headers: { "Content-Disposition": "attachment; filename*=UTF-8''map.md" }, body: "# Map" });
   });
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
-  const trigger = page.getByRole("button", { name: "匯出地圖（MD）", exact: true });
+  const trigger = page.getByRole("button", { name: "下載地圖大綱", exact: true });
   await trigger.click();
-  await expect(page.getByRole("button", { name: "正在匯出…" })).toBeDisabled();
+  // 圓鈕只有圖示，下載中以 disabled 與 aria-busy 表示。
+  await expect(trigger).toBeDisabled();
+  await expect(trigger).toHaveAttribute("aria-busy", "true");
   release();
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(trigger).toBeEnabled();

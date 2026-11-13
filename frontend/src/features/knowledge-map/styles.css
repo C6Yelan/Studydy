@@ -4,6 +4,16 @@
   min-height: 100%;
   margin: 0 auto;
   color: var(--text-primary);
+  /* 闖關風格的地圖色票，只用在地圖範圍內。 */
+  --map-ink: #14213d;
+  --map-yellow: #ffc93c;
+  --map-orange: #ff8a1f;
+  --map-green: #22b573;
+  --map-sky: #e6eefc;
+  --map-halfway: #cfe3ff;
+  --map-cream: #fff1cf;
+  --map-gray: #dfe5ee;
+  --map-muted: #51607a;
 }
 .map-start-error {
   padding: 12px;
@@ -98,6 +108,7 @@
   background: transparent;
   text-align: left;
 }
+/* 島牌：粗黑框＋厚陰影，底色表示狀態（白：還沒去過、淺藍：走到一半、橘：要再走一趟、綠：已插旗、灰虛線：出不了題）。 */
 .concept-flow-node .island-sign {
   position: relative;
   z-index: 1;
@@ -105,64 +116,76 @@
   align-items: center;
   gap: 8px;
   max-width: 100%;
-  padding: 5px 12px 5px 5px;
+  box-sizing: border-box;
+  padding: 6px 14px;
+  border: 4px solid var(--map-ink);
   border-radius: 16px;
   background: #fff;
-  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
+  box-shadow: 0 5px 0 var(--map-ink);
+  color: var(--map-ink);
   transition: transform 0.2s;
 }
-.concept-flow-node .island-sign::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  margin-left: -7px;
-  border: 7px solid transparent;
-  border-top-color: #fff;
-}
-.concept-flow-node .island-sign em {
-  display: grid;
+.concept-flow-node .island-sign > svg {
   flex: none;
-  min-width: 32px;
-  height: 32px;
-  padding: 0 6px;
-  place-items: center;
-  border-radius: 16px;
-  background: var(--page-cool);
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 900;
+  stroke-width: 2.5;
 }
-.concept-flow-node.is-in_progress .island-sign em { background: var(--warning); color: #3a2400; }
-.concept-flow-node.is-needs_review .island-sign em { background: var(--coral); color: #fff; }
-.concept-flow-node.is-completed .island-sign em { background: var(--success); color: #fff; }
-.concept-flow-node .island-sign > span {
-  min-width: 0;
+.concept-flow-node.is-in_progress .island-sign { background: var(--map-halfway); }
+.concept-flow-node.is-needs_review .island-sign { background: var(--map-orange); }
+.concept-flow-node.is-completed .island-sign { background: var(--map-green); }
+.concept-flow-node.is-unassessable .island-sign {
+  border-style: dashed;
+  background: var(--map-gray);
+  box-shadow: none;
 }
 .concept-flow-node strong {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  min-width: 0;
   overflow: hidden;
   overflow-wrap: anywhere;
   font-size: 18px;
   font-weight: 900;
-  line-height: 1.35;
+  line-height: 1.25;
 }
-.concept-flow-node small {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 6px;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 700;
-}
-.concept-flow-node .map-learning-badge {
-  margin: 0;
-  padding: 1px 8px;
+.concept-flow-node .island-sign-next {
+  flex: none;
+  padding: 2px 8px;
+  border: 2px solid var(--map-ink);
+  border-radius: 999px;
+  background: var(--map-sky);
   font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+/* 你在這裡：詳情打開的那座島變黃、放大，下方加三角指向島。 */
+.concept-flow-node.is-here .island-sign {
+  flex-direction: column;
+  gap: 0;
+  padding: 6px 16px 8px;
+  border-style: solid;
+  border-radius: 18px;
+  background: var(--map-yellow);
+  box-shadow: 0 5px 0 var(--map-ink);
+  line-height: 1.2;
+  text-align: center;
+}
+.concept-flow-node.is-here .island-sign small {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+.concept-flow-node.is-here .island-sign strong {
+  font-size: 21px;
+}
+.concept-flow-node.is-here .island-sign::after {
+  content: "";
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  margin-left: -12px;
+  border-top: 14px solid var(--map-ink);
+  border-inline: 12px solid transparent;
 }
 .concept-flow-node .island-node-art {
   display: block;
@@ -178,13 +201,6 @@
 }
 .concept-flow-node.is-secondary .island-node-art {
   width: 70%;
-}
-.concept-flow-node.is-focus .island-sign {
-  box-shadow: 0 0 0 4px var(--studydy-blue), 0 14px 26px -12px rgba(20, 60, 160, 0.55);
-}
-.concept-flow-node.is-focus .island-sign::after {
-  margin-top: 4px;
-  border-top-color: var(--studydy-blue);
 }
 .concept-flow-node.is-focus .island-node-art {
   width: 100%;
@@ -242,29 +258,43 @@
 .concept-flow-edge .react-flow__edge-text {
   pointer-events: none;
 }
-.focus-graph .react-flow__controls {
-  overflow: hidden;
-  border: 0;
-  border-radius: 18px;
-  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
+/* 縮放：三顆同風格圓鈕放右側中間（下方留給任務卡）。 */
+.focus-graph .react-flow__controls.react-flow__panel {
+  top: 50%;
+  right: 24px;
+  bottom: auto;
+  left: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  transform: translateY(-50%);
+  box-shadow: none;
 }
 .focus-graph .react-flow__controls-button {
-  width: 40px;
-  height: 40px;
-  border-bottom: 1px solid var(--border-light);
-  color: var(--text-secondary);
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: 4px solid var(--map-ink);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 5px 0 var(--map-ink);
+  color: var(--map-ink);
+}
+.focus-graph .react-flow__controls-button:last-child {
+  border-bottom: 4px solid var(--map-ink);
+}
+.focus-graph .react-flow__controls-button svg {
+  max-width: 18px;
+  max-height: 18px;
+  fill: currentColor;
 }
 .relation-legend {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  font-size: 12px;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
   font-weight: 800;
-}
-.relation-legend small {
-  margin-left: 2px;
-  color: var(--text-muted);
-  font-weight: 700;
 }
 .detail-panel {
   margin: 0;
@@ -457,21 +487,26 @@
 }
 
 .relation-legend > span {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  white-space: nowrap;
 }
+/* 樣本只是示意，顏色接近畫布上的橋與線；線本身的畫法不在這裡。 */
 .relation-swatch {
   display: inline-block;
-  width: 28px;
+  flex: none;
+  box-sizing: border-box;
+  width: 34px;
   height: 8px;
+  border: 2px solid var(--map-ink);
   border-radius: 4px;
 }
-.relation-swatch.is-prerequisite { background: repeating-linear-gradient(90deg, #c9b79c 0 9px, #8b7558 9px 11px); }
-.relation-swatch.is-part_of { background: repeating-linear-gradient(90deg, #c98a4b 0 4px, #7a4b23 4px 5px); }
-.relation-swatch.is-application { height: 3px; background: repeating-linear-gradient(90deg, #f08a00 0 7px, transparent 7px 11px); }
-.relation-swatch.is-example { background: radial-gradient(circle at 4px 4px, #1aa3b8 3px, transparent 3.5px) 0 0 / 10px 8px repeat-x; }
-.relation-swatch.is-contrast { height: 3px; background: repeating-linear-gradient(90deg, #e0569a 0 3px, transparent 3px 7px); }
+.relation-swatch.is-prerequisite { background: #b7a98d; }
+.relation-swatch.is-part_of { background: #b9742f; }
+.relation-swatch.is-application { height: 0; border: 0; border-top: 4px dashed #d96a00; border-radius: 0; }
+.relation-swatch.is-example { border: 0; background: radial-gradient(circle at 4px 4px, #1aa3b8 3.5px, transparent 4px) 0 0 / 10px 8px repeat-x; }
+.relation-swatch.is-contrast { height: 0; border: 0; border-top: 4px dotted #e0569a; border-radius: 0; }
 .map-tabs {
   flex-shrink: 0;
 }
@@ -532,29 +567,24 @@
 }
 .map-navigation {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: 20px;
+  left: 20px;
   z-index: 5;
-  max-width: calc(100% - 24px);
+  max-width: calc(100% - 40px);
   max-height: calc(100% - 180px);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
 }
-.map-navigation > button {
-  min-height: 36px;
-  padding: 6px 12px;
-  flex-shrink: 0;
-  box-shadow: 0 2px 6px #14203c12;
-}
-/* 將外框可用高度傳到清單，避免只有外框被裁切、清單本身卻無法捲動。 */
+/* 將外框可用高度傳到清單，避免只有外框被裁切、清單本身卻無法捲動。
+   上緣留到 104px（圓鈕下方），不壓到上方進度條。 */
 #map-navigator {
   display: flex;
   flex-direction: column;
   width: 300px;
   max-width: 100%;
   min-height: 0;
-  margin-top: 8px;
+  margin-top: 24px;
   overflow: hidden;
 }
 #map-navigator[hidden] {
@@ -585,28 +615,6 @@
 .focus-navigator > header > span {
   font-size: 12px;
   color: var(--text-muted);
-}
-/* 圖例與範圍提示依序排列，窄畫布換行時仍不互相遮擋。 */
-.map-annotations {
-  position: absolute;
-  z-index: 4;
-  top: 12px;
-  right: 12px;
-  max-width: min(640px, calc(100% - 170px));
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  pointer-events: none;
-}
-.map-annotations > .relation-legend {
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 12px;
-  background: var(--surface);
-  pointer-events: none;
-  font-size: 11px;
 }
 .navigator-list {
   flex: 1;
@@ -834,18 +842,6 @@
   outline-offset: 2px;
 }
 
-.map-limit-note {
-  max-width: min(330px, 100%);
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-  pointer-events: none;
-}
-
 /* 集中管理響應式配置；同一斷點內保留原有規則順序。 */
 
 @media (min-width: 1025px) {
@@ -937,24 +933,8 @@
   border: 0;
   background: transparent;
 }
-.map-navigation > button {
-  min-height: 42px;
-  padding: 0 16px 0 12px;
-  border-radius: 999px;
-  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
-}
-.map-navigation > button[aria-expanded="true"] {
-  background: var(--text-primary);
-  color: #fff;
-}
 #map-navigator .focus-navigator {
   border-radius: 22px;
-}
-.map-annotations > .relation-legend {
-  gap: 6px 12px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
 }
 .focus-context.surface {
   border-radius: var(--radius-panel);
@@ -973,7 +953,7 @@
 .detail-panel:focus {
   outline: none;
 }
-/* 手機：外框與畫布上下排列，畫布保留固定高度，圖例縮成一列。 */
+/* 手機：外框與畫布上下排列，畫布保留固定高度。 */
 @media (max-width: 720px) {
   .map-workspace,
   .map-view {
@@ -986,26 +966,6 @@
   .is-focus-mode .map-content {
     flex: none;
     height: min(72dvh, 600px);
-  }
-  .map-annotations {
-    right: 10px;
-    max-width: calc(100% - 160px);
-  }
-  .map-annotations > .relation-legend {
-    flex-wrap: nowrap;
-    justify-content: flex-start;
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
-    padding: 6px 12px;
-    border-radius: 14px;
-    font-size: 11px;
-  }
-  .relation-legend small {
-    display: none;
-  }
-  .relation-swatch {
-    width: 18px;
   }
 }
 /* 鍵盤移到第一／最後一項時保留清單內距，不讓項目貼齊邊緣。 */
@@ -1116,22 +1076,14 @@
   text-align: center;
 }
 
-/* 手機：畫布高度扣掉頁首、教材列、分頁列與底部導覽，縮放按鈕不被底部導覽蓋住；
-   圖例維持單列，可橫向滑動，文字不再被擠成直排。 */
+/* 手機：畫布高度扣掉頁首、教材列、分頁列與底部導覽，縮放按鈕不被底部導覽蓋住。 */
 @media (max-width: 720px) {
   .is-focus-mode .map-content {
     height: max(340px, min(600px, calc(100dvh - 370px - env(safe-area-inset-bottom))));
   }
-  .map-annotations > .relation-legend {
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .map-annotations > .relation-legend::-webkit-scrollbar {
-    display: none;
-  }
-  .map-annotations > .relation-legend > span {
-    flex: none;
-    white-space: nowrap;
+  /* 教材頁首兩列加上內容區留白；地圖填滿其餘高度（教材內沒有底部導覽）。 */
+  .app-shell.is-material .is-focus-mode .map-content {
+    height: max(360px, calc(100dvh - 150px - env(safe-area-inset-bottom)));
   }
 }
 
@@ -1141,13 +1093,22 @@
   mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
 }
 
-/* 地圖工具列：搜尋與學習導覽浮在地圖左上，地圖本身滿版；圖例移到右下。 */
+/* 學習與測驗：測驗紀錄標題列附摘要數字，概念列表與首頁卡片同一套白卡。 */
+.review-records {
+  display: grid;
+  gap: 14px;
+}
+
+/* 闖關外框：左上圓鈕（找一座島、關卡路線、下載地圖大綱）、上方進度條、右上橋的說明、右側縮放。
+   依畫布寬度（不是視窗寬度）收合：詳情面板打開時畫布會變窄。 */
+.focus-graph {
+  container: map-canvas / inline-size;
+}
 .map-toolbar {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
-  max-width: 100%;
+  gap: 12px;
 }
 /* 工具列空白處不攔截地圖拖曳。 */
 .map-navigation > .map-toolbar {
@@ -1156,80 +1117,219 @@
 .map-navigation > .map-toolbar > * {
   pointer-events: auto;
 }
+.map-round-button,
+.map-toolbar .export-entry > button {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 60px;
+  min-width: 60px;
+  height: 60px;
+  min-height: 60px;
+  padding: 0;
+  border: 4px solid var(--map-ink);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 5px 0 var(--map-ink);
+  color: var(--map-ink);
+  font-family: inherit;
+  font-size: 26px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.map-round-button svg,
+.map-toolbar .export-entry > button svg {
+  width: 28px;
+  height: 28px;
+  stroke-width: 3;
+}
+.map-round-button:hover,
+.map-toolbar .export-entry > button:hover {
+  background: var(--map-sky);
+}
+/* 按下去：往下沉、陰影變薄；打開中的圓鈕維持按下的樣子。 */
+.map-round-button:active,
+.map-round-button[aria-expanded="true"],
+.map-toolbar .export-entry > button:active {
+  box-shadow: 0 2px 0 var(--map-ink);
+  transform: translateY(3px);
+}
+.map-round-button[aria-expanded="true"] {
+  background: var(--map-sky);
+}
+.map-round-button.map-search-toggle {
+  background: var(--map-yellow);
+}
+.map-toolbar .export-entry {
+  position: relative;
+}
+.map-toolbar .export-entry > .form-error {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 0;
+  width: max-content;
+  max-width: 260px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 3px solid var(--map-ink);
+  border-radius: 12px;
+  background: #fff;
+}
+/* 搜尋：圓鈕打開後，輸入框出現在圓鈕下方（第 3 段再換成膠囊樣式）。 */
 .map-navigation .map-search {
-  flex: 0 1 320px;
-  min-width: 200px;
-  max-width: 360px;
+  flex: none;
+  min-width: 0;
+  max-width: none;
   margin: 0;
 }
-.map-navigation .map-search input {
-  height: 42px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: 999px;
-  box-shadow: 0 10px 22px -10px rgba(10, 40, 80, 0.45);
+.map-corner-search:not(.is-expanded) > input {
+  display: none;
 }
-.map-toolbar .map-navigator-toggle {
-  order: 2;
-  flex: none;
+.map-corner-search.is-expanded > input {
+  position: absolute;
+  top: 76px;
+  left: 0;
+  width: min(320px, calc(100cqw - 40px));
+  height: 52px;
+  padding: 0 18px;
+  border: 4px solid var(--map-ink);
+  border-radius: 999px;
+  box-shadow: 0 5px 0 var(--map-ink);
+  color: var(--map-ink);
+  font-size: 16px;
+  font-weight: 800;
+}
+.map-corner-search .map-search-results {
+  top: 140px;
+  right: auto;
+  width: min(320px, calc(100cqw - 40px));
+}
+/* 上方進度條：左右讓出圓鈕與橋的說明的寬度，最寬 520px 置中。 */
+.map-hud {
+  position: absolute;
+  z-index: 4;
+  top: 18px;
+  left: 244px;
+  right: 244px;
+  max-width: 520px;
+  box-sizing: border-box;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px 14px;
+  border: 4px solid var(--map-ink);
+  border-radius: 26px;
+  background: #fff;
+  box-shadow: 0 6px 0 var(--map-ink);
+  color: var(--map-ink);
+  /* 只顯示資訊，拖曳照常移動地圖。 */
+  pointer-events: none;
+}
+.map-hud p {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.3;
+}
+.map-hud-region {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
+.map-hud-count {
+  flex: none;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.map-hud-count small {
+  color: var(--map-muted);
+  font-size: inherit;
+  font-weight: 700;
+}
+.map-hud .studydy-progress {
+  --progress-track: var(--map-sky);
+  --progress-color: var(--map-green);
+  box-sizing: border-box;
+  height: 20px;
+  border: 3px solid var(--map-ink);
+}
+.map-hud .studydy-progress-fill {
+  border-radius: 0;
+  box-shadow: 3px 0 0 var(--map-ink);
+}
+/* 右上：橋的說明，下方接「只看得到附近」的提示。 */
 .map-annotations {
-  top: auto;
-  bottom: 12px;
-  max-width: min(640px, calc(100% - 90px));
+  position: absolute;
+  z-index: 4;
+  top: 20px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  max-width: calc(100% - 48px);
+  /* 說明與提示只顯示資訊，拖曳照常移動地圖；只有收合時的圓鈕接收點擊。 */
+  pointer-events: none;
 }
-@media (max-width: 720px) {
-  .map-navigation {
-    right: 10px;
-    left: 10px;
-    max-width: none;
-    pointer-events: none;
+.map-annotations > .map-legend-toggle {
+  pointer-events: auto;
+}
+.map-annotations > .relation-legend {
+  padding: 10px 14px;
+  border: 4px solid var(--map-ink);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 5px 0 var(--map-ink);
+  color: var(--map-ink);
+}
+.map-corner-legend .map-legend-toggle {
+  display: none;
+}
+.map-limit-note {
+  max-width: 260px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 3px solid var(--map-ink);
+  border-radius: 16px;
+  background: var(--map-cream);
+  box-shadow: 0 4px 0 var(--map-ink);
+  color: var(--map-ink);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+/* 畫布變窄：橋的說明收成圓鈕，按了才展開；提示跟著說明一起收起。 */
+@container map-canvas (max-width: 759px) {
+  .map-corner-legend .map-legend-toggle {
+    display: flex;
   }
-  .map-navigation > * {
-    pointer-events: auto;
+  .map-corner-legend:not(.is-expanded) > :not(.map-legend-toggle) {
+    display: none;
   }
-  .map-toolbar {
-    flex-wrap: wrap;
-  }
-  .map-navigation .map-search {
-    flex: 1 1 100%;
-    max-width: none;
-  }
-  .map-annotations {
-    right: 10px;
-    bottom: 10px;
-    max-width: calc(100% - 76px);
-  }
-  /* 教材頁首兩列加上內容區留白；地圖填滿其餘高度（教材內沒有底部導覽）。 */
-  .app-shell.is-material .is-focus-mode .map-content {
-    height: max(360px, calc(100dvh - 150px - env(safe-area-inset-bottom)));
+  .map-hud {
+    right: 104px;
   }
 }
-
-/* 學習與測驗：測驗紀錄標題列附摘要數字，概念列表與首頁卡片同一套白卡。 */
-.review-records {
-  display: grid;
-  gap: 14px;
-}
-
-/* 地圖四角依畫布邊界定位；桌機詳情使用既有並排欄，平板手機維持模態。 */
-.map-export-corner { position:absolute; z-index:5; top:12px; right:12px; }
-.map-navigation:has(+ .map-export-corner) { max-width:calc(100% - 156px); }
-.map-corner-legend .map-legend-toggle, .map-corner-search .map-search-toggle { display:none; }
-.map-corner-legend .relation-legend { pointer-events:auto; }
-@media(max-width:720px) {
-  .map-export-corner { top:10px; right:10px; }
-  .map-export-corner .export-entry > button { width:42px; min-width:42px; padding:0; font-size:0; }
-  .map-export-corner .export-entry > button::before { content:"↓" / ""; display:inline-block; font-size:24px; line-height:1; border-bottom:2px solid currentColor; }
-  .map-navigation:has(+ .map-export-corner) { right:64px; max-width:none; }
-  .map-navigation .map-corner-search { flex:0 0 42px; min-width:0; width:42px; }
-  .map-corner-search .map-search-toggle { display:flex; width:42px; padding:0; justify-content:center; }
-  .map-corner-search:not(.is-expanded) > input { display:none; }
-  .map-corner-search.is-expanded > input { position:absolute; top:50px; left:0; width:min(280px,calc(100vw - 90px)); }
-  .map-corner-search .map-search-results { top:94px; width:min(280px,calc(100vw - 90px)); }
-  .map-corner-legend .map-legend-toggle { display:block; pointer-events:auto; width:40px; padding:0; font-size:20px; }
-  .map-corner-legend:not(.is-expanded) > .relation-legend { display:none; }
-  .map-annotations.map-corner-legend > .relation-legend { flex-wrap:wrap; overflow:visible; max-width:250px; padding:12px; }
+/* 更窄（手機）：進度條移到圓鈕下方，縮放鈕改放左下。 */
+@container map-canvas (max-width: 559px) {
+  .map-hud {
+    top: 96px;
+    left: 20px;
+    right: 20px;
+  }
+  .focus-graph .react-flow__controls.react-flow__panel {
+    top: auto;
+    right: auto;
+    bottom: 20px;
+    left: 20px;
+    transform: none;
+  }
 }
 .detail-note-link { align-self: flex-start; margin-block: 8px; }

@@ -262,7 +262,7 @@ for (const viewport of [
       await mockKnowledgeMapApi(page, view);
       await page.goto(mapPath);
       await expect(page.getByRole("search", { name: "搜尋教材概念" })).toBeVisible();
-    const searchToggle = page.getByRole("button", { name: "開啟概念搜尋" });
+    const searchToggle = page.getByRole("button", { name: "找一座島" });
     if (await searchToggle.isVisible()) await searchToggle.click();
     const search = page.getByRole("searchbox", { name: "搜尋概念或關鍵字" });
       await search.fill("Host");
@@ -357,7 +357,7 @@ for (const width of [1536, 390])
     );
     await page.goto(mapPath);
     await page.getByRole("button", { name: "適應畫面", exact: true }).click();
-    await page.getByRole("button", { name: "教材概念：Stack", exact: true }).click();
+    await page.getByRole("button", { name: /^教材概念：Stack(，|$)/ }).click();
     await page.getByRole("button", { name: "查看第 1 頁來源", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "教材來源", exact: true });
     await expect(dialog).toContainText("轉換後第 1 頁");

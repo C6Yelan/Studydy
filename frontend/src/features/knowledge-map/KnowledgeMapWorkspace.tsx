@@ -43,7 +43,7 @@ import { mathPlainText } from "../../ui/math-text";
 import { Progress } from "../../ui/Progress";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
-import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, regionBasisText, regionColorIndex, type MapRegions, type NavigatorRange } from "./knowledge-map";
+import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, nextStationId, regionBasisText, regionColorIndex, regionHeading, type MapRegions, type NavigatorRange } from "./knowledge-map";
 
 type Concept = KnowledgeOutlineView["concepts"][number];
 type Mode = "focus" | "review";
@@ -57,6 +57,33 @@ const learningLabels = {
   needs_review: "需要加強",
   completed: "已完成",
 } as const;
+
+// 島牌：底色＋旗子高度表示狀態，文字只放在節點的 aria-label。
+const islandStates = {
+  not_started: { label: "還沒去過", flag: null },
+  in_progress: { label: "走到一半", flag: "flag-low" },
+  needs_review: { label: "要再走一趟", flag: "flag-half" },
+  completed: { label: "已插旗", flag: "flag" },
+} as const;
+
+function MapProgressHud({ view, progress, regions, conceptId }: {
+  view: KnowledgeOutlineView;
+  progress: MapProgressView | null;
+  regions: MapRegions | null;
+  conceptId: string;
+}) {
+  const completed = progress?.concept_states.filter((state) => state.status === "completed").length ?? 0;
+  const heading = regionHeading(regions, conceptId);
+  return (
+    <div className="map-hud">
+      <p>
+        {heading && <span className="map-hud-region"><MathText text={heading} notation={false} /></span>}
+        <span className="map-hud-count">已插旗 {completed} <small>／{view.concepts.length} 座島</small></span>
+      </p>
+      <Progress value={completed} max={view.concepts.length} aria-label="已插旗的島" />
+    </div>
+  );
+}
 
 function LearningBadge({
   conceptId,
@@ -289,10 +316,7 @@ function LearningNavigator({
   );
   const completed =
     progress?.concept_states.filter((state) => state.status === "completed").length ?? 0;
-  const nextId =
-    progress && ["advance", "review_prerequisite", "resume"].includes(progress.next_action.action)
-      ? progress.next_action.target_concept_id
-      : null;
+  const nextId = nextStationId(view, progress);
   const list = useRef<HTMLDivElement>(null);
   const selectedRow = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -479,12 +503,13 @@ function MapGraph({
   detail,
   regions,
   toolbar,
-  difficulty,
+  hereConceptId,
 }: {
   apiClient: StudydyApiClient;
   detail: ReactNode;
-  difficulty: ConceptDifficultyView | null;
-  /** 浮在地圖左上的搜尋，和「學習導覽」排成同一列。 */
+  /** 詳情打開的那座島（「你在這裡」）；沒點任何島時為 null。 */
+  hereConceptId: string | null;
+  /** 浮在地圖左上的搜尋鈕，和關卡路線、下載排成同一列。 */
   toolbar: ReactNode;
   regions: MapRegions | null;
   selectedRelationId: string | null;
@@ -593,11 +618,17 @@ function MapGraph({
       });
     }
     const palette = islandPalette(view.material_id);
-    const position = new Map(view.initial_learning_path.map((step) => [step.concept_id, step.position]));
-    const states = new Map(progress?.concept_states.map((state) => [state.concept_id, state.status]));
+    const states = new Map(progress?.concept_states.map((state) => [state.concept_id, state]));
+    const nextId = nextStationId(view, progress);
     const nodes: Node[] = layout.map((node) => {
       const concept = conceptById.get(node.id)!;
       const current = node.id === selected.concept_id;
+      const state = states.get(node.id);
+      // 出不了題的旗標和學習狀態並存；已插旗的島照常顯示綠色。
+      const unassessable = !!state && state.status !== "completed" && !state.assessable;
+      const look = state ? islandStates[state.status] : null;
+      const here = node.id === hereConceptId;
+      const next = node.id === nextId && !here;
       return {
         id: node.id,
         type: "concept",
@@ -621,22 +652,21 @@ function MapGraph({
           label: (
             <>
               <span className="island-sign">
-                {position.has(node.id) && <em aria-hidden="true">{position.get(node.id)}</em>}
-                <span>
-                  <strong><MathText text={concept.label} notation={false} /></strong>
-                  <small>
-                    <LearningBadge conceptId={concept.concept_id} progress={progress} />
-                    <DifficultyBadge concept={difficulty?.concepts.find(item => item.concept_id === concept.concept_id)} />
-                    {concept.claim_count} 個重點
-                  </small>
-                </span>
+                {here ? <small>你在這裡</small> : look?.flag && !unassessable && <Icon name={look.flag} size={20} />}
+                <strong><MathText text={concept.label} notation={false} /></strong>
+                {next && <span className="island-sign-next">下一站</span>}
               </span>
               <span className="island-node-art"><IslandArt palette={regions ? regionPalette(view.material_id, regionColorIndex(regions, regions.byConcept.get(node.id)!)) : palette} landmarks={current} /></span>
             </>
           ),
         },
-        className: `concept-flow-node is-${states.get(node.id) ?? "not_started"}${current ? " is-focus" : ""}${node.depth === 2 ? " is-secondary" : ""}`,
-        ariaLabel: `教材概念：${mathPlainText(concept.label)}`,
+        className: `concept-flow-node is-${state?.status ?? "not_started"}${unassessable ? " is-unassessable" : ""}${here ? " is-here" : ""}${current ? " is-focus" : ""}${node.depth === 2 ? " is-secondary" : ""}`,
+        ariaLabel: [
+          `教材概念：${mathPlainText(concept.label)}`,
+          look && (unassessable ? "暫時出不了題" : look.label),
+          here && "你在這裡",
+          next && "下一站",
+        ].filter(Boolean).join("，"),
         ariaRole: "button",
         domAttributes: nodeKeyboardAction(
           () => openConcept(node.id, () => restoreGraphFocus(node.id)),
@@ -691,7 +721,8 @@ function MapGraph({
     previewRead.error,
     selected.concept_id,
     highlightedRelation,
-    difficulty,
+    hereConceptId,
+    view,
     conceptById,
     progress,
     openConcept,
@@ -797,8 +828,10 @@ function MapGraph({
             {toolbar}
             <button
               ref={navigatorToggle}
-              className="secondary-button map-navigator-toggle"
+              className="map-round-button map-navigator-toggle"
               type="button"
+              aria-label="關卡路線"
+              title="關卡路線"
               aria-expanded={navigatorOpen}
               aria-controls="map-navigator"
               onClick={() => {
@@ -806,9 +839,9 @@ function MapGraph({
                 setNavigatorOpen((value) => !value);
               }}
             >
-              <Icon name="route" size={18} />
-              學習導覽
+              <Icon name="route" size={28} />
             </button>
+            <MapExports api={apiClient} view={view} />
           </div>
           <div id="map-navigator" hidden={!navigatorOpen}>
             <LearningNavigator
@@ -823,21 +856,20 @@ function MapGraph({
             />
           </div>
         </div>
-        <div className="map-export-corner"><MapExports api={apiClient} view={view} /></div>
+        <MapProgressHud view={view} progress={progress} regions={regions} conceptId={selected.concept_id} />
         <div className={`map-annotations map-corner-legend ${legendOpen ? "is-expanded" : ""}`}>
-          <button type="button" className="secondary-button map-legend-toggle" aria-label="顯示關係圖例" aria-expanded={legendOpen} onClick={() => setLegendOpen(value => !value)}>?</button>
-          <div className="relation-legend" aria-label="概念關係圖例">
-            {Object.entries(relationStyles).map(([type, { label, bridge, color }]) => (
-              <span key={type} style={{ color }}>
+          <button type="button" className="map-round-button map-legend-toggle" aria-label="顯示橋的說明" aria-expanded={legendOpen} onClick={() => setLegendOpen(value => !value)}>?</button>
+          <div className="relation-legend" aria-label="橋的說明">
+            {Object.entries(relationStyles).map(([type, { bridge, meaning }]) => (
+              <span key={type}>
                 <i className={`relation-swatch is-${type}`} aria-hidden="true" />
-                {label}<small>{bridge}</small>
+                {bridge}：{meaning}
               </span>
             ))}
           </div>
-          {(nodes.length < projection.totalNodes || edges.length < projection.totalRelations) && (
+          {nodes.length < projection.totalNodes && (
             <p className="map-limit-note" role="status">
-              兩層範圍：{nodes.length}／{projection.totalNodes} 個概念、{edges.length}／
-              {projection.totalRelations} 條關係。 尚有其他相關內容，可用搜尋或學習導覽選取。
+              這裡只看得到附近的 {nodes.length} 座島（共 {projection.totalNodes} 座），其他的用搜尋或關卡路線找。
             </p>
           )}
         </div>
@@ -995,7 +1027,8 @@ export function KnowledgeMapWorkspace({
     };
   });
   const [mode, setMode] = useState<Mode>(restored?.mode ?? "focus");
-  const [searchOpen, setSearchOpen] = useState(false);
+  // 搜尋框平常收在圓鈕裡；重新整理後還原了關鍵字就直接打開，看得到還原的內容。
+  const [searchOpen, setSearchOpen] = useState(!!restored?.search);
   const [searchQuery, setSearchQuery] = useState(restored?.search ?? "");
   const [selectedConceptId, setSelectedConceptId] = useState(restored?.concept ?? initialConceptId);
   const [reviewConceptId] = useState(restored?.review ?? initialConceptId);
@@ -1205,8 +1238,7 @@ export function KnowledgeMapWorkspace({
               event.stopPropagation();
               setSearchQuery("");
               setSearchOpen(false);
-              if (window.matchMedia("(max-width:720px)").matches) event.currentTarget.querySelector<HTMLButtonElement>(".map-search-toggle")?.focus();
-              else searchInput.current?.focus();
+              event.currentTarget.querySelector<HTMLButtonElement>(".map-search-toggle")?.focus();
             }
           }}
           onBlur={(event) => {
@@ -1219,7 +1251,7 @@ export function KnowledgeMapWorkspace({
             if (searchResults[0]) chooseSearchResult(searchResults[0].concept_id);
           }}
         >
-          <button type="button" className="secondary-button map-search-toggle" aria-label="開啟概念搜尋" aria-expanded={searchOpen} onClick={() => { setSearchOpen(value => !value); requestAnimationFrame(() => searchInput.current?.focus()); }}><Icon name="search" size={18} /></button>
+          <button type="button" className="map-round-button map-search-toggle" aria-label="找一座島" title="找一座島" aria-expanded={searchOpen} onClick={() => { setSearchOpen(value => !value); requestAnimationFrame(() => searchInput.current?.focus()); }}><Icon name="search" size={28} /></button>
           <input
             ref={searchInput}
             type="search"
@@ -1303,7 +1335,7 @@ export function KnowledgeMapWorkspace({
                 view={view}
                 regions={regions}
                 toolbar={mapToolbar}
-                difficulty={difficulty.data}
+                hereConceptId={selectedConcept?.concept_id ?? null}
               />
             </ReactFlowProvider>
           )}

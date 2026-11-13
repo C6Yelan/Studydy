@@ -36,13 +36,13 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   await expect(page.getByRole("navigation", { name: "主要導覽", exact: true })).toBeVisible();
 
   await page.goto(mapPath);
-  await expect(page.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^教材概念：Stack(，|$)/ })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^教材概念：Stack(，|$)/ })).toBeVisible();
   const otherTab = await a.newPage();
   await otherTab.goto(mapPath);
   await expect(
-    otherTab.getByRole("button", { name: "教材概念：Stack", exact: true }),
+    otherTab.getByRole("button", { name: /^教材概念：Stack(，|$)/ }),
   ).toBeVisible();
   // 只為登出失敗注入一次 transport response，重試仍使用真 API 撤銷。
   await page.route(
@@ -106,11 +106,11 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   );
   await freshPage.goto(mapPath);
   await expect(
-    freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }),
+    freshPage.getByRole("button", { name: /^教材概念：Stack(，|$)/ }),
   ).toBeVisible();
   expect((await fresh.request.get(`${origin}/v1/artifacts/${artifactId}`)).status()).toBe(200);
   await fresh.request.delete(`${origin}/v1/session`, { headers: { Origin: origin } });
-  await freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }).click();
+  await freshPage.getByRole("button", { name: /^教材概念：Stack(，|$)/ }).click();
   await expect(freshPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await expect(freshPage.getByText("Stack", { exact: true })).toHaveCount(0);
   expect((await fresh.request.get(`${origin}/v1/session`)).status()).toBe(401);

@@ -11,8 +11,9 @@ for (const width of [1366, 390]) {
     await mockKnowledgeMapApi(page);
     await page.route("**/concept-difficulty", route => json(route, { ...difficultyView(materialId, structureRevision), concepts: [hard] }));
     await page.goto(mapPath);
-    await expect(page.locator(".react-flow__node").filter({ hasText: "Stack" })).toContainText("預估偏難");
+    // 島牌不放難度標籤，難度顯示在概念詳情。
     await openMapConcept(page, "Stack");
+    await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("預估偏難");
     await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText(hard.reason);
     await page.keyboard.press("Escape");
     await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
@@ -27,8 +28,8 @@ test("personal difficulty is independent of structural difficulty", async ({ pag
   await page.route("**/concept-difficulty", route => json(route, { ...difficultyView(materialId, structureRevision),
     concepts: [{ ...hard, level: "standard", reason: "包含 1 個重點。", personal_difficulty: true, incorrect_count: 2, answer_count: 3 }] }));
   await page.goto(mapPath);
-  await expect(page.locator(".react-flow__node").filter({ hasText: "Stack" }).locator(".difficulty-badge")).toHaveText(["你的難點"]);
   await openMapConcept(page, "Stack");
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".difficulty-badge")).toHaveText(["你的難點"]);
   await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("答錯率 67%（2 / 3 題）");
   await page.keyboard.press("Escape");
   await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();

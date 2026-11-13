@@ -10,7 +10,7 @@ const mapPath = `/materials/${navigationData.material}/runs/${navigationData.run
 const studyPath = `${mapPath}/study-sessions/${navigationData.session}`;
 
 async function openConcept(page: Page, label: string) {
-  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  await page.getByRole("button", { name: "關卡路線", exact: true }).click();
   await page
     .getByRole("navigation", { name: "學習導覽", exact: true })
     .getByRole("button")

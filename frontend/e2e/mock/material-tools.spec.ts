@@ -128,8 +128,8 @@ test('one material header row; map search floats on the map and only content tab
   const nav=(await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox())!;
   // 教材內只有一列教材頁首；全站頁首隱藏。
   await expect(page.locator('.app-header')).toBeHidden();
-  // 地圖搜尋浮在地圖上；手機先顯示搜尋圖示，不另佔一列。
-  const searchAnchor=width===390?page.getByRole('button',{name:'開啟概念搜尋'}):page.getByRole('searchbox',{name:'搜尋概念或關鍵字'});
+  // 地圖搜尋是浮在地圖左上的圓鈕，不另佔一列。
+  const searchAnchor=page.getByRole('button',{name:'找一座島'});
   await expect(searchAnchor).toBeVisible();
   const anchor=(await searchAnchor.boundingBox())!;const graph=(await page.locator('.focus-graph').boundingBox())!;
   expect(anchor.y).toBeGreaterThanOrEqual(graph.y);expect(anchor.x).toBeGreaterThanOrEqual(graph.x);expect(anchor.y+anchor.height).toBeLessThanOrEqual(graph.y+graph.height);

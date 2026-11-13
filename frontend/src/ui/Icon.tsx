@@ -42,7 +42,10 @@ export type IconName =
   | "play"
   | "monitor"
   | "phone"
-  | "chevron-left";
+  | "chevron-left"
+  | "flag-low"
+  | "flag-half"
+  | "flag";
 
 const paths: Record<IconName, React.ReactNode> = {
   // Tabler 圖示沿用專案概念卡圖示集的幾何。
@@ -214,6 +217,10 @@ const paths: Record<IconName, React.ReactNode> = {
   monitor: <><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>,
   phone: <><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M11 18h2" /></>,
   "chevron-left": <path d="m15 18-6-6 6-6" />,
+  // 旗面高度表示進度：低處只有外框、升到一半、升到頂；旗面實心。
+  "flag-low": <><path d="M5 21V4" /><path d="M5 13h10l-2.5 3 2.5 3H5z" /></>,
+  "flag-half": <><path d="M5 21V4" /><path d="M5 10h11l-3 3.5 3 3.5H5z" fill="currentColor" /></>,
+  flag: <><path d="M5 21V4" /><path d="M5 5h13l-3 4 3 4H5z" fill="currentColor" /></>,
   send: (
     <>
       <path d="M4 12 20 4l-6 16-3-7Z" />

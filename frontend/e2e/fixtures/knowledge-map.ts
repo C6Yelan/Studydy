@@ -434,7 +434,7 @@ export async function openMapConcept(page: Page, label?: string) {
   if (await page.getByRole("dialog", { name: /^(概念詳情|關係詳情)$/ }).count())
     await page.keyboard.press("Escape");
   if (label) {
-    const toggle = page.getByRole("button", { name: "學習導覽", exact: true });
+    const toggle = page.getByRole("button", { name: "關卡路線", exact: true });
     if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
     await navigationConcept(page, label).click();
   } else {

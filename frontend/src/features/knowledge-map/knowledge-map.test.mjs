@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { learningNavigationItems, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW } from "./knowledge-map.ts";
+import { learningNavigationItems, nextStationId, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW } from "./knowledge-map.ts";
 
 const view = {
   concepts: ["a", "b", "c", "d"].map((concept_id) => ({ concept_id })),
@@ -272,4 +272,28 @@ test("chapter regions use two levels only for many chapters across several sourc
   assert.deepEqual(one.regions.slice(0, 3).map((r) => [r.label, r.group]), [["章1", null], ["章2", null], ["章3", null]]);
   assert.equal(regionColorIndex(one, 2), 2);
   assert.equal(regionBasisText(one), "依教材內容整理的章節");
+});
+
+test("next station follows the suggested next step, then the remaining path", () => {
+  const map = {
+    initial_learning_path: [
+      { position: 2, concept_id: "b", reason: "document_order" },
+      { position: 1, concept_id: "a", reason: "document_order" },
+      { position: 3, concept_id: "c", reason: "document_order" },
+    ],
+  };
+  const progress = (action, target, path) => ({
+    next_action: { action, target_concept_id: target, target_claim_id: null, prerequisite_concept_ids: [], reason: "" },
+    learning_path: path,
+  });
+  // 開頭：還沒有學習進度，從教材順序第一個開始。
+  assert.equal(nextStationId(map, null), "a");
+  // 中段與結尾：採用後端建議的下一步。
+  assert.equal(nextStationId(map, progress("advance", "b", ["b", "c"])), "b");
+  assert.equal(nextStationId(map, progress("review_prerequisite", "a", ["a", "c"])), "a");
+  assert.equal(nextStationId(map, progress("resume", "c", ["c"])), "c");
+  // 沒有建議下一步（例如還在同一組題目）：沿用剩餘路線第一個。
+  assert.equal(nextStationId(map, progress("continue_set", "b", ["c", "b"])), "c");
+  // 全部插旗：沒有下一站。
+  assert.equal(nextStationId(map, progress("complete", null, [])), null);
 });

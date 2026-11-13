@@ -187,31 +187,32 @@ for (const [width, count] of [
     ).toHaveCount(0);
     await expect(page.getByRole("region", { name: "學習入口" })).toHaveCount(0);
     await expect(
-      graph.getByRole("button", { name: /^(放大地圖|縮小地圖|適應畫面|學習導覽)$/ }),
-    ).toHaveCount(4);
+      graph.getByRole("button", { name: /^(放大地圖|縮小地圖|適應畫面|找一座島|關卡路線|下載地圖大綱)$/ }),
+    ).toHaveCount(6);
     const canvas = (await graph.boundingBox())!;
     const frame = (await page.locator(".map-view").boundingBox())!;
-    const legendToggle = page.getByRole("button", { name: "顯示關係圖例" });
+    const legendToggle = page.getByRole("button", { name: "顯示橋的說明" });
     if (await legendToggle.isVisible()) await legendToggle.click();
-    const legend = (await page.getByLabel("概念關係圖例", { exact: true }).boundingBox())!;
-    const navigatorButton = (await graph.getByRole("button", { name: "學習導覽", exact: true }).boundingBox())!;
-    // 圖例在地圖右下；搜尋與學習導覽浮在左上，兩者不重疊。
-    const zoomOut = (await graph.getByRole("button", { name: "縮小地圖", exact: true }).boundingBox())!;
-    expect(canvas.y + canvas.height - legend.y - legend.height).toBeGreaterThanOrEqual(0);
-    expect(canvas.y + canvas.height - legend.y - legend.height).toBeLessThanOrEqual(20);
-    expect(canvas.x + canvas.width - legend.x - legend.width).toBeLessThanOrEqual(20);
-    expect(legend.x).toBeGreaterThanOrEqual(zoomOut.x + zoomOut.width + 8);
-    expect(legend.y).toBeGreaterThanOrEqual(navigatorButton.y + navigatorButton.height + 8);
+    const legend = (await page.getByLabel("橋的說明", { exact: true }).boundingBox())!;
+    // 橋的說明在地圖右上；圓鈕、縮放鈕與進度條都不被它蓋住。
+    expect(legend.y - canvas.y).toBeLessThanOrEqual(width === 390 ? 100 : 30);
+    expect(canvas.x + canvas.width - legend.x - legend.width).toBeLessThanOrEqual(30);
+    type Box = { x: number; y: number; width: number; height: number };
+    const overlaps = (a: Box, b: Box) =>
+      a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "找一座島", "關卡路線", "下載地圖大綱"])
+      expect(overlaps(legend, (await graph.getByRole("button", { name, exact: true }).boundingBox())!)).toBe(false);
+    if (width !== 390) expect(overlaps(legend, (await page.locator(".map-hud").boundingBox())!)).toBe(false);
     expect(Math.abs(canvas.y - frame.y)).toBeLessThan(2);
     expect(Math.abs(canvas.height - frame.height)).toBeLessThan(2);
-    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽"]) {
+    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "找一座島", "關卡路線", "下載地圖大綱"]) {
       const box = (await graph.getByRole("button", { name, exact: true }).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(canvas.x);
       expect(box.y).toBeGreaterThanOrEqual(canvas.y);
       expect(box.x + box.width).toBeLessThanOrEqual(canvas.x + canvas.width);
       expect(box.y + box.height).toBeLessThanOrEqual(canvas.y + canvas.height);
     }
-    const toggle = graph.getByRole("button", { name: "學習導覽", exact: true });
+    const toggle = graph.getByRole("button", { name: "關卡路線", exact: true });
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(await graph.boundingBox()).toEqual(canvas);
@@ -336,7 +337,7 @@ test("large map only renders its local neighbourhood and stays responsive when d
   await page.mouse.up();
   await expect(viewport).not.toHaveAttribute("style", transform!);
   expect((await reads()) - before).toBeLessThanOrEqual(10 * 4);
-  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  await page.getByRole("button", { name: "關卡路線", exact: true }).click();
   await expect(page.getByRole("navigation", { name: "學習導覽" })).toBeVisible();
   assertReadOnly();
 });
@@ -365,30 +366,32 @@ for (const width of [1536, 390])
     await expect(page.locator(".react-flow__node")).toHaveCount(30);
     await expect(page.locator(".concept-flow-edge")).toHaveCount(60);
     await expect(page.locator(".map-limit-note")).toContainText(
-      `30／80 個概念、60／${view.relations.length} 條關係`,
+      "這裡只看得到附近的 30 座島（共 80 座），其他的用搜尋或關卡路線找。",
     );
-    await expect(page.locator(".map-limit-note")).toContainText("尚有其他相關內容");
-    const legendToggle = page.getByRole("button", { name: "顯示關係圖例" });
+    const legendToggle = page.getByRole("button", { name: "顯示橋的說明" });
     if (await legendToggle.isVisible()) await legendToggle.click();
-    const legend = (await page.getByLabel("概念關係圖例", { exact: true }).boundingBox())!;
+    const legend = (await page.getByLabel("橋的說明", { exact: true }).boundingBox())!;
     const limitNote = (await page.locator(".map-limit-note").boundingBox())!;
     expect(limitNote.y).toBeGreaterThanOrEqual(legend.y + legend.height + 4);
     const secondary = page.locator(".concept-flow-node.is-secondary");
     await expect(secondary).toHaveCount(23);
-    await expect(secondary.locator(".map-learning-badge")).toHaveCount(23);
-    // 每座概念島的旗子顯示學習順序、名稱與重點數；第二層島只縮小插畫，不改旗子字級。
+    // 每座概念島的島牌顯示名稱，狀態寫在節點的 aria-label；第二層島只縮小插畫，不改島牌字級。
     const labels = await secondary.evaluateAll((nodes) =>
       nodes.map((node) => ({
         id: node.getAttribute("data-id"),
         text: node.querySelector(".island-sign strong")?.textContent,
+        name: node.getAttribute("aria-label"),
       })),
     );
-    for (const label of labels)
-      expect(label.text).toBe(view.concepts.find((concept) => concept.concept_id === label.id)!.label);
+    for (const label of labels) {
+      const concept = view.concepts.find((item) => item.concept_id === label.id)!;
+      expect(label.text).toBe(concept.label);
+      expect(label.name).toMatch(new RegExp(`^教材概念：${concept.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}，(還沒去過|走到一半|要再走一趟|已插旗|暫時出不了題)`));
+    }
     const signStyle = (element: Element) => ({
       width: getComputedStyle(element).width,
       titleSize: getComputedStyle(element.querySelector(".island-sign strong")!).fontSize,
-      noteSize: getComputedStyle(element.querySelector(".island-sign small")!).fontSize,
+      signPadding: getComputedStyle(element.querySelector(".island-sign")!).padding,
     });
     expect(await secondary.first().evaluate(signStyle)).toEqual(
       await page
@@ -418,9 +421,10 @@ for (const width of [1536, 390])
     const box = (await page.locator(".focus-graph").boundingBox())!;
     const viewport = page.locator(".react-flow__viewport");
     const before = await viewport.getAttribute("style");
-    await page.mouse.move(box.x + box.width / 2, box.y + 60);
+    // 從圓鈕列下方開始拖（手機的圓鈕列橫跨畫布中線）。
+    await page.mouse.move(box.x + box.width / 2, box.y + 120);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 40, box.y + 130, { steps: 12 });
+    await page.mouse.move(box.x + box.width / 2 + 40, box.y + 190, { steps: 12 });
     await page.mouse.up();
     await expect(viewport).not.toHaveAttribute("style", before!);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);

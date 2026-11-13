@@ -1,4 +1,4 @@
-import type { KnowledgeStructureView, KnowledgeOutlineView, KnowledgeRegionsView } from "../../api/contracts";
+import type { KnowledgeStructureView, KnowledgeOutlineView, KnowledgeRegionsView, MapProgressView } from "../../api/contracts";
 
 type MapView = Pick<KnowledgeOutlineView, "relations" | "initial_learning_path"> & { concepts: Pick<KnowledgeStructureView["concepts"][number], "concept_id" | "label" | "aliases">[] };
 
@@ -67,6 +67,30 @@ export function learningNavigationItems(view: MapView) {
   return [...view.initial_learning_path]
     .sort((a, b) => a.position - b.position)
     .map((step) => ({ concept: byId.get(step.concept_id)!, step }));
+}
+
+/**
+ * 下一站：後端建議的下一步（前進、回頭補先備、接續作答）；其他動作沿用剩餘學習路線的第一個。
+ * 沒有學習進度時從教材順序第一個開始；路線全部插旗後回傳 null。
+ */
+export function nextStationId(
+  view: Pick<MapView, "initial_learning_path">,
+  progress: Pick<MapProgressView, "next_action" | "learning_path"> | null,
+): string | null {
+  if (!progress)
+    return [...view.initial_learning_path].sort((a, b) => a.position - b.position)[0]?.concept_id ?? null;
+  const { action, target_concept_id } = progress.next_action;
+  if (target_concept_id && ["advance", "review_prerequisite", "resume"].includes(action)) return target_concept_id;
+  return progress.learning_path[0] ?? null;
+}
+
+/** 進度條左側的區域名稱；只有一個區域（或讀不到區域）時不顯示。 */
+export function regionHeading(regions: MapRegions | null, conceptId: string): string | null {
+  if (!regions || regions.regions.length <= 1) return null;
+  const index = regions.byConcept.get(conceptId);
+  if (index === undefined) return null;
+  if (regions.basis === "chapters") return `第 ${index + 1} 章　${regions.regions[index].label}`;
+  return regions.basis === "source" ? regions.regions[index].label : `第 ${index + 1} 段`;
 }
 
 export function initialFocusConceptId(view: MapView): string {
