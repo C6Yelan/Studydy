@@ -1382,7 +1382,7 @@ export function KnowledgeMapWorkspace({
           className={`map-search map-corner-search ${searchOpen ? "is-expanded" : ""}`}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
-              // 只清空搜尋；不讓外層的學習導覽把焦點移走。
+              // 只清空搜尋；不讓外層的關卡路線把焦點移走。
               event.stopPropagation();
               setSearchQuery("");
               setSearchOpen(false);

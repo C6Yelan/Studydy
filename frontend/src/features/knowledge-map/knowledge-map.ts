@@ -214,7 +214,7 @@ export function focusGraph(view: MapView, selectedId: string) {
   return { nodes, relations, totalNodes: visits.size, totalRelations: eligibleRelations.length };
 }
 
-// 學習導覽一次最多畫出的概念列數；超過兩倍才分段，一般教材維持完整清單。
+// 關卡路線一次最多畫出的概念列數；超過兩倍才分段，一般教材維持完整清單。
 export const NAVIGATOR_WINDOW = 120;
 export type NavigatorRange = { start: number; end: number };
 
