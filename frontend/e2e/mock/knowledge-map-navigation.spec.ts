@@ -14,6 +14,7 @@ import {
   mockKnowledgeMapApi,
   navigationConcept,
   openMapConcept,
+  openRoute,
   workspaceView,
   learningMap,
   mockLearningMapApi,
@@ -36,16 +37,14 @@ for (const [action, marksNext] of [
     const view = learningMap(8);
     await mockLearningMapApi(page, view, true, action);
     await page.goto(mapPath);
-    await page.getByRole("button", { name: "關卡路線", exact: true }).click();
-    await expect(page.locator(".navigator-current")).toHaveCount(1);
+    await openRoute(page);
     await openMapConcept(page, view.concepts[5].label);
-    const nav = page.getByRole("navigation", { name: "學習導覽", includeHidden: true });
+    const nav = page.getByRole("navigation", { name: "關卡路線", includeHidden: true });
     await expect(nav.locator(".is-next-suggested")).toHaveCount(marksNext ? 1 : 0);
-    if (marksNext) await expect(navigationConcept(page, "D")).toContainText("下一步");
-    await expect(navigationConcept(page, "C")).toContainText("目前學習");
+    if (marksNext) await expect(navigationConcept(page, "D")).toContainText("下一站");
     const selected = navigationConcept(page, view.concepts[5].label);
     await expect(selected).toHaveAttribute("aria-current", "true");
-    await expect(selected).not.toContainText("目前學習");
+    await expect(selected).toContainText("你在這裡");
   });
 }
 
@@ -65,7 +64,7 @@ test("map tabs cycle and missing path references still fail the strict API contr
   view.initial_learning_path[0].concept_id = `concept:sha256:${"f".repeat(64)}`;
   await page.goto(mapPath);
   await expect(page.getByRole("heading", { name: "無法讀取知識地圖", exact: true })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "學習導覽" })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "關卡路線" })).toHaveCount(0);
 });
 
 test("sectionless concepts remain selectable through navigation", async ({ page }) => {
@@ -80,8 +79,7 @@ test("sectionless concepts remain selectable through navigation", async ({ page 
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
   await expect(page.getByRole("tab", { name: "總覽", exact: true })).toHaveCount(0);
   await expect(page.getByRole("tabpanel", { name: "知識地圖", exact: true })).toBeVisible();
-  const toggle = page.getByRole("button", { name: "關卡路線", exact: true });
-  await toggle.click();
+  await openRoute(page);
   await expect(page.locator(".navigator-label")).toHaveText(["Stack", "Array"]);
   await navigationConcept(page, "Array").click();
   await expect(
@@ -94,7 +92,8 @@ test("sectionless concepts remain selectable through navigation", async ({ page 
     secondConcept,
   );
   await page.keyboard.press("Escape");
-  await expect(toggle).toBeFocused();
+  // 桌機的路線卡不收起，焦點回到剛點的那一站。
+  await expect(navigationConcept(page, "Array")).toBeFocused();
 });
 
 for (const width of [1536, 390])
@@ -110,25 +109,26 @@ for (const width of [1536, 390])
         writes.push(request.url());
     });
     await page.goto(mapPath);
-    await page.getByRole("button", { name: "關卡路線", exact: true }).click();
-    const nav = page.getByRole("navigation", { name: "學習導覽", includeHidden: true });
-    const current = nav.locator(".is-learning-current .navigator-label");
+    await openRoute(page);
+    const nav = page.getByRole("navigation", { name: "關卡路線", includeHidden: true });
     const suggested = nav.locator(".is-next-suggested .navigator-label");
-    await expect(nav.locator(".navigator-position")).toHaveText(
-      Array.from({ length: 56 }, (_, i) => String(i + 1)),
-    );
+    // 已插旗的站圓章是勾勾，編號從 aria-label 讀。
+    await expect(nav.locator(".navigator-station")).toHaveCount(56);
+    expect(
+      await nav
+        .locator(".navigator-station")
+        .evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-label")!.match(/^第 (\d+) 個/)![1])),
+    ).toEqual(Array.from({ length: 56 }, (_, i) => String(i + 1)));
     const order = [...view.initial_learning_path]
       .sort((a, b) => a.position - b.position)
       .map(
         (step) => view.concepts.find((concept) => concept.concept_id === step.concept_id)!.label,
       );
     await expect(nav.locator(".navigator-label")).toHaveText(order);
-    await expect(current).toHaveText(view.concepts[3].label);
     await navigationConcept(page, view.concepts[19].label).click();
     await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText(
       view.concepts[19].label,
     );
-    await expect(current).toHaveText(view.concepts[3].label);
     await expect(suggested).toHaveText(view.concepts[4].label);
     await page.keyboard.press("Escape");
     await expect(page.getByRole("search", { name: "搜尋教材概念" })).toBeVisible();
@@ -145,7 +145,6 @@ for (const width of [1536, 390])
     ).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(search).toBeFocused();
-    await expect(current).toHaveText(view.concepts[3].label);
     await expect(suggested).toHaveText(view.concepts[4].label);
     expect(writes).toEqual([]);
   });
@@ -156,10 +155,10 @@ for (const width of [1536, 390])
     const view = workspaceView(100, true);
     await mockKnowledgeMapApi(page, view);
     await page.goto(mapPath);
-    await page.getByRole("button", { name: "關卡路線", exact: true }).click();
+    await openRoute(page);
     const list = page.locator(".navigator-list");
-    const nav = page.getByRole("navigation", { name: "學習導覽", exact: true });
-    await expect(nav.getByRole("button")).toHaveCount(view.concepts.length);
+    const nav = page.getByRole("navigation", { name: "關卡路線", exact: true });
+    await expect(nav.locator(".navigator-station")).toHaveCount(view.concepts.length);
     await expect
       .poll(() => list.evaluate((e) => e.scrollHeight > e.clientHeight && e.clientHeight > 0))
       .toBe(true);
@@ -187,11 +186,11 @@ for (const width of [1536, 390])
         .getByRole("heading", { name: lastConcept.label, exact: true }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "關卡路線", exact: true }).click();
+    await openRoute(page);
     await expect(nav.locator('[aria-current="true"]')).toBeInViewport();
-    await nav.getByRole("button").first().focus();
+    await nav.locator(".navigator-station").first().focus();
     await expect.poll(() => list.evaluate((e) => e.scrollTop)).toBe(0);
-    await expect(nav.getByRole("button").first()).toBeInViewport();
+    await expect(nav.locator(".navigator-station").first()).toBeInViewport();
   });
 
 test("reload restores map presentation while local interaction does not restart authentication", async ({
@@ -281,8 +280,8 @@ test("learning navigator groups concepts by region and the detail names the regi
     ],
   } }));
   await page.goto(mapPath);
-  await page.getByRole("button", { name: "關卡路線", exact: true }).click();
-  const nav = page.getByRole("navigation", { name: "學習導覽" });
+  await openRoute(page);
+  const nav = page.getByRole("navigation", { name: "關卡路線" });
   await expect(nav.getByRole("heading", { level: 3 })).toHaveText([
     "01_從生成到推論5 個", "02_模型評估2 個", "補充｜Adaptive Reliability-Aware Reasoning for Large Language Model Agents1 個",
   ]);
@@ -293,7 +292,7 @@ test("learning navigator groups concepts by region and the detail names the regi
     expect(box.x + box.width).toBeLessThanOrEqual(list.x + list.width);
   }
   await expect(nav.getByText("依各概念的主要來源檔分區")).toBeVisible();
-  await expect(nav.getByRole("button")).toHaveCount(8);
+  await expect(nav.locator(".navigator-station")).toHaveCount(8);
   await navigationConcept(page, "A").click();
   await expect(page.getByRole("dialog", { name: "概念詳情" })).toBeVisible();
   // 選中概念所在的區域寫在上方進度條。
@@ -310,9 +309,9 @@ test("learning navigator stays flat when regions do not match the map", async ({
     regions: [{ region_id: "region:1", label: "第 1–4 個概念", source_id: null, concept_ids: ids.slice(0, 4) }],
   } }));
   await page.goto(mapPath);
-  await page.getByRole("button", { name: "關卡路線", exact: true }).click();
-  const nav = page.getByRole("navigation", { name: "學習導覽" });
-  await expect(nav.getByRole("button")).toHaveCount(8);
+  await openRoute(page);
+  const nav = page.getByRole("navigation", { name: "關卡路線" });
+  await expect(nav.locator(".navigator-station")).toHaveCount(8);
   await expect(nav.getByRole("heading", { level: 3 })).toHaveCount(0);
 });
 
@@ -329,8 +328,8 @@ test("chapter regions stay one level for a demo-sized material", async ({ page }
     ],
   } }));
   await page.goto(mapPath);
-  await page.getByRole("button", { name: "關卡路線", exact: true }).click();
-  const nav = page.getByRole("navigation", { name: "學習導覽" });
+  await openRoute(page);
+  const nav = page.getByRole("navigation", { name: "關卡路線" });
   await expect(nav.getByRole("heading", { level: 3 })).toHaveText(["生成模型基礎5 個", "推論與評估3 個"]);
   await expect(nav.getByRole("heading", { level: 4 })).toHaveCount(0);
   await expect(nav.getByText("依教材內容整理的章節", { exact: true })).toBeVisible();
@@ -360,8 +359,8 @@ for (const width of [1536, 390])
       })),
     } }));
     await page.goto(mapPath);
-    await page.getByRole("button", { name: "關卡路線" }).click();
-    const nav = page.getByRole("navigation", { name: "學習導覽" });
+    await openRoute(page);
+    const nav = page.getByRole("navigation", { name: "關卡路線" });
     await expect(nav.getByRole("heading", { level: 3 })).toHaveText([
       "01_從生成到推論10 章 · 30 個",
       "02_Adaptive Reliability-Aware Reasoning for Large Language Model Agents10 章 · 30 個",

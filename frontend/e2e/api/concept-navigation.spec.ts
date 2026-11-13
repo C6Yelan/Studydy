@@ -10,12 +10,13 @@ const mapPath = `/materials/${navigationData.material}/runs/${navigationData.run
 const studyPath = `${mapPath}/study-sessions/${navigationData.session}`;
 
 async function openConcept(page: Page, label: string) {
-  await page.getByRole("button", { name: "關卡路線", exact: true }).click();
-  await page
-    .getByRole("navigation", { name: "學習導覽", exact: true })
-    .getByRole("button")
-    .filter({ has: page.getByText(label, { exact: true }) })
-    .click();
+  // 路線卡桌機預設打開；要的那一站不在收起的 5 站裡就展開全部。
+  const toggle = page.getByRole("button", { name: "關卡路線", exact: true });
+  if (await toggle.isVisible()) await toggle.click();
+  const nav = page.getByRole("navigation", { name: "關卡路線", exact: true });
+  const station = nav.getByRole("button").filter({ has: page.getByText(label, { exact: true }) });
+  if (!(await station.count())) await nav.getByRole("button", { name: /^看全部/ }).click();
+  await station.click();
   await expect(page.getByRole("dialog", { name: "概念詳情", exact: true })).toBeVisible();
 }
 

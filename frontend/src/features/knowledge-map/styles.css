@@ -315,7 +315,7 @@
   color: var(--map-ink);
 }
 .focus-graph.has-navigator > .detail-panel {
-  left: 344px;
+  left: 280px;
 }
 /* 關係卡第 4 段才換版面；先沿用原本的直排內容，在卡片內捲動。 */
 .focus-graph > .detail-panel.relation-card {
@@ -515,7 +515,7 @@
   pointer-events: none;
 }
 .focus-graph.has-navigator > .map-next-card {
-  left: 344px;
+  left: 280px;
 }
 .map-next-card > div {
   display: flex;
@@ -652,68 +652,6 @@
   color: var(--text-secondary);
 }
 
-/* 概念搜尋與結果清單。 */
-.map-search {
-  position: relative;
-  flex: 1;
-  max-width: 520px;
-  min-width: 200px;
-  margin-right: auto;
-}
-.map-search input {
-  width: 100%;
-  height: 48px;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-input);
-  background: var(--surface);
-  color: var(--text-primary);
-  font-size: 14px;
-}
-.map-search-results {
-  position: absolute;
-  top: calc(100% + var(--space-2));
-  left: 0;
-  right: 0;
-  z-index: 10;
-  max-height: 360px;
-  overflow-y: auto;
-  padding: var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--surface);
-  box-shadow: 0 6px 22px rgba(28, 40, 75, 0.1);
-}
-.map-search-results > p {
-  margin: 4px 8px 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-.map-search-results button {
-  display: block;
-  width: 100%;
-  padding: 10px 8px;
-  border: 0;
-  border-radius: var(--radius-input);
-  background: var(--surface);
-  color: var(--text-primary);
-  text-align: left;
-}
-.map-search-results button:hover {
-  background: var(--studydy-blue-soft);
-}
-.map-search-results strong,
-.map-search-results small {
-  display: block;
-}
-.map-search-results small {
-  margin-top: 4px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--text-secondary);
-}
-
 .relation-legend > span {
   display: flex;
   align-items: center;
@@ -781,136 +719,32 @@
   left: 20px;
   z-index: 5;
   max-width: calc(100% - 40px);
-  max-height: calc(100% - 180px);
+  max-height: calc(100% - 42px);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
 }
-/* 將外框可用高度傳到清單，避免只有外框被裁切、清單本身卻無法捲動。
-   上緣留到 104px（圓鈕下方），不壓到上方進度條。 */
+/* 關卡路線卡：上緣在圓鈕下方（20 + 60 + 24），展開成全部時卡內清單捲動，下緣留給任務卡的位置。 */
 #map-navigator {
   display: flex;
   flex-direction: column;
-  width: 300px;
+  width: 236px;
   max-width: 100%;
   min-height: 0;
   margin-top: 24px;
-  overflow: hidden;
+  /* 厚陰影不被外框吃掉。 */
+  padding-bottom: 6px;
+  pointer-events: auto;
 }
 #map-navigator[hidden] {
   display: none;
 }
-.focus-navigator {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
+/* 搜尋打開時，搜尋膠囊佔住左上角，其他工具與路線卡先讓開。 */
+.focus-graph:has(.map-corner-search.is-expanded) #map-navigator {
+  visibility: hidden;
 }
-.focus-navigator > header,
-.focus-navigator > .navigator-summary {
-  flex-shrink: 0;
-}
-.focus-navigator > header {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding: var(--space-3);
-  border-bottom: 1px solid var(--border);
-}
-.focus-navigator h2 {
-  margin: 0;
-  font-size: 15px;
-}
-.focus-navigator > header > span {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.navigator-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--space-2);
-  scrollbar-gutter: stable;
-}
-.navigator-list ul {
-  display: grid;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.navigator-list button {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: 40px;
-  padding: var(--space-2);
-  border: 1px solid transparent;
-  border-radius: var(--radius-input);
-  color: var(--text-primary);
-  background: transparent;
-  font-size: 14px;
-  line-height: 1.5;
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-.navigator-list button:hover {
-  background: var(--page-cool-2);
-}
-.navigator-list button[aria-current="true"] {
-  color: var(--studydy-blue);
-  background: var(--studydy-blue-soft);
-  border-color: var(--studydy-blue);
-  font-weight: 600;
-}
-.navigator-summary {
-  margin: 0;
-  padding: var(--space-2) var(--space-4);
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-.navigator-position {
-  /* 三位數以上的編號不能被按鈕的 overflow-wrap 拆成兩行；寬度至少容納三位數讓名稱對齊。 */
-  flex: 0 0 auto;
-  min-width: 3ch;
-  white-space: nowrap;
-  overflow-wrap: normal;
-  text-align: right;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.navigator-concept {
-  flex: 1;
-  min-width: 0;
-}
-.navigator-label {
-  display: block;
-}
-.navigator-notes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 var(--space-2);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 400;
-}
-.navigator-current {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-.navigator-state {
-  flex-shrink: 0;
-  display: flex;
-  padding-top: 3px;
-  color: var(--text-muted);
-}
-.is-completed .navigator-state {
-  color: #15803d;
-}
-.is-needs-review .navigator-state {
-  color: #92400e;
+.map-toolbar:has(.map-corner-search.is-expanded) > :not(.map-search) {
+  display: none;
 }
 
 .map-workspace > .form-error[role="status"] {
@@ -1118,14 +952,14 @@
   border: 0;
   background: transparent;
 }
-#map-navigator .focus-navigator {
-  border-radius: 22px;
-}
 .detail-panel:focus {
   outline: none;
 }
 /* 手機：外框與畫布上下排列，畫布保留固定高度；詳情改成 modal 浮層（正式排法見第 5 段）。 */
 @media (max-width: 720px) {
+  .focus-graph.has-navigator > .detail-panel {
+    left: auto;
+  }
   .focus-graph > .detail-panel {
     position: fixed;
     z-index: 21;
@@ -1179,113 +1013,6 @@
     height: min(72dvh, 600px);
   }
 }
-/* 鍵盤移到第一／最後一項時保留清單內距，不讓項目貼齊邊緣。 */
-.navigator-list {
-  scroll-padding-block: var(--space-2);
-}
-
-/* 學習導覽的區域分組：色塊對應地圖上該區島嶼的草地顏色 */
-.navigator-basis {
-  margin: 0;
-  padding: 0 var(--space-4) var(--space-2);
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-.navigator-list .navigator-regions {
-  gap: var(--space-3);
-}
-/* 長來源檔名不可撐寬導覽欄；以省略號截斷，完整名稱放在 title。 */
-.navigator-region {
-  min-width: 0;
-}
-.navigator-region h3 {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 900;
-}
-.navigator-region h3 i {
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-.navigator-region h3 span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.navigator-region h3 small {
-  flex: none;
-  margin-left: auto;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-/* 兩層：島群（來源檔）下再分章節（島）；章節標題縮排、較輕，長名稱同樣截斷。 */
-.navigator-list .navigator-chapters {
-  gap: var(--space-2);
-  padding-left: var(--space-3);
-  border-left: 2px solid var(--border);
-  margin-left: calc(var(--space-2) + 4px);
-}
-.navigator-region h4 {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0 0 2px;
-  padding: 2px var(--space-2);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 800;
-}
-.navigator-region h4 span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.navigator-region h4 small {
-  flex: none;
-  margin-left: auto;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-.navigator-jump {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0 var(--space-4) var(--space-2);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 800;
-}
-.navigator-jump span {
-  flex: none;
-}
-.navigator-jump select {
-  flex: 1;
-  min-width: 0;
-  min-height: 36px;
-  font-size: 13px;
-}
-
-/* 大型教材的學習導覽分段顯示：兩端的展開按鈕 */
-.navigator-list .navigator-more {
-  justify-content: center;
-  margin: var(--space-1) 0;
-  border: 1px dashed var(--border);
-  color: var(--studydy-blue);
-  font-weight: 700;
-  text-align: center;
-}
 
 /* 手機：畫布高度扣掉頁首、教材列、分頁列與底部導覽，縮放按鈕不被底部導覽蓋住。 */
 @media (max-width: 720px) {
@@ -1296,12 +1023,6 @@
   .app-shell.is-material .is-focus-mode .map-content {
     height: max(360px, calc(100dvh - 150px - env(safe-area-inset-bottom)));
   }
-}
-
-/* 學習導覽清單上下緣淡出，捲動時被切到的列不會突兀地露出半截文字。 */
-.navigator-list {
-  -webkit-mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
-  mask-image: linear-gradient(180deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
 }
 
 /* 學習與測驗：測驗紀錄標題列附摘要數字，概念列表與首頁卡片同一套白卡。 */
@@ -1370,9 +1091,6 @@
 .map-round-button[aria-expanded="true"] {
   background: var(--map-sky);
 }
-.map-round-button.map-search-toggle {
-  background: var(--map-yellow);
-}
 .map-toolbar .export-entry {
   position: relative;
 }
@@ -1387,35 +1105,6 @@
   border: 3px solid var(--map-ink);
   border-radius: 12px;
   background: #fff;
-}
-/* 搜尋：圓鈕打開後，輸入框出現在圓鈕下方（第 3 段再換成膠囊樣式）。 */
-.map-navigation .map-search {
-  flex: none;
-  min-width: 0;
-  max-width: none;
-  margin: 0;
-}
-.map-corner-search:not(.is-expanded) > input {
-  display: none;
-}
-.map-corner-search.is-expanded > input {
-  position: absolute;
-  top: 76px;
-  left: 0;
-  width: min(320px, calc(100cqw - 40px));
-  height: 52px;
-  padding: 0 18px;
-  border: 4px solid var(--map-ink);
-  border-radius: 999px;
-  box-shadow: 0 5px 0 var(--map-ink);
-  color: var(--map-ink);
-  font-size: 16px;
-  font-weight: 800;
-}
-.map-corner-search .map-search-results {
-  top: 140px;
-  right: auto;
-  width: min(320px, calc(100cqw - 40px));
 }
 /* 上方進度條：左右讓出圓鈕與橋的說明的寬度，最寬 520px 置中。 */
 .map-hud {
@@ -1542,4 +1231,414 @@
     left: 20px;
     transform: none;
   }
+}
+
+.map-round-button[hidden] {
+  display: none;
+}
+.map-round-button.map-search-toggle {
+  background: var(--map-yellow);
+}
+
+/* 關卡路線卡（示意圖 01 左側）：收起時 5 站，「看全部」展開成依區域分組的捲動清單。 */
+.focus-navigator {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 14px 14px 16px;
+  border: 4px solid var(--map-ink);
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 6px 0 var(--map-ink);
+  color: var(--map-ink);
+}
+.focus-navigator > header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.focus-navigator h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 900;
+}
+.navigator-close {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: -8px -6px -8px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--map-ink);
+  cursor: pointer;
+}
+.navigator-close svg {
+  stroke-width: 3.5;
+}
+.navigator-close:hover {
+  background: var(--map-sky);
+}
+.navigator-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* 讓站的框線與選取外框不被捲動區裁掉。 */
+  margin: -2px;
+  padding: 2px;
+  scroll-padding-block: 8px;
+}
+.navigator-list ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.navigator-station {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 3px solid transparent;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--map-ink);
+  font-family: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.navigator-station:hover {
+  background: var(--map-sky);
+}
+.navigator-station.is-here {
+  border-color: var(--map-ink);
+  background: var(--map-cream);
+}
+/* 圓章：灰＝還沒去過、白＝下一站、淺藍＝走到一半、橘＝要再走一趟、綠＋勾＝已插旗、灰虛線＝出不了題。 */
+.navigator-position {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  box-sizing: border-box;
+  border: 3px solid var(--map-ink);
+  border-radius: 50%;
+  background: var(--map-gray);
+  color: var(--map-ink);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.navigator-position svg {
+  stroke-width: 4;
+}
+.is-next-suggested > .navigator-position { background: #fff; }
+.is-in_progress > .navigator-position { background: var(--map-halfway); }
+.is-needs_review > .navigator-position { background: var(--map-orange); }
+.is-completed > .navigator-position { background: var(--map-green); }
+.is-unassessable > .navigator-position { border-style: dashed; background: var(--map-gray); }
+.navigator-concept {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.navigator-label {
+  font-size: 15px;
+  font-weight: 800;
+}
+.is-here .navigator-label {
+  font-weight: 900;
+}
+.navigator-note {
+  color: var(--map-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.is-here .navigator-note { color: #8a4500; }
+.is-completed .navigator-note { color: #0f6b40; }
+.navigator-toggle,
+.navigator-list .navigator-more {
+  flex: none;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 3px solid var(--map-ink);
+  border-radius: 14px;
+  background: var(--map-sky);
+  color: var(--map-ink);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 900;
+  text-align: center;
+  cursor: pointer;
+}
+.navigator-list .navigator-more {
+  width: 100%;
+  margin: 6px 0;
+}
+.navigator-toggle:hover,
+.navigator-list .navigator-more:hover {
+  background: var(--map-halfway);
+}
+.navigator-basis {
+  flex: none;
+  margin: 0;
+  color: var(--map-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+/* 區域分組：色塊對應地圖上該區島嶼的草地顏色；長名稱以省略號截斷，完整名稱放在 title。 */
+.navigator-list .navigator-regions {
+  gap: 14px;
+}
+.navigator-region {
+  min-width: 0;
+}
+.navigator-region h3,
+.navigator-region h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 2px 4px;
+  font-size: 13px;
+  font-weight: 900;
+}
+.navigator-region h3 i {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--map-ink);
+  border-radius: 50%;
+}
+.navigator-region h3 span,
+.navigator-region h4 span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.navigator-region h3 small,
+.navigator-region h4 small {
+  flex: none;
+  margin-left: auto;
+  color: var(--map-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+/* 兩層：來源檔＝島群（h3），章節＝島（h4），章節縮排。 */
+.navigator-list .navigator-chapters {
+  gap: 10px;
+  margin-left: 6px;
+  padding-left: 10px;
+  border-left: 3px solid var(--map-gray);
+}
+.navigator-region h4 {
+  font-weight: 800;
+}
+.navigator-jump {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  margin: 0;
+  color: var(--map-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.navigator-jump span {
+  flex: none;
+}
+.navigator-jump select {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  border: 3px solid var(--map-ink);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--map-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 800;
+}
+/* 搜尋（示意圖 04）：黃色圓鈕打開後變成膠囊輸入框，下方接結果卡。 */
+.map-navigation .map-search {
+  flex: none;
+  margin: 0;
+}
+.map-corner-search.is-expanded {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100cqw - 40px));
+}
+.map-search-bar {
+  display: flex;
+  align-items: center;
+}
+.map-corner-search:not(.is-expanded) .map-search-bar > :not(.map-search-toggle) {
+  display: none;
+}
+.map-corner-search.is-expanded .map-search-bar {
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 4px 6px 4px 12px;
+  border: 4px solid var(--map-ink);
+  border-radius: 999px;
+  background: var(--map-yellow);
+  box-shadow: 0 5px 0 var(--map-ink);
+}
+.map-corner-search.is-expanded .map-search-toggle {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+.map-search-bar input {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border: 3px solid var(--map-ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--map-ink);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 900;
+}
+/* 已有自己的關閉鈕，不要瀏覽器內建的清除叉叉。 */
+.map-search-bar input::-webkit-search-cancel-button {
+  appearance: none;
+}
+.map-search-close {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--map-ink);
+  cursor: pointer;
+}
+.map-search-close svg {
+  stroke-width: 3.5;
+}
+.map-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  max-height: min(420px, calc(100cqh - 160px));
+  overflow-y: auto;
+  padding: 12px;
+  border: 4px solid var(--map-ink);
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 6px 0 var(--map-ink);
+  color: var(--map-ink);
+}
+.map-search-results > p {
+  margin: 0;
+  padding: 0 6px;
+  color: var(--map-muted);
+  font-size: 14px;
+  font-weight: 900;
+}
+/* 找不到、搜尋中、讀取失敗：只有一句話的小卡。 */
+.map-search-results.is-message {
+  padding: 12px 16px;
+  border-radius: 20px;
+}
+.map-search-results.is-message > p {
+  padding: 0;
+  color: var(--map-ink);
+  font-size: 16px;
+}
+.map-search-results > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 3px solid var(--map-ink);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--map-ink);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* Enter 會選第一筆，所以第一筆用奶油底標出來。 */
+.map-search-results > button:first-of-type {
+  background: var(--map-cream);
+}
+.map-search-results > button:hover {
+  background: var(--map-sky);
+}
+.map-search-position {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  height: 38px;
+  box-sizing: border-box;
+  border: 3px solid var(--map-ink);
+  border-radius: 50%;
+  background: #fff;
+  font-size: 16px;
+  font-weight: 900;
+}
+.map-search-results > button > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+.map-search-results strong {
+  font-size: 17px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+.map-search-results small {
+  color: var(--map-muted);
+  font-size: 13px;
+  font-weight: 800;
 }

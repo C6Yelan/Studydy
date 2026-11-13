@@ -425,17 +425,27 @@ export async function mockKnowledgeMapApi(
 
 export function navigationConcept(page: Page, label: string) {
   return page
-    .getByRole("navigation", { name: "學習導覽", includeHidden: true })
+    .getByRole("navigation", { name: "關卡路線", includeHidden: true })
     .getByRole("button", { includeHidden: true })
     .filter({ has: page.getByText(label, { exact: true }) });
+}
+
+// 關卡路線卡桌機預設打開、手機收起；all 為真時展開成「看全部」的清單。
+export async function openRoute(page: Page, all = true) {
+  await page.locator("#map-navigator").waitFor({ state: "attached" });
+  const toggle = page.getByRole("button", { name: "關卡路線", exact: true });
+  if (await toggle.isVisible()) await toggle.click();
+  const more = page.getByRole("navigation", { name: "關卡路線" }).getByRole("button", { name: /^看全部/ });
+  if (all && (await more.count())) await more.click();
 }
 
 export async function openMapConcept(page: Page, label?: string) {
   if (await page.getByRole("dialog", { name: /^(概念詳情|關係詳情)$/ }).count())
     await page.keyboard.press("Escape");
   if (label) {
-    const toggle = page.getByRole("button", { name: "關卡路線", exact: true });
-    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+    await openRoute(page, false);
+    // 收起時只列 5 站；要的那一站不在其中就展開成全部。
+    if (!(await navigationConcept(page, label).count())) await openRoute(page);
     await navigationConcept(page, label).click();
   } else {
     await page.locator(".concept-flow-node.is-focus").click();

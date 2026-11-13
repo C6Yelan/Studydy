@@ -43,7 +43,7 @@ import { mathPlainText } from "../../ui/math-text";
 import { Progress } from "../../ui/Progress";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
 import { StateView } from "../../ui/StateView";
-import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, nextStationId, regionBasisText, regionColorIndex, regionHeading, type MapRegions, type NavigatorRange } from "./knowledge-map";
+import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, nextStationId, routePreviewIds, regionBasisText, regionColorIndex, regionHeading, type MapRegions, type NavigatorRange } from "./knowledge-map";
 
 type Concept = KnowledgeOutlineView["concepts"][number];
 type Mode = "focus" | "review";
@@ -52,6 +52,7 @@ type RestoreFocus = () => void;
 const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
 // 任務卡最高佔畫布高度的比例；選中概念時的視野一律預留這麼高，卡片內容晚到變高也不會蓋住島。
 const QUEST_CARD_SHARE = 0.45;
+const COMPACT_QUERY = "(max-width: 720px)";
 
 // 島牌：底色＋旗子高度表示狀態，文字只放在節點的 aria-label。
 const islandStates = {
@@ -366,12 +367,17 @@ function LearningNavigator({
   focusConcept,
   progress,
   regions,
+  hereConceptId,
+  onClose,
 }: {
   progress: MapProgressView | null;
   regions: MapRegions | null;
   view: KnowledgeOutlineView;
   selectedConceptId: string;
+  /** 詳情打開的那座島（「你在這裡」）；沒點任何島時為 null。 */
+  hereConceptId: string | null;
   focusConcept: (id: string) => void;
+  onClose: () => void;
 }) {
   const items = useMemo(() => learningNavigationItems(view), [view]);
   // 兩個以上區域才分組；組內維持教材順序。單次分桶，避免區域數×概念數的重複篩選。
@@ -393,12 +399,7 @@ function LearningNavigator({
     () => new Map(progress?.concept_states.map((state) => [state.concept_id, state])),
     [progress],
   );
-  const firstStep = items[0]?.step;
-  const currentStep = view.initial_learning_path.find(
-    (step) => step.concept_id === progress?.current_concept_id,
-  );
-  const completed =
-    progress?.concept_states.filter((state) => state.status === "completed").length ?? 0;
+  const [expanded, setExpanded] = useState(false);
   const nextId = nextStationId(view, progress);
   const list = useRef<HTMLDivElement>(null);
   const selectedRow = useRef<HTMLButtonElement>(null);
@@ -416,19 +417,23 @@ function LearningNavigator({
     const observer = new ResizeObserver(reveal);
     observer.observe(rail);
     return () => observer.disconnect();
-  }, [selectedConceptId]);
+  }, [selectedConceptId, expanded]);
   const renderItem = ({ concept, step }: (typeof items)[number]) => {
     const selected = concept.concept_id === selectedConceptId;
-    const learningCurrent = concept.concept_id === progress?.current_concept_id;
-    const status = states.get(concept.concept_id)?.status;
-    const next = concept.concept_id === nextId && !learningCurrent;
-    const stateLabel =
-      status === "completed" ? "已完成" : status === "needs_review" ? "需要加強" : "";
+    const here = concept.concept_id === hereConceptId;
+    const state = states.get(concept.concept_id);
+    const status = state?.status;
+    // 出不了題的旗標和學習狀態並存；已插旗的站照常顯示綠色。
+    const unassessable = !!state && state.status !== "completed" && !state.assessable;
+    const next = concept.concept_id === nextId && !here;
+    const stateText = unassessable ? "暫時出不了題" : status && status !== "not_started" ? islandStates[status].label : "";
+    // 副標：「你在這裡・要再走一趟」「下一站」「已插旗」等；還沒去過的站不寫。
+    const note = here ? `你在這裡${stateText ? `・${stateText}` : ""}` : next ? "下一站" : stateText;
     const name = [
       `第 ${step.position} 個，${mathPlainText(concept.label)}`,
-      learningCurrent && "目前學習",
-      stateLabel,
-      next && "下一步",
+      here && "你在這裡",
+      stateText,
+      next && "下一站",
     ]
       .filter(Boolean)
       .join("；");
@@ -440,10 +445,10 @@ function LearningNavigator({
           aria-label={name}
           aria-current={selected ? "true" : undefined}
           className={[
+            "navigator-station",
             selected && "is-selected",
-            learningCurrent && "is-learning-current",
-            status === "completed" && "is-completed",
-            status === "needs_review" && "is-needs-review",
+            here && "is-here",
+            unassessable ? "is-unassessable" : status && `is-${status}`,
             next && "is-next-suggested",
           ]
             .filter(Boolean)
@@ -451,50 +456,29 @@ function LearningNavigator({
           onClick={() => focusConcept(concept.concept_id)}
         >
           <span className="navigator-position" aria-hidden="true">
-            {step.position}
+            {status === "completed" && !unassessable ? <Icon name="check" size={18} /> : step.position}
           </span>
           <span className="navigator-concept">
             <span className="navigator-label"><MathText text={concept.label} notation={false} /></span>
-            {(learningCurrent || next) && (
-              <span className="navigator-notes">
-                {learningCurrent ? (
-                  <span className="navigator-current">目前學習</span>
-                ) : (
-                  <span>下一步</span>
-                )}
-              </span>
-            )}
+            {note && <span className="navigator-note">{note}</span>}
           </span>
-          {stateLabel && (
-            <span className="navigator-state" title={stateLabel} aria-hidden="true">
-              <Icon name={status === "completed" ? "check" : "warning"} size={15} />
-            </span>
-          )}
         </button>
       </li>
     );
   };
+  const orderedItems = useMemo(() => new Map(ordered.map((item) => [item.concept.concept_id, item])), [ordered]);
+  const previewItems = routePreviewIds(ordered.map((item) => item.concept.concept_id), hereConceptId, nextId)
+    .map((id) => orderedItems.get(id)!);
   return (
-    <nav className="focus-navigator surface" aria-label="學習導覽">
+    <nav className="focus-navigator" aria-label="關卡路線">
       <header>
-        <h2>學習導覽</h2>
-        <span>{groups ? `${regionCountText(regions!)} · ` : ""}{view.concepts.length} 個概念</span>
+        <h2>關卡路線</h2>
+        <button type="button" className="navigator-close" aria-label="收起關卡路線" onClick={onClose}>
+          <Icon name="close" size={20} />
+        </button>
       </header>
-      {(progress || firstStep) && (
-        <p className="navigator-summary">
-          {progress ? (
-            <>
-              {currentStep &&
-                `第 ${currentStep.position} / ${view.initial_learning_path.length} 個 · `}
-              已完成 {completed} 個
-            </>
-          ) : (
-            `教材順序從第 ${firstStep!.position} 個概念開始`
-          )}
-        </p>
-      )}
-      {groups && <p className="navigator-basis">{regionBasisText(regions!)}</p>}
-      {groups && regions!.groups.length > 0 && (
+      {expanded && groups && <p className="navigator-basis">{regionBasisText(regions!)}</p>}
+      {expanded && groups && regions!.groups.length > 0 && (
         // 兩層時章節很多（千頁教材約 460 章），清單只畫目前位置附近；用選單跳到任一章的第一個概念。
         <label className="navigator-jump">
           <span>跳到章節</span>
@@ -518,12 +502,13 @@ function LearningNavigator({
         </label>
       )}
       <div className="navigator-list" id="focus-concept-list" ref={list}>
-        {shown.start > 0 && (
+        {!expanded && <ul>{previewItems.map(renderItem)}</ul>}
+        {expanded && shown.start > 0 && (
           <button type="button" className="navigator-more" onClick={() => setRange({ start: Math.max(0, shown.start - NAVIGATOR_WINDOW), end: shown.end })}>
             顯示前 {Math.min(NAVIGATOR_WINDOW, shown.start)} 個概念
           </button>
         )}
-        {groups ? (
+        {expanded && (groups ? (
           regions!.groups.length ? (
             // 兩層：來源檔＝島群（h3），章節＝島（h4）；只畫目前範圍內的章節。
             <ul className="navigator-regions">
@@ -564,13 +549,16 @@ function LearningNavigator({
           )
         ) : (
           <ul>{ordered.slice(shown.start, shown.end).map(renderItem)}</ul>
-        )}
-        {shown.end < ordered.length && (
+        ))}
+        {expanded && shown.end < ordered.length && (
           <button type="button" className="navigator-more" onClick={() => setRange({ start: shown.start, end: Math.min(ordered.length, shown.end + NAVIGATOR_WINDOW) })}>
             顯示後 {Math.min(NAVIGATOR_WINDOW, ordered.length - shown.end)} 個概念
           </button>
         )}
       </div>
+      <button type="button" className="navigator-toggle" aria-expanded={expanded} aria-controls="focus-concept-list" onClick={() => setExpanded((value) => !value)}>
+        {expanded ? "收起" : `看全部 ${view.concepts.length} 座島`}
+      </button>
     </nav>
   );
 }
@@ -620,8 +608,19 @@ function MapGraph({
     (element ?? navigatorToggle.current)?.focus({ preventScroll: true });
   };
   const [legendOpen, setLegendOpen] = useState(false);
-  const [navigatorOpen, setNavigatorOpen] = useState(false);
+  // 關卡路線卡：桌機預設打開；手機（≤720）會蓋住大半地圖，預設收起，選了站就收起。
+  const [navigatorOpen, setNavigatorOpen] = useState(() => !window.matchMedia(COMPACT_QUERY).matches);
   const navigatorToggle = useRef<HTMLButtonElement>(null);
+  // 打開時圓鈕是隱藏的，收起後要等它重新顯示才能把焦點還給它。
+  const focusToggle = useRef(false);
+  useEffect(() => {
+    if (!navigatorOpen && focusToggle.current) navigatorToggle.current?.focus();
+    focusToggle.current = false;
+  }, [navigatorOpen]);
+  const closeNavigator = () => {
+    focusToggle.current = true;
+    setNavigatorOpen(false);
+  };
   const graph = useReactFlow();
   const initialized = useNodesInitialized();
   // 受控 nodes 必須保留 React Flow 回報的尺寸，避免詳情更新後永遠未完成量測。
@@ -922,10 +921,9 @@ function MapGraph({
         <div
           className="map-navigation"
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
+            if (event.key === "Escape" && navigatorOpen) {
               event.preventDefault();
-              setNavigatorOpen(false);
-              navigatorToggle.current?.focus();
+              closeNavigator();
             }
           }}
         >
@@ -939,10 +937,8 @@ function MapGraph({
               title="關卡路線"
               aria-expanded={navigatorOpen}
               aria-controls="map-navigator"
-              onClick={() => {
-                navigatorToggle.current?.focus();
-                setNavigatorOpen((value) => !value);
-              }}
+              hidden={navigatorOpen}
+              onClick={() => setNavigatorOpen(true)}
             >
               <Icon name="route" size={28} />
             </button>
@@ -954,9 +950,14 @@ function MapGraph({
               progress={progress}
               view={view}
               selectedConceptId={selected.concept_id}
+              hereConceptId={hereConceptId}
+              onClose={closeNavigator}
               focusConcept={(id) => {
-                setNavigatorOpen(false);
-                openConcept(id, () => navigatorToggle.current?.focus());
+                // 手機上路線卡蓋住地圖，選完就收起並把焦點還給圓鈕；桌機卡片留著，焦點回到被點的那一站。
+                if (window.matchMedia(COMPACT_QUERY).matches) {
+                  setNavigatorOpen(false);
+                  openConcept(id, () => navigatorToggle.current?.focus());
+                } else openConcept(id);
               }}
             />
           </div>
@@ -1165,6 +1166,11 @@ export function KnowledgeMapWorkspace({
   const restoreFrame = useRef(0);
   useEffect(() => () => cancelAnimationFrame(restoreFrame.current), []);
   const searchInput = useRef<HTMLInputElement>(null);
+  const searchToggle = useRef<HTMLButtonElement>(null);
+  const routePosition = useMemo(
+    () => new Map(view.initial_learning_path.map((step) => [step.concept_id, step.position])),
+    [view.initial_learning_path],
+  );
   const searchResultsElement = useRef<HTMLDivElement>(null);
   const tabs = useRef(new Map<Mode, HTMLButtonElement>());
   const hasBrowsed = useRef(!!restored?.concept);
@@ -1331,40 +1337,52 @@ export function KnowledgeMapWorkspace({
             if (searchResults[0]) chooseSearchResult(searchResults[0].concept_id);
           }}
         >
-          <button type="button" className="map-round-button map-search-toggle" aria-label="找一座島" title="找一座島" aria-expanded={searchOpen} onClick={() => { setSearchOpen(value => !value); requestAnimationFrame(() => searchInput.current?.focus()); }}><Icon name="search" size={28} /></button>
-          <input
-            ref={searchInput}
-            type="search"
-            aria-label="搜尋概念或關鍵字"
-            placeholder="搜尋概念或關鍵字…"
-            maxLength={200}
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setSearchQuery("");
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                searchResultsElement.current?.querySelector<HTMLButtonElement>("button")?.focus();
-              }
-            }}
-          />
+          <div className="map-search-bar">
+            <button ref={searchToggle} type="button" className="map-round-button map-search-toggle" aria-label="找一座島" title="找一座島" aria-expanded={searchOpen} onClick={() => { setSearchOpen(value => !value); requestAnimationFrame(() => searchInput.current?.focus()); }}><Icon name="search" size={28} /></button>
+            <input
+              ref={searchInput}
+              type="search"
+              aria-label="搜尋概念或關鍵字"
+              placeholder="搜尋概念或關鍵字…"
+              maxLength={200}
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setSearchQuery("");
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  searchResultsElement.current?.querySelector<HTMLButtonElement>("button")?.focus();
+                }
+              }}
+            />
+            <button type="button" className="map-search-close" aria-label="關閉搜尋" onClick={() => { setSearchQuery(""); setSearchOpen(false); searchToggle.current?.focus(); }}>
+              <Icon name="close" size={22} />
+            </button>
+          </div>
           {query && (
-            <div ref={searchResultsElement} className="map-search-results">
+            <div ref={searchResultsElement} className={`map-search-results${searchResults.length && searchState.query === query ? "" : " is-message"}`}>
               <p role="status">
-                {searchState.query !== query ? "正在搜尋教材內容…" : searchState.error ? searchState.error : searchResults.length
-                  ? `找到 ${searchResults.length} 個概念${searchResults.length > 8 ? "，顯示前 8 個，請輸入更多關鍵字縮小範圍" : ""}`
-                  : "找不到符合的概念，試試其他關鍵字。"}
+                {searchState.query !== query ? "正在找…" : searchState.error ? searchState.error : searchResults.length
+                  ? `找到 ${searchResults.length} 座島${searchResults.length > 8 ? "，顯示前 8 座，請輸入更多關鍵字縮小範圍" : ""}`
+                  : `這片海上沒有「${searchQuery.trim()}」這座島，換個詞試試。`}
               </p>
-              {searchResults.slice(0, 8).map((concept) => (
-                <button
-                  key={concept.concept_id}
-                  type="button"
-                  onClick={() => chooseSearchResult(concept.concept_id)}
-                >
-                  <strong><MathText text={concept.label} notation={false} /></strong>
-                  <small>{concept.claim_count} 個重點</small>
-                </button>
-              ))}
+              {searchResults.slice(0, 8).map((concept) => {
+                const state = progress?.concept_states.find((item) => item.concept_id === concept.concept_id);
+                const unassessable = !!state && state.status !== "completed" && !state.assessable;
+                return (
+                  <button
+                    key={concept.concept_id}
+                    type="button"
+                    onClick={() => chooseSearchResult(concept.concept_id)}
+                  >
+                    <span className="map-search-position" aria-hidden="true">{routePosition.get(concept.concept_id)}</span>
+                    <span>
+                      <strong><MathText text={concept.label} notation={false} /></strong>
+                      <small>{unassessable ? "暫時出不了題" : islandStates[state?.status ?? "not_started"].label}</small>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </form>

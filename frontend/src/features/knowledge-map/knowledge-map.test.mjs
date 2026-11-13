@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { learningNavigationItems, nextStationId, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW } from "./knowledge-map.ts";
+import { learningNavigationItems, nextStationId, routePreviewIds, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW } from "./knowledge-map.ts";
 
 const view = {
   concepts: ["a", "b", "c", "d"].map((concept_id) => ({ concept_id })),
@@ -296,4 +296,19 @@ test("next station follows the suggested next step, then the remaining path", ()
   assert.equal(nextStationId(map, progress("continue_set", "b", ["c", "b"])), "c");
   // 全部插旗：沒有下一站。
   assert.equal(nextStationId(map, progress("complete", null, [])), null);
+});
+
+test("route preview shows five stations from where you are, padded back near the end", () => {
+  const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  // 開頭與中段：從「你在這裡」起算；優先於建議下一站。
+  assert.deepEqual(routePreviewIds(ids, "a", "b"), ["a", "b", "c", "d", "e"]);
+  assert.deepEqual(routePreviewIds(ids, "c", "b"), ["c", "d", "e", "f", "g"]);
+  // 結尾：往前補滿 5 站。
+  assert.deepEqual(routePreviewIds(ids, "h", null), ["d", "e", "f", "g", "h"]);
+  // 沒點島：從建議下一站起算。
+  assert.deepEqual(routePreviewIds(ids, null, "f"), ["d", "e", "f", "g", "h"]);
+  // 沒有建議下一步、全部完成：從開頭起算。
+  assert.deepEqual(routePreviewIds(ids, null, null), ["a", "b", "c", "d", "e"]);
+  // 不足 5 站：全部顯示。
+  assert.deepEqual(routePreviewIds(["a", "b"], "b", null), ["a", "b"]);
 });

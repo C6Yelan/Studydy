@@ -84,6 +84,23 @@ export function nextStationId(
   return progress.learning_path[0] ?? null;
 }
 
+export const ROUTE_PREVIEW_SIZE = 5;
+
+/**
+ * 關卡路線收起時顯示的站：從「你在這裡」起算，沒點島時從建議下一站起算；
+ * 接近結尾就往前補滿，不足 size 站時全部顯示。找不到起點（例如全部插旗）從開頭起算。
+ */
+export function routePreviewIds(
+  orderedIds: string[],
+  hereId: string | null,
+  nextId: string | null,
+  size = ROUTE_PREVIEW_SIZE,
+): string[] {
+  const anchor = orderedIds.indexOf(hereId ?? nextId ?? "");
+  const start = Math.max(0, Math.min(Math.max(anchor, 0), orderedIds.length - size));
+  return orderedIds.slice(start, start + size);
+}
+
 /** 進度條左側的區域名稱；只有一個區域（或讀不到區域）時不顯示。 */
 export function regionHeading(regions: MapRegions | null, conceptId: string): string | null {
   if (!regions || regions.regions.length <= 1) return null;

@@ -7,6 +7,7 @@ import {
   json,
   mockKnowledgeMapApi,
   navigationConcept,
+  openRoute,
   openMapConcept,
   workspaceView,
   structureView,
@@ -114,7 +115,8 @@ test("switching revision discards the previous selection and viewport", async ({
   await expect(page.locator(".focus-graph")).toBeVisible();
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
   await expect(page.locator(".concept-flow-node.is-focus")).toContainText("Concept 1");
-  await expect(page.locator("#map-navigator")).toBeHidden();
+  // 桌機的關卡路線卡預設打開，換了版本後只列出新地圖的概念。
+  await expect(page.locator("#map-navigator .navigator-label")).toHaveText(["Concept 1"]);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expectVisibleGraphFits(page);
   await expect(navigationConcept(page, "Concept 1")).toHaveAttribute("aria-current", "true");
@@ -186,6 +188,9 @@ for (const [width, count] of [
       ),
     ).toHaveCount(0);
     await expect(page.getByRole("region", { name: "學習入口" })).toHaveCount(0);
+    // 桌機的關卡路線卡預設打開，圓鈕此時隱藏；收起後六顆工具鈕都要在畫布內。
+    const closeRoute = page.getByRole("button", { name: "收起關卡路線", exact: true });
+    if (await closeRoute.isVisible()) await closeRoute.click();
     await expect(
       graph.getByRole("button", { name: /^(放大地圖|縮小地圖|適應畫面|找一座島|關卡路線|下載地圖大綱)$/ }),
     ).toHaveCount(6);
@@ -214,7 +219,7 @@ for (const [width, count] of [
     }
     const toggle = graph.getByRole("button", { name: "關卡路線", exact: true });
     await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("navigation", { name: "關卡路線" })).toBeVisible();
     expect(await graph.boundingBox()).toEqual(canvas);
     await navigationConcept(page, view.concepts[0].label).focus();
     await page.keyboard.press("Escape");
@@ -230,7 +235,8 @@ for (const [width, count] of [
     await expect(page.locator(".concept-flow-edge")).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(toggle).toBeFocused();
+    // 手機選了站會收起路線卡，焦點回圓鈕；桌機卡片留著，焦點回那一站。
+    await expect(width === 390 ? toggle : navigationConcept(page, view.concepts.at(-1)!.label)).toBeFocused();
     await expect.poll(async () => (await graph.boundingBox())!.width).toBeCloseTo(canvas.width, 0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(view).toEqual(original);
@@ -337,8 +343,8 @@ test("large map only renders its local neighbourhood and stays responsive when d
   await page.mouse.up();
   await expect(viewport).not.toHaveAttribute("style", transform!);
   expect((await reads()) - before).toBeLessThanOrEqual(10 * 4);
-  await page.getByRole("button", { name: "關卡路線", exact: true }).click();
-  await expect(page.getByRole("navigation", { name: "學習導覽" })).toBeVisible();
+  await openRoute(page, false);
+  await expect(page.getByRole("navigation", { name: "關卡路線" })).toBeVisible();
   assertReadOnly();
 });
 
