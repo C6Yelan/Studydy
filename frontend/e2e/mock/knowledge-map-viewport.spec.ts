@@ -199,9 +199,9 @@ for (const [width, count] of [
     const legendToggle = page.getByRole("button", { name: "顯示橋的說明" });
     if (await legendToggle.isVisible()) await legendToggle.click();
     const legend = (await page.getByLabel("橋的說明", { exact: true }).boundingBox())!;
-    // 橋的說明在地圖右上；圓鈕、縮放鈕與進度條都不被它蓋住。
+    // 橋的說明在地圖右上；圓鈕、縮放鈕與進度條都不被它蓋住。手機的說明掛在右上「?」下方、右側縮放鈕的左邊。
     expect(legend.y - canvas.y).toBeLessThanOrEqual(width === 390 ? 100 : 30);
-    expect(canvas.x + canvas.width - legend.x - legend.width).toBeLessThanOrEqual(30);
+    expect(canvas.x + canvas.width - legend.x - legend.width).toBeLessThanOrEqual(width === 390 ? 30 + 56 : 30);
     type Box = { x: number; y: number; width: number; height: number };
     const overlaps = (a: Box, b: Box) =>
       a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;

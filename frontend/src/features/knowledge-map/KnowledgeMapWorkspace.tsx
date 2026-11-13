@@ -98,20 +98,10 @@ function DetailPanel({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const panel = ref.current!;
-    // 桌機與平板：卡片疊在畫布下方（非 modal），地圖照常可操作。
-    // 手機斷點（styles.css 共用斷點；與 knowledge-map/styles.css 的浮層詳情同一門檻）：改用 modal 浮層。
-    const mobile = window.matchMedia("(max-width: 720px)");
-    const update = () => {
-      if (panel.open) panel.close();
-      if (mobile.matches) panel.showModal();
-      else panel.show();
-    };
-    update();
-    mobile.addEventListener("change", update);
-    return () => {
-      mobile.removeEventListener("change", update);
-      panel.close();
-    };
+    // 所有寬度都是非 modal：桌機疊在畫布下方，手機是貼底抽屜；上方的地圖照常可拖曳、可點別座島。
+    // 焦點由下一個 effect 移進卡片，Esc 與關閉鈕關閉後焦點回到原本的節點。
+    panel.show();
+    return () => panel.close();
   }, []);
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -126,26 +116,11 @@ function DetailPanel({
       className={`detail-panel ${className}`}
       aria-label={label}
       tabIndex={-1}
-      onCancel={(event) => {
-        event.preventDefault();
-        close();
-      }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
           close();
         }
-      }}
-      onClick={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        if (
-          event.target === event.currentTarget &&
-          (event.clientX < rect.left ||
-            event.clientX > rect.right ||
-            event.clientY < rect.top ||
-            event.clientY > rect.bottom)
-        )
-          close();
       }}
     >
       {children}
@@ -853,18 +828,18 @@ function MapGraph({
         fittedConcept.current = selected.concept_id;
         const element = graphElement.current!;
         const firstHop = layout.filter((node) => node.depth < 2).map((node) => ({ id: node.id }));
-        // 畫布本身太窄（依畫布寬度而非視窗斷點），初次視野只框住中心與第一層，其餘可平移或縮小查看。
-        if (element.clientWidth < 600) {
-          void graph.fitView({ ...fitViewOptions, minZoom: 0.5, nodes: firstHop });
-          return;
-        }
+        // 畫布本身太窄（依畫布寬度而非視窗斷點）：不縮到字看不清，初次視野框中心與第一層，
+        // 抽屜打開時只框選中的島，其餘可平移或縮小查看。
+        const narrow = element.clientWidth < 600;
         // 疊在畫布上的進度條、圓鈕、橋的說明、縮放鈕、關卡路線與下方卡片都算進留白，島落在沒被擋住的地方。
         const bounds = element.getBoundingClientRect();
         const box = (selector: string) => element.querySelector(selector)?.getBoundingClientRect();
         const gap = 24;
         const top = Math.max(0, ...[box(".map-hud"), box(".map-toolbar")].map((item) => item ? item.bottom - bounds.top : 0));
-        const right = Math.max(0, ...[box(".react-flow__controls"), box(".map-annotations")].map((item) => item ? bounds.right - item.left : 0));
-        const navigator = box("#map-navigator:not([hidden])");
+        // 窄畫布的縮放鈕和「?」只是右上角一小塊、關卡路線卡橫跨整個上半部，都不算進左右留白，
+        // 否則中心的島會被擠出畫布左緣。
+        const right = narrow ? 0 : Math.max(0, ...[box(".react-flow__controls"), box(".map-annotations")].map((item) => item ? bounds.right - item.left : 0));
+        const navigator = narrow ? undefined : box("#map-navigator:not([hidden])");
         const left = navigator ? navigator.right - bounds.left : 0;
         const card = element.querySelector<HTMLElement>(".detail-panel");
         const next = box(".map-next-card > div");
@@ -875,35 +850,44 @@ function MapGraph({
         void graph.fitView({
           ...fitViewOptions,
           padding: { top: `${top + gap}px`, right: `${right + gap}px`, bottom: `${bottom + gap}px`, left: `${left + gap}px` },
-          ...(card && { nodes: firstHop }),
+          ...(narrow ? { minZoom: 0.5, nodes: card ? [{ id: selected.concept_id }] : firstHop } : card && { nodes: firstHop }),
         });
       });
     });
     return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
   }, [initialized, canvasReady, graph, selected.concept_id, previewRead.context, previewRead.error, layout]);
   // 開啟關係卡時（鏡頭不因點線而重框）：被點的線和兩端的島若被下方卡片蓋住，才把它們平移到卡片上方；
+  // 手機的任務卡抽屜佔掉近半個畫布，打開的島已是選中的島時（例如「帶我去」）不會重新框視野，同樣只在被蓋住時平移。
   // 卡片的說明和出處是非同步載入的，高度變了也要重新確認。
+  const compactHere = hereConceptId && window.matchMedia(COMPACT_QUERY).matches ? hereConceptId : null;
   useEffect(() => {
-    if (!highlightedRelation) return;
+    const ids = highlightedRelation
+      ? [highlightedRelation.source_concept_id, highlightedRelation.target_concept_id]
+      : compactHere ? [compactHere] : null;
+    if (!ids) return;
     const element = graphElement.current!;
-    const card = element.querySelector<HTMLElement>(".relation-card");
-    // 手機是 modal 浮層，不在畫布下方。
-    if (!card || getComputedStyle(card).position !== "absolute") return;
-    const ids = [highlightedRelation.source_concept_id, highlightedRelation.target_concept_id];
+    const card = element.querySelector<HTMLElement>(".detail-panel");
+    if (!card) return;
     let frame = 0;
     const reveal = () => {
       const bounds = element.getBoundingClientRect();
       const cardTop = card.getBoundingClientRect().top;
       const gap = 24;
+      // 窄畫布（手機）上兩端的島常有一座在畫布外，跑出左右或上緣也算看不到；留白規則同上方的初次視野。
+      const narrow = element.clientWidth < 600;
       const covered = [
         ...ids.map((id) => element.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`)),
         element.querySelector(".concept-flow-edge.selected .react-flow__edge-textbg"),
-      ].some((item) => item && item.getBoundingClientRect().bottom > cardTop - gap / 2);
+      ].some((item) => {
+        const rect = item?.getBoundingClientRect();
+        return rect && (rect.bottom > cardTop - gap / 2
+          || (narrow && (rect.left < bounds.left || rect.right > bounds.right || rect.top < bounds.top)));
+      });
       if (!covered) return;
       const box = (selector: string) => element.querySelector(selector)?.getBoundingClientRect();
       const top = Math.max(0, ...[box(".map-hud"), box(".map-toolbar")].map((item) => item ? item.bottom - bounds.top : 0));
-      const right = Math.max(0, ...[box(".react-flow__controls"), box(".map-annotations")].map((item) => item ? bounds.right - item.left : 0));
-      const navigator = box("#map-navigator:not([hidden])");
+      const right = narrow ? 0 : Math.max(0, ...[box(".react-flow__controls"), box(".map-annotations")].map((item) => item ? bounds.right - item.left : 0));
+      const navigator = narrow ? undefined : box("#map-navigator:not([hidden])");
       void graph.fitView({
         ...fitViewOptions,
         // 只平移或縮小，不為了框兩座島而放大。
@@ -923,7 +907,7 @@ function MapGraph({
     });
     observer.observe(card);
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
-  }, [highlightedRelation?.relation_id, graph]);
+  }, [highlightedRelation?.relation_id, compactHere, graph]);
   return (
     <section className="focus-workspace" aria-label="知識地圖工作區">
       <div

@@ -567,6 +567,7 @@
   flex-direction: column;
   overflow: visible;
   font-family: inherit;
+  container: quest-card / inline-size;
 }
 .quest-body {
   display: flex;
@@ -696,6 +697,21 @@
   font-weight: 800;
   text-align: center;
 }
+/* 卡片變窄（手機抽屜、平板上關卡路線打開時）：左右兩欄改成上下，重點在上方捲動，主按鈕固定在下方。 */
+@container quest-card (max-width: 520px) {
+  .quest-body {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .quest-main {
+    flex: 1 1 auto;
+  }
+  .quest-action {
+    flex: none;
+    min-width: 0;
+    gap: 8px;
+  }
+}
 .quest-primary {
   min-height: 44px;
   padding: 16px 18px;
@@ -801,9 +817,6 @@
   border-radius: 18px;
   box-shadow: 0 6px 0 var(--map-ink);
   font-size: 20px;
-}
-.detail-panel::backdrop {
-  background: rgba(15, 23, 42, 0.28);
 }
 .review-empty {
   display: flex;
@@ -1130,59 +1143,120 @@
 .detail-panel:focus {
   outline: none;
 }
-/* 手機：外框與畫布上下排列，畫布保留固定高度；詳情改成 modal 浮層（正式排法見第 5 段）。 */
+/* 手機：任務卡、關係卡改成貼著畫布底邊的抽屜（非 modal，上方地圖照常可拖曳），
+   最高佔畫布的 --quest-card-max；重點在卡內捲動，主按鈕固定在抽屜底部。 */
 @media (max-width: 720px) {
-  .focus-graph.has-navigator > .detail-panel {
-    left: auto;
-  }
-  .focus-graph > .detail-panel {
-    position: fixed;
-    z-index: 21;
-    inset: 12px 12px 12px auto;
-    width: min(380px, calc(100% - 24px));
-    max-width: none;
-    max-height: calc(100dvh - 24px);
-    overflow-y: auto;
-  }
+  .focus-graph > .detail-panel,
+  .focus-graph.has-navigator > .detail-panel,
   .focus-graph > .detail-panel.relation-card,
   .focus-graph.has-navigator > .detail-panel.relation-card {
-    left: auto;
-    right: 12px;
-    display: block;
+    inset: auto 0 0 0;
+    max-width: none;
+    margin: 0;
+    padding: 20px 16px 16px;
+    border-width: 4px 0 0;
+    border-radius: 28px 28px 0 0;
+    box-shadow: 0 -6px 0 rgba(20, 33, 61, 0.18);
   }
-  .relation-body {
-    overflow: visible;
-  }
-  .quest-body {
-    flex-direction: column;
-  }
-  .quest-main {
-    overflow: visible;
+  .quest-card .quest-title {
+    gap: 8px;
+    /* 讓出右上角的關閉鈕。 */
     padding-right: 48px;
   }
-  .quest-action {
-    flex: none;
-    min-width: 0;
+  .quest-card .quest-title h2 {
+    flex-basis: 100%;
+    font-size: 22px;
+  }
+  .quest-main .concept-claim .claim-text {
+    font-size: 16px;
+  }
+  .quest-primary {
+    padding: 10px 16px;
+    border-radius: 18px;
+    box-shadow: 0 5px 0 var(--map-ink);
+    font-size: 20px;
   }
   .quest-close {
-    top: 10px;
-    right: 10px;
+    top: 12px;
+    right: 12px;
+    box-shadow: none;
+  }
+  .relation-title {
+    gap: 8px;
+    padding-right: 48px;
+  }
+  .relation-title h2 {
+    font-size: 20px;
+  }
+  /* 抽屜高度有限：兩端維持左右並排（窄卡片的上下排規則在這裡覆蓋掉），名字縮小。 */
+  .relation-direction {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 8px;
+  }
+  .relation-direction.is-undirected {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .relation-arrow {
+    width: 24px;
+    transform: none;
+  }
+  .relation-end {
+    padding: 8px 12px;
+    border-radius: 16px;
+  }
+  .relation-end strong {
+    font-size: 16px;
+  }
+  .relation-reason {
+    flex-basis: 100%;
+    font-size: 15px;
   }
   .map-next-card {
-    left: 16px;
-    right: 16px;
-    bottom: 16px;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
   }
-  /* 手機的關卡路線幾乎蓋滿畫布，打開時收起「接下來」小卡，不擋住清單。 */
+  /* 手機的關卡路線蓋住上半部，打開時收起「接下來」小卡，不和清單搶畫面。 */
   .focus-graph.has-navigator > .map-next-card {
     display: none;
   }
   .map-next-card > div {
+    flex: 1;
     gap: 12px;
-    padding: 10px 12px 10px 16px;
+    padding: 10px 12px 12px 16px;
+    border-radius: 22px;
+    box-shadow: 0 6px 0 var(--map-ink);
+  }
+  .map-next-card p {
+    flex: 1;
   }
   .map-next-card strong {
     font-size: 18px;
+  }
+  .map-next-card strong small {
+    display: block;
+    margin-left: 0;
+    font-size: 14px;
+  }
+  .map-next-card .quest-primary {
+    padding: 8px 18px;
+    font-size: 18px;
+  }
+  /* 關卡路線卡、搜尋從左上展開，蓋住畫布上半部（也蓋過抽屜的上緣），各自有關閉鈕。 */
+  .map-navigation {
+    z-index: 7;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    max-width: none;
+    max-height: 64%;
+    align-items: stretch;
+    /* 撐滿整列，空白處不攔截地圖拖曳；路線卡和圓鈕自己接收點擊。 */
+    pointer-events: none;
+  }
+  #map-navigator {
+    width: auto;
+    margin-top: 12px;
   }
   .map-workspace,
   .map-view {
@@ -1401,19 +1475,84 @@
     right: 104px;
   }
 }
-/* 更窄（手機）：進度條移到圓鈕下方，縮放鈕改放左下。 */
+/* 更窄（手機）：圓鈕縮成 48px 排成一列（橋的說明「?」在同一列最右），進度條縮成一列放在圓鈕下方，
+   縮放鈕直排在進度條下方右側，下半部留給抽屜和「接下來」小卡。 */
 @container map-canvas (max-width: 559px) {
+  .map-round-button,
+  .map-toolbar .export-entry > button {
+    width: 48px;
+    min-width: 48px;
+    height: 48px;
+    min-height: 48px;
+    border-width: 3px;
+    box-shadow: 0 4px 0 var(--map-ink);
+    font-size: 22px;
+  }
+  .map-round-button svg,
+  .map-toolbar .export-entry > button svg {
+    width: 24px;
+    height: 24px;
+  }
+  .map-toolbar {
+    gap: 10px;
+  }
+  .map-annotations {
+    top: 12px;
+    right: 12px;
+    max-width: calc(100% - 24px);
+  }
+  /* 展開的說明與提示掛在「?」下方、縮放鈕的左邊，不蓋住縮放鈕。 */
+  .map-annotations > .relation-legend,
+  .map-annotations > .map-limit-note {
+    margin-right: 56px;
+  }
+  .map-annotations > .relation-legend {
+    padding: 8px 12px;
+    border-width: 3px;
+    box-shadow: 0 4px 0 var(--map-ink);
+  }
   .map-hud {
-    top: 96px;
-    left: 20px;
-    right: 20px;
+    top: 72px;
+    left: 12px;
+    right: 12px;
+    max-width: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    border-width: 3px;
+    border-radius: 18px;
+    box-shadow: 0 4px 0 var(--map-ink);
+  }
+  .map-hud p {
+    flex: 0 1 auto;
+    min-width: 0;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .map-hud .studydy-progress {
+    flex: 1 1 48px;
+    min-width: 48px;
+    height: 14px;
+    border-width: 2px;
+  }
+  .map-hud .studydy-progress-fill {
+    box-shadow: 2px 0 0 var(--map-ink);
   }
   .focus-graph .react-flow__controls.react-flow__panel {
-    top: auto;
-    right: auto;
-    bottom: 20px;
-    left: 20px;
+    top: 124px;
+    right: 12px;
+    gap: 10px;
     transform: none;
+  }
+  .focus-graph .react-flow__controls-button {
+    width: 44px;
+    height: 44px;
+    border-width: 3px;
+    box-shadow: 0 4px 0 var(--map-ink);
+  }
+  .focus-graph .react-flow__controls-button:last-child {
+    border-bottom-width: 3px;
   }
 }
 
@@ -1825,4 +1964,28 @@
   color: var(--map-muted);
   font-size: 13px;
   font-weight: 800;
+}
+/* 手機：搜尋膠囊撐滿圓鈕那一列，結果卡最多蓋到畫布上半部再往下一點，卡內捲動。 */
+@container map-canvas (max-width: 559px) {
+  .map-corner-search.is-expanded {
+    width: calc(100cqw - 24px);
+  }
+  /* 進度條就在膠囊正下方，框線會從結果卡上緣露出來，搜尋時先藏起來。 */
+  .focus-graph:has(.map-corner-search.is-expanded) > .map-hud {
+    visibility: hidden;
+  }
+  .map-corner-search.is-expanded .map-search-bar {
+    border-width: 3px;
+    box-shadow: 0 4px 0 var(--map-ink);
+  }
+  .map-search-bar input {
+    font-size: 17px;
+  }
+  .map-search-results {
+    max-height: min(380px, 46svh);
+    padding: 10px;
+    border-width: 3px;
+    border-radius: 20px;
+    box-shadow: 0 4px 0 var(--map-ink);
+  }
 }

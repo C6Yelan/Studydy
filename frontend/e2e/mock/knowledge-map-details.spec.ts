@@ -76,7 +76,7 @@ test("map opens concept details and preserves each source on demand", async ({ p
   await expect(page.getByRole("button", { name: "開始練習", exact: true })).toBeEnabled();
 });
 
-test("mobile map has a modal detail drawer with keyboard focus and source links", async ({
+test("mobile map has a bottom detail drawer with keyboard focus and source links", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -87,7 +87,12 @@ test("mobile map has a modal detail drawer with keyboard focus and source links"
   const dialog = page.getByRole("dialog", { name: "概念詳情" });
   await expect(dialog).toBeInViewport();
   await expect(dialog.getByRole("button", { name: "看原文：教材 · 第 1 頁", exact: true })).toBeVisible();
-  await expect.poll(() => dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  // 手機的詳情是貼著畫布底邊、撐滿畫布寬的抽屜（非 modal），上方地圖照常可操作。
+  const canvas = (await page.locator(".focus-graph").boundingBox())!;
+  const drawer = (await dialog.boundingBox())!;
+  expect(Math.abs(drawer.y + drawer.height - (canvas.y + canvas.height))).toBeLessThan(2);
+  expect(Math.abs(drawer.width - canvas.width)).toBeLessThan(4);
+  expect(drawer.y).toBeGreaterThan(canvas.y + canvas.height / 3);
   await page.keyboard.press("Tab");
   await expect
     .poll(() => page.evaluate(() => !!document.activeElement?.closest(".detail-panel")))
