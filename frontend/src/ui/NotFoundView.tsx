@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { writeRoute, type AppRoute } from "../app/routes";
-import { globalSearchAvailable, openGlobalSearch } from "../app/HeaderTools";
+import { globalSearchAvailable, openGlobalSearch } from "../app/globalSearch";
 import { Icon } from "./Icon";
 import "./not-found.css";
 

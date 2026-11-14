@@ -6,7 +6,7 @@ import { errorMessage } from "../../api/client";
 import { goalSummaryText } from "../learning-goals/goal-summary";
 import { useLearningActivity } from "../../app/LearningProgress";
 import { DailyQuests } from "./LearningCards";
-import { useProfile } from "../../app/HeaderTools";
+import { useProfile } from "../../app/useProfile";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { Icon } from "../../ui/Icon";

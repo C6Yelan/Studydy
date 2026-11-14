@@ -1,5 +1,5 @@
 import type { StudydyApiClient } from "../../api/client";
-import { useProfile } from "../../app/HeaderTools";
+import { useProfile } from "../../app/useProfile";
 import { useLearningActivity } from "../../app/LearningProgress";
 import { Icon, type IconName } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";

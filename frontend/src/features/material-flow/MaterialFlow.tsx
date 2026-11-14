@@ -66,6 +66,9 @@ function MaterialFlowBody({
   onResearchDraftChange: (draft: ResearchDraft) => void;
 }) {
   if (route.name === "not-found") return <NotFoundView />;
+  // 暫時的空頁，後面的段落換成正式頁面。
+  if (route.name === "material-settings") return <h1>教材設定</h1>;
+  if (route.name === "material-progress") return <h1>學習進度</h1>;
   if (route.name === "material") return <MaterialEntry key={route.materialId} apiClient={apiClient} materialId={route.materialId} />;
   if (route.name === "topic" && route.materialId) return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind="research"><TopicPage key={route.topicId} api={apiClient} topicId={route.topicId} embedded/></MaterialContent>;
   if (route.name === "topics" || route.name === "topic") return <TopicPage key={route.name === "topic" ? route.topicId : "new"} api={apiClient} topicId={route.name === "topic" ? route.topicId : undefined}/>;

@@ -2,7 +2,7 @@ import { useStudyStart } from "../study-session/useStudyStart";
 import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { VersionMovePreview, VersionMoveResult, VersionMoveUnmapped, VersionMoveReturn, StudySessionLink } from "../../api/contracts";
-import { Modal } from "../../app/HeaderTools";
+import { Modal } from "../../app/Modal";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { rememberedMaterial } from "./material-memory";

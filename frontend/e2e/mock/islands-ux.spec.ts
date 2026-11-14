@@ -36,15 +36,6 @@ test("missing or foreign material shows a not-found page without delete or confi
   await expect(page).toHaveURL(/\/materials$/);
 });
 
-test("old and shorthand addresses open the real page", async ({ page }) => {
-  await mockKnowledgeMapApi(page, structureView());
-  await page.goto(`/materials/${materialId}/map`);
-  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}/knowledge-structures/`));
-  await expect(page.getByRole("tab", { name: "知識地圖", exact: true })).toHaveAttribute("aria-selected", "true");
-  await page.goto("/cards");
-  await expect(page).toHaveURL(/\/concept-cards$/);
-});
-
 test("phone material tabs stay scrollable and the labelled Q&A entry never covers them", async ({ page }) => {
   await mockKnowledgeMapApi(page, structureView());
   await page.setViewportSize({ width: 390, height: 844 });

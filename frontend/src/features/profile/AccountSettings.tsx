@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { InlineConfirm } from "../../ui/InlineConfirm";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AccountSession, AccountSessions } from "../../api/contracts";
-import { useProfile } from "../../app/HeaderTools";
+import { useProfile } from "../../app/useProfile";
 import { playCue, setSoundEnabled, soundEnabled } from "../../ui/feedback-sound";
 import { Icon } from "../../ui/Icon";
 

@@ -122,7 +122,7 @@ export default function App() {
         return;
       }
       const next = readRoute(window.location.pathname);
-      // 別名與非正式寫法改寫成正式網址（writeRoute 會再觸發一次 popstate）；
+      // 非正式寫法（例如結尾斜線）改寫成正式網址（writeRoute 會再觸發一次 popstate）；
       // 對不到任何頁面時保留原網址並顯示「找不到」頁，不無聲導回首頁。
       if (!next.isCanonical && next.route.name !== "not-found") {
         writeRoute(next.route, true);

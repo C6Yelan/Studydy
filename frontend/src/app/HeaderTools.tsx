@@ -1,55 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../api/client";
-import type { LearnerProfile, LibrarySearchView, LibrarySearchCategory } from "../api/contracts";
+import type { LibrarySearchView, LibrarySearchCategory } from "../api/contracts";
 import { Icon } from "../ui/Icon";
+import { Modal } from "./Modal";
+import { registerGlobalSearch } from "./globalSearch";
+import { useProfile } from "./useProfile";
 import { writeRoute } from "./routes";
 import "./header-tools.css";
 
-// 名稱與頁首、首頁共用；讀取失敗時視為未設定，不阻擋其他功能。
-export function useProfile(apiClient: StudydyApiClient): LearnerProfile | null {
-  const [profile, setProfile] = useState<LearnerProfile | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void apiClient.getProfile().then((value) => { if (!cancelled) setProfile(value); }, () => undefined);
-    const unsubscribe = apiClient.onProfileChange(setProfile);
-    return () => { cancelled = true; unsubscribe(); };
-  }, [apiClient]);
-  return profile;
-}
-
-export function Modal({ label, open, onClose, className, children, onKeyDown }: {
-  label: string; open: boolean; onClose: () => void; className: string; children: ReactNode; onKeyDown?: React.KeyboardEventHandler<HTMLDialogElement>;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const dialog = ref.current!;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
-  return (
-    <dialog
-      ref={ref}
-      className={`header-dialog ${className}`}
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}
-      onKeyDown={onKeyDown}
-      onCancel={(event) => { event.preventDefault(); onClose(); }}
-      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
-    >
-      {open && children}
-    </dialog>
-  );
-}
-
 type SearchState = { query: string; category: LibrarySearchCategory; offset: number; result: LibrarySearchView | null; error: string | null };
-
-// 頁首搜尋只有一個；其他頁面（例如找不到頁面）透過這裡開啟，不模擬鍵盤事件。
-let searchOpener: { visible: () => boolean; open: () => void } | null = null;
-/** 頁首目前是否顯示全站搜尋（教材內隱藏頁首時為 false）。 */
-export function globalSearchAvailable() { return searchOpener?.visible() ?? false; }
-/** 開啟頁首的全站搜尋；頁首未顯示搜尋時不動作。 */
-export function openGlobalSearch() { if (searchOpener?.visible()) searchOpener.open(); }
 
 // 依 history state 開啟指定概念（全站搜尋只在教材外出現，開啟的地圖一定是重新載入）。
 function openConcept(concept: LibrarySearchView["concepts"][number]) {
@@ -96,9 +55,7 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
   const query = text.trim();
   useEffect(() => { if (open) inputBox.current?.focus(); }, [open]);
   useEffect(() => {
-    const opener = { visible: () => trigger.current?.checkVisibility() ?? false, open: () => setOpen(true) };
-    searchOpener = opener;
-    return () => { if (searchOpener === opener) searchOpener = null; };
+    return registerGlobalSearch({ visible: () => trigger.current?.checkVisibility() ?? false, open: () => setOpen(true) });
   }, []);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

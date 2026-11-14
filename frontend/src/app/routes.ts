@@ -26,6 +26,8 @@ export type AppRoute =
   | { name: "material-sources"; materialId: string }
   | { name: "material-source-upload"; materialId: string }
   | { name: "material-run"; materialId: string; runId: string }
+  | { name: "material-settings"; materialId: string }
+  | { name: "material-progress"; materialId: string; runId: string; structureRevision: string }
   | { name: "knowledge-map"; materialId: string; runId: string; structureRevision: string }
   | {
       name: "study-session";
@@ -41,25 +43,10 @@ type RouteRead = { route: AppRoute; isCanonical: boolean };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const structurePattern = /^knowledge-structure:sha256:[0-9a-f]{64}$/;
 
-// 常見的舊網址或簡寫：導向正確頁面，不顯示「找不到」。
-const aliases: Record<string, AppRoute> = {
-  "/home": { name: "home" },
-  "/dashboard": { name: "home" },
-  "/cards": { name: "concept-cards" },
-  "/card-sets": { name: "concept-cards" },
-  "/podcast": { name: "podcasts" },
-  "/library": { name: "materials" },
-  "/materials/new": { name: "upload" },
-  "/account": { name: "profile" },
-  "/settings": { name: "profile" },
-};
-
 export function readRoute(pathname: string): RouteRead {
   // 結尾多餘的斜線視為同一頁，改寫成正式網址。
   const trimmed = pathname.length > 1 ? pathname.replace(/\/+$/, "") || "/" : pathname;
   if (trimmed !== pathname) return { route: readRoute(trimmed).route, isCanonical: false };
-  const alias = aliases[pathname];
-  if (alias) return { route: alias, isCanonical: false };
   if (pathname === "/topics") return { route: { name: "topics" }, isCanonical: true };
   if (pathname === "/profile") return { route: { name: "profile" }, isCanonical: true };
   if (pathname === "/achievements") return { route: { name: "achievements" }, isCanonical: true };
@@ -113,10 +100,6 @@ export function readRoute(pathname: string): RouteRead {
     const route: AppRoute = { name: "material", materialId };
     return { route, isCanonical: routePath(route) === pathname };
   }
-  // 舊網址 /materials/{id}/map 與 /materials/{id}/knowledge-map：導向教材目前的知識地圖。
-  if (segments.length === 3 && (resourceSegment === "map" || resourceSegment === "knowledge-map"))
-    return { route: { name: "material", materialId }, isCanonical: false };
-
   let route: AppRoute;
   if (resourceSegment === "concept-cards" && runId === "review" && segments.length === 4) {
     route = { name: "card-review", materialId };
@@ -134,6 +117,8 @@ export function readRoute(pathname: string): RouteRead {
     route = { name: "material-content", materialId, kind: resourceSegment };
   } else if (segments.length === 4 && resourceSegment === "sources" && runId === "new") {
     route = { name: "material-source-upload", materialId };
+  } else if (segments.length === 3 && resourceSegment === "settings") {
+    route = { name: "material-settings", materialId };
   } else if (segments.length === 3 && resourceSegment === "sources") {
     route = { name: "material-sources", materialId };
   } else if (resourceSegment !== "runs" || !uuidPattern.test(runId)) {
@@ -147,6 +132,8 @@ export function readRoute(pathname: string): RouteRead {
     return fallback;
   } else if (segments.length === 6) {
     route = { name: "knowledge-map", materialId, runId, structureRevision };
+  } else if (segments.length === 7 && sessionSegment === "progress") {
+    route = { name: "material-progress", materialId, runId, structureRevision };
   } else if (segments.length === 7 && sessionSegment === "create-podcast") {
     route = { name: "podcast-create", materialId, runId, structureRevision };
   } else if (segments.length === 7 && sessionSegment === "create-cards") {
@@ -219,6 +206,10 @@ export function routePath(route: AppRoute): string {
     if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");
     return `/materials/${route.materialId}/sources/new`;
   }
+  if (route.name === "material-settings") {
+    if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");
+    return `/materials/${route.materialId}/settings`;
+  }
   if (route.name === "material-sources") {
     if (!uuidPattern.test(route.materialId)) throw new Error("ROUTE_INVALID");
     return `/materials/${route.materialId}/sources`;
@@ -230,6 +221,7 @@ export function routePath(route: AppRoute): string {
   if (!structurePattern.test(route.structureRevision)) throw new Error("ROUTE_INVALID");
   const mapPath = `${materialRunPath}/knowledge-structures/${encodeURIComponent(route.structureRevision)}`;
   if (route.name === "knowledge-map") return mapPath;
+  if (route.name === "material-progress") return `${mapPath}/progress`;
   if (route.name === "podcast-create") return `${mapPath}/create-podcast`;
   if (route.name === "card-set-create") return `${mapPath}/create-cards`;
   if (!uuidPattern.test(route.studySessionId)) throw new Error("ROUTE_INVALID");
