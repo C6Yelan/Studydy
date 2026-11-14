@@ -170,7 +170,7 @@ npm --prefix frontend run typecheck
 PYTHONPATH=local_ai/src backend/.venv/bin/python -m pytest -q local_ai/tests
 ~~~
 
-mock browser 沿用前述 build 與 ports；可指定單一 spec 或 regex：
+mock browser 沿用前述 build 與 ports；可指定單一 spec 或 regex。mock e2e 以 4 個 worker 平行執行；api e2e 共用後端與 DB，維持一個 worker。
 
 ~~~bash
 PYTHONPATH=backend/tests/runtime backend/.venv/bin/python - <<'PYTEST'
