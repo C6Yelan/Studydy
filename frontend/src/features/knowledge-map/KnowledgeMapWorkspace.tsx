@@ -47,7 +47,7 @@ import { MathText } from "../../ui/MathText";
 import { mathPlainText } from "../../ui/math-text";
 import { Progress } from "../../ui/Progress";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
-import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, regionBasisText, regionColorIndex, relationPhrase, relationTitle, relationVisibility, routeSegments, type MapRegions, type NavigatorRange } from "./knowledge-map";
+import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, regionBasisText, regionColorIndex, frameCamera, relationPhrase, routeFrameIds, routeStationIds, relationTitle, relationVisibility, routeSegments, type MapRegions, type NavigatorRange } from "./knowledge-map";
 
 type Concept = KnowledgeOutlineView["concepts"][number];
 type RestoreFocus = () => void;
@@ -214,18 +214,21 @@ function ConceptDetail({
           ×
         </button>
       </header>
+      {/* 照示意圖：標題和狀態下面緊接「開始挑戰」，難度與作答率放在按鈕下方。 */}
       <div className="detail-badges">
         {progress ? <LearningBadge conceptId={concept.concept_id} progress={progress} /> : (
           <span className="map-learning-badge">{isLoadingProgress ? "讀取學習狀態…" : progressMessage ? "學習狀態暫時無法讀取" : "尚未開始"}</span>
         )}
+      </div>
+      {studyAction}
+      <div className="detail-difficulty">
         <DifficultyBadge concept={difficulty?.concepts.find(item => item.concept_id === concept.concept_id)} detail />
       </div>
       {full?.uncertain === true && <p className="flow-notice">影片逐字稿可能有聽錯的詞，建議對照原影片</p>}
-      {studyAction}
       <section className={`detail-points${expanded ? "" : " is-clamped"}`}>
         <h3>{full ? `${full.claims.length} 個重點（教材原文）` : "教材重點"}</h3>
         {read.error ? <p role="alert">{read.error}<button type="button" onClick={read.retry}>重新讀取</button></p>
-          : full ? <div ref={points}><ConceptClaims claims={full.claims} /></div>
+          : full ? <div ref={points}><ConceptClaims claims={full.claims} compact /></div>
           : <p role="status">正在讀取概念與來源…</p>}
         {full && (expanded || clipped) && (
           <button type="button" className="text-button detail-points-toggle" aria-expanded={expanded}
@@ -295,7 +298,7 @@ function ConceptMapNode({ data }: NodeProps<ConceptNode>) {
 const nodeTypes = { concept: ConceptMapNode };
 
 /**
- * 金色航線：微彎的弧線，中點畫一個往下一站的小箭頭，看得出往哪走。
+ * 金色航線：微彎的寬帶，帶子中點畫一個往下一站的淡箭頭，看得出往哪走。
  * 往返方向相反的兩段會彎向不同側；排版上剛好擋在中間的島也比較不會被直線穿過。
  */
 function RouteEdge({ id, sourceX, sourceY, targetX, targetY }: EdgeProps) {
@@ -304,10 +307,12 @@ function RouteEdge({ id, sourceX, sourceY, targetX, targetY }: EdgeProps) {
   const controlX = (sourceX + targetX) / 2 - dy * 0.3, controlY = (sourceY + targetY) / 2 + dx * 0.3;
   const midX = (sourceX + 2 * controlX + targetX) / 4, midY = (sourceY + 2 * controlY + targetY) / 4;
   const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const path = `M${sourceX},${sourceY}Q${controlX},${controlY} ${targetX},${targetY}`;
   return (
     <>
-      <BaseEdge id={id} path={`M${sourceX},${sourceY}Q${controlX},${controlY} ${targetX},${targetY}`} interactionWidth={0} />
-      <path className="map-route-arrow" d="M-8,-8L8,0L-8,8Z" transform={`translate(${midX},${midY}) rotate(${angle})`} />
+      <BaseEdge id={id} path={path} interactionWidth={0} />
+      <path className="map-route-core" d={path} />
+      <path className="map-route-arrow" d="M-9,-11L9,0L-9,11L-3,0Z" transform={`translate(${midX},${midY}) rotate(${angle})`} />
     </>
   );
 }
@@ -639,9 +644,20 @@ function MapGraph({
   };
   const [canvasReady, setCanvasReady] = useState(false);
   const fittedConcept = useRef<string | null>(null);
+  // 目前這站：有進度用目前學到的概念，沒有進度用第 1 站。
+  const routeStart = progress?.current_concept_id
+    ?? [...view.initial_learning_path].sort((a, b) => a.position - b.position)[0]?.concept_id
+    ?? selected.concept_id;
+  // 沒選島時一定畫出目前這站和接下來 3 站，讓航線看得到；選了島就只畫兩層。
+  const routeStations = useMemo(
+    () => litConceptId ? [] : routeStationIds(view.initial_learning_path, routeStart),
+    [litConceptId, view.initial_learning_path, routeStart],
+  );
+  const routeKey = routeStations.join("|");
   const projection = useMemo(
-    () => focusGraph(view, selected.concept_id),
-    [view, selected.concept_id],
+    () => focusGraph(view, selected.concept_id, routeStations),
+    // routeKey 代表 routeStations 的內容；內容相同時不重算，避免節點重排。
+    [view, selected.concept_id, routeKey],
   );
   const layout = projection.nodes;
   const previewRead = useConceptContext(apiClient, view.material_id, view.knowledge_structure_revision, layout.map(node => node.id));
@@ -869,13 +885,55 @@ function MapGraph({
       // 按需文字到達後，先讓節點量測更新，再計算第一次視野。
       secondFrame = requestAnimationFrame(() => {
         fittedConcept.current = selected.concept_id;
-        // 畫布本身太窄（依畫布寬度而非視窗斷點），初次視野只框住中心與第一層，其餘可平移或縮小查看。
-        const narrow = graphElement.current!.clientWidth < 600;
-        void graph.fitView(narrow ? { ...fitViewOptions, minZoom: 0.5, nodes: layout.filter((node) => node.depth < 2).map((node) => ({ id: node.id })) } : fitViewOptions);
+        const visible = new Set(layout.map((node) => node.id));
+        let ids: string[];
+        let anchorId: string;
+        if (litConceptId === selected.concept_id) {
+          // 選了島：以那座島為中心框住它和第一層，縮放保持島名可讀，太遠的鄰島可以超出畫面。
+          ids = layout.filter((node) => node.depth < 2).map((node) => node.id);
+          anchorId = selected.concept_id;
+        } else {
+          // 沒選島：框住目前這站（沒有進度時第 1 站）和接下來 3 站；起點不在畫面上就從中心概念起算。
+          ids = routeFrameIds(view.initial_learning_path, routeStart, visible);
+          if (!ids.length) ids = routeFrameIds(view.initial_learning_path, selected.concept_id, visible);
+          if (!ids.length) ids = [selected.concept_id];
+          anchorId = ids[0];
+        }
+        const element = graphElement.current!;
+        void graph.setViewport(frameCamera(graph.getNodesBounds(ids), graph.getNodesBounds([anchorId]),
+          { width: element.clientWidth, height: element.clientHeight }));
       });
     });
     return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
-  }, [initialized, canvasReady, graph, selected.concept_id, previewRead.context, previewRead.error, layout]);
+  }, [initialized, canvasReady, graph, selected.concept_id, previewRead.context, previewRead.error, layout, litConceptId, routeStart, view.initial_learning_path]);
+  // 中心不變時打開詳情（點中心的島或點一條關係）不重新取景；只有卡片打開讓畫布變窄、
+  // 把被選的島或那條關係擠出畫面時，才平移到看得到（不縮放）。
+  useEffect(() => {
+    if (!litConceptId && !selectedRelationId) return;
+    let secondFrame = 0;
+    const frame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (fittedConcept.current !== selected.concept_id) return;
+        const relation = view.relations.find((item) => item.relation_id === selectedRelationId);
+        const ids = relation ? [relation.source_concept_id, relation.target_concept_id] : [litConceptId!];
+        if (!ids.every((id) => layout.some((node) => node.id === id))) return;
+        const element = graphElement.current!;
+        const viewport = graph.getViewport();
+        let rect = graph.getNodesBounds(ids);
+        const viewWidth = element.clientWidth / viewport.zoom, viewHeight = element.clientHeight / viewport.zoom;
+        // 關係兩端放不進畫面時，只確保兩端中點（線的中段）看得到。
+        if (rect.width > viewWidth || rect.height > viewHeight)
+          rect = { x: rect.x + rect.width / 2 - 40, y: rect.y + rect.height / 2 - 40, width: 80, height: 80 };
+        const left = -viewport.x / viewport.zoom, top = -viewport.y / viewport.zoom;
+        const shift = (start: number, size: number, viewStart: number, view: number) =>
+          start < viewStart ? viewStart - start : start + size > viewStart + view ? viewStart + view - start - size : 0;
+        const dx = shift(rect.x, rect.width, left, viewWidth), dy = shift(rect.y, rect.height, top, viewHeight);
+        if (dx || dy) void graph.setViewport({ ...viewport, x: viewport.x + dx * viewport.zoom, y: viewport.y + dy * viewport.zoom });
+      });
+    });
+    return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
+    // 只在打開或切換詳情時檢查一次；之後使用者自己拖曳、縮放不再介入。
+  }, [litConceptId, selectedRelationId]);
   return (
     <section
       className={`focus-workspace${detail ? " has-inspector" : ""}`}

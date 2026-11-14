@@ -171,6 +171,9 @@ for (const [width, count] of [
           .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id"))),
       ),
     ).toEqual(localIds);
+    // 一打開只框住目前這站和接下來幾站；按「適應畫面」才是全覽。
+    await expect(page.locator(".concept-flow-node.is-focus")).toBeInViewport();
+    await graph.getByRole("button", { name: "適應畫面", exact: true }).click();
     await expectVisibleGraphFits(page);
     if (count === 20) {
       const node = page.locator(".concept-flow-node.is-focus");
@@ -388,6 +391,8 @@ for (const width of [1536, 390])
         .first()
         .evaluate(signStyle),
     );
+    // 一打開只框住目前這站和接下來幾站；按「適應畫面」才是全覽。
+    await page.getByRole("button", { name: "適應畫面", exact: true }).click();
     await expectVisibleGraphFits(page);
     // 第一個第二層概念是 fixture 中的第 8 個，不從 DOM 自己產生預期值。
     const target = view.concepts[7];

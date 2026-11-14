@@ -1100,23 +1100,26 @@
 }
 .detail-note-link { align-self: flex-start; margin-block: 8px; }
 
-/* 金色航線：建議學習順序，畫在關係線下面；純裝飾，不攔截點擊。 */
+/* 金色航線：建議學習順序，淡金色實心寬帶（米色帶子加金色中線），和關係的細虛線一眼分得開；
+   畫在關係線下面，不攔截點擊。 */
 .map-route-edge { pointer-events: none; }
 .map-route-edge .react-flow__edge-path {
   fill: none;
+  stroke: var(--warning-soft);
+  stroke-width: 26;
+  stroke-linecap: round;
+  opacity: 0.75;
+}
+.map-route-edge .map-route-core {
+  fill: none;
   stroke: var(--warning);
   stroke-width: 5;
-  stroke-dasharray: 2 14;
   stroke-linecap: round;
-  opacity: 0.85;
+  opacity: 0.9;
 }
+/* 方向提示融在帶子裡：中線上一個金色箭頭。 */
+.map-route-arrow { fill: var(--warning); }
 /* 「顯示所有關係」時和選取島無關的關係淡化。 */
-.map-route-arrow {
-  fill: var(--warning);
-  stroke: #fff;
-  stroke-width: 2;
-  stroke-linejoin: round;
-}
 .concept-flow-edge.is-dimmed { opacity: 0.3; }
 .concept-flow-edge .react-flow__edge-textbg { filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.14)); }
 
@@ -1187,15 +1190,29 @@
 .detail-panel > .concept-study-action { margin-top: var(--space-3); padding-top: 0; border-top: 0; }
 .detail-panel > section { border-top-color: var(--border-light); }
 .concept-study-action > .primary-button { min-height: 48px; font-size: 16px; }
-.detail-points .concept-claim { margin-bottom: 6px; }
-.detail-points .claim-number { font-size: 12px; color: var(--text-muted); }
+/* 重點、關係照示意圖緊湊排：不加分隔線，小標題，編號清單。 */
+.detail-panel > .detail-points,
+.detail-panel > .detail-relations { margin-top: var(--space-4); padding-top: 0; border-top: 0; }
+.detail-points h3,
+.detail-relations h3 { margin: 0 0 6px; color: var(--text-secondary); font-size: 14px; font-weight: 900; }
+.concept-claim-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 1.3em;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.map-workspace .concept-claim-list .claim-text { margin: 0; line-height: 1.6; }
+.detail-difficulty { margin-top: var(--space-2); }
+.detail-difficulty:empty { display: none; }
 .detail-points.is-clamped .claim-text {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
-.detail-points-toggle.text-button { min-height: 44px; padding: 0; font-weight: 900; }
+.detail-points-toggle.text-button { min-height: 44px; padding: 0; font-size: 13px; font-weight: 900; }
 .detail-relations ul {
   display: grid;
   gap: 4px;
@@ -1210,7 +1227,7 @@
   align-items: start;
   width: 100%;
   min-height: 44px;
-  padding: 8px;
+  padding: 6px 8px;
   border: 0;
   border-radius: var(--radius-input);
   background: transparent;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { learningNavigationItems, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW, relationVisibility, routeSegments } from "./knowledge-map.ts";
+import { learningNavigationItems, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW, relationVisibility, routeSegments, routeFrameIds, routeStationIds } from "./knowledge-map.ts";
 
 const view = {
   concepts: ["a", "b", "c", "d"].map((concept_id) => ({ concept_id })),
@@ -303,4 +303,37 @@ test("the golden route only joins neighbouring stations that are both on screen"
   assert.deepEqual(route(["a", "b", "d", "e"]), ["a→b", "d→e"]);
   // 站號不相鄰的島（例如 1、26、21 那種）完全不連。
   assert.deepEqual(route(["a", "c", "e"]), []);
+});
+
+test("with no island selected the camera frames the current station and the next three on screen", () => {
+  const path = Array.from({ length: 8 }, (_, index) => ({ concept_id: `s${index + 1}`, position: index + 1, reason: "document_order" })).reverse();
+  const all = new Set(path.map((step) => step.concept_id));
+  // 開頭：第 1 站加第 2～4 站。
+  assert.deepEqual(routeFrameIds(path, "s1", all), ["s1", "s2", "s3", "s4"]);
+  // 中段：第 4 站起算，沒畫在畫面上的第 6 站略過，不往後補。
+  assert.deepEqual(routeFrameIds(path, "s4", new Set(["s4", "s5", "s7", "s8"])), ["s4", "s5", "s7"]);
+  // 結尾不足 3 站：有幾站框幾站。
+  assert.deepEqual(routeFrameIds(path, "s7", all), ["s7", "s8"]);
+  assert.deepEqual(routeFrameIds(path, "s8", all), ["s8"]);
+  // 起點站不在畫面上時不框，由呼叫端改用其他起點。
+  assert.deepEqual(routeFrameIds(path, "s2", new Set(["s1", "s3"])), []);
+});
+
+test("with no island selected the current station and the next three are drawn even outside two hops", () => {
+  // a—b—c—d 的鏈：以 a 為中心只畫得到 a、b、c（兩層），第 4 站 d 在兩層外。
+  const map = {
+    ...view,
+    initial_learning_path: ["a", "b", "c", "d"].map((concept_id, index) => ({ concept_id, position: index + 1, reason: "document_order" })),
+  };
+  const ids = (graph) => graph.nodes.map((node) => node.id).sort();
+  assert.deepEqual(ids(focusGraph(map, "a")), ["a", "b", "c"]);
+  const stations = routeStationIds(map.initial_learning_path, "a");
+  assert.deepEqual(stations, ["a", "b", "c", "d"]);
+  const withRoute = focusGraph(map, "a", stations);
+  assert.deepEqual(ids(withRoute), ["a", "b", "c", "d"]);
+  // 額外加入的站不另外畫關係，也算進「共幾個概念」。
+  assert.deepEqual(withRoute.relations.map((relation) => relation.relation_id), ["ab", "bc"]);
+  assert.equal(withRoute.totalNodes, 4);
+  // 結尾不足 3 站時有幾站給幾站。
+  assert.deepEqual(routeStationIds(map.initial_learning_path, "c"), ["c", "d"]);
 });

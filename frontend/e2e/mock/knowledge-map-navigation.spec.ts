@@ -74,7 +74,8 @@ test("sectionless concepts remain selectable through navigation", async ({ page 
   view.relations = [];
   await mockKnowledgeMapApi(page, view);
   await page.goto(mapPath);
-  await expect(page.locator(".react-flow__node")).toHaveCount(1);
+  // 沒有關係時兩層範圍只有中心；沒選島時目前這站之後的路線站（Array）仍一定畫出。
+  await expect(page.locator(".react-flow__node")).toHaveCount(2);
   await expect(page.getByRole("tab", { name: "總覽", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "知識地圖", exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: "學習導覽", exact: true });

@@ -96,7 +96,15 @@ export function initialFocusConceptId(view: MapView): string {
 const MAX_MAP_NODES = 30;
 const MAX_MAP_RELATIONS = 60;
 
-export function focusGraph(view: MapView, selectedId: string) {
+// 沒選島時一定畫出的路線站最多額外加幾座（目前這站和接下來 3 站中不在兩層範圍內的）。
+export const MAX_ROUTE_EXTRAS = 3;
+
+/**
+ * 以 selectedId 為中心畫兩層相關概念。routeIds（沒選島時的目前這站和接下來 3 站）中
+ * 沒被畫出的，最多額外加 MAX_ROUTE_EXTRAS 座，排在圖下方一列，讓航線和下一站看得到；
+ * 它們不受兩層和節點上限限制，也不另外畫關係。
+ */
+export function focusGraph(view: MapView, selectedId: string, routeIds: string[] = []) {
   type Visit = { depth: 0 | 1 | 2; side: -1 | 0 | 1; parentRelation: string | null };
   const visits = new Map<string, Visit>();
   const adjacent = new Map<string, KnowledgeOutlineView["relations"]>();
@@ -170,7 +178,16 @@ export function focusGraph(view: MapView, selectedId: string) {
         });
       });
     }
-  return { nodes, relations, totalNodes: visits.size, totalRelations: eligibleRelations.length };
+  const known = new Set(view.concepts.map((concept) => concept.concept_id));
+  const extras = [...new Set(routeIds)]
+    .filter((id) => known.has(id) && !visible.has(id))
+    .slice(0, MAX_ROUTE_EXTRAS);
+  const bottom = Math.max(0, ...nodes.map((node) => node.y));
+  extras.forEach((id, index) => {
+    nodes.push({ id, depth: 2, width: 260, x: (index - (extras.length - 1) / 2) * 320, y: bottom + 300 });
+  });
+  const totalNodes = visits.size + extras.filter((id) => !visits.has(id)).length;
+  return { nodes, relations, totalNodes, totalRelations: eligibleRelations.length };
 }
 
 // 學習導覽一次最多畫出的概念列數；超過兩倍才分段，一般教材維持完整清單。
@@ -262,4 +279,57 @@ export function relationTitle(type: MapRelation["type"], source: string, target:
     example: `「${target}」是「${source}」的一個例子`,
     contrast: `「${source}」和「${target}」可以比一比`,
   }[type];
+}
+
+// 沒選島時初始鏡頭框住目前這站和接下來幾站，讓航線看得到。
+export const ROUTE_FRAME_AHEAD = 3;
+
+/** 初始鏡頭要框住的站：起點站加上第 n+1～n+3 站中有畫在畫面上的；起點不在畫面上就回傳空陣列。 */
+/** 路線上 startId 起算的目前這站和接下來 ROUTE_FRAME_AHEAD 站（不管有沒有畫出來）。 */
+export function routeStationIds(path: KnowledgeOutlineView["initial_learning_path"], startId: string) {
+  const start = path.find((step) => step.concept_id === startId);
+  if (!start) return [];
+  const byPosition = new Map(path.map((step) => [step.position, step.concept_id]));
+  return [startId, ...Array.from({ length: ROUTE_FRAME_AHEAD }, (_, index) => byPosition.get(start.position + index + 1))
+    .filter((id): id is string => !!id)];
+}
+
+export function routeFrameIds(path: KnowledgeOutlineView["initial_learning_path"], startId: string, visibleIds: Set<string>) {
+  const start = path.find((step) => step.concept_id === startId);
+  if (!start || !visibleIds.has(startId)) return [];
+  const byPosition = new Map(path.map((step) => [step.position, step.concept_id]));
+  const ids = [startId];
+  for (let position = start.position + 1; position <= start.position + ROUTE_FRAME_AHEAD; position++) {
+    const id = byPosition.get(position);
+    if (id && visibleIds.has(id)) ids.push(id);
+  }
+  return ids;
+}
+
+// 島名 18px，縮放 2/3 時約 12px，是島名還讀得出來的下限；鏡頭不為了塞進更多島而縮得比這更小。
+export const READABLE_ZOOM = 2 / 3;
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+/**
+ * 框住 bounds 的鏡頭；縮放不低於 READABLE_ZOOM。框不下時以 anchor（被選的島或起點站）為準：
+ * 中心盡量靠近 bounds 中心，但 anchor 整座留在畫面內，其餘相連的島可以超出畫面。
+ */
+export function frameCamera(bounds: Rect, anchor: Rect, canvas: { width: number; height: number }, padding = 0.18, maxZoom = 1.1) {
+  const fit = Math.min(
+    canvas.width / (bounds.width * (1 + 2 * padding)),
+    canvas.height / (bounds.height * (1 + 2 * padding)),
+    maxZoom,
+  );
+  const zoom = Math.max(fit, READABLE_ZOOM);
+  const margin = 16 / zoom;
+  const axis = (boundsStart: number, boundsSize: number, anchorStart: number, anchorSize: number, view: number) => {
+    const target = boundsStart + boundsSize / 2;
+    const anchorCenter = anchorStart + anchorSize / 2;
+    const slack = Math.max(0, view / (2 * zoom) - anchorSize / 2 - margin);
+    return Math.min(anchorCenter + slack, Math.max(anchorCenter - slack, target));
+  };
+  const centerX = axis(bounds.x, bounds.width, anchor.x, anchor.width, canvas.width);
+  const centerY = axis(bounds.y, bounds.height, anchor.y, anchor.height, canvas.height);
+  return { zoom, x: canvas.width / 2 - centerX * zoom, y: canvas.height / 2 - centerY * zoom };
 }

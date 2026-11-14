@@ -21,28 +21,40 @@ export function ConceptContent(props: ContentProps) {
   );
 }
 
-/** 教材重點原文；知識地圖把重點和來源分開排，所以和來源拆成兩個元件。 */
-export function ConceptClaims({ claims }: { claims: Claim[] }) {
+/**
+ * 教材重點原文；知識地圖把重點和來源分開排，所以和來源拆成兩個元件。
+ * compact：知識地圖卡片用的緊湊編號清單（不加「重點 N」標題）；作答頁不傳，輸出不變。
+ */
+export function ConceptClaims({ claims, compact = false }: { claims: Claim[]; compact?: boolean }) {
+  const items = claims.map((claim) => {
+    const text = claimText(claim);
+    const hasCode =
+      claim.evidence.some((item) => item.kind === "code") ||
+      /^\s*(?:\/\/|(?:const\s+)?(?:int|float|double|char|bool|void)\s+[A-Za-z_]|(?:for|if|while)\s*\()/m.test(
+        text,
+      );
+    return { claim, text: <p className={`claim-text${hasCode ? " is-code" : ""}`}><MathText text={text} code={hasCode}/></p> };
+  });
+  if (compact)
+    return (
+      <ol className="concept-claim-list">
+        {items.map(({ claim, text }, index) => (
+          <li key={claim.claim_id} aria-label={`教材重點 ${index + 1}`}>{text}</li>
+        ))}
+      </ol>
+    );
   return (
     <>
-      {claims.map((claim, index) => {
-        const text = claimText(claim);
-        const hasCode =
-          claim.evidence.some((item) => item.kind === "code") ||
-          /^\s*(?:\/\/|(?:const\s+)?(?:int|float|double|char|bool|void)\s+[A-Za-z_]|(?:for|if|while)\s*\()/m.test(
-            text,
-          );
-        return (
-          <section
-            className="concept-claim"
-            key={claim.claim_id}
-            aria-label={`教材重點 ${index + 1}`}
-          >
-            {claims.length > 1 && <strong className="claim-number">重點 {index + 1}</strong>}
-            <p className={`claim-text${hasCode ? " is-code" : ""}`}><MathText text={text} code={hasCode}/></p>
-          </section>
-        );
-      })}
+      {items.map(({ claim, text }, index) => (
+        <section
+          className="concept-claim"
+          key={claim.claim_id}
+          aria-label={`教材重點 ${index + 1}`}
+        >
+          {claims.length > 1 && <strong className="claim-number">重點 {index + 1}</strong>}
+          {text}
+        </section>
+      ))}
     </>
   );
 }
