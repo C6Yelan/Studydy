@@ -62,7 +62,7 @@ test("real API persists selected cards across fresh login and resolves original 
   await expect(reopened).toHaveURL(new RegExp(`${savedPath}$`));
   await reopened.reload();
   await expect(reopened.getByRole("heading", { name: "隔離測試卡組已編輯", exact: true })).toBeVisible();
-  await reopened.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
+  await reopened.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   await reopened.getByRole("button", { name: "管理卡組「隔離測試卡組已編輯」" }).click();
   await reopened.getByRole("button", { name: "刪除卡組「隔離測試卡組已編輯」" }).click();
   await expect(reopened.getByRole("dialog")).toHaveCount(0);

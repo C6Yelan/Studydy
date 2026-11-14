@@ -109,7 +109,7 @@ export function readRoute(pathname: string): RouteRead {
       : structureSegment === "review" ? { name: "card-review", cardSetId: runId, materialId }
       : { name: segments.length === 5 ? "card-set-edit" : "card-set", cardSetId: runId, materialId };
   } else if (resourceSegment === "research" && runId === "scopes" && segments.length === 5 && uuidPattern.test(structureSegment)) {
-    // 教材補充學習的範圍確認頁：在教材頁首內顯示。
+    // 教材補充學習的範圍確認頁：在教材側欄內顯示。
     route = { name: "topic", topicId: structureSegment, materialId };
   } else if (resourceSegment === "research" && segments.length === 4 && uuidPattern.test(runId)) {
     route = { name: "research", materialId, researchId: runId };
@@ -238,4 +238,17 @@ export function writeRoute(route: AppRoute, replace = false, state: object | nul
   if (replace) window.history.replaceState(state, "", path);
   else window.history.pushState(state, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+// 換頁前的上一個網址（App 每次換頁時記下）；答題專注模式的「×」用來回到進來的那一頁。
+let currentPath: string | null = null;
+let lastPath: string | null = null;
+export function notePath(path: string): void {
+  if (path === currentPath) return;
+  lastPath = currentPath;
+  currentPath = path;
+}
+/** 直接開網址或重新整理進來時是 null。 */
+export function previousPath(): string | null {
+  return lastPath;
 }

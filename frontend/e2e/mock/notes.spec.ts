@@ -138,9 +138,11 @@ async function selectText(page: Parameters<typeof mockKnowledgeMapApi>[0], selec
 }
 
 test("notes read without generating and preserve annotations after reload", async ({ page }) => {
+  // 教材側欄佔去左側寬度；用寬桌機驗證註記在右側邊欄（窄內容改用抽屜另有案例）。
+  await page.setViewportSize({ width: 1440, height: 900 });
   const state = await setup(page);
   await page.goto(`/materials/${materialId}/notes`);
-  await expect(page.getByRole("tab", { name: "筆記", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("link", { name: "我的筆記", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
   expect(state.writes).toEqual([]);
   await selectText(page);
@@ -319,6 +321,7 @@ for (const format of ['audio','images'] as const) test(`note references use veri
 
 
 test("older visible notes keep annotation and export requests on their content revision",async({page})=>{
+ await page.setViewportSize({width:1440,height:900});
  const initial=notes();const oldRevision=`knowledge-structure:sha256:${"e".repeat(64)}`;
  initial.content_revision=oldRevision;initial.content_generation=3;initial.generation=0;initial.update_available=true;
  initial.source_resolver=`/v1/materials/${materialId}/knowledge-structures/${oldRevision}/evidence`;
@@ -501,7 +504,7 @@ test("progress page follows the upload layout, keeps the old draft readable and 
 test("knowledge map concept opens the first note section that cites it", async ({ page }) => {
   await setup(page);
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
-  await page.getByRole("tab", { name: "知識地圖" }).click();
+  await page.getByRole("link", { name: "知識地圖" }).click();
   await openMapConcept(page);
   await page.getByRole("dialog", { name: "概念詳情", exact: true }).getByRole("button", { name: "在筆記中查看" }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/notes$`));
@@ -512,7 +515,7 @@ test("knowledge map concept opens the first note section that cites it", async (
 test("knowledge map hides the note link when notes do not cite the concept", async ({ page }) => {
   await setup(page, { ...notes(), paragraphs: [], outline: [] });
   await page.goto(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`);
-  await page.getByRole("tab", { name: "知識地圖" }).click();
+  await page.getByRole("link", { name: "知識地圖" }).click();
   await openMapConcept(page);
   await expect(page.getByRole("dialog", { name: "概念詳情", exact: true }).getByRole("button", { name: "在筆記中查看" })).toHaveCount(0);
 });
@@ -535,6 +538,7 @@ test("selected text retains highlight styles after reload and removes overlappin
 });
 
 test("all note headings, table labels and whole formulas retain marks and comments", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   const view = notes();
   view.sections = [
     { section_id: "empty", heading: "第一章 資料結構", level: 1, parent_id: null, paragraph_ids: [], outline: [] },

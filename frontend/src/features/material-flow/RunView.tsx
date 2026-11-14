@@ -1,6 +1,5 @@
 import { ProcessingSources } from "./ProcessingSources";
 import { MaterialRunWorkspaceContext } from "../../app/AppShell";
-import { MaterialContentNav } from "./MaterialContentNav";
 import { rememberMaterial } from "./material-memory";
 import { BackLink } from "../../ui/BackLink";
 import { MaterialRunFailure } from "./MaterialRunFailure";
@@ -489,9 +488,7 @@ function RevisionRun({
     : currentStructure ? {name:"knowledge-map" as const,materialId:run.material_id,runId:currentStructure.run_id,structureRevision:currentStructure.knowledge_structure_revision} : null;
   const mapAction = map && <button className="primary-button" onClick={()=>writeRoute(map)}>{completed?"開啟知識地圖":"先使用目前地圖"}</button>;
   return <section className={`material-content processing-page${activeRun(run)?" is-processing":""}`}>
-    <MaterialContentNav apiClient={apiClient} materialId={run.material_id} materialName={material?.display_name} current="sources" updateCompleted={completed}
-      mapRoute={map} back={{label:material?`返回${material.display_name}`:"返回教材",onClick:()=>writeRoute({name:"material",materialId:run.material_id})}}/>
-    <div className="material-content-body" role="tabpanel" id="material-panel-sources" aria-labelledby="material-tab-sources">
+    <div className="material-content-body">
     <FlowHeader title={title} description={run.status==='failed'?undefined:completed?"教材已更新，可以開啟知識地圖繼續使用。":"Studydy 正在整理新增內容，期間仍可使用目前地圖與學習紀錄。"}/>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="processing-grid">

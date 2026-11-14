@@ -258,7 +258,7 @@ for (const status of ["succeeded", "partial"] as const)
     await expect(page).toHaveURL(
       new RegExp(`${runPath}/knowledge-structures/${encodeURIComponent(revision)}$`),
     );
-    await expect(page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab", { name: "知識地圖", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("navigation", { name: "教材導覽" }).getByRole("link", { name: "知識地圖", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("region", { name: "知識地圖工作區", exact: true })).toBeVisible();
     await expect(page.locator(".concept-flow-node")).toHaveCount(view.concepts.length);
   });
@@ -428,9 +428,10 @@ test("polling uses backend progress, stops at terminal, and clears on unmount", 
   server = base;
   await page.goto(runPath);
   await expect(overall).toHaveAttribute("aria-valuenow", "6");
-  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "我的群島", exact: true }).click();
-  await expect(page).toHaveURL(/\/materials$/);
-  await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
+  // 分析頁在教材側欄內：用側欄換到教材設定，分析頁卸載。
+  await page.getByRole("navigation", { name: "教材導覽" }).getByRole("link", { name: "教材設定", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/settings$`));
+  await expect(overall).toHaveCount(0);
   const unmountedReads = reads();
   await page.clock.runFor(6_000);
   expect(reads()).toBe(unmountedReads);

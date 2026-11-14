@@ -1,6 +1,6 @@
 import './research.css';
 import { InlineConfirm } from '../../ui/InlineConfirm';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage, type StudydyApiClient } from '../../api/client';
 import { routePath, writeRoute } from '../../app/routes';
 import { Icon } from '../../ui/Icon';
@@ -9,9 +9,9 @@ import type { Topic } from '../topics/TopicPage';
 import { ResearchManagement } from './ResearchManagement';
 import { researchActive, researchTaskInfo, type ResearchSummary, type ResearchDraft } from './research';
 
-export function ResearchPanel({ api, materialId, draft, onDraftChange, onMaterialUpdated, contentNavigation }: {
+export function ResearchPanel({ api, materialId, draft, onDraftChange, onMaterialUpdated }: {
   api: StudydyApiClient; materialId: string; draft?: ResearchDraft; onDraftChange?: (draft: ResearchDraft) => void;
-  onMaterialUpdated: () => void; contentNavigation?: ReactNode;
+  onMaterialUpdated: () => void;
 }) {
   const [query, setQuery] = useState(draft?.query ?? ''), [list, setList] = useState<ResearchSummary[] | null>(null);
   const [scopes,setScopes]=useState<Topic[]>([]), [removingScope,setRemovingScope]=useState<string|null>(null), [confirmingScope,setConfirmingScope]=useState<string|null>(null);
@@ -90,8 +90,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
 
   };
   return <section className="material-library is-collection supplementary-page research-library" aria-label="補充學習查詢">
-    {contentNavigation}
-    <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
+    <div className="research-panel">
       <header className="research-head">
         <div><h1>補充學習</h1><p>先確認要查找的觀念與細節，再搜尋論文與 Wikipedia。</p></div>
         <div className="collection-summary" ref={heading} tabIndex={-1}><p>{list === null ? '正在讀取查詢…' : `已保存 ${list.length} 筆查詢`}</p></div>

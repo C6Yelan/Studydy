@@ -907,3 +907,11 @@ button.library-state:hover { background: var(--violet); color: #fff; }
 @media (max-width: 720px) {
   .material-bookshelf .library-item { padding: 14px 14px 20px; }
 }
+
+/* 教材內概念卡／Podcast 分頁：數量摘要當作清單標題，與右側建立按鈕同一列。 */
+.material-content .collection-toolbar .collection-summary p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 900;
+}

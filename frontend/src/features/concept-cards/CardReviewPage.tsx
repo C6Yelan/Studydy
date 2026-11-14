@@ -22,7 +22,7 @@ type LoadedCard = { study: CardStudyView; item: CardReviewItem; card: CardBatch[
  * 卡片內容由卡組的瀏覽 API 讀取（需要加強清單只給卡片重點，沒有圖卡需要的教材關係）。
  */
 export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient: StudydyApiClient; cardSetId?: string; materialId?: string }) {
-  // 只篩教材時在教材內：教材頁首的「概念卡」分頁已能回到這份教材的卡組，頁首不再另放返回。
+  // 只篩教材時在教材內：教材側欄的「翻卡片」已能回到這份教材的卡組，不再另放返回。
   const materialOnly = !cardSetId && !!materialId;
   const back: { label: string; route: AppRoute } = materialId && !window.history.state?.fromCollection
     ? { label: "返回概念卡", route: { name: "material-content", materialId, kind: "concept-cards" } }

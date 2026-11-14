@@ -41,7 +41,8 @@ async function mockVoice(page:Page) {
  await page.route('**/v1/voice-conversations/*/turns/*/audio',r=>r.fulfill({status:200,contentType:'audio/wav',body:wav()}));
  return {conversations,add,turn,answer,actions,questions,recorded,behavior,reply,finishAudio,browserIds,deletes:()=>deletes};
 }
-async function open(page:Page) {await page.getByRole('button',{name:'Studydy AI BOT',exact:true}).click();await expect(page.getByRole('dialog',{name:'Studydy AI BOT'})).toBeVisible();}
+// 手機的「問小幫手」收在教材底部頁籤的「更多」裡。
+async function open(page:Page) {const nav=page.getByRole('navigation',{name:'教材導覽'});await expect(nav).toBeVisible();const more=nav.getByRole('button',{name:'更多',exact:true});if(await more.isVisible()&&await more.getAttribute('aria-expanded')!=='true')await more.click();await page.getByRole('button',{name:'問小幫手',exact:true}).click();await expect(page.getByRole('dialog',{name:'Studydy AI BOT'})).toBeVisible();}
 async function choose(page:Page,id:string) {await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${id}"]`).click();}
 async function microphone(page:Page) {
  // UI lifecycle tests inject speech events; real model classification is tested separately.
@@ -76,12 +77,12 @@ async function speak(page:Page) {
 test('compact widget has one entry, chat bubbles, secondary sources and a growing single composer',async({page})=>{
  await page.setViewportSize({width:1440,height:900});const mock=await mockVoice(page);await page.goto(mapPath);await open(page);
  const panel=page.getByRole('dialog',{name:'Studydy AI BOT'}),input=page.getByLabel('問題／辨識文字');
- await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toHaveAttribute('aria-expanded','true');await expect(panel.getByRole('heading',{name:'Studydy AI BOT',exact:true})).toBeVisible();await expect(input).toBeFocused();
+ await expect(page.getByRole('button',{name:'問小幫手',exact:true})).toHaveAttribute('aria-expanded','true');await expect(panel.getByRole('heading',{name:'Studydy AI BOT',exact:true})).toBeVisible();await expect(input).toBeFocused();
  await expect(page.getByLabel('已保存的對話')).not.toBeVisible();
  const box=(await panel.boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!,composer=(await page.locator('.voice-composer').boundingBox())!;
- // 桌機改為教材頁首下方的右側抽屜。
- const materialHeader=(await page.locator('.material-learning-toolbar').boundingBox())!;
- expect(box.width).toBeLessThanOrEqual(420);expect(box.y).toBeGreaterThanOrEqual(materialHeader.y+materialHeader.height);expect(box.y+box.height).toBeLessThanOrEqual(900);expect(header.height).toBeLessThanOrEqual(56);expect(composer.height).toBeLessThan(110);
+ // 桌機是右側抽屜，不蓋住教材側欄。
+ const materialRail=(await page.locator('.material-rail').boundingBox())!;
+ expect(box.width).toBeLessThanOrEqual(420);expect(box.y).toBeGreaterThanOrEqual(8);expect(box.x).toBeGreaterThanOrEqual(materialRail.x+materialRail.width);expect(box.y+box.height).toBeLessThanOrEqual(900);expect(header.height).toBeLessThanOrEqual(56);expect(composer.height).toBeLessThan(110);
  expect((await page.locator('.voice-turns').boundingBox())!.height).toBeGreaterThan(box.height*.6);
  // 建議問題來自知識結構的概念名稱與關係，不是固定句。
  await expect(panel.getByRole('group',{name:'建議問題'}).getByRole('button')).toHaveText(['什麼是「Stack」？','「Stack」和「Array」有什麼關係？']);
@@ -95,13 +96,16 @@ test('compact widget has one entry, chat bubbles, secondary sources and a growin
  for(const width of [1440,390]){
   await page.setViewportSize({width,height:width===390?844:900});
   await expect.poll(async()=>{
-   const header=(await page.locator('.material-header').boundingBox())!,panel=(await sourcePanel.boundingBox())!;
-   return panel.y>=header.y+header.height;
+   // 原文面板不蓋住教材側欄：桌機在右側，手機在頂端列下方。
+   const rail=(await page.locator('.material-rail').boundingBox())!,panel=(await sourcePanel.boundingBox())!;
+   return width>720?panel.x>=rail.x+rail.width:panel.y>=rail.y+rail.height;
   }).toBe(true);
  }
  await page.keyboard.press('Escape');await expect(panel).toBeVisible();
+ // 回到桌機寬度（手機的入口收在「更多」裡，關閉後焦點要回到看得見的入口）。
+ await page.setViewportSize({width:1440,height:900});
  await input.fill('換行');await input.press('Shift+Enter');await input.pressSequentially('補充');await input.dispatchEvent('keydown',{key:'Enter',isComposing:true});expect(mock.questions).toHaveLength(1);await input.press('Enter');await expect.poll(()=>mock.questions.length).toBe(2);expect(mock.questions.at(-1)).toBe('換行\n補充');await expect(input).toHaveValue('');
- for(let i=0;i<3;i++){await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toBeFocused();await open(page);}
+ for(let i=0;i<3;i++){await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByRole('button',{name:'問小幫手',exact:true})).toBeFocused();await open(page);}
  await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.keyboard.press('Escape');await expect(panel).toBeVisible();await expect(page.getByRole('button',{name:'對話紀錄',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);
 });
 
@@ -169,12 +173,12 @@ test('390px chat uses the same compact header, fixed composer and keyboard focus
  const panel=page.getByRole('dialog',{name:'Studydy AI BOT'}),box=(await panel.boundingBox())!;
  // 手機是全螢幕聊天室。
  expect(box).toEqual({x:0,y:0,width:390,height:844});
- await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toHaveAttribute('aria-expanded','true');await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
+ await expect(page.getByRole('button',{name:'問小幫手',exact:true})).toHaveAttribute('aria-expanded','true');await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
  await page.getByLabel('問題／辨識文字').fill('多行草稿\n'.repeat(25));const composer=(await page.locator('.voice-composer').boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!;
  await page.locator('.voice-turns').evaluate(el=>{el.scrollTop=0;});expect((await page.locator('.voice-composer').boundingBox())!.y).toBeCloseTo(composer.y,0);expect((await page.locator('.voice-header').boundingBox())!.y).toBeCloseTo(header.y,0);expect(composer.y+composer.height).toBeLessThanOrEqual(box.y+box.height);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
  await page.getByLabel('問題／辨識文字').focus();await page.keyboard.press('Tab');await expect(page.getByRole('button',{name:'送出問題',exact:true})).toBeFocused();
- await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(page.getByRole('button',{name:'Studydy AI BOT',exact:true})).toBeFocused();
+ await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(page.getByRole('button',{name:'問小幫手',exact:true})).toBeFocused();
 });
 
 test('text and voice share a conversation but only the current voice reply autoplays',async({page})=>{
@@ -296,7 +300,7 @@ test('route change stops voice audio and cancels its pending playback intent',as
  const turn=mock.recorded[0];turn.question='路由切換的問題';mock.reply(mock.conversations[0],turn);
  const audio=page.locator('.answer-audio audio');await expect.poll(()=>audio.evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
  await audio.evaluate(a=>{(window as any).previousVoiceAudio=a;});
- await page.getByRole('tab',{name:'教材來源',exact:true}).click();
+ await page.getByRole('link', { name: '原始檔案',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>(window as any).previousVoiceAudio.paused)).toBe(true);
 });
 
@@ -313,7 +317,7 @@ test('switching account releases private voice audio and never carries it into t
  await page.route('**/v1/session/login',r=>json(r,stranger));await page.route('**/v1/session/refresh',r=>json(r,stranger));
  await page.route('**/v1/materials/*/voice-conversations',r=>json(r,{conversations:[]}));
  await page.getByLabel('Email',{exact:true}).fill('second@example.test');await page.getByLabel('密碼',{exact:true}).fill('Synthetic password 42');await page.getByRole('button',{name:'登入',exact:true}).click();
- await expect(page.getByRole('tab',{name:'知識地圖',exact:true})).toBeVisible();
+ await expect(page.getByRole('link', { name: '知識地圖',exact:true})).toBeVisible();
  await expect(page.locator('.voice-answer')).toHaveCount(0);await expect(page.locator('.answer-audio audio')).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).previousVoiceAudio.paused)).toBe(true);
 });
@@ -321,7 +325,7 @@ test('switching account releases private voice audio and never carries it into t
 
 test('opening voice questions pauses existing podcast media',async({page})=>{
  const mock=await mockVoice(page),conversation=mock.add(),turn=mock.turn(conversation,'合成音訊','ready',true);
- await page.goto(mapPath);await page.getByRole('tab',{name:'知識地圖',exact:true}).click();
+ await page.goto(mapPath);await page.getByRole('link', { name: '知識地圖',exact:true}).click();
  await page.evaluate(async src=>{const audio=document.createElement('audio');audio.id='podcast-fixture';audio.src=src!;document.body.append(audio);await audio.play();},turn.audio_url);
  await expect.poll(()=>page.locator('#podcast-fixture').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
  await open(page);await expect.poll(()=>page.locator('#podcast-fixture').evaluate((a:HTMLAudioElement)=>a.paused)).toBe(true);

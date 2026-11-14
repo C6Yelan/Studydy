@@ -4,7 +4,6 @@ import { relationStyles } from "./map-appearance";
 import { DifficultyBadge, LearningDiagnosis, useLearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { GoalEditorHost, LearningGoalBlock, TodayConceptsBlock, useLearningGoal } from "../learning-goals/LearningGoalPanel";
 import { DailyGoalProgress } from "../learning-goals/DailyGoalProgress";
-import { MaterialContentNav } from "../material-flow/MaterialContentNav";
 import type { AppRoute } from "../../app/routes";
 import { SourceButton, sourceLinks } from "../../ui/SourceButton";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
@@ -42,11 +41,9 @@ import { MathText } from "../../ui/MathText";
 import { mathPlainText } from "../../ui/math-text";
 import { Progress } from "../../ui/Progress";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
-import { StateView } from "../../ui/StateView";
 import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, regionBasisText, regionColorIndex, type MapRegions, type NavigatorRange } from "./knowledge-map";
 
 type Concept = KnowledgeOutlineView["concepts"][number];
-type Mode = "focus" | "review";
 type RestoreFocus = () => void;
 
 const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
@@ -943,6 +940,51 @@ function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadi
   </div>;
 }
 
+/** 地圖與學習進度頁共用的提示：進度讀取失敗、開始學習失敗、未納入的頁面。 */
+function WorkspaceNotices({ progressMessage, onReloadProgress, startMessage, view }: {
+  progressMessage: string | null; onReloadProgress: () => void; startMessage: string | null; view: KnowledgeOutlineView;
+}) {
+  return <>
+    {progressMessage && (
+      <div className="partial-banner" role="status">
+        <span>{progressMessage}</span>
+        <button className="text-button" type="button" onClick={onReloadProgress}>
+          重新讀取進度
+        </button>
+      </div>
+    )}
+    {startMessage && (
+      <p className="map-start-error" role="alert">
+        {startMessage}
+      </p>
+    )}
+    {view.excluded_pages.length > 0 && (
+      <p className="form-error" role="status">
+        第 {view.excluded_pages.map((item) => item.page).join("、")}{" "}
+        頁未納入概念與練習，請從原始教材閱讀。
+      </p>
+    )}
+  </>;
+}
+
+/** 教材側欄「學習進度」：內容沿用原本地圖內切換的學習診斷與目標。 */
+export function MaterialProgress({ apiClient, materialId, view, progress, isLoadingProgress, progressMessage, onReloadProgress, isStartingStudy, onStartStudy, startMessage }: {
+  apiClient: StudydyApiClient; materialId: string; view: KnowledgeOutlineView; progress: MapProgressView | null;
+  isLoadingProgress: boolean; progressMessage: string | null; onReloadProgress: () => void;
+  isStartingStudy: boolean; onStartStudy: (id: string) => void; startMessage: string | null;
+}) {
+  const difficulty = useConceptDifficulty(apiClient, materialId, view.knowledge_structure_revision);
+  return <section className="map-workspace is-review-mode">
+    <WorkspaceNotices progressMessage={progressMessage} onReloadProgress={onReloadProgress} startMessage={startMessage} view={view} />
+    <div className="map-content">
+      <div className="map-view">
+        <ReviewView apiClient={apiClient} materialId={materialId} view={view} progress={progress} difficulty={difficulty}
+          isLoadingProgress={isLoadingProgress} progressMessage={progressMessage} onReloadProgress={onReloadProgress} isStartingStudy={isStartingStudy} onStartStudy={onStartStudy} />
+      </div>
+    </div>
+  </section>;
+}
+
 export function KnowledgeMapWorkspace({
   apiClient,
   progress,
@@ -950,9 +992,7 @@ export function KnowledgeMapWorkspace({
   progressMessage,
   onReloadProgress,
   isStartingStudy,
-  onReturnToRun,
   mapRoute,
-  materialName,
   onStartStudy,
   startMessage,
   view,
@@ -964,9 +1004,7 @@ export function KnowledgeMapWorkspace({
   progressMessage: string | null;
   onReloadProgress: () => void;
   isStartingStudy: boolean;
-  onReturnToRun: () => void;
   mapRoute: Extract<AppRoute, { name: "knowledge-map" }>;
-  materialName: string;
   onStartStudy: (conceptId: string) => void;
   startMessage: string | null;
   view: KnowledgeOutlineView;
@@ -982,7 +1020,6 @@ export function KnowledgeMapWorkspace({
         ? id
         : null;
     return {
-      mode: saved.mode === "review" ? ("review" as const) : ("focus" as const),
       search: typeof saved.search === "string" ? saved.search : "",
       concept: conceptId(saved.concept),
       review: conceptId(saved.review),
@@ -994,7 +1031,6 @@ export function KnowledgeMapWorkspace({
           : null,
     };
   });
-  const [mode, setMode] = useState<Mode>(restored?.mode ?? "focus");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState(restored?.search ?? "");
   const [selectedConceptId, setSelectedConceptId] = useState(restored?.concept ?? initialConceptId);
@@ -1007,7 +1043,6 @@ export function KnowledgeMapWorkspace({
         ...window.history.state,
         knowledgeMap: {
           revision: view.knowledge_structure_revision,
-          mode,
           search: searchQuery,
           concept: selectedConceptId,
           review: reviewConceptId,
@@ -1020,7 +1055,6 @@ export function KnowledgeMapWorkspace({
     );
   }, [
     view.knowledge_structure_revision,
-    mode,
     searchQuery,
     selectedConceptId,
     reviewConceptId,
@@ -1032,7 +1066,7 @@ export function KnowledgeMapWorkspace({
   useEffect(() => () => cancelAnimationFrame(restoreFrame.current), []);
   const searchInput = useRef<HTMLInputElement>(null);
   const searchResultsElement = useRef<HTMLDivElement>(null);
-  const tabs = useRef(new Map<Mode, HTMLButtonElement>());
+  const mapView = useRef<HTMLDivElement>(null);
   const hasBrowsed = useRef(!!restored?.concept);
   useEffect(() => {
     if (
@@ -1075,23 +1109,6 @@ export function KnowledgeMapWorkspace({
   const regionLabel = (id: string) =>
     regions && regions.regions.length > 1 ? regions.regions[regions.byConcept.get(id)!].label : null;
 
-  if (view.concepts.length === 0)
-    return (
-      <StateView
-        action={
-          <div className="state-actions">
-            <button className="secondary-button" type="button" onClick={onReturnToRun}>
-              <Icon name="arrow-left" />
-              查看處理狀態
-            </button>
-          </div>
-        }
-        description="這份教材目前沒有可供學習的概念。請返回處理結果查看原因。"
-        image="/assets/studydy/empty-disappointed.png"
-        title="知識地圖目前是空的"
-        tone="empty"
-      />
-    );
   const rememberOpener = (restoreFocus?: RestoreFocus) => {
     // 快速關閉再開啟詳情時，不讓前一次延遲恢復搶走新面板的焦點。
     cancelAnimationFrame(restoreFrame.current);
@@ -1103,7 +1120,7 @@ export function KnowledgeMapWorkspace({
     if (element?.closest(".detail-panel")) return;
     opener.current = () => {
       if (element?.isConnected) element.focus({ preventScroll: true });
-      else tabs.current.get(mode)?.focus({ preventScroll: true });
+      else mapView.current?.focus({ preventScroll: true });
     };
   };
   const openConceptDetail = (id: string, restoreFocus?: RestoreFocus) => {
@@ -1114,7 +1131,6 @@ export function KnowledgeMapWorkspace({
     setRelationId(null);
   };
   const chooseSearchResult = (id: string) => {
-    setMode("focus");
     openConceptDetail(id);
     setSearchQuery("");
     searchInput.current?.focus({ preventScroll: true });
@@ -1136,16 +1152,9 @@ export function KnowledgeMapWorkspace({
         if (document.activeElement !== closingFocus && document.activeElement !== document.body)
           return;
         if (opener.current) opener.current();
-        else tabs.current.get(mode)?.focus({ preventScroll: true });
+        else mapView.current?.focus({ preventScroll: true });
       });
     });
-  };
-  const selectMode = (nextMode: Mode) => {
-    cancelAnimationFrame(restoreFrame.current);
-    setMode(nextMode);
-    setDetailConceptId(null);
-    setRelationId(null);
-    window.requestAnimationFrame(() => tabs.current.get(nextMode)?.focus());
   };
   const busyStudyLabel = isLoadingProgress ? "讀取學習進度…" : isStartingStudy ? "正在開始…" : null;
   const focusStudyConceptId = selectedConceptId;
@@ -1260,37 +1269,17 @@ export function KnowledgeMapWorkspace({
   );
   return (
     <section
-      className={`map-workspace${mode === "focus" ? " is-focus-mode" : ""}${mode === "review" ? " is-review-mode" : ""}${selectedConcept || selectedRelation ? " has-detail" : ""}`}
+      className={`map-workspace is-focus-mode${selectedConcept || selectedRelation ? " has-detail" : ""}`}
     >
-      <MaterialContentNav apiClient={apiClient} materialId={mapRoute.materialId} mapRoute={mapRoute} materialName={materialName} current={mode === "review" ? "review" : "knowledge-map"} assessmentDisabled={isStartingStudy || isLoadingProgress} onMapModeChange={selectMode} onMapTabRef={(id, element) => { if (element) tabs.current.set(id, element); else tabs.current.delete(id); }}/>
-      {progressMessage && (
-        <div className="partial-banner" role="status">
-          <span>{progressMessage}</span>
-          <button className="text-button" type="button" onClick={onReloadProgress}>
-            重新讀取進度
-          </button>
-        </div>
-      )}
-      {startMessage && (
-        <p className="map-start-error" role="alert">
-          {startMessage}
-        </p>
-      )}
-      {view.excluded_pages.length > 0 && (
-        <p className="form-error" role="status">
-          第 {view.excluded_pages.map((item) => item.page).join("、")}{" "}
-          頁未納入概念與練習，請從原始教材閱讀。
-        </p>
-      )}
+      <WorkspaceNotices progressMessage={progressMessage} onReloadProgress={onReloadProgress} startMessage={startMessage} view={view} />
       <div className="map-content">
         <div
-          aria-labelledby={`map-tab-${mode}`}
+          ref={mapView}
+          aria-label="知識地圖"
           className="map-view"
-          id={`map-panel-${mode}`}
-          role="tabpanel"
+          role="region"
           tabIndex={0}
         >
-          {mode === "focus" && (
             <ReactFlowProvider>
               <MapGraph
                 apiClient={apiClient}
@@ -1306,9 +1295,6 @@ export function KnowledgeMapWorkspace({
                 difficulty={difficulty.data}
               />
             </ReactFlowProvider>
-          )}
-          {mode === "review" && <ReviewView apiClient={apiClient} materialId={mapRoute.materialId} view={view} progress={progress} difficulty={difficulty}
-            isLoadingProgress={isLoadingProgress} progressMessage={progressMessage} onReloadProgress={onReloadProgress} isStartingStudy={isStartingStudy} onStartStudy={onStartStudy} />}
         </div>
       </div>
     </section>

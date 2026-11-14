@@ -14,7 +14,7 @@
 .difficulty-reason { display: block; flex-basis: 100%; font-size: .9rem; font-weight: 400; }
 .difficulty-reason > span { display: block; }
 .concept-card > .concept-difficulty { margin: 0 0 12px; }
-  /* 學習與測驗頁：頂列＋四個並排區塊，區塊在剩餘視窗高度內各自捲動。 */
+  /* 學習進度頁：頂列＋四個並排區塊，區塊在剩餘視窗高度內各自捲動。 */
 .review-diagnosis { padding: 16px 0 0; display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
 .review-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
 .review-summary > p { margin: 0; }

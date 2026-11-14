@@ -1,5 +1,5 @@
 import { openCardSetUpdate } from "../material-flow/VersionMoveNotice";
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { InlineConfirm } from "../../ui/InlineConfirm";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardReviewsView, CardSetSummary, MaterialLibraryItem } from "../../api/contracts";
@@ -12,7 +12,7 @@ import { StateView } from "../../ui/StateView";
 import { CollectionHeader } from "../../ui/CollectionHeader";
 import { EmptyState } from "../../ui/EmptyState";
 
-export function CardSetLibrary({ apiClient, material, contentNavigation }: { apiClient: StudydyApiClient; material?: MaterialLibraryItem; contentNavigation?: ReactNode }) {
+export function CardSetLibrary({ apiClient, material }: { apiClient: StudydyApiClient; material?: MaterialLibraryItem }) {
   const [sets, setSets] = useState<CardSetSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -86,14 +86,13 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   const reviewRoute: AppRoute = material ? { name: "card-review", materialId: material.material_id } : { name: "card-review" };
   return (
     <section className="material-library is-collection cards-library" aria-label={material ? "教材概念卡" : "我的概念卡"}>
-      {contentNavigation}
       {material ? <header className="library-header library-header-compact collection-toolbar material-search-row">
         <div className="collection-summary" ref={heading} tabIndex={-1}><p>{sets === null ? "—" : `已保存 ${sets.length} 個卡組`}</p></div>
         <button className="primary-button" type="button" disabled={!structure} onClick={create}><Icon name="cards" /> 建立卡組</button>
       </header> : <CollectionHeader title="我的概念卡" headingRef={heading}
         subtitle={<>{sets !== null && <><b>已保存 {sets.length} 個卡組</b> · </>}收藏一組值得反覆看的重點，把不熟的卡片標起來加強。</>}
         actions={<button className="primary-button" type="button" onClick={create}><Icon name="cards" /> 建立卡組</button>} />}
-      <div role={material ? "tabpanel" : undefined} id={material ? "material-panel-concept-cards" : undefined} aria-labelledby={material ? "material-tab-concept-cards" : undefined}>
+      <div>
       {error && sets !== null && <p className="form-error" role="alert">無法更新卡組列表。{error}<button className="text-button" onClick={()=>setReload(value=>value+1)}>重新讀取</button></p>}
       {error && sets === null ? <StateView title="無法讀取卡組" description={error} tone="failure" action={<button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button>} />
         : sets === null ? <StateView title="正在讀取卡組" description="正在載入你保存的概念卡。" tone="loading" live skeleton="library" />

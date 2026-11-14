@@ -28,7 +28,7 @@ async function setup(page: Page) {
   });
   const settings = await mockCreationSettings(page);
   // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
-  await page.route("**/v1/card-reviews", route => route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } }));
+  await page.route(url => url.pathname === "/v1/card-reviews", route => route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } }));
   await page.route("**/v1/learning-activity/celebrations/claim", (route) => {
     expect(route.request().method()).toBe("POST");
     return route.fulfill({ json: emptyCelebrationClaim });

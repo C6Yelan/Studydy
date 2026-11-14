@@ -132,7 +132,7 @@ for (const width of [1440, 1024, 390]) {
     expect(reads.length).toBeGreaterThanOrEqual(1);
     await dialog.getByRole("button", { name: "完成" }).click();
     // 手動更新後仍能找到上一批入口。
-    await expect(page.getByRole("tab", { name: "知識地圖" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "知識地圖" })).toBeVisible();
     await expect(page.getByRole("button", { name: "回到更新前內容", exact: true })).toBeVisible();
   });
 }

@@ -228,3 +228,24 @@
 .result-rail-filter button { flex: 1; min-height: 30px; border: 0; border-radius: 999px; background: var(--page-cool); color: var(--text-primary); font-size: 12px; font-weight: 800; cursor: pointer; }
 .result-rail-filter button[aria-pressed="true"] { background: var(--studydy-blue); color: #fff; }
 .result-rail ol { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; overflow-y: auto; min-height: 0; }
+
+/* 答題的專注模式：左上角只有一顆「×」，回到進來的那一頁。 */
+.study-focus-bar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.study-focus-close {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-input);
+  background: transparent;
+  color: var(--text-muted);
+}
+.study-focus-close:hover {
+  background: var(--surface);
+  color: var(--text-primary);
+}

@@ -190,7 +190,7 @@ for (const width of [1536, 390])
       });
       await page.goto(sourcesPath);
       await expect(page.getByRole("heading", { name: "確認教材", exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Studydy AI BOT", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button",{name:"問小幫手", exact: true })).toHaveCount(0);
       const hero = (await page.locator('.flow-head').boundingBox())!, rail = (await page.locator('.rail').boundingBox())!;
       // 標題區在側欄右邊（手機在頂端那一列下方），保留留白。
       expect(hero.x).toBeGreaterThanOrEqual(16);
@@ -231,7 +231,7 @@ for (const width of [1536, 390])
       expect(state.starts).toEqual([]);
       await activate(start);
       await expect(page.getByRole("heading", { name: "等待開始處理", exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Studydy AI BOT", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button",{name:"問小幫手", exact: true })).toHaveCount(0);
       await expect(page).toHaveURL(new RegExp(`/runs/${newRunId}$`));
       expect(state.starts).toEqual([
         {

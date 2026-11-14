@@ -340,20 +340,21 @@ test('update processing places cancellation and the current map in one card foot
  await page.route(`**/v1/material-processing-runs/${initialRunId}`,route=>route.fulfill({json:{...run,run_id:initialRunId,base_revision:undefined}}));
  await page.route(`**/v1/materials/${materialId}/sources`,route=>route.fulfill({json:{schema:'material-sources/v1',material_id:materialId,sources:[{source_id:uuid(11),normalization_id:uuid(12),original_artifact_id:artifactId,normalized_artifact_id:artifactId,original_name:'首次教材.pdf',media_type:'application/pdf',status:'ready',page_count:2,error_code:null,included:false}]}}));
  await page.goto(updatePath);
- const header=page.locator('header[aria-label="目前教材"]');await expect(header).toBeVisible();
- await expect(page.locator('.rail')).not.toBeVisible();await expect(header.getByRole('tab',{name:'教材來源',exact:true})).toHaveAttribute('aria-selected','true');
+ const header=page.getByRole('navigation',{name:'教材導覽',exact:true});await expect(header).toBeVisible();
+ await expect(page.getByRole('navigation',{name:'主要導覽',exact:true})).toHaveCount(0);await expect(header.getByRole('link', { name: '原始檔案',exact:true})).toHaveAttribute('aria-current', 'page');
  const footer=page.locator('.run-actions');await expect(footer.getByRole('button',{name:'取消這次更新',exact:true})).toBeVisible();
  await expect(footer.getByRole('button',{name:'先使用目前地圖',exact:true})).toBeVisible();await expect(page.locator('.processing-page .primary-button')).toHaveCount(1);
  for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
   await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`update-running-${width}.png`),animations:'disabled'});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await expect(page.locator('.rail')).not.toBeVisible();await expect(page.getByRole('navigation',{name:'手機導覽',exact:true})).not.toBeVisible();
+  await expect(page.getByRole('navigation',{name:'主要導覽',exact:true})).toHaveCount(0);await expect(page.getByRole('navigation',{name:'手機導覽',exact:true})).toHaveCount(0);await expect(header).toBeVisible();
  }
- await header.getByRole('tab',{name:'知識地圖',exact:true}).click();await expect(page).toHaveURL(new RegExp(`${mapPath(oldRunId,revision)}$`));
+ await header.getByRole('link', { name: '知識地圖',exact:true}).click();await expect(page).toHaveURL(new RegExp(`${mapPath(oldRunId,revision)}$`));
  await expect(page.getByRole('region',{name:'知識地圖工作區',exact:true})).toBeVisible();
  await page.evaluate(path=>{history.pushState({},'',path);window.dispatchEvent(new PopStateEvent('popstate'));},`/materials/${materialId}/runs/${initialRunId}`);
  await expect(page.getByRole('button',{name:'取消並刪除教材',exact:true})).toBeVisible();
- await expect(page.locator('.rail')).toBeVisible();await expect(page.getByRole('navigation',{name:'手機導覽',exact:true})).toBeVisible();
+ // 第一次分析也在教材內，同樣是教材側欄（還沒有地圖時只開放原始檔案與教材設定）。
+ await expect(header).toBeVisible();await expect(header.getByRole('link', { name: '原始檔案',exact:true,includeHidden:true})).toHaveAttribute('aria-current', 'page');await expect(page.getByRole('navigation',{name:'主要導覽',exact:true})).toHaveCount(0);
 });
 
 

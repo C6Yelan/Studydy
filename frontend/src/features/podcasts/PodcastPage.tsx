@@ -131,7 +131,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     } catch (e) { if (active.current) { setActionError(errorMessage(e)); setReload((v) => v + 1); } }
     finally { changing.current = false; if (active.current) setBusy(false); }
   };
-  // 從全站 Podcast 列表進入時保留返回；其餘情況在教材內，分頁列已能回到 Podcast，不再重複。
+  // 從全站 Podcast 列表進入時保留返回；其餘情況在教材內，教材側欄已能回到 Podcast，不再重複。
   const back = !materialId && <BackLink label="返回我的 Podcast" route={{ name: "podcasts" }} />;
   if (notFound) return <NotFoundView title="找不到這份 Podcast" description="這份 Podcast 可能已被刪除，或不屬於目前登入的帳號。"
     back={materialId ? null : { label: "回到 Podcast", route: { name: "podcasts" } }} />;

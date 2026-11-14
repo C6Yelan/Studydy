@@ -5,9 +5,7 @@ import type { SourceCapabilities } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { BackLink } from "../../ui/BackLink";
-import { MaterialContentNav } from "./MaterialContentNav";
-import { rememberedMaterial, rememberMaterial } from "./material-memory";
-import type { MaterialLibraryItem } from "../../api/contracts";
+import { MaterialBack } from "./MaterialRail";
 import { FlowFooter, FlowHeader, FlowStage, LearningSteps, uploadSteps } from "./Flow";
 import { formatFileSize } from "./material-flow";
 import { QueuedImages } from "./QueuedSourceParts";
@@ -26,15 +24,6 @@ export function UploadView({ apiClient, materialId }: { apiClient: StudydyApiCli
   const [selectionError, setSelectionError] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // 從教材來源「新增來源」進來時，頁首用教材頁首（同教材來源頁），返回由教材頁首負責。
-  const [material, setMaterial] = useState<MaterialLibraryItem | null>(() => materialId ? rememberedMaterial(apiClient, materialId) : null);
-  useEffect(() => {
-    if (!materialId || material) return;
-    let cancelled = false;
-    void apiClient.getMaterial(materialId).then(value => { if (!cancelled) { rememberMaterial(apiClient, value); setMaterial(value); } }, () => undefined);
-    return () => { cancelled = true; };
-  }, [apiClient, materialId, material]);
-  const structure = material?.available_structures.find(item => item.knowledge_structure_revision === material.head_revision) ?? material?.available_structures[0];
   const submitting = useRef(false);
   const draft = useRef<{ key: string; name: string; id: string | null } | null>(null);
   useEffect(() => {
@@ -119,9 +108,7 @@ export function UploadView({ apiClient, materialId }: { apiClient: StudydyApiCli
         : "上傳並確認來源";
   return (
     <section className="flow-page upload-page task-page" aria-labelledby="upload-title">
-      {materialId && <MaterialContentNav apiClient={apiClient} materialId={materialId} current="sources" materialName={material?.display_name}
-        mapRoute={structure ? { name: "knowledge-map", materialId, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision } : null}
-        back={{ label: "返回教材來源", onClick: () => writeRoute({ name: "material-sources", materialId }) }} />}
+      {materialId && <MaterialBack label="返回教材來源" onClick={() => writeRoute({ name: "material-sources", materialId })} />}
       <FlowHeader
         headingId="upload-title"
         title={materialId ? "新增來源" : "上傳教材"}

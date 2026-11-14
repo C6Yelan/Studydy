@@ -1,6 +1,6 @@
 import { Progress } from "../../ui/Progress";
 import { useStudyStart } from "./useStudyStart";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView, materialNotFound } from "../../ui/NotFoundView";
@@ -11,10 +11,11 @@ import type {
   StudyProgressView,
   StudySessionView,
 } from "../../api/contracts";
-import { routePath, writeRoute, type AppRoute } from "../../app/routes";
+import { previousPath, readRoute, routePath, writeRoute, type AppRoute } from "../../app/routes";
+import { FocusModeContext } from "../../app/AppShell";
 import { Icon } from "../../ui/Icon";
 import { ConceptContent } from "../../ui/ConceptContent";
-import { MaterialContentNav } from "../material-flow/MaterialContentNav";
+import { MaterialBack, useMapFocusConcept } from "../material-flow/MaterialRail";
 import { StateView } from "../../ui/StateView";
 import { assessmentPhase, type AssessmentPhase } from "../assessment/assessment-phase";
 import { AssessmentSetPanel } from "../assessment/AssessmentSetPanel";
@@ -66,6 +67,16 @@ export function StudySessionPage({
   const activePage = useRef(false);
   const pageVersion = useRef(0);
   const restoredRoute = useRef<string | null>(null);
+  // 進來前的頁面；直接開網址或重新整理進來時沒有，離開作答就回到這份教材的學習進度。
+  const [entryPath] = useState(previousPath);
+  const setFocusMode = useContext(FocusModeContext);
+  const answering = !!data && (panelPhase ?? assessmentPhase(data.assessmentSets.find((group) => group.set_id === data.selectedSetId))) === "question";
+  useLayoutEffect(() => { setFocusMode?.(answering); }, [setFocusMode, answering]);
+  useLayoutEffect(() => () => setFocusMode?.(false), [setFocusMode]);
+  // 回到地圖時聚焦剛才學習的概念（側欄的「知識地圖」與離開作答都用）。
+  const focusConceptId = data?.assessmentSets.find(item => item.set_id === data.selectedSetId)?.target_concept_id
+    ?? data?.progress.current_concept_id ?? null;
+  useMapFocusConcept(focusConceptId);
 
   const load = async () => {
     const restored = await apiClient.resumeWorkspace(route);
@@ -128,12 +139,17 @@ export function StudySessionPage({
     }
   };
 
-  const backToReview = () => writeRoute({ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }, false, { knowledgeMap: { revision: route.structureRevision, mode: "review" } });
-  const back = () => {
-    const conceptId = data?.assessmentSets.find(item => item.set_id === data.selectedSetId)?.target_concept_id
-      ?? data?.progress.current_concept_id ?? undefined;
-    writeRoute({ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }, false,
-      { knowledgeMap: { revision: route.structureRevision, mode: "focus", concept: conceptId, detail: conceptId } });
+  const backToReview = () => writeRoute({ name: "material-progress", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision });
+  // 回到地圖時，聚焦剛才學習的概念。
+  const mapFocus = (map: Extract<AppRoute, { name: "knowledge-map" }>) =>
+    writeRoute(map, false, { knowledgeMap: { revision: map.structureRevision, concept: focusConceptId, detail: focusConceptId } });
+  const back = () => mapFocus({ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision });
+  // 專注模式的「×」：回到進來的那一頁。
+  const leave = () => {
+    const from = entryPath ? readRoute(entryPath).route : null;
+    if (!from || from.name === "not-found") backToReview();
+    else if (from.name === "knowledge-map") mapFocus(from);
+    else writeRoute(from);
   };
 
   if (notFound && message) return <NotFoundView title="找不到這段學習紀錄" description="這段學習紀錄可能已被刪除，或不屬於目前登入的帳號。" back={materialNotFound.back} />;
@@ -155,7 +171,7 @@ export function StudySessionPage({
               type="button"
               onClick={backToReview}
             >
-              返回學習與測驗
+              返回學習進度
             </button>
           </>
         }
@@ -199,7 +215,7 @@ export function StudySessionPage({
       <StateView
         action={
           <button className="secondary-button" type="button" onClick={backToReview}>
-            返回學習與測驗
+            返回學習進度
           </button>
         }
         description="目前沒有可安全顯示的教材概念。"
@@ -307,15 +323,10 @@ export function StudySessionPage({
   );
   return (
     <section className="study-session-page">
-
-      <MaterialContentNav apiClient={apiClient} materialId={route.materialId} current="review" loadMaterial hideQuestionAnswer={layoutMode === "question"}
-      back={{ label: "返回學習與測驗", onClick: backToReview }}
-        mapRoute={{ name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision }}
-        // 從學習頁回到地圖時，聚焦剛才學習的概念。
-        onMapModeChange={(mode) => mode === "focus" ? back() : writeRoute(
-          { name: "knowledge-map", materialId: route.materialId, runId: route.runId, structureRevision: route.structureRevision },
-          false, { knowledgeMap: { revision: route.structureRevision, mode: "review" } })} />
-      {layoutMode === "question" ? <h1 className="sr-only">學習作答</h1> : <header className="study-header question-session-header">
+      {layoutMode === "question" ? <div className="study-focus-bar">
+        <button className="study-focus-close" type="button" aria-label="離開作答" onClick={leave}><Icon name="close" size={22} /></button>
+        <h1 className="sr-only">學習作答</h1>
+      </div> : <><MaterialBack label="返回學習進度" onClick={backToReview} /><header className="study-header question-session-header">
         <div>
           <h1>{completed ? "本次學習已結束" : visibleConcept.label}</h1>
           <p className="study-header-meta">
@@ -326,7 +337,7 @@ export function StudySessionPage({
             {showMaterial && <span>學習進度會自動保存。</span>}
           </p>
         </div>
-      </header>}
+      </header></>}
       {(launch.error || continueError) && (
         <div className="assessment-error" role="alert">
           {launch.error || continueError}

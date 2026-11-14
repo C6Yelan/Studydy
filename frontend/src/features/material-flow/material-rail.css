@@ -1,0 +1,223 @@
+/* 教材側欄：沿用全站側欄的外框與項目樣式（app/shell.css），多了「目前教材」與兩個次要項目。 */
+.material-rail-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0 10px 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.material-rail-name :is(small, b) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.material-rail-name b {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 900;
+}
+.material-rail-nav,
+.material-rail-more {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+.material-rail-minor {
+  margin-top: auto;
+}
+/* 原始檔案、教材設定是次要項目：桌機只有文字，收成圖示列時才顯示圖示。 */
+.material-rail-minor .rail-link {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.material-rail-minor .rail-link > i {
+  display: none;
+}
+.material-rail-more-toggle {
+  display: none;
+}
+/* 「問小幫手」是開抽屜的按鈕，外觀和其他項目一樣。 */
+.rail-link.material-qa-trigger {
+  width: 100%;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rail-link.material-qa-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--studydy-blue) 40%, var(--surface));
+  background: var(--studydy-blue-soft-2);
+  color: var(--studydy-blue-deep);
+}
+/* 還沒有知識地圖時停用的項目。 */
+.rail-link.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.rail-link.is-disabled:hover {
+  background: transparent;
+}
+
+/* 教材內子頁回到所屬清單（取代舊教材頁首的返回鍵）。 */
+.material-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin: 0 0 8px;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: var(--radius-input);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 800;
+}
+.material-back:hover {
+  background: var(--surface);
+  color: var(--studydy-blue);
+}
+.app-main > .material-notice:empty {
+  display: none;
+}
+
+/* 平板：和全站側欄一樣收成圖示列，教材名稱只留給輔助科技。 */
+@media (max-width: 1024px) {
+  .material-rail-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .material-rail-nav,
+  .material-rail-more {
+    align-items: center;
+  }
+  .material-rail-minor .rail-link > i {
+    display: grid;
+  }
+}
+
+/* 手機：頂端一列是品牌與目前教材；底部頁籤放四個常用項目和「更多」，其餘項目在「更多」展開的面板裡。 */
+@media (max-width: 720px) {
+  .material-rail-name {
+    position: static;
+    flex: 1;
+    width: auto;
+    height: auto;
+    padding: 0;
+    overflow: hidden;
+    clip-path: none;
+  }
+  .material-rail-nav {
+    position: fixed;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    left: 12px;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    align-items: center;
+    height: 64px;
+    padding: 0 4px;
+    border-radius: 24px;
+    background: var(--surface);
+    box-shadow: 0 16px 36px -12px rgba(29, 52, 110, 0.35);
+  }
+  .material-rail .material-rail-main {
+    display: contents;
+  }
+  .material-rail-main .rail-link,
+  .material-rail-more-toggle {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    width: auto;
+    min-height: 50px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .material-rail-main .rail-link > i {
+    width: auto;
+    height: auto;
+    background: transparent;
+    color: inherit;
+  }
+  .material-rail-main .rail-link[aria-current="page"],
+  .material-rail-more-toggle[aria-expanded="true"] {
+    background: transparent;
+    color: var(--studydy-blue);
+  }
+  .material-rail-main .rail-link[aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    width: 18px;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--studydy-blue);
+  }
+  .material-rail-main .shell-count {
+    position: absolute;
+    top: 2px;
+    left: calc(50% + 6px);
+    margin: 0;
+  }
+  .material-rail-dots {
+    font-size: 22px;
+    line-height: 20px;
+  }
+  .material-rail-more {
+    display: none;
+  }
+  .material-rail-nav.is-more-open .material-rail-more {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    left: 0;
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    padding: 10px;
+    border-radius: 20px;
+    background: var(--surface);
+    box-shadow: 0 16px 36px -12px rgba(29, 52, 110, 0.35);
+  }
+  .material-rail .material-rail-more .rail-links {
+    display: grid;
+    gap: 4px;
+  }
+  .material-rail-more .rail-link {
+    justify-content: flex-start;
+    width: auto;
+    padding: 4px 10px;
+  }
+  .material-rail-main .rail-label,
+  .material-rail-more .rail-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+  .material-rail-minor {
+    margin-top: 0;
+    padding-top: 4px;
+    border-top: 2px solid var(--border-light);
+  }
+}

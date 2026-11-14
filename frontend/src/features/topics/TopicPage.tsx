@@ -86,7 +86,7 @@ function ScopeFields({draft,onChange,busy,request,supplemental,settings,actions}
  </div>;
 }
 
-/** embedded：教材補充學習在教材頁首內顯示，返回由教材頁首負責。 */
+/** embedded：教材補充學習在教材側欄內顯示，返回由教材版面的返回鍵負責。 */
 export function TopicPage({api,topicId,embedded=false}:{api:StudydyApiClient;topicId?:string;embedded?:boolean}){
  const [request,setRequest]=useState(''),[view,setView]=useState<Topic|null>(null),[draft,setDraft]=useState<Scope|null>(null),[selected,setSelected]=useState<string[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
  const [learningSettings,setLearningSettings]=useState<CreationSettings>({goal:null});

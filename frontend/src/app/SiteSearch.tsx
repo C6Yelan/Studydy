@@ -14,7 +14,7 @@ function openConcept(concept: LibrarySearchView["concepts"][number]) {
   writeRoute(
     { name: "knowledge-map", materialId: concept.material_id, runId: concept.run_id, structureRevision: concept.knowledge_structure_revision },
     false,
-    { knowledgeMap: { revision: concept.knowledge_structure_revision, mode: "focus", search: "", concept: concept.concept_id, detail: concept.concept_id, review: null, relation: null } },
+    { knowledgeMap: { revision: concept.knowledge_structure_revision, search: "", concept: concept.concept_id, detail: concept.concept_id, review: null, relation: null } },
   );
 }
 

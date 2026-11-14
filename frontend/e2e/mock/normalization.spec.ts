@@ -359,7 +359,8 @@ for (const viewport of [
             main.getBoundingClientRect().width -
             parseFloat(css.paddingLeft) -
             parseFloat(css.paddingRight),
-          width: main.firstElementChild!.getBoundingClientRect().width,
+          // 第一個內容區塊（教材頁上方的更新提示插槽沒有提示時不佔位）。
+          width: main.querySelector(":scope > :not(.material-notice)")!.getBoundingClientRect().width,
         };
       });
       expect(width).toBeCloseTo(Math.min(usable, 1600), 0);

@@ -20,7 +20,7 @@ for (const width of [1366, 390]) test(`goal form saves date and percentage and k
     return json(route, view);
   });
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   const panel = page.locator(".review-diagnosis");
   await panel.getByRole("button", { name: "設定學習目標", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "設定學習目標", exact: true });
@@ -53,7 +53,7 @@ test("today shows fixed quota, whole-concept workload and manual evidence gaps",
   await page.route(`**/v1/materials/${materialId}/goal**`, route => json(route, view));
   await page.route(`**/v1/materials/${materialId}/study-start`, route => { starts.push(route.request().postDataJSON()); return json(route, failure, 503); });
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   const panel = page.locator(".review-diagnosis");
   await expect(panel).toContainText("今天 0/2 個重點");
   await expect(panel).toContainText("落後 2 個重點");
@@ -82,7 +82,7 @@ test("an overdue goal can lower its percentage without postponing its date", asy
     return json(route, view);
   });
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   const panel = page.locator(".review-diagnosis");
   await panel.getByRole("button", { name: "更改學習目標", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "更改學習目標", exact: true });
@@ -141,7 +141,7 @@ test("editing the target date preserves all of today's earned points", async ({ 
     return json(route, view);
   });
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   const panel = page.locator(".review-diagnosis");
   const today = page.getByRole("region", { name: "學習進度", exact: true });
   await expect(today).toContainText("今日關卡已完成");
@@ -162,7 +162,7 @@ test("zero assessable points stays unavailable and achieved goals stay distinct"
     today_stage: { date: goalToday, quota_points: 0, completed_points: 0, remaining_points: 0, scheduled_points: 0, done: false, concepts: [] }, future_stages: [] });
   await page.route(`**/v1/materials/${materialId}/goal**`, route => json(route, view));
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   const panel = page.locator(".review-diagnosis");
   await expect(panel).toContainText("目前沒有可檢測重點");
   await expect(panel).toContainText("尚無法計算");
@@ -230,7 +230,7 @@ for (const width of [1440, 390]) test(`home shows separate material goals and ta
   await expect(dueToday).toHaveClass(/is-warning/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await tasks.getByRole("button", { name: "查看關卡：資料結構", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "學習與測驗", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("link", { name: "學習進度", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".review-diagnosis")).toBeVisible();
   expect(starts).toEqual([]);
 });
@@ -242,7 +242,7 @@ for (const width of [1440, 390]) test(`completed daily stage shows earned points
   Object.assign(view.goal!.today_stage, { quota_points: 2, completed_points: 3, remaining_points: 0, scheduled_points: 0, done: true, concepts: [] });
   await page.route(`**/v1/materials/${materialId}/goal**`, route => json(route, view));
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   const today = page.getByRole("region", { name: "學習進度", exact: true });
   await expect(today).toContainText("今日關卡已完成");
   await expect(today).toContainText("今天 3/2 個重點");
@@ -265,7 +265,7 @@ for (const kind of ["extend_date", "lower_target"] as const) test(`goal suggesti
     }
     return json(route, view);
   });
-  await page.goto(mapPath); await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.goto(mapPath); await page.getByRole("link", { name: "學習進度", exact: true }).click();
   const button = page.getByRole("button", { name: kind === "extend_date" ? /延後到 11\/10/ : /改成 60%/ });
   await expect(button).toBeVisible(); expect(writes).toEqual([]);
   await button.click(); await expect(page.getByRole("alert")).toBeVisible(); await expect(button).toBeEnabled();

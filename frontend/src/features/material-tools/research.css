@@ -182,7 +182,8 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
   .research-detail .tool-result { grid-template-columns:auto minmax(0,1fr) auto; }
   .research-detail .tool-result > .primary-button { grid-column:auto; }
 }
-@container research-sources (min-width:1100px) {
+/* 三欄來源卡每欄約 330px；1000px 讓 1366 寬的視窗扣掉教材側欄後仍排三欄。 */
+@container research-sources (min-width:1000px) {
   .source-picker.is-compact .research-candidates { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
 /* 與上方 1000px 互補（保留理由同上）。 */
@@ -203,7 +204,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 @media(min-width:1000px) {
   .material-content:has(.supplementary-page) { display:flex; flex-direction:column; height:calc(100dvh - var(--shell-header-height,56px)); min-height:0; padding-bottom:80px; }
   .material-content-body:has(.supplementary-page), .supplementary-page, .supplementary-page .research-panel { display:flex; flex-direction:column; flex:1; min-height:0; }
-  .supplementary-page > .material-learning-toolbar, .supplementary-page > .material-context,
+  .supplementary-page > .material-back,
   .research-panel > :not(.research-records):not(.research-detail-body):not(.research-workspace) { flex-shrink:0; }
   .research-library .research-records { flex:1; min-height:0; align-content:start; padding:2px; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
   .research-workspace { flex:1; min-height:0; }

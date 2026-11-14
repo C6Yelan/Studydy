@@ -15,7 +15,7 @@ test("a real goal leads through source reading and answers without completing th
   await expect(page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true })).toBeVisible();
 
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   const goalPanel = page.locator(".review-diagnosis");
   await goalPanel.getByRole("button", { name: "設定學習目標", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "設定學習目標", exact: true });
@@ -58,7 +58,7 @@ test("a real goal leads through source reading and answers without completing th
 
   const badgeNotice = page.getByRole("status", { name: "獲得新徽章" });
   if (await badgeNotice.isVisible()) await badgeNotice.getByRole("button", { name: "太好了", exact: true }).click();
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   await expect(goalPanel.getByText("學習目標已達成。", { exact: true })).toBeVisible();
   await expect(goalPanel.getByRole("progressbar", { name: "學習目標進度", exact: true })).toHaveAttribute("aria-valuetext", "已完成 2／需完成 2 個重點");
   await expect(today).toContainText("今日關卡已完成");

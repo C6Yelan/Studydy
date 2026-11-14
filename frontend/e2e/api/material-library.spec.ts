@@ -81,8 +81,9 @@ test("fresh profiles reopen the current head and read exact historical versions"
     ).toBeVisible();
     await expect(freshPage).toHaveURL(`${browserOrigin}${headPath}`);
   }
-  // 教材內由教材頁首的返回按鈕回到我的教材。
-  await freshPage.getByRole("button", { name: "回到我的教材", exact: true }).click();
+  // 教材內從側欄的品牌回首頁，再用全站側欄回到我的群島。
+  await freshPage.getByRole("link", { name: "返回 Studydy 首頁" }).click();
+  await freshPage.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "我的群島", exact: true }).click();
   const pdfUrl = `/v1/artifacts/${material.source_artifact_id}`;
   const pdf = await fresh.request.get(`${browserOrigin}${pdfUrl}`);
   expect(pdf.status()).toBe(200);

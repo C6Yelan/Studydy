@@ -4,7 +4,7 @@ import { ApiClientError, errorMessage, StudydyApiClient } from "./api/client";
 import type { LearnerIdentity } from "./api/contracts";
 import { readSessionHint, saveSessionHint } from "./api/session-hint";
 import { AppShell } from "./app/AppShell";
-import { readRoute, writeRoute, type AppRoute } from "./app/routes";
+import { notePath, readRoute, writeRoute, type AppRoute } from "./app/routes";
 import { MaterialFlow } from "./features/material-flow/MaterialFlow";
 import { StateView } from "./ui/StateView";
 import { AccountPage } from "./features/account/AccountPage";
@@ -124,6 +124,7 @@ export default function App() {
         writeRoute(next.route, true);
         return;
       }
+      notePath(window.location.pathname);
       setRoute(next.route);
     };
     readLocation();

@@ -174,7 +174,7 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
 
 async function openSavedCardManagement(page: Page) {
   await expect(page.getByRole("button", { name: "管理卡組", exact: true })).toHaveCount(0);
-  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
+  await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   await page.locator(".library-item .material-management-menu summary").click();
   await page.locator(".material-management-menu[open]").getByRole("button", { name: "管理卡組", exact: true }).click();
 }
@@ -241,7 +241,7 @@ test("card creation fits a desktop viewport and preserves selections across page
 test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete work", async ({ page }) => {
   const fixture = await mockCards(page);
   await page.goto(mapPath);
-  await page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab", { name: "概念卡", exact: true }).click();
+  await page.getByRole("navigation", { name: "教材導覽" }).getByRole("link", { name: "翻卡片", exact: true }).click();
   await page.locator(".library-header").getByRole("button", { name: "建立卡組", exact: true }).click();
   await expect(page.getByRole("heading", { name: "建立概念卡組" })).toBeVisible();
   const name = page.getByLabel("卡組名稱", { exact: true });
@@ -289,7 +289,7 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await page.reload();
   await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toHaveAttribute("title", "堆疊（Stack）｜概念卡");
-  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
+  await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的資料結構卡組" })).toBeVisible();
   await page.screenshot({ path: "../.studydy-runtime/card-preview/library-desktop.png", fullPage: true });
   await page.getByRole("button", { name: "管理卡組「我的資料結構卡組」" }).click();
@@ -523,9 +523,9 @@ test("library stays aligned and card review keeps compact content and controls",
   const back = page.getByRole('button', {name:'返回我的概念卡', exact:true});
   await expect(back).toBeVisible();
   const loadingBack = (await back.boundingBox())!;
-  const tabs = (await page.locator('.material-learning-toolbar').boundingBox())!;
-  expect(loadingBack.x).toBeGreaterThanOrEqual(tabs.x);
-  expect(loadingBack.x + loadingBack.width).toBeLessThanOrEqual(tabs.x + tabs.width);
+  // 返回鍵在教材側欄右邊的內容區，讀取前後位置不變。
+  const rail = (await page.locator('.material-rail').boundingBox())!;
+  expect(loadingBack.x).toBeGreaterThanOrEqual(rail.x + rail.width);
   release();
   await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toBeVisible();
@@ -649,7 +649,7 @@ test("late card save and source read do not reopen a page after navigation", asy
   const reading = page.waitForRequest("**/evidence/*/source");
   await page.getByRole("button", { name: "查看第 1 頁來源" }).click();
   await reading;
-  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
+  await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   const sourceRead = page.waitForResponse("**/evidence/*/source");
   releaseSource();
   await sourceRead;
@@ -737,15 +737,15 @@ test("saved card views and editing stay inside the material workspace from eithe
   await page.goto('/concept-cards');
   await page.getByRole('button', { name: '開始複習', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}$`));
-  const tabs = page.getByRole('tablist', { name: '教材學習內容' });
+  const tabs = page.getByRole('navigation', { name: '教材導覽' });
   await expect(tabs).toBeVisible();
-  await expect(tabs.getByRole('tab', { name: '概念卡', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(tabs.getByRole('link', { name: '翻卡片', exact: true })).toHaveAttribute('aria-current', 'page');
   await openSavedCardManagement(page);
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}/edit$`));
   await expect(tabs).toBeVisible();
   await page.getByRole('button', { name: '取消變更', exact: true }).click();
   await expect(tabs).toBeVisible();
-  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
+  await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
   await expect(tabs).toBeVisible();
   // 從全站概念卡列表開啟管理卡組時保留返回該列表。
@@ -760,15 +760,17 @@ test("saved card views and editing stay inside the material workspace from eithe
 });
 
 
-test('saved material card review keeps the chat entry in the material tab row',async({page})=>{
+test('saved material card review keeps the chat entry in the material rail',async({page})=>{
  await mockCards(page,{saved:true});
  for(const width of [1920,1440,390]){
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   await showCardBack(page);
   await expect(page.locator('.visual-concept-card')).toBeVisible();
-  const chat=page.getByRole('button',{name:'Studydy AI BOT',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
-  // 問答入口在教材頁首右端。
-  const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(toolbar.y);expect(box.y+box.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);
+  // 問答入口在教材側欄（翻卡的側欄預設收合）；手機收在底部頁籤的「更多」裡。
+  if(width<=720)await page.getByRole('navigation',{name:'教材導覽'}).getByRole('button',{name:'更多',exact:true}).click();
+  const chat=page.getByRole('button',{name:'問小幫手',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
+  const nav=(await page.getByRole('navigation',{name:'教材導覽'}).boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(nav.x-0.5);expect(box.x+box.width).toBeLessThanOrEqual(nav.x+nav.width+0.5);
+  if(width>720){await page.mouse.move(width-10,450);await expect.poll(async()=>(await page.locator('.rail').boundingBox())!.width).toBe(64);}
  }
 });
 
@@ -868,7 +870,7 @@ test("visual structure read retries the retained revision and ignores completion
   await page.route(`**/v1/card-sets/${cardSetId}/study`, async route => { await gate; await route.fallback(); });
   const pending = page.waitForRequest(`**/v1/card-sets/${cardSetId}/study`);
   await page.reload(); await pending;
-  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
+  await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   const response = page.waitForResponse(`**/v1/card-sets/${cardSetId}/study`);
   release(); await response;
   await expect(page.locator(".flashcard")).toHaveCount(0);
@@ -1300,7 +1302,7 @@ test("selection counts concepts while saved library and study count generated pa
   await expect(page.locator('.cards-create-summary strong')).toHaveText('1 個觀念');
   await page.getByRole('button', { name: '保存變更', exact: true }).click();
   await expect(page.locator('.card-dock-count')).toContainText('1 / 1');
-  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
+  await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   await expect(metadata).toContainText('1 張卡片');
 });
 
@@ -1438,7 +1440,7 @@ test("returning to a card and reopening the deck reuse bounded canvas memory", a
   await expect(image).toHaveAttribute("aria-label", "堆疊（Stack）視覺化概念卡");
   await showCardBack(page);
   await expect(image).toBeVisible();
-  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
+  await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   await page.getByRole('button', { name: '開始複習', exact: true }).click();
   await showCardBack(page);
   await expect(image).toBeVisible();
@@ -1775,8 +1777,9 @@ test("material needs-work entry opens a review of only this material's card sets
   const params = new URL((await read).url()).searchParams;
   expect(params.get("material_id")).toBe(materialId);
   expect(params.has("card_set_id")).toBe(false);
-  const tabs = page.getByRole("tablist", { name: "教材學習內容" });
-  await expect(tabs.getByRole("tab", { name: "概念卡", exact: true })).toHaveAttribute("aria-selected", "true");
+  const tabs = page.getByRole("navigation", { name: "教材導覽" });
+  // 側欄「翻卡片」的名稱帶著這份教材的不熟卡數。
+  await expect(tabs.getByRole("link", { name: /^翻卡片/ })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".card-review-heading")).toContainText("這份教材各卡組中標成不熟的卡片");
   // 混合多個卡組時標示卡組名稱；同一份教材內不再重複教材名稱。
   await expect(page.locator(".card-review-heading .cards-study-meta")).toContainText("資料結構 · 核心概念");

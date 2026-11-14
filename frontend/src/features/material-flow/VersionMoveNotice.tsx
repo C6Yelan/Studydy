@@ -5,7 +5,7 @@ import type { VersionMovePreview, VersionMoveResult, VersionMoveUnmapped, Versio
 import { Modal } from "../../app/Modal";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
-import { rememberedMaterial } from "./material-memory";
+import { useRememberedMaterial } from "./material-memory";
 import "./version-move.css";
 
 const reasons: Record<VersionMoveUnmapped["reason"], string> = {
@@ -31,7 +31,8 @@ export function openCardSetUpdate(cardSetId: string) { window.dispatchEvent(new 
 
 export function VersionMoveNotice({ apiClient, materialId, compact = false, entryHidden = false }: { apiClient: StudydyApiClient; materialId: string; compact?: boolean; entryHidden?: boolean }) {
   const launch = useStudyStart(apiClient, materialId);
-  const material = rememberedMaterial(apiClient, materialId);
+  // 掛在外框，頁面讀到教材索引（含新版本）時要跟著更新。
+  const material = useRememberedMaterial(apiClient, materialId);
   const head = material?.head_revision ?? null;
   const [preview, setPreview] = useState<VersionMovePreview | null>(null);
   const [reload, setReload] = useState(0);

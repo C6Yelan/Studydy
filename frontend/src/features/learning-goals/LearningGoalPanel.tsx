@@ -8,7 +8,7 @@ import "./styles.css";
 
 const shortDate = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8))}`;
 
-/** 學習與測驗頁共用的目標狀態：頂列、今天的概念、目標區塊都讀這一份。 */
+/** 學習進度頁共用的目標狀態：頂列、今天的概念、目標區塊都讀這一份。 */
 export function useLearningGoal(api: StudydyApiClient, materialId: string) {
   const [view, setView] = useState<LearningGoalView | null>(null);
   const [error, setError] = useState<string | null>(null);

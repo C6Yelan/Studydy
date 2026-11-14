@@ -20,7 +20,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   route: Extract<AppRoute, { name: "card-set-create" | "card-set-edit" }>;
 }) {
   const editing = route.name === "card-set-edit";
-  // 管理卡組在教材內（已有教材頁首與分頁列）不再重複返回；從全站概念卡列表進入時保留返回該列表。
+  // 管理卡組在教材內（已有教材側欄與返回鍵）不再重複返回；從全站概念卡列表進入時保留返回該列表。
   const [fromCollection] = useState(() => !!window.history.state?.fromCollection);
   const routeKey = routePath(route);
   const [view, setView] = useState<KnowledgeOutlineView | null>(null);

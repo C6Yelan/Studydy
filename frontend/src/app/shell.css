@@ -5,8 +5,9 @@
   --application-frame-max: 1600px;
   --readable-content-max: 880px;
   --shell-gutter: clamp(16px, 2.4vw, 32px);
-  /* 內容區上下留白；填滿視窗高度的學習頁以此扣除。 */
-  --shell-offset: 32px;
+  /* 內容區上下留白（--shell-chrome）加上教材更新提示的高度；填滿視窗高度的學習頁以此扣除。 */
+  --shell-chrome: 32px;
+  --shell-offset: calc(var(--shell-chrome) + var(--material-notice-height, 0px));
   --shell-header-height: var(--shell-offset);
   position: relative;
   display: flex;
@@ -179,6 +180,9 @@
 .phone-nav {
   display: none;
 }
+.rail-toggle {
+  display: none;
+}
 
 .app-main {
   /* 將頁內 sticky／浮動元件限制在內容層，避免蓋過左側欄。 */
@@ -214,12 +218,100 @@
 /* 保留 max-height: 820px：依學習頁內容需要的視窗高度決定，不是寬度斷點。 */
 @media (min-width: 1025px) and (max-height: 820px) {
   .app-shell {
-    --shell-offset: 20px;
+    --shell-chrome: 20px;
   }
   .app-shell.is-workspace .app-main {
     padding-top: 8px;
     padding-bottom: 12px;
   }
+}
+
+/* 收合的側欄（地圖、翻卡、需要加強、播放器）：約 64px 的圖示列，滑鼠移入（is-rail-peek）或鍵盤移入時疊在內容上展開，
+   按「展開側欄」才把內容推開。平板以下本來就是圖示列或底部頁籤，不另外處理。 */
+@media (min-width: 1025px) {
+  .rail-toggle {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 7px 18px;
+    border: 0;
+    border-radius: var(--radius-input);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    text-align: left;
+  }
+  .rail-toggle:hover {
+    background: var(--page-cool);
+    color: var(--text-secondary);
+  }
+  .rail-toggle > svg {
+    flex: none;
+  }
+  .app-shell.is-rail-collapsed {
+    --rail-width: 64px;
+  }
+  /* 展開不加 transition：視窗從桌機縮到手機時，過場會讓側欄短暫撐出橫向捲動。 */
+  .is-rail-collapsed > .rail {
+    padding-inline: 8px;
+  }
+  .is-rail-collapsed.is-rail-peek > .rail,
+  .is-rail-collapsed > .rail:has(:focus-visible) {
+    width: 236px;
+    margin-right: -172px;
+    padding-inline: 14px;
+    box-shadow: var(--shadow);
+  }
+  .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) {
+    align-items: center;
+  }
+  .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) :is(.rail-brand span, .rail-search span, .rail-search kbd, .rail-label) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* 收合與展開時每個項目的高度相同，滑過展開時項目不會在游標下移位。 */
+  .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) .rail-brand {
+    padding-inline: 0;
+  }
+  .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) .material-rail-name {
+    visibility: hidden;
+    width: 48px;
+  }
+  .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) :is(.rail-toggle, .rail-search, .rail-upload) {
+    justify-content: center;
+    width: 48px;
+    padding: 0;
+  }
+  .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) :is(.rail-nav, .material-rail-nav, .material-rail-more) {
+    align-items: center;
+  }
+  .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) .rail-link {
+    position: relative;
+    justify-content: center;
+    width: 48px;
+    padding: 4px;
+  }
+  .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) :is(.rail-minor, .material-rail-minor .rail-link) > i {
+    display: grid;
+  }
+  .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) .rail-link .shell-count {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
+}
+
+/* 答題的專注模式：沒有側欄與底部頁籤，內容用滿整個寬度。 */
+.app-shell.is-focus .app-main {
+  padding-top: 16px;
 }
 
 /* 平板：側欄收成圖示列，文字留給輔助科技（搜尋與入口的名稱不變）。 */
@@ -279,7 +371,7 @@
 /* 手機：側欄變成頂端一列（品牌、搜尋、新增教材、個人檔案），主要入口移到底部頁籤。 */
 @media (max-width: 720px) {
   .app-shell {
-    --shell-offset: 166px;
+    --shell-chrome: 166px;
     display: block;
   }
   .rail {
@@ -337,6 +429,9 @@
   .app-shell.is-workspace .app-main {
     padding-top: 18px;
     padding-bottom: calc(108px + env(safe-area-inset-bottom));
+  }
+  .app-shell.is-focus .app-main {
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
   }
   .phone-nav {
     position: fixed;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { PodcastSummary, MaterialLibraryItem } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
@@ -21,7 +21,7 @@ const videoTotal = (item: PodcastSummary) => item.generation?.expected_videos ??
 
 export const podcastStatus = { pending: "等待生成", running: "正在生成", ready: "可以播放", failed: "生成中斷", cancelled: "已取消" };
 
-export function PodcastLibrary({ apiClient, learnerId, material, contentNavigation }: { apiClient: StudydyApiClient; learnerId: string; material?: MaterialLibraryItem; contentNavigation?: ReactNode }) {
+export function PodcastLibrary({ apiClient, learnerId, material }: { apiClient: StudydyApiClient; learnerId: string; material?: MaterialLibraryItem }) {
   const [items, setItems] = useState<PodcastSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -60,7 +60,6 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision);
   const create = () => { if (material && structure) writeRoute({ name: "podcast-create", materialId: material.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision }); else if (!material) writeRoute({ name: "podcast-new" }); };
   return <section className="material-library is-collection podcast-library" aria-label={material ? "教材 Podcast" : "我的 Podcast"}>
-    {contentNavigation}
     {material ? <header className="library-header library-header-compact collection-toolbar material-search-row">
       <div className="collection-summary" ref={heading} tabIndex={-1}><p>{items === null ? "—" : `已保存 ${items.length} 份 Podcast`}</p></div>
       <button className="primary-button" type="button" disabled={!structure} onClick={create}><Icon name="headphones" size={18} /> 建立 Podcast</button>
@@ -68,7 +67,7 @@ export function PodcastLibrary({ apiClient, learnerId, material, contentNavigati
       subtitle={<>{items !== null && <><b>已保存 {items.length} 份 Podcast</b> · </>}把教材重點變成可以隨時收聽的節目，收聽進度會自動保存。</>}
       actions={<button className="primary-button" type="button" onClick={create}><Icon name="headphones" size={18} /> 建立 Podcast</button>}
       headingRef={heading} />}
-      <div role={material ? "tabpanel" : undefined} id={material ? "material-panel-podcasts" : undefined} aria-labelledby={material ? "material-tab-podcasts" : undefined}>
+      <div>
     {error && items !== null && <p className="form-error" role="alert">無法更新 Podcast 列表。{error}<button className="text-button" onClick={()=>setReload(value=>value+1)}>重新讀取</button></p>}
     {error && items === null ? <StateView title="無法讀取 Podcast" description={error} tone="failure" action={<button type="button" className="secondary-button" onClick={() => setReload((v) => v + 1)}>重新讀取</button>} />
       : items === null ? <StateView title="正在讀取 Podcast" description="正在找回你保存的內容。" tone="loading" live skeleton="library" />

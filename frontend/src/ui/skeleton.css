@@ -22,7 +22,6 @@
 .skeleton-bone.is-line { width: 100%; height: 14px; border-radius: 999px; }
 .skeleton-bone.is-title { height: 26px; }
 .skeleton-bone.is-pill { width: 96px; height: 38px; border-radius: 999px; flex: none; }
-.skeleton-bone.is-thumb { width: 44px; height: 44px; border-radius: 14px; flex: none; }
 .skeleton-bone.is-art { height: 112px; border-radius: 18px; }
 .skeleton-bone.is-panel { height: 92px; border-radius: var(--radius-card); }
 .skeleton-bone.is-row { height: 40px; border-radius: var(--radius-input); }
@@ -40,27 +39,6 @@
   display: grid;
   min-width: 0;
   gap: var(--space-3);
-}
-/* 與教材頁首（material-header.css）同一列的形狀：白底圓角外框、圓形返回與頭像。 */
-.skeleton-material-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 6px;
-  border-radius: var(--radius-card);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-.skeleton-material-bar .is-round { width: 42px; height: 42px; border-radius: 50%; flex: none; }
-.skeleton-material-bar .is-name { width: min(200px, 22%); height: 18px; flex: none; }
-.skeleton-material-bar .is-chat { width: 112px; margin-left: auto; }
-.skeleton-tabs {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  gap: var(--space-2);
-  overflow: hidden;
 }
 .skeleton-grid {
   display: grid;
@@ -112,11 +90,6 @@
 }
 
 @media (max-width: 720px) {
-  /* 手機教材頁首分兩列：名稱與問答在上、分頁在下。 */
-  .skeleton-material-bar { flex-wrap: wrap; }
-  .skeleton-material-bar .is-name { flex: 1; }
-  .skeleton-material-bar .is-chat { width: 42px; }
-  .skeleton-material-bar .skeleton-tabs { order: 1; flex-basis: 100%; }
   .skeleton-map { grid-template-columns: minmax(0, 1fr); }
   .skeleton-map-canvas { min-height: 46vh; }
   .skeleton-bone.is-node.is-center { left: calc(50% - 110px); width: 220px; }

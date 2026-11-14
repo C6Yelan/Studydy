@@ -10,7 +10,6 @@ import { writeRoute } from "../../app/routes";
 import { BackLink } from "../../ui/BackLink";
 import { StateView } from "../../ui/StateView";
 import { rememberMaterial } from "./material-memory";
-import { MaterialContentNav } from "./MaterialContentNav";
 import { MaterialRemoveControl } from "./MaterialRemoveControl";
 import { automaticPollIntervalMs } from "./material-flow";
 import { FlowFooter, FlowHeader, FlowStage, LearningSteps, uploadSteps } from "./Flow";
@@ -452,7 +451,7 @@ export function SourceView({
       </button>
     </div>
   );
-  // 確認教材（尚未建立地圖）時沒有教材頁首，保留返回我的教材；教材分頁內已有頁首返回與分頁列，不再重複。
+  // 確認教材（尚未建立地圖）時保留返回我的教材；已有地圖的教材由教材側欄切換，不再重複。
   const bottom = (
     <div className="flow-bottom source-footer">
       {!currentStructure && <BackLink label="返回我的教材" route={{ name: "materials" }} />}
@@ -510,8 +509,7 @@ export function SourceView({
     );
   return (
     <section className="material-content source-page">
-      <MaterialContentNav apiClient={apiClient} materialId={materialId} current="sources" materialName={material?.display_name} mapRoute={{ name: "knowledge-map", materialId, runId: currentStructure.run_id, structureRevision: currentStructure.knowledge_structure_revision }} />
-      <div className="source-panel" role="tabpanel" id="material-panel-sources" aria-labelledby="material-tab-sources">
+      <div className="source-panel">
         <header className="source-panel-head">
           <div className="source-panel-title">
             {/* 教材分頁內沒有另外的頁面標題，清單標題即本頁標題。 */}

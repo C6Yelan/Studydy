@@ -21,29 +21,6 @@
   background: var(--warning-soft);
   font-size: 13px;
 }
-.map-tabs {
-  position: sticky;
-  top: 56px;
-  z-index: 5;
-  background: var(--page-cool);
-  display: flex;
-  gap: var(--space-6);
-  margin: var(--space-3) 0;
-  border-bottom: 1px solid var(--border);
-}
-.map-tabs button {
-  min-height: 42px;
-  padding: 0 20px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  background: transparent;
-  font-weight: 600;
-}
-.map-tabs button.is-active {
-  border-bottom-color: var(--studydy-blue);
-  color: var(--studydy-blue);
-}
 .map-content {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -472,10 +449,6 @@
 .relation-swatch.is-application { height: 3px; background: repeating-linear-gradient(90deg, #f08a00 0 7px, transparent 7px 11px); }
 .relation-swatch.is-example { background: radial-gradient(circle at 4px 4px, #1aa3b8 3px, transparent 3.5px) 0 0 / 10px 8px repeat-x; }
 .relation-swatch.is-contrast { height: 3px; background: repeating-linear-gradient(90deg, #e0569a 0 3px, transparent 3px 7px); }
-.map-tabs {
-  flex-shrink: 0;
-}
-
 /* 畫布填滿頁首下方空間；只有開啟詳情時才配置右欄。 */
 .map-workspace.is-focus-mode {
   display: flex;
@@ -485,9 +458,6 @@
 }
 .is-focus-mode > :not(.map-content) {
   flex-shrink: 0;
-}
-.is-focus-mode .map-tabs {
-  position: static;
 }
 .is-focus-mode .map-content {
   flex: 1;
@@ -897,15 +867,6 @@
   }
 }
 @media (max-width: 720px) {
-  .map-tabs {
-    gap: 0;
-    justify-content: space-between;
-  }
-  .map-tabs button {
-    padding: 0 8px;
-    font-size: 13px;
-    white-space: nowrap;
-  }
 
   .map-view {
     padding: 12px;
@@ -1116,7 +1077,7 @@
   text-align: center;
 }
 
-/* 手機：畫布高度扣掉頁首、教材列、分頁列與底部導覽，縮放按鈕不被底部導覽蓋住；
+/* 手機：畫布高度扣掉頂端列與底部頁籤，縮放按鈕不被底部頁籤蓋住；
    圖例維持單列，可橫向滑動，文字不再被擠成直排。 */
 @media (max-width: 720px) {
   .is-focus-mode .map-content {
@@ -1201,13 +1162,13 @@
     bottom: 10px;
     max-width: calc(100% - 76px);
   }
-  /* 教材頁首兩列加上內容區留白；地圖填滿其餘高度（教材內沒有底部導覽）。 */
+  /* 教材側欄的頂端列、底部頁籤加上內容區留白；地圖填滿其餘高度。 */
   .app-shell.is-material .is-focus-mode .map-content {
-    height: max(360px, calc(100dvh - 150px - env(safe-area-inset-bottom)));
+    height: max(360px, calc(100dvh - var(--shell-offset) - env(safe-area-inset-bottom)));
   }
 }
 
-/* 學習與測驗：測驗紀錄標題列附摘要數字，概念列表與首頁卡片同一套白卡。 */
+/* 學習進度：測驗紀錄標題列附摘要數字，概念列表與首頁卡片同一套白卡。 */
 .review-records {
   display: grid;
   gap: 14px;

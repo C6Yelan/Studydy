@@ -49,19 +49,16 @@ for (const [action, marksNext] of [
   });
 }
 
-test("map tabs cycle and missing path references still fail the strict API contract", async ({
+test("material rail lists the map pages and missing path references still fail the strict API contract", async ({
   page,
 }) => {
   const view = learningMap(8, true);
   await mockLearningMapApi(page, view, false);
   await page.goto(mapPath);
-  const tabs = page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab");
-  await expect(tabs).toHaveText(["知識地圖", "學習與測驗", "概念卡", "Podcast", "筆記", "補充學習", "教材來源"]);
+  const links = page.getByRole("navigation", { name: "教材導覽" }).getByRole("link");
+  await expect(links).toHaveText(["知識地圖", "學習進度", "翻卡片", "聽 Podcast", "我的筆記", "找更多資料", "原始檔案", "教材設定"]);
   await expect(page.getByRole("tab", { name: "學習順序", exact: true })).toHaveCount(0);
-  await tabs.nth(1).focus();
-  await page.keyboard.press("Home");
-  await expect(tabs.first()).toBeFocused();
-  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+  await expect(links.first()).toHaveAttribute("aria-current", "page");
   view.initial_learning_path[0].concept_id = `concept:sha256:${"f".repeat(64)}`;
   await page.goto(mapPath);
   await expect(page.getByRole("heading", { name: "無法讀取知識地圖", exact: true })).toBeVisible();
@@ -79,7 +76,7 @@ test("sectionless concepts remain selectable through navigation", async ({ page 
   await page.goto(mapPath);
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
   await expect(page.getByRole("tab", { name: "總覽", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("tabpanel", { name: "知識地圖", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "知識地圖", exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: "學習導覽", exact: true });
   await toggle.click();
   await expect(page.locator(".navigator-label")).toHaveText(["Stack", "Array"]);
@@ -239,16 +236,15 @@ test("reload restores map presentation while local interaction does not restart 
     for (let i = 0; i < 5; i++) window.dispatchEvent(new Event("focus"));
   });
   await page.reload();
-  await expect(page.getByRole("tab", { name: "知識地圖", exact: true })).toHaveAttribute(
-    "aria-selected",
-    "true",
+  await expect(page.getByRole("link", { name: "知識地圖", exact: true })).toHaveAttribute(
+    "aria-current", "page",
   );
   await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "Array", exact: true })).toHaveText("Array");
   const context = await page.getByRole("dialog", { name: "概念詳情" }).elementHandle();
   await page.clock.fastForward(60 * 60 * 1000 + 1);
   expect(await context!.evaluate((node) => node.isConnected)).toBe(true);
   await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "Array", exact: true })).toHaveText("Array");
-  await page.getByRole("tab", { name: "知識地圖", exact: true }).click();
+  await page.getByRole("link", { name: "知識地圖", exact: true }).click();
   await openMapConcept(page, "Array");
   await page.getByRole("searchbox").fill("Stack");
   await page.reload();

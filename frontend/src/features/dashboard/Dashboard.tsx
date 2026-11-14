@@ -37,9 +37,8 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
     return () => { cancelled = true; window.removeEventListener("focus", read); };
   }, [apiClient, goalsReload]);
   const goalsByMaterial = useMemo(() => new Map(goals?.goals.map(goal => [goal.material_id, goal]) ?? []), [goals]);
-  const openGoal = (goal: LearningGoalSummary) => writeRoute({ name: "knowledge-map", materialId: goal.material_id,
-    runId: goal.run_id, structureRevision: goal.knowledge_structure_revision }, false,
-    { knowledgeMap: { revision: goal.knowledge_structure_revision, mode: "review" } });
+  const openGoal = (goal: LearningGoalSummary) => writeRoute({ name: "material-progress", materialId: goal.material_id,
+    runId: goal.run_id, structureRevision: goal.knowledge_structure_revision });
 
   // 依最近學習排序：有學習紀錄的教材在前，其餘依建立時間。
   const ordered = useMemo(() => [...(materials ?? [])].sort((a, b) => {

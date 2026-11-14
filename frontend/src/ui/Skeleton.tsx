@@ -14,16 +14,6 @@ function Lines({ count, last = "60%" }: { count: number; last?: string }) {
     <Bone key={index} className="is-line" style={index === count - 1 ? { width: last } : undefined} />)}</>;
 }
 
-/** 教材頁首：單列的返回＋島嶼縮圖＋名稱＋分頁＋Studydy AI BOT＋頭像（分頁在窄螢幕裁切，與實際頁首橫向捲動一致）。 */
-function MaterialBar() {
-  return <div className="skeleton-material-bar">
-    <Bone className="is-round" /><Bone className="is-thumb" />
-    <Bone className="is-line is-name" />
-    <div className="skeleton-tabs">{Array.from({ length: 6 }, (_, index) => <Bone key={index} className="is-pill" />)}</div>
-    <Bone className="is-pill is-chat" /><Bone className="is-round" />
-  </div>;
-}
-
 function Cards({ count }: { count: number }) {
   return <div className="skeleton-grid">{Array.from({ length: count }, (_, index) =>
     <div key={index} className="skeleton-card"><Bone className="is-art" /><Lines count={2} /></div>)}</div>;
@@ -35,8 +25,8 @@ function Body({ variant }: { variant: SkeletonVariant }) {
     <div className="skeleton-heading"><Bone className="is-line is-title" style={{ width: "min(240px, 60%)" }} /><Bone className="is-line" style={{ width: "min(360px, 80%)" }} /></div>
     <Cards count={6} />
   </>;
-  if (variant === "material") return <><MaterialBar /><Cards count={3} /></>;
-  if (variant === "map") return <><MaterialBar />
+  if (variant === "material") return <Cards count={3} />;
+  if (variant === "map") return <>
     <div className="skeleton-map">
       <div className="skeleton-map-canvas">
         <Bone className="is-node is-center" /><Bone className="is-node is-left" /><Bone className="is-node is-right" />
@@ -44,8 +34,8 @@ function Body({ variant }: { variant: SkeletonVariant }) {
       <div className="skeleton-map-side"><Bone className="is-line is-title" style={{ width: "50%" }} />{Array.from({ length: 7 }, (_, index) => <Bone key={index} className="is-row" />)}</div>
     </div>
   </>;
-  if (variant === "deck") return <><MaterialBar /><div className="skeleton-deck"><Bone className="is-flashcard" /><div className="skeleton-actions"><Bone className="is-pill" /><Bone className="is-pill" /></div></div></>;
-  if (variant === "media") return <><MaterialBar /><Bone className="is-video" /><div className="skeleton-stack"><Lines count={3} /></div></>;
+  if (variant === "deck") return <><div className="skeleton-deck"><Bone className="is-flashcard" /><div className="skeleton-actions"><Bone className="is-pill" /><Bone className="is-pill" /></div></div></>;
+  if (variant === "media") return <><Bone className="is-video" /><div className="skeleton-stack"><Lines count={3} /></div></>;
   return <>
     <div className="skeleton-heading"><Bone className="is-line is-title" style={{ width: "min(280px, 60%)" }} /><Bone className="is-line" style={{ width: "min(420px, 85%)" }} /></div>
     <div className="skeleton-stack">{Array.from({ length: 3 }, (_, index) => <Bone key={index} className="is-panel" />)}</div>

@@ -36,28 +36,24 @@ test("missing or foreign material shows a not-found page without delete or confi
   await expect(page).toHaveURL(/\/materials$/);
 });
 
-test("phone material tabs stay scrollable and the labelled Q&A entry never covers them", async ({ page }) => {
+test("phone material tabs stay at the bottom and never cover the map controls", async ({ page }) => {
   await mockKnowledgeMapApi(page, structureView());
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(mapPath);
-  const tabs = page.getByRole("tablist", { name: "教材學習內容" });
-  const ask = page.getByRole("button", { name: "Studydy AI BOT", exact: true });
-  await expect(ask).toBeVisible();
-  await expect(ask).toContainText("AI BOT");
-  // 手機教材頁首：問答在第一列，分頁獨佔第二列，互不覆蓋。
-  const list = (await tabs.boundingBox())!, button = (await ask.boundingBox())!;
-  expect(list.y).toBeGreaterThanOrEqual(button.y + button.height - 0.5);
-  // 還有分頁在右側時，分頁列右緣淡出提示可以滑動。
-  await expect(tabs).toHaveClass(/can-scroll-right/);
-  await page.getByRole("tab", { name: "教材來源", exact: true }).focus();
-  await page.keyboard.press("End");
+  const nav = page.getByRole("navigation", { name: "教材導覽", exact: true });
+  await expect(nav.getByRole("link", { name: "知識地圖", exact: true })).toHaveAttribute("aria-current", "page");
+  // 問小幫手收在「更多」裡；打開後同樣可以切到原始檔案。
+  await nav.getByRole("button", { name: "更多", exact: true }).click();
+  await expect(nav.getByRole("button", { name: "問小幫手", exact: true })).toBeVisible();
+  await nav.getByRole("link", { name: "原始檔案", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/sources$`));
-  // 教材內沒有底部導覽；地圖縮放按鈕完整留在畫面內。
+  await expect(nav.getByRole("button", { name: "更多", exact: true })).toHaveAttribute("aria-expanded", "false");
+  // 教材內沒有全站底部導覽；地圖縮放按鈕完整留在教材頁籤上方。
   await page.goto(mapPath);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await expect(page.getByRole("navigation", { name: "手機導覽" })).toBeHidden();
+  await expect(page.getByRole("navigation", { name: "手機導覽" })).toHaveCount(0);
   const zoomOut = (await page.getByRole("button", { name: "縮小地圖" }).boundingBox())!;
-  expect(zoomOut.y + zoomOut.height).toBeLessThanOrEqual(844);
+  expect(zoomOut.y + zoomOut.height).toBeLessThanOrEqual((await nav.boundingBox())!.y);
 });
 
 test("material cards keep the main action on its own row and secondary entries aligned", async ({ page }) => {

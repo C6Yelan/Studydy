@@ -7,7 +7,7 @@ import type { MaterialLibraryItem } from "../../api/contracts";
 import { rememberMaterial, rememberedMaterial } from "./material-memory";
 import { StateView } from "../../ui/StateView";
 import { CardSetLibrary } from "../concept-cards/CardSetLibrary";
-import { MaterialContentNav } from "./MaterialContentNav";
+import { MaterialBack } from "./MaterialRail";
 import { PodcastLibrary } from "../podcasts/PodcastLibrary";
 import { ResearchPanel } from "../material-tools/ResearchPanel";
 import { ResearchDetail } from "../material-tools/ResearchDetail";
@@ -28,16 +28,15 @@ export function MaterialContent({ apiClient, learnerId, materialId, kind, childr
     return () => { cancelled = true; };
   }, [apiClient, materialId, reload]);
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision) ?? material?.available_structures[0];
-  const navigation = <MaterialContentNav apiClient={apiClient} materialId={materialId} current={kind} back={children != null || researchId ? {
-    label: `返回${window.history.state?.fromCollection ? kind === "podcasts" ? "我的 Podcast" : "我的概念卡" : kind === "podcasts" ? "Podcast 列表" : kind === "research" ? "補充學習" : "概念卡列表"}`,
-    onClick: () => writeRoute(window.history.state?.fromCollection && kind !== "research" && kind !== "notes" ? { name: kind } : { name: "material-content", materialId, kind }),
-  } : undefined} materialName={material?.display_name} mapRoute={structure ? { name: "knowledge-map", materialId, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision } : null} />;
+  const back = children != null || researchId ? <MaterialBack
+    label={`返回${window.history.state?.fromCollection ? kind === "podcasts" ? "我的 Podcast" : "我的概念卡" : kind === "podcasts" ? "Podcast 列表" : kind === "research" ? "補充學習" : "概念卡列表"}`}
+    onClick={() => writeRoute(window.history.state?.fromCollection && kind !== "research" && kind !== "notes" ? { name: kind } : { name: "material-content", materialId, kind })} /> : null;
   if (notFound) return <NotFoundView {...materialNotFound} />;
   return <section className={`material-content${kind === "notes" ? " notes-material-content" : ""}`}>
     {error || !material ? <StateView title={error ? "無法讀取教材" : "正在讀取教材"} description={error ?? "正在載入此教材的學習內容。"} tone={error ? "failure" : "loading"} live={!error} skeleton="material"
       action={error ? <button type="button" className="secondary-button" onClick={() => setReload(v => v + 1)}>重新讀取</button> : undefined} /> : <>
-      {(children != null || kind === "notes") && navigation}
-      <div className="material-content-body">{children != null ? <div role="tabpanel" id={`material-panel-${kind}`} aria-labelledby={`material-tab-${kind}`}>{children}</div> : kind === "notes" ? <div role="tabpanel" id="material-panel-notes" aria-labelledby="material-tab-notes">{structure ? <Notes api={apiClient} materialId={materialId} revision={structure.knowledge_structure_revision}/> : <p>教材分析完成後即可閱讀筆記。</p>}</div> : kind === "research" ? researchId ? <ResearchDetail key={researchId} api={apiClient} materialId={materialId} researchId={researchId} contentNavigation={navigation} draft={researchDraft} onDraftChange={onResearchDraftChange} onMaterialUpdated={()=>setReload(value=>value+1)}/> : <ResearchPanel api={apiClient} materialId={materialId} contentNavigation={navigation} draft={researchDraft} onDraftChange={onResearchDraftChange} onMaterialUpdated={()=>setReload(value=>value+1)}/> : kind === "podcasts" ? <PodcastLibrary apiClient={apiClient} learnerId={learnerId} material={material} contentNavigation={navigation}/> : <CardSetLibrary apiClient={apiClient} material={material} contentNavigation={navigation}/>}</div>
+      {children != null && back}
+      <div className="material-content-body">{children != null ? children : kind === "notes" ? structure ? <Notes api={apiClient} materialId={materialId} revision={structure.knowledge_structure_revision}/> : <p>教材分析完成後即可閱讀筆記。</p> : kind === "research" ? researchId ? <ResearchDetail key={researchId} api={apiClient} materialId={materialId} researchId={researchId} backLink={back} draft={researchDraft} onDraftChange={onResearchDraftChange} onMaterialUpdated={()=>setReload(value=>value+1)}/> : <ResearchPanel api={apiClient} materialId={materialId} draft={researchDraft} onDraftChange={onResearchDraftChange} onMaterialUpdated={()=>setReload(value=>value+1)}/> : kind === "podcasts" ? <PodcastLibrary apiClient={apiClient} learnerId={learnerId} material={material}/> : <CardSetLibrary apiClient={apiClient} material={material}/>}</div>
     </>}
   </section>;
 }

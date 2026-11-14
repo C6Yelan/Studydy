@@ -10,9 +10,9 @@ import { ResearchProgress } from './ResearchProgress';
 import { SourceCandidates, sourceReasons as reasons } from './SourceCandidates';
 import { researchActive, type Research, type ResearchDraft } from './research';
 
-export function ResearchDetail({ api, materialId, researchId, draft, onDraftChange, onMaterialUpdated, contentNavigation }: {
+export function ResearchDetail({ api, materialId, researchId, draft, onDraftChange, onMaterialUpdated, backLink }: {
   api: StudydyApiClient; materialId: string; researchId: string; draft?: ResearchDraft;
-  onDraftChange?: (draft: ResearchDraft) => void; onMaterialUpdated: () => void; contentNavigation?: ReactNode;
+  onDraftChange?: (draft: ResearchDraft) => void; onMaterialUpdated: () => void; backLink: ReactNode;
 }) {
   const saved = draft?.tasks[researchId];
   const [stageRequest, setStageRequest] = useState<{ status: string; stage: number } | null>(null);
@@ -82,11 +82,11 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
   const acquiredCount = view?.candidates.filter(candidate => view.selection.includes(candidate.id) && candidate.state === 'ready').length ?? 0;
   const selectedCount = submitted || ['acquiring', 'normalizing'].includes(view?.status ?? '') ? view?.selection.length ?? 0 : selected.length;
 
-  if (notFound) return <section className="cards-page supplementary-page research-detail">{contentNavigation}
-    <NotFoundView title="找不到這筆補充學習" description="這筆查詢可能已被刪除，或不屬於這份教材。" back={contentNavigation ? null : { label: '回到補充學習', route: { name: 'material-content', materialId, kind: 'research' } }} /></section>;
+  if (notFound) return <section className="cards-page supplementary-page research-detail">{backLink}
+    <NotFoundView title="找不到這筆補充學習" description="這筆查詢可能已被刪除，或不屬於這份教材。" back={null} /></section>;
   return <section className="cards-page supplementary-page research-detail">
-    {contentNavigation}
-    <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
+    {backLink}
+    <div className="research-panel">
       {/* 版型比照其他流程頁：標題、獨立一列的步驟條，補充範圍是可展開的卡片（平常只列主題名稱）。 */}
       <header className="research-scope-header"><h1 className="research-scope-title">{view?.approved_scope?.title ?? '補充學習'}</h1>
         {view && <LearningSteps labels={[...topicSteps.slice(0,-1),'補充教材']} current={completed?4:currentStage===2?3:2} label="補充學習流程"/>}

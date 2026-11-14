@@ -174,29 +174,31 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.locator('.podcast-tile')).toHaveCount(2);
   await page.goto(`/materials/${materialId}/podcasts`);
   await expect(page.locator('.podcast-tile')).toHaveCount(1);
-  await expect(page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab')).toHaveText(['知識地圖', '學習與測驗', '概念卡', 'Podcast', '筆記', '補充學習', '教材來源']);
+  const materialNav = page.getByRole('navigation', { name: '教材導覽' });
+  await expect(materialNav.getByRole('link')).toHaveText(['知識地圖', '學習進度', '翻卡片', '聽 Podcast', '我的筆記', '找更多資料', '原始檔案', '教材設定']);
+  await expect(materialNav.getByRole('link', { name: '聽 Podcast', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.app-shell')).toHaveClass(/is-workspace/);
-  const navBox = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
+  const navBox = (await page.locator('.rail').boundingBox())!;
   const createBox = (await page.getByRole('button', { name: '建立 Podcast', exact: true }).boundingBox())!;
-  expect(createBox.y).toBeGreaterThanOrEqual(navBox.y + navBox.height);
+  expect(createBox.x).toBeGreaterThanOrEqual(navBox.x + navBox.width);
   await expect(page.getByRole('heading', { name: '別的教材 Podcast' })).toHaveCount(0);
   await page.getByRole('button', { name: '查看進度', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
-  await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
-  // 教材內已有分頁列，不再顯示重複的返回；用 Podcast 分頁回到列表。
+  await expect(materialNav.getByRole('link', { name: '聽 Podcast', exact: true })).toHaveAttribute('aria-current', 'page');
+  // 教材內子頁保留回到列表的返回；用側欄的「聽 Podcast」也回到列表。
   await expect(page.getByRole('button', { name: '返回Podcast 列表', exact: true })).toBeVisible();
-  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: 'Podcast', exact: true }).click();
+  await materialNav.getByRole('link', { name: '聽 Podcast', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts$`));
-  await page.getByRole('tablist', { name: '教材學習內容' }).getByRole('tab', { name: '概念卡', exact: true }).click();
+  await materialNav.getByRole('link', { name: '翻卡片', exact: true }).click();
   await expect(page.locator('.library-item')).toHaveCount(1);
   await expect(page.getByRole('heading', { name: '此教材卡組' })).toBeVisible();
-  const cardsNav = (await page.getByRole('tablist', { name: '教材學習內容' }).boundingBox())!;
+  const cardsNav = (await page.locator('.rail').boundingBox())!;
   const cardsCreate = (await page.getByRole('button', { name: '建立卡組', exact: true }).boundingBox())!;
-  expect(cardsCreate.y).toBeGreaterThanOrEqual(cardsNav.y + cardsNav.height);
+  expect(cardsCreate.x).toBeGreaterThanOrEqual(cardsNav.x + cardsNav.width);
   await page.getByRole('button', { name: '建立卡組', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}/create-cards$`));
   await expect(page.getByLabel('選擇教材')).toHaveCount(0);
-  await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
+  await expect(materialNav.getByRole('link', { name: '翻卡片', exact: true })).toHaveAttribute('aria-current', 'page');
   await page.goto('/');
   await page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: /^翻卡片/ }).click();
   await expect(page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: /^翻卡片/ })).toHaveAttribute('aria-current', 'page');
@@ -269,7 +271,7 @@ test("podcast creation keeps manual selection and settings without recommendatio
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/podcasts/${podcastId}$`));
   expect(body.concept_ids).toEqual([first.concept_id]); expect(body.delivery).toBe('solo'); expect(body).not.toHaveProperty('mode');
   expect(body.video).toBe(true);
-  await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '聽 Podcast', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('desktop podcast creation fills the workspace while long lists and previews scroll inside it', async ({ page }) => {
@@ -284,8 +286,8 @@ test('desktop podcast creation fills the workspace while long lists and previews
     await expect(selection.locator('.podcast-concept-option')).toHaveCount(80);
     const left = (await selection.boundingBox())!, right = (await settings.boundingBox())!;
     // 選概念與講解設定並排在同一張階段卡片內，卡片填滿內容寬度。
-    const stage = (await page.locator('.podcast-create').boundingBox())!;
-    expect(stage.x).toBeLessThanOrEqual(32); expect(width-stage.x-stage.width).toBeLessThanOrEqual(32);
+    const stage = (await page.locator('.podcast-create').boundingBox())!, rail = (await page.locator('.rail').boundingBox())!;
+    expect(stage.x - rail.width).toBeLessThanOrEqual(32); expect(width-stage.x-stage.width).toBeLessThanOrEqual(32);
     expect(left.x).toBeGreaterThan(stage.x); expect(right.x+right.width).toBeLessThan(stage.x+stage.width); expect(left.x+left.width).toBeLessThan(right.x);
     expect(Math.abs(left.y-right.y)).toBeLessThanOrEqual(1);
     // 步驟列獨立占一排後，矮桌面左右可同高；設定區須留在內容區內。
@@ -303,9 +305,9 @@ test('desktop podcast creation fills the workspace while long lists and previews
     await expect(selection.getByRole('button', {name:`查看「${view.concepts.at(-1)!.label}」重點`,exact:true})).toBeInViewport();
     const create = page.getByRole('button', {name:'開始生成 Podcast',exact:true});
     await expect(create).toBeInViewport(); await create.click({trial:true});
-    const action = (await create.boundingBox())!, voice = (await page.getByRole('button', {name:'Studydy AI BOT',exact:true}).boundingBox())!;
-    // 問答入口在分頁列，不與底部的生成按鈕重疊。
-    expect(voice.y+voice.height).toBeLessThan(action.y);
+    const action = (await create.boundingBox())!, voice = (await page.getByRole('button', {name:'問小幫手',exact:true}).boundingBox())!;
+    // 問答入口在教材側欄，不與底部的生成按鈕重疊。
+    expect(voice.x+voice.width).toBeLessThanOrEqual(action.x);
     expect(action.y+action.height).toBeLessThan(height);
     expect(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1&&document.documentElement.scrollWidth===innerWidth)).toBe(true);
   }
@@ -955,15 +957,17 @@ test('watch page fills the left column with a 16:9 player, aligned title, compan
   await expect.poll(()=>page.evaluate(()=>document.fullscreenElement)).toBeNull();
 });
 
-test('material podcast player keeps the chat entry in the material tab row',async({page})=>{
+test('material podcast player keeps the chat entry in the material rail',async({page})=>{
  const {fixture}=await mockEpisodeVideo(page);
  for(const episode of fixture.view.episodes){episode.script=fixture.script;episode.audio={...fixture.view.episodes[0].audio!};}
  for(const width of [1920,1440,390]){
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/podcasts/${podcastId}`);
   await expect(page.locator('.podcast-watch-layout')).toBeVisible();
-  const chat=page.getByRole('button',{name:'Studydy AI BOT',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
-  // 問答入口在教材頁首右端。
-  const toolbar=(await page.locator('.material-learning-toolbar').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(toolbar.y);expect(box.y+box.height).toBeLessThanOrEqual(toolbar.y+toolbar.height);
+  // 問答入口在教材側欄（播放器的側欄預設收合）；手機收在底部頁籤的「更多」裡。
+  if(width<=720)await page.getByRole('navigation',{name:'教材導覽'}).getByRole('button',{name:'更多',exact:true}).click();
+  const chat=page.getByRole('button',{name:'問小幫手',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
+  const nav=(await page.getByRole('navigation',{name:'教材導覽'}).boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(nav.x-0.5);expect(box.x+box.width).toBeLessThanOrEqual(nav.x+nav.width+0.5);
+  if(width>720){await page.mouse.move(width-10,450);await expect.poll(async()=>(await page.locator('.rail').boundingBox())!.width).toBe(64);}
  }
 });
 
