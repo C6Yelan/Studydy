@@ -73,7 +73,7 @@ test("map opens concept details and preserves each source on demand", async ({ p
   );
   await page.keyboard.press("Escape");
   await openMapConcept(page, "Stack");
-  await expect(page.getByRole("button", { name: "檢測這個概念", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "開始挑戰", exact: true })).toBeEnabled();
 });
 
 test("mobile map has a modal detail drawer with keyboard focus and source links", async ({
@@ -152,6 +152,9 @@ test("parallel relations retain separate labels, paths and details in both direc
   );
   await mockKnowledgeMapApi(page, view);
   await page.goto(mapPath);
+  // 平常只畫先備石橋；其餘四種按「顯示所有關係」才出現。
+  await expect(page.locator(".concept-flow-edge")).toHaveCount(1);
+  await page.getByRole("button", { name: "顯示所有關係", exact: true }).click();
   const assertSeparate = async () => {
     await expect(page.locator(".concept-flow-edge")).toHaveCount(5);
     await expect
@@ -272,7 +275,7 @@ for (const viewport of [
       await expect(detail.getByRole("heading", { name: "主機", exact: true })).toBeVisible();
       await expect(detail.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
       await expect(detail.getByRole("region", { name: /^教材重點 / })).toHaveCount(2);
-      await expect(detail.getByRole("button", { name: "檢測這個概念", exact: true })).toBeEnabled();
+      await expect(detail.getByRole("button", { name: "開始挑戰", exact: true })).toBeEnabled();
       await expect(detail).not.toContainText(
         /對照教材原文|教材中的其他名稱|延伸探索|Extraction text|Host|sha256/,
       );

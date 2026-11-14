@@ -191,20 +191,14 @@ for (const [width, count] of [
     ).toHaveCount(4);
     const canvas = (await graph.boundingBox())!;
     const frame = (await page.locator(".map-view").boundingBox())!;
-    const legendToggle = page.getByRole("button", { name: "顯示關係圖例" });
-    if (await legendToggle.isVisible()) await legendToggle.click();
-    const legend = (await page.getByLabel("概念關係圖例", { exact: true }).boundingBox())!;
+    const relationsToggle = (await graph.getByRole("button", { name: "顯示所有關係", exact: true }).boundingBox())!;
     const navigatorButton = (await graph.getByRole("button", { name: "學習導覽", exact: true }).boundingBox())!;
-    // 圖例在地圖右下；搜尋與學習導覽浮在左上，兩者不重疊。
-    const zoomOut = (await graph.getByRole("button", { name: "縮小地圖", exact: true }).boundingBox())!;
-    expect(canvas.y + canvas.height - legend.y - legend.height).toBeGreaterThanOrEqual(0);
-    expect(canvas.y + canvas.height - legend.y - legend.height).toBeLessThanOrEqual(20);
-    expect(canvas.x + canvas.width - legend.x - legend.width).toBeLessThanOrEqual(20);
-    expect(legend.x).toBeGreaterThanOrEqual(zoomOut.x + zoomOut.width + 8);
-    expect(legend.y).toBeGreaterThanOrEqual(navigatorButton.y + navigatorButton.height + 8);
+    // 「顯示所有關係」在地圖右上；搜尋與學習導覽浮在左上，兩者不重疊；右下角留給徽章提示。
+    expect(relationsToggle.y - canvas.y).toBeLessThanOrEqual(20);
+    expect(relationsToggle.x).toBeGreaterThanOrEqual(navigatorButton.x + navigatorButton.width + 8);
     expect(Math.abs(canvas.y - frame.y)).toBeLessThan(2);
     expect(Math.abs(canvas.height - frame.height)).toBeLessThan(2);
-    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽"]) {
+    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽", "顯示所有關係"]) {
       const box = (await graph.getByRole("button", { name, exact: true }).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(canvas.x);
       expect(box.y).toBeGreaterThanOrEqual(canvas.y);
@@ -368,11 +362,9 @@ for (const width of [1536, 390])
       `30／80 個概念、60／${view.relations.length} 條關係`,
     );
     await expect(page.locator(".map-limit-note")).toContainText("尚有其他相關內容");
-    const legendToggle = page.getByRole("button", { name: "顯示關係圖例" });
-    if (await legendToggle.isVisible()) await legendToggle.click();
-    const legend = (await page.getByLabel("概念關係圖例", { exact: true }).boundingBox())!;
+    const relationsToggle = (await page.getByRole("button", { name: "顯示所有關係", exact: true }).boundingBox())!;
     const limitNote = (await page.locator(".map-limit-note").boundingBox())!;
-    expect(limitNote.y).toBeGreaterThanOrEqual(legend.y + legend.height + 4);
+    expect(limitNote.y).toBeGreaterThanOrEqual(relationsToggle.y + relationsToggle.height + 4);
     const secondary = page.locator(".concept-flow-node.is-secondary");
     await expect(secondary).toHaveCount(23);
     await expect(secondary.locator(".map-learning-badge")).toHaveCount(23);
@@ -405,7 +397,7 @@ for (const width of [1536, 390])
     await page.keyboard.press("Enter");
     const detail = page.getByRole("dialog", { name: "概念詳情" });
     await expect(detail.getByRole("heading", { name: target.label, exact: true })).toBeVisible();
-    await expect(detail.getByRole("heading", { name: "教材重點", exact: true })).toBeVisible();
+    await expect(detail.getByRole("heading", { name: /個重點（教材原文）$/ })).toBeVisible();
     await expect(page.locator(".concept-flow-node.is-focus")).toHaveAttribute(
       "data-id",
       target.concept_id,

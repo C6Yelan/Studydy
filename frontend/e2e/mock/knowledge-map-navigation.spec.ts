@@ -289,7 +289,7 @@ test("learning navigator groups concepts by region and the detail names the regi
   await expect(nav.getByText("依各概念的主要來源檔分區")).toBeVisible();
   await expect(nav.getByRole("button")).toHaveCount(8);
   await navigationConcept(page, "A").click();
-  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".detail-kicker")).toHaveText("教材概念 · 01_從生成到推論");
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".detail-kicker")).toHaveText(/ · 01_從生成到推論$/);
 });
 
 test("learning navigator stays flat when regions do not match the map", async ({ page }) => {
@@ -328,7 +328,7 @@ test("chapter regions stay one level for a demo-sized material", async ({ page }
   await expect(nav.getByText("依教材內容整理的章節", { exact: true })).toBeVisible();
   await expect(nav.getByLabel("跳到章節")).toHaveCount(0);
   await navigationConcept(page, "A").click();
-  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".detail-kicker")).toHaveText("教材概念 · 生成模型基礎");
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".detail-kicker")).toHaveText(/ · 生成模型基礎$/);
 });
 
 for (const width of [1536, 390])
@@ -372,7 +372,7 @@ for (const width of [1536, 390])
     await jump.selectOption({ label: "章節 25" });
     const dialog = page.getByRole("dialog", { name: "概念詳情" });
     await expect(dialog.getByRole("heading", { name: "Concept 73", exact: true })).toBeVisible();
-    await expect(dialog.locator(".detail-kicker")).toHaveText("教材概念 · 章節 25");
+    await expect(dialog.locator(".detail-kicker")).toHaveText(/ · 章節 25$/);
     await page.keyboard.press("Escape");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });

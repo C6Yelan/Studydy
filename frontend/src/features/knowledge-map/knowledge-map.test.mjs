@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { learningNavigationItems, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW } from "./knowledge-map.ts";
+import { learningNavigationItems, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW, relationVisibility, routeSegments } from "./knowledge-map.ts";
 
 const view = {
   concepts: ["a", "b", "c", "d"].map((concept_id) => ({ concept_id })),
@@ -272,4 +272,35 @@ test("chapter regions use two levels only for many chapters across several sourc
   assert.deepEqual(one.regions.slice(0, 3).map((r) => [r.label, r.group]), [["章1", null], ["章2", null], ["章3", null]]);
   assert.equal(regionColorIndex(one, 2), 2);
   assert.equal(regionBasisText(one), "依教材內容整理的章節");
+});
+
+test("selecting an island lights only its own relations; other bridges appear on request", () => {
+  // ab 先備、bc 例子、cd 組成：a—b—c—d 一條鏈。
+  const visible = (options) => Object.fromEntries(relationVisibility(view.relations, {
+    litConceptId: null, selectedRelationId: null, showAll: false, ...options,
+  }));
+  // 平常只有先備石橋。
+  assert.deepEqual(visible({}), { ab: "lit" });
+  // 選了 c：只亮和 c 相連的兩條，不論種類；和 c 無關的先備 ab 也收起。
+  assert.deepEqual(visible({ litConceptId: "c" }), { bc: "lit", cd: "lit" });
+  // 選了 c 又按「顯示所有關係」：其餘關係保留但淡化。
+  assert.deepEqual(visible({ litConceptId: "c", showAll: true }), { ab: "dim", bc: "lit", cd: "lit" });
+  // 沒選島時「顯示所有關係」全部亮起。
+  assert.deepEqual(visible({ showAll: true }), { ab: "lit", bc: "lit", cd: "lit" });
+  // 點開的關係一定畫出，即使它不是先備、也不連到選取的島。
+  assert.deepEqual(visible({ selectedRelationId: "cd" }), { ab: "lit", cd: "lit" });
+  assert.deepEqual(visible({ litConceptId: "a", selectedRelationId: "cd" }), { ab: "lit", cd: "lit" });
+});
+
+test("the golden route only joins neighbouring stations that are both on screen", () => {
+  const path = [["a", 1], ["b", 2], ["c", 3], ["d", 4], ["e", 5]]
+    .map(([concept_id, position]) => ({ concept_id, position, reason: "document_order" }))
+    .reverse();
+  const route = (ids) => routeSegments(path, new Set(ids)).map(({ source, target }) => `${source}→${target}`);
+  // 相鄰兩站都在畫面上才連，方向是第 n 站到第 n+1 站。
+  assert.deepEqual(route(["a", "b", "c", "d", "e"]), ["a→b", "b→c", "c→d", "d→e"]);
+  // 第 3 站沒畫出來：在那裡斷開，不跨過去連 b→d。
+  assert.deepEqual(route(["a", "b", "d", "e"]), ["a→b", "d→e"]);
+  // 站號不相鄰的島（例如 1、26、21 那種）完全不連。
+  assert.deepEqual(route(["a", "c", "e"]), []);
 });

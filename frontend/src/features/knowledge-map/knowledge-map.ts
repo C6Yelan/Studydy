@@ -196,3 +196,70 @@ export function groupSlices<T extends { items: unknown[] }>(groups: T[], range: 
   }
   return slices;
 }
+
+type MapRelation = Pick<KnowledgeOutlineView["relations"][number], "relation_id" | "source_concept_id" | "target_concept_id" | "type">;
+
+/**
+ * 地圖上哪些關係要畫、哪些要淡化（不在結果裡的就不畫）：
+ * - 平常只畫先備（石橋），其餘四種等選了島或按「顯示所有關係」才出現。
+ * - 選了一座島：只亮起和它相連的關係；「顯示所有關係」時其餘關係保留但淡化。
+ * - 被點開的關係一定畫出，避免點了之後那條線消失。
+ */
+export function relationVisibility(
+  relations: MapRelation[],
+  { litConceptId, selectedRelationId, showAll }: { litConceptId: string | null; selectedRelationId: string | null; showAll: boolean },
+) {
+  const result = new Map<string, "lit" | "dim">();
+  for (const relation of relations) {
+    const touches = relation.source_concept_id === litConceptId || relation.target_concept_id === litConceptId;
+    if (relation.relation_id === selectedRelationId) result.set(relation.relation_id, "lit");
+    else if (litConceptId) {
+      if (touches) result.set(relation.relation_id, "lit");
+      else if (showAll) result.set(relation.relation_id, "dim");
+    } else if (showAll || relation.type === "prerequisite") result.set(relation.relation_id, "lit");
+  }
+  return result;
+}
+
+/**
+ * 金色航線：只連「第 n 站 → 第 n+1 站」而且兩座都畫在畫面上的島；
+ * 中間有站沒畫出來就斷開，不跨站連線，避免線穿過別的島或折返。
+ */
+export function routeSegments(path: KnowledgeOutlineView["initial_learning_path"], visibleIds: Set<string>) {
+  const byPosition = new Map(path.filter((step) => visibleIds.has(step.concept_id)).map((step) => [step.position, step.concept_id]));
+  return [...byPosition]
+    .sort(([a], [b]) => a - b)
+    .filter(([position]) => byPosition.has(position + 1))
+    .map(([position, source]) => ({ source, target: byPosition.get(position + 1)! }));
+}
+
+/**
+ * 選島卡片「跟其他島的關係」的白話句子；方向照後端定義：
+ * prerequisite 來源先學；part_of 來源是目標的一部分；application 來源用在目標；
+ * example 目標是來源的例子；contrast 沒有方向。句子以「」包住另一座島的名稱，名稱由呼叫端渲染；
+ * 徽章文字和句子同一個方向，例如反向的 application 寫「用到」而不是「用在」。
+ */
+export function relationPhrase(relation: MapRelation, conceptId: string) {
+  const outgoing = relation.source_concept_id === conceptId;
+  const otherId = outgoing ? relation.target_concept_id : relation.source_concept_id;
+  // 徽章跟著句子的方向：同一種關係從另一端看，徽章換成反向的說法。
+  const [badge, before, after] = {
+    prerequisite: outgoing ? ["接著學", "學完它再學「", "」"] : ["先學", "「", "」要先學"],
+    part_of: outgoing ? ["一部分", "它是「", "」的一部分"] : ["包含", "「", "」是它的一部分"],
+    application: outgoing ? ["用在", "會用在「", "」"] : ["用到", "它用到「", "」"],
+    example: outgoing ? ["舉例", "「", "」是它的一個例子"] : ["是例子", "它是「", "」的一個例子"],
+    contrast: ["比一比", "可以和「", "」比一比"],
+  }[relation.type];
+  return { otherId, badge, before, after };
+}
+
+/** 關係詳情的標題：用兩端島名套白話句型（名稱是純文字）。 */
+export function relationTitle(type: MapRelation["type"], source: string, target: string) {
+  return {
+    prerequisite: `先學「${source}」，再學「${target}」`,
+    part_of: `「${source}」是「${target}」的一部分`,
+    application: `「${source}」會用在「${target}」`,
+    example: `「${target}」是「${source}」的一個例子`,
+    contrast: `「${source}」和「${target}」可以比一比`,
+  }[type];
+}

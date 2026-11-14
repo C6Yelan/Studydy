@@ -6,16 +6,23 @@ import { claimText } from "./claim-text";
 
 type Claim = KnowledgeStructureView["concepts"][number]["claims"][number];
 
-export function ConceptContent({
-  claims,
-  apiClient,
-  sourceResolver,
-}: {
+type ContentProps = {
   claims: Claim[];
   apiClient: StudydyApiClient;
   sourceResolver: string;
-}) {
-  const references = sourceLinks(claims.flatMap((claim) => claim.evidence));
+};
+
+export function ConceptContent(props: ContentProps) {
+  return (
+    <>
+      <ConceptClaims claims={props.claims} />
+      <ConceptSources {...props} />
+    </>
+  );
+}
+
+/** 教材重點原文；知識地圖把重點和來源分開排，所以和來源拆成兩個元件。 */
+export function ConceptClaims({ claims }: { claims: Claim[] }) {
   return (
     <>
       {claims.map((claim, index) => {
@@ -36,19 +43,25 @@ export function ConceptContent({
           </section>
         );
       })}
-      <section className="concept-sources" aria-label="教材來源">
-        <h3>教材來源</h3>
-        <div className="claim-sources">
-          {references.map((evidence) => (
-            <SourceButton
-              key={evidence.evidence_id}
-              apiClient={apiClient}
-              resolver={sourceResolver}
-              evidence={evidence}
-            />
-          ))}
-        </div>
-      </section>
     </>
+  );
+}
+
+export function ConceptSources({ claims, apiClient, sourceResolver }: ContentProps) {
+  const references = sourceLinks(claims.flatMap((claim) => claim.evidence));
+  return (
+    <section className="concept-sources" aria-label="教材來源">
+      <h3>教材來源</h3>
+      <div className="claim-sources">
+        {references.map((evidence) => (
+          <SourceButton
+            key={evidence.evidence_id}
+            apiClient={apiClient}
+            resolver={sourceResolver}
+            evidence={evidence}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
