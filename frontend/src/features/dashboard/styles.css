@@ -1,36 +1,37 @@
 /* 首頁：學習群島與右側捷徑。 */
 .dashboard {
   display: grid;
-  gap: 22px;
+  gap: 14px;
 }
+/* 機器人招呼：左邊機器人，右邊對話框說今天還差幾件小事，下方一行小字是連續天數與等級。 */
 .dashboard-greeting {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: flex-end;
+  gap: 8px;
 }
-.dashboard-greeting h1 {
+.dashboard-bot { flex: none; width: 60px; height: auto; }
+.dashboard-bubble {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 14px;
+  min-width: 0;
+  margin-bottom: 6px;
+  padding: 8px 16px;
+  border: 2px solid var(--border);
+  border-radius: 18px 18px 18px 4px;
+  background: var(--surface);
+}
+.dashboard-bubble h1 {
   margin: 0;
-  font-size: clamp(1.5rem, 2.4vw, 1.9rem);
+  font-size: clamp(1.1rem, 1.8vw, 1.35rem);
+  line-height: 1.35;
 }
 .dashboard-standing {
   margin: 0;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
-}
-.dashboard-hello {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 20px;
-  min-width: 0;
-}
-
-.dashboard-actions {
-  display: flex;
-  flex: none;
-  gap: 10px;
 }
 .dashboard-content {
   display: grid;
@@ -43,6 +44,52 @@
   gap: 24px;
   min-width: 0;
 }
+
+/* 繼續上次的冒險：島、標題與進度、一顆「繼續」。 */
+.dashboard-continue { display: grid; gap: 10px; min-width: 0; }
+.continue-card { display: grid; overflow: hidden; border-radius: var(--radius-panel); }
+.continue-art {
+  display: grid;
+  place-items: center;
+  height: 84px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #8fe0fb, #3aa6e2);
+  color: #fff;
+}
+.continue-art .island-art { display: block; width: 100%; height: 100%; }
+.continue-info { display: grid; gap: 10px; min-width: 0; padding: 14px 18px 16px; }
+.continue-text { display: grid; gap: 3px; min-width: 0; }
+.continue-kicker { color: var(--studydy-blue); font-size: 12px; font-weight: 900; }
+.continue-title { font-size: 17px; line-height: 1.3; overflow-wrap: anywhere; }
+.continue-meta { color: var(--text-muted); font-size: 13px; font-weight: 700; }
+.continue-info .studydy-progress { margin-top: 3px; }
+.continue-go { width: 100%; }
+.continue-podcast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text-primary);
+  text-align: left;
+  box-shadow: var(--shadow);
+}
+.continue-podcast:hover { background: var(--studydy-blue-soft); }
+.continue-podcast > svg { flex: none; color: var(--studydy-blue); }
+.continue-podcast .quest-icon { background: var(--page-cool); }
+.quick-item-text { display: grid; flex: 1; gap: 1px; min-width: 0; }
+.quick-item-text b,
+.quick-item-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-item-text b { font-size: 14px; font-weight: 900; }
+.quick-item-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.quick-item-text small:first-child { color: var(--studydy-blue); font-size: 11px; font-weight: 900; }
+.quests-cheer { display: grid; gap: 10px; justify-items: start; margin-top: 12px; }
+.quests-cheer p { margin: 0; color: var(--text-secondary); font-size: 14px; font-weight: 800; }
+.archipelago-links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 
 /* 群島 */
 .archipelago {
@@ -178,35 +225,6 @@
   font-size: 17px;
 }
 
-/* 快速存取：與今日任務同樣的列表樣式，整列可點。 */
-.dashboard-quick ul {
-  display: grid;
-  gap: 8px;
-  margin: 10px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.quick-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
-  border: 0;
-  border-radius: 18px;
-  background: var(--page-cool);
-  color: var(--text-primary);
-  text-align: left;
-}
-button.quick-item:hover { background: var(--studydy-blue-soft); }
-.quick-item > svg { flex: none; color: var(--studydy-blue); }
-.quick-item-text { display: grid; flex: 1; gap: 1px; min-width: 0; }
-.quick-item-text b,
-.quick-item-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.quick-item-text b { font-size: 14px; font-weight: 900; }
-.quick-item-text small { color: var(--text-muted); font-size: 12px; font-weight: 700; }
-.quick-item-text small:first-child { color: var(--studydy-blue); font-size: 11px; font-weight: 900; }
-
 @media (max-width: 1280px) {
   .dashboard-content {
     grid-template-columns: 1fr;
@@ -217,17 +235,7 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
   }
 }
 @media (max-width: 720px) {
-  .dashboard-greeting {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .dashboard-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-  .dashboard-actions button {
-    padding: 0 12px;
-  }
+  .dashboard-bot { width: 56px; }
   .archipelago.surface {
     margin-inline: calc(-1 * var(--shell-gutter));
     padding: 12px 0 0;
@@ -238,33 +246,6 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
   .archipelago-head {
     padding: 0 var(--shell-gutter) 12px;
   }
-}
-
-/* 個人等級：等級、累計經驗值與本級進度條 */
-.dashboard-level header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-.dashboard-level header img {
-  width: 52px;
-  height: 52px;
-  padding: 4px;
-  border-radius: 18px;
-  background: var(--studydy-blue-soft);
-  object-fit: contain;
-}
-.dashboard-level h2 {
-  margin: 0;
-}
-.dashboard-level header small {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 700;
-}
-.dashboard-level header small b {
-  color: var(--amber-deep);
 }
 
 .level-next {
@@ -282,7 +263,7 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
   font-weight: 900;
 }
 
-/* 今日任務：由真實資料推導，完成後打勾 */
+/* 今天的小事：由真實資料推導，完成後打勾 */
 .dashboard-quests header {
   display: flex;
   align-items: center;
@@ -355,6 +336,7 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.quest-text { gap: 4px; }
 .dashboard-goal-error { margin: 0; padding: 12px; color: var(--text-secondary); }
 .archipelago-list-text .island-goal-summary { color: var(--studydy-blue-deep); }
 .dashboard-quests li.is-done .quest-text b {
@@ -373,7 +355,7 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
 /* 互動群島地圖：島與標籤依 --tx/--ty/--k 換算到畫面位置，標籤字級固定；海浪圖層跟著縮放。 */
 .island-map {
   position: relative;
-  overflow: hidden;
+  overflow: clip;
   border-radius: 22px;
 }
 .island-map-viewport {
@@ -382,7 +364,8 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
   --k: 1;
   position: relative;
   height: clamp(440px, calc(100vh - 330px), 980px);
-  overflow: hidden;
+  /* 不能用 hidden：hidden 仍是捲動容器，島按鈕取得焦點時瀏覽器會把它捲進來，和 reveal() 的位移互相打架。 */
+  overflow: clip;
   background: linear-gradient(180deg, #8fe0fb, #3aa6e2);
   cursor: grab;
   touch-action: none;

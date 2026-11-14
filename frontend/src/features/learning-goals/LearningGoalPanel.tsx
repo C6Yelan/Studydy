@@ -93,7 +93,7 @@ export function LearningGoalBlock({ state }: { state: LearningGoalState }) {
     <div className="review-block-body">
       {error ? <p role="alert" className="form-error">目標暫時無法讀取。{error}<button className="text-button" type="button" onClick={state.retry}>重新讀取目標</button></p>
         : !view ? <p role="status">正在讀取學習目標…</p>
-        : !goal ? <p>尚未設定學習目標</p>
+        : !goal ? <div className="goal-empty"><img src="/assets/studydy/brand-guide.png" alt="" /><p>還沒設定目標。選一個日期和想學會的比例，我每天幫你排好份量。</p></div>
         : <>
           <p className="goal-title">{shortDate(goal.target_date)} 前掌握 {goal.target_percent}% · {timing}</p>
           {goal.assessable_points > 0 && <div className="goal-progress-line">

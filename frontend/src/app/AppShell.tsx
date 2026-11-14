@@ -122,7 +122,7 @@ export function AppShell({
     <Icon name={railOpen ? "chevron-left" : "chevron-right"} size={20} /><span className="rail-label">{railOpen ? "收合側欄" : "展開側欄"}</span>
   </button> : null;
   const classes = ["app-shell", isLearningWorkspace ? "is-workspace" : "is-standard", materialId && "is-material", wideRoutes.includes(route.name) && "is-wide",
-    route.name === "home" && "is-home", route.name === "achievements" && "is-achievements", collapsible && !railOpen && "is-rail-collapsed", railPeek && "is-rail-peek", focusMode && "is-focus"];
+    route.name === "home" && "is-home", collapsible && !railOpen && "is-rail-collapsed", railPeek && "is-rail-peek", focusMode && "is-focus"];
   return (
     <MaterialRunWorkspaceContext.Provider value={setMaterialRunId}>
     <FocusModeContext.Provider value={setFocusMode}>

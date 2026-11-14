@@ -1,6 +1,6 @@
 import { Progress } from "../../ui/Progress";
 import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../../api/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { playCue } from "../../ui/feedback-sound";
 import { Icon, type IconName } from "../../ui/Icon";
@@ -213,11 +213,16 @@ function revealed(badge: KnownBadge, earned: Set<string>) {
 }
 
 // 成就頁右欄：依稀有度的取得數，上方已取得、下方未取得，每個成就獨立一格。
-export function BadgeCollection({ activity }: { activity: LearningActivityView }) {
+// 畫面上算得到的徽章：不含成就鏈中尚未揭曉的步驟（算進去等於洩漏隱藏徽章的數量）。階梯與總覽共用。
+function shownBadges(activity: LearningActivityView) {
   const all = knownBadges(activity);
-  if (!all.length) return null;
   const earnedIds = new Set(all.filter((badge) => badge.earned).map((badge) => badge.badge_id));
-  const shown = all.filter((badge) => revealed(badge, earnedIds));
+  return all.filter((badge) => revealed(badge, earnedIds));
+}
+
+export function BadgeCollection({ activity }: { activity: LearningActivityView }) {
+  const shown = shownBadges(activity);
+  if (!shown.length) return null;
   // 系列依規則表順序（同系列由低到高），特殊成就排在後面。
   const order = [...Object.values(tiers).flat().map(([id]) => id), ...Object.keys(specials)];
   const sorted = [...shown].sort((a, b) => order.indexOf(a.badge_id) - order.indexOf(b.badge_id));
@@ -251,6 +256,67 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
       {locked.length > 0 && <ul className="badge-grid">{locked.map((badge) => <BadgeCell key={badge.badge_id} badge={badge} />)}</ul>}
     </section>
     <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、Studydy AI BOT、目標與分天關卡、難點、筆記註記、上傳的教材、匯出、學習天數與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
+  </section>;
+}
+
+// 快拿到了：每個系列只取下一個還沒拿到的層級，依進度比例由高到低取前三個。
+// 隱藏的特殊成就依規則不顯示進度，所以不列入。
+export function NearBadges({ activity }: { activity: LearningActivityView }) {
+  const byId = new Map(knownBadges(activity).map((badge) => [badge.badge_id, badge]));
+  const near = (Object.keys(tiers) as Series[]).flatMap((key) => {
+    const next = tiers[key].map(([id]) => byId.get(id)).find((badge) => badge && !badge.earned);
+    return next ? [{ badge: next, key }] : [];
+  }).sort((a, b) => b.badge.progress / b.badge.target - a.badge.progress / a.badge.target).slice(0, 3);
+  if (!near.length) return null;
+  return <section className="badge-near" aria-labelledby="badge-near-title">
+    <h2 id="badge-near-title">快拿到了</h2>
+    <ul>
+      {near.map(({ badge, key }) => {
+        const text = badgeText[badge.badge_id]!;
+        const left = Math.max(0, badge.target - badge.progress);
+        return <li key={badge.badge_id} className="surface">
+          <BadgeMedal badge={badge} size={54} />
+          <span className="badge-near-text">
+            <b>{series[key].title}{tiers[key].length > 1 && ` · ${tierNames[text.tier - 1]}`}</b>
+            <small>{key === "level" ? `再升 ${left} 級` : `還差 ${left} ${series[key].unit}`}</small>
+            <BadgeProgress badge={badge} />
+          </span>
+        </li>;
+      })}
+    </ul>
+  </section>;
+}
+
+// 徽章階梯：每個有多個層級的系列一列，列出各層級已取得、下一個的進度、或還沒到。
+export function BadgeLadder({ activity }: { activity: LearningActivityView }) {
+  const shown = shownBadges(activity);
+  const byId = new Map(knownBadges(activity).map((badge) => [badge.badge_id, badge]));
+  const rows = (Object.keys(tiers) as Series[]).filter((key) => tiers[key].length > 1);
+  return <section className="badge-ladder surface" aria-labelledby="badge-ladder-title">
+    <header>
+      <h2 id="badge-ladder-title">徽章階梯</h2>
+      <span className="badge-count">已取得 {shown.filter((badge) => badge.earned).length} / {shown.length}</span>
+    </header>
+    <ul className="badge-ladder-rows">
+      <li className="badge-ladder-head" aria-hidden="true">
+        <span />{tierNames.map((name) => <span key={name}>{name}</span>)}
+      </li>
+      {rows.map((key) => {
+        const list = tiers[key].map(([id]) => byId.get(id));
+        const nextIndex = list.findIndex((badge) => badge && !badge.earned);
+        return <li key={key} aria-label={series[key].title}>
+          <span className="badge-ladder-name">{series[key].title}</span>
+          {tierNames.map((name, index) => {
+            const badge = list[index];
+            // 沒有這一層留空；有但還沒到的層級畫淡色鎖頭。
+            const cell: { cls: string; text: ReactNode } = !badge ? { cls: " is-none", text: "" } : badge.earned ? { cls: " is-earned", text: "已取得" }
+              : index === nextIndex ? { cls: " is-next", text: `${badge.progress} / ${badge.target}` } : { cls: " is-locked", text: <Icon name="lock" size={14} /> };
+            return <span key={name} className={`badge-ladder-cell is-tier-${index + 1}${cell.cls}`}
+              aria-label={`${name}：${badge ? (badge.earned ? "已取得" : index === nextIndex ? progressText(badge) : "尚未到") : "沒有這一層"}`}>{cell.text}</span>;
+          })}
+        </li>;
+      })}
+    </ul>
   </section>;
 }
 

@@ -1113,20 +1113,29 @@ function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadi
   const completedCount = progress?.concept_states.filter(state => state.status === "completed").length ?? 0;
   const startId = nextLearningConcept?.concept_id ?? view.initial_learning_path[0]?.concept_id;
   const hasToday = !!goal.goal;
+  const total = view.concepts.length;
   return <div className="review-diagnosis">
+    <h1 className="review-title">學習進度</h1>
     <section className="review-summary" aria-label="學習進度">
       {isLoadingProgress ? <p role="status">正在讀取學習進度…</p> : progressMessage ? <p>重新讀取進度後，即可接續學習。</p> : <>
-        {goal.goal ? <DailyGoalProgress stage={goal.goal.today_stage} stageKey={materialId} /> : <div className="daily-goal-progress">
-          <span>已完成 {completedCount}／{view.concepts.length} 個概念</span>
-          <Progress value={completedCount} max={view.concepts.length || 1} aria-label="概念學習進度" />
-        </div>}
-        <p className="review-next-concept">{nextLearningConcept ? <>接下來：<MathText text={nextLearningConcept.label} notation={false} /></> : progress ? "目前路線已完成，可再次練習。" : "從第一個概念開始學習。"}</p>
+        <div className="review-lit">
+          <p className="review-lit-count"><b>{completedCount}</b>{" "}<small>/ {total} 座島已點亮</small></p>
+          <Progress value={completedCount} max={total || 1} aria-label="概念學習進度" aria-valuetext={`已點亮 ${completedCount} / ${total} 座島`} />
+          {goal.goal && <DailyGoalProgress stage={goal.goal.today_stage} stageKey={materialId} />}
+        </div>
+        <div className="review-next">
+          <small className="review-next-kicker">下一站</small>
+          <p className="review-next-concept">{nextLearningConcept ? <MathText text={nextLearningConcept.label} notation={false} /> : progress ? "目前路線已完成，可再次練習。" : "從第一個概念開始學習。"}</p>
+          {nextLearningConcept && <small className="review-next-meta">照地圖的建議順序{nextLearningConcept.claim_count > 0 && ` · ${nextLearningConcept.claim_count} 個重點`}</small>}
+        </div>
         {startId && <button className="primary-button" type="button" disabled={isStartingStudy} onClick={() => onStartStudy(startId)}>{isStartingStudy ? "正在接續學習…" : "繼續學習"}</button>}
       </>}
     </section>
-    <div className={`review-grid${hasToday ? "" : " no-today"}`}>
-      {hasToday && <TodayConceptsBlock state={goal} />}
-      <LearningGoalBlock state={goal} />
+    <div className="review-grid">
+      <div className="review-goal-column">
+        <LearningGoalBlock state={goal} />
+        {hasToday && <TodayConceptsBlock state={goal} />}
+      </div>
       <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} onReview={onStartStudy} disabled={isStartingStudy || isLoadingProgress}
         difficulty={difficulty} progress={progress} concepts={view.concepts} report={diagnosis} />
     </div>

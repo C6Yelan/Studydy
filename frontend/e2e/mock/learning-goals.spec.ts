@@ -108,7 +108,7 @@ test("earned daily progress survives when every point later becomes unavailable"
     available_structures: [{ run_id: runId, knowledge_structure_revision: structureRevision, created_at: run.created_at, status: "succeeded" }],
   }] }));
   await page.goto("/");
-  const daily = page.getByRole("region", { name: "今日任務" }).locator(".goal-quest");
+  const daily = page.getByRole("region", { name: "今天的小事" }).locator(".goal-quest");
   await expect(daily).toHaveClass(/is-done/);
   await expect(daily).toContainText("4/4");
   await daily.getByRole("button", { name: "查看關卡：資料結構" }).click();
@@ -173,7 +173,7 @@ test("zero assessable points stays unavailable and achieved goals stay distinct"
   await expect(panel).toContainText("目標已達成");
   await expect(panel.getByRole("progressbar", { name: "學習目標進度", exact: true })).toHaveAttribute("aria-valuetext", "已完成 16／需完成 16 個重點");
   await expect(panel).not.toContainText("已逾期 5 天");
-  await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("還沒有測驗紀錄");
+  await expect(page.getByRole("region", { name: "答題紀錄" })).toContainText("還沒有答題紀錄");
 });
 
 for (const width of [1440, 390]) test(`home shows separate material goals and target progress rings at ${width}px`, async ({ page }) => {
@@ -193,7 +193,7 @@ for (const width of [1440, 390]) test(`home shows separate material goals and ta
   const starts: string[] = [];
   page.on("request", request => { if (request.url().endsWith("/study-start")) starts.push(request.url()); });
   await page.goto("/");
-  const tasks = page.getByRole("region", { name: "今日任務" });
+  const tasks = page.getByRole("region", { name: "今天的小事" });
   await expect(tasks.getByText("關卡｜資料結構", { exact: true })).toBeVisible();
   await expect(tasks.getByText("關卡｜作業系統", { exact: true })).toBeVisible();
   const island = page.locator(".map-island").filter({ hasText: "資料結構" });
@@ -271,4 +271,22 @@ for (const kind of ["extend_date", "lower_target"] as const) test(`goal suggesti
   await button.click(); await expect(page.getByRole("alert")).toBeVisible(); await expect(button).toBeEnabled();
   await button.click(); await expect(button).toHaveCount(0);
   expect(writes).toEqual(Array(2).fill({ schema: "learning-goal-update/v1", target_date: suggestion.target_date, target_percent: suggestion.target_percent }));
+});
+
+// 學習目標卡在寬螢幕要完整顯示（日期、進度條、落後提示、建議與更改按鈕），不能被「今天的概念」擠扁；今天的概念自己捲動。
+for (const [width, height] of [[1440, 900], [1536, 864]]) test(`goal card stays fully visible beside today's concepts at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height });
+  await mockKnowledgeMapApi(page);
+  const view = goalView(materialId, structureRevision, runId, firstConcept);
+  // 今天有很多概念時，右邊欄位的高度不夠兩張卡都攤開。
+  Object.assign(view.goal!.today_stage, { concepts: Array.from({ length: 14 }, (_, index) => ({ concept_id: `concept:sha256:${String(index).padStart(64, "0")}`, label: `概念 ${index + 1}`, remaining_points: 2 })) });
+  Object.assign(view.goal!, { quota_over_limit: true, suggestions: [{ kind: "extend_date", target_date: "2026-11-10", target_percent: 80, daily_points: 18 }] });
+  await page.route(`**/v1/materials/${materialId}/goal**`, route => json(route, view));
+  await page.goto(mapPath);
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
+  const card = page.getByRole("region", { name: "學習目標", exact: true });
+  await expect(card.getByRole("progressbar", { name: "學習目標進度" })).toBeInViewport({ ratio: 1 });
+  await expect(card.getByRole("button", { name: /延後到 11\/10/ })).toBeInViewport({ ratio: 1 });
+  await expect(card.getByRole("button", { name: "更改學習目標", exact: true })).toBeInViewport({ ratio: 1 });
+  expect(await card.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
 });

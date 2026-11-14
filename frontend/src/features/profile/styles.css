@@ -1,4 +1,4 @@
-/* 個人檔案：頁首頭像與名稱；寬螢幕左欄學習總覽、學習節奏、儲存空間、登入裝置，右欄帳號設定，整頁盡量不捲動。
+/* 個人檔案：頁首頭像、名稱與登出；寬螢幕左側學習總覽、學習節奏、並排的儲存空間與登入裝置，右欄帳號設定，整頁盡量不捲動。
    窄螢幕依序為總覽、節奏、儲存空間、帳號設定、登入裝置。 */
 .profile {
   display: grid;
@@ -26,13 +26,13 @@
   font-size: clamp(1.5rem, 2.4vw, 1.9rem);
   overflow-wrap: anywhere;
 }
-.profile-logout { flex: none; }
-.profile-settings-jump { margin-left: auto; flex: none; }
+.profile-logout { flex: none; margin-left: auto; }
+.profile-settings-jump { flex: none; }
 .profile-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  grid-template-rows: auto auto auto 1fr;
-  grid-template-areas: "overview settings" "rhythm settings" "storage settings" "devices settings";
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 380px;
+  grid-template-rows: auto auto 1fr;
+  grid-template-areas: "overview overview settings" "rhythm rhythm settings" "storage devices settings";
   gap: 18px 24px;
   align-items: start;
 }
@@ -44,7 +44,13 @@
 .profile-overview { padding: 18px 22px; }
 .profile-layout h2 { margin: 0; font-size: 17px; }
 
-/* 學習總覽：一列小數字 */
+/* 學習總覽：一列五張小卡，標題只給讀屏軟體 */
+.profile-layout > .profile-overview-slot > .profile-overview {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
 .profile-overview {
   display: flex;
   flex-wrap: wrap;
@@ -61,17 +67,14 @@
 }
 .profile-stat {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: auto auto;
-  align-items: center;
-  column-gap: 8px;
-  padding: 8px 10px;
-  border-radius: 14px;
-  background: var(--page-cool);
+  gap: 2px;
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
 }
-.profile-stat .stat-icon { grid-row: span 2; }
-.profile-stat strong { font-size: 17px; font-weight: 900; line-height: 1.15; }
-.profile-stat small { overflow: hidden; color: var(--text-muted); font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.profile-stat strong { font-size: 22px; font-weight: 900; line-height: 1.15; }
+.profile-stat small { overflow: hidden; color: var(--text-muted); font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .stat-icon {
   display: grid;
   width: 30px;
@@ -275,5 +278,7 @@
   .rhythm-chart { padding: 12px 6px 8px; }
 }
 
+.account-password-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.account-password-head h3 { margin: 0; }
 .sound-toggle { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 700; cursor: pointer; }
 .sound-toggle input { width: 20px; height: 20px; flex: none; }

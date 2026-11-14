@@ -25,7 +25,7 @@ const responses: Record<string, unknown> = {
   // 較長名稱，檢查個人檔案標題在各寬度不溢出。
   "/v1/profile": { schema: "learner-profile/v1", display_name: "林以安同學的學習帳號" },
   "/v1/account/storage": { schema: "account-storage/v2", used_bytes: 4831838208, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 536870912, breakdown: { material_files_bytes: 4831838208, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] },
-  // 有學習紀錄的等級、今日任務與學習節奏，讓各寬度一併檢查首頁、右欄與個人檔案不溢出。
+  // 有學習紀錄的等級、今天的小事與學習節奏，讓各寬度一併檢查首頁、右欄與個人檔案不溢出。
   "/v1/learning-activity/rhythm": learningRhythm({
     streak: 128,
     days: { "2026-10-19": { answers: 120, correct: 96, card_reviews: 300, listened_seconds: 3600, active: true },
@@ -66,7 +66,8 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1440, 1366, 1300, 1281, 1200,
   test(`standard frames stay centered without clipping at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : width === 1024 ? 768 : width === 1440 ? 900 : 1080 });
     for (const [path, heading] of [
-      ["/", /^(早安|午安|晚安)，林以安同學的學習帳號！今天想探索哪座島？$/],
+      // 有今天的小事時機器人說還差幾件，沒有就問想探索哪座島。
+      ["/", /^(早安|午安|晚安)，林以安同學的學習帳號！(今天想探索哪座島？|再完成 \d+ 件小事，今天就達標了。)$/],
       ["/profile", "林以安同學的學習帳號"],
       ["/achievements", "成就"],
       ["/materials", "我的教材"],
@@ -88,12 +89,14 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1440, 1366, 1300, 1281, 1200,
           nodes.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent))).toEqual([]);
       }
       if (path === "/achievements") {
+        // 全部徽章和規則平常收合，展開後才有總覽與經驗值規則。
+        await page.getByRole("button", { name: "全部徽章和規則" }).click();
         // 8 個指定的層級加上第 15 級已達的等級 I～III 層；分母不含成就鏈中尚未揭曉的 5 步。
         await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText("11 / 98");
         await expect(page.getByRole("region", { name: "經驗值怎麼算" })).toBeVisible();
       }
       if (path === "/") {
-        await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
+        await expect(page.getByRole("region", { name: "今天的小事" })).toBeVisible();
         // 等級和連續天數在首頁問候下方。
         await expect(page.locator(".dashboard-greeting")).toContainText("連續 128 天 · 第 15 級");
       }

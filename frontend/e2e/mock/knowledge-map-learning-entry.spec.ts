@@ -62,12 +62,12 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
     await page.goto(map);
     if (stage !== "remediation") {
       await page.getByRole("link", { name: "學習進度", exact: true }).click();
-      await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("還沒有測驗紀錄");
+      await expect(page.getByRole("region", { name: "答題紀錄" })).toContainText("還沒有答題紀錄");
       await page.getByRole("link", { name: "知識地圖", exact: true }).click();
     }
     if (stage === "remediation") {
       await page.getByRole("link", { name: "學習進度", exact: true }).click();
-      await page.getByRole("button", { name: /^複習/ }).first().click();
+      await page.getByRole("button", { name: /^再練一次/ }).first().click();
     } else {
       await openMapConcept(page, "伺服器");
       await page.getByRole("button", { name: "開始挑戰", exact: true }).click();
@@ -146,7 +146,7 @@ for (const stage of ["completed"] as const) {
   if(stage==='completed') await page.getByRole('link', { name: '學習進度',exact:true}).click();
   else await openMapConcept(page, '伺服器');
   await expect(page).not.toHaveURL(/study-sessions/);
-  if(stage==='completed')await page.getByRole('region',{name:'測驗紀錄'}).getByRole('button',{name:/^全部 /}).click();
+  if(stage==='completed')await page.getByRole('region',{name:'答題紀錄'}).getByRole('button',{name:/^全部 /}).click();
   await page.getByRole('button',{name:stage==='completed'?'查看與練習':'開始挑戰',exact:true}).first().click();
   await expect(page).toHaveURL(/assessment-sets/);
   await expect(page.getByRole('progressbar',{name:'準備進度'})).toBeVisible();

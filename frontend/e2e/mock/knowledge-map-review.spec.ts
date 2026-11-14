@@ -43,9 +43,9 @@ for (const width of [1440, 1300, 1200, 1024, 390]) {
   state.concept_states[0].status='needs_review'; state.concept_states[1].status='completed';
   await mockOwnedReview(page,view,()=>state); await page.goto(mapPath); await page.getByRole('link', { name: '學習進度',exact:true}).click();
   const next = page.getByRole('region',{name:'學習進度'});
-  await expect(next).toContainText('已完成 1／2 個概念');
+  await expect(next).toContainText('1 / 2 座島已點亮');
   await expect(next.getByRole('button',{name:'繼續學習',exact:true})).toBeInViewport();
-  const diagnosis = page.getByRole('region',{name:'測驗紀錄'});
+  const diagnosis = page.getByRole('region',{name:'答題紀錄'});
   await expect(diagnosis.locator('.diagnosis-point-list > li')).toHaveCount(1);
   await expect(diagnosis.locator('.diagnosis-point-list > li')).toContainText('Stack');
   const records=page.locator('.learning-diagnosis');
@@ -67,14 +67,14 @@ for (const completed of [0,32]) {
   const records=page.locator('.learning-diagnosis'); await records.getByRole('button', {name:/^全部 /}).click();
   await expect(records.locator('li strong')).toHaveText(view.concepts.map(c=>c.label));
   await records.locator('li').last().scrollIntoViewIfNeeded(); await expect(records.locator('li').last()).toBeInViewport();
-  await records.getByRole('button', {name:/^待加強 /}).click(); await expect(records.locator('li')).toHaveCount(completed?0:32);
+  await records.getByRole('button', {name:/^要再練 /}).click(); await expect(records.locator('li')).toHaveCount(completed?0:32);
  });
 }
 
 test('zero assessable concept has no submitted record',async({page})=>{
  const state=structuredClone(progress);state.concept_states[0].assessable_claim_ids=[];
  await mockOwnedReview(page,structureView(),()=>state);await page.goto(mapPath);await page.getByRole('link', { name: '學習進度',exact:true}).click();
- const section=page.locator('.learning-diagnosis'); await section.getByRole('button', {name:/^全部 /}).click(); await expect(section).toContainText('還沒有測驗紀錄'); await expect(section.locator('li')).toHaveCount(0);
+ const section=page.locator('.learning-diagnosis'); await section.getByRole('button', {name:/^全部 /}).click(); await expect(section).toContainText('還沒有答題紀錄'); await expect(section.locator('li')).toHaveCount(0);
 });
 
 test('loading progress does not show a false completed or empty list',async({page})=>{
@@ -114,7 +114,7 @@ test("no saved session offers next step and an empty record list", async ({ page
   await mockKnowledgeMapApi(page); await page.goto(mapPath); await page.getByRole("link", { name: "學習進度", exact: true }).click();
   await expect(page.getByRole("region", { name: "學習進度" }).getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
   const section = page.locator(".learning-diagnosis"); await section.getByRole("button", {name:/^全部 /}).click();
-  await expect(section).toContainText("還沒有測驗紀錄"); await expect(section.locator("li")).toHaveCount(0);
+  await expect(section).toContainText("還沒有答題紀錄"); await expect(section.locator("li")).toHaveCount(0);
 });
 
 test("switching materials never reuses the previous material's answers", async ({ page }) => {
@@ -147,7 +147,7 @@ test("switching materials never reuses the previous material's answers", async (
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, mapPath.replace(materialId, otherId).replace(runId, otherRunId));
   await page.getByRole("link", { name: "學習進度", exact: true }).click();
-  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有測驗紀錄");
+  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有答題紀錄");
   await expect(page.locator(".learning-diagnosis li")).toHaveCount(0);
 });
 
@@ -175,8 +175,8 @@ test("a different login does not restore the previous user's record list", async
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, mapPath);
   await page.getByRole("link", { name: "學習進度", exact: true }).click();
-  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有測驗紀錄");
+  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有答題紀錄");
   await expect(page.locator(".learning-diagnosis li")).toHaveCount(0);
   await page.reload();
-  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有測驗紀錄");
+  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有答題紀錄");
 });

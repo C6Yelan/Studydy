@@ -1,7 +1,7 @@
 import type { StudydyApiClient } from "../../api/client";
 import { useProfile } from "../../app/useProfile";
 import { useLearningActivity } from "../../app/LearningProgress";
-import { Icon, type IconName } from "../../ui/Icon";
+import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { islandState, useMaterialProgress } from "../dashboard/islands";
 import { AccountSettings, DevicesCard, useAccountSessions } from "./AccountSettings";
@@ -9,7 +9,7 @@ import { LearningRhythm } from "./LearningRhythm";
 import { ProfileStorage } from "./ProfileStorage";
 import "./styles.css";
 
-// 個人檔案：左欄由上而下是學習總覽（一列小數字）、學習節奏、儲存空間與登入裝置，右欄是帳號設定（名稱與密碼）；
+// 個人檔案：左側由上而下是學習總覽（一列數字）、學習節奏、並排的儲存空間與登入裝置，右欄是帳號設定（名稱、收合的密碼、音效）；
 // 名稱旁是登出（全站頁首拿掉後移到這裡）。
 // 等級與徽章在「成就」頁。學習活動讀不到時只有總覽顯示錯誤，節奏、登入裝置與帳號設定各自讀取。
 export function ProfilePage({ apiClient, onLogout }: { apiClient: StudydyApiClient; onLogout: () => void }) {
@@ -20,12 +20,12 @@ export function ProfilePage({ apiClient, onLogout }: { apiClient: StudydyApiClie
   const completedConcepts = [...progress.values()].reduce((sum, item) => sum + item.completed, 0);
   // 教材清單讀取失敗或還沒讀完時，教材相關數字顯示「—」。
   const fromMaterials = (value: (items: NonNullable<typeof materials>) => number) => error || !materials ? "—" : value(materials);
-  const stats: [IconName, string, string | number, string][] = activity ? [
-    ["book", "is-blue", fromMaterials((items) => items.length), "份教材"],
-    ["learning", "is-amber", fromMaterials((items) => items.filter((item) => islandState(item) === "learning").length), "學習中的教材"],
-    ["check", "is-green", fromMaterials(() => completedConcepts), "已完成概念"],
-    ["quiz", "is-blue", activity.total_answers, "累計作答"],
-    ["check", "is-green", activity.total_answers ? `${Math.round((activity.total_correct / activity.total_answers) * 100)}%` : "—", "累計答對率"],
+  const stats: [string | number, string][] = activity ? [
+    [fromMaterials((items) => items.length), "份教材"],
+    [fromMaterials((items) => items.filter((item) => islandState(item) === "learning").length), "學習中"],
+    [fromMaterials(() => completedConcepts), "已點亮概念"],
+    [activity.total_answers, "累計作答"],
+    [activity.total_answers ? `${Math.round((activity.total_correct / activity.total_answers) * 100)}%` : "—", "答對率"],
   ] : [];
   return <section className="profile" aria-labelledby="profile-title">
     <header className="profile-head">
@@ -48,11 +48,9 @@ export function ProfilePage({ apiClient, onLogout }: { apiClient: StudydyApiClie
             <h2>無法讀取學習統計</h2>
             <p>學習活動暫時無法讀取，請稍後再試；帳號設定仍可使用。</p>
           </section>
-          : <section className="profile-overview surface" aria-labelledby="profile-overview-title">
-            <h2 id="profile-overview-title">學習總覽</h2>
+          : <section className="profile-overview surface" aria-label="學習總覽">
             <div className="profile-stat-list" aria-busy={materials === null && !error}>
-              {stats.map(([icon, tone, value, label]) => <div key={label} className="profile-stat">
-                <span className={`stat-icon ${tone}`}><Icon name={icon} size={16} /></span>
+              {stats.map(([value, label]) => <div key={label} className="profile-stat">
                 <strong>{value}</strong>
                 <small>{label}</small>
               </div>)}

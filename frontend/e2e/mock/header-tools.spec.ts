@@ -250,6 +250,9 @@ test("password change validates input, reports a wrong current password and then
   // 三個登入先顯示兩個，其餘收合。
   await expect(page.getByRole("region", { name: "登入裝置" }).getByRole("listitem")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "顯示其他 1 個裝置" })).toBeVisible();
+  // 修改密碼平常收合，按「展開」才出現欄位。
+  await expect(section.getByLabel("目前密碼")).toHaveCount(0);
+  await section.getByRole("button", { name: "展開" }).click();
   const submit = section.getByRole("button", { name: "更新密碼" });
   await expect(submit).toBeDisabled();
   await section.getByLabel("目前密碼").fill("old synthetic secret");
@@ -284,6 +287,7 @@ test("password change validates input, reports a wrong current password and then
   await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "首頁" }).click();
   await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "個人檔案與設定" }).click();
   await expect(section.getByRole("status")).toHaveCount(0);
+  await section.getByRole("button", { name: "展開" }).click();
   await expect(section.getByLabel("新密碼", { exact: true })).toHaveValue("");
 });
 

@@ -14,14 +14,26 @@
 .difficulty-reason { display: block; flex-basis: 100%; font-size: .9rem; font-weight: 400; }
 .difficulty-reason > span { display: block; }
 .concept-card > .concept-difficulty { margin: 0 0 12px; }
-  /* 學習進度頁：頂列＋四個並排區塊，區塊在剩餘視窗高度內各自捲動。 */
+/* 學習進度頁：標題、「下一站」帶你繼續的卡片，下面左邊是學習目標與今天的概念、右邊是答題紀錄，區塊在剩餘視窗高度內各自捲動。 */
 .review-diagnosis { padding: 16px 0 0; display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
-.review-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
-.review-summary > p { margin: 0; }
-.review-summary .studydy-progress { flex: 1 1 160px; min-width: 120px; }
-.review-summary .review-next-concept { flex: 2 1 220px; min-width: 0; overflow-wrap: anywhere; }
-.review-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px; min-height: 0; }
-.review-grid.no-today { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.review-title { margin: 0; font-size: 1.65rem; }
+.review-summary { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 12px 28px; padding: 16px 22px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+.review-summary > p { margin: 0; grid-column: 1 / -1; }
+.review-lit { display: grid; gap: 8px; min-width: 0; }
+.review-lit-count { display: flex; align-items: baseline; gap: 6px; margin: 0; }
+.review-lit-count b { font-size: 30px; line-height: 1; }
+.review-lit-count small { color: var(--text-muted); font-size: 14px; font-weight: 800; }
+.review-next { display: grid; gap: 3px; min-width: 0; }
+.review-next-kicker { color: var(--studydy-blue); font-size: 12px; font-weight: 900; }
+.review-next .review-next-concept { margin: 0; font-size: 1.1rem; font-weight: 900; overflow-wrap: anywhere; }
+.review-next-meta { color: var(--text-muted); font-size: 13px; font-weight: 700; }
+.review-grid { flex: 1; display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 12px; min-height: 0; }
+.review-goal-column { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow-y: auto; }
+/* 學習目標卡一律完整顯示；今天的概念拿剩下的高度，內容多時在自己裡面捲動。 */
+.review-goal-column > .learning-goal-panel { flex: 0 0 auto; overflow: visible; }
+.review-goal-column > .goal-today { flex: 1 1 0; min-height: 160px; }
+.goal-empty { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 10px; }
+.goal-empty img { width: 72px; height: auto; }
 .review-block { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); overflow: hidden; }
 .review-block-heading { display: flex; align-items: center; gap: 8px; padding: 12px 16px 8px; flex-shrink: 0; }
 .review-block-heading h2 { margin: 0; font-size: 1.05rem; }
@@ -55,13 +67,20 @@
   .is-review-mode .map-content { flex: 1; min-height: 0; display: block; }
   .is-review-mode .map-view { height: 100%; padding: 0; border: 0; background: transparent; }
   .review-diagnosis { padding-bottom: 12px; }
-  .review-grid > .review-block { height: 100%; }
+  .review-grid > .review-block, .review-grid > .review-goal-column { height: 100%; }
 }
 @media (max-width: 1280px) {
-  .review-grid, .review-grid.no-today { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .review-block { max-height: 420px; }
 }
-@media (max-width: 720px) {
-  .review-grid, .review-grid.no-today { grid-template-columns: minmax(0, 1fr); }
-  .review-summary { padding: 12px 16px; }
+@media (max-width: 1024px) {
+  .review-grid { grid-template-columns: minmax(0, 1fr); }
 }
+@media (max-width: 720px) {
+  .review-summary { grid-template-columns: minmax(0, 1fr); padding: 14px 16px; }
+}
+/* 答題紀錄的一列：答對比例圓環、概念與次數、再練一次。 */
+.review-block .diagnosis-point-list > li { align-items: center; }
+/* 文字撐滿圓環與按鈕之間，不論有沒有「常答錯」標籤都靠左。 */
+.review-block .diagnosis-point-list > li > div { flex: 1; }
+.diagnosis-ring-text { font-size: 11px; font-weight: 900; }
+.diagnosis-ring-empty { flex: none; width: 44px; }
