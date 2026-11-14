@@ -16,6 +16,7 @@ import { StateView } from "../../ui/StateView";
 import { CollectionHeader } from "../../ui/CollectionHeader";
 import { EmptyState } from "../../ui/EmptyState";
 import { MaterialManagement, pointerStartedWithMenuOpen } from "./MaterialManagement";
+import { useConceptProgress } from "../dashboard/islands";
 import { formatFileSize } from "./material-flow";
 
 type LibraryTopic = {topic_id:string; request:string; proposal:{title:string}|null; status:string; version:number;
@@ -47,6 +48,7 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
   const [reload, setReload] = useState(0);
   const [cancellingTopicId, setCancellingTopicId] = useState<string|null>(null);
   const [confirmingTopicId, setConfirmingTopicId] = useState<string | null>(null);
+  const progress = useConceptProgress(apiClient, items);
   const launch = useStudyStart(apiClient);
   const startCurrentStudy = (item: MaterialLibraryItem, structure: MaterialStructureLink) => launch.start({
     materialId: item.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision,
@@ -154,10 +156,10 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
 
       {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
       <CollectionHeader
-        title="我的教材"
+        title="我的群島"
         subtitle={total === 0 ? "上傳教材後，可在這裡查看處理結果並接續學習。" : <>
           {/* 沒有頁內搜尋列，教材數量併入說明行。 */}
-          <b>已保存 {items.length} 份教材{preparingTopics.length ? `，${preparingTopics.length} 份準備中` : ""}</b> · 每份教材都是一座島，從知識地圖開始探索與複習。
+          <b>{items.length} 座島{preparingTopics.length ? `，${preparingTopics.length} 份準備中` : ""}</b> · 每份教材都是一座島，從知識地圖開始探索
         </>}
         headingRef={heading}
         actions={total > 0 && <>
@@ -241,13 +243,14 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
           );
           const deleting = pendingRemovals.current.has(item.material_id);
           // 刪除中的卡片：fieldset 停用不涵蓋連結，改顯示停用的按鈕。
-          const entry = (className: string, route: AppRoute, children: ReactNode) => deleting
-            ? <button className={className} type="button" disabled>{children}</button>
-            : <RouteLink className={className} route={route}>{children}</RouteLink>;
+          const entry = (className: string, route: AppRoute, children: ReactNode, label?: string) => deleting
+            ? <button className={className} type="button" disabled aria-label={label}>{children}</button>
+            : <RouteLink className={className} route={route} aria-label={label}>{children}</RouteLink>;
           const mapAction = structure && entry(
-            !studyAction ? "primary-button" : "secondary-button",
+            !studyAction ? "primary-button" : "library-tool is-map",
             { name: "knowledge-map", materialId: item.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision },
-            <><Icon name="map" size={16} />開啟知識地圖</>,
+            <><Icon name="map" size={18} />{studyAction ? "地圖" : "開啟知識地圖"}</>,
+            studyAction ? "開啟知識地圖" : undefined,
           );
           // 點島嶼或標題：有地圖開地圖，處理中看進度，其餘到來源頁建立地圖。
           const openPrimary = () => {
@@ -299,6 +302,10 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                   <p className="library-state is-failed">知識地圖建立失敗</p>
                 )
               )}
+              {progress.get(item.material_id) && <p className="library-lit">
+                <span>點亮 {progress.get(item.material_id)!.completed} / {progress.get(item.material_id)!.total}</span>
+                <span className="library-lit-bar" aria-hidden="true"><b style={{ width: `${progress.get(item.material_id)!.total ? progress.get(item.material_id)!.completed / progress.get(item.material_id)!.total * 100 : 0}%` }} /></span>
+              </p>}
               <fieldset className={`state-actions library-actions${studyAction ? " has-study" : ""}`} disabled={deleting}>
                 {studyAction}
                 {mapAction}
@@ -329,12 +336,19 @@ export function MaterialLibrary({ apiClient }: { apiClient: StudydyApiClient }) 
                     </button>
                   )
                 )}
-                {structure && <>{entry("secondary-button library-link", { name: "material-content", materialId: item.material_id, kind: "concept-cards" }, <><Icon name="cards" size={16} />概念卡</>)}
-                  {entry("secondary-button library-link", { name: "material-content", materialId: item.material_id, kind: "podcasts" }, <><Icon name="headphones" size={16} />Podcast</>)}</>}
+                {structure && <>{entry("library-tool is-cards", { name: "material-content", materialId: item.material_id, kind: "concept-cards" }, <><Icon name="cards" size={18} />卡片</>, "概念卡片")}
+                  {entry("library-tool is-podcast", { name: "material-content", materialId: item.material_id, kind: "podcasts" }, <><Icon name="headphones" size={18} />Podcast</>)}</>}
               </fieldset>
             </article>
           );
         })}
+        {total > 0 && <section className="library-new" aria-label="發現新島嶼">
+          <i aria-hidden="true">＋</i>發現新島嶼<span>上傳檔案，或輸入想學的主題</span>
+          <div className="library-new-actions">
+            <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "upload" })}>上傳檔案</button>
+            <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}>輸入主題</button>
+          </div>
+        </section>}
       </div>
     </section>
   );

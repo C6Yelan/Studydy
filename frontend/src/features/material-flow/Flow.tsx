@@ -8,11 +8,11 @@ import "./flow.css";
  */
 
 /** 上傳教材流程的三個步驟（處理中與完成頁沿用）。 */
-export const uploadSteps = ["上傳教材", "確認教材", "建立知識地圖"];
+export const uploadSteps = ["放入教材", "確認教材", "建立知識地圖"];
 /** 從主題建立教材的四個步驟；教材重試後回到處理頁時沿用。 */
-export const topicSteps = ["學習需求", "確認觀念與細節", "選取來源", "建立教材"];
+export const topicSteps = ["說出想學的", "確認觀念與細節", "選來源", "建立教材"];
 /** 建立 Podcast 的三個步驟；生成中與中斷頁沿用。 */
-export const podcastSteps = ["選擇教材", "挑選概念與形式", "生成 Podcast"];
+export const podcastSteps = ["選一座島", "挑選概念與形式", "生成 Podcast"];
 
 /**
  * 頁首：返回、標題與一句說明；右側可放插圖或補充資訊（aside）。

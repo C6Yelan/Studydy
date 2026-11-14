@@ -43,20 +43,9 @@ export function statusText(state: IslandState, progress: IslandProgress | undefi
   return progress ? `已完成 ${progress.completed} / ${progress.total} 個概念` : "學習中";
 }
 
-// 讀取教材清單與每份教材的概念進度摘要；個別摘要失敗只少顯示數字。
-export function useMaterialProgress(apiClient: StudydyApiClient, retry = 0) {
-  const [materials, setMaterials] = useState<MaterialLibraryItem[] | null>(null);
+// 每份教材的概念進度摘要；個別摘要失敗只少顯示數字。
+export function useConceptProgress(apiClient: StudydyApiClient, materials: MaterialLibraryItem[] | null) {
   const [progress, setProgress] = useState<Map<string, IslandProgress>>(new Map());
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    void apiClient.listMaterials().then(
-      (library) => { if (!cancelled) setMaterials(library.materials); },
-      (failure) => { if (!cancelled) setError(errorMessage(failure)); },
-    );
-    return () => { cancelled = true; };
-  }, [apiClient, retry]);
   useEffect(() => {
     let cancelled = false;
     for (const material of materials ?? []) {
@@ -72,5 +61,22 @@ export function useMaterialProgress(apiClient: StudydyApiClient, retry = 0) {
     }
     return () => { cancelled = true; };
   }, [apiClient, materials]);
+  return progress;
+}
+
+// 讀取教材清單與每份教材的概念進度摘要。
+export function useMaterialProgress(apiClient: StudydyApiClient, retry = 0) {
+  const [materials, setMaterials] = useState<MaterialLibraryItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    void apiClient.listMaterials().then(
+      (library) => { if (!cancelled) setMaterials(library.materials); },
+      (failure) => { if (!cancelled) setError(errorMessage(failure)); },
+    );
+    return () => { cancelled = true; };
+  }, [apiClient, retry]);
+  const progress = useConceptProgress(apiClient, materials);
   return { materials, progress, error };
 }

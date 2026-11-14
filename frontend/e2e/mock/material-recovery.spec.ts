@@ -90,6 +90,8 @@ test.beforeEach(async ({ page }) => {
     if (path === "/v1/learning-activity") return route.fulfill({ json: emptyLearningActivity });
     // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
     if (path === "/v1/card-reviews") return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
+    // 我的群島卡片讀概念進度摘要；這些案例不涉及進度，回 404 就只少顯示「點亮」進度。
+    if (path.endsWith("/progress-summary")) return route.fulfill({ status: 404, json: {} });
     if (!responses[path])
       throw new Error(`Unexpected recovery request: ${route.request().method()} ${path}`);
     expect(route.request().method()).toBe(path === "/v1/session/refresh" ? "POST" : "GET");
@@ -285,7 +287,7 @@ for (const status of ["active", "completed"] as const)
       status === "active" ? "繼續學習" : "查看學習成果",
     );
     await expect(actions.getByRole("link", { name: "開啟知識地圖", exact: true })).toHaveClass(
-      "secondary-button",
+      "library-tool is-map",
     );
     await expect(actions.getByRole("button", { name: "查看問題", exact: true })).toHaveClass(
       "text-button",
@@ -294,9 +296,9 @@ for (const status of ["active", "completed"] as const)
     await page.reload();
     await expect(actions.locator(":is(button, a)")).toHaveText([
       status === "active" ? "繼續學習" : "查看學習成果",
-      "開啟知識地圖",
+      "地圖",
       "查看進度",
-      "概念卡",
+      "卡片",
       "Podcast",
     ]);
     await actions.locator(".primary-button").click();

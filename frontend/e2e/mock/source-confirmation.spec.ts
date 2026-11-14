@@ -408,7 +408,7 @@ for(const append of [false,true])test(`add source page shares upload steps and r
  await page.getByRole('button',{name:'新增來源',exact:true}).click();
  await expect(page).toHaveURL(`${sourcesPath}/new`);
  await expect(page.getByRole('heading',{name:'新增來源',exact:true})).toBeVisible();
- await expect(page.locator('.file-drop')).toContainText('PDF');
+ await expect(page.locator('.upload-types')).toContainText('PDF');
  await expect(page.getByLabel('YouTube 影片網址',{exact:true})).toBeVisible();
  for(const [width,height] of [[1440,900],[1024,768],[390,844]]){
   await page.setViewportSize({width,height});

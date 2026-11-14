@@ -396,8 +396,8 @@ test('compact research workflow navigates available stages without changing the 
  await page.route(`**/v1/research/${cid}/actions`,r=>{const body=r.request().postDataJSON();actions.push(body);if(body.action==='more')work={...work,status:'searching'};else if(body.action==='acquire')work={...work,status:'acquiring',selection:body.selected};return json(r,work);});
  await page.route(`**/v1/research/${cid}/submit`,r=>{expect(r.request().postDataJSON()).toEqual({confirmed:true});submits++;work={...work,status:'submitted',run_id:runId,run:{status:'pending',error_code:null}};return json(r,work,202);});
  await page.goto(`/materials/${materialId}/research/${cid}`);
- const nav=page.getByRole('list',{name:'補充學習流程'}),selection=nav.getByRole('listitem').filter({hasText:'選取來源'}),add=nav.getByRole('listitem').filter({hasText:'補充教材'});
- await expect(selection).toHaveAttribute('aria-current','step');await expect(nav.getByRole('listitem')).toHaveText(['學習需求','確認觀念與細節','3選取來源','4補充教材']);
+ const nav=page.getByRole('list',{name:'補充學習流程'}),selection=nav.getByRole('listitem').filter({hasText:'選來源'}),add=nav.getByRole('listitem').filter({hasText:'補充教材'});
+ await expect(selection).toHaveAttribute('aria-current','step');await expect(nav.getByRole('listitem')).toHaveText(['說出想學的','確認觀念與細節','3選來源','4補充教材']);
  expect(await page.locator('.research-candidates').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(3);
  await expect(page.locator('.source-picker-filters').getByRole('button',{name:'已選 0 個'})).toHaveAttribute('aria-pressed','false');
  await expect(page.getByText('可加入',{exact:true})).toHaveCount(0);

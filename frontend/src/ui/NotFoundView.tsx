@@ -6,9 +6,9 @@ import "./not-found.css";
 
 /** 找不到頁面或資源時的共用畫面：吉祥物插圖＋說明＋回首頁（可再加一個相關清單的入口），左側欄可用時另提供搜尋。 */
 export function NotFoundView({
-  title = "找不到這個頁面",
+  title = "這座島不在地圖上",
   description = "網址可能打錯了，或這個頁面已經移除。",
-  back = { label: "我的教材", route: { name: "materials" } },
+  back = { label: "我的群島", route: { name: "materials" } },
 }: {
   title?: string;
   description?: string;
@@ -21,8 +21,9 @@ export function NotFoundView({
   return (
     <section className="not-found surface" aria-labelledby="not-found-title">
       <div className="not-found-art" aria-hidden="true">
-        <span>404</span>
-        <img src="/assets/studydy/failure-confused.png" alt="" />
+        <span>4</span>
+        <img src="/assets/studydy/brand-idle.png" alt="" />
+        <span>4</span>
       </div>
       <h1 id="not-found-title">{title}</h1>
       <p>{description}</p>
@@ -49,5 +50,5 @@ export function NotFoundView({
 export const materialNotFound = {
   title: "找不到這份教材",
   description: "這份教材可能已被刪除，或不屬於目前登入的帳號。",
-  back: { label: "回到我的教材", route: { name: "materials" } as AppRoute },
+  back: { label: "回到我的群島", route: { name: "materials" } as AppRoute },
 };

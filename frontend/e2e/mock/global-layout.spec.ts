@@ -70,8 +70,8 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1440, 1366, 1300, 1281, 1200,
       ["/", /^(早安|午安|晚安)，林以安同學的學習帳號！(今天想探索哪座島？|再完成 \d+ 件小事，今天就達標了。)$/],
       ["/profile", "林以安同學的學習帳號"],
       ["/achievements", "成就"],
-      ["/materials", "我的教材"],
-      ["/upload", "上傳教材"],
+      ["/materials", "我的群島"],
+      ["/upload", "新增一座島"],
     ] as const) {
       await page.goto(path);
       const frame = page.locator(".app-main > section");
@@ -140,10 +140,10 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1440, 1366, 1300, 1281, 1200,
       expect(layout.width).toBeLessThanOrEqual(layout.usableWidth + 1);
       expect(layout.width).toBeGreaterThanOrEqual(Math.min(layout.usableWidth, 1200) - 1);
       if (path === "/upload") {
-        // 拖放區撐滿階段卡片的內容寬度（只扣卡片左右內距）。
+        // 拖放區撐滿左欄（拖放區與 YouTube 輸入所在的欄）的寬度。
         const drop = (await page.locator(".file-drop").boundingBox())!;
-        const stage = (await page.locator(".flow-stage").filter({ has: page.locator(".file-drop") }).boundingBox())!;
-        expect(drop.width).toBeGreaterThanOrEqual(stage.width - 80);
+        const main = (await page.locator(".upload-main").boundingBox())!;
+        expect(drop.width).toBeGreaterThanOrEqual(main.width - 4);
       }
       expect(layout.headingTop).toBeCloseTo(layout.top, 0);
       expect(layout.documentWidth).toBe(width);

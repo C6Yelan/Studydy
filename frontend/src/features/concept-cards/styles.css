@@ -101,11 +101,11 @@ button.cards-version-tag { border: 0; font-family: inherit; cursor: pointer; }
 .cards-strengthen-bar p {
   display: flex;
   flex: 1;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
+  flex-direction: column;
+  gap: 0;
   margin: 0;
   color: var(--text-secondary);
+  font-size: 13px;
   font-weight: 700;
 }
 .cards-strengthen-bar b {

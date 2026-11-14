@@ -24,7 +24,7 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   const a = await browser.newContext();
   const page = await a.newPage();
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   await login(page, "learner_test@example.com", "Wrong synthetic password");
   await expect(page.getByRole("alert")).toHaveText("Email 或密碼不正確。");
   await login(page, "learner_test@example.com");
@@ -65,7 +65,7 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   await page.getByRole("button", { name: "登出", exact: true }).click();
   await expect(page.getByText(/登出尚未完成/)).toBeVisible();
   await expect(page.getByText("Stack", { exact: true })).toHaveCount(0);
-  await expect(otherTab.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(otherTab.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   const loggedOut = page.waitForResponse(
     (response) =>
       response.url().endsWith("/v1/session") &&
@@ -74,7 +74,7 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   );
   await page.getByRole("button", { name: "再試一次", exact: true }).click();
   await loggedOut;
-  await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   await otherTab.close();
   expect((await a.request.get(`${origin}/v1/session`)).status()).toBe(401);
   await page.getByRole("link", { name: "立即註冊" }).click();
@@ -111,7 +111,7 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   expect((await fresh.request.get(`${origin}/v1/artifacts/${artifactId}`)).status()).toBe(200);
   await fresh.request.delete(`${origin}/v1/session`, { headers: { Origin: origin } });
   await freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }).click();
-  await expect(freshPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(freshPage.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   await expect(freshPage.getByText("Stack", { exact: true })).toHaveCount(0);
   expect((await fresh.request.get(`${origin}/v1/session`)).status()).toBe(401);
   await fresh.close();

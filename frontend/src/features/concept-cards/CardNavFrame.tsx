@@ -14,14 +14,17 @@ const MAX_FACE_WIDTH = 970;
  * 概念卡外框：左側清單欄、圓形上一張／下一張在卡片左右；正反面共用同一個卡框尺寸，卡片頂端細進度條，下緣浮動操作列（dock）。
  * 量測可用空間後以 --card-face-w／--card-face-h 交給卡面，卡面（canvas）據此等比縮放；手機改由 CSS 排版。
  */
-export function CardNavFrame({ list, onPrev, onNext, prevDisabled, nextDisabled, nextLabel = "下一張", progress, dock, children }: {
+export function CardNavFrame({ list, aside, onPrev, onNext, prevDisabled, nextDisabled, nextLabel = "下一張", progress, dock, children }: {
   onPrev: () => void; onNext: () => void; prevDisabled: boolean; nextDisabled: boolean; nextLabel?: string;
   /** 卡片左側的清單欄（窄螢幕變成卡片上方的橫向列、手機隱藏）。 */
   list?: ReactNode;
+  /** 卡片右側的提示欄（只在寬螢幕顯示，窄螢幕隱藏）。 */
+  aside?: ReactNode;
   progress: { value: number; max: number; label: string }; dock: ReactNode; children: ReactNode;
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const listBox = useRef<HTMLDivElement>(null);
+  const asideBox = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const element = frame.current;
     if (!element) return;
@@ -34,10 +37,12 @@ export function CardNavFrame({ list, onPrev, onNext, prevDisabled, nextDisabled,
       const listRect = listBox.current?.getBoundingClientRect();
       const stacked = !!listRect && listRect.width > element.clientWidth / 2;
       const listWidth = listRect && !stacked ? listRect.width + GAP : 0;
+      const asideRect = asideBox.current?.getBoundingClientRect();
+      const asideWidth = asideRect && asideRect.width > 0 ? asideRect.width + GAP : 0;
       const listHeight = listRect && stacked ? listRect.height + GAP : 0;
       const top = element.getBoundingClientRect().top + window.scrollY;
       const height = Math.round(window.innerHeight - top - 28 - SHELL_CHROME - listHeight);
-      const width = Math.min(MAX_FACE_WIDTH, Math.round(element.clientWidth - listWidth - 2 * (NAV_BUTTON + GAP) - SHELL_PADDING));
+      const width = Math.min(MAX_FACE_WIDTH, Math.round(element.clientWidth - listWidth - asideWidth - 2 * (NAV_BUTTON + GAP) - SHELL_PADDING));
       element.style.setProperty("--card-face-h", `${Math.max(height, 120)}px`);
       element.style.setProperty("--card-face-w", `${Math.max(width, 320)}px`);
     };
@@ -54,5 +59,6 @@ export function CardNavFrame({ list, onPrev, onNext, prevDisabled, nextDisabled,
       <div className="card-dock" role="group" aria-label="標記與頁數">{dock}</div>
     </div>
     <button type="button" className="card-nav-button is-next" aria-label={nextLabel} disabled={nextDisabled} onClick={onNext}><Icon name={nextLabel === "下一張" ? "chevron-right" : "check"} size={26} /></button>
+    {aside && <div ref={asideBox} className="card-aside-column">{aside}</div>}
   </div>;
 }

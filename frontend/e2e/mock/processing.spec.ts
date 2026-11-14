@@ -372,7 +372,7 @@ for (const origin of ["research", "mixed", "unreadable"] as const)
     await expect(processing.getByRole("button", { name: "開啟知識地圖", exact: true })).toBeVisible();
     if (origin === "research") {
       // 從主題建立的教材重試後也回到這頁，步驟列沿用主題流程。
-      await expect(processing.locator(".learning-steps > li")).toHaveText(["學習需求", "確認觀念與細節", "選取來源", "建立教材"].map((label) => new RegExp(label)));
+      await expect(processing.locator(".learning-steps > li")).toHaveText(["說出想學的", "確認觀念與細節", "選來源", "建立教材"].map((label) => new RegExp(label)));
       await expect(processing.locator(".learning-steps > li.is-complete")).toHaveCount(4);
     } else await expect(processing.locator(".learning-steps")).toHaveCount(0);
   });

@@ -115,6 +115,7 @@ for (const width of [1536, 390]) {
         default:
           // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
           if (path === "/v1/card-reviews") return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
+          if (path.endsWith("/progress-summary")) return route.fulfill({ status: 404, json: {} }); // 我的群島卡片讀進度摘要；這些案例不涉及進度。
           throw new Error(`Unexpected library source request: ${request.method()} ${path}`);
       }
     });
@@ -129,7 +130,7 @@ for (const width of [1536, 390]) {
     await expect(card.locator("details:not(.material-management-menu)")).toHaveCount(0);
     await expect(card.locator(".library-state")).toHaveCount(0);
     await expect(card.locator(".primary-button")).toHaveText("開啟知識地圖");
-    await expect(card.locator(".state-actions > :is(button, a)")).toHaveText(["開啟知識地圖", "概念卡", "Podcast"]);
+    await expect(card.locator(".state-actions > :is(button, a)")).toHaveText(["開啟知識地圖", "卡片", "Podcast"]);
     await page.clock.runFor(5_000);
     expect(reads).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

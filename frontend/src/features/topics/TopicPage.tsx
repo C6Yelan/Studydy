@@ -23,6 +23,8 @@ type Scope={title:string;goals:string[];topics:string[]};
 export type Topic={topic_id:string;material_id:string|null;request:string;proposal:Scope|null;version:number;status:string;research_id:string|null;research?:Research;error_code:string|null;learning_goal?:{target_date:string;target_percent:60|80|100}|null};
 const active=new Set(['searching','acquiring','normalizing','ready']);
 const stages:Record<string,string>={searching:'正在搜尋來源',selecting:'選擇想加入的來源',acquiring:'正在取得選取來源',normalizing:'正在轉換文件',ready:'正在建立教材分析',submitted:'已送入教材分析',failed:'處理未完成',cancelled:'已停止'};
+/** 輸入頁下方的四步說明，讓第一次用的人知道後面還有什麼。 */
+const topicStepHints=[['說出想學的','一句話就可以'],['確認觀念與細節','可以增刪學習目標'],['選來源','論文與 Wikipedia'],['建立教材','完成後就是一座新島']] as const;
 const timelineStages=materialProgressStages.slice(0,-1).map(stage=>({label:materialProgressStageLabel(stage),icon:stage==='semantics'?'map' as const:'process' as const}));
 
 /** 一列一個輸入框＋右側 X；Enter 跳到下一項，最後一項按 Enter 新增一項。 */
@@ -147,22 +149,28 @@ export function TopicPage({api,topicId,embedded=false}:{api:StudydyApiClient;top
  if(notFound)return <NotFoundView title="找不到這個學習主題" description="這個主題可能已被刪除，或不屬於目前登入的帳號。" back={{label:'從主題建立教材',route:{name:'topics'}}}/>;
  const scopeReady=!!draft&&!!draft.title.trim()&&draft.topics.some(x=>x.trim())&&draft.goals.some(x=>x.trim())&&[...draft.topics,...draft.goals].every(item=>item.length<=500)&&[...draft.topics,...draft.goals].reduce((sum,item)=>sum+item.length,0)<=12000;
  const approve=()=>{if(!draft||!view)return;const clean={...draft,goals:draft.goals.filter(x=>x.trim()),topics:draft.topics.filter(x=>x.trim())};setDraft(clean);void perform(async()=>{const payload={expected_version:view.version,proposal:clean,...(!view.material_id?{learning_goal:learningSettings.goal?{target_date:learningSettings.goal.date,target_percent:learningSettings.goal.percent}:null}:{})};const body=JSON.stringify(payload);if(approveIntent.current?.body!==body)approveIntent.current={body,key:crypto.randomUUID()};const approved=await api.studyTools<Topic>(`/v1/topics/${view.topic_id}/approve`,payload,approveIntent.current.key);approveIntent.current=null;if(alive.current){if(view.material_id&&approved.research_id)writeRoute({name:'research',materialId:view.material_id,researchId:approved.research_id});else setView(approved);}});};
- const buildTitle=work?.run_id?(removing?'正在刪除教材…':completed?'教材與知識地圖已建立':cancelled?'已取消教材處理':failed?'教材處理失敗':cancelling?'正在取消教材處理':materialRun?.status==='pending'?'等待開始處理':materialRun?'正在分析教材':'正在讀取處理狀態'):work?.deleted?'查詢已刪除':'正在建立教材';
+ const buildTitle=work?.run_id?(removing?'正在刪除教材…':completed?(view?.proposal?.title??'新島嶼誕生'):cancelled?'已取消教材處理':failed?'教材處理失敗':cancelling?'正在取消教材處理':materialRun?.status==='pending'?'等待開始處理':materialRun?'正在分析教材':'正在讀取處理狀態'):work?.deleted?'查詢已刪除':'正在建立教材';
  const buildDescription=completed?`使用你選擇的 ${work?.selection.length??0} 份來源，已完成這份教材。`:removing?'分析已停止，正在刪除 PDF 與處理紀錄。':cancelling?'已收到取消要求，會在目前進行中的步驟完成後安全停止。':cancelled?'這次分析已停止。若不再需要這份教材，可以刪除 PDF 與處理紀錄。':'取得的來源會保留，可離開頁面，稍後回來查看進度。';
  if(work?.run_id) return <section className={`flow-page processing-page task-page${analyzing?' is-processing':''}`}>
-  <FlowHeader back={<div className="run-material-return"><BackLink label="返回我的教材" onClick={back}/><span>{view?.proposal?.title}</span></div>}
-    title={buildTitle} description={failed?undefined:buildDescription}/>
+  {completed
+   // 完成時島名是主角，寫在下方的完成卡裡，頁首只留返回列。
+   ?<div className="run-material-return"><BackLink label="回到我的群島" onClick={back}/><span>{view?.proposal?.title}</span></div>
+   :<FlowHeader back={<div className="run-material-return"><BackLink label="回到我的群島" onClick={back}/><span>{view?.proposal?.title}</span></div>}
+    title={buildTitle} description={failed?undefined:buildDescription}/>}
   <LearningSteps labels={topicSteps} current={completed?topicSteps.length:3}/>
   {errorNotice}
   <section aria-label="教材分析子流程">
    {runError&&<p className="form-error" role="alert">無法讀取處理狀態：{runError}<button className="text-button" onClick={()=>setRunReload(v=>v+1)}>重新讀取進度</button></p>}
    {!materialRun&&!runError&&<p role="status">正在讀取教材分析進度…</p>}
-   {materialRun&&(removing?<section className="surface processing-card"><p role="status">正在停止處理並刪除這份教材，完成後會返回我的教材。</p></section>:<div className="processing-grid">
-    {failed?<MaterialRunFailure apiClient={api} run={materialRun}/>:<section className="surface processing-card">
+   {materialRun&&(removing?<section className="surface processing-card"><p role="status">正在停止處理並刪除這份教材，完成後會返回我的教材。</p></section>:<div className={`processing-grid${completed?' is-done':''}`}>
+    {failed?<MaterialRunFailure apiClient={api} run={materialRun}/>:<section className={`surface processing-card${completed?' topic-done-card':''}`}>
+     {completed&&<img className="topic-done-bot" src="/assets/Studydy_角色素材/歡迎/welcome_present.png" alt=""/>}
      {completed||cancelled?<>
-      <p role="status" className={`flow-chip ${completed?'is-success':'is-muted'}`}>{completed?'處理完成':`停止於：${materialProgressStageLabel(materialRun.progress_stage)}`}{materialRun.total_pages!==null&&` · 已處理 ${materialRun.completed_pages} / ${materialRun.total_pages} 頁`}</p>
+      {completed&&<h1 className="topic-done-title">{view?.proposal?.title}</h1>}
+      <p role="status" className={`flow-chip ${completed?'is-success':'is-muted'}`}>{completed?'新島嶼誕生':`停止於：${materialProgressStageLabel(materialRun.progress_stage)}`}{materialRun.total_pages!==null&&` · 已處理 ${materialRun.completed_pages} / ${materialRun.total_pages} 頁`}</p>
+      {completed&&<p>用你選的 {work.selection.length} 份來源建好了。</p>}
       {completed&&<p className="run-ai-notice">由 AI 整理，每個重點都可點開原文對照。</p>}
-      <p>已耗時：{materialElapsedLabel(materialRun.created_at,Date.parse(materialRun.completed_at??materialRun.updated_at))}</p>
+      <p>{completed?'花了 ':'已耗時：'}{materialElapsedLabel(materialRun.created_at,Date.parse(materialRun.completed_at??materialRun.updated_at))}{completed&&'。'}</p>
      </>:<ProcessingProgress run={materialRun} now={now}/>}
      <details className="topic-selected-sources"><summary>已選來源 · {work.selection.length} 份</summary><SourceCandidates candidates={visibleSources} selected={selected} disabled readOnly onChange={setSelected}/></details>
      <div className="run-actions">
@@ -171,18 +179,18 @@ export function TopicPage({api,topicId,embedded=false}:{api:StudydyApiClient;top
        confirmationDescription={`${analyzing?'將先停止目前處理，再':'將'}刪除這份教材與取得的檔案。這次搜尋結果不會保留，這個主題也會從列表移除。此操作無法復原。`}
        onAccepted={state=>{if(state==='removed')writeRoute({name:'materials'});else setRemoving(true);}}/>}
       {completed&&work.candidates.some(c=>work.selection.includes(c.id)&&c.state==='failed')&&<button className="secondary-button" disabled={busy} onClick={()=>void actResearch('retry')}>重試未完成來源</button>}
-      {binding&&<button className="primary-button" onClick={()=>writeRoute({name:'knowledge-map',materialId:materialRun.material_id,runId:materialRun.run_id,structureRevision:binding.knowledge_structure_revision})}>開啟知識地圖<Icon name="chevron-right" size={16}/></button>}
+      {binding&&<button className="primary-button" onClick={()=>writeRoute({name:'knowledge-map',materialId:materialRun.material_id,runId:materialRun.run_id,structureRevision:binding.knowledge_structure_revision})}>登上這座島<Icon name="chevron-right" size={16}/></button>}
      </div>
     </section>}
-    <ProcessingTimeline stages={timelineStages} currentIndex={materialProgressStages.indexOf(materialRun.progress_stage)} activity={failed?'失敗':cancelled?'已停止':cancelling?'取消中':'進行中'}/>
+    <ProcessingTimeline title="建島過程" stages={timelineStages} currentIndex={materialProgressStages.indexOf(materialRun.progress_stage)} activity={failed?'失敗':cancelled?'已停止':cancelling?'取消中':'進行中'}/>
    </div>)}
   </section>
  </section>;
  return <section className={`flow-page topic-page${confirmingScope?" topic-scope-confirmation":searchingSources?" topic-search-page":""}`}>
- <FlowHeader className={confirmingScope?'topic-scope-page-header':searchingSources?'topic-search-page-header':undefined} back={embedded?undefined:<BackLink label={view?.material_id?'返回補充學習':'返回我的教材'} onClick={back}/>} title={view?.status==='approved'?(view.proposal?.title??'搜尋教材來源'):view?.material_id?'確認補充學習需求':'從主題建立教材'} description={view?.status==='approved'?'依已確認的學習範圍查看來源與處理進度。':'先確認想查找的觀念與細節，再搜尋並核對來源。'}/>
+ <FlowHeader className={confirmingScope?'topic-scope-page-header':searchingSources?'topic-search-page-header':undefined} back={embedded?undefined:<BackLink label={view?.material_id?'返回補充學習':'回到我的群島'} onClick={back}/>} title={view?.status==='approved'?(view.proposal?.title??'搜尋教材來源'):view?.material_id?'確認補充學習需求':'從主題建立教材'} description={view?.status==='approved'?'依已確認的學習範圍查看來源與處理進度。':'告訴我想學什麼，我會先列出觀念和細節讓你確認，再找論文和 Wikipedia。'}/>
  <LearningSteps labels={view?.material_id?[...topicSteps.slice(0,-1),'補充教材']:topicSteps} current={step}/>
  {(inputStage||view?.status!=='ready')&&errorNotice}
- {inputStage&&<FlowStage className="topic-request" icon="sparkle" title="你想學什麼？" description="可以是一個主題、一個問題，或想完成的學習目標。"
+ {inputStage&&<div className="topic-ask"><img className="topic-ask-bot" src="/assets/Studydy_角色素材/歡迎/welcome_present.png" alt=""/><FlowStage className="topic-request" icon="sparkle" title="你想學什麼？" description="可以是一個主題、一個問題，或想完成的學習目標。"
   footer={<FlowFooter
    secondary={<>
     {editingRequest&&<button className="secondary-button" disabled={busy} onClick={()=>setEditingRequest(false)}>返回目前規劃</button>}
@@ -195,7 +203,10 @@ export function TopicPage({api,topicId,embedded=false}:{api:StudydyApiClient;top
   {view?.status==='pending'&&<div className="flow-wait" role="status"><span className="loading-ring"/><p>正在整理預計學習範圍；尚未搜尋外部來源。</p></div>}
   {view?.status==='failed'&&<p className="flow-notice">這次無法產生範圍，請重試。</p>}
   {view?.status==='cancelled'&&<p className="flow-notice">這個規劃已停止，可以建立新主題。</p>}
- </FlowStage>}
+ </FlowStage></div>}
+ {inputStage&&<ol className="topic-flow-hints" aria-label="接下來的步驟">
+  {topicStepHints.map(([name,hint],index)=><li key={name} className={index===0?'is-current':undefined}><b>{index+1} {name}</b><small>{hint}</small></li>)}
+ </ol>}
  {!inputStage&&draft&&view.status==='ready'&&<FlowStage className="topic-scope" icon="edit" title="確認學習範圍" description="直接修改每一項觀念與細節；確認前不會搜尋外部來源。">
   <ScopeFields draft={draft} onChange={setDraft} busy={busy} request={view.request} supplemental={!!view.material_id} settings={!view.material_id&&<CreationLearningSettings value={learningSettings} today={today} disabled={busy} onChange={setLearningSettings}/>} actions={<>
    <button className="primary-button" disabled={busy||!scopeReady} onClick={approve}>確認範圍並搜尋<Icon name="chevron-right" size={16}/></button>

@@ -476,7 +476,7 @@ test('audio-only podcast plays audio in the same player without video progress',
   // 逐字稿時間軸不依賴影片。
   await expect(page.getByRole('tabpanel',{name:'逐字稿',exact:true}).getByRole('button',{name:/前半段/})).toBeVisible();
   await page.goto('/podcasts');
-  await expect(page.getByRole('button',{name:'開啟播放'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'開始收聽'})).toBeVisible();
   await expect(page.getByText(/影片 \d+ \/ \d+ 集/)).toHaveCount(0);
 });
 
@@ -1035,7 +1035,7 @@ for(const entry of ['library','player']) test(`audio ready does not hide remaini
  }
  else await expect(page.getByText(/影片.*生成中/)).toBeVisible();
  await expect(page.locator('video,audio')).toHaveCount(0);
- if(entry==='library')await expect(page.getByRole('button',{name:'開啟播放'})).toHaveCount(0);
+ if(entry==='library')await expect(page.getByRole('button',{name:'開始收聽'})).toHaveCount(0);
  await page.getByRole('button',{name:'取消並刪除',exact:true}).click();
  await page.getByRole('button',{name:'取消並刪除',exact:true}).click();
  await expect(page.getByRole('heading',{name:'讓教材說給你聽'})).toBeVisible();
@@ -1109,9 +1109,9 @@ test("podcast tiles show status only while work remains and leave version notes 
     generation: { active: true, preview_ready: false, completed_videos: 1, failed_videos: 0 } };
   await page.route("**/v1/podcasts", route => json(route, { schema: "podcast-list/v1", podcasts: [done, working] }));
   await page.goto("/podcasts");
-  // 全部完成：按鈕已是「開啟播放」，不再顯示狀態列，也不在列表標示教材新版。
+  // 全部完成：按鈕已是「開始收聽」，不再顯示狀態列，也不在列表標示教材新版。
   const finished = page.getByRole("article").filter({ hasText: "已完成的 Podcast" });
-  await expect(finished.getByRole("button", { name: "開啟播放" })).toBeVisible();
+  await expect(finished.getByRole("button", { name: "開始收聽" })).toBeVisible();
   await expect(finished.locator(".library-state")).toHaveCount(0);
   // 封面右下角是集數加總時長（滿 60 分鐘改用小時），螢幕閱讀器另有文字。
   await expect(finished.locator(".podcast-cover i")).toHaveText("3 集 · 1 小時 5 分");

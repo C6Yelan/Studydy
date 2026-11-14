@@ -90,3 +90,34 @@
  .topic-search-page { gap:1rem; }
  .topic-search-page-header { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; column-gap:1rem; }
 }
+
+/* 1. 說出想學的：機器人在左，輸入框包在對話框裡；下方四步說明。 */
+.topic-ask { display:grid; grid-template-columns:150px minmax(0,1fr); gap:18px; align-items:start; }
+.topic-ask-bot { width:150px; height:auto; }
+.topic-ask .topic-request { padding:18px 20px 0; border-radius:24px 24px 24px 6px; background:var(--surface); gap:12px; }
+.topic-ask .topic-request .flow-stage-icon { display:none; }
+.topic-ask .topic-request .flow-stage-title h2 { font-size:22px; font-weight:900; }
+.topic-ask .topic-request > .tool-stage-footer { margin:0 -20px; padding:14px 20px; background:transparent; border-top:0; }
+.topic-flow-hints { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:0; padding:0; list-style:none; }
+.topic-flow-hints li { padding:12px 14px; border:2px solid var(--border); border-radius:20px; background:var(--surface); font-size:14px; }
+.topic-flow-hints li.is-current { border-color:#a9c3ff; background:var(--studydy-blue-soft-2); color:var(--studydy-blue-deep); }
+.topic-flow-hints b { display:block; font-weight:900; }
+.topic-flow-hints small { display:block; margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:700; line-height:1.5; }
+@media (max-width:1024px) { .topic-flow-hints { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:720px) {
+  .topic-ask { grid-template-columns:minmax(0,1fr); }
+  .topic-ask-bot { width:96px; }
+  .topic-flow-hints { grid-template-columns:minmax(0,1fr); }
+}
+
+/* 完成：島名是主角的恭喜卡，機器人在左；高度依內容，不拉到右欄高度。 */
+.processing-grid.is-done { align-items:start; }
+.topic-done-card { display:grid; grid-template-columns:150px minmax(0,1fr); gap:8px 18px; align-items:center; align-content:center; border-radius:var(--radius-panel); }
+.topic-done-card > :not(.topic-done-bot) { grid-column:2; margin:0; }
+.topic-done-bot { grid-column:1; grid-row:1 / span 7; width:150px; height:auto; }
+.topic-done-card .flow-chip { justify-self:start; order:-2; }
+.topic-done-title { order:-1; margin:0; font-size:24px; line-height:1.3; overflow-wrap:anywhere; }
+.topic-done-card .run-actions { order:5; justify-content:flex-start; border-top:0; margin-top:4px; padding-top:0; }
+.topic-done-card .run-actions > .primary-button { margin-left:0; }
+.topic-done-card .topic-selected-sources { order:6; }
+@media (max-width:720px) { .topic-done-card { grid-template-columns:minmax(0,1fr); } .topic-done-card > :not(.topic-done-bot) { grid-column:1; } .topic-done-bot { grid-row:auto; width:96px; } }

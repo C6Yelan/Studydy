@@ -23,9 +23,9 @@ function AccountFrame({ mode, children }: { mode: Mode; children: React.ReactNod
           <h2>{isRegister ? "開始你的學習之旅" : "歡迎回來！"}</h2>
           <p>{isRegister ? "每份教材都會長成一座知識島" : "你的學習群島還在等你"}</p>
           <ul className="auth-features">
-            <li><span><Icon name="map" size={16} /></span>上傳教材，自動整理成知識地圖</li>
-            <li><span><Icon name="quiz" size={16} /></span>逐一學習概念，交卷後立即回饋</li>
-            <li><span><Icon name="headphones" size={16} /></span>概念卡與 Podcast，隨時複習</li>
+            <li><span aria-hidden="true">1</span>上傳教材，自動整理成知識地圖</li>
+            <li><span aria-hidden="true">2</span>一站一站學，交卷後馬上看解析</li>
+            <li><span aria-hidden="true">3</span>翻卡片、聽 Podcast，隨時複習</li>
           </ul>
           <span className="auth-island" aria-hidden="true"><IslandArt palette="meadow" landmarks /></span>
           <img
@@ -190,7 +190,11 @@ export function AccountPage({
 
   return (
     <AccountFrame mode={mode}>
-      <h1>{isRegister ? "建立新帳戶" : "登入您的帳戶"}</h1>
+      <nav className="auth-tabs" aria-label="登入或註冊">
+        <a href="/login" aria-current={isRegister ? undefined : "page"}>登入</a>
+        <a href="/register" aria-current={isRegister ? "page" : undefined}>註冊</a>
+      </nav>
+      <h1>{isRegister ? "建立新帳戶" : "登入你的帳戶"}</h1>
       <p className="auth-lead">{isRegister ? "建立帳戶後，就能上傳第一份教材。" : "用註冊時的 Email 與密碼登入。"}</p>
       {sessionNotice}
       <form

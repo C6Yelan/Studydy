@@ -66,3 +66,17 @@
 .card-review-done b {
   color: var(--studydy-blue);
 }
+
+/* 專注版面的上方列：關閉、標題、進度格與第幾張。 */
+.card-review-heading { display: flex; align-items: center; gap: 18px; min-height: 48px; padding: 0 4px; }
+.card-review-heading .cards-study-title { flex: none; max-width: 38%; flex-direction: column; align-items: flex-start; gap: 0; }
+.card-review-heading h1 { margin: 0; font-size: 16px; font-weight: 900; }
+.review-close { display: grid; flex: none; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px; background: transparent; color: var(--text-muted); }
+.review-close:hover { background: var(--page-cool); color: var(--text-primary); }
+.review-dots { display: flex; flex: 1; gap: 6px; min-width: 0; }
+.review-dots i { flex: 1; height: 14px; border-radius: 8px; background: var(--border); }
+.review-dots i.is-done { background: var(--success); }
+.review-dots i.is-current { background: #a9c3ff; }
+.review-count { flex: none; color: var(--text-secondary); font-size: 15px; font-weight: 900; white-space: nowrap; }
+.review-hint { margin: 10px 0 0; color: var(--text-muted); font-size: 13px; font-weight: 800; text-align: center; }
+@media (max-width: 720px) { .card-review-heading { flex-wrap: wrap; gap: 8px; } .card-review-heading .cards-study-title { max-width: none; flex: 1; } .review-dots { flex-basis: 100%; order: 3; } }

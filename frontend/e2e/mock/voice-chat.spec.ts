@@ -311,7 +311,7 @@ test('switching account releases private voice audio and never carries it into t
  const turn=mock.recorded[0];turn.question='第一個帳號的問題';mock.reply(mock.conversations[0],turn);
  const audio=page.locator('.answer-audio audio');await expect.poll(()=>audio.evaluate((a:HTMLAudioElement)=>a.paused)).toBe(false);
  await audio.evaluate(a=>{(window as any).previousVoiceAudio=a;});await page.evaluate(() => { const channel = new BroadcastChannel("studydy-account"); channel.postMessage("identity-changed"); channel.close(); });
- await expect(page.getByRole('heading',{name:'登入您的帳戶'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'登入你的帳戶'})).toBeVisible();
  expect(await page.evaluate(()=>({paused:(window as any).previousVoiceAudio.paused,src:(window as any).previousVoiceAudio.getAttribute('src')}))).toEqual({paused:true,src:null});
  const stranger={schema:'learner-identity/v1',learner_id:'88888888-8888-4888-8888-888888888888'};
  await page.route('**/v1/session/login',r=>json(r,stranger));await page.route('**/v1/session/refresh',r=>json(r,stranger));

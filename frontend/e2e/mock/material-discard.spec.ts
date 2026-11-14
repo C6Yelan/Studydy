@@ -89,6 +89,8 @@ test.beforeEach(async ({ page }) => {
     if (path === "/v1/learning-activity") return route.fulfill({ json: emptyLearningActivity });
     // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
     if (path === "/v1/card-reviews") return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
+    // 我的群島卡片讀概念進度摘要；這些案例不涉及進度，回 404 就只少顯示「點亮」進度。
+    if (path.endsWith("/progress-summary")) return route.fulfill({ status: 404, json: {} });
     throw new Error(`Unexpected material management request: ${route.request().method()} ${path}`);
   });
 });
@@ -325,7 +327,7 @@ test("removing publishing material disables all actions and polls until absent",
   await card.getByRole("button", { name: "確認刪除", exact: true }).click();
   await expect(card.getByRole("status")).toHaveText("正在刪除…");
   const actions = card.locator(".state-actions").getByRole("button");
-  await expect(actions).toHaveText(["繼續學習", "開啟知識地圖", "查看進度", "概念卡", "Podcast"]);
+  await expect(actions).toHaveText(["繼續學習", "地圖", "查看進度", "卡片", "Podcast"]);
   for (const action of await actions.all()) await expect(action).toBeDisabled();
   await expect(card.getByRole("link")).toHaveCount(0);
   await expect(card.locator(".material-management-menu")).toHaveCount(0);

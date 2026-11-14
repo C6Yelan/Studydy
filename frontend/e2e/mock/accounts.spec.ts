@@ -101,7 +101,7 @@ for (const mode of ["login", "register"] as const) {
     const secret = page.getByLabel("密碼", { exact: true });
     await expect(
       page.getByRole("heading", {
-        name: mode === "login" ? "登入您的帳戶" : "建立新帳戶",
+        name: mode === "login" ? "登入你的帳戶" : "建立新帳戶",
         exact: true,
       }),
     ).toBeVisible();
@@ -187,7 +187,7 @@ for (const mode of ["login", "register"] as const) {
     await expect(page).toHaveURL(new RegExp(mode === "login" ? "/register$" : "/login$"));
     await expect(
       page.getByRole("heading", {
-        name: mode === "login" ? "建立新帳戶" : "登入您的帳戶",
+        name: mode === "login" ? "建立新帳戶" : "登入你的帳戶",
         exact: true,
       }),
     ).toBeVisible();
@@ -404,7 +404,7 @@ test("private routes hide authentication and content while the session is unknow
   await expect(page.getByText("暫時無法完成", { exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主要導覽", exact: true })).toBeVisible();
   await expect(page.locator("form.auth-form")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "我的群島", exact: true })).toHaveCount(0);
   await page.unroute("**/v1/session/refresh");
   await page.getByRole("button", { name: "再試一次", exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);

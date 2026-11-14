@@ -672,19 +672,6 @@
 /* 三個清單頁的卡片欄數一致：寬螢幕 4 欄，依寬度遞減。 */
 .is-collection .library-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
 .material-bookshelf .library-item { padding:20px; }
-.material-bookshelf .library-item > .state-actions {
-  display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  grid-auto-rows:minmax(44px,auto);
-  min-height:108px;
-  align-content:start;
-}
-.material-bookshelf .library-item > .state-actions > button {
-  min-width:0;
-  min-height:44px;
-  padding:6px 8px;
-  line-height:1.2;
-}
 @media (max-width:1599px) { .is-collection .library-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media (max-width:1280px) { .is-collection .library-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:720px) { .is-collection .library-grid { grid-template-columns:minmax(0,1fr); } }
@@ -737,11 +724,6 @@
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 4px 10px -4px rgba(10, 40, 80, 0.4);
-}
-.library-item .state-actions > .library-link {
-  min-height: 32px;
-  padding: 0 4px;
-  font-size: 13px;
 }
 
 /* 全域清單頁的標題（概念卡、Podcast）。 */
@@ -823,24 +805,33 @@
   .collection-head-actions > button { flex: 1; }
 }
 
-/* 教材卡片的操作：主要操作整列，其餘入口同一列等寬（概念卡、Podcast、知識地圖位置固定）。 */
+/* 教材卡片的操作：上面一排三個小圖示（地圖、卡片、Podcast），下面是這個狀態的主要按鈕。 */
 .material-bookshelf .library-item > .library-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 8px;
-  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-content: end;
+  margin-top: auto;
+  padding-top: 10px;
+  min-height: 108px; /* 少一排小圖示的卡片（還沒有地圖）也保留，同列卡片的按鈕起點對齊。 */
 }
-.material-bookshelf .library-item > .library-actions > :is(button, a) {
-  flex: 1 1 28%;
-  min-width: 0;
-  min-height: 40px;
-  padding: 6px 10px;
-  font-size: 13px;
-}
-.material-bookshelf .library-item > .library-actions > .primary-button:first-child { flex: 1 0 100%; min-height: 44px; font-size: 14px; }
-.material-bookshelf .library-item > .library-actions > .text-button { flex: 1 0 100%; min-height: 32px; }
-.material-bookshelf .library-item > .library-actions > .library-link { gap: 6px; }
+.material-bookshelf .library-item > .library-actions > :not(.library-tool) { grid-column: 1 / -1; order: 1; min-height: 44px; font-size: 15px; }
+.material-bookshelf .library-item > .library-actions > .text-button { min-height: 36px; font-size: 13px; }
+.library-tool { display: grid; justify-items: center; gap: 2px; min-width: 0; min-height: 48px; padding: 6px 0; border-radius: 12px; background: var(--page-cool); color: var(--text-secondary); font-size: 11px; font-weight: 800; text-decoration: none; }
+.library-tool:not(:disabled):hover { background: var(--studydy-blue-soft); color: var(--studydy-blue-deep); }
+.library-tool.is-map svg { color: var(--studydy-blue); }
+.library-tool.is-cards svg { color: var(--violet); }
+.library-tool.is-podcast svg { color: var(--amber-deep); }
+/* 點亮進度：教材名稱下方一條細進度。 */
+.library-lit { display: flex; align-items: center; gap: 8px; margin: 2px 0 0; color: var(--text-secondary); font-size: 12px; font-weight: 900; }
+.library-lit-bar { flex: 1; height: 10px; overflow: hidden; border-radius: 999px; background: var(--border); }
+.library-lit-bar b { display: block; height: 100%; border-radius: inherit; background: var(--success); }
+/* 最後一格固定是「發現新島嶼」。 */
+.library-new { display: grid; place-content: center; justify-items: center; gap: 2px; min-height: 200px; padding: 16px; border: 2px dashed #a9c3ff; border-radius: var(--radius-card); background: var(--studydy-blue-soft-2); color: var(--studydy-blue); font: inherit; font-size: 16px; font-weight: 900; text-align: center; }
+.library-new i { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 8px; border-radius: 50%; background: var(--studydy-blue); box-shadow: 0 4px 0 var(--studydy-blue-deep); color: #fff; font-size: 30px; font-style: normal; }
+.library-new span { color: var(--text-muted); font-size: 12px; font-weight: 700; }
+.library-new-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+.library-new-actions .secondary-button { min-height: 44px; font-size: 14px; }
 /* 教材卡片緊湊版：插圖較扁、標題不預留第二行，文字與按鈕間距縮小（只影響我的教材）。 */
 .material-bookshelf .library-item { padding: 8px 14px 14px; }
 .material-bookshelf .library-island { aspect-ratio: 2 / 1; margin-bottom: 2px; }
@@ -890,20 +881,9 @@ button.library-state:hover { background: var(--violet); color: #fff; }
 
 /* 寬螢幕：來源操作放在列的右側，每份來源只佔兩行高。 */
 
-/* 同列卡片的操作區保留兩列高度，按鈕起點對齊（只有一個主要操作的卡片也一樣）。 */
-.material-bookshelf .library-item > .library-actions { min-height: 104px; } /* 含上方 12px 內距 */
 @media (max-width: 720px) {
   .material-bookshelf .library-item h2 { min-height: 2.9em; }
 }
-/* 次要入口固定同一列等寬（不換行），操作區高度在每張卡片都相同。 */
-.material-bookshelf .library-item > .library-actions > .secondary-button:not(:first-child) {
-  flex: 1 1 0;
-  gap: 4px;
-  padding: 0 6px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.material-bookshelf .library-item > .library-actions > .secondary-button:not(:first-child) svg { flex: none; }
 @media (max-width: 720px) {
   .material-bookshelf .library-item { padding: 14px 14px 20px; }
 }

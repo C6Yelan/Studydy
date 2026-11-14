@@ -44,7 +44,7 @@ test("real API persists selected cards across fresh login and resolves original 
   await page.keyboard.press("Escape");
   await page.goto("/profile");
   await page.getByRole("button", { name: "登出", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   await first.close();
   const second = await browser.newContext();
   const reopened = await second.newPage();

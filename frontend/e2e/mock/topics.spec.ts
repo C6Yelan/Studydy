@@ -20,7 +20,7 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  await page.route(`**/v1/topics/${id}/material`,r=>{expect(r.request().postDataJSON()).toEqual({selected:['source']});created++;topic.research={...topic.research,material_id:materialId,selection:['source'],status:'submitted',run_id:runId,run:{status:'pending',output_binding:null}};return json(r,{material_id:materialId,research_id:rid},202);});
  await page.goto('/topics');await expect(page.getByRole('heading',{name:'你想學什麼？'})).toBeVisible();
  const workspace=await page.locator('.topic-request').boundingBox();
- expect(workspace!.width).toBeGreaterThan(width===390?300:1000);
+ expect(workspace!.width).toBeGreaterThan(width===390?300:900);
  await page.getByLabel('想學的主題').fill('TCP');await page.getByRole('button',{name:'產生學習範圍'}).click();await expect(page.getByRole('heading',{name:/確認學習範圍/})).toBeVisible();expect(approved).toBe(0);expect(created).toBe(0);
  await expect(page.getByRole('complementary',{name:'對照學習需求'})).toContainText('原始學習需求TCP');
  await expect(page.locator('.topic-scope-confirm-actions').getByRole('button',{name:'確認範圍並搜尋'})).toBeVisible();
@@ -34,9 +34,9 @@ for(const width of [1920,1440,390]) test(`scope workflow at ${width}px`,async({p
  await expect(page.getByRole('heading',{name:'等待開始處理',exact:true})).toBeVisible();
  await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('建立教材');
  topic.research.run={status:'succeeded',error_code:null,output_binding:{knowledge_structure_revision:structureRevision}};
- await page.reload();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();expect(created).toBe(1);await expect(page.locator('.run-actions').getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();
- await page.reload();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();expect(created).toBe(1);expect(approved).toBe(1);await expect(page.getByLabel('想學的主題')).toHaveCount(0);await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toHaveCount(0);
- await page.getByRole('button',{name:'開啟知識地圖',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/runs/${runId}/knowledge-structures/`));
+ await page.reload();await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toBeVisible();expect(created).toBe(1);await expect(page.locator('.run-actions').getByRole('button',{name:'登上這座島',exact:true})).toBeVisible();
+ await page.reload();await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toBeVisible();expect(created).toBe(1);expect(approved).toBe(1);await expect(page.getByLabel('想學的主題')).toHaveCount(0);await expect(page.getByRole('checkbox',{name:'選取 TCP handshake'})).toHaveCount(0);
+ await page.getByRole('button',{name:'登上這座島',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/runs/${runId}/knowledge-structures/`));
 });
 
 for(const width of [1536,1024,390]) test(`verified topic source pagination follows long titles at ${width}px`,async({page})=>{
@@ -65,7 +65,7 @@ for(const width of [1536,1024,390]) test(`verified topic source pagination follo
 test('empty source search offers no fake map or enabled create action',async({page})=>{
  await mockTopicApi(page);const topic={topic_id:id,request:'空結果',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:null,query:'空結果',approved_scope:plan,status:'selecting',candidates:[],selection:[],error_code:null,run_id:null}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
- await page.goto(`/topics/${id}`);await expect(page.getByText('沒有找到可加入的來源，可用「重新規劃」調整學習範圍後再搜尋。')).toBeVisible();await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
+ await page.goto(`/topics/${id}`);await expect(page.getByText('沒有找到可加入的來源，可用「重新規劃」調整學習範圍後再搜尋。')).toBeVisible();await expect(page.getByRole('button',{name:'建立教材與知識地圖'})).toBeDisabled();await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toHaveCount(0);
 });
 
 for(const width of [1920,1440,390]) test(`saved planning states reopen from their links at ${width}px`,async({page})=>{
@@ -79,7 +79,7 @@ for(const width of [1920,1440,390]) test(`saved planning states reopen from thei
  for(const topic of topics){
   await page.goto(`/topics/${topic.topic_id}`);
   await expect(page.getByLabel('想學的主題')).toHaveValue(topic.request);
-  await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('學習需求');
+  await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('說出想學的');
   if(topic.status==='pending'){
    await expect(page.getByLabel('想學的主題')).toBeDisabled();
    await expect(page.getByRole('button',{name:'重新規劃主題'})).toBeDisabled();
@@ -191,12 +191,12 @@ for(const width of [1920,1440,390]) test(`topic uses canonical run progress with
  await expect(page.locator('.processing-times')).toContainText('1 分');
  await expect(page.locator('.learning-steps > li')).toHaveCount(4);await expect(page.locator('.learning-steps [aria-current=step]')).toContainText('建立教材');
  await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('建立概念、關係與學習順序');
- await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toHaveCount(0);
  await expect(page.locator('.topic-selected-sources').getByText('已選文件 1',{exact:true})).not.toBeVisible();
  const summary=page.locator('.topic-selected-sources > summary');await expect(summary).toHaveText('已選來源 · 23 份');await summary.focus();await page.keyboard.press('Enter');await expect(page.locator('.topic-selected-sources').getByText('已選文件 1',{exact:true})).toBeVisible();await summary.click();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  current={...current,progress_stage:'publishing',completed_pages:10};await expect(page.locator('.processing-timeline [aria-current=step]')).toContainText('組裝與發布知識地圖');await expect(page.getByRole('progressbar',{name:/本階段進度/})).toBeVisible();await expect(page.getByRole('progressbar',{name:/本階段進度/})).not.toHaveAttribute('aria-valuenow');
- current={...runFixture,total_pages:10,completed_pages:10,output_binding:{...runFixture.output_binding,page_count:10}};await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();await expect(page.getByRole('progressbar')).toHaveCount(0);await expect(page.locator('.learning-steps li.is-complete')).toHaveCount(4);
+ current={...runFixture,total_pages:10,completed_pages:10,output_binding:{...runFixture.output_binding,page_count:10}};await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toBeVisible();await expect(page.getByRole('progressbar')).toHaveCount(0);await expect(page.locator('.learning-steps li.is-complete')).toHaveCount(4);
 });
 
 for(const status of ['failed','cancelled','partial'] as const) test(`topic material run ${status} retains canonical outcome`,async({page})=>{
@@ -204,10 +204,10 @@ for(const status of ['failed','cancelled','partial'] as const) test(`topic mater
  const current={...runFixture,auto_retry_count:1,auto_retry_reason:'RESTART_INTERRUPTED',status,cancel_requested_at:status==='cancelled'?runFixture.updated_at:null,progress_stage:status==='partial'?'completed':'semantics',completed_pages:status==='partial'?2:1,analysis_saved:status==='failed',output_binding:status==='partial'?runFixture.output_binding:null,error_code:status==='failed'?'MATERIAL_ANALYSIS_FAILED':null};
  const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],error_code:null,run_id:runId,run:{status:'running',output_binding:null}}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));await page.route(`**/v1/material-processing-runs/${runId}`,r=>json(r,current));
- await page.goto(`/topics/${id}`);await expect(page.getByRole('heading',{name:status==='failed'?'教材處理失敗':status==='cancelled'?'已取消教材處理':'教材與知識地圖已建立',exact:true})).toBeVisible();
+ await page.goto(`/topics/${id}`);await expect(page.getByRole('heading',{name:status==='failed'?'教材處理失敗':status==='cancelled'?'已取消教材處理':'TCP 入門',exact:true})).toBeVisible();
  await expect(page.getByRole('progressbar')).toHaveCount(0);
- if(status==='partial'){await expect(page.locator('.flow-chip')).toContainText('處理完成');await expect(page.getByText('由 AI 整理，每個重點都可點開原文對照。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toBeVisible();}
- else {await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);await expect(page.getByRole('region',{name:'教材分析子流程'})).toContainText('已處理 1 / 2 頁');}
+ if(status==='partial'){await expect(page.locator('.flow-chip')).toContainText('新島嶼誕生');await expect(page.getByText('由 AI 整理，每個重點都可點開原文對照。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toBeVisible();}
+ else {await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toHaveCount(0);await expect(page.getByRole('region',{name:'教材分析子流程'})).toContainText('已處理 1 / 2 頁');}
  if(status==='failed'){await expect(page.getByText('已完成的處理進度已保存；使用相同來源與設定重試，會接續未完成的部分。')).toBeVisible();await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();}
  else await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'查看教材建立結果',exact:true})).toHaveCount(0);
@@ -232,7 +232,7 @@ test('topic run loading failures retry and unknown progress remains indeterminat
  const topic={topic_id:id,request:'TCP',proposal:plan,version:3,status:'approved',research_id:rid,error_code:null,research:{research_id:rid,material_id:materialId,status:'submitted',candidates:[candidate],selection:['source'],error_code:null,run_id:runId,run:{status:'running',output_binding:null}}};
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));let fail=true;
  await page.route(`**/v1/material-processing-runs/${runId}`,r=>fail?json(r,{schema:'api-error/v1',request_id:id,reason_code:'INTERNAL_ERROR',retryable:true,message:'Retry'},500):json(r,{...runFixture,status:'running',progress_stage:'evidence',total_pages:null,completed_pages:0,completed_at:null,output_binding:null}));
- await page.goto(`/topics/${id}`);await expect(page.getByRole('alert')).toContainText('無法讀取處理狀態');await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
+ await page.goto(`/topics/${id}`);await expect(page.getByRole('alert')).toContainText('無法讀取處理狀態');await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toHaveCount(0);
  fail=false;await page.getByRole('button',{name:'重新讀取進度'}).click();await expect(page.getByRole('heading',{name:'第 2 / 6 階段',exact:true})).toBeVisible();await expect(page.getByText('此階段尚無可計算的工作總數。')).toBeVisible();await expect(page.getByRole('progressbar',{name:/本階段進度/})).toBeVisible();await expect(page.getByRole('progressbar',{name:/本階段進度/})).not.toHaveAttribute('aria-valuenow');
 });
 
@@ -243,8 +243,8 @@ test('topic rejects a foreign run and ignores late responses after switching top
  await page.route('**/v1/topics',r=>json(r,{topics:[topic]}));await page.route(`**/v1/topics/${id}`,r=>json(r,topic));
  let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});let retry=false,waiting=false;
  await page.route(`**/v1/material-processing-runs/${runId}`,async r=>{if(!retry)return json(r,{...runFixture,material_id:id});waiting=true;await held;return json(r,runFixture);});
- await page.goto(`/topics/${id}`);await expect(page.getByRole('alert')).toContainText('無法讀取處理狀態');await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
- retry=true;await page.getByRole('button',{name:'重新讀取進度'}).click();await expect.poll(()=>waiting).toBe(true);await page.getByRole('button',{name:'返回我的教材',exact:true}).click();release();
+ await page.goto(`/topics/${id}`);await expect(page.getByRole('alert')).toContainText('無法讀取處理狀態');await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toHaveCount(0);
+ retry=true;await page.getByRole('button',{name:'重新讀取進度'}).click();await expect.poll(()=>waiting).toBe(true);await page.getByRole('button',{name:'回到我的群島',exact:true}).click();release();
  await expect(page).toHaveURL(/\/materials$/);await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);await expect(page.getByRole('progressbar')).toHaveCount(0);
 });
 
@@ -305,7 +305,7 @@ test('topics still being planned stay reachable from the library',async({page})=
  await page.goto('/materials');
  const card=page.getByRole('article',{name:'TCP 入門',exact:true});
  await expect(card).toContainText('等待確認觀念與細節');
- await expect(page.locator('main')).toContainText('已保存 0 份教材，1 份準備中');
+ await expect(page.locator('main')).toContainText('0 座島，1 份準備中');
  await card.getByRole('button',{name:'確認範圍'}).click();
  await expect(page).toHaveURL(new RegExp(`/topics/${id}$`));
  await page.goto('/materials');
@@ -334,7 +334,7 @@ test('topic analysis cancellation explains removal of search results and require
  await cancel.click();await page.getByRole('button',{name:'確認刪除',exact:true}).click();await expect(page.getByRole('heading',{name:'正在刪除教材…',exact:true})).toBeVisible();expect(deletes).toBe(1);
  const completedRead=page.waitForResponse(async response=>response.url().endsWith(`/v1/material-processing-runs/${runId}`)&&response.status()===200&&(await response.json()).status==='succeeded');
  publishedDuringDelete=true;await (await completedRead).finished();await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
- await expect(page.getByText('正在停止處理並刪除這份教材，完成後會返回我的教材。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'開啟知識地圖',exact:true})).toHaveCount(0);
+ await expect(page.getByText('正在停止處理並刪除這份教材，完成後會返回我的教材。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toHaveCount(0);
  gone=true;await expect(page).toHaveURL(/\/materials$/);expect(deletes).toBe(1);
 });
 

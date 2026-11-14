@@ -116,3 +116,9 @@
   .card-face-chip { position:static; max-width:none; margin:0 12px 8px; }
   .card-source-drawer { max-height:80%; padding:14px 16px 16px; }
 }
+
+/* 卡片右側的提示欄：說明文字加機器人。 */
+.card-aside-column { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 150px; align-self: flex-start; padding-top: 40px; }
+.card-aside-column p { margin: 0; padding: 10px 12px; border-radius: 16px; background: var(--studydy-blue-soft-2); color: var(--text-secondary); font-size: 13px; font-weight: 800; line-height: 1.55; }
+.card-aside-column img { width: 110px; height: auto; }
+@media (max-width: 1100px) { .card-aside-column { display: none; } }

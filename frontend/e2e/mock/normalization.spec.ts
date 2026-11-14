@@ -285,7 +285,7 @@ test("accepted deletion of a converting source survives reload and returns to li
   removed = true;
   await page.clock.runFor(3_000);
   await expect(page).toHaveURL(/\/materials$/);
-  await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "我的群島", exact: true })).toBeVisible();
   await expect(page.getByRole("article")).toHaveCount(0);
   expect(deletes).toBe(1);
 });
@@ -403,13 +403,13 @@ for (const viewport of [
       return route.fulfill({ json: run });
     });
     await page.goto("/upload");
-    await expect(page.locator(".file-drop")).toContainText("PDF、TXT");
+    await expect(page.locator(".upload-types")).toContainText("PDF、TXT");
     await expectApplicationFrame();
-    // 拖放區撐滿階段卡片的內容寬度（只扣卡片左右內距）。
+    // 拖放區撐滿左欄（拖放區與 YouTube 輸入所在的欄）的寬度。
     const drop = (await page.locator(".file-drop").boundingBox())!;
-    const stage = (await page.locator(".flow-stage").filter({ has: page.locator(".file-drop") }).boundingBox())!;
-    expect(drop.width).toBeGreaterThanOrEqual(stage.width - 80);
-    await expect(page.locator(".learning-steps [aria-current=step]")).toContainText("上傳教材");
+    const main = (await page.locator(".upload-main").boundingBox())!;
+    expect(drop.width).toBeGreaterThanOrEqual(main.width - 4);
+    await expect(page.locator(".learning-steps [aria-current=step]")).toContainText("放入教材");
     await page.goto(`/materials/${materialId}/sources`);
     await expect(page.getByRole("link", { name: "預覽 PDF", exact: true })).toBeVisible();
     await expect(page.locator(".source-row").getByRole("status")).toHaveCount(0);
@@ -436,7 +436,7 @@ for (const viewport of [
     for (const [index, token] of [
       [0, "--success"],
       [1, "--studydy-blue"],
-      [2, "--text-secondary"],
+      [2, "--text-muted"],
     ] as const) {
       expect(
         await steps.nth(index).evaluate((element, token) => {

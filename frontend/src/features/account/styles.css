@@ -93,12 +93,14 @@
 .auth-features li > span {
   display: grid;
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   border-radius: 50%;
   background: var(--studydy-blue-soft);
   color: var(--studydy-blue);
+  font-size: 11px;
+  font-weight: 900;
 }
 .auth-island {
   position: absolute;
@@ -137,6 +139,31 @@
   font-weight: 900;
   line-height: 1.35;
   letter-spacing: -0.01em;
+}
+.auth-tabs {
+  display: flex;
+  align-self: flex-start;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--page-cool);
+}
+.auth-tabs a {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 900;
+  text-decoration: none;
+}
+.auth-tabs a[aria-current="page"] {
+  background: var(--surface);
+  box-shadow: 0 2px 0 var(--border);
+  color: var(--studydy-blue);
 }
 .auth-lead {
   margin: 6px 0 30px;

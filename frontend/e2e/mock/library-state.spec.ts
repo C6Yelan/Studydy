@@ -64,7 +64,7 @@ test("library loading, read failure and empty state retain usable actions", asyn
   await expect(page.getByRole("heading", { name: "無法讀取教材", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "上傳第一份教材", exact: true }).click();
   await expect(page).toHaveURL(/\/upload$/);
-  await expect(page.getByRole("heading", { name: "上傳教材", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "新增一座島", exact: true })).toBeVisible();
   await expect(page.getByLabel("選擇教材檔案", { exact: true })).toBeEnabled();
 });
 

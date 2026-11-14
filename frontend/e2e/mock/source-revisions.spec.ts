@@ -320,7 +320,7 @@ for (const width of [1536, 390]) {
       "primary-button",
     );
     await expect(card.getByRole("link", { name: "開啟知識地圖", exact: true })).toHaveClass(
-      "secondary-button",
+      "library-tool is-map",
     );
     await card.getByRole("button", { name: "繼續學習", exact: true }).click();
     await expect(page).toHaveURL(
