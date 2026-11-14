@@ -204,7 +204,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
       </div>
     </div>
     <FlowFooter
-      secondary={<div className="cards-create-summary"><strong>{selected.size} 個觀念</strong><span>每個概念會做成一張或多張卡，依重點內容安排。</span></div>}
+      secondary={<div className="cards-create-summary"><strong>已選 {selected.size} 個概念</strong><span>每個概念會做成一張或多張卡，依重點內容安排。</span></div>}
       primary={<div>
         {editing && <button className="secondary-button" type="button" disabled={busy} onClick={back}>取消變更</button>}
         <button className="primary-button" type="button" disabled={busy || !validName || selected.size === 0 || conflict} onClick={() => void save()}>

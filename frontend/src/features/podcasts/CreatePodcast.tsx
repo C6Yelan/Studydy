@@ -117,7 +117,7 @@ export function CreatePodcast({ apiClient, route }: {
       </div>
     </div>
     <FlowFooter
-      secondary={<div className="cards-create-summary"><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · {video ? "聲音＋影片" : "只有聲音"} · 製作要幾分鐘，可以先離開這頁。</span></div>}
+      secondary={<div className="cards-create-summary"><strong>已選 {selected.size} 個概念 · {claimCount} 個重點</strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · {video ? "聲音＋影片" : "只有聲音"} · 製作要幾分鐘，可以先離開這頁。</span></div>}
       primary={<button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始製作 Podcast"}</button>} />
   </div>;
 }

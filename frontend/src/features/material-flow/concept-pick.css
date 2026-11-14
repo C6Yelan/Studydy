@@ -79,7 +79,7 @@
 .podcast-concept-option label { display:flex; flex:1; align-items:center; gap:10px; min-width:0; cursor:pointer; }
 .podcast-concept-option label > span { min-width:0; }
 .podcast-concept-option input { flex:none; width:17px; height:17px; margin:0; accent-color:var(--studydy-blue); }
-.podcast-concept-option strong { display:block; overflow:hidden; color:var(--text-primary); font-size:14px; font-weight:800; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+.podcast-concept-option strong { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; color:var(--text-primary); font-size:14px; font-weight:800; line-height:1.4; overflow-wrap:anywhere; }
 .podcast-concept-option small { display:block; margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:700; }
 .podcast-concept-option > button { flex:none; min-height:44px; padding:0 4px; font-size:12px; font-weight:900; }
 .podcast-concept-preview { padding:12px 14px; border-radius:18px; background:var(--studydy-blue-soft-2); font-size:13px; }

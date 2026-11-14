@@ -173,10 +173,10 @@ async function mockCards(page: Page, { saved = false, long = false, many = false
 }
 
 async function openSavedCardManagement(page: Page) {
-  await expect(page.getByRole("button", { name: "管理卡組", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "調整卡組", exact: true })).toHaveCount(0);
   await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   await page.locator(".library-item .material-management-menu summary").click();
-  await page.locator(".material-management-menu[open]").getByRole("button", { name: "管理卡組", exact: true }).click();
+  await page.locator(".material-management-menu[open]").getByRole("button", { name: "調整卡組", exact: true }).click();
 }
 
 test("card creation fits a desktop viewport and preserves selections across pages and search", async ({ page }) => {
@@ -475,7 +475,7 @@ test("saved decks can be renamed and edited without replacing their identity", a
   await page.goto("/concept-cards");
   await page.getByRole("button", { name: "管理卡組「資料結構 · 核心概念」" }).click();
   await expect(page.getByRole("button", { name: "重新命名", exact: true })).toHaveCount(1);
-  await page.locator(".material-management-menu[open]").getByRole("button", { name: "管理卡組", exact: true }).click();
+  await page.locator(".material-management-menu[open]").getByRole("button", { name: "調整卡組", exact: true }).click();
   expect(fullReads).toEqual([]);
   await page.getByLabel("卡組名稱", { exact: true }).fill("字".repeat(41));
   await expect(page.getByLabel("卡組名稱", { exact: true })).toHaveValue("字".repeat(40));
@@ -514,7 +514,7 @@ test("library stays aligned and card review keeps compact content and controls",
   // 卡組加上封面插畫後仍維持單張卡片高度上限。
   expect(cardTile.height).toBeLessThan(420);
   await expect(page.getByRole('heading', { name: '翻卡片', exact: true, level: 1 })).toHaveCount(1);
-  await expect(page.locator('.library-item').getByRole('button', { name: '管理卡組', exact: true })).toHaveCount(0);
+  await expect(page.locator('.library-item').getByRole('button', { name: '調整卡組', exact: true })).toHaveCount(0);
   await page.screenshot({ path: "../.studydy-runtime/card-preview/library-aligned.png", fullPage: true });
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
@@ -583,10 +583,10 @@ test("card creation groups concepts by chapter and a chapter checkbox selects th
   await expect(manual.locator(".card-picker-option")).toHaveCount(31);
   await expect(first).toBeChecked();
   await manual.getByRole("button", { name: "取消全選", exact: true }).click();
-  await expect(page.locator(".cards-create-summary strong")).toHaveText("0 個觀念");
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("已選 0 個概念");
   // 勾第一章：選到那章全部 10 個概念，第二章不動。
   await first.check();
-  await expect(page.locator(".cards-create-summary strong")).toHaveText("10 個觀念");
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("已選 10 個概念");
   await expect(manual).toContainText("已選 10");
   await expect(second).not.toBeChecked();
   await manual.getByRole("button", { name: "已選 10", exact: true }).click();
@@ -595,9 +595,9 @@ test("card creation groups concepts by chapter and a chapter checkbox selects th
   // 章裡取消一個概念，整章變成半選；再勾整章就補齊。
   await manual.locator(".card-picker-option").first().getByRole("checkbox").uncheck();
   expect(await first.evaluate((box: HTMLInputElement) => box.indeterminate)).toBe(true);
-  await expect(page.locator(".cards-create-summary strong")).toHaveText("9 個觀念");
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("已選 9 個概念");
   await first.check();
-  await expect(page.locator(".cards-create-summary strong")).toHaveText("10 個觀念");
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("已選 10 個概念");
   // 搜尋只縮小清單；勾整章仍是選那章全部概念。
   await first.uncheck();
   await manual.getByRole("searchbox", { name: "搜尋概念" }).fill("概念 31");
@@ -605,7 +605,7 @@ test("card creation groups concepts by chapter and a chapter checkbox selects th
   await expect(first).toHaveCount(0);
   await manual.getByRole("searchbox", { name: "搜尋概念" }).fill("");
   await second.check();
-  await expect(page.locator(".cards-create-summary strong")).toHaveText("21 個觀念");
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("已選 21 個概念");
   await page.getByRole("button", { name: "建立並開始翻卡" }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
   expect(fixture.requests).toHaveLength(1);
@@ -819,7 +819,7 @@ test("saved card views and editing stay inside the material workspace from eithe
   // 從全站概念卡列表開啟管理卡組時保留返回該列表。
   await page.goto('/concept-cards');
   await page.getByRole('button', { name: '管理卡組「資料結構 · 核心概念」' }).click();
-  await page.locator('.material-management-menu[open]').getByRole('button', { name: '管理卡組', exact: true }).click();
+  await page.locator('.material-management-menu[open]').getByRole('button', { name: '調整卡組', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}/edit$`));
   await page.getByRole('button', { name: '回到翻卡片', exact: true }).click();
   await expect(page).toHaveURL(/\/concept-cards$/);
@@ -1364,10 +1364,10 @@ test("selection counts concepts while saved library and study count generated pa
   await page.getByRole('button', { name: '開始翻卡', exact: true }).click();
   await expect(page.locator('.card-dock-count')).toContainText('1 / 3');
   await openSavedCardManagement(page);
-  await expect(page.locator('.cards-create-summary strong')).toHaveText('2 個觀念');
+  await expect(page.locator('.cards-create-summary strong')).toHaveText('已選 2 個概念');
   await expect(page.locator('.cards-selection-heading')).toContainText('已選 2');
   await page.getByRole('checkbox').first().uncheck();
-  await expect(page.locator('.cards-create-summary strong')).toHaveText('1 個觀念');
+  await expect(page.locator('.cards-create-summary strong')).toHaveText('已選 1 個概念');
   await page.getByRole('button', { name: '保存變更', exact: true }).click();
   await expect(page.locator('.card-dock-count')).toContainText('1 / 1');
   await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
@@ -1852,10 +1852,10 @@ test("material needs-work entry opens a review of only this material's card sets
   // 混合多個卡組時標示卡組名稱；同一份教材內不再重複教材名稱。
   await expect(page.locator(".card-review-heading .cards-study-meta")).toContainText("資料結構 · 核心概念");
   await showCardBack(page);
-  await page.getByRole("article", { name: "需要加強：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
-  await expect(page.getByRole("article", { name: "需要加強：陣列（Array）" })).toBeVisible();
+  await page.getByRole("article", { name: "不熟的卡：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
+  await expect(page.getByRole("article", { name: "不熟的卡：陣列（Array）" })).toBeVisible();
   await showCardBack(page);
-  await page.getByRole("article", { name: "需要加強：陣列（Array）" }).getByRole("button", { name: "熟悉" }).click();
+  await page.getByRole("article", { name: "不熟的卡：陣列（Array）" }).getByRole("button", { name: "熟悉" }).click();
   await expect(page.getByText("這一輪加強完成！")).toBeVisible();
   await page.getByRole("button", { name: "回到翻卡片", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
@@ -1866,18 +1866,18 @@ test("card set strengthening preserves the collection return destination", async
   await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" } });
   await page.goto("/concept-cards");
   await page.getByRole("button", { name: "開始翻卡" }).click();
-  const link = page.getByRole("button", { name: /需要加強 2 張/ });
-  await expect(link).toContainText("開始加強");
+  const link = page.getByRole("button", { name: /不熟的卡 2 張/ });
+  await expect(link).toContainText("去看不熟的卡");
   await link.click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}/review$`));
   await expect(page.locator(".card-review-heading")).toContainText("資料結構 · 核心概念");
   await showCardBack(page);
-  await page.getByRole("article", { name: "需要加強：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
+  await page.getByRole("article", { name: "不熟的卡：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
   await expect(page.locator(".card-dock-count")).toContainText("2 / 2");
   await page.getByRole("button", { name: "回到翻卡片" }).click();
   await expect(page).toHaveURL(/\/concept-cards$/);
   await page.getByRole("button", { name: "開始翻卡", exact: true }).click();
-  await expect(page.getByRole("button", { name: /需要加強 1 張/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /不熟的卡 1 張/ })).toBeVisible();
 });
 
 test("browsing marks the current card and an unmarked set needs no strengthening", async ({ page }) => {
@@ -1897,7 +1897,7 @@ test("browsing marks the current card and an unmarked set needs no strengthening
   await showCardBack(page);
   await marks.getByRole("button", { name: "不熟" }).click();
   await expect(marks.getByRole("button", { name: "不熟" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: /需要加強 1 張/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /不熟的卡 1 張/ })).toBeVisible();
   // 已標記的卡再改標：送出的次數接續目前的標記次數。
   await showCardBack(page);
   await marks.getByRole("button", { name: "熟悉" }).click();
@@ -2036,9 +2036,9 @@ test("concept body previews full points while only its checkbox changes selectio
   await page.getByRole("button", { name: "取消全選", exact: true }).click();
   await page.getByRole("button", { name: `預覽「${view.concepts[1].label}」` }).click();
   await expect(page.getByRole("region", { name: "這個概念的重點" })).toContainText(view.concepts[1].claims[0].text);
-  await expect(page.locator(".cards-create-summary strong")).toHaveText("0 個觀念");
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("已選 0 個概念");
   await page.getByRole("checkbox", { name: view.concepts[1].label, exact: true }).check();
-  await expect(page.locator(".cards-create-summary strong")).toHaveText("1 個觀念");
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("已選 1 個概念");
 });
 
 test("strengthening can skip and revisit, but records each concept once and completes only after all are processed", async ({ page }) => {

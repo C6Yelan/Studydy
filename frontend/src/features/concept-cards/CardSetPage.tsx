@@ -285,7 +285,7 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
       <div className="cards-study-actions">
         {/* 需要加強在獨立頁進行，只看這個卡組標成不熟的卡片。 */}
         {weak !== null && weak > 0 && <button className="cards-weak-link" type="button" onClick={() => writeRoute({ name: "card-review", cardSetId: view.card_set_id, materialId }, false, { fromCollection: !!window.history.state?.fromCollection })}>
-          <Icon name="refresh" size={18} /><span>需要加強 <b>{weak}</b> 張</span><strong>開始加強<Icon name="chevron-right" size={16} /></strong>
+          <Icon name="refresh" size={18} /><span>不熟的卡 <b>{weak}</b> 張</span><strong>去看不熟的卡<Icon name="chevron-right" size={16} /></strong>
         </button>}
         <button className="secondary-button cards-head-button" type="button" disabled={order.length < 2} onClick={() => restart(true)}>洗牌重看</button>
         {exports}
