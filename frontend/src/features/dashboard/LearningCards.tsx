@@ -47,10 +47,10 @@ export function DailyQuests({ quests, goals, onOpen, onOpenGoal, onContinue }: {
       {goals.map(goal => <li key={`goal_stage:${goal.material_id}`} className={`goal-quest${goal.today_stage.done ? " is-done" : ""}`}>
         <button className="quest-row" type="button" aria-label={`查看關卡：${goal.material_name}`} onClick={() => onOpenGoal(goal)}>
         <span className="quest-icon" aria-hidden="true"><Icon name={goal.today_stage.done ? "check" : "learning"} size={18} /></span>
-        <span className="quest-text"><b title={`關卡｜${goal.material_name}`}>關卡｜{goal.material_name}</b>
+        <span className="quest-text"><b>今天的關卡</b><small className="quest-material">{goal.material_name}</small>
           <Progress value={goal.today_stage.completed_points} max={goal.today_stage.quota_points || 1} tone={goal.today_stage.done ? "complete" : "default"} aria-label="關卡進度"
             aria-valuetext={`${goal.today_stage.completed_points} / ${goal.today_stage.quota_points} 個重點`} /></span>
-        <span className="quest-progress" aria-label={`已完成 ${goal.today_stage.completed_points}／${goal.today_stage.quota_points} 個重點`}>{goal.today_stage.completed_points}/{goal.today_stage.quota_points}</span>
+        <span className="quest-progress" aria-label={`已完成 ${goal.today_stage.completed_points}／${goal.today_stage.quota_points} 個重點`}>{goal.today_stage.completed_points}/{goal.today_stage.quota_points} 重點</span>
         <Icon name="chevron-right" size={16} />
         </button>
       </li>)}

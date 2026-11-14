@@ -1114,6 +1114,40 @@ test("24 islands open readable on the most recently studied island and the fit b
   }
 });
 
+// 常見的 1536×864：接續學習卡、一條 Podcast、三件每日小事與兩個關卡（教材名很長）剛好放進右欄，右欄不必捲動；
+// 關卡列上行是「今天的關卡」，下行是完整教材名稱，換行但不截斷。
+test("1536×864 right column holds the continue card, podcast and five tasks without scrolling and goal rows show the full material name", async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 864 });
+  // 一般長度的教材名（約 25 字，在 330px 的右欄會換成兩行）。
+  const names = ["AI Agent 權限控管與濫用風險", "Gemma｜Demo 01｜生成式 AI 多媒體", "Gemma｜Demo 02｜網路與可靠傳輸"];
+  const items = manyMaterials(3).map((item, index) => ({ ...item, display_name: names[index] }));
+  await mockLibrary(page, () => items);
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    quests: [{ kind: "mark_cards", progress: 0, target: 5, done: false }, { kind: "continue_study", progress: 0, target: 1, done: false },
+      { kind: "finish_podcast_episode", progress: 0, target: 1, done: false, material_id: materialId, podcast_id: uuid(30), episode_index: 0 }],
+  }) }));
+  await page.route(/\/v1\/learning-goals/, (route) => route.fulfill({ json: { schema: "learning-goals/v1", today: "2026-10-24",
+    goals: [1, 2].map((index) => goalSummary(goalView(items[index].material_id, revision, runId, `concept:sha256:${"b".repeat(64)}`), items[index].display_name)) } }));
+  await page.route("**/v1/podcasts", (route) => route.fulfill({ json: { schema: "podcast-list/v1", podcasts: [{
+    podcast_id: uuid(30), material_id: materialId, material_name: longName, knowledge_structure_revision: revision, name: "網路與可靠傳輸 Podcast",
+    delivery: "solo", video_enabled: false, concept_ids: [`concept:sha256:${"b".repeat(64)}`], status: "ready", error_code: null,
+    version: 1, created_at: "2026-09-12T00:00:00Z", episode_count: 2, completed_episodes: 2, duration_seconds: 600, is_current_revision: true }] } }));
+  await page.route("**/v1/podcasts/*/progress", (route) => route.fulfill({ json: { schema: "podcast-progress/v1", podcast_id: uuid(30), credited_seconds: 0,
+    current: { episode_index: 0, position_seconds: 76, updated_at: "2026-10-22T09:00:00Z" }, episodes: [{ episode_index: 0, position_seconds: 76, completed: false }] } }));
+  await page.goto("/");
+  await expect(page.locator(".dashboard-quests .quest-row")).toHaveCount(5);
+  await expect(quick(page).getByRole("button", { name: /繼續收聽/ })).toBeVisible();
+  const side = page.locator(".dashboard-side");
+  const metrics = await side.evaluate((element) => ({ scroll: element.scrollHeight, client: element.clientHeight }));
+  expect(metrics.scroll).toBeLessThanOrEqual(metrics.client);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
+  // 關卡列：上行固定文字，下行是完整名稱（元素內沒有被省略）。
+  const goalRow = page.locator(".goal-quest").first();
+  await expect(goalRow.locator("b")).toHaveText("今天的關卡");
+  await expect(goalRow.locator(".quest-material")).toHaveText(items[1].display_name);
+  expect(await goalRow.locator(".quest-material").evaluate((element) => element.scrollWidth <= element.clientWidth + 1 && getComputedStyle(element).textOverflow !== "ellipsis")).toBe(true);
+});
+
 test("1536×730 with five daily tasks scrolls inside the right column and not the page", async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 730 });
   const items = manyMaterials(9);

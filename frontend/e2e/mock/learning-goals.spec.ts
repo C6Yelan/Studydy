@@ -194,8 +194,8 @@ for (const width of [1440, 390]) test(`home shows separate material goals and ta
   page.on("request", request => { if (request.url().endsWith("/study-start")) starts.push(request.url()); });
   await page.goto("/");
   const tasks = page.getByRole("region", { name: "今天的小事" });
-  await expect(tasks.getByText("關卡｜資料結構", { exact: true })).toBeVisible();
-  await expect(tasks.getByText("關卡｜作業系統", { exact: true })).toBeVisible();
+  await expect(tasks.getByRole("button", { name: "查看關卡：資料結構", exact: true })).toBeVisible();
+  await expect(tasks.getByRole("button", { name: "查看關卡：作業系統", exact: true })).toBeVisible();
   const island = page.locator(".map-island").filter({ hasText: "資料結構" });
   const normalFlag = island.locator(".island-goal-flag");
   await expect(normalFlag).toHaveText("⚑ 80% · 剩 7 天");
