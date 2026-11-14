@@ -1,5 +1,5 @@
-/* 個人檔案：頁首頭像與名稱；寬螢幕左欄學習總覽、學習節奏、登入裝置，右欄帳號設定，整頁盡量不捲動。
-   窄螢幕依序為總覽、節奏、帳號設定、登入裝置。 */
+/* 個人檔案：頁首頭像與名稱；寬螢幕左欄學習總覽、學習節奏、儲存空間、登入裝置，右欄帳號設定，整頁盡量不捲動。
+   窄螢幕依序為總覽、節奏、儲存空間、帳號設定、登入裝置。 */
 .profile {
   display: grid;
   gap: 18px;
@@ -26,12 +26,13 @@
   font-size: clamp(1.5rem, 2.4vw, 1.9rem);
   overflow-wrap: anywhere;
 }
+.profile-logout { flex: none; }
 .profile-settings-jump { margin-left: auto; flex: none; }
 .profile-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
-  grid-template-rows: auto auto 1fr;
-  grid-template-areas: "overview settings" "rhythm settings" "devices settings";
+  grid-template-rows: auto auto auto 1fr;
+  grid-template-areas: "overview settings" "rhythm settings" "storage settings" "devices settings";
   gap: 18px 24px;
   align-items: start;
 }
@@ -50,10 +51,11 @@
   align-items: center;
   gap: 10px 18px;
 }
+/* 五個統計放得下就排一列；左欄變窄（側欄占掉寬度或平板）時每格至少 130px 自動換列，說明不被擠成「…」。 */
 .profile-stat-list {
   display: grid;
   flex: 1;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 8px;
   min-width: min(100%, 460px);
 }
@@ -258,12 +260,11 @@
   .profile-layout {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
-    grid-template-areas: "overview" "rhythm" "settings" "devices";
+    grid-template-areas: "overview" "rhythm" "storage" "settings" "devices";
   }
 }
-/* 平板：五個統計在一列會把說明擠成「…」，改成每格至少 130px 自動換列。 */
 @media (max-width: 1024px) {
-  .profile-stat-list { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); min-width: 100%; }
+  .profile-stat-list { min-width: 100%; }
 }
 @media (max-width: 720px) {
   .profile-head { flex-wrap: wrap; }

@@ -46,7 +46,7 @@ export function SourcePanelHost({ routeKey }: { routeKey: string }) {
   // 面板頂端對齊頁首下方，與地圖詳情面板同一條上緣。
   useLayoutEffect(() => {
     if (!entry) return;
-    const position = () => setTop(Math.max(16, ((document.querySelector(".material-header") ?? document.querySelector(".app-header"))?.getBoundingClientRect().bottom ?? 0) + 12));
+    const position = () => setTop(Math.max(16, (document.querySelector(".material-header")?.getBoundingClientRect().bottom ?? 0) + 12));
     position();
     window.addEventListener("resize", position);
     window.addEventListener("scroll", position, { passive: true });

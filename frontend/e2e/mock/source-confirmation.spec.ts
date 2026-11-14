@@ -156,14 +156,12 @@ async function mockSources(page: Page, append = false) {
           error_code: null,
         });
         return route.fulfill({ json: listing() });
-      // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
-      case "/v1/profile":
-        return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
-      // 頁首學習進度；這些案例不涉及學習紀錄。
+      // 外殼的慶祝動畫讀取學習活動；這些案例不涉及學習紀錄。
       case "/v1/learning-activity":
         return route.fulfill({ json: emptyLearningActivity });
       default:
-        if (route.request().method() === "GET" && new URL(route.request().url()).pathname === "/v1/account/storage") return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
+        // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
+        if (path === "/v1/card-reviews") return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
         throw new Error(`Unexpected source confirmation request: ${request.method()} ${path}`);
     }
   });
@@ -193,8 +191,11 @@ for (const width of [1536, 390])
       await page.goto(sourcesPath);
       await expect(page.getByRole("heading", { name: "確認教材", exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Studydy AI BOT", exact: true })).toHaveCount(0);
-      const hero = (await page.locator('.flow-head').boundingBox())!, header = (await page.locator('.app-header').boundingBox())!;
-      expect(hero.x).toBeGreaterThanOrEqual(16); expect(hero.y).toBeGreaterThanOrEqual(header.y+header.height+16);
+      const hero = (await page.locator('.flow-head').boundingBox())!, rail = (await page.locator('.rail').boundingBox())!;
+      // 標題區在側欄右邊（手機在頂端那一列下方），保留留白。
+      expect(hero.x).toBeGreaterThanOrEqual(16);
+      if (page.viewportSize()!.width > 720) expect(hero.x).toBeGreaterThanOrEqual(rail.x+rail.width+16);
+      else expect(hero.y).toBeGreaterThanOrEqual(rail.y+rail.height+16);
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
       const rows = await readyRows(page);
       const start = page.getByRole("button", { name: "開始分析教材", exact: true });

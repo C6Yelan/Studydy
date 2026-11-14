@@ -132,14 +132,12 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({ json: { schema: "material-library/v1", materials: [] } });
       case "/v1/topics":
         return route.fulfill({ json: { topics: [] } });
-      // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
-      case "/v1/profile":
-        return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
-      // 頁首學習進度；這些案例不涉及學習紀錄。
+      // 外殼的慶祝動畫讀取學習活動；這些案例不涉及學習紀錄。
       case "/v1/learning-activity":
         return route.fulfill({ json: emptyLearningActivity });
-      case "/v1/account/storage":
-        return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
+      // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
+      case "/v1/card-reviews":
+        return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
       default:
         throw new Error(`Unexpected processing request: ${request.method()} ${path}`);
     }
@@ -430,7 +428,7 @@ test("polling uses backend progress, stops at terminal, and clears on unmount", 
   server = base;
   await page.goto(runPath);
   await expect(overall).toHaveAttribute("aria-valuenow", "6");
-  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "我的教材", exact: true }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "我的群島", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
   const unmountedReads = reads();

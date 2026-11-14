@@ -4,7 +4,7 @@ import { globalSearchAvailable, openGlobalSearch } from "../app/globalSearch";
 import { Icon } from "./Icon";
 import "./not-found.css";
 
-/** 找不到頁面或資源時的共用畫面：吉祥物插圖＋說明＋回首頁（可再加一個相關清單的入口），頁首可用時另提供搜尋。 */
+/** 找不到頁面或資源時的共用畫面：吉祥物插圖＋說明＋回首頁（可再加一個相關清單的入口），左側欄可用時另提供搜尋。 */
 export function NotFoundView({
   title = "找不到這個頁面",
   description = "網址可能打錯了，或這個頁面已經移除。",
@@ -15,7 +15,7 @@ export function NotFoundView({
   /** 回到相關清單，例如「回到我的教材」。 */
   back?: { label: string; route: AppRoute } | null;
 }) {
-  // 全站搜尋在頁首；頁首隱藏搜尋時（例如教材內）不顯示這個入口。
+  // 全站搜尋在左側欄；側欄隱藏時（例如教材內）不顯示這個入口，按下會開啟側欄的搜尋。
   const [search, setSearch] = useState(false);
   useEffect(() => { setSearch(globalSearchAvailable()); }, []);
   return (

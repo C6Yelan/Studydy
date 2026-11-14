@@ -79,14 +79,12 @@ test.beforeEach(async ({ page }) => {
         original_name: "講義.pdf", media_type: "application/pdf", status: "ready",
         normalized_artifact_id: artifactId, page_count: 8, error_code: null,
       }] } });
-      // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
-      case "/v1/profile":
-        return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
-      // 頁首學習進度；這些案例不涉及學習紀錄。
+      // 外殼的慶祝動畫讀取學習活動；這些案例不涉及學習紀錄。
       case "/v1/learning-activity":
         return route.fulfill({ json: emptyLearningActivity });
-      case "/v1/account/storage":
-        return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
+      // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
+      case "/v1/card-reviews":
+        return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
       default:
         throw new Error(`Unexpected cancellation request: ${request.method()} ${path}`);
     }

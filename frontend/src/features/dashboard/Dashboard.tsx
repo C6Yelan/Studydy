@@ -20,7 +20,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
   const launch = useStudyStart(apiClient);
   const [retry, setRetry] = useState(0);
   const { materials, progress, error } = useMaterialProgress(apiClient, retry);
-  // 首頁一律重新計算，頁首共用同一份結果。
+  // 首頁一律重新計算，外殼的慶祝動畫共用同一份結果。
   const activity = useLearningActivity(apiClient, { fresh: true });
   const name = useProfile(apiClient)?.display_name;
   const [goals, setGoals] = useState<LearningGoalsView | null>(null);
@@ -89,6 +89,8 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
       <header className="dashboard-greeting">
         <div className="dashboard-hello">
           <h1>{greeting}今天想探索哪座島？</h1>
+          {/* 等級和連續天數只在首頁出現（全站頁首拿掉後）；讀不到學習活動就不顯示。 */}
+          {activity && <p className="dashboard-standing">連續 {activity.streak_days} 天 · 第 {activity.xp.level} 級</p>}
         </div>
         <div className="dashboard-actions">
           <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "topics" })}><Icon name="sparkle" size={18} />從主題建立教材</button>
@@ -111,7 +113,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
             </div>
           ) : <IslandMap materials={materials} progress={progress} goals={goalsByMaterial} />}
         </section>
-        {/* 右欄：今日任務與快速存取；等級在全站頁首，徽章與統計在「成就」頁。 */}
+        {/* 右欄：今日任務與快速存取；徽章與統計在「成就」頁。 */}
         <aside className="dashboard-side">
           {activity === undefined && <div className="dashboard-skeleton-card surface" aria-hidden="true"><Bone className="is-line is-title" style={{ width: "35%" }} /><Bone className="is-row" /><Bone className="is-row" /></div>}
           {((activity?.quests.length ?? 0) > 0 || (goals?.goals.length ?? 0) > 0) && <DailyQuests quests={activity?.quests ?? []} goals={goals?.goals ?? []} onOpen={openQuest} onOpenGoal={openGoal} />}

@@ -4,13 +4,9 @@ import { ApiClientError, errorMessage, StudydyApiClient } from "./api/client";
 import type { LearnerIdentity } from "./api/contracts";
 import { readSessionHint, saveSessionHint } from "./api/session-hint";
 import { AppShell } from "./app/AppShell";
-import { HeaderTools } from "./app/HeaderTools";
-import { HeaderStorage } from "./app/HeaderStorage";
-import { LearningProgressPill } from "./app/LearningProgress";
 import { readRoute, writeRoute, type AppRoute } from "./app/routes";
 import { MaterialFlow } from "./features/material-flow/MaterialFlow";
 import { StateView } from "./ui/StateView";
-import { Icon } from "./ui/Icon";
 import { AccountPage } from "./features/account/AccountPage";
 
 type SessionState =
@@ -198,24 +194,13 @@ export default function App() {
     );
   }
   return (
-    <AppShell
-      route={route}
-      status={<><LearningProgressPill apiClient={session.api} learnerId={session.identity.learner_id} /><HeaderStorage key={session.identity.learner_id} apiClient={session.api} /></>}
-      accountAction={
-        <>
-          <HeaderTools apiClient={session.api} profileCurrent={route.name === "profile"} />
-          <button className="account-button" type="button" onClick={() => void logout()}>
-            <Icon name="logout" size={18} />
-            <span className="account-button-label">登出</span>
-          </button>
-        </>
-      }
-    >
+    <AppShell route={route} apiClient={session.api} learnerId={session.identity.learner_id}>
       <MaterialFlow
         key={`${session.identity.learner_id}/${clientVersion.current}`}
         learnerId={session.identity.learner_id}
         apiClient={session.api}
         route={route}
+        onLogout={() => void logout()}
       />
     </AppShell>
   );

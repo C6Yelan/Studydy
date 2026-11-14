@@ -207,10 +207,10 @@ export class StudydyApiClient {
   private readonly structures = new Map<string, Promise<KnowledgeStructureView>>();
   private readonly outlines = new Map<string, Promise<KnowledgeOutlineView>>();
   private readonly conceptContexts = new Map<string, Promise<KnowledgeConceptsView>>();
-  // 名稱同時顯示在頁首與首頁；同一登入共用一次讀取，儲存後通知訂閱者。
+  // 名稱同時顯示在首頁與個人檔案；同一登入共用一次讀取，儲存後通知訂閱者。
   private profile: Promise<LearnerProfile> | null = null;
   private readonly profileListeners = new Set<(profile: LearnerProfile) => void>();
-  // 學習活動同時供頁首與首頁使用；短時間內共用一次讀取，作答、標記概念卡或收聽後標記過期。
+  // 學習活動同時供外殼的慶祝動畫與首頁使用；短時間內共用一次讀取，作答、標記概念卡或收聽後標記過期。
   private activity: { task: Promise<LearningActivityView>; at: number } | null = null;
   private readonly activityListeners = new Set<(activity: LearningActivityView) => void>();
   private readonly pending = new Set<AbortController>();
@@ -990,7 +990,7 @@ export class StudydyApiClient {
   // async：登出後仍可能被 popstate／focus 觸發，失效時要回傳 rejected promise 讓呼叫端處理，不能同步拋錯。
   async getLearningActivity(options: { fresh?: boolean } = {}): Promise<LearningActivityView> {
     this.requireActive();
-    // fresh 仍共用剛發出（2 秒內）的讀取，避免頁首與首頁同時載入時重複計算。
+    // fresh 仍共用剛發出（2 秒內）的讀取，避免外殼與首頁同時載入時重複計算。
     if (!this.activity || Date.now() - this.activity.at > (options.fresh ? 2_000 : activityReuseMs)) {
       const task = this.json("/v1/learning-activity", { method: "GET" }, validate.learningActivity);
       this.activity = { task, at: Date.now() };

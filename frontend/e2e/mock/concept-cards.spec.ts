@@ -506,7 +506,7 @@ test("library stays aligned and card review keeps compact content and controls",
   await mockCards(page, { saved: true });
   await page.goto("/materials");
   const materialCard = (await page.locator('.library-item').first().boundingBox())!;
-  await page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: '概念卡', exact: true }).click();
+  await page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: /^翻卡片/ }).click();
   const cardTile = (await page.locator('.library-item').first().boundingBox())!;
   // 三個清單頁共用同一套欄數：卡組卡片與教材卡片左緣與寬度一致。
   expect(cardTile.x).toBeCloseTo(materialCard.x, 0);
@@ -666,7 +666,12 @@ test("switching account while a card read is pending hides old content and rejec
   const pending = page.waitForRequest(`**/v1/card-sets/${cardSetId}/study`);
   await page.goto(`/concept-cards/${cardSetId}`);
   await pending;
-  await page.getByRole("button", { name: "登出", exact: true }).click();
+  // 登出按鈕在個人檔案頁；這裡由另一個分頁送出帳號變更，卡組頁仍開著、讀取還沒回來。
+  await page.evaluate(() => {
+    const channel = new BroadcastChannel("studydy-account");
+    channel.postMessage("identity-changed");
+    channel.close();
+  });
   await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   release();
   // 第二帳號只得到空卡組列表，舊卡組仍由 API 拒絕。
@@ -678,7 +683,7 @@ test("switching account while a card read is pending hides old content and rejec
   await page.getByLabel("Email", { exact: true }).fill("second@example.test");
   await page.getByLabel("密碼", { exact: true }).fill("Synthetic password 42");
   await page.getByRole("button", { name: "登入", exact: true }).click();
-  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "概念卡", exact: true }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: /^翻卡片/ }).click();
   await expect(page.getByRole("region", { name: "空卡組引導" })).toBeVisible();
   await page.goto(`/concept-cards/${cardSetId}`);
   // 別人的卡組一律顯示「找不到」，不提供永遠不會成功的重新讀取。

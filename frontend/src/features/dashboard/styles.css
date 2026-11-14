@@ -13,6 +13,12 @@
   margin: 0;
   font-size: clamp(1.5rem, 2.4vw, 1.9rem);
 }
+.dashboard-standing {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 800;
+}
 .dashboard-hello {
   display: flex;
   flex-wrap: wrap;
@@ -556,12 +562,12 @@ button.quick-item:hover { background: var(--studydy-blue-soft); }
 }
 /* 夠大的桌機螢幕（例如 1920×1080）：首頁剛好填滿視窗、不出現捲軸，地圖吃掉剩餘高度；
    較小的螢幕維持地圖最小高度，頁面照常捲動。 */
-/* 保留 min-height: 760px：首頁填滿視窗所需的最低高度（地圖最小 380px＋問候列與頁首），不是寬度斷點。 */
+/* 保留 min-height: 760px：首頁填滿視窗所需的最低高度（地圖最小 380px＋問候列），不是寬度斷點。 */
 @media (min-width: 1281px) and (min-height: 760px) {
   .app-shell.is-home .app-main { padding-bottom: 24px; }
-  /* 頁首 70px＋內容區上緣 26px＋下緣 24px（--shell-offset 在不同寬度不等於實際頁首位置，這裡用實測值）。 */
+  /* 內容區上緣 26px＋下緣 24px。 */
   .dashboard {
-    height: calc(100dvh - 120px);
+    height: calc(100dvh - 50px);
     grid-template-rows: auto minmax(0, 1fr);
   }
   .dashboard-content { min-height: 0; align-items: stretch; }

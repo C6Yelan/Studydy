@@ -127,7 +127,7 @@ test('one material header row; map search floats on the map and only content tab
   await page.setViewportSize({width,height:844});await page.goto(mapPath);
   const nav=(await page.getByRole('tablist',{name:'教材學習內容'}).boundingBox())!;
   // 教材內只有一列教材頁首；全站頁首隱藏。
-  await expect(page.locator('.app-header')).toBeHidden();
+  await expect(page.locator('.rail')).toBeHidden();
   // 地圖搜尋浮在地圖上；手機先顯示搜尋圖示，不另佔一列。
   const searchAnchor=width===390?page.getByRole('button',{name:'開啟概念搜尋'}):page.getByRole('searchbox',{name:'搜尋概念或關鍵字'});
   await expect(searchAnchor).toBeVisible();

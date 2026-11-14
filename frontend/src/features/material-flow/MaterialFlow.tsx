@@ -58,10 +58,12 @@ function MaterialFlowBody({
   learnerId,
   researchDraft,
   onResearchDraftChange,
+  onLogout,
 }: {
   apiClient: StudydyApiClient;
   route: AppRoute;
   learnerId: string;
+  onLogout: () => void;
   researchDraft?: ResearchDraft;
   onResearchDraftChange: (draft: ResearchDraft) => void;
 }) {
@@ -87,7 +89,7 @@ function MaterialFlowBody({
   if (route.name === "podcast-new" || route.name === "podcast-create" || route.name === "card-set-new" || route.name === "card-set-create") return <CreateStudyContent apiClient={apiClient} route={route} />;
   if (route.name === "podcast") return <PodcastPage key={route.podcastId} apiClient={apiClient} podcastId={route.podcastId} materialId={route.materialId} learnerId={learnerId} />;
   if (route.name === "home") return <Dashboard apiClient={apiClient} />;
-  if (route.name === "profile") return <ProfilePage apiClient={apiClient} />;
+  if (route.name === "profile") return <ProfilePage apiClient={apiClient} onLogout={onLogout} />;
   if (route.name === "achievements") return <AchievementsPage apiClient={apiClient} />;
   if (route.name === "concept-cards") return <CardSetLibrary apiClient={apiClient} />;
   if (route.name === "card-review") return <CardReviewPage key={route.cardSetId ?? "all"} apiClient={apiClient} cardSetId={route.cardSetId} />;
@@ -120,7 +122,7 @@ function MaterialFlowBody({
   );
 }
 
-export function MaterialFlow(props: {apiClient:StudydyApiClient;route:AppRoute;learnerId:string}) {
+export function MaterialFlow(props: {apiClient:StudydyApiClient;route:AppRoute;learnerId:string;onLogout:()=>void}) {
  const materialId = "materialId" in props.route ? props.route.materialId : undefined;
  const researchDrafts = useRef(new Map<string, ResearchDraft>());
  const researchDraft = materialId ? researchDrafts.current.get(materialId) : undefined;

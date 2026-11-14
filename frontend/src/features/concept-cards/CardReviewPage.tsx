@@ -94,7 +94,7 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
             if (remaining >= 0) setPosition(remaining);
             if (!rating) { setNotice("上一張卡已在其他頁面標記過，這裡不重複標記。"); return; }
             setNotice(rating === "remembered" ? "已標成熟悉，離開需要加強。" : "已標成不熟，下一輪還會出現。");
-            // 標記後重新讀取學習活動，讓頁首經驗值與今日任務跟上（失敗時保留原畫面）。
+            // 標記後重新讀取學習活動，讓升級動畫與今日任務跟上（失敗時保留原畫面）。
             void apiClient.getLearningActivity().catch(() => undefined);
           }} />}
   </section>;

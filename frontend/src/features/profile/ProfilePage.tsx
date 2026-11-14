@@ -6,11 +6,13 @@ import { StateView } from "../../ui/StateView";
 import { islandState, useMaterialProgress } from "../dashboard/islands";
 import { AccountSettings, DevicesCard, useAccountSessions } from "./AccountSettings";
 import { LearningRhythm } from "./LearningRhythm";
+import { ProfileStorage } from "./ProfileStorage";
 import "./styles.css";
 
-// 個人檔案：左欄由上而下是學習總覽（一列小數字）、學習節奏與登入裝置，右欄是帳號設定（名稱與密碼）；
+// 個人檔案：左欄由上而下是學習總覽（一列小數字）、學習節奏、儲存空間與登入裝置，右欄是帳號設定（名稱與密碼）；
+// 名稱旁是登出（全站頁首拿掉後移到這裡）。
 // 等級與徽章在「成就」頁。學習活動讀不到時只有總覽顯示錯誤，節奏、登入裝置與帳號設定各自讀取。
-export function ProfilePage({ apiClient }: { apiClient: StudydyApiClient }) {
+export function ProfilePage({ apiClient, onLogout }: { apiClient: StudydyApiClient; onLogout: () => void }) {
   const name = useProfile(apiClient)?.display_name ?? null;
   const activity = useLearningActivity(apiClient, { fresh: true });
   const { materials, progress, error } = useMaterialProgress(apiClient);
@@ -29,6 +31,9 @@ export function ProfilePage({ apiClient }: { apiClient: StudydyApiClient }) {
     <header className="profile-head">
       <span className="profile-avatar" aria-hidden="true">{name ? [...name][0] : <Icon name="user" size={32} />}</span>
       <h1 id="profile-title">{name ?? "尚未設定名稱"}</h1>
+      <button className="secondary-button profile-logout" type="button" onClick={onLogout}>
+        <Icon name="logout" size={18} />登出
+      </button>
       {/* 窄螢幕上帳號設定排在學習節奏之後，提供直接跳過去的入口。 */}
       <button className="secondary-button profile-settings-jump" type="button"
         onClick={() => document.getElementById("account-settings-title")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
@@ -55,6 +60,7 @@ export function ProfilePage({ apiClient }: { apiClient: StudydyApiClient }) {
           </section>}
       </div>
       <LearningRhythm apiClient={apiClient} />
+      <ProfileStorage apiClient={apiClient} />
       <AccountSettings apiClient={apiClient} onSessionsChanged={setSessions} />
       <DevicesCard apiClient={apiClient} sessions={sessions} onChanged={setSessions} />
     </div>

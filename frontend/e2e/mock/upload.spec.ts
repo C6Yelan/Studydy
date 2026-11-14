@@ -52,10 +52,9 @@ async function setup(page: Page) {
     );
   });
   state.settings = await mockCreationSettings(page);
-  await page.route("**/v1/account/storage", route => route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } }));
-  // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
-  await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } }));
-  // 頁首學習進度；這些案例不涉及學習紀錄。
+  // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
+  await page.route("**/v1/card-reviews", route => route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } }));
+  // 外殼的慶祝動畫讀取學習活動；這些案例不涉及學習紀錄。
   await page.route("**/v1/learning-activity/celebrations/claim", (route) => {
     expect(route.request().method()).toBe("POST");
     return route.fulfill({ json: emptyCelebrationClaim });

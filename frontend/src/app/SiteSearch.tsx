@@ -4,9 +4,8 @@ import type { LibrarySearchView, LibrarySearchCategory } from "../api/contracts"
 import { Icon } from "../ui/Icon";
 import { Modal } from "./Modal";
 import { registerGlobalSearch } from "./globalSearch";
-import { useProfile } from "./useProfile";
 import { writeRoute } from "./routes";
-import "./header-tools.css";
+import "./site-search.css";
 
 type SearchState = { query: string; category: LibrarySearchCategory; offset: number; result: LibrarySearchView | null; error: string | null };
 
@@ -41,7 +40,8 @@ const searchCategories = [
   { id: "card_sets", label: "卡組" }, { id: "podcasts", label: "Podcast" },
 ] as const;
 
-function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
+// 全站搜尋：左側欄的搜尋框是開啟器，結果在對話框裡；按「/」也能開啟（側欄看不到時不回應）。
+export function SiteSearch({ apiClient }: { apiClient: StudydyApiClient }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [category, setCategory] = useState<LibrarySearchCategory>("all");
@@ -119,8 +119,8 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
   const total = result ? Object.values(result.totals).reduce((sum, count) => sum + count, 0) : 0;
   const count = category === "all" ? total : result?.totals[category];
   return <>
-    <button ref={trigger} className="header-search-trigger" type="button" aria-haspopup="dialog" aria-label="搜尋概念、教材、卡組或 Podcast" onClick={() => setOpen(true)}>
-      <Icon name="search" size={18} /><span>搜尋全部內容…</span><kbd aria-hidden="true">/</kbd>
+    <button ref={trigger} className="rail-search" type="button" aria-haspopup="dialog" aria-label="搜尋概念、教材、卡組或 Podcast" onClick={() => setOpen(true)}>
+      <Icon name="search" size={16} /><span>搜尋全部內容</span><kbd aria-hidden="true">/</kbd>
     </button>
     <Modal label="全站搜尋" open={open} onClose={close} className="search-dialog" onKeyDown={event => {
       if (category === "all" || !result || (event.key !== "PageDown" && event.key !== "PageUp")) return;
@@ -166,7 +166,7 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
           : !current ? <p role="status">正在搜尋…</p> : <>
             {current.error && <p role="alert">{current.error}<button className="text-button" type="button" onClick={() => setRetry(value => value + 1)}>重新搜尋</button></p>}
             {result && <>
-              <p className="header-sr-only" role="status">找到 {result.totals.materials} 份教材、{result.totals.concepts} 個概念、{result.totals.card_sets} 個卡組、{result.totals.podcasts} 份 Podcast</p>
+              <p className="shell-sr-only" role="status">找到 {result.totals.materials} 份教材、{result.totals.concepts} 個概念、{result.totals.card_sets} 個卡組、{result.totals.podcasts} 份 Podcast</p>
               {count === 0 && <p role="status">找不到「{query}」，試試其他關鍵字。</p>}
               {groups.filter(group => category === "all" || category === group.id).map(group => group.items.length > 0 && <section key={group.id} aria-label={group.label}>
                 <h3>{group.label}<span>{result.totals[group.id]}</span></h3>
@@ -188,24 +188,5 @@ function GlobalSearch({ apiClient }: { apiClient: StudydyApiClient }) {
       </div>
       <p className="search-keys" aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd> 選擇　<kbd>Enter</kbd> 開啟　<kbd>Esc</kbd> 關閉</p>
     </Modal>
-  </>;
-}
-
-// 頁首頭像：前往個人檔案（成就與帳號設定）。
-function ProfileButton({ apiClient, current }: { apiClient: StudydyApiClient; current: boolean }) {
-  const name = useProfile(apiClient)?.display_name ?? null;
-  return (
-    <button className="account-profile" type="button" aria-current={current ? "page" : undefined}
-      aria-label={`個人檔案：${name ?? "尚未設定名稱"}`} onClick={() => writeRoute({ name: "profile" })}>
-      <span className="account-avatar" aria-hidden="true">{name ? [...name][0] : <Icon name="user" size={18} />}</span>
-      {name && <span className="account-name">{name}</span>}
-    </button>
-  );
-}
-
-export function HeaderTools({ apiClient, profileCurrent = false }: { apiClient: StudydyApiClient; profileCurrent?: boolean }) {
-  return <>
-    <GlobalSearch apiClient={apiClient} />
-    <ProfileButton apiClient={apiClient} current={profileCurrent} />
   </>;
 }

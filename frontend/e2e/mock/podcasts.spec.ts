@@ -198,8 +198,8 @@ test("material collections filter both products while outer navigation opens the
   await expect(page.getByLabel('選擇教材')).toHaveCount(0);
   await expect(page.getByRole('tablist', { name: '教材學習內容' })).toBeVisible();
   await page.goto('/');
-  await page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: '概念卡', exact: true }).click();
-  await expect(page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: '概念卡', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: /^翻卡片/ }).click();
+  await expect(page.getByRole('navigation', { name: '主要導覽' }).getByRole('link', { name: /^翻卡片/ })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.library-item')).toHaveCount(2);
 });
 

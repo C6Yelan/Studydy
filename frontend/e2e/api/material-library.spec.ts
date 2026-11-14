@@ -13,7 +13,7 @@ async function login(page: Page, email: string) {
   await expect(
     page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: /^我的教材$/, exact: true }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "我的群島", exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
 }
 
@@ -31,7 +31,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
   const newerPath = new URL(page.url()).pathname;
   await page.reload();
   await expect(page.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
-  await page.goto("/materials");
+  await page.goto("/profile");
   await page.getByRole("button", { name: "登出", exact: true }).click();
   await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await original.close();
@@ -96,7 +96,7 @@ test("fresh profiles reopen the current head and read exact historical versions"
   await expect(
     freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }),
   ).toBeVisible();
-  await freshPage.goto("/materials");
+  await freshPage.goto("/profile");
   await freshPage.getByRole("button", { name: "登出", exact: true }).click();
   await expect(freshPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
   await login(freshPage, "library_b@example.com");

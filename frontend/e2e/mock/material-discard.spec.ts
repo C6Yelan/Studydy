@@ -85,11 +85,10 @@ test.beforeEach(async ({ page }) => {
         },
       });
     }
-    // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
-    if (path === "/v1/profile") return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
-    // 頁首學習進度；這些案例不涉及學習紀錄。
+    // 外殼的慶祝動畫讀取學習活動；這些案例不涉及學習紀錄。
     if (path === "/v1/learning-activity") return route.fulfill({ json: emptyLearningActivity });
-    if (route.request().method() === "GET" && new URL(route.request().url()).pathname === "/v1/account/storage") return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
+    // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
+    if (path === "/v1/card-reviews") return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
     throw new Error(`Unexpected material management request: ${route.request().method()} ${path}`);
   });
 });
@@ -434,11 +433,6 @@ for (const touch of [false, true])
       };
       await expect(cards).toHaveCount(2);
       const before = await first.boundingBox();
-      // 頁首空白處取品牌與右側按鈕之間的中點；觸控點擊會吸附到附近的按鈕。
-      const [brand, controls, header] = await Promise.all(
-        [".brand", ".account-controls", ".app-header"].map((selector) => page.locator(selector).boundingBox()),
-      );
-      const headerGap = { x: (brand!.x + brand!.width + controls!.x) / 2 - header!.x, y: 4 };
       const closed = async () => {
         await expect(menu).toHaveJSProperty("open", false);
         await expect(menu.locator("button").first()).toBeHidden();
@@ -448,7 +442,8 @@ for (const touch of [false, true])
         { locator: first.getByRole("heading"), position: { x: 5, y: 5 } },
         { locator: second.getByRole("heading") },
         { locator: page.getByRole("heading", { level: 1 }) },
-        { locator: page.locator(".app-header"), position: headerGap },
+        // 側欄（手機是頂端一列）角落的留白，不會吸附到任何入口。
+        { locator: page.locator(".rail"), position: { x: 4, y: 4 } },
       ]) {
         await activate(trigger);
         await expect(menu).toHaveJSProperty("open", true);

@@ -20,7 +20,7 @@
 /* 保留既有 1100px 讓位門檻；只縮窄教材頁首下方的內容，頁首維持原寬。 */
 @media (min-width:1100px) {
   .material-qa-drawer { width:400px; box-shadow:0 12px 40px -18px rgba(29,52,110,.35); }
-  html.qa-panel-open .app-shell.is-workspace .material-header ~ :not(dialog):not(.material-shell-status) { margin-inline-end:412px; max-width:calc(100% - 412px); }
+  html.qa-panel-open .app-shell.is-workspace .material-header ~ :not(dialog) { margin-inline-end:412px; max-width:calc(100% - 412px); }
 }
 @media (max-width:720px) {
   .material-qa-trigger { width:42px; padding:0; justify-content:center; }
