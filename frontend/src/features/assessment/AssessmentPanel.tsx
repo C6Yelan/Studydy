@@ -1,5 +1,5 @@
 import { MathText } from "../../ui/MathText";
-import { SourceButton, sourceLinks } from "../../ui/SourceButton";
+import { SourceButton, evidencePlace, sourceLinks } from "../../ui/SourceButton";
 import type { StudydyApiClient } from "../../api/client";
 import type { AssessmentRecordView, KnowledgeStructureView } from "../../api/contracts";
 import { Icon } from "../../ui/Icon";
@@ -40,39 +40,51 @@ export function AssessmentPanel({
     const evidenceLinks = sourceLinks(evidence);
     const correct = feedback.is_correct;
     const optionText = (id: string) => assessment.options.find(option => option.option_id === id)?.text;
+    const selectedText = feedback.selected_option_id ? optionText(feedback.selected_option_id) : undefined;
+    const correctText = feedback.correct_option_id ? optionText(feedback.correct_option_id) : undefined;
+    // 一題一列：對錯、題目、一句解析、教材頁碼；完整的答案與解析在展開區。
     return (
-      <section
+      <details
         className={`assessment-card feedback-card is-${correct ? "correct" : "incorrect"}${fresh ? " feedback-enter" : ""}`}
       >
-        <header className="feedback-result">
-          <span className="feedback-icon" aria-hidden="true">
+        <summary className="feedback-summary">
+          <span className="feedback-icon">
             <Icon name={correct ? "check" : "warning"} size={18} />
+            <span className="sr-only">{correct ? "答對了" : "這題需要再想一下"}</span>
           </span>
-          <span className="sr-only">{correct ? "答對了" : "這題需要再想一下"}</span>
-          <b className="feedback-number">第 {number} 題</b>
-        </header>
-        <p className="feedback-prompt"><MathText text={assessment.prompt}/></p>
-        <section className="feedback-section feedback-yours">
-          <h3>你的答案</h3>
-          <p><MathText text={(feedback.selected_option_id ? optionText(feedback.selected_option_id) : undefined) ?? ""}/></p>
-        </section>
-        <section className="feedback-section feedback-correct">
-          <h3>正確答案</h3>
-          <p><MathText text={(feedback.correct_option_id ? optionText(feedback.correct_option_id) : undefined) ?? "這份作答紀錄尚未提供正確答案。"}/></p>
-        </section>
-        <section className="feedback-section feedback-evidence">
-          <h3>解析</h3>
-          {rationale && <p><MathText text={rationale}/></p>}
-          {evidenceLinks.map((item) => (
-            <SourceButton
-              apiClient={apiClient}
-              key={item.evidence_id}
-              resolver={view.source_resolver}
-              evidence={item}
-            />
-          ))}
-        </section>
-      </section>
+          <span className="feedback-line">
+            <b className="feedback-prompt">{number}. <MathText text={assessment.prompt}/></b>
+            {!correct && selectedText && (
+              <span className="feedback-pick">你選了「<MathText text={selectedText}/>」{correctText && <>，正確是「<MathText text={correctText}/>」</>}</span>
+            )}
+            {rationale && <span className="feedback-brief"><MathText text={rationale}/></span>}
+          </span>
+          {evidenceLinks[0] && <span className="feedback-page">教材{evidencePlace(evidenceLinks[0])}</span>}
+          <span className="feedback-chevron" aria-hidden="true"><Icon name="chevron-right" size={16} /></span>
+        </summary>
+        <div className="feedback-detail">
+          <section className="feedback-section feedback-yours">
+            <h3>你的答案</h3>
+            <p><MathText text={selectedText ?? ""}/></p>
+          </section>
+          <section className="feedback-section feedback-correct">
+            <h3>正確答案</h3>
+            <p><MathText text={correctText ?? "這份作答紀錄尚未提供正確答案。"}/></p>
+          </section>
+          <section className="feedback-section feedback-evidence">
+            <h3>解析</h3>
+            {rationale && <p><MathText text={rationale}/></p>}
+            {evidenceLinks.map((item) => (
+              <SourceButton
+                apiClient={apiClient}
+                key={item.evidence_id}
+                resolver={view.source_resolver}
+                evidence={item}
+              />
+            ))}
+          </section>
+        </div>
+      </details>
     );
   }
 

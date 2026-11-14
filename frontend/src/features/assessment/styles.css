@@ -92,15 +92,6 @@
   flex: 0 0 auto;
 }
 
-.feedback-card.is-correct .feedback-icon {
-  color: var(--success);
-  background: var(--success-soft);
-}
-
-.feedback-card.is-incorrect .feedback-icon {
-  color: var(--warning);
-  background: var(--warning-soft);
-}
 
 
 .feedback-evidence {
@@ -162,24 +153,6 @@
 }
 .assessment-options:disabled label {
   cursor: default;
-}
-.feedback-result {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-.feedback-result .feedback-icon {
-  width: 40px;
-  height: 40px;
-  margin: 0;
-  flex-shrink: 0;
-}
-.feedback-result h2,
-.feedback-result .eyebrow {
-  margin: 0;
-}
-.feedback-result .eyebrow {
-  margin-bottom: var(--space-1);
 }
 .feedback-section {
   margin-top: var(--space-5);

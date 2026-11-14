@@ -10,6 +10,7 @@ for (const width of [1440, 390]) test(`result summary, full answers, source and 
   await expect(review.locator(".feedback-card")).toHaveCount(4);
   for (const card of await review.locator(".feedback-card").all()) {
     await expect(card).toBeVisible();
+    await card.locator("summary").click();
     for (const label of ["你的答案", "正確答案", "解析"]) await expect(card.getByRole("heading", { name: label, exact: true })).toBeVisible();
   }
   const first = review.locator(".feedback-card").first();
@@ -79,4 +80,22 @@ test("result shows only the correct count when xp_award is null", async ({ page 
   const hero = page.locator(".assessment-cycle");
   await expect(hero.locator(".question-result-summary")).toHaveText("答對 2／4 題 · 2 個重點要再練");
   await expect(hero).not.toContainText("XP");
+});
+
+test("result lists one row per question and keeps the full answers in the expandable part", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const fixture = await studyLayoutFixture(page, "completed", { wrong: [2] });
+  await fixture.open();
+  const cards = page.locator(".feedback-card");
+  await expect(cards).toHaveCount(4);
+  // 4 題的逐題結果在 1440×900 不用捲動就看得到。
+  for (const card of await cards.all()) await expect(card.locator("summary")).toBeInViewport({ ratio: 1 });
+  const wrong = page.locator(".feedback-card.is-incorrect");
+  await expect(wrong).toHaveCount(1);
+  await expect(wrong.locator("summary")).toContainText(/你選了「.+」，正確是「.+」/);
+  await expect(wrong.locator("summary")).toContainText("教材第 1 頁");
+  await expect(page.locator(".feedback-card.is-correct").first().locator("summary")).not.toContainText("你選了");
+  await expect(wrong.getByRole("heading", { name: "解析", exact: true })).toBeHidden();
+  await wrong.locator("summary").click();
+  for (const label of ["你的答案", "正確答案", "解析"]) await expect(wrong.getByRole("heading", { name: label, exact: true })).toBeVisible();
 });

@@ -47,6 +47,7 @@ test("a real goal leads through source reading and answers without completing th
   await page.getByRole("button", { name: "交卷", exact: true }).click();
   await expect(page.locator(".question-result-summary")).toContainText("答對 2／2 題");
   // 完成作答後從每題回顧透過真 API 回查 PDF。
+  await page.locator(".feedback-card > summary").first().click();
   await page.locator(".feedback-evidence").first().getByRole("button").first().click();
   const source = page.getByRole("dialog", { name: "教材來源", exact: true });
   await expect(source).toBeVisible();
