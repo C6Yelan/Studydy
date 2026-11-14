@@ -96,7 +96,7 @@ export function AssessmentPanel({
               checked={selection === option.option_id}
               onChange={() => answerSelection.onChange(option.option_id)}
             />
-            <span>{String.fromCharCode(65 + index)}</span>
+            <span>{index + 1}</span>
             <strong><MathText text={option.text}/></strong>
           </label>
         ))}

@@ -221,7 +221,7 @@
 }
 .study-position-progress { width:6rem; }
 
-.result-rail { display: grid; gap: var(--space-3); align-content: start; position: sticky; top: var(--space-3); max-height: calc(100dvh - 8rem); padding: var(--space-3); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
+.result-rail { display: grid; gap: var(--space-3); align-content: start; max-height: 24rem; padding: var(--space-3); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
 .result-rail header { display: grid; gap: var(--space-2); }
 .result-rail h2 { margin: 0; font-size: 0.95rem; }
 .result-rail-filter { display: flex; gap: 4px; }
@@ -229,16 +229,12 @@
 .result-rail-filter button[aria-pressed="true"] { background: var(--studydy-blue); color: #fff; }
 .result-rail ol { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; overflow-y: auto; min-height: 0; }
 
-/* 答題的專注模式：左上角只有一顆「×」，回到進來的那一頁。 */
-.study-focus-bar {
-  display: flex;
-  align-items: center;
-  margin-bottom: 8px;
-}
+/* 答題的專注模式：左上角「×」和進度條同一列（在 assessment/paper.css），回到進來的那一頁。 */
 .study-focus-close {
   display: grid;
   width: 44px;
   height: 44px;
+  flex: none;
   place-items: center;
   border: 0;
   border-radius: var(--radius-input);

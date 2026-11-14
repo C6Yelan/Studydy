@@ -1,19 +1,4 @@
-.question-paper, .assessment-review-list { display: grid; gap: var(--space-4); width: min(100%, 52rem); margin-inline: auto; min-width: 0; }
-.question-paper-heading { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
-.question-paper-heading strong { overflow-wrap: anywhere; }
-.question-paper-heading > span:not(.studydy-progress) { white-space: nowrap; margin-left: auto; }
-.question-paper-heading > .studydy-progress { width: 7rem; flex-shrink: 0; }
-.question-paper-card { min-width: 0; border-radius: var(--radius-card); box-shadow: var(--shadow); }
-.question-paper-card:focus { outline: 2px solid var(--studydy-blue); outline-offset: 3px; }
-.question-paper .assessment-card > .eyebrow { display: none; }
-.question-paper .assessment-card h2 { font-size: 1.15rem; line-height: 1.65; }
-.question-paper .assessment-options { margin: var(--space-4) 0 0; }
-.question-paper .assessment-options label { position: relative; grid-template-columns: 2.25rem minmax(0, 1fr); min-height: 3.5rem; }
-.question-paper .assessment-options label:focus-within { outline: 2px solid var(--studydy-blue); outline-offset: 2px; }
-.question-paper-navigation { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.question-paper-navigation small { color: var(--text-secondary); text-align: center; line-height: 1.6; }
-.question-result-summary { font-weight: 700; font-variant-numeric: tabular-nums; }
-.assessment-review-list .feedback-evidence { width: auto; }
+.question-paper, .assessment-review-list { display: grid; gap: var(--space-4); width: 100%; min-width: 0; }
 .question-preparation { width: min(100%, 48rem); margin-inline: auto; display: grid; gap: var(--space-4); }
 .question-preparation-message { display: flex; align-items: center; justify-content: center; gap: var(--space-5); }
 .question-preparation-message img { width: clamp(5rem, 12vw, 9rem); }
@@ -24,16 +9,7 @@
 .question-skeleton span { height: 2.5rem; }
 .question-session-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .question-session-header h1 { margin: 0; font-size: 1.2rem; }
-.assessment-cycle-summary.result-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-5); padding: var(--space-3) var(--space-5); margin-bottom: var(--space-4); }
-.result-bar .result-bar-text { display: grid; gap: 2px; min-width: 0; flex: 1 1 24rem; }
-.result-bar-text > * { margin: 0; }
-.result-bar h2 { font-size: 0.8rem; color: var(--text-secondary); }
-.result-bar .question-result-summary { font-size: 1.1rem; }
-.result-bar small { color: var(--text-secondary); line-height: 1.5; }
-.result-bar .assessment-set-actions { flex: 0 0 auto; }
-.result-body .assessment-review-list { width: 100%; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); grid-auto-rows: 1fr; align-items: stretch; gap: var(--space-3); }
 .assessment-review-list .assessment-set-item { display: grid; padding: 0; background: none; }
-.feedback-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); box-shadow: var(--shadow); overflow-y: auto; max-height: max(24rem, calc(100dvh - 18.5rem)); }
 .feedback-card .feedback-result { gap: var(--space-2); }
 .feedback-card .feedback-icon { width: 30px; height: 30px; margin: 0; flex-shrink: 0; }
 .feedback-number { font-size: 0.9rem; }
@@ -42,19 +18,78 @@
 .feedback-card.is-incorrect .feedback-yours { box-shadow: inset 0 0 0 1.5px var(--warning); }
 .feedback-card.is-correct .feedback-correct { box-shadow: inset 0 0 0 1.5px var(--success); }
 .feedback-card .feedback-evidence { width: auto; margin: 0; }
-.result-body { display: grid; grid-template-columns: minmax(0, 1fr) clamp(16rem, 22vw, 19rem); align-items: start; gap: var(--space-4); }
-@media (max-width: 1280px) {
-  .result-body { grid-template-columns: minmax(0, 1fr); }
-  .result-body > .result-rail { order: -1; max-height: none; position: static; }
-  .result-body .result-rail ol { display: flex; overflow-x: auto; padding-bottom: 4px; }
-  .result-body .result-rail ol > li { flex: 0 0 13rem; }
-}
-@media (max-width: 720px) {
-  .question-paper-heading { gap: var(--space-2); flex-wrap: wrap; }
-  .question-paper-heading > .studydy-progress { width: 100%; }
-  .question-paper-navigation { flex-wrap: wrap; }
-  .question-paper-navigation small { order: 3; width: 100%; }
-  .question-preparation-message { gap: var(--space-3); }
-}
 
 .question-paper .question-option-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: inherit; }
+
+/* 答題（專注模式）：上方「×」、進度段與題數同一列，題目在左、機器人在右，底部是上一題／下一題。 */
+.question-paper { width: 100%; gap: 0; padding-top: var(--space-3); }
+.quiz-body, .question-paper-navigation { width: min(100%, 64rem); margin-inline: auto; }
+.quiz-top { display: flex; align-items: center; gap: var(--space-4); }
+.quiz-segs { flex: 1; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--space-2); }
+.quiz-segs i { height: 16px; border-radius: 8px; background: var(--border); }
+.quiz-segs i.on { background: var(--success); box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.08); }
+.quiz-segs i.cur { background: var(--success-soft); }
+.quiz-count { font-weight: 900; color: var(--text-secondary); font-size: 15px; white-space: nowrap; }
+.quiz-body { display: grid; grid-template-columns: minmax(0, 1fr) 14rem; gap: var(--space-8); padding-top: var(--space-8); }
+.quiz-main { min-width: 0; display: grid; gap: var(--space-2); align-content: start; }
+.question-paper-heading { margin: 0; font-size: 14px; font-weight: 900; color: var(--studydy-blue); overflow-wrap: anywhere; }
+.quiz-side { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding-top: 4.5rem; }
+.quiz-side p { margin: 0; background: var(--page-cool); border-radius: var(--radius-card); padding: var(--space-3) var(--space-4); font-size: 14px; font-weight: 800; line-height: 1.55; color: var(--text-secondary); }
+.quiz-side img { width: 120px; }
+.question-paper-card { min-width: 0; }
+.question-paper-card:focus { outline: 2px solid var(--studydy-blue); outline-offset: 3px; border-radius: var(--radius-card); }
+.question-paper .assessment-card { padding: 0; background: transparent; }
+.question-paper .assessment-card > .eyebrow { display: none; }
+.question-paper .assessment-card h2 { font-size: 1.75rem; line-height: 1.4; margin: 0 0 var(--space-5); }
+.question-paper .assessment-options { margin: 0; max-width: 40rem; gap: var(--space-3); }
+.question-paper .assessment-options label { position: relative; grid-template-columns: 2.25rem minmax(0, 1fr); min-height: 3.5rem; border: 2px solid var(--border); background: var(--surface); box-shadow: 0 4px 0 var(--border); }
+.question-paper .assessment-options:not(:disabled) label:hover { border-color: var(--studydy-blue); background: var(--studydy-blue-soft-2); }
+.question-paper .assessment-options label.is-selected { border-color: var(--studydy-blue); background: var(--studydy-blue-soft-2); box-shadow: 0 4px 0 var(--studydy-blue-soft); color: var(--studydy-blue-deep); }
+.question-paper .assessment-options label > span { width: 30px; height: 30px; border-radius: 9px; border: 2px solid var(--border); background: transparent; color: var(--text-muted); font-size: 14px; font-weight: 900; }
+.question-paper .assessment-options label.is-selected > span { border-color: var(--studydy-blue); color: var(--studydy-blue-deep); }
+.question-paper .assessment-options label:focus-within { outline: 2px solid var(--studydy-blue); outline-offset: 2px; }
+.question-paper-navigation { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-5); padding-top: var(--space-4); border-top: 2px solid var(--border-light); }
+.question-paper-navigation small { color: var(--text-muted); font-weight: 800; font-size: 14px; line-height: 1.6; }
+.quiz-nav-buttons { display: flex; gap: var(--space-3); }
+.question-result-summary { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* 交卷結果：左邊先給成果、再練說明和作答紀錄，右邊逐題解析。 */
+.result-body { display: grid; grid-template-columns: minmax(18rem, 26rem) minmax(0, 1fr); align-items: start; gap: var(--space-8); padding: var(--space-8) var(--space-6); border-radius: var(--radius-panel); background: linear-gradient(var(--page-cool-2), var(--surface) 46%); }
+.result-side { display: grid; gap: var(--space-4); min-width: 0; }
+.result-review { display: grid; gap: var(--space-3); min-width: 0; }
+.result-review h3 { margin: 0; font-size: 18px; font-weight: 900; }
+.assessment-cycle-summary.result-hero { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); text-align: center; padding: 0; background: transparent; box-shadow: none; }
+.result-hero > * { margin: 0; max-width: 100%; }
+.result-hero-bob { width: 170px; }
+.result-hero h2 { font-size: 13px; font-weight: 800; color: var(--text-secondary); }
+.result-hero-title { font-size: 30px; font-weight: 900; }
+.result-hero .question-result-summary { font-size: 15px; color: var(--text-secondary); font-weight: 800; }
+.result-hero small { color: var(--text-secondary); line-height: 1.5; }
+.result-gain { width: 100%; display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); border: 2px solid var(--border); border-radius: var(--radius-card); background: var(--surface); }
+.result-gain-total { font-size: 26px; font-weight: 900; color: var(--studydy-blue); }
+.result-gain ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.result-gain li { display: flex; justify-content: space-between; gap: var(--space-3); font-size: 14px; font-weight: 800; color: var(--text-secondary); }
+.result-gain li b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.result-again { width: 100%; padding: var(--space-3) var(--space-4); border: 2px dashed var(--warning); border-radius: var(--radius-input); background: var(--warning-soft); font-size: 14px; font-weight: 800; line-height: 1.55; text-align: start; }
+.result-hero .assessment-set-actions { justify-content: center; width: 100%; }
+.assessment-review-list .feedback-evidence { width: auto; }
+.result-body .assessment-review-list { gap: var(--space-3); }
+.assessment-review-list .assessment-set-item { display: grid; padding: 0; background: none; }
+.feedback-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 2px solid var(--border); border-radius: var(--radius-card); background: var(--surface); box-shadow: none; }
+.feedback-card.is-incorrect { border-color: color-mix(in srgb, var(--coral) 30%, var(--surface)); background: var(--error-soft); }
+.feedback-card.is-correct .feedback-icon, .feedback-card.is-incorrect .feedback-icon { color: var(--surface); }
+.feedback-card.is-correct .feedback-icon { background: var(--success); }
+.feedback-card.is-incorrect .feedback-icon { background: var(--coral); }
+@media (max-width: 1100px) {
+  .result-body { grid-template-columns: minmax(0, 1fr); padding-inline: var(--space-4); }
+}
+@media (max-width: 720px) {
+  .quiz-body { grid-template-columns: minmax(0, 1fr); padding-top: var(--space-5); }
+  .quiz-side { display: none; }
+  .question-paper .assessment-card h2 { font-size: 1.3rem; }
+  .question-paper-navigation { flex-wrap: wrap; }
+  .question-paper-navigation small { order: 3; width: 100%; }
+  .quiz-nav-buttons { margin-left: auto; }
+  .result-body { padding: var(--space-5) var(--space-3); }
+  .question-preparation-message { gap: var(--space-3); }
+}

@@ -34,7 +34,7 @@ for (const width of [1440, 1300, 1200, 1024, 390]) {
     await page.keyboard.press("Enter");
     expect((await submission).postDataJSON().answers).toHaveLength(2);
     await expect(page.locator(".feedback-card")).toHaveCount(2);
-    await expect(page.locator(".question-result-summary")).toContainText("答對 1／2 題 · 1 個重點需要補強");
+    await expect(page.locator(".question-result-summary")).toContainText("答對 1／2 題 · 1 個重點要再練");
     expect(fixture.requests.filter(request => request.path.endsWith("/submissions"))).toHaveLength(1);
     await expect(page.locator(".assessment-cycle .primary-button")).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath(`result-${kind}-${width}.png`) });

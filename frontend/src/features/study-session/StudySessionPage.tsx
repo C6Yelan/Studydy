@@ -323,10 +323,7 @@ export function StudySessionPage({
   );
   return (
     <section className="study-session-page">
-      {layoutMode === "question" ? <div className="study-focus-bar">
-        <button className="study-focus-close" type="button" aria-label="離開作答" onClick={leave}><Icon name="close" size={22} /></button>
-        <h1 className="sr-only">學習作答</h1>
-      </div> : <><MaterialBack label="返回學習進度" onClick={backToReview} /><header className="study-header question-session-header">
+      {layoutMode === "question" ? <h1 className="sr-only">學習作答</h1> : <><MaterialBack label="返回學習進度" onClick={backToReview} /><header className="study-header question-session-header">
         <div>
           <h1>{completed ? "本次學習已結束" : visibleConcept.label}</h1>
           <p className="study-header-meta">
@@ -404,6 +401,7 @@ export function StudySessionPage({
                 onSetSelected={(id) => writeRoute({ ...route, assessmentSetId: id })}
                 onProgressChanged={refresh}
                 onBackToMap={back}
+                onLeave={leave}
                 initialPhase={initialSetPhase}
                 onPhaseChange={setPanelPhase}
                 continuation={continuation}

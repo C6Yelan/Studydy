@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { AssessmentSetSummary } from "../../api/contracts";
 
 type Filter = "all" | "diagnostic" | "remediation";
-const filters: [Filter, string][] = [["all", "全部"], ["diagnostic", "初篩"], ["remediation", "補強"]];
+const filters: [Filter, string][] = [["all", "全部"], ["diagnostic", "第一次"], ["remediation", "再練"]];
 
 export function HistoryRail({ sets, selectedSetId, conceptLabel, onSelect }: {
   sets: AssessmentSetSummary[]; selectedSetId: string | null;
@@ -20,7 +20,7 @@ export function HistoryRail({ sets, selectedSetId, conceptLabel, onSelect }: {
       {sets.flatMap((group, index) => filter !== "all" && (group.kind === "remediation") !== (filter === "remediation") ? [] : [
         <li key={group.set_id}><button type="button" className={`study-history-item is-${group.kind}`}
           aria-current={group.set_id === selectedSetId ? "true" : undefined} onClick={() => onSelect(group.set_id)}>
-          <b>第 {sets.length - index} 組 · {group.kind === "remediation" ? "補強" : "初篩"}</b>
+          <b>第 {sets.length - index} 組 · {group.kind === "remediation" ? "再練" : "第一次"}</b>
           <span>{conceptLabel(group.target_concept_id)}</span>
           <small>{group.published_count === 0 ? "此題組已結束" : group.answered_count === 0 ? "尚未作答" : `已答 ${group.answered_count}/${group.published_count}`}</small>
         </button></li>])}
