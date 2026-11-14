@@ -476,6 +476,7 @@ class KnowledgeRegionsView(_Closed):
 
 
 class LearningActivityDayView(_Closed):
+    xp: int
     date: date_type
     answers: int
     correct: int
@@ -1050,6 +1051,7 @@ class AssessmentSetItemView(_Closed):
 
 
 class AssessmentSetView(AssessmentSetSummary):
+    xp_award: LearningXpSources | None = None
     schema_: Literal["assessment-set/v2"] = Field(alias="schema")
     study_session_id: UUID
     material_id: UUID

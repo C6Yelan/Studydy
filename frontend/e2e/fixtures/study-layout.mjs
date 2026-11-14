@@ -242,6 +242,10 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
           : "passed";
     return {
       schema: "assessment-set/v2",
+      xp_award: isCompleted ? {
+        answers: passedCount * 10 + (answeredCount - passedCount) * 3,
+        concepts: 0, cards: 0, podcast: 0, goals: 0, difficulties: 0,
+      } : null,
       kind,
       diagnostic_set_id: kind === "remediation" ? historySetId : null,
       set_id: groupId,
