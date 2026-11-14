@@ -173,12 +173,12 @@ test('390px chat uses the same compact header, fixed composer and keyboard focus
  const panel=page.getByRole('dialog',{name:'Studydy AI BOT'}),box=(await panel.boundingBox())!;
  // 手機是全螢幕聊天室。
  expect(box).toEqual({x:0,y:0,width:390,height:844});
- await expect(page.getByRole('button',{name:'問小幫手',exact:true})).toHaveAttribute('aria-expanded','true');await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
+ await expect(page.getByRole('button',{name:'問小幫手',exact:true,includeHidden:true})).toHaveAttribute('aria-expanded','true');await expect(page.locator('.voice-panel textarea')).toHaveCount(1);
  await page.getByLabel('問題／辨識文字').fill('多行草稿\n'.repeat(25));const composer=(await page.locator('.voice-composer').boundingBox())!,header=(await page.locator('.voice-header').boundingBox())!;
  await page.locator('.voice-turns').evaluate(el=>{el.scrollTop=0;});expect((await page.locator('.voice-composer').boundingBox())!.y).toBeCloseTo(composer.y,0);expect((await page.locator('.voice-header').boundingBox())!.y).toBeCloseTo(header.y,0);expect(composer.y+composer.height).toBeLessThanOrEqual(box.y+box.height);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
  await page.getByLabel('問題／辨識文字').focus();await page.keyboard.press('Tab');await expect(page.getByRole('button',{name:'送出問題',exact:true})).toBeFocused();
- await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(page.getByRole('button',{name:'問小幫手',exact:true})).toBeFocused();
+ await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(page.getByRole('navigation',{name:'教材導覽'}).getByRole('button',{name:'更多',exact:true})).toBeFocused();
 });
 
 test('text and voice share a conversation but only the current voice reply autoplays',async({page})=>{

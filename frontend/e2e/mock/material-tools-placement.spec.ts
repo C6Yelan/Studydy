@@ -51,7 +51,9 @@ for(const width of [1920,1440,390]) test(`published workspace chat drawer stays 
   await panel.evaluate(el=>Promise.all(el.getAnimations().map(a=>a.finished)));
   const opened=(await panel.boundingBox())!;expect(width-opened.x-opened.width).toBeCloseTo(inset,0);expect(opened.y).toBeGreaterThanOrEqual(width===390?0:8);expect(opened.y).toBeLessThanOrEqual(width===390?0:450);expect(900-opened.y-opened.height).toBeCloseTo(inset,0);expect(opened.x).toBeGreaterThanOrEqual(0);
   await page.evaluate(()=>window.scrollTo(0,600));await expect.poll(()=>page.evaluate(()=>window.scrollY)).toBeGreaterThan(300);const moved=(await panel.boundingBox())!;expect(moved.x).toBeCloseTo(opened.x,0);expect(moved.y).toBeCloseTo(opened.y,0);
-  await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(trigger).toBeFocused();
+  await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);
+  // 手機選了「問小幫手」後「更多」面板已收起，焦點回到「更多」。
+  await expect(width<=720?page.getByRole('navigation',{name:'教材導覽'}).getByRole('button',{name:'更多',exact:true}):trigger).toBeFocused();
   if(index===0){
    await page.locator('.app-main').evaluate(el=>(el as HTMLElement).removeAttribute('style'));await page.evaluate(()=>{document.querySelector('[data-test-scroll]')?.remove();window.scrollTo(0,0);});
    await page.getByRole('link', { name: '學習進度',exact:true}).click();await expect(page.locator('.review-diagnosis')).toBeVisible();

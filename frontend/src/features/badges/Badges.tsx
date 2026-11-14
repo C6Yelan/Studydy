@@ -254,7 +254,7 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
   </section>;
 }
 
-/** 左下角浮動通知：不推動版面、不擋主要操作，6 秒後自動收起，可按「查看」到成就頁。 */
+/** 右下角浮動通知：不推動版面、不擋主要操作，6 秒後自動收起，可按「查看」到成就頁。 */
 export function BadgeEarned({ badges, onClose }: { badges: KnownBadge[]; onClose: () => void }) {
   const shown = badges.slice(0, 3);
   useEffect(() => {

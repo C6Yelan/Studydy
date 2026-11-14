@@ -8,6 +8,7 @@ import {
   json,
   mockKnowledgeMapApi,
 } from "../fixtures/knowledge-map";
+import { learningActivity } from "../fixtures/learning-activity";
 
 const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
 const progressPath = `${mapPath}/progress`;
@@ -277,4 +278,65 @@ test("bootstrap and persisted pageshow preserve the frame and route", async ({
   await expect(page).toHaveURL(`${browserOrigin}${progressPath}`);
   await expect(page.getByRole("link", { name: "學習進度", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".review-diagnosis")).toBeVisible();
+});
+
+test("earned-badge toast sits at the bottom right and never covers the rail or the phone tab bar", async ({ page }) => {
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ badges: { first_answer: { earned_on: "2026-10-16" } } }) }));
+  await page.route("**/v1/learning-activity/celebrations/claim", (route) => route.fulfill({ json: { schema: "celebration-claim/v1", level: null, badge_ids: ["first_answer"] } }));
+  type Box = { x: number; y: number; width: number; height: number };
+  const apart = (a: Box, b: Box) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+  for (const [width, height, path, tabBar] of [
+    [1440, 900, "/materials", ".rail"], [1440, 900, mapPath, ".rail"], [390, 844, "/materials", ".phone-nav"], [390, 844, mapPath, ".material-rail-nav"],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await page.goto(path);
+    const toast = page.getByRole("status", { name: "獲得新徽章" });
+    await expect(toast).toBeVisible();
+    await page.waitForTimeout(400);
+    const box = (await toast.boundingBox())!;
+    expect(box.x + box.width).toBeGreaterThan(width - 60);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(apart(box, (await page.locator(tabBar).first().boundingBox())!)).toBe(true);
+    if (width > 720) for (const name of ["我的群島", "知識地圖"]) {
+      const link = page.getByRole("link", { name, exact: true }).first();
+      if (await link.isVisible()) expect(apart(box, (await link.boundingBox())!)).toBe(true);
+    }
+  }
+});
+
+test("phone More panel closes on outside tap and after choosing an item", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(mapPath);
+  const nav = page.getByRole("navigation", { name: "教材導覽", exact: true });
+  const more = nav.getByRole("button", { name: "更多", exact: true });
+  await more.click();
+  await expect(more).toHaveAttribute("aria-expanded", "true");
+  await page.locator(".material-rail-name").click();
+  await expect(more).toHaveAttribute("aria-expanded", "false");
+  await more.click();
+  await nav.getByRole("button", { name: "問小幫手", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Studydy AI BOT" })).toBeVisible();
+  await expect(more).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("Escape");
+  await more.click();
+  await nav.getByRole("link", { name: "我的筆記", exact: true }).click();
+  await expect(more).toHaveAttribute("aria-expanded", "false");
+});
+
+test("material rail leads back to My Islands, on desktop and phone", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(mapPath);
+  const back = page.getByRole("link", { name: "我的群島", exact: true });
+  await expect(back).toBeVisible();
+  expect((await back.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await back.click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/materials");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(mapPath);
+  const phoneBack = page.getByRole("link", { name: "我的群島", exact: true });
+  const box = (await phoneBack.boundingBox())!;
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  expect(box.y).toBeLessThan(80);
+  await phoneBack.click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/materials");
 });

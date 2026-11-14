@@ -1,4 +1,13 @@
 /* 教材側欄：沿用全站側欄的外框與項目樣式（app/shell.css），多了「目前教材」與兩個次要項目。 */
+.material-rail-islands {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.material-rail-islands > i {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+}
 .material-rail-name {
   display: grid;
   gap: 2px;
@@ -107,6 +116,11 @@
 
 /* 手機：頂端一列是品牌與目前教材；底部頁籤放四個常用項目和「更多」，其餘項目在「更多」展開的面板裡。 */
 @media (max-width: 720px) {
+  .rail .material-rail-islands {
+    flex: none;
+    width: 44px;
+    padding: 0;
+  }
   .material-rail-name {
     position: static;
     flex: 1;

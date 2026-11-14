@@ -66,6 +66,14 @@ export function MaterialRail({ apiClient, route, materialId, forgot, toggle, pee
   const moreButton = useRef<HTMLButtonElement>(null);
   const routeKey = JSON.stringify(route);
   useEffect(() => setMoreOpen(false), [routeKey]);
+  const nav = useRef<HTMLElement>(null);
+  // 點面板外面就收起；點到面板裡的項目（含不換頁的「問小幫手」）由面板的 onClick 收起。
+  useEffect(() => {
+    if (!moreOpen) return;
+    const close = (event: PointerEvent) => { if (!nav.current?.contains(event.target as Node)) setMoreOpen(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [moreOpen]);
 
   const link = (id: Item, label: string, icon: IconName, tone: string, target: AppRoute | null, onClick?: (event: MouseEvent<HTMLAnchorElement>) => void) => {
     const count = id === "concept-cards" && forgot ? <>
@@ -89,8 +97,12 @@ export function MaterialRail({ apiClient, route, materialId, forgot, toggle, pee
       <img src="/assets/studydy/brand-idle.png" alt="" />
       <span>Studydy</span>
     </RouteLink>
+    <RouteLink className="rail-link material-rail-islands" route={{ name: "materials" }}>
+      <i aria-hidden="true"><Icon name="arrow-left" size={20} /></i>
+      <span className="rail-label">我的群島</span>
+    </RouteLink>
     <p className="material-rail-name"><small>目前教材</small><b title={material?.display_name}>{material?.display_name ?? " "}</b></p>
-    <nav className={`material-rail-nav${moreOpen ? " is-more-open" : ""}`} aria-label="教材導覽"
+    <nav ref={nav} className={`material-rail-nav${moreOpen ? " is-more-open" : ""}`} aria-label="教材導覽"
       onKeyDown={(event) => { if (event.key === "Escape" && moreOpen) { event.stopPropagation(); setMoreOpen(false); moreButton.current?.focus(); } }}>
       <ul className="rail-links material-rail-main">
         {link("knowledge-map", "知識地圖", "map", "is-blue", mapRoute, (event) => {
@@ -107,11 +119,11 @@ export function MaterialRail({ apiClient, route, materialId, forgot, toggle, pee
       <button ref={moreButton} className="material-rail-more-toggle" type="button" aria-expanded={moreOpen} aria-controls="material-rail-more" onClick={() => setMoreOpen((open) => !open)}>
         <span className="material-rail-dots" aria-hidden="true">⋯</span><span>更多</span>
       </button>
-      <div id="material-rail-more" className="material-rail-more">
+      <div id="material-rail-more" className="material-rail-more" onClick={(event) => { if ((event.target as HTMLElement).closest("a, button")) setMoreOpen(false); }}>
         <ul className="rail-links">
           {link("notes", "我的筆記", "book", "is-green", withMap(() => ({ name: "material-content", materialId, kind: "notes" })))}
           {/* 小幫手只依據已發布的地圖回答，沒有地圖時不提供（同舊版）。 */}
-          {mapRoute && <li><MaterialTools key={`${materialId}:${mapRoute.structureRevision}`} api={apiClient} materialId={materialId} revision={mapRoute.structureRevision} /></li>}
+          {mapRoute && <li><MaterialTools key={`${materialId}:${mapRoute.structureRevision}`} api={apiClient} materialId={materialId} revision={mapRoute.structureRevision} fallbackFocus={moreButton} /></li>}
           {link("research", "找更多資料", "search", "is-amber", withMap(() => ({ name: "material-content", materialId, kind: "research" })))}
         </ul>
         <ul className="rail-links material-rail-minor">

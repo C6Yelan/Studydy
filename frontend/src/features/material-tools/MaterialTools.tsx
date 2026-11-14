@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import type { StudydyApiClient } from '../../api/client';
 import { Icon } from '../../ui/Icon';
 import { VoicePanel } from './VoicePanel';
 import './styles.css';
 
-export function MaterialTools({ api, materialId, revision }: { api: StudydyApiClient; materialId: string; revision?: string }) {
+export function MaterialTools({ api, materialId, revision, fallbackFocus }: { api: StudydyApiClient; materialId: string; revision?: string; /** 入口被收起（手機的「更多」面板選了就收）時，關閉後焦點改回這裡。 */ fallbackFocus?: RefObject<HTMLElement | null> }) {
  const [open, setOpen] = useState(false);
  const [prefill, setPrefill] = useState<{ text: string; id: string }>();
  const panel = useRef<HTMLElement>(null);
@@ -29,7 +29,7 @@ export function MaterialTools({ api, materialId, revision }: { api: StudydyApiCl
  }, [materialId]);
  useEffect(() => {
   if (open) { opened.current = true; panel.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus(); }
-  else if (opened.current) trigger.current?.focus();
+  else if (opened.current) (trigger.current?.offsetParent ? trigger : fallbackFocus)?.current?.focus();
   // 寬螢幕時問答固定在右側，主內容讓出空間，不蓋住地圖或教材。
   document.documentElement.classList.toggle('qa-panel-open', open);
   return () => document.documentElement.classList.remove('qa-panel-open');

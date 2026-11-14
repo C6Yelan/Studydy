@@ -217,7 +217,9 @@ test('Voice bubble keeps the page reachable and restores focus when dismissed',a
   expect(rail.x).toBeCloseTo(before.x,0);expect(rail.width).toBeCloseTo(before.width,0);expect(rail.height).toBeCloseTo(before.height,0);
   if(width>720){const content=(await page.locator('.map-content').boundingBox())!;expect(content.x+content.width).toBeLessThanOrEqual(box.x);}
   await page.screenshot({path:testInfo.outputPath(`qa-open-${width}.png`)});
-  await bubble.getByRole('textbox',{name:'問題／辨識文字'}).fill('尚未送出的測試');await page.keyboard.press('Escape');await expect(bubble).toHaveCount(0);await expect(opener).toBeFocused();
+  await bubble.getByRole('textbox',{name:'問題／辨識文字'}).fill('尚未送出的測試');await page.keyboard.press('Escape');await expect(bubble).toHaveCount(0);
+  // 手機選了「問小幫手」後「更多」面板已收起，焦點回到「更多」。
+  await expect(width===390?page.getByRole('navigation',{name:'教材導覽'}).getByRole('button',{name:'更多',exact:true}):opener).toBeFocused();
  }
 });
 

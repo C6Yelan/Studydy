@@ -177,11 +177,11 @@
 .badge-medal.is-special.is-locked .badge-glyph { color: #7a6fc0; font-size: 20px; font-weight: 900; }
 .badge-medal.is-special .badge-star { fill: #c9b6ff; }
 
-/* 徽章通知比照 YouTube 浮在左下角：不推動版面，也不擋頁首與右上角的主要操作。 */
+/* 徽章通知浮在右下角（不蓋側欄項目與手機底部頁籤）：不推動版面，也不擋頁首與右上角的主要操作。 */
 .badge-earned {
   position: fixed;
   bottom: max(24px, env(safe-area-inset-bottom, 0px));
-  left: max(24px, env(safe-area-inset-left, 0px));
+  right: max(24px, env(safe-area-inset-right, 0px));
   z-index: 60;
   display: flex;
   align-items: center;
@@ -203,6 +203,13 @@
 .badge-earned-close:hover { background: var(--page-cool); }
 .badge-earned .badge-medal {
   animation: badge-pop 0.6s 0.15s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+/* 手機底部頁籤高 64px、離底 12px；徽章放在它上方。 */
+@media (max-width: 720px) {
+  .badge-earned {
+    right: 16px;
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  }
 }
 @keyframes badge-slide {
   from { opacity: 0; transform: translateY(8px); }
