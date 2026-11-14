@@ -28,9 +28,9 @@ export function MaterialContent({ apiClient, learnerId, materialId, kind, childr
     return () => { cancelled = true; };
   }, [apiClient, materialId, reload]);
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision) ?? material?.available_structures[0];
-  const back = children != null || researchId ? <MaterialBack
-    label={`返回${window.history.state?.fromCollection ? kind === "podcasts" ? "我的 Podcast" : "我的概念卡" : kind === "podcasts" ? "Podcast 列表" : kind === "research" ? "補充學習" : "概念卡列表"}`}
-    onClick={() => writeRoute(window.history.state?.fromCollection && kind !== "research" && kind !== "notes" ? { name: kind } : { name: "material-content", materialId, kind })} /> : null;
+  // 卡組、Podcast 的子頁自己放麵包屑；只有補充學習的子頁還用返回鍵（第 9 段換成麵包屑）。
+  const back = kind === "research" && (children != null || researchId)
+    ? <MaterialBack label="返回補充學習" onClick={() => writeRoute({ name: "material-content", materialId, kind })} /> : null;
   if (notFound) return <NotFoundView {...materialNotFound} />;
   return <section className={`material-content${kind === "notes" ? " notes-material-content" : ""}`}>
     {error || !material ? <StateView title={error ? "無法讀取教材" : "正在讀取教材"} description={error ?? "正在載入此教材的學習內容。"} tone={error ? "failure" : "loading"} live={!error} skeleton="material"

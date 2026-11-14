@@ -7,14 +7,16 @@ import { CreatePodcast } from "../podcasts/CreatePodcast";
 import { Icon } from "../../ui/Icon";
 import { IslandArt, islandPalette } from "../../ui/art/Island";
 import { BackLink } from "../../ui/BackLink";
+import { ListBreadcrumb } from "../../ui/Breadcrumb";
 import { EmptyState } from "../../ui/EmptyState";
 import { FlowHeader, LearningSteps, podcastSteps } from "./Flow";
+import { PickHead } from "./ConceptPick";
 import "./creation.css";
 
 type CreationRoute = Extract<AppRoute, { name: "podcast-new" | "podcast-create" | "card-set-new" | "card-set-create" }>;
 
 /** 建立卡組／Podcast 的三個步驟：選教材 → 挑概念 → 保存後在卡組／節目頁生成。 */
-const cardSetSteps = ["選一座島", "挑選概念", "開始翻卡"];
+const cardSetSteps = ["選一座島", "挑概念", "開始翻卡"];
 
 export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApiClient; route: CreationRoute }) {
   const podcast = route.name.startsWith("podcast");
@@ -50,13 +52,15 @@ export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApi
         </button></li>)}</ul>}
     </div>
   </section>;
-  return <section className={`cards-page creation-page creation-stacked-steps flow-page${podcast ? " podcast-creation-page" : " cards-creation-page"}`}>
-    <FlowHeader
-      back={needsMaterialSelection && <BackLink label={podcast ? "回到 Podcast" : "回到翻卡片"} route={{ name: podcast ? "podcasts" : "concept-cards" }} />}
+  return <section className="cards-page creation-page flow-page">
+    {needsMaterialSelection ? <>
+      <FlowHeader back={<BackLink label={podcast ? "回到 Podcast" : "回到翻卡片"} route={{ name: podcast ? "podcasts" : "concept-cards" }} />}
+        title={podcast ? "建立 Podcast" : "建立卡組"} description={podcast ? "先選一座島，再挑想收聽的概念與講解形式。" : "先選一座島，再挑想複習的概念。"} />
+      <LearningSteps labels={podcast ? podcastSteps : cardSetSteps} current={0} label={podcast ? "建立 Podcast 步驟" : "建立卡組步驟"} />
+    </> : <PickHead crumb={<ListBreadcrumb kind={podcast ? "podcasts" : "concept-cards"} materialId={selected} current={podcast ? "建立 Podcast" : "建立卡組"} />}
       title={podcast ? "建立 Podcast" : "建立卡組"}
-      description={needsMaterialSelection ? (podcast ? "先選一座島，再挑想收聽的概念與講解形式。" : "先選一座島，再挑想複習的概念。") : podcast ? "挑選要講解的概念與形式，保存後開始生成。" : "挑選這份教材中想複習的概念。"}
-      />
-    <LearningSteps labels={podcast ? podcastSteps : cardSetSteps} current={needsMaterialSelection ? 0 : 1} label={podcast ? "建立 Podcast 步驟" : "建立卡組步驟"} />
+      sub={podcast ? "挑要講的概念和講解方式；內容多的話會自動分成好幾集。" : "勾選想做成卡片的概念，點概念名稱可以看它的重點。"}
+      steps={{ labels: podcast ? podcastSteps : cardSetSteps, current: 1, label: podcast ? "建立 Podcast 步驟" : "建立卡組步驟" }} />}
     {needsMaterialSelection && error && <p role="alert" className="form-error">{error}<button type="button" className="text-button" onClick={() => setReload(v => v + 1)}>重新讀取</button></p>}
     {needsMaterialSelection && materials?.length === 0 ? <EmptyState title="還沒有可用的知識地圖" description={podcast ? "先上傳教材並建立知識地圖，才能把重點做成 Podcast。" : "先上傳教材並建立知識地圖，才能挑選概念做成卡組。"}
       action={<button type="button" className="primary-button" onClick={() => writeRoute({ name: "materials" })}>前往我的教材</button>} />

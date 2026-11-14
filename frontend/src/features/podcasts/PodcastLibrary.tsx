@@ -7,6 +7,7 @@ import { islandColors, islandPalette } from "../../ui/art/Island";
 import type { CSSProperties } from "react";
 import { PodcastCancelControl } from "./PodcastCancelControl";
 import { PodcastManagement } from "./PodcastManagement";
+import { formatTime } from "./PodcastPlayer";
 import { StateView } from "../../ui/StateView";
 import { CollectionHeader } from "../../ui/CollectionHeader";
 import { EmptyState } from "../../ui/EmptyState";
@@ -28,6 +29,20 @@ export function PodcastLibrary({ apiClient, learnerId, material }: { apiClient: 
   const [deletingId, setDeletingId] = useState<string|null>(null);
   const heading = useRef<HTMLHeadingElement & HTMLDivElement>(null);
   const mutationVersion = useRef(0);
+  // 上次停在哪一集哪一秒（只列還沒聽完的）；讀不到就不顯示，按鈕維持「開始收聽」。
+  const [resume, setResume] = useState<Map<string, { episode: number; position: number }>>(new Map());
+  const readyKey = items?.filter(item => item.status === "ready").map(item => item.podcast_id).join(",") ?? "";
+  useEffect(() => {
+    if (!readyKey) return;
+    let cancelled = false;
+    void Promise.all(items!.filter(item => item.status === "ready").map(item => apiClient.getPodcastProgress(item.podcast_id).then(progress => {
+      const current = progress.current;
+      if (!current || progress.episodes.filter(episode => episode.completed).length >= item.episode_count) return null;
+      return [item.podcast_id, { episode: current.episode_index, position: current.position_seconds }] as const;
+    }, () => null))).then(found => { if (!cancelled) setResume(new Map(found.flatMap(entry => entry ? [entry] : []))); });
+    return () => { cancelled = true; };
+    // 只在節目清單的成員變動時重讀（items 的其他變動不必重讀收聽位置）。
+  }, [apiClient, readyKey]);
   useEffect(() => {
     let cancelled = false;
     setError(null);
@@ -61,7 +76,7 @@ export function PodcastLibrary({ apiClient, learnerId, material }: { apiClient: 
   const create = () => { if (material && structure) writeRoute({ name: "podcast-create", materialId: material.material_id, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision }); else if (!material) writeRoute({ name: "podcast-new" }); };
   return <section className="material-library is-collection podcast-library" aria-label={material ? "教材 Podcast" : "Podcast"}>
     {material ? <header className="library-header library-header-compact collection-toolbar material-search-row">
-      <div className="collection-summary" ref={heading} tabIndex={-1}><p>{items === null ? "—" : `${items.length} 個節目`}</p></div>
+      <div className="collection-summary" ref={heading} tabIndex={-1}><h1>聽 Podcast<small>{items === null ? "—" : `${items.length} 份`}</small></h1></div>
       <button className="primary-button" type="button" disabled={!structure} onClick={create}><Icon name="headphones" size={18} /> 建立 Podcast</button>
     </header> : <CollectionHeader title="Podcast"
       subtitle={<>{items !== null && <><b>{items.length} 個節目</b> · </>}把教材重點變成隨時能聽的節目，收聽進度會自動保存。</>}
@@ -89,8 +104,12 @@ export function PodcastLibrary({ apiClient, learnerId, material }: { apiClient: 
           {item.generation ? !podcastComplete(item) && <p className="library-state">{item.generation.active ? (item.status === 'ready' ? (videoTotal(item) ? '影片／字幕生成中' : '字幕生成中') : podcastStatus[item.status]) : item.generation.failed_videos ? '部分影片生成失敗' : item.status === 'ready' && item.generation.retryable_videos ? '影片待補，請按「接續生成」' : podcastStatus[item.status]} · 音訊 {item.completed_episodes} / {item.episode_count} 集{videoTotal(item) ? ` · 影片 ${item.generation.completed_videos} / ${videoTotal(item)} 集` : ''}</p>
             : item.status !== "ready" && <p className="library-state">{podcastStatus[item.status]} · 音訊已完成 {item.completed_episodes} / {item.episode_count} 集</p>}
           {(item.generation?.active || ['pending','running'].includes(item.status)) && <PodcastCancelControl busy={deletingId!==null} onConfirm={()=>void cancelAndDelete(item.podcast_id)}/>}
-          <button type="button" className="primary-button" onClick={() => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>{podcastPreviewReady(item) ? "開始收聽" : "查看進度"}</button>
-        </article>)}</div></>}
+          {resume.has(item.podcast_id) && <p className="podcast-resume">上次停在第 {resume.get(item.podcast_id)!.episode + 1} 集 {formatTime(resume.get(item.podcast_id)!.position)}</p>}
+          <button type="button" className="primary-button" onClick={() => writeRoute({ name: "podcast", podcastId: item.podcast_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>{podcastPreviewReady(item) ? resume.has(item.podcast_id) ? "繼續收聽" : "開始收聽" : "查看進度"}</button>
+        </article>)}
+        {material && <button className="library-new" type="button" disabled={!structure} onClick={create}>
+          <i aria-hidden="true">＋</i>建立新 Podcast<span>挑概念，選雙人對談或單人解說</span>
+        </button>}</div></>}
     </div>
   </section>;
 }

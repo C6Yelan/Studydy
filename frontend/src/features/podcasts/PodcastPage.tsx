@@ -1,4 +1,4 @@
-import { BackLink } from "../../ui/BackLink";
+import { ListBreadcrumb } from "../../ui/Breadcrumb";
 import { PodcastExports } from "../exports/PodcastExports";
 import { DeleteVideoControl, usePodcastVideo } from "./PodcastVideo";
 import { PodcastTranscript, usePodcastTimeline } from "./PodcastTranscript";
@@ -81,14 +81,7 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     if (!progressReady) return;
     let cancelled = false;
     void (async () => {
-      let value = await apiClient.getPodcastProgress(podcastId);
-      // 舊版只存在此瀏覽器的位置：伺服器還沒有紀錄時上傳一次（不含收聽秒數）。
-      const local = savedPosition(storageKey);
-      if (!value.current && (local.episode > 0 || local.time > 0)) {
-        value = await apiClient.savePodcastProgress(podcastId, {
-          schema: "podcast-progress-update/v1", episode_index: local.episode, position_seconds: local.time, listened_seconds: 0, legacy: true,
-        }).catch(() => value);
-      }
+      const value = await apiClient.getPodcastProgress(podcastId);
       if (cancelled) return;
       setProgress(value);
       if (value.current) setIndex(value.current.episode_index);
@@ -131,8 +124,8 @@ export function PodcastPage({ apiClient, podcastId, learnerId, materialId }: {
     } catch (e) { if (active.current) { setActionError(errorMessage(e)); setReload((v) => v + 1); } }
     finally { changing.current = false; if (active.current) setBusy(false); }
   };
-  // 從全站 Podcast 列表進入時保留返回；其餘情況在教材內，教材側欄已能回到 Podcast，不再重複。
-  const back = !materialId && <BackLink label="返回我的 Podcast" route={{ name: "podcasts" }} />;
+  const back = <ListBreadcrumb kind="podcasts" materialId={materialId}
+    current={view ? `${view.name} · 第 ${index + 1} 集 · ${view.delivery === "dialogue" ? "雙人對談" : "單人解說"}` : "Podcast"} />;
   if (notFound) return <NotFoundView title="找不到這份 Podcast" description="這份 Podcast 可能已被刪除，或不屬於目前登入的帳號。"
     back={materialId ? null : { label: "回到 Podcast", route: { name: "podcasts" } }} />;
   if (error || !view) return <section className="cards-page podcast-page">{back}<StateView title={error ? "無法讀取 Podcast" : "正在讀取 Podcast"}

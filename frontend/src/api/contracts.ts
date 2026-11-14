@@ -400,7 +400,7 @@ export type PodcastProgressView = {
 
 export type PodcastProgressUpdate = {
   schema: "podcast-progress-update/v1";
-  episode_index: number; position_seconds: number; listened_seconds: number; ended?: boolean; legacy?: boolean;
+  episode_index: number; position_seconds: number; listened_seconds: number; ended?: boolean;
 };
 
 export type KnowledgeConceptsView = ConceptCardContext & {

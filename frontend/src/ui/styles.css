@@ -226,3 +226,9 @@
 /* 教材卡是直向排列：確認列和原本的按鈕列一樣貼在卡片底部，不撐高。 */
 .library-item > .inline-confirm { margin-top:auto; }
 .material-bookshelf .library-item > .inline-confirm { grid-column:1 / -1; }
+
+/* 麵包屑：上一層是藍色文字按鈕，目前這頁是灰色小字；按鈕高度維持 44px。 */
+.crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; min-width: 0; margin: 0 0 4px; font-size: 13px; font-weight: 900; }
+.crumb-parent { min-height: 44px; padding: 0 6px 0 0; border: 0; background: transparent; color: var(--studydy-blue); font: inherit; }
+.crumb-parent:hover { text-decoration: underline; }
+.crumb-current { min-width: 0; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }

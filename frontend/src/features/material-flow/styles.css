@@ -895,3 +895,8 @@ button.library-state:hover { background: var(--violet); color: #fff; }
   font-size: 16px;
   font-weight: 900;
 }
+button.library-new { cursor: pointer; }
+button.library-new:disabled { cursor: default; opacity: .5; }
+/* 教材內清單頁的標題：頁名加上數量小字。 */
+.material-search-row .collection-summary h1 { margin: 0; font-size: 26px; font-weight: 900; }
+.material-search-row .collection-summary h1 small { margin-left: 8px; color: var(--text-muted); font-size: 14px; font-weight: 800; }

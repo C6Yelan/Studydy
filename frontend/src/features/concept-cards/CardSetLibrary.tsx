@@ -87,7 +87,7 @@ export function CardSetLibrary({ apiClient, material }: { apiClient: StudydyApiC
   return (
     <section className="material-library is-collection cards-library" aria-label={material ? "教材概念卡" : "翻卡片"}>
       {material ? <header className="library-header library-header-compact collection-toolbar material-search-row">
-        <div className="collection-summary" ref={heading} tabIndex={-1}><p>{sets === null ? "—" : `${sets.length} 組卡片`}</p></div>
+        <div className="collection-summary" ref={heading} tabIndex={-1}><h1>翻卡片<small>{sets === null ? "—" : `${sets.length} 個卡組`}</small></h1></div>
         <button className="primary-button" type="button" disabled={!structure} onClick={create}><Icon name="cards" /> 建立卡組</button>
       </header> : <CollectionHeader title="翻卡片" headingRef={heading}
         subtitle={<>{sets !== null && <><b>{sets.length} 組卡片</b> · </>}把值得反覆看的重點收成一組，不熟的就標起來加強。</>}
@@ -101,16 +101,18 @@ export function CardSetLibrary({ apiClient, material }: { apiClient: StudydyApiC
             action={<button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}>{material ? "建立卡組" : "選擇教材"}</button>} />
         ) : <>
           {/* 需要加強：一列入口，加強在獨立頁進行。 */}
-          <section className="cards-strengthen surface" aria-label="需要加強">
+          <section className="cards-strengthen surface" aria-label={material ? "不熟的卡" : "需要加強"}>
             <div className="cards-strengthen-bar">
               <img src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
-              <p><b>{weakTotal ? `${material ? "這份教材" : ""}有 ${weakTotal} 張卡片你還不熟` : "需要加強"}</b>
+              <p><b>{weakTotal ? `${material ? "這份教材" : ""}有 ${weakTotal} 張卡片你還不熟` : material ? "不熟的卡" : "需要加強"}</b>
                 {weak === null ? <span>—</span> : weakTotal
                   ? <span>先把它們翻一輪，熟了就會離開這個清單。</span>
-                  : <span>目前沒有，瀏覽卡組時把不熟的卡片標起來</span>}</p>
-              {weakTotal > 0 && <button className="primary-button" type="button" onClick={() => writeRoute(reviewRoute)}>
-                開始加強<Icon name="chevron-right" size={18} />
-              </button>}
+                  : <span>{material ? "目前沒有。翻卡時按「還不熟」，那張卡就會收到這裡。" : "目前沒有，瀏覽卡組時把不熟的卡片標起來"}</span>}</p>
+              {/* 教材內這顆按鈕一直在，沒有不熟的卡時是灰的。 */}
+              {material ? <button className="primary-button" type="button" disabled={weakTotal === 0} onClick={() => writeRoute(reviewRoute)}>去看不熟的卡</button>
+                : weakTotal > 0 && <button className="primary-button" type="button" onClick={() => writeRoute(reviewRoute)}>
+                  開始加強<Icon name="chevron-right" size={18} />
+                </button>}
             </div>
           </section>
 
@@ -142,6 +144,9 @@ export function CardSetLibrary({ apiClient, material }: { apiClient: StudydyApiC
                 <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>開始翻卡</button></div>
               </article>
             ))}
+            {material && <button className="library-new" type="button" disabled={!structure} onClick={create}>
+              <i aria-hidden="true">＋</i>建立新卡組<span>挑幾個概念做成卡片</span>
+            </button>}
           </div>
         </>}
       </div>

@@ -230,7 +230,7 @@ test("card creation fits a desktop viewport and preserves selections across page
   await expect(page.locator(".card-picker-preview li")).toContainText("最後一個條件不可遺漏");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
   await pagination.getByRole("button", { name: "下一頁", exact: true }).click();
-  await page.getByRole("button", { name: "保存並開始複習" }).click();
+  await page.getByRole("button", { name: "建立並開始翻卡" }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
   expect(fixture.requests).toHaveLength(1);
   expect((fixture.requests[0].body as { concept_ids: string[] }).concept_ids).toEqual([fixture.view.concepts[0].concept_id, nextPageConcept, fixture.view.concepts[30].concept_id]);
@@ -249,10 +249,10 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await expect(name).toHaveValue("字".repeat(40));
   await name.fill("我的資料結構卡組");
   await page.getByRole("button", { name: "取消全選", exact: true }).click();
-  await expect(page.getByRole("button", { name: "保存並開始複習" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "建立並開始翻卡" })).toBeDisabled();
   await page.getByRole("button", { name: "全選", exact: true }).click();
   await page.screenshot({ path: "../.studydy-runtime/card-preview/create-desktop.png", fullPage: true });
-  await page.getByRole("button", { name: "保存並開始複習" }).click();
+  await page.getByRole("button", { name: "建立並開始翻卡" }).click();
   await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
   expect(fixture.requests).toHaveLength(1);
   await expect(page.locator(".card-practice-front")).toContainText("堆疊（Stack）");
@@ -455,9 +455,9 @@ test("account collection can select a material; failed save retries the same int
     }
     return route.fallback();
   });
-  await page.getByRole("button", { name: "保存並開始複習" }).click();
+  await page.getByRole("button", { name: "建立並開始翻卡" }).click();
   await expect(page.getByRole("alert")).toContainText("資料服務暫時無法使用");
-  await page.getByRole("button", { name: "保存並開始複習" }).click();
+  await page.getByRole("button", { name: "建立並開始翻卡" }).click();
   await showCardBack(page);
   await expect(page.locator(".visual-concept-card")).toBeVisible();
   expect(keys).toHaveLength(2);
@@ -520,7 +520,7 @@ test("library stays aligned and card review keeps compact content and controls",
   const held = new Promise<void>(resolve => { release = resolve; });
   await page.route(`**/v1/card-sets/${cardSetId}`, async route => { await held; await route.fallback(); });
   await page.getByRole("button", { name: "開始翻卡", exact: true }).click();
-  const back = page.getByRole('button', {name:'返回我的概念卡', exact:true});
+  const back = page.getByRole('button', {name:'回到翻卡片', exact:true});
   await expect(back).toBeVisible();
   const loadingBack = (await back.boundingBox())!;
   // 返回鍵在教材側欄右邊的內容區，讀取前後位置不變。
@@ -545,7 +545,7 @@ test("library stays aligned and card review keeps compact content and controls",
   const controls = page.locator('.card-dock');
   await expect(controls).toContainText('1 / 2');
   const header = page.locator('.cards-study-heading');
-  for (const name of ['洗牌重看', '匯出整組概念卡']) await expect(header.getByRole('button', {name, exact: true})).toBeVisible();
+  for (const name of ['洗牌重看', '下載整組卡片']) await expect(header.getByRole('button', {name, exact: true})).toBeVisible();
   await page.setViewportSize({width:390,height:844});
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   // 手機：圓鈕在卡片下方左右，操作列不浮動。
@@ -558,6 +558,74 @@ test("library stays aligned and card review keeps compact content and controls",
   await page.setViewportSize({width:1536,height:960});
   await page.screenshot({ path: "../.studydy-runtime/card-preview/study-wide.png", fullPage: true });
 });
+
+// 章節分區：兩章，第一章 10 個概念，其餘在第二章。
+function chapterRegions(fixture: Awaited<ReturnType<typeof mockCards>>, basis: "chapters" | "source" = "chapters") {
+  const ids = fixture.view.concepts.map((concept) => concept.concept_id);
+  return { schema: "knowledge-regions/v1", material_id: materialId, knowledge_structure_revision: fixture.view.knowledge_structure_revision, basis,
+    regions: [
+      { region_id: "chapter:1", label: "第一章 基本結構", source_id: null, concept_ids: ids.slice(0, 10) },
+      { region_id: "chapter:2", label: "第二章 進階操作", source_id: null, concept_ids: ids.slice(10) },
+    ] };
+}
+
+test("card creation groups concepts by chapter and a chapter checkbox selects the whole chapter", async ({ page }) => {
+  const fixture = await mockCards(page, { many: true });
+  await page.route(`**/v1/materials/${materialId}/knowledge-structures/*/regions`, (route) => json(route, chapterRegions(fixture)));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(mapPath + "/create-cards");
+  const manual = page.getByRole("region", { name: "選擇概念", exact: true });
+  const first = manual.getByRole("checkbox", { name: "整章選取：第一章 基本結構" });
+  const second = manual.getByRole("checkbox", { name: "整章選取：第二章 進階操作" });
+  await expect(first).toBeVisible();
+  // 章節分組不分頁，31 個概念全部在清單裡。
+  await expect(manual.getByRole("navigation", { name: "概念清單分頁" })).toHaveCount(0);
+  await expect(manual.locator(".card-picker-option")).toHaveCount(31);
+  await expect(first).toBeChecked();
+  await manual.getByRole("button", { name: "取消全選", exact: true }).click();
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("0 個觀念");
+  // 勾第一章：選到那章全部 10 個概念，第二章不動。
+  await first.check();
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("10 個觀念");
+  await expect(manual).toContainText("已選 10");
+  await expect(second).not.toBeChecked();
+  await manual.getByRole("button", { name: "已選 10", exact: true }).click();
+  await expect(manual.locator(".card-picker-option")).toHaveCount(10);
+  await manual.getByRole("button", { name: "全部 31", exact: true }).click();
+  // 章裡取消一個概念，整章變成半選；再勾整章就補齊。
+  await manual.locator(".card-picker-option").first().getByRole("checkbox").uncheck();
+  expect(await first.evaluate((box: HTMLInputElement) => box.indeterminate)).toBe(true);
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("9 個觀念");
+  await first.check();
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("10 個觀念");
+  // 搜尋只縮小清單；勾整章仍是選那章全部概念。
+  await first.uncheck();
+  await manual.getByRole("searchbox", { name: "搜尋概念" }).fill("概念 31");
+  await expect(manual.locator(".card-picker-option")).toHaveCount(1);
+  await expect(first).toHaveCount(0);
+  await manual.getByRole("searchbox", { name: "搜尋概念" }).fill("");
+  await second.check();
+  await expect(page.locator(".cards-create-summary strong")).toHaveText("21 個觀念");
+  await page.getByRole("button", { name: "建立並開始翻卡" }).click();
+  await expect(page).toHaveURL(new RegExp(`/concept-cards/${cardSetId}$`));
+  expect(fixture.requests).toHaveLength(1);
+  expect(new Set((fixture.requests[0].body as { concept_ids: string[] }).concept_ids)).toEqual(new Set(fixture.view.concepts.slice(10).map((concept) => concept.concept_id)));
+});
+
+for (const unavailable of ["failed", "source"] as const) {
+  test(`card creation falls back to the paged list when regions are ${unavailable === "failed" ? "unreadable" : "grouped by source file"}`, async ({ page }) => {
+    const fixture = await mockCards(page, { many: true });
+    await page.route(`**/v1/materials/${materialId}/knowledge-structures/*/regions`, (route) =>
+      unavailable === "failed" ? route.fulfill({ status: 500, json: { schema: "api-error/v1", request_id: sessionId, reason_code: "INTERNAL_ERROR", retryable: true, message: "Request could not be completed." } })
+        : json(route, chapterRegions(fixture, "source")));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(mapPath + "/create-cards");
+    const manual = page.getByRole("region", { name: "選擇概念", exact: true });
+    await expect(manual.getByRole("navigation", { name: "概念清單分頁" })).toBeVisible();
+    await expect(manual.getByRole("checkbox", { name: /^整章選取/ })).toHaveCount(0);
+    expect(await manual.locator(".card-picker-option").count()).toBeLessThan(31);
+  });
+}
 
 test("desktop code scroll preserves keyboard control and formula literals", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -631,10 +699,10 @@ test("late card save and source read do not reopen a page after navigation", asy
   await page.route(`**/v1/materials/${materialId}/card-sets`, async (route) => { await saveGate; await route.fallback(); });
   await page.goto(mapPath + "/create-cards");
   const saving = page.waitForRequest((r) => r.url().endsWith("/card-sets") && r.method() === "POST");
-  await page.getByRole("button", { name: "保存並開始複習" }).click();
+  await page.getByRole("button", { name: "建立並開始翻卡" }).click();
   await saving;
   // 教材內沒有全站導覽；用教材頁首的返回鍵離開。
-  await page.getByRole("button", { name: "返回概念卡列表", exact: true }).click();
+  await page.getByRole("button", { name: "回到翻卡片", exact: true }).click();
   const saved = page.waitForResponse((r) => r.url().endsWith("/card-sets") && r.request().method() === "POST");
   releaseSave();
   await saved;
@@ -753,7 +821,7 @@ test("saved card views and editing stay inside the material workspace from eithe
   await page.getByRole('button', { name: '管理卡組「資料結構 · 核心概念」' }).click();
   await page.locator('.material-management-menu[open]').getByRole('button', { name: '管理卡組', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}/edit$`));
-  await page.getByRole('button', { name: '返回我的概念卡', exact: true }).click();
+  await page.getByRole('button', { name: '回到翻卡片', exact: true }).click();
   await expect(page).toHaveURL(/\/concept-cards$/);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
@@ -1722,7 +1790,7 @@ test("needs-work row opens its own page that shows the original cards one at a t
   await expect(stage.locator(".visual-concept-card, .concept-card").first()).toBeVisible();
   await showCardBack(page);
   await expect(stage.locator(".card-page-ref")).toBeVisible();
-  await expect(stage.getByRole("group", { name: "標記「堆疊（Stack）」熟不熟" }).getByRole("button")).toHaveText(["不熟1", "熟悉2"]);
+  await expect(stage.getByRole("group", { name: "標記「堆疊（Stack）」熟不熟" }).getByRole("button")).toHaveText(["還不熟1", "熟悉了2"]);
   await showCardBack(page);
   await stage.getByRole("button", { name: "熟悉" }).click();
   await expect(page.locator(".cards-study-notice")).toHaveText("已標成熟悉，離開需要加強。");
@@ -1734,7 +1802,7 @@ test("needs-work row opens its own page that shows the original cards one at a t
   await expect(page.getByRole("button", { name: "再加強一輪" })).toBeVisible();
   expect(posts.map(p => [p.body.concept_id === view.concepts[0].concept_id, p.body.rating, p.body.expected_review_count])).toEqual([[true, "remembered", 1], [false, "forgot", 1]]);
   expect(new Set(posts.map(p => p.key)).size).toBe(2);
-  await page.getByRole("button", { name: "返回概念卡" }).first().click();
+  await page.getByRole("button", { name: "回到翻卡片" }).first().click();
   await expect(page).toHaveURL(/\/concept-cards$/);
 });
 
@@ -1768,10 +1836,10 @@ test("material needs-work entry opens a review of only this material's card sets
   const { view } = await mockCards(page, { saved: true });
   await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" } });
   await page.goto(`/materials/${materialId}/concept-cards`);
-  const strip = page.getByRole("region", { name: "需要加強" });
+  const strip = page.getByRole("region", { name: "不熟的卡" });
   await expect(strip).toContainText("這份教材有 2 張卡片你還不熟");
   const read = page.waitForRequest(request => new URL(request.url()).pathname === "/v1/card-reviews" && new URL(request.url()).searchParams.has("material_id"));
-  await strip.getByRole("button", { name: "開始加強" }).click();
+  await strip.getByRole("button", { name: "去看不熟的卡" }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/review$`));
   // 只讀這份教材的需要加強；頁首仍是教材頁首（概念卡分頁）。
   const params = new URL((await read).url()).searchParams;
@@ -1789,7 +1857,7 @@ test("material needs-work entry opens a review of only this material's card sets
   await showCardBack(page);
   await page.getByRole("article", { name: "需要加強：陣列（Array）" }).getByRole("button", { name: "熟悉" }).click();
   await expect(page.getByText("這一輪加強完成！")).toBeVisible();
-  await page.getByRole("button", { name: "返回概念卡列表", exact: true }).click();
+  await page.getByRole("button", { name: "回到翻卡片", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
 });
 
@@ -1806,7 +1874,7 @@ test("card set strengthening preserves the collection return destination", async
   await showCardBack(page);
   await page.getByRole("article", { name: "需要加強：堆疊（Stack）" }).getByRole("button", { name: "熟悉" }).click();
   await expect(page.locator(".card-dock-count")).toContainText("2 / 2");
-  await page.getByRole("button", { name: "返回我的概念卡" }).click();
+  await page.getByRole("button", { name: "回到翻卡片" }).click();
   await expect(page).toHaveURL(/\/concept-cards$/);
   await page.getByRole("button", { name: "開始翻卡", exact: true }).click();
   await expect(page.getByRole("button", { name: /需要加強 1 張/ })).toBeVisible();
@@ -1824,7 +1892,7 @@ test("browsing marks the current card and an unmarked set needs no strengthening
   // 沒有不熟的卡片時不顯示需要加強入口。
   await expect(page.locator(".cards-weak-link")).toHaveCount(0);
   const marks = page.getByRole("group", { name: "標記「堆疊（Stack）」熟不熟" });
-  await expect(marks.getByRole("button")).toHaveText(["不熟1", "熟悉2"]);
+  await expect(marks.getByRole("button")).toHaveText(["還不熟1", "熟悉了2"]);
   await expect(marks.getByRole("button", { name: "不熟" })).toHaveAttribute("aria-pressed", "false");
   await showCardBack(page);
   await marks.getByRole("button", { name: "不熟" }).click();
@@ -1869,8 +1937,8 @@ test("whole deck export sends bounded batches for 148 concepts and preserves eve
   await page.route(`**/v1/card-sets/${cardSetId}/exports/${uid}/download`, route =>
     route.fulfill({ status: 200, contentType: "application/zip", headers: { "Content-Disposition": "attachment; filename*=UTF-8''cards.zip" }, body: "zip" }));
   await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
-  const controls = page.getByRole("menu", { name: "匯出整組概念卡" });
-    await page.getByRole("button", { name: "匯出整組概念卡", exact: true }).click();
+  const controls = page.getByRole("menu", { name: "下載整組卡片" });
+    await page.getByRole("button", { name: "下載整組卡片", exact: true }).click();
   const download = page.waitForEvent("download");
   await controls.getByRole("menuitem", { name: "全部卡面 PNG（ZIP）", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("cards.zip");
@@ -1899,8 +1967,8 @@ for (const [reason, status, message] of [
       return failure(route);
     });
     await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
-    const controls = page.getByRole("menu", { name: "匯出整組概念卡" });
-    await page.getByRole("button", { name: "匯出整組概念卡", exact: true }).click();
+    const controls = page.getByRole("menu", { name: "下載整組卡片" });
+    await page.getByRole("button", { name: "下載整組卡片", exact: true }).click();
     await controls.getByRole("menuitem", { name: "Anki（.apkg）", exact: true }).click();
     await expect(controls.getByRole("alert")).toContainText(message);
     expect(cancelled).toBe(reason === "EXPORT_ACTIVE_LIMIT" ? 0 : 1);
@@ -1977,24 +2045,24 @@ test("strengthening can skip and revisit, but records each concept once and comp
   const { view } = await mockCards(page, { saved: true });
   const { posts } = await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot" } });
   await page.goto("/concept-cards/review");
-  await expect(page.getByRole("button", { name: "熟悉", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "熟悉了", exact: true })).toBeDisabled();
   await page.locator(".cards-study-stage").press("2");
   expect(posts).toHaveLength(0);
   await page.locator(".cards-study-stage").press("ArrowRight");
   await expect(page.locator(".card-practice-front")).toContainText("陣列（Array）");
   await showCardBack(page);
-  await expect(page.getByRole("button", { name: "熟悉", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "熟悉了", exact: true })).toBeEnabled();
   await page.locator(".cards-study-stage").press("2");
   await expect(page.locator(".card-practice-front")).toContainText("堆疊（Stack）");
   await page.locator(".cards-study-stage").press("ArrowRight");
   await showCardBack(page);
-  await expect(page.getByRole("button", { name: "熟悉", exact: true })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "熟悉", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "熟悉了", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "熟悉了", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".card-face-chip")).toContainText("本輪已標成熟悉");
   expect(posts).toHaveLength(1);
   await page.locator(".cards-study-stage").press("ArrowLeft");
   await showCardBack(page);
-  await expect(page.getByRole("button", { name: "不熟", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "還不熟", exact: true })).toBeEnabled();
   await page.locator(".cards-study-stage").press("1");
   await expect(page.getByText("這一輪加強完成！")).toBeVisible();
   expect(posts.map(post => post.body.rating)).toEqual(["remembered", "forgot"]);

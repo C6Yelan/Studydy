@@ -1,6 +1,6 @@
 import { openCardSetUpdate } from "../material-flow/VersionMoveNotice";
 import { cardPngName } from "./card-png-name";
-import { BackLink } from "../../ui/BackLink";
+import { ListBreadcrumb } from "../../ui/Breadcrumb";
 import { Progress } from "../../ui/Progress";
 import { CardExports } from "../exports/CardExports";
 import { useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
@@ -61,9 +61,9 @@ export function CardSetPage({ apiClient, cardSetId, materialId }: { apiClient: S
     return () => { cancelled = true; clearTimeout(timer); };
   }, [apiClient, cardSetId, materialId, reload]);
   if (notFound) return <NotFoundView title="找不到這個卡組" description="這個卡組可能已被刪除，或不屬於目前登入的帳號。"
-    back={materialId ? null : { label: "回到概念卡", route: { name: "concept-cards" } }} />;
+    back={materialId ? null : { label: "回到翻卡片", route: { name: "concept-cards" } }} />;
   return <section className="cards-page cards-study-page">
-    {!materialId && <BackLink label="返回我的概念卡" route={{ name: "concept-cards" }} />}
+    <ListBreadcrumb kind="concept-cards" materialId={materialId} current={view?.name ?? "卡組"} />
     {view && view.generation.status !== "ready" && !error ? <CardGenerationProgress view={view} onRetry={() => {
       void apiClient.retryCardGeneration(cardSetId).then(() => setReload(n => n + 1)).catch(failure => setError(errorMessage(failure)));
     }} /> : error || !view?.batch ? <StateView title={error ? "無法開啟卡組" : "正在讀取概念卡"} description={error ?? "正在載入第一批卡片。"} tone={error ? "failure" : "loading"} live={!error} skeleton="deck" action={error ? <button className="primary-button" onClick={() => setReload(n => n + 1)}>重新讀取</button> : undefined} />
@@ -112,7 +112,7 @@ function CardGenerationProgress({ view, onRetry }: { view: CardStudyView; onRetr
 }
 
 function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, weak, exports }: {
-  /** 匯出整組概念卡的入口，與標題同列。 */
+  /** 下載整組卡片的入口，與標題同列。 */
   exports: ReactNode;
   view: CardStudyView; apiClient: StudydyApiClient; materialId?: string; onReload: () => void;
   marks?: CardReviewsView["marks"]; onMarked: () => void;
@@ -300,7 +300,10 @@ function CardStudy({ view, apiClient, materialId, onReload, marks, onMarked, wea
           list={<CardList items={order.map(i => { const mark = markOf(view.navigation[i].concept_id); return { key: view.navigation[i].concept_id, label: view.navigation[i].label, current: index === i, status: mark ? markLabel(mark) : null }; })}
             onSelect={orderIndex => { setFinished(false); setPosition(orderIndex); setPageIndex(0); }} />}
           dock={<>
-            {card && marks && <CardMarkButtons current={currentMark?.rating ?? null} disabled={marking || !back} hotkeys title={back ? undefined : "先翻到背面查看重點，再標記。"} onMark={(rating) => void markCard(rating)} label={`標記「${card.label}」熟不熟`} />}
+            {card && marks && <>
+              <CardMarkButtons current={currentMark?.rating ?? null} disabled={marking || !back} hotkeys title={back ? undefined : "先翻到背面查看重點，再標記。"} onMark={(rating) => void markCard(rating)} label={`標記「${card.label}」熟不熟`} />
+              {!back && <span className="card-dock-hint">翻到背面後才能標記</span>}
+            </>}
             <span className="card-dock-count" aria-live="polite">{dockCount}</span>
             {markError && <p className="form-error" role="alert">標記尚未保存。{markError}</p>}
           </>}>
