@@ -87,7 +87,6 @@ def install(app, settings):
             body.position_seconds,
             body.listened_seconds,
             body.ended,
-            body.legacy,
             dsn=settings.dsn,
         )
 

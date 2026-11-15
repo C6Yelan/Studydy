@@ -1,4 +1,4 @@
-"""Podcast 收聽進度的真 API／DB：接續位置、舊進度上傳、防重送灌水、刪除與帳號隔離。"""
+"""Podcast 收聽進度的真 API／DB：接續位置、防重送灌水、刪除與帳號隔離。"""
 from copy import deepcopy
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -88,20 +88,6 @@ def test_replayed_and_parallel_reports_cannot_inflate_listening(closed_loop):
     midnight = datetime(2026, 10, 23, 0, 0, 10, tzinfo=TAIPEI)
     podcast_progress.save_progress(learner, identity, 0, 100, 10, dsn=dsn, now=midnight)
     assert days(dsn) == [(now.date(), 92), (midnight.date(), 10)]
-
-
-def test_legacy_position_only_fills_an_empty_record(closed_loop):
-    owner, _, _, _, dsn, _ = closed_loop
-    learner = owner.learner_id
-    identity = ready_podcast(closed_loop)
-    uploaded = podcast_progress.save_progress(learner, identity, 0, 120, 0, legacy=True, dsn=dsn)
-    assert uploaded["current"]["position_seconds"] == 120 and uploaded["credited_seconds"] == 0
-    assert days(dsn) == []
-    podcast_progress.save_progress(learner, identity, 0, 200, 0, dsn=dsn)
-    # 伺服器已有紀錄時，另一個瀏覽器的舊進度不覆蓋。
-    assert podcast_progress.save_progress(learner, identity, 0, 10, 0, legacy=True, dsn=dsn)["current"]["position_seconds"] == 200
-    with pytest.raises(PodcastError, match="^REQUEST_INVALID$"):
-        podcast_progress.save_progress(learner, identity, 0, 10, 5, legacy=True, dsn=dsn)
 
 
 def test_delete_removes_positions_and_discard_removes_listening(closed_loop):

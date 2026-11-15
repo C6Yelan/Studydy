@@ -684,8 +684,6 @@ class PodcastProgressUpdate(_Closed):
     # 距上次回報實際播放的秒數；伺服器只採計不超過實際經過時間的部分。
     listened_seconds: int = Field(ge=0, le=3600, strict=True)
     ended: bool = False
-    # 舊版瀏覽器保存的位置，只在伺服器沒有紀錄時採用。
-    legacy: bool = False
 
 
 class PodcastProgressCurrent(_Closed):
