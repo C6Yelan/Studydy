@@ -852,6 +852,7 @@ function assessmentSetView() {
   return {
     ...assessmentSetSummary({ set_version: 2 }),
     schema: "assessment-set/v2",
+    xp_award: null,
     study_session_id: sessionId,
     material_id: materialId,
     knowledge_structure_revision: structureRevision,
@@ -1560,7 +1561,7 @@ test("learning activity requires XP, level, quests and badges from the v3 rules"
 
 function rhythmView(change = () => undefined) {
   const days = [19, 20, 21, 22, 23, 24, 25].map((day) => ({
-    date: `2026-10-${day}`, answers: 0, correct: 0, card_reviews: 0, listened_seconds: 0, active: false,
+    date: `2026-10-${day}`, xp: 0, answers: 0, correct: 0, card_reviews: 0, listened_seconds: 0, active: false,
   }));
   days[2] = { ...days[2], answers: 4, correct: 3, card_reviews: 2, listened_seconds: 360, active: true };
   const value = {
@@ -1583,6 +1584,8 @@ test("learning rhythm asks for one period page and needs consecutive days", asyn
     [() => undefined, "week", 1],
     [(value) => { value.first_day = "10/02"; }],
     [(value) => { delete value.days[0].listened_seconds; }],
+    [(value) => { delete value.days[0].xp; }],
+    [(value) => { value.days[0].xp = -1; }],
     [(value) => { value.days[1].correct = 9; }],
     [(value) => { value.days.reverse(); }],
     [(value) => { value.end = "2026-10-26"; }],
@@ -1972,4 +1975,23 @@ test("notice dismissal and return use their schemas and bind the expected move i
   }
   value = { schema: "version-move-notice/v1", dismissed: false };
   await assert.rejects(client.setVersionMoveNotice(materialId, true), error => error.kind === "schema");
+});
+
+
+test("assessment XP award is required and accepts null or every source", async () => {
+  const read = value => new StudydyApiClient(async () => Response.json(value)).readAssessmentSet(sessionId, setId);
+  const value = assessmentSetView();
+  assert.equal((await read(value)).xp_award, null);
+  value.xp_award = { answers: 33, concepts: 30, cards: 0, podcast: 0, goals: 15, difficulties: 0 };
+  assert.deepEqual((await read(value)).xp_award, value.xp_award);
+  for (const change of [
+    item => { delete item.xp_award; },
+    item => { delete item.xp_award.goals; },
+    item => { item.xp_award.answers = -1; },
+    item => { item.xp_award.concepts = 0.5; },
+  ]) {
+    const invalid = structuredClone(value);
+    change(invalid);
+    await assert.rejects(read(invalid), ApiClientError);
+  }
 });

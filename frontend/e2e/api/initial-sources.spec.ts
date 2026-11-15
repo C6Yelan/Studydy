@@ -70,7 +70,7 @@ test("mixed sources build one map and resolve every evidence source", async ({ p
   expect(listing.sources.every((source) => source.included && source.status === "ready")).toBe(
     true,
   );
-  await page.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
+  await page.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true }).click();
   const map: KnowledgeStructureView = await (
     await page.request.get(
       `/v1/materials/${materialId}/knowledge-structures/${encodeURIComponent(after.head_revision!)}`,

@@ -12,6 +12,7 @@ import { MaterialLibrary } from "./MaterialLibrary";
 import { RunView } from "./RunView";
 import { SourceView } from "./SourceView";
 import { UploadView } from "./UploadView";
+import { MaterialSettings } from "./MaterialSettings";
 import { MaterialEntry } from "./MaterialEntry";
 import { NotFoundView } from "../../ui/NotFoundView";
 import { CardSetLibrary } from "../concept-cards/CardSetLibrary";
@@ -58,14 +59,17 @@ function MaterialFlowBody({
   learnerId,
   researchDraft,
   onResearchDraftChange,
+  onLogout,
 }: {
   apiClient: StudydyApiClient;
   route: AppRoute;
   learnerId: string;
+  onLogout: () => void;
   researchDraft?: ResearchDraft;
   onResearchDraftChange: (draft: ResearchDraft) => void;
 }) {
   if (route.name === "not-found") return <NotFoundView />;
+  if (route.name === "material-settings") return <MaterialSettings key={route.materialId} apiClient={apiClient} materialId={route.materialId} />;
   if (route.name === "material") return <MaterialEntry key={route.materialId} apiClient={apiClient} materialId={route.materialId} />;
   if (route.name === "topic" && route.materialId) return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind="research"><TopicPage key={route.topicId} api={apiClient} topicId={route.topicId} embedded/></MaterialContent>;
   if (route.name === "topics" || route.name === "topic") return <TopicPage key={route.name === "topic" ? route.topicId : "new"} api={apiClient} topicId={route.name === "topic" ? route.topicId : undefined}/>;
@@ -84,7 +88,7 @@ function MaterialFlowBody({
   if (route.name === "podcast-new" || route.name === "podcast-create" || route.name === "card-set-new" || route.name === "card-set-create") return <CreateStudyContent apiClient={apiClient} route={route} />;
   if (route.name === "podcast") return <PodcastPage key={route.podcastId} apiClient={apiClient} podcastId={route.podcastId} materialId={route.materialId} learnerId={learnerId} />;
   if (route.name === "home") return <Dashboard apiClient={apiClient} />;
-  if (route.name === "profile") return <ProfilePage apiClient={apiClient} />;
+  if (route.name === "profile") return <ProfilePage apiClient={apiClient} onLogout={onLogout} />;
   if (route.name === "achievements") return <AchievementsPage apiClient={apiClient} />;
   if (route.name === "concept-cards") return <CardSetLibrary apiClient={apiClient} />;
   if (route.name === "card-review") return <CardReviewPage key={route.cardSetId ?? "all"} apiClient={apiClient} cardSetId={route.cardSetId} />;
@@ -100,7 +104,7 @@ function MaterialFlowBody({
     );
   if (route.name === "material-run")
     return <RunView key={route.runId} apiClient={apiClient} route={route} />;
-  if (route.name === "knowledge-map")
+  if (route.name === "knowledge-map" || route.name === "material-progress")
     return (
       <KnowledgeMap
         key={`${route.materialId}/${route.runId}/${route.structureRevision}`}
@@ -117,7 +121,7 @@ function MaterialFlowBody({
   );
 }
 
-export function MaterialFlow(props: {apiClient:StudydyApiClient;route:AppRoute;learnerId:string}) {
+export function MaterialFlow(props: {apiClient:StudydyApiClient;route:AppRoute;learnerId:string;onLogout:()=>void}) {
  const materialId = "materialId" in props.route ? props.route.materialId : undefined;
  const researchDrafts = useRef(new Map<string, ResearchDraft>());
  const researchDraft = materialId ? researchDrafts.current.get(materialId) : undefined;

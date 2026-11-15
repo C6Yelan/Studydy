@@ -50,7 +50,7 @@ Podcast、音訊或影片驗證通過，不會把原教材的 `partial`／`needs
 
 `test_material_notes.py` 另覆蓋同檔同頁核對上下文、獨立規範詞漏引、異檔／異頁排除、未知／重複／與支持判定矛盾的來源 ref 拒絕，以及容量不足時仍保留獨立規範詞。明示的條列標籤或表頭若只存在於未引用的同欄上方原文，程式仍會拒絕對應內容，即使模型回覆支持也直接移除不符位置。回歸保護最近的匹配表頭、無關來源排除與其餘正文保留；不再補引用後重核或局部重寫。
 
-`test_notes_browser.py`／`e2e/api/notes.spec.ts` 使用隔離 DB 與受控模型走真 UI：選句註記、重載、查來源、按需生成完整筆記及筆記更新後依 quote 重新對應註記。`runtime/study/test_note_highlights.py` 驗證標記 CRUD、owner／Origin、錯誤範圍與格式回 400、公式整條範圍（行內公式不得部分保存）、Unicode code point、重生唯一／重複／缺失對應、舊註記以及三種匯出樣式與被註記原句。`e2e/mock/notes.spec.ts` 涵蓋進度頁（批次數、步驟、完成後返回筆記、?view=progress）、知識地圖「在筆記中查看」跳段落、原教材三級章節與章節大綱、複習速覽分頁、末尾未整理概念的地圖連結，以及章節／段落標題、表頭、caption、空章節註記、整條公式的鍵盤選取與重載保存、含行內公式的單區塊選取、選取工具列、標記保存與移除、跨區塊標記及註記限制、BOT 預填不送出、Word 式旁註卡片、手機與鍵盤、失配快照（含 v11 格式）、舊稿寫入、大綱跳轉、巢狀條列、多表格、KaTeX 公式與醒目區塊。修改共用 client 或共用教材分頁列時另跑完整 mock，含 global-layout／shell-layout。部署後用專用測試帳號在正式站 1536／1440 實際選取、保存、重載、開啟 BOT 草稿與註記，並檢查 PDF／Word 匯出。這些介面與合成案例不代表模型內容品質。
+`test_notes_browser.py`／`e2e/api/notes.spec.ts` 使用隔離 DB 與受控模型走真 UI：選句註記、重載、查來源、按需生成完整筆記及筆記更新後依 quote 重新對應註記。`runtime/study/test_note_highlights.py` 驗證標記 CRUD、owner／Origin、錯誤範圍與格式回 400、公式整條範圍（行內公式不得部分保存）、Unicode code point、重生唯一／重複／缺失對應、舊註記以及三種匯出樣式與被註記原句。`e2e/mock/notes.spec.ts` 涵蓋進度頁（批次數、步驟、完成後返回筆記、?view=progress）、知識地圖「在筆記中查看」跳段落、原教材三級章節與章節大綱、複習速覽分頁、末尾未整理概念的地圖連結，以及章節／段落標題、表頭、caption、空章節註記、整條公式的鍵盤選取與重載保存、含行內公式的單區塊選取、選取工具列、標記保存與移除、跨區塊標記及註記限制、BOT 預填不送出、Word 式旁註卡片、手機與鍵盤、失配快照（含 v11 格式）、舊稿寫入、大綱跳轉、巢狀條列、多表格、KaTeX 公式與醒目區塊。修改共用 client 或共用教材側欄時另跑完整 mock，含 global-layout／shell-layout。部署後用專用測試帳號在正式站 1536／1440 實際選取、保存、重載、開啟 BOT 草稿與註記，並檢查 PDF／Word 匯出。這些介面與合成案例不代表模型內容品質。
 
 ## 選擇範圍
 
@@ -134,8 +134,8 @@ env -u STUDYDY_TEST_POSTGRES_DSN -u STUDYDY_DATABASE_DSN \
 這個命令會收集 Office 案例；主機 LibreOffice 版本不同時，這些案例失敗是預期的環境不符，不能放寬版本檢查或改成 skip。依下節容器指令完成十二項 Office 驗證，分別保留主機整套與 Office 容器的摘要；其他失敗仍須調查。主機命令有失敗時仍回傳非零，不應記成整套通過。
 
 - `frontend/e2e/mock` 攔截 API，驗證公開契約與介面；`frontend/e2e/api` 由 Python fixture 啟動真 API、隔離 DB 與必要 worker，模型回應受控。
-- **前端 UI 改版時，同步更新 `frontend/e2e/api` 對應 spec。** 導覽角色、可存取名稱或流程改變時，定位要跟著現行 UI 調整，原有內容、權限、持久化與呼叫次數斷言仍須保留。
-- 同一 checkout 的 Playwright 案例串行執行；多個 runner 會共用並清理 `frontend/test-results`，可能造成 trace／network 檔案 `ENOENT`，不同 ports 不會隔離這個目錄。
+- **前端 UI 改版時，同步更新 `frontend/e2e/api` 對應 spec。** 導覽角色、可存取名稱或流程改變時（全站側欄與教材側欄的項目、手機底部頁籤、答題專注模式的「離開作答」×），定位要跟著現行 UI 調整，原有內容、權限、持久化與呼叫次數斷言仍須保留。
+- 同一 checkout 的 api Playwright 案例串行執行（mock 在單一 runner 內以 4 個 worker 平行）；多個 runner 會共用並清理 `frontend/test-results`，可能造成 trace／network 檔案 `ENOENT`，不同 ports 不會隔離這個目錄。
 - fixture 負責啟用旗標；不要手動設旗標或把 skip 當作通過。
 
 headless 開新分頁若未進入 hidden 狀態，不能當成背景凍結／恢復證據。手機鎖屏與跨瀏覽器的背景恢復仍須實機驗證。
@@ -170,7 +170,7 @@ npm --prefix frontend run typecheck
 PYTHONPATH=local_ai/src backend/.venv/bin/python -m pytest -q local_ai/tests
 ~~~
 
-mock browser 沿用前述 build 與 ports；可指定單一 spec 或 regex：
+mock browser 沿用前述 build 與 ports；可指定單一 spec 或 regex。mock e2e 以 4 個 worker 平行執行；api e2e 共用後端與 DB，維持一個 worker。
 
 ~~~bash
 PYTHONPATH=backend/tests/runtime backend/.venv/bin/python - <<'PYTEST'
@@ -311,7 +311,7 @@ Voice 回答與 Podcast 互斥播放；STT 與虛擬麥克風測試不等於實�
 
 ## 需求確認與論文語意搜尋
 
-補充學習與從主題建立教材共用需求確認；確認前不得建立研究或搜尋，確認後不得由搜尋規劃擴張 topics。回歸涵蓋教材版本衝突、跨帳號拒絕、取消與晚到 worker、舊研究重新規劃、原檔快照重啟後重用、跨研究與 hash 損壞拒絕，以及原文頁碼／區塊綁定。
+找更多資料與從主題建立教材共用需求確認；確認前不得建立研究或搜尋，確認後不得由搜尋規劃擴張 topics。回歸涵蓋教材版本衝突、跨帳號拒絕、取消與晚到 worker、舊研究重新規劃、原檔快照重啟後重用、跨研究與 hash 損壞拒絕，以及原文頁碼／區塊綁定。
 
 首次閱讀時保存已核對原檔；隔離 DB 測試須在重啟後禁止網路下載，核對仍能匯入相同 bytes，不以重下載取代快照或放寬 SHA-256。首次閱讀可採索引列明的其他版本，已讀 bytes 不得被換版本；PDF、HTML 正文與結構化摘要的來源身分須區分，文字快照重啟後仍可沿用並完成實際轉檔與引用定位。
 
@@ -368,4 +368,4 @@ jerry 直接存取私有產物應被拒絕，改以 API／服務 UID 的受控�
 
 `test_version_entry_state.py` 以隔離DB驗證真發布後安全自動移動、三類不安全留手動、返回保留新標記與head、提醒跨瀏覽器、同head分次移動用move_id判過期、無引用副本清理且原始事件／最小收據保留及migration套用回滾；原test_version_moves保護手動預覽／冪等／XP不重算。
 
-`runtime/study/test_library_search.py` 使用隔離 DB 驗證四類搜尋的 30＋5 筆分頁、精確總數、穩定順序、跨帳號與刪除過濾，以及既有不帶分頁參數的回應。`header-tools.spec.ts` 驗證分類數量、全部預覽、鍵盤分類切換、分頁邊界、按需讀取、換頁捲動與首筆焦點，並保留概念與卡組開啟、失敗重試與輸入焦點。
+`runtime/study/test_library_search.py` 使用隔離 DB 驗證四類搜尋的 30＋5 筆分頁、精確總數、穩定順序、跨帳號與刪除過濾，以及既有不帶分頁參數的回應。`header-tools.spec.ts`（側欄搜尋、個人檔案與帳號空間）驗證分類數量、全部預覽、鍵盤分類切換、分頁邊界、按需讀取、換頁捲動與首筆焦點，並保留概念與卡組開啟、失敗重試與輸入焦點。

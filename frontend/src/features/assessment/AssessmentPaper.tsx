@@ -1,16 +1,17 @@
 import { useRef, useState, type ReactNode } from "react";
 import type { AssessmentRecordView, KnowledgeStructureView } from "../../api/contracts";
 import type { StudydyApiClient } from "../../api/client";
+import { Icon } from "../../ui/Icon";
 import { Progress } from "../../ui/Progress";
 import { AssessmentPanel } from "./AssessmentPanel";
 import "./paper.css";
 
-export function AssessmentPaper({ api, records, view, completed, selections, disabled, canSubmit, busy, submitLabel, onSelect, onSubmit, fresh, children }: {
+export function AssessmentPaper({ api, records, view, completed, selections, disabled, canSubmit, busy, submitLabel, onSelect, onSubmit, onLeave, fresh, children }: {
   api: StudydyApiClient; records: AssessmentRecordView[];
   view: Pick<KnowledgeStructureView, "concepts" | "source_resolver">;
   completed: boolean; selections: Record<string, string>; disabled: boolean; canSubmit: boolean;
   busy: boolean; submitLabel: string; onSelect: (revision: string, option: string) => void;
-  onSubmit: () => void; fresh?: boolean; children?: ReactNode;
+  onSubmit: () => void; onLeave: () => void; fresh?: boolean; children?: ReactNode;
 }) {
   const [index, setIndex] = useState(0);
   const card = useRef<HTMLDivElement>(null);
@@ -35,21 +36,40 @@ export function AssessmentPaper({ api, records, view, completed, selections, dis
         else if (index === records.length - 1 && canSubmit) onSubmit();
       }
     }}>
-    <header className="question-paper-heading">
-      <strong>{view.concepts.find(concept => concept.concept_id === current.assessment.target_concept_id)?.label}</strong>
-      <span>第 {index + 1}／{records.length} 題</span>
-      <Progress value={index + 1} max={records.length} aria-label="作答題目進度" />
+    <header className="quiz-top">
+      <QuizLeave onLeave={onLeave} />
+      <div className="quiz-segs" role="progressbar" aria-label="作答題目進度" aria-valuemin={1} aria-valuemax={records.length}
+        aria-valuenow={index + 1} aria-valuetext={`第 ${index + 1} 題，共 ${records.length} 題`}>
+        {records.map((record, position) => <i key={record.assessment.assessment_revision} className={position < index ? "on" : position === index ? "cur" : undefined} />)}
+      </div>
+      <span className="quiz-count">第 {index + 1}／{records.length} 題</span>
     </header>
-    <div ref={card} className="question-paper-card" tabIndex={-1}>{renderQuestion(current, index)}</div>
-    {children}
+    <div className="quiz-body">
+      <div className="quiz-main">
+        <p className="question-paper-heading">{view.concepts.find(concept => concept.concept_id === current.assessment.target_concept_id)?.label}</p>
+        <div ref={card} className="question-paper-card" tabIndex={-1}>{renderQuestion(current, index)}</div>
+        {children}
+      </div>
+      <aside className="quiz-side">
+        <p>交卷前都可以回頭改，慢慢想沒關係。尚未交卷的選取不會保存。</p>
+        <img src="/assets/studydy/brand-idle.png" alt="" />
+      </aside>
+    </div>
     <footer className="question-paper-navigation">
-      <button className="secondary-button" type="button" disabled={index === 0 || busy} onClick={() => move(index - 1)}>上一題</button>
-      <small>數字鍵 1–4 選答案 · Enter 下一題<br />交卷前可修改；尚未交卷的選取不會保存。</small>
-      {index < records.length - 1
-        ? <button className="primary-button" type="button" disabled={!selected || busy} onClick={() => move(index + 1)}>下一題</button>
-        : <button className="primary-button" type="submit" disabled={!canSubmit} aria-busy={busy}>{submitLabel}</button>}
+      <small><span className="keyboard-hint">按 1–4 選答案 · Enter 下一題 · </span>{records.length} 題答完一起交卷</small>
+      <div className="quiz-nav-buttons">
+        <button className="secondary-button" type="button" disabled={index === 0 || busy} onClick={() => move(index - 1)}>上一題</button>
+        {index < records.length - 1
+          ? <button className="primary-button" type="button" disabled={!selected || busy} onClick={() => move(index + 1)}>下一題</button>
+          : <button className="primary-button" type="submit" disabled={!canSubmit} aria-busy={busy}>{submitLabel}</button>}
+      </div>
     </footer>
   </form>;
+}
+
+// 專注模式的「×」：和進度條同一列；回到哪一頁由答題頁決定。
+export function QuizLeave({ onLeave }: { onLeave: () => void }) {
+  return <button className="study-focus-close" type="button" aria-label="離開作答" onClick={onLeave}><Icon name="close" size={22} /></button>;
 }
 
 export function QuestionPreparation({ ready, total, label }: { ready: number; total: number; label: string }) {

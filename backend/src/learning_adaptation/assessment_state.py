@@ -537,7 +537,14 @@ def read_set(learner, sid, set_id, *, dsn=None):
         )
         session.info["read_snapshot"] = {"documents": {}, "inherited": {}, "cycles": {}}
         study, _ = _read_scope(session, learner, sid)
-        return _read_set(session, study, set_id)
+        view = _read_set(session, study, set_id)
+        view["xp_award"] = None
+        if view["status"] == "completed":
+            view["xp_award"] = session.scalar(text("""
+                SELECT action_receipts -> 'xp_award' FROM assessment_sets
+                WHERE learner_id = :owner AND study_session_id = :sid AND set_id = :set_id
+            """), {"owner": learner.learner_id, "sid": sid, "set_id": set_id})
+        return view
 
 
 def _read_set(session, study, set_id):

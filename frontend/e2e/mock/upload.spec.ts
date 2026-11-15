@@ -52,10 +52,9 @@ async function setup(page: Page) {
     );
   });
   state.settings = await mockCreationSettings(page);
-  await page.route("**/v1/account/storage", route => route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } }));
-  // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
-  await page.route("**/v1/profile", (route) => route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } }));
-  // 頁首學習進度；這些案例不涉及學習紀錄。
+  // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
+  await page.route(url => url.pathname === "/v1/card-reviews", route => route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } }));
+  // 外殼的慶祝動畫讀取學習活動；這些案例不涉及學習紀錄。
   await page.route("**/v1/learning-activity/celebrations/claim", (route) => {
     expect(route.request().method()).toBe("POST");
     return route.fulfill({ json: emptyCelebrationClaim });
@@ -258,13 +257,13 @@ for (const width of [1536, 390]) {
     await page.setViewportSize({ width, height: 844 });
     const state = await setup(page);
     await page.goto("/upload");
-    await expect(page.getByRole("heading", { name: "上傳教材", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "新增一座島", exact: true })).toBeVisible();
     await expect(page.locator(".flow-head p")).toHaveText(
-      "選擇文件、圖片、音訊、影片或 YouTube 影片，確認來源後再開始分析。",
+      "放入文件、圖片、音訊、影片或 YouTube 影片，確認後就開始建立知識地圖。",
     );
-    await expect(page.locator(".file-drop strong")).toHaveText("將教材拖放到此處，或點擊選取");
-    await expect(page.locator(".upload-format-summary > span")).toHaveText([
-      "文件：PDF、TXT（每份最大 100.0 MiB）", "可選多份",
+    await expect(page.locator(".file-drop strong")).toHaveText("把教材拖到這裡，或點一下選擇檔案");
+    await expect(page.locator(".upload-types > div")).toHaveText([
+      "文件PDF、TXT · 每份 100.0 MiB", "數量可選多份",
     ]);
     const conversion = page.getByText("非 PDF 教材會先轉換為 PDF；音訊、影片與 YouTube 會轉成逐字稿。請在下一步確認轉換內容。", {
       exact: true,

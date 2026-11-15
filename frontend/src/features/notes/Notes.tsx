@@ -187,7 +187,7 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
       const runId = contentRevision === revision ? view.run_id
         : (await api.getKnowledgeOutline({ materialId, structureRevision: contentRevision })).run_id;
       writeRoute({ name: "knowledge-map", materialId, runId, structureRevision: contentRevision }, false,
-        { knowledgeMap: { revision: contentRevision, mode: "focus", concept, detail: concept } });
+        { knowledgeMap: { revision: contentRevision, concept, detail: concept } });
     } catch (e) { setError(errorMessage(e)); }
   };
   const paragraph = (p: NoteParagraph, sourceLevel?: 1 | 2 | 3) => {

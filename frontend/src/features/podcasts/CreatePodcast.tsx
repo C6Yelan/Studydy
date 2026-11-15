@@ -1,27 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
-import type { KnowledgeOutlineView } from "../../api/contracts";
+import type { KnowledgeOutlineView, KnowledgeRegionsView } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
-import { Icon } from "../../ui/Icon";
 import { useConceptContext } from "../material-flow/useConceptContext";
 import { claimText } from "../../ui/claim-text";
-import { FlowFooter, FlowStage } from "../material-flow/Flow";
+import { FlowFooter } from "../material-flow/Flow";
+import { ChapterGroups, ConceptPickTools, PreviewSheet, chapterGroups, usePhoneLayout, type SelectionFilter } from "../material-flow/ConceptPick";
 import "../material-flow/creation.css";
 
 export function CreatePodcast({ apiClient, route }: {
   apiClient: StudydyApiClient; route: Extract<AppRoute, { name: "podcast-create" }>;
 }) {
   const [view, setView] = useState<KnowledgeOutlineView | null>(null);
+  // 章節分區讀不到時是 null，概念清單退回原本的清單。
+  const [regions, setRegions] = useState<KnowledgeRegionsView | null>(null);
   const [name, setName] = useState("");
   const [delivery, setDelivery] = useState<"solo" | "dialogue">("dialogue");
   // 影片較佔空間，預設只生成音訊。
   const [video, setVideo] = useState(false);
   const [selected, setSelected] = useState(new Set<string>());
   const [activePanel, setActivePanel] = useState<"selection" | "settings">("selection");
-  const [selectionFilter, setSelectionFilter] = useState<"all" | "selected" | "unselected">("all");
+  const [selectionFilter, setSelectionFilter] = useState<SelectionFilter>("all");
   const [query, setQuery] = useState("");
   const [previewId, setPreviewId] = useState<string | null>(null);
+  // 手機上預覽改成底部抽屜（長清單下方的預覽會在畫面外）。
+  const phone = usePhoneLayout();
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -35,12 +39,13 @@ export function CreatePodcast({ apiClient, route }: {
     setError(null); setView(null);
     void Promise.all([apiClient.getMaterial(route.materialId), apiClient.getKnowledgeOutline({
       materialId: route.materialId, structureRevision: route.structureRevision,
-    })]).then(([material, structure]) => {
+    }), apiClient.getKnowledgeRegions({ materialId: route.materialId, structureRevision: route.structureRevision }).catch(() => null)]).then(([material, structure, regionsRead]) => {
       if (cancelled) return;
       if (!material.available_structures.some((s) => s.run_id === route.runId && s.knowledge_structure_revision === route.structureRevision)) {
         setError("這個教材版本已不可用，請重新選擇教材。"); return;
       }
       setView(structure);
+      setRegions(regionsRead);
       setName(`${Array.from(material.display_name.replace(/\.[^.]+$/, "")).slice(0, 36).join("")}・聽重點`);
       setSelected(new Set(structure.concepts.map((c) => c.concept_id)));
       setPreviewId(null);
@@ -75,42 +80,52 @@ export function CreatePodcast({ apiClient, route }: {
     return next;
   });
   const toggle = (id: string) => setSelected(previous => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  return <FlowStage icon="headphones" className="podcast-create" title="選擇概念與講解形式"
-    description="依所選重點生成，內容較多時自動拆成多集。"
-    aside={<label className="creation-name">Podcast 名稱<input value={name} maxLength={40} disabled={busy} onChange={e => setName(e.target.value)} /></label>}
-    footer={<FlowFooter
-      secondary={<div className="cards-create-summary"><strong>{selected.size} 個概念 · {claimCount} 個重點</strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · {video ? "音訊＋影片" : "只有音訊"} · 生成需要幾分鐘，可先離開頁面。</span></div>}
-      primary={<button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始生成 Podcast"}<Icon name="chevron-right" size={18} /></button>} />}>
+  const groups = chapterGroups(view.concepts, regions);
+  const conceptRow = (concept: KnowledgeOutlineView["concepts"][number]) => <div className={`podcast-concept-option${selected.has(concept.concept_id) ? " is-selected" : ""}`} key={concept.concept_id}>
+    <label><input type="checkbox" disabled={busy} checked={selected.has(concept.concept_id)} onChange={() => toggle(concept.concept_id)} />
+      <span><strong title={concept.label}>{concept.label}</strong><small>{concept.claim_count} 個重點</small></span></label>
+    <button type="button" className="text-button" aria-label={`查看「${concept.label}」重點`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(previewId === concept.concept_id ? null : concept.concept_id)}>預覽</button>
+  </div>;
+  const previewState = previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : previewId && !preview ? <p className="cards-preview-status" role="status">正在讀取概念重點…</p> : null;
+  const previewClaims = preview && <div>{preview.claims.map(claim => <p className="podcast-claim-text" key={claim.claim_id}>{claimText(claim)}</p>)}</div>;
+  return <div className="pick-stage podcast-create">
     {saveError && <p className="form-error" role="alert">{saveError}</p>}
     <nav className="podcast-config-nav" aria-label="Podcast 設定區域">{([
-      ["selection", "選擇概念"], ["settings", "講解設定"],
+      ["selection", "選擇概念"], ["settings", "講解方式"],
     ] as const).map(([id, label]) => <button type="button" className={activePanel === id ? "primary-button" : "secondary-button"} aria-pressed={activePanel === id} aria-controls={`podcast-config-${id}`} key={id} onClick={() => setActivePanel(id)}>{label}</button>)}</nav>
     <div className="podcast-compose-grid">
-      <section id="podcast-config-selection" className={`podcast-config-section podcast-selection${activePanel === "selection" ? " is-active" : ""}`} aria-label="選擇 Podcast 概念">
-        <div className="cards-selection-heading">
-          <input className="cards-concept-search" type="search" aria-label="搜尋 Podcast 概念" placeholder="搜尋概念…" value={query} onChange={e => setQuery(e.target.value)} />
-          <div className="cards-selection-actions"><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(true)}>{query.trim() ? "選取搜尋結果" : "全選"}</button><span>／</span><button type="button" className="text-button" disabled={busy} onClick={() => selectVisible(false)}>{query.trim() ? "取消搜尋結果" : "取消全選"}</button></div>
-          <div className="concept-selection-filters">
-            {([["all", "全部", view.concepts.length], ["selected", "已選", selected.size], ["unselected", "未選", view.concepts.length - selected.size]] as const).map(([filter, label, count]) => <button key={filter} type="button" className="secondary-button" aria-pressed={selectionFilter === filter} onClick={() => setSelectionFilter(filter)}>{label} {count}</button>)}
-          </div>
-        </div>
-        <div className="podcast-concept-list">{visible.map(concept => <div className={`podcast-concept-option${selected.has(concept.concept_id) ? " is-selected" : ""}`} key={concept.concept_id}>
-          <label><input type="checkbox" disabled={busy} checked={selected.has(concept.concept_id)} onChange={() => toggle(concept.concept_id)} />
-            <span><strong title={concept.label}>{concept.label}</strong><small>{concept.claim_count} 個重點</small></span></label>
-          <button type="button" className="text-button" aria-label={`查看「${concept.label}」重點`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(previewId === concept.concept_id ? null : concept.concept_id)}>預覽</button>
-        </div>)}{visible.length === 0 && <p className="cards-no-results">{"找不到符合的概念。"}</p>}</div>
-        {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : previewId && !preview ? <p className="cards-preview-status" role="status">正在讀取概念重點…</p> : null}
-        {preview && <section className="podcast-concept-preview" aria-label={`${preview.label}重點預覽`}><header><strong>{preview.label}</strong><button type="button" className="text-button" onClick={() => setPreviewId(null)}>關閉預覽</button></header><div>{preview.claims.map(claim => <p className="podcast-claim-text" key={claim.claim_id}>{claimText(claim)}</p>)}</div></section>}
+      <section id="podcast-config-selection" className={`pick-panel podcast-config-section podcast-selection${activePanel === "selection" ? " is-active" : ""}`} aria-label="選擇 Podcast 概念">
+        <ConceptPickTools searchLabel="搜尋 Podcast 概念" query={query} onQuery={setQuery} busy={busy}
+          selectAllLabel={query.trim() ? "選取搜尋結果" : "全選"} selectNoneLabel={query.trim() ? "取消搜尋結果" : "取消全選"}
+          onSelectAll={() => selectVisible(true)} onSelectNone={() => selectVisible(false)}
+          filter={selectionFilter} onFilter={setSelectionFilter} total={view.concepts.length} selected={selected.size} />
+        <div className={`podcast-concept-list${groups ? " is-grouped" : ""}`}>{groups
+          ? <ChapterGroups groups={groups} visible={visible} selected={selected} busy={busy} itemsClassName="chapter-items is-wide"
+            onToggleChapter={(ids, on) => setSelected(previous => { const next = new Set(previous); for (const id of ids) { if (on) next.add(id); else next.delete(id); } return next; })}
+            renderConcept={conceptRow} />
+          : visible.map(conceptRow)}{visible.length === 0 && <p className="cards-no-results">{"找不到符合的概念。"}</p>}</div>
+        {!phone && previewState}
+        {!phone && preview && <section className="podcast-concept-preview" aria-label={`${preview.label}重點預覽`}><header><strong>{preview.label}</strong><button type="button" className="text-button" onClick={() => setPreviewId(null)}>關閉預覽</button></header>{previewClaims}</section>}
       </section>
-      <section id="podcast-config-settings" className={`podcast-config-section podcast-settings${activePanel === "settings" ? " is-active" : ""}`} aria-label="講解設定">
-        <h3>講解設定</h3>
-        <fieldset className="podcast-delivery"><legend>講解形式</legend>
-          <label className={delivery === "dialogue" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "dialogue"} disabled={busy} onChange={() => setDelivery("dialogue")} /><span><strong>雙人對談</strong><small>兩位主持人以節目形式帶你走過教材重點。</small></span></label>
-          <label className={delivery === "solo" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "solo"} disabled={busy} onChange={() => setDelivery("solo")} /><span><strong>單人解說</strong><small>以自然口語說明重點。</small></span></label>
-        </fieldset>
-        <label className={`podcast-video-option${video ? " is-selected" : ""}`}><input type="checkbox" checked={video} disabled={busy} onChange={e => setVideo(e.target.checked)} />
-          <span><strong>同時生成教學影片</strong><small>較佔帳號空間；不勾選只有音訊，逐字稿照常。</small></span></label>
-      </section>
+      <div className="pick-panel podcast-side">
+        <label className="creation-name">Podcast 名稱<input value={name} maxLength={40} disabled={busy} onChange={e => setName(e.target.value)} /></label>
+        <section id="podcast-config-settings" className={`podcast-config-section podcast-settings${activePanel === "settings" ? " is-active" : ""}`} aria-label="講解方式">
+          <h3>講解方式</h3>
+          <fieldset className="podcast-delivery"><legend>講解形式</legend>
+            <label className={delivery === "dialogue" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "dialogue"} disabled={busy} onChange={() => setDelivery("dialogue")} /><span><strong>雙人對談</strong><small>兩位主持人用節目形式帶你走過重點。</small></span></label>
+            <label className={delivery === "solo" ? "is-selected" : undefined}><input type="radio" name="delivery" checked={delivery === "solo"} disabled={busy} onChange={() => setDelivery("solo")} /><span><strong>單人解說</strong><small>一個人用口語說明重點。</small></span></label>
+          </fieldset>
+          <label className={`podcast-video-option${video ? " is-selected" : ""}`}><input type="checkbox" checked={video} disabled={busy} onChange={e => setVideo(e.target.checked)} />
+            <span><strong>同時做教學影片</strong><small>比較佔儲存空間；不勾就只有聲音，逐字稿照常有。</small></span></label>
+        </section>
+      </div>
     </div>
-  </FlowStage>;
+    <FlowFooter
+      secondary={<div className="cards-create-summary"><strong>已選 {selected.size} 個概念<span className="pick-claim-total"> · {claimCount} 個重點</span></strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · {video ? "聲音＋影片" : "只有聲音"} · 製作要幾分鐘，可以先離開這頁。</span></div>}
+      primary={<button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始製作 Podcast"}</button>} />
+    {phone && <PreviewSheet title={preview?.label ?? "概念重點預覽"} open={previewId !== null} onClose={() => setPreviewId(null)}>
+      {previewState}
+      {preview && <section className="podcast-concept-preview" aria-label={`${preview.label}重點預覽`}>{previewClaims}</section>}
+    </PreviewSheet>}
+  </div>;
 }

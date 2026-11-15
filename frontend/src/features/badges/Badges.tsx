@@ -1,6 +1,6 @@
 import { Progress } from "../../ui/Progress";
 import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../../api/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { playCue } from "../../ui/feedback-sound";
 import { Icon, type IconName } from "../../ui/Icon";
@@ -96,13 +96,13 @@ const specials: Record<SpecialId, { name: string; condition: string; hint: strin
   early_bird: { name: "早起的鳥兒", condition: "早上 5:00～7:59 作答累計 10 題", hint: "太陽還沒完全醒來。", icon: "sparkle", rarity: 0 },
   weekend: { name: "週末學者", condition: "同一個週末的週六與週日都有學習", hint: "別人放假的時候……", icon: "book", rarity: 0 },
   return: { name: "浪子回頭", condition: "中斷 7 天以上後重新開始學習", hint: "離開，然後回來。", icon: "route", rarity: 0 },
-  curious_10: { name: "好奇寶寶", condition: "向 Studydy AI BOT 提出 10 個問題", hint: "有問題，就問吧。", icon: "chat", rarity: 0 },
-  curious_50: { name: "提問大師", condition: "向 Studydy AI BOT 提出 50 個問題", hint: "問題越問越多。", icon: "chat", rarity: 1 },
+  curious_10: { name: "好奇寶寶", condition: "向小幫手提出 10 個問題", hint: "有問題，就問吧。", icon: "chat", rarity: 0 },
+  curious_50: { name: "提問大師", condition: "向小幫手提出 50 個問題", hint: "問題越問越多。", icon: "chat", rarity: 1 },
   researcher: { name: "追根究柢", condition: "補充研究並把新來源加入教材", hint: "教材之外，還有更多。", icon: "search", rarity: 0 },
   creator: { name: "自己動手做", condition: "建立一組概念卡和一集 Podcast", hint: "把學到的，變成自己的。", icon: "edit", rarity: 0 },
   corrected_5: { name: "知錯能改", condition: "答錯過的概念之後又答對，累計 5 個", hint: "錯過的，不會再錯。", icon: "learning", rarity: 1 },
   perfect_day: { name: "完美的一天", condition: "同一天作答 20 題以上且全部答對", hint: "一整天，一題都沒錯。", icon: "sparkle", rarity: 2 },
-  all_round_day: { name: "全能學習日", condition: "同一天作答、標記概念卡、收聽 Podcast 滿 1 分鐘並向 Studydy AI BOT 提問", hint: "答題、卡片、耳朵、提問，一天之內……", icon: "compass", rarity: 2 },
+  all_round_day: { name: "全能學習日", condition: "同一天作答、標記概念卡、收聽 Podcast 滿 1 分鐘並向小幫手提問", hint: "答題、卡片、耳朵、提問，一天之內……", icon: "compass", rarity: 2 },
   thousand_pages: { name: "千頁征服者", condition: "完成一份 500 頁以上教材的全部學習", hint: "很厚、很厚的一本。", icon: "book", rarity: 3 },
   revisit: { name: "溫故知新", condition: "教材完成 7 天以上後，又標記它的概念卡", hint: "學完了，過一陣子再回來看看。", icon: "cards", rarity: 1 },
   xp_day_300: { name: "火力全開", condition: "同一天獲得 300 XP", hint: "今天的經驗值條，好像特別長。", icon: "sparkle", rarity: 2 },
@@ -213,11 +213,16 @@ function revealed(badge: KnownBadge, earned: Set<string>) {
 }
 
 // 成就頁右欄：依稀有度的取得數，上方已取得、下方未取得，每個成就獨立一格。
-export function BadgeCollection({ activity }: { activity: LearningActivityView }) {
+// 畫面上算得到的徽章：不含成就鏈中尚未揭曉的步驟（算進去等於洩漏隱藏徽章的數量）。階梯與總覽共用。
+function shownBadges(activity: LearningActivityView) {
   const all = knownBadges(activity);
-  if (!all.length) return null;
   const earnedIds = new Set(all.filter((badge) => badge.earned).map((badge) => badge.badge_id));
-  const shown = all.filter((badge) => revealed(badge, earnedIds));
+  return all.filter((badge) => revealed(badge, earnedIds));
+}
+
+export function BadgeCollection({ activity }: { activity: LearningActivityView }) {
+  const shown = shownBadges(activity);
+  if (!shown.length) return null;
   // 系列依規則表順序（同系列由低到高），特殊成就排在後面。
   const order = [...Object.values(tiers).flat().map(([id]) => id), ...Object.keys(specials)];
   const sorted = [...shown].sort((a, b) => order.indexOf(a.badge_id) - order.indexOf(b.badge_id));
@@ -250,11 +255,72 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
       </header>
       {locked.length > 0 && <ul className="badge-grid">{locked.map((badge) => <BadgeCell key={badge.badge_id} badge={badge} />)}</ul>}
     </section>
-    <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、Studydy AI BOT、目標與分天關卡、難點、筆記註記、上傳的教材、匯出、學習天數與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
+    <p className="badge-note">依作答、題組、概念與教材完成、概念卡標記、Podcast 收聽、小幫手、目標與分天關卡、難點、筆記註記、上傳的教材、匯出、學習天數與等級的真實紀錄判定，以台灣日期為準；刪除教材時相關紀錄移除，徽章會重新判定。稀有度只表示難度，不影響經驗值。</p>
   </section>;
 }
 
-/** 左下角浮動通知：不推動版面、不擋主要操作，6 秒後自動收起，可按「查看」到成就頁。 */
+// 快拿到了：每個系列只取下一個還沒拿到的層級，依進度比例由高到低取前三個。
+// 隱藏的特殊成就依規則不顯示進度，所以不列入。
+export function NearBadges({ activity }: { activity: LearningActivityView }) {
+  const byId = new Map(knownBadges(activity).map((badge) => [badge.badge_id, badge]));
+  const near = (Object.keys(tiers) as Series[]).flatMap((key) => {
+    const next = tiers[key].map(([id]) => byId.get(id)).find((badge) => badge && !badge.earned);
+    return next ? [{ badge: next, key }] : [];
+  }).sort((a, b) => b.badge.progress / b.badge.target - a.badge.progress / a.badge.target).slice(0, 3);
+  if (!near.length) return null;
+  return <section className="badge-near" aria-labelledby="badge-near-title">
+    <h2 id="badge-near-title">快拿到了</h2>
+    <ul>
+      {near.map(({ badge, key }) => {
+        const text = badgeText[badge.badge_id]!;
+        const left = Math.max(0, badge.target - badge.progress);
+        return <li key={badge.badge_id} className="surface">
+          <BadgeMedal badge={badge} size={54} />
+          <span className="badge-near-text">
+            <b>{series[key].title}{tiers[key].length > 1 && ` · ${tierNames[text.tier - 1]}`}</b>
+            <small>{key === "level" ? `再升 ${left} 級` : `還差 ${left} ${series[key].unit}`}</small>
+            <BadgeProgress badge={badge} />
+          </span>
+        </li>;
+      })}
+    </ul>
+  </section>;
+}
+
+// 徽章階梯：每個有多個層級的系列一列，列出各層級已取得、下一個的進度、或還沒到。
+export function BadgeLadder({ activity }: { activity: LearningActivityView }) {
+  const shown = shownBadges(activity);
+  const byId = new Map(knownBadges(activity).map((badge) => [badge.badge_id, badge]));
+  const rows = (Object.keys(tiers) as Series[]).filter((key) => tiers[key].length > 1);
+  return <section className="badge-ladder surface" aria-labelledby="badge-ladder-title">
+    <header>
+      <h2 id="badge-ladder-title">徽章階梯</h2>
+      <span className="badge-count">已取得 {shown.filter((badge) => badge.earned).length} / {shown.length}</span>
+    </header>
+    <ul className="badge-ladder-rows">
+      <li className="badge-ladder-head" aria-hidden="true">
+        <span />{tierNames.map((name) => <span key={name}>{name}</span>)}
+      </li>
+      {rows.map((key) => {
+        const list = tiers[key].map(([id]) => byId.get(id));
+        const nextIndex = list.findIndex((badge) => badge && !badge.earned);
+        return <li key={key} aria-label={series[key].title}>
+          <span className="badge-ladder-name">{series[key].title}</span>
+          {tierNames.map((name, index) => {
+            const badge = list[index];
+            // 沒有這一層留空；有但還沒到的層級畫淡色鎖頭。
+            const cell: { cls: string; text: ReactNode } = !badge ? { cls: " is-none", text: "" } : badge.earned ? { cls: " is-earned", text: "已取得" }
+              : index === nextIndex ? { cls: " is-next", text: `${badge.progress} / ${badge.target}` } : { cls: " is-locked", text: <Icon name="lock" size={14} /> };
+            return <span key={name} className={`badge-ladder-cell is-tier-${index + 1}${cell.cls}`}
+              aria-label={`${name}：${badge ? (badge.earned ? "已取得" : index === nextIndex ? progressText(badge) : "尚未到") : "沒有這一層"}`}>{cell.text}</span>;
+          })}
+        </li>;
+      })}
+    </ul>
+  </section>;
+}
+
+/** 右下角浮動通知：不推動版面、不擋主要操作，6 秒後自動收起，可按「查看」到成就頁。 */
 export function BadgeEarned({ badges, onClose }: { badges: KnownBadge[]; onClose: () => void }) {
   const shown = badges.slice(0, 3);
   useEffect(() => {

@@ -167,16 +167,16 @@ const expectedActions: Record<State, string[][]> = {
   "failed-map": [["開啟知識地圖", "查看問題"]],
   map: [["開啟知識地圖"]],
   partial: [["開啟知識地圖"]],
-  active: [["繼續學習", "開啟知識地圖"]],
-  completed: [["查看學習成果", "開啟知識地圖"]],
-  "long-name": [["繼續學習", "開啟知識地圖"]],
+  active: [["繼續學習", "地圖"]],
+  completed: [["查看學習成果", "地圖"]],
+  "long-name": [["繼續學習", "地圖"]],
   multiple: [
     ["建立知識地圖"],
     ["查看進度"],
     ["查看問題"],
     ["開啟知識地圖", "查看問題"],
-    ["繼續學習", "開啟知識地圖"],
-    ["查看學習成果", "開啟知識地圖"],
+    ["繼續學習", "地圖"],
+    ["查看學習成果", "地圖"],
   ],
 };
 
@@ -212,7 +212,7 @@ for (const state of states) {
       );
     await page.goto("/materials");
     if (state === "loading" || state === "failure") {
-      await expect(state === "loading" ? page.getByRole("status").filter({hasText:"正在讀取我的教材"}) : page.getByRole("heading", {name:"無法讀取教材",exact:true})).toBeVisible();
+      await expect(state === "loading" ? page.getByRole("status").filter({hasText:"正在讀取我的群島"}) : page.getByRole("heading", {name:"無法讀取教材",exact:true})).toBeVisible();
       if (state === "loading") releaseRead();
       else {
         await expect(
@@ -226,7 +226,7 @@ for (const state of states) {
     if (!items.length) await expect(page.locator(".library-empty")).toBeVisible();
     for (const [index, item] of items.entries()) {
       const card = cards.nth(index);
-      const actions = [...expectedActions[state][index], ...(item.available_structures.length ? ["概念卡", "Podcast"] : [])];
+      const actions = [...expectedActions[state][index], ...(item.available_structures.length ? ["卡片", "Podcast"] : [])];
       await expect(card.getByRole("heading")).toHaveText(item.display_name);
       await expect(card.getByRole("button", { name: item.display_name, exact: true })).toHaveCount(
         0,

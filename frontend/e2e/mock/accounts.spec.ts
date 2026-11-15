@@ -69,7 +69,7 @@ test.beforeEach(async ({ page }) => {
       case "/v1/podcasts":
         expect(request.method()).toBe("GET");
         return route.fulfill({ json: { schema: "podcast-list/v1", podcasts: [] } });
-      // 頁首帳號設定與首頁問候；新帳號沒有名稱。
+      // 首頁問候；新帳號沒有名稱。
       case "/v1/profile":
         expect(request.method()).toBe("GET");
         return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
@@ -77,12 +77,15 @@ test.beforeEach(async ({ page }) => {
       case "/v1/learning-goals":
         expect(request.method()).toBe("GET");
         return route.fulfill({ json: { schema: "learning-goals/v1", today: "2026-10-25", goals: [] } });
-      // 頁首學習進度（等級與連續天數）；新帳號沒有學習紀錄。
+      // 首頁等級與外殼的慶祝動畫；新帳號沒有學習紀錄。
       case "/v1/learning-activity":
         expect(request.method()).toBe("GET");
         return route.fulfill({ json: emptyLearningActivity });
+      // 側欄「翻卡片」的不熟卡數；新帳號沒有卡片。
+      case "/v1/card-reviews":
+        expect(request.method()).toBe("GET");
+        return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
       default:
-        if (route.request().method() === "GET" && new URL(route.request().url()).pathname === "/v1/account/storage") return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
         throw new Error(`Unexpected account mock request: ${request.method()} ${path}`);
     }
   });
@@ -98,7 +101,7 @@ for (const mode of ["login", "register"] as const) {
     const secret = page.getByLabel("密碼", { exact: true });
     await expect(
       page.getByRole("heading", {
-        name: mode === "login" ? "登入您的帳戶" : "建立新帳戶",
+        name: mode === "login" ? "登入你的帳戶" : "建立新帳戶",
         exact: true,
       }),
     ).toBeVisible();
@@ -184,7 +187,7 @@ for (const mode of ["login", "register"] as const) {
     await expect(page).toHaveURL(new RegExp(mode === "login" ? "/register$" : "/login$"));
     await expect(
       page.getByRole("heading", {
-        name: mode === "login" ? "建立新帳戶" : "登入您的帳戶",
+        name: mode === "login" ? "建立新帳戶" : "登入你的帳戶",
         exact: true,
       }),
     ).toBeVisible();
@@ -232,7 +235,7 @@ for (const size of [
       await page.setViewportSize(size);
       await page.goto(`/${mode}`);
       await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
-      await expect(page.locator(".app-header")).toHaveCount(0);
+      await expect(page.locator(".rail")).toHaveCount(0);
       const card = await page.locator(".auth-card").boundingBox();
       expect(card!.x).toBeGreaterThanOrEqual(0);
       expect(card!.x + card!.width).toBeLessThanOrEqual(size.width);
@@ -295,7 +298,7 @@ for (const { mode, outage } of [
     await page.unroute("**/v1/session/refresh");
     await fillCredentials(page, mode);
     await submit.click();
-    await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
   });
 }
 
@@ -336,7 +339,7 @@ for (const mode of ["login", "register"] as const) {
       await expect(submit).toBeEnabled();
     }
     await submit.click();
-    await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
   });
 }
 
@@ -377,7 +380,7 @@ for (const result of ["success", "expired", "network"] as const) {
       .toBe(true);
     await fillCredentials(page, "login");
     await page.getByRole("button", { name: "登入", exact: true }).click();
-    await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
     await page.evaluate(async () => {
       (window as BootstrapWindow).releaseBootstrap();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -399,9 +402,9 @@ test("private routes hide authentication and content while the session is unknow
   await page.route("**/v1/session/refresh", (route) => route.abort("connectionrefused"));
   await page.goto("/materials");
   await expect(page.getByText("暫時無法完成", { exact: true })).toBeVisible();
-  await expect(page.locator(".app-header")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "主要導覽", exact: true })).toBeVisible();
   await expect(page.locator("form.auth-form")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "我的群島", exact: true })).toHaveCount(0);
   await page.unroute("**/v1/session/refresh");
   await page.getByRole("button", { name: "再試一次", exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);

@@ -1,0 +1,155 @@
+/*
+ * 挑概念頁（建立卡組、調整卡組、建立 Podcast）：頁頂放麵包屑、標題與步驟，
+ * 中間左右兩個面板（左邊挑概念、右邊名稱與預覽或講解方式），底部一列固定的摘要與按鈕。
+ */
+.pick-head { display:grid; gap:2px; min-width:0; }
+.pick-head-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 24px; }
+.pick-head h1 { margin:0; font-size:26px; font-weight:900; line-height:1.3; overflow-wrap:anywhere; }
+.pick-head h1 small { margin-left:8px; color:var(--text-muted); font-size:14px; font-weight:800; }
+.pick-head .learning-steps { flex:0 1 auto; gap:6px; }
+.pick-head .learning-steps li { flex:none; padding:0; font-size:13px; }
+.pick-head .learning-steps li + li { padding-left:0; }
+.pick-head .learning-steps li + li::before { flex:none; width:22px; min-width:22px; height:3px; margin-right:6px; }
+.pick-head .learning-step-mark { width:24px; height:24px; font-size:12px; }
+.pick-head .learning-steps .is-current .learning-step-mark { box-shadow:0 0 0 4px var(--studydy-blue-soft); }
+.pick-sub { margin:0; color:var(--text-secondary); font-size:14px; font-weight:700; line-height:1.6; }
+
+.pick-stage { display:flex; flex-direction:column; gap:14px; min-width:0; /* 面板的外框與焦點圈不被裁掉 */ padding:0 4px; }
+.pick-stage > .form-error { margin:0; }
+.cards-create-grid, .podcast-compose-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,340px); gap:16px; align-items:start; min-width:0; }
+.podcast-compose-grid { grid-template-columns:minmax(0,1fr) clamp(260px,24vw,340px); }
+.pick-panel { display:flex; flex-direction:column; gap:10px; min-width:0; padding:16px 18px; border:2px solid var(--border); border-radius:var(--radius-panel); background:var(--surface); }
+.cards-selection, .podcast-selection { gap:12px; }
+
+/* 名稱欄：標籤在上、輸入框在下。 */
+.creation-name { display:grid; gap:4px; width:100%; margin:0; color:var(--text-secondary); font-size:13px; font-weight:900; }
+.creation-name input { min-width:0; min-height:44px; padding:8px 14px; border:2px solid var(--border); border-radius:var(--radius-input); background:var(--surface); color:var(--text-primary); font:inherit; font-size:14px; font-weight:800; }
+.creation-name input:focus { border-color:var(--studydy-blue); outline:none; box-shadow:0 0 0 3px var(--studydy-blue-soft); }
+
+/* 搜尋、全選、全部／已選／未選。 */
+.cards-selection-heading { display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; }
+.cards-page .cards-selection-heading .cards-concept-search { flex:1 1 220px; min-width:0; width:auto; min-height:44px; padding:8px 14px; border:2px solid var(--border); border-radius:var(--radius-input); font-size:14px; }
+.cards-selection-actions { display:flex; align-items:center; gap:6px; color:var(--text-muted); font-size:13px; }
+.cards-selection-actions button { min-height:44px; padding:0; font-weight:900; white-space:nowrap; }
+.concept-selection-filters { display:flex; flex-wrap:wrap; gap:8px; width:100%; }
+.concept-selection-filters button { min-height:36px; padding:3px 12px; font-size:13px; }
+.concept-selection-filters button[aria-pressed=true] { background:var(--studydy-blue-soft-2); border-color:color-mix(in srgb, var(--studydy-blue) 40%, var(--surface)); color:var(--studydy-blue-deep); }
+
+/* 概念清單（建立卡組）：一格一個概念，點名稱看重點；分頁清單與章節分組共用同一種格子。 */
+.cards-concept-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-auto-rows:max-content; gap:8px; align-content:start; }
+.cards-concept-list.is-grouped, .podcast-concept-list.is-grouped { display:block; }
+.card-picker-option { border-width:2px; }
+.card-picker-option.is-selected { border-color:color-mix(in srgb, var(--studydy-blue) 40%, var(--surface)); background:var(--studydy-blue-soft-2); }
+.card-picker-option:has(button[aria-pressed=true]) { border-color:var(--studydy-blue); box-shadow:0 0 0 3px var(--studydy-blue-soft); }
+.cards-concept-pagination { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.cards-concept-pagination button { min-height:36px; padding:6px 14px; font-size:13px; }
+.cards-concept-pagination span { color:var(--text-secondary); font-size:13px; font-weight:800; }
+
+/* 章節分組：章標題可整章勾選（部分選到時顯示半選），標題在清單捲動時黏在上方。 */
+.chapter-group { display:grid; gap:8px; margin-bottom:14px; }
+.chapter-head { position:sticky; top:0; z-index:1; display:flex; align-items:center; gap:10px; min-height:44px; padding:6px 12px; border-radius:var(--radius-input); background:var(--studydy-blue-soft-2); cursor:pointer; }
+.chapter-head input { flex:none; width:18px; height:18px; margin:0; accent-color:var(--studydy-blue); }
+.chapter-head strong { flex:1; min-width:0; color:var(--studydy-blue-deep); font-size:14px; font-weight:900; line-height:1.4; overflow-wrap:anywhere; }
+.chapter-head small { flex:none; color:var(--text-muted); font-size:12px; font-weight:800; white-space:nowrap; }
+.chapter-items { display:grid; grid-template-columns:repeat(auto-fill,minmax(9rem,1fr)); gap:8px; }
+.chapter-items.is-wide { grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
+
+/* 右欄：名稱欄加概念重點預覽（教材原文每條只露兩行）。 */
+.cards-side { align-self:stretch; min-height:0; }
+.cards-preview { display:flex; flex-direction:column; gap:8px; min-width:0; min-height:0; }
+.cards-preview > h3 { margin:0; color:var(--text-muted); font-size:12.5px; font-weight:800; }
+.card-picker-preview h4 { font-size:15px; font-weight:900; }
+.pick-claims.is-clamped .pick-claim-text { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.pick-claims-toggle.text-button { min-height:44px; padding:0; font-size:13px; font-weight:900; }
+
+/* 底部固定列：左邊摘要，右邊按鈕。 */
+.pick-stage > .tool-stage-footer { display:flex; flex-shrink:0; flex-wrap:wrap; align-items:center; gap:12px 16px; padding:12px 18px; border:2px solid var(--border); border-radius:var(--radius-card); background:var(--surface); }
+.pick-stage > .tool-stage-footer .tool-footer-secondary { display:flex; flex:1; align-items:center; flex-wrap:wrap; gap:8px 16px; min-width:0; }
+.pick-stage > .tool-stage-footer > :not(.tool-footer-secondary) { display:flex; flex:none; align-items:center; gap:10px; margin-left:auto; }
+.pick-stage > .tool-stage-footer :is(.primary-button,.secondary-button) { min-height:44px; }
+.cards-create-summary { display:grid; gap:2px; min-width:0; }
+.cards-create-summary strong { color:var(--text-primary); font-size:16px; font-weight:900; }
+.cards-create-summary span { color:var(--text-muted); font-size:12.5px; font-weight:700; }
+/* 「· N 個重點」是標題的一部分（手機上隱藏），外觀跟著標題。 */
+.cards-create-summary .pick-claim-total { color:inherit; font-size:inherit; font-weight:inherit; }
+
+/* Podcast：概念清單、預覽與講解方式。 */
+.podcast-selection { min-width:0; }
+.podcast-concept-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:8px; max-height:min(44vh,420px); overflow-y:auto; overscroll-behavior:contain; align-content:start; }
+.podcast-concept-option { display:flex; align-items:center; gap:8px; min-width:0; min-height:52px; padding:8px 12px; border:2px solid var(--border); border-radius:var(--radius-input); background:var(--surface); transition:background .15s, border-color .15s; }
+.podcast-concept-option.is-selected { border-color:color-mix(in srgb, var(--studydy-blue) 40%, var(--surface)); background:var(--studydy-blue-soft-2); }
+.podcast-concept-option label { display:flex; flex:1; align-items:center; gap:10px; min-width:0; cursor:pointer; }
+.podcast-concept-option label > span { min-width:0; }
+.podcast-concept-option input { flex:none; width:17px; height:17px; margin:0; accent-color:var(--studydy-blue); }
+.podcast-concept-option strong { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; color:var(--text-primary); font-size:14px; font-weight:800; line-height:1.4; overflow-wrap:anywhere; }
+.podcast-concept-option small { display:block; margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:700; }
+.podcast-concept-option > button { flex:none; min-height:44px; padding:0 4px; font-size:12px; font-weight:900; }
+.podcast-concept-preview { padding:12px 14px; border-radius:18px; background:var(--studydy-blue-soft-2); font-size:13px; }
+.podcast-concept-preview header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.podcast-concept-preview header .text-button { min-height:44px; }
+.podcast-concept-preview > div { max-height:130px; overflow-y:auto; }
+.podcast-concept-preview p { margin:8px 0; }
+.podcast-side { align-self:start; min-height:0; max-height:100%; overflow-y:auto; }
+.podcast-settings { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.podcast-settings h3 { margin:0; font-size:15px; font-weight:900; }
+.podcast-delivery { display:grid; gap:10px; margin:0; padding:0; border:0; }
+.podcast-delivery legend { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.podcast-delivery label, .podcast-video-option { display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border:2px solid var(--border); border-radius:18px; background:var(--surface); cursor:pointer; }
+.podcast-delivery label.is-selected, .podcast-video-option.is-selected { border-color:var(--studydy-blue); background:var(--studydy-blue-soft-2); }
+.podcast-delivery input, .podcast-video-option input { margin:3px 0 0; accent-color:var(--studydy-blue); }
+.podcast-delivery strong, .podcast-video-option strong { display:block; font-size:14px; font-weight:900; }
+.podcast-delivery small, .podcast-video-option small { display:block; margin-top:2px; color:var(--text-muted); font-size:12px; font-weight:700; }
+.podcast-config-nav { display:none; }
+
+/* 桌面：填滿教材外框，長清單與預覽在各自區域內捲動，底部固定列留在視窗內。 */
+/* 保留 1000px：兩欄概念格子加右欄約需 1000px，1024×768 橫向平板仍可用填滿版面；與 CreateCardSet.tsx 的每頁數量門檻一致。 */
+@media (min-width:1000px) {
+  .material-content:has(.creation-page) { display:flex; flex-direction:column; height:calc(100dvh - var(--shell-header-height,56px)); min-height:0; }
+  .material-content:has(.creation-page) > :not(.material-content-body) { flex-shrink:0; }
+  .material-content-body:has(.creation-page),
+  .material-content-body > [role=tabpanel]:has(.creation-page) { display:flex; flex:1; min-width:0; min-height:0; }
+  .material-content .creation-page { flex:1; min-height:0; gap:14px; }
+  .material-content .creation-page > .pick-head { flex-shrink:0; }
+  .material-content .creation-page > .pick-stage { flex:1; min-height:0; }
+  .material-content .creation-page > .pick-stage > :not(.cards-create-grid):not(.podcast-compose-grid) { flex-shrink:0; }
+  .material-content .creation-page :is(.cards-create-grid, .podcast-compose-grid) { flex:1; min-height:0; align-items:stretch; }
+  .material-content .creation-page :is(.cards-selection, .podcast-selection, .cards-preview) { min-height:0; }
+  .material-content .creation-page :is(.cards-selection, .podcast-selection) > :not(.cards-concept-list):not(.podcast-concept-list) { flex-shrink:0; }
+  .material-content .creation-page :is(.cards-concept-list, .podcast-concept-list) { flex:1; min-height:0; max-height:none; overflow-y:auto; }
+  .material-content .creation-page .cards-side { overflow:hidden; }
+  .material-content .creation-page .cards-preview { flex:1; overflow-y:auto; }
+  .material-content .creation-page .podcast-side { align-self:start; }
+}
+/* 與上方 1000px 互補（保留理由同上）。 */
+@media (max-width:999px) {
+  .cards-create-grid { grid-template-columns:minmax(0,1fr) minmax(260px,.8fr); }
+  .cards-concept-list { grid-template-columns:minmax(0,1fr); }
+}
+/* 保留 900px：選概念與講解方式（最窄 260px）並排需約 900px；直向平板改用分頁切換，橫向平板維持並排。 */
+@media (max-width:900px) {
+  .podcast-config-nav { display:flex; gap:6px; }
+  .podcast-config-nav button { flex:1; min-width:0; min-height:44px; padding:8px 4px; font-size:13px; }
+  .podcast-compose-grid { grid-template-columns:minmax(0,1fr); }
+  .podcast-config-section:not(.is-active) { display:none; }
+  .podcast-settings h3 { display:none; }
+  .podcast-concept-list { grid-template-columns:minmax(0,1fr); max-height:46vh; }
+}
+@media (max-width:720px) {
+  .cards-create-grid { grid-template-columns:minmax(0,1fr); }
+  .pick-head h1 { font-size:22px; }
+  /* 手機的概念清單很長：底部列縮成一行（已選數＋按鈕），黏在底部頁籤正上方（頁籤底距 12px＋高 64px），不用捲到最後才按得到。 */
+  .pick-stage > .tool-stage-footer { position:sticky; bottom:calc(76px + env(safe-area-inset-bottom)); z-index:3; flex-wrap:nowrap; gap:10px; padding:8px 12px; box-shadow:var(--shadow); }
+  .pick-stage > .tool-stage-footer .cards-create-summary > span, .pick-claim-total { display:none; }
+  .pick-stage > .tool-stage-footer .cards-create-summary strong { font-size:15px; }
+  .pick-stage > .tool-stage-footer :is(.primary-button, .secondary-button) { padding-inline:16px; white-space:nowrap; }
+  /* 章標題黏在視窗頂端時蓋過概念格子的勾選框（勾選框 z-index:1）。 */
+  .chapter-head { z-index:2; }
+  /* 建立 Podcast 和建立卡組一樣整頁捲動，不在頁內小框捲動。 */
+  .podcast-concept-list { max-height:none; overflow:visible; }
+  /* 概念預覽：底部抽屜，內容在抽屜裡捲動。 */
+  .header-dialog.pick-preview-sheet { width:100%; max-width:none; max-height:72dvh; margin:auto 0 0; border-radius:24px 24px 0 0; }
+  .pick-preview-sheet-head { display:flex; flex:none; align-items:center; justify-content:space-between; gap:12px; padding:10px 10px 10px 20px; border-bottom:1px solid var(--border); }
+  .pick-preview-sheet-head strong { min-width:0; font-size:16px; font-weight:900; overflow-wrap:anywhere; }
+  .pick-preview-sheet-body { min-height:0; overflow-y:auto; padding:12px 20px 24px; }
+  .pick-preview-sheet .podcast-concept-preview > div { max-height:none; overflow:visible; }
+}

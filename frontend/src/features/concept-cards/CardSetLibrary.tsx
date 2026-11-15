@@ -1,5 +1,5 @@
 import { openCardSetUpdate } from "../material-flow/VersionMoveNotice";
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { InlineConfirm } from "../../ui/InlineConfirm";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardReviewsView, CardSetSummary, MaterialLibraryItem } from "../../api/contracts";
@@ -12,7 +12,7 @@ import { StateView } from "../../ui/StateView";
 import { CollectionHeader } from "../../ui/CollectionHeader";
 import { EmptyState } from "../../ui/EmptyState";
 
-export function CardSetLibrary({ apiClient, material, contentNavigation }: { apiClient: StudydyApiClient; material?: MaterialLibraryItem; contentNavigation?: ReactNode }) {
+export function CardSetLibrary({ apiClient, material }: { apiClient: StudydyApiClient; material?: MaterialLibraryItem }) {
   const [sets, setSets] = useState<CardSetSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -85,15 +85,14 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
   // 教材內的需要加強只看這份教材的卡組；全站看所有卡組。
   const reviewRoute: AppRoute = material ? { name: "card-review", materialId: material.material_id } : { name: "card-review" };
   return (
-    <section className="material-library is-collection cards-library" aria-label={material ? "教材概念卡" : "我的概念卡"}>
-      {contentNavigation}
+    <section className="material-library is-collection cards-library" aria-label={material ? "教材概念卡" : "翻卡片"}>
       {material ? <header className="library-header library-header-compact collection-toolbar material-search-row">
-        <div className="collection-summary" ref={heading} tabIndex={-1}><p>{sets === null ? "—" : `已保存 ${sets.length} 個卡組`}</p></div>
+        <div className="collection-summary" ref={heading} tabIndex={-1}><h1>翻卡片<small>{sets === null ? "—" : `${sets.length} 個卡組`}</small></h1></div>
         <button className="primary-button" type="button" disabled={!structure} onClick={create}><Icon name="cards" /> 建立卡組</button>
-      </header> : <CollectionHeader title="我的概念卡" headingRef={heading}
-        subtitle={<>{sets !== null && <><b>已保存 {sets.length} 個卡組</b> · </>}收藏一組值得反覆看的重點，把不熟的卡片標起來加強。</>}
+      </header> : <CollectionHeader title="翻卡片" headingRef={heading}
+        subtitle={<>{sets !== null && <><b>{sets.length} 組卡片</b> · </>}把值得反覆看的重點收成一組，不熟的就標起來加強。</>}
         actions={<button className="primary-button" type="button" onClick={create}><Icon name="cards" /> 建立卡組</button>} />}
-      <div role={material ? "tabpanel" : undefined} id={material ? "material-panel-concept-cards" : undefined} aria-labelledby={material ? "material-tab-concept-cards" : undefined}>
+      <div>
       {error && sets !== null && <p className="form-error" role="alert">無法更新卡組列表。{error}<button className="text-button" onClick={()=>setReload(value=>value+1)}>重新讀取</button></p>}
       {error && sets === null ? <StateView title="無法讀取卡組" description={error} tone="failure" action={<button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button>} />
         : sets === null ? <StateView title="正在讀取卡組" description="正在載入你保存的概念卡。" tone="loading" live skeleton="library" />
@@ -102,16 +101,18 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
             action={<button className="primary-button" type="button" disabled={!!material && !structure} onClick={create}>{material ? "建立卡組" : "選擇教材"}</button>} />
         ) : <>
           {/* 需要加強：一列入口，加強在獨立頁進行。 */}
-          <section className="cards-strengthen surface" aria-labelledby="cards-strengthen-title">
+          <section className="cards-strengthen surface" aria-label={material ? "不熟的卡" : "需要加強"}>
             <div className="cards-strengthen-bar">
               <img src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
-              <p><b id="cards-strengthen-title">需要加強</b>
+              <p><b>{weakTotal ? `${material ? "這份教材" : ""}有 ${weakTotal} 張卡片你還不熟` : material ? "不熟的卡" : "需要加強"}</b>
                 {weak === null ? <span>—</span> : weakTotal
-                  ? <span>{material ? "這份教材 " : ""}{weakTotal} 張卡片標成不熟</span>
-                  : <span>目前沒有，瀏覽卡組時把不熟的卡片標起來</span>}</p>
-              {weakTotal > 0 && <button className="primary-button" type="button" onClick={() => writeRoute(reviewRoute)}>
-                開始加強<Icon name="chevron-right" size={18} />
-              </button>}
+                  ? <span>先把它們翻一輪，熟了就會離開這個清單。</span>
+                  : <span>{material ? "目前沒有。翻卡時按「還不熟」，那張卡就會收到這裡。" : "目前沒有，瀏覽卡組時把不熟的卡片標起來"}</span>}</p>
+              {/* 教材內這顆按鈕一直在，沒有不熟的卡時是灰的。 */}
+              {material ? <button className="primary-button" type="button" disabled={weakTotal === 0} onClick={() => writeRoute(reviewRoute)}>去看不熟的卡</button>
+                : weakTotal > 0 && <button className="primary-button" type="button" onClick={() => writeRoute(reviewRoute)}>
+                  開始加強<Icon name="chevron-right" size={18} />
+                </button>}
             </div>
           </section>
 
@@ -138,11 +139,14 @@ export function CardSetLibrary({ apiClient, material, contentNavigation }: { api
                     ? <span className="library-state is-version" title="教材更新後已另建新版卡組，這裡保留更新前的卡面">舊版卡組</span>
                     // 到卡組頁查看更新入口；標籤直接帶過去。
                     : <button type="button" className="library-state is-version" title="更新這個卡組到新版教材" onClick={() => material ? openCardSetUpdate(item.card_set_id) : writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, { fromCollection: true })}>舊版內容 · 可更新</button>)}
-                  {(weak?.get(item.card_set_id) ?? 0) > 0 && <span className="card-review-due"><Icon name="refresh" size={14} />需要加強 {weak!.get(item.card_set_id)} 張</span>}
+                  {(weak?.get(item.card_set_id) ?? 0) > 0 && <span className="card-review-due"><Icon name="refresh" size={14} />{material ? "不熟的卡" : "需要加強"} {weak!.get(item.card_set_id)} 張</span>}
                 </div>
-                <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>開始複習</button></div>
+                <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>開始翻卡</button></div>
               </article>
             ))}
+            {material && <button className="library-new" type="button" disabled={!structure} onClick={create}>
+              <i aria-hidden="true">＋</i>建立新卡組<span>挑幾個概念做成卡片</span>
+            </button>}
           </div>
         </>}
       </div>

@@ -28,8 +28,10 @@
 
 .cards-study-stage { min-width:0; outline:none; }
 
-/* 卡片外框：上一張／下一張是卡片外側的圓鈕；卡片寬度跟著縮放後的卡面，置中。 */
+/* 卡片外框：左清單、中間（上一張／卡片／下一張圓鈕，下方標記列）、右提示欄；卡片寬度跟著縮放後的卡面，置中。 */
 .card-nav-frame { display:flex; align-items:center; justify-content:center; gap:28px; }
+.card-stage-column { display:flex; flex:1 1 auto; flex-direction:column; align-items:center; min-width:0; }
+.card-nav-row { display:flex; align-items:center; justify-content:center; gap:28px; width:100%; }
 .card-nav-button { flex:none; display:grid; place-items:center; width:54px; height:54px; padding:0; border:0; border-radius:50%; background:var(--surface); box-shadow:0 6px 22px #1f2a4829; color:var(--studydy-blue); transition:background .15s,color .15s; }
 .card-nav-button:not(:disabled):hover { background:var(--studydy-blue); color:#fff; }
 .card-nav-button:disabled { opacity:.3; }
@@ -38,18 +40,18 @@
 .card-shell { position:relative; flex:0 1 auto; width:fit-content; min-width:min(480px,100%); max-width:100%; overflow:hidden; border-radius:26px; background:var(--surface); box-shadow:var(--shadow); }
 .card-shell-progress { height:4px; border-radius:0; }
 .card-shell-face { min-width:0; }
-.card-dock { position:absolute; left:50%; bottom:16px; z-index:3; display:flex; align-items:center; gap:10px; padding:9px 12px; border:1px solid var(--border-light); border-radius:999px; background:#fffffff5; box-shadow:0 8px 30px #1f2a4833; transform:translateX(-50%); white-space:nowrap; }
-.card-dock .review-grades { display:flex; gap:10px; }
-.card-dock .review-grades button { flex-direction:row; justify-content:center; gap:6px; min-height:38px; padding:0 14px; border-radius:999px; font-size:14px; }
-.card-dock kbd { padding:1px 6px; border-radius:6px; background:#ffffffb3; box-shadow:inset 0 0 0 1px var(--border); color:var(--text-secondary); font:inherit; font-size:11px; font-weight:800; }
-.card-dock-count { padding:0 10px; color:var(--text-muted); font-size:14px; font-weight:800; }
+.card-dock { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px 14px; padding:16px 0 4px; }
+.card-dock .review-grades { display:flex; gap:12px; }
+.card-dock kbd { padding:0 6px; border:1.5px solid currentColor; border-radius:6px; font:inherit; font-size:12px; font-weight:800; opacity:.7; }
+.card-dock-hint { color:var(--text-muted); font-size:13px; font-weight:800; }
+.card-dock-count { padding:0 6px; color:var(--text-muted); font-size:14px; font-weight:800; }
 .card-dock-count b { color:var(--text-primary); font-size:16px; }
 .card-dock-count small { font-size:12px; font-weight:700; }
-.card-dock .form-error { position:absolute; bottom:calc(100% + 8px); left:50%; width:max-content; max-width:min(420px,80vw); margin:0; padding:6px 12px; border-radius:12px; background:var(--surface); box-shadow:var(--shadow); transform:translateX(-50%); white-space:normal; text-align:center; }
+.card-dock .form-error { flex-basis:100%; margin:0; text-align:center; }
 
-/* 卡面區：點任一處翻面；下方為頁數小字與浮動操作列保留的空間。 */
+/* 卡面區：點任一處翻面。 */
 /* 正面與反面共用同一個固定卡框（寬高由 CardNavFrame 量測），翻面不跳動；內容在框內置中。 */
-.card-face-flip { box-sizing:border-box; display:flex; flex-direction:column; justify-content:center; width:calc(var(--card-face-w) + 40px); height:calc(var(--card-face-h) + 126px); padding:14px 20px 112px; cursor:pointer; outline:none; }
+.card-face-flip { box-sizing:border-box; display:flex; flex-direction:column; justify-content:center; width:calc(var(--card-face-w) + 40px); height:calc(var(--card-face-h) + 58px); padding:14px 20px 44px; cursor:pointer; outline:none; }
 .card-face-flip:focus-visible { box-shadow:inset 0 0 0 3px var(--studydy-blue-soft); }
 .card-practice-front { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; width:min(var(--card-face-w,760px),760px); min-height:min(var(--card-face-h,360px),420px); margin-inline:auto; padding:24px; color:var(--text-primary); text-align:center; }
 .card-practice-front h2 { margin:0; font-size:clamp(28px,3vw,44px); line-height:1.3; overflow-wrap:anywhere; }
@@ -68,10 +70,10 @@
 .visual-card.has-more { -webkit-mask-image:linear-gradient(#000 calc(100% - 56px),transparent); mask-image:linear-gradient(#000 calc(100% - 56px),transparent); }
 
 /* 反面右下角的頁數、難度標記與從卡片下方滑出的完整重點與來源。 */
-.card-page-ref { position:absolute; right:22px; bottom:84px; z-index:3; padding:4px 8px; border:0; border-radius:8px; background:transparent; color:var(--text-muted); font-size:12.5px; font-weight:800; }
+.card-page-ref { position:absolute; right:22px; bottom:10px; z-index:3; padding:4px 8px; border:0; border-radius:8px; background:transparent; color:var(--text-muted); font-size:12.5px; font-weight:800; }
 .card-page-ref:hover, .card-page-ref[aria-expanded=true] { background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); }
-.card-face-badge { position:absolute; left:22px; bottom:84px; z-index:3; }
-.card-face-chip { position:absolute; left:22px; bottom:84px; z-index:3; display:inline-flex; flex-wrap:wrap; align-items:center; gap:2px 8px; max-width:60%; margin:0; padding:4px 12px; border-radius:14px; background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-size:12px; font-weight:800; }
+.card-face-badge { position:absolute; left:22px; bottom:10px; z-index:3; }
+.card-face-chip { position:absolute; left:22px; bottom:10px; z-index:3; display:inline-flex; flex-wrap:wrap; align-items:center; gap:2px 8px; max-width:60%; margin:0; padding:4px 12px; border-radius:14px; background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-size:12px; font-weight:800; }
 .card-source-drawer { position:absolute; left:0; right:0; bottom:0; z-index:4; max-height:70%; overflow:auto; padding:16px 32px 20px; border-radius:22px 22px 0 0; background:var(--surface); box-shadow:0 -12px 30px #1f2a4829; cursor:default; animation:card-drawer-in .18s ease-out; }
 .card-source-drawer > header { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-bottom:10px; }
 .card-source-drawer > header h3 { flex:1; margin:0; font-size:15px; font-weight:900; }
@@ -100,19 +102,28 @@
 @media (max-width:720px) {
   .cards-study-heading h1 { font-size:18px; }
   .cards-study-actions { justify-content:flex-start; }
-  .card-nav-frame { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .card-nav-frame { display:block; }
+  .card-stage-column { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .card-nav-row { display:contents; }
   .card-list-column { display:none; }
   .card-shell { grid-column:1/-1; grid-row:1; width:100%; min-width:0; }
-  .card-nav-button.is-prev { grid-column:1; grid-row:2; justify-self:start; }
-  .card-nav-button.is-next { grid-column:2; grid-row:2; justify-self:end; }
+  /* 細進度條貼在卡片頂端時被 26px 圓角切掉，手機改成卡片內上方的一條膠囊。 */
+  .card-shell-progress { width:auto; height:6px; margin:14px 20px 0; border-radius:999px; }
+  .card-dock { grid-column:1/-1; grid-row:2; padding:0; }
+  .card-nav-button.is-prev { grid-column:1; grid-row:3; justify-self:start; }
+  .card-nav-button.is-next { grid-column:2; grid-row:3; justify-self:end; }
   .card-face-flip { width:auto; height:auto; padding:12px 12px 8px; }
   .card-practice-front { width:100%; min-height:260px; padding:20px 12px; }
   .visual-card { max-height:70vh; scrollbar-gutter:auto; }
   .visual-concept-card { width:100%; }
-  .card-dock { position:static; width:fit-content; max-width:calc(100% - 16px); margin:0 auto 14px; transform:none; flex-wrap:wrap; justify-content:center; box-shadow:0 2px 10px #1f2a4829; }
-  .card-dock .form-error { position:static; transform:none; width:100%; }
   .card-page-ref, .card-face-badge { position:static; display:block; margin:0 12px 8px auto; }
   .card-face-badge { margin:0 auto 8px 12px; }
   .card-face-chip { position:static; max-width:none; margin:0 12px 8px; }
   .card-source-drawer { max-height:80%; padding:14px 16px 16px; }
 }
+
+/* 卡片右側的提示欄：說明文字加機器人。 */
+.card-aside-column { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 150px; align-self: flex-start; padding-top: 40px; }
+.card-aside-column p { margin: 0; padding: 10px 12px; border-radius: 16px; background: var(--studydy-blue-soft-2); color: var(--text-secondary); font-size: 13px; font-weight: 800; line-height: 1.55; }
+.card-aside-column img { width: 110px; height: auto; }
+@media (max-width: 1100px) { .card-aside-column { display: none; } }

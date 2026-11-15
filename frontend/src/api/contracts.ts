@@ -336,7 +336,7 @@ export type KnowledgeRegionsView = {
 
 // 學習統計只由作答事件推導，日期以台灣時間為界。
 export type LearningActivityDay = {
-  date: string; answers: number; correct: number; card_reviews: number; listened_seconds: number; active: boolean;
+  date: string; xp: number; answers: number; correct: number; card_reviews: number; listened_seconds: number; active: boolean;
 };
 export type LearningQuestKind = "mark_cards" | "continue_study" | "finish_podcast_episode";
 export type LearningQuest = {
@@ -400,7 +400,7 @@ export type PodcastProgressView = {
 
 export type PodcastProgressUpdate = {
   schema: "podcast-progress-update/v1";
-  episode_index: number; position_seconds: number; listened_seconds: number; ended?: boolean; legacy?: boolean;
+  episode_index: number; position_seconds: number; listened_seconds: number; ended?: boolean;
 };
 
 export type KnowledgeConceptsView = ConceptCardContext & {
@@ -788,6 +788,7 @@ type AssessmentSetItem = {
 };
 
 type AssessmentSetDetails = {
+  xp_award: LearningXp["sources"] | null;
   schema: "assessment-set/v2";
   study_session_id: string;
   material_id: string;

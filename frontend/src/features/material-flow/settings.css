@@ -1,0 +1,27 @@
+/* 教材設定頁：兩欄面板加底部刪除區。 */
+.material-settings { display: grid; gap: var(--space-4); align-content: start; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: start; }
+.settings-panel { display: grid; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-radius: var(--radius-card); }
+.settings-panel h2 { margin: 0; font-size: 16px; font-weight: 900; }
+.settings-panel p { margin: 0; color: var(--text-secondary); font-size: 13.5px; line-height: 1.55; }
+.settings-panel.is-danger { border: 2px solid color-mix(in srgb, var(--error) 28%, transparent); background: color-mix(in srgb, var(--error) 5%, var(--surface)); }
+.settings-panel.is-danger h2 { color: var(--error); }
+.settings-row { display: flex; gap: var(--space-3); align-items: center; }
+.settings-row input { flex: 1; min-width: 0; min-height: 44px; }
+.settings-saved { color: var(--success); font-weight: 800; }
+.settings-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); margin: 0; }
+.settings-facts div { padding: var(--space-2) var(--space-3); border-radius: var(--radius-input); background: var(--page-cool); }
+.settings-facts dt { color: var(--text-muted); font-size: 12px; font-weight: 800; }
+.settings-facts dd { margin: 0; color: var(--text-primary); font-size: 16px; font-weight: 900; overflow-wrap: anywhere; }
+.settings-update { display: grid; gap: var(--space-3); }
+.settings-update p { margin: 0; }
+.settings-update-tip { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: 16px; background: var(--warning-soft); color: #9a5a00; font-weight: 900; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.settings-panel.is-danger .inline-confirm-actions button { min-height: 44px; }
+.settings-actions a.secondary-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+@media (max-width: 720px) {
+  .settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-row { flex-wrap: wrap; }
+  .settings-facts { grid-template-columns: minmax(0, 1fr); }
+}
+.settings-panel.is-danger .inline-confirm { background: var(--error-soft); }

@@ -10,9 +10,9 @@ import { ResearchProgress } from './ResearchProgress';
 import { SourceCandidates, sourceReasons as reasons } from './SourceCandidates';
 import { researchActive, type Research, type ResearchDraft } from './research';
 
-export function ResearchDetail({ api, materialId, researchId, draft, onDraftChange, onMaterialUpdated, contentNavigation }: {
+export function ResearchDetail({ api, materialId, researchId, draft, onDraftChange, onMaterialUpdated, backLink }: {
   api: StudydyApiClient; materialId: string; researchId: string; draft?: ResearchDraft;
-  onDraftChange?: (draft: ResearchDraft) => void; onMaterialUpdated: () => void; contentNavigation?: ReactNode;
+  onDraftChange?: (draft: ResearchDraft) => void; onMaterialUpdated: () => void; backLink: ReactNode;
 }) {
   const saved = draft?.tasks[researchId];
   const [stageRequest, setStageRequest] = useState<{ status: string; stage: number } | null>(null);
@@ -82,14 +82,14 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
   const acquiredCount = view?.candidates.filter(candidate => view.selection.includes(candidate.id) && candidate.state === 'ready').length ?? 0;
   const selectedCount = submitted || ['acquiring', 'normalizing'].includes(view?.status ?? '') ? view?.selection.length ?? 0 : selected.length;
 
-  if (notFound) return <section className="cards-page supplementary-page research-detail">{contentNavigation}
-    <NotFoundView title="找不到這筆補充學習" description="這筆查詢可能已被刪除，或不屬於這份教材。" back={contentNavigation ? null : { label: '回到補充學習', route: { name: 'material-content', materialId, kind: 'research' } }} /></section>;
+  if (notFound) return <section className="cards-page supplementary-page research-detail">{backLink}
+    <NotFoundView title="找不到這筆找資料紀錄" description="這筆查詢可能已被刪除，或不屬於這份教材。" back={null} /></section>;
   return <section className="cards-page supplementary-page research-detail">
-    {contentNavigation}
-    <div className="research-panel" role="tabpanel" id="material-panel-research" aria-labelledby="material-tab-research">
+    {backLink}
+    <div className="research-panel">
       {/* 版型比照其他流程頁：標題、獨立一列的步驟條，補充範圍是可展開的卡片（平常只列主題名稱）。 */}
-      <header className="research-scope-header"><h1 className="research-scope-title">{view?.approved_scope?.title ?? '補充學習'}</h1>
-        {view && <LearningSteps labels={[...topicSteps.slice(0,-1),'補充教材']} current={completed?4:currentStage===2?3:2} label="補充學習流程"/>}
+      <header className="research-scope-header"><h1 className="research-scope-title">{view?.approved_scope?.title ?? '找更多資料'}</h1>
+        {view && <LearningSteps labels={[...topicSteps.slice(0,-1),'補充教材']} current={completed?4:currentStage===2?3:2} label="找更多資料流程"/>}
         {view && <details className="surface research-scope-card"><summary>
           <strong>本次補充範圍</strong>{view.approved_scope && <span className="research-scope-count">{view.approved_scope.topics.length} 個主題</span>}
           {view.approved_scope && <span className="research-scope-chips">{view.approved_scope.topics.map((topic,i)=><span key={i}>{topic.split('：')[0]}</span>)}</span>}</summary>
@@ -101,17 +101,17 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
         action={error ? <button type="button" className="secondary-button" onClick={() => setReload(value => value + 1)}>重新讀取</button> : undefined}/> : <>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="research-workspace">
-          {submitted && <p className="research-submitted-note">已送入教材分析，來源不可再修改。</p>}
+          {submitted && view.run?.status !== 'partial' && <p className="research-submitted-note">已送入教材分析，來源不可再修改。</p>}
           <section id="research-stage-content" className="surface research-detail-body tool-stage" aria-label="查詢來源與進度">
       {view.error_code && <p className="tool-notice">{reasons[view.error_code] ?? '處理未完成，已保存取得的結果。'}</p>}
       {view.is_current_revision === false && !submitted && <p className="tool-notice">教材已更新，這次搜尋不能直接加入舊版本。請以目前教材重新搜尋。</p>}
       {stage === 2 && submitted && <div className={`tool-result${completed ? ' is-complete' : ''}`}>
         <span className="tool-result-icon"><Icon name={completed ? 'check' : 'process'} size={24} /></span>
-        <div><h3>{view.run?.status === 'partial' ? '補充教材可查看' : completed ? '補充教材已建立' : view.run?.status === 'failed' ? '教材分析尚未完成' : view.run?.status === 'cancelled' ? '教材分析已取消' : '正在建立補充教材'}</h3>
-          <p>{view.run?.status === 'partial' ? '已產生補充內容，可查看知識地圖與各項內容的原文來源。' : completed ? `已將 ${acquiredCount} 份來源加入教材，可查看更新後的知識地圖。` : '已選來源會保留。可到教材分析頁查看進度或接續處理。'}</p></div>
+        <div><h3>{view.run?.status === 'partial' ? '補充的島嶼已經長出來了' : completed ? '補充教材已建立' : view.run?.status === 'failed' ? '教材分析尚未完成' : view.run?.status === 'cancelled' ? '教材分析已取消' : '正在建立補充教材'}</h3>
+          <p>{view.run?.status === 'partial' ? '已產生補充內容，可以查看知識地圖與各項內容的原文來源。已送入教材分析，來源不可再修改。' : completed ? `已將 ${acquiredCount} 份來源加入教材，可查看更新後的知識地圖。` : '已選來源會保留。可到教材分析頁查看進度或接續處理。'}</p></div>
         {view.run_id && <button className="primary-button" onClick={() => { writeRoute(publishedRevision
           ? { name: 'knowledge-map', materialId, runId: view.run_id!, structureRevision: publishedRevision }
-          : { name: 'material-run', materialId, runId: view.run_id! }); }}>{publishedRevision ? '查看補充教材' : '查看教材分析'}<Icon name="chevron-right" size={16} /></button>}
+          : { name: 'material-run', materialId, runId: view.run_id! }); }}>{publishedRevision ? '到地圖上看' : '查看教材分析'}<Icon name="chevron-right" size={16} /></button>}
         {['succeeded','partial'].includes(view.run?.status ?? '') && view.candidates.some(c => view.selection.includes(c.id) && c.state === 'failed') && <button className="secondary-button" disabled={busy} onClick={() => void perform('retry')}>重試未完成來源</button>}
       </div>}
       {view.progress && stage !== 2 && <ResearchProgress progress={view.progress} running={view.status === 'searching'} candidates={view.candidates} />}

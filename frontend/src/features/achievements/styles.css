@@ -1,4 +1,4 @@
-/* 成就頁：左欄等級與經驗值，右欄成就總覽；桌機頁面剛好填滿視窗，只有成就總覽在自己的區域內捲動。窄螢幕上下排列、整頁捲動。 */
+/* 成就頁：左欄等級與這週 XP，右欄快拿到了與徽章階梯，下方是收合的全部徽章和規則；整頁一起捲動。 */
 .achievements {
   display: grid;
   gap: 14px;
@@ -7,21 +7,58 @@
 .achievements > .collection-head { margin-bottom: 0; }
 .achievements-layout {
   display: grid;
-  grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
-.achievements-layout > .surface { padding: 20px 22px; }
+.achievements-side { display: grid; gap: 16px; min-width: 0; }
+.achievements-main { display: grid; gap: 18px; min-width: 0; }
 .achievements-layout h2 { margin: 0; font-size: 17px; }
-.level-xp { display: grid; align-content: start; gap: 4px; }
-.level-xp .level-next { margin-bottom: 8px; }
+
+/* 等級卡：藍到海色漸層，機器人在右下 */
+.level-card {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  overflow: hidden;
+  padding: 20px;
+  border-radius: var(--radius-panel);
+  background: linear-gradient(160deg, var(--studydy-blue), var(--sea));
+  color: #fff;
+}
+.level-card > small { font-size: 13px; font-weight: 900; opacity: 0.9; }
+.level-card h2 { font-size: 36px; line-height: 1.1; }
+.level-total { font-size: 13px; font-weight: 800; }
+.level-total b { color: var(--warning); }
+.level-card .studydy-progress { width: min(100%, 190px); height: 14px; --progress-track: rgba(255, 255, 255, 0.3); --progress-color: var(--warning); }
+.level-card .level-next { display: grid; max-width: 190px; margin: 0; color: #fff; }
+.level-card .level-next span:first-child { color: #fff; }
+.level-card img { position: absolute; right: -6px; bottom: -8px; width: 112px; height: auto; pointer-events: none; }
+
+/* 這週 XP 長條圖 */
+.week-xp { display: grid; gap: 10px; padding: 16px; }
+.week-xp > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.week-xp > header small { color: var(--studydy-blue); font-size: 13px; font-weight: 900; }
+.week-xp p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+.week-xp-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.week-xp-bars li { display: grid; justify-items: center; gap: 4px; color: var(--text-muted); font-size: 12px; font-weight: 800; }
+.week-xp-bar { display: flex; align-items: flex-end; width: min(100%, 30px); height: 90px; }
+.week-xp-bar i { display: block; width: 100%; border-radius: 6px 6px 2px 2px; background: var(--studydy-blue); }
+.week-xp-bar i.is-today { background: var(--amber-deep); }
+.week-xp .text-button { justify-self: start; }
+
+/* 全部徽章和規則：平常收合，展開後全寬，徽章格子依寬度自動多欄 */
+.achievements-all { display: grid; gap: 14px; }
+.achievements-all-toggle { justify-self: start; }
+.achievements-all-chevron { display: inline-grid; transition: transform 0.15s; }
+.achievements-all-toggle[aria-expanded="true"] .achievements-all-chevron { transform: rotate(90deg); }
+.achievements-all-panel { display: grid; gap: 18px; }
+.achievements-all-panel .xp-rules { padding: 20px 22px; border-top: 0; }
 
 /* 經驗值圖解：來源比例長條、各來源（精簡列） */
 .xp-rules {
   display: grid;
   gap: 14px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
 }
 .xp-rules h3 { margin: 0; font-size: 15px; }
 .xp-rules .is-answers { --xp: var(--warning); --xp-soft: var(--warning-soft); }
@@ -76,25 +113,6 @@
 .xp-source-earned { display: grid; justify-items: end; min-width: 44px; }
 .xp-source-earned b { font-size: 15px; }
 .xp-source-earned small { color: var(--text-muted); font-size: 10px; font-weight: 800; }
-/* 頁首 70px＋內容區上緣 26px＋下緣 24px；左欄放不下時（矮螢幕）自己捲動。 */
-/* 保留 min-height: 640px：低於此高度兩欄各自捲動會太擠，改回整頁捲動；依內容高度決定。 */
-@media (min-width: 1025px) and (min-height: 640px) {
-  .app-shell.is-achievements .app-main { padding-bottom: 24px; }
-  .achievements {
-    height: calc(100dvh - 120px);
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-  .achievements-layout { height: 100%; min-height: 0; align-items: stretch; }
-  .achievements-layout > .level-xp,
-  .achievements-layout > .badge-collection {
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    /* 區塊高度固定時，內部各列維持內容高度、多出的部分捲動，不被壓縮而互相重疊。 */
-    grid-auto-rows: max-content;
-    align-content: start;
-  }
-}
 @media (max-width: 1024px) {
   .achievements-layout { grid-template-columns: minmax(0, 1fr); }
 }

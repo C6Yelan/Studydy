@@ -7,11 +7,10 @@
 .source-reference-merged .source-reference-fixed { flex-shrink:0; white-space:pre; }
 /* 全站共用的右側原文面板：外觀比照知識地圖的概念詳情面板；桌機時正文讓出同寬空間。 */
 :root { --source-panel-width: 380px; }
-.source-side-panel { position:fixed; right:var(--shell-gutter, 16px); bottom:16px; z-index:100; width:var(--source-panel-width); overflow-y:auto; padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-card); background:var(--surface); color:var(--text-primary); box-shadow:var(--shadow); }
-/* 教材頁首維持全寬（同地圖），只讓頁首下方的內容讓出面板寬度。 */
+.source-side-panel { position:fixed; top:16px; right:var(--shell-gutter, 16px); bottom:16px; z-index:100; width:var(--source-panel-width); overflow-y:auto; padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-card); background:var(--surface); color:var(--text-primary); box-shadow:var(--shadow); }
+/* 寬螢幕時內容區讓出面板寬度。 */
 @media (min-width:1100px) {
-  .source-panel-open .material-header ~ * { width:auto; margin-right:calc(var(--source-panel-width) + 16px); }
-  .source-panel-open .app-main:not(:has(.material-header)) { margin-right:calc(var(--source-panel-width) + 16px); }
+  .source-panel-open .app-main { margin-right:calc(var(--source-panel-width) + 16px); }
 }
 .source-side-panel > header { display:flex; align-items:start; justify-content:space-between; gap:8px; padding-bottom:12px; border-bottom:1px solid var(--border); }
 .source-side-kicker { display:block; color:var(--studydy-blue); font-size:12px; overflow-wrap:anywhere; }

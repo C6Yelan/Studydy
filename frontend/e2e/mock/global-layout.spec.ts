@@ -16,14 +16,16 @@ const responses: Record<string, unknown> = {
   "/v1/materials": { schema: "material-library/v1", materials: [] },
   "/v1/card-sets": { schema: "card-set-list/v1", card_sets: [] },
   "/v1/podcasts": { schema: "podcast-list/v1", podcasts: [] },
+  // 側欄「翻卡片」的不熟卡數用三位數，檢查側欄不被撐開。
+  "/v1/card-reviews": { schema: "card-reviews/v2", forgot_count: 128, sets: [], marks: [], cards: [] },
   "/v1/account/sessions": { schema: "account-sessions/v2", sessions: [
     { session_id: "11111111-1111-4111-8111-111111111111", device_label: "Chrome · Windows", created_at: "2026-10-20T01:00:00Z", last_used_at: "2026-10-23T01:00:00Z", current: true },
     { session_id: "22222222-2222-4222-8222-222222222222", device_label: "Samsung Internet · Android", created_at: "2026-10-19T01:00:00Z", last_used_at: "2026-10-22T01:00:00Z", current: false },
   ] },
-  // 較長名稱，檢查頁首在各寬度不溢出。
+  // 較長名稱，檢查個人檔案標題在各寬度不溢出。
   "/v1/profile": { schema: "learner-profile/v1", display_name: "林以安同學的學習帳號" },
   "/v1/account/storage": { schema: "account-storage/v2", used_bytes: 4831838208, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 536870912, breakdown: { material_files_bytes: 4831838208, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] },
-  // 有學習紀錄的頁首進度、等級、今日任務與學習節奏，讓各寬度一併檢查頁首、首頁右欄與個人檔案不溢出。
+  // 有學習紀錄的等級、今天的小事與學習節奏，讓各寬度一併檢查首頁、右欄與個人檔案不溢出。
   "/v1/learning-activity/rhythm": learningRhythm({
     streak: 128,
     days: { "2026-10-19": { answers: 120, correct: 96, card_reviews: 300, listened_seconds: 3600, active: true },
@@ -64,11 +66,12 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1440, 1366, 1300, 1281, 1200,
   test(`standard frames stay centered without clipping at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : width === 1024 ? 768 : width === 1440 ? 900 : 1080 });
     for (const [path, heading] of [
-      ["/", /^(早安|午安|晚安)，林以安同學的學習帳號！今天想探索哪座島？$/],
+      // 有今天的小事時機器人說還差幾件，沒有就問想探索哪座島。
+      ["/", /^(早安|午安|晚安)，林以安同學的學習帳號！(今天想探索哪座島？|再完成 \d+ 件小事，今天就達標了。)$/],
       ["/profile", "林以安同學的學習帳號"],
       ["/achievements", "成就"],
-      ["/materials", "我的教材"],
-      ["/upload", "上傳教材"],
+      ["/materials", "我的群島"],
+      ["/upload", "新增一座島"],
     ] as const) {
       await page.goto(path);
       const frame = page.locator(".app-main > section");
@@ -80,41 +83,39 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1440, 1366, 1300, 1281, 1200,
         await expect(page.locator(".profile-stat-list")).toHaveAttribute("aria-busy", "false");
         await expect(page.getByRole("region", { name: "學習節奏" })).toBeVisible();
         await expect(page.getByRole("region", { name: "登入裝置" })).toBeVisible();
-        await page.getByRole("button", { name: /^帳號空間：/ }).click();
-        await expect(page.getByRole("region", { name: "帳號空間" })).toContainText("帳號空間4.5 GB／5 GB");
-        await page.keyboard.press("Escape");
+        await expect(page.getByRole("region", { name: "儲存空間" })).toContainText("4.5 GB／5 GB");
         // 平板寬度的五個統計說明不被擠成「…」。
         expect(await page.locator(".profile-stat small").evaluateAll((nodes) =>
           nodes.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent))).toEqual([]);
       }
       if (path === "/achievements") {
+        // 全部徽章和規則平常收合，展開後才有總覽與經驗值規則。
+        await page.getByRole("button", { name: "全部徽章和規則" }).click();
         // 8 個指定的層級加上第 15 級已達的等級 I～III 層；分母不含成就鏈中尚未揭曉的 5 步。
         await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText("11 / 98");
         await expect(page.getByRole("region", { name: "經驗值怎麼算" })).toBeVisible();
       }
       if (path === "/") {
-        await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
-        // 頁首學習進度與品牌、帳號工具不重疊，也不超出視窗。
-        const pill = page.getByRole("button", { name: "第 15 級，本級 1450 / 1500 XP，連續學習 128 天，查看成就" });
-        await expect(pill).toBeVisible();
-        const header = await page.evaluate(() => {
-          const brand = document.querySelector(".header-start")!.getBoundingClientRect();
-          const controls = document.querySelector(".account-controls")!.getBoundingClientRect();
-          const items = Array.from(document.querySelectorAll(".account-controls > *")).map((e) => e.getBoundingClientRect()).filter((box) => box.width > 0);
-          const nav = document.querySelector(".main-nav")!.getBoundingClientRect();
-          return {
-            // 手機隱藏中央導覽（寬度 0）時只比對品牌。
-            gap: Math.min(controls.left - Math.max(brand.right, nav.width ? nav.right : 0), nav.width ? nav.left - brand.right : Infinity),
-            right: controls.right, width: innerWidth,
-            centers: [brand, controls, ...(nav.width ? [nav] : [])].map(box => box.top + box.height / 2),
-            overlaps: items.some((box, index) => index > 0 && box.left < items[index - 1].right - 0.5),
-          };
-        });
-        expect(header.gap).toBeGreaterThanOrEqual(12);
-        expect(header.right).toBeLessThanOrEqual(header.width);
-        expect(header.overlaps).toBe(false);
-        expect(Math.max(...header.centers) - Math.min(...header.centers)).toBeLessThanOrEqual(1);
+        await expect(page.getByRole("region", { name: "今天的小事" })).toBeVisible();
+        // 等級和連續天數在首頁問候下方。
+        await expect(page.locator(".dashboard-greeting")).toContainText("連續 128 天 · 第 15 級");
       }
+      // 側欄（手機是頂端一列）與內容區不重疊，入口與搜尋都在視窗內、沒有被裁切。
+      const shell = await page.evaluate(() => {
+        const rail = document.querySelector(".rail")!.getBoundingClientRect();
+        const main = document.querySelector(".app-main")!.getBoundingClientRect();
+        const items = Array.from(document.querySelectorAll(".rail a, .rail button, .phone-nav a"))
+          .map((e) => e.getBoundingClientRect()).filter((box) => box.width > 0);
+        return {
+          separated: innerWidth > 720 ? rail.right <= main.left + 0.5 : rail.bottom <= main.top + 0.5,
+          inside: items.every((box) => box.left >= 0 && box.right <= innerWidth + 0.5),
+          clipped: Array.from(document.querySelectorAll(".rail a, .rail button"))
+            .filter((e) => e.getBoundingClientRect().width > 0 && e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent),
+        };
+      });
+      expect(shell.separated).toBe(true);
+      expect(shell.inside).toBe(true);
+      expect(shell.clipped).toEqual([]);
       if (path === "/upload")
         await expect(page.getByLabel("選擇教材檔案", { exact: true })).toBeEnabled();
       const layout = await frame.evaluate((element) => {
@@ -139,10 +140,10 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1440, 1366, 1300, 1281, 1200,
       expect(layout.width).toBeLessThanOrEqual(layout.usableWidth + 1);
       expect(layout.width).toBeGreaterThanOrEqual(Math.min(layout.usableWidth, 1200) - 1);
       if (path === "/upload") {
-        // 拖放區撐滿階段卡片的內容寬度（只扣卡片左右內距）。
+        // 拖放區撐滿左欄（拖放區與 YouTube 輸入所在的欄）的寬度。
         const drop = (await page.locator(".file-drop").boundingBox())!;
-        const stage = (await page.locator(".flow-stage").filter({ has: page.locator(".file-drop") }).boundingBox())!;
-        expect(drop.width).toBeGreaterThanOrEqual(stage.width - 80);
+        const main = (await page.locator(".upload-main").boundingBox())!;
+        expect(drop.width).toBeGreaterThanOrEqual(main.width - 4);
       }
       expect(layout.headingTop).toBeCloseTo(layout.top, 0);
       expect(layout.documentWidth).toBe(width);

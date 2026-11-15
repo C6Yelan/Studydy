@@ -3,8 +3,8 @@ import { useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { CardBatch, CardReviewItem, CardReviewRating, CardStudyView } from "../../api/contracts";
-import { type AppRoute } from "../../app/routes";
-import { BackLink } from "../../ui/BackLink";
+import { writeRoute } from "../../app/routes";
+import { ListBreadcrumb } from "../../ui/Breadcrumb";
 import { EmptyState } from "../../ui/EmptyState";
 import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
@@ -22,12 +22,13 @@ type LoadedCard = { study: CardStudyView; item: CardReviewItem; card: CardBatch[
  * 卡片內容由卡組的瀏覽 API 讀取（需要加強清單只給卡片重點，沒有圖卡需要的教材關係）。
  */
 export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient: StudydyApiClient; cardSetId?: string; materialId?: string }) {
-  // 只篩教材時在教材內：教材頁首的「概念卡」分頁已能回到這份教材的卡組，頁首不再另放返回。
+  // 只篩教材時在教材內：教材側欄的「翻卡片」已能回到這份教材的卡組，不再另放返回。
   const materialOnly = !cardSetId && !!materialId;
-  const back: { label: string; route: AppRoute } = materialId && !window.history.state?.fromCollection
-    ? { label: "返回概念卡", route: { name: "material-content", materialId, kind: "concept-cards" } }
-    : { label: "返回概念卡", route: { name: "concept-cards" } };
-  const backLink = materialId ? null : <BackLink {...back} />;
+  // 全站版面左上的「×」回到全站翻卡片；教材內改放麵包屑（教材側欄也能回到清單）。
+  const closeButton = materialId ? null : <button className="review-close" type="button" aria-label="回到翻卡片" title="回到翻卡片" onClick={() => writeRoute({ name: "concept-cards" })}><Icon name="close" size={22} /></button>;
+  // 教材內叫「不熟的卡」，全站版仍叫「需要加強」。
+  const title = materialId ? "不熟的卡" : "需要加強";
+  const crumb = materialId ? <ListBreadcrumb kind="concept-cards" materialId={materialId} current={title} /> : null;
   // 這一輪的清單固定；已處理項目可以回看，但不重複送出標記。
   const [round, setRound] = useState<CardReviewItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -48,42 +49,46 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
   }, [apiClient, cardSetId, materialId, materialOnly, reload]);
   const setName = round?.[0]?.card_set_name;
   const description = cardSetId ? setName ? `卡組「${setName}」中標成不熟的卡片` : "這個卡組標成不熟的卡片" : materialOnly ? "這份教材各卡組中標成不熟的卡片" : "所有卡組中標成不熟的卡片";
-  const heading = (origin?: string | null) => <header className="cards-study-heading card-review-heading">
+  // 上方列：關閉、標題與說明、每張卡一格的進度（已處理的填色）和第幾張。
+  const heading = (origin?: string | null, progress?: { done: Set<number>; position: number; total: number }) => <>{crumb}<header className="card-review-heading">
+    {closeButton}
     <div className="cards-study-title">
-      <h1>需要加強</h1>
+      <h1>{title}</h1>
       <span className="cards-study-meta"><span>{description}</span>{origin && <span title={origin}><Icon name="cards" size={15} />{origin}</span>}{notice && <span className="cards-study-notice" role="status">{notice}</span>}</span>
     </div>
-  </header>;
+    {progress && <>
+      <div className="review-dots" aria-hidden="true">{Array.from({ length: progress.total }, (_, i) => <i key={i} className={i === progress.position ? "is-current" : progress.done.has(i) ? "is-done" : undefined} />)}</div>
+      <span className="review-count">第 {progress.position + 1} / {progress.total} 張</span>
+    </>}
+  </header></>;
   if (loadError) return <section className="card-review-page">
-    {backLink}
     {heading()}
-    <StateView title="無法讀取需要加強的卡片" description={loadError} tone="failure"
+    <StateView title={`無法讀取${title}的卡片`} description={loadError} tone="failure"
       action={<button className="primary-button" type="button" onClick={() => setReload((value) => value + 1)}>重新讀取</button>} />
   </section>;
   if (!round) return <section className="card-review-page">
-    {backLink}
     {heading()}
-    <StateView title="正在讀取需要加強的卡片" description="正在整理這一輪要看的卡片。" tone="loading" live skeleton="deck" />
+    <StateView title={`正在讀取${title}的卡片`} description="正在整理這一輪要看的卡片。" tone="loading" live skeleton="deck" />
   </section>;
   const done = processed.size === round.length;
   const marked = { forgot: [...processed.values()].filter(value => value === "forgot").length, remembered: [...processed.values()].filter(value => value === "remembered").length };
   return <section className="card-review-page">
-    {backLink}
     {heading(
     // 混合多個卡組時標示這張卡的來源（教材內只寫卡組，全站另附教材）。
-    round.length > 0 && !done && !cardSetId ? materialOnly ? round[position].card_set_name : `${round[position].card_set_name} · ${round[position].material_name}` : null)}
+    round.length > 0 && !done && !cardSetId ? materialOnly ? round[position].card_set_name : `${round[position].card_set_name} · ${round[position].material_name}` : null,
+    round.length > 0 && !done ? { done: new Set(processed.keys()), position, total: round.length } : undefined)}
     {round.length === 0
-      ? <EmptyState label="需要加強空狀態" title="目前沒有需要加強的卡片" description="瀏覽卡組時，在卡片下方標成「不熟」，就會出現在這裡。" />
+      ? <EmptyState label={`${title}空狀態`} title={`目前沒有${title}的卡片`} description="瀏覽卡組時，在卡片下方標成「不熟」，就會出現在這裡。" />
       : done
         ? <div className="card-review-done surface" role="status">
           <img src="/assets/studydy/success-jump.png" alt="" />
           <h2>這一輪加強完成！</h2>
-          <p>標成熟悉 <b>{marked.remembered}</b> 張{marked.forgot > 0 && <>，仍不熟 <b>{marked.forgot}</b> 張，下次會再出現在需要加強</>}。</p>
+          <p>標成熟悉 <b>{marked.remembered}</b> 張{marked.forgot > 0 && <>，仍不熟 <b>{marked.forgot}</b> 張，下次會再出現在{title}</>}。</p>
           <div className="state-actions">
             {marked.forgot > 0 && <button className="primary-button" type="button" onClick={() => setReload((value) => value + 1)}>再加強一輪</button>}
           </div>
         </div>
-        : <ReviewCard key={`${round[position].card_set_id}:${round[position].card.concept_id}`} apiClient={apiClient} item={round[position]} onBusy={setSaving} processed={processed.has(position)} processedCount={processed.size} savedRating={processed.get(position) ?? null} position={position} total={round.length} enterLastPage={enterLastPage} onMove={direction => { setEnterLastPage(direction < 0); setPosition(value => value + direction); }}
+        : <ReviewCard title={title} key={`${round[position].card_set_id}:${round[position].card.concept_id}`} apiClient={apiClient} item={round[position]} onBusy={setSaving} processed={processed.has(position)} processedCount={processed.size} savedRating={processed.get(position) ?? null} position={position} total={round.length} enterLastPage={enterLastPage} onMove={direction => { setEnterLastPage(direction < 0); setPosition(value => value + direction); }}
           list={<CardList disabled={saving} items={round.map((entry, i) => ({ key: `${entry.card_set_id}:${entry.card.concept_id}`, label: entry.card.label, current: position === i, status: processed.has(i) ? "已處理" : null }))}
             onSelect={i => { setEnterLastPage(false); setPosition(i); }} />}
           onMarked={(rating) => {
@@ -93,15 +98,15 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
             const remaining = nextPosition >= 0 ? nextPosition : round.findIndex((_, i) => !next.has(i));
             if (remaining >= 0) setPosition(remaining);
             if (!rating) { setNotice("上一張卡已在其他頁面標記過，這裡不重複標記。"); return; }
-            setNotice(rating === "remembered" ? "已標成熟悉，離開需要加強。" : "已標成不熟，下一輪還會出現。");
-            // 標記後重新讀取學習活動，讓頁首經驗值與今日任務跟上（失敗時保留原畫面）。
+            setNotice(rating === "remembered" ? `已標成熟悉，離開${title}。` : "已標成不熟，下一輪還會出現。");
+            // 標記後重新讀取學習活動，讓升級動畫與今日任務跟上（失敗時保留原畫面）。
             void apiClient.getLearningActivity().catch(() => undefined);
           }} />}
   </section>;
 }
 
-function ReviewCard({ apiClient, item, list, onMarked, processed, processedCount, savedRating, position, total, onMove, onBusy, enterLastPage }: {
-  apiClient: StudydyApiClient; item: CardReviewItem;
+function ReviewCard({ title, apiClient, item, list, onMarked, processed, processedCount, savedRating, position, total, onMove, onBusy, enterLastPage }: {
+  title: string; apiClient: StudydyApiClient; item: CardReviewItem;
   enterLastPage: boolean; list: ReactNode;
   onBusy: (busy: boolean) => void;
   processed: boolean; processedCount: number; savedRating: CardReviewRating | null; position: number; total: number; onMove: (direction: number) => void;
@@ -169,11 +174,14 @@ function ReviewCard({ apiClient, item, list, onMarked, processed, processedCount
     if (event.key === "ArrowLeft") { event.preventDefault(); move(-1); }
   };
   const status = processed ? savedRating ? `本輪已標成${markLabel(savedRating)}，回看不會重複記錄。` : "這張卡已在其他頁面標記，本輪只供回看。" : busy ? "正在保存…" : null;
-  return <article ref={stage} tabIndex={-1} onKeyDown={keys} className="card-review-stage cards-study-stage" aria-label={`需要加強：${item.card.label}`}>
-    <CardNavFrame list={list} onPrev={() => move(-1)} onNext={() => move(1)} prevDisabled={busy || !loaded || position === 0 && localPage === 0} nextDisabled={busy || !loaded || position === total - 1 && localPage === pages - 1}
+  return <article ref={stage} tabIndex={-1} onKeyDown={keys} className="card-review-stage cards-study-stage" aria-label={`${title}：${item.card.label}`}>
+    <CardNavFrame list={list}
+      aside={<><p>翻到背面看過，才能標記熟不熟。</p><img src="/assets/studydy/brand-idle.png" alt="" /></>}
+      onPrev={() => move(-1)} onNext={() => move(1)} prevDisabled={busy || !loaded || position === 0 && localPage === 0} nextDisabled={busy || !loaded || position === total - 1 && localPage === pages - 1}
       progress={{ value: processedCount, max: total, label: "已看完的張數" }}
       dock={<>
         <CardMarkButtons current={savedRating} disabled={busy || !loaded || !back || processed} hotkeys title={back ? undefined : "先翻到背面查看重點，再標記。"} onMark={(rating) => void mark(rating)} label={`標記「${item.card.label}」熟不熟`} />
+        <span className="card-dock-hint keyboard-hint">← → 換卡 · 看過背面後按 1 或 2</span>
         <span className="card-dock-count"><b>{position + 1}</b> / {total}{pages > 1 && !loadFailed && <small> · 卡面 {localPage + 1} / {pages}</small>}</span>
       </>}>
     {loaded

@@ -345,6 +345,18 @@ def submit_set_answers(
                 if saved.selected_option_id != answer["selected_option_id"]:
                     raise AssessmentSetError("ASSESSMENT_SET_CONFLICT")
             validated.append((item.ordinal, row, answer["selected_option_id"], saved))
+        from runtime.learning_activity import derive_xp, read_xp_records
+
+        before_time = _now()
+        before = None
+        try:
+            with session.begin_nested():
+                before = derive_xp(
+                    read_xp_records(session, study.learner_id, now=before_time), now=before_time,
+                )["sources"]
+        except Exception as error:
+            logging.getLogger(__name__).warning(
+                "XP_AWARD_CALCULATION_FAILED set_id=%s error=%s", set_id, type(error).__name__)
         # 先驗完整組再寫；任一寫入／commit 失敗會一起回滾。
         for ordinal, row, selected, saved in validated:
             if saved is None:
@@ -369,6 +381,22 @@ def submit_set_answers(
         except Exception as error:
             logging.getLogger(__name__).warning(
                 "GOAL_MILESTONE_RECORD_FAILED set_id=%s error=%s", set_id, type(error).__name__)
+
+        award = None
+        if before is not None:
+            try:
+                with session.begin_nested():
+                    # 寫入跨午夜時，以寫入後的日期納入新紀錄；比較的是全部來源累計。
+                    after_time = _now()
+                    after = derive_xp(
+                        read_xp_records(session, study.learner_id, now=after_time), now=after_time,
+                    )["sources"]
+                    award = {source: after[source] - value for source, value in before.items()}
+            except Exception as error:
+                logging.getLogger(__name__).warning(
+                    "XP_AWARD_CALCULATION_FAILED set_id=%s error=%s", set_id, type(error).__name__)
+        # 指紋仍以雜湊 key 儲存；分項只保存一次，供重送與之後 GET 讀回。
+        group.action_receipts = {**group.action_receipts, "xp_award": award}
 
 
 def change_set(

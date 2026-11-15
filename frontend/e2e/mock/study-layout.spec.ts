@@ -239,3 +239,36 @@ test("in-progress set offers submission without cancellation", async ({ page }) 
   await expect(page.getByRole("button", { name: /取消本組測驗|取消本輪/ })).toHaveCount(0);
   await answerPaper(page, [0, 0, 0, 0, 0, 0]);
 });
+
+for (const width of [1366, 390]) {
+  test(`answering is a focus mode whose close button returns to the entry page at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    const fixture = await studyLayoutFixture(page, "in_progress");
+    // 直接開網址進來：沒有任何側欄或底部頁籤，「×」回到這份教材的學習進度。
+    await fixture.open();
+    await expect(page.locator(".assessment-set-item")).toHaveCount(1);
+    const studyPath = new URL(page.url()).pathname;
+    const mapPath = studyPath.replace(/\/study-sessions\/.*$/, "");
+    for (const name of ["教材導覽", "主要導覽", "手機導覽"])
+      await expect(page.getByRole("navigation", { name, exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "問小幫手", exact: true })).toHaveCount(0);
+    const close = page.getByRole("button", { name: "離開作答", exact: true });
+    const box = (await close.boundingBox())!;
+    expect(box.x).toBeLessThan(80);
+    expect(box.y).toBeLessThan(80);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect((await page.locator(".study-session-page").boundingBox())!.x).toBeLessThan(40);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await close.click();
+    await expect(page).toHaveURL(new RegExp(`${mapPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/progress$`));
+    await expect(page.getByRole("navigation", { name: "教材導覽", exact: true }).getByRole("link", { name: "學習進度", exact: true })).toHaveAttribute("aria-current", "page");
+    // 從站內其他頁面進來：「×」回到那一頁。
+    await page.evaluate((path) => { history.pushState({}, "", path); window.dispatchEvent(new PopStateEvent("popstate")); }, mapPath);
+    await expect(page.getByRole("navigation", { name: "教材導覽", exact: true }).getByRole("link", { name: "知識地圖", exact: true })).toHaveAttribute("aria-current", "page");
+    await page.evaluate((path) => { history.pushState({}, "", path); window.dispatchEvent(new PopStateEvent("popstate")); }, studyPath);
+    await expect(page.locator(".assessment-set-item")).toHaveCount(1);
+    await expect(page.getByRole("navigation", { name: "教材導覽", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "離開作答", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`${mapPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+  });
+}

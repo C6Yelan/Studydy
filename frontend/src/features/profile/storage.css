@@ -1,0 +1,26 @@
+/* 個人檔案的儲存空間卡與展開的用量明細。 */
+.profile-storage { grid-area: storage; display: grid; gap: 10px; min-width: 0; }
+.profile-storage > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.profile-storage > header .text-button { min-height: 44px; }
+.profile-storage-total { display: flex; align-items: baseline; gap: 4px; margin: 0; font-variant-numeric: tabular-nums; }
+.profile-storage-total b { font-size: 24px; font-weight: 900; }
+.profile-storage-total small { color: var(--text-muted); font-size: 14px; font-weight: 800; }
+.profile-storage-warning { margin: 0; color: var(--error); font-size: 14px; }
+.storage-breakdown-panel { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--border-light); color: var(--text-secondary); font-size: 14px; }
+.storage-breakdown-bar { display:flex; min-height:.75rem; overflow:hidden; border-radius:999px; background:var(--border); }
+.storage-breakdown-bar > span { flex:none; }
+.storage-breakdown-legend { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem 1rem; margin:0; }
+.storage-breakdown-legend > div { display:flex; flex-wrap:wrap; align-items:center; gap:.25rem .5rem; }
+.storage-breakdown-legend dt { position:relative; display:flex; align-items:center; gap:.35rem; font-size:.75rem; }
+.storage-breakdown-legend dt > span:first-child { flex:none; width:.5rem; height:.5rem; border-radius:50%; }
+.storage-breakdown-legend dd { flex:none; margin:0; font-variant-numeric:tabular-nums; }
+.storage-reservation-info button { display:grid; place-items:center; border:0; padding:0; min-width:1.5rem; min-height:1.5rem; background:none; color:var(--text-secondary); }
+.storage-reservation-info [role="tooltip"] { display:none; position:absolute; top:100%; left:0; z-index:1; width:min(20rem, 70vw); padding:.75rem; border:1px solid var(--border); border-radius:.75rem; background:var(--surface); box-shadow:var(--shadow); font-weight:400; }
+.storage-reservation-info:hover [role="tooltip"], .storage-reservation-info:focus-within [role="tooltip"] { display:block; }
+.storage-largest h3 { margin:0 0 .5rem; color:var(--text-primary); font-size:.9375rem; }
+.storage-largest ol { display:grid; gap:.25rem; margin:0; padding:0; list-style:none; }
+.storage-largest li { display:flex; align-items:center; gap:.75rem; }
+.storage-largest li > a { display:block; flex:1; min-width:0; line-height:2.75rem; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--studydy-blue); font-weight:800; text-decoration:none; }
+.storage-largest li > a:hover { text-decoration:underline; }
+.storage-largest li > span { flex:none; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.storage-largest p { margin: 0; }

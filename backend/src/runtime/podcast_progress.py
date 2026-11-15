@@ -78,7 +78,7 @@ def credit_limit(reported, duration, last_credit_at, now):
 
 
 def save_progress(owner, podcast_id, episode_index, position_seconds, listened_seconds,
-                  ended=False, legacy=False, *, dsn=None, now=None):
+                  ended=False, *, dsn=None, now=None):
     now = now or datetime.now(TIMEZONE)
     with database_session(dsn) as db:
         row, _ = _locked(db, owner, podcast_id, read=True)
@@ -91,19 +91,6 @@ def save_progress(owner, podcast_id, episode_index, position_seconds, listened_s
         # 同一學生的回報依序處理，才能正確比對距上一筆採計的經過時間。
         db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
                    {"key": f"podcast-listening:{owner}"})
-        if legacy:
-            # 舊版只在瀏覽器保存位置；伺服器已有紀錄時以伺服器為準，且不採計收聽秒數。
-            if listened_seconds or ended:
-                raise PodcastError("REQUEST_INVALID")
-            exists = db.scalar(select(func.count()).select_from(PodcastEpisodeProgress)
-                               .where(PodcastEpisodeProgress.podcast_id == podcast_id))
-            if not exists:
-                db.add(PodcastEpisodeProgress(
-                    podcast_id=podcast_id, episode_index=episode_index, learner_id=owner,
-                    position_seconds=position_seconds, completed_at=None, updated_at=now,
-                ))
-                db.flush()
-            return _view(db, podcast_id)
         progress = db.get(PodcastEpisodeProgress, (podcast_id, episode_index), with_for_update=True)
         if progress is None:
             progress = PodcastEpisodeProgress(

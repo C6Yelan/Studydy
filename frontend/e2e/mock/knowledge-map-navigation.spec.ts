@@ -49,19 +49,16 @@ for (const [action, marksNext] of [
   });
 }
 
-test("map tabs cycle and missing path references still fail the strict API contract", async ({
+test("material rail lists the map pages and missing path references still fail the strict API contract", async ({
   page,
 }) => {
   const view = learningMap(8, true);
   await mockLearningMapApi(page, view, false);
   await page.goto(mapPath);
-  const tabs = page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab");
-  await expect(tabs).toHaveText(["知識地圖", "學習與測驗", "概念卡", "Podcast", "筆記", "補充學習", "教材來源"]);
+  const links = page.getByRole("navigation", { name: "教材導覽" }).getByRole("link");
+  await expect(links).toHaveText(["知識地圖", "學習進度", "翻卡片", "聽 Podcast", "我的筆記", "找更多資料", "原始檔案", "教材設定"]);
   await expect(page.getByRole("tab", { name: "學習順序", exact: true })).toHaveCount(0);
-  await tabs.nth(1).focus();
-  await page.keyboard.press("Home");
-  await expect(tabs.first()).toBeFocused();
-  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+  await expect(links.first()).toHaveAttribute("aria-current", "page");
   view.initial_learning_path[0].concept_id = `concept:sha256:${"f".repeat(64)}`;
   await page.goto(mapPath);
   await expect(page.getByRole("heading", { name: "無法讀取知識地圖", exact: true })).toBeVisible();
@@ -77,9 +74,10 @@ test("sectionless concepts remain selectable through navigation", async ({ page 
   view.relations = [];
   await mockKnowledgeMapApi(page, view);
   await page.goto(mapPath);
-  await expect(page.locator(".react-flow__node")).toHaveCount(1);
+  // 沒有關係時兩層範圍只有中心；沒選島時目前這站之後的路線站（Array）仍一定畫出。
+  await expect(page.locator(".react-flow__node")).toHaveCount(2);
   await expect(page.getByRole("tab", { name: "總覽", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("tabpanel", { name: "知識地圖", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "知識地圖", exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: "學習導覽", exact: true });
   await toggle.click();
   await expect(page.locator(".navigator-label")).toHaveText(["Stack", "Array"]);
@@ -239,16 +237,15 @@ test("reload restores map presentation while local interaction does not restart 
     for (let i = 0; i < 5; i++) window.dispatchEvent(new Event("focus"));
   });
   await page.reload();
-  await expect(page.getByRole("tab", { name: "知識地圖", exact: true })).toHaveAttribute(
-    "aria-selected",
-    "true",
+  await expect(page.getByRole("link", { name: "知識地圖", exact: true })).toHaveAttribute(
+    "aria-current", "page",
   );
   await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "Array", exact: true })).toHaveText("Array");
   const context = await page.getByRole("dialog", { name: "概念詳情" }).elementHandle();
   await page.clock.fastForward(60 * 60 * 1000 + 1);
   expect(await context!.evaluate((node) => node.isConnected)).toBe(true);
   await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "Array", exact: true })).toHaveText("Array");
-  await page.getByRole("tab", { name: "知識地圖", exact: true }).click();
+  await page.getByRole("link", { name: "知識地圖", exact: true }).click();
   await openMapConcept(page, "Array");
   await page.getByRole("searchbox").fill("Stack");
   await page.reload();
@@ -293,7 +290,7 @@ test("learning navigator groups concepts by region and the detail names the regi
   await expect(nav.getByText("依各概念的主要來源檔分區")).toBeVisible();
   await expect(nav.getByRole("button")).toHaveCount(8);
   await navigationConcept(page, "A").click();
-  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".detail-kicker")).toHaveText("教材概念 · 01_從生成到推論");
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".detail-kicker")).toHaveText(/ · 01_從生成到推論$/);
 });
 
 test("learning navigator stays flat when regions do not match the map", async ({ page }) => {
@@ -332,7 +329,7 @@ test("chapter regions stay one level for a demo-sized material", async ({ page }
   await expect(nav.getByText("依教材內容整理的章節", { exact: true })).toBeVisible();
   await expect(nav.getByLabel("跳到章節")).toHaveCount(0);
   await navigationConcept(page, "A").click();
-  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".detail-kicker")).toHaveText("教材概念 · 生成模型基礎");
+  await expect(page.getByRole("dialog", { name: "概念詳情" }).locator(".detail-kicker")).toHaveText(/ · 生成模型基礎$/);
 });
 
 for (const width of [1536, 390])
@@ -376,7 +373,7 @@ for (const width of [1536, 390])
     await jump.selectOption({ label: "章節 25" });
     const dialog = page.getByRole("dialog", { name: "概念詳情" });
     await expect(dialog.getByRole("heading", { name: "Concept 73", exact: true })).toBeVisible();
-    await expect(dialog.locator(".detail-kicker")).toHaveText("教材概念 · 章節 25");
+    await expect(dialog.locator(".detail-kicker")).toHaveText(/ · 章節 25$/);
     await page.keyboard.press("Escape");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });

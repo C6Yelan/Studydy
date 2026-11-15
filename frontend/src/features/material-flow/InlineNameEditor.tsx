@@ -1,5 +1,8 @@
 import { useEffect, useRef, type RefObject } from "react";
 
+/** 教材、卡組與 Podcast 名稱：1–40 個字，不含控制字元。 */
+export const validName = (name: string) => name.trim().length > 0 && Array.from(name.trim()).length <= 40 && !/[\p{Cc}\p{Cs}]/u.test(name);
+
 // 教材、卡組與 Podcast 共用同一個原位置改名表單。
 export function InlineNameEditor({ label, name, busy, error, onChange, onSave, onCancel, inputRef }: {
   label: string; name: string; busy: boolean; error: string | null;
@@ -8,7 +11,7 @@ export function InlineNameEditor({ label, name, busy, error, onChange, onSave, o
 }) {
   const ownInput = useRef<HTMLInputElement>(null);
   const input = inputRef ?? ownInput;
-  const valid = name.trim().length > 0 && Array.from(name.trim()).length <= 40 && !/[\p{Cc}\p{Cs}]/u.test(name);
+  const valid = validName(name);
   useEffect(() => { input.current?.focus(); input.current?.select(); }, [input]);
   useEffect(() => { if (error && !busy) input.current?.focus(); }, [error, busy, input]);
   return <form className="material-management-form" aria-label={`重新命名${label.replace(/名稱$/, "").trim()}`}

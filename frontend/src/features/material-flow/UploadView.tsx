@@ -5,10 +5,9 @@ import type { SourceCapabilities } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { BackLink } from "../../ui/BackLink";
-import { MaterialContentNav } from "./MaterialContentNav";
-import { rememberedMaterial, rememberMaterial } from "./material-memory";
-import type { MaterialLibraryItem } from "../../api/contracts";
-import { FlowFooter, FlowHeader, FlowStage, LearningSteps, uploadSteps } from "./Flow";
+import { Breadcrumb } from "../../ui/Breadcrumb";
+import { FlowFooter, FlowHeader, LearningSteps, uploadSteps } from "./Flow";
+import { uploadLimitRows } from "./SourceUploadPicker";
 import { formatFileSize } from "./material-flow";
 import { QueuedImages } from "./QueuedSourceParts";
 import {
@@ -26,15 +25,6 @@ export function UploadView({ apiClient, materialId }: { apiClient: StudydyApiCli
   const [selectionError, setSelectionError] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // 從教材來源「新增來源」進來時，頁首用教材頁首（同教材來源頁），返回由教材頁首負責。
-  const [material, setMaterial] = useState<MaterialLibraryItem | null>(() => materialId ? rememberedMaterial(apiClient, materialId) : null);
-  useEffect(() => {
-    if (!materialId || material) return;
-    let cancelled = false;
-    void apiClient.getMaterial(materialId).then(value => { if (!cancelled) { rememberMaterial(apiClient, value); setMaterial(value); } }, () => undefined);
-    return () => { cancelled = true; };
-  }, [apiClient, materialId, material]);
-  const structure = material?.available_structures.find(item => item.knowledge_structure_revision === material.head_revision) ?? material?.available_structures[0];
   const submitting = useRef(false);
   const draft = useRef<{ key: string; name: string; id: string | null } | null>(null);
   useEffect(() => {
@@ -119,48 +109,22 @@ export function UploadView({ apiClient, materialId }: { apiClient: StudydyApiCli
         : "上傳並確認來源";
   return (
     <section className="flow-page upload-page task-page" aria-labelledby="upload-title">
-      {materialId && <MaterialContentNav apiClient={apiClient} materialId={materialId} current="sources" materialName={material?.display_name}
-        mapRoute={structure ? { name: "knowledge-map", materialId, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision } : null}
-        back={{ label: "返回教材來源", onClick: () => writeRoute({ name: "material-sources", materialId }) }} />}
+      {materialId && <Breadcrumb current="新增來源" parent={{ label: "原始檔案", ariaLabel: "返回原始檔案", onClick: () => writeRoute({ name: "material-sources", materialId }) }} />}
       <FlowHeader
         headingId="upload-title"
-        title={materialId ? "新增來源" : "上傳教材"}
-        description="選擇文件、圖片、音訊、影片或 YouTube 影片，確認來源後再開始分析。"
-        back={materialId ? undefined : <BackLink label="返回我的教材" route={{ name: "materials" }} />}
+        title={materialId ? "幫這座島加新材料" : "新增一座島"}
+        description={materialId ? "選擇文件、圖片、音訊、影片或 YouTube 影片，確認來源後再開始分析。" : "放入文件、圖片、音訊、影片或 YouTube 影片，確認後就開始建立知識地圖。"}
+        back={materialId ? undefined : <BackLink label="回到我的群島" route={{ name: "materials" }} />}
       />
       <LearningSteps labels={materialId ? [...uploadSteps.slice(0, 2), "更新知識地圖"] : uploadSteps} current={0} />
-      <FlowStage
-        icon="upload"
-        title="選擇教材檔案"
-        description="各份檔案分開保留；多張圖片會合成一份、依順序成為各頁；音訊與影片會在本機轉成逐字稿。"
-        label="上傳教材檔案"
-        footer={
-          <FlowFooter
-            secondary={
-              queue.length > 0 ? (
-                <span>
-                  共 {queue.length} 份 · {formatFileSize(queue.reduce((total, item) => total + queuedSize(item), 0))}
-                </span>
-              ) : (
-                <span className="upload-disabled-hint">先選擇或拖入教材檔案，按鈕就能使用。</span>
-              )
-            }
-            primary={
-              <button className="primary-button" disabled={!queue.length || busy} onClick={() => void submit()}>
-                <Icon name="upload" size={18} />
-                {uploadLabel}
-              </button>
-            }
-          />
-        }
-      >
-        <div className="upload-stage-body">
-        <SourceUploadPicker capabilities={capabilities} disabled={busy} hasFiles={queue.length > 0}
-          inputLabel={materialId ? "選擇新增教材" : "選擇教材檔案"} error={selectionError} errorId={materialId ? "source-selection-error" : "upload-selection-error"}
-          onFiles={chooseFiles} onSelectionError={setSelectionError}
-          onYoutube={url => {setQueue(previous => [...previous, {key:crypto.randomUUID(),kind:"youtube",status:"pending",error:null,progress:null,url}]);setError(null);}}>
-        {queue.length > 0 && (
-          <ul className="chosen-files" aria-label="待上傳教材">
+      <div className="upload-layout">
+        <div className="upload-main">
+          <SourceUploadPicker capabilities={capabilities} disabled={busy} hasFiles={queue.length > 0}
+            inputLabel={materialId ? "選擇新增教材" : "選擇教材檔案"} error={selectionError} errorId={materialId ? "source-selection-error" : "upload-selection-error"}
+            onFiles={chooseFiles} onSelectionError={setSelectionError}
+            onYoutube={url => {setQueue(previous => [...previous, {key:crypto.randomUUID(),kind:"youtube",status:"pending",error:null,progress:null,url}]);setError(null);}}>
+            {queue.length > 0 && (
+            <ul className="chosen-files" aria-label="待上傳教材">
             {queue.map((item) => (
               <li className={`chosen-file is-${item.status}`} aria-label={`已選擇 ${queuedName(item)}`} key={item.key}>
                 <span className="chosen-file-icon">
@@ -210,46 +174,56 @@ export function UploadView({ apiClient, materialId }: { apiClient: StudydyApiCli
               </li>
             ))}
           </ul>
-        )}
-        </SourceUploadPicker>
-        {capabilityError && (
-          <p className="flow-hint" role="status">
-            {capabilityError}
-          </p>
-        )}
-        {hasNonPdf && (
-          <p className="flow-notice">非 PDF 教材會先轉換為 PDF；音訊、影片與 YouTube 會轉成逐字稿。請在下一步確認轉換內容。</p>
-        )}
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
+            )}
+          </SourceUploadPicker>
+          {capabilityError && (
+            <p className="flow-hint" role="status">
+              {capabilityError}
+            </p>
+          )}
+          {hasNonPdf && (
+            <p className="flow-notice">非 PDF 教材會先轉換為 PDF；音訊、影片與 YouTube 會轉成逐字稿。請在下一步確認轉換內容。</p>
+          )}
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
         </div>
-        <ol className="flow-steps-preview" aria-label="上傳後的處理">
-          <li>
-            <span><Icon name="file" size={18} /></span>
-            <div>
-              <strong>確認教材</strong>
-              <p>預覽轉換後的 PDF，調整多份教材的順序。</p>
-            </div>
-          </li>
-          <li>
-            <span><Icon name="process" size={18} /></span>
-            <div>
-              <strong>整理內容與來源</strong>
-              <p>需要時辨識圖片中的文字，保留可回查的頁碼。</p>
-            </div>
-          </li>
-          <li>
-            <span><Icon name="map" size={18} /></span>
-            <div>
-              <strong>{materialId ? "更新知識地圖" : "建立知識地圖"}</strong>
-              <p>整理重要概念、概念關係與建議學習順序。</p>
-            </div>
-          </li>
-        </ol>
-      </FlowStage>
+        <aside className="upload-side">
+          <section className="upload-side-card" aria-labelledby="upload-types-title">
+            <h2 id="upload-types-title">可以放哪些檔案</h2>
+            {capabilities ? <div className="upload-types">{uploadLimitRows(capabilities).map(([label, names, note]) =>
+              <div key={label}><b>{label}</b><span>{names}{note && <small> · {note}</small>}</span></div>)}</div>
+              : <p className="flow-hint">正在載入上傳限制</p>}
+          </section>
+          <section className="upload-side-card" aria-labelledby="upload-next-title">
+            <h2 id="upload-next-title">接下來會發生什麼</h2>
+            <ol className="upload-next">
+              <li><b>2</b><span>確認教材<small>預覽轉換後的 PDF，調整多份教材的順序</small></span></li>
+              <li><b>3</b><span>{materialId ? "更新知識地圖" : "建立知識地圖"}<small>辨識文字、保留頁碼，整理概念、關係與建議順序</small></span></li>
+            </ol>
+          </section>
+        </aside>
+      </div>
+      <FlowFooter
+        className="upload-footer"
+        secondary={
+          queue.length > 0 ? (
+            <span>
+              共 {queue.length} 份 · {formatFileSize(queue.reduce((total, item) => total + queuedSize(item), 0))}
+            </span>
+          ) : (
+            <span className="upload-disabled-hint">先選擇或拖入教材檔案，按鈕就能使用。</span>
+          )
+        }
+        primary={
+          <button className="primary-button" disabled={!queue.length || busy} onClick={() => void submit()}>
+            <Icon name="upload" size={18} />
+            {uploadLabel}
+          </button>
+        }
+      />
     </section>
   );
 }

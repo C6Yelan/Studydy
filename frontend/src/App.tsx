@@ -4,13 +4,9 @@ import { ApiClientError, errorMessage, StudydyApiClient } from "./api/client";
 import type { LearnerIdentity } from "./api/contracts";
 import { readSessionHint, saveSessionHint } from "./api/session-hint";
 import { AppShell } from "./app/AppShell";
-import { HeaderTools } from "./app/HeaderTools";
-import { HeaderStorage } from "./app/HeaderStorage";
-import { LearningProgressPill } from "./app/LearningProgress";
-import { readRoute, writeRoute, type AppRoute } from "./app/routes";
+import { notePath, readRoute, writeRoute, type AppRoute } from "./app/routes";
 import { MaterialFlow } from "./features/material-flow/MaterialFlow";
 import { StateView } from "./ui/StateView";
-import { Icon } from "./ui/Icon";
 import { AccountPage } from "./features/account/AccountPage";
 
 type SessionState =
@@ -122,12 +118,13 @@ export default function App() {
         return;
       }
       const next = readRoute(window.location.pathname);
-      // 別名與非正式寫法改寫成正式網址（writeRoute 會再觸發一次 popstate）；
+      // 非正式寫法（例如結尾斜線）改寫成正式網址（writeRoute 會再觸發一次 popstate）；
       // 對不到任何頁面時保留原網址並顯示「找不到」頁，不無聲導回首頁。
       if (!next.isCanonical && next.route.name !== "not-found") {
         writeRoute(next.route, true);
         return;
       }
+      notePath(window.location.pathname);
       setRoute(next.route);
     };
     readLocation();
@@ -198,24 +195,13 @@ export default function App() {
     );
   }
   return (
-    <AppShell
-      route={route}
-      status={<><LearningProgressPill apiClient={session.api} learnerId={session.identity.learner_id} /><HeaderStorage key={session.identity.learner_id} apiClient={session.api} /></>}
-      accountAction={
-        <>
-          <HeaderTools apiClient={session.api} profileCurrent={route.name === "profile"} />
-          <button className="account-button" type="button" onClick={() => void logout()}>
-            <Icon name="logout" size={18} />
-            <span className="account-button-label">登出</span>
-          </button>
-        </>
-      }
-    >
+    <AppShell route={route} apiClient={session.api} learnerId={session.identity.learner_id}>
       <MaterialFlow
         key={`${session.identity.learner_id}/${clientVersion.current}`}
         learnerId={session.identity.learner_id}
         apiClient={session.api}
         route={route}
+        onLogout={() => void logout()}
       />
     </AppShell>
   );

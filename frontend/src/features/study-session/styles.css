@@ -36,34 +36,6 @@
   font-size: 22px;
   overflow-wrap: anywhere;
 }
-.study-claims {
-  margin: var(--space-5) 0;
-  padding-left: var(--space-5);
-}
-.study-claims li {
-  padding-left: var(--space-1);
-  margin-bottom: var(--space-4);
-  color: var(--text-primary);
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-.study-sources {
-  border-top: 1px solid var(--border);
-  padding-top: var(--space-4);
-}
-.study-sources h3 {
-  margin: 0 0 var(--space-2);
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-.study-sources > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-}
-.study-sources .text-button {
-  min-height: 36px;
-}
 .study-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -221,10 +193,27 @@
 }
 .study-position-progress { width:6rem; }
 
-.result-rail { display: grid; gap: var(--space-3); align-content: start; position: sticky; top: var(--space-3); max-height: calc(100dvh - 8rem); padding: var(--space-3); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
+.result-rail { display: grid; gap: var(--space-3); align-content: start; max-height: 24rem; padding: var(--space-3); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
 .result-rail header { display: grid; gap: var(--space-2); }
 .result-rail h2 { margin: 0; font-size: 0.95rem; }
 .result-rail-filter { display: flex; gap: 4px; }
 .result-rail-filter button { flex: 1; min-height: 30px; border: 0; border-radius: 999px; background: var(--page-cool); color: var(--text-primary); font-size: 12px; font-weight: 800; cursor: pointer; }
 .result-rail-filter button[aria-pressed="true"] { background: var(--studydy-blue); color: #fff; }
 .result-rail ol { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; overflow-y: auto; min-height: 0; }
+
+/* 答題的專注模式：左上角「×」和進度條同一列（在 assessment/paper.css），回到進來的那一頁。 */
+.study-focus-close {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-input);
+  background: transparent;
+  color: var(--text-muted);
+}
+.study-focus-close:hover {
+  background: var(--surface);
+  color: var(--text-primary);
+}

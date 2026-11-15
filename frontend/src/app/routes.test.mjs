@@ -27,6 +27,8 @@ test("routes use expected paths and round trip", () => {
     [{ name: "achievements" }, "/achievements"],
     [{ name: "material-source-upload", materialId }, `/materials/${materialId}/sources/new`],
     [{ name: "material-run", materialId, runId }, materialRunPath],
+    [{ name: "material-settings", materialId }, `/materials/${materialId}/settings`],
+    [{ name: "material-progress", materialId, runId, structureRevision }, `${mapPath}/progress`],
     [{ name: "knowledge-map", materialId, runId, structureRevision }, mapPath],
     [{ name: "study-session", materialId, runId, structureRevision, studySessionId }, studyPath],
   ]) {
@@ -52,11 +54,9 @@ test("unknown paths, malformed IDs and extra segments are not canonical routes",
   }
 });
 
-test("material root and old aliases resolve to real pages", () => {
+test("material root and trailing slashes resolve to real pages", () => {
   assert.deepEqual(readRoute(`/materials/${materialId}`), { route: { name: "material", materialId }, isCanonical: true });
-  for (const path of [`/materials/${materialId}/map`, `/materials/${materialId}/knowledge-map`, `/materials/${materialId}/`])
-    assert.deepEqual(readRoute(path), { route: { name: "material", materialId }, isCanonical: false });
-  assert.deepEqual(readRoute("/cards"), { route: { name: "concept-cards" }, isCanonical: false });
+  assert.deepEqual(readRoute(`/materials/${materialId}/`), { route: { name: "material", materialId }, isCanonical: false });
   assert.deepEqual(readRoute("/materials/"), { route: { name: "materials" }, isCanonical: false });
   assert.deepEqual(readRoute("/foo-bar/"), { route: { name: "not-found", path: "/foo-bar" }, isCanonical: false });
 });

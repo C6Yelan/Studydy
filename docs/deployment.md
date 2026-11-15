@@ -159,11 +159,11 @@ docker inspect --format '{{.Name}} {{.Image}}' studydy-frontend-1 studydy-backen
 
 artifacts 維持0700目錄及0600／0400檔案契約。不得遞迴chown整個data；data根、data/podcast、PostgreSQL、模型內容及jerry分析資料保持原狀。模型僅授後端UID只讀ACL。
 
-## Podcast 與 Studydy AI BOT 的語音流程
+## Podcast 與 Studydy 小幫手的語音流程
 
 正式 Podcast 使用原參考聲線、V／W 台灣華語指令、整句中英混讀及通用接點／停頓／語速規則。處理直接作用於模型片段及 speaker 邊界，不使用人工指定秒數或 WAV 句界推測；既有音訊保留。
 
-Studydy AI BOT 共用 Podcast 的整句混讀、台灣口音指令、原 host 聲線、停頓修正與音量處理。provider 每次音訊請求啟動同一個已部署 runtime bundle 的 `ops/podcast/synthesize.py`；腳本更新需建立新 bundle 並切換 provider，不能改動正在使用的版本。
+Studydy 小幫手共用 Podcast 的整句混讀、台灣口音指令、原 host 聲線、停頓修正與音量處理。provider 每次音訊請求啟動同一個已部署 runtime bundle 的 `ops/podcast/synthesize.py`；腳本更新需建立新 bundle 並切換 provider，不能改動正在使用的版本。
 
 新語音使用 `dynamic-pauses/v2`（規則見 `ops/podcast/dialogue_audio_repair.py` 的 `pause_seconds`）：換段 1100ms；同一人以逗號續講 220ms、分號 350ms；換人前的簡短接話 350ms；6 字以內短句續講 250ms；問句與一般換人 650ms；20 字以上長句 850ms，其餘句尾 550ms。字數依原講稿的文字與數字計算，縮寫與數值的朗讀展開不改變分類；符合一個條件就選定停頓，不疊加，現有片段兩端靜音計入目標。既有影音不改時間軸，新建節目以新音訊重新對齊字幕及影片。
 

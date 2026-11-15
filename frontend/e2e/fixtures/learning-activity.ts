@@ -1,5 +1,5 @@
 // 學習活動 v3 與學習節奏的 mock 回應；預設為沒有任何紀錄的帳號（頁首顯示第 1 級、0 天）。
-type Day = { date: string; answers: number; correct: number; card_reviews: number; listened_seconds: number; active: boolean };
+type Day = { date: string; xp: number; answers: number; correct: number; card_reviews: number; listened_seconds: number; active: boolean };
 type Quest = {
   kind: "mark_cards" | "continue_study" | "finish_podcast_episode";
   progress: number; target: number; done: boolean;
@@ -105,7 +105,7 @@ export function learningRhythm(options: {
   const days: Day[] = [];
   for (let day = start; day <= end; day = shift(day, 1)) {
     const date = iso(day);
-    days.push({ date, answers: 0, correct: 0, card_reviews: 0, listened_seconds: 0, active: false, ...options.days?.[date] });
+    days.push({ date, xp: 0, answers: 0, correct: 0, card_reviews: 0, listened_seconds: 0, active: false, ...options.days?.[date] });
   }
   const recorded = Object.keys(options.days ?? {}).sort();
   return {

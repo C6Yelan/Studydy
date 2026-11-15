@@ -242,6 +242,11 @@ export async function studyLayoutFixture(page, initialStage = "preparation", sce
           : "passed";
     return {
       schema: "assessment-set/v2",
+      // scenario.xpAward 可指定分項（或 null）；沒指定時只有答題分。
+      xp_award: !isCompleted ? null : scenario && "xpAward" in scenario ? scenario.xpAward : {
+        answers: passedCount * 10 + (answeredCount - passedCount) * 3,
+        concepts: 0, cards: 0, podcast: 0, goals: 0, difficulties: 0,
+      },
       kind,
       diagnostic_set_id: kind === "remediation" ? historySetId : null,
       set_id: groupId,
