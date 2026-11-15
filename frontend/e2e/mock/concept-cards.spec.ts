@@ -420,6 +420,8 @@ test("mobile keeps review status, long content and sources usable without page o
   await page.goto(`/concept-cards/${cardSetId}`);
   await expect(page.getByRole("button", { name: "舊版內容 · 更新此卡組" })).toBeVisible();
   await showCardBack(page);
+  // 圖卡模組載入後抽屜會換成另一個節點（VisualConceptCard 的載入前後分支）；先等圖卡畫好，量到的才是最後留在畫面上的抽屜。
+  await expect(page.locator("canvas.visual-concept-card")).toBeVisible();
   await openSources(page);
   await expect(page.locator(".flashcard-content")).toContainText("x != 0");
   await expect(page.getByText("教材版本待複核", { exact: true })).toBeVisible();
@@ -658,6 +660,8 @@ test("desktop code scroll preserves keyboard control and formula literals", asyn
   view.concepts[1].claims[0].text = formula;
   await page.goto(`/concept-cards/${cardSetId}`);
   await showCardBack(page);
+  // 圖卡模組載入後抽屜會換成另一個節點（VisualConceptCard 的載入前後分支）；先等圖卡畫好，量到的才是最後留在畫面上的抽屜。
+  await expect(page.locator("canvas.visual-concept-card")).toBeVisible();
   await openSources(page);
   const code = page.locator(".flashcard-point .is-code");
   expect(await code.textContent()).toBe(claim.text);
