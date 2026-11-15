@@ -7,7 +7,7 @@ import type { MaterialLibraryItem } from "../../api/contracts";
 import { rememberMaterial, rememberedMaterial } from "./material-memory";
 import { StateView } from "../../ui/StateView";
 import { CardSetLibrary } from "../concept-cards/CardSetLibrary";
-import { MaterialBack } from "./MaterialRail";
+import { Breadcrumb } from "../../ui/Breadcrumb";
 import { PodcastLibrary } from "../podcasts/PodcastLibrary";
 import { ResearchPanel } from "../material-tools/ResearchPanel";
 import { ResearchDetail } from "../material-tools/ResearchDetail";
@@ -28,9 +28,10 @@ export function MaterialContent({ apiClient, learnerId, materialId, kind, childr
     return () => { cancelled = true; };
   }, [apiClient, materialId, reload]);
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision) ?? material?.available_structures[0];
-  // 卡組、Podcast 的子頁自己放麵包屑；只有補充學習的子頁還用返回鍵（第 9 段換成麵包屑）。
+  // 卡組、Podcast 的子頁自己放麵包屑；找更多資料的子頁（確認範圍、這次找到的資料）在這裡放。
   const back = kind === "research" && (children != null || researchId)
-    ? <MaterialBack label="返回補充學習" onClick={() => writeRoute({ name: "material-content", materialId, kind })} /> : null;
+    ? <Breadcrumb current={researchId ? "這次找到的資料" : "確認補充學習需求"}
+      parent={{ label: "找更多資料", ariaLabel: "返回找更多資料", onClick: () => writeRoute({ name: "material-content", materialId, kind }) }} /> : null;
   if (notFound) return <NotFoundView {...materialNotFound} />;
   return <section className={`material-content${kind === "notes" ? " notes-material-content" : ""}`}>
     {error || !material ? <StateView title={error ? "無法讀取教材" : "正在讀取教材"} description={error ?? "正在載入此教材的學習內容。"} tone={error ? "failure" : "loading"} live={!error} skeleton="material"

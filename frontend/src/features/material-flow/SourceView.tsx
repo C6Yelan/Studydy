@@ -251,7 +251,7 @@ export function SourceView({
     ? [String(selectedSources.length) + " 份教材", sourceTotalsLabel(sourceTotals(selectedSources))].filter(Boolean).join(" · ")
     : selectedSources.length === 0 ? "0 份教材"
     : [`${prepared} 份${failed ? "可用" : "已準備"}`, waiting > 0 && `${waiting} 份正在轉換`, failed > 0 && `${failed} 份轉換失敗`].filter(Boolean).join(" · ");
-  const sourcePicker = <button type="button" className="secondary-button source-add-button" disabled={busy}
+  const sourcePicker = <button type="button" className={`${currentStructure ? "primary-button" : "secondary-button"} source-add-button`} disabled={busy}
     onClick={() => writeRoute({ name: "material-source-upload", materialId })}><Icon name="plus" size={16}/>新增來源</button>;
   const totalsLabel = sourceTotalsLabel(sourceTotals(displayedSources));
   const transcriptPanel = transcript && <dialog ref={transcriptDialog} className="source-transcript-panel" aria-labelledby="source-transcript-title"
@@ -513,7 +513,7 @@ export function SourceView({
         <header className="source-panel-head">
           <div className="source-panel-title">
             {/* 教材分頁內沒有另外的頁面標題，清單標題即本頁標題。 */}
-            <h1 ref={heading} tabIndex={-1}>教材來源</h1>
+            <h1 ref={heading} tabIndex={-1}>原始檔案</h1>
             <p>
               {displayedSources.length} 份{allReady && totalsLabel && ` · 全部來源${totalsLabel}`}
               <span className="source-inclusion-summary">
@@ -530,7 +530,7 @@ export function SourceView({
           </div>
         </header>
         {errorCard}
-        <section className="surface source-list-card" aria-label="教材來源">
+        <section className="surface source-list-card" aria-label="原始檔案">
           {removing && <p role="status">正在刪除教材…</p>}
           {sourceRows}
           {sourceQuery.trim() && visibleSources.length === 0 && <p className="cards-no-results">沒有符合的來源檔案。</p>}

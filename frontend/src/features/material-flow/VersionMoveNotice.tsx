@@ -1,10 +1,11 @@
 import { useStudyStart } from "../study-session/useStudyStart";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { VersionMovePreview, VersionMoveResult, VersionMoveUnmapped, VersionMoveReturn, StudySessionLink } from "../../api/contracts";
 import { Modal } from "../../app/Modal";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
+import { RouteLink } from "../../ui/RouteLink";
 import { useRememberedMaterial } from "./material-memory";
 import "./version-move.css";
 
@@ -29,7 +30,11 @@ function UnmappedList({ title, items }: { title: string; items: VersionMoveUnmap
 export const OPEN_CARD_SET_UPDATE = "studydy:update-card-set";
 export function openCardSetUpdate(cardSetId: string) { window.dispatchEvent(new CustomEvent(OPEN_CARD_SET_UPDATE, { detail: cardSetId })); }
 
-export function VersionMoveNotice({ apiClient, materialId, compact = false, entryHidden = false }: { apiClient: StudydyApiClient; materialId: string; compact?: boolean; entryHidden?: boolean }) {
+/**
+ * 教材頁上方的提示列只放一顆連到教材設定的按鈕；「更新」「回到更新前內容」兩顆按鈕在教材設定頁（settings）。
+ * 兩個對話框一直掛在這個元件裡（卡組頁的「更新此卡組」要靠它開對話框），所以教材設定頁自己掛一份、外框那份不掛。
+ */
+export function VersionMoveNotice({ apiClient, materialId, compact = false, entryHidden = false, settings = false, children }: { apiClient: StudydyApiClient; materialId: string; compact?: boolean; entryHidden?: boolean; settings?: boolean; children?: ReactNode }) {
   const launch = useStudyStart(apiClient, materialId);
   // 掛在外框，頁面讀到教材索引（含新版本）時要跟著更新。
   const material = useRememberedMaterial(apiClient, materialId);
@@ -85,7 +90,16 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false, entr
   const automaticPending = preview?.automatic_move?.status === "pending";
   const automaticDone = preview?.automatic_move?.status === "completed";
   const showNotice = !!preview && (pending || preview.automatic_move !== null || preview.previous !== null)
-    && (compact || !preview.notice_dismissed);
+    && (compact || settings || !preview.notice_dismissed);
+  const statusText = automaticPending ? "正在一起更新卡組和學習進度…" : pending ? "教材有新版本，卡組與學習進度仍是舊版內容"
+    : automaticDone ? "卡組和學習進度已一起更新" : preview?.automatic_move?.status === "failed" ? "卡組與學習進度未能自動更新。" : "可以開啟更新前的卡組與學習紀錄。";
+  const blockingText = preview?.blocking_reasons.map(reason => ({
+    unmapped_cards: `${reason.count} 張卡無法完整帶過去`,
+    unmapped_progress: `${reason.count} 個已完成概念無法直接保留完成狀態`,
+    assessment_in_progress: `${reason.count} 個題組仍在進行中`,
+    source_unavailable: `${reason.count} 項更新前內容目前無法核對`,
+  })[reason.code]).join("；") + "。";
+  const settingsNote = "追加來源後教材會更新；卡組和學習進度會盡量一起更新，不滿意可以回到更新前的內容。";
   const dismiss = async () => {
     setBusy(true); setError(null);
     try {
@@ -114,7 +128,8 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false, entr
       if (failure instanceof ApiClientError && ["VERSION_MOVE_PREVIEW_STALE", "VERSION_MOVE_PREVIOUS_UNAVAILABLE"].includes(failure.reasonCode ?? "")) setReload(value => value + 1);
     } finally { setBusy(false); }
   };
-  if (!preview && !result) return null;
+  // 讀不到更新資訊（或教材還沒有地圖）時，教材設定仍要顯示說明與連結。
+  if (!preview && !result) return settings ? <div className="settings-update"><p>{settingsNote}</p><div className="settings-actions">{children}</div></div> : null;
   const close = () => {
     setOpen(false);
     // 承接後重新載入，讓卡組、地圖與首頁讀到更新後資料。
@@ -148,24 +163,26 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false, entr
   return <>
 
     {launch.error && <p role="alert" className="form-error">{launch.error}</p>}
-    {showNotice && !entryHidden && <section className={compact ? "version-move-entry" : "version-move-notice version-move-banner"} aria-label="教材已更新">
+    {settings ? <div className="settings-update">
+      {showNotice && <p className="settings-update-tip" role="status"><Icon name="sparkle" size={16}/>{statusText}</p>}
+      {showNotice && !!preview?.blocking_reasons.length && <p className="version-move-note">{blockingText}更新前可先查看明細。</p>}
+      <p>{settingsNote}</p>
+      <div className="settings-actions">
+        {showNotice && pending && !automaticPending && <button className="primary-button" type="button" disabled={busy} onClick={() => { setError(null); setOpen(true); }}>更新</button>}
+        {showNotice && preview?.previous && !automaticPending && <button className="secondary-button" type="button" disabled={busy} onClick={() => void returnPrevious()}>回到更新前內容</button>}
+        {children}
+      </div>
+    </div> : showNotice && !entryHidden && <section className={compact ? "version-move-entry" : "version-move-notice version-move-banner"} aria-label="教材已更新">
       {!compact && <span className="version-move-badge"><Icon name="sparkle" size={16}/>教材已更新</span>}
       <div className="version-move-description">
-        <p>{automaticPending ? "正在一起更新卡組和學習進度…" : pending ? "教材有新版本，卡組與學習進度仍是舊版內容"
-          : automaticDone ? "卡組和學習進度已一起更新" : preview?.automatic_move?.status === "failed" ? "卡組與學習進度未能自動更新。" : "可以開啟更新前的卡組與學習紀錄。"}</p>
-        {!compact && !!preview?.blocking_reasons.length && <p className="version-move-note">{preview.blocking_reasons.map(reason => ({
-          unmapped_cards: `${reason.count} 張卡無法完整帶過去`,
-          unmapped_progress: `${reason.count} 個已完成概念無法直接保留完成狀態`,
-          assessment_in_progress: `${reason.count} 個題組仍在進行中`,
-          source_unavailable: `${reason.count} 項更新前內容目前無法核對`,
-        })[reason.code]).join("；")}。更新前可先查看明細。</p>}
+        <p>{statusText}</p>
+        {!compact && !!preview?.blocking_reasons.length && <p className="version-move-note">{blockingText}更新前可先查看明細。</p>}
         {!compact && pending && preview?.automatic_move?.status === "failed" && <p className="version-move-note">自動更新未完成，請查看預覽後再試。</p>}
       </div>
-      {pending && !automaticPending && <>
+      {((pending && !automaticPending) || (preview?.previous && !automaticPending)) && <>
         {compact && <span aria-hidden="true">·</span>}
-        <button className={compact ? "version-move-entry-action" : "secondary-button"} type="button" disabled={busy} onClick={() => { setError(null); setOpen(true); }}>更新</button>
+        <RouteLink className={compact ? "version-move-entry-action" : "secondary-button"} route={{ name: "material-settings", materialId }}>到教材設定</RouteLink>
       </>}
-      {preview?.previous && !automaticPending && <button className={compact ? "version-move-entry-action" : "secondary-button"} type="button" disabled={busy} onClick={() => void returnPrevious()}>回到更新前內容</button>}
       {!compact && <button className="version-move-dismiss" type="button" aria-label="關閉教材更新提醒" disabled={busy} onClick={() => void dismiss()}><Icon name="close" size={18}/></button>}
     </section>}
     {error && !open && <p className="form-error" role="alert">{error}</p>}

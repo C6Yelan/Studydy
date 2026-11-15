@@ -5,7 +5,7 @@ import type { SourceCapabilities } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { Icon } from "../../ui/Icon";
 import { BackLink } from "../../ui/BackLink";
-import { MaterialBack } from "./MaterialRail";
+import { Breadcrumb } from "../../ui/Breadcrumb";
 import { FlowFooter, FlowHeader, LearningSteps, uploadSteps } from "./Flow";
 import { uploadLimitRows } from "./SourceUploadPicker";
 import { formatFileSize } from "./material-flow";
@@ -109,11 +109,11 @@ export function UploadView({ apiClient, materialId }: { apiClient: StudydyApiCli
         : "上傳並確認來源";
   return (
     <section className="flow-page upload-page task-page" aria-labelledby="upload-title">
-      {materialId && <MaterialBack label="返回教材來源" onClick={() => writeRoute({ name: "material-sources", materialId })} />}
+      {materialId && <Breadcrumb current="新增來源" parent={{ label: "原始檔案", ariaLabel: "返回原始檔案", onClick: () => writeRoute({ name: "material-sources", materialId }) }} />}
       <FlowHeader
         headingId="upload-title"
-        title={materialId ? "新增來源" : "新增一座島"}
-        description="放入文件、圖片、音訊、影片或 YouTube 影片，確認後就開始建立知識地圖。"
+        title={materialId ? "幫這座島加新材料" : "新增一座島"}
+        description={materialId ? "選擇文件、圖片、音訊、影片或 YouTube 影片，確認來源後再開始分析。" : "放入文件、圖片、音訊、影片或 YouTube 影片，確認後就開始建立知識地圖。"}
         back={materialId ? undefined : <BackLink label="回到我的群島" route={{ name: "materials" }} />}
       />
       <LearningSteps labels={materialId ? [...uploadSteps.slice(0, 2), "更新知識地圖"] : uploadSteps} current={0} />

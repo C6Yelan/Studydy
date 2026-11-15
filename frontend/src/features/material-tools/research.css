@@ -204,7 +204,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 @media(min-width:1000px) {
   .material-content:has(.supplementary-page) { display:flex; flex-direction:column; height:calc(100dvh - var(--shell-header-height,56px)); min-height:0; padding-bottom:80px; }
   .material-content-body:has(.supplementary-page), .supplementary-page, .supplementary-page .research-panel { display:flex; flex-direction:column; flex:1; min-height:0; }
-  .supplementary-page > .material-back,
+  .supplementary-page > .crumb,
   .research-panel > :not(.research-records):not(.research-detail-body):not(.research-workspace) { flex-shrink:0; }
   .research-library .research-records { flex:1; min-height:0; align-content:start; padding:2px; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
   .research-workspace { flex:1; min-height:0; }
@@ -253,3 +253,12 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
  .research-topic-progress:has(.research-found-sources) { display:grid; grid-template-columns:minmax(0,1fr) minmax(16rem,.7fr); align-items:start; gap:1rem; }
  .research-topic-progress .research-found-sources { margin:0; }
 }
+/* 找更多資料：三步說明、之前找過的資料標題、機器人提示。 */
+.research-flow { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0 0 14px; padding:0; list-style:none; }
+.research-flow li { padding:10px 14px; border:2px solid var(--border); border-radius:20px; background:var(--surface); color:var(--text-secondary); font-size:13px; font-weight:800; }
+.research-flow b { display:block; color:var(--text-primary); font-size:14px; font-weight:900; }
+.research-records-title { display:flex; align-items:baseline; gap:8px; margin:0 0 8px; font-size:15px; font-weight:900; }
+.research-records-title small { color:var(--text-muted); font-size:12px; }
+.research-tip { display:flex; align-items:center; gap:12px; max-width:30rem; margin:14px 0 0 auto; color:var(--text-secondary); font-size:14px; font-weight:800; line-height:1.55; }
+.research-tip img { flex:none; width:64px; height:64px; object-fit:contain; }
+@media(max-width:720px) { .research-flow { grid-template-columns:minmax(0,1fr); } }

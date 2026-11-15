@@ -37,7 +37,7 @@ export function MaterialTools({ api, materialId, revision, fallbackFocus }: { ap
  // 入口是教材側欄的「問小幫手」，開啟後仍可再按一次收起；面板屬於 viewport，不繼承內容區的寬度、transform 或 overflow。
  return <>
   <button ref={trigger} className="rail-link material-qa-trigger" type="button" onClick={open ? close : show} aria-expanded={open} aria-controls="voice-conversation"><i className="is-blue" aria-hidden="true"><Icon name="chat" size={20} /></i><span className="rail-label">問小幫手</span></button>
-  {open && createPortal(<section ref={panel} id="voice-conversation" className="material-qa-drawer" role="dialog" aria-modal="false" aria-label="Studydy AI BOT" onKeyDown={e => { if (e.key === 'Escape' && !(e.target as HTMLElement).closest('dialog')) { e.stopPropagation(); close(); } }}>
+  {open && createPortal(<section ref={panel} id="voice-conversation" className="material-qa-drawer" role="dialog" aria-modal="false" aria-label="小幫手" onKeyDown={e => { if (e.key === 'Escape' && !(e.target as HTMLElement).closest('dialog')) { e.stopPropagation(); close(); } }}>
    <VoicePanel api={api} materialId={materialId} revision={revision} prefill={prefill} onClose={close}/>
   </section>, document.body)}
  </>;

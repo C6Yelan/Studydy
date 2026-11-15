@@ -45,7 +45,7 @@ test("map opens concept details and preserves each source on demand", async ({ p
       route.fulfill({ contentType: "text/plain", body: "Synthetic source document" }),
     );
   await page.goto(`/materials/${materialId}/runs/${runId}`);
-  await page.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
+  await page.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true }).click();
   await expect(page).toHaveURL(`${browserOrigin}${mapPath}`);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("region", { name: "學習入口" })).toHaveCount(0);

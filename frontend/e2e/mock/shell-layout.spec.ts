@@ -315,7 +315,7 @@ test("phone More panel closes on outside tap and after choosing an item", async 
   await expect(more).toHaveAttribute("aria-expanded", "false");
   await more.click();
   await nav.getByRole("button", { name: "問小幫手", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Studydy AI BOT" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "小幫手" })).toBeVisible();
   await expect(more).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press("Escape");
   await more.click();

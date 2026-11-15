@@ -12,6 +12,7 @@ import { MaterialLibrary } from "./MaterialLibrary";
 import { RunView } from "./RunView";
 import { SourceView } from "./SourceView";
 import { UploadView } from "./UploadView";
+import { MaterialSettings } from "./MaterialSettings";
 import { MaterialEntry } from "./MaterialEntry";
 import { NotFoundView } from "../../ui/NotFoundView";
 import { CardSetLibrary } from "../concept-cards/CardSetLibrary";
@@ -68,8 +69,7 @@ function MaterialFlowBody({
   onResearchDraftChange: (draft: ResearchDraft) => void;
 }) {
   if (route.name === "not-found") return <NotFoundView />;
-  // 暫時的空頁，後面的段落換成正式頁面。
-  if (route.name === "material-settings") return <h1>教材設定</h1>;
+  if (route.name === "material-settings") return <MaterialSettings key={route.materialId} apiClient={apiClient} materialId={route.materialId} />;
   if (route.name === "material") return <MaterialEntry key={route.materialId} apiClient={apiClient} materialId={route.materialId} />;
   if (route.name === "topic" && route.materialId) return <MaterialContent key={route.materialId} apiClient={apiClient} learnerId={learnerId} materialId={route.materialId} kind="research"><TopicPage key={route.topicId} api={apiClient} topicId={route.topicId} embedded/></MaterialContent>;
   if (route.name === "topics" || route.name === "topic") return <TopicPage key={route.name === "topic" ? route.topicId : "new"} api={apiClient} topicId={route.name === "topic" ? route.topicId : undefined}/>;

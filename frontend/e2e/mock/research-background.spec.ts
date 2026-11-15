@@ -112,12 +112,12 @@ test('prepared sources require submission and published partial results open the
   const submit=page.getByRole('button',{name:'確認加入教材',exact:true});
   await expect(submit).toBeDisabled();expect(submits).toBe(0);
   await page.getByRole('checkbox',{name:'我了解加入後不可逆',exact:true}).check();await submit.click();
-  await expect(page.getByRole('heading',{name:'補充教材可查看',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'補充的島嶼已經長出來了',exact:true})).toBeVisible();
   await expect(page.getByRole('heading',{name:'補充教材已建立',exact:true})).toHaveCount(0);
   await expect(page.getByText('本次補充範圍',{exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'確認加入教材',exact:true})).toHaveCount(0);
   expect(submits).toBe(1);
-  await page.getByRole('button',{name:'查看補充教材',exact:true}).click();
+  await page.getByRole('button',{name:'到地圖上看',exact:true}).click();
   await expect(page).toHaveURL(new RegExp(`/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}$`));
 });
 

@@ -146,7 +146,7 @@ test("notes read without generating and preserve annotations after reload", asyn
   await expect(page.getByRole("heading", { name: "一、堆疊的順序" })).toBeVisible();
   expect(state.writes).toEqual([]);
   await selectText(page);
-  await page.getByRole("button", { name: "新增註記", exact: true }).first().click();
+  await page.getByRole("button", { name: "寫註記", exact: true }).first().click();
   await page.getByRole("textbox", { name: "個人註記", exact: true }).fill("記住最後進入、最先取出。");
   await page.getByRole("button", { name: "儲存註記", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
@@ -156,7 +156,7 @@ test("notes read without generating and preserve annotations after reload", asyn
   await expect(page.getByRole("dialog", { name: "教材來源" })).toBeVisible();
   await page.getByRole("button", { name: "關閉", exact: true }).click();
   await selectText(page);
-  await page.getByRole("button", { name: "在地圖查看", exact: true }).click();
+  await page.getByRole("button", { name: "在地圖上看這個概念", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "概念詳情" })).toBeVisible();
   expect(state.writes).toEqual(["annotation"]);
 });
@@ -197,7 +197,7 @@ test("notes and annotation editor remain usable on narrow screens and keyboard",
     await selectText(page);
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "標記黃色", exact: true })).toBeFocused();
-    await page.getByRole("button", { name: "新增註記", exact: true }).first().focus();
+    await page.getByRole("button", { name: "寫註記", exact: true }).first().focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("textbox", { name: "個人註記", exact: true })).toBeFocused();
     await page.getByRole("button", { name: "取消", exact: true }).click();
@@ -338,7 +338,7 @@ test("older visible notes keep annotation and export requests on their content r
  });
  await page.goto(`/materials/${materialId}/notes`);
  await selectText(page);
- await page.getByRole('button',{name:'新增註記',exact:true}).first().click();
+ await page.getByRole('button',{name:'寫註記',exact:true}).first().click();
  await page.getByRole('textbox',{name:'個人註記',exact:true}).fill('舊稿的個人註記');
  await page.getByRole('button',{name:'儲存註記',exact:true}).click();await expect(page.getByRole('dialog')).toBeHidden();
  expect(annotationPath).toContain(`/knowledge-structures/${oldRevision}/notes/summary/annotations/`);
@@ -425,7 +425,7 @@ test("older notes open the map bound to the visible content and its original run
   await page.route(`**/knowledge-structures/${encodeURIComponent(oldRevision)}/outline`, route => route.fulfill({ json: outlineView(oldView, materialId, oldRun) }));
   await page.goto(`/materials/${materialId}/notes`);
   await selectText(page);
-  await page.getByRole("button", { name: "在地圖查看", exact: true }).click();
+  await page.getByRole("button", { name: "在地圖上看這個概念", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/runs/${oldRun}/knowledge-structures/`));
   expect(decodeURIComponent(page.url())).toContain(oldRevision);
 });
@@ -555,7 +555,7 @@ test("all note headings, table labels and whole formulas retain marks and commen
     await expect(page.locator(selector).first()).toHaveClass(/note-mark-yellow/);
   }
   await selectText(page, selectors[0]);
-  await page.getByRole("button", { name: "新增註記", exact: true }).click();
+  await page.getByRole("button", { name: "寫註記", exact: true }).click();
   await page.getByRole("textbox", { name: "個人註記", exact: true }).fill("空章節也能寫心得");
   await page.getByRole("button", { name: "儲存註記", exact: true }).click();
   await expect(page.getByText("空章節也能寫心得", { exact: true })).toBeVisible();
@@ -564,7 +564,7 @@ test("all note headings, table labels and whole formulas retain marks and commen
   await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "標記藍色", exact: true }).click();
   await expect(math).toHaveClass(/note-mark-blue/);
-  await page.getByRole("button", { name: "新增註記", exact: true }).click();
+  await page.getByRole("button", { name: "寫註記", exact: true }).click();
   await page.getByRole("textbox", { name: "個人註記", exact: true }).fill("公式整條註記");
   await page.getByRole("button", { name: "儲存註記", exact: true }).click();
   await expect(page.getByText("公式整條註記", { exact: true })).toBeVisible();
@@ -588,7 +588,7 @@ test("inline math expands to the whole formula while keeping surrounding text in
     const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   });
-  await expect(page.getByRole("button", { name: "新增註記", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "寫註記", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "標記綠色", exact: true }).click();
   await page.reload();
   await expect(prose.locator(".note-mark-green")).toHaveCount(3);
@@ -604,7 +604,7 @@ test("selection opens a BOT draft without submitting a question", async ({ page 
   });
   await page.goto(`/materials/${materialId}/notes`);
   await selectText(page);
-  await page.getByRole("button", { name: "問 AI BOT", exact: true }).click();
+  await page.getByRole("toolbar", { name: "選取文字工具列" }).getByRole("button", { name: "問小幫手", exact: true }).click();
   await expect(page.getByLabel("問題／辨識文字")).toHaveValue("堆疊使用後進先出");
   expect(posts).toEqual([]);
 });
@@ -619,7 +619,7 @@ test("cross-block selection saves separate marks and explains the annotation lim
     const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     spans[1].dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
   });
-  await expect(page.getByRole("button", { name: "新增註記", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "寫註記", exact: true })).toBeDisabled();
   await expect(page.getByText("註記請選取同一段內的文字", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "標記綠色", exact: true }).click();
   await expect(page.locator(".note-mark-green")).toHaveCount(2);
@@ -641,7 +641,7 @@ test("touch selection changes reveal the mobile toolbar below the selected text"
   const toolbar = page.getByRole("toolbar", { name: "選取文字工具列" });
   await expect(toolbar).toBeVisible();
   expect((await toolbar.boundingBox())!.y).toBeGreaterThanOrEqual((await text.boundingBox())!.y);
-  await toolbar.getByRole("button", { name: "新增註記", exact: true }).click();
+  await toolbar.getByRole("button", { name: "寫註記", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "註記邊欄" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "個人註記", exact: true })).toBeFocused();
 });

@@ -156,7 +156,7 @@ export function AppShell({
         {toggle}
       </aside>}
       <main className="app-main" id="main-content">
-        {apiClient && materialId && <MaterialNotice apiClient={apiClient} route={route} materialId={materialId} />}
+        {apiClient && materialId && route.name !== "material-settings" && <MaterialNotice apiClient={apiClient} route={route} materialId={materialId} />}
         {children}
       </main>
       <SourcePanelHost routeKey={routeKey} />

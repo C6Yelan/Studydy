@@ -202,7 +202,7 @@ for (const [name, run, overall, current, step] of activeCases)
     await expect(
       processing.getByRole("button", { name: "取消並刪除教材", exact: true }),
     ).toHaveCount(name === "publishing" ? 0 : 1);
-    await expect(processing.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveCount(
+    await expect(processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true })).toHaveCount(
       0,
     );
     if (run.source_names) {
@@ -229,7 +229,7 @@ for (const status of ["succeeded", "partial"] as const)
     const processing = page.locator(".processing-page");
     await expect(processing.getByRole("heading", { level: 1 })).toHaveText("教材整理完成");
     await expect(processing.locator(".flow-result h2")).toHaveText(
-      "知識地圖已準備完成",
+      "新島嶼準備好了！",
     );
     await expect(processing.locator(".processing-summary")).toContainText("共處理 45 頁");
     await expect(processing.locator(".processing-summary ul > li")).toHaveText([
@@ -250,7 +250,7 @@ for (const status of ["succeeded", "partial"] as const)
       processing.getByRole("button", { name: "取消並刪除教材", exact: true }),
     ).toHaveCount(0);
     await expect(processing.locator(".learning-steps > li.is-complete")).toHaveCount(3);
-    const openMap = processing.getByRole("button", { name: "開啟知識地圖", exact: true });
+    const openMap = processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true });
     await expect(openMap).toHaveClass("primary-button");
     // 進度斷言完成後恢復計時，讓地圖的 lazy/Suspense 轉場正常完成。
     await page.clock.resume();
@@ -283,7 +283,7 @@ test("analysis failure preserves its last progress and shows the error code", as
   await expect(
     processing.getByRole("button", { name: "重新分析原來源", exact: true }),
   ).toBeEnabled();
-  await expect(processing.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveCount(
+  await expect(processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true })).toHaveCount(
     0,
   );
   await expect(processing.locator("code")).toHaveText("NO_USABLE_EVIDENCE");
@@ -341,7 +341,7 @@ for (const width of [2560, 920, 390])
       // 主要內容在第一屏：處理卡（或完成卡）緊接在步驟列下方，不被其他區塊推到下面。
       expect(layout.cards[0].y - stepsBottom).toBeLessThanOrEqual(48);
       if (!active) {
-        const openMap = await processing.getByRole("button", { name: "開啟知識地圖", exact: true }).boundingBox();
+        const openMap = await processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true }).boundingBox();
         expect(openMap!.y + openMap!.height).toBeLessThanOrEqual(844);
       }
       if (active) {
@@ -369,7 +369,7 @@ for (const origin of ["research", "mixed", "unreadable"] as const)
     await mockRun(page, (route) => route.fulfill({ json: completed("succeeded") }));
     await page.goto(runPath);
     const processing = page.locator(".processing-page");
-    await expect(processing.getByRole("button", { name: "開啟知識地圖", exact: true })).toBeVisible();
+    await expect(processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true })).toBeVisible();
     if (origin === "research") {
       // 從主題建立的教材重試後也回到這頁，步驟列沿用主題流程。
       await expect(processing.locator(".learning-steps > li")).toHaveText(["說出想學的", "確認觀念與細節", "選來源", "建立教材"].map((label) => new RegExp(label)));
@@ -545,7 +545,7 @@ test('processing failure keeps recovery order and completion keeps its source no
  await mockRun(page,route=>route.fulfill({json:current}));
  for(const state of ['running','failed','partial'] as const){
   current=state==='partial'?completed('partial'):{...base,status:state,source_names:['合成測試教材.pdf'],analysis_saved:state==='failed',input_source_set_id:artifactId,completed_at:state==='failed'?clockTime.toISOString():null,error_code:state==='failed'?'STORAGE_UNAVAILABLE':null};
-  await page.goto(runPath);await expect(page.locator('.run-material-return')).toContainText('合成測試教材');
+  await page.goto(runPath);await expect(page.locator('.crumb')).toContainText('合成測試教材');
   if(state==='failed'){
    const card=page.locator('.run-failure-content');await expect(card.getByRole('button',{name:'接續已保存的分析'})).toBeVisible();
    const order=await card.evaluate(element=>{

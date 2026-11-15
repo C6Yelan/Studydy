@@ -92,7 +92,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
   return <section className="material-library is-collection supplementary-page research-library" aria-label="補充學習查詢">
     <div className="research-panel">
       <header className="research-head">
-        <div><h1>補充學習</h1><p>先確認要查找的觀念與細節，再搜尋論文與 Wikipedia。</p></div>
+        <div><h1>找更多資料</h1><p>先確認要查找的觀念與細節，再搜尋論文與 Wikipedia。</p></div>
         <div className="collection-summary" ref={heading} tabIndex={-1}><p>{list === null ? '正在讀取查詢…' : `已保存 ${list.length} 筆查詢`}</p></div>
       </header>
       <section className="surface research-compose" aria-labelledby="research-prompt"><h2 id="research-prompt">想補充什麼內容？</h2>
@@ -100,10 +100,17 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
           <button className="primary-button" type="submit" disabled={busy || !query.trim()}>{busy ? '正在建立規劃…' : '產生搜尋範圍'}<Icon name="chevron-right" size={16}/></button></form>
         {searchError && <p className="form-error" role="alert">{searchError}</p>}
       </section>
+      <ol className="research-flow" aria-label="找資料的三個步驟">
+        <li><b>1 說出想補充的內容</b>用一句話描述就好</li>
+        <li><b>2 確認觀念與細節</b>可以增刪要查的觀念</li>
+        <li><b>3 選取來源</b>挑論文或 Wikipedia 加進群島</li>
+      </ol>
       {listError && <p className="form-error" role="alert">{listError}<button className="text-button" type="button" onClick={() => void refresh().catch(error => setListError(errorMessage(error)))}>重新讀取查詢</button></p>}
       {scopes.map(scope=><article className="surface research-record research-scope" key={scope.topic_id}><h2 title={scope.request}>{scope.request}</h2><p>{scope.status==='pending'?'正在整理觀念與細節，尚未搜尋。':scope.status==='failed'?'需求規劃未完成，可重試。':'待確認搜尋範圍，尚未搜尋。'}</p>{confirmingScope===scope.topic_id?<InlineConfirm message="取消這個補充規劃？不會刪除教材或其他查詢。" cancelLabel="保留" confirmLabel="取消規劃" busyLabel="正在取消…" busy={removingScope===scope.topic_id} onCancel={()=>setConfirmingScope(null)} onConfirm={()=>void removeScope(scope)}/>:<div className="tool-footer-secondary"><button className="primary-button" disabled={removingScope!==null} onClick={()=>writeRoute({name:'topic',topicId:scope.topic_id,materialId})}>查看搜尋範圍</button><button className="text-button" data-inline-confirm-trigger disabled={removingScope!==null} onClick={()=>setConfirmingScope(scope.topic_id)}>取消這個規劃</button></div>}</article>)}
       {list?.length === 0 && scopes.length===0 && <EmptyState title="還沒有補充查詢" description="在上方輸入想多了解的內容；建立查詢後，可從卡片開啟來源與處理進度。" />}
+      {!!list?.length && <h2 className="research-records-title">之前找過的資料<small>{list.length} 筆</small></h2>}
       <div className="library-grid research-records" role="region" tabIndex={0} aria-label="補充搜尋紀錄">{/* 已停止的查詢與其他紀錄放在一起，只以狀態標籤區分，排在最後。 */}{list && [...list.filter(item => item.status !== 'cancelled'), ...list.filter(item => item.status === 'cancelled')].map(renderRecord)}</div>
+      <p className="research-tip"><img src="/assets/studydy/brand-guide.png" alt="" />找到的資料會變成群島上的新島，地圖和題目也會跟著更新。</p>
     </div>
   </section>;
 }

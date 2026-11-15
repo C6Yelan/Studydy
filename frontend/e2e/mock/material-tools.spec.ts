@@ -19,10 +19,10 @@ test('material voice text flow saves, cites, reopens and closes',async({page})=>
  await page.getByLabel('問題／辨識文字').fill('堆疊是什麼？');await page.getByRole('button',{name:'送出問題',exact:true}).click();
  await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
  await expect(page.locator('.voice-reference-sources').getByRole('button')).toContainText('p.1');
- await page.locator('.voice-reference-sources').getByRole('button').first().click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材來源'})).toHaveCount(0);await expect(page.getByRole('dialog',{name:'Studydy AI BOT'})).toBeVisible();
+ await page.locator('.voice-reference-sources').getByRole('button').first().click();await expect(page.getByRole('dialog',{name:'教材來源'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'教材來源'})).toHaveCount(0);await expect(page.getByRole('dialog',{name:'小幫手'})).toBeVisible();
  await page.getByRole('button',{name:'關閉',exact:true}).click();await expect(page.getByLabel('問題／辨識文字')).toHaveCount(0);await expect(page.getByRole('button',{name:'問小幫手',exact:true})).toBeFocused();
  await page.getByRole('button',{name:'問小幫手',exact:true}).click();await page.getByRole('button',{name:'對話紀錄',exact:true}).click();await page.locator(`[data-conversation-id="${cid}"]`).click();await expect(page.locator('.voice-answer')).toHaveText('堆疊遵循後進先出。');
- await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'Studydy AI BOT'})).toHaveCount(0);await expect(page.getByRole('button',{name:'問小幫手',exact:true})).toBeFocused();
+ await page.keyboard.press('Escape');await expect(page.getByRole('dialog',{name:'小幫手'})).toHaveCount(0);await expect(page.getByRole('button',{name:'問小幫手',exact:true})).toBeFocused();
 });
 
 test('late microphone permission after cancel stops tracks and sends nothing',async({page})=>{
@@ -49,7 +49,7 @@ test('research preserves arbitrary source selection and requires irreversible co
  await page.getByLabel('篩選來源',{exact:true}).fill('官方教材 3');await expect(page.locator('.research-candidates article')).toHaveCount(1);await expect(page.locator('.tool-stage-footer').getByText('已選 5 份來源',{exact:true})).toBeVisible();await page.getByLabel('篩選來源',{exact:true}).clear();await expect(page.getByLabel('想多了解什麼？',{exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'取得選取的 5 份來源'}).click();
  await expect(page.getByRole('button',{name:'確認加入教材'})).toBeDisabled();await expect(page.getByText('無法撤回新增內容')).toBeVisible();expect(submits).toBe(0);
- await page.getByLabel('我了解加入後不可逆').check();await page.getByRole('button',{name:'確認加入教材'}).click();await expect(page.getByRole('button',{name:'查看教材分析'})).toBeVisible();await expect(page.getByRole('button',{name:'返回補充學習'})).toBeVisible();await expect(page.getByRole('checkbox',{name:'全選可用來源'})).toHaveCount(0);expect(submits).toBe(1);await page.getByRole('button',{name:'查看教材分析'}).click();await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
+ await page.getByLabel('我了解加入後不可逆').check();await page.getByRole('button',{name:'確認加入教材'}).click();await expect(page.getByRole('button',{name:'查看教材分析'})).toBeVisible();await expect(page.getByRole('button',{name:'返回找更多資料'})).toBeVisible();await expect(page.getByRole('checkbox',{name:'全選可用來源'})).toHaveCount(0);expect(submits).toBe(1);await page.getByRole('button',{name:'查看教材分析'}).click();await expect(page).toHaveURL(new RegExp(`/runs/${runId}$`));
 });
 
 test('closing a conversation releases every private audio element',async({page})=>{
@@ -174,7 +174,7 @@ test('published sources filter files without idle update steps and keep upload e
  await page.getByLabel('搜尋教材來源',{exact:true}).fill('乙');await expect(page.locator('.source-row')).toHaveCount(1);await expect(page.locator('.source-row .source-number')).toHaveText('2');
  await page.getByRole('button',{name:'新增來源',exact:true}).click();
  await expect(page.locator('.learning-step-label').last()).toHaveText('更新知識地圖');
- await page.getByLabel('選擇新增教材',{exact:true}).setInputFiles({name:'unsupported.exe',mimeType:'application/octet-stream',buffer:Buffer.from('fixture')});await expect(page.locator('#source-selection-error')).toBeVisible();await page.getByRole('button',{name:'返回教材來源',exact:true}).click();await expect(page.locator('.source-row')).toHaveCount(2);
+ await page.getByLabel('選擇新增教材',{exact:true}).setInputFiles({name:'unsupported.exe',mimeType:'application/octet-stream',buffer:Buffer.from('fixture')});await expect(page.locator('#source-selection-error')).toBeVisible();await page.getByRole('button',{name:'返回原始檔案',exact:true}).click();await expect(page.locator('.source-row')).toHaveCount(2);
 });
 
 
@@ -208,7 +208,7 @@ test('Voice bubble keeps the page reachable and restores focus when dismissed',a
   else await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());
   const before=(await page.locator('.material-rail').boundingBox())!;
   await page.screenshot({path:testInfo.outputPath(`qa-closed-${width}.png`)});await opener.click();
-  const bubble=page.getByRole('dialog',{name:'Studydy AI BOT'});await expect(bubble).toHaveAttribute('aria-modal','false');
+  const bubble=page.getByRole('dialog',{name:'小幫手'});await expect(bubble).toHaveAttribute('aria-modal','false');
   // 桌機是右側抽屜，上緣留 12px；手機是全高面板。教材側欄不因開啟而移動。
   // 游標移開側欄後再量（滑過收合的側欄會暫時展開）。
   await page.mouse.move(width/2,4);await expect.poll(async()=>(await page.locator('.material-rail').boundingBox())!.width).toBeCloseTo(before.width,0);
@@ -256,17 +256,17 @@ test('research collection cards open scoped detail pages and retain task drafts 
  expect((await page.locator('.research-workspace').boundingBox())!.width).toBeGreaterThan(1300-railWidth);
  expect((await page.locator('.research-detail-body').boundingBox())!.width).toBeGreaterThan(1000-railWidth);
  await page.getByRole('checkbox',{name:'選取 補充來源 1',exact:true}).check();await page.getByLabel('篩選來源',{exact:true}).fill('來源 1');
- await page.getByRole('button',{name:'返回補充學習',exact:true}).click();
+ await page.getByRole('button',{name:'返回找更多資料',exact:true}).click();
  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/research$`));await expect(page.getByLabel('想多了解什麼？',{exact:true})).toHaveValue('下一個搜尋草稿');
  await expect(first).toContainText('已選 1 份');await expect(page.locator('.research-candidates')).toHaveCount(0);
  await page.goBack();await expect(page).toHaveURL(new RegExp(`/research/${cid}$`));
  await expect(page.getByRole('checkbox',{name:'選取 補充來源 1',exact:true})).toBeChecked();await expect(page.getByLabel('篩選來源',{exact:true})).toHaveValue('來源 1');
- await page.getByRole('button',{name:'返回補充學習',exact:true}).click();
+ await page.getByRole('button',{name:'返回找更多資料',exact:true}).click();
  await page.getByRole('article',{name:records[2].query,exact:true}).getByRole('button',{name:'查看完成結果',exact:true}).click();
  await expect(page).toHaveURL(new RegExp(`/research/${records[2].research_id}$`));
  await expect(page.getByRole('heading',{name:'補充教材已建立',exact:true})).toBeVisible();
  await page.reload();await expect(page.getByRole('heading',{name:'補充學習',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'返回補充學習',exact:true}).click();
+ await page.getByRole('button',{name:'返回找更多資料',exact:true}).click();
  await page.setViewportSize({width:390,height:844});
  const mobileA=(await first.boundingBox())!,mobileB=(await progress.boundingBox())!;expect(mobileB.x).toBeCloseTo(mobileA.x,0);expect(mobileB.y).toBeGreaterThanOrEqual(mobileA.y+mobileA.height);
  await first.getByRole('link').click();await expect(page.locator('.research-candidates article')).toHaveCount(4);
@@ -318,7 +318,7 @@ test('research deletion follows the shared menu pattern, cancels safely and cann
  await confirmation.getByRole('button',{name:'確認刪除查詢',exact:true}).dblclick();await expect(page.locator('.research-record')).toHaveCount(0);expect(deletes).toBe(2);
  release();await page.waitForTimeout(300);await expect(page.locator('.research-record')).toHaveCount(0);await expect(page.locator('.collection-summary')).toBeFocused();
  await page.goto(`/materials/${materialId}/research/${cid}`);await expect(page.getByRole('heading',{name:'無法讀取查詢',exact:true})).toBeVisible();await expect(page.locator('.research-candidates')).toHaveCount(0);
- await page.getByRole('button',{name:'返回補充學習',exact:true}).click();await expect(page.locator('.research-record')).toHaveCount(0);
+ await page.getByRole('button',{name:'返回找更多資料',exact:true}).click();await expect(page.locator('.research-record')).toHaveCount(0);
 });
 
 test('research detail rejects a foreign material and late reads cannot replace another detail',async({page})=>{
@@ -329,7 +329,7 @@ test('research detail rejects a foreign material and late reads cannot replace a
  await page.goto(`/materials/${materialId}/research/${cid}`);await expect(page.getByRole('heading',{name:'找不到這筆補充學習',exact:true})).toBeVisible();await expect(page.getByRole('heading',{name:work.query,exact:true})).toHaveCount(0);
  let release!:()=>void;const delayed=new Promise<void>(resolve=>release=resolve);
  await page.route(`**/v1/research/${tid}`,async r=>{await delayed;return json(r,{...work,material_id:materialId,research_id:tid,query:'晚到的查詢'});});
- await page.goto(`/materials/${materialId}/research/${tid}`);await page.getByRole('button',{name:'返回補充學習',exact:true}).click();
+ await page.goto(`/materials/${materialId}/research/${tid}`);await page.getByRole('button',{name:'返回找更多資料',exact:true}).click();
  release();await page.waitForTimeout(200);await expect(page.getByRole('heading',{name:'晚到的查詢',exact:true})).toHaveCount(0);await expect(page.locator('.research-detail')).toHaveCount(0);
 });
 
@@ -349,7 +349,7 @@ test('supplement requires editable scope confirmation before creating research',
  await page.reload();await expect(page.getByLabel('想了解的細節 2',{exact:true})).toHaveValue('何時結束重試');expect(searches).toBe(0);
  await page.getByLabel('想了解的細節 2',{exact:true}).fill('重試沒有進展時交由人類判斷');
  await page.getByRole('button',{name:'確認範圍並搜尋',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/research/${cid}$`));expect(searches).toBe(1);
- await page.getByRole('button',{name:'返回補充學習',exact:true}).click();await expect(page.locator('.research-card-link')).toHaveCount(1);
+ await page.getByRole('button',{name:'返回找更多資料',exact:true}).click();await expect(page.locator('.research-card-link')).toHaveCount(1);
  await expect(page.getByRole('button',{name:'查看搜尋範圍',exact:true})).toHaveCount(0);
 });
 

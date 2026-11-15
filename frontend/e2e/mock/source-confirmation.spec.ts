@@ -250,7 +250,7 @@ for (const width of [1536, 390])
       await expect(page.locator('.source-inclusion-summary')).toHaveText('目前地圖使用 1 份 · 2 份尚未納入地圖');
       await expect(page.getByText('尚未納入目前地圖', {exact: true})).toHaveCount(2);
       await expect(page.getByText('目前地圖使用中', {exact: true})).toHaveCount(1);
-      await expect(page.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "原始檔案", exact: true })).toBeVisible();
       const rows = await readyRows(page);
       await expect(rows.first().getByRole("button", { name: "移除", exact: true })).toHaveCount(0);
       await expect(page.getByRole("button", { name: /^(上移|下移) / })).toHaveCount(0);
@@ -407,7 +407,7 @@ for(const append of [false,true])test(`add source page shares upload steps and r
  await page.goto(sourcesPath);
  await page.getByRole('button',{name:'新增來源',exact:true}).click();
  await expect(page).toHaveURL(`${sourcesPath}/new`);
- await expect(page.getByRole('heading',{name:'新增來源',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'幫這座島加新材料',exact:true})).toBeVisible();
  await expect(page.locator('.upload-types')).toContainText('PDF');
  await expect(page.getByLabel('YouTube 影片網址',{exact:true})).toBeVisible();
  for(const [width,height] of [[1440,900],[1024,768],[390,844]]){
@@ -416,7 +416,7 @@ for(const append of [false,true])test(`add source page shares upload steps and r
  }
  await page.reload();
  await expect(page.getByLabel('選擇新增教材',{exact:true})).toBeEnabled();
- await page.getByRole('button',{name:'返回教材來源',exact:true}).click();
+ await page.getByRole('button',{name:'返回原始檔案',exact:true}).click();
  await expect(page).toHaveURL(sourcesPath);
  await page.getByRole('button',{name:'新增來源',exact:true}).click();
  await page.getByLabel('YouTube 影片網址',{exact:true}).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
