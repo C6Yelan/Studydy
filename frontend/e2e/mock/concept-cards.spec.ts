@@ -292,7 +292,7 @@ test("map creates a saved multi-card deck; keyboard, sources, shuffle and delete
   await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的資料結構卡組" })).toBeVisible();
   await page.screenshot({ path: "../.studydy-runtime/card-preview/library-desktop.png", fullPage: true });
-  await page.getByRole("button", { name: "管理卡組「我的資料結構卡組」" }).click();
+  await page.getByRole("button", { name: "調整卡組「我的資料結構卡組」" }).click();
   await page.getByRole("button", { name: "刪除卡組「我的資料結構卡組」" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("group", { name: "刪除卡組確認" }).getByText("確定刪除？", { exact: true })).toBeVisible();
@@ -316,7 +316,7 @@ test("card deletion confirms inline, cancels safely and retries once", async ({ 
   });
   await page.goto("/concept-cards");
   const card = page.getByRole("article", { name: title, exact: true });
-  const opener = card.getByRole("button", { name: `管理卡組「${title}」`, exact: true });
+  const opener = card.getByRole("button", { name: `調整卡組「${title}」`, exact: true });
   const confirmation = card.getByRole("group", { name: "刪除卡組確認" });
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
@@ -391,11 +391,11 @@ test("a late list read cannot restore a deleted card while another card is renam
   });
   await page.goto("/concept-cards");
   const target = page.getByRole("article", { name: "資料結構 · 核心概念", exact: true });
-  await target.getByRole("button", { name: "管理卡組「資料結構 · 核心概念」" }).click();
+  await target.getByRole("button", { name: "調整卡組「資料結構 · 核心概念」" }).click();
   await target.getByRole("button", { name: "刪除卡組「資料結構 · 核心概念」" }).click();
   await target.getByRole("button", { name: "確認刪除卡組" }).click();
   const other = page.getByRole("article", { name: "另一個卡組", exact: true });
-  await other.getByRole("button", { name: "管理卡組「另一個卡組」" }).click();
+  await other.getByRole("button", { name: "調整卡組「另一個卡組」" }).click();
   await other.getByRole("button", { name: "重新命名", exact: true }).click();
   await other.getByLabel("卡組名稱").fill("已重新命名的卡組");
   await other.getByRole("button", { name: "儲存", exact: true }).click();
@@ -473,7 +473,7 @@ test("saved decks can be renamed and edited without replacing their identity", a
       fullReads.push(request.url());
   });
   await page.goto("/concept-cards");
-  await page.getByRole("button", { name: "管理卡組「資料結構 · 核心概念」" }).click();
+  await page.getByRole("button", { name: "調整卡組「資料結構 · 核心概念」" }).click();
   await expect(page.getByRole("button", { name: "重新命名", exact: true })).toHaveCount(1);
   await page.locator(".material-management-menu[open]").getByRole("button", { name: "調整卡組", exact: true }).click();
   expect(fullReads).toEqual([]);
@@ -801,7 +801,7 @@ test("account change from another tab removes an open card source dialog", async
 test("card library renames inline like materials without changing selected cards", async ({ page }) => {
   await mockCards(page, { saved: true });
   await page.goto('/concept-cards');
-  await page.getByRole('button', { name: '管理卡組「資料結構 · 核心概念」' }).click();
+  await page.getByRole('button', { name: '調整卡組「資料結構 · 核心概念」' }).click();
   await page.getByRole('button', { name: '重新命名', exact: true }).click();
   const form = page.getByRole('form', { name: '重新命名卡組' });
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -809,7 +809,7 @@ test("card library renames inline like materials without changing selected cards
   await form.getByLabel('卡組名稱').fill('暫不保存');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('heading', { name: '資料結構 · 核心概念' })).toBeVisible();
-  await page.getByRole('button', { name: '管理卡組「資料結構 · 核心概念」' }).click();
+  await page.getByRole('button', { name: '調整卡組「資料結構 · 核心概念」' }).click();
   await page.getByRole('button', { name: '重新命名', exact: true }).click();
   await form.getByLabel('卡組名稱').fill('我的新卡組名稱');
   const update = page.waitForRequest(r => r.url().endsWith(`/card-sets/${cardSetId}/update`));
@@ -836,9 +836,9 @@ test("saved card views and editing stay inside the material workspace from eithe
   await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '翻卡片', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards$`));
   await expect(tabs).toBeVisible();
-  // 從全站概念卡列表開啟管理卡組時保留返回該列表。
+  // 從全站概念卡列表開啟調整卡組時保留返回該列表。
   await page.goto('/concept-cards');
-  await page.getByRole('button', { name: '管理卡組「資料結構 · 核心概念」' }).click();
+  await page.getByRole('button', { name: '調整卡組「資料結構 · 核心概念」' }).click();
   await page.locator('.material-management-menu[open]').getByRole('button', { name: '調整卡組', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/concept-cards/${cardSetId}/edit$`));
   await page.getByRole('button', { name: '回到翻卡片', exact: true }).click();

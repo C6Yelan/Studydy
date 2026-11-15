@@ -88,7 +88,7 @@ function ScopeFields({draft,onChange,busy,request,supplemental,settings,actions}
  </div>;
 }
 
-/** embedded：教材補充學習在教材側欄內顯示，返回由教材版面的返回鍵負責。 */
+/** embedded：教材找更多資料在教材側欄內顯示，返回由教材版面的返回鍵負責。 */
 export function TopicPage({api,topicId,embedded=false}:{api:StudydyApiClient;topicId?:string;embedded?:boolean}){
  const [request,setRequest]=useState(''),[view,setView]=useState<Topic|null>(null),[draft,setDraft]=useState<Scope|null>(null),[selected,setSelected]=useState<string[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);
  const [learningSettings,setLearningSettings]=useState<CreationSettings>({goal:null});
@@ -111,13 +111,13 @@ export function TopicPage({api,topicId,embedded=false}:{api:StudydyApiClient;top
   if(alive.current)setView(previous=>previous?.research_id===result.research_id?{...previous,research:result}:previous);
  });
  const work=view?.research,working=!!work&&active.has(work.status);
- // 舊網址 /topics/{id} 開到教材補充學習時，換成教材內網址。
+ // 舊網址 /topics/{id} 開到教材找更多資料時，換成教材內網址。
  useEffect(()=>{if(view?.material_id&&!embedded)writeRoute({name:'topic',topicId:view.topic_id,materialId:view.material_id},true);},[view?.material_id,embedded]);
  useEffect(()=>{if(view?.material_id&&view.status==='approved'&&view.research_id)writeRoute({name:'research',materialId:view.material_id,researchId:view.research_id});},[view?.material_id,view?.status,view?.research_id]);
  const back=()=>writeRoute(view?.material_id?{name:'material-content',materialId:view.material_id,kind:'research'}:{name:'materials'});
 
  const [loadedRun,setLoadedRun]=useState<MaterialProcessingRunView|null>(null),[runError,setRunError]=useState(''),[runReload,setRunReload]=useState(0),[now,setNow]=useState(Date.now);
- // 已取消的教材可刪除；刪除受理但尚未清除完時持續讀取，讀不到教材後回到我的教材（同處理頁取消後的行為）。
+ // 已取消的教材可刪除；刪除受理但尚未清除完時持續讀取，讀不到教材後回到我的群島（同處理頁取消後的行為）。
  const [removing,setRemoving]=useState(false);
  const materialRun=loadedRun?.run_id===work?.run_id&&loadedRun?.material_id===work?.material_id?loadedRun:null;
  useEffect(()=>{
@@ -162,7 +162,7 @@ export function TopicPage({api,topicId,embedded=false}:{api:StudydyApiClient;top
   <section aria-label="教材分析子流程">
    {runError&&<p className="form-error" role="alert">無法讀取處理狀態：{runError}<button className="text-button" onClick={()=>setRunReload(v=>v+1)}>重新讀取進度</button></p>}
    {!materialRun&&!runError&&<p role="status">正在讀取教材分析進度…</p>}
-   {materialRun&&(removing?<section className="surface processing-card"><p role="status">正在停止處理並刪除這份教材，完成後會返回我的教材。</p></section>:<div className={`processing-grid${completed?' is-done':''}`}>
+   {materialRun&&(removing?<section className="surface processing-card"><p role="status">正在停止處理並刪除這份教材，完成後會返回我的群島。</p></section>:<div className={`processing-grid${completed?' is-done':''}`}>
     {failed?<MaterialRunFailure apiClient={api} run={materialRun}/>:<section className={`surface processing-card${completed?' topic-done-card':''}`}>
      {completed&&<img className="topic-done-bot" src="/assets/Studydy_角色素材/歡迎/welcome_present.png" alt=""/>}
      {completed||cancelled?<>

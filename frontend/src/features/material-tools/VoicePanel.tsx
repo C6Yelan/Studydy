@@ -191,7 +191,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
   if(followLatest.current&&transcript.current)transcript.current.scrollTop=transcript.current.scrollHeight;
   else if(lastTurn)setBehind(true);
  },[id,lastTurn?.turn_id,lastTurn?.status,lastTurn?.answer?.text,lastTurn?.audio_url,lastTurn?.stage,lastTurn?.audio_sentences?.map(sentence=>sentence.status).join(','),showOutgoing]);
- const statusText=listening==='permission'?'等待麥克風權限…':listening==='loading'?'正在載入人聲辨識…':recording?'正在聆聽你的問題，說完稍停即可送出':busy?'正在送出…':working?(view?.turns.some(turn=>turn.status==='transcribing')?'正在辨識':'正在整理回答'):mode==='voice'?'正在聆聽':'Enter 送出 · Shift+Enter 換行';
+ const statusText=listening==='permission'?'等待麥克風權限…':listening==='loading'?'正在載入人聲辨識…':recording?'正在聆聽你的問題，說完稍停即可送出':busy?'正在送出…':working?(view?.turns.some(turn=>turn.status==='transcribing')?'正在辨識':'正在整理回答'):mode==='voice'?'正在聆聽':<span className="keyboard-hint">Enter 送出 · Shift+Enter 換行</span>;
  return <div className="voice-panel" onKeyDown={event=>{
   if(event.key==='Escape'&&historyOpen){event.stopPropagation();event.preventDefault();closeHistory(true);}
  }}>

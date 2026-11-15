@@ -169,7 +169,7 @@ test('published sources filter files without idle update steps and keep upload e
  await page.route(`**/v1/materials/${materialId}/sources`,r=>json(r,{schema:'material-sources/v1',material_id:materialId,discard_requested:false,sources:names.map((name,i)=>({source_id:`${i+1}1111111-1111-4111-8111-111111111111`,normalization_id:`${i+1}2222222-2222-4222-8222-222222222222`,original_artifact_id:artifactId,original_name:name,origin:i?'research':'upload',media_type:'application/pdf',status:'ready',attempt:1,page_count:2,included:true,error_code:null,normalized_artifact_id:artifactId}))}));
  await page.goto(`/materials/${materialId}/sources`);await expect(page.locator('.material-rail-name')).toHaveText('目前教材Data structures.pdf');await expect(page.locator('.source-guide')).toHaveCount(0);await expect(page.locator('.source-list-footer')).toHaveCount(0);
  await expect(page.getByRole('region',{name:'使用者上傳',exact:true})).toContainText('甲教材.pdf');
- await expect(page.getByRole('region',{name:'網路補充學習資源',exact:true})).toContainText('乙教材.pdf');
+ await expect(page.getByRole('region',{name:'找更多資料加入的來源',exact:true})).toContainText('乙教材.pdf');
  await expect(page.getByRole('button',{name:'開啟目前地圖',exact:true})).toHaveCount(0);
  await page.getByLabel('搜尋原始檔案',{exact:true}).fill('乙');await expect(page.locator('.source-row')).toHaveCount(1);await expect(page.locator('.source-row .source-number')).toHaveText('2');
  await page.getByRole('button',{name:'新增來源',exact:true}).click();

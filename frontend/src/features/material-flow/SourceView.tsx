@@ -228,7 +228,7 @@ export function SourceView({
         tone="failure"
         action={<>
           <button className="primary-button" type="button" onClick={() => { setError(null); setReload((value) => value + 1); }}>重新讀取</button>
-          <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>回到我的教材</button>
+          <button className="secondary-button" type="button" onClick={() => writeRoute({ name: "materials" })}>回到我的群島</button>
         </>}
       />
     );
@@ -275,8 +275,8 @@ export function SourceView({
     const groupSources = visibleSources.filter(source => group === "all" || (source.origin ?? "upload") === group);
     // 來源很多時（千頁教材有數十份）先顯示前 10 份；搜尋時一律顯示全部符合項目。
     const collapsed = !!currentStructure && !sourceQuery.trim() && !expandedGroups.includes(group) && groupSources.length > SOURCE_PREVIEW_COUNT;
-    return <section key={group} className="source-group" aria-label={group === "research" ? "網路補充學習資源" : "使用者上傳"}>
-      {currentStructure && <h3 className="source-group-title">{group === "research" ? "網路補充學習資源" : "使用者上傳"}<small>{groupSources.length} 份</small></h3>}
+    return <section key={group} className="source-group" aria-label={group === "research" ? "找更多資料加入的來源" : "使用者上傳"}>
+      {currentStructure && <h3 className="source-group-title">{group === "research" ? "找更多資料加入的來源" : "使用者上傳"}<small>{groupSources.length} 份</small></h3>}
       <ol className="source-list">
         {(collapsed ? groupSources.slice(0, SOURCE_PREVIEW_COUNT) : groupSources).map((source, index) => { const displayName=source.display_name??source.original_name; return (
           <li className={`source-row${source.status === "failed" ? " is-failed" : ""}`} key={source.source_id} aria-label={displayName}>
@@ -406,7 +406,7 @@ export function SourceView({
         );})}
       </ol>
       {collapsed && <button className="secondary-button source-show-all" type="button" onClick={() => setExpandedGroups(previous => [...previous, group])}>顯示全部 {groupSources.length} 份</button>}
-      {currentStructure && !sourceQuery.trim() && groupSources.length === 0 && <p className="source-group-empty">尚無{group === "research" ? "網路補充學習資源" : "上傳教材"}。</p>}
+      {currentStructure && !sourceQuery.trim() && groupSources.length === 0 && <p className="source-group-empty">尚無{group === "research" ? "找更多資料加入的來源" : "上傳教材"}。</p>}
     </section>;
   });
   const listFooter = !removing && adjustingSources && (
@@ -451,10 +451,10 @@ export function SourceView({
       </button>
     </div>
   );
-  // 確認教材（尚未建立地圖）時保留返回我的教材；已有地圖的教材由教材側欄切換，不再重複。
+  // 確認教材（尚未建立地圖）時保留返回我的群島；已有地圖的教材由教材側欄切換，不再重複。
   const bottom = (
     <div className="flow-bottom source-footer">
-      {!currentStructure && <BackLink label="返回我的教材" route={{ name: "materials" }} />}
+      {!currentStructure && <BackLink label="返回我的群島" route={{ name: "materials" }} />}
       <MaterialRemoveControl
         inActionRow
         material={material}

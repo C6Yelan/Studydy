@@ -334,7 +334,7 @@ test('topic analysis cancellation explains removal of search results and require
  await cancel.click();await page.getByRole('button',{name:'確認刪除',exact:true}).click();await expect(page.getByRole('heading',{name:'正在刪除教材…',exact:true})).toBeVisible();expect(deletes).toBe(1);
  const completedRead=page.waitForResponse(async response=>response.url().endsWith(`/v1/material-processing-runs/${runId}`)&&response.status()===200&&(await response.json()).status==='succeeded');
  publishedDuringDelete=true;await (await completedRead).finished();await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
- await expect(page.getByText('正在停止處理並刪除這份教材，完成後會返回我的教材。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toHaveCount(0);
+ await expect(page.getByText('正在停止處理並刪除這份教材，完成後會返回我的群島。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'登上這座島',exact:true})).toHaveCount(0);
  gone=true;await expect(page).toHaveURL(/\/materials$/);expect(deletes).toBe(1);
 });
 
