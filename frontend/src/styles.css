@@ -208,11 +208,6 @@ code {
   font-weight: 800;
 }
 
-.full-button {
-  width: 100%;
-  margin-top: var(--space-5);
-}
-
 .form-error {
   margin: var(--space-3) 0 0;
   color: #b42338;

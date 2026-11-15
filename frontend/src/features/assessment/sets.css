@@ -38,9 +38,6 @@
 .assessment-cycle > p {
   line-height: 1.7;
 }
-.assessment-cycle-result {
-  font-weight: 700;
-}
 .assessment-result-navigation {
   margin-top: var(--space-5);
   padding-top: var(--space-4);

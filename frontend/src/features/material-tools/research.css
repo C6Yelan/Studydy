@@ -1,4 +1,4 @@
-/* 補充學習、從主題建立教材共用的研究流程與來源卡（與建立教材版型 flow.css 搭配）。 */
+/* 找更多資料、從主題建立教材共用的研究流程與來源卡（與建立教材版型 flow.css 搭配）。 */
 
 /* ── 共用階段元素 ── */
 .tool-stage { min-width:0; }
@@ -95,7 +95,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .source-page-buttons .text-button { min-width:34px; min-height:34px; padding:0 10px; border-radius:999px; font-size:13px; }
 .source-page-buttons [aria-current="page"] { background:var(--studydy-blue); color:#fff; }
 
-/* 精簡模式（補充學習）：工具列一列，卡片以標題為主。 */
+/* 精簡模式（找更多資料）：工具列一列，卡片以標題為主。 */
 .source-picker.is-compact .source-picker-filters { grid-template-columns:minmax(0,1fr) 140px auto auto; align-items:center; gap:10px; }
 .source-picker.is-compact.is-readonly .source-picker-filters { grid-template-columns:minmax(0,1fr) 140px; }
 .source-picker.is-compact .research-candidates article { padding:12px 14px; }
@@ -114,7 +114,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .research-progress p { margin:4px 0; color:var(--text-secondary); font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
 .research-progress small { color:var(--text-muted); font-size:12px; }
 
-/* ── 補充學習分頁（查詢列表） ── */
+/* ── 找更多資料分頁（查詢列表） ── */
 .supplementary-page, .supplementary-page .research-panel { width:100%; max-width:none; }
 .supplementary-page p { line-height:1.7; }
 .supplementary-page :is(.primary-button,.secondary-button,.text-button) { min-height:40px; font-size:14px; }
@@ -196,13 +196,12 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 }
 @media(max-width:720px) {
   .research-detail-body { padding:14px; }
-  .research-detail .research-detail-header { gap:10px; }
   .source-picker-filters { grid-template-columns:minmax(0,1fr) 120px; gap:8px; }
   .research-candidates article { padding:12px; }
   .tool-result { padding:14px; }
 }
 
-/* 寬螢幕：補充學習一屏內完成，查詢紀錄與來源清單在自己的區塊內捲動（保留 1000px，理由同上）。 */
+/* 寬螢幕：找更多資料一屏內完成，查詢紀錄與來源清單在自己的區塊內捲動（保留 1000px，理由同上）。 */
 @media(min-width:1000px) {
   .material-content:has(.supplementary-page) { display:flex; flex-direction:column; height:calc(100dvh - var(--shell-header-height,56px)); min-height:0; padding-bottom:80px; }
   .material-content-body:has(.supplementary-page), .supplementary-page, .supplementary-page .research-panel { display:flex; flex-direction:column; flex:1; min-height:0; }

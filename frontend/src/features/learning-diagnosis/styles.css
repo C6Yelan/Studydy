@@ -4,7 +4,6 @@
 .diagnosis-point-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .diagnosis-point-list > li { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .diagnosis-point-list > li > div { min-width: 0; overflow-wrap: anywhere; }
-.diagnosis-answer-count { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: .9rem; }
 .diagnosis-point-list button { flex-shrink: 0; max-width: 100%; white-space: normal; }
 .concept-difficulty { display: inline-flex; flex-wrap: wrap; gap: 5px; vertical-align: middle; }
 .difficulty-badge { display: inline-block; border-radius: 999px; padding: 3px 8px; background: var(--page-cool); color: var(--text-secondary); font-size: .75rem; font-weight: 700; line-height: 1.5; }

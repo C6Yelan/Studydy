@@ -247,15 +247,6 @@
   font-size: 13px;
   color: var(--text-secondary);
 }
-.library-file-icon {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 14px;
-  color: var(--studydy-blue);
-  background: var(--studydy-blue-soft);
-}
 .library-item .state-actions {
   flex-wrap: wrap;
   gap: 8px;
@@ -331,7 +322,6 @@
   min-width: 0;
 }
 .is-collection .library-item > p { margin: 0 0 6px; font-size: 12px; line-height: 1.45; }
-.library-file-icon svg { width: 20px; height: 20px; }
 .library-item .cards-library-material, .library-item .podcast-material-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .library-header-compact { margin-bottom: 16px; gap: 12px; }
 .library-header-compact p { font-size: 13px; }
@@ -502,10 +492,6 @@
   font-size: 36px;
   color: var(--studydy-blue);
 }
-.is-processing .processing-status > .processing-progress {
-  height: 12px;
-  margin-block: 12px 8px;
-}
 .processing-current {
   margin-top: 24px;
   padding-top: 20px;
@@ -516,9 +502,6 @@
 }
 .processing-current .progress-heading > strong:last-child {
   font-size: 20px;
-}
-.processing-current .processing-progress {
-  margin-block: 10px 6px;
 }
 .processing-current p {
   margin: 6px 0 0;
@@ -708,9 +691,6 @@
 .library-item h2 {
   font-weight: 900;
 }
-.library-file-icon {
-  border-radius: 14px;
-}
 .library-item .library-state {
   border-radius: 999px;
   padding: 4px 10px;
@@ -726,17 +706,6 @@
   box-shadow: 0 4px 10px -4px rgba(10, 40, 80, 0.4);
 }
 
-/* 全域清單頁的標題（概念卡、Podcast）。 */
-.collection-intro {
-  margin-bottom: 18px;
-}
-.collection-intro .eyebrow {
-  margin-bottom: 6px;
-}
-.collection-intro h1 {
-  margin: 0;
-  font-size: clamp(1.5rem, 2.4vw, 1.9rem);
-}
 /* 卡組封面：兩張底卡加一張主卡。 */
 .card-set-art {
   position: relative;
@@ -790,7 +759,7 @@
   right: 22px;
 }
 .is-collection .library-item > .state-actions > .primary-button:first-child { flex: 1; }
-/* 三個清單頁（我的教材、概念卡、Podcast）共用頁首與工具列。 */
+/* 三個清單頁（我的群島、概念卡、Podcast）共用頁首與工具列。 */
 .collection-head { align-items: flex-end; margin-bottom: 18px; }
 .collection-head-text { min-width: 0; }
 .collection-head h1 { margin: 0 0 6px; font-size: clamp(1.6rem, 2.6vw, 2rem); }
@@ -832,7 +801,7 @@
 .library-new span { color: var(--text-muted); font-size: 12px; font-weight: 700; }
 .library-new-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
 .library-new-actions .secondary-button { min-height: 44px; font-size: 14px; }
-/* 教材卡片緊湊版：插圖較扁、標題不預留第二行，文字與按鈕間距縮小（只影響我的教材）。 */
+/* 教材卡片緊湊版：插圖較扁、標題不預留第二行，文字與按鈕間距縮小（只影響我的群島）。 */
 .material-bookshelf .library-item { padding: 8px 14px 14px; }
 .material-bookshelf .library-island { aspect-ratio: 2 / 1; margin-bottom: 2px; }
 .material-bookshelf .library-item h2 { min-height: 0; margin: 6px 0 2px; }

@@ -345,20 +345,6 @@
   color: #92400e;
   background: #fff7e6;
 }
-.review-empty {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: var(--space-6);
-  background: var(--studydy-blue-soft);
-  border-radius: var(--radius-card);
-}
-.review-empty h3 {
-  font-size: 20px;
-}
-.review-empty p {
-  color: var(--text-secondary);
-}
 
 /* 概念搜尋與結果清單。 */
 .map-search {
@@ -621,44 +607,6 @@
 }
 
 /* 複習概念、教材重點與學習入口。 */
-.review-workspace {
-  display: grid;
-  grid-template-columns: 250px minmax(0, 1fr) 260px;
-  grid-template-areas: "list context actions" "list points actions";
-  grid-template-rows: auto 1fr;
-  gap: 0 var(--space-6);
-  align-items: start;
-}
-.review-workspace h3 {
-  margin: 0 0 12px;
-}
-.review-context {
-  grid-area: context;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border);
-}
-.review-context h3 {
-  margin: 0;
-  font-size: 24px;
-  overflow-wrap: anywhere;
-}
-.review-actions {
-  grid-area: actions;
-  padding: 20px;
-  background: var(--page-cool);
-  border: 1px solid transparent;
-  border-radius: var(--radius-card);
-  background: var(--page-cool); border-radius: 16px;
-}
-.review-actions h3 {
-  font-size: 16px;
-}
-.review-actions .primary-button {
-  width: 100%;
-}
-.review-actions .text-button {
-  margin-top: 12px;
-}
 .review-points {
   grid-area: points;
   min-width: 0;
@@ -679,18 +627,6 @@
 .review-points li p {
   margin: 0;
   line-height: 1.75;
-  overflow-wrap: anywhere;
-}
-.review-claim-sources {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-.review-claim-sources .text-button {
-  max-width: 100%;
-  white-space: normal;
-  text-align: start;
   overflow-wrap: anywhere;
 }
 .review-list {
@@ -774,12 +710,6 @@
     border-radius: 0;
   }
 }
-@media (max-width: 1280px) and (min-width: 1025px) {
-  .review-workspace {
-    grid-template-columns: 230px minmax(0, 1fr);
-    grid-template-areas: "list context" "list points" "list actions";
-  }
-}
 @media (max-width: 1024px) {
   .map-workspace {
     padding: 8px 12px 12px;
@@ -803,15 +733,6 @@
   .focus-context {
     display: contents;
   }
-  .review-workspace {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "list" "context" "points" "actions";
-    grid-template-rows: auto;
-    gap: var(--space-4);
-  }
-  .review-context {
-    padding-top: 0;
-  }
 }
 @media (max-width: 720px) {
 
@@ -823,11 +744,6 @@
   }
   .view-heading h2 {
     font-size: 20px;
-  }
-  .review-empty {
-    padding: 16px;
-    gap: 12px;
-    align-items: start;
   }
 }
 
@@ -1069,12 +985,6 @@
   .app-shell.is-material .is-focus-mode .map-content {
     height: max(360px, calc(100dvh - var(--shell-offset) - env(safe-area-inset-bottom)));
   }
-}
-
-/* 學習進度：測驗紀錄標題列附摘要數字，概念列表與首頁卡片同一套白卡。 */
-.review-records {
-  display: grid;
-  gap: 14px;
 }
 
 /* 地圖四角依畫布邊界定位；桌機詳情使用既有並排欄，平板手機維持模態。 */

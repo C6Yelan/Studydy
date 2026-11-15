@@ -1,20 +1,12 @@
 .cards-page { max-width: 1180px; color: var(--text-primary); }
 .cards-page button { touch-action: manipulation; }
-.cards-page-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 30px; }
 .cards-page h1 { margin: 7px 0 10px; font-size: clamp(25px, 2.5vw, 34px); letter-spacing: -.035em; overflow-wrap: anywhere; }
-.cards-page-header p { margin: 0; color: var(--text-secondary); line-height: 1.7; }
 .cards-page input[type="search"] { width: 100%; min-height: 44px; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-input); background: #fff; color: var(--text-primary); font: inherit; }
-.cards-empty, .cards-complete { text-align: center; padding: 65px 24px; border: 1px solid var(--border-light); border-radius: 18px; background: #fff; }
-.cards-empty-icon { display: grid; place-items: center; width: 80px; height: 80px; background: var(--studydy-blue-soft); color: var(--studydy-blue); border-radius: 24px; margin: 0 auto 24px; }
-.cards-empty h2, .cards-complete h2 { margin: 0 0 12px; font-size: 23px; }
-.cards-empty p, .cards-complete p { color: var(--text-secondary); line-height: 1.7; margin-bottom: 25px; }
+.cards-complete { text-align: center; padding: 65px 24px; border: 1px solid var(--border-light); border-radius: 18px; background: #fff; }
+.cards-complete h2 { margin: 0 0 12px; font-size: 23px; }
+.cards-complete p { color: var(--text-secondary); line-height: 1.7; margin-bottom: 25px; }
 .cards-complete .state-actions { justify-content: center; }
 .cards-no-results { padding: 25px 12px; color: var(--text-secondary); text-align: center; }
-.cards-dialog { max-width: min(440px, calc(100vw - 36px)); border: 1px solid var(--border); border-radius: 16px; padding: 28px; color: var(--text-primary); }
-.cards-dialog::backdrop { background: #13233e66; }
-.cards-dialog p { line-height: 1.8; overflow-wrap: anywhere; }
-.cards-dialog .state-actions { justify-content: flex-end; margin-top: 24px; }
-.cards-danger { background: #b13c3c; border-color: #b13c3c; }
 /* 更新說明：與教材頁更新提醒使用同一套提示語言。 */
 .cards-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 0 16px; padding: 12px 18px; border: 0; border-radius: var(--radius-card); background: var(--violet-soft); color: #5b3ab8; font-size: 13px; font-weight: 700; line-height: 1.7; }
 .cards-version-tag { display: inline-flex !important; align-items: center; gap: 6px; width: fit-content; margin-top: 8px !important; padding: 4px 12px; border-radius: 999px; background: var(--violet-soft); color: #5b3ab8 !important; font-size: 12px !important; font-weight: 800; }
@@ -39,12 +31,6 @@ button.cards-version-tag { border: 0; font-family: inherit; cursor: pointer; }
 .cards-study { width:100%; max-width:1440px; margin:0 auto; }
 .cards-study-page { width:100%; max-width:none; }
 @keyframes card-reveal { from { opacity: .6; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-@media (max-width: 720px) {
-  .cards-page-header { align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; }
-  .cards-page-header > .primary-button { min-height: 42px; font-size: 14px; }
-
-  .cards-empty { padding: 45px 20px; }
-}
 @media (prefers-reduced-motion: reduce) { .flashcard { animation: none; } }
 .cards-library-material { overflow-wrap: anywhere; line-height: 1.6; }
 /* 卡組卡片：標題不預留第二行，單行標題與日期之間不留空白（只影響概念卡頁）。 */

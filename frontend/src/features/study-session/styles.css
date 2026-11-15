@@ -36,34 +36,6 @@
   font-size: 22px;
   overflow-wrap: anywhere;
 }
-.study-claims {
-  margin: var(--space-5) 0;
-  padding-left: var(--space-5);
-}
-.study-claims li {
-  padding-left: var(--space-1);
-  margin-bottom: var(--space-4);
-  color: var(--text-primary);
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-.study-sources {
-  border-top: 1px solid var(--border);
-  padding-top: var(--space-4);
-}
-.study-sources h3 {
-  margin: 0 0 var(--space-2);
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-.study-sources > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-}
-.study-sources .text-button {
-  min-height: 36px;
-}
 .study-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
