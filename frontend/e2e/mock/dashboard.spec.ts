@@ -173,6 +173,9 @@ for (const [width, height] of [[2560, 1440], [1536, 1024], [1366, 768], [1024, 7
         expect(side.width).toBeLessThanOrEqual(400);
         expect(map.width).toBeGreaterThan(side.width * 3);
       }
+    } else if (width > 720) {
+      // 平板排成一欄：接續學習與今天的小事排在地圖前，「繼續」不用捲過整張地圖。
+      expect(map.y).toBeGreaterThanOrEqual(side.y + side.height);
     } else expect(side.y).toBeGreaterThanOrEqual(map.y + map.height);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
@@ -960,7 +963,7 @@ test("dashboard islands read the progress summary instead of the full outline", 
   expect(requested.filter((path) => /\/outline|\/map-progress/.test(path))).toEqual([]);
 });
 
-for (const [width, height, fits] of [[1920, 950, true], [2560, 1300, true], [1440, 760, true], [1366, 680, true], [1024, 768, false]] as const)
+for (const [width, height, fits] of [[1920, 950, true], [2560, 1300, true], [1440, 760, true], [1366, 680, true], [1229, 691, true], [1024, 768, false], [1024, 576, false]] as const)
   test(`home ${fits ? "fits the window without scrolling" : "keeps a readable map and scrolls"} at ${width}×${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await mockLibrary(page, () => manyMaterials(9));
@@ -972,9 +975,10 @@ for (const [width, height, fits] of [[1920, 950, true], [2560, 1300, true], [144
     await expect(page.getByRole("region", { name: "今天的小事" })).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
     const map = (await page.locator(".island-map-viewport").boundingBox())!;
+    // 1024×576 以上（例如 1536 螢幕放大 150%）不用捲動就看得到「繼續」。
+    await expect(quickButton(page, "繼續學習")).toBeInViewport({ ratio: 1 });
     if (fits) {
       expect(overflow).toBeLessThanOrEqual(0);
-      await expect(quickButton(page, "繼續學習")).toBeInViewport({ ratio: 1 });
     } else {
       // 較小的螢幕：地圖維持最小高度，頁面照常捲動。
       expect(overflow).toBeGreaterThan(0);

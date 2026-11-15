@@ -408,12 +408,13 @@
   color: var(--text-secondary);
 }
 
-/* 畫布填滿頁首下方空間；只有開啟詳情時才配置右欄。 */
+/* 畫布填滿頁首下方空間，高度跟著視窗縮（瀏覽器放大時整頁不捲、縮放鈕留在畫面內）；只有開啟詳情時才配置右欄。
+   下限 420px（畫布最小 360px＋上方通知列）；視窗更矮時才讓整頁捲動。 */
 .map-workspace.is-focus-mode {
   display: flex;
   flex-direction: column;
   height: calc(100dvh - var(--shell-offset));
-  min-height: 620px;
+  min-height: 420px;
 }
 .is-focus-mode > :not(.map-content) {
   flex-shrink: 0;
@@ -723,9 +724,6 @@
     right: 12px;
     width: min(380px, calc(100% - 24px));
     max-height: calc(100dvh - 24px);
-  }
-  .map-workspace.is-focus-mode {
-    min-height: 680px;
   }
   .focus-workspace.has-inspector {
     grid-template-columns: minmax(0, 1fr);

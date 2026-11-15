@@ -372,6 +372,35 @@
   }
 }
 
+/* 矮畫面（例如瀏覽器放大 125%／150%）：縮小側欄的留白與項目間距，全部項目不用捲動就放得下。
+   收合、滑過展開與平板圖示列都用同樣的上下留白，每個項目仍是 44px 高，滑過展開時項目不移位。 */
+/* 保留 max-height: 780px：教材側欄在地圖頁（多一顆展開側欄）全部項目的自然高度約 763px，不是寬度斷點；教材側欄自己的清單間距在 material-rail.css 同一條件。 */
+@media (min-width: 721px) and (max-height: 780px) {
+  .rail {
+    gap: 4px;
+    padding-block: 12px;
+  }
+  .rail-nav,
+  .rail-links {
+    gap: 2px;
+  }
+  .rail-link {
+    padding-block: 2px;
+  }
+}
+
+/* 更矮的畫面（例如 1366×768 筆電放大 125%）：再收緊側欄上下留白與品牌下方留白，項目仍是 44px 高。 */
+/* 保留 max-height: 640px：上一層壓縮後，教材側欄在地圖頁全部項目的高度約 633px，不是寬度斷點；教材名稱的留白在 material-rail.css 同一條件。 */
+@media (min-width: 721px) and (max-height: 640px) {
+  .rail {
+    gap: 2px;
+    padding-block: 8px;
+  }
+  .rail-brand {
+    padding-bottom: 6px;
+  }
+}
+
 /* 手機：側欄變成頂端一列（品牌、搜尋、新增教材、個人檔案），主要入口移到底部頁籤。 */
 @media (max-width: 720px) {
   .app-shell {
