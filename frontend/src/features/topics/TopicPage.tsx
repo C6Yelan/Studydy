@@ -187,7 +187,7 @@ export function TopicPage({api,topicId,embedded=false}:{api:StudydyApiClient;top
   </section>
  </section>;
  return <section className={`flow-page topic-page${confirmingScope?" topic-scope-confirmation":searchingSources?" topic-search-page":""}`}>
- <FlowHeader className={confirmingScope?'topic-scope-page-header':searchingSources?'topic-search-page-header':undefined} back={embedded?undefined:<BackLink label={view?.material_id?'返回補充學習':'回到我的群島'} onClick={back}/>} title={view?.status==='approved'?(view.proposal?.title??'搜尋教材來源'):view?.material_id?'確認補充學習需求':'從主題建立教材'} description={view?.status==='approved'?'依已確認的學習範圍查看來源與處理進度。':'告訴我想學什麼，我會先列出觀念和細節讓你確認，再找論文和 Wikipedia。'}/>
+ <FlowHeader className={confirmingScope?'topic-scope-page-header':searchingSources?'topic-search-page-header':undefined} back={embedded?undefined:<BackLink label={view?.material_id?'返回找更多資料':'回到我的群島'} onClick={back}/>} title={view?.status==='approved'?(view.proposal?.title??'搜尋教材來源'):view?.material_id?'確認找資料的範圍':'從主題建立教材'} description={view?.status==='approved'?'依已確認的學習範圍查看來源與處理進度。':'告訴我想學什麼，我會先列出觀念和細節讓你確認，再找論文和 Wikipedia。'}/>
  <LearningSteps labels={view?.material_id?[...topicSteps.slice(0,-1),'補充教材']:topicSteps} current={step}/>
  {(inputStage||view?.status!=='ready')&&errorNotice}
  {inputStage&&<div className="topic-ask"><img className="topic-ask-bot" src="/assets/Studydy_角色素材/歡迎/welcome_present.png" alt=""/><FlowStage className="topic-request" icon="sparkle" title="你想學什麼？" description="可以是一個主題、一個問題，或想完成的學習目標。"

@@ -111,17 +111,29 @@ export function MaterialSettings({ apiClient, materialId }: { apiClient: Studydy
       </section>
       <section className="surface settings-panel" aria-labelledby="settings-update-title">
         <h2 id="settings-update-title">來源與更新</h2>
-        <VersionMoveNotice apiClient={apiClient} materialId={materialId} settings>
-          <RouteLink className="secondary-button" route={{ name: "material-sources", materialId }}>查看原始檔案</RouteLink>
-        </VersionMoveNotice>
-        {!maps && <p className="settings-note">教材還沒有知識地圖，分析完成後才會有更新與學習進度。</p>}
+        {maps
+          ? <VersionMoveNotice apiClient={apiClient} materialId={materialId} settings>
+            <RouteLink className="secondary-button" route={{ name: "material-sources", materialId }}>查看原始檔案</RouteLink>
+          </VersionMoveNotice>
+          // 還沒有地圖就沒有更新與回到更新前的內容，只留來源入口。
+          : <>
+            <p className="settings-note">教材還沒有知識地圖，分析完成後才會有更新與學習進度。</p>
+            <div className="settings-actions">
+              <RouteLink className="secondary-button" route={{ name: "material-sources", materialId }}>查看原始檔案</RouteLink>
+              <RouteLink className="secondary-button" route={{ name: "material-source-upload", materialId }}>新增來源</RouteLink>
+            </div>
+          </>}
       </section>
     </div>
     <section className="surface settings-panel is-danger" aria-labelledby="settings-delete-title">
       <h2 id="settings-delete-title">刪除教材</h2>
       {copy.notice && <p>{copy.notice}</p>}
       <p>{copy.scope}</p>
-      {removing ? <p role="status">正在刪除…</p> : confirming
+      {removing ? <>
+        <p role="status">正在刪除…</p>
+        {/* 已受理刪除後讀取失敗：不背景重試，由使用者按「重新讀取」確認結果。 */}
+        {error && <p className="form-error" role="alert">{error}<button className="text-button" type="button" onClick={() => { setError(null); setReload((value) => value + 1); }}>重新讀取</button></p>}
+      </> : confirming
         ? <InlineConfirm message="確定刪除教材與相關資料？" label="刪除教材確認" cancelLabel="保留" confirmLabel="刪除" confirmAriaLabel="確認刪除" busyLabel="正在刪除…"
           busy={deleting} error={deleteError} onCancel={() => { setConfirming(false); setDeleteError(null); }} onConfirm={() => void discard()} />
         : <div><button className="secondary-button danger-button" type="button" data-inline-confirm-trigger onClick={() => setConfirming(true)}>刪除教材</button></div>}

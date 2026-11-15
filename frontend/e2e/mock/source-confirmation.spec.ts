@@ -453,7 +453,7 @@ for(const append of [false,true])test(`source display names drive labels and sea
   await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`source-names-${append?'published':'confirmation'}-${width}.png`),animations:'disabled'});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }
- if(append){await page.getByRole('searchbox',{name:'搜尋教材來源',exact:true}).fill('3 張圖片');await expect(page.locator('.source-row')).toHaveCount(1);await expect(pictures).toBeVisible();}
+ if(append){await page.getByRole('searchbox',{name:'搜尋原始檔案',exact:true}).fill('3 張圖片');await expect(page.locator('.source-row')).toHaveCount(1);await expect(pictures).toBeVisible();}
 });
 
 for (const append of [false, true]) test(`empty transcripts explain silence and retry only failed sources in ${append ? 'published' : 'confirmation'} view`, async ({ page }) => {

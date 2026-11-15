@@ -89,7 +89,7 @@ export function ResearchPanel({ api, materialId, draft, onDraftChange, onMateria
         </article>;
 
   };
-  return <section className="material-library is-collection supplementary-page research-library" aria-label="補充學習查詢">
+  return <section className="material-library is-collection supplementary-page research-library" aria-label="找更多資料查詢">
     <div className="research-panel">
       <header className="research-head">
         <div><h1>找更多資料</h1><p>先確認要查找的觀念與細節，再搜尋論文與 Wikipedia。</p></div>

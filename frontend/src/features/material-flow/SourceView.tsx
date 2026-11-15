@@ -223,7 +223,7 @@ export function SourceView({
   if (!sourceList && error)
     return (
       <StateView
-        title="無法讀取教材來源"
+        title="無法讀取原始檔案"
         description={error}
         tone="failure"
         action={<>
@@ -524,7 +524,7 @@ export function SourceView({
           </div>
           <div className="material-search-row">
             <form className="material-search" role="search" onSubmit={event => event.preventDefault()}>
-              <input type="search" aria-label="搜尋教材來源" placeholder="搜尋來源檔案名稱…" value={sourceQuery} onChange={event => setSourceQuery(event.target.value)} />
+              <input type="search" aria-label="搜尋原始檔案" placeholder="搜尋來源檔案名稱…" value={sourceQuery} onChange={event => setSourceQuery(event.target.value)} />
             </form>
             {!removing && !hasActiveRun && sourcePicker}
           </div>

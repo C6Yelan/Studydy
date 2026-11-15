@@ -30,7 +30,7 @@ export function MaterialContent({ apiClient, learnerId, materialId, kind, childr
   const structure = material?.available_structures.find(s => s.knowledge_structure_revision === material.head_revision) ?? material?.available_structures[0];
   // 卡組、Podcast 的子頁自己放麵包屑；找更多資料的子頁（確認範圍、這次找到的資料）在這裡放。
   const back = kind === "research" && (children != null || researchId)
-    ? <Breadcrumb current={researchId ? "這次找到的資料" : "確認補充學習需求"}
+    ? <Breadcrumb current={researchId ? "這次找到的資料" : "確認找資料的範圍"}
       parent={{ label: "找更多資料", ariaLabel: "返回找更多資料", onClick: () => writeRoute({ name: "material-content", materialId, kind }) }} /> : null;
   if (notFound) return <NotFoundView {...materialNotFound} />;
   return <section className={`material-content${kind === "notes" ? " notes-material-content" : ""}`}>

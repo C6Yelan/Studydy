@@ -93,8 +93,39 @@ test("a material without a map can still open its settings, and the source link 
   await page.goto(settingsPath);
   await expect(page.getByRole("heading", { name: "教材設定", exact: true })).toBeVisible();
   await expect(page.getByText("教材還沒有知識地圖")).toBeVisible();
+  await expect(page.getByText("不滿意可以回到更新前的內容")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "新增來源", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "知識地圖" })).toHaveAttribute("aria-disabled", "true");
   await expect(page.getByRole("link", { name: "教材設定" })).toHaveAttribute("aria-current", "page");
   await page.getByRole("link", { name: "查看原始檔案" }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/sources$`));
+});
+
+test("a failed read after delete was accepted shows a retry, and the retry returns to the islands once the material is gone", async ({ page }) => {
+  const state = { item: material("刪除中的教材.pdf", true) };
+  await mockSettings(page, state);
+  let removing = false;
+  let failNext = true;
+  const reads: number[] = [];
+  const apiError = (route: Parameters<typeof json>[0], status: number, reason: string) => json(route, {
+    schema: "api-error/v1", request_id: materialId, reason_code: reason, retryable: false, message: "Request could not be completed." }, status);
+  await page.route(`**/v1/materials/${materialId}`, (route) => {
+    if (route.request().method() === "DELETE") { removing = true; return json(route, { schema: "material-discard/v1", material_id: materialId, state: "removing" }); }
+    if (!removing) return json(route, state.item);
+    reads.push(Date.now());
+    if (failNext) { failNext = false; return apiError(route, 503, "STORAGE_UNAVAILABLE"); }
+    return apiError(route, 404, "RESOURCE_NOT_FOUND");
+  });
+  await page.goto(settingsPath);
+  await page.getByRole("button", { name: "刪除教材", exact: true }).click();
+  await page.getByRole("group", { name: "刪除教材確認" }).getByRole("button", { name: "確認刪除" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  const retry = page.getByRole("button", { name: "重新讀取", exact: true });
+  await expect(retry).toBeVisible();
+  // 不做背景重試：失敗後只有按「重新讀取」才會再讀。
+  const failedReads = reads.length;
+  await page.waitForTimeout(2500);
+  expect(reads).toHaveLength(failedReads);
+  await retry.click();
+  await expect(page).toHaveURL(/\/materials$/);
 });

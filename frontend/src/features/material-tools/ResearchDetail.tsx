@@ -83,13 +83,13 @@ export function ResearchDetail({ api, materialId, researchId, draft, onDraftChan
   const selectedCount = submitted || ['acquiring', 'normalizing'].includes(view?.status ?? '') ? view?.selection.length ?? 0 : selected.length;
 
   if (notFound) return <section className="cards-page supplementary-page research-detail">{backLink}
-    <NotFoundView title="找不到這筆補充學習" description="這筆查詢可能已被刪除，或不屬於這份教材。" back={null} /></section>;
+    <NotFoundView title="找不到這筆找資料紀錄" description="這筆查詢可能已被刪除，或不屬於這份教材。" back={null} /></section>;
   return <section className="cards-page supplementary-page research-detail">
     {backLink}
     <div className="research-panel">
       {/* 版型比照其他流程頁：標題、獨立一列的步驟條，補充範圍是可展開的卡片（平常只列主題名稱）。 */}
-      <header className="research-scope-header"><h1 className="research-scope-title">{view?.approved_scope?.title ?? '補充學習'}</h1>
-        {view && <LearningSteps labels={[...topicSteps.slice(0,-1),'補充教材']} current={completed?4:currentStage===2?3:2} label="補充學習流程"/>}
+      <header className="research-scope-header"><h1 className="research-scope-title">{view?.approved_scope?.title ?? '找更多資料'}</h1>
+        {view && <LearningSteps labels={[...topicSteps.slice(0,-1),'補充教材']} current={completed?4:currentStage===2?3:2} label="找更多資料流程"/>}
         {view && <details className="surface research-scope-card"><summary>
           <strong>本次補充範圍</strong>{view.approved_scope && <span className="research-scope-count">{view.approved_scope.topics.length} 個主題</span>}
           {view.approved_scope && <span className="research-scope-chips">{view.approved_scope.topics.map((topic,i)=><span key={i}>{topic.split('：')[0]}</span>)}</span>}</summary>

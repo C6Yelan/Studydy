@@ -89,7 +89,7 @@ test('finished research without sources says so plainly', async ({ page }) => {
     progress: { stage: 'complete', completed: null, total: null, unit: 'queries', summary: '', finish_reason: 'references_only', waiting_until: null, topics: [] } };
   await page.route(`**/v1/research/${researchId}`, r => json(r, work));
   await page.goto(`/materials/${materialId}/research/${researchId}`);
-  await expect(page.getByRole('heading',{name:'補充學習',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'找更多資料',exact:true})).toBeVisible();
   await page.getByText('本次補充範圍',{exact:true}).click();await expect(page.getByText(work.query,{exact:true})).toBeVisible();
   await expect(page.getByRole('region', { name: '研究進度' })).toHaveText('找到相關資料，但都沒有可直接加入的全文');
   await expect(page.getByText('可重新確認搜尋範圍後再搜尋。', { exact: true })).toBeVisible();

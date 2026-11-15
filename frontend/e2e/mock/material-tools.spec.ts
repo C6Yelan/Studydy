@@ -41,7 +41,7 @@ test('research preserves arbitrary source selection and requires irreversible co
  await page.route(`**/v1/research/${cid}`,r=>json(r,value));
  await page.route(`**/v1/research/${cid}/actions`,r=>{const b=r.request().postDataJSON();expect(b.selected).toHaveLength(5);value={...value,status:'ready',selection:b.selected,candidates:candidates.map(c=>({...c,state:'ready'}))};return json(r,value);});
  let submits=0;await page.route(`**/v1/research/${cid}/submit`,r=>{expect(r.request().postDataJSON()).toEqual({confirmed:true});submits++;value={...value,status:'submitted',run_id:runId};return json(r,value,202);});
- await page.goto(mapPath);await page.getByRole('link', { name: '找更多資料',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/research$`));await expect(page.getByRole('dialog',{name:'補充學習'})).toHaveCount(0);await page.locator('.research-card-link').click();
+ await page.goto(mapPath);await page.getByRole('link', { name: '找更多資料',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/research$`));await expect(page.getByRole('dialog',{name:'找更多資料'})).toHaveCount(0);await page.locator('.research-card-link').click();
  await page.getByLabel('來源類型',{exact:true}).selectOption('wikipedia');await expect(page.locator('.research-candidates article')).toHaveCount(1);await expect(page.locator('.source-byline')).toContainText('Wikipedia');await page.getByLabel('來源類型',{exact:true}).selectOption('all');
  await page.getByRole('checkbox',{name:'全選可用來源'}).check();
  await page.getByRole('navigation', { name: '教材導覽' }).getByRole('link', { name: '知識地圖',exact:true}).click();await expect(page.locator('.research-panel')).toHaveCount(0);
@@ -141,7 +141,7 @@ test('material rail sits beside the content; map search floats on the map and on
   const anchor=(await searchAnchor.boundingBox())!;const graph=(await page.locator('.focus-graph').boundingBox())!;
   expect(anchor.y).toBeGreaterThanOrEqual(graph.y);expect(anchor.x).toBeGreaterThanOrEqual(graph.x);expect(anchor.y+anchor.height).toBeLessThanOrEqual(graph.y+graph.height);
   expect(graph.y-await top()).toBeLessThanOrEqual(32);
-  for(const [item,label] of [['學習進度',null],['翻卡片',null],['聽 Podcast',null],['找更多資料','想多了解什麼？'],['原始檔案','搜尋教材來源']] as const){
+  for(const [item,label] of [['學習進度',null],['翻卡片',null],['聽 Podcast',null],['找更多資料','想多了解什麼？'],['原始檔案','搜尋原始檔案']] as const){
    if(width<=720&&(item==='找更多資料'||item==='原始檔案'))await navigation.getByRole('button',{name:'更多',exact:true}).click();
    await navigation.getByRole('link',{name:item,exact:true}).click();
    await expect(navigation.getByRole('link',{name:item,exact:true,includeHidden:true})).toHaveAttribute('aria-current','page');
@@ -171,7 +171,7 @@ test('published sources filter files without idle update steps and keep upload e
  await expect(page.getByRole('region',{name:'使用者上傳',exact:true})).toContainText('甲教材.pdf');
  await expect(page.getByRole('region',{name:'網路補充學習資源',exact:true})).toContainText('乙教材.pdf');
  await expect(page.getByRole('button',{name:'開啟目前地圖',exact:true})).toHaveCount(0);
- await page.getByLabel('搜尋教材來源',{exact:true}).fill('乙');await expect(page.locator('.source-row')).toHaveCount(1);await expect(page.locator('.source-row .source-number')).toHaveText('2');
+ await page.getByLabel('搜尋原始檔案',{exact:true}).fill('乙');await expect(page.locator('.source-row')).toHaveCount(1);await expect(page.locator('.source-row .source-number')).toHaveText('2');
  await page.getByRole('button',{name:'新增來源',exact:true}).click();
  await expect(page.locator('.learning-step-label').last()).toHaveText('更新知識地圖');
  await page.getByLabel('選擇新增教材',{exact:true}).setInputFiles({name:'unsupported.exe',mimeType:'application/octet-stream',buffer:Buffer.from('fixture')});await expect(page.locator('#source-selection-error')).toBeVisible();await page.getByRole('button',{name:'返回原始檔案',exact:true}).click();await expect(page.locator('.source-row')).toHaveCount(2);
@@ -265,7 +265,7 @@ test('research collection cards open scoped detail pages and retain task drafts 
  await page.getByRole('article',{name:records[2].query,exact:true}).getByRole('button',{name:'查看完成結果',exact:true}).click();
  await expect(page).toHaveURL(new RegExp(`/research/${records[2].research_id}$`));
  await expect(page.getByRole('heading',{name:'補充教材已建立',exact:true})).toBeVisible();
- await page.reload();await expect(page.getByRole('heading',{name:'補充學習',exact:true})).toBeVisible();
+ await page.reload();await expect(page.getByRole('heading',{name:'找更多資料',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'返回找更多資料',exact:true}).click();
  await page.setViewportSize({width:390,height:844});
  const mobileA=(await first.boundingBox())!,mobileB=(await progress.boundingBox())!;expect(mobileB.x).toBeCloseTo(mobileA.x,0);expect(mobileB.y).toBeGreaterThanOrEqual(mobileA.y+mobileA.height);
@@ -326,7 +326,7 @@ test('research detail rejects a foreign material and late reads cannot replace a
  const work={research_id:cid,material_id:tid,query:'其他教材的查詢',mode:'review',status:'selecting',selection:[],candidates:[],cursor:null,error_code:null,run_id:null,created_at:'2026-10-06T00:00:00Z'};
  await page.route(`**/v1/materials/${materialId}/research`,r=>json(r,{researches:[]}));
  await page.route(`**/v1/research/${cid}`,r=>json(r,work));
- await page.goto(`/materials/${materialId}/research/${cid}`);await expect(page.getByRole('heading',{name:'找不到這筆補充學習',exact:true})).toBeVisible();await expect(page.getByRole('heading',{name:work.query,exact:true})).toHaveCount(0);
+ await page.goto(`/materials/${materialId}/research/${cid}`);await expect(page.getByRole('heading',{name:'找不到這筆找資料紀錄',exact:true})).toBeVisible();await expect(page.getByRole('heading',{name:work.query,exact:true})).toHaveCount(0);
  let release!:()=>void;const delayed=new Promise<void>(resolve=>release=resolve);
  await page.route(`**/v1/research/${tid}`,async r=>{await delayed;return json(r,{...work,material_id:materialId,research_id:tid,query:'晚到的查詢'});});
  await page.goto(`/materials/${materialId}/research/${tid}`);await page.getByRole('button',{name:'返回找更多資料',exact:true}).click();
@@ -396,7 +396,7 @@ test('compact research workflow navigates available stages without changing the 
  await page.route(`**/v1/research/${cid}/actions`,r=>{const body=r.request().postDataJSON();actions.push(body);if(body.action==='more')work={...work,status:'searching'};else if(body.action==='acquire')work={...work,status:'acquiring',selection:body.selected};return json(r,work);});
  await page.route(`**/v1/research/${cid}/submit`,r=>{expect(r.request().postDataJSON()).toEqual({confirmed:true});submits++;work={...work,status:'submitted',run_id:runId,run:{status:'pending',error_code:null}};return json(r,work,202);});
  await page.goto(`/materials/${materialId}/research/${cid}`);
- const nav=page.getByRole('list',{name:'補充學習流程'}),selection=nav.getByRole('listitem').filter({hasText:'選來源'}),add=nav.getByRole('listitem').filter({hasText:'補充教材'});
+ const nav=page.getByRole('list',{name:'找更多資料流程'}),selection=nav.getByRole('listitem').filter({hasText:'選來源'}),add=nav.getByRole('listitem').filter({hasText:'補充教材'});
  await expect(selection).toHaveAttribute('aria-current','step');await expect(nav.getByRole('listitem')).toHaveText(['說出想學的','確認觀念與細節','3選來源','4補充教材']);
  expect(await page.locator('.research-candidates').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(3);
  await expect(page.locator('.source-picker-filters').getByRole('button',{name:'已選 0 個'})).toHaveAttribute('aria-pressed','false');

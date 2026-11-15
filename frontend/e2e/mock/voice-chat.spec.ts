@@ -524,7 +524,7 @@ test('assessment refusal keeps the question draft and can be sent after the guar
  const mock=await mockVoice(page);let blocked=true;
  await page.route('**/v1/voice-conversations/*/turns',route=>blocked?json(route,{schema:'api-error/v1',request_id:materialId,reason_code:'ASSESSMENT_IN_PROGRESS',retryable:false,message:'Request could not be completed.'},409):route.fallback());
  await page.goto(mapPath);await open(page);const input=page.getByLabel('問題／辨識文字');await input.fill('作答後再問的問題');await page.getByRole('button',{name:'送出問題',exact:true}).click();
- await expect(page.getByRole('alert')).toContainText('作答期間暫停 小幫手，請交卷後再試。');await expect(input).toHaveValue('作答後再問的問題');expect(mock.questions).toHaveLength(0);
+ await expect(page.getByRole('alert')).toContainText('作答期間暫停小幫手，請交卷後再試。');await expect(input).toHaveValue('作答後再問的問題');expect(mock.questions).toHaveLength(0);
  blocked=false;await page.getByRole('button',{name:'送出問題',exact:true}).click();await expect(page.locator('.voice-answer')).toContainText('堆疊');expect(mock.questions).toEqual(['作答後再問的問題']);
 });
 
