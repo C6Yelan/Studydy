@@ -47,3 +47,23 @@ for (const mode of ['research', 'topic']) test(`${mode} paginates sources and re
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await pager.scrollIntoViewIfNeeded();
 });
+
+test('phone research detail scrolls its whole read-only source list above the tab bar', async ({ page }) => {
+  await mockKnowledgeMapApi(page, structureView());
+  const candidates = Array.from({ length: 7 }, (_, i) => source(i));
+  const work: any = { research_id: researchId, material_id: materialId,
+    query: 'Agent', mode: 'review', approved_scope: { title: 'Agent', goals: ['工具呼叫'], topics: ['Agent'] }, status: 'ready', candidates,
+    selection: candidates.map(c => c.id), cursor: null, error_code: null, run_id: null, is_current_revision: true };
+  await page.route(`**/v1/research/${researchId}`, r => json(r, work));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/materials/${materialId}/research/${researchId}`);
+  await expect(page.locator('.source-picker.is-readonly .research-candidates article')).toHaveCount(7);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  // 捲到底時最後一筆完整露出在底部頁籤上方，而且點得到。
+  const last = page.locator('.research-candidates article').last();
+  await expect(last).toBeInViewport({ ratio: 1 });
+  const tabs = (await page.getByRole('navigation', { name: '教材導覽', exact: true }).boundingBox())!;
+  const box = (await last.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(tabs.y);
+  await last.click({ trial: true });
+});

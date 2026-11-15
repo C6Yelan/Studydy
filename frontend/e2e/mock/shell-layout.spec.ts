@@ -56,8 +56,8 @@ test("site pages share the left rail and phones use the bottom tab bar", async (
       } else {
         await expect(phoneNav).toBeVisible();
         await expect(rail.getByRole("link", { name: current, exact: true })).toBeHidden();
-        await expect(phoneNav.getByRole("link")).toHaveText(["首頁", "群島", "翻卡片", "Podcast", "成就"]);
-        await expect(phoneNav.getByRole("link", { name: current === "我的群島" ? "群島" : current, exact: true })).toHaveAttribute("aria-current", "page");
+        await expect(phoneNav.getByRole("link")).toHaveText(["首頁", "我的群島", "翻卡片", "Podcast", "成就"]);
+        await expect(phoneNav.getByRole("link", { name: current, exact: true })).toHaveAttribute("aria-current", "page");
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     }
@@ -302,6 +302,16 @@ test("earned-badge toast sits at the bottom right and never covers the rail or t
       if (await link.isVisible()) expect(apart(box, (await link.boundingBox())!)).toBe(true);
     }
   }
+});
+
+test("phone map fills the screen above the tab bar without extra page scrolling", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(mapPath);
+  await expect(page.locator(".map-workspace")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(844);
+  const map = (await page.locator(".map-workspace").boundingBox())!;
+  const tabs = (await page.getByRole("navigation", { name: "教材導覽", exact: true }).boundingBox())!;
+  expect(map.y + map.height).toBeLessThanOrEqual(tabs.y);
 });
 
 test("phone More panel closes on outside tap and after choosing an item", async ({ page }) => {

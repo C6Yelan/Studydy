@@ -126,3 +126,7 @@
 .voice-sentence-audio > .answer-audio-play { min-height:2.75rem; padding:.4rem .75rem; }
 .voice-sentence-audio > .voice-sentence-wait { color:var(--text-secondary); }
 .voice-sentence-audio > .voice-playback-state { flex-basis:100%; }
+/* 手機觸控目標至少 44px（小幫手頂端的紀錄、新對話、關閉）。 */
+@media (max-width: 720px) {
+  .voice-icon-button { width: 44px; height: 44px; }
+}

@@ -6,7 +6,7 @@ import { StateView } from "../../ui/StateView";
 import { useConceptContext } from "../material-flow/useConceptContext";
 import { claimText } from "../../ui/claim-text";
 import { FlowFooter } from "../material-flow/Flow";
-import { ChapterGroups, ConceptPickTools, chapterGroups, type SelectionFilter } from "../material-flow/ConceptPick";
+import { ChapterGroups, ConceptPickTools, PreviewSheet, chapterGroups, usePhoneLayout, type SelectionFilter } from "../material-flow/ConceptPick";
 import "../material-flow/creation.css";
 
 export function CreatePodcast({ apiClient, route }: {
@@ -24,6 +24,8 @@ export function CreatePodcast({ apiClient, route }: {
   const [selectionFilter, setSelectionFilter] = useState<SelectionFilter>("all");
   const [query, setQuery] = useState("");
   const [previewId, setPreviewId] = useState<string | null>(null);
+  // 手機上預覽改成底部抽屜（長清單下方的預覽會在畫面外）。
+  const phone = usePhoneLayout();
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -84,6 +86,8 @@ export function CreatePodcast({ apiClient, route }: {
       <span><strong title={concept.label}>{concept.label}</strong><small>{concept.claim_count} 個重點</small></span></label>
     <button type="button" className="text-button" aria-label={`查看「${concept.label}」重點`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(previewId === concept.concept_id ? null : concept.concept_id)}>預覽</button>
   </div>;
+  const previewState = previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : previewId && !preview ? <p className="cards-preview-status" role="status">正在讀取概念重點…</p> : null;
+  const previewClaims = preview && <div>{preview.claims.map(claim => <p className="podcast-claim-text" key={claim.claim_id}>{claimText(claim)}</p>)}</div>;
   return <div className="pick-stage podcast-create">
     {saveError && <p className="form-error" role="alert">{saveError}</p>}
     <nav className="podcast-config-nav" aria-label="Podcast 設定區域">{([
@@ -100,8 +104,8 @@ export function CreatePodcast({ apiClient, route }: {
             onToggleChapter={(ids, on) => setSelected(previous => { const next = new Set(previous); for (const id of ids) { if (on) next.add(id); else next.delete(id); } return next; })}
             renderConcept={conceptRow} />
           : visible.map(conceptRow)}{visible.length === 0 && <p className="cards-no-results">{"找不到符合的概念。"}</p>}</div>
-        {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : previewId && !preview ? <p className="cards-preview-status" role="status">正在讀取概念重點…</p> : null}
-        {preview && <section className="podcast-concept-preview" aria-label={`${preview.label}重點預覽`}><header><strong>{preview.label}</strong><button type="button" className="text-button" onClick={() => setPreviewId(null)}>關閉預覽</button></header><div>{preview.claims.map(claim => <p className="podcast-claim-text" key={claim.claim_id}>{claimText(claim)}</p>)}</div></section>}
+        {!phone && previewState}
+        {!phone && preview && <section className="podcast-concept-preview" aria-label={`${preview.label}重點預覽`}><header><strong>{preview.label}</strong><button type="button" className="text-button" onClick={() => setPreviewId(null)}>關閉預覽</button></header>{previewClaims}</section>}
       </section>
       <div className="pick-panel podcast-side">
         <label className="creation-name">Podcast 名稱<input value={name} maxLength={40} disabled={busy} onChange={e => setName(e.target.value)} /></label>
@@ -117,7 +121,11 @@ export function CreatePodcast({ apiClient, route }: {
       </div>
     </div>
     <FlowFooter
-      secondary={<div className="cards-create-summary"><strong>已選 {selected.size} 個概念 · {claimCount} 個重點</strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · {video ? "聲音＋影片" : "只有聲音"} · 製作要幾分鐘，可以先離開這頁。</span></div>}
+      secondary={<div className="cards-create-summary"><strong>已選 {selected.size} 個概念<span className="pick-claim-total"> · {claimCount} 個重點</span></strong><span>{delivery === "dialogue" ? "雙人對談" : "單人解說"} · {video ? "聲音＋影片" : "只有聲音"} · 製作要幾分鐘，可以先離開這頁。</span></div>}
       primary={<button type="button" className="primary-button" disabled={busy || !selected.size || !validName} onClick={() => void save()}>{busy ? "正在建立…" : "開始製作 Podcast"}</button>} />
+    {phone && <PreviewSheet title={preview?.label ?? "概念重點預覽"} open={previewId !== null} onClose={() => setPreviewId(null)}>
+      {previewState}
+      {preview && <section className="podcast-concept-preview" aria-label={`${preview.label}重點預覽`}>{previewClaims}</section>}
+    </PreviewSheet>}
   </div>;
 }

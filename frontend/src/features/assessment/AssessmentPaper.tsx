@@ -56,7 +56,7 @@ export function AssessmentPaper({ api, records, view, completed, selections, dis
       </aside>
     </div>
     <footer className="question-paper-navigation">
-      <small>按 1–4 選答案 · Enter 下一題 · {records.length} 題答完一起交卷</small>
+      <small><span className="keyboard-hint">按 1–4 選答案 · Enter 下一題 · </span>{records.length} 題答完一起交卷</small>
       <div className="quiz-nav-buttons">
         <button className="secondary-button" type="button" disabled={index === 0 || busy} onClick={() => move(index - 1)}>上一題</button>
         {index < records.length - 1

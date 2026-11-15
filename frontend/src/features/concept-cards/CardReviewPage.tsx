@@ -181,7 +181,7 @@ function ReviewCard({ title, apiClient, item, list, onMarked, processed, process
       progress={{ value: processedCount, max: total, label: "已看完的張數" }}
       dock={<>
         <CardMarkButtons current={savedRating} disabled={busy || !loaded || !back || processed} hotkeys title={back ? undefined : "先翻到背面查看重點，再標記。"} onMark={(rating) => void mark(rating)} label={`標記「${item.card.label}」熟不熟`} />
-        <span className="card-dock-hint">← → 換卡 · 看過背面後按 1 或 2</span>
+        <span className="card-dock-hint keyboard-hint">← → 換卡 · 看過背面後按 1 或 2</span>
         <span className="card-dock-count"><b>{position + 1}</b> / {total}{pages > 1 && !loadFailed && <small> · 卡面 {localPage + 1} / {pages}</small>}</span>
       </>}>
     {loaded

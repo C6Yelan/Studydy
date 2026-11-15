@@ -7,7 +7,7 @@ import { routePath, writeRoute, type AppRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
 import { useConceptContext } from "../material-flow/useConceptContext";
 import { FlowFooter } from "../material-flow/Flow";
-import { ChapterGroups, ClampedClaims, ConceptPickTools, PickHead, chapterGroups, type SelectionFilter } from "../material-flow/ConceptPick";
+import { ChapterGroups, ClampedClaims, ConceptPickTools, PickHead, PreviewSheet, chapterGroups, usePhoneLayout, type SelectionFilter } from "../material-flow/ConceptPick";
 import "../material-flow/creation.css";
 import { MathText } from "../../ui/MathText";
 import { claimText } from "../../ui/claim-text";
@@ -31,6 +31,9 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const [name, setName] = useState("");
   const [selected, setSelected] = useState(new Set<string>());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  // 手機上點概念名稱才打開預覽抽屜；桌機的預覽一直放在右欄。
+  const phone = usePhoneLayout();
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectionFilter, setSelectionFilter] = useState<SelectionFilter>("all");
   const [conceptPage, setConceptPage] = useState(1);
@@ -170,8 +173,16 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const groups = chapterGroups(view.concepts, regions);
   const conceptRow = (concept: KnowledgeOutlineView["concepts"][number]) => <div className={`card-picker-option ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>
     <input type="checkbox" aria-label={concept.label} checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} />
-    <button type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(concept.concept_id)}><strong><MathText text={concept.label} /></strong><small>{concept.claim_count} 個重點</small></button>
+    <button type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => { setPreviewId(concept.concept_id); setSheetOpen(true); }}><strong><MathText text={concept.label} /></strong><small>{concept.claim_count} 個重點</small></button>
   </div>;
+  const previewSection = <section className="cards-preview card-picker-preview" aria-label="這個概念的重點">
+    <h3>這個概念的重點（教材原文）</h3>
+    {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p role="status">正在讀取概念與來源…</p> : null}
+    {preview && <><h4><MathText text={preview.label} /></h4><ClampedClaims resetKey={preview.concept_id}><ol>{preview.claims.map(claim => <li key={claim.claim_id}>
+      <span className="pick-claim-text"><MathText text={claimText(claim)} code={claim.evidence.some(item => item.kind === "code")} /></span>
+      <div className="flashcard-source-links">{sourceLinks(claim.evidence).map(evidence => <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={view.source_resolver} evidence={evidence} />)}</div>
+    </li>)}</ol></ClampedClaims></>}
+  </section>;
   const stage = <div className="pick-stage">
     {saveError && <p className="form-error" role="alert">{saveError}{conflict && <button className="text-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取卡組</button>}</p>}
     <div className="cards-create-grid">
@@ -193,14 +204,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
       </section>
       <div className="pick-panel cards-side">
         <label className="creation-name">卡組名稱<input value={name} maxLength={40} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>
-        <section className="cards-preview card-picker-preview" aria-label="這個概念的重點">
-          <h3>這個概念的重點（教材原文）</h3>
-          {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p role="status">正在讀取概念與來源…</p> : null}
-          {preview && <><h4><MathText text={preview.label} /></h4><ClampedClaims resetKey={preview.concept_id}><ol>{preview.claims.map(claim => <li key={claim.claim_id}>
-            <span className="pick-claim-text"><MathText text={claimText(claim)} code={claim.evidence.some(item => item.kind === "code")} /></span>
-            <div className="flashcard-source-links">{sourceLinks(claim.evidence).map(evidence => <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={view.source_resolver} evidence={evidence} />)}</div>
-          </li>)}</ol></ClampedClaims></>}
-        </section>
+        {!phone && previewSection}
       </div>
     </div>
     <FlowFooter
@@ -211,6 +215,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
           {busy ? "正在保存…" : editing ? "保存變更" : "建立並開始翻卡"}
         </button>
       </div>} />
+    {phone && <PreviewSheet title="概念重點預覽" open={sheetOpen} onClose={() => setSheetOpen(false)}>{previewSection}</PreviewSheet>}
   </div>;
   return embedded ? stage : <section className="cards-page creation-page flow-page">{header}{stage}</section>;
 }

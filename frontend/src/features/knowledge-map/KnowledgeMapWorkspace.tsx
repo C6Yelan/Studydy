@@ -53,6 +53,14 @@ type Concept = KnowledgeOutlineView["concepts"][number];
 type RestoreFocus = () => void;
 
 const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
+// 手機的詳情卡片是佔視窗下半部的抽屜（styles.css .detail-panel 的 50dvh）；取景只用畫布露出的上半部。
+const phoneDrawerShare = 0.5;
+function visibleCanvas(element: HTMLElement, drawerOpen: boolean) {
+  const size = { width: element.clientWidth, height: element.clientHeight };
+  if (!drawerOpen || !window.matchMedia("(max-width: 720px)").matches) return size;
+  const covered = element.getBoundingClientRect().bottom - window.innerHeight * (1 - phoneDrawerShare);
+  return { ...size, height: Math.max(120, size.height - Math.max(0, covered)) };
+}
 
 const learningLabels = {
   not_started: "尚未開始",
@@ -901,7 +909,7 @@ function MapGraph({
         }
         const element = graphElement.current!;
         void graph.setViewport(frameCamera(graph.getNodesBounds(ids), graph.getNodesBounds([anchorId]),
-          { width: element.clientWidth, height: element.clientHeight }));
+          visibleCanvas(element, litConceptId === selected.concept_id)));
       });
     });
     return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
@@ -920,7 +928,8 @@ function MapGraph({
         const element = graphElement.current!;
         const viewport = graph.getViewport();
         let rect = graph.getNodesBounds(ids);
-        const viewWidth = element.clientWidth / viewport.zoom, viewHeight = element.clientHeight / viewport.zoom;
+        const canvas = visibleCanvas(element, true);
+        const viewWidth = canvas.width / viewport.zoom, viewHeight = canvas.height / viewport.zoom;
         // 關係兩端放不進畫面時，只確保兩端中點（線的中段）看得到。
         if (rect.width > viewWidth || rect.height > viewHeight)
           rect = { x: rect.x + rect.width / 2 - 40, y: rect.y + rect.height / 2 - 40, width: 80, height: 80 };

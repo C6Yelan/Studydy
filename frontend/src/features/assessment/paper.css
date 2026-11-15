@@ -77,6 +77,11 @@
   .question-paper-navigation small { order: 3; width: 100%; }
   .quiz-nav-buttons { margin-left: auto; }
   .result-body { padding: var(--space-5) var(--space-3); }
+  /* 機器人縮小、成果區間距收緊，讓「再練…」主按鈕在第一屏、不被底部頁籤擋住（XP 分項四列時也一樣）。 */
+  .result-body { padding-top: var(--space-3); }
+  .result-hero-bob { width: 72px; }
+  .assessment-cycle-summary.result-hero { gap: 6px; }
+  .result-hero-title { font-size: 26px; }
   .question-preparation-message { gap: var(--space-3); }
 }
 

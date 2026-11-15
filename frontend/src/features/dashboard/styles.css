@@ -243,9 +243,15 @@
     background: transparent;
     box-shadow: none;
   }
+  /* 標題與教材數一行，兩個連結排在下一行靠左，不擠在右邊各佔一行。 */
   .archipelago-head {
-    padding: 0 var(--shell-gutter) 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    padding: 0 var(--shell-gutter) 4px;
   }
+  .archipelago-links { gap: 0 20px; }
+  .archipelago-head .text-button { min-height: 44px; }
 }
 
 .level-next {

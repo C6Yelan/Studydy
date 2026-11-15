@@ -116,10 +116,19 @@
 
 /* 手機：頂端一列是品牌與目前教材；底部頁籤放四個常用項目和「更多」，其餘項目在「更多」展開的面板裡。 */
 @media (max-width: 720px) {
+  /* 返回鈕顯示文字「我的群島」，不只一個箭頭。 */
   .rail .material-rail-islands {
     flex: none;
-    width: 44px;
-    padding: 0;
+    gap: 2px;
+    width: auto;
+    padding: 0 6px 0 2px;
+  }
+  .rail .material-rail-islands .rail-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
   }
   .material-rail-name {
     position: static;
@@ -173,11 +182,13 @@
     color: inherit;
   }
   .material-rail-main .rail-link[aria-current="page"],
-  .material-rail-more-toggle[aria-expanded="true"] {
+  .material-rail-more-toggle[aria-expanded="true"],
+  .material-rail-more-toggle.is-current {
     background: transparent;
     color: var(--studydy-blue);
   }
-  .material-rail-main .rail-link[aria-current="page"]::before {
+  .material-rail-main .rail-link[aria-current="page"]::before,
+  .material-rail-more-toggle.is-current::before {
     content: "";
     position: absolute;
     top: 2px;

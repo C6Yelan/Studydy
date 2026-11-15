@@ -17,6 +17,8 @@ export function useMapFocusConcept(conceptId: string | null) {
 }
 
 type Item = "knowledge-map" | "progress" | "concept-cards" | "podcasts" | "notes" | "assistant" | "research" | "sources" | "settings";
+/** 手機收在「更多」裡的項目；目前在其中一頁時「更多」標成目前所在。 */
+const moreItems: Item[] = ["notes", "research", "sources", "settings"];
 type MapRoute = Extract<AppRoute, { name: "knowledge-map" }>;
 
 /** 教材側欄所在的項目；教材內的卡組、Podcast、作答等子頁歸到對應的清單項目。 */
@@ -116,7 +118,7 @@ export function MaterialRail({ apiClient, route, materialId, forgot, toggle, pee
         {link("podcasts", "聽 Podcast", "headphones", "is-amber", withMap(() => ({ name: "material-content", materialId, kind: "podcasts" })))}
       </ul>
       {/* 手機：底部只放四個常用項目，其餘收進「更多」。 */}
-      <button ref={moreButton} className="material-rail-more-toggle" type="button" aria-expanded={moreOpen} aria-controls="material-rail-more" onClick={() => setMoreOpen((open) => !open)}>
+      <button ref={moreButton} className={`material-rail-more-toggle${current && moreItems.includes(current) ? " is-current" : ""}`} type="button" aria-expanded={moreOpen} aria-controls="material-rail-more" onClick={() => setMoreOpen((open) => !open)}>
         <span className="material-rail-dots" aria-hidden="true">⋯</span><span>更多</span>
       </button>
       <div id="material-rail-more" className="material-rail-more" onClick={(event) => { if ((event.target as HTMLElement).closest("a, button")) setMoreOpen(false); }}>

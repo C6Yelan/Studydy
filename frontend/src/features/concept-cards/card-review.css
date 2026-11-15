@@ -67,3 +67,9 @@
 .review-dots i.is-current { background: #a9c3ff; }
 .review-count { flex: none; color: var(--text-secondary); font-size: 15px; font-weight: 900; white-space: nowrap; }
 @media (max-width: 720px) { .card-review-heading { flex-wrap: wrap; gap: 8px; } .card-review-heading .cards-study-title { max-width: none; flex: 1; } .review-dots { flex-basis: 100%; order: 3; } }
+/* 手機：說明與卡片來源各佔一行，來源太長時以省略號截短，不讓圖示單獨佔一欄、文字折成好幾行。 */
+@media (max-width: 720px) {
+  .card-review-heading .cards-study-meta { display: grid; gap: 0; min-width: 0; }
+  .card-review-heading .cards-study-meta > span:not(.cards-study-notice) { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-review-heading .cards-study-meta svg { margin-right: 4px; vertical-align: -2px; }
+}

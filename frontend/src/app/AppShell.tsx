@@ -17,13 +17,13 @@ export const MaterialRunWorkspaceContext = createContext<((runId:string|null)=>v
 export const FocusModeContext = createContext<((on: boolean) => void) | null>(null);
 
 type Section = "home" | "materials" | "cards" | "podcasts" | "achievements" | "upload" | "profile";
-// 全站左側欄的主要入口；手機上同一組入口移到底部頁籤（short 是頁籤上的字）。
-const sections: { id: Section; label: string; short: string; icon: IconName; tone: string; route: AppRoute }[] = [
-  { id: "home", label: "首頁", short: "首頁", icon: "home", tone: "is-blue", route: { name: "home" } },
-  { id: "materials", label: "我的群島", short: "群島", icon: "book", tone: "is-green", route: { name: "materials" } },
-  { id: "cards", label: "翻卡片", short: "翻卡片", icon: "cards", tone: "is-violet", route: { name: "concept-cards" } },
-  { id: "podcasts", label: "Podcast", short: "Podcast", icon: "headphones", tone: "is-amber", route: { name: "podcasts" } },
-  { id: "achievements", label: "成就", short: "成就", icon: "trophy", tone: "is-amber", route: { name: "achievements" } },
+// 全站左側欄的主要入口；手機上同一組入口移到底部頁籤，用同樣的字。
+const sections: { id: Section; label: string; icon: IconName; tone: string; route: AppRoute }[] = [
+  { id: "home", label: "首頁", icon: "home", tone: "is-blue", route: { name: "home" } },
+  { id: "materials", label: "我的群島", icon: "book", tone: "is-green", route: { name: "materials" } },
+  { id: "cards", label: "翻卡片", icon: "cards", tone: "is-violet", route: { name: "concept-cards" } },
+  { id: "podcasts", label: "Podcast", icon: "headphones", tone: "is-amber", route: { name: "podcasts" } },
+  { id: "achievements", label: "成就", icon: "trophy", tone: "is-amber", route: { name: "achievements" } },
 ];
 
 // 教材內各頁換成教材側欄（「/materials/{id}」本身只是導向，不算）。
@@ -165,7 +165,7 @@ export function AppShell({
         {sections.map((item) => (
           <RouteLink key={item.id} route={item.route} aria-current={current(item.id)}>
             <Icon name={item.icon} size={22} />
-            <span>{item.short}</span>
+            <span>{item.label}</span>
             {count(item.id)}
           </RouteLink>
         ))}

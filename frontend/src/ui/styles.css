@@ -232,3 +232,12 @@
 .crumb-parent { min-height: 44px; padding: 0 6px 0 0; border: 0; background: transparent; color: var(--studydy-blue); font: inherit; }
 .crumb-parent:hover { text-decoration: underline; }
 .crumb-current { min-width: 0; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+/* 手機不折行：上一層完整顯示，只有目前頁名以省略號截短，「›」不會被折到第二行開頭。 */
+@media (max-width: 720px) {
+  .crumb { flex-wrap: nowrap; }
+  .crumb-parent { flex: none; white-space: nowrap; }
+}
+/* 鍵盤快捷鍵提示：觸控裝置沒有鍵盤，不顯示。 */
+@media (hover: none) and (pointer: coarse) {
+  .keyboard-hint { display: none; }
+}

@@ -166,6 +166,8 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 @media(max-width:720px) { .research-compose form { flex-direction:column; } }
 
 .supplementary-page .research-candidates { grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); max-height:none; overflow:visible; }
+/* 窄於 1000px 時整頁自然捲動：唯讀來源清單的 360px 上限（is-readonly 規則權重較高）會讓清單溢出父卡、最後幾筆捲不到，這裡解除。 */
+@media(max-width:999px) { .supplementary-page .source-picker.is-readonly .research-candidates { max-height:none; } }
 
 /* ── 單筆補充查詢 ── */
 .research-workspace { display:flex; flex-direction:column; gap:10px; min-width:0; }

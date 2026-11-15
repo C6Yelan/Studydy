@@ -612,6 +612,26 @@ test("card creation groups concepts by chapter and a chapter checkbox selects th
   expect(new Set((fixture.requests[0].body as { concept_ids: string[] }).concept_ids)).toEqual(new Set(fixture.view.concepts.slice(10).map((concept) => concept.concept_id)));
 });
 
+test("on phones the create bar stays in view above the tab bar while the long concept list scrolls", async ({ page }) => {
+  const fixture = await mockCards(page, { many: true });
+  await page.route(`**/v1/materials/${materialId}/knowledge-structures/*/regions`, (route) => json(route, chapterRegions(fixture)));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(mapPath + "/create-cards");
+  await expect(page.locator(".card-picker-option")).toHaveCount(31);
+  const create = page.getByRole("button", { name: "建立並開始翻卡" });
+  const tabs = page.getByRole("navigation", { name: "教材導覽", exact: true });
+  const height = await page.evaluate(() => document.documentElement.scrollHeight);
+  expect(height).toBeGreaterThan(844 * 2);
+  // 清單頂端與中段都不用捲到最後就按得到，而且不被底部頁籤蓋住。
+  for (const top of [0, height / 2]) {
+    await page.evaluate((y) => window.scrollTo(0, y), top);
+    await expect(create).toBeInViewport();
+    const button = (await create.boundingBox())!;
+    expect(button.y + button.height).toBeLessThanOrEqual((await tabs.boundingBox())!.y);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+});
+
 for (const unavailable of ["failed", "source"] as const) {
   test(`card creation falls back to the paged list when regions are ${unavailable === "failed" ? "unreadable" : "grouped by source file"}`, async ({ page }) => {
     const fixture = await mockCards(page, { many: true });

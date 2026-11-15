@@ -1263,3 +1263,31 @@
   .map-toolbar .map-today-chip { display: none; }
 }
 
+
+/* 721～919px：右上「顯示所有關係」「匯出」與左上搜尋、學習導覽放不進同一列，匯出縮成圖示、「今天 N / M」隱藏，
+   左上工具列讓出右上按鈕的寬度並可換行，按鈕不重疊；≥920 不變。 */
+@media (min-width: 721px) and (max-width: 919px) {
+  .map-corner-tools .export-entry > button { width: 42px; min-width: 42px; padding: 0; font-size: 0; }
+  .map-corner-tools .export-entry > button::before { content: "↓" / ""; display: inline-block; font-size: 24px; line-height: 1; border-bottom: 2px solid currentColor; }
+  .map-navigation:has(+ .map-corner-tools) { right: 186px; max-width: none; }
+  .map-toolbar { flex-wrap: wrap; }
+  .map-navigation .map-search { min-width: 160px; }
+  .map-toolbar .map-today-chip { display: none; }
+}
+
+/* 手機：選島卡片改成佔下半部的抽屜，地圖露出上半部（取景見 KnowledgeMapWorkspace 的 phoneDrawerShare）。 */
+@media (max-width: 720px) {
+  .detail-panel {
+    inset: auto 0 0 0;
+    width: 100%;
+    max-width: none;
+    height: 50dvh;
+    max-height: 50dvh;
+    margin: 0;
+    border-radius: 24px 24px 0 0;
+    box-shadow: 0 -12px 32px -12px rgba(20, 40, 80, 0.35);
+  }
+  .detail-panel::backdrop {
+    background: transparent;
+  }
+}

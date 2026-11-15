@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import type { KnowledgeRegionsView } from "../../api/contracts";
 import { mapRegions } from "../knowledge-map/knowledge-map";
 import { LearningSteps } from "./Flow";
+import { Modal } from "../../app/Modal";
 import "./concept-pick.css";
 
 /** 建立卡組、調整卡組、建立 Podcast 共用的「挑概念」頁：頁頂（麵包屑、標題、步驟、說明）、左右兩個面板、底部固定列。 */
@@ -94,4 +95,28 @@ export function ClampedClaims({ resetKey, children }: { resetKey: string; childr
     <div ref={box}>{children}</div>
     {(expanded || clipped) && <button type="button" className="text-button pick-claims-toggle" aria-expanded={expanded} onClick={() => setExpandedFor(expanded ? null : resetKey)}>{expanded ? "收合重點" : "展開全文"}</button>}
   </div>;
+}
+
+// 與 concept-pick.css 的手機斷點一致：手機上的概念預覽改成底部抽屜，不放在長清單下方。
+const phoneQuery = "(max-width: 720px)";
+export function usePhoneLayout() {
+  const [phone, setPhone] = useState(() => window.matchMedia(phoneQuery).matches);
+  useEffect(() => {
+    const media = window.matchMedia(phoneQuery);
+    const update = () => setPhone(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return phone;
+}
+
+/** 手機的概念預覽抽屜：關閉鈕與 Esc 都會關；關閉後瀏覽器把焦點還給打開它的概念按鈕。 */
+export function PreviewSheet({ title, open, onClose, children }: { title: string; open: boolean; onClose: () => void; children: ReactNode }) {
+  return <Modal label={title} open={open} onClose={onClose} className="pick-preview-sheet">
+    <header className="pick-preview-sheet-head">
+      <strong>{title}</strong>
+      <button className="header-dialog-close" type="button" aria-label="關閉預覽" onClick={onClose}>×</button>
+    </header>
+    <div className="pick-preview-sheet-body">{children}</div>
+  </Modal>;
 }

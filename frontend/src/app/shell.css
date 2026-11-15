@@ -371,7 +371,8 @@
 /* 手機：側欄變成頂端一列（品牌、搜尋、新增教材、個人檔案），主要入口移到底部頁籤。 */
 @media (max-width: 720px) {
   .app-shell {
-    --shell-chrome: 166px;
+    /* 頂端列 66px＋內容區上緣 18px＋下緣 108px（留給底部頁籤）；少算會讓填滿視窗的頁（地圖、筆記、原始檔案）多捲一段。 */
+    --shell-chrome: 192px;
     display: block;
   }
   .rail {
@@ -484,6 +485,8 @@
     max-height: calc(100dvh - 120px - env(safe-area-inset-bottom));
   }
   .search-results { padding-bottom: 24px; }
+  /* 觸控目標至少 44px（搜尋、更新預覽、概念預覽等對話框的關閉鈕）。 */
+  .header-dialog .header-dialog-close { width: 44px; height: 44px; }
 }
 
 /* 全站搜尋與共用對話框（Modal） */

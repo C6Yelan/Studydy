@@ -415,11 +415,33 @@ for (const width of [1536, 390])
     const box = (await page.locator(".focus-graph").boundingBox())!;
     const viewport = page.locator(".react-flow__viewport");
     const before = await viewport.getAttribute("style");
-    await page.mouse.move(box.x + box.width / 2, box.y + 60);
+    // 從空白海面開始拖：密集圖上固定座標可能剛好落在關係線上（點線是選關係，不拖地圖），往下找第一個空白點。
+    const startY = await page.evaluate(([x, top, bottom]) => {
+      for (let y = top; y < bottom; y += 10) if (document.elementFromPoint(x, y)?.classList.contains("react-flow__pane")) return y;
+      return top;
+    }, [box.x + box.width / 2, box.y + 60, box.y + box.height - 80]);
+    await page.mouse.move(box.x + box.width / 2, startY);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 40, box.y + 130, { steps: 12 });
+    await page.mouse.move(box.x + box.width / 2 + 40, startY + 70, { steps: 12 });
     await page.mouse.up();
     await expect(viewport).not.toHaveAttribute("style", before!);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     assertReadOnly();
   });
+
+for (const width of [721, 768, 919]) {
+  test(`map top buttons never overlap at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1024 });
+    await mockKnowledgeMapApi(page, workspaceView(20, true));
+    await page.goto(mapPath);
+    await expect(page.locator(".concept-flow-node.is-focus")).toBeVisible();
+    // 左上的搜尋、學習導覽（與「今天」）和右上的顯示所有關係、匯出，兩兩不重疊。
+    const boxes = await page.locator(".map-toolbar > *, .map-corner-buttons > *").evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect()).filter((box) => box.width > 0)
+        .map(({ left, right, top, bottom }) => ({ left, right, top, bottom })));
+    expect(boxes.length).toBeGreaterThanOrEqual(4);
+    for (const [i, a] of boxes.entries()) for (const b of boxes.slice(i + 1))
+      expect(a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  });
+}

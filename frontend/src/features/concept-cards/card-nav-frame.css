@@ -107,6 +107,8 @@
   .card-nav-row { display:contents; }
   .card-list-column { display:none; }
   .card-shell { grid-column:1/-1; grid-row:1; width:100%; min-width:0; }
+  /* 細進度條貼在卡片頂端時被 26px 圓角切掉，手機改成卡片內上方的一條膠囊。 */
+  .card-shell-progress { width:auto; height:6px; margin:14px 20px 0; border-radius:999px; }
   .card-dock { grid-column:1/-1; grid-row:2; padding:0; }
   .card-nav-button.is-prev { grid-column:1; grid-row:3; justify-self:start; }
   .card-nav-button.is-next { grid-column:2; grid-row:3; justify-self:end; }
