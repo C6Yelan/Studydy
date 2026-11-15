@@ -95,6 +95,19 @@
   display: none;
 }
 
+/* 矮畫面：和全站側欄（app/shell.css 同一條件）一起縮小項目間距。 */
+@media (min-width: 721px) and (max-height: 780px) {
+  .material-rail-nav,
+  .material-rail-more {
+    gap: 2px;
+  }
+}
+@media (min-width: 721px) and (max-height: 640px) {
+  .material-rail-name {
+    padding-bottom: 2px;
+  }
+}
+
 /* 平板：和全站側欄一樣收成圖示列，教材名稱只留給輔助科技。 */
 @media (max-width: 1024px) {
   .material-rail-name {
