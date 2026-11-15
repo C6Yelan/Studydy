@@ -152,7 +152,9 @@ test("parallel relations retain separate labels, paths and details in both direc
   );
   await mockKnowledgeMapApi(page, view);
   await page.goto(mapPath);
-  // 平常只畫先備石橋；其餘四種按「顯示所有關係」才出現。
+  // 預設畫出所有關係；關掉「顯示所有關係」只剩先備，再按一次全部回來。
+  await expect(page.locator(".concept-flow-edge")).toHaveCount(5);
+  await page.getByRole("button", { name: "顯示所有關係", exact: true }).click();
   await expect(page.locator(".concept-flow-edge")).toHaveCount(1);
   await page.getByRole("button", { name: "顯示所有關係", exact: true }).click();
   const assertSeparate = async () => {

@@ -218,7 +218,7 @@ type MapRelation = Pick<KnowledgeOutlineView["relations"][number], "relation_id"
 
 /**
  * 地圖上哪些關係要畫、哪些要淡化（不在結果裡的就不畫）：
- * - 平常只畫先備（石橋），其餘四種等選了島或按「顯示所有關係」才出現。
+ * - 沒選島時預設畫出所有關係；「顯示所有關係」關掉時只畫先備。
  * - 選了一座島：只亮起和它相連的關係；「顯示所有關係」時其餘關係保留但淡化。
  * - 被點開的關係一定畫出，避免點了之後那條線消失。
  */
@@ -239,35 +239,31 @@ export function relationVisibility(
 }
 
 /**
- * 金色航線：只連「第 n 站 → 第 n+1 站」而且兩座都畫在畫面上的島；
- * 中間有站沒畫出來就斷開，不跨站連線，避免線穿過別的島或折返。
+ * 金色航線：只畫「目前這站 → 下一站」一段，兩座島都畫在畫面上才畫，否則不畫。
  */
-export function routeSegments(path: KnowledgeOutlineView["initial_learning_path"], visibleIds: Set<string>) {
-  const byPosition = new Map(path.filter((step) => visibleIds.has(step.concept_id)).map((step) => [step.position, step.concept_id]));
-  return [...byPosition]
-    .sort(([a], [b]) => a - b)
-    .filter(([position]) => byPosition.has(position + 1))
-    .map(([position, source]) => ({ source, target: byPosition.get(position + 1)! }));
+export function routeSegments(path: KnowledgeOutlineView["initial_learning_path"], visibleIds: Set<string>, startId: string) {
+  const start = path.find((step) => step.concept_id === startId);
+  const next = start && path.find((step) => step.position === start.position + 1);
+  if (!start || !next || !visibleIds.has(start.concept_id) || !visibleIds.has(next.concept_id)) return [];
+  return [{ source: start.concept_id, target: next.concept_id }];
 }
 
 /**
  * 選島卡片「跟其他島的關係」的白話句子；方向照後端定義：
  * prerequisite 來源先學；part_of 來源是目標的一部分；application 來源用在目標；
  * example 目標是來源的例子；contrast 沒有方向。句子以「」包住另一座島的名稱，名稱由呼叫端渲染；
- * 徽章文字和句子同一個方向，例如反向的 application 寫「用到」而不是「用在」。
  */
 export function relationPhrase(relation: MapRelation, conceptId: string) {
   const outgoing = relation.source_concept_id === conceptId;
   const otherId = outgoing ? relation.target_concept_id : relation.source_concept_id;
-  // 徽章跟著句子的方向：同一種關係從另一端看，徽章換成反向的說法。
-  const [badge, before, after] = {
-    prerequisite: outgoing ? ["接著學", "學完它再學「", "」"] : ["先學", "「", "」要先學"],
-    part_of: outgoing ? ["一部分", "它是「", "」的一部分"] : ["包含", "「", "」是它的一部分"],
-    application: outgoing ? ["用在", "會用在「", "」"] : ["用到", "它用到「", "」"],
-    example: outgoing ? ["舉例", "「", "」是它的一個例子"] : ["是例子", "它是「", "」的一個例子"],
-    contrast: ["比一比", "可以和「", "」比一比"],
+  const [before, after] = {
+    prerequisite: outgoing ? ["學完它再學「", "」"] : ["「", "」要先學"],
+    part_of: outgoing ? ["它是「", "」的一部分"] : ["「", "」是它的一部分"],
+    application: outgoing ? ["會用在「", "」"] : ["它用到「", "」"],
+    example: outgoing ? ["「", "」是它的一個例子"] : ["它是「", "」的一個例子"],
+    contrast: ["可以和「", "」比一比"],
   }[relation.type];
-  return { otherId, badge, before, after };
+  return { otherId, before, after };
 }
 
 /** 關係詳情的標題：用兩端島名套白話句型（名稱是純文字）。 */
