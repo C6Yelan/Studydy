@@ -297,7 +297,11 @@
     position: relative;
     justify-content: center;
     width: 48px;
-    padding: 4px;
+    padding-inline: 4px;
+  }
+  /* 次要項目展開時只有文字（44px 高），收合時多出 36px 圖示，上下留白縮小才維持同高。 */
+  .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) :is(.rail-minor, .material-rail-minor .rail-link) {
+    padding-block: 2px;
   }
   .is-rail-collapsed:not(.is-rail-peek) > .rail:not(:has(:focus-visible)) :is(.rail-minor, .material-rail-minor .rail-link) > i {
     display: grid;
