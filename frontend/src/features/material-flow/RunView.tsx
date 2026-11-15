@@ -203,7 +203,7 @@ export function RunView({
   }, [run?.run_id, run?.status]);
 
   const hasMap = !!(run?.base_revision || run?.output_binding);
-  const back = <Breadcrumb current="教材分析" parent={{ label: materialName ?? (hasMap ? "教材" : "我的教材"), ariaLabel: hasMap ? "返回教材" : "回到我的教材",
+  const back = <Breadcrumb current="教材分析" parent={{ label: materialName ?? (hasMap ? "教材" : "我的群島"), ariaLabel: hasMap ? "返回教材" : "回到我的群島",
     onClick: () => writeRoute(hasMap ? { name: "material", materialId: route.materialId } : { name: "materials" }) }} />;
 
   if (notFound) return <NotFoundView title="找不到這次處理" description="這筆處理紀錄可能已被刪除，或不屬於目前登入的帳號。" back={materialNotFound.back} />;

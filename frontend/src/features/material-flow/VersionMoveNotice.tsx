@@ -228,7 +228,7 @@ export function VersionMoveNotice({ apiClient, materialId, compact = false, entr
                 {item.movable ? <small>{item.target_count} 張卡將更新{item.carried_reviews ? `，沿用 ${item.carried_reviews} 張的學習標記` : ""}</small> : <small>沒有可對應的概念，無法更新</small>}
               </span>
             </label>
-            {item.movable && regenerate > 0 && <p className="version-move-note">{regenerate} 張卡的內容在更新後有更動，會依更新後重新製作卡面，完成前不列入需要加強。</p>}
+            {item.movable && regenerate > 0 && <p className="version-move-note">{regenerate} 張卡的內容在更新後有更動，會依更新後重新製作卡面，完成前不列入不熟的卡。</p>}
             <UnmappedList title={`這 ${item.unmapped.length} 張卡在更新後找不到對應概念，不會移動：`} items={item.unmapped}/>
             {item.mapped.length > 0 && <details className="version-move-details">
               <summary>查看概念對應</summary>

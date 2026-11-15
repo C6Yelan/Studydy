@@ -63,7 +63,7 @@ export function CreateStudyContent({ apiClient, route }: { apiClient: StudydyApi
       steps={{ labels: podcast ? podcastSteps : cardSetSteps, current: 1, label: podcast ? "建立 Podcast 步驟" : "建立卡組步驟" }} />}
     {needsMaterialSelection && error && <p role="alert" className="form-error">{error}<button type="button" className="text-button" onClick={() => setReload(v => v + 1)}>重新讀取</button></p>}
     {needsMaterialSelection && materials?.length === 0 ? <EmptyState title="還沒有可用的知識地圖" description={podcast ? "先上傳教材並建立知識地圖，才能把重點做成 Podcast。" : "先上傳教材並建立知識地圖，才能挑選概念做成卡組。"}
-      action={<button type="button" className="primary-button" onClick={() => writeRoute({ name: "materials" })}>前往我的教材</button>} />
+      action={<button type="button" className="primary-button" onClick={() => writeRoute({ name: "materials" })}>前往我的群島</button>} />
       : needsMaterialSelection && !error && materialPicker}
     {route.name === "podcast-create" ? <CreatePodcast key={`${route.materialId}/${route.structureRevision}`} apiClient={apiClient} route={route} />
       : route.name === "card-set-create" ? <CreateCardSet embedded key={`${route.materialId}/${route.structureRevision}`} apiClient={apiClient} route={route} />

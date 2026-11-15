@@ -20,7 +20,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   route: Extract<AppRoute, { name: "card-set-create" | "card-set-edit" }>;
 }) {
   const editing = route.name === "card-set-edit";
-  // 管理卡組在教材內（已有教材側欄與返回鍵）不再重複返回；從全站概念卡列表進入時保留返回該列表。
+  // 調整卡組在教材內（已有教材側欄與返回鍵）不再重複返回；從全站概念卡列表進入時保留返回該列表。
   const [fromCollection] = useState(() => !!window.history.state?.fromCollection);
   const routeKey = routePath(route);
   const [view, setView] = useState<KnowledgeOutlineView | null>(null);
@@ -151,7 +151,7 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     }
   };
   if (notFound) return <NotFoundView title={editing ? "找不到這個卡組" : "找不到這份教材"} description={editing ? "這個卡組可能已被刪除，或不屬於目前登入的帳號。" : "這份教材或地圖版本可能已被刪除，或不屬於目前登入的帳號。"}
-    back={route.materialId ? null : editing ? { label: "回到翻卡片", route: { name: "concept-cards" } } : { label: "回到我的教材", route: { name: "materials" } }} />;
+    back={route.materialId ? null : editing ? { label: "回到翻卡片", route: { name: "concept-cards" } } : { label: "回到我的群島", route: { name: "materials" } }} />;
   // 調整卡組自己一頁（不經 CreateStudyContent）；建立時頁頂由 CreateStudyContent 放。
   const header = !embedded && <PickHead crumb={<ListBreadcrumb kind="concept-cards" materialId={route.materialId} current="調整卡組" />}
     title={<>調整卡組{saved && <small>{saved.name}</small>}</>} sub="可以改名稱，或勾選要保留的概念；保存後卡組會照新的內容更新。" />;

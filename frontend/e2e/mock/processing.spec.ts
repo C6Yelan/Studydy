@@ -290,7 +290,7 @@ test("analysis failure preserves its last progress and shows the error code", as
   await expect(processing.locator("code")).toBeVisible();
   await page.clock.runFor(5_000);
   expect(reads()).toBe(1);
-  await processing.getByRole("button", { name: "回到我的教材", exact: true }).click();
+  await processing.getByRole("button", { name: "回到我的群島", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
 });

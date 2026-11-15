@@ -105,7 +105,7 @@ test("a completed concept keeps saved completion and prioritizes remediation", a
     navigation: true, wrong: [2], conceptStatus: "completed",
   });
   await fixture.open();
-  await expect(page.getByText("本次練習有需要加強的重點，先前的完成紀錄會保留。", { exact: true })).toBeVisible();
+  await expect(page.getByText("本次練習有要再練的重點，先前的完成紀錄會保留。", { exact: true })).toBeVisible();
   await expect(page.getByText("連續答對 2 道不同的題目就過關", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "再練這 1 個重點", exact: true })).toBeEnabled();
   await expect(page.locator(".assessment-cycle .primary-button")).toHaveCount(1);

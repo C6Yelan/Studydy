@@ -65,7 +65,7 @@ function visibleCanvas(element: HTMLElement, drawerOpen: boolean) {
 const learningLabels = {
   not_started: "尚未開始",
   in_progress: "進行中",
-  needs_review: "需要加強",
+  needs_review: "要再練",
   completed: "已完成",
 } as const;
 
@@ -427,7 +427,7 @@ function LearningNavigator({
     const status = states.get(concept.concept_id)?.status;
     const next = concept.concept_id === nextId && !learningCurrent;
     const stateLabel =
-      status === "completed" ? "已完成" : status === "needs_review" ? "需要加強" : "";
+      status === "completed" ? "已完成" : status === "needs_review" ? "要再練" : "";
     const name = [
       `第 ${step.position} 個，${mathPlainText(concept.label)}`,
       learningCurrent && "目前學習",

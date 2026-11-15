@@ -184,7 +184,7 @@ for (const viewport of [
       }
       const button = page.getByRole("button", { name: "重新分析原來源", exact: true });
       await expect(button).toHaveClass("primary-button");
-      await expect(page.getByRole("button", { name: "返回我的教材", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "返回我的群島", exact: true })).toHaveCount(0);
       await button.focus();
       await button.evaluate((element) => {
         (element as HTMLButtonElement).click();
@@ -224,10 +224,10 @@ test("run read failure retries and returns to the material collection", async ({
   );
   await page.goto(oldPath);
   await expect(page.getByRole("heading", { name: "無法讀取處理狀態" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "回到我的教材", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "回到我的群島", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "重新讀取", exact: true }).click();
   await expect(page.getByRole("heading", { name: "教材處理失敗", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "回到我的教材", exact: true }).click();
+  await page.getByRole("button", { name: "回到我的群島", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("article").getByRole("heading")).toHaveText(item.display_name);
 });

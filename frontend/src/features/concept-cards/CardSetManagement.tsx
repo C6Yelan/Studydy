@@ -7,7 +7,7 @@ import { InlineNameEditor } from "../material-flow/InlineNameEditor";
 
 export function CardSetManagement({ item, apiClient, onChanged, onDelete, confirmingDelete, materialId, fromCollection = false }: {
   materialId?: string;
-  /** 從全站概念卡列表開啟管理頁時，管理頁保留返回該列表。 */
+  /** 從全站概念卡列表開啟調整卡組時，調整卡組頁保留返回該列表。 */
   fromCollection?: boolean;
   item: CardSetSummary; apiClient: StudydyApiClient; onChanged: () => void;
   onDelete: (opener: HTMLElement) => void;

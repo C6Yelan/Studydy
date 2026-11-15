@@ -62,7 +62,7 @@ export function Dashboard({ apiClient }: { apiClient: StudydyApiClient }) {
     : focus && continueRoute ? { icon: "learning", kicker: "繼續學習", title: focusProgress?.currentLabel ?? focus.display_name,
       meta: focusProgress?.currentLabel ? `上次停在 · ${focus.display_name}` : "回來接續上次的學習", cta: "繼續", island, onOpen: startFocus }
     : focus ? { icon: "map", kicker: "開啟知識地圖", title: focus.display_name, meta: "從第一個概念開始", cta: "開啟地圖", island, onOpen: () => openMaterial(focus) }
-    : materials?.length ? { icon: "process", kicker: "教材整理中", title: "完成後就能開始探索", meta: "整理進度可在我的教材查看", cta: "" }
+    : materials?.length ? { icon: "process", kicker: "教材整理中", title: "完成後就能開始探索", meta: "整理進度可在我的群島查看", cta: "" }
     : { icon: "upload", kicker: "上傳教材", title: "建立你的第一座島嶼", meta: "上傳 PDF 或從主題建立教材", cta: "上傳教材", onOpen: () => writeRoute({ name: "upload" }) };
   const openQuest = (quest: LearningQuest) => {
     if (quest.kind === "mark_cards") {

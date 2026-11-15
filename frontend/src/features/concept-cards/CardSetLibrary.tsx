@@ -139,7 +139,7 @@ export function CardSetLibrary({ apiClient, material }: { apiClient: StudydyApiC
                     ? <span className="library-state is-version" title="教材更新後已另建新版卡組，這裡保留更新前的卡面">舊版卡組</span>
                     // 到卡組頁查看更新入口；標籤直接帶過去。
                     : <button type="button" className="library-state is-version" title="更新這個卡組到新版教材" onClick={() => material ? openCardSetUpdate(item.card_set_id) : writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, { fromCollection: true })}>舊版內容 · 可更新</button>)}
-                  {(weak?.get(item.card_set_id) ?? 0) > 0 && <span className="card-review-due"><Icon name="refresh" size={14} />需要加強 {weak!.get(item.card_set_id)} 張</span>}
+                  {(weak?.get(item.card_set_id) ?? 0) > 0 && <span className="card-review-due"><Icon name="refresh" size={14} />{material ? "不熟的卡" : "需要加強"} {weak!.get(item.card_set_id)} 張</span>}
                 </div>
                 <div className="state-actions"><button className="primary-button" type="button" onClick={() => writeRoute({ name: "card-set", cardSetId: item.card_set_id, materialId: item.material_id }, false, material ? null : { fromCollection: true })}>開始翻卡</button></div>
               </article>

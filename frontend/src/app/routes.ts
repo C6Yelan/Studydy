@@ -109,7 +109,7 @@ export function readRoute(pathname: string): RouteRead {
       : structureSegment === "review" ? { name: "card-review", cardSetId: runId, materialId }
       : { name: segments.length === 5 ? "card-set-edit" : "card-set", cardSetId: runId, materialId };
   } else if (resourceSegment === "research" && runId === "scopes" && segments.length === 5 && uuidPattern.test(structureSegment)) {
-    // 教材補充學習的範圍確認頁：在教材側欄內顯示。
+    // 教材找更多資料的範圍確認頁：在教材側欄內顯示。
     route = { name: "topic", topicId: structureSegment, materialId };
   } else if (resourceSegment === "research" && segments.length === 4 && uuidPattern.test(runId)) {
     route = { name: "research", materialId, researchId: runId };

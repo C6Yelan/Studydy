@@ -180,7 +180,7 @@ export default function KnowledgeMap({
               type="button"
               onClick={() => writeRoute({ name: "materials" })}
             >
-              返回我的教材
+              返回我的群島
             </button>
           </div>
         }

@@ -414,7 +414,7 @@ export function AssessmentSetPanel({
         {(group.cycle.outcome !== "needs_review" || group.cycle.unanswered_count > 0 || unavailable > 0 || (group.cycle.pending_count > 0 && conceptCompleted)) && <small>
           {group.cycle.outcome === "passed" ? "可檢測的重點皆已完成。"
             : group.cycle.outcome === "incomplete" ? "本輪有未作答或未檢測的重點。"
-            : group.cycle.pending_count > 0 && conceptCompleted ? "本次練習有需要加強的重點，先前的完成紀錄會保留。" : null}
+            : group.cycle.pending_count > 0 && conceptCompleted ? "本次練習有要再練的重點，先前的完成紀錄會保留。" : null}
           {(group.cycle.unanswered_count > 0 || unavailable > 0) && ` 未作答 ${group.cycle.unanswered_count} 個重點 · 未檢測 ${group.cycle.unavailable_count} 個重點。`}
         </small>}
         {group.cycle.pending_count > 0 && <p className="result-again">有 {group.cycle.pending_count} 個重點要再練：連續答對 2 道不同的題目就過關，之前的進度都會保留。</p>}

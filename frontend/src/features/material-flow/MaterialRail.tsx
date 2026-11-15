@@ -138,7 +138,7 @@ export function MaterialRail({ apiClient, route, materialId, forgot, toggle, pee
   </aside>;
 }
 
-/** 教材內子頁（卡組、Podcast、補充學習詳情、新增來源、作答）回到所屬清單；取代舊教材頁首的返回鍵。 */
+/** 教材內子頁（卡組、Podcast、找更多資料詳情、新增來源、作答）回到所屬清單；取代舊教材頁首的返回鍵。 */
 export function MaterialBack({ label, onClick }: { label: string; onClick: () => void }) {
   return <button className="material-back" type="button" onClick={onClick}><Icon name="arrow-left" size={18} /><span>{label}</span></button>;
 }
