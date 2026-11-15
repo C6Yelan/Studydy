@@ -255,9 +255,9 @@ function ConceptDetail({
               const style = relationStyles[relation.type];
               return (
                 <li key={relation.relation_id}>
-                  <button type="button" aria-label={`${phrase.badge}：${phrase.before}${mathPlainText(other)}${phrase.after}，查看關係說明`}
+                  <button type="button" aria-label={`${style.label}：${phrase.before}${mathPlainText(other)}${phrase.after}，查看關係說明`}
                     onClick={() => openRelation(relation.relation_id)}>
-                    <b style={{ background: style.color }}>{phrase.badge}</b>
+                    <b style={{ background: style.color }}>{style.label}</b>
                     <span>{phrase.before}<MathText text={other} notation={false} />{phrase.after}</span>
                   </button>
                 </li>
@@ -624,7 +624,7 @@ function MapGraph({
     );
     (element ?? navigatorToggle.current)?.focus({ preventScroll: true });
   };
-  const [showAllRelations, setShowAllRelations] = useState(false);
+  const [showAllRelations, setShowAllRelations] = useState(true);
   const [navigatorOpen, setNavigatorOpen] = useState(false);
   const navigatorToggle = useRef<HTMLButtonElement>(null);
   const graph = useReactFlow();
@@ -784,7 +784,7 @@ function MapGraph({
       };
     });
     // 航線排在關係線前面，畫在最下層；純裝飾，不能點也不進鍵盤順序。
-    const route: Edge[] = routeSegments(view.initial_learning_path, new Set(layoutById.keys())).map(({ source, target }) => ({
+    const route: Edge[] = routeSegments(view.initial_learning_path, new Set(layoutById.keys()), routeStart).map(({ source, target }) => ({
       id: `route:${source}:${target}`,
       source,
       target,
@@ -853,6 +853,7 @@ function MapGraph({
     selectedRelationId,
     showAllRelations,
     view.initial_learning_path,
+    routeStart,
   ]);
   // 限制提示講的是兩層範圍內有幾條關係，不受目前顯示哪些關係影響。
   const relationCount = projection.relations.length;

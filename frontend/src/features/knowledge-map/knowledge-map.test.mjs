@@ -279,7 +279,7 @@ test("selecting an island lights only its own relations; other bridges appear on
   const visible = (options) => Object.fromEntries(relationVisibility(view.relations, {
     litConceptId: null, selectedRelationId: null, showAll: false, ...options,
   }));
-  // 平常只有先備石橋。
+  // 關掉「顯示所有關係」、沒選島時，只畫先備。
   assert.deepEqual(visible({}), { ab: "lit" });
   // 選了 c：只亮和 c 相連的兩條，不論種類；和 c 無關的先備 ab 也收起。
   assert.deepEqual(visible({ litConceptId: "c" }), { bc: "lit", cd: "lit" });
@@ -296,13 +296,15 @@ test("the golden route only joins neighbouring stations that are both on screen"
   const path = [["a", 1], ["b", 2], ["c", 3], ["d", 4], ["e", 5]]
     .map(([concept_id, position]) => ({ concept_id, position, reason: "document_order" }))
     .reverse();
-  const route = (ids) => routeSegments(path, new Set(ids)).map(({ source, target }) => `${source}→${target}`);
-  // 相鄰兩站都在畫面上才連，方向是第 n 站到第 n+1 站。
-  assert.deepEqual(route(["a", "b", "c", "d", "e"]), ["a→b", "b→c", "c→d", "d→e"]);
-  // 第 3 站沒畫出來：在那裡斷開，不跨過去連 b→d。
-  assert.deepEqual(route(["a", "b", "d", "e"]), ["a→b", "d→e"]);
-  // 站號不相鄰的島（例如 1、26、21 那種）完全不連。
-  assert.deepEqual(route(["a", "c", "e"]), []);
+  const route = (ids, start) => routeSegments(path, new Set(ids), start).map(({ source, target }) => `${source}→${target}`);
+  // 只畫目前這站到下一站，方向是第 n 站到第 n+1 站。
+  assert.deepEqual(route(["a", "b", "c", "d", "e"], "a"), ["a→b"]);
+  assert.deepEqual(route(["a", "b", "c", "d", "e"], "c"), ["c→d"]);
+  // 目前這站或下一站沒畫出來就不畫，不跨站連線。
+  assert.deepEqual(route(["a", "c", "d", "e"], "a"), []);
+  assert.deepEqual(route(["a", "b", "d", "e"], "c"), []);
+  // 最後一站沒有下一站。
+  assert.deepEqual(route(["a", "b", "c", "d", "e"], "e"), []);
 });
 
 test("with no island selected the camera frames the current station and the next three on screen", () => {
