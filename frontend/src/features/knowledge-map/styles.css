@@ -987,16 +987,15 @@
 
 /* 地圖四角依畫布邊界定位；桌機詳情使用既有並排欄，平板手機維持模態。 */
 .map-corner-tools { position:absolute; z-index:5; top:12px; right:12px; display:flex; flex-direction:column; align-items:flex-end; gap:8px; max-width:calc(100% - 24px); pointer-events:none; }
-.map-corner-buttons { display:flex; align-items:flex-start; gap:8px; pointer-events:auto; }
-.map-corner-buttons .export-entry { margin:0; justify-content:flex-end; }
-.map-navigation:has(+ .map-corner-tools) { max-width:calc(100% - 330px); }
+.map-corner-tools > .export-entry { margin:0; justify-content:flex-end; pointer-events:auto; }
+.map-navigation:has(+ .map-corner-tools) { max-width:calc(100% - 186px); }
 .map-corner-search .map-search-toggle { display:none; }
 
 @media(max-width:720px) {
   .map-corner-tools { top:10px; right:10px; }
   .map-corner-tools .export-entry > button { width:42px; min-width:42px; padding:0; font-size:0; }
   .map-corner-tools .export-entry > button::before { content:"↓" / ""; display:inline-block; font-size:24px; line-height:1; border-bottom:2px solid currentColor; }
-  .map-navigation:has(+ .map-corner-tools) { right:186px; max-width:none; }
+  .map-navigation:has(+ .map-corner-tools) { right:62px; max-width:none; }
   .map-navigation .map-corner-search { flex:0 0 42px; min-width:0; width:42px; }
   .map-corner-search .map-search-toggle { display:flex; width:42px; padding:0; justify-content:center; }
   .map-corner-search:not(.is-expanded) > input { display:none; }
@@ -1027,7 +1026,7 @@
 }
 /* 方向提示融在帶子裡：中線上一個金色箭頭。 */
 .map-route-arrow { fill: var(--warning); }
-/* 「顯示所有關係」時和選取島無關的關係淡化。 */
+/* 和選取島無關的關係淡化。 */
 .concept-flow-edge.is-dimmed { opacity: 0.3; }
 .concept-flow-edge .react-flow__edge-textbg { filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.14)); }
 
@@ -1059,29 +1058,6 @@
 .concept-flow-node.is-not_started:not(.is-focus) .island-sign::after { border-top-color: rgba(255, 255, 255, 0.75); }
 /* 選取的島雲霧散開一些，看得清楚是哪一座。 */
 .concept-flow-node.is-focus:is(.is-not_started, .is-in_progress) .island-cloud { opacity: 0.3; }
-
-/* 地圖左上的「今天」與右上的「顯示所有關係」。 */
-.map-today-chip,
-.map-relations-toggle.secondary-button {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: var(--radius-button);
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 900;
-  white-space: nowrap;
-  text-decoration: none;
-  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.12);
-}
-.map-toolbar .map-today-chip { order: 3; flex: none; }
-.map-relations-toggle.secondary-button[aria-pressed="true"] {
-  background: var(--text-primary);
-  color: #fff;
-}
 
 /* 選島卡片：開始挑戰 → 重點（兩行）→ 關係 → 來源，照示意圖由上往下。 */
 .detail-panel h2 { font-size: 22px; font-weight: 900; line-height: 1.3; }
@@ -1167,20 +1143,14 @@
     box-shadow: -8px 0 24px rgba(20, 40, 80, 0.16);
   }
 }
-@media (max-width: 720px) {
-  .map-toolbar .map-today-chip { display: none; }
-}
-
-
-/* 721～919px：右上「顯示所有關係」「匯出」與左上搜尋、學習導覽放不進同一列，匯出縮成圖示、「今天 N / M」隱藏，
+/* 721～919px：右上匯出與左上搜尋、學習導覽放不進同一列，匯出縮成圖示，
    左上工具列讓出右上按鈕的寬度並可換行，按鈕不重疊；≥920 不變。 */
 @media (min-width: 721px) and (max-width: 919px) {
   .map-corner-tools .export-entry > button { width: 42px; min-width: 42px; padding: 0; font-size: 0; }
   .map-corner-tools .export-entry > button::before { content: "↓" / ""; display: inline-block; font-size: 24px; line-height: 1; border-bottom: 2px solid currentColor; }
-  .map-navigation:has(+ .map-corner-tools) { right: 186px; max-width: none; }
+  .map-navigation:has(+ .map-corner-tools) { right: 62px; max-width: none; }
   .map-toolbar { flex-wrap: wrap; }
   .map-navigation .map-search { min-width: 160px; }
-  .map-toolbar .map-today-chip { display: none; }
 }
 
 /* 手機：選島卡片改成佔下半部的抽屜，地圖露出上半部（取景見 KnowledgeMapWorkspace 的 phoneDrawerShare）。 */

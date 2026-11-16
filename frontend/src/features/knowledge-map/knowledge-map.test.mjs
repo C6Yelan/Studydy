@@ -274,22 +274,18 @@ test("chapter regions use two levels only for many chapters across several sourc
   assert.equal(regionBasisText(one), "依教材內容整理的章節");
 });
 
-test("selecting an island lights only its own relations; other bridges appear on request", () => {
+test("without a selection every relation is lit; selecting an island dims the unrelated ones", () => {
   // ab 先備、bc 例子、cd 組成：a—b—c—d 一條鏈。
   const visible = (options) => Object.fromEntries(relationVisibility(view.relations, {
-    litConceptId: null, selectedRelationId: null, showAll: false, ...options,
+    litConceptId: null, selectedRelationId: null, ...options,
   }));
-  // 關掉「顯示所有關係」、沒選島時，只畫先備。
-  assert.deepEqual(visible({}), { ab: "lit" });
-  // 選了 c：只亮和 c 相連的兩條，不論種類；和 c 無關的先備 ab 也收起。
-  assert.deepEqual(visible({ litConceptId: "c" }), { bc: "lit", cd: "lit" });
-  // 選了 c 又按「顯示所有關係」：其餘關係保留但淡化。
-  assert.deepEqual(visible({ litConceptId: "c", showAll: true }), { ab: "dim", bc: "lit", cd: "lit" });
-  // 沒選島時「顯示所有關係」全部亮起。
-  assert.deepEqual(visible({ showAll: true }), { ab: "lit", bc: "lit", cd: "lit" });
-  // 點開的關係一定畫出，即使它不是先備、也不連到選取的島。
-  assert.deepEqual(visible({ selectedRelationId: "cd" }), { ab: "lit", cd: "lit" });
-  assert.deepEqual(visible({ litConceptId: "a", selectedRelationId: "cd" }), { ab: "lit", cd: "lit" });
+  // 沒選島時全部亮起。
+  assert.deepEqual(visible({}), { ab: "lit", bc: "lit", cd: "lit" });
+  // 選了 c：和 c 相連的兩條亮起，其餘關係保留但淡化。
+  assert.deepEqual(visible({ litConceptId: "c" }), { ab: "dim", bc: "lit", cd: "lit" });
+  // 點開的關係一定亮起，即使它不連到選取的島。
+  assert.deepEqual(visible({ selectedRelationId: "cd" }), { ab: "lit", bc: "lit", cd: "lit" });
+  assert.deepEqual(visible({ litConceptId: "a", selectedRelationId: "cd" }), { ab: "lit", bc: "dim", cd: "lit" });
 });
 
 test("the golden route only joins neighbouring stations that are both on screen", () => {

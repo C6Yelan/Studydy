@@ -1,9 +1,6 @@
 import { MapExports } from "../exports/MapExports";
 import { openNoteTarget, useConceptNoteTarget } from "../notes/note-location";
 import { relationStyles } from "./map-appearance";
-import { RouteLink } from "../../ui/RouteLink";
-import { useLearningActivity } from "../../app/LearningProgress";
-import { dailyTaskCount } from "../dashboard/LearningCards";
 import { DifficultyBadge, LearningDiagnosis, useLearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { GoalEditorHost, LearningGoalBlock, TodayConceptsBlock, useLearningGoal } from "../learning-goals/LearningGoalPanel";
 import { DailyGoalProgress } from "../learning-goals/DailyGoalProgress";
@@ -34,7 +31,6 @@ import type { StudydyApiClient } from "../../api/client";
 import type {
   KnowledgeOutlineView,
   KnowledgeRegionsView,
-  LearningGoalsView,
   MapProgressView,
   ConceptDifficultyView,
   StudySessionView,
@@ -326,25 +322,6 @@ function RouteEdge({ id, sourceX, sourceY, targetX, targetY }: EdgeProps) {
 }
 const edgeTypes = { route: RouteEdge };
 
-/** 地圖左上的「今天 N / M」：和首頁今日任務同一套計數，點了回首頁看細項；讀不到就不顯示。 */
-function TodayChip({ apiClient }: { apiClient: StudydyApiClient }) {
-  const activity = useLearningActivity(apiClient);
-  const [goals, setGoals] = useState<LearningGoalsView | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void apiClient.getLearningGoals().then((value) => { if (!cancelled) setGoals(value); }, () => undefined);
-    return () => { cancelled = true; };
-  }, [apiClient]);
-  if (!activity || !goals) return null;
-  const { done, total } = dailyTaskCount(activity.quests, goals.goals);
-  if (!total) return null;
-  return (
-    <RouteLink className="map-today-chip" route={{ name: "home" }} aria-label={`今日任務：已完成 ${done}／${total}，回首頁查看`}>
-      今天 {done} / {total}
-    </RouteLink>
-  );
-}
-
 function regionCountText(regions: MapRegions) {
   if (regions.basis !== "chapters") return `${regions.regions.length} 個區域`;
   return (regions.groups.length ? `${regions.groups.length} 個島群・` : "") + `${regions.regions.length} 個章節`;
@@ -624,7 +601,6 @@ function MapGraph({
     );
     (element ?? navigatorToggle.current)?.focus({ preventScroll: true });
   };
-  const [showAllRelations, setShowAllRelations] = useState(true);
   const [navigatorOpen, setNavigatorOpen] = useState(false);
   const navigatorToggle = useRef<HTMLButtonElement>(null);
   const graph = useReactFlow();
@@ -683,7 +659,6 @@ function MapGraph({
     const visibility = relationVisibility(projection.relations, {
       litConceptId: litConceptId && layoutById.has(litConceptId) ? litConceptId : null,
       selectedRelationId,
-      showAll: showAllRelations,
     });
     // 選了島時，和它有亮起關係的島維持原樣，其餘的島淡化。
     const litNeighbours = new Set(litConceptId ? [litConceptId] : []);
@@ -851,7 +826,6 @@ function MapGraph({
     regions,
     litConceptId,
     selectedRelationId,
-    showAllRelations,
     view.initial_learning_path,
     routeStart,
   ]);
@@ -1011,7 +985,6 @@ function MapGraph({
               <Icon name="route" size={18} />
               學習導覽
             </button>
-            <TodayChip apiClient={apiClient} />
           </div>
           <div id="map-navigator" hidden={!navigatorOpen}>
             <LearningNavigator
@@ -1027,13 +1000,7 @@ function MapGraph({
           </div>
         </div>
         <div className="map-corner-tools">
-          <div className="map-corner-buttons">
-            <button type="button" className="secondary-button map-relations-toggle" aria-pressed={showAllRelations}
-              onClick={() => setShowAllRelations((value) => !value)}>
-              顯示所有關係
-            </button>
-            <MapExports api={apiClient} view={view} />
-          </div>
+          <MapExports api={apiClient} view={view} />
           {(nodes.length < projection.totalNodes || relationCount < projection.totalRelations) && (
             <p className="map-limit-note" role="status">
               兩層範圍：{nodes.length}／{projection.totalNodes} 個概念、{relationCount}／

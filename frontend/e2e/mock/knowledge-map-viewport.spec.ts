@@ -194,14 +194,14 @@ for (const [width, count] of [
     ).toHaveCount(4);
     const canvas = (await graph.boundingBox())!;
     const frame = (await page.locator(".map-view").boundingBox())!;
-    const relationsToggle = (await graph.getByRole("button", { name: "顯示所有關係", exact: true }).boundingBox())!;
+    const exportButton = (await graph.getByRole("button", { name: "匯出地圖（MD）", exact: true }).boundingBox())!;
     const navigatorButton = (await graph.getByRole("button", { name: "學習導覽", exact: true }).boundingBox())!;
-    // 「顯示所有關係」在地圖右上；搜尋與學習導覽浮在左上，兩者不重疊；右下角留給徽章提示。
-    expect(relationsToggle.y - canvas.y).toBeLessThanOrEqual(20);
-    expect(relationsToggle.x).toBeGreaterThanOrEqual(navigatorButton.x + navigatorButton.width + 8);
+    // 匯出在地圖右上；搜尋與學習導覽浮在左上，兩者不重疊；右下角留給徽章提示。
+    expect(exportButton.y - canvas.y).toBeLessThanOrEqual(20);
+    expect(exportButton.x).toBeGreaterThanOrEqual(navigatorButton.x + navigatorButton.width + 8);
     expect(Math.abs(canvas.y - frame.y)).toBeLessThan(2);
     expect(Math.abs(canvas.height - frame.height)).toBeLessThan(2);
-    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽", "顯示所有關係"]) {
+    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽", "匯出地圖（MD）"]) {
       const box = (await graph.getByRole("button", { name, exact: true }).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(canvas.x);
       expect(box.y).toBeGreaterThanOrEqual(canvas.y);
@@ -365,9 +365,9 @@ for (const width of [1536, 390])
       `30／80 個概念、60／${view.relations.length} 條關係`,
     );
     await expect(page.locator(".map-limit-note")).toContainText("尚有其他相關內容");
-    const relationsToggle = (await page.getByRole("button", { name: "顯示所有關係", exact: true }).boundingBox())!;
+    const exportButton = (await page.getByRole("button", { name: "匯出地圖（MD）", exact: true }).boundingBox())!;
     const limitNote = (await page.locator(".map-limit-note").boundingBox())!;
-    expect(limitNote.y).toBeGreaterThanOrEqual(relationsToggle.y + relationsToggle.height + 4);
+    expect(limitNote.y).toBeGreaterThanOrEqual(exportButton.y + exportButton.height + 4);
     const secondary = page.locator(".concept-flow-node.is-secondary");
     await expect(secondary).toHaveCount(23);
     await expect(secondary.locator(".map-learning-badge")).toHaveCount(23);
@@ -435,11 +435,11 @@ for (const width of [721, 768, 919]) {
     await mockKnowledgeMapApi(page, workspaceView(20, true));
     await page.goto(mapPath);
     await expect(page.locator(".concept-flow-node.is-focus")).toBeVisible();
-    // 左上的搜尋、學習導覽（與「今天」）和右上的顯示所有關係、匯出，兩兩不重疊。
-    const boxes = await page.locator(".map-toolbar > *, .map-corner-buttons > *").evaluateAll((elements) =>
+    // 左上的搜尋、學習導覽和右上的匯出，兩兩不重疊。
+    const boxes = await page.locator(".map-toolbar > *, .map-corner-tools > .export-entry").evaluateAll((elements) =>
       elements.map((element) => element.getBoundingClientRect()).filter((box) => box.width > 0)
         .map(({ left, right, top, bottom }) => ({ left, right, top, bottom })));
-    expect(boxes.length).toBeGreaterThanOrEqual(4);
+    expect(boxes.length).toBeGreaterThanOrEqual(3);
     for (const [i, a] of boxes.entries()) for (const b of boxes.slice(i + 1))
       expect(a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom).toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);

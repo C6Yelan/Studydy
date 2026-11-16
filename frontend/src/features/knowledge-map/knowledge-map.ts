@@ -218,13 +218,13 @@ type MapRelation = Pick<KnowledgeOutlineView["relations"][number], "relation_id"
 
 /**
  * 地圖上哪些關係要畫、哪些要淡化（不在結果裡的就不畫）：
- * - 沒選島時預設畫出所有關係；「顯示所有關係」關掉時只畫先備。
- * - 選了一座島：只亮起和它相連的關係；「顯示所有關係」時其餘關係保留但淡化。
+ * - 沒選島時畫出所有關係。
+ * - 選了一座島：亮起和它相連的關係，其餘關係保留但淡化。
  * - 被點開的關係一定畫出，避免點了之後那條線消失。
  */
 export function relationVisibility(
   relations: MapRelation[],
-  { litConceptId, selectedRelationId, showAll }: { litConceptId: string | null; selectedRelationId: string | null; showAll: boolean },
+  { litConceptId, selectedRelationId }: { litConceptId: string | null; selectedRelationId: string | null },
 ) {
   const result = new Map<string, "lit" | "dim">();
   for (const relation of relations) {
@@ -232,8 +232,8 @@ export function relationVisibility(
     if (relation.relation_id === selectedRelationId) result.set(relation.relation_id, "lit");
     else if (litConceptId) {
       if (touches) result.set(relation.relation_id, "lit");
-      else if (showAll) result.set(relation.relation_id, "dim");
-    } else if (showAll || relation.type === "prerequisite") result.set(relation.relation_id, "lit");
+      else result.set(relation.relation_id, "dim");
+    } else result.set(relation.relation_id, "lit");
   }
   return result;
 }
