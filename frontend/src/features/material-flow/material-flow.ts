@@ -70,49 +70,28 @@ export function formatFileSize(sizeBytes: number): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
+// 失敗畫面依使用者能做的事分組說明，不顯示錯誤代碼；代碼只留在後端失敗紀錄供查問題。
+const BUSY_FAILURES = new Set(["SEMANTIC_SERVICE_TIMEOUT", "SEMANTIC_SERVICE_UNAVAILABLE", "RESTART_INTERRUPTED"]);
+const UNRELIABLE_RESULT_FAILURES = new Set([
+  "SEMANTIC_OUTPUT_TRUNCATED", "SEMANTIC_GENERATION_FAILED", "SEMANTIC_RESPONSE_INVALID",
+  "SEMANTIC_OUTPUT_INVALID", "SEMANTIC_OUTPUT_TOO_LARGE", "NO_CANONICAL_CONCEPT", "NO_USABLE_EVIDENCE",
+  "DOCUMENT_EVIDENCE_INVALID", "KNOWLEDGE_STRUCTURE_INVALID",
+]);
+const SAVE_FAILURES = new Set([
+  "KNOWLEDGE_STRUCTURE_CONFLICT", "KNOWLEDGE_STRUCTURE_STORE_FAILED", "KNOWLEDGE_STRUCTURE_UNAVAILABLE",
+  "REVISION_CONFLICT", "MATERIAL_RUN_STORAGE_FAILED", "ANALYSIS_ARTIFACT_WRITE_FAILED", "ANALYSIS_CHECKPOINT_INVALID",
+]);
+
 export function materialFailureMessage(errorCode: string): string {
-  const reviewFailures: Record<string, string> = {
-    REVIEW_RESPONSE_INVALID: "模型的審查回應格式不完整或不符合要求。",
-    REVIEW_CONCEPT_COVERAGE_INVALID: "模型的審查結果漏列或重複列出概念。",
-    REVIEW_CONCEPT_SUPPORT_INVALID: "模型為概念提供的引用不屬於該概念的來源。",
-    REVIEW_EVIDENCE_INVALID: "模型使用了不存在的來源編號，或沒有提供修改理由。",
-    REVIEW_TARGET_INVALID: "模型提出的概念歸屬對象不存在或不允許使用。",
-    REVIEW_METADATA_REASON_INVALID: "模型將概念標為非教學內容，但沒有提供允許的分類理由（作者、版面資訊或表格格值）。",
-    REVIEW_GROUPING_CYCLE: "模型提出的概念歸屬互相循環，無法建立有效結構。",
-    REVIEW_EDIT_ID_INVALID: "模型重複修改同一項目，或使用了不屬於本批的項目編號。",
-    REVIEW_ALIAS_EDIT_INVALID: "模型要刪除的別名不存在、重複，或缺少該概念的來源支持；大小寫也須與原別名一致。",
-    REVIEW_CLAIM_EDIT_INVALID: "模型提出的主張修正文句為空白。",
-    REVIEW_RELATION_EDIT_INVALID: "模型提出的關係修改，其類型或來源引用不符合要求。",
-    REVIEW_SOURCE_CHANGED: "審查使用的來源與目前待整理的版本不一致。",
-    REVIEW_SCOPES_OVERLAP: "不同審查批次重複處理了同一個概念，無法安全合併。",
-    REVIEW_PREREQUISITE_CYCLE: "合併後的先備關係形成循環，無法建立學習順序。",
-    REVIEW_CONTENT_LOST: "合併審查結果時發現知識內容缺漏。",
-    REVIEW_STRUCTURE_INVALID: "審查結果合併後未通過知識結構檢查。",
-  };
-  if (reviewFailures[errorCode])
-    return `${reviewFailures[errorCode]}這次審查未通過，尚未發布新版地圖。`;
-  if (errorCode === "DOCUMENT_EVIDENCE_INVALID")
-    return "教材來源文字或章節結構未通過檢查，尚未發布知識地圖。請檢查來源後重試。";
-  if (errorCode === "KNOWLEDGE_STRUCTURE_INVALID")
-    return "分析結果在組裝地圖時未通過結構檢查，尚未發布地圖。";
-  if (errorCode === "ANALYSIS_ARTIFACT_WRITE_FAILED")
-    return "分析產物無法寫入本機儲存空間，處理已停止。";
-  if (errorCode === "ANALYSIS_CHECKPOINT_INVALID")
-    return "已保存的分析資料未通過完整性檢查，處理已停止，沒有自動重新分析。";
-  if (errorCode === "ANALYSIS_RUNTIME_CHANGED")
-    return "已保存的分析進度與目前的教材分析設定不一致，已停止接續，沒有自動重新分析教材。";
+  if (BUSY_FAILURES.has(errorCode)) return "分析服務暫時忙碌，這次分析沒有完成。請稍後重新分析。";
+  if (errorCode === "MATERIAL_MODEL_BUDGET_EXHAUSTED")
+    return "這次重新分析沒有完成，沒有發布新版知識地圖。目前的地圖和學習紀錄維持原樣，可以照常使用。";
   if (errorCode === "NO_USABLE_ADDED_CONTENT")
-    return "新增教材沒有產生可用的知識內容，目前地圖與學習紀錄已保留。";
+    return "新增的教材沒有整理出可用的內容，目前的地圖與學習紀錄已保留。";
   if (errorCode === "SEMANTIC_INPUT_TOO_LARGE")
-    return "目前批次的完整來源與處理內容超過單次模型容量，尚未發布新版地圖。需調整分批方式後接續已保存的進度。";
-  if (errorCode === "SEMANTIC_BUDGET_EXHAUSTED")
-    return "目前開發測試的 AI 呼叫額度已用完，沒有發布知識地圖。請先確認測試額度，再重試。";
-  if (errorCode === "RESTART_INTERRUPTED") return "服務重新啟動時中斷了這次處理。";
-  if (errorCode === "MATERIAL_CONFIGURATION_INVALID" || errorCode === "RUNTIME_BINDING_INVALID") {
-    return "本機教材處理環境未通過安全檢查。";
-  }
-  if (errorCode === "NO_USABLE_EVIDENCE" || errorCode === "NO_USABLE_CONCEPT") {
-    return "教材沒有產生可安全回查的概念與依據。";
-  }
-  return "教材分析未能安全完成，沒有發布知識地圖。";
+    return "這批教材的內容太多，一次處理不完，沒有發布新的知識地圖。可以減少來源後再重新分析。";
+  if (UNRELIABLE_RESULT_FAILURES.has(errorCode) || errorCode.startsWith("REVIEW_") || errorCode.startsWith("CONSOLIDATION_"))
+    return "這次沒能從教材整理出可靠的知識地圖，沒有發布新版。可以重新分析一次；若仍失敗，請檢查教材內容是否完整清楚。";
+  if (SAVE_FAILURES.has(errorCode)) return "分析結果沒能完整保存，沒有發布新版知識地圖。請稍後重新分析。";
+  return "教材分析沒能完成，沒有發布知識地圖。可以重新分析；若一再失敗，請稍後再試。";
 }

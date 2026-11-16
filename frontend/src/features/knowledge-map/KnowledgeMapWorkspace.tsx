@@ -1530,6 +1530,14 @@ export function KnowledgeMapWorkspace({
           className="map-view"
           role="region"
           tabIndex={0}
+          // 桌機的選島卡片不是 modal；拖曳海面後焦點在地圖節點上，卡片自己收不到 Esc。
+          // 已被卡片、搜尋、學習導覽處理過（preventDefault／stopPropagation）的 Esc 不再處理。
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || event.defaultPrevented || !(selectedConcept || selectedRelation)) return;
+            if ((event.target as HTMLElement).closest("input, textarea, select, dialog")) return;
+            event.preventDefault();
+            closeDetail();
+          }}
         >
             <ReactFlowProvider>
               <MapGraph

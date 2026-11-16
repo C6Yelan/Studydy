@@ -76,6 +76,37 @@ test("map opens concept details and preserves each source on demand", async ({ p
   await expect(page.getByRole("button", { name: "開始挑戰", exact: true })).toBeEnabled();
 });
 
+test("desktop detail card closes with Escape after dragging the sea", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockKnowledgeMapApi(page);
+  await page.goto(mapPath);
+  await openMapConcept(page);
+  const dialog = page.getByRole("dialog", { name: "概念詳情" });
+  await expect(dialog).toBeVisible();
+  const pane = await page.locator(".react-flow__pane").boundingBox();
+  const x = pane!.x + pane!.width * 0.5;
+  const y = pane!.y + pane!.height * 0.85;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 60, y - 30, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".concept-flow-node.is-focus")).toBeFocused();
+});
+
+test("Escape in the map search box still only clears the search while a card is open", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockKnowledgeMapApi(page);
+  await page.goto(mapPath);
+  await openMapConcept(page);
+  const search = page.getByRole("searchbox", { name: "搜尋概念或關鍵字" });
+  await search.fill("Stack");
+  await page.keyboard.press("Escape");
+  await expect(search).toHaveValue("");
+  await expect(page.getByRole("dialog", { name: "概念詳情" })).toBeVisible();
+});
+
 test("mobile map has a modal detail drawer with keyboard focus and source links", async ({
   page,
 }) => {

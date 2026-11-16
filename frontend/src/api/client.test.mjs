@@ -1820,6 +1820,19 @@ test("v3 note annotations write the visible content revision and generation then
   ]) await assert.rejects(new StudydyApiClient(async () => Response.json(invalid)).getNotes(materialId, structureRevision, "summary"), error => error.kind === "schema");
 });
 
+test("note tables accept blank cells but not blank headers", async () => {
+  const evidence = structureView().concepts[0].claims[0].evidence;
+  const table = (headers, rows) => ({ schema: "material-notes/v3", sections: [], unorganized_concepts: [], material_id: materialId, run_id: runId,
+    knowledge_structure_revision: structureRevision, kind: "full", status: "ready", generation: 1, source_status: structureView().status,
+    paragraphs: [{ id: "0", anchor: "a".repeat(64), heading: "TCP 選項", level: 1, claim_ids: [], evidence_ids: [], concepts: [], evidence,
+      blocks: [{ type: "table", caption: null, headers, rows }] }],
+    outline: [], annotations: [], source_resolver: `/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`, error_code: null,
+    progress: null, content_revision: structureRevision, content_generation: 1, update_available: false, updating: false, started_at: null, updated_at: null });
+  const client = value => new StudydyApiClient(async () => Response.json(value));
+  assert.equal((await client(table(["Kind", "備註"], [["2", "[SYN]"], ["0", ""]])).getNotes(materialId, structureRevision, "full")).paragraphs.length, 1);
+  await assert.rejects(client(table(["Kind", ""], [["2", "[SYN]"]])).getNotes(materialId, structureRevision, "full"), error => error.kind === "schema");
+});
+
 
 test("question entry points and assessment presence share a persistent browser id while cancel stays available", async () => {
   browserStorage.clear(); const requests=[];

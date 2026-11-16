@@ -1748,7 +1748,9 @@ function noteItems(value: unknown, depth = 1): boolean {
 }
 
 function noteTable(value: Record<string, unknown> | null): boolean {
-  return !!value && strings(value.headers) && Array.isArray(value.rows) && value.rows.every(strings);
+  // 後端允許空白儲存格（例如沒有備註的列），只有欄名必須有字。
+  return !!value && strings(value.headers) && Array.isArray(value.rows)
+    && value.rows.every(row => Array.isArray(row) && row.every(cell => typeof cell === "string"));
 }
 
 function noteBlock(value: unknown): boolean {

@@ -89,3 +89,23 @@ test("reopen rejects a run from a different Knowledge Structure revision", async
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
 });
+
+test("failed topic cancellation shows the error inside that topic card and keeps the library", async ({ page }) => {
+  const topic = { topic_id: "77777777-7777-4777-8777-777777777777", material_id: null, request: "尚未搜尋的 Agent 規劃",
+    proposal: { title: "停止與求助", goals: [], topics: [] }, version: 2, status: "ready", research_id: null, error_code: null };
+  let fail = true;
+  await page.route("**/v1/topics", (route) => json(route, { topics: topic.status === "cancelled" ? [] : [topic] }));
+  await page.route(`**/v1/topics/${topic.topic_id}/actions`, (route) => fail
+    ? json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "TOPIC_CONFLICT", retryable: false, message: "Conflict" }, 409)
+    : (topic.status = "cancelled", json(route, topic)));
+  await page.goto("/materials");
+  const card = page.getByRole("article", { name: "停止與求助" });
+  await card.getByRole("button", { name: "取消建立", exact: true }).click();
+  await card.getByRole("button", { name: "取消建立", exact: true }).click();
+  await expect(card.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "無法讀取教材" })).toHaveCount(0);
+  await expect(card).toBeVisible();
+  fail = false;
+  await card.getByRole("button", { name: "取消建立", exact: true }).click();
+  await expect(card).toHaveCount(0);
+});
