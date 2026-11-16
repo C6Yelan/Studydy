@@ -96,12 +96,10 @@ export function initialFocusConceptId(view: MapView): string {
 const MAX_MAP_NODES = 30;
 const MAX_MAP_RELATIONS = 60;
 
-// 沒選島時一定畫出的路線站最多額外加幾座（目前這站和接下來 3 站中不在兩層範圍內的）。
-export const MAX_ROUTE_EXTRAS = 3;
-
 /**
- * 以 selectedId 為中心畫兩層相關概念。routeIds（沒選島時的目前這站和接下來 3 站）中
- * 沒被畫出的，最多額外加 MAX_ROUTE_EXTRAS 座，排在圖下方一列，讓航線和下一站看得到；
+ * 以 selectedId 為中心畫兩層相關概念。routeIds（沒選島時的目前這站和接下來 3 站，最多 4 座）中
+ * 沒被畫出的全部額外加入，排在圖下方一列，讓航線和下一站看得到；中心島不是目前這站時
+ * （例如選了遠處的島再關卡片），4 座可能都不在兩層內。
  * nextStationId（選島時那座島的下一站）沒被畫出時，擺在中心島正下方，讓「這座島 → 下一站」整段看得到。
  * 額外加入的島不受兩層和節點上限限制，也不另外畫關係。
  */
@@ -181,8 +179,7 @@ export function focusGraph(view: MapView, selectedId: string, routeIds: string[]
     }
   const known = new Set(view.concepts.map((concept) => concept.concept_id));
   const extras = [...new Set(routeIds)]
-    .filter((id) => known.has(id) && !visible.has(id))
-    .slice(0, MAX_ROUTE_EXTRAS);
+    .filter((id) => known.has(id) && !visible.has(id));
   const bottom = Math.max(0, ...nodes.map((node) => node.y));
   extras.forEach((id, index) => {
     nodes.push({ id, depth: 2, width: 260, x: (index - (extras.length - 1) / 2) * 320, y: bottom + 300 });

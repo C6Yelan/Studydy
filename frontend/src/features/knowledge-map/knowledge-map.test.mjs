@@ -336,6 +336,20 @@ test("with no island selected the current station and the next three are drawn e
   assert.deepEqual(routeStationIds(map.initial_learning_path, "c"), ["c", "d"]);
 });
 
+test("after closing a far island's card the current station and the next three are all drawn", () => {
+  // a～i 依序相連，目前這站是 a；選過 i 再關卡片時中心仍是 i，a～d 四站都在兩層外。
+  const ids = [..."abcdefghi"];
+  const chain = {
+    concepts: ids.map((concept_id) => ({ concept_id })),
+    relations: ids.slice(1).map((id, index) => ({ relation_id: ids[index] + id, source_concept_id: ids[index], target_concept_id: id, type: "prerequisite" })),
+    initial_learning_path: ids.map((concept_id, index) => ({ concept_id, position: index + 1, reason: "document_order" })),
+  };
+  const stations = routeStationIds(chain.initial_learning_path, "a");
+  const rendered = new Set(focusGraph(chain, "i", stations).nodes.map((node) => node.id));
+  for (const id of ["a", "b", "c", "d"]) assert.ok(rendered.has(id), id);
+  assert.deepEqual(routeFrameIds(chain.initial_learning_path, "a", rendered), ["a", "b", "c", "d"]);
+});
+
 test("a selected island's next station outside two hops is placed right below it", () => {
   const map = { ...view, initial_learning_path: [] };
   const node = (graph, id) => graph.nodes.find((item) => item.id === id);
