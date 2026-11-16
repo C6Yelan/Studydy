@@ -35,7 +35,7 @@ test("personal difficulty is independent of structural difficulty", async ({ pag
   const difficulties = page.getByRole("region", { name: "答題紀錄" });
   await expect(difficulties).toContainText("常答錯");
   await expect(difficulties).toContainText("答對 1 題，共答 3 題");
-  await expect(difficulties.getByRole("button", { name: "再練一次 Stack" })).toBeEnabled();
+  await expect(difficulties.getByRole("button", { name: "查看與練習 Stack" })).toBeEnabled();
 });
 
 test("recommendations preserve the three supplied concepts and their review targets", async ({ page }) => {
@@ -50,7 +50,7 @@ test("recommendations preserve the three supplied concepts and their review targ
   const section = page.getByRole("region", { name: "答題紀錄" });
   await expect(section.locator(".diagnosis-point-list > li strong")).toHaveText(recommendations.map(item => item.label));
   const start = page.waitForRequest(request => request.method() === "POST" && /\/study-start$/.test(new URL(request.url()).pathname));
-  await section.getByRole("button", { name: /^再練一次/ }).first().click();
+  await section.getByRole("button", { name: /^查看與練習/ }).first().click();
   expect((await start).postDataJSON().current_concept_id).toBe(recommendations[0].concept_id);
 });
 

@@ -1,9 +1,6 @@
 import { MapExports } from "../exports/MapExports";
 import { openNoteTarget, useConceptNoteTarget } from "../notes/note-location";
 import { relationStyles } from "./map-appearance";
-import { RouteLink } from "../../ui/RouteLink";
-import { useLearningActivity } from "../../app/LearningProgress";
-import { dailyTaskCount } from "../dashboard/LearningCards";
 import { DifficultyBadge, LearningDiagnosis, useLearningDiagnosis, useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { GoalEditorHost, LearningGoalBlock, TodayConceptsBlock, useLearningGoal } from "../learning-goals/LearningGoalPanel";
 import { DailyGoalProgress } from "../learning-goals/DailyGoalProgress";
@@ -34,7 +31,6 @@ import type { StudydyApiClient } from "../../api/client";
 import type {
   KnowledgeOutlineView,
   KnowledgeRegionsView,
-  LearningGoalsView,
   MapProgressView,
   ConceptDifficultyView,
   StudySessionView,
@@ -47,7 +43,7 @@ import { MathText } from "../../ui/MathText";
 import { mathPlainText } from "../../ui/math-text";
 import { Progress } from "../../ui/Progress";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
-import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, regionBasisText, regionColorIndex, frameCamera, relationPhrase, routeFrameIds, routeStationIds, relationTitle, relationVisibility, routeSegments, type MapRegions, type NavigatorRange } from "./knowledge-map";
+import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, regionBasisText, regionColorIndex, frameCamera, nextStationId, relationPhrase, routeFrameIds, routeStationIds, relationTitle, relationVisibility, routeSegments, frameRouteCamera, type MapRegions, type NavigatorRange } from "./knowledge-map";
 
 type Concept = KnowledgeOutlineView["concepts"][number];
 type RestoreFocus = () => void;
@@ -56,7 +52,10 @@ const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
 // 手機的詳情卡片是佔視窗下半部的抽屜（styles.css .detail-panel 的 50dvh）；取景只用畫布露出的上半部。
 const phoneDrawerShare = 0.5;
 function visibleCanvas(element: HTMLElement, drawerOpen: boolean) {
-  const size = { width: element.clientWidth, height: element.clientHeight };
+  // 上方工具列（搜尋、學習導覽、匯出鈕）蓋住的那一條，取景時不能用。
+  const toolbarBottom = Math.max(0, ...[...element.querySelectorAll(".map-toolbar, .map-corner-tools > .export-entry")]
+    .map((tool) => tool.getBoundingClientRect().bottom - element.getBoundingClientRect().top));
+  const size = { width: element.clientWidth, height: element.clientHeight, top: toolbarBottom };
   if (!drawerOpen || !window.matchMedia("(max-width: 720px)").matches) return size;
   const covered = element.getBoundingClientRect().bottom - window.innerHeight * (1 - phoneDrawerShare);
   return { ...size, height: Math.max(120, size.height - Math.max(0, covered)) };
@@ -299,6 +298,11 @@ function ConceptMapNode({ data }: NodeProps<ConceptNode>) {
         <Handle key={type} id={`route:${type}`} type={type} position={Position.Left} className="map-route-handle"
           style={{ top: `${ROUTE_HANDLE_OFFSET}%`, left: "50%" }} />
       ))}
+      {/* 島插畫右緣的接點（左右位置依插畫寬度寫在 styles.css），下一站搬到正下方時航線接這裡。 */}
+      {(["source", "target"] as const).map((type) => (
+        <Handle key={`side-${type}`} id={`route-side:${type}`} type={type} position={Position.Right} className="map-route-side-handle"
+          style={{ top: `${ROUTE_HANDLE_OFFSET}%` }} />
+      ))}
       {data.label}
     </>
   );
@@ -309,7 +313,23 @@ const nodeTypes = { concept: ConceptMapNode };
  * 金色航線：微彎的寬帶，帶子中點畫一個往下一站的淡箭頭，看得出往哪走。
  * 往返方向相反的兩段會彎向不同側；排版上剛好擋在中間的島也比較不會被直線穿過。
  */
-function RouteEdge({ id, sourceX, sourceY, targetX, targetY }: EdgeProps) {
+function RouteEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition }: EdgeProps) {
+  if (sourcePosition === Position.Right && targetPosition === Position.Right) {
+    // 接兩座島右緣：往右繞出再水平接回，避開下一站的名稱卡（卡片比插畫寬，正上方接下來一定會穿過它）。
+    // 140 讓弧線在名稱卡那一段離卡片右緣夠遠，又不碰到右邊第一層（中心島右緣再過 120 起排）。
+    const bend = 140;
+    const [c1x, c2x] = [sourceX + bend, targetX + bend];
+    const path = `M${sourceX},${sourceY}C${c1x},${sourceY} ${c2x},${targetY} ${targetX},${targetY}`;
+    const midX = (sourceX + 3 * c1x + 3 * c2x + targetX) / 8, midY = (sourceY + targetY) / 2;
+    const angle = (Math.atan2(1.5 * (targetY - sourceY), 0.75 * (c1x - sourceX) + 1.5 * (c2x - c1x) + 0.75 * (targetX - c2x)) * 180) / Math.PI;
+    return (
+      <>
+        <BaseEdge id={id} path={path} interactionWidth={0} />
+        <path className="map-route-core" d={path} />
+        <path className="map-route-arrow" d="M-9,-11L9,0L-9,11L-3,0Z" transform={`translate(${midX},${midY}) rotate(${angle})`} />
+      </>
+    );
+  }
   const dx = targetX - sourceX, dy = targetY - sourceY;
   // 控制點沿垂直方向偏移線長的 30%，弧頂約偏 15%。
   const controlX = (sourceX + targetX) / 2 - dy * 0.3, controlY = (sourceY + targetY) / 2 + dx * 0.3;
@@ -325,25 +345,6 @@ function RouteEdge({ id, sourceX, sourceY, targetX, targetY }: EdgeProps) {
   );
 }
 const edgeTypes = { route: RouteEdge };
-
-/** 地圖左上的「今天 N / M」：和首頁今日任務同一套計數，點了回首頁看細項；讀不到就不顯示。 */
-function TodayChip({ apiClient }: { apiClient: StudydyApiClient }) {
-  const activity = useLearningActivity(apiClient);
-  const [goals, setGoals] = useState<LearningGoalsView | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void apiClient.getLearningGoals().then((value) => { if (!cancelled) setGoals(value); }, () => undefined);
-    return () => { cancelled = true; };
-  }, [apiClient]);
-  if (!activity || !goals) return null;
-  const { done, total } = dailyTaskCount(activity.quests, goals.goals);
-  if (!total) return null;
-  return (
-    <RouteLink className="map-today-chip" route={{ name: "home" }} aria-label={`今日任務：已完成 ${done}／${total}，回首頁查看`}>
-      今天 {done} / {total}
-    </RouteLink>
-  );
-}
 
 function regionCountText(regions: MapRegions) {
   if (regions.basis !== "chapters") return `${regions.regions.length} 個區域`;
@@ -624,7 +625,6 @@ function MapGraph({
     );
     (element ?? navigatorToggle.current)?.focus({ preventScroll: true });
   };
-  const [showAllRelations, setShowAllRelations] = useState(true);
   const [navigatorOpen, setNavigatorOpen] = useState(false);
   const navigatorToggle = useRef<HTMLButtonElement>(null);
   const graph = useReactFlow();
@@ -651,21 +651,30 @@ function MapGraph({
     });
   };
   const [canvasReady, setCanvasReady] = useState(false);
+  // 上方工具列那一條的高度，給淡出底用。
+  const [toolbarBand, setToolbarBand] = useState(0);
   const fittedConcept = useRef<string | null>(null);
+  // 上次自動取景的方式：選島（框住那座島、第一層和它的下一站）或航線（目前這站和接下來 3 站）。
+  const fittedFraming = useRef<"island" | "route" | null>(null);
+  // 使用者自己拖曳或縮放過鏡頭後，點開中心島、關卡片都不再自動取景；換了中心島才重新取景。
+  const userMoved = useRef(false);
+  const moveStart = useRef<{ x: number; y: number; zoom: number } | null>(null);
   // 目前這站：有進度用目前學到的概念，沒有進度用第 1 站。
   const routeStart = progress?.current_concept_id
     ?? [...view.initial_learning_path].sort((a, b) => a.position - b.position)[0]?.concept_id
     ?? selected.concept_id;
-  // 沒選島時一定畫出目前這站和接下來 3 站，讓航線看得到；選了島就只畫兩層。
+  // 選了島時航線從那座島出發，只畫「這座島 → 下一站」；最後一站或不在學習順序上的島沒有航線。
+  const litNext = litConceptId ? nextStationId(view.initial_learning_path, litConceptId) : null;
+  // 沒選島時一定畫出目前這站和接下來 3 站，讓航線看得到；選了島就只畫兩層，再加上它的下一站。
   const routeStations = useMemo(
     () => litConceptId ? [] : routeStationIds(view.initial_learning_path, routeStart),
     [litConceptId, view.initial_learning_path, routeStart],
   );
   const routeKey = routeStations.join("|");
   const projection = useMemo(
-    () => focusGraph(view, selected.concept_id, routeStations),
+    () => focusGraph(view, selected.concept_id, routeStations, litNext),
     // routeKey 代表 routeStations 的內容；內容相同時不重算，避免節點重排。
-    [view, selected.concept_id, routeKey],
+    [view, selected.concept_id, routeKey, litNext],
   );
   const layout = projection.nodes;
   const previewRead = useConceptContext(apiClient, view.material_id, view.knowledge_structure_revision, layout.map(node => node.id));
@@ -683,10 +692,9 @@ function MapGraph({
     const visibility = relationVisibility(projection.relations, {
       litConceptId: litConceptId && layoutById.has(litConceptId) ? litConceptId : null,
       selectedRelationId,
-      showAll: showAllRelations,
     });
-    // 選了島時，和它有亮起關係的島維持原樣，其餘的島淡化。
-    const litNeighbours = new Set(litConceptId ? [litConceptId] : []);
+    // 選了島時，和它有亮起關係的島、航線上的下一站維持原樣，其餘的島淡化。
+    const litNeighbours = new Set(litConceptId ? [litConceptId, ...(litNext ? [litNext] : [])] : []);
     for (const relation of projection.relations)
       if (litConceptId && visibility.get(relation.relation_id) === "lit"
         && [relation.source_concept_id, relation.target_concept_id].includes(litConceptId)) {
@@ -784,13 +792,13 @@ function MapGraph({
       };
     });
     // 航線排在關係線前面，畫在最下層；純裝飾，不能點也不進鍵盤順序。
-    const route: Edge[] = routeSegments(view.initial_learning_path, new Set(layoutById.keys()), routeStart).map(({ source, target }) => ({
+    const route: Edge[] = routeSegments(view.initial_learning_path, new Set(layoutById.keys()), litConceptId ?? routeStart).map(({ source, target }) => ({
       id: `route:${source}:${target}`,
       source,
       target,
       type: "route",
-      sourceHandle: "route:source",
-      targetHandle: "route:target",
+      sourceHandle: target === projection.nextBelowId ? "route-side:source" : "route:source",
+      targetHandle: target === projection.nextBelowId ? "route-side:target" : "route:target",
       className: "map-route-edge",
       focusable: false,
       selectable: false,
@@ -838,6 +846,7 @@ function MapGraph({
   }, [
     layout,
     projection.relations,
+    projection.nextBelowId,
     previewRead.context,
     previewRead.error,
     selected.concept_id,
@@ -851,9 +860,9 @@ function MapGraph({
     regions,
     litConceptId,
     selectedRelationId,
-    showAllRelations,
     view.initial_learning_path,
     routeStart,
+    litNext,
   ]);
   // 限制提示講的是兩層範圍內有幾條關係，不受目前顯示哪些關係影響。
   const relationCount = projection.relations.length;
@@ -866,6 +875,7 @@ function MapGraph({
       const nextWidth = element.clientWidth,
         nextHeight = element.clientHeight;
       setCanvasReady(nextWidth > 0 && nextHeight > 0);
+      setToolbarBand(visibleCanvas(element, false).top);
       if (
         width &&
         height &&
@@ -887,36 +897,50 @@ function MapGraph({
     return () => observer.disconnect();
   }, [graph]);
   useEffect(() => {
-    if (!initialized || !canvasReady || (!previewRead.context && !previewRead.error)
-      || fittedConcept.current === selected.concept_id) return;
+    if (!initialized || !canvasReady || (!previewRead.context && !previewRead.error)) return;
+    const framing = litConceptId === selected.concept_id ? "island" : "route";
+    const closingCard = framing === "route" && fittedFraming.current === "island";
+    if (fittedConcept.current === selected.concept_id) {
+      if (fittedFraming.current === framing) return;
+      // 中心島不變、只是點開中心島或關掉卡片：使用者動過鏡頭就照他的，不拉回。
+      if (userMoved.current) {
+        fittedFraming.current = framing;
+        return;
+      }
+    }
     let secondFrame = 0;
     const frame = requestAnimationFrame(() => {
       // 按需文字到達後，先讓節點量測更新，再計算第一次視野。
       secondFrame = requestAnimationFrame(() => {
         fittedConcept.current = selected.concept_id;
+        fittedFraming.current = framing;
+        userMoved.current = false;
         const visible = new Set(layout.map((node) => node.id));
         let ids: string[];
-        let anchorId: string;
-        if (litConceptId === selected.concept_id) {
-          // 選了島：以那座島為中心框住它和第一層，縮放保持島名可讀，太遠的鄰島可以超出畫面。
-          ids = layout.filter((node) => node.depth < 2).map((node) => node.id);
-          anchorId = selected.concept_id;
+        let anchorIds: string[];
+        if (framing === "island") {
+          // 選了島：框住它、第一層和它的下一站，縮放保持島名可讀；框不下時這座島和下一站優先留在畫面內，
+          // 太遠的鄰島可以超出畫面。
+          const next = litNext && visible.has(litNext) ? [litNext] : [];
+          ids = [...layout.filter((node) => node.depth < 2).map((node) => node.id), ...next];
+          anchorIds = [selected.concept_id, ...next];
         } else {
-          // 沒選島：框住目前這站（沒有進度時第 1 站）和接下來 3 站；起點不在畫面上就從中心概念起算。
+          // 沒選島：框住目前這站（沒有進度時第 1 站）和接下來 3 站（關卡片後縮放太小時少框遠的站）；起點不在畫面上就從中心概念起算。
           ids = routeFrameIds(view.initial_learning_path, routeStart, visible);
           if (!ids.length) ids = routeFrameIds(view.initial_learning_path, selected.concept_id, visible);
           if (!ids.length) ids = [selected.concept_id];
-          anchorId = ids[0];
+          anchorIds = [ids[0]];
         }
-        const element = graphElement.current!;
-        void graph.setViewport(frameCamera(graph.getNodesBounds(ids), graph.getNodesBounds([anchorId]),
-          visibleCanvas(element, litConceptId === selected.concept_id)));
+        const canvas = visibleCanvas(graphElement.current!, framing === "island");
+        // 少框遠站只在關卡片後（上次是選島取景）；剛打開地圖照舊全部框進來。
+        void graph.setViewport(closingCard
+          ? frameRouteCamera(ids, (list) => graph.getNodesBounds(list), canvas)
+          : frameCamera(graph.getNodesBounds(ids), graph.getNodesBounds(anchorIds), canvas));
       });
     });
     return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
-  }, [initialized, canvasReady, graph, selected.concept_id, previewRead.context, previewRead.error, layout, litConceptId, routeStart, view.initial_learning_path]);
-  // 中心不變時打開詳情（點中心的島或點一條關係）不重新取景；只有卡片打開讓畫布變窄、
-  // 把被選的島或那條關係擠出畫面時，才平移到看得到（不縮放）。
+  }, [initialized, canvasReady, graph, selected.concept_id, previewRead.context, previewRead.error, layout, litConceptId, litNext, routeStart, view.initial_learning_path]);
+  // 點一條關係不重新取景；卡片打開讓畫布變窄、把被選的島或那條關係擠出畫面時，才平移到看得到（不縮放）。
   useEffect(() => {
     if (!litConceptId && !selectedRelationId) return;
     let secondFrame = 0;
@@ -977,14 +1001,27 @@ function MapGraph({
           edgesReconnectable={false}
           onNodeClick={(_, node) => openConcept(node.id, () => restoreGraphFocus(node.id))}
           onEdgeClick={(_, edge) => { if (edge.className !== "map-route-edge") openRelation(edge.id, () => restoreGraphFocus(edge.id)); }}
+          // 只有使用者操作（event 不是 null）才算動過鏡頭；按下滑鼠就會觸發開始，
+          // 所以放開時比對位置，點島、點空白處時手抖幾 px 不算拖曳。
+          onMoveStart={(event, viewport) => { moveStart.current = event ? viewport : null; }}
+          onMoveEnd={(event, viewport) => {
+            const start = moveStart.current;
+            moveStart.current = null;
+            if (event && start && (viewport.zoom !== start.zoom || Math.hypot(viewport.x - start.x, viewport.y - start.y) > 4))
+              userMoved.current = true;
+          }}
         >
 
           <Controls
             aria-label="地圖縮放控制"
             showInteractive={false}
             fitViewOptions={fitViewOptions}
+            onZoomIn={() => { userMoved.current = true; }}
+            onZoomOut={() => { userMoved.current = true; }}
           />
         </ReactFlow>
+        {/* 滑到工具列底下的島和名稱卡淡成海色，不和按鈕撞在一起；不擋地圖操作。 */}
+        <div className="map-toolbar-fade" aria-hidden="true" style={{ height: toolbarBand + 24 }} />
         <div
           className="map-navigation"
           onKeyDown={(event) => {
@@ -1011,7 +1048,6 @@ function MapGraph({
               <Icon name="route" size={18} />
               學習導覽
             </button>
-            <TodayChip apiClient={apiClient} />
           </div>
           <div id="map-navigator" hidden={!navigatorOpen}>
             <LearningNavigator
@@ -1027,13 +1063,7 @@ function MapGraph({
           </div>
         </div>
         <div className="map-corner-tools">
-          <div className="map-corner-buttons">
-            <button type="button" className="secondary-button map-relations-toggle" aria-pressed={showAllRelations}
-              onClick={() => setShowAllRelations((value) => !value)}>
-              顯示所有關係
-            </button>
-            <MapExports api={apiClient} view={view} />
-          </div>
+          <MapExports api={apiClient} view={view} />
           {(nodes.length < projection.totalNodes || relationCount < projection.totalRelations) && (
             <p className="map-limit-note" role="status">
               兩層範圍：{nodes.length}／{projection.totalNodes} 個概念、{relationCount}／
@@ -1112,10 +1142,10 @@ function RelationDetail({
   );
 }
 
-function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadingProgress, progressMessage, onReloadProgress, isStartingStudy, onStartStudy }: {
+function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadingProgress, progressMessage, onReloadProgress, isStartingStudy, onStartStudy, onOpenRecord }: {
   apiClient: StudydyApiClient; materialId: string; view: KnowledgeOutlineView; progress: MapProgressView | null;
   difficulty: ReturnType<typeof useConceptDifficulty>; isLoadingProgress: boolean; progressMessage: string | null;
-  onReloadProgress: () => void; isStartingStudy: boolean; onStartStudy: (id: string) => void;
+  onReloadProgress: () => void; isStartingStudy: boolean; onStartStudy: (id: string) => void; onOpenRecord: (id: string) => void;
 }) {
   const diagnosis = useLearningDiagnosis(apiClient, materialId, view.knowledge_structure_revision, difficulty, progress, view.concepts);
   const goal = useLearningGoal(apiClient, materialId);
@@ -1146,7 +1176,7 @@ function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadi
         <LearningGoalBlock state={goal} />
         {hasToday && <TodayConceptsBlock state={goal} />}
       </div>
-      <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} onReview={onStartStudy} disabled={isStartingStudy || isLoadingProgress}
+      <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} onReview={onOpenRecord} disabled={isStartingStudy || isLoadingProgress}
         difficulty={difficulty} progress={progress} concepts={view.concepts} report={diagnosis} />
     </div>
     <GoalEditorHost state={goal} />
@@ -1181,10 +1211,10 @@ function WorkspaceNotices({ progressMessage, onReloadProgress, startMessage, vie
 }
 
 /** 教材側欄「學習進度」：內容沿用原本地圖內切換的學習診斷與目標。 */
-export function MaterialProgress({ apiClient, materialId, view, progress, isLoadingProgress, progressMessage, onReloadProgress, isStartingStudy, onStartStudy, startMessage }: {
+export function MaterialProgress({ apiClient, materialId, view, progress, isLoadingProgress, progressMessage, onReloadProgress, isStartingStudy, onStartStudy, onOpenRecord, startMessage }: {
   apiClient: StudydyApiClient; materialId: string; view: KnowledgeOutlineView; progress: MapProgressView | null;
   isLoadingProgress: boolean; progressMessage: string | null; onReloadProgress: () => void;
-  isStartingStudy: boolean; onStartStudy: (id: string) => void; startMessage: string | null;
+  isStartingStudy: boolean; onStartStudy: (id: string) => void; onOpenRecord: (id: string) => void; startMessage: string | null;
 }) {
   const difficulty = useConceptDifficulty(apiClient, materialId, view.knowledge_structure_revision);
   return <section className="map-workspace is-review-mode">
@@ -1192,7 +1222,7 @@ export function MaterialProgress({ apiClient, materialId, view, progress, isLoad
     <div className="map-content">
       <div className="map-view">
         <ReviewView apiClient={apiClient} materialId={materialId} view={view} progress={progress} difficulty={difficulty}
-          isLoadingProgress={isLoadingProgress} progressMessage={progressMessage} onReloadProgress={onReloadProgress} isStartingStudy={isStartingStudy} onStartStudy={onStartStudy} />
+          isLoadingProgress={isLoadingProgress} progressMessage={progressMessage} onReloadProgress={onReloadProgress} isStartingStudy={isStartingStudy} onStartStudy={onStartStudy} onOpenRecord={onOpenRecord} />
       </div>
     </div>
   </section>;

@@ -102,10 +102,10 @@ export function LearningDiagnosis({ api, materialId, revision, onReview, disable
     const finding = data!.weaknesses.find(item => item.concept_id === concept.concept_id);
     return <li key={concept.concept_id}>{ring(concept.concept_id)}<div><strong>{concept.label}</strong>{personal(concept.concept_id)}
       <p>{finding ? "" : "尚未完成 · "}{counts(concept.concept_id)}</p>
-    </div><button type="button" className="secondary-button" aria-label={`再練一次 ${concept.label}`} disabled={disabled} onClick={() => onReview(concept.concept_id)}>再練一次</button></li>;
+    </div><button type="button" className="secondary-button" aria-label={`查看與練習 ${concept.label}`} disabled={disabled} onClick={() => onReview(concept.concept_id)}>查看與練習</button></li>;
   }) : tab === "mastered" ? strengths.filter(item => match(item.label)).map(finding => <li key={finding.concept_id}>
     {ring(finding.concept_id)}<div><strong>{finding.label}</strong>{personal(finding.concept_id)}<p>{counts(finding.concept_id)}</p></div>
-    <button className="secondary-button" type="button" aria-label={`再次練習 ${finding.label}`} disabled={disabled} onClick={() => onReview(finding.concept_id)}>練習</button></li>)
+    <button className="secondary-button" type="button" aria-label={`查看與練習 ${finding.label}`} disabled={disabled} onClick={() => onReview(finding.concept_id)}>查看與練習</button></li>)
     : allIds.filter(id => match(labelOf(id))).map(id => {
       const done = strengths.some(item => item.concept_id === id) || progress?.concept_states.some(state => state.concept_id === id && state.status === "completed");
       return <li key={id}>{ring(id)}<div><strong>{labelOf(id)}</strong><p>{counts(id)} · {done ? "已完成" : "尚未完成"}</p></div>

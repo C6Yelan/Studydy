@@ -98,6 +98,7 @@ export function AssessmentSetPanel({
     version: number;
   } | null>(null);
   const cycleIntent = useRef<{ signature: string; key: string; version: number } | null>(null);
+  const againIntent = useRef<{ signature: string; key: string } | null>(null);
   const alive = useRef(true);
   const selected = useRef(selectedSetId);
   selected.current = selectedSetId;
@@ -164,6 +165,7 @@ export function AssessmentSetPanel({
     setStarting(false);
     actionIntent.current = null;
     cycleIntent.current = null;
+    againIntent.current = null;
     void (async () => {
       try {
         if (selectedSetId) {
@@ -296,6 +298,31 @@ export function AssessmentSetPanel({
     }
   };
 
+  // 已通過或已完成的概念再開一輪完整檢測，題組準備失敗時也用它換一組新題目；沿用 startRemediation 的做法，同一輪結果頁重試時共用同一把冪等鍵。
+  const startAgain = async () => {
+    if (!group || busy) return;
+    const signature = `again:${group.cycle.diagnostic_set_id}`;
+    if (againIntent.current?.signature !== signature) againIntent.current = { signature, key: crypto.randomUUID() };
+    const intent = againIntent.current;
+    setBusy(true);
+    setStarting(true);
+    setMessage(null);
+    try {
+      const next = await apiClient.createAssessmentSet(studySessionId, group.target_concept_id, intent.key);
+      if (!isCurrent()) return;
+      againIntent.current = null;
+      onSetSelected(next.set_id);
+    } catch (error) {
+      if (!isCurrent()) return;
+      setMessage(errorMessage(error));
+    } finally {
+      if (isCurrent()) {
+        setBusy(false);
+        setStarting(false);
+      }
+    }
+  };
+
   const submit = async () => {
     if (!group?.can_complete || busy || submissionNeedsRefresh) return;
     if (!submissionIntent.current) {
@@ -403,6 +430,7 @@ export function AssessmentSetPanel({
     {submissionError && <div className="assessment-error" role="alert"><span>{submissionError}</span>
       <button className="text-button" type="button" onClick={() => void afterAnswer()}>查回交卷結果</button></div>}
   </AssessmentPaper>;
+  const canPracticeAgain = !!group && (cycleFinished || conceptCompleted) && !group.cycle.active_set_id && !group.cycle.can_create_remediation;
   const hero = group && closed && (
     <section className="assessment-cycle assessment-cycle-summary result-hero" aria-label="本輪檢測與再練">
         <img className="result-hero-bob" src="/assets/studydy/brand-welcome.png" alt="" />
@@ -426,6 +454,7 @@ export function AssessmentSetPanel({
               : (cycleFinished || conceptCompleted) && !group.cycle.active_set_id && continuation
                 ? <button className="primary-button assessment-continue" disabled={busy || continuation.busy} aria-busy={continuation.busy} onClick={() => void continuation.onContinue()}>{continuation.label}</button>
                 : null}
+          {canPracticeAgain && <button className="secondary-button" disabled={busy || !!continuation?.busy} onClick={() => void startAgain()}>再練一次</button>}
           <button className="secondary-button" onClick={onBackToMap}>回地圖</button>
         </div>
       </section>
@@ -477,6 +506,12 @@ export function AssessmentSetPanel({
                       onClick={() => void action("retry")}
                     >
                       再試一次
+                    </button>
+                  )}
+                  {/* partial_ready 算進行中，後端建立新題組會回 409，所以只有 failed 才提供。 */}
+                  {group?.status === "failed" && (
+                    <button className="secondary-button" disabled={busy} onClick={() => void startAgain()}>
+                      換一組新題目
                     </button>
                   )}
                 </div>

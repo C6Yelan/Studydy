@@ -204,14 +204,10 @@ test('Voice bubble keeps the page reachable and restores focus when dismissed',a
   await page.setViewportSize({width,height:844});const opener=page.getByRole('button',{name:'問小幫手',exact:true});
   // 手機的「問小幫手」收在教材底部頁籤的「更多」裡。
   if(width===390)await page.getByRole('navigation',{name:'教材導覽'}).getByRole('button',{name:'更多',exact:true}).click();
-  // 上一輪關閉後焦點回到側欄入口（鍵盤焦點會展開收合的側欄），先移開再量。
-  else await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());
   const before=(await page.locator('.material-rail').boundingBox())!;
   await page.screenshot({path:testInfo.outputPath(`qa-closed-${width}.png`)});await opener.click();
   const bubble=page.getByRole('dialog',{name:'小幫手'});await expect(bubble).toHaveAttribute('aria-modal','false');
   // 桌機是右側抽屜，上緣留 12px；手機是全高面板。教材側欄不因開啟而移動。
-  // 游標移開側欄後再量（滑過收合的側欄會暫時展開）。
-  await page.mouse.move(width/2,4);await expect.poll(async()=>(await page.locator('.material-rail').boundingBox())!.width).toBeCloseTo(before.width,0);
   const box=(await bubble.boundingBox())!,rail=(await page.locator('.material-rail').boundingBox())!;
   expect(box.width).toBeLessThanOrEqual(420);expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y).toBeGreaterThanOrEqual(width===390?0:8);
   expect(rail.x).toBeCloseTo(before.x,0);expect(rail.width).toBeCloseTo(before.width,0);expect(rail.height).toBeCloseTo(before.height,0);

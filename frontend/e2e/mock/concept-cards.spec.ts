@@ -858,11 +858,11 @@ test('saved material card review keeps the chat entry in the material rail',asyn
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/concept-cards/${cardSetId}`);
   await showCardBack(page);
   await expect(page.locator('.visual-concept-card')).toBeVisible();
-  // 問答入口在教材側欄（翻卡的側欄預設收合）；手機收在底部頁籤的「更多」裡。
+  // 問答入口在教材側欄（大桌機預設展開）；手機收在底部頁籤的「更多」裡。
   if(width<=720)await page.getByRole('navigation',{name:'教材導覽'}).getByRole('button',{name:'更多',exact:true}).click();
   const chat=page.getByRole('button',{name:'問小幫手',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
   const nav=(await page.getByRole('navigation',{name:'教材導覽'}).boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(nav.x-0.5);expect(box.x+box.width).toBeLessThanOrEqual(nav.x+nav.width+0.5);
-  if(width>720){await page.mouse.move(width-10,450);await expect.poll(async()=>(await page.locator('.rail').boundingBox())!.width).toBe(64);}
+  if(width>720)expect((await page.locator('.rail').boundingBox())!.width).toBe(236);
  }
 });
 
@@ -2090,6 +2090,33 @@ test("strengthening can skip and revisit, but records each concept once and comp
   await page.locator(".cards-study-stage").press("1");
   await expect(page.getByText("這一輪加強完成！")).toBeVisible();
   expect(posts.map(post => post.body.rating)).toEqual(["remembered", "forgot"]);
+});
+
+test("strengthening swaps cards without rebuilding the frame or rereading the deck", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true, many: true, count: 4 });
+  await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot", 2: "forgot" } });
+  let studyReads = 0;
+  page.on("request", request => { if (new URL(request.url()).pathname === `/v1/card-sets/${cardSetId}/study`) studyReads++; });
+  await page.goto("/concept-cards/review");
+  const stage = page.locator(".card-review-stage");
+  await expect(page.locator(".card-practice-face")).toBeVisible();
+  await stage.evaluate(node => {
+    node.querySelector(".card-list")!.setAttribute("data-kept", "yes");
+    node.querySelector(".card-dock")!.setAttribute("data-kept", "yes");
+  });
+  await showCardBack(page);
+  await expect(page.getByRole("button", { name: "熟悉了", exact: true })).toBeEnabled();
+  for (const [key, label] of [["ArrowRight", view.concepts[1].label], ["ArrowRight", view.concepts[2].label], ["ArrowLeft", view.concepts[1].label]]) {
+    await stage.press(key);
+    await expect(page.getByRole("article", { name: `需要加強：${label}` })).toBeVisible();
+    // 新卡從正面開始，沒翻面不能標記。
+    await expect(page.locator(".card-practice-face.is-front")).toBeVisible();
+    await expect(page.getByRole("button", { name: "熟悉了", exact: true })).toBeDisabled();
+    await expect(page.locator(".card-review-stage")).toBeFocused();
+    await expect(page.locator(".card-list[data-kept=yes]")).toHaveCount(1);
+    await expect(page.locator(".card-dock[data-kept=yes]")).toHaveCount(1);
+  }
+  expect(studyReads).toBe(1);
 });
 
 test("PNG names include material and deck order with cleaned concept titles", async ({ page }) => {

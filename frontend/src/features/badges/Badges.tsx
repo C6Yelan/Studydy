@@ -1,6 +1,6 @@
 import { Progress } from "../../ui/Progress";
 import type { LearningActivityView, LearningBadge, LearningBadgeId } from "../../api/contracts";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { playCue } from "../../ui/feedback-sound";
 import { Icon, type IconName } from "../../ui/Icon";
@@ -16,29 +16,30 @@ type Series = "answers" | "concepts" | "materials" | "cards" | "listen" | "strea
   | "allTools" | "mediaConcepts" | "stageStreak";
 type Rarity = 0 | 1 | 2 | 3;
 const rarityNames = ["普通", "稀有", "史詩", "傳說"] as const;
-const series: Record<Series, { title: string; unit: string; icon: IconName; condition: (target: number) => string }> = {
-  answers: { title: "作答", unit: "題", icon: "quiz", condition: (target) => target === 1 ? "完成第一題作答" : `累計作答 ${target} 題` },
-  concepts: { title: "概念完成", unit: "個", icon: "learning", condition: (target) => target === 1 ? "第一次完成一個概念" : `累計完成 ${target} 個概念` },
-  materials: { title: "教材完成", unit: "份", icon: "map", condition: (target) => target === 1 ? "完成一份教材的全部學習" : `完成 ${target} 份教材的全部學習` },
-  cards: { title: "概念卡標記", unit: "張", icon: "cards", condition: (target) => `累計標記概念卡 ${target} 張（同一張卡每天算一次）` },
-  listen: { title: "Podcast 收聽", unit: "分鐘", icon: "headphones", condition: (target) => `Podcast 實際收聽累計 ${target} 分鐘` },
-  streak: { title: "連續學習", unit: "天", icon: "flame", condition: (target) => `連續 ${target} 天有學習活動` },
-  days: { title: "學習天數", unit: "天", icon: "clock", condition: (target) => `累計 ${target} 天有學習活動（不必連續）` },
-  level: { title: "等級", unit: "級", icon: "sparkle", condition: (target) => `達到第 ${target} 級` },
-  perfect: { title: "零失誤題組", unit: "次", icon: "check", condition: (target) => target === 1 ? "完成一個至少 3 題、每題第一次就答對的題組" : `完成 ${target} 次零失誤題組（每組至少 3 題）` },
-  sets: { title: "題組完成", unit: "組", icon: "quiz", condition: (target) => target === 1 ? "完成第一個題組" : `累計完成 ${target} 個題組` },
-  episodes: { title: "Podcast 聽完", unit: "集", icon: "headphones", condition: (target) => target === 1 ? "第一次聽完一集 Podcast" : `累計聽完 ${target} 集 Podcast` },
+// todo：成就頁系列卡與「快拿到了」的「要做什麼」，n 是下一層目標減目前進度；只有多層的 15 個系列有。
+const series: Record<Series, { title: string; unit: string; icon: IconName; condition: (target: number) => string; todo?: (n: number, target: number) => string }> = {
+  answers: { title: "作答", unit: "題", icon: "quiz", condition: (target) => target === 1 ? "完成第一題作答" : `累計作答 ${target} 題`, todo: (n) => `再答 ${n} 題` },
+  concepts: { title: "概念完成", unit: "個", icon: "learning", condition: (target) => target === 1 ? "第一次完成一個概念" : `累計完成 ${target} 個概念`, todo: (n) => `再完成 ${n} 個概念` },
+  materials: { title: "教材完成", unit: "份", icon: "map", condition: (target) => target === 1 ? "完成一份教材的全部學習" : `完成 ${target} 份教材的全部學習`, todo: (n) => `再學完 ${n} 份教材` },
+  cards: { title: "概念卡標記", unit: "張", icon: "cards", condition: (target) => `累計標記概念卡 ${target} 張（同一張卡每天算一次）`, todo: (n) => `再標記 ${n} 張概念卡` },
+  listen: { title: "Podcast 收聽", unit: "分鐘", icon: "headphones", condition: (target) => `Podcast 實際收聽累計 ${target} 分鐘`, todo: (n) => `再聽 ${n} 分鐘 Podcast` },
+  streak: { title: "連續學習", unit: "天", icon: "flame", condition: (target) => `連續 ${target} 天有學習活動`, todo: (_, target) => `連續 ${target} 天都學一點` },
+  days: { title: "學習天數", unit: "天", icon: "clock", condition: (target) => `累計 ${target} 天有學習活動（不必連續）`, todo: (n) => `再學 ${n} 天（不必連續）` },
+  level: { title: "等級", unit: "級", icon: "sparkle", condition: (target) => `達到第 ${target} 級`, todo: (_, target) => `升到第 ${target} 級` },
+  perfect: { title: "零失誤題組", unit: "次", icon: "check", condition: (target) => target === 1 ? "完成一個至少 3 題、每題第一次就答對的題組" : `完成 ${target} 次零失誤題組（每組至少 3 題）`, todo: (n) => `再完成 ${n} 組零失誤題組` },
+  sets: { title: "題組完成", unit: "組", icon: "quiz", condition: (target) => target === 1 ? "完成第一個題組" : `累計完成 ${target} 個題組`, todo: (n) => `再完成 ${n} 組題組` },
+  episodes: { title: "Podcast 聽完", unit: "集", icon: "headphones", condition: (target) => target === 1 ? "第一次聽完一集 Podcast" : `累計聽完 ${target} 集 Podcast`, todo: (n) => `再聽完 ${n} 集 Podcast` },
   firstTry: { title: "一次就懂", unit: "份", icon: "learning", condition: () => "完成一份教材，每個作答過的概念第一次作答都答對" },
   goal: { title: "目標與關卡", unit: "次", icon: "compass", condition: () => "第一次為教材設定目標日期" },
-  stages: { title: "目標與關卡", unit: "關", icon: "route", condition: (target) => target === 1 ? "第一次完成分天關卡（達到今天的目標重點量）" : `累計完成 ${target} 個分天關卡（每份教材每天一關）` },
-  difficulties: { title: "克服難點", unit: "個", icon: "check", condition: (target) => target === 1 ? "克服一個「你的難點」：作答 3 題以上、錯一半以上的概念，之後錯誤率降到一半以下" : `克服 ${target} 個「你的難點」（錯誤率降到一半以下）` },
+  stages: { title: "目標與關卡", unit: "關", icon: "route", condition: (target) => target === 1 ? "第一次完成分天關卡（達到今天的目標重點量）" : `累計完成 ${target} 個分天關卡（每份教材每天一關）`, todo: (n) => `再完成 ${n} 天的每日關卡` },
+  difficulties: { title: "克服難點", unit: "個", icon: "check", condition: (target) => target === 1 ? "克服一個「你的難點」：作答 3 題以上、錯一半以上的概念，之後錯誤率降到一半以下" : `克服 ${target} 個「你的難點」（錯誤率降到一半以下）`, todo: (n) => `再克服 ${n} 個常答錯的概念` },
   notes: { title: "筆記", unit: "份", icon: "book", condition: () => "生成第一份完整筆記" },
-  annotations: { title: "個人註記", unit: "段", icon: "edit", condition: (target) => target === 1 ? "第一次在筆記寫個人註記" : `在 ${target} 個筆記段落寫個人註記（同一段算一次）` },
+  annotations: { title: "個人註記", unit: "段", icon: "edit", condition: (target) => target === 1 ? "第一次在筆記寫個人註記" : `在 ${target} 個筆記段落寫個人註記（同一段算一次）`, todo: (n) => `再在 ${n} 段筆記寫註記` },
   uploadImage: { title: "多元教材", unit: "份", icon: "upload", condition: () => "第一次上傳圖片教材" },
   uploadAudio: { title: "多元教材", unit: "份", icon: "microphone", condition: () => "第一次上傳音訊教材" },
   uploadVideo: { title: "多元教材", unit: "份", icon: "play", condition: () => "第一次上傳影片教材" },
   uploadYoutube: { title: "多元教材", unit: "份", icon: "monitor", condition: () => "第一次用 YouTube 連結建立教材" },
-  exports: { title: "匯出與整理", unit: "種", icon: "file", condition: (target) => target === 1 ? "第一次匯出（筆記、概念卡組、Podcast、知識地圖或學習診斷）" : "筆記、概念卡組、Podcast、知識地圖四種都匯出過" },
+  exports: { title: "匯出與整理", unit: "種", icon: "file", condition: (target) => target === 1 ? "第一次匯出（筆記、概念卡組、Podcast、知識地圖或學習診斷）" : "筆記、概念卡組、Podcast、知識地圖四種都匯出過", todo: (n) => `再匯出 ${n} 種內容` },
   podcastSeries: { title: "Podcast 節目", unit: "部", icon: "headphones", condition: () => "聽完一部多集 Podcast 的每一集" },
   podcastHosts: { title: "Podcast 節目", unit: "組", icon: "user", condition: (target) => `聽完全部 ${target} 組主持人的 Podcast（主持人在建立節目時隨機指派，各至少一集）` },
   allTools: { title: "組合成就", unit: "份", icon: "compass", condition: () => "同一份教材：完成題組、標記概念卡、聽完一集 Podcast，並在筆記寫個人註記" },
@@ -213,8 +214,8 @@ function revealed(badge: KnownBadge, earned: Set<string>) {
 }
 
 // 成就頁右欄：依稀有度的取得數，上方已取得、下方未取得，每個成就獨立一格。
-// 畫面上算得到的徽章：不含成就鏈中尚未揭曉的步驟（算進去等於洩漏隱藏徽章的數量）。階梯與總覽共用。
-function shownBadges(activity: LearningActivityView) {
+// 畫面上算得到的徽章：不含成就鏈中尚未揭曉的步驟（算進去等於洩漏隱藏徽章的數量）。成就頁入口按鈕與總覽共用。
+export function shownBadges(activity: LearningActivityView) {
   const all = knownBadges(activity);
   const earnedIds = new Set(all.filter((badge) => badge.earned).map((badge) => badge.badge_id));
   return all.filter((badge) => revealed(badge, earnedIds));
@@ -259,65 +260,95 @@ export function BadgeCollection({ activity }: { activity: LearningActivityView }
   </section>;
 }
 
-// 快拿到了：每個系列只取下一個還沒拿到的層級，依進度比例由高到低取前三個。
-// 隱藏的特殊成就依規則不顯示進度，所以不列入。
+// 成就頁的 5 區與區內順序；有多層的 15 個系列都在這裡，只有一層的徽章和特殊成就只出現在「全部徽章和規則」。
+const seriesGroups: [string, Series[]][] = [
+  ["答題", ["answers", "sets", "perfect", "difficulties"]],
+  ["學習進度", ["concepts", "materials", "stages"]],
+  ["複習與筆記", ["cards", "annotations", "exports"]],
+  ["Podcast", ["listen", "episodes"]],
+  ["學習習慣", ["streak", "days", "level"]],
+];
+
+// 一個系列的現況：拿到幾層、目前最高的一層、下一層（第一個還沒拿到的層級）。
+// 拿過的徽章永久保留、進度依現有資料重算，所以可能「拿到第一層、下一層進度是 0」，照資料顯示。
+function seriesState(key: Series, byId: Map<string, KnownBadge>) {
+  const list = tiers[key].map(([id]) => byId.get(id)).filter((badge): badge is KnownBadge => !!badge);
+  const earned = list.filter((badge) => badge.earned);
+  return { list, earned: earned.length, top: earned.at(-1), next: list.find((badge) => !badge.earned) };
+}
+
+const tierOf = (badge: KnownBadge) => tierNames[badgeText[badge.badge_id]!.tier - 1];
+const countText = (key: Series, badge: KnownBadge) => `${badge.progress} / ${badge.target} ${series[key].unit}`;
+const todoText = (key: Series, badge: KnownBadge) => series[key].todo!(Math.max(0, badge.target - badge.progress), badge.target);
+
+// 快拿到了：每個系列只取下一層，依進度比例由高到低取前三個。
+// 隱藏的特殊成就依規則不顯示進度，只有一層的徽章沒有「要做什麼」的句子，都不列入。
 export function NearBadges({ activity }: { activity: LearningActivityView }) {
   const byId = new Map(knownBadges(activity).map((badge) => [badge.badge_id, badge]));
-  const near = (Object.keys(tiers) as Series[]).flatMap((key) => {
-    const next = tiers[key].map(([id]) => byId.get(id)).find((badge) => badge && !badge.earned);
+  const near = seriesGroups.flatMap(([, keys]) => keys).flatMap((key) => {
+    const { next } = seriesState(key, byId);
     return next ? [{ badge: next, key }] : [];
   }).sort((a, b) => b.badge.progress / b.badge.target - a.badge.progress / a.badge.target).slice(0, 3);
   if (!near.length) return null;
-  return <section className="badge-near" aria-labelledby="badge-near-title">
+  return <section className="badge-near surface" aria-labelledby="badge-near-title">
     <h2 id="badge-near-title">快拿到了</h2>
     <ul>
-      {near.map(({ badge, key }) => {
-        const text = badgeText[badge.badge_id]!;
-        const left = Math.max(0, badge.target - badge.progress);
-        return <li key={badge.badge_id} className="surface">
-          <BadgeMedal badge={badge} size={54} />
-          <span className="badge-near-text">
-            <b>{series[key].title}{tiers[key].length > 1 && ` · ${tierNames[text.tier - 1]}`}</b>
-            <small>{key === "level" ? `再升 ${left} 級` : `還差 ${left} ${series[key].unit}`}</small>
-            <BadgeProgress badge={badge} />
-          </span>
-        </li>;
-      })}
+      {near.map(({ badge, key }) => <li key={badge.badge_id}>
+        <BadgeMedal badge={badge} size={52} />
+        <span className="badge-near-text">
+          <span className="badge-near-line"><b>{series[key].title}：{nameOf(badge)}（{tierOf(badge)}）</b><span>{countText(key, badge)}</span></span>
+          <Progress value={badge.progress} max={badge.target} aria-label={`${series[key].title}進度`} aria-valuetext={countText(key, badge)} />
+          <small>{todoText(key, badge)}</small>
+        </span>
+      </li>)}
     </ul>
   </section>;
 }
 
-// 徽章階梯：每個有多個層級的系列一列，列出各層級已取得、下一個的進度、或還沒到。
-export function BadgeLadder({ activity }: { activity: LearningActivityView }) {
-  const shown = shownBadges(activity);
+// 系列卡：目前那一層的徽章與名稱、拿到幾層（小橫條）、到下一層的進度與要做什麼。
+// 一層都沒拿到時徽章是第一層的未取得樣式；整個系列拿完時進度條滿格、不再有下一層。
+function SeriesCard({ seriesKey: key, state: { list, earned, top, next } }: { seriesKey: Series; state: ReturnType<typeof seriesState> }) {
+  const info = series[key];
+  return <li className={`badge-series-card surface${top ? "" : " is-empty"}`}>
+    <span className="badge-series-head">
+      <BadgeMedal badge={top ?? list[0]} size={56} />
+      <span className="badge-series-name">
+        <small className="badge-series-title">{info.title}</small>
+        <b className="badge-series-have">{top ? nameOf(top) : "還沒拿到"}</b>
+        <span className="badge-series-steps" role="img" aria-label={`拿到 ${earned} / 共 ${list.length} 層`}>
+          {list.map((badge) => <i key={badge.badge_id} className={`badge-tier-step is-tier-${badgeText[badge.badge_id]!.tier}${badge.earned ? " is-earned" : ""}`} />)}
+        </span>
+      </span>
+    </span>
+    {next ? <>
+      <Progress value={next.progress} max={next.target} aria-label={`${info.title}進度`} aria-valuetext={countText(key, next)} />
+      <span className="badge-series-goal"><span className="badge-series-todo">{todoText(key, next)}</span><span className="badge-series-count">{countText(key, next)}</span></span>
+      <small className="badge-series-next">下一層：{nameOf(next)}（{tierOf(next)}）</small>
+    </> : <>
+      <Progress value={1} max={1} tone="complete" aria-label={`${info.title}進度`} aria-valuetext="這個系列全部拿到了" />
+      <span className="badge-series-goal"><span className="badge-series-todo">這個系列全部拿到了</span></span>
+    </>}
+  </li>;
+}
+
+// 系列卡牆：5 區依序往下，每區標出拿到的層數合計。
+export function BadgeSeriesWall({ activity }: { activity: LearningActivityView }) {
   const byId = new Map(knownBadges(activity).map((badge) => [badge.badge_id, badge]));
-  const rows = (Object.keys(tiers) as Series[]).filter((key) => tiers[key].length > 1);
-  return <section className="badge-ladder surface" aria-labelledby="badge-ladder-title">
-    <header>
-      <h2 id="badge-ladder-title">徽章階梯</h2>
-      <span className="badge-count">已取得 {shown.filter((badge) => badge.earned).length} / {shown.length}</span>
-    </header>
-    <ul className="badge-ladder-rows">
-      <li className="badge-ladder-head" aria-hidden="true">
-        <span />{tierNames.map((name) => <span key={name}>{name}</span>)}
-      </li>
-      {rows.map((key) => {
-        const list = tiers[key].map(([id]) => byId.get(id));
-        const nextIndex = list.findIndex((badge) => badge && !badge.earned);
-        return <li key={key} aria-label={series[key].title}>
-          <span className="badge-ladder-name">{series[key].title}</span>
-          {tierNames.map((name, index) => {
-            const badge = list[index];
-            // 沒有這一層留空；有但還沒到的層級畫淡色鎖頭。
-            const cell: { cls: string; text: ReactNode } = !badge ? { cls: " is-none", text: "" } : badge.earned ? { cls: " is-earned", text: "已取得" }
-              : index === nextIndex ? { cls: " is-next", text: `${badge.progress} / ${badge.target}` } : { cls: " is-locked", text: <Icon name="lock" size={14} /> };
-            return <span key={name} className={`badge-ladder-cell is-tier-${index + 1}${cell.cls}`}
-              aria-label={`${name}：${badge ? (badge.earned ? "已取得" : index === nextIndex ? progressText(badge) : "尚未到") : "沒有這一層"}`}>{cell.text}</span>;
-          })}
-        </li>;
-      })}
-    </ul>
-  </section>;
+  return <>{seriesGroups.map(([name, keys], index) => {
+    // 回應裡沒有的系列（後端規則較舊時）不畫卡。
+    const cards = keys.map((key) => ({ key, state: seriesState(key, byId) })).filter(({ state }) => state.list.length > 0);
+    const earned = cards.reduce((sum, { state }) => sum + state.earned, 0);
+    const all = cards.reduce((sum, { state }) => sum + state.list.length, 0);
+    return <section key={name} className="badge-series-group" aria-labelledby={`badge-series-group-${index}`}>
+      <header>
+        <h2 id={`badge-series-group-${index}`}>{name}</h2>
+        <span>已拿到 {earned} / {all} 層</span>
+      </header>
+      <ul className="badge-series-grid">
+        {cards.map(({ key, state }) => <SeriesCard key={key} seriesKey={key} state={state} />)}
+      </ul>
+    </section>;
+  })}</>;
 }
 
 /** 右下角浮動通知：不推動版面、不擋主要操作，6 秒後自動收起，可按「查看」到成就頁。 */

@@ -194,14 +194,14 @@ for (const [width, count] of [
     ).toHaveCount(4);
     const canvas = (await graph.boundingBox())!;
     const frame = (await page.locator(".map-view").boundingBox())!;
-    const relationsToggle = (await graph.getByRole("button", { name: "顯示所有關係", exact: true }).boundingBox())!;
+    const exportButton = (await graph.getByRole("button", { name: "匯出地圖（MD）", exact: true }).boundingBox())!;
     const navigatorButton = (await graph.getByRole("button", { name: "學習導覽", exact: true }).boundingBox())!;
-    // 「顯示所有關係」在地圖右上；搜尋與學習導覽浮在左上，兩者不重疊；右下角留給徽章提示。
-    expect(relationsToggle.y - canvas.y).toBeLessThanOrEqual(20);
-    expect(relationsToggle.x).toBeGreaterThanOrEqual(navigatorButton.x + navigatorButton.width + 8);
+    // 匯出在地圖右上；搜尋與學習導覽浮在左上，兩者不重疊；右下角留給徽章提示。
+    expect(exportButton.y - canvas.y).toBeLessThanOrEqual(20);
+    expect(exportButton.x).toBeGreaterThanOrEqual(navigatorButton.x + navigatorButton.width + 8);
     expect(Math.abs(canvas.y - frame.y)).toBeLessThan(2);
     expect(Math.abs(canvas.height - frame.height)).toBeLessThan(2);
-    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽", "顯示所有關係"]) {
+    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽", "匯出地圖（MD）"]) {
       const box = (await graph.getByRole("button", { name, exact: true }).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(canvas.x);
       expect(box.y).toBeGreaterThanOrEqual(canvas.y);
@@ -289,6 +289,63 @@ test("compact map retains manual viewport through details, progress reload and r
   assertReadOnly();
 });
 
+test("the route starts from the selected island and returns into view when the card closes", async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 864 });
+  const view = workspaceView(20);
+  // 第 14 站 Concept 15 的下一站是 Concept 3，離它超過兩層，選第 14 站時要搬到它旁邊。
+  const order = [0, 1, ...Array.from({ length: 12 }, (_, index) => index + 3), 2, 15, 16, 17, 18, 19];
+  view.initial_learning_path = order.map((index, position) => ({
+    position: position + 1,
+    concept_id: view.concepts[index].concept_id,
+    reason: "document_order",
+  }));
+  await mockKnowledgeMapApi(page, view);
+  const assertReadOnly = trackReadOnlyInteractions(page);
+  const id = (label: string) => view.concepts.find((concept) => concept.label === label)!.concept_id;
+  const route = page.locator(".map-route-edge");
+  // 只有一段航線，兩端是這兩站；兩站不淡化，兩站和整段航線都在畫布範圍內。
+  const expectRoute = async (from: string, to: string) => {
+    await expect(route).toHaveCount(1);
+    await expect(route).toHaveAttribute("data-id", `route:${id(from)}:${id(to)}`);
+    await expect
+      .poll(() =>
+        page.locator(".focus-graph").evaluate((graph, ids) => {
+          const bounds = graph.getBoundingClientRect();
+          const nodes = ids.map((nodeId) => graph.querySelector<HTMLElement>(`.react-flow__node[data-id="${nodeId}"]`)!);
+          return [...nodes, graph.querySelector(".map-route-edge")!].every((element) => {
+            const box = element.getBoundingClientRect();
+            return box.left >= bounds.left - 1 && box.right <= bounds.right + 1
+              && box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
+          }) && nodes.every((node) => node.style.opacity === "1");
+        }, [id(from), id(to)]),
+      )
+      .toBe(true);
+  };
+  await page.goto(mapPath);
+  // 剛打開：目前這站（沒有進度時第 1 站）→ 下一站。
+  await expectRoute("Concept 1", "Concept 2");
+  // 點已對準的中心島：從它出發，下一站一起框進來。
+  await openMapConcept(page);
+  await expectRoute("Concept 1", "Concept 2");
+  // 點第 14 站：只畫第 14 站 → 第 15 站，下一站搬到旁邊。
+  await openMapConcept(page, "Concept 15");
+  await expectRoute("Concept 15", "Concept 3");
+  // 卡片開著直接換到最後一站：沒有下一站，不畫航線。
+  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  await navigationConcept(page, "Concept 20").click();
+  await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("Concept 20");
+  await expect(route).toHaveCount(0);
+  // 關卡片（Esc、×）：鏡頭回到目前這站和接下來 3 站，航線在畫面內。
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expectRoute("Concept 1", "Concept 2");
+  await openMapConcept(page, "Concept 15");
+  await expectRoute("Concept 15", "Concept 3");
+  await page.getByRole("button", { name: "關閉概念詳情" }).click();
+  await expectRoute("Concept 1", "Concept 2");
+  assertReadOnly();
+});
+
 test("large map only renders its local neighbourhood and stays responsive when dragging", async ({
   page,
 }) => {
@@ -365,9 +422,9 @@ for (const width of [1536, 390])
       `30／80 個概念、60／${view.relations.length} 條關係`,
     );
     await expect(page.locator(".map-limit-note")).toContainText("尚有其他相關內容");
-    const relationsToggle = (await page.getByRole("button", { name: "顯示所有關係", exact: true }).boundingBox())!;
+    const exportButton = (await page.getByRole("button", { name: "匯出地圖（MD）", exact: true }).boundingBox())!;
     const limitNote = (await page.locator(".map-limit-note").boundingBox())!;
-    expect(limitNote.y).toBeGreaterThanOrEqual(relationsToggle.y + relationsToggle.height + 4);
+    expect(limitNote.y).toBeGreaterThanOrEqual(exportButton.y + exportButton.height + 4);
     const secondary = page.locator(".concept-flow-node.is-secondary");
     await expect(secondary).toHaveCount(23);
     await expect(secondary.locator(".map-learning-badge")).toHaveCount(23);
@@ -435,11 +492,11 @@ for (const width of [721, 768, 919]) {
     await mockKnowledgeMapApi(page, workspaceView(20, true));
     await page.goto(mapPath);
     await expect(page.locator(".concept-flow-node.is-focus")).toBeVisible();
-    // 左上的搜尋、學習導覽（與「今天」）和右上的顯示所有關係、匯出，兩兩不重疊。
-    const boxes = await page.locator(".map-toolbar > *, .map-corner-buttons > *").evaluateAll((elements) =>
+    // 左上的搜尋、學習導覽和右上的匯出，兩兩不重疊。
+    const boxes = await page.locator(".map-toolbar > *, .map-corner-tools > .export-entry").evaluateAll((elements) =>
       elements.map((element) => element.getBoundingClientRect()).filter((box) => box.width > 0)
         .map(({ left, right, top, bottom }) => ({ left, right, top, bottom })));
-    expect(boxes.length).toBeGreaterThanOrEqual(4);
+    expect(boxes.length).toBeGreaterThanOrEqual(3);
     for (const [i, a] of boxes.entries()) for (const b of boxes.slice(i + 1))
       expect(a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom).toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);

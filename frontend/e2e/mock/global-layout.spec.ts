@@ -89,8 +89,8 @@ for (const width of [2560, 1920, 1760, 1650, 1460, 1440, 1366, 1300, 1281, 1200,
           nodes.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent))).toEqual([]);
       }
       if (path === "/achievements") {
-        // 全部徽章和規則平常收合，展開後才有總覽與經驗值規則。
-        await page.getByRole("button", { name: "全部徽章和規則" }).click();
+        // 全部徽章和規則平常收合，按「看全部 N 個徽章和特別成就」展開後才有總覽與經驗值規則。
+        await page.getByRole("button", { name: "看全部 98 個徽章和特別成就" }).click();
         // 8 個指定的層級加上第 15 級已達的等級 I～III 層；分母不含成就鏈中尚未揭曉的 5 步。
         await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText("11 / 98");
         await expect(page.getByRole("region", { name: "經驗值怎麼算" })).toBeVisible();

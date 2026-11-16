@@ -1,19 +1,20 @@
-/* 成就頁：左欄等級與這週 XP，右欄快拿到了與徽章階梯，下方是收合的全部徽章和規則；整頁一起捲動。 */
+/* 成就頁：上方等級與這週 XP、快拿到了，下方 5 區系列卡，最後是收合的全部徽章和規則；整頁一起捲動。 */
 .achievements {
   display: grid;
-  gap: 14px;
+  gap: 24px;
 }
 /* 標題說明與下方兩欄靠近一些；collection-head 是多頁共用，只在成就頁取消下緣。 */
 .achievements > .collection-head { margin-bottom: 0; }
-.achievements-layout {
-  display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
+/* 第一列：兩塊依內容寬度並排，合計放不下（約 820px）時自動上下排。 */
+.achievements-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: stretch;
 }
-.achievements-side { display: grid; gap: 16px; min-width: 0; }
-.achievements-main { display: grid; gap: 18px; min-width: 0; }
-.achievements-layout h2 { margin: 0; font-size: 17px; }
+.achievements-side { display: grid; flex: 1 1 320px; gap: 16px; min-width: 0; }
+.achievements-top > .badge-near { flex: 2 1 480px; }
+.achievements-top h2 { margin: 0; font-size: 17px; }
 
 /* 等級卡：藍到海色漸層，機器人在右下 */
 .level-card {
@@ -39,7 +40,7 @@
 .week-xp { display: grid; gap: 10px; padding: 16px; }
 .week-xp > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .week-xp > header small { color: var(--studydy-blue); font-size: 13px; font-weight: 900; }
-.week-xp p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+.week-xp p { margin: 0; color: var(--text-secondary); font-size: 13px; text-wrap: balance; }
 .week-xp-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
 .week-xp-bars li { display: grid; justify-items: center; gap: 4px; color: var(--text-muted); font-size: 12px; font-weight: 800; }
 .week-xp-bar { display: flex; align-items: flex-end; width: min(100%, 30px); height: 90px; }
@@ -113,9 +114,6 @@
 .xp-source-earned { display: grid; justify-items: end; min-width: 44px; }
 .xp-source-earned b { font-size: 15px; }
 .xp-source-earned small { color: var(--text-muted); font-size: 10px; font-weight: 800; }
-@media (max-width: 1024px) {
-  .achievements-layout { grid-template-columns: minmax(0, 1fr); }
-}
 @media (max-width: 480px) {
   .xp-sources li { grid-template-columns: 36px minmax(0, 1fr) auto; }
   .xp-source-earned { display: none; }

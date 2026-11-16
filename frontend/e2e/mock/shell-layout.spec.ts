@@ -123,8 +123,8 @@ test("inside a material the material rail replaces the site rail and phone tab b
           await expect(nav.getByRole("link", { name, exact: true })).toBeVisible();
         await expect(nav.getByRole("button", { name: "問小幫手", exact: true })).toBeVisible();
         await expect(nav.getByRole("button", { name: "更多", exact: true })).toBeHidden();
-        // 地圖預設收成約 64px 圖示列；其他頁桌機是完整側欄，平板都是圖示列。
-        expect((await page.locator(".rail").boundingBox())!.width).toBe(width > 1024 ? path === mapPath ? 64 : 236 : 76);
+        // 沒選過時大桌機是完整側欄（地圖也一樣），平板都是圖示列。
+        expect((await page.locator(".rail").boundingBox())!.width).toBe(width > 1024 ? 236 : 76);
         if (width > 1024 && path === progressPath) await expect(page.locator(".material-rail-name")).toHaveText("目前教材Data structures.pdf");
         expect((await page.locator(selector).boundingBox())!.x).toBeGreaterThanOrEqual((await page.locator(".rail").boundingBox())!.width);
       } else {
@@ -173,35 +173,56 @@ test("material rail counts this material's forgotten cards and only opens source
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/sources$`));
 });
 
-test("map, card and player rails start collapsed; hover overlays and the toggle pins them open", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
+test("the rail only changes with the toggle, keeps the choice across pages and names its icons", async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 900 });
   await page.goto(mapPath);
   await expect(page.locator(".map-workspace")).toBeVisible();
   const rail = page.locator(".rail");
-  const toggle = page.getByRole("button", { name: "展開側欄", exact: true });
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  expect((await rail.boundingBox())!.width).toBe(64);
+  const railWidth = async () => (await rail.boundingBox())!.width;
+  const overflow = () => rail.evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(await railWidth()).toBe(236);
+  await page.getByRole("button", { name: "收合側欄", exact: true }).click();
+  await expect(page.getByRole("button", { name: "展開側欄", exact: true })).toHaveAttribute("aria-expanded", "false");
+  expect(await railWidth()).toBe(64);
+  expect(await overflow()).toBe(0);
+  // 滑鼠滑過收合的側欄不展開，只出現名稱提示。
   const contentX = (await page.locator(".map-workspace").boundingBox())!.x;
-  // 滑過時疊在內容上展開，內容不移動。
-  await rail.hover();
-  await expect.poll(async () => (await rail.boundingBox())!.width).toBe(236);
-  await expect(page.getByRole("link", { name: "學習進度", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "學習進度", exact: true }).hover();
+  await page.mouse.move(30, 500, { steps: 5 });
+  await page.getByRole("link", { name: "學習進度", exact: true }).hover();
+  await expect(page.locator(".rail-tip")).toHaveText("學習進度");
+  expect(await railWidth()).toBe(64);
   expect((await page.locator(".map-workspace").boundingBox())!.x).toBe(contentX);
-  await toggle.click();
-  const collapse = page.getByRole("button", { name: "收合側欄", exact: true });
-  await expect(collapse).toHaveAttribute("aria-expanded", "true");
-  await page.mouse.move(1200, 600);
-  await expect.poll(async () => (await page.locator(".map-workspace").boundingBox())!.x).toBeGreaterThanOrEqual(236);
-  expect((await rail.boundingBox())!.width).toBe(236);
-  await collapse.click();
-  await page.mouse.move(1200, 600);
-  await expect.poll(async () => (await rail.boundingBox())!.width).toBe(64);
-  // 其他教材頁預設展開，沒有收合按鈕。
+  // 換頁與重新整理後仍是收合。
   await page.getByRole("link", { name: "學習進度", exact: true }).click();
   await expect(page).toHaveURL(progressPath);
+  await expect(page.locator(".review-diagnosis")).toBeVisible();
+  expect(await railWidth()).toBe(64);
+  await page.goto("/");
+  await expect(page.getByRole("navigation", { name: "主要導覽", exact: true })).toBeVisible();
+  expect(await railWidth()).toBe(64);
+  await page.reload();
+  await expect(page.getByRole("navigation", { name: "主要導覽", exact: true })).toBeVisible();
+  expect(await railWidth()).toBe(64);
+  // 鍵盤移到圖示也有名稱提示，側欄不展開、不出現橫向捲軸。
   await page.mouse.move(1200, 600);
-  await expect.poll(async () => (await rail.boundingBox())!.width).toBe(236);
-  await expect(page.getByRole("button", { name: /^(展開|收合)側欄$/ })).toHaveCount(0);
+  await page.getByRole("link", { name: "Podcast", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "成就", exact: true })).toBeFocused();
+  await expect(page.locator(".rail-tip")).toHaveText("成就");
+  expect(await railWidth()).toBe(64);
+  expect(await overflow()).toBe(0);
+  await page.getByRole("button", { name: "展開側欄", exact: true }).click();
+  expect(await railWidth()).toBe(236);
+  await page.goto(mapPath);
+  await expect(page.locator(".map-workspace")).toBeVisible();
+  expect(await railWidth()).toBe(236);
+  // 平板的圖示列同樣有名稱提示，沒有橫向捲軸。
+  await page.setViewportSize({ width: 1024, height: 768 });
+  expect(await railWidth()).toBe(76);
+  expect(await overflow()).toBe(0);
+  await page.getByRole("link", { name: "學習進度", exact: true }).hover();
+  await expect(page.locator(".rail-tip")).toHaveText("學習進度");
 });
 
 for (const width of [320, 1366, 1920]) {

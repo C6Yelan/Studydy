@@ -83,8 +83,6 @@ test('wide screens dock the chat panel beside the content instead of covering it
  await expect(trigger).toHaveAttribute('aria-expanded','true');
  const box=(await panel.boundingBox())!;
  await expect.poll(async()=>{const main=(await page.locator('.focus-workspace').boundingBox())!;return main.x+main.width;}).toBeLessThanOrEqual(box.x);
- // 游標移開側欄後再比（滑過收合的側欄會暫時展開）。
- await page.mouse.move(700,450);await expect.poll(async()=>(await header.boundingBox())!.width).toBe(headerBefore!.width);
  expect(await header.boundingBox()).toEqual(headerBefore);
  await trigger.click();await expect(panel).toHaveCount(0);await expect(trigger).toBeFocused();
  expect(await page.evaluate(()=>document.documentElement.classList.contains('qa-panel-open'))).toBe(false);

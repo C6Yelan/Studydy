@@ -83,6 +83,8 @@ export function NoteMarkup({ api, view, saved, openConcept, renderPrevious, chil
     const element = root.current;
     if (!element) return;
     const measure = () => {
+      // 隱藏的那一種筆記量不到寬度與位置；保留上次量到的版面，切回來時 ResizeObserver 會再量。
+      if (!element.getClientRects().length) return;
       const isNarrow = element.clientWidth < 720;
       setNarrow(isNarrow);
       const top = element.getBoundingClientRect().top;

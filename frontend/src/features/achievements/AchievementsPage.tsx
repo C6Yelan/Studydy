@@ -5,7 +5,7 @@ import type { LearningActivityView, LearningRhythmView } from "../../api/contrac
 import { useLearningActivity } from "../../app/LearningProgress";
 import { Icon, type IconName } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
-import { BadgeCollection, BadgeLadder, NearBadges } from "../badges/Badges";
+import { BadgeCollection, BadgeSeriesWall, NearBadges, shownBadges } from "../badges/Badges";
 import "../dashboard/styles.css";
 import "./styles.css";
 
@@ -35,7 +35,8 @@ function LevelCard({ activity }: { activity: LearningActivityView }) {
 
 const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
 
-// 這週 XP 長條圖：每天的 XP 來自每週紀錄（rhythm）每一天的 xp；讀不到只顯示一句說明，不影響其他區塊。
+// 這週 XP 長條圖：每天的 XP 來自每週紀錄（rhythm）每一天的 xp；這週 0 XP 時只顯示一句怎麼開始累積；
+// 讀不到只顯示一句說明，不影響其他區塊。
 function WeekXp({ apiClient, today, onRules }: { apiClient: StudydyApiClient; today: number; onRules: () => void }) {
   const [week, setWeek] = useState<LearningRhythmView | null | undefined>(undefined);
   useEffect(() => {
@@ -48,6 +49,11 @@ function WeekXp({ apiClient, today, onRules }: { apiClient: StudydyApiClient; to
   }, [apiClient]);
   const total = week?.days.reduce((sum, day) => sum + day.xp, 0) ?? 0;
   const peak = Math.max(1, ...(week?.days.map((day) => day.xp) ?? []));
+  const rules = <button className="text-button" type="button" onClick={onRules}>經驗值怎麼算？<Icon name="chevron-right" size={16} /></button>;
+  if (week && total === 0) return <section className="week-xp surface">
+    <p>這週還沒拿到經驗值。答一題、翻一張卡或聽一段 Podcast 就會開始累積。</p>
+    {rules}
+  </section>;
   return <section className="week-xp surface" aria-labelledby="week-xp-title" aria-busy={week === undefined}>
     <header>
       <h2 id="week-xp-title">{week ? `這週拿到 ${total} XP` : "這週 XP"}</h2>
@@ -63,18 +69,19 @@ function WeekXp({ apiClient, today, onRules }: { apiClient: StudydyApiClient; to
         </li>;
       })}
     </ol>}
-    <button className="text-button" type="button" onClick={onRules}>經驗值怎麼算？<Icon name="chevron-right" size={16} /></button>
+    {rules}
   </section>;
 }
 
-// 「全部徽章和規則」：101 張徽章（含特殊徽章）與各來源 XP 的算法，平常收合。
+// 「全部徽章和規則」：全部徽章（含特殊成就）與各來源 XP 的算法，平常收合。
+// 入口按鈕的數量和總覽同一個計數，不含尚未揭曉的成就鏈步驟。
 function AllBadgesAndRules({ activity, open, onToggle }: { activity: LearningActivityView; open: boolean; onToggle: () => void }) {
   const { xp } = activity;
   const total = Math.max(1, xp.total);
   const panelId = useId();
   return <section className="achievements-all" aria-label="全部徽章和規則">
     <button className="secondary-button achievements-all-toggle" type="button" aria-expanded={open} aria-controls={panelId} onClick={onToggle}>
-      全部徽章和規則<span className="achievements-all-chevron" aria-hidden="true"><Icon name="chevron-right" size={18} /></span>
+      看全部 {shownBadges(activity).length} 個徽章和特別成就<span className="achievements-all-chevron" aria-hidden="true"><Icon name="chevron-right" size={18} /></span>
     </button>
     {open && <div id={panelId} className="achievements-all-panel">
       <BadgeCollection activity={activity} />
@@ -102,7 +109,7 @@ function AllBadgesAndRules({ activity, open, onToggle }: { activity: LearningAct
   </section>;
 }
 
-// 成就：左欄等級與這週 XP（桌機捲動時固定），右欄快拿到了與徽章階梯，下方收合的全部徽章和規則。
+// 成就：上方等級與這週 XP、快拿到了（寬度不夠時上下排），下方 5 區系列卡，最後是收合的全部徽章和規則。
 export function AchievementsPage({ apiClient }: { apiClient: StudydyApiClient }) {
   const activity = useLearningActivity(apiClient, { fresh: true });
   const [allOpen, setAllOpen] = useState(false);
@@ -121,7 +128,7 @@ export function AchievementsPage({ apiClient }: { apiClient: StudydyApiClient })
     <header className="library-header collection-head">
       <div className="collection-head-text">
         <h1 id="achievements-title">成就</h1>
-        <p className="library-subtitle">作答、完成概念、標記概念卡、收聽 Podcast、闖關、克服難點都會累積經驗值，達到門檻就能取得各系列的下一層徽章。</p>
+        <p className="library-subtitle">學習時做的每件事都會累積進度。每一種徽章有好幾層：銅、銀、金、鑽石、星耀，越往上越難。</p>
       </div>
     </header>
     {activity === undefined ? <StateView title="正在讀取學習成就" description="正在整理等級與徽章。" tone="loading" live />
@@ -131,16 +138,14 @@ export function AchievementsPage({ apiClient }: { apiClient: StudydyApiClient })
         <p>學習活動暫時無法讀取，請稍後再試。</p>
       </section>
       : <>
-        <div className="achievements-layout">
+        <div className="achievements-top">
           <div className="achievements-side">
             <LevelCard activity={activity} />
             <WeekXp apiClient={apiClient} today={activity.xp.today} onRules={() => { setAllOpen(true); setShowRules((value) => value + 1); }} />
           </div>
-          <div className="achievements-main">
-            <NearBadges activity={activity} />
-            <BadgeLadder activity={activity} />
-          </div>
+          <NearBadges activity={activity} />
         </div>
+        <BadgeSeriesWall activity={activity} />
         <AllBadgesAndRules activity={activity} open={allOpen} onToggle={() => setAllOpen((value) => !value)} />
       </>}
   </section>;

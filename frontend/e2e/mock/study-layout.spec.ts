@@ -168,6 +168,8 @@ for (const viewport of [
     const publish = page.getByRole("button", { name: "先做已準備的 4 題", exact: true });
     await expect(publish).toBeEnabled();
     await inlinePreparing(page, "intervention");
+    // partial_ready 在後端算進行中，不能換新題組。
+    await expect(page.getByRole("button", { name: "換一組新題目", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "再試一次", exact: true }).click();
     await expect(page.getByText("已準備 2 / 6 題", { exact: true })).toBeVisible();
     await inlinePreparing(page);
@@ -186,6 +188,18 @@ for (const viewport of [
     await expect(page.locator(".assessment-cycle")).toContainText("本輪有未作答或未檢測的重點。 未作答 0 個重點 · 未檢測 2 個重點。");
   });
 }
+
+test("failed set offers a fresh set next to retry", async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  const fixture = await studyLayoutFixture(page, "failed");
+  await fixture.open();
+  await expect(page.getByRole("button", { name: "再試一次", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "換一組新題目", exact: true }).click();
+  await inlinePreparing(page);
+  expect(
+    fixture.requests.filter((request) => request.path.endsWith("/assessment-sets")),
+  ).toHaveLength(1);
+});
 
 test("generation failure and no-safe keep clear states and readable material", async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });

@@ -997,11 +997,11 @@ test('material podcast player keeps the chat entry in the material rail',async({
  for(const width of [1920,1440,390]){
   await page.setViewportSize({width,height:900});await page.goto(`/materials/${materialId}/podcasts/${podcastId}`);
   await expect(page.locator('.podcast-watch-layout')).toBeVisible();
-  // 問答入口在教材側欄（播放器的側欄預設收合）；手機收在底部頁籤的「更多」裡。
+  // 問答入口在教材側欄（大桌機預設展開）；手機收在底部頁籤的「更多」裡。
   if(width<=720)await page.getByRole('navigation',{name:'教材導覽'}).getByRole('button',{name:'更多',exact:true}).click();
   const chat=page.getByRole('button',{name:'問小幫手',exact:true});await expect(chat).toBeVisible();const box=(await chat.boundingBox())!;
   const nav=(await page.getByRole('navigation',{name:'教材導覽'}).boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(nav.x-0.5);expect(box.x+box.width).toBeLessThanOrEqual(nav.x+nav.width+0.5);
-  if(width>720){await page.mouse.move(width-10,450);await expect.poll(async()=>(await page.locator('.rail').boundingBox())!.width).toBe(64);}
+  if(width>720)expect((await page.locator('.rail').boundingBox())!.width).toBe(236);
  }
 });
 

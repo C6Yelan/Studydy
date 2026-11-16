@@ -108,8 +108,8 @@ function manyMaterials(count: number): MaterialLibraryItem[] {
 // 「接續學習」區的按鈕以「動作：標題」為名，例如「繼續學習：有界重試策略」。
 const quick = (page: Page) => page.getByRole("region", { name: "接續學習" });
 const quickButton = (page: Page, action: string) => quick(page).getByRole("button", { name: new RegExp(`^${action}：`) });
-// 全部徽章和規則平常收合；要看每一格徽章或規則表先展開。
-const openAllBadges = (page: Page) => page.getByRole("button", { name: "全部徽章和規則" }).click();
+// 全部徽章和規則平常收合；要看每一格徽章或規則表先按「看全部 N 個徽章和特別成就」展開。
+const openAllBadges = (page: Page) => page.getByRole("button", { name: /^看全部 \d+ 個徽章和特別成就$/ }).click();
 const islands = (page: Page) => page.locator(".map-island:not(.is-new)");
 const mapView = (page: Page) => page.locator(".island-map-viewport").evaluate((element: HTMLElement) => ({
   x: parseFloat(element.style.getPropertyValue("--tx")),
@@ -529,10 +529,13 @@ test("achievements level card, XP rules and profile overview show real numbers w
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
-test("achievements show this week's XP per day, the three closest badges and the badge ladder", async ({ page }) => {
+test("achievements show this week's XP per day, the three closest badges and one card per badge series", async ({ page }) => {
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
     level: [6, 20, 200], total: 1228, todayXp: 40,
-    badges: { first_answer: { earned_on: "2026-10-16" }, answers_100: { earned_on: "2026-10-18" }, answers_300: { progress: 240 }, streak_3: { earned: true }, streak_7: { progress: 3 }, concepts_25: { progress: 5 } },
+    badges: {
+      first_answer: { earned_on: "2026-10-16" }, answers_100: { earned_on: "2026-10-18" }, answers_300: { progress: 240 }, streak_3: { earned: true }, streak_7: { progress: 3 }, concepts_25: { progress: 5 },
+      first_export: { earned: true }, export_kinds_4: { earned: true },
+    },
   }) }));
   await page.route("**/v1/learning-activity/rhythm?*", (route) => route.fulfill({ json: learningRhythm({
     period: "week", today: "2026-10-21", days: { "2026-10-19": { xp: 20 }, "2026-10-21": { xp: 40 } },
@@ -544,28 +547,59 @@ test("achievements show this week's XP per day, the three closest badges and the
   await expect(week.getByRole("listitem", { name: "週一：20 XP" })).toBeVisible();
   await expect(week.getByRole("listitem", { name: "週三（今天）：40 XP" })).toBeVisible();
   await expect(week.getByRole("listitem", { name: "週日：0 XP" })).toBeVisible();
-  // 快拿到了：每個系列只取下一層，依進度比例由高到低取三個。
+  // 快拿到了：每個系列只取下一層，依進度比例由高到低取三個，寫出下一層名稱、目前數字和要做什麼。
   const near = page.getByRole("region", { name: "快拿到了" }).getByRole("listitem");
   await expect(near).toHaveCount(3);
-  await expect(near.nth(0)).toContainText("作答 · 金");
+  await expect(near.nth(0)).toContainText("作答：題海航行者（金）240 / 300 題");
+  await expect(near.nth(0)).toContainText("再答 60 題");
   await expect(near.nth(0).getByRole("progressbar")).toHaveAttribute("aria-valuetext", "240 / 300 題");
-  await expect(near.nth(1)).toContainText("等級 · 銀");
-  await expect(near.nth(2)).toContainText("連續學習 · 銀");
-  // 徽章階梯：已取得、下一層的進度、還沒到的層級。
-  const answers = page.getByRole("region", { name: "徽章階梯" }).getByRole("listitem", { name: "作答", exact: true });
-  await expect(answers.locator(".badge-ladder-cell")).toHaveText(["已取得", "已取得", "240 / 300", "", ""]);
-  // 表頭標出銅、銀、金、鑽石、星耀；沒有這一層留空，有但還沒到的層級是鎖頭。
-  await expect(page.locator(".badge-ladder-head span")).toHaveText(["", "銅", "銀", "金", "鑽石", "星耀"]);
-  await expect(answers.getByLabel("鑽石：尚未到")).toBeVisible();
-  // 教材完成只有四層，星耀沒有這一層。
-  await expect(page.getByRole("region", { name: "徽章階梯" }).getByRole("listitem", { name: "教材完成", exact: true }).getByLabel("星耀：沒有這一層")).toBeVisible();
-  await expect(answers.getByLabel("金：240 / 300 題")).toBeVisible();
+  await expect(near.nth(1)).toContainText("等級：資深航海士（銀）");
+  await expect(near.nth(1)).toContainText("升到第 10 級");
+  await expect(near.nth(2)).toContainText("連續學習：一週全勤（銀）");
+  await expect(near.nth(2)).toContainText("連續 7 天都學一點");
+  // 系列卡牆：15 個有多層的系列分在 5 區，沒有舊的階梯表格。
+  await expect(page.getByRole("region", { name: "徽章階梯" })).toHaveCount(0);
+  const groups = page.locator(".badge-series-group");
+  await expect(groups.locator("h2")).toHaveText(["答題", "學習進度", "複習與筆記", "Podcast", "學習習慣"]);
+  await expect(page.locator(".badge-series-card")).toHaveCount(15);
+  const group = (name: string) => page.getByRole("region", { name, exact: true });
+  await expect(group("答題").locator(".badge-series-title")).toHaveText(["作答", "題組完成", "零失誤題組", "克服難點"]);
+  await expect(group("學習進度").locator(".badge-series-title")).toHaveText(["概念完成", "教材完成", "目標與關卡"]);
+  await expect(group("複習與筆記").locator(".badge-series-title")).toHaveText(["概念卡標記", "個人註記", "匯出與整理"]);
+  await expect(group("Podcast").locator(".badge-series-title")).toHaveText(["Podcast 收聽", "Podcast 聽完"]);
+  await expect(group("學習習慣").locator(".badge-series-title")).toHaveText(["連續學習", "學習天數", "等級"]);
+  // 區名旁是這一區拿到的層數合計。
+  await expect(group("答題")).toContainText("已拿到 2 / 16 層");
+  const card = (title: string) => page.locator(".badge-series-card").filter({ has: page.locator(".badge-series-title", { hasText: new RegExp(`^${title}$`) }) });
+  // 拿到幾層：目前那一層的名稱、層數小橫條（報讀文字）、到下一層的進度與要做什麼。
+  const answers = card("作答");
+  await expect(answers.locator(".badge-series-have")).toHaveText("百題挑戰");
+  await expect(answers.getByRole("img", { name: "拿到 2 / 共 5 層" })).toBeVisible();
+  await expect(answers.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "240 / 300 題");
+  await expect(answers.locator(".badge-series-goal")).toHaveText("再答 60 題240 / 300 題");
+  await expect(answers.locator(".badge-series-next")).toHaveText("下一層：題海航行者（金）");
+  // 一層都沒拿到：寫「還沒拿到」，進度與句子對第一層。
+  const concepts = card("概念完成");
+  await expect(concepts.locator(".badge-series-have")).toHaveText("還沒拿到");
+  await expect(concepts.getByRole("img", { name: "拿到 0 / 共 5 層" })).toBeVisible();
+  await expect(concepts.locator(".badge-series-goal")).toHaveText("再完成 1 個概念0 / 1 個");
+  await expect(concepts.locator(".badge-series-next")).toHaveText("下一層：點亮概念（銅）");
+  // 整個系列拿完：進度條滿格，不再有下一層。
+  const exports = card("匯出與整理");
+  await expect(exports.locator(".badge-series-have")).toHaveText("整理收藏家");
+  await expect(exports.locator(".badge-series-goal")).toHaveText("這個系列全部拿到了");
+  await expect(exports.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
+  await expect(exports.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "1");
+  await expect(exports.locator(".badge-series-next")).toHaveCount(0);
+  // 入口按鈕的 N 和總覽同一個計數（不含尚未揭曉的隱藏徽章）。
+  const entry = page.getByRole("button", { name: /^看全部 \d+ 個徽章和特別成就$/ });
+  const count = (await entry.innerText()).match(/\d+/)![0];
+  await entry.click();
+  await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText(new RegExp(` / ${count}$`));
   // 經驗值規則沒有「大約幾站」的換算。
-  await openAllBadges(page);
-  // 階梯與總覽用同一個計數（不含尚未揭曉的隱藏徽章）。
-  const ladderCount = (await page.getByRole("region", { name: "徽章階梯" }).locator(".badge-count").innerText()).replace("已取得", "").trim();
-  await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText(ladderCount);
   await expect(page.getByText("大約是")).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
 test("profile overview shows dashes when the library cannot be read", async ({ page }) => {

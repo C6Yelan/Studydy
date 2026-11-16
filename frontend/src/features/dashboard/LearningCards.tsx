@@ -10,7 +10,7 @@ const questText: Record<LearningQuest["kind"], { icon: IconName; title: (quest: 
   finish_podcast_episode: { icon: "headphones", title: () => "聽完 1 集還沒聽完的 Podcast", action: "去收聽" },
 };
 
-/** 今天的小事的完成數：每日任務加上每份教材當天的關卡；首頁和知識地圖的「今天」共用。 */
+/** 今天的小事的完成數：每日任務加上每份教材當天的關卡。 */
 export function dailyTaskCount(quests: LearningQuest[], goals: LearningGoalSummary[]) {
   return {
     done: quests.filter((quest) => quest.done).length + goals.filter(goal => goal.today_stage.done).length,
