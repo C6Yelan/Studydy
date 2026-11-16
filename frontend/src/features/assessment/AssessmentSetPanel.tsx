@@ -298,7 +298,7 @@ export function AssessmentSetPanel({
     }
   };
 
-  // 已通過或已完成的概念再開一輪完整檢測；沿用 startRemediation 的做法，同一輪結果頁重試時共用同一把冪等鍵。
+  // 已通過或已完成的概念再開一輪完整檢測，題組準備失敗時也用它換一組新題目；沿用 startRemediation 的做法，同一輪結果頁重試時共用同一把冪等鍵。
   const startAgain = async () => {
     if (!group || busy) return;
     const signature = `again:${group.cycle.diagnostic_set_id}`;
@@ -506,6 +506,12 @@ export function AssessmentSetPanel({
                       onClick={() => void action("retry")}
                     >
                       再試一次
+                    </button>
+                  )}
+                  {/* partial_ready 算進行中，後端建立新題組會回 409，所以只有 failed 才提供。 */}
+                  {group?.status === "failed" && (
+                    <button className="secondary-button" disabled={busy} onClick={() => void startAgain()}>
+                      換一組新題目
                     </button>
                   )}
                 </div>
