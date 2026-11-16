@@ -15,11 +15,11 @@
   overflow: visible;
 }
 /* 層級顏色：I 銅、II 銀、III 金、IV 鑽石 */
-.badge-medal.is-tier-1, .badge-ladder-cell.is-tier-1 { --badge-main: #c27a3e; --badge-soft: #fbeadb; }
-.badge-medal.is-tier-2, .badge-ladder-cell.is-tier-2 { --badge-main: #8796ad; --badge-soft: #eef2f7; }
-.badge-medal.is-tier-3, .badge-ladder-cell.is-tier-3 { --badge-main: #e0a106; --badge-soft: var(--warning-soft); }
-.badge-medal.is-tier-4, .badge-ladder-cell.is-tier-4 { --badge-main: #2fb3e3; --badge-soft: #dff5fd; }
-.badge-medal.is-tier-5, .badge-ladder-cell.is-tier-5 { --badge-main: #e0457b; --badge-soft: #fde6ef; }
+.badge-medal.is-tier-1, .badge-tier-step.is-tier-1 { --badge-main: #c27a3e; --badge-soft: #fbeadb; }
+.badge-medal.is-tier-2, .badge-tier-step.is-tier-2 { --badge-main: #8796ad; --badge-soft: #eef2f7; }
+.badge-medal.is-tier-3, .badge-tier-step.is-tier-3 { --badge-main: #e0a106; --badge-soft: var(--warning-soft); }
+.badge-medal.is-tier-4, .badge-tier-step.is-tier-4 { --badge-main: #2fb3e3; --badge-soft: #dff5fd; }
+.badge-medal.is-tier-5, .badge-tier-step.is-tier-5 { --badge-main: #e0457b; --badge-soft: #fde6ef; }
 .badge-medal.is-locked {
   --badge-main: #c3cbdb;
   --badge-soft: var(--page-cool);
@@ -223,45 +223,40 @@
   }
 }
 
-/* 快拿到了：三張進度最高的下一層徽章 */
-.badge-near { display: grid; gap: 10px; }
+/* 快拿到了：一張卡裡三列，每列是下一層的徽章、名稱與目前數字、進度條、要做什麼 */
+.badge-near { display: grid; align-content: start; gap: 14px; padding: 20px 22px; }
 .badge-near h2 { margin: 0; font-size: 17px; }
-.badge-near ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
-.badge-near li { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 14px; }
-.badge-near-text { display: grid; flex: 1; gap: 2px; min-width: 0; }
-.badge-near-text b { font-size: 15px; overflow-wrap: anywhere; }
-.badge-near-text small { color: var(--text-muted); font-size: 12.5px; font-weight: 700; }
+.badge-near ul { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+.badge-near li { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.badge-near-text { display: grid; flex: 1; gap: 6px; min-width: 0; }
+.badge-near-line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.badge-near-line b { font-size: 15px; }
+.badge-near-line span, .badge-near-text small { color: var(--text-secondary); font-size: 13px; font-weight: 700; }
 
-/* 徽章階梯：一個系列一列，銅到星耀五格 */
-.badge-ladder { display: grid; gap: 10px; padding: 16px 18px; }
-.badge-ladder > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.badge-ladder h2 { margin: 0; font-size: 17px; }
-.badge-ladder-rows { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.badge-ladder-rows li { display: grid; grid-template-columns: minmax(84px, 120px) repeat(5, minmax(0, 1fr)); align-items: center; gap: 6px; font-size: 13px; font-weight: 800; }
-.badge-ladder-name { overflow-wrap: anywhere; }
-.badge-ladder-cell {
+/* 系列卡牆：每區一個標題和卡片格線，卡片依寬度自動多欄 */
+.badge-series-group { display: grid; gap: 12px; }
+.badge-series-group > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.badge-series-group h2 { margin: 0; font-size: 19px; }
+.badge-series-group > header span { color: var(--text-secondary); font-size: 13px; font-weight: 800; }
+.badge-series-grid {
   display: grid;
-  min-height: 34px;
-  place-items: center;
-  padding: 0 4px;
-  border: 2px solid var(--border);
-  border-radius: 10px;
-  background: var(--page-cool);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-.badge-ladder-cell.is-earned { border-color: var(--badge-main); background: var(--badge-soft); color: var(--text-primary); }
-.badge-ladder-cell.is-none { border-color: transparent; background: none; }
-.badge-ladder-cell.is-locked { color: var(--text-muted); opacity: 0.55; }
-.badge-ladder-head { font-size: 12px; font-weight: 900; color: var(--text-muted); text-align: center; }
-.badge-ladder-head span { text-align: center; }
-.badge-ladder-cell.is-next { border-style: dashed; border-color: var(--studydy-blue); background: var(--studydy-blue-soft-2); color: var(--studydy-blue-deep); }
-@media (max-width: 480px) {
-  .badge-ladder-rows li { grid-template-columns: minmax(64px, 84px) repeat(5, minmax(0, 1fr)); gap: 4px; }
-  .badge-ladder-cell { font-size: 11px; padding: 0 2px; }
-  /* 格子只剩約 44px，「90 / 100」放不下一行：進度數字折成兩行，不撐出格子。 */
-  .badge-ladder-cell.is-next { white-space: normal; line-height: 1.15; text-align: center; }
-}
+.badge-series-card { display: grid; align-content: start; gap: 10px; padding: 16px 18px; }
+.badge-series-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.badge-series-name { display: grid; gap: 3px; min-width: 0; }
+.badge-series-title { color: var(--text-secondary); font-size: 12.5px; font-weight: 800; }
+.badge-series-have { font-size: 16px; }
+.badge-series-card.is-empty .badge-series-have { color: var(--text-muted); }
+/* 層數小橫條：一層一段，拿到的依層級上色 */
+.badge-series-steps { display: flex; gap: 4px; }
+.badge-tier-step { width: 16px; height: 6px; border-radius: 999px; background: var(--border); }
+.badge-tier-step.is-earned { background: var(--badge-main); }
+.badge-series-goal { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 13.5px; }
+.badge-series-todo { color: var(--text-primary); font-weight: 800; }
+.badge-series-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.badge-series-next { color: var(--text-muted); font-size: 12.5px; font-weight: 700; }
