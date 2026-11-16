@@ -2092,6 +2092,33 @@ test("strengthening can skip and revisit, but records each concept once and comp
   expect(posts.map(post => post.body.rating)).toEqual(["remembered", "forgot"]);
 });
 
+test("strengthening swaps cards without rebuilding the frame or rereading the deck", async ({ page }) => {
+  const { view } = await mockCards(page, { saved: true, many: true, count: 4 });
+  await mockMarks(page, view, { marked: { 0: "forgot", 1: "forgot", 2: "forgot" } });
+  let studyReads = 0;
+  page.on("request", request => { if (new URL(request.url()).pathname === `/v1/card-sets/${cardSetId}/study`) studyReads++; });
+  await page.goto("/concept-cards/review");
+  const stage = page.locator(".card-review-stage");
+  await expect(page.locator(".card-practice-face")).toBeVisible();
+  await stage.evaluate(node => {
+    node.querySelector(".card-list")!.setAttribute("data-kept", "yes");
+    node.querySelector(".card-dock")!.setAttribute("data-kept", "yes");
+  });
+  await showCardBack(page);
+  await expect(page.getByRole("button", { name: "熟悉了", exact: true })).toBeEnabled();
+  for (const [key, label] of [["ArrowRight", view.concepts[1].label], ["ArrowRight", view.concepts[2].label], ["ArrowLeft", view.concepts[1].label]]) {
+    await stage.press(key);
+    await expect(page.getByRole("article", { name: `需要加強：${label}` })).toBeVisible();
+    // 新卡從正面開始，沒翻面不能標記。
+    await expect(page.locator(".card-practice-face.is-front")).toBeVisible();
+    await expect(page.getByRole("button", { name: "熟悉了", exact: true })).toBeDisabled();
+    await expect(page.locator(".card-review-stage")).toBeFocused();
+    await expect(page.locator(".card-list[data-kept=yes]")).toHaveCount(1);
+    await expect(page.locator(".card-dock[data-kept=yes]")).toHaveCount(1);
+  }
+  expect(studyReads).toBe(1);
+});
+
 test("PNG names include material and deck order with cleaned concept titles", async ({ page }) => {
   let releaseArtwork!: () => void;
   const artwork = new Promise<void>(resolve => { releaseArtwork = resolve; });

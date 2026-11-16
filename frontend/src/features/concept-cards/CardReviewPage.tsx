@@ -1,8 +1,7 @@
 import { cardPngName } from "./card-png-name";
-import { useConceptDifficulty } from "../learning-diagnosis/LearningDiagnosis";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
-import type { CardBatch, CardReviewItem, CardReviewRating, CardStudyView } from "../../api/contracts";
+import type { CardBatch, CardReviewItem, CardReviewRating, CardStudyView, ConceptDifficultyView } from "../../api/contracts";
 import { writeRoute } from "../../app/routes";
 import { ListBreadcrumb } from "../../ui/Breadcrumb";
 import { EmptyState } from "../../ui/EmptyState";
@@ -16,6 +15,34 @@ import { useConceptArtwork } from "./VisualConceptCard";
 import "./card-review.css";
 
 type LoadedCard = { study: CardStudyView; item: CardReviewItem; card: CardBatch["cards"][number]; context: CardBatch["context"]; sourceResolver: string };
+
+/** 這一輪內重複用的讀取結果；value 讀完才有，讓看過的卡換回來時不必等一個畫面。失敗的不留，重試會重讀。 */
+type CacheEntry = { promise: Promise<unknown>; value?: unknown };
+type RequestCache = Map<string, CacheEntry>;
+function cachedRead<T>(cache: RequestCache, key: string, load: () => Promise<T>): Promise<T> {
+  const found = cache.get(key);
+  if (found) return found.promise as Promise<T>;
+  const entry: CacheEntry = { promise: load() };
+  cache.set(key, entry);
+  entry.promise.then(value => { entry.value = value; }, () => { if (cache.get(key) === entry) cache.delete(key); });
+  return entry.promise as Promise<T>;
+}
+const peek = <T,>(cache: RequestCache, key: string) => cache.get(key)?.value as T | undefined;
+const studyKey = (item: CardReviewItem) => `study:${item.card_set_id}:${item.knowledge_structure_revision}`;
+const batchKey = (item: CardReviewItem, version: number, offset: number) => `batch:${item.card_set_id}:${version}:${offset}`;
+const difficultyKey = (item: CardReviewItem) => `difficulty:${item.material_id}:${item.knowledge_structure_revision}`;
+
+/** 組出這張卡；卡片與卡組版本對不上時丟錯。 */
+function assemble(study: CardStudyView, batch: CardBatch, item: CardReviewItem, index: number, offset: number): LoadedCard {
+  const card = batch.cards[index - offset];
+  if (card?.concept_id !== item.card.concept_id || batch.context.source_resolver !== study.source_resolver) throw new Error("卡片與卡組版本不一致，請重新讀取。");
+  return { study, item, card, context: batch.context, sourceResolver: study.source_resolver };
+}
+function locate(study: CardStudyView, item: CardReviewItem) {
+  const index = study.navigation.findIndex((entry) => entry.concept_id === item.card.concept_id);
+  if (index < 0 || study.knowledge_structure_revision !== item.knowledge_structure_revision) throw new Error("卡片與卡組版本不一致，請重新讀取。");
+  return { index, offset: Math.floor(index / 8) * 8 };
+}
 
 /**
  * 需要加強：一次一張、一輪看完就停。卡片與卡組瀏覽時是同一張概念卡（圖卡、完整重點與來源頁碼），
@@ -38,6 +65,7 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
   const [processed, setProcessed] = useState<Map<number, CardReviewRating | null>>(new Map());
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const cache = useRef<RequestCache>(new Map()).current;
   useEffect(() => {
     let cancelled = false;
     setRound(null); setLoadError(null); setPosition(0); setEnterLastPage(false); setProcessed(new Map()); setNotice(null);
@@ -88,7 +116,7 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
             {marked.forgot > 0 && <button className="primary-button" type="button" onClick={() => setReload((value) => value + 1)}>再加強一輪</button>}
           </div>
         </div>
-        : <ReviewCard title={title} key={`${round[position].card_set_id}:${round[position].card.concept_id}`} apiClient={apiClient} item={round[position]} onBusy={setSaving} processed={processed.has(position)} processedCount={processed.size} savedRating={processed.get(position) ?? null} position={position} total={round.length} enterLastPage={enterLastPage} onMove={direction => { setEnterLastPage(direction < 0); setPosition(value => value + direction); }}
+        : <ReviewCard title={title} cache={cache} apiClient={apiClient} item={round[position]} onBusy={setSaving} processed={processed.has(position)} processedCount={processed.size} savedRating={processed.get(position) ?? null} position={position} total={round.length} enterLastPage={enterLastPage} onMove={direction => { setEnterLastPage(direction < 0); setPosition(value => value + direction); }}
           list={<CardList disabled={saving} items={round.map((entry, i) => ({ key: `${entry.card_set_id}:${entry.card.concept_id}`, label: entry.card.label, current: position === i, status: processed.has(i) ? "已處理" : null }))}
             onSelect={i => { setEnterLastPage(false); setPosition(i); }} />}
           onMarked={(rating) => {
@@ -105,8 +133,8 @@ export function CardReviewPage({ apiClient, cardSetId, materialId }: { apiClient
   </section>;
 }
 
-function ReviewCard({ title, apiClient, item, list, onMarked, processed, processedCount, savedRating, position, total, onMove, onBusy, enterLastPage }: {
-  title: string; apiClient: StudydyApiClient; item: CardReviewItem;
+function ReviewCard({ title, cache, apiClient, item, list, onMarked, processed, processedCount, savedRating, position, total, onMove, onBusy, enterLastPage }: {
+  title: string; cache: RequestCache; apiClient: StudydyApiClient; item: CardReviewItem;
   enterLastPage: boolean; list: ReactNode;
   onBusy: (busy: boolean) => void;
   processed: boolean; processedCount: number; savedRating: CardReviewRating | null; position: number; total: number; onMove: (direction: number) => void;
@@ -114,34 +142,59 @@ function ReviewCard({ title, apiClient, item, list, onMarked, processed, process
   onMarked: (rating: CardReviewRating | null) => void;
 }) {
   const { artworkModule, loadFailed } = useConceptArtwork();
-  const difficulty = useConceptDifficulty(apiClient, item.material_id, item.knowledge_structure_revision);
-  const [loaded, setLoaded] = useState<LoadedCard | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // ReviewCard 換卡時不重建（外框、清單、按鈕、標記列都留著），每張卡自己的狀態在 cardKey 變動時手動重設。
+  const cardKey = `${item.card_set_id}:${item.card.concept_id}`;
+  const [shownKey, setShownKey] = useState(cardKey);
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
   const [retry, setRetry] = useState(0);
+  const [filled, setFilled] = useState(0);
   const [pageIndex, setPageIndex] = useState(enterLastPage ? -1 : 0);
   const [busy, setBusy] = useState(false);
   const [back, setBack] = useState(false);
-  const stage = useRef<HTMLElement>(null);
-  useEffect(() => { stage.current?.focus({ preventScroll: true }); }, []);
-
   const [markError, setMarkError] = useState<string | null>(null);
+  if (shownKey !== cardKey) {
+    // 新卡一律從正面開始；從下一張按「上一張」回來時停在末頁。
+    setShownKey(cardKey); setFailure(null); setRetry(0); setPageIndex(enterLastPage ? -1 : 0); setBack(false); setMarkError(null);
+  }
+  const stage = useRef<HTMLElement>(null);
   const failed = useRef<CardReviewRating | null>(null);
+  // 換卡後焦點回到卡面，報讀才會讀到新卡名稱。
+  useEffect(() => { failed.current = null; stage.current?.focus({ preventScroll: true }); }, [cardKey]);
   const submit = useMarkSubmit(apiClient);
+
+  // 卡面資料依「卡組＋版本」、分批依「卡組＋版本＋位移」快取；已讀過的同步組出，不經過讀取畫面。
+  const loaded = useMemo<LoadedCard | null>(() => {
+    const study = peek<CardStudyView>(cache, studyKey(item));
+    if (!study) return null;
+    try {
+      const { index, offset } = locate(study, item);
+      const batch = peek<CardBatch>(cache, batchKey(item, study.version, offset));
+      return batch ? assemble(study, batch, item, index, offset) : null;
+    } catch { return null; }
+    // filled：cache 有新結果時重算（cache 本身是 ref，不會觸發重繪）。
+  }, [cache, item, filled]);
+  useEffect(() => {
+    if (loaded) return;
+    let cancelled = false;
+    void (async () => {
+      const study = await cachedRead(cache, studyKey(item), () => apiClient.getCardStudy(item.card_set_id));
+      const { index, offset } = locate(study, item);
+      const batch = await cachedRead(cache, batchKey(item, study.version, offset),
+        () => offset === 0 && study.batch ? Promise.resolve(study.batch) : apiClient.getCardBatch(item.card_set_id, study.version, offset));
+      assemble(study, batch, item, index, offset);
+      if (!cancelled) setFilled(value => value + 1);
+    })().catch((reason) => { if (!cancelled) setFailure({ key: cardKey, message: errorMessage(reason) }); });
+    return () => { cancelled = true; };
+  }, [apiClient, cache, item, cardKey, loaded, retry]);
+  const error = failure?.key === cardKey ? failure.message : null;
+  const difficulty = peek<ConceptDifficultyView>(cache, difficultyKey(item));
   useEffect(() => {
     let cancelled = false;
-    setError(null);
-    void (async () => {
-      const study: CardStudyView = await apiClient.getCardStudy(item.card_set_id);
-      const index = study.navigation.findIndex((entry) => entry.concept_id === item.card.concept_id);
-      if (index < 0 || study.knowledge_structure_revision !== item.knowledge_structure_revision) throw new Error("卡片與卡組版本不一致，請重新讀取。");
-      const offset = Math.floor(index / 8) * 8;
-      const batch = offset === 0 && study.batch ? study.batch : await apiClient.getCardBatch(item.card_set_id, study.version, offset);
-      const card = batch.cards[index - offset];
-      if (card?.concept_id !== item.card.concept_id || batch.context.source_resolver !== study.source_resolver) throw new Error("卡片與卡組版本不一致，請重新讀取。");
-      if (!cancelled) setLoaded({ study, item, card, context: batch.context, sourceResolver: study.source_resolver });
-    })().catch((failure) => { if (!cancelled) setError(errorMessage(failure)); });
+    // 難度資料讀不到就當作沒有，不擋卡片。
+    cachedRead(cache, difficultyKey(item), () => apiClient.getConceptDifficulty({ materialId: item.material_id, structureRevision: item.knowledge_structure_revision }))
+      .then(() => { if (!cancelled) setFilled(value => value + 1); }, () => undefined);
     return () => { cancelled = true; };
-  }, [apiClient, item, retry]);
+  }, [apiClient, cache, item.material_id, item.knowledge_structure_revision]);
   const pages = useMemo(() => loaded && artworkModule ? artworkModule.conceptCardPages(loaded.card, loaded.context).length : 1, [loaded, artworkModule]);
   const localPage = pageIndex < 0 ? pages - 1 : pageIndex;
   // -1 表示末頁；真正頁數載入後的 localPage 變動不算使用者換頁，不撤銷翻面。
@@ -185,9 +238,10 @@ function ReviewCard({ title, apiClient, item, list, onMarked, processed, process
         <span className="card-dock-count"><b>{position + 1}</b> / {total}{pages > 1 && !loadFailed && <small> · 卡面 {localPage + 1} / {pages}</small>}</span>
       </>}>
     {loaded
-      ? <Flashcard downloadName={() => cardPngName(loaded.study, loaded.card.concept_id, localPage, apiClient)} back={back} onFlip={() => setBack(value => !value)} key={localPage} card={loaded.card} difficulty={difficulty.data?.concepts.find(concept => concept.concept_id === loaded.card.concept_id)} structure={loaded.context} pageIndex={localPage} materialName={item.material_name} apiClient={apiClient} sourceResolver={loaded.sourceResolver} />
-      : <StateView title={error ? "無法讀取這張卡片" : "正在讀取卡片"} description={error ?? "正在取得卡面與來源。"} tone={error ? "failure" : "loading"} live={!error}
-        action={error ? <button className="primary-button" type="button" onClick={() => setRetry((value) => value + 1)}>重新讀取</button> : undefined} />}
+      ? <Flashcard downloadName={() => cardPngName(loaded.study, loaded.card.concept_id, localPage, apiClient)} back={back} onFlip={() => setBack(value => !value)} key={`${cardKey}:${localPage}`} card={loaded.card} difficulty={difficulty?.concepts.find(concept => concept.concept_id === loaded.card.concept_id)} structure={loaded.context} pageIndex={localPage} materialName={item.material_name} apiClient={apiClient} sourceResolver={loaded.sourceResolver} />
+      // 讀取中維持卡面原本的大小，上下張按鈕和標記列不會跟著跳。
+      : <div className="card-face-pending"><StateView title={error ? "無法讀取這張卡片" : "正在讀取卡片"} description={error ?? "正在取得卡面與來源。"} tone={error ? "failure" : "loading"} live={!error}
+        action={error ? <button className="primary-button" type="button" onClick={() => { setFailure(null); setRetry((value) => value + 1); }}>重新讀取</button> : undefined} /></div>}
     {(status || markError) && <p className="card-face-chip" role="status">{status}{markError && <span className="form-error" role="alert">標記尚未保存。{markError}<button className="text-button" type="button" onClick={() => void mark(failed.current!)}>重試</button></span>}</p>}
     </CardNavFrame>
   </article>;

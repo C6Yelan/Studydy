@@ -45,6 +45,8 @@
 .card-dock kbd { padding:0 6px; border:1.5px solid currentColor; border-radius:6px; font:inherit; font-size:12px; font-weight:800; opacity:.7; }
 .card-dock-hint { color:var(--text-muted); font-size:13px; font-weight:800; }
 .card-dock-count { padding:0 6px; color:var(--text-muted); font-size:14px; font-weight:800; }
+/* 計數文字（有無「卡面 x / y」、位數不同）長短不一，固定寬度才不會把置中的標記按鈕推著左右跳。 */
+@media (min-width:721px) { .card-dock-count { box-sizing:border-box; min-width:15em; text-align:left; white-space:nowrap; } }
 .card-dock-count b { color:var(--text-primary); font-size:16px; }
 .card-dock-count small { font-size:12px; font-weight:700; }
 .card-dock .form-error { flex-basis:100%; margin:0; text-align:center; }
@@ -53,6 +55,8 @@
 /* 正面與反面共用同一個固定卡框（寬高由 CardNavFrame 量測），翻面不跳動；內容在框內置中。 */
 .card-face-flip { box-sizing:border-box; display:flex; flex-direction:column; justify-content:center; width:calc(var(--card-face-w) + 40px); height:calc(var(--card-face-h) + 58px); padding:14px 20px 44px; cursor:pointer; outline:none; }
 .card-face-flip:focus-visible { box-shadow:inset 0 0 0 3px var(--studydy-blue-soft); }
+/* 卡面讀取中：和翻面卡同大，換卡時卡框不縮成一條再撐開。 */
+.card-face-pending { box-sizing:border-box; display:flex; align-items:center; justify-content:center; width:calc(var(--card-face-w) + 40px); height:calc(var(--card-face-h) + 58px); }
 .card-practice-front { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; width:min(var(--card-face-w,760px),760px); min-height:min(var(--card-face-h,360px),420px); margin-inline:auto; padding:24px; color:var(--text-primary); text-align:center; }
 .card-practice-front h2 { margin:0; font-size:clamp(28px,3vw,44px); line-height:1.3; overflow-wrap:anywhere; }
 .card-practice-front p { margin:0; color:var(--text-secondary); line-height:1.7; }
@@ -113,6 +117,7 @@
   .card-nav-button.is-prev { grid-column:1; grid-row:3; justify-self:start; }
   .card-nav-button.is-next { grid-column:2; grid-row:3; justify-self:end; }
   .card-face-flip { width:auto; height:auto; padding:12px 12px 8px; }
+  .card-face-pending { width:auto; height:auto; }
   .card-practice-front { width:100%; min-height:260px; padding:20px 12px; }
   .visual-card { max-height:70vh; scrollbar-gutter:auto; }
   .visual-concept-card { width:100%; }
