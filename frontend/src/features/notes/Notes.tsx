@@ -3,7 +3,7 @@ import { Progress } from "../../ui/Progress";
 import { MathText } from "../../ui/MathText";
 import { mathPlainText } from "../../ui/math-text";
 import { ExportControls } from "../exports/ExportControls";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type StudydyApiClient } from "../../api/client";
 import type { MaterialNotesView, NoteBlock, NoteCalloutStyle, NoteItem, NoteKind, NoteOutlineEntry, NoteParagraph } from "../../api/contracts";
 import { MarkupParagraph, NoteMarkup, NoteText } from "./NoteMarkup";
@@ -96,18 +96,26 @@ const failureMessages: Record<string, string> = {
   NOTE_SOURCE_EMPTY: "這份教材目前沒有可用來寫筆記的重點來源。",
 };
 
-function NotesContent({ api, materialId, revision, kind, changeKind, target, openProgress }: { api: StudydyApiClient; materialId: string; revision: string; kind: NoteKind; changeKind: (kind: NoteKind) => void; target: NoteTarget | null; openProgress: () => void }) {
-  const [view, setView] = useState<MaterialNotesView | null>(null);
+/** 目錄用的大綱：有原教材章節時用章節，否則用筆記段落大綱。 */
+function noteOutline(view: MaterialNotesView | null | undefined): NoteOutlineEntry[] {
+  return view?.sections.length
+    ? view.sections.map(s => ({ paragraph_id: s.section_id, heading: s.heading, level: s.level, number: "" }))
+    : view?.outline ?? [];
+}
+
+/** 一種筆記的內容區。看過之後保持掛著，換種類時只隱藏，切回來不重讀；隱藏時不輸出段落 id，段落查找只會找到看得到的那一種。 */
+function NoteKindPanel({ api, materialId, revision, kind, active, view, showView, target, openProgress, outlineExpanded, drawerOpen, closeDrawer }: {
+  api: StudydyApiClient; materialId: string; revision: string; kind: NoteKind; active: boolean; view: MaterialNotesView | null; showView: (kind: NoteKind, view: MaterialNotesView) => void;
+  target: NoteTarget | null; openProgress: () => void; outlineExpanded: boolean; drawerOpen: boolean; closeDrawer: (jumped: boolean) => void;
+}) {
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const sequence = useRef(0);
   const readingBody = useRef<HTMLDivElement>(null);
   const outlineDialog = useRef<HTMLDialogElement>(null);
-  const outlineTrigger = useRef<HTMLButtonElement>(null);
   const jumpAfterClose = useRef<string | null>(null);
-  const [outlineExpanded, setOutlineExpanded] = useState(true);
-  const [outlineDrawerOpen, setOutlineDrawerOpen] = useState(false);
+  const unorganizedTitle = useId();
   const [activeSection, setActiveSection] = useState("");
   const positionKey = `studydy:notes-position:${materialId}:${revision}:${kind}`;
   const [previousPosition, setPreviousPosition] = useState(() => {
@@ -115,10 +123,10 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
   });
   const [now, setNow] = useState(Date.now());
   const pending = view?.status === "pending" || view?.status === "running";
-  useLocateParagraph(view, target);
-  const outline: NoteOutlineEntry[] = view?.sections.length
-    ? view.sections.map(s => ({ paragraph_id: s.section_id, heading: s.heading, level: s.level, number: "" }))
-    : view?.outline ?? [];
+  // 隱藏時傳 null：等這一種被切到、段落 id 出現後才定位。
+  useLocateParagraph(active ? view : null, target);
+  const outline = noteOutline(view);
+  const sectionId = (id: string) => active ? `note-section-${id}` : undefined;
   useEffect(() => {
     if (!pending || !view?.started_at) return;
     setNow(Date.now());
@@ -128,7 +136,8 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
   useEffect(() => {
     const entries = outline;
     const body = readingBody.current;
-    if (!body) return;
+    // 隱藏時沒有段落 id、量不到位置，不追蹤也不記錄捲動位置；切回來時重新計算目前章節。
+    if (!body || !active) return;
     const track = () => {
       const boundary = body.getBoundingClientRect().top + 32;
       let current = entries[0]?.paragraph_id ?? "";
@@ -149,13 +158,15 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
     body.addEventListener("scroll", read, { passive: true });
     window.addEventListener("resize", track);
     return () => { body.removeEventListener("scroll", read); window.removeEventListener("resize", track); };
-  }, [view?.outline, view?.sections, positionKey]);
+  }, [view?.outline, view?.sections, positionKey, active]);
   const jump = (id: string) => {
     const target = document.getElementById(`note-section-${id}`);
     target?.scrollIntoView({ block: "start" });
     target?.focus({ preventScroll: true });
     setActiveSection(id);
   };
+  // 要在目錄的捲動 effect 之前打開，目錄才量得到目前章節的位置。
+  useLayoutEffect(() => { if (drawerOpen) outlineDialog.current?.showModal(); }, [drawerOpen]);
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -164,14 +175,14 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
       try {
         const result = await api.getNotes(materialId, revision, kind);
         if (cancelled || request !== sequence.current) return;
-        setView(result); setError("");
+        showView(kind, result); setError("");
         if (result.status === "pending" || result.status === "running") timer = setTimeout(poll, 2000);
       } catch (e) { if (!cancelled && request === sequence.current) setError(errorMessage(e)); }
     };
     void poll();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [api, materialId, revision, kind, reload]);
-  const update = (result: MaterialNotesView) => { sequence.current++; setView(result); setReload(v => v + 1); };
+  }, [api, materialId, revision, kind, reload, showView]);
+  const update = (result: MaterialNotesView) => { sequence.current++; showView(kind, result); setReload(v => v + 1); };
   const generate = async () => {
     if (!view || busy) return;
     setBusy(true); setError(""); sequence.current++;
@@ -193,28 +204,12 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
   const paragraph = (p: NoteParagraph, sourceLevel?: 1 | 2 | 3) => {
     if (!view) return null;
     const number = sourceLevel ? undefined : numbers.get(p.id);
-    return <MarkupParagraph key={`${view.content_revision}:${view.content_generation}:${p.id}`} paragraph={p}><section id={`note-section-${p.id}`} data-note-target={p.id} tabIndex={-1}
+    return <MarkupParagraph key={`${view.content_revision}:${view.content_generation}:${p.id}`} paragraph={p}><section id={sectionId(p.id)} data-note-target={p.id} tabIndex={-1}
       className={`note-paragraph${sourceLevel ? " note-source-paragraph" : (number?.level ?? 1) > 1 ? " note-subsection" : ""}`} aria-label={mathPlainText(number ? numberedHeading(number) : p.heading)}>
       <ParagraphBody paragraph={p} number={number} sourceLevel={sourceLevel} sources={<span className="note-sources" aria-label="段落來源">{sourceLinks(p.evidence).map(e => <SourceButton key={e.evidence_id} apiClient={api} resolver={view.source_resolver} evidence={e} reference={{quote:e.quote}}/>)}</span>}/>
     </section></MarkupParagraph>;
   };
-  return <div className="note-workspace">
-    <div className="note-reading-toolbar">
-      <div className="note-reading-controls">
-      {!!outline.length && <>
-        <button type="button" className="note-outline-toggle note-outline-desktop-toggle" aria-label="章節目錄" title="章節目錄" aria-expanded={outlineExpanded} onClick={() => setOutlineExpanded(v => !v)}><Icon name="book" size={18}/></button>
-        <button ref={outlineTrigger} type="button" className="note-outline-toggle note-outline-mobile-toggle" aria-label="章節目錄" title="章節目錄" aria-expanded={outlineDrawerOpen} aria-haspopup="dialog" onClick={() => { setOutlineDrawerOpen(true); outlineDialog.current?.showModal(); }}><Icon name="book" size={18}/></button>
-      </>}
-      <div className="note-kinds" role="group" aria-label="筆記種類">{(["summary", "full"] as const).map(k => <button key={k} type="button" aria-pressed={kind === k}
-        className={kind === k ? "primary-button" : "secondary-button"} onClick={() => changeKind(k)}>{k === "summary" ? "複習速覽" : "完整筆記"}</button>)}</div>
-      </div>
-      <p className="note-source-notice" title="由 AI 整理，每個重點都可點開原文對照。"><Icon name="sparkle" size={16}/><span>由 AI 整理，每個重點都可點開原文對照。</span></p>
-      <div className="note-reading-actions">
-        {!!view?.paragraphs.length && <ExportControls label="匯出筆記" options={[
-          { value: "pdf", label: "PDF" }, { value: "md", label: "Markdown" }, { value: "docx", label: "Word（.docx）" },
-        ]} download={format => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${view.content_revision}/notes/${kind}/export/${format}`)} />}
-      </div>
-    </div>
+  return <div className="note-kind-panel" hidden={!active}>
     <div className={`note-reading-layout${outlineExpanded && outline.length ? " has-outline" : ""}`}>
       {outlineExpanded && !!outline.length && <aside className="note-outline-desktop"><Outline entries={outline} active={activeSection} jump={jump}/></aside>}
       <div ref={readingBody} className="note-reading-body"><div className="note-reading-column">
@@ -242,7 +237,7 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
       {view.sections.length ? view.sections.map(section => {
         const Heading = section.level === 1 ? "h2" : section.level === 2 ? "h3" : "h4";
         const target = { target_type: "section" as const, id: `section:${section.section_id}`, anchor: `section:${section.section_id}`, heading: section.heading, level: section.level };
-        return <section key={section.section_id} id={`note-section-${section.section_id}`} data-note-target={target.id} tabIndex={-1}
+        return <section key={section.section_id} id={sectionId(section.section_id)} data-note-target={target.id} tabIndex={-1}
           className={`note-source-section note-source-level-${section.level}`} aria-label={mathPlainText(section.heading)}>
           <MarkupParagraph paragraph={target}><Heading><NoteText text={section.heading} path={["heading"]}/></Heading></MarkupParagraph>
           {!!section.outline.length && <nav className="note-chapter-outline" aria-label={`${mathPlainText(section.heading)}章節大綱`}>
@@ -254,8 +249,8 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
         </section>;
       }) : view.paragraphs.map(p => paragraph(p))}
       </NoteMarkup>
-      {!!view.unorganized_concepts.length && <section className="note-unorganized" aria-labelledby="unorganized-concepts-title">
-        <h2 id="unorganized-concepts-title">以下概念暫未整理</h2>
+      {!!view.unorganized_concepts.length && <section className="note-unorganized" aria-labelledby={unorganizedTitle}>
+        <h2 id={unorganizedTitle}>以下概念暫未整理</h2>
         <ul>{view.unorganized_concepts.map(concept => <li key={concept.concept_id}>{concept.label} <button type="button" className="text-button"
           aria-label={`${concept.label} · 在地圖查看`} onClick={() => void openConcept(concept.concept_id)}>在地圖查看</button></li>)}</ul>
       </section>}
@@ -266,14 +261,49 @@ function NotesContent({ api, materialId, revision, kind, changeKind, target, ope
       readingBody.current?.scrollTo({ top: previousPosition }); setPreviousPosition(0);
     }}>回到上次閱讀位置</button>}
     <dialog ref={outlineDialog} className="note-outline-drawer" aria-label="章節目錄" onClose={() => {
-      setOutlineDrawerOpen(false);
       const target = jumpAfterClose.current;
       jumpAfterClose.current = null;
-      if (target !== null) jump(target); else outlineTrigger.current?.focus();
+      closeDrawer(target !== null);
+      if (target !== null) jump(target);
     }}>
       <button type="button" className="secondary-button" onClick={() => outlineDialog.current?.close()}>關閉目錄</button>
-      {outlineDrawerOpen && <Outline entries={outline} active={activeSection} jump={id => { jumpAfterClose.current = id; outlineDialog.current?.close(); }}/>}
+      {drawerOpen && <Outline entries={outline} active={activeSection} jump={id => { jumpAfterClose.current = id; outlineDialog.current?.close(); }}/>}
     </dialog>
+  </div>;
+}
+
+/** 筆記外框與上方工具列；換種類時不重建，只切換底下看得到的那一種內容。 */
+function NotesWorkspace({ api, materialId, revision, kind, changeKind, target, openProgress }: { api: StudydyApiClient; materialId: string; revision: string; kind: NoteKind; changeKind: (kind: NoteKind) => void; target: NoteTarget | null; openProgress: () => void }) {
+  const [views, setViews] = useState<Partial<Record<NoteKind, MaterialNotesView>>>({});
+  const showView = useCallback((k: NoteKind, view: MaterialNotesView) => setViews(old => ({ ...old, [k]: view })), []);
+  const [visited, setVisited] = useState<NoteKind[]>([kind]);
+  const outlineTrigger = useRef<HTMLButtonElement>(null);
+  const [outlineExpanded, setOutlineExpanded] = useState(true);
+  const [outlineDrawerOpen, setOutlineDrawerOpen] = useState(false);
+  const view = views[kind];
+  const outline = noteOutline(view);
+  const select = (k: NoteKind) => { setVisited(old => old.includes(k) ? old : [...old, k]); changeKind(k); };
+  const closeDrawer = useCallback((jumped: boolean) => { setOutlineDrawerOpen(false); if (!jumped) outlineTrigger.current?.focus(); }, []);
+  return <div className="note-workspace">
+    <div className="note-reading-toolbar">
+      <div className="note-reading-controls">
+      {!!outline.length && <>
+        <button type="button" className="note-outline-toggle note-outline-desktop-toggle" aria-label="章節目錄" title="章節目錄" aria-expanded={outlineExpanded} onClick={() => setOutlineExpanded(v => !v)}><Icon name="book" size={18}/></button>
+        <button ref={outlineTrigger} type="button" className="note-outline-toggle note-outline-mobile-toggle" aria-label="章節目錄" title="章節目錄" aria-expanded={outlineDrawerOpen} aria-haspopup="dialog" onClick={() => setOutlineDrawerOpen(true)}><Icon name="book" size={18}/></button>
+      </>}
+      <div className="note-kinds" role="group" aria-label="筆記種類">{(["summary", "full"] as const).map(k => <button key={k} type="button" aria-pressed={kind === k}
+        className={kind === k ? "primary-button" : "secondary-button"} onClick={() => select(k)}>{k === "summary" ? "複習速覽" : "完整筆記"}</button>)}</div>
+      </div>
+      <p className="note-source-notice" title="由 AI 整理，每個重點都可點開原文對照。"><Icon name="sparkle" size={16}/><span>由 AI 整理，每個重點都可點開原文對照。</span></p>
+      <div className="note-reading-actions">
+        {!!view?.paragraphs.length && <ExportControls label="匯出筆記" options={[
+          { value: "pdf", label: "PDF" }, { value: "md", label: "Markdown" }, { value: "docx", label: "Word（.docx）" },
+        ]} download={format => api.downloadExport(`/v1/materials/${materialId}/knowledge-structures/${view.content_revision}/notes/${kind}/export/${format}`)} />}
+      </div>
+    </div>
+    {(["summary", "full"] as const).filter(k => visited.includes(k)).map(k => <NoteKindPanel key={k} api={api} materialId={materialId} revision={revision} kind={k} active={k === kind}
+      view={views[k] ?? null} showView={showView} target={target} openProgress={openProgress} outlineExpanded={outlineExpanded}
+      drawerOpen={outlineDrawerOpen && k === kind} closeDrawer={closeDrawer}/>)}
   </div>;
 }
 
@@ -293,7 +323,7 @@ export function Notes({ api, materialId, revision }: { api: StudydyApiClient; ma
   const closeProgress = useCallback(() => { window.history.replaceState(window.history.state, "", window.location.pathname); setProgressOpen(false); }, []);
   return <div className="notes-page">
     <div hidden={progressOpen} className="notes-page">
-      <NotesContent key={`${materialId}:${revision}:${kind}`} api={api} materialId={materialId} revision={revision} kind={kind} changeKind={setKind}
+      <NotesWorkspace key={`${materialId}:${revision}`} api={api} materialId={materialId} revision={revision} kind={kind} changeKind={setKind}
         target={target} openProgress={openProgress}/>
     </div>
     {progressOpen && <NotesProgress api={api} materialId={materialId} revision={revision} kind={kind} close={closeProgress}/>}

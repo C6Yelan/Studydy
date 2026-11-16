@@ -18,6 +18,8 @@
 .note-outline-mobile-toggle { display: none; }
 .note-source-notice { display: flex; align-items: center; gap: 6px; margin: 0; padding: 2px 10px; border-radius: var(--radius-button); background: var(--studydy-blue-soft); color: var(--studydy-blue-deep); font-size: .75rem; font-weight: 900; }
 .note-source-notice svg { flex: none; }
+.note-kind-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.note-kind-panel[hidden] { display: none; }
 .note-reading-layout { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
 .note-reading-layout.has-outline { grid-template-columns: minmax(12rem, 17rem) minmax(0, 1fr); }
 .note-outline-desktop { min-height: 0; border-right: 1px solid var(--border); }
