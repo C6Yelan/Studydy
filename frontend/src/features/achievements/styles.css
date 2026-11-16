@@ -10,7 +10,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 20px;
-  align-items: flex-start;
+  align-items: stretch;
 }
 .achievements-side { display: grid; flex: 1 1 320px; gap: 16px; min-width: 0; }
 .achievements-top > .badge-near { flex: 2 1 480px; }
@@ -40,7 +40,7 @@
 .week-xp { display: grid; gap: 10px; padding: 16px; }
 .week-xp > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .week-xp > header small { color: var(--studydy-blue); font-size: 13px; font-weight: 900; }
-.week-xp p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+.week-xp p { margin: 0; color: var(--text-secondary); font-size: 13px; text-wrap: balance; }
 .week-xp-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
 .week-xp-bars li { display: grid; justify-items: center; gap: 4px; color: var(--text-muted); font-size: 12px; font-weight: 800; }
 .week-xp-bar { display: flex; align-items: flex-end; width: min(100%, 30px); height: 90px; }

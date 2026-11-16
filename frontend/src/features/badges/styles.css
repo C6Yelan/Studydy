@@ -234,7 +234,7 @@
 .badge-near-line span, .badge-near-text small { color: var(--text-secondary); font-size: 13px; font-weight: 700; }
 
 /* 系列卡牆：每區一個標題和卡片格線，卡片依寬度自動多欄 */
-.badge-series-group { display: grid; gap: 12px; }
+.badge-series-group { display: grid; gap: 12px; container: badge-series / inline-size; }
 .badge-series-group > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
 .badge-series-group h2 { margin: 0; font-size: 19px; }
 .badge-series-group > header span { color: var(--text-secondary); font-size: 13px; font-weight: 800; }
@@ -245,6 +245,10 @@
   margin: 0;
   padding: 0;
   list-style: none;
+}
+/* 剛好 4 張的區（答題）在一列放不下 4 張時，每列 2 張，避免落成 3+1；容器寬 540px 以下一欄、1082px 以上一列 4 張，都維持自動欄數。 */
+@container badge-series (min-width: 540px) and (max-width: 1081px) {
+  .badge-series-grid:has(> :nth-child(4):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .badge-series-card { display: grid; align-content: start; gap: 10px; padding: 16px 18px; }
 .badge-series-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -259,4 +263,4 @@
 .badge-series-goal { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 13.5px; }
 .badge-series-todo { color: var(--text-primary); font-weight: 800; }
 .badge-series-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.badge-series-next { color: var(--text-muted); font-size: 12.5px; font-weight: 700; }
+.badge-series-next { color: var(--text-secondary); font-size: 12.5px; font-weight: 700; }
