@@ -8,12 +8,14 @@ import {
   materialFailureMessage,
 } from "./material-flow.ts";
 
-test("review failures explain the actual cause instead of a generic failure", () => {
-  assert.match(materialFailureMessage('REVIEW_METADATA_REASON_INVALID'), /非教學內容.*分類理由/);
-  assert.match(materialFailureMessage('REVIEW_ALIAS_EDIT_INVALID'), /別名.*大小寫/);
-  assert.match(materialFailureMessage('REVIEW_GROUPING_CYCLE'), /循環/);
-  assert.match(materialFailureMessage('REVIEW_RESPONSE_INVALID'), /回應格式/);
-  assert.match(materialFailureMessage('SEMANTIC_INPUT_TOO_LARGE'), /目前批次.*單次模型容量.*分批方式/);
+test("failure messages are plain language and never contain the error code", () => {
+  for (const code of ["REVIEW_GROUPING_CYCLE", "SEMANTIC_SERVICE_TIMEOUT", "MATERIAL_MODEL_BUDGET_EXHAUSTED", "SEMANTIC_INPUT_TOO_LARGE", "KNOWLEDGE_STRUCTURE_STORE_FAILED", "UNKNOWN_CODE"]) {
+    const message = materialFailureMessage(code);
+    assert.ok(!message.includes(code), code);
+    assert.doesNotMatch(message, /模型|額度|開發測試|prompt|錯誤代碼/, code);
+  }
+  assert.match(materialFailureMessage("MATERIAL_MODEL_BUDGET_EXHAUSTED"), /這次重新分析沒有完成.*維持原樣/);
+  assert.match(materialFailureMessage("SEMANTIC_SERVICE_UNAVAILABLE"), /暫時忙碌.*稍後重新分析/);
 });
 
 test("material stages describe the current processing work", () => {

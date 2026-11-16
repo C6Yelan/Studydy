@@ -263,7 +263,7 @@ for (const status of ["succeeded", "partial"] as const)
     await expect(page.locator(".concept-flow-node")).toHaveCount(view.concepts.length);
   });
 
-test("analysis failure preserves its last progress and shows the error code", async ({
+test("analysis failure preserves its last progress without showing the error code", async ({
   page,
 }) => {
   const reads = await mockRun(page, (route) =>
@@ -286,8 +286,7 @@ test("analysis failure preserves its last progress and shows the error code", as
   await expect(processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true })).toHaveCount(
     0,
   );
-  await expect(processing.locator("code")).toHaveText("NO_USABLE_EVIDENCE");
-  await expect(processing.locator("code")).toBeVisible();
+  await expect(processing.locator("code")).toHaveCount(0);
   await page.clock.runFor(5_000);
   expect(reads()).toBe(1);
   await processing.getByRole("button", { name: "回到我的群島", exact: true }).click();
@@ -477,10 +476,19 @@ test('saved page evidence offers resume after source context failure',async({pag
  await mockRun(page,route=>route.fulfill({json:{...base,status:'failed',progress_stage:'evidence',total_pages:368,completed_pages:368,completed_at:clockTime.toISOString(),error_code:'DOCUMENT_EVIDENCE_INVALID',analysis_saved:true}}));
  await page.goto(runPath);
  await expect(page.getByRole('heading',{name:'教材處理失敗',exact:true})).toBeVisible();
- await expect(page.getByText('教材來源文字或章節結構未通過檢查，尚未發布知識地圖。請檢查來源後重試。')).toBeVisible();
+ await expect(page.getByText('這次沒能從教材整理出可靠的知識地圖',{exact:false})).toBeVisible();
  await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();
  await expect(page.getByText(/已完成的處理進度已保存/)).toBeVisible();
  await expect(page.locator('.failure-progress')).toContainText('368 / 368 頁');
+});
+
+test('failure screen shows plain-language text for the maintenance budget limit and never the error code',async({page})=>{
+ await mockRun(page,route=>route.fulfill({json:{...base,status:'failed',progress_stage:'semantics',completed_at:clockTime.toISOString(),error_code:'MATERIAL_MODEL_BUDGET_EXHAUSTED'}}));
+ await page.goto(runPath);
+ await expect(page.getByRole('heading',{name:'教材處理失敗',exact:true})).toBeVisible();
+ await expect(page.getByRole('alert')).toContainText('這次重新分析沒有完成');
+ await expect(page.locator('body')).not.toContainText('MATERIAL_MODEL_BUDGET_EXHAUSTED');
+ await expect(page.locator('body')).not.toContainText('錯誤代碼');
 });
 
 for (const width of [1280, 390]) test(`large review progress survives reload and stale polls at ${width}px`, async ({page}) => {
@@ -531,8 +539,8 @@ for (const width of [1280, 390]) test(`failed review explains the cause and pres
     source_names:Array.from({length:41},(_,i)=>`合成來源 ${i+1}.pdf`)}}));
   await page.goto(runPath);
   await expect(page.getByRole('heading',{name:'這次更新未完成',exact:true})).toBeVisible();
-  await expect(page.getByText(/模型將概念標為非教學內容，但沒有提供允許的分類理由/)).toBeVisible();
-  await expect(page.getByText('REVIEW_METADATA_REASON_INVALID',{exact:true})).toBeVisible();
+  await expect(page.getByText(/這次沒能從教材整理出可靠的知識地圖/)).toBeVisible();
+  await expect(page.getByText('REVIEW_METADATA_REASON_INVALID')).toHaveCount(0);
   await expect(page.locator('.failure-progress')).toContainText('38%');
   await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();
   await expect(page.getByText(/已完成的處理進度已保存/)).toBeVisible();
@@ -549,10 +557,10 @@ test('processing failure keeps recovery order and completion keeps its source no
   if(state==='failed'){
    const card=page.locator('.run-failure-content');await expect(card.getByRole('button',{name:'接續已保存的分析'})).toBeVisible();
    const order=await card.evaluate(element=>{
-    const progress=element.querySelector('.failure-progress')!, action=element.querySelector('.run-failure-actions')!, code=element.querySelector('.run-failure-code')!;
-    return !!(progress.compareDocumentPosition(action)&Node.DOCUMENT_POSITION_FOLLOWING)&&!!(action.compareDocumentPosition(code)&Node.DOCUMENT_POSITION_FOLLOWING);
+    const progress=element.querySelector('.failure-progress')!, action=element.querySelector('.run-failure-actions')!;
+    return !!(progress.compareDocumentPosition(action)&Node.DOCUMENT_POSITION_FOLLOWING);
    });expect(order).toBe(true);
-   await expect(card.locator('.run-failure-code')).toContainText('STORAGE_UNAVAILABLE');
+   await expect(card).not.toContainText('STORAGE_UNAVAILABLE');
   }
   for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
    await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`processing-${state}-${width}.png`),animations:'disabled'});
