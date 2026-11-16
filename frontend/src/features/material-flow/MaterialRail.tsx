@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type HTMLAttributes, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { StudydyApiClient } from "../../api/client";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { RouteLink } from "../../ui/RouteLink";
@@ -43,16 +43,14 @@ function mapRouteOf(route: AppRoute, materialId: string, structures: { run_id: s
   return structure ? { name: "knowledge-map", materialId, runId: structure.run_id, structureRevision: structure.knowledge_structure_revision } : null;
 }
 
-export function MaterialRail({ apiClient, route, materialId, forgot, toggle, peek }: {
+export function MaterialRail({ apiClient, route, materialId, forgot, toggle }: {
   apiClient: StudydyApiClient;
   route: AppRoute;
   materialId: string;
   /** 這份教材的不熟卡數；讀不到時為 null。 */
   forgot: number | null;
-  /** 預設收合的頁面才有的「展開／收合側欄」按鈕，放在最下面，項目位置不因頁面而變。 */
-  toggle?: ReactNode;
-  /** 收合時滑鼠移入展開的事件。 */
-  peek: Pick<HTMLAttributes<HTMLElement>, "onPointerMove" | "onPointerLeave">;
+  /** 「展開／收合側欄」按鈕，放在最下面，項目位置不因頁面而變。 */
+  toggle: ReactNode;
 }) {
   const material = useRememberedMaterial(apiClient, materialId);
   // 頁面本身多半會讀教材索引；沒有快取時才由側欄補讀，失敗只少顯示名稱，項目照地圖版本判斷。
@@ -94,7 +92,7 @@ export function MaterialRail({ apiClient, route, materialId, forgot, toggle, pee
   };
   const withMap = (target: (map: MapRoute) => AppRoute) => mapRoute ? target(mapRoute) : null;
 
-  return <aside className="rail material-rail" {...peek}>
+  return <aside className="rail material-rail">
     <RouteLink className="rail-brand" route={{ name: "home" }} aria-label="返回 Studydy 首頁">
       <img src="/assets/studydy/brand-idle.png" alt="" />
       <span>Studydy</span>
