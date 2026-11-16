@@ -489,6 +489,24 @@ test("switching back to a kind already read shows it without reading notes again
   expect(reads).toHaveLength(afterFirstVisits);
 });
 
+test("outline collapse is remembered separately for each note kind", async ({ page }) => {
+  const state = await setup(page);
+  state.setFull(notes("full"));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/materials/${materialId}/notes`);
+  const toggle = page.locator(".note-outline-desktop-toggle");
+  const outline = page.getByRole("navigation", { name: "章節大綱", exact: true });
+  await expect(outline).toBeVisible();
+  await toggle.click();
+  await expect(outline).toBeHidden();
+  await page.getByRole("button", { name: "完整筆記", exact: true }).click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(outline).toBeVisible();
+  await page.getByRole("button", { name: "複習速覽", exact: true }).click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(outline).toBeHidden();
+});
+
 test("progress page follows the upload layout, keeps the old draft readable and returns when finished", async ({ page }) => {
   const initial = { ...notes(), status: "running" as const, updating: true, started_at: new Date(Date.now() - 65000).toISOString(), updated_at: new Date().toISOString(),
     progress: { stage: "generating" as const, completed_sections: 0, total_sections: 4, completed_parts: 3, total_parts: 10, current_section: "堆疊" } };

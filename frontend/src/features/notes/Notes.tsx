@@ -278,18 +278,22 @@ function NotesWorkspace({ api, materialId, revision, kind, changeKind, target, o
   const showView = useCallback((k: NoteKind, view: MaterialNotesView) => setViews(old => ({ ...old, [k]: view })), []);
   const [visited, setVisited] = useState<NoteKind[]>([kind]);
   const outlineTrigger = useRef<HTMLButtonElement>(null);
-  const [outlineExpanded, setOutlineExpanded] = useState(true);
+  // 目錄收合狀態每種筆記各自記住（速覽和完整筆記的章節不同）
+  const [outlineCollapsed, setOutlineCollapsed] = useState<Record<NoteKind, boolean>>({ summary: false, full: false });
   const [outlineDrawerOpen, setOutlineDrawerOpen] = useState(false);
   const view = views[kind];
   const outline = noteOutline(view);
+  const outlineExpanded = !outlineCollapsed[kind];
+  // 讀取中也先佔位（停用），避免第一次切到未讀種類時切換列左移
+  const outlineSlot = !!outline.length || !view;
   const select = (k: NoteKind) => { setVisited(old => old.includes(k) ? old : [...old, k]); changeKind(k); };
   const closeDrawer = useCallback((jumped: boolean) => { setOutlineDrawerOpen(false); if (!jumped) outlineTrigger.current?.focus(); }, []);
   return <div className="note-workspace">
     <div className="note-reading-toolbar">
       <div className="note-reading-controls">
-      {!!outline.length && <>
-        <button type="button" className="note-outline-toggle note-outline-desktop-toggle" aria-label="章節目錄" title="章節目錄" aria-expanded={outlineExpanded} onClick={() => setOutlineExpanded(v => !v)}><Icon name="book" size={18}/></button>
-        <button ref={outlineTrigger} type="button" className="note-outline-toggle note-outline-mobile-toggle" aria-label="章節目錄" title="章節目錄" aria-expanded={outlineDrawerOpen} aria-haspopup="dialog" onClick={() => setOutlineDrawerOpen(true)}><Icon name="book" size={18}/></button>
+      {outlineSlot && <>
+        <button type="button" disabled={!outline.length} className="note-outline-toggle note-outline-desktop-toggle" aria-label="章節目錄" title="章節目錄" aria-expanded={outlineExpanded} onClick={() => setOutlineCollapsed(old => ({ ...old, [kind]: !old[kind] }))}><Icon name="book" size={18}/></button>
+        <button ref={outlineTrigger} type="button" disabled={!outline.length} className="note-outline-toggle note-outline-mobile-toggle" aria-label="章節目錄" title="章節目錄" aria-expanded={outlineDrawerOpen} aria-haspopup="dialog" onClick={() => setOutlineDrawerOpen(true)}><Icon name="book" size={18}/></button>
       </>}
       <div className="note-kinds" role="group" aria-label="筆記種類">{(["summary", "full"] as const).map(k => <button key={k} type="button" aria-pressed={kind === k}
         className={kind === k ? "primary-button" : "secondary-button"} onClick={() => select(k)}>{k === "summary" ? "複習速覽" : "完整筆記"}</button>)}</div>
@@ -302,7 +306,7 @@ function NotesWorkspace({ api, materialId, revision, kind, changeKind, target, o
       </div>
     </div>
     {(["summary", "full"] as const).filter(k => visited.includes(k)).map(k => <NoteKindPanel key={k} api={api} materialId={materialId} revision={revision} kind={k} active={k === kind}
-      view={views[k] ?? null} showView={showView} target={target} openProgress={openProgress} outlineExpanded={outlineExpanded}
+      view={views[k] ?? null} showView={showView} target={target} openProgress={openProgress} outlineExpanded={!outlineCollapsed[k]}
       drawerOpen={outlineDrawerOpen && k === kind} closeDrawer={closeDrawer}/>)}
   </div>;
 }
