@@ -102,9 +102,10 @@ export const MAX_ROUTE_EXTRAS = 3;
 /**
  * 以 selectedId 為中心畫兩層相關概念。routeIds（沒選島時的目前這站和接下來 3 站）中
  * 沒被畫出的，最多額外加 MAX_ROUTE_EXTRAS 座，排在圖下方一列，讓航線和下一站看得到；
- * 它們不受兩層和節點上限限制，也不另外畫關係。
+ * nextStationId（選島時那座島的下一站）沒被畫出時，擺在中心島正下方，讓「這座島 → 下一站」整段看得到。
+ * 額外加入的島不受兩層和節點上限限制，也不另外畫關係。
  */
-export function focusGraph(view: MapView, selectedId: string, routeIds: string[] = []) {
+export function focusGraph(view: MapView, selectedId: string, routeIds: string[] = [], nextStationId: string | null = null) {
   type Visit = { depth: 0 | 1 | 2; side: -1 | 0 | 1; parentRelation: string | null };
   const visits = new Map<string, Visit>();
   const adjacent = new Map<string, KnowledgeOutlineView["relations"]>();
@@ -186,7 +187,11 @@ export function focusGraph(view: MapView, selectedId: string, routeIds: string[]
   extras.forEach((id, index) => {
     nodes.push({ id, depth: 2, width: 260, x: (index - (extras.length - 1) / 2) * 320, y: bottom + 300 });
   });
-  const totalNodes = visits.size + extras.filter((id) => !visits.has(id)).length;
+  // 中心島正下方這一欄沒有其他島（第一層從左右 420 起排），下一站放這裡不會疊到別的島。
+  const beside = nextStationId && known.has(nextStationId) && !visible.has(nextStationId) && !extras.includes(nextStationId)
+    ? nextStationId : null;
+  if (beside) nodes.push({ id: beside, depth: 2, width: 260, x: 20, y: 300 });
+  const totalNodes = visits.size + [...extras, ...(beside ? [beside] : [])].filter((id) => !visits.has(id)).length;
   return { nodes, relations, totalNodes, totalRelations: eligibleRelations.length };
 }
 
@@ -238,14 +243,20 @@ export function relationVisibility(
   return result;
 }
 
+/** 學習順序上 id 的下一站；不在順序上或已是最後一站時是 null。 */
+export function nextStationId(path: KnowledgeOutlineView["initial_learning_path"], id: string) {
+  const start = path.find((step) => step.concept_id === id);
+  return (start && path.find((step) => step.position === start.position + 1)?.concept_id) ?? null;
+}
+
 /**
- * 金色航線：只畫「目前這站 → 下一站」一段，兩座島都畫在畫面上才畫，否則不畫。
+ * 金色航線：只畫「startId → 下一站」一段（沒選島時從目前這站，選島時從那座島），
+ * 兩座島都畫在畫面上才畫，否則不畫。
  */
 export function routeSegments(path: KnowledgeOutlineView["initial_learning_path"], visibleIds: Set<string>, startId: string) {
-  const start = path.find((step) => step.concept_id === startId);
-  const next = start && path.find((step) => step.position === start.position + 1);
-  if (!start || !next || !visibleIds.has(start.concept_id) || !visibleIds.has(next.concept_id)) return [];
-  return [{ source: start.concept_id, target: next.concept_id }];
+  const next = nextStationId(path, startId);
+  if (!next || !visibleIds.has(startId) || !visibleIds.has(next)) return [];
+  return [{ source: startId, target: next }];
 }
 
 /**
@@ -277,7 +288,7 @@ export function relationTitle(type: MapRelation["type"], source: string, target:
   }[type];
 }
 
-// 沒選島時初始鏡頭框住目前這站和接下來幾站，讓航線看得到。
+// 沒選島時（剛打開或關掉卡片後）鏡頭框住目前這站和接下來幾站，讓航線看得到。
 export const ROUTE_FRAME_AHEAD = 3;
 
 /** 初始鏡頭要框住的站：起點站加上第 n+1～n+3 站中有畫在畫面上的；起點不在畫面上就回傳空陣列。 */

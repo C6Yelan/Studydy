@@ -289,6 +289,63 @@ test("compact map retains manual viewport through details, progress reload and r
   assertReadOnly();
 });
 
+test("the route starts from the selected island and returns into view when the card closes", async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 864 });
+  const view = workspaceView(20);
+  // 第 14 站 Concept 15 的下一站是 Concept 3，離它超過兩層，選第 14 站時要搬到它旁邊。
+  const order = [0, 1, ...Array.from({ length: 12 }, (_, index) => index + 3), 2, 15, 16, 17, 18, 19];
+  view.initial_learning_path = order.map((index, position) => ({
+    position: position + 1,
+    concept_id: view.concepts[index].concept_id,
+    reason: "document_order",
+  }));
+  await mockKnowledgeMapApi(page, view);
+  const assertReadOnly = trackReadOnlyInteractions(page);
+  const id = (label: string) => view.concepts.find((concept) => concept.label === label)!.concept_id;
+  const route = page.locator(".map-route-edge");
+  // 只有一段航線，兩端是這兩站；兩站不淡化，兩站和整段航線都在畫布範圍內。
+  const expectRoute = async (from: string, to: string) => {
+    await expect(route).toHaveCount(1);
+    await expect(route).toHaveAttribute("data-id", `route:${id(from)}:${id(to)}`);
+    await expect
+      .poll(() =>
+        page.locator(".focus-graph").evaluate((graph, ids) => {
+          const bounds = graph.getBoundingClientRect();
+          const nodes = ids.map((nodeId) => graph.querySelector<HTMLElement>(`.react-flow__node[data-id="${nodeId}"]`)!);
+          return [...nodes, graph.querySelector(".map-route-edge")!].every((element) => {
+            const box = element.getBoundingClientRect();
+            return box.left >= bounds.left - 1 && box.right <= bounds.right + 1
+              && box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
+          }) && nodes.every((node) => node.style.opacity === "1");
+        }, [id(from), id(to)]),
+      )
+      .toBe(true);
+  };
+  await page.goto(mapPath);
+  // 剛打開：目前這站（沒有進度時第 1 站）→ 下一站。
+  await expectRoute("Concept 1", "Concept 2");
+  // 點已對準的中心島：從它出發，下一站一起框進來。
+  await openMapConcept(page);
+  await expectRoute("Concept 1", "Concept 2");
+  // 點第 14 站：只畫第 14 站 → 第 15 站，下一站搬到旁邊。
+  await openMapConcept(page, "Concept 15");
+  await expectRoute("Concept 15", "Concept 3");
+  // 卡片開著直接換到最後一站：沒有下一站，不畫航線。
+  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  await navigationConcept(page, "Concept 20").click();
+  await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("Concept 20");
+  await expect(route).toHaveCount(0);
+  // 關卡片（Esc、×）：鏡頭回到目前這站和接下來 3 站，航線在畫面內。
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expectRoute("Concept 1", "Concept 2");
+  await openMapConcept(page, "Concept 15");
+  await expectRoute("Concept 15", "Concept 3");
+  await page.getByRole("button", { name: "關閉概念詳情" }).click();
+  await expectRoute("Concept 1", "Concept 2");
+  assertReadOnly();
+});
+
 test("large map only renders its local neighbourhood and stays responsive when dragging", async ({
   page,
 }) => {

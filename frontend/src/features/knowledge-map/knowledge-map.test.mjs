@@ -335,3 +335,19 @@ test("with no island selected the current station and the next three are drawn e
   // 結尾不足 3 站時有幾站給幾站。
   assert.deepEqual(routeStationIds(map.initial_learning_path, "c"), ["c", "d"]);
 });
+
+test("a selected island's next station outside two hops is placed right below it", () => {
+  const map = { ...view, initial_learning_path: [] };
+  const node = (graph, id) => graph.nodes.find((item) => item.id === id);
+  // 以 a 為中心時 d 在兩層外：放到 a 正下方，不另外畫關係，算進「共幾個概念」。
+  const far = focusGraph(map, "a", [], "d");
+  const [center, next] = [node(far, "a"), node(far, "d")];
+  assert.equal(next.x + next.width / 2, center.x + center.width / 2);
+  assert.ok(next.y > center.y);
+  // 那一欄除了中心島沒有別的島，不會疊到。
+  assert.ok(far.nodes.every((item) => [center, next].includes(item) || item.x + item.width <= next.x || item.x >= next.x + next.width));
+  assert.deepEqual(far.relations.map((relation) => relation.relation_id), ["ab", "bc"]);
+  assert.equal(far.totalNodes, 4);
+  // 本來就在兩層內的下一站不搬動。
+  assert.deepEqual(node(focusGraph(map, "a", [], "b"), "b"), node(focusGraph(map, "a"), "b"));
+});
