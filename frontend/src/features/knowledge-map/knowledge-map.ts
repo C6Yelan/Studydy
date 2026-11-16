@@ -100,7 +100,8 @@ const MAX_MAP_RELATIONS = 60;
  * 以 selectedId 為中心畫兩層相關概念。routeIds（沒選島時的目前這站和接下來 3 站，最多 4 座）中
  * 沒被畫出的全部額外加入，排在圖下方一列，讓航線和下一站看得到；中心島不是目前這站時
  * （例如選了遠處的島再關卡片），4 座可能都不在兩層內。
- * nextStationId（選島時那座島的下一站）沒被畫出時，擺在中心島正下方，讓「這座島 → 下一站」整段看得到。
+ * nextStationId（選島時那座島的下一站）沒被畫出時，擺在中心島正下方，讓「這座島 → 下一站」整段看得到；
+ * 這時回傳 nextBelowId，航線改接兩座島的側面，免得從下一站的名稱卡底下穿過。
  * 額外加入的島不受兩層和節點上限限制，也不另外畫關係。
  */
 export function focusGraph(view: MapView, selectedId: string, routeIds: string[] = [], nextStationId: string | null = null) {
@@ -189,7 +190,7 @@ export function focusGraph(view: MapView, selectedId: string, routeIds: string[]
     ? nextStationId : null;
   if (beside) nodes.push({ id: beside, depth: 2, width: 260, x: 20, y: 300 });
   const totalNodes = visits.size + [...extras, ...(beside ? [beside] : [])].filter((id) => !visits.has(id)).length;
-  return { nodes, relations, totalNodes, totalRelations: eligibleRelations.length };
+  return { nodes, relations, totalNodes, totalRelations: eligibleRelations.length, nextBelowId: beside };
 }
 
 // 學習導覽一次最多畫出的概念列數；超過兩倍才分段，一般教材維持完整清單。
@@ -313,19 +314,40 @@ export function routeFrameIds(path: KnowledgeOutlineView["initial_learning_path"
 // 島名 18px，縮放 2/3 時約 12px，是島名還讀得出來的下限；鏡頭不為了塞進更多島而縮得比這更小。
 export const READABLE_ZOOM = 2 / 3;
 
+// 沒選島時框航線的縮放下限（島名約 13.5px）：使用者驗收時嫌 2/3 太小，寧可少框幾站也不縮到這以下。
+export const ROUTE_FRAME_MIN_ZOOM = 0.75;
+
 type Rect = { x: number; y: number; width: number; height: number };
+// top：畫布上方被工具列（搜尋、學習導覽、匯出鈕）蓋住的高度，取景時不能用。
+type FrameCanvas = { width: number; height: number; top: number };
+
+function fitZoom(bounds: Rect, canvas: FrameCanvas, padding: number, maxZoom: number) {
+  return Math.min(
+    canvas.width / (bounds.width * (1 + 2 * padding)),
+    (canvas.height - canvas.top) / (bounds.height * (1 + 2 * padding)),
+    maxZoom,
+  );
+}
+
+/**
+ * 關卡片後框航線的鏡頭：全部框進來的縮放低於 ROUTE_FRAME_MIN_ZOOM 時，從最遠的站開始拿掉，
+ * 最少保留起點站和下一站；拿掉過站時縮放停在 ROUTE_FRAME_MIN_ZOOM、以留下的站為中心，
+ * 不再放大，讓畫面和全部框進來時差不多（兩站仍框不下時由 frameCamera 縮到 READABLE_ZOOM）。
+ */
+export function frameRouteCamera(ids: string[], boundsOf: (ids: string[]) => Rect, canvas: FrameCanvas, padding = 0.18, maxZoom = 1.1) {
+  let kept = ids;
+  while (kept.length > 2 && fitZoom(boundsOf(kept), canvas, padding, maxZoom) < ROUTE_FRAME_MIN_ZOOM) kept = kept.slice(0, -1);
+  const camera = frameCamera(boundsOf(kept), boundsOf(kept.slice(0, 1)), canvas, padding, kept.length < ids.length ? ROUTE_FRAME_MIN_ZOOM : maxZoom);
+  return { ...camera, ids: kept };
+}
 
 /**
  * 框住 bounds 的鏡頭；縮放不低於 READABLE_ZOOM。框不下時以 anchor（被選的島或起點站）為準：
  * 中心盡量靠近 bounds 中心，但 anchor 整座留在畫面內，其餘相連的島可以超出畫面。
+ * 上下方向照舊置中在整個畫布；框住的島會碰到上方工具列時才往下移，最多移到置中在工具列下方。
  */
-export function frameCamera(bounds: Rect, anchor: Rect, canvas: { width: number; height: number }, padding = 0.18, maxZoom = 1.1) {
-  const fit = Math.min(
-    canvas.width / (bounds.width * (1 + 2 * padding)),
-    canvas.height / (bounds.height * (1 + 2 * padding)),
-    maxZoom,
-  );
-  const zoom = Math.max(fit, READABLE_ZOOM);
+export function frameCamera(bounds: Rect, anchor: Rect, canvas: FrameCanvas, padding = 0.18, maxZoom = 1.1) {
+  const zoom = Math.max(fitZoom(bounds, canvas, padding, maxZoom), READABLE_ZOOM);
   const margin = 16 / zoom;
   const axis = (boundsStart: number, boundsSize: number, anchorStart: number, anchorSize: number, view: number) => {
     const target = boundsStart + boundsSize / 2;
@@ -333,7 +355,11 @@ export function frameCamera(bounds: Rect, anchor: Rect, canvas: { width: number;
     const slack = Math.max(0, view / (2 * zoom) - anchorSize / 2 - margin);
     return Math.min(anchorCenter + slack, Math.max(anchorCenter - slack, target));
   };
+  const usable = canvas.height - canvas.top;
   const centerX = axis(bounds.x, bounds.width, anchor.x, anchor.width, canvas.width);
-  const centerY = axis(bounds.y, bounds.height, anchor.y, anchor.height, canvas.height);
-  return { zoom, x: canvas.width / 2 - centerX * zoom, y: canvas.height / 2 - centerY * zoom };
+  const centerY = axis(bounds.y, bounds.height, anchor.y, anchor.height, usable);
+  const centered = canvas.height / 2 - centerY * zoom;
+  const belowToolbar = canvas.top + usable / 2 - centerY * zoom;
+  const clearOfToolbar = canvas.top + 8 - bounds.y * zoom; // 和工具列留 8px
+  return { zoom, x: canvas.width / 2 - centerX * zoom, y: Math.min(belowToolbar, Math.max(centered, clearOfToolbar)) };
 }

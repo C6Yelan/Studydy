@@ -178,6 +178,10 @@
 .concept-flow-node .react-flow__handle {
   opacity: 0;
 }
+/* 航線側面接點貼著島插畫右緣：插畫置中，寬度一般 86%、中心島 100%、第二層 70%。 */
+.concept-flow-node .map-route-side-handle { right: auto; left: 93%; }
+.concept-flow-node.is-focus .map-route-side-handle { left: 100%; }
+.concept-flow-node.is-secondary .map-route-side-handle { left: 85%; }
 .concept-flow-edge .react-flow__edge-path {
   fill: none;
   stroke-linecap: round;
@@ -990,8 +994,11 @@
 .map-corner-tools > .export-entry { margin:0; justify-content:flex-end; pointer-events:auto; }
 .map-navigation:has(+ .map-corner-tools) { max-width:calc(100% - 186px); }
 .map-corner-search .map-search-toggle { display:none; }
+/* 工具列那一條的淡出底：海色（同 .focus-graph 背景上端）往下 24px 淡到透明，疊在島上、按鈕下；手機不加。 */
+.map-toolbar-fade { position:absolute; z-index:5; top:0; right:0; left:0; pointer-events:none; background:linear-gradient(180deg, #8fe0fb calc(100% - 24px), transparent); }
 
 @media(max-width:720px) {
+  .map-toolbar-fade { display:none; }
   .map-corner-tools { top:10px; right:10px; }
   .map-corner-tools .export-entry > button { width:42px; min-width:42px; padding:0; font-size:0; }
   .map-corner-tools .export-entry > button::before { content:"↓" / ""; display:inline-block; font-size:24px; line-height:1; border-bottom:2px solid currentColor; }

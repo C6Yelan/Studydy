@@ -43,7 +43,7 @@ import { MathText } from "../../ui/MathText";
 import { mathPlainText } from "../../ui/math-text";
 import { Progress } from "../../ui/Progress";
 import { IslandArt, islandColors, islandPalette, regionPalette } from "../../ui/art/Island";
-import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, regionBasisText, regionColorIndex, frameCamera, nextStationId, relationPhrase, routeFrameIds, routeStationIds, relationTitle, relationVisibility, routeSegments, type MapRegions, type NavigatorRange } from "./knowledge-map";
+import { learningNavigationItems, focusGraph, groupSlices, initialFocusConceptId, mapRegions, navigatorRange, NAVIGATOR_WINDOW, regionBasisText, regionColorIndex, frameCamera, nextStationId, relationPhrase, routeFrameIds, routeStationIds, relationTitle, relationVisibility, routeSegments, frameRouteCamera, type MapRegions, type NavigatorRange } from "./knowledge-map";
 
 type Concept = KnowledgeOutlineView["concepts"][number];
 type RestoreFocus = () => void;
@@ -52,7 +52,10 @@ const fitViewOptions = { padding: 0.18, minZoom: 0.001, maxZoom: 1.1 };
 // 手機的詳情卡片是佔視窗下半部的抽屜（styles.css .detail-panel 的 50dvh）；取景只用畫布露出的上半部。
 const phoneDrawerShare = 0.5;
 function visibleCanvas(element: HTMLElement, drawerOpen: boolean) {
-  const size = { width: element.clientWidth, height: element.clientHeight };
+  // 上方工具列（搜尋、學習導覽、匯出鈕）蓋住的那一條，取景時不能用。
+  const toolbarBottom = Math.max(0, ...[...element.querySelectorAll(".map-toolbar, .map-corner-tools > .export-entry")]
+    .map((tool) => tool.getBoundingClientRect().bottom - element.getBoundingClientRect().top));
+  const size = { width: element.clientWidth, height: element.clientHeight, top: toolbarBottom };
   if (!drawerOpen || !window.matchMedia("(max-width: 720px)").matches) return size;
   const covered = element.getBoundingClientRect().bottom - window.innerHeight * (1 - phoneDrawerShare);
   return { ...size, height: Math.max(120, size.height - Math.max(0, covered)) };
@@ -295,6 +298,11 @@ function ConceptMapNode({ data }: NodeProps<ConceptNode>) {
         <Handle key={type} id={`route:${type}`} type={type} position={Position.Left} className="map-route-handle"
           style={{ top: `${ROUTE_HANDLE_OFFSET}%`, left: "50%" }} />
       ))}
+      {/* 島插畫右緣的接點（左右位置依插畫寬度寫在 styles.css），下一站搬到正下方時航線接這裡。 */}
+      {(["source", "target"] as const).map((type) => (
+        <Handle key={`side-${type}`} id={`route-side:${type}`} type={type} position={Position.Right} className="map-route-side-handle"
+          style={{ top: `${ROUTE_HANDLE_OFFSET}%` }} />
+      ))}
       {data.label}
     </>
   );
@@ -305,7 +313,23 @@ const nodeTypes = { concept: ConceptMapNode };
  * 金色航線：微彎的寬帶，帶子中點畫一個往下一站的淡箭頭，看得出往哪走。
  * 往返方向相反的兩段會彎向不同側；排版上剛好擋在中間的島也比較不會被直線穿過。
  */
-function RouteEdge({ id, sourceX, sourceY, targetX, targetY }: EdgeProps) {
+function RouteEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition }: EdgeProps) {
+  if (sourcePosition === Position.Right && targetPosition === Position.Right) {
+    // 接兩座島右緣：往右繞出再水平接回，避開下一站的名稱卡（卡片比插畫寬，正上方接下來一定會穿過它）。
+    // 140 讓弧線在名稱卡那一段離卡片右緣夠遠，又不碰到右邊第一層（中心島右緣再過 120 起排）。
+    const bend = 140;
+    const [c1x, c2x] = [sourceX + bend, targetX + bend];
+    const path = `M${sourceX},${sourceY}C${c1x},${sourceY} ${c2x},${targetY} ${targetX},${targetY}`;
+    const midX = (sourceX + 3 * c1x + 3 * c2x + targetX) / 8, midY = (sourceY + targetY) / 2;
+    const angle = (Math.atan2(1.5 * (targetY - sourceY), 0.75 * (c1x - sourceX) + 1.5 * (c2x - c1x) + 0.75 * (targetX - c2x)) * 180) / Math.PI;
+    return (
+      <>
+        <BaseEdge id={id} path={path} interactionWidth={0} />
+        <path className="map-route-core" d={path} />
+        <path className="map-route-arrow" d="M-9,-11L9,0L-9,11L-3,0Z" transform={`translate(${midX},${midY}) rotate(${angle})`} />
+      </>
+    );
+  }
   const dx = targetX - sourceX, dy = targetY - sourceY;
   // 控制點沿垂直方向偏移線長的 30%，弧頂約偏 15%。
   const controlX = (sourceX + targetX) / 2 - dy * 0.3, controlY = (sourceY + targetY) / 2 + dx * 0.3;
@@ -627,6 +651,8 @@ function MapGraph({
     });
   };
   const [canvasReady, setCanvasReady] = useState(false);
+  // 上方工具列那一條的高度，給淡出底用。
+  const [toolbarBand, setToolbarBand] = useState(0);
   const fittedConcept = useRef<string | null>(null);
   // 上次自動取景的方式：選島（框住那座島、第一層和它的下一站）或航線（目前這站和接下來 3 站）。
   const fittedFraming = useRef<"island" | "route" | null>(null);
@@ -771,8 +797,8 @@ function MapGraph({
       source,
       target,
       type: "route",
-      sourceHandle: "route:source",
-      targetHandle: "route:target",
+      sourceHandle: target === projection.nextBelowId ? "route-side:source" : "route:source",
+      targetHandle: target === projection.nextBelowId ? "route-side:target" : "route:target",
       className: "map-route-edge",
       focusable: false,
       selectable: false,
@@ -820,6 +846,7 @@ function MapGraph({
   }, [
     layout,
     projection.relations,
+    projection.nextBelowId,
     previewRead.context,
     previewRead.error,
     selected.concept_id,
@@ -848,6 +875,7 @@ function MapGraph({
       const nextWidth = element.clientWidth,
         nextHeight = element.clientHeight;
       setCanvasReady(nextWidth > 0 && nextHeight > 0);
+      setToolbarBand(visibleCanvas(element, false).top);
       if (
         width &&
         height &&
@@ -871,6 +899,7 @@ function MapGraph({
   useEffect(() => {
     if (!initialized || !canvasReady || (!previewRead.context && !previewRead.error)) return;
     const framing = litConceptId === selected.concept_id ? "island" : "route";
+    const closingCard = framing === "route" && fittedFraming.current === "island";
     if (fittedConcept.current === selected.concept_id) {
       if (fittedFraming.current === framing) return;
       // 中心島不變、只是點開中心島或關掉卡片：使用者動過鏡頭就照他的，不拉回。
@@ -896,15 +925,17 @@ function MapGraph({
           ids = [...layout.filter((node) => node.depth < 2).map((node) => node.id), ...next];
           anchorIds = [selected.concept_id, ...next];
         } else {
-          // 沒選島：框住目前這站（沒有進度時第 1 站）和接下來 3 站；起點不在畫面上就從中心概念起算。
+          // 沒選島：框住目前這站（沒有進度時第 1 站）和接下來 3 站（關卡片後縮放太小時少框遠的站）；起點不在畫面上就從中心概念起算。
           ids = routeFrameIds(view.initial_learning_path, routeStart, visible);
           if (!ids.length) ids = routeFrameIds(view.initial_learning_path, selected.concept_id, visible);
           if (!ids.length) ids = [selected.concept_id];
           anchorIds = [ids[0]];
         }
-        const element = graphElement.current!;
-        void graph.setViewport(frameCamera(graph.getNodesBounds(ids), graph.getNodesBounds(anchorIds),
-          visibleCanvas(element, framing === "island")));
+        const canvas = visibleCanvas(graphElement.current!, framing === "island");
+        // 少框遠站只在關卡片後（上次是選島取景）；剛打開地圖照舊全部框進來。
+        void graph.setViewport(closingCard
+          ? frameRouteCamera(ids, (list) => graph.getNodesBounds(list), canvas)
+          : frameCamera(graph.getNodesBounds(ids), graph.getNodesBounds(anchorIds), canvas));
       });
     });
     return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
@@ -989,6 +1020,8 @@ function MapGraph({
             onZoomOut={() => { userMoved.current = true; }}
           />
         </ReactFlow>
+        {/* 滑到工具列底下的島和名稱卡淡成海色，不和按鈕撞在一起；不擋地圖操作。 */}
+        <div className="map-toolbar-fade" aria-hidden="true" style={{ height: toolbarBand + 24 }} />
         <div
           className="map-navigation"
           onKeyDown={(event) => {

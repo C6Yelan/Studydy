@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { learningNavigationItems, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW, relationVisibility, routeSegments, routeFrameIds, routeStationIds } from "./knowledge-map.ts";
+import { learningNavigationItems, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW, relationVisibility, routeSegments, routeFrameIds, routeStationIds, frameRouteCamera, ROUTE_FRAME_MIN_ZOOM } from "./knowledge-map.ts";
 
 const view = {
   concepts: ["a", "b", "c", "d"].map((concept_id) => ({ concept_id })),
@@ -141,6 +141,7 @@ test("large canonical maps do not become large rendered graphs", () => {
     relations: [],
     totalNodes: 0,
     totalRelations: 0,
+    nextBelowId: null,
   });
 });
 
@@ -315,6 +316,28 @@ test("with no island selected the camera frames the current station and the next
   assert.deepEqual(routeFrameIds(path, "s8", all), ["s8"]);
   // 起點站不在畫面上時不框，由呼叫端改用其他起點。
   assert.deepEqual(routeFrameIds(path, "s2", new Set(["s1", "s3"])), []);
+});
+
+test("after closing a card the route camera drops the farthest stations instead of zooming out below the floor", () => {
+  // 四站排成一列、每站 260 寬間隔 400：框越多站越寬、縮放越小。
+  const x = { s1: 0, s2: 400, s3: 800, s4: 1200 };
+  const boundsOf = (ids) => {
+    const left = Math.min(...ids.map((id) => x[id])), right = Math.max(...ids.map((id) => x[id] + 260));
+    return { x: left, y: 0, width: right - left, height: 200 };
+  };
+  const ids = ["s1", "s2", "s3", "s4"];
+  // 畫布夠寬：四站都框，照一般取景放大。
+  const wide = frameRouteCamera(ids, boundsOf, { width: 2400, height: 900, top: 60 });
+  assert.deepEqual(wide.ids, ids);
+  assert.ok(wide.zoom > ROUTE_FRAME_MIN_ZOOM);
+  // 四站要縮到 0.75 以下（三站可放大到 0.9）：拿掉最遠的第 4 站，縮放停在 0.75 不再放大。
+  const trimmed = frameRouteCamera(ids, boundsOf, { width: 1060 * 1.36 * 0.9, height: 900, top: 60 });
+  assert.deepEqual(trimmed.ids, ["s1", "s2", "s3"]);
+  assert.equal(trimmed.zoom, ROUTE_FRAME_MIN_ZOOM);
+  // 以留下的站為中心：三站的中心在畫布正中。
+  assert.ok(Math.abs(trimmed.x + 530 * trimmed.zoom - 1060 * 1.36 * 0.9 / 2) < 1e-6);
+  // 再窄也最少保留目前這站和下一站。
+  assert.deepEqual(frameRouteCamera(ids, boundsOf, { width: 300, height: 900, top: 60 }).ids, ["s1", "s2"]);
 });
 
 test("with no island selected the current station and the next three are drawn even outside two hops", () => {
