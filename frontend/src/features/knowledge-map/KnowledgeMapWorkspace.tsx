@@ -1109,10 +1109,10 @@ function RelationDetail({
   );
 }
 
-function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadingProgress, progressMessage, onReloadProgress, isStartingStudy, onStartStudy }: {
+function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadingProgress, progressMessage, onReloadProgress, isStartingStudy, onStartStudy, onOpenRecord }: {
   apiClient: StudydyApiClient; materialId: string; view: KnowledgeOutlineView; progress: MapProgressView | null;
   difficulty: ReturnType<typeof useConceptDifficulty>; isLoadingProgress: boolean; progressMessage: string | null;
-  onReloadProgress: () => void; isStartingStudy: boolean; onStartStudy: (id: string) => void;
+  onReloadProgress: () => void; isStartingStudy: boolean; onStartStudy: (id: string) => void; onOpenRecord: (id: string) => void;
 }) {
   const diagnosis = useLearningDiagnosis(apiClient, materialId, view.knowledge_structure_revision, difficulty, progress, view.concepts);
   const goal = useLearningGoal(apiClient, materialId);
@@ -1143,7 +1143,7 @@ function ReviewView({ apiClient, materialId, view, progress, difficulty, isLoadi
         <LearningGoalBlock state={goal} />
         {hasToday && <TodayConceptsBlock state={goal} />}
       </div>
-      <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} onReview={onStartStudy} disabled={isStartingStudy || isLoadingProgress}
+      <LearningDiagnosis api={apiClient} materialId={materialId} revision={view.knowledge_structure_revision} onReview={onOpenRecord} disabled={isStartingStudy || isLoadingProgress}
         difficulty={difficulty} progress={progress} concepts={view.concepts} report={diagnosis} />
     </div>
     <GoalEditorHost state={goal} />
@@ -1178,10 +1178,10 @@ function WorkspaceNotices({ progressMessage, onReloadProgress, startMessage, vie
 }
 
 /** 教材側欄「學習進度」：內容沿用原本地圖內切換的學習診斷與目標。 */
-export function MaterialProgress({ apiClient, materialId, view, progress, isLoadingProgress, progressMessage, onReloadProgress, isStartingStudy, onStartStudy, startMessage }: {
+export function MaterialProgress({ apiClient, materialId, view, progress, isLoadingProgress, progressMessage, onReloadProgress, isStartingStudy, onStartStudy, onOpenRecord, startMessage }: {
   apiClient: StudydyApiClient; materialId: string; view: KnowledgeOutlineView; progress: MapProgressView | null;
   isLoadingProgress: boolean; progressMessage: string | null; onReloadProgress: () => void;
-  isStartingStudy: boolean; onStartStudy: (id: string) => void; startMessage: string | null;
+  isStartingStudy: boolean; onStartStudy: (id: string) => void; onOpenRecord: (id: string) => void; startMessage: string | null;
 }) {
   const difficulty = useConceptDifficulty(apiClient, materialId, view.knowledge_structure_revision);
   return <section className="map-workspace is-review-mode">
@@ -1189,7 +1189,7 @@ export function MaterialProgress({ apiClient, materialId, view, progress, isLoad
     <div className="map-content">
       <div className="map-view">
         <ReviewView apiClient={apiClient} materialId={materialId} view={view} progress={progress} difficulty={difficulty}
-          isLoadingProgress={isLoadingProgress} progressMessage={progressMessage} onReloadProgress={onReloadProgress} isStartingStudy={isStartingStudy} onStartStudy={onStartStudy} />
+          isLoadingProgress={isLoadingProgress} progressMessage={progressMessage} onReloadProgress={onReloadProgress} isStartingStudy={isStartingStudy} onStartStudy={onStartStudy} onOpenRecord={onOpenRecord} />
       </div>
     </div>
   </section>;

@@ -159,6 +159,17 @@ export default function KnowledgeMap({
     if (!isLoadingProgress) void launch.start({ ...route, conceptId });
   };
 
+  // 答題紀錄的按鈕：有進行中題組就接著作答；有自己的上一輪就先看結果；
+  // 只有繼承來的紀錄（題組不在目前的學習工作階段）或沒有紀錄，才直接出題。
+  const openRecord = (conceptId: string) => {
+    if (isLoadingProgress) return;
+    const cycle = progress?.assessment_cycles.find((item) => item.concept_id === conceptId);
+    const setId = cycle?.active_set_id ?? (cycle && !cycle.inherited_from ? cycle.diagnostic_set_id : null);
+    if (!progress || !setId) return startStudy(conceptId);
+    writeRoute({ name: "study-session", materialId: route.materialId, runId: route.runId,
+      structureRevision: route.structureRevision, studySessionId: progress.study_session_id, assessmentSetId: setId });
+  };
+
   if (notFound === "material") return <NotFoundView {...materialNotFound} />;
   if (notFound === "version")
     return <NotFoundView title="找不到這個版本的知識地圖" description="網址中的地圖版本已不存在，可以開啟這份教材目前的知識地圖。"
@@ -230,7 +241,7 @@ export default function KnowledgeMap({
     view,
   };
   if (route.name === "material-progress")
-    return <MaterialProgress key={view.knowledge_structure_revision} materialId={route.materialId} {...shared} />;
+    return <MaterialProgress key={view.knowledge_structure_revision} materialId={route.materialId} onOpenRecord={openRecord} {...shared} />;
   return (
     <KnowledgeMapWorkspace
       key={view.knowledge_structure_revision}
