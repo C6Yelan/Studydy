@@ -470,3 +470,22 @@ test("shared authentication inputs keep focus and invalid styles distinct", asyn
   await secret.fill(password);
   expect((await style(secret)).border).toBe(focused.blue);
 });
+
+test("session expiry returns to the page the learner was on after login", async ({ page }) => {
+  await page.goto("/login");
+  await fillCredentials(page, "login");
+  await page.getByRole("button", { name: "登入", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.route("**/v1/topics", (route) => route.fulfill({ json: { topics: [] } }));
+  // 之後的請求都回 401，refresh 也失敗，視為登入過期。
+  await page.route("**/v1/materials", (route) => route.fulfill({ status: 401, json: apiError("SESSION_REQUIRED") }));
+  await page.route("**/v1/session/refresh", (route) => route.fulfill({ status: 401, json: apiError("SESSION_REQUIRED") }));
+  await page.getByRole("navigation", { name: "主要導覽", exact: true }).getByRole("link", { name: /我的群島/ }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await page.unroute("**/v1/materials");
+  await page.unroute("**/v1/session/refresh");
+  await page.route("**/v1/materials", (route) => route.fulfill({ json: { schema: "material-library/v1", materials: [] } }));
+  await fillCredentials(page, "login");
+  await page.getByRole("button", { name: "登入", exact: true }).click();
+  await expect(page).toHaveURL(/\/materials$/);
+});

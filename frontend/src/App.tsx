@@ -43,7 +43,11 @@ export default function App() {
     clientVersion.current += 1;
     currentClient.current = api;
     api.onSessionExpired = () => {
-      if (currentClient.current === api) clearPrivateView();
+      if (currentClient.current !== api) return;
+      // 登入過期時把當下頁面記成登入後的目的地（登出另有自己的目的地）。
+      if (!["/login", "/register"].includes(window.location.pathname))
+        loginDestination.current = readRoute(window.location.pathname).route;
+      clearPrivateView();
     };
     return api;
   }, [clearPrivateView]);
