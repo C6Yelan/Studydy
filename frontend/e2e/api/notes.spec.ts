@@ -1,8 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 test.skip(process.env.STUDYDY_E2E_NOTES !== "true", "Requires isolated notes API/DB fixture");
 const data = JSON.parse(process.env.STUDYDY_E2E_NOTES_DATA ?? "{}");
+// 看過的筆記種類都保持掛著，只以 hidden 隱藏；操作一律限定在目前顯示的那一種。
+const shownNotes = (page: Page) => page.locator(".note-kind-panel:not([hidden])");
 async function selectText(page: Page) {
-  const text = page.locator(".note-paragraph :is(h2, h3, h4, h5) [data-note-text]").first();
+  const text = shownNotes(page).locator(".note-paragraph :is(h2, h3, h4, h5) [data-note-text]").first();
   await expect(text).toBeVisible();
   await text.evaluate(element => {
     const range = document.createRange(); range.selectNodeContents(element);
@@ -58,7 +60,7 @@ test("real notes save an annotation, reopen its source and generate full notes o
   await page.getByRole("button", { name: "完整筆記", exact: true }).click();
   await expect(page.getByRole("button", { name: "生成完整筆記", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "生成完整筆記", exact: true }).click();
-  await expect(page.locator(".note-paragraph")).toHaveCount(3);
+  await expect(shownNotes(page).locator(".note-paragraph")).toHaveCount(3);
   await selectText(page);
   await page.getByRole("button", { name: "寫註記", exact: true }).first().click();
   await page.getByRole("textbox", { name: "個人註記", exact: true }).fill("完整筆記的複習想法");
