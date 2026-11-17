@@ -1,8 +1,7 @@
 import { ProcessingSources } from "./ProcessingSources";
 import { MaterialRunWorkspaceContext } from "../../app/AppShell";
-import { MaterialContentNav } from "./MaterialContentNav";
 import { rememberMaterial } from "./material-memory";
-import { BackLink } from "../../ui/BackLink";
+import { Breadcrumb } from "../../ui/Breadcrumb";
 import { MaterialRunFailure } from "./MaterialRunFailure";
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -203,8 +202,9 @@ export function RunView({
     return () => window.clearInterval(timer);
   }, [run?.run_id, run?.status]);
 
-  const backLink = <BackLink label={run?.base_revision || run?.output_binding ? "返回教材" : "回到我的教材"} route={run?.base_revision || run?.output_binding ? { name: "material", materialId: route.materialId } : { name: "materials" }} />;
-  const back = <div className="run-material-return">{backLink}{materialName && <span>{materialName}</span>}</div>;
+  const hasMap = !!(run?.base_revision || run?.output_binding);
+  const back = <Breadcrumb current="教材分析" parent={{ label: materialName ?? (hasMap ? "教材" : "我的群島"), ariaLabel: hasMap ? "返回教材" : "回到我的群島",
+    onClick: () => writeRoute(hasMap ? { name: "material", materialId: route.materialId } : { name: "materials" }) }} />;
 
   if (notFound) return <NotFoundView title="找不到這次處理" description="這筆處理紀錄可能已被刪除，或不屬於目前登入的帳號。" back={materialNotFound.back} />;
   if (message)
@@ -397,7 +397,7 @@ export function RunView({
         <img src="/assets/studydy/success-jump.png" alt="" />
         <div className="flow-result-body">
           <p className="status-badge is-success"><Icon name="check"/>處理完成</p>
-          <h2 id="processing-result-title">知識地圖已準備完成</h2>
+          <h2 id="processing-result-title">新島嶼準備好了！</h2>
           <p>共處理 {binding.page_count} 頁，可以查看概念、關係、來源與建議學習順序。</p>
           <p className="run-ai-notice">由 AI 整理，每個重點都可點開原文對照。</p>
           <ul className="flow-result-stats">
@@ -418,12 +418,17 @@ export function RunView({
                 })
               }
             >
-              開啟知識地圖
+              開啟知識地圖，從第 1 站出發
               <Icon name="chevron-right" />
             </button>
           </div>
         </div>
       </section>
+      <ul className="flow-mini-row">
+        <li><i aria-hidden="true"><Icon name="file" size={20} /></i><b>{binding.page_count} 頁</b><span>已處理的教材頁數</span></li>
+        {run.source_names && <li><i aria-hidden="true"><Icon name="book" size={20} /></i><b>{run.source_names.length} 份來源</b><span>都已放進這座群島</span></li>}
+        <li><i aria-hidden="true"><Icon name="clock" size={20} /></i><b>可以先離開</b><span>分析在伺服器進行，關掉頁面也不會中斷</span></li>
+      </ul>
     </section>
   );
 }
@@ -489,9 +494,7 @@ function RevisionRun({
     : currentStructure ? {name:"knowledge-map" as const,materialId:run.material_id,runId:currentStructure.run_id,structureRevision:currentStructure.knowledge_structure_revision} : null;
   const mapAction = map && <button className="primary-button" onClick={()=>writeRoute(map)}>{completed?"開啟知識地圖":"先使用目前地圖"}</button>;
   return <section className={`material-content processing-page${activeRun(run)?" is-processing":""}`}>
-    <MaterialContentNav apiClient={apiClient} materialId={run.material_id} materialName={material?.display_name} current="sources" updateCompleted={completed}
-      mapRoute={map} back={{label:material?`返回${material.display_name}`:"返回教材",onClick:()=>writeRoute({name:"material",materialId:run.material_id})}}/>
-    <div className="material-content-body" role="tabpanel" id="material-panel-sources" aria-labelledby="material-tab-sources">
+    <div className="material-content-body">
     <FlowHeader title={title} description={run.status==='failed'?undefined:completed?"教材已更新，可以開啟知識地圖繼續使用。":"Studydy 正在整理新增內容，期間仍可使用目前地圖與學習紀錄。"}/>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="processing-grid">

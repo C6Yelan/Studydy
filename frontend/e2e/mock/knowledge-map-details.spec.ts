@@ -45,7 +45,7 @@ test("map opens concept details and preserves each source on demand", async ({ p
       route.fulfill({ contentType: "text/plain", body: "Synthetic source document" }),
     );
   await page.goto(`/materials/${materialId}/runs/${runId}`);
-  await page.getByRole("button", { name: "開啟知識地圖", exact: true }).click();
+  await page.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true }).click();
   await expect(page).toHaveURL(`${browserOrigin}${mapPath}`);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("region", { name: "學習入口" })).toHaveCount(0);
@@ -73,7 +73,38 @@ test("map opens concept details and preserves each source on demand", async ({ p
   );
   await page.keyboard.press("Escape");
   await openMapConcept(page, "Stack");
-  await expect(page.getByRole("button", { name: "檢測這個概念", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "開始挑戰", exact: true })).toBeEnabled();
+});
+
+test("desktop detail card closes with Escape after dragging the sea", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockKnowledgeMapApi(page);
+  await page.goto(mapPath);
+  await openMapConcept(page);
+  const dialog = page.getByRole("dialog", { name: "概念詳情" });
+  await expect(dialog).toBeVisible();
+  const pane = await page.locator(".react-flow__pane").boundingBox();
+  const x = pane!.x + pane!.width * 0.5;
+  const y = pane!.y + pane!.height * 0.85;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 60, y - 30, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".concept-flow-node.is-focus")).toBeFocused();
+});
+
+test("Escape in the map search box still only clears the search while a card is open", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockKnowledgeMapApi(page);
+  await page.goto(mapPath);
+  await openMapConcept(page);
+  const search = page.getByRole("searchbox", { name: "搜尋概念或關鍵字" });
+  await search.fill("Stack");
+  await page.keyboard.press("Escape");
+  await expect(search).toHaveValue("");
+  await expect(page.getByRole("dialog", { name: "概念詳情" })).toBeVisible();
 });
 
 test("mobile map has a modal detail drawer with keyboard focus and source links", async ({
@@ -82,7 +113,7 @@ test("mobile map has a modal detail drawer with keyboard focus and source links"
   await page.setViewportSize({ width: 390, height: 844 });
   await mockKnowledgeMapApi(page);
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "知識地圖" }).click();
+  await page.getByRole("link", { name: "知識地圖" }).click();
   await openMapConcept(page);
   const dialog = page.getByRole("dialog", { name: "概念詳情" });
   await expect(dialog).toBeInViewport();
@@ -152,6 +183,8 @@ test("parallel relations retain separate labels, paths and details in both direc
   );
   await mockKnowledgeMapApi(page, view);
   await page.goto(mapPath);
+  // 沒選島時畫出所有關係。
+  await expect(page.locator(".concept-flow-edge")).toHaveCount(5);
   const assertSeparate = async () => {
     await expect(page.locator(".concept-flow-edge")).toHaveCount(5);
     await expect
@@ -271,8 +304,8 @@ for (const viewport of [
       const detail = page.getByRole("dialog", { name: "概念詳情", exact: true });
       await expect(detail.getByRole("heading", { name: "主機", exact: true })).toBeVisible();
       await expect(detail.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
-      await expect(detail.getByRole("region", { name: /^教材重點 / })).toHaveCount(2);
-      await expect(detail.getByRole("button", { name: "檢測這個概念", exact: true })).toBeEnabled();
+      await expect(detail.getByRole("listitem", { name: /^教材重點 / })).toHaveCount(2);
+      await expect(detail.getByRole("button", { name: "開始挑戰", exact: true })).toBeEnabled();
       await expect(detail).not.toContainText(
         /對照教材原文|教材中的其他名稱|延伸探索|Extraction text|Host|sha256/,
       );

@@ -46,9 +46,9 @@ test("wrong points directly form groups and survive lost create responses", asyn
   await expect(reviews).toHaveCount(2);
   await expect(reviews.nth(0)).toContainText("教材指出 Signal 1 使用 code1。");
   await expect(reviews.nth(1)).toContainText("教材指出 Signal 2 使用 code2。");
-  await expect(page.getByRole("button", { name: "補強這 2 個重點", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "再練這 2 個重點", exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("button", { name: "補強這 2 個重點", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "再練這 2 個重點", exact: true })).toBeVisible();
   let lostCreate = false;
   await page.route("**/assessment-sets/*/remediation", async (route) => {
     if (lostCreate) {
@@ -63,11 +63,11 @@ test("wrong points directly form groups and survive lost create responses", asyn
   // 新徽章通知顯示時仍可使用交卷後的主要補強操作。
   const badgeNotice = page.getByRole("status", { name: "獲得新徽章" });
   await expect(badgeNotice).toBeVisible();
-  await page.getByRole("button", { name: "補強這 2 個重點", exact: true }).click();
+  await page.getByRole("button", { name: "再練這 2 個重點", exact: true }).click();
   await expect(page.getByRole("button", { name: "重新讀取題組", exact: true })).toBeVisible();
   await badgeNotice.getByRole("button", { name: "關閉", exact: true }).click();
   await page.getByRole("button", { name: "重新讀取題組", exact: true }).click();
-  await page.getByRole("button", { name: "接續補強", exact: true }).click();
+  await page.getByRole("button", { name: "接續再練", exact: true }).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   expect(page.url()).not.toBe(rootUrl);
   await expect(page.locator(".question-paper-heading")).toContainText("Signals");
@@ -79,15 +79,15 @@ test("wrong points directly form groups and survive lost create responses", asyn
     .getByRole("radio", { name: /wrong2a/ })
     .check();
   await page.getByRole("button", { name: "交卷", exact: true }).click();
-  await expect(page.getByRole("button", { name: "補強這 2 個重點", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "再練這 2 個重點", exact: true })).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "補強這 2 個重點", exact: true }).click();
+  await page.getByRole("button", { name: "再練這 2 個重點", exact: true }).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   await card(page,1).getByRole("radio",{name:/\bcode1\b/}).check();
   await page.getByRole("button", { name: "下一題", exact: true }).click();
   await card(page,2).getByRole("radio",{name:/\bcode2\b/}).check();
   await page.getByRole("button",{name:"交卷",exact:true}).click();
-  await page.getByRole("button",{name:"補強這 1 個重點",exact:true}).click();
+  await page.getByRole("button",{name:"再練這 1 個重點",exact:true}).click();
   await expect(page.locator(".assessment-set-item")).toHaveCount(1);
   // 上一次交卷讓 Signals 的錯誤率降到一半以下，進入補強題組時讀到新徽章（突破難點），先關閉提示。
   await page.getByRole("status", { name: "獲得新徽章" }).getByRole("button", { name: "關閉", exact: true }).click();
@@ -117,7 +117,7 @@ test("wrong points directly form groups and survive lost create responses", asyn
   await fresh
     .getByRole("complementary", { name: "作答紀錄" })
     .locator("li button")
-    .filter({ hasText: "初篩" })
+    .filter({ hasText: "第一次" })
     .click();
   await expect(fresh).toHaveURL(rootUrl);
   await expect(fresh.locator(".assessment-set-item")).toHaveCount(3);

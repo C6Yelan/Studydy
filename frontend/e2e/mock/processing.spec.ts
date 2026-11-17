@@ -132,14 +132,12 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({ json: { schema: "material-library/v1", materials: [] } });
       case "/v1/topics":
         return route.fulfill({ json: { topics: [] } });
-      // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
-      case "/v1/profile":
-        return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
-      // 頁首學習進度；這些案例不涉及學習紀錄。
+      // 外殼的慶祝動畫讀取學習活動；這些案例不涉及學習紀錄。
       case "/v1/learning-activity":
         return route.fulfill({ json: emptyLearningActivity });
-      case "/v1/account/storage":
-        return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
+      // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
+      case "/v1/card-reviews":
+        return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
       default:
         throw new Error(`Unexpected processing request: ${request.method()} ${path}`);
     }
@@ -204,7 +202,7 @@ for (const [name, run, overall, current, step] of activeCases)
     await expect(
       processing.getByRole("button", { name: "取消並刪除教材", exact: true }),
     ).toHaveCount(name === "publishing" ? 0 : 1);
-    await expect(processing.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveCount(
+    await expect(processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true })).toHaveCount(
       0,
     );
     if (run.source_names) {
@@ -231,7 +229,7 @@ for (const status of ["succeeded", "partial"] as const)
     const processing = page.locator(".processing-page");
     await expect(processing.getByRole("heading", { level: 1 })).toHaveText("教材整理完成");
     await expect(processing.locator(".flow-result h2")).toHaveText(
-      "知識地圖已準備完成",
+      "新島嶼準備好了！",
     );
     await expect(processing.locator(".processing-summary")).toContainText("共處理 45 頁");
     await expect(processing.locator(".processing-summary ul > li")).toHaveText([
@@ -252,7 +250,7 @@ for (const status of ["succeeded", "partial"] as const)
       processing.getByRole("button", { name: "取消並刪除教材", exact: true }),
     ).toHaveCount(0);
     await expect(processing.locator(".learning-steps > li.is-complete")).toHaveCount(3);
-    const openMap = processing.getByRole("button", { name: "開啟知識地圖", exact: true });
+    const openMap = processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true });
     await expect(openMap).toHaveClass("primary-button");
     // 進度斷言完成後恢復計時，讓地圖的 lazy/Suspense 轉場正常完成。
     await page.clock.resume();
@@ -260,12 +258,12 @@ for (const status of ["succeeded", "partial"] as const)
     await expect(page).toHaveURL(
       new RegExp(`${runPath}/knowledge-structures/${encodeURIComponent(revision)}$`),
     );
-    await expect(page.getByRole("tablist", { name: "教材學習內容" }).getByRole("tab", { name: "知識地圖", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("navigation", { name: "教材導覽" }).getByRole("link", { name: "知識地圖", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("region", { name: "知識地圖工作區", exact: true })).toBeVisible();
     await expect(page.locator(".concept-flow-node")).toHaveCount(view.concepts.length);
   });
 
-test("analysis failure preserves its last progress and shows the error code", async ({
+test("analysis failure preserves its last progress without showing the error code", async ({
   page,
 }) => {
   const reads = await mockRun(page, (route) =>
@@ -285,14 +283,13 @@ test("analysis failure preserves its last progress and shows the error code", as
   await expect(
     processing.getByRole("button", { name: "重新分析原來源", exact: true }),
   ).toBeEnabled();
-  await expect(processing.getByRole("button", { name: "開啟知識地圖", exact: true })).toHaveCount(
+  await expect(processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true })).toHaveCount(
     0,
   );
-  await expect(processing.locator("code")).toHaveText("NO_USABLE_EVIDENCE");
-  await expect(processing.locator("code")).toBeVisible();
+  await expect(processing.locator("code")).toHaveCount(0);
   await page.clock.runFor(5_000);
   expect(reads()).toBe(1);
-  await processing.getByRole("button", { name: "回到我的教材", exact: true }).click();
+  await processing.getByRole("button", { name: "回到我的群島", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
 });
@@ -343,7 +340,7 @@ for (const width of [2560, 920, 390])
       // 主要內容在第一屏：處理卡（或完成卡）緊接在步驟列下方，不被其他區塊推到下面。
       expect(layout.cards[0].y - stepsBottom).toBeLessThanOrEqual(48);
       if (!active) {
-        const openMap = await processing.getByRole("button", { name: "開啟知識地圖", exact: true }).boundingBox();
+        const openMap = await processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true }).boundingBox();
         expect(openMap!.y + openMap!.height).toBeLessThanOrEqual(844);
       }
       if (active) {
@@ -371,10 +368,10 @@ for (const origin of ["research", "mixed", "unreadable"] as const)
     await mockRun(page, (route) => route.fulfill({ json: completed("succeeded") }));
     await page.goto(runPath);
     const processing = page.locator(".processing-page");
-    await expect(processing.getByRole("button", { name: "開啟知識地圖", exact: true })).toBeVisible();
+    await expect(processing.getByRole("button", { name: "開啟知識地圖，從第 1 站出發", exact: true })).toBeVisible();
     if (origin === "research") {
       // 從主題建立的教材重試後也回到這頁，步驟列沿用主題流程。
-      await expect(processing.locator(".learning-steps > li")).toHaveText(["學習需求", "確認觀念與細節", "選取來源", "建立教材"].map((label) => new RegExp(label)));
+      await expect(processing.locator(".learning-steps > li")).toHaveText(["說出想學的", "確認觀念與細節", "選來源", "建立教材"].map((label) => new RegExp(label)));
       await expect(processing.locator(".learning-steps > li.is-complete")).toHaveCount(4);
     } else await expect(processing.locator(".learning-steps")).toHaveCount(0);
   });
@@ -430,9 +427,10 @@ test("polling uses backend progress, stops at terminal, and clears on unmount", 
   server = base;
   await page.goto(runPath);
   await expect(overall).toHaveAttribute("aria-valuenow", "6");
-  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "我的教材", exact: true }).click();
-  await expect(page).toHaveURL(/\/materials$/);
-  await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
+  // 分析頁在教材側欄內：用側欄換到教材設定，分析頁卸載。
+  await page.getByRole("navigation", { name: "教材導覽" }).getByRole("link", { name: "教材設定", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/settings$`));
+  await expect(overall).toHaveCount(0);
   const unmountedReads = reads();
   await page.clock.runFor(6_000);
   expect(reads()).toBe(unmountedReads);
@@ -478,10 +476,19 @@ test('saved page evidence offers resume after source context failure',async({pag
  await mockRun(page,route=>route.fulfill({json:{...base,status:'failed',progress_stage:'evidence',total_pages:368,completed_pages:368,completed_at:clockTime.toISOString(),error_code:'DOCUMENT_EVIDENCE_INVALID',analysis_saved:true}}));
  await page.goto(runPath);
  await expect(page.getByRole('heading',{name:'教材處理失敗',exact:true})).toBeVisible();
- await expect(page.getByText('教材來源文字或章節結構未通過檢查，尚未發布知識地圖。請檢查來源後重試。')).toBeVisible();
+ await expect(page.getByText('這次沒能從教材整理出可靠的知識地圖',{exact:false})).toBeVisible();
  await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();
  await expect(page.getByText(/已完成的處理進度已保存/)).toBeVisible();
  await expect(page.locator('.failure-progress')).toContainText('368 / 368 頁');
+});
+
+test('failure screen shows plain-language text for the maintenance budget limit and never the error code',async({page})=>{
+ await mockRun(page,route=>route.fulfill({json:{...base,status:'failed',progress_stage:'semantics',completed_at:clockTime.toISOString(),error_code:'MATERIAL_MODEL_BUDGET_EXHAUSTED'}}));
+ await page.goto(runPath);
+ await expect(page.getByRole('heading',{name:'教材處理失敗',exact:true})).toBeVisible();
+ await expect(page.getByRole('alert')).toContainText('這次重新分析沒有完成');
+ await expect(page.locator('body')).not.toContainText('MATERIAL_MODEL_BUDGET_EXHAUSTED');
+ await expect(page.locator('body')).not.toContainText('錯誤代碼');
 });
 
 for (const width of [1280, 390]) test(`large review progress survives reload and stale polls at ${width}px`, async ({page}) => {
@@ -532,8 +539,8 @@ for (const width of [1280, 390]) test(`failed review explains the cause and pres
     source_names:Array.from({length:41},(_,i)=>`合成來源 ${i+1}.pdf`)}}));
   await page.goto(runPath);
   await expect(page.getByRole('heading',{name:'這次更新未完成',exact:true})).toBeVisible();
-  await expect(page.getByText(/模型將概念標為非教學內容，但沒有提供允許的分類理由/)).toBeVisible();
-  await expect(page.getByText('REVIEW_METADATA_REASON_INVALID',{exact:true})).toBeVisible();
+  await expect(page.getByText(/這次沒能從教材整理出可靠的知識地圖/)).toBeVisible();
+  await expect(page.getByText('REVIEW_METADATA_REASON_INVALID')).toHaveCount(0);
   await expect(page.locator('.failure-progress')).toContainText('38%');
   await expect(page.getByRole('button',{name:'接續已保存的分析',exact:true})).toBeVisible();
   await expect(page.getByText(/已完成的處理進度已保存/)).toBeVisible();
@@ -546,14 +553,14 @@ test('processing failure keeps recovery order and completion keeps its source no
  await mockRun(page,route=>route.fulfill({json:current}));
  for(const state of ['running','failed','partial'] as const){
   current=state==='partial'?completed('partial'):{...base,status:state,source_names:['合成測試教材.pdf'],analysis_saved:state==='failed',input_source_set_id:artifactId,completed_at:state==='failed'?clockTime.toISOString():null,error_code:state==='failed'?'STORAGE_UNAVAILABLE':null};
-  await page.goto(runPath);await expect(page.locator('.run-material-return')).toContainText('合成測試教材');
+  await page.goto(runPath);await expect(page.locator('.crumb')).toContainText('合成測試教材');
   if(state==='failed'){
    const card=page.locator('.run-failure-content');await expect(card.getByRole('button',{name:'接續已保存的分析'})).toBeVisible();
    const order=await card.evaluate(element=>{
-    const progress=element.querySelector('.failure-progress')!, action=element.querySelector('.run-failure-actions')!, code=element.querySelector('.run-failure-code')!;
-    return !!(progress.compareDocumentPosition(action)&Node.DOCUMENT_POSITION_FOLLOWING)&&!!(action.compareDocumentPosition(code)&Node.DOCUMENT_POSITION_FOLLOWING);
+    const progress=element.querySelector('.failure-progress')!, action=element.querySelector('.run-failure-actions')!;
+    return !!(progress.compareDocumentPosition(action)&Node.DOCUMENT_POSITION_FOLLOWING);
    });expect(order).toBe(true);
-   await expect(card.locator('.run-failure-code')).toContainText('STORAGE_UNAVAILABLE');
+   await expect(card).not.toContainText('STORAGE_UNAVAILABLE');
   }
   for(const [width,height] of [[1440,900],[1300,900],[1200,900],[1024,768],[390,844]]){
    await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`processing-${state}-${width}.png`),animations:'disabled'});

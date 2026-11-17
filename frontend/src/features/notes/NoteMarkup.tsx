@@ -83,6 +83,8 @@ export function NoteMarkup({ api, view, saved, openConcept, renderPrevious, chil
     const element = root.current;
     if (!element) return;
     const measure = () => {
+      // 隱藏的那一種筆記量不到寬度與位置；保留上次量到的版面，切回來時 ResizeObserver 會再量。
+      if (!element.getClientRects().length) return;
       const isNarrow = element.clientWidth < 720;
       setNarrow(isNarrow);
       const top = element.getBoundingClientRect().top;
@@ -216,10 +218,10 @@ export function NoteMarkup({ api, view, saved, openConcept, renderPrevious, chil
     </div>
     <dialog ref={drawer} className="note-comments-drawer" aria-label="註記邊欄"><button type="button" className="text-button" onClick={() => drawer.current?.close()}>關閉註記</button>{narrow && cards.filter(c => c.id === active || c.id === draft?.id).map(c => card(c.id, c.annotation))}</dialog>
     {selected && createPortal(<div ref={toolbar} className="note-selection-toolbar" role="toolbar" aria-label="選取文字工具列" style={{ left: Math.max(8, Math.min(selected.rect.left, window.innerWidth - Math.min(600, window.innerWidth - 16) - 8)), top: window.innerWidth <= 720 ? Math.min(selected.rect.bottom + 8, window.innerHeight - 180) : Math.max(8, selected.rect.top - 100) }} onMouseDown={e => { e.preventDefault(); (e.target as HTMLElement).closest("button")?.focus({ preventScroll: true }); }}>
-      <div className="note-selection-styles">{styles.map(([style, label]) => <button key={style} type="button" className={`note-style-${style}`} aria-label={`標記${label}`} title={label} disabled={busy} onClick={() => mark(style)}>{["yellow", "green", "blue", "pink"].includes(style) ? <span aria-hidden="true"/> : label}</button>)}<button type="button" disabled={busy} onClick={removeMarks}>移除標記</button></div>
-      <div className="note-selection-actions"><button type="button" onClick={() => { window.dispatchEvent(new CustomEvent("studydy:ask-note", { detail: { materialId: view.material_id, text: selected.quote } })); setSelected(null); }}>問 AI BOT</button>
-        <button type="button" disabled={selected.ranges.length !== 1} title={selected.ranges.length !== 1 ? "註記請選取同一段內的文字" : undefined} onClick={() => { const id = crypto.randomUUID(); setDraft({ id, paragraph_id: selected.ranges[0].paragraph_id, selection: selected.ranges[0], body: "" }); setActive(id); setSelected(null); if (narrow) drawer.current?.showModal(); }}>新增註記</button>
-        <button type="button" disabled={!concepts.length} aria-expanded={conceptMenu} onClick={() => { if (concepts.length === 1) openConcept(concepts[0].concept_id); else setConceptMenu(v => !v); }}>在地圖查看</button>
+      <div className="note-selection-styles"><span className="note-selection-label">螢光筆</span>{styles.map(([style, label]) => <button key={style} type="button" className={`note-style-${style}`} aria-label={`標記${label}`} title={label} disabled={busy} onClick={() => mark(style)}>{["yellow", "green", "blue", "pink"].includes(style) ? <span aria-hidden="true"/> : label}</button>)}<button type="button" disabled={busy} onClick={removeMarks}>移除標記</button></div>
+      <div className="note-selection-actions"><button type="button" onClick={() => { window.dispatchEvent(new CustomEvent("studydy:ask-note", { detail: { materialId: view.material_id, text: selected.quote } })); setSelected(null); }}>問小幫手</button>
+        <button type="button" disabled={selected.ranges.length !== 1} title={selected.ranges.length !== 1 ? "註記請選取同一段內的文字" : undefined} onClick={() => { const id = crypto.randomUUID(); setDraft({ id, paragraph_id: selected.ranges[0].paragraph_id, selection: selected.ranges[0], body: "" }); setActive(id); setSelected(null); if (narrow) drawer.current?.showModal(); }}>寫註記</button>
+        <button type="button" disabled={!concepts.length} aria-expanded={conceptMenu} onClick={() => { if (concepts.length === 1) openConcept(concepts[0].concept_id); else setConceptMenu(v => !v); }}>在地圖上看這個概念</button>
         <button type="button" onClick={() => void run(async () => { const pages = [...new Set(selectedParagraphs.flatMap(p => p.evidence.map(e => e.page)))]; await navigator.clipboard.writeText(selected.quote + (pages.length ? `\n來源：第 ${pages.join("、")} 頁` : "")); })}>複製</button>
       </div>{selected.ranges.length !== 1 && <small>註記請選取同一段內的文字</small>}
       {conceptMenu && <div className="note-selection-concepts">{concepts.map(c => <button type="button" key={c.concept_id} onClick={() => openConcept(c.concept_id)}>{c.label}</button>)}</div>}

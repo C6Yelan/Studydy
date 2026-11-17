@@ -100,8 +100,10 @@ def main(spec: str = "e2e/mock/knowledge-map-details.spec.ts", *, timeout_second
                 time.sleep(0.1)
         else:
             return 1
+        # api e2e 的 fixture 共用同一個後端與 DB，不能平行；只有 mock 用 4 個 worker。
+        workers = ["--workers=4"] if spec.startswith("e2e/mock") else []
         completed = subprocess.run(
-            [str(PLAYWRIGHT), "test", spec],
+            [str(PLAYWRIGHT), "test", spec, *workers],
             cwd=FRONTEND,
             env=environment,
             check=False,

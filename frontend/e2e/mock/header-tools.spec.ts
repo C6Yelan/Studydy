@@ -38,7 +38,7 @@ async function mockSearch(page: Page, respond = (query: string) => searchResult(
 test("slash opens site search and a concept opens its detail on the map", async ({ page }) => {
   await mockKnowledgeMapApi(page);
   const queries = await mockSearch(page);
-  // 全站搜尋屬於教材外的頁首；教材內由地圖搜尋負責。
+  // 全站搜尋在教材外的左側欄；教材內由地圖搜尋負責。
   await page.goto("/materials");
   await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
   await page.locator("body").press("/");
@@ -144,10 +144,10 @@ test("display name is saved with Origin, validated, and greets on the home page"
   });
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("歡迎回來！今天想探索哪座島？");
-  await page.getByRole("button", { name: "個人檔案：尚未設定名稱" }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "個人檔案與設定" }).click();
   await expect(page).toHaveURL(/\/profile$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("尚未設定名稱");
-  await expect(page.getByRole("button", { name: "個人檔案：尚未設定名稱" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "個人檔案與設定" })).toHaveAttribute("aria-current", "page");
   const settings = page.getByRole("region", { name: "帳號設定" });
   const field = settings.getByRole("textbox", { name: "顯示名稱" });
   await field.fill("一".repeat(21));
@@ -157,13 +157,12 @@ test("display name is saved with Origin, validated, and greets on the home page"
   await settings.getByRole("button", { name: "儲存名稱" }).click();
   await expect(settings.getByRole("region", { name: "個人名稱" }).getByRole("status")).toHaveText("名稱已更新。");
   expect(posts).toEqual([{ origin: new URL(page.url()).origin, body: { schema: "learner-profile-update/v1", display_name: "以安" } }]);
-  // 頁首與個人檔案標題立即更新。
+  // 個人檔案標題立即更新。
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("以安");
-  await expect(page.getByRole("button", { name: "個人檔案：以安" })).toBeVisible();
   await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "首頁" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^(早安|午安|晚安)，以安！今天想探索哪座島？$/);
   // 清空即移除名稱，回到原本的問候。
-  await page.getByRole("button", { name: "個人檔案：以安" }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "個人檔案與設定" }).click();
   await settings.getByRole("textbox", { name: "顯示名稱" }).fill("");
   await settings.getByRole("button", { name: "儲存名稱" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("尚未設定名稱");
@@ -177,8 +176,8 @@ test("profile save failure keeps the entered name and shows the error", async ({
   await page.route("**/v1/profile", (route) => route.request().method() === "POST"
     ? route.fulfill({ status: 400, json: { schema: "api-error/v1", request_id: otherMaterial, reason_code: "REQUEST_INVALID", retryable: false, message: "x" } })
     : route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } }));
-  await page.goto(mapPath);
-  await page.getByRole("button", { name: "個人檔案：尚未設定名稱" }).click();
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "個人檔案與設定" }).click();
   const settings = page.getByRole("region", { name: "帳號設定" });
   await settings.getByRole("textbox", { name: "顯示名稱" }).fill("以安");
   await settings.getByRole("button", { name: "儲存名稱" }).click();
@@ -239,18 +238,21 @@ test("password change validates input, reports a wrong current password and then
   const dialog = page.getByRole("region", { name: "帳號設定" });
   const section = dialog.getByRole("region", { name: "修改密碼" });
   await expect(dialog.getByRole("region", { name: "個人名稱" })).toBeVisible();
-  // 帳號空間已滿：顯示已用、剩餘，以及哪些動作會被擋下。
-  await page.getByRole("button", { name: /^帳號空間：/ }).click();
-  const storage = page.getByRole("region", { name: "帳號空間" });
-  await expect(storage.locator(".storage-breakdown-heading")).toHaveText("帳號空間5 GB／5 GB");
-  await expect(storage).toContainText("無法上傳教材、建立 Podcast 或生成影片");
+  // 帳號空間已滿：顯示已用、剩餘，以及哪些動作會被擋下（儲存空間卡在個人檔案）。
+  const storageCard = page.getByRole("region", { name: "儲存空間" });
+  await expect(storageCard.getByLabel("已用 5 GB，上限 5 GB，剩餘 0 B")).toHaveText("5 GB／5 GB");
+  await expect(storageCard).toContainText("無法上傳教材、建立 Podcast 或生成影片");
+  await storageCard.getByRole("button", { name: "各教材用量" }).click();
+  const storage = page.getByRole("region", { name: "各教材用量" });
   await storage.getByRole("button", { name: "預留空間說明" }).focus();
   await expect(storage.getByRole("tooltip")).toHaveText("已用包含 100 MB 預留給上傳中的檔案，以及生成中或生成失敗的 Podcast／影片；刪除生成失敗的 Podcast 會釋放這部分。");
-  await page.keyboard.press("Escape");
   // 登入裝置是帳號設定之外的獨立卡片。
   // 三個登入先顯示兩個，其餘收合。
   await expect(page.getByRole("region", { name: "登入裝置" }).getByRole("listitem")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "顯示其他 1 個裝置" })).toBeVisible();
+  // 修改密碼平常收合，按「展開」才出現欄位。
+  await expect(section.getByLabel("目前密碼")).toHaveCount(0);
+  await section.getByRole("button", { name: "展開" }).click();
   const submit = section.getByRole("button", { name: "更新密碼" });
   await expect(submit).toBeDisabled();
   await section.getByLabel("目前密碼").fill("old synthetic secret");
@@ -283,8 +285,9 @@ test("password change validates input, reports a wrong current password and then
   }
   // 離開再回到個人檔案時不保留上次輸入與訊息。
   await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "首頁" }).click();
-  await page.getByRole("button", { name: "個人檔案：以安" }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "個人檔案與設定" }).click();
   await expect(section.getByRole("status")).toHaveCount(0);
+  await section.getByRole("button", { name: "展開" }).click();
   await expect(section.getByLabel("新密碼", { exact: true })).toHaveValue("");
 });
 
@@ -330,8 +333,8 @@ test("device list signs out one device after confirming in place and expands lon
 test("sign out other devices keeps this device and still works when the list cannot be read", async ({ page }) => {
   await mockKnowledgeMapApi(page);
   const { writes } = await mockAccount(page, 2);
-  await page.goto(mapPath);
-  await page.getByRole("button", { name: "個人檔案：以安" }).click();
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "個人檔案與設定" }).click();
   const devices = page.getByRole("region", { name: "登入裝置" });
   await expect(devices.getByRole("listitem")).toHaveCount(2);
   await devices.getByRole("button", { name: "登出其他裝置" }).click();
@@ -357,7 +360,7 @@ test("profile fits a 390px phone and jumps to account settings", async ({ page }
   await mockKnowledgeMapApi(page);
   await mockAccount(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "個人檔案：以安" }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "個人檔案與設定" }).click();
   const settings = page.getByRole("region", { name: "帳號設定" });
   // 三個登入先顯示兩個，其餘收合。
   await expect(page.getByRole("region", { name: "登入裝置" }).getByRole("listitem")).toHaveCount(2);
@@ -381,12 +384,13 @@ test("storage breakdown includes reservations once and lists the three largest s
  const largest=Array.from({length:5},(_,index)=>({material_id:index===0?materialId:`77777777-7777-4777-8777-${String(index).padStart(12,'0')}`,display_name:index===0?'資料結構教材':`第 ${index+1} 份教材：機器學習的原理、實作與應用`,used_bytes:[gib,gib/2,gib*3/8,gib/4,gib/8][index]}));
  await page.route('**/v1/materials',route=>route.fulfill({json:{schema:'material-library/v1',materials:largest.map((material,index)=>({schema:'material-library-item/v1',material_id:material.material_id,display_name:material.display_name,source_artifact_id:null,size_bytes:material.used_bytes,created_at:'2026-10-27T00:00:00Z',latest_attempt:null,available_structures:index===0?[{run_id:runId,knowledge_structure_revision:structureRevision,status:'succeeded',created_at:'2026-10-27T00:00:00Z'}]:[],study_sessions:[]}))}}));
  await page.route('**/v1/account/storage',route=>route.fulfill({json:{schema:'account-storage/v2',used_bytes:gib*2.5,reserved_bytes:gib/4,limit_bytes:gib*5,remaining_bytes:gib*2.5,breakdown:{material_files_bytes:gib,podcast_audio_bytes:gib/2,podcast_video_bytes:gib/2,analysis_bytes:gib/4,reserved_bytes:gib/4},largest_materials:largest}}));
- await page.goto('/materials');
- const opener=page.getByRole('button',{name:/^帳號空間：/});await opener.click();
- const panel=page.getByRole('region',{name:'帳號空間',exact:true});
+ await page.goto('/profile');
+ const card=page.getByRole('region',{name:'儲存空間',exact:true});
+ await expect(card.getByLabel('已用 2.5 GB，上限 5 GB，剩餘 2.5 GB')).toHaveText('2.5 GB／5 GB');
+ const opener=card.getByRole('button',{name:'各教材用量'});await opener.click();
+ const panel=page.getByRole('region',{name:'各教材用量',exact:true});
  await expect(panel.locator('dt')).toContainText(['教材原檔與轉換檔','Podcast 音訊','Podcast 影片','分析資料','預留空間']);
  await expect(panel.locator('dd')).toHaveText(['1 GB','512 MB','512 MB','256 MB','256 MB']);
- await expect(panel.locator('.storage-breakdown-heading')).toHaveText('帳號空間2.5 GB／5 GB');
  await expect(panel.getByRole('link')).toHaveText(largest.slice(0,3).map(material=>material.display_name));
  const bar=panel.getByRole('img',{name:'空間分類：已用 2.5 GB，剩餘 2.5 GB'});
  const sizes=await bar.evaluate(element=>Array.from(element.children).map(child=>child.getBoundingClientRect().width/element.getBoundingClientRect().width*100));
@@ -396,9 +400,8 @@ test("storage breakdown includes reservations once and lists the three largest s
   await page.setViewportSize({width,height});await page.screenshot({path:testInfo.outputPath(`storage-breakdown-${width}.png`)});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
   const bounds=await panel.boundingBox();expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width);
-  if(width===1440){const last=await panel.getByRole('link').last().boundingBox();expect(last!.y+last!.height).toBeLessThanOrEqual(height);}
  }
- await page.keyboard.press('Escape');await expect(opener).toBeFocused();await expect(panel).toHaveCount(0);
+ await opener.click();await expect(opener).toHaveAttribute('aria-expanded','false');await expect(panel).toHaveCount(0);
  await opener.click();await panel.getByRole('link',{name:'資料結構教材',exact:true}).click();await expect(page).toHaveURL(new RegExp(`/materials/${materialId}`));
 });
 

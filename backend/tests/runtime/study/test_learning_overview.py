@@ -120,3 +120,27 @@ def test_regions_cover_every_concept_once_and_stay_owner_scoped(closed_loop, tmp
     assert _client(fixture, tmp_path, monkeypatch, token=other.raw_token).get(base + "/regions").status_code == 404
     client.cookies.clear()
     assert client.get(base + "/regions").status_code == 401
+
+
+def test_daily_rhythm_xp_matches_activity_for_answers_and_two_cards(closed_loop, tmp_path, monkeypatch):
+    from datetime import timedelta
+    from runtime import card_reviews
+    from backend.tests.runtime.study.test_learning_rewards import ready_cards
+
+    fixture = concept_fixture(closed_loop, 2)
+    identity = create(fixture)
+    finish(fixture)
+    answer(fixture, identity, wrong={1})
+    card_set, concepts = ready_cards(fixture)
+    now = datetime.now(timezone.utc)
+    owner, dsn = fixture["learner"].learner_id, fixture["dsn"]
+    for index, concept in enumerate(concepts[:2]):
+        card_reviews.submit_review(owner, card_set, concept, "remembered", 0, f"xp-card-{index}",
+                                   dsn=dsn, now=now + timedelta(seconds=index * 4))
+    client = _client(fixture, tmp_path, monkeypatch)
+    activity = client.get("/v1/learning-activity")
+    rhythm = client.get("/v1/learning-activity/rhythm", params={"period": "week"})
+    assert activity.status_code == rhythm.status_code == 200
+    day = next(day for day in rhythm.json()["days"] if day["date"] == activity.json()["today"])
+    assert (day["answers"], day["correct"], day["card_reviews"]) == (2, 1, 2)
+    assert day["xp"] == activity.json()["xp"]["today"] == 17

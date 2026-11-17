@@ -90,14 +90,12 @@ test.beforeEach(async ({ page }) => {
             ],
           },
         });
-      // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
-      case "/v1/profile":
-        return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
-      // 頁首學習進度；這些案例不涉及學習紀錄。
+      // 外殼的慶祝動畫讀取學習活動；這些案例不涉及學習紀錄。
       case "/v1/learning-activity":
         return route.fulfill({ json: emptyLearningActivity });
       default:
-        if (route.request().method() === "GET" && new URL(route.request().url()).pathname === "/v1/account/storage") return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
+        // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
+        if (path === "/v1/card-reviews") return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
         throw new Error(`Unexpected normalization request: ${request.method()} ${path}`);
     }
   });
@@ -287,7 +285,7 @@ test("accepted deletion of a converting source survives reload and returns to li
   removed = true;
   await page.clock.runFor(3_000);
   await expect(page).toHaveURL(/\/materials$/);
-  await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "我的群島", exact: true })).toBeVisible();
   await expect(page.getByRole("article")).toHaveCount(0);
   expect(deletes).toBe(1);
 });
@@ -361,7 +359,8 @@ for (const viewport of [
             main.getBoundingClientRect().width -
             parseFloat(css.paddingLeft) -
             parseFloat(css.paddingRight),
-          width: main.firstElementChild!.getBoundingClientRect().width,
+          // 第一個內容區塊（教材頁上方的更新提示插槽沒有提示時不佔位）。
+          width: main.querySelector(":scope > :not(.material-notice)")!.getBoundingClientRect().width,
         };
       });
       expect(width).toBeCloseTo(Math.min(usable, 1600), 0);
@@ -404,13 +403,13 @@ for (const viewport of [
       return route.fulfill({ json: run });
     });
     await page.goto("/upload");
-    await expect(page.locator(".file-drop")).toContainText("PDF、TXT");
+    await expect(page.locator(".upload-types")).toContainText("PDF、TXT");
     await expectApplicationFrame();
-    // 拖放區撐滿階段卡片的內容寬度（只扣卡片左右內距）。
+    // 拖放區撐滿左欄（拖放區與 YouTube 輸入所在的欄）的寬度。
     const drop = (await page.locator(".file-drop").boundingBox())!;
-    const stage = (await page.locator(".flow-stage").filter({ has: page.locator(".file-drop") }).boundingBox())!;
-    expect(drop.width).toBeGreaterThanOrEqual(stage.width - 80);
-    await expect(page.locator(".learning-steps [aria-current=step]")).toContainText("上傳教材");
+    const main = (await page.locator(".upload-main").boundingBox())!;
+    expect(drop.width).toBeGreaterThanOrEqual(main.width - 4);
+    await expect(page.locator(".learning-steps [aria-current=step]")).toContainText("放入教材");
     await page.goto(`/materials/${materialId}/sources`);
     await expect(page.getByRole("link", { name: "預覽 PDF", exact: true })).toBeVisible();
     await expect(page.locator(".source-row").getByRole("status")).toHaveCount(0);
@@ -427,7 +426,7 @@ for (const viewport of [
     const cta = (await page.getByRole("button", { name: "開始分析教材" }).boundingBox())!;
     expect(cta.y).toBeGreaterThan(confirmation.y);
     expect(cta.y + cta.height).toBeLessThanOrEqual(confirmation.y + confirmation.height);
-    const back = (await page.getByRole("button", { name: "返回我的教材" }).boundingBox())!;
+    const back = (await page.getByRole("button", { name: "返回我的群島" }).boundingBox())!;
     const remove = page.getByRole("button", { name: "刪除教材", exact: true });
     await expect(remove).toBeVisible();
     const removeBox = (await remove.boundingBox())!;
@@ -437,7 +436,7 @@ for (const viewport of [
     for (const [index, token] of [
       [0, "--success"],
       [1, "--studydy-blue"],
-      [2, "--text-secondary"],
+      [2, "--text-muted"],
     ] as const) {
       expect(
         await steps.nth(index).evaluate((element, token) => {

@@ -77,7 +77,7 @@ for (const width of [1440, 390]) test(`complete applies authority before showing
   release();
   await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(fixture.path + "$"));
-  await expect(page.getByRole("button", { name: "查看知識地圖", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "回地圖", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "本輪檢測結果", exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "本次學習已結束", exact: true })).toBeVisible();
@@ -97,7 +97,7 @@ for (const [name, stage, scenario] of [
     await fixture.open();
     await expect(page.getByRole("button", { name: /下一個觀念|完成本次學習/ })).toHaveCount(0);
     if (name === "wrong points")
-      await expect(page.getByRole("button", { name: "補強這 1 個重點", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "再練這 1 個重點", exact: true })).toBeVisible();
   });
 
 test("a completed concept keeps saved completion and prioritizes remediation", async ({ page }) => {
@@ -105,10 +105,11 @@ test("a completed concept keeps saved completion and prioritizes remediation", a
     navigation: true, wrong: [2], conceptStatus: "completed",
   });
   await fixture.open();
-  await expect(page.getByText("本次練習有需要加強的重點，先前的完成紀錄會保留。 連續答對 2 道不同題，才算補強完成。", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "補強這 1 個重點", exact: true })).toBeEnabled();
+  await expect(page.getByText("本次練習有要再練的重點，先前的完成紀錄會保留。", { exact: true })).toBeVisible();
+  await expect(page.getByText("連續答對 2 道不同的題目就過關", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "再練這 1 個重點", exact: true })).toBeEnabled();
   await expect(page.locator(".assessment-cycle .primary-button")).toHaveCount(1);
-  await page.getByRole("button", { name: "查看知識地圖", exact: true }).click();
+  await page.getByRole("button", { name: "回地圖", exact: true }).click();
   expect(await page.evaluate(() => window.history.state.knowledgeMap.detail)).toBe(fixture.knowledgeStructure.concepts[0].concept_id);
 });
 

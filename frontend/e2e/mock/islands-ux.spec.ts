@@ -12,7 +12,7 @@ for (const width of [1440, 390]) {
     await mockKnowledgeMapApi(page, structureView());
     await page.setViewportSize({ width, height: 844 });
     await page.goto("/foo-bar");
-    await expect(page.getByRole("heading", { name: "找不到這個頁面", level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "這座島不在地圖上", level: 1 })).toBeVisible();
     await expect(page).toHaveURL(/\/foo-bar$/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     await page.getByRole("button", { name: "回到首頁", exact: true }).click();
@@ -32,41 +32,28 @@ test("missing or foreign material shows a not-found page without delete or confi
     await expect(page.getByRole("button", { name: "重新讀取" })).toHaveCount(0);
     await expect(page.getByText("從教材到知識地圖")).toHaveCount(0);
   }
-  await page.getByRole("button", { name: "回到我的教材", exact: true }).click();
+  await page.getByRole("button", { name: "回到我的群島", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
 });
 
-test("old and shorthand addresses open the real page", async ({ page }) => {
-  await mockKnowledgeMapApi(page, structureView());
-  await page.goto(`/materials/${materialId}/map`);
-  await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/runs/${runId}/knowledge-structures/`));
-  await expect(page.getByRole("tab", { name: "知識地圖", exact: true })).toHaveAttribute("aria-selected", "true");
-  await page.goto("/cards");
-  await expect(page).toHaveURL(/\/concept-cards$/);
-});
-
-test("phone material tabs stay scrollable and the labelled Q&A entry never covers them", async ({ page }) => {
+test("phone material tabs stay at the bottom and never cover the map controls", async ({ page }) => {
   await mockKnowledgeMapApi(page, structureView());
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(mapPath);
-  const tabs = page.getByRole("tablist", { name: "教材學習內容" });
-  const ask = page.getByRole("button", { name: "Studydy AI BOT", exact: true });
-  await expect(ask).toBeVisible();
-  await expect(ask).toContainText("AI BOT");
-  // 手機教材頁首：問答在第一列，分頁獨佔第二列，互不覆蓋。
-  const list = (await tabs.boundingBox())!, button = (await ask.boundingBox())!;
-  expect(list.y).toBeGreaterThanOrEqual(button.y + button.height - 0.5);
-  // 還有分頁在右側時，分頁列右緣淡出提示可以滑動。
-  await expect(tabs).toHaveClass(/can-scroll-right/);
-  await page.getByRole("tab", { name: "教材來源", exact: true }).focus();
-  await page.keyboard.press("End");
+  const nav = page.getByRole("navigation", { name: "教材導覽", exact: true });
+  await expect(nav.getByRole("link", { name: "知識地圖", exact: true })).toHaveAttribute("aria-current", "page");
+  // 問小幫手收在「更多」裡；打開後同樣可以切到原始檔案。
+  await nav.getByRole("button", { name: "更多", exact: true }).click();
+  await expect(nav.getByRole("button", { name: "問小幫手", exact: true })).toBeVisible();
+  await nav.getByRole("link", { name: "原始檔案", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/sources$`));
-  // 教材內沒有底部導覽；地圖縮放按鈕完整留在畫面內。
+  await expect(nav.getByRole("button", { name: "更多", exact: true })).toHaveAttribute("aria-expanded", "false");
+  // 教材內沒有全站底部導覽；地圖縮放按鈕完整留在教材頁籤上方。
   await page.goto(mapPath);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await expect(page.getByRole("navigation", { name: "手機導覽" })).toBeHidden();
+  await expect(page.getByRole("navigation", { name: "手機導覽" })).toHaveCount(0);
   const zoomOut = (await page.getByRole("button", { name: "縮小地圖" }).boundingBox())!;
-  expect(zoomOut.y + zoomOut.height).toBeLessThanOrEqual(844);
+  expect(zoomOut.y + zoomOut.height).toBeLessThanOrEqual((await nav.boundingBox())!.y);
 });
 
 test("material cards keep the main action on its own row and secondary entries aligned", async ({ page }) => {
@@ -85,19 +72,20 @@ test("material cards keep the main action on its own row and secondary entries a
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/materials");
-    await expect(page.getByRole("heading", { name: "我的教材", level: 1 })).toBeVisible();
-    await expect(page.locator(".library-subtitle b")).toHaveText("已保存 2 份教材");
+    await expect(page.getByRole("heading", { name: "我的群島", level: 1 })).toBeVisible();
+    await expect(page.locator(".library-subtitle b")).toHaveText("2 座島");
     for (const name of ["作業系統", "資料結構"]) {
       const card = page.getByRole("article", { name });
       const actions = card.locator(".library-actions");
       const box = (await actions.boundingBox())!;
       const primary = (await actions.locator(".primary-button").boundingBox())!;
       expect(Math.abs(primary.width - box.width)).toBeLessThanOrEqual(1);
-      const cards = (await card.getByRole("link", { name: "概念卡", exact: true }).boundingBox())!;
+      const cards = (await card.getByRole("link", { name: "概念卡片", exact: true }).boundingBox())!;
       const podcast = (await card.getByRole("link", { name: "Podcast", exact: true }).boundingBox())!;
       expect(Math.abs(cards.y - podcast.y)).toBeLessThanOrEqual(1);
       expect(Math.abs(cards.height - podcast.height)).toBeLessThanOrEqual(1);
-      expect(cards.y).toBeGreaterThan(primary.y + primary.height - 1);
+      // 三個小圖示在主要按鈕上方一列。
+      expect(cards.y + cards.height).toBeLessThanOrEqual(primary.y + 1);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
   }

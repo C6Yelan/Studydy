@@ -35,8 +35,8 @@ test("unfinished A does not block B and switching back resumes A", async ({ page
   const firstSetId = firstSetUrl.split("/").at(-1)!;
 
   await page
-    .getByRole("tablist", { name: "教材學習內容" })
-    .getByRole("tab", { name: "知識地圖", exact: true })
+    .getByRole("navigation", { name: "教材導覽" })
+    .getByRole("link", { name: "知識地圖", exact: true })
     .click();
   await openConcept(page, "Other topic");
   const assessmentSetsPath = `/v1/study-sessions/${navigationData.session}/assessment-sets`;
@@ -49,7 +49,7 @@ test("unfinished A does not block B and switching back resumes A", async ({ page
   const secondSetId = (await createSecondSetResponse.json()).set_id;
   await page
     .getByRole("region", { name: "學習入口" })
-    .getByRole("button", { name: "檢測這個概念", exact: true })
+    .getByRole("button", { name: "開始挑戰", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "Other topic", level: 1, exact: true }),

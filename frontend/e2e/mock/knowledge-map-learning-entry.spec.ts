@@ -2,6 +2,7 @@ import { answerPaper } from "../fixtures/answer-paper";
 import { outlineView } from "../fixtures/knowledge-read-views.mjs";
 import { expect, test, type Page } from "@playwright/test";
 import type { StudyWorkspaceView } from "../../src/api/contracts";
+import { diagnosisView } from "../fixtures/learning-diagnosis";
 import { studyLayoutFixture } from "../fixtures/study-layout.mjs";
 import {
   materialId,
@@ -61,16 +62,16 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
     }
     await page.goto(map);
     if (stage !== "remediation") {
-      await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-      await expect(page.getByRole("region", { name: "測驗紀錄" })).toContainText("還沒有測驗紀錄");
-      await page.getByRole("tab", { name: "知識地圖", exact: true }).click();
+      await page.getByRole("link", { name: "學習進度", exact: true }).click();
+      await expect(page.getByRole("region", { name: "答題紀錄" })).toContainText("還沒有答題紀錄");
+      await page.getByRole("link", { name: "知識地圖", exact: true }).click();
     }
     if (stage === "remediation") {
-      await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-      await page.getByRole("button", { name: /^複習/ }).first().click();
+      await page.getByRole("link", { name: "學習進度", exact: true }).click();
+      await page.getByRole("button", { name: /^查看與練習/ }).first().click();
     } else {
       await openMapConcept(page, "伺服器");
-      await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
+      await page.getByRole("button", { name: "開始挑戰", exact: true }).click();
     }
     await expect(page).toHaveURL(new RegExp(`/study-sessions/${sid}`));
     await page.reload();
@@ -93,7 +94,13 @@ for (const stage of ["preparing", "ready", "failed", "no-safe", "remediation"] a
       await expect(page.getByRole("progressbar", { name: "準備進度" })).toBeVisible();
       expect(fixture.requests.filter((r: { path: string }) => r.path.endsWith("/retry"))).toHaveLength(1);
     }
-    await page.getByRole("tab", { name: "知識地圖", exact: true }).click();
+    if (stage === "remediation") {
+      // 作答中是專注模式，沒有側欄；重新整理後直接進來，「×」回到這份教材的學習進度。
+      await page.getByRole("button", { name: "離開作答", exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`${map.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/progress$`));
+      return;
+    }
+    await page.getByRole("link", { name: "知識地圖", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "概念詳情" }).getByRole("heading", { name: "伺服器", exact: true })).toBeVisible();
     if (stage === "ready") await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("已完成");
   });
@@ -122,32 +129,67 @@ function materialWithHistory(studies: SavedSession[], publishedRun = run) {
   };
 }
 
-for (const stage of ["completed"] as const) {
- test(`direct assessment entry creates ${stage === "completed" ? "practice" : "first assessment"} without rereading`,async({page})=>{
-  const fixture=await studyLayoutFixture(page,stage,{wrong:[]});
-  let snapshot:StudyWorkspaceView;
-  page.on('response',async response=>{if(response.url().includes('/workspace?')&&response.ok()){try{snapshot=await response.json();}catch{}}});
-  await fixture.open();await expect.poll(()=>!!snapshot).toBe(true);
-  const {session:sessionView}=snapshot!;
-  const view=outlineView(fixture.knowledgeStructure,sessionView.material_id,snapshot!.run_id);
-  const mid=sessionView.material_id,sid=sessionView.study_session_id,rid=snapshot!.run_id,revision=view.knowledge_structure_revision;
-  const published={...run,run_id:rid,material_id:mid,output_binding:{...run.output_binding,knowledge_structure_revision:revision}};
-  await page.route(`**/v1/materials/${mid}`,route=>json(route,{...materialWithHistory([]),material_id:mid,source_artifact_id:snapshot.source_artifact_id,head_revision:revision,latest_attempt:published,available_structures:[{run_id:rid,knowledge_structure_revision:revision,created_at:run.created_at,status:'succeeded'}],study_sessions:[{...sessionView,run_id:rid}]}));
-  await page.route(`**/v1/material-processing-runs/${rid}`,route=>json(route,published));
-  await page.route(url=>decodeURIComponent(url.pathname)===`/v1/materials/${mid}/knowledge-structures/${revision}/outline`,route=>json(route,view));
-  await page.route(`**/v1/study-sessions/${sid}/map-progress`,route=>json(route,snapshot.progress));
-  await page.goto(fixture.path.split('/study-sessions/')[0]);
-  if(stage==='completed') await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
-  else await openMapConcept(page, '伺服器');
+// 學習進度的答題紀錄：按鈕依 map-progress 的 assessment_cycles 決定去哪，不一律呼叫 study-start。
+async function openRecords(page: Page, stage: "completed" | "ready", scenario: Record<string, unknown> = {}, pendingConcept = false) {
+  const fixture = await studyLayoutFixture(page, stage, { wrong: [], ...scenario });
+  let snapshot: StudyWorkspaceView;
+  page.on("response", async response => { if (response.url().includes("/workspace?") && response.ok()) { try { snapshot = await response.json(); } catch { /* 非 JSON 回應略過 */ } } });
+  await fixture.open(); await expect.poll(() => !!snapshot).toBe(true);
+  const { session: sessionView } = snapshot!;
+  const view = outlineView(fixture.knowledgeStructure, sessionView.material_id, snapshot!.run_id);
+  const mid = sessionView.material_id, sid = sessionView.study_session_id, rid = snapshot!.run_id, revision = view.knowledge_structure_revision;
+  const published = { ...run, run_id: rid, material_id: mid, output_binding: { ...run.output_binding, knowledge_structure_revision: revision } };
+  await page.route(`**/v1/materials/${mid}`, route => json(route, { ...materialWithHistory([]), material_id: mid, source_artifact_id: snapshot.source_artifact_id, head_revision: revision, latest_attempt: published, available_structures: [{ run_id: rid, knowledge_structure_revision: revision, created_at: run.created_at, status: "succeeded" }], study_sessions: [{ ...sessionView, run_id: rid }] }));
+  await page.route(`**/v1/material-processing-runs/${rid}`, route => json(route, published));
+  await page.route(url => decodeURIComponent(url.pathname) === `/v1/materials/${mid}/knowledge-structures/${revision}/outline`, route => json(route, view));
+  await page.route(`**/v1/study-sessions/${sid}/map-progress`, route => json(route, snapshot.progress));
+  const conceptId = snapshot!.progress.concept_states[0].concept_id;
+  snapshot!.progress.concept_states[0].attempts = Math.max(1, snapshot!.progress.concept_states[0].attempts);
+  // 要再練分頁只列未完成的概念；已學會分頁列後端回報的 strengths。
+  if (pendingConcept) snapshot!.progress.concept_states[0].status = "needs_review";
+  const strength = { concept_id: conceptId, label: "伺服器", points: [] };
+  await page.route("**/learning-diagnosis", route => json(route, { ...diagnosisView(mid, revision),
+    ...(pendingConcept ? { recommendations: [{ concept_id: conceptId, label: "伺服器", reason: "先複習。" }] } : { strengths: [strength] }) }));
+  await page.goto(fixture.path.split("/study-sessions/")[0]);
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   await expect(page).not.toHaveURL(/study-sessions/);
-  if(stage==='completed')await page.getByRole('region',{name:'測驗紀錄'}).getByRole('button',{name:/^全部 /}).click();
-  await page.getByRole('button',{name:stage==='completed'?'查看與練習':'檢測這個概念',exact:true}).first().click();
-  await expect(page).toHaveURL(/assessment-sets/);
-  await expect(page.getByRole('progressbar',{name:'準備進度'})).toBeVisible();
-  await expect(page.locator('.current-concept-card')).not.toBeVisible();
-  expect(fixture.requests.filter(r=>r.path.endsWith('/study-start'))).toHaveLength(1);
- });
+  return { fixture, records: page.getByRole("region", { name: "答題紀錄" }), conceptId };
 }
+const studyStarts = (fixture: { requests: { path: string }[] }) => fixture.requests.filter(r => r.path.endsWith("/study-start"));
+
+for (const tab of [/^要再練 /, /^已學會 /, /^全部 /]) {
+  test(`record button on ${tab} opens the previous result without study-start`, async ({ page }) => {
+    const { fixture, records } = await openRecords(page, "completed", {}, tab.source.includes("要再練"));
+    await records.getByRole("button", { name: tab }).click();
+    await records.getByRole("button", { name: /^查看與練習/ }).first().click();
+    await expect(page).toHaveURL(/assessment-sets\//);
+    await expect(page.getByRole("button", { name: "回地圖", exact: true })).toBeVisible();
+    // 「再練一次」在「繼續下一個概念」和「回地圖」之間。
+    await expect(page.locator(".assessment-set-actions button").evaluateAll(buttons => buttons.map(b => b.textContent)))
+      .resolves.toEqual(expect.arrayContaining(["再練一次", "回地圖"]));
+    expect(studyStarts(fixture)).toHaveLength(0);
+    if (!tab.source.includes("全部")) return;
+    await page.getByRole("button", { name: "再練一次", exact: true }).click();
+    await expect(page.getByRole("progressbar", { name: "準備進度" })).toBeVisible();
+    expect(fixture.requests.filter(r => r.path.endsWith("/assessment-sets"))).toHaveLength(1);
+    expect(studyStarts(fixture)).toHaveLength(0);
+  });
+}
+
+test("record button resumes an in-progress set without study-start", async ({ page }) => {
+  const { fixture, records } = await openRecords(page, "ready");
+  await records.getByRole("button", { name: /^查看與練習/ }).first().click();
+  await expect(page).toHaveURL(/assessment-sets\//);
+  await expect(page.locator(".assessment-set-item")).toHaveCount(1);
+  expect(studyStarts(fixture)).toHaveLength(0);
+});
+
+test("record button of an inherited concept starts a new assessment once", async ({ page }) => {
+  const { fixture, records } = await openRecords(page, "completed", { inheritedCheck: true });
+  await records.getByRole("button", { name: /^查看與練習/ }).first().click();
+  await expect(page).toHaveURL(/assessment-sets\//);
+  expect(studyStarts(fixture)).toHaveLength(1);
+});
 for (const destination of ["leave", "material", "run", "structure"] as const) {
   test(`late study start cannot navigate after ${destination} changes`, async ({ page }) => {
     await mockKnowledgeMapApi(page);
@@ -170,7 +212,7 @@ for (const destination of ["leave", "material", "run", "structure"] as const) {
     });
     await page.goto(mapPath);
     await openMapConcept(page, "Array");
-    await page.getByRole("button", { name: "檢測這個概念", exact: true }).click();
+    await page.getByRole("button", { name: "開始挑戰", exact: true }).click();
     await expect.poll(() => starts.length).toBe(1);
     const nextPath = destination === "leave" ? "/materials"
       : destination === "material" ? mapPath.replace(materialId, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")

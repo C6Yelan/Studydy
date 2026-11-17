@@ -1,119 +1,193 @@
-/* 共用外框：頂部膠囊導覽、內容區與手機底部導覽。 */
-:root {
-  /* 頁首下緣；Studydy AI BOT抽屜（掛在 body）從這裡往下展開，不遮住導覽與登出。 */
-  --shell-header-bottom: 70px;
-}
+/* 共用外框：全站左側欄、內容區與手機底部頁籤。 */
 .app-shell {
-  --header-frame-max: 2200px;
+  --rail-width: 236px;
+  --wide-frame-max: 2200px;
   --application-frame-max: 1600px;
   --readable-content-max: 880px;
   --shell-gutter: clamp(16px, 2.4vw, 32px);
-  /* 頁首加上內容區上緣；填滿視窗高度的學習頁以此扣除。 */
-  --shell-offset: 104px;
+  /* 內容區上下留白（--shell-chrome）加上教材更新提示的高度；填滿視窗高度的學習頁以此扣除。 */
+  --shell-chrome: 32px;
+  --shell-offset: calc(var(--shell-chrome) + var(--material-notice-height, 0px));
   --shell-header-height: var(--shell-offset);
   position: relative;
+  display: flex;
+  align-items: flex-start;
   min-height: 100vh;
 }
 /* 首頁與清單頁在寬螢幕放寬版面，多出的寬度給群島地圖與卡片格線。 */
 .app-shell.is-wide {
-  --application-frame-max: var(--header-frame-max);
+  --application-frame-max: var(--wide-frame-max);
 }
-.app-header {
-  position: relative;
+
+/* 左側欄：品牌、搜尋框、主要入口；最下面是新增教材與個人檔案。捲動內容時固定在左邊。 */
+.rail {
+  position: sticky;
+  top: 0;
   z-index: 5;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-  max-width: calc(var(--header-frame-max) + 2 * var(--shell-gutter));
-  margin: 0 auto;
-  padding: 18px var(--shell-gutter) 0;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  width: var(--rail-width);
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 22px 14px;
+  border-right: 2px solid var(--border-light);
+  background: var(--surface);
 }
-.brand {
-  display: inline-flex;
+.rail-brand {
+  display: flex;
   align-items: center;
   gap: 8px;
-  justify-self: start;
-  width: max-content;
-  min-height: 52px;
-  padding: 4px 20px 4px 8px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  color: var(--text-primary);
+  min-height: 44px;
+  padding: 0 8px 14px;
+  color: var(--studydy-blue);
   font-size: 22px;
   font-weight: 900;
   letter-spacing: -0.02em;
+  text-decoration: none;
 }
-.brand img {
-  width: 44px;
-  height: 44px;
+.rail-brand img {
+  width: 34px;
+  height: 34px;
   object-fit: contain;
 }
-.main-nav {
-  display: inline-flex;
-  gap: 4px;
-  padding: 6px;
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-.main-nav a {
-  display: inline-flex;
-  text-decoration: none;
-  align-items: center;
-  position: relative;
-  justify-content: center;
-  flex: none;
-  width: 40px;
-  min-height: 40px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 15px;
-  font-weight: 800;
-  white-space: nowrap;
-  transition: background 0.2s, color 0.2s;
-}
-.main-nav-tooltip { display:none; position:absolute; top:calc(100% + 10px); left:50%; transform:translateX(-50%); padding:6px 10px; border-radius:8px; background:var(--text-primary); color:var(--surface); font-size:13px; pointer-events:none; }
-.main-nav a:hover .main-nav-tooltip, .main-nav a:focus-visible .main-nav-tooltip { display:block; }
-.main-nav a:hover:not([aria-current="page"]) {
-  background: var(--page-cool);
-  color: var(--text-primary);
-}
-.main-nav a[aria-current="page"] {
-  background: var(--text-primary);
-  color: #fff;
-}
-.account-controls {
+.rail-search {
   display: flex;
-  justify-self: end;
-  align-items: center;
-  gap: 10px;
-}
-.account-button {
-  display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 46px;
-  padding: 0 18px 0 14px;
-  border: 0;
-  border-radius: 999px;
+  min-height: 44px;
+  margin: 0 2px 10px;
+  padding: 7px 10px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-input);
   background: var(--surface);
-  box-shadow: var(--shadow);
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  font-size: 13px;
   font-weight: 800;
+  text-align: left;
 }
-.account-button:hover {
-  color: var(--text-primary);
+.rail-search:hover {
+  border-color: var(--studydy-blue-soft);
+  color: var(--text-secondary);
 }
+.rail-search > svg {
+  flex: none;
+}
+.rail-search kbd {
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  font: 800 11px/1.5 inherit;
+}
+.rail-nav {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+.rail-links {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rail-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-input);
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 900;
+  text-decoration: none;
+}
+.rail-link:hover:not([aria-current="page"]) {
+  background: var(--page-cool);
+}
+.rail-link[aria-current="page"] {
+  border-color: color-mix(in srgb, var(--studydy-blue) 40%, var(--surface));
+  background: var(--studydy-blue-soft-2);
+  color: var(--studydy-blue-deep);
+}
+.rail-link > i {
+  display: grid;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 11px;
+}
+.rail-link > i.is-blue { background: var(--studydy-blue-soft); color: var(--studydy-blue-deep); }
+.rail-link > i.is-green { background: var(--success-soft); color: var(--success); }
+.rail-link > i.is-violet { background: var(--violet-soft); color: var(--violet); }
+.rail-link > i.is-amber { background: var(--warning-soft); color: var(--amber-deep); }
+/* 不熟卡數。 */
+.shell-count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--error);
+  color: var(--surface);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 18px;
+}
+.rail-upload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  margin-top: auto;
+  padding: 10px;
+  border-radius: var(--radius-button);
+  background: var(--studydy-blue);
+  box-shadow: 0 4px 0 var(--studydy-blue-deep);
+  color: var(--surface);
+  font-size: 15px;
+  font-weight: 900;
+  text-decoration: none;
+}
+.rail-upload:hover {
+  background: var(--studydy-blue-hover);
+}
+.rail-upload[aria-current="page"] {
+  box-shadow: 0 4px 0 var(--studydy-blue-deep), 0 0 0 3px var(--studydy-blue-soft);
+}
+.rail-minor {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+/* 桌機上「個人檔案與設定」只有文字；收合成圖示列時才顯示圖示。 */
+.rail-minor > i {
+  display: none;
+}
+.shell-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.phone-nav {
+  display: none;
+}
+.rail-toggle {
+  display: none;
+}
+
 .app-main {
-  /* 將頁內 sticky／浮動元件限制在內容層，避免蓋過共用頁首。 */
+  /* 將頁內 sticky／浮動元件限制在內容層，避免蓋過左側欄。 */
   isolation: isolate;
+  flex: 1;
   min-width: 0;
   padding: 26px var(--shell-gutter) var(--space-12);
 }
@@ -132,9 +206,6 @@
   max-width: var(--readable-content-max);
 }
 /* 教材內的學習頁使用全寬工作區，讓地圖與播放區有最大的操作空間。 */
-.app-shell.is-workspace .app-header {
-  max-width: none;
-}
 .app-shell.is-workspace .app-main > * {
   max-width: none;
 }
@@ -147,51 +218,266 @@
 /* 保留 max-height: 820px：依學習頁內容需要的視窗高度決定，不是寬度斷點。 */
 @media (min-width: 1025px) and (max-height: 820px) {
   .app-shell {
-    --shell-offset: 90px;
+    --shell-chrome: 20px;
   }
   .app-shell.is-workspace .app-main {
     padding-top: 8px;
     padding-bottom: 12px;
   }
 }
-.tab-bar {
-  display: none;
+
+/* 收合的側欄：64px 的圖示列，只有按「展開／收合側欄」才改變（選擇全站共用，見 AppShell）；
+   滑到或用鍵盤移到圖示時顯示名稱提示（.rail-tip）。平板以下本來就是圖示列或底部頁籤，不另外處理。 */
+@media (min-width: 1025px) {
+  .rail-toggle {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 7px 18px;
+    border: 0;
+    border-radius: var(--radius-input);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    text-align: left;
+  }
+  .rail-toggle:hover {
+    background: var(--page-cool);
+    color: var(--text-secondary);
+  }
+  .rail-toggle > svg {
+    flex: none;
+  }
+  .app-shell.is-rail-collapsed {
+    --rail-width: 64px;
+  }
+  /* 展開不加 transition：視窗從桌機縮到手機時，過場會讓側欄短暫撐出橫向捲動。
+     64px 扣掉右框 2px、左右各 7px，剛好放下 48px 寬的項目；多 1px 側欄就會出現橫向捲軸。 */
+  .is-rail-collapsed > .rail {
+    align-items: center;
+    padding-inline: 7px;
+  }
+  .is-rail-collapsed > .rail :is(.rail-brand span, .rail-search span, .rail-search kbd, .rail-label) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* 收合與展開時每個項目的高度相同，按展開／收合時項目不會上下移位。 */
+  .is-rail-collapsed > .rail .rail-brand {
+    padding-inline: 0;
+  }
+  .is-rail-collapsed > .rail .material-rail-name {
+    visibility: hidden;
+    width: 48px;
+  }
+  /* 搜尋框展開時左右各有 2px 外距，收合時拿掉，不然寬度一樣會超出。 */
+  .is-rail-collapsed > .rail :is(.rail-toggle, .rail-search, .rail-upload) {
+    justify-content: center;
+    width: 48px;
+    margin-inline: 0;
+    padding: 0;
+  }
+  .is-rail-collapsed > .rail :is(.rail-nav, .material-rail-nav, .material-rail-more) {
+    align-items: center;
+  }
+  .is-rail-collapsed > .rail .rail-link {
+    position: relative;
+    justify-content: center;
+    width: 48px;
+    padding-inline: 4px;
+  }
+  /* 次要項目展開時只有文字（44px 高），收合時多出 36px 圖示，上下留白縮小才維持同高。 */
+  .is-rail-collapsed > .rail :is(.rail-minor, .material-rail-minor .rail-link) {
+    padding-block: 2px;
+  }
+  .is-rail-collapsed > .rail :is(.rail-minor, .material-rail-minor .rail-link) > i {
+    display: grid;
+  }
+  .is-rail-collapsed > .rail .rail-link .shell-count {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
 }
 
-/* 手機：頂部只留品牌與帳號，主要導覽移到底部。 */
+/* 圖示列的名稱提示：固定定位在側欄右邊，不在側欄的捲動範圍內。 */
+.rail-tip {
+  position: fixed;
+  z-index: 30;
+  padding: 6px 10px;
+  border-radius: var(--radius-input);
+  background: var(--text-primary);
+  color: var(--surface);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+/* 答題的專注模式：沒有側欄與底部頁籤，內容用滿整個寬度。 */
+.app-shell.is-focus .app-main {
+  padding-top: 16px;
+}
+
+/* 平板：側欄收成圖示列，文字留給輔助科技（搜尋與入口的名稱不變）。 */
+@media (max-width: 1024px) {
+  .app-shell {
+    --rail-width: 76px;
+  }
+  .rail {
+    align-items: center;
+    padding: 18px 10px;
+  }
+  .rail-brand {
+    padding: 0 0 10px;
+  }
+  .rail-brand span,
+  .rail-search span,
+  .rail-search kbd,
+  .rail-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .rail-search {
+    justify-content: center;
+    width: 48px;
+    min-height: 48px;
+    margin: 0 0 8px;
+    padding: 0;
+  }
+  .rail-nav {
+    align-items: center;
+  }
+  /* 76px 扣掉右框 2px、左右內距各 10px，剛好放下 54px 寬的項目；再寬側欄就會出現橫向捲軸。 */
+  .rail-link {
+    position: relative;
+    justify-content: center;
+    width: 54px;
+    padding: 4px;
+  }
+  .rail-minor > i {
+    display: grid;
+  }
+  .rail-link .shell-count {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
+  .rail-upload {
+    width: 48px;
+    height: 48px;
+    padding: 0;
+  }
+}
+
+/* 矮畫面（例如瀏覽器放大 125%／150%）：縮小側欄的留白與項目間距，全部項目不用捲動就放得下。
+   收合、展開與平板圖示列都用同樣的上下留白，每個項目仍是 44px 高，按展開／收合時項目不移位。 */
+/* 保留 max-height: 780px：教材側欄（含最下面的展開／收合側欄）全部項目的自然高度約 763px，不是寬度斷點；教材側欄自己的清單間距在 material-rail.css 同一條件。 */
+@media (min-width: 721px) and (max-height: 780px) {
+  .rail {
+    gap: 4px;
+    padding-block: 12px;
+  }
+  .rail-nav,
+  .rail-links {
+    gap: 2px;
+  }
+  .rail-link {
+    padding-block: 2px;
+  }
+}
+
+/* 更矮的畫面（例如 1366×768 筆電放大 125%）：再收緊側欄上下留白與品牌下方留白，項目仍是 44px 高。 */
+/* 保留 max-height: 640px：上一層壓縮後，教材側欄全部項目的高度約 633px，不是寬度斷點；教材名稱的留白在 material-rail.css 同一條件。 */
+@media (min-width: 721px) and (max-height: 640px) {
+  .rail {
+    gap: 2px;
+    padding-block: 8px;
+  }
+  .rail-brand {
+    padding-bottom: 6px;
+  }
+}
+
+/* 手機：側欄變成頂端一列（品牌、搜尋、新增教材、個人檔案），主要入口移到底部頁籤。 */
 @media (max-width: 720px) {
   .app-shell {
-    --shell-offset: 166px;
+    /* 頂端列 66px＋內容區上緣 18px＋下緣 108px（留給底部頁籤）；少算會讓填滿視窗的頁（地圖、筆記、原始檔案）多捲一段。 */
+    --shell-chrome: 192px;
+    display: block;
   }
-  :root {
-    --shell-header-bottom: 56px;
+  .rail {
+    position: static;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    padding: 10px var(--shell-gutter);
+    border-right: 0;
+    border-bottom: 2px solid var(--border-light);
   }
-  .app-header {
-    grid-template-columns: minmax(0, 1fr) auto;
-    padding-top: 12px;
+  .rail-brand {
+    flex: none;
+    padding: 0;
   }
-  .main-nav {
+  .rail-search {
+    flex: 1;
+    justify-content: flex-start;
+    width: auto;
+    min-width: 0;
+    margin: 0;
+    padding: 0 12px;
+  }
+  .rail-search span {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: hidden;
+    clip-path: none;
+    text-overflow: ellipsis;
+  }
+  .rail-nav {
+    flex: none;
+    flex-direction: row;
+    gap: 6px;
+  }
+  .rail-links {
     display: none;
   }
-  .brand {
-    min-height: 44px;
-    padding-right: 16px;
-    font-size: 19px;
+  .rail-upload {
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    box-shadow: 0 3px 0 var(--studydy-blue-deep);
   }
-  .brand img {
-    width: 36px;
-    height: 36px;
-  }
-  .account-button {
-    min-height: 40px;
-    padding: 0 14px 0 10px;
+  .rail-link {
+    width: 44px;
+    margin: 0;
+    padding: 0;
   }
   .app-main,
   .app-shell.is-workspace .app-main {
     padding-top: 18px;
     padding-bottom: calc(108px + env(safe-area-inset-bottom));
   }
-  .tab-bar {
+  .app-shell.is-focus .app-main {
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+  .phone-nav {
     position: fixed;
     right: 12px;
     bottom: calc(12px + env(safe-area-inset-bottom));
@@ -200,118 +486,53 @@
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     align-items: center;
-    height: 68px;
-    padding: 0 6px;
-    border-radius: 26px;
+    height: 64px;
+    padding: 0 4px;
+    border-radius: 24px;
     background: var(--surface);
     box-shadow: 0 16px 36px -12px rgba(29, 52, 110, 0.35);
   }
-  .tab-bar a,
-  .tab-bar button {
+  .phone-nav a {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    text-decoration: none;
-    gap: 2px;
-    min-height: 52px;
-    border: 0;
-    background: transparent;
+    gap: 3px;
+    min-height: 50px;
     color: var(--text-muted);
     font-size: 11px;
     font-weight: 800;
+    text-decoration: none;
   }
-  .tab-bar a[aria-current="page"] {
+  .phone-nav a[aria-current="page"] {
     color: var(--studydy-blue);
   }
-  .tab-bar .tab-bar-upload {
-    justify-self: center;
-    width: 56px;
-    height: 56px;
-    margin-top: -26px;
-    border-radius: 50%;
+  .phone-nav a[aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    width: 18px;
+    height: 3px;
+    border-radius: 999px;
     background: var(--studydy-blue);
-    color: #fff;
-    box-shadow: var(--shadow-raised);
   }
+  .phone-nav .shell-count {
+    position: absolute;
+    top: 2px;
+    left: calc(50% + 6px);
+    margin: 0;
+  }
+  .search-dialog {
+    margin-top: 16px;
+    max-height: calc(100dvh - 120px - env(safe-area-inset-bottom));
+  }
+  .search-results { padding-bottom: 24px; }
+  /* 觸控目標至少 44px（搜尋、更新預覽、概念預覽等對話框的關閉鈕）。 */
+  .header-dialog .header-dialog-close { width: 44px; height: 44px; }
 }
 
-/* 頁首工具：全站搜尋入口與帳號設定 */
-.header-search-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: max-content;
-  min-height: 46px;
-  padding: 0 10px 0 16px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  color: var(--text-muted);
-  font-size: 14px;
-  font-weight: 700;
-}
-.header-search-trigger span {
-  flex: 1;
-  text-align: left;
-}
-.header-search-trigger kbd {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--page-cool);
-  color: var(--text-secondary);
-  font: 800 12px/1 inherit;
-}
-.header-search-trigger:hover {
-  color: var(--text-primary);
-}
-.account-profile {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 46px;
-  max-width: 180px;
-  padding: 4px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  color: var(--text-primary);
-  font-weight: 800;
-}
-.account-profile:has(.account-name) {
-  padding-right: 16px;
-}
-.account-avatar {
-  display: grid;
-  flex: none;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--studydy-blue-soft);
-  color: var(--studydy-blue);
-  font-size: 16px;
-  font-weight: 900;
-}
-.account-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.header-sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
+/* 全站搜尋與共用對話框（Modal） */
 .header-dialog {
   width: min(560px, calc(100vw - 32px));
   max-height: min(640px, 85dvh);
@@ -486,190 +707,6 @@
   font-size: 13px;
 }
 /* 個人檔案頁時頭像按鈕標示目前位置。 */
-.account-profile[aria-current="page"] {
-  box-shadow: 0 0 0 2px var(--studydy-blue);
-}
-@media (max-width: 1280px) {
-  .account-button { justify-content:center; width:46px; padding:0; }
-  .account-button-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-  .header-search-trigger {
-    min-width: 0;
-    padding: 0 14px;
-  }
-  .header-search-trigger span,
-  .header-search-trigger kbd,
-  .account-name {
-    display: none;
-  }
-  .account-profile:has(.account-name) {
-    padding-right: 4px;
-  }
-}
-@media (max-width: 720px) {
-  .header-search-trigger,
-  .account-profile {
-    min-height: 40px;
-  }
-  .account-avatar {
-    width: 32px;
-    height: 32px;
-  }
-  .search-dialog {
-    margin-top: 16px;
-  }
-}
-
-/* 頁首學習進度：放在品牌旁；等級盾牌＋本級進度在連續天數左邊，手機只留盾牌與細進度條。 */
-.header-start {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-self: start;
-  min-width: 0;
-}
-.header-progress {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  min-height: 46px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 900;
-  white-space: nowrap;
-}
-.header-streak {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 10px 4px 7px;
-  border-radius: 999px;
-  background: #fff0ec;
-  color: var(--coral);
-}
-.header-streak b {
-  font-size: 15px;
-}
-.header-progress.is-idle .header-streak {
-  background: var(--page-cool);
-  color: var(--text-muted);
-}
-.header-level {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding-left: 4px;
-}
-.header-level-shield {
-  position: relative;
-  display: grid;
-  flex: none;
-  width: 30px;
-  height: 33px;
-  place-items: center;
-}
-.header-level-shield svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  fill: var(--warning);
-  stroke: var(--amber-deep);
-  stroke-width: 2.5;
-  stroke-linejoin: round;
-}
-.header-level-shield b {
-  position: relative;
-  margin-top: -2px;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 900;
-  text-shadow: 0 1px 2px rgba(120, 60, 0, 0.45);
-}
-.header-level-meter {
-  display: grid;
-  gap: 2px;
-  width: 64px;
-}
-
-.header-level-meter small {
-  color: var(--amber-deep);
-  font-size: 11px;
-  font-weight: 900;
-  line-height: 1.1;
-}
-
-@media (min-width: 1281px) and (max-width: 1439px) {
-  .account-button { justify-content:center; width:46px; padding:0; }
-  .account-button-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-  .account-name { display:none; }
-  .account-profile:has(.account-name) { padding-right:4px; }
-}
-@media (max-width: 720px) {
-  .app-header:has(.header-progress) {
-    gap: 10px;
-  }
-  .header-start {
-    gap: 6px;
-  }
-  .account-controls {
-    gap: 6px;
-  }
-  .account-button {
-    width: 40px;
-  }
-  .header-progress {
-    min-height: 40px;
-    gap: 5px;
-    padding: 0 9px 0 4px;
-    font-size: 13px;
-  }
-  .header-streak {
-    padding: 3px 8px 3px 5px;
-  }
-  /* 手機：盾牌縮小（細進度條規則見 1280px）。 */
-  .header-level { gap: 4px; padding-left: 2px; }
-  .header-level-shield { width: 26px; height: 29px; }
-  .header-level-shield b { font-size: 13px; }
-}
-/* 窄螢幕頁首空間有限：有學習進度時品牌只留吉祥物（按鈕仍有無障礙名稱）。 */
-@media (max-width: 1024px) {
-  .app-header:has(.header-progress) .brand span {
-    display: none;
-  }
-  .app-header:has(.header-progress) .brand {
-    padding-right: 8px;
-  }
-}
-/* 中央導覽只剩圖示的寬度：本級進度只留細條，數字收起（無障礙名稱仍有完整數字）。 */
-@media (max-width: 1280px) {
-  .header-level-meter { width: 28px; }
-  .header-level-meter small { display: none; }
-}
-/* 中央導覽置中、兩側最窄的寬度：只留盾牌與連續天數數字。 */
-@media (min-width: 721px) and (max-width: 1280px) {
-  .header-level-meter,
-  .header-streak-unit {
-    display: none;
-  }
-  .header-progress { gap: 4px; padding: 0 4px; }
-  .header-level { padding-left: 0; }
-  .header-streak { padding: 3px 6px 3px 4px; }
-}
-@media (max-width: 480px) {
-  .header-level-meter,
-  .header-streak-unit {
-    display: none;
-  }
-  .header-progress { gap: 3px; padding: 0 6px 0 2px; }
-  .header-level-shield { width: 23px; height: 26px; }
-  .header-level-shield b { font-size: 12px; }
-}
 
 /* 升級動畫：只在等級比此瀏覽器上次看到的高時播放一次。 */
 .level-up {
@@ -754,81 +791,3 @@
 .profile-field { gap: 4px; }
 .profile-help { margin-top: -2px; }
 .account-settings footer { margin-top: 0; }
-.profile-dialog .account-settings {
-  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent);
-  padding-bottom: 32px;
-}
-/* 手機：搜尋視窗高度扣掉底部導覽，結果最後一列不貼齊邊緣。 */
-@media (max-width: 720px) {
-  .search-dialog { max-height: calc(100dvh - 120px - env(safe-area-inset-bottom)); }
-  .search-results { padding-bottom: 24px; }
-}
-/* 手機中央「＋」加上可見的「上傳」字樣。 */
-.tab-bar .tab-bar-upload { position: relative; }
-.tab-bar .tab-bar-upload::after {
-  content: "上傳";
-  position: absolute;
-  bottom: -18px;
-  left: 50%;
-  transform: translateX(-50%);
-  color: var(--studydy-blue);
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-/* 連續天數一律帶「天」單位；手機收緊間距，長天數與等級仍放得下。 */
-.header-streak-unit { margin-left: 1px; font-size: 12px; }
-@media (max-width: 720px) {
-  .header-progress { gap: 4px; }
-  .header-streak { gap: 1px; padding: 3px 6px 3px 4px; }
-  .header-streak-unit { font-size: 11px; }
-}
-
-/* 帳號空間：僅作用於新增元件，不改共用頁首與建立頁規則。 */
-.header-storage { position:relative; flex:none; }
-.header-storage-button { display:inline-flex; align-items:center; gap:6px; min-height:46px; padding:0 8px; border:0; border-radius:999px; background:var(--surface); box-shadow:var(--shadow); color:var(--text-primary); font-size:12px; font-weight:800; white-space:nowrap; }
-.header-storage-button > svg { flex:none; }
-.header-storage-wide { display:flex; align-items:center; gap:6px; }
-
-.header-storage-compact { display:none; }
-.header-storage-full .header-storage-button, .header-storage-warning { color:var(--error); }
-
-.header-storage-panel { position:absolute; top:calc(100% + 10px); left:0; z-index:10; width:min(24rem, calc(100vw - 32px)); padding:20px; display:grid; gap:10px; border:1px solid var(--border); border-radius:20px; background:var(--surface); box-shadow:var(--shadow); color:var(--text-secondary); font-size:14px; }
-.header-storage-panel h2 { margin:0; color:var(--text-primary); font-size:17px; }
-.header-storage-panel p { margin:0; }
-
-@media (max-width:1280px) {
-  .header-storage-wide { display:none; }
-  .header-storage-compact { display:inline; }
-}
-@media (max-width:720px) {
-  .header-storage-button { min-height:40px; padding:0 6px; gap:4px; }
-  .header-storage-panel { position:fixed; left:16px; right:16px; top:calc(var(--shell-header-bottom) + 10px); width:auto; max-height:calc(100dvh - var(--shell-header-bottom) - 26px); overflow-y:auto; }
-}
-
-/* 有帳號空間時依三區內容分配寬度；教材頁首不會命中此規則。 */
-.app-header:has(.header-storage) {
-  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
-  column-gap: 12px;
-}
-.app-header:has(.header-storage) .main-nav { justify-self:center; }
-@media (max-width:1280px) {
-  .app-header:has(.header-storage) .header-start,
-  .app-header:has(.header-storage) .account-controls { gap:4px; }
-}
-@media (max-width:720px) {
-  .app-header:has(.header-storage) { grid-template-columns:max-content minmax(0,1fr); }
-  /* 最窄手機逐漸收掉裝飾留白，保留每個按鈕、數字與單列頁首。 */
-  .app-header:has(.header-storage) .header-start,
-  .app-header:has(.header-storage) .account-controls { gap:clamp(0px, calc(10vw - 32px), 6px); }
-  .app-header:has(.header-storage) .brand { padding-inline:0; }
-  .app-header:has(.header-storage) .header-progress { padding-inline:0; gap:2px; }
-  .app-header:has(.header-storage) .header-search-trigger { padding-inline:clamp(0px, calc(20vw - 64px), 10px); }
-  .app-header:has(.header-storage) .header-storage-button { padding-inline:clamp(0px, calc(10vw - 32px), 6px); }
-}
-
-.header-storage-progress { width:2rem; }
-
-.header-storage-panel .header-storage-material-link { color:var(--studydy-blue); font-weight:800; text-decoration:none; }
-.header-storage-panel .header-storage-material-link:hover { text-decoration:underline; }

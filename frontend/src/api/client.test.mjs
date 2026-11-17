@@ -852,6 +852,7 @@ function assessmentSetView() {
   return {
     ...assessmentSetSummary({ set_version: 2 }),
     schema: "assessment-set/v2",
+    xp_award: null,
     study_session_id: sessionId,
     material_id: materialId,
     knowledge_structure_revision: structureRevision,
@@ -1560,7 +1561,7 @@ test("learning activity requires XP, level, quests and badges from the v3 rules"
 
 function rhythmView(change = () => undefined) {
   const days = [19, 20, 21, 22, 23, 24, 25].map((day) => ({
-    date: `2026-10-${day}`, answers: 0, correct: 0, card_reviews: 0, listened_seconds: 0, active: false,
+    date: `2026-10-${day}`, xp: 0, answers: 0, correct: 0, card_reviews: 0, listened_seconds: 0, active: false,
   }));
   days[2] = { ...days[2], answers: 4, correct: 3, card_reviews: 2, listened_seconds: 360, active: true };
   const value = {
@@ -1583,6 +1584,8 @@ test("learning rhythm asks for one period page and needs consecutive days", asyn
     [() => undefined, "week", 1],
     [(value) => { value.first_day = "10/02"; }],
     [(value) => { delete value.days[0].listened_seconds; }],
+    [(value) => { delete value.days[0].xp; }],
+    [(value) => { value.days[0].xp = -1; }],
     [(value) => { value.days[1].correct = 9; }],
     [(value) => { value.days.reverse(); }],
     [(value) => { value.end = "2026-10-26"; }],
@@ -1817,6 +1820,19 @@ test("v3 note annotations write the visible content revision and generation then
   ]) await assert.rejects(new StudydyApiClient(async () => Response.json(invalid)).getNotes(materialId, structureRevision, "summary"), error => error.kind === "schema");
 });
 
+test("note tables accept blank cells but not blank headers", async () => {
+  const evidence = structureView().concepts[0].claims[0].evidence;
+  const table = (headers, rows) => ({ schema: "material-notes/v3", sections: [], unorganized_concepts: [], material_id: materialId, run_id: runId,
+    knowledge_structure_revision: structureRevision, kind: "full", status: "ready", generation: 1, source_status: structureView().status,
+    paragraphs: [{ id: "0", anchor: "a".repeat(64), heading: "TCP 選項", level: 1, claim_ids: [], evidence_ids: [], concepts: [], evidence,
+      blocks: [{ type: "table", caption: null, headers, rows }] }],
+    outline: [], annotations: [], source_resolver: `/v1/materials/${materialId}/knowledge-structures/${structureRevision}/evidence`, error_code: null,
+    progress: null, content_revision: structureRevision, content_generation: 1, update_available: false, updating: false, started_at: null, updated_at: null });
+  const client = value => new StudydyApiClient(async () => Response.json(value));
+  assert.equal((await client(table(["Kind", "備註"], [["2", "[SYN]"], ["0", ""]])).getNotes(materialId, structureRevision, "full")).paragraphs.length, 1);
+  await assert.rejects(client(table(["Kind", ""], [["2", "[SYN]"]])).getNotes(materialId, structureRevision, "full"), error => error.kind === "schema");
+});
+
 
 test("question entry points and assessment presence share a persistent browser id while cancel stays available", async () => {
   browserStorage.clear(); const requests=[];
@@ -1972,4 +1988,23 @@ test("notice dismissal and return use their schemas and bind the expected move i
   }
   value = { schema: "version-move-notice/v1", dismissed: false };
   await assert.rejects(client.setVersionMoveNotice(materialId, true), error => error.kind === "schema");
+});
+
+
+test("assessment XP award is required and accepts null or every source", async () => {
+  const read = value => new StudydyApiClient(async () => Response.json(value)).readAssessmentSet(sessionId, setId);
+  const value = assessmentSetView();
+  assert.equal((await read(value)).xp_award, null);
+  value.xp_award = { answers: 33, concepts: 30, cards: 0, podcast: 0, goals: 15, difficulties: 0 };
+  assert.deepEqual((await read(value)).xp_award, value.xp_award);
+  for (const change of [
+    item => { delete item.xp_award; },
+    item => { delete item.xp_award.goals; },
+    item => { item.xp_award.answers = -1; },
+    item => { item.xp_award.concepts = 0.5; },
+  ]) {
+    const invalid = structuredClone(value);
+    change(invalid);
+    await assert.rejects(read(invalid), ApiClientError);
+  }
 });

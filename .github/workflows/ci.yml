@@ -281,6 +281,13 @@ jobs:
           from browser_e2e_runner import main
           raise SystemExit(main('e2e/mock/', timeout_seconds=1800))
           PY
+      - name: Upload mock browser failure traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mock-browser-test-results
+          path: frontend/test-results
+          retention-days: 7
       - name: Publish failure details as public annotations
         if: failure()
         run: *failure-details

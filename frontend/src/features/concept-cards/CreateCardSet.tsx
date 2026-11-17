@@ -1,13 +1,13 @@
-import { BackLink } from "../../ui/BackLink";
+import { ListBreadcrumb } from "../../ui/Breadcrumb";
 import { useEffect, useRef, useState } from "react";
 import { ApiClientError, errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
 import { NotFoundView } from "../../ui/NotFoundView";
-import type { CardStudyView, KnowledgeOutlineView } from "../../api/contracts";
+import type { CardStudyView, KnowledgeOutlineView, KnowledgeRegionsView } from "../../api/contracts";
 import { routePath, writeRoute, type AppRoute } from "../../app/routes";
-import { Icon } from "../../ui/Icon";
 import { StateView } from "../../ui/StateView";
 import { useConceptContext } from "../material-flow/useConceptContext";
-import { FlowFooter, FlowHeader, FlowStage } from "../material-flow/Flow";
+import { FlowFooter } from "../material-flow/Flow";
+import { ChapterGroups, ClampedClaims, ConceptPickTools, PickHead, PreviewSheet, chapterGroups, usePhoneLayout, type SelectionFilter } from "../material-flow/ConceptPick";
 import "../material-flow/creation.css";
 import { MathText } from "../../ui/MathText";
 import { claimText } from "../../ui/claim-text";
@@ -20,18 +20,22 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   route: Extract<AppRoute, { name: "card-set-create" | "card-set-edit" }>;
 }) {
   const editing = route.name === "card-set-edit";
-  // 管理卡組在教材內（已有教材頁首與分頁列）不再重複返回；從全站概念卡列表進入時保留返回該列表。
+  // 調整卡組在教材內（已有教材側欄與返回鍵）不再重複返回；從全站概念卡列表進入時保留返回該列表。
   const [fromCollection] = useState(() => !!window.history.state?.fromCollection);
   const routeKey = routePath(route);
   const [view, setView] = useState<KnowledgeOutlineView | null>(null);
+  // 章節分區讀不到時是 null，概念清單退回分頁清單。
+  const [regions, setRegions] = useState<KnowledgeRegionsView | null>(null);
   const [saved, setSaved] = useState<CardStudyView | null>(null);
   const [materialId, setMaterialId] = useState("");
-  const [materialName, setMaterialName] = useState("");
   const [name, setName] = useState("");
   const [selected, setSelected] = useState(new Set<string>());
   const [previewId, setPreviewId] = useState<string | null>(null);
+  // 手機上點概念名稱才打開預覽抽屜；桌機的預覽一直放在右欄。
+  const phone = usePhoneLayout();
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [selectionFilter, setSelectionFilter] = useState<"all" | "selected" | "unselected">("all");
+  const [selectionFilter, setSelectionFilter] = useState<SelectionFilter>("all");
   const [conceptPage, setConceptPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
   const conceptList = useRef<HTMLDivElement>(null);
@@ -62,9 +66,10 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         if (deck && route.materialId && deck.material_id !== route.materialId) { if (!cancelled) setNotFound(true); return; }
         const id = deck?.material_id ?? (route.name === "card-set-create" ? route.materialId : "");
         const revision = deck?.knowledge_structure_revision ?? (route.name === "card-set-create" ? route.structureRevision : "");
-        const [material, structure] = await Promise.all([
+        const [material, structure, regionsRead] = await Promise.all([
           apiClient.getMaterial(id),
           apiClient.getKnowledgeOutline({ materialId: id, structureRevision: revision }),
+          apiClient.getKnowledgeRegions({ materialId: id, structureRevision: revision }).catch(() => null),
         ]);
         if (cancelled) return;
         if (structure.knowledge_structure_revision !== revision ||
@@ -74,8 +79,8 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
         }
         setSaved(deck);
         setView(structure);
+        setRegions(regionsRead);
         setMaterialId(id);
-        setMaterialName(material.display_name);
         setName(deck?.name ?? `${Array.from(material.display_name.replace(/\.[^.]+$/, "")).slice(0, 38).join("")}複習`);
         setSelected(new Set((deck?.navigation ?? structure.concepts).map((item) => item.concept_id)));
         setPreviewId(deck?.navigation[0]?.concept_id ?? structure.concepts[0]?.concept_id ?? null);
@@ -146,16 +151,16 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
     }
   };
   if (notFound) return <NotFoundView title={editing ? "找不到這個卡組" : "找不到這份教材"} description={editing ? "這個卡組可能已被刪除，或不屬於目前登入的帳號。" : "這份教材或地圖版本可能已被刪除，或不屬於目前登入的帳號。"}
-    back={route.materialId ? null : editing ? { label: "回到概念卡", route: { name: "concept-cards" } } : { label: "回到我的教材", route: { name: "materials" } }} />;
-  // 管理卡組自己一頁（不經 CreateStudyContent），頁首與建立頁同一套 flow-head。
-  const header = !embedded && <FlowHeader back={!route.materialId && <BackLink label="返回我的概念卡" route={{ name: "concept-cards" }} />} title="管理卡組"
-    description={materialName ? <span className="cards-material-name"><Icon name="book" size={16} /> {materialName}</span> : undefined} />;
+    back={route.materialId ? null : editing ? { label: "回到翻卡片", route: { name: "concept-cards" } } : { label: "回到我的群島", route: { name: "materials" } }} />;
+  // 調整卡組自己一頁（不經 CreateStudyContent）；建立時頁頂由 CreateStudyContent 放。
+  const header = !embedded && <PickHead crumb={<ListBreadcrumb kind="concept-cards" materialId={route.materialId} current="調整卡組" />}
+    title={<>調整卡組{saved && <small>{saved.name}</small>}</>} sub="可以改名稱，或勾選要保留的概念；保存後卡組會照新的內容更新。" />;
   if (error || !view) {
     const state = <StateView title={error ? "無法讀取概念" : "正在準備概念卡"}
       description={error ?? "正在載入教材的概念與重點。"} tone={error ? "failure" : "loading"} live={!error} skeleton="page"
       action={error ? <button className="primary-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取</button> : undefined} />;
     return embedded ? <section className="cards-page">{state}</section>
-      : <section className="cards-page creation-page flow-page cards-creation-page">{header}{state}</section>;
+      : <section className="cards-page creation-page flow-page">{header}{state}</section>;
   }
   const visible = view.concepts.filter((item) => (selectionFilter === "all" || selected.has(item.concept_id) === (selectionFilter === "selected")) && `${item.label} ${item.aliases.join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
@@ -165,50 +170,52 @@ export function CreateCardSet({ apiClient, route, embedded = false }: {
   const toggle = (id: string) => {
     setSelected((previous) => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   };
-  const stage = <FlowStage icon="cards" className="cards-create"
-    title={editing ? "調整卡組內容" : "選擇概念"}
-    description={editing ? "修改名稱或勾選要保留的概念，保存後卡組會依新內容更新。" : "勾選想做成卡片的概念，點概念名稱查看重點。"}
-    aside={<label className="creation-name">卡組名稱<input value={name} maxLength={40} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>}
-    footer={<FlowFooter
-      secondary={<>
-        <div className="cards-create-summary"><strong>{selected.size} 個觀念</strong><span>保存後，每個概念會生成一張或多張複習卡，依重點內容安排。</span></div>
-        {editing && <button className="secondary-button" type="button" disabled={busy} onClick={back}>取消變更</button>}
-      </>}
-      primary={<button className="primary-button" type="button" disabled={busy || !validName || selected.size === 0 || conflict} onClick={() => void save()}>
-        {busy ? "正在保存…" : editing ? "保存變更" : "保存並開始複習"}<Icon name="chevron-right" size={18} />
-      </button>} />}>
+  const groups = chapterGroups(view.concepts, regions);
+  const conceptRow = (concept: KnowledgeOutlineView["concepts"][number]) => <div className={`card-picker-option ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>
+    <input type="checkbox" aria-label={concept.label} checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} />
+    <button type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => { setPreviewId(concept.concept_id); setSheetOpen(true); }}><strong><MathText text={concept.label} /></strong><small>{concept.claim_count} 個重點</small></button>
+  </div>;
+  const previewSection = <section className="cards-preview card-picker-preview" aria-label="這個概念的重點">
+    <h3>這個概念的重點（教材原文）</h3>
+    {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p role="status">正在讀取概念與來源…</p> : null}
+    {preview && <><h4><MathText text={preview.label} /></h4><ClampedClaims resetKey={preview.concept_id}><ol>{preview.claims.map(claim => <li key={claim.claim_id}>
+      <span className="pick-claim-text"><MathText text={claimText(claim)} code={claim.evidence.some(item => item.kind === "code")} /></span>
+      <div className="flashcard-source-links">{sourceLinks(claim.evidence).map(evidence => <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={view.source_resolver} evidence={evidence} />)}</div>
+    </li>)}</ol></ClampedClaims></>}
+  </section>;
+  const stage = <div className="pick-stage">
     {saveError && <p className="form-error" role="alert">{saveError}{conflict && <button className="text-button" type="button" onClick={() => setReload((n) => n + 1)}>重新讀取卡組</button>}</p>}
     <div className="cards-create-grid">
-      <section className="cards-selection" aria-label="選擇概念">
-        <div className="cards-selection-heading">
-          <input className="cards-concept-search" type="search" aria-label="搜尋概念" placeholder="搜尋概念…" value={query} onChange={(event) => { setQuery(event.target.value); setConceptPage(1); }} />
-          <div className="cards-selection-actions"><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set(view.concepts.map((item) => item.concept_id)))}>全選</button><span>／</span><button className="text-button" type="button" disabled={busy} onClick={() => setSelected(new Set())}>取消全選</button></div>
-          <div className="concept-selection-filters">
-            {([["all", "全部", view.concepts.length], ["selected", "已選", selected.size], ["unselected", "未選", view.concepts.length - selected.size]] as const).map(([filter, label, count]) => <button key={filter} type="button" className="secondary-button" aria-pressed={selectionFilter === filter} onClick={() => { setSelectionFilter(filter); setConceptPage(1); }}>{label} {count}</button>)}
-          </div>
-        </div>
-        <div className="cards-concept-list card-picker-grid" ref={conceptList}>
-          {pageConcepts.map((concept) => <div className={`card-picker-option ${selected.has(concept.concept_id) ? "is-selected" : ""}`} key={concept.concept_id}>
-            <input type="checkbox" aria-label={concept.label} checked={selected.has(concept.concept_id)} disabled={busy} onChange={() => toggle(concept.concept_id)} />
-            <button type="button" aria-label={`預覽「${concept.label}」`} aria-pressed={previewId === concept.concept_id} onClick={() => setPreviewId(concept.concept_id)}><strong><MathText text={concept.label} /></strong><small>{concept.claim_count} 個重點</small></button>
-          </div>)}
+      <section className="pick-panel cards-selection" aria-label="選擇概念">
+        <ConceptPickTools searchLabel="搜尋概念" query={query} onQuery={(value) => { setQuery(value); setConceptPage(1); }} busy={busy}
+          onSelectAll={() => setSelected(new Set(view.concepts.map((item) => item.concept_id)))} onSelectNone={() => setSelected(new Set())}
+          filter={selectionFilter} onFilter={(value) => { setSelectionFilter(value); setConceptPage(1); }} total={view.concepts.length} selected={selected.size} />
+        <div className={`cards-concept-list card-picker-grid${groups ? " is-grouped" : ""}`} ref={conceptList}>
+          {groups ? <ChapterGroups groups={groups} visible={visible} selected={selected} busy={busy} itemsClassName="chapter-items"
+            onToggleChapter={(ids, on) => setSelected((previous) => { const next = new Set(previous); for (const id of ids) { if (on) next.add(id); else next.delete(id); } return next; })}
+            renderConcept={conceptRow} /> : pageConcepts.map(conceptRow)}
           {visible.length === 0 && <p className="cards-no-results">找不到符合的概念。</p>}
         </div>
-        {pageCount > 1 && <nav className="cards-concept-pagination" aria-label="概念清單分頁">
+        {!groups && pageCount > 1 && <nav className="cards-concept-pagination" aria-label="概念清單分頁">
           <button className="secondary-button" type="button" disabled={currentPage === 1} onClick={() => setConceptPage(currentPage - 1)}>上一頁</button>
           <span aria-live="polite">第 {currentPage} / {pageCount} 頁</span>
           <button className="secondary-button" type="button" disabled={currentPage === pageCount} onClick={() => setConceptPage(currentPage + 1)}>下一頁</button>
         </nav>}
       </section>
-      <section className="cards-preview card-picker-preview" aria-label="這個概念的重點">
-        <h3>這個概念的重點</h3>
-        {previewRead.error ? <p role="alert">{previewRead.error}<button type="button" onClick={previewRead.retry}>重新讀取預覽</button></p> : !preview && previewId ? <p role="status">正在讀取概念與來源…</p> : null}
-        {preview && <><h4><MathText text={preview.label} /></h4><ol>{preview.claims.map(claim => <li key={claim.claim_id}>
-          <MathText text={claimText(claim)} code={claim.evidence.some(item => item.kind === "code")} />
-          <div className="flashcard-source-links">{sourceLinks(claim.evidence).map(evidence => <SourceButton key={evidence.evidence_id} apiClient={apiClient} resolver={view.source_resolver} evidence={evidence} />)}</div>
-        </li>)}</ol></>}
-      </section>
+      <div className="pick-panel cards-side">
+        <label className="creation-name">卡組名稱<input value={name} maxLength={40} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：資料結構考前複習" /></label>
+        {!phone && previewSection}
+      </div>
     </div>
-  </FlowStage>;
-  return embedded ? stage : <section className="cards-page creation-page flow-page cards-creation-page">{header}{stage}</section>;
+    <FlowFooter
+      secondary={<div className="cards-create-summary"><strong>已選 {selected.size} 個概念</strong><span>每個概念會做成一張或多張卡，依重點內容安排。</span></div>}
+      primary={<div>
+        {editing && <button className="secondary-button" type="button" disabled={busy} onClick={back}>取消變更</button>}
+        <button className="primary-button" type="button" disabled={busy || !validName || selected.size === 0 || conflict} onClick={() => void save()}>
+          {busy ? "正在保存…" : editing ? "保存變更" : "建立並開始翻卡"}
+        </button>
+      </div>} />
+    {phone && <PreviewSheet title="概念重點預覽" open={sheetOpen} onClose={() => setSheetOpen(false)}>{previewSection}</PreviewSheet>}
+  </div>;
+  return embedded ? stage : <section className="cards-page creation-page flow-page">{header}{stage}</section>;
 }

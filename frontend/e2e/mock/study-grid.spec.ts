@@ -34,7 +34,7 @@ for (const width of [1440, 1300, 1200, 1024, 390]) {
     await page.keyboard.press("Enter");
     expect((await submission).postDataJSON().answers).toHaveLength(2);
     await expect(page.locator(".feedback-card")).toHaveCount(2);
-    await expect(page.locator(".question-result-summary")).toContainText("答對 1／2 題 · 1 個重點需要補強");
+    await expect(page.locator(".question-result-summary")).toContainText("答對 1／2 題 · 1 個重點要再練");
     expect(fixture.requests.filter(request => request.path.endsWith("/submissions"))).toHaveLength(1);
     await expect(page.locator(".assessment-cycle .primary-button")).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath(`result-${kind}-${width}.png`) });
@@ -49,6 +49,7 @@ for (const width of [1440, 1300, 1200, 1024, 390]) {
     await expect(page.locator(".feedback-card")).toHaveCount(3);
     expect(await page.locator(".feedback-card").evaluateAll(nodes => nodes.every(element => element.scrollWidth <= element.clientWidth))).toBe(true);
     await expect(page.locator(".feedback-evidence").first()).toContainText("請依照教材描述的通訊角色判斷。");
+    await page.locator(".feedback-card > summary").first().click();
     const source = page.locator(".feedback-evidence button").first();
     await expect(source).toContainText("網路服務角色");
     expect(await source.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);

@@ -28,11 +28,14 @@ type View = { x: number; y: number; k: number };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-export function IslandMap({ materials, progress, goals }: {
+export function IslandMap({ materials, progress, goals, goalsReady }: {
   materials: MaterialLibraryItem[] | null;
   progress: Map<string, IslandProgress>;
   goals: Map<string, LearningGoalSummary>;
+  /** 目標讀完（或讀取失敗）才算準備好；開場置中要等教材和目標都到齊，不看誰先回來。 */
+  goalsReady: boolean;
 }) {
+  const ready = materials !== null && goalsReady;
   const { islands, newSpot, bounds } = useMemo(() => layoutIslands(materials ?? []), [materials]);
   const viewport = useRef<HTMLDivElement>(null);
   const minimapView = useRef<SVGRectElement>(null);
@@ -42,23 +45,23 @@ export function IslandMap({ materials, progress, goals }: {
   const animation = useRef(0);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef({ startX: 0, startY: 0, moved: false });
-  // 開啟時置中的島：最近學習的教材；沒有學習紀錄時取目標最緊迫的島。
+  // 開啟時置中的島：目標最緊迫的島；沒有目標就取最近學習的教材。
   const focusId = useMemo(() => {
-    let best: MaterialLibraryItem | undefined, at = "";
-    for (const material of materials ?? []) {
-      const started = headSession(material)?.started_at ?? "";
-      if (started > at) { at = started; best = material; }
-    }
-    if (best) return best.material_id;
     let urgent: string | undefined, left = Infinity;
     for (const material of materials ?? []) {
       const goal = goals.get(material.material_id);
       if (goal && goal.days_remaining - goal.overdue_days < left) { left = goal.days_remaining - goal.overdue_days; urgent = material.material_id; }
     }
-    return urgent;
+    if (urgent) return urgent;
+    let best: MaterialLibraryItem | undefined, at = "";
+    for (const material of materials ?? []) {
+      const started = headSession(material)?.started_at ?? "";
+      if (started > at) { at = started; best = material; }
+    }
+    return best?.material_id;
   }, [materials, goals]);
-  const geometry = useRef({ islands, newSpot, bounds, focusId });
-  geometry.current = { islands, newSpot, bounds, focusId };
+  const geometry = useRef({ islands, newSpot, bounds, focusId, ready });
+  geometry.current = { islands, newSpot, bounds, focusId, ready };
 
   const zoomRange = () => [Math.max(minZoom, Math.min(0.5, fitAll().k * 0.8)), maxZoom] as const;
 
@@ -108,11 +111,11 @@ export function IslandMap({ materials, progress, goals }: {
     return centerOn(cx, cy, k);
   };
 
-  // 開啟畫面：全部放得進畫面且不小於 readableZoom 就全部顯示；島太多時放大到 focusZoom，置中在最近學習的島
-  // （沒有則取目標最緊迫的島、再沒有就維持地圖中心），讓使用者自己拖曳其餘區域。
+  // 開啟畫面：全部放得進畫面且不小於 readableZoom 就全部顯示；島太多時放大到 focusZoom，置中在目標最緊迫的島
+  // （沒有目標則取最近學習的島、再沒有就維持地圖中心），讓使用者自己拖曳其餘區域。教材或目標還沒到齊時先全覽，不決定置中。
   const overview = (): View => {
     const all = fitAll();
-    if (all.k >= readableZoom) return all;
+    if (all.k >= readableZoom || !geometry.current.ready) return all;
     const { islands: placed, bounds: b, focusId: id } = geometry.current;
     const target = placed.find((island) => island.material.material_id === id);
     if (!target) return centerOn((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, readableZoom);
@@ -161,10 +164,10 @@ export function IslandMap({ materials, progress, goals }: {
     return () => { observer.disconnect(); cancelAnimationFrame(animation.current); };
   }, []);
 
-  // 教材讀完（或數量改變）後重新全覽。
+  // 教材和目標都讀完（或島的數量改變）後重新決定開場畫面。
   useEffect(() => {
     if (placed.current && size.current.w) apply(constrain(overview()));
-  }, [materials === null, islands.length]);
+  }, [ready, islands.length]);
 
   // 滾輪縮放需要 passive: false 才能阻止頁面捲動；觸控板雙指縮放會帶 ctrlKey，靈敏度較高。
   useEffect(() => {

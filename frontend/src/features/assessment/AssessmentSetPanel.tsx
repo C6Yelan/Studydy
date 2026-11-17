@@ -1,5 +1,5 @@
 import { useAssessmentPresence } from "./useAssessmentPresence";
-import { AssessmentPaper, QuestionPreparation } from "./AssessmentPaper";
+import { AssessmentPaper, QuestionPreparation, QuizLeave } from "./AssessmentPaper";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type {
@@ -17,6 +17,26 @@ import "./sets.css";
 
 type Concept = KnowledgeStructureView["concepts"][number];
 
+// 交卷拿到的經驗值來源，用白話字；0 的來源不顯示。
+const xpSourceLabels: [keyof NonNullable<AssessmentSetView["xp_award"]>, string][] = [
+  ["answers", "答題"],
+  ["concepts", "點亮新的島"],
+  ["goals", "完成今天關卡"],
+  ["difficulties", "克服難點"],
+  ["cards", "翻卡片"],
+  ["podcast", "聽 Podcast"],
+];
+
+function XpGain({ award }: { award: NonNullable<AssessmentSetView["xp_award"]> }) {
+  const total = Object.values(award).reduce((sum, value) => sum + value, 0);
+  return <div className="result-gain">
+    <b className="result-gain-total">+{total} XP</b>
+    <ul aria-label="經驗值來源">
+      {xpSourceLabels.filter(([key]) => award[key] > 0).map(([key, label]) => <li key={key}><span>{label}</span><b>+{award[key]}</b></li>)}
+    </ul>
+  </div>;
+}
+
 export function AssessmentSetPanel({
   apiClient,
   studySessionId,
@@ -30,6 +50,7 @@ export function AssessmentSetPanel({
   onSetSelected,
   onProgressChanged,
   onBackToMap,
+  onLeave,
   initialPhase,
   onPhaseChange,
   continuation,
@@ -47,6 +68,7 @@ export function AssessmentSetPanel({
   onSetSelected: (id: string) => void;
   onProgressChanged: () => Promise<void>;
   onBackToMap: () => void;
+  onLeave: () => void;
   initialPhase: AssessmentPhase;
   onPhaseChange: (phase: AssessmentPhase) => void;
   history?: ReactNode;
@@ -76,6 +98,7 @@ export function AssessmentSetPanel({
     version: number;
   } | null>(null);
   const cycleIntent = useRef<{ signature: string; key: string; version: number } | null>(null);
+  const againIntent = useRef<{ signature: string; key: string } | null>(null);
   const alive = useRef(true);
   const selected = useRef(selectedSetId);
   selected.current = selectedSetId;
@@ -142,6 +165,7 @@ export function AssessmentSetPanel({
     setStarting(false);
     actionIntent.current = null;
     cycleIntent.current = null;
+    againIntent.current = null;
     void (async () => {
       try {
         if (selectedSetId) {
@@ -274,6 +298,31 @@ export function AssessmentSetPanel({
     }
   };
 
+  // 已通過或已完成的概念再開一輪完整檢測，題組準備失敗時也用它換一組新題目；沿用 startRemediation 的做法，同一輪結果頁重試時共用同一把冪等鍵。
+  const startAgain = async () => {
+    if (!group || busy) return;
+    const signature = `again:${group.cycle.diagnostic_set_id}`;
+    if (againIntent.current?.signature !== signature) againIntent.current = { signature, key: crypto.randomUUID() };
+    const intent = againIntent.current;
+    setBusy(true);
+    setStarting(true);
+    setMessage(null);
+    try {
+      const next = await apiClient.createAssessmentSet(studySessionId, group.target_concept_id, intent.key);
+      if (!isCurrent()) return;
+      againIntent.current = null;
+      onSetSelected(next.set_id);
+    } catch (error) {
+      if (!isCurrent()) return;
+      setMessage(errorMessage(error));
+    } finally {
+      if (isCurrent()) {
+        setBusy(false);
+        setStarting(false);
+      }
+    }
+  };
+
   const submit = async () => {
     if (!group?.can_complete || busy || submissionNeedsRefresh) return;
     if (!submissionIntent.current) {
@@ -373,7 +422,7 @@ export function AssessmentSetPanel({
   const intervention = phase === "intervention";
   const paper = group && prepared && <AssessmentPaper key={group.set_id} api={apiClient} records={questions} view={view} fresh={justSubmittedSet === group.set_id}
     completed={closed || completed} selections={selections} disabled={busy || !!submissionIntent.current}
-    busy={busy} canSubmit={group.can_complete && !completed && !busy && !submissionNeedsRefresh && selectedCount === questions.length}
+    busy={busy} onLeave={onLeave} canSubmit={group.can_complete && !completed && !busy && !submissionNeedsRefresh && selectedCount === questions.length}
     submitLabel={busy ? "正在交卷…" : submissionError ? "重新交卷" : "交卷"}
     onSubmit={() => void submit()} onSelect={(revision, option) => {
       if (!submissionIntent.current) { setSelections(previous => ({ ...previous, [revision]: option })); setSubmissionError(null); }
@@ -381,15 +430,45 @@ export function AssessmentSetPanel({
     {submissionError && <div className="assessment-error" role="alert"><span>{submissionError}</span>
       <button className="text-button" type="button" onClick={() => void afterAnswer()}>查回交卷結果</button></div>}
   </AssessmentPaper>;
+  const canPracticeAgain = !!group && (cycleFinished || conceptCompleted) && !group.cycle.active_set_id && !group.cycle.can_create_remediation;
+  const hero = group && closed && (
+    <section className="assessment-cycle assessment-cycle-summary result-hero" aria-label="本輪檢測與再練">
+        <img className="result-hero-bob" src="/assets/studydy/brand-welcome.png" alt="" />
+        <h2>{isRemediation ? "本次再練結果" : "本輪檢測結果"}</h2>
+        <p className="result-hero-title" aria-hidden="true">答對 {group.passed_count} 題{group.passed_count > 0 ? "！" : ""}</p>
+        <p className="question-result-summary" aria-label="本輪檢測摘要">答對 {group.passed_count}／{group.published_count} 題 · {group.cycle.pending_count} 個重點要再練</p>
+        {group.xp_award && <XpGain award={group.xp_award} />}
+        {readError}
+        {(group.cycle.outcome !== "needs_review" || group.cycle.unanswered_count > 0 || unavailable > 0 || (group.cycle.pending_count > 0 && conceptCompleted)) && <small>
+          {group.cycle.outcome === "passed" ? "可檢測的重點皆已完成。"
+            : group.cycle.outcome === "incomplete" ? "本輪有未作答或未檢測的重點。"
+            : group.cycle.pending_count > 0 && conceptCompleted ? "本次練習有要再練的重點，先前的完成紀錄會保留。" : null}
+          {(group.cycle.unanswered_count > 0 || unavailable > 0) && ` 未作答 ${group.cycle.unanswered_count} 個重點 · 未檢測 ${group.cycle.unavailable_count} 個重點。`}
+        </small>}
+        {group.cycle.pending_count > 0 && <p className="result-again">有 {group.cycle.pending_count} 個重點要再練：連續答對 2 道不同的題目就過關，之前的進度都會保留。</p>}
+        <div className="assessment-set-actions">
+          {group.cycle.active_set_id && group.cycle.active_set_id !== group.set_id
+            ? <button className="primary-button" onClick={() => onSetSelected(group.cycle.active_set_id!)}>接續再練</button>
+            : group.cycle.can_create_remediation
+              ? <button className="primary-button" disabled={busy} onClick={() => void startRemediation()}>再練這 {group.cycle.pending_count} 個重點</button>
+              : (cycleFinished || conceptCompleted) && !group.cycle.active_set_id && continuation
+                ? <button className="primary-button assessment-continue" disabled={busy || continuation.busy} aria-busy={continuation.busy} onClick={() => void continuation.onContinue()}>{continuation.label}</button>
+                : null}
+          {canPracticeAgain && <button className="secondary-button" disabled={busy || !!continuation?.busy} onClick={() => void startAgain()}>再練一次</button>}
+          <button className="secondary-button" onClick={onBackToMap}>回地圖</button>
+        </div>
+      </section>
+  );
   return (
     <section className="assessment-set-panel" aria-label={`${concept.label}的重點題組`}>
+      {answering && !paper && <div className="quiz-top"><QuizLeave onLeave={onLeave} /></div>}
       {answering && presenceError && <p className="form-error" role="status">作答狀態暫時無法同步：{presenceError}</p>}
       {waiting && (
         <header className={`surface assessment-set-header${waiting ? " is-preparing" : ""}`}>
           {waiting ? (
             <>
               <div className="preparation-heading">
-                <p className="eyebrow">{isRemediation ? "錯題重點補強" : "觀念重點檢測"}</p>
+                <p className="eyebrow">{isRemediation ? "再練重點" : "觀念重點檢測"}</p>
                 <h2 ref={preparationTitle} tabIndex={-1}>
                   {starting
                     ? "正在開始本輪練習…"
@@ -429,6 +508,12 @@ export function AssessmentSetPanel({
                       再試一次
                     </button>
                   )}
+                  {/* partial_ready 算進行中，後端建立新題組會回 409，所以只有 failed 才提供。 */}
+                  {group?.status === "failed" && (
+                    <button className="secondary-button" disabled={busy} onClick={() => void startAgain()}>
+                      換一組新題目
+                    </button>
+                  )}
                 </div>
               )}
               {!intervention && (
@@ -444,35 +529,10 @@ export function AssessmentSetPanel({
           ) : null}
         </header>
       )}
-      {!waiting && group && closed && (
-        <section className="surface assessment-cycle assessment-cycle-summary result-bar" aria-label="本輪檢測與補強">
-          <div className="result-bar-text">
-            <h2>{isRemediation ? "本次補強結果" : "本輪檢測結果"}</h2>
-            <p className="question-result-summary" aria-label="本輪檢測摘要">答對 {group.passed_count}／{group.published_count} 題 · {group.cycle.pending_count} 個重點需要補強</p>
-            {readError}
-            <small>
-              {group.cycle.outcome === "passed" ? "可檢測的重點皆已完成。"
-                : group.cycle.outcome === "incomplete" ? "本輪有未作答或未檢測的重點。"
-                : group.cycle.pending_count > 0 && conceptCompleted ? "本次練習有需要加強的重點，先前的完成紀錄會保留。" : null}
-              {(group.cycle.unanswered_count > 0 || unavailable > 0) && ` 未作答 ${group.cycle.unanswered_count} 個重點 · 未檢測 ${group.cycle.unavailable_count} 個重點。`}
-              {group.cycle.pending_count > 0 && " 連續答對 2 道不同題，才算補強完成。"}
-            </small>
-          </div>
-          <div className="assessment-set-actions">
-            {group.cycle.active_set_id && group.cycle.active_set_id !== group.set_id
-              ? <button className="primary-button" onClick={() => onSetSelected(group.cycle.active_set_id!)}>接續補強</button>
-              : group.cycle.can_create_remediation
-                ? <button className="primary-button" disabled={busy} onClick={() => void startRemediation()}>補強這 {group.cycle.pending_count} 個重點</button>
-                : (cycleFinished || conceptCompleted) && !group.cycle.active_set_id && continuation
-                  ? <button className="primary-button assessment-continue" disabled={busy || continuation.busy} aria-busy={continuation.busy} onClick={() => void continuation.onContinue()}>{continuation.label}</button>
-                  : null}
-            <button className="text-button" onClick={onBackToMap}>查看知識地圖</button>
-          </div>
-        </section>
-      )}
+      {!waiting && group && closed && !paper && hero}
       {!waiting && !closed && readError}
       {!waiting && paper && (closed || completed
-        ? <div className="result-body">{paper}{history}</div>
+        ? <div className="result-body"><div className="result-side">{closed && hero}{history}</div><div className="result-review"><h3>逐題看一下</h3>{paper}</div></div>
         : paper)}
     </section>
   );

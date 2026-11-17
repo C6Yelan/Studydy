@@ -39,6 +39,6 @@ export function ProcessingProgress({ run, now, showSources = true }: { run: Mate
       <div><dt>已耗時</dt><dd>{materialElapsedLabel(run.created_at, active ? now : Date.parse(run.completed_at ?? run.updated_at))}</dd></div>
       <div><dt>最近更新</dt><dd><time dateTime={run.updated_at}>{new Date(run.updated_at).toLocaleTimeString("zh-TW")}</time></dd></div>
     </dl>
-    <p className="processing-leave-note">進度會自動保存，可稍後從「我的教材」返回查看。</p>
+    <p className="processing-leave-note">進度會自動保存，可稍後從「我的群島」返回查看。</p>
   </>;
 }

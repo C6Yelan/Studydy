@@ -2,13 +2,13 @@ import { useRef, useState } from "react";
 import type { StudydyApiClient } from "../../api/client";
 import type { CardReviewRating, CardReviewView } from "../../api/contracts";
 import { playCue } from "../../ui/feedback-sound";
-import { Icon, type IconName } from "../../ui/Icon";
 import "./card-review.css";
 
 // 學習標記：學生自己判斷熟不熟，不排程；標成不熟的卡會列入「需要加強」。
-export const cardMarks: { rating: CardReviewRating; label: string; icon: IconName }[] = [
-  { rating: "forgot", label: "不熟", icon: "refresh" },
-  { rating: "remembered", label: "熟悉", icon: "check" },
+// label 是狀態名稱（提示、清單標記、通知用）；action 是按鈕上的說法。
+export const cardMarks: { rating: CardReviewRating; label: string; action: string }[] = [
+  { rating: "forgot", label: "不熟", action: "還不熟" },
+  { rating: "remembered", label: "熟悉", action: "熟悉了" },
 ];
 
 export const markLabel = (rating: CardReviewRating) => cardMarks.find((mark) => mark.rating === rating)!.label;
@@ -37,7 +37,7 @@ export function CardMarkButtons({ current, disabled, onMark, label = "標記這�
         if (mark.rating === "remembered") { playCue("cardKnown"); setPopped(mark.rating); }
         onMark(mark.rating);
       }}>
-      <Icon name={mark.icon} size={20} />{mark.label}{hotkeys && <kbd aria-hidden="true">{mark.rating === "forgot" ? "1" : "2"}</kbd>}
+      {mark.action}{hotkeys && <kbd aria-hidden="true">{mark.rating === "forgot" ? "1" : "2"}</kbd>}
     </button>)}
   </div>;
 }

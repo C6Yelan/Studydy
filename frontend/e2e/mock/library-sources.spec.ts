@@ -109,14 +109,13 @@ for (const width of [1536, 390]) {
           return route.fulfill({
             json: { schema: "material-sources/v1", material_id: materialId, sources },
           });
-        // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
-        case "/v1/profile":
-          return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
-        // 頁首學習進度；這些案例不涉及學習紀錄。
+        // 外殼的慶祝動畫讀取學習活動；這些案例不涉及學習紀錄。
         case "/v1/learning-activity":
           return route.fulfill({ json: emptyLearningActivity });
         default:
-          if (route.request().method() === "GET" && new URL(route.request().url()).pathname === "/v1/account/storage") return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
+          // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
+          if (path === "/v1/card-reviews") return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
+          if (path.endsWith("/progress-summary")) return route.fulfill({ status: 404, json: {} }); // 我的群島卡片讀進度摘要；這些案例不涉及進度。
           throw new Error(`Unexpected library source request: ${request.method()} ${path}`);
       }
     });
@@ -131,7 +130,7 @@ for (const width of [1536, 390]) {
     await expect(card.locator("details:not(.material-management-menu)")).toHaveCount(0);
     await expect(card.locator(".library-state")).toHaveCount(0);
     await expect(card.locator(".primary-button")).toHaveText("開啟知識地圖");
-    await expect(card.locator(".state-actions > :is(button, a)")).toHaveText(["開啟知識地圖", "概念卡", "Podcast"]);
+    await expect(card.locator(".state-actions > :is(button, a)")).toHaveText(["開啟知識地圖", "卡片", "Podcast"]);
     await page.clock.runFor(5_000);
     expect(reads).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
@@ -140,7 +139,7 @@ for (const width of [1536, 390]) {
     await card.getByRole("button", { name: "管理「資料結構」", exact: true }).click();
     await card.getByRole("button", { name: "來源與更新", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/materials/${materialId}/sources$`));
-    const rows = page.getByRole("region", { name: "教材來源", exact: true }).locator(".source-row");
+    const rows = page.getByRole("region", { name: "原始檔案", exact: true }).locator(".source-row");
     await expect(rows.locator(".source-name")).toHaveText(
       sources.map((source) => source.original_name),
     );

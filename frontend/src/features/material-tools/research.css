@@ -1,4 +1,4 @@
-/* 補充學習、從主題建立教材共用的研究流程與來源卡（與建立教材版型 flow.css 搭配）。 */
+/* 找更多資料、從主題建立教材共用的研究流程與來源卡（與建立教材版型 flow.css 搭配）。 */
 
 /* ── 共用階段元素 ── */
 .tool-stage { min-width:0; }
@@ -95,7 +95,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .source-page-buttons .text-button { min-width:34px; min-height:34px; padding:0 10px; border-radius:999px; font-size:13px; }
 .source-page-buttons [aria-current="page"] { background:var(--studydy-blue); color:#fff; }
 
-/* 精簡模式（補充學習）：工具列一列，卡片以標題為主。 */
+/* 精簡模式（找更多資料）：工具列一列，卡片以標題為主。 */
 .source-picker.is-compact .source-picker-filters { grid-template-columns:minmax(0,1fr) 140px auto auto; align-items:center; gap:10px; }
 .source-picker.is-compact.is-readonly .source-picker-filters { grid-template-columns:minmax(0,1fr) 140px; }
 .source-picker.is-compact .research-candidates article { padding:12px 14px; }
@@ -114,7 +114,7 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 .research-progress p { margin:4px 0; color:var(--text-secondary); font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
 .research-progress small { color:var(--text-muted); font-size:12px; }
 
-/* ── 補充學習分頁（查詢列表） ── */
+/* ── 找更多資料分頁（查詢列表） ── */
 .supplementary-page, .supplementary-page .research-panel { width:100%; max-width:none; }
 .supplementary-page p { line-height:1.7; }
 .supplementary-page :is(.primary-button,.secondary-button,.text-button) { min-height:40px; font-size:14px; }
@@ -166,6 +166,8 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 @media(max-width:720px) { .research-compose form { flex-direction:column; } }
 
 .supplementary-page .research-candidates { grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); max-height:none; overflow:visible; }
+/* 窄於 1000px 時整頁自然捲動：唯讀來源清單的 360px 上限（is-readonly 規則權重較高）會讓清單溢出父卡、最後幾筆捲不到，這裡解除。 */
+@media(max-width:999px) { .supplementary-page .source-picker.is-readonly .research-candidates { max-height:none; } }
 
 /* ── 單筆補充查詢 ── */
 .research-workspace { display:flex; flex-direction:column; gap:10px; min-width:0; }
@@ -182,7 +184,8 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
   .research-detail .tool-result { grid-template-columns:auto minmax(0,1fr) auto; }
   .research-detail .tool-result > .primary-button { grid-column:auto; }
 }
-@container research-sources (min-width:1100px) {
+/* 三欄來源卡每欄約 330px；1000px 讓 1366 寬的視窗扣掉教材側欄後仍排三欄。 */
+@container research-sources (min-width:1000px) {
   .source-picker.is-compact .research-candidates { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
 /* 與上方 1000px 互補（保留理由同上）。 */
@@ -193,17 +196,16 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
 }
 @media(max-width:720px) {
   .research-detail-body { padding:14px; }
-  .research-detail .research-detail-header { gap:10px; }
   .source-picker-filters { grid-template-columns:minmax(0,1fr) 120px; gap:8px; }
   .research-candidates article { padding:12px; }
   .tool-result { padding:14px; }
 }
 
-/* 寬螢幕：補充學習一屏內完成，查詢紀錄與來源清單在自己的區塊內捲動（保留 1000px，理由同上）。 */
+/* 寬螢幕：找更多資料一屏內完成，查詢紀錄與來源清單在自己的區塊內捲動（保留 1000px，理由同上）。 */
 @media(min-width:1000px) {
   .material-content:has(.supplementary-page) { display:flex; flex-direction:column; height:calc(100dvh - var(--shell-header-height,56px)); min-height:0; padding-bottom:80px; }
   .material-content-body:has(.supplementary-page), .supplementary-page, .supplementary-page .research-panel { display:flex; flex-direction:column; flex:1; min-height:0; }
-  .supplementary-page > .material-learning-toolbar, .supplementary-page > .material-context,
+  .supplementary-page > .crumb,
   .research-panel > :not(.research-records):not(.research-detail-body):not(.research-workspace) { flex-shrink:0; }
   .research-library .research-records { flex:1; min-height:0; align-content:start; padding:2px; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
   .research-workspace { flex:1; min-height:0; }
@@ -252,3 +254,12 @@ a.source-host-link:hover { background:var(--studydy-blue); color:#fff; }
  .research-topic-progress:has(.research-found-sources) { display:grid; grid-template-columns:minmax(0,1fr) minmax(16rem,.7fr); align-items:start; gap:1rem; }
  .research-topic-progress .research-found-sources { margin:0; }
 }
+/* 找更多資料：三步說明、之前找過的資料標題、機器人提示。 */
+.research-flow { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0 0 14px; padding:0; list-style:none; }
+.research-flow li { padding:10px 14px; border:2px solid var(--border); border-radius:20px; background:var(--surface); color:var(--text-secondary); font-size:13px; font-weight:800; }
+.research-flow b { display:block; color:var(--text-primary); font-size:14px; font-weight:900; }
+.research-records-title { display:flex; align-items:baseline; gap:8px; margin:0 0 8px; font-size:15px; font-weight:900; }
+.research-records-title small { color:var(--text-muted); font-size:12px; }
+.research-tip { display:flex; align-items:center; gap:12px; max-width:30rem; margin:14px 0 0 auto; color:var(--text-secondary); font-size:14px; font-weight:800; line-height:1.55; }
+.research-tip img { flex:none; width:64px; height:64px; object-fit:contain; }
+@media(max-width:720px) { .research-flow { grid-template-columns:minmax(0,1fr); } }

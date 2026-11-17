@@ -628,10 +628,10 @@ EXPORT_KINDS = ("notes", "cards", "podcast", "map")
 CURRENT_HOSTS = {host for host, _ in HOST_PAIRS}
 
 
-def _feature_records(session, owner, zone, today, *, answer_events, concept_times, completed, reviews):
-    """目標、難點、診斷、筆記、上傳、匯出與 Podcast 節目的真實紀錄 → XP 與徽章計量。
+def _feature_records(session, owner, zone, today, *, answer_events, concept_times, completed, reviews, stages, achieved):
+    """目標、難點、診斷、筆記、上傳、匯出與 Podcast 節目的真實紀錄 → 徽章計量。
 
-    內容計量取未刪教材；XP 合併刪除前保留基數，晚於 today 的紀錄不列入。回傳 (每日 XP 來源, 系列計量, 關卡日期, 特殊成就日期)。
+    內容計量取未刪教材，晚於 today 的紀錄不列入。回傳 (系列計量, 特殊成就日期)。
     """
     values = {"owner": owner, "zone": zone.key}
     alive = "JOIN materials m ON m.material_id = {0}.material_id AND m.learner_id = {0}.learner_id AND m.discard_requested_at IS NULL"
@@ -643,20 +643,6 @@ def _feature_records(session, owner, zone, today, *, answer_events, concept_time
         return at.astimezone(zone)
 
     goals = [local(at).date() for (at,) in rows(f"SELECT g.created_at FROM learning_goals g {alive.format('g')} WHERE g.learner_id = :owner")]
-    stages, achieved = {}, []
-    for kind, day, target in rows(f"""
-        SELECT g.kind, g.day, g.target_date FROM goal_milestones g {alive.format('g')} WHERE g.learner_id = :owner
-    """):
-        if day > today:
-            continue
-        if kind == "stage":
-            stages[day] = stages.get(day, 0) + 1
-        else:
-            achieved.append((day, target))
-    archived = [(day, data) for kind, _, day, data in retained_days(session, owner) if kind == 'material' and day <= today]
-    for day, data in archived:
-        if data.get('stages'):
-            stages[day] = stages.get(day, 0) + data['stages']
     overcome = overcome_difficulties(answer_events)
     # 完整筆記由使用者按下才生成（複習速覽是教材分析後自動生成），以請求生成的日期計。
     notes = [local(at).date() for (at,) in rows(f"""
@@ -725,17 +711,6 @@ def _feature_records(session, owner, zone, today, *, answer_events, concept_time
         "SELECT material_id, created_at FROM materials WHERE learner_id = :owner AND discard_requested_at IS NULL")}
     completions = [(material, local(at).date()) for (material, _), at in concept_times.items()]
     completions = [(material, day) for material, day in completions if day <= today]
-    daily = {
-        "goals": {}, "difficulties": _per_day(day for day, _ in overcome),
-    }
-    for day, count in stages.items():
-        daily["goals"][day] = daily["goals"].get(day, 0) + stage_xp(count)
-    for day, _ in achieved:
-        daily["goals"][day] = daily["goals"].get(day, 0) + XP_GOAL_ON_TIME
-    daily["difficulties"] = {day: count * XP_DIFFICULTY for day, count in daily["difficulties"].items()}
-    for day, data in archived:
-        for source, key in (('goals', 'goal_xp'), ('difficulties', 'difficulty_xp')):
-            daily[source][day] = daily[source].get(day, 0) + data.get(key, 0)
     metrics = {
         "goals": _per_day(day for day in goals if day <= today),
         "stages": stages,
@@ -759,7 +734,7 @@ def _feature_records(session, owner, zone, today, *, answer_events, concept_time
         "nemesis": [day for day, hard in overcome if hard],
         "same_day_learner": [day for material, day in completions if created.get(material) == day],
     }
-    return daily, metrics, set(stages), specials
+    return metrics, specials
 
 
 def _material_completions(session, owner, zone):
@@ -935,17 +910,13 @@ def _daily_records(session, owner, zone, today):
     return answers, cards, listening, active
 
 
-def learning_activity(session, owner, *, now=None):
+def read_xp_records(session, owner, *, now):
+    """讀取計分素材；不寫入徽章或其他產品資料。"""
     zone = ZoneInfo(TIMEZONE)
-    now = (now or datetime.now(zone)).astimezone(zone)
-    today = now.date()
-    start = datetime.combine(today, time(), zone)
-    end = start + timedelta(days=1)
+    today = now.astimezone(zone).date()
     values = {"owner": owner, "zone": TIMEZONE}
     answers, cards, listening, active = _daily_records(session, owner, zone, today)
-    # 同一份教材的同一道題（題目與正解相同）只算第一次作答；重送與重做不重複得分。
-    answer_xp = {}
-    for day, correct in session.execute(text(
+    first_answers = session.execute(text(
         """
         SELECT DISTINCT ON (e.material_id, e.semantic_identity)
                (e.created_at AT TIME ZONE :zone)::date AS day, e.is_correct
@@ -955,18 +926,90 @@ def learning_activity(session, owner, *, now=None):
           AND NOT EXISTS (SELECT 1 FROM learning_retained_days r WHERE r.learner_id=:owner AND r.source_kind='material' AND r.source_id=e.material_id)
         ORDER BY e.material_id, e.semantic_identity, e.created_at, e.event_number
         """
-    ), values).all():
+    ), values).all()
+    concept_times = _concept_completions(session, owner)
+    archived = [(day, data) for kind, _, day, data in retained_days(session, owner)
+                if kind == 'material' and day <= today]
+    milestones = session.execute(text("""
+        SELECT g.kind, g.day, g.target_date FROM goal_milestones g
+        JOIN materials m ON m.material_id = g.material_id AND m.learner_id = g.learner_id
+                         AND m.discard_requested_at IS NULL
+        WHERE g.learner_id = :owner
+    """), values).all()
+    answer_events = [
+        tuple(row) for row in session.execute(text(
+            """
+            SELECT e.created_at AT TIME ZONE :zone, e.is_correct, e.material_id, e.target_concept_id, e.semantic_identity
+            FROM answer_events e
+            JOIN study_sessions s ON s.study_session_id = e.study_session_id
+            WHERE s.learner_id = :owner
+              AND NOT EXISTS (SELECT 1 FROM learning_retained_days r WHERE r.learner_id=:owner AND r.source_kind='material' AND r.source_id=e.material_id)
+            ORDER BY e.created_at, e.event_number
+            """
+        ), values).all()
+        if row[0].date() <= today
+    ]
+    return dict(answers=answers, cards=cards, listening=listening, active=active,
+                first_answers=first_answers, concept_times=concept_times, archived=archived,
+                milestones=milestones, answer_events=answer_events)
+
+
+def derive_xp(records, *, now):
+    """純計算：同一份事件素材與時間必定產生相同的各來源、每日 XP。"""
+    zone = ZoneInfo(TIMEZONE)
+    today = now.astimezone(zone).date()
+    answer_xp, concepts, stages, achieved = {}, {}, {}, []
+    for day, correct in records["first_answers"]:
         if day <= today:
             answer_xp[day] = answer_xp.get(day, 0) + (XP_CORRECT if correct else XP_WRONG)
-    concept_times = _concept_completions(session, owner)
-    concepts = {
-        day: count for day, count in _per_day(at.astimezone(zone).date() for at in concept_times.values()).items()
-        if day <= today
+    for at in records["concept_times"].values():
+        day = at.astimezone(zone).date()
+        if day <= today:
+            concepts[day] = concepts.get(day, 0) + 1
+    for kind, day, target in records["milestones"]:
+        if day <= today:
+            if kind == "stage":
+                stages[day] = stages.get(day, 0) + 1
+            else:
+                achieved.append((day, target))
+    for day, data in records["archived"]:
+        answer_xp[day] = answer_xp.get(day, 0) + data.get('answer_xp', 0)
+        concepts[day] = concepts.get(day, 0) + data.get('concepts', 0)
+        if data.get("stages"):
+            stages[day] = stages.get(day, 0) + data["stages"]
+    overcome = overcome_difficulties(records["answer_events"])
+    xp_by_source = {
+        "answers": answer_xp,
+        "concepts": {day: count * XP_CONCEPT for day, count in concepts.items()},
+        "cards": {day: card_xp(credited) for day, (_, credited) in records["cards"].items()},
+        "podcast": {day: listening_xp(seconds) for day, seconds in records["listening"].items()},
+        "goals": {day: stage_xp(count) for day, count in stages.items()},
+        "difficulties": {day: count * XP_DIFFICULTY for day, count in _per_day(day for day, _ in overcome).items()},
     }
-    for kind, _, day, data in retained_days(session, owner):
-        if kind == 'material' and day <= today:
-            answer_xp[day] = answer_xp.get(day, 0) + data.get('answer_xp', 0)
-            concepts[day] = concepts.get(day, 0) + data.get('concepts', 0)
+    for day, _ in achieved:
+        xp_by_source["goals"][day] = xp_by_source["goals"].get(day, 0) + XP_GOAL_ON_TIME
+    for day, data in records["archived"]:
+        for source, key in (('goals', 'goal_xp'), ('difficulties', 'difficulty_xp')):
+            xp_by_source[source][day] = xp_by_source[source].get(day, 0) + data.get(key, 0)
+    sources = {source: sum(per_day.values()) for source, per_day in xp_by_source.items()}
+    daily_xp = {}
+    for per_day in xp_by_source.values():
+        for day, value in per_day.items():
+            daily_xp[day] = daily_xp.get(day, 0) + value
+    return dict(sources=sources, daily_xp=daily_xp, concepts=concepts, stages=stages, achieved=achieved)
+
+
+def learning_activity(session, owner, *, now=None):
+    zone = ZoneInfo(TIMEZONE)
+    now = (now or datetime.now(zone)).astimezone(zone)
+    today = now.date()
+    start = datetime.combine(today, time(), zone)
+    end = start + timedelta(days=1)
+    values = {"owner": owner, "zone": TIMEZONE}
+    records = read_xp_records(session, owner, now=now)
+    answers, cards, listening, active = (records[key] for key in ("answers", "cards", "listening", "active"))
+    xp = derive_xp(records, now=now)
+    concept_times, concepts = records["concept_times"], xp["concepts"]
     completed = {material: day for material, day in _material_completions(session, owner, zone).items() if day <= today}
     materials = {}
     for day in completed.values():
@@ -1029,37 +1072,14 @@ def learning_activity(session, owner, *, now=None):
     ), values).all():
         if day <= today:
             reviews.setdefault(material, []).append(day)
-    answer_events = [
-        tuple(row) for row in session.execute(text(
-            """
-            SELECT e.created_at AT TIME ZONE :zone, e.is_correct, e.material_id, e.target_concept_id, e.semantic_identity
-            FROM answer_events e
-            JOIN study_sessions s ON s.study_session_id = e.study_session_id
-            WHERE s.learner_id = :owner
-              AND NOT EXISTS (SELECT 1 FROM learning_retained_days r WHERE r.learner_id=:owner AND r.source_kind='material' AND r.source_id=e.material_id)
-            ORDER BY e.created_at, e.event_number
-            """
-        ), values).all()
-        if row[0].date() <= today
-    ]
+    answer_events = records["answer_events"]
     events = [row[:4] for row in answer_events]
-    feature_xp, feature_metrics, stage_days, feature_specials = _feature_records(
+    feature_metrics, feature_specials = _feature_records(
         session, owner, zone, today, answer_events=answer_events, concept_times=concept_times, completed=completed,
-        reviews=reviews,
+        reviews=reviews, stages=xp["stages"], achieved=xp["achieved"],
     )
-    xp_by_source = {
-        "answers": answer_xp,
-        "concepts": {day: count * XP_CONCEPT for day, count in concepts.items()},
-        "cards": {day: card_xp(credited) for day, (_, credited) in cards.items()},
-        "podcast": {day: listening_xp(seconds) for day, seconds in listening.items()},
-        **feature_xp,
-    }
-    sources = {source: sum(per_day.values()) for source, per_day in xp_by_source.items()}
+    sources, daily_xp = xp["sources"], xp["daily_xp"]
     total = sum(sources.values())
-    daily_xp = {}
-    for per_day in xp_by_source.values():
-        for day, value in per_day.items():
-            daily_xp[day] = daily_xp.get(day, 0) + value
     today_xp = daily_xp.get(today, 0)
     level, level_xp, level_target = level_for(total)
     questions = dict(session.execute(text(
@@ -1096,7 +1116,7 @@ def learning_activity(session, owner, *, now=None):
         card_marks={day: credited for day, (_, credited) in cards.items()},
         listening=listening, xp=daily_xp, active=active,
         streak=streak, level=level, sets=sets, episodes=episodes_per_day,
-        extra=feature_metrics, stage_days=stage_days,
+        extra=feature_metrics, stage_days=set(xp["stages"]),
     )
     badges["items"] += derive_special_badges(
         events=events, answers={day: count for day, (count, _) in answers.items()}, active=active,
@@ -1168,16 +1188,19 @@ def learning_rhythm(session, owner, *, period, offset=0, now=None):
     first_day 是最早有紀錄的日期，畫面據此決定能否再往前翻。
     """
     zone = ZoneInfo(TIMEZONE)
-    today = (now or datetime.now(zone)).astimezone(zone).date()
+    now = (now or datetime.now(zone)).astimezone(zone)
+    today = now.date()
     start, end = rhythm_window(period, offset, today)
-    answers, cards, listening, active = _daily_records(session, owner, zone, today)
+    records = read_xp_records(session, owner, now=now)
+    answers, cards, listening, active = (records[key] for key in ("answers", "cards", "listening", "active"))
+    xp = derive_xp(records, now=now)["daily_xp"]
     recorded = set(answers) | set(cards) | set(listening)
     days = []
     day = start
     while day <= end:
         count, correct = answers.get(day, (0, 0))
         days.append({
-            "date": day, "answers": count, "correct": correct,
+            "date": day, "answers": count, "correct": correct, "xp": xp.get(day, 0),
             "card_reviews": cards.get(day, (0, 0))[0],
             "listened_seconds": listening.get(day, 0),
             "active": day in active,

@@ -191,11 +191,11 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
   if(followLatest.current&&transcript.current)transcript.current.scrollTop=transcript.current.scrollHeight;
   else if(lastTurn)setBehind(true);
  },[id,lastTurn?.turn_id,lastTurn?.status,lastTurn?.answer?.text,lastTurn?.audio_url,lastTurn?.stage,lastTurn?.audio_sentences?.map(sentence=>sentence.status).join(','),showOutgoing]);
- const statusText=listening==='permission'?'等待麥克風權限…':listening==='loading'?'正在載入人聲辨識…':recording?'正在聆聽你的問題，說完稍停即可送出':busy?'正在送出…':working?(view?.turns.some(turn=>turn.status==='transcribing')?'正在辨識':'正在整理回答'):mode==='voice'?'正在聆聽':'Enter 送出 · Shift+Enter 換行';
+ const statusText=listening==='permission'?'等待麥克風權限…':listening==='loading'?'正在載入人聲辨識…':recording?'正在聆聽你的問題，說完稍停即可送出':busy?'正在送出…':working?(view?.turns.some(turn=>turn.status==='transcribing')?'正在辨識':'正在整理回答'):mode==='voice'?'正在聆聽':<span className="keyboard-hint">Enter 送出 · Shift+Enter 換行</span>;
  return <div className="voice-panel" onKeyDown={event=>{
   if(event.key==='Escape'&&historyOpen){event.stopPropagation();event.preventDefault();closeHistory(true);}
  }}>
-  <header className="voice-header"><div className="voice-identity"><span className="voice-identity-icon" aria-hidden="true"><img src={mascot} alt=""/></span><div><h2>Studydy AI BOT</h2><small>只依據這份教材回答</small></div></div>
+  <header className="voice-header"><div className="voice-identity"><span className="voice-identity-icon" aria-hidden="true"><img src={mascot} alt=""/></span><div><h2>小幫手</h2><small>只依據這份教材回答</small></div></div>
    <div className="voice-header-actions">
     <button ref={historyOpener} className="voice-icon-button" type="button" aria-label="對話紀錄" title="對話紀錄" aria-expanded={historyOpen} aria-controls="voice-history" onClick={()=>historyOpen?closeHistory(false):setHistoryOpen(true)}><Icon name="clock" size={18}/></button>
     <button className="voice-icon-button" type="button" aria-label="新對話" title="新對話" disabled={busy||recording||preparing} onClick={()=>choose(null)}><Icon name="plus" size={18}/></button>
@@ -204,7 +204,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
   </header>
   {view&&!view.is_current_revision&&<p className="voice-revision-note">使用先前的教材版本。開啟新對話可使用更新後內容。</p>}
   <div className="voice-body">
-   <div className="voice-turns" ref={transcript} aria-live="polite" aria-relevant="additions text" tabIndex={0} aria-label="Studydy AI BOT 紀錄" onScroll={event=>{
+   <div className="voice-turns" ref={transcript} aria-live="polite" aria-relevant="additions text" tabIndex={0} aria-label="小幫手紀錄" onScroll={event=>{
     const element=event.currentTarget;followLatest.current=element.scrollHeight-element.clientHeight-element.scrollTop<48;
     if(followLatest.current)setBehind(false);
    }}>
@@ -234,7 +234,7 @@ export function VoicePanel({api,materialId,revision,podcastContext,podcastMedia,
       {turn.status!=='ready'&&<div className="voice-turn-status">{(!waiting||turn.answer)&&<small>{turn.status==='failed'&&turn.answer?'文字回答已完成':waitingLabel}</small>}
        {waiting&&<button className="text-button" disabled={busy} onClick={()=>turnAction(turn,'cancel')}>取消這次提問</button>}
       </div>}
-      {turn.status==='failed'&&<div className="voice-turn-status is-failed"><p className="voice-inline-note">{turn.answer?'語音製作未完成，文字與來源已保留。':turn.error_code==='VOICE_ANSWER_INVALID'?safeMessage(turn.error_code):'目前無法完成處理。'}{turn.error_code==='VOICE_TRANSCRIPT_INVALID'?'沒有辨識到清楚語音，請重新錄音。':turn.error_code==='VOICE_PODCAST_CONTEXT_INVALID'||turn.error_code==='RESOURCE_NOT_FOUND'?'原 Podcast 已不可用，請直接向 Studydy AI BOT 提問。':''}</p>{turn.question&&<button className="text-button" disabled={busy||working} onClick={()=>turnAction(turn,'retry')}>重試{turn.answer?'語音':'回答'}</button>}</div>}
+      {turn.status==='failed'&&<div className="voice-turn-status is-failed"><p className="voice-inline-note">{turn.answer?'語音製作未完成，文字與來源已保留。':turn.error_code==='VOICE_ANSWER_INVALID'?safeMessage(turn.error_code):'目前無法完成處理。'}{turn.error_code==='VOICE_TRANSCRIPT_INVALID'?'沒有辨識到清楚語音，請重新錄音。':turn.error_code==='VOICE_PODCAST_CONTEXT_INVALID'||turn.error_code==='RESOURCE_NOT_FOUND'?'原 Podcast 已不可用，請直接向小幫手提問。':''}</p>{turn.question&&<button className="text-button" disabled={busy||working} onClick={()=>turnAction(turn,'retry')}>重試{turn.answer?'語音':'回答'}</button>}</div>}
      </article>;
     })}
     {showOutgoing&&<article className="voice-turn is-sending"><div className="voice-question" aria-label="你的提問"><p>{outgoing?.text}</p></div><div className="voice-reply"><img className="voice-avatar" src={mascot} alt=""/><div className="voice-response"><p className="voice-typing"><span aria-hidden="true"><i/><i/><i/></span>正在送出問題…</p></div></div></article>}

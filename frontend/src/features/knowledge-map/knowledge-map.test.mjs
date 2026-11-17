@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { learningNavigationItems, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW } from "./knowledge-map.ts";
+import { learningNavigationItems, initialFocusConceptId, focusGraph, navigatorRange, groupSlices, NAVIGATOR_WINDOW, relationVisibility, routeSegments, routeFrameIds, routeStationIds, frameRouteCamera, ROUTE_FRAME_MIN_ZOOM } from "./knowledge-map.ts";
 
 const view = {
   concepts: ["a", "b", "c", "d"].map((concept_id) => ({ concept_id })),
@@ -141,6 +141,7 @@ test("large canonical maps do not become large rendered graphs", () => {
     relations: [],
     totalNodes: 0,
     totalRelations: 0,
+    nextBelowId: null,
   });
 });
 
@@ -272,4 +273,118 @@ test("chapter regions use two levels only for many chapters across several sourc
   assert.deepEqual(one.regions.slice(0, 3).map((r) => [r.label, r.group]), [["章1", null], ["章2", null], ["章3", null]]);
   assert.equal(regionColorIndex(one, 2), 2);
   assert.equal(regionBasisText(one), "依教材內容整理的章節");
+});
+
+test("without a selection every relation is lit; selecting an island dims the unrelated ones", () => {
+  // ab 先備、bc 例子、cd 組成：a—b—c—d 一條鏈。
+  const visible = (options) => Object.fromEntries(relationVisibility(view.relations, {
+    litConceptId: null, selectedRelationId: null, ...options,
+  }));
+  // 沒選島時全部亮起。
+  assert.deepEqual(visible({}), { ab: "lit", bc: "lit", cd: "lit" });
+  // 選了 c：和 c 相連的兩條亮起，其餘關係保留但淡化。
+  assert.deepEqual(visible({ litConceptId: "c" }), { ab: "dim", bc: "lit", cd: "lit" });
+  // 點開的關係一定亮起，即使它不連到選取的島。
+  assert.deepEqual(visible({ selectedRelationId: "cd" }), { ab: "lit", bc: "lit", cd: "lit" });
+  assert.deepEqual(visible({ litConceptId: "a", selectedRelationId: "cd" }), { ab: "lit", bc: "dim", cd: "lit" });
+});
+
+test("the golden route only joins neighbouring stations that are both on screen", () => {
+  const path = [["a", 1], ["b", 2], ["c", 3], ["d", 4], ["e", 5]]
+    .map(([concept_id, position]) => ({ concept_id, position, reason: "document_order" }))
+    .reverse();
+  const route = (ids, start) => routeSegments(path, new Set(ids), start).map(({ source, target }) => `${source}→${target}`);
+  // 只畫目前這站到下一站，方向是第 n 站到第 n+1 站。
+  assert.deepEqual(route(["a", "b", "c", "d", "e"], "a"), ["a→b"]);
+  assert.deepEqual(route(["a", "b", "c", "d", "e"], "c"), ["c→d"]);
+  // 目前這站或下一站沒畫出來就不畫，不跨站連線。
+  assert.deepEqual(route(["a", "c", "d", "e"], "a"), []);
+  assert.deepEqual(route(["a", "b", "d", "e"], "c"), []);
+  // 最後一站沒有下一站。
+  assert.deepEqual(route(["a", "b", "c", "d", "e"], "e"), []);
+});
+
+test("with no island selected the camera frames the current station and the next three on screen", () => {
+  const path = Array.from({ length: 8 }, (_, index) => ({ concept_id: `s${index + 1}`, position: index + 1, reason: "document_order" })).reverse();
+  const all = new Set(path.map((step) => step.concept_id));
+  // 開頭：第 1 站加第 2～4 站。
+  assert.deepEqual(routeFrameIds(path, "s1", all), ["s1", "s2", "s3", "s4"]);
+  // 中段：第 4 站起算，沒畫在畫面上的第 6 站略過，不往後補。
+  assert.deepEqual(routeFrameIds(path, "s4", new Set(["s4", "s5", "s7", "s8"])), ["s4", "s5", "s7"]);
+  // 結尾不足 3 站：有幾站框幾站。
+  assert.deepEqual(routeFrameIds(path, "s7", all), ["s7", "s8"]);
+  assert.deepEqual(routeFrameIds(path, "s8", all), ["s8"]);
+  // 起點站不在畫面上時不框，由呼叫端改用其他起點。
+  assert.deepEqual(routeFrameIds(path, "s2", new Set(["s1", "s3"])), []);
+});
+
+test("after closing a card the route camera drops the farthest stations instead of zooming out below the floor", () => {
+  // 四站排成一列、每站 260 寬間隔 400：框越多站越寬、縮放越小。
+  const x = { s1: 0, s2: 400, s3: 800, s4: 1200 };
+  const boundsOf = (ids) => {
+    const left = Math.min(...ids.map((id) => x[id])), right = Math.max(...ids.map((id) => x[id] + 260));
+    return { x: left, y: 0, width: right - left, height: 200 };
+  };
+  const ids = ["s1", "s2", "s3", "s4"];
+  // 畫布夠寬：四站都框，照一般取景放大。
+  const wide = frameRouteCamera(ids, boundsOf, { width: 2400, height: 900, top: 60 });
+  assert.deepEqual(wide.ids, ids);
+  assert.ok(wide.zoom > ROUTE_FRAME_MIN_ZOOM);
+  // 四站要縮到 0.75 以下（三站可放大到 0.9）：拿掉最遠的第 4 站，縮放停在 0.75 不再放大。
+  const trimmed = frameRouteCamera(ids, boundsOf, { width: 1060 * 1.36 * 0.9, height: 900, top: 60 });
+  assert.deepEqual(trimmed.ids, ["s1", "s2", "s3"]);
+  assert.equal(trimmed.zoom, ROUTE_FRAME_MIN_ZOOM);
+  // 以留下的站為中心：三站的中心在畫布正中。
+  assert.ok(Math.abs(trimmed.x + 530 * trimmed.zoom - 1060 * 1.36 * 0.9 / 2) < 1e-6);
+  // 再窄也最少保留目前這站和下一站。
+  assert.deepEqual(frameRouteCamera(ids, boundsOf, { width: 300, height: 900, top: 60 }).ids, ["s1", "s2"]);
+});
+
+test("with no island selected the current station and the next three are drawn even outside two hops", () => {
+  // a—b—c—d 的鏈：以 a 為中心只畫得到 a、b、c（兩層），第 4 站 d 在兩層外。
+  const map = {
+    ...view,
+    initial_learning_path: ["a", "b", "c", "d"].map((concept_id, index) => ({ concept_id, position: index + 1, reason: "document_order" })),
+  };
+  const ids = (graph) => graph.nodes.map((node) => node.id).sort();
+  assert.deepEqual(ids(focusGraph(map, "a")), ["a", "b", "c"]);
+  const stations = routeStationIds(map.initial_learning_path, "a");
+  assert.deepEqual(stations, ["a", "b", "c", "d"]);
+  const withRoute = focusGraph(map, "a", stations);
+  assert.deepEqual(ids(withRoute), ["a", "b", "c", "d"]);
+  // 額外加入的站不另外畫關係，也算進「共幾個概念」。
+  assert.deepEqual(withRoute.relations.map((relation) => relation.relation_id), ["ab", "bc"]);
+  assert.equal(withRoute.totalNodes, 4);
+  // 結尾不足 3 站時有幾站給幾站。
+  assert.deepEqual(routeStationIds(map.initial_learning_path, "c"), ["c", "d"]);
+});
+
+test("after closing a far island's card the current station and the next three are all drawn", () => {
+  // a～i 依序相連，目前這站是 a；選過 i 再關卡片時中心仍是 i，a～d 四站都在兩層外。
+  const ids = [..."abcdefghi"];
+  const chain = {
+    concepts: ids.map((concept_id) => ({ concept_id })),
+    relations: ids.slice(1).map((id, index) => ({ relation_id: ids[index] + id, source_concept_id: ids[index], target_concept_id: id, type: "prerequisite" })),
+    initial_learning_path: ids.map((concept_id, index) => ({ concept_id, position: index + 1, reason: "document_order" })),
+  };
+  const stations = routeStationIds(chain.initial_learning_path, "a");
+  const rendered = new Set(focusGraph(chain, "i", stations).nodes.map((node) => node.id));
+  for (const id of ["a", "b", "c", "d"]) assert.ok(rendered.has(id), id);
+  assert.deepEqual(routeFrameIds(chain.initial_learning_path, "a", rendered), ["a", "b", "c", "d"]);
+});
+
+test("a selected island's next station outside two hops is placed right below it", () => {
+  const map = { ...view, initial_learning_path: [] };
+  const node = (graph, id) => graph.nodes.find((item) => item.id === id);
+  // 以 a 為中心時 d 在兩層外：放到 a 正下方，不另外畫關係，算進「共幾個概念」。
+  const far = focusGraph(map, "a", [], "d");
+  const [center, next] = [node(far, "a"), node(far, "d")];
+  assert.equal(next.x + next.width / 2, center.x + center.width / 2);
+  assert.ok(next.y > center.y);
+  // 那一欄除了中心島沒有別的島，不會疊到。
+  assert.ok(far.nodes.every((item) => [center, next].includes(item) || item.x + item.width <= next.x || item.x >= next.x + next.width));
+  assert.deepEqual(far.relations.map((relation) => relation.relation_id), ["ab", "bc"]);
+  assert.equal(far.totalNodes, 4);
+  // 本來就在兩層內的下一站不搬動。
+  assert.deepEqual(node(focusGraph(map, "a", [], "b"), "b"), node(focusGraph(map, "a"), "b"));
 });

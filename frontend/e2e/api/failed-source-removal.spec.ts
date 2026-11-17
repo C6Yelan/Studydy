@@ -38,7 +38,7 @@ test('remove failed initial source, refresh, upload a replacement and publish', 
   const old = await (await page.request.get(`/v1/material-processing-runs/${oldRun}`)).json();
   expect(old.status).toBe('failed');
   expect(old.error_code).toBe('SEMANTIC_OUTPUT_INVALID');
-  await page.getByRole('button', { name: '開啟知識地圖', exact: true }).click();
+  await page.getByRole('button', { name: '開啟知識地圖，從第 1 站出發', exact: true }).click();
   await expect(page).toHaveURL(/\/knowledge-structures\//);
   await expect(page.locator('.react-flow__node').first()).toBeVisible();
   if (process.env.STUDYDY_FIX_SCREENSHOT) await page.screenshot({ path: process.env.STUDYDY_FIX_SCREENSHOT, fullPage: true });

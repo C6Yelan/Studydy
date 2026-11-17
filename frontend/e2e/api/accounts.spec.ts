@@ -24,11 +24,11 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   const a = await browser.newContext();
   const page = await a.newPage();
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   await login(page, "learner_test@example.com", "Wrong synthetic password");
   await expect(page.getByRole("alert")).toHaveText("Email 或密碼不正確。");
   await login(page, "learner_test@example.com");
-  await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
   expect((await (await a.request.get(`${origin}/v1/session`)).json()).learner_id).toBe(learnerId);
   await expect(
     page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true }),
@@ -60,12 +60,12 @@ test("real accounts survive new browser profiles; logout and back never reveal a
       }),
     { times: 1 },
   );
-  // 從教材返回清單後使用全站登出。
-  await page.goto("/materials");
+  // 從個人檔案登出（全站頁首拿掉後登出在這裡）。
+  await page.goto("/profile");
   await page.getByRole("button", { name: "登出", exact: true }).click();
   await expect(page.getByText(/登出尚未完成/)).toBeVisible();
   await expect(page.getByText("Stack", { exact: true })).toHaveCount(0);
-  await expect(otherTab.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(otherTab.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   const loggedOut = page.waitForResponse(
     (response) =>
       response.url().endsWith("/v1/session") &&
@@ -74,7 +74,7 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   );
   await page.getByRole("button", { name: "再試一次", exact: true }).click();
   await loggedOut;
-  await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   await otherTab.close();
   expect((await a.request.get(`${origin}/v1/session`)).status()).toBe(401);
   await page.getByRole("link", { name: "立即註冊" }).click();
@@ -82,7 +82,7 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   await page.getByLabel("密碼", { exact: true }).fill(password);
   await page.getByLabel("確認密碼", { exact: true }).fill(password);
   await page.getByRole("button", { name: "註冊", exact: true }).click();
-  await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
   const bId = (await (await a.request.get(`${origin}/v1/session`)).json()).learner_id;
   expect(bId).not.toBe(learnerId);
   await page.goBack();
@@ -100,7 +100,7 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   const freshPage = await fresh.newPage();
   await freshPage.goto("/");
   await login(freshPage, "learner_test@example.com");
-  await expect(freshPage.getByRole("button", { name: "登出", exact: true })).toBeVisible();
+  await expect(freshPage.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
   expect((await (await fresh.request.get(`${origin}/v1/session`)).json()).learner_id).toBe(
     learnerId,
   );
@@ -111,7 +111,7 @@ test("real accounts survive new browser profiles; logout and back never reveal a
   expect((await fresh.request.get(`${origin}/v1/artifacts/${artifactId}`)).status()).toBe(200);
   await fresh.request.delete(`${origin}/v1/session`, { headers: { Origin: origin } });
   await freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }).click();
-  await expect(freshPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(freshPage.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   await expect(freshPage.getByText("Stack", { exact: true })).toHaveCount(0);
   expect((await fresh.request.get(`${origin}/v1/session`)).status()).toBe(401);
   await fresh.close();
@@ -142,7 +142,7 @@ test("an existing cookie session redirects both authentication routes", async ({
   expect(response.status()).toBe(200);
   for (const mode of ["login", "register"] as const) {
     await page.goto(`/${mode}`);
-    await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
     await expect(page).toHaveURL(`${origin}/`);
   }
 });
@@ -152,14 +152,14 @@ test("remembered login skips session probes and a revoked cookie is rejected by 
 }) => {
   await page.goto("/login");
   await login(page, "learner_test@example.com");
-  await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
   let probes = 0;
   page.on("request", (request) => {
     if (/\/v1\/session(?:\/refresh)?$/.test(request.url()) && request.method() !== "DELETE")
       probes++;
   });
   await page.reload();
-  await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "搜尋概念、教材、卡組或 Podcast" })).toBeVisible();
   await page.evaluate(() => {
     for (let i = 0; i < 5; i++) window.dispatchEvent(new Event("focus"));
   });

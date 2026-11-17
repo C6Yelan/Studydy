@@ -56,7 +56,7 @@ export function PodcastProgress({ view, busy, onAction }: {
           <div><dt>已耗時</dt><dd>{materialElapsedLabel(view.created_at, paused && lastUpdate ? Date.parse(lastUpdate) : Date.now())}</dd></div>
           <div><dt>最近更新</dt><dd>{lastUpdate ? <time dateTime={lastUpdate}>{new Date(lastUpdate).toLocaleTimeString("zh-TW")}</time> : "—"}</dd></div>
         </dl>}
-        <p className="processing-leave-note">{paused ? "已完成的進度會保留，接續生成會從未完成的部分開始。" : "進度會自動保存，可稍後從「我的 Podcast」返回查看。"}</p>
+        <p className="processing-leave-note">{paused ? "已完成的進度會保留，接續生成會從未完成的部分開始。" : "進度會自動保存，可稍後從「Podcast」返回查看。"}</p>
         <div className="processing-cancel">{retryable && <button type="button" className="secondary-button" disabled={busy} onClick={() => onAction("retry")}>接續生成</button>}<PodcastCancelControl busy={busy} onConfirm={() => onAction("cancel")} /></div>
       </section>
       <ProcessingTimeline title={episode >= 0 ? `第 ${episode + 1} / ${total} 集` : "處理流程"} stages={timeline} currentIndex={-1} />

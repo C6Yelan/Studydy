@@ -85,11 +85,12 @@ test.beforeEach(async ({ page }) => {
         },
       });
     }
-    // 頁首帳號設定讀取名稱；這些案例不涉及名稱。
-    if (path === "/v1/profile") return route.fulfill({ json: { schema: "learner-profile/v1", display_name: null } });
-    // 頁首學習進度；這些案例不涉及學習紀錄。
+    // 外殼的慶祝動畫讀取學習活動；這些案例不涉及學習紀錄。
     if (path === "/v1/learning-activity") return route.fulfill({ json: emptyLearningActivity });
-    if (route.request().method() === "GET" && new URL(route.request().url()).pathname === "/v1/account/storage") return route.fulfill({ json: { schema: "account-storage/v2", used_bytes: 0, reserved_bytes: 0, limit_bytes: 5368709120, remaining_bytes: 5368709120, breakdown: { material_files_bytes: 0, podcast_audio_bytes: 0, podcast_video_bytes: 0, analysis_bytes: 0, reserved_bytes: 0 }, largest_materials: [] } });
+    // 側欄「翻卡片」的不熟卡數；這些案例沒有卡片。
+    if (path === "/v1/card-reviews") return route.fulfill({ json: { schema: "card-reviews/v2", forgot_count: 0, sets: [], marks: [], cards: [] } });
+    // 我的群島卡片讀概念進度摘要；這些案例不涉及進度，回 404 就只少顯示「點亮」進度。
+    if (path.endsWith("/progress-summary")) return route.fulfill({ status: 404, json: {} });
     throw new Error(`Unexpected material management request: ${route.request().method()} ${path}`);
   });
 });
@@ -326,7 +327,7 @@ test("removing publishing material disables all actions and polls until absent",
   await card.getByRole("button", { name: "確認刪除", exact: true }).click();
   await expect(card.getByRole("status")).toHaveText("正在刪除…");
   const actions = card.locator(".state-actions").getByRole("button");
-  await expect(actions).toHaveText(["繼續學習", "開啟知識地圖", "查看進度", "概念卡", "Podcast"]);
+  await expect(actions).toHaveText(["繼續學習", "地圖", "查看進度", "卡片", "Podcast"]);
   for (const action of await actions.all()) await expect(action).toBeDisabled();
   await expect(card.getByRole("link")).toHaveCount(0);
   await expect(card.locator(".material-management-menu")).toHaveCount(0);
@@ -434,11 +435,6 @@ for (const touch of [false, true])
       };
       await expect(cards).toHaveCount(2);
       const before = await first.boundingBox();
-      // 頁首空白處取品牌與右側按鈕之間的中點；觸控點擊會吸附到附近的按鈕。
-      const [brand, controls, header] = await Promise.all(
-        [".brand", ".account-controls", ".app-header"].map((selector) => page.locator(selector).boundingBox()),
-      );
-      const headerGap = { x: (brand!.x + brand!.width + controls!.x) / 2 - header!.x, y: 4 };
       const closed = async () => {
         await expect(menu).toHaveJSProperty("open", false);
         await expect(menu.locator("button").first()).toBeHidden();
@@ -448,7 +444,8 @@ for (const touch of [false, true])
         { locator: first.getByRole("heading"), position: { x: 5, y: 5 } },
         { locator: second.getByRole("heading") },
         { locator: page.getByRole("heading", { level: 1 }) },
-        { locator: page.locator(".app-header"), position: headerGap },
+        // 側欄（手機是頂端一列）角落的留白，不會吸附到任何入口。
+        { locator: page.locator(".rail"), position: { x: 4, y: 4 } },
       ]) {
         await activate(trigger);
         await expect(menu).toHaveJSProperty("open", true);
@@ -501,7 +498,7 @@ for (const touch of [false, true])
       await activate(trigger);
       await activate(menu.getByRole("button", { name: "來源與更新", exact: true }));
       await expect(page).toHaveURL(new RegExp(`/materials/${firstItem.material_id}/sources$`));
-      await expect(page.getByRole("heading", { name: "教材來源", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "原始檔案", exact: true })).toBeVisible();
       await expect(page.getByRole("button", {name:"新增來源",exact:true})).toBeEnabled();
       await expect(page.locator(".material-management-menu[open]")).toHaveCount(0);
     });

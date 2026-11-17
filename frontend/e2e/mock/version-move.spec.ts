@@ -9,6 +9,12 @@ const cardSetId = "55555555-5555-4555-8555-555555555555";
 const newCardSetId = "55555555-5555-4555-8555-666666666666";
 const newSessionId = "33333333-3333-4333-8333-444444444444";
 const digest = `version-move:sha256:${"e".repeat(64)}`;
+const settingsPath = `/materials/${materialId}/settings`;
+// 教材頁上方的提示列只放一顆連到教材設定的按鈕，「更新」「回到更新前內容」在教材設定頁。
+async function openSettings(page: Page) {
+  await page.getByRole("region", { name: "教材已更新" }).getByRole("link", { name: "到教材設定" }).click();
+  await expect(page).toHaveURL(new RegExp(`${settingsPath}$`));
+}
 const mapPath = `/materials/${materialId}/runs/${runId}/knowledge-structures/${encodeURIComponent(structureRevision)}`;
 
 function material(structures = 2): MaterialLibraryItem {
@@ -91,7 +97,9 @@ for (const width of [1440, 1024, 390]) {
     await expect(notice).toContainText("卡組與學習進度仍是舊版內容");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`update-notice-${width}.png`), animations: "disabled" });
-    await notice.getByRole("button", { name: "更新", exact: true }).click();
+    await expect(notice.getByRole("button", { name: "更新", exact: true })).toHaveCount(0);
+    await openSettings(page);
+    await page.getByRole("button", { name: "更新", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "更新卡組與學習進度" });
     await expect(dialog).toContainText("卡組「資料結構重點」");
     await expect(dialog.getByRole("button", { name: "確認更新", exact: true })).toBeInViewport({ ratio: 1 });
@@ -131,8 +139,9 @@ for (const width of [1440, 1024, 390]) {
     });
     expect(reads.length).toBeGreaterThanOrEqual(1);
     await dialog.getByRole("button", { name: "完成" }).click();
-    // 手動更新後仍能找到上一批入口。
-    await expect(page.getByRole("tab", { name: "知識地圖" })).toBeVisible();
+    // 手動更新後仍能找到上一批入口（在教材設定頁）。
+    await expect(page.getByRole("link", { name: "知識地圖" })).toBeVisible();
+    await page.goto(settingsPath);
     await expect(page.getByRole("button", { name: "回到更新前內容", exact: true })).toBeVisible();
   });
 }
@@ -164,10 +173,14 @@ test("update completion shows saved structure changes and one secondary move pre
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath(`update-completed-${width}.png`),animations:'disabled'});
  }
- await notice.getByRole('button',{name:'更新',exact:true}).click();
+ await expect(notice.getByRole('button',{name:'更新',exact:true})).toHaveCount(0);
+ await openSettings(page);
+ await page.getByRole('button',{name:'更新',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'更新卡組與學習進度',exact:true});await expect(dialog).toContainText('卡組「資料結構重點」');
- expect(reads).toHaveLength(1);expect(posts).toHaveLength(0);
+ // 開預覽對話框不再多讀一次伺服器（教材頁與設定頁各讀一次）。
+ expect(reads).toHaveLength(2);expect(posts).toHaveLength(0);
  await dialog.getByRole('button',{name:'關閉更新預覽',exact:true}).click();
+ await page.goBack();
  await open.click();await expect(page).toHaveURL(new RegExp(`${mapPath}$`));
 });
 
@@ -214,7 +227,7 @@ test("dismissal persists across independent browsers and source/card entries rem
       await second.screenshot({ path: testInfo.outputPath(`compact-${path.endsWith("sources") ? "sources" : "cards"}-${width}.png`), animations: "disabled" });
     }
     if (cards) await second.getByRole("button", { name: "舊版內容 · 可更新", exact: true }).click();
-    else await entry.getByRole("button", { name: "更新", exact: true }).click();
+    else { await openSettings(second); await second.getByRole("button", { name: "更新", exact: true }).click(); }
     const dialog = second.getByRole("dialog", { name: "更新卡組與學習進度" });
     await expect(dialog).toContainText("雜湊表");
     await dialog.getByRole("button", { name: "關閉更新預覽" }).click();
@@ -240,7 +253,8 @@ for (const outcome of ["completed", "failed"] as const)
     if (outcome === "completed") await expect(page.getByText("卡組和學習進度已一起更新", { exact: true })).toBeVisible();
     else {
       await expect(page.getByText("自動更新未完成，請查看預覽後再試。", { exact: true })).toBeVisible();
-      await page.getByRole("region", { name: "教材已更新" }).getByRole("button", { name: "更新", exact: true }).click();
+      await openSettings(page);
+      await page.getByRole("button", { name: "更新", exact: true }).click();
       await expect(page.getByRole("dialog", { name: "更新卡組與學習進度" })).toBeVisible();
     }
     expect(posts).toHaveLength(0);
@@ -263,6 +277,7 @@ for (const entry of ["card", "study"] as const)
       return json(route, { schema: "version-move-return/v1", ...previous });
     });
     await page.goto(mapPath);
+    await openSettings(page);
     await page.getByRole("button", { name: "回到更新前內容", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "回到更新前的內容" });
     await expect(dialog).toContainText("教材維持目前內容，更新後的作答與標記也會保留");
@@ -293,7 +308,7 @@ for (const code of ["VERSION_MOVE_PREVIEW_STALE", "VERSION_MOVE_PREVIOUS_UNAVAIL
     server.value = { ...server.value, previous: code === "VERSION_MOVE_PREVIEW_STALE" ? { ...previous, move_id: newSessionId } : null };
     return json(route, { schema: "api-error/v1", request_id: runId, reason_code: code, retryable: false, message: "Request could not be completed." }, 409);
   });
-  await page.goto(mapPath);
+  await page.goto(settingsPath);
   await page.getByRole("button", { name: "回到更新前內容", exact: true }).click();
   await expect.poll(() => reads.length).toBeGreaterThanOrEqual(2);
   await expect(page.getByRole("alert")).toContainText(code === "VERSION_MOVE_PREVIEW_STALE" ? "可返回的內容剛有變動" : "目前沒有可返回的更新前內容");
@@ -344,7 +359,8 @@ test("remaining older items take precedence over an earlier automatic success", 
   await page.goto(mapPath);
   const notice = page.getByRole("region", { name: "教材已更新" });
   await expect(notice).toContainText("卡組與學習進度仍是舊版內容");
-  await notice.getByRole("button", { name: "更新", exact: true }).click();
+  await openSettings(page);
+  await page.getByRole("button", { name: "更新", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "更新卡組與學習進度" })).toContainText("卡組「資料結構重點」");
 });
 
@@ -356,7 +372,8 @@ test("unmovable study progress still explains every completed concept", async ({
   value.blocking_reasons = [{ code: "unmapped_progress", count: 1 }];
   await mockMove(page, 2, { value });
   await page.goto(mapPath);
-  await page.getByRole("region", { name: "教材已更新" }).getByRole("button", { name: "更新", exact: true }).click();
+  await openSettings(page);
+  await page.getByRole("button", { name: "更新", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "更新卡組與學習進度" });
   await expect(dialog.getByRole("checkbox", { name: /學習進度/ })).toBeDisabled();
   await expect(dialog.getByRole("button", { name: "確認更新", exact: true })).toBeDisabled();

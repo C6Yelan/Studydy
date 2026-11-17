@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { InlineConfirm } from "../../ui/InlineConfirm";
 import { ApiClientError, errorMessage, type StudydyApiClient } from "../../api/client";
 import type { AccountSession, AccountSessions } from "../../api/contracts";
-import { useProfile } from "../../app/HeaderTools";
+import { useProfile } from "../../app/useProfile";
 import { playCue, setSoundEnabled, soundEnabled } from "../../ui/feedback-sound";
 import { Icon } from "../../ui/Icon";
 
@@ -111,6 +111,8 @@ function PasswordSection({ apiClient, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // 修改密碼平常收合成一列，按「展開」才出現三個欄位。
+  const [open, setOpen] = useState(false);
   const currentField = useRef<HTMLInputElement>(null);
   // 送出期間欄位停用；等重新啟用後才把焦點移回目前密碼。
   const [refocus, setRefocus] = useState(0);
@@ -125,8 +127,12 @@ function PasswordSection({ apiClient, onChanged }: {
   };
   return (
     <section aria-labelledby="account-password-heading">
-      <h3 id="account-password-heading">修改密碼</h3>
-      <form onSubmit={(event) => {
+      <div className="account-password-head">
+        <h3 id="account-password-heading">修改密碼</h3>
+        <button className="text-button" type="button" aria-expanded={open} aria-controls="account-password-form" onClick={() => setOpen((value) => !value)}>{open ? "收合" : "展開"}</button>
+      </div>
+      {!open && <p className="profile-help">目前密碼、新密碼、確認新密碼；{PASSWORD_MIN}–{PASSWORD_MAX} 個字元，改完其他裝置要重新登入。</p>}
+      {open && <form id="account-password-form" onSubmit={(event) => {
         event.preventDefault();
         if (busy || !ready) return;
         setBusy(true);
@@ -175,7 +181,7 @@ function PasswordSection({ apiClient, onChanged }: {
         <footer>
           <button className="primary-button" type="submit" disabled={busy || !ready}>{busy ? "正在更新…" : "更新密碼"}</button>
         </footer>
-      </form>
+      </form>}
     </section>
   );
 }

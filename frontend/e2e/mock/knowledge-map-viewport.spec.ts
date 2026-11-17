@@ -171,6 +171,9 @@ for (const [width, count] of [
           .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id"))),
       ),
     ).toEqual(localIds);
+    // 一打開只框住目前這站和接下來幾站；按「適應畫面」才是全覽。
+    await expect(page.locator(".concept-flow-node.is-focus")).toBeInViewport();
+    await graph.getByRole("button", { name: "適應畫面", exact: true }).click();
     await expectVisibleGraphFits(page);
     if (count === 20) {
       const node = page.locator(".concept-flow-node.is-focus");
@@ -191,20 +194,14 @@ for (const [width, count] of [
     ).toHaveCount(4);
     const canvas = (await graph.boundingBox())!;
     const frame = (await page.locator(".map-view").boundingBox())!;
-    const legendToggle = page.getByRole("button", { name: "顯示關係圖例" });
-    if (await legendToggle.isVisible()) await legendToggle.click();
-    const legend = (await page.getByLabel("概念關係圖例", { exact: true }).boundingBox())!;
+    const exportButton = (await graph.getByRole("button", { name: "匯出地圖（MD）", exact: true }).boundingBox())!;
     const navigatorButton = (await graph.getByRole("button", { name: "學習導覽", exact: true }).boundingBox())!;
-    // 圖例在地圖右下；搜尋與學習導覽浮在左上，兩者不重疊。
-    const zoomOut = (await graph.getByRole("button", { name: "縮小地圖", exact: true }).boundingBox())!;
-    expect(canvas.y + canvas.height - legend.y - legend.height).toBeGreaterThanOrEqual(0);
-    expect(canvas.y + canvas.height - legend.y - legend.height).toBeLessThanOrEqual(20);
-    expect(canvas.x + canvas.width - legend.x - legend.width).toBeLessThanOrEqual(20);
-    expect(legend.x).toBeGreaterThanOrEqual(zoomOut.x + zoomOut.width + 8);
-    expect(legend.y).toBeGreaterThanOrEqual(navigatorButton.y + navigatorButton.height + 8);
+    // 匯出在地圖右上；搜尋與學習導覽浮在左上，兩者不重疊；右下角留給徽章提示。
+    expect(exportButton.y - canvas.y).toBeLessThanOrEqual(20);
+    expect(exportButton.x).toBeGreaterThanOrEqual(navigatorButton.x + navigatorButton.width + 8);
     expect(Math.abs(canvas.y - frame.y)).toBeLessThan(2);
     expect(Math.abs(canvas.height - frame.height)).toBeLessThan(2);
-    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽"]) {
+    for (const name of ["放大地圖", "縮小地圖", "適應畫面", "學習導覽", "匯出地圖（MD）"]) {
       const box = (await graph.getByRole("button", { name, exact: true }).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(canvas.x);
       expect(box.y).toBeGreaterThanOrEqual(canvas.y);
@@ -292,6 +289,63 @@ test("compact map retains manual viewport through details, progress reload and r
   assertReadOnly();
 });
 
+test("the route starts from the selected island and returns into view when the card closes", async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 864 });
+  const view = workspaceView(20);
+  // 第 14 站 Concept 15 的下一站是 Concept 3，離它超過兩層，選第 14 站時要搬到它旁邊。
+  const order = [0, 1, ...Array.from({ length: 12 }, (_, index) => index + 3), 2, 15, 16, 17, 18, 19];
+  view.initial_learning_path = order.map((index, position) => ({
+    position: position + 1,
+    concept_id: view.concepts[index].concept_id,
+    reason: "document_order",
+  }));
+  await mockKnowledgeMapApi(page, view);
+  const assertReadOnly = trackReadOnlyInteractions(page);
+  const id = (label: string) => view.concepts.find((concept) => concept.label === label)!.concept_id;
+  const route = page.locator(".map-route-edge");
+  // 只有一段航線，兩端是這兩站；兩站不淡化，兩站和整段航線都在畫布範圍內。
+  const expectRoute = async (from: string, to: string) => {
+    await expect(route).toHaveCount(1);
+    await expect(route).toHaveAttribute("data-id", `route:${id(from)}:${id(to)}`);
+    await expect
+      .poll(() =>
+        page.locator(".focus-graph").evaluate((graph, ids) => {
+          const bounds = graph.getBoundingClientRect();
+          const nodes = ids.map((nodeId) => graph.querySelector<HTMLElement>(`.react-flow__node[data-id="${nodeId}"]`)!);
+          return [...nodes, graph.querySelector(".map-route-edge")!].every((element) => {
+            const box = element.getBoundingClientRect();
+            return box.left >= bounds.left - 1 && box.right <= bounds.right + 1
+              && box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
+          }) && nodes.every((node) => node.style.opacity === "1");
+        }, [id(from), id(to)]),
+      )
+      .toBe(true);
+  };
+  await page.goto(mapPath);
+  // 剛打開：目前這站（沒有進度時第 1 站）→ 下一站。
+  await expectRoute("Concept 1", "Concept 2");
+  // 點已對準的中心島：從它出發，下一站一起框進來。
+  await openMapConcept(page);
+  await expectRoute("Concept 1", "Concept 2");
+  // 點第 14 站：只畫第 14 站 → 第 15 站，下一站搬到旁邊。
+  await openMapConcept(page, "Concept 15");
+  await expectRoute("Concept 15", "Concept 3");
+  // 卡片開著直接換到最後一站：沒有下一站，不畫航線。
+  await page.getByRole("button", { name: "學習導覽", exact: true }).click();
+  await navigationConcept(page, "Concept 20").click();
+  await expect(page.getByRole("dialog", { name: "概念詳情" })).toContainText("Concept 20");
+  await expect(route).toHaveCount(0);
+  // 關卡片（Esc、×）：鏡頭回到目前這站和接下來 3 站，航線在畫面內。
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expectRoute("Concept 1", "Concept 2");
+  await openMapConcept(page, "Concept 15");
+  await expectRoute("Concept 15", "Concept 3");
+  await page.getByRole("button", { name: "關閉概念詳情" }).click();
+  await expectRoute("Concept 1", "Concept 2");
+  assertReadOnly();
+});
+
 test("large map only renders its local neighbourhood and stays responsive when dragging", async ({
   page,
 }) => {
@@ -368,11 +422,9 @@ for (const width of [1536, 390])
       `30／80 個概念、60／${view.relations.length} 條關係`,
     );
     await expect(page.locator(".map-limit-note")).toContainText("尚有其他相關內容");
-    const legendToggle = page.getByRole("button", { name: "顯示關係圖例" });
-    if (await legendToggle.isVisible()) await legendToggle.click();
-    const legend = (await page.getByLabel("概念關係圖例", { exact: true }).boundingBox())!;
+    const exportButton = (await page.getByRole("button", { name: "匯出地圖（MD）", exact: true }).boundingBox())!;
     const limitNote = (await page.locator(".map-limit-note").boundingBox())!;
-    expect(limitNote.y).toBeGreaterThanOrEqual(legend.y + legend.height + 4);
+    expect(limitNote.y).toBeGreaterThanOrEqual(exportButton.y + exportButton.height + 4);
     const secondary = page.locator(".concept-flow-node.is-secondary");
     await expect(secondary).toHaveCount(23);
     await expect(secondary.locator(".map-learning-badge")).toHaveCount(23);
@@ -396,6 +448,8 @@ for (const width of [1536, 390])
         .first()
         .evaluate(signStyle),
     );
+    // 一打開只框住目前這站和接下來幾站；按「適應畫面」才是全覽。
+    await page.getByRole("button", { name: "適應畫面", exact: true }).click();
     await expectVisibleGraphFits(page);
     // 第一個第二層概念是 fixture 中的第 8 個，不從 DOM 自己產生預期值。
     const target = view.concepts[7];
@@ -405,7 +459,7 @@ for (const width of [1536, 390])
     await page.keyboard.press("Enter");
     const detail = page.getByRole("dialog", { name: "概念詳情" });
     await expect(detail.getByRole("heading", { name: target.label, exact: true })).toBeVisible();
-    await expect(detail.getByRole("heading", { name: "教材重點", exact: true })).toBeVisible();
+    await expect(detail.getByRole("heading", { name: /個重點（教材原文）$/ })).toBeVisible();
     await expect(page.locator(".concept-flow-node.is-focus")).toHaveAttribute(
       "data-id",
       target.concept_id,
@@ -418,11 +472,33 @@ for (const width of [1536, 390])
     const box = (await page.locator(".focus-graph").boundingBox())!;
     const viewport = page.locator(".react-flow__viewport");
     const before = await viewport.getAttribute("style");
-    await page.mouse.move(box.x + box.width / 2, box.y + 60);
+    // 從空白海面開始拖：密集圖上固定座標可能剛好落在關係線上（點線是選關係，不拖地圖），往下找第一個空白點。
+    const startY = await page.evaluate(([x, top, bottom]) => {
+      for (let y = top; y < bottom; y += 10) if (document.elementFromPoint(x, y)?.classList.contains("react-flow__pane")) return y;
+      return top;
+    }, [box.x + box.width / 2, box.y + 60, box.y + box.height - 80]);
+    await page.mouse.move(box.x + box.width / 2, startY);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 40, box.y + 130, { steps: 12 });
+    await page.mouse.move(box.x + box.width / 2 + 40, startY + 70, { steps: 12 });
     await page.mouse.up();
     await expect(viewport).not.toHaveAttribute("style", before!);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     assertReadOnly();
   });
+
+for (const width of [721, 768, 919]) {
+  test(`map top buttons never overlap at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1024 });
+    await mockKnowledgeMapApi(page, workspaceView(20, true));
+    await page.goto(mapPath);
+    await expect(page.locator(".concept-flow-node.is-focus")).toBeVisible();
+    // 左上的搜尋、學習導覽和右上的匯出，兩兩不重疊。
+    const boxes = await page.locator(".map-toolbar > *, .map-corner-tools > .export-entry").evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect()).filter((box) => box.width > 0)
+        .map(({ left, right, top, bottom }) => ({ left, right, top, bottom })));
+    expect(boxes.length).toBeGreaterThanOrEqual(3);
+    for (const [i, a] of boxes.entries()) for (const b of boxes.slice(i + 1))
+      expect(a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  });
+}

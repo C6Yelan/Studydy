@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { EvidenceSourceView } from "../api/contracts";
 
@@ -39,26 +39,16 @@ function clock(seconds: number): string {
 export function SourcePanelHost({ routeKey }: { routeKey: string }) {
   const entry = useSyncExternalStore(subscribe, read);
   const heading = useRef<HTMLHeadingElement>(null);
-  const [top, setTop] = useState(16);
   // 換頁時收起面板，避免帶著上一頁的原文。
   useEffect(() => () => update(null), [routeKey]);
   useEffect(() => { heading.current?.focus(); }, [entry?.key]);
-  // 面板頂端對齊頁首下方，與地圖詳情面板同一條上緣。
-  useLayoutEffect(() => {
-    if (!entry) return;
-    const position = () => setTop(Math.max(16, ((document.querySelector(".material-header") ?? document.querySelector(".app-header"))?.getBoundingClientRect().bottom ?? 0) + 12));
-    position();
-    window.addEventListener("resize", position);
-    window.addEventListener("scroll", position, { passive: true });
-    return () => { window.removeEventListener("resize", position); window.removeEventListener("scroll", position); };
-  }, [entry]);
   if (!entry) return null;
   const { source } = entry;
   const lines = entry.quotes.flatMap(quote => quote.split("\n")).map(line => line.trim()).filter(meaningful);
   const note = source.playback ? "逐字稿由本機語音辨識或影片上傳者的字幕產生，可能有誤，請以原音回查。"
     : source.format === "images" ? "圖片中的文字由系統辨識，辨識品質不保證。"
     : source.format !== "pdf" ? "此 PDF 由系統自動轉換，轉換品質不保證。" : null;
-  return createPortal(<aside className="source-side-panel" style={{ top }} role="dialog" aria-modal="false" aria-label="教材來源"
+  return createPortal(<aside className="source-side-panel" role="dialog" aria-modal="false" aria-label="教材來源"
     onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }}>
     <header>
       <div>

@@ -13,22 +13,25 @@
 .flow-head-art { flex:none; width:84px; height:84px; object-fit:contain; margin-bottom:-6px; }
 @media (max-width:720px) { .flow-head-art { width:60px; height:60px; } .flow-head p { font-size:14px; } }
 
-/* 步驟列：圓點＋連接線，已完成綠色、目前藍色、未開始灰色。 */
-.learning-steps { display:grid; grid-auto-columns:minmax(0,1fr); grid-auto-flow:column; margin:0; padding:14px 18px; list-style:none; border-radius:var(--radius-card); background:var(--surface); box-shadow:var(--shadow); }
-.learning-steps li { position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; min-width:0; color:var(--text-secondary); font-size:13px; font-weight:700; text-align:center; }
-.learning-steps li + li::before { content:""; position:absolute; top:15px; right:calc(50% + 22px); left:calc(-50% + 22px); height:3px; border-radius:3px; background:var(--border); }
+/* 步驟列：圓點加標籤，中間以線連接；已完成綠色、目前藍色、未開始灰色。 */
+.learning-steps { display:flex; align-items:center; margin:0; padding:0; list-style:none; }
+.learning-steps li { display:flex; flex:1 1 0; align-items:center; gap:8px; min-width:0; color:var(--text-muted); font-size:14px; font-weight:900; white-space:nowrap; }
+.learning-steps li:first-child { flex:none; }
+.learning-steps li + li { padding-left:10px; }
+.learning-steps li + li::before { content:""; flex:1 1 20px; min-width:20px; height:4px; margin-right:2px; border-radius:2px; background:var(--border); }
 .learning-steps li.is-complete + li::before { background:var(--success); }
-.learning-step-mark { position:relative; display:grid; place-items:center; width:32px; height:32px; border-radius:50%; background:var(--page-cool); color:var(--text-muted); font-size:14px; font-weight:900; }
+.learning-steps li:last-child { flex:none; }
+.learning-steps li:last-child:not(:first-child) { flex:1 1 0; }
+.learning-step-mark { position:relative; display:grid; place-items:center; flex:none; width:28px; height:28px; border-radius:50%; background:var(--border); color:var(--text-muted); font-size:13px; font-weight:900; }
 .learning-steps .is-complete { color:var(--success); }
 .learning-steps .is-complete .learning-step-mark { background:var(--success); color:#fff; }
-.learning-steps .is-current { color:var(--studydy-blue); font-weight:900; }
+.learning-steps .is-current { color:var(--studydy-blue); }
 .learning-steps .is-current .learning-step-mark { background:var(--studydy-blue); color:#fff; box-shadow:0 0 0 5px var(--studydy-blue-soft); }
-.learning-step-label { max-width:100%; overflow-wrap:anywhere; line-height:1.35; }
+.learning-step-label { overflow:hidden; text-overflow:ellipsis; line-height:1.35; }
 @media (max-width:720px) {
-  .learning-steps { padding:12px 8px; }
-  .learning-steps li { font-size:12px; }
-  .learning-step-mark { width:28px; height:28px; font-size:13px; }
-  .learning-steps li + li::before { top:13px; right:calc(50% + 19px); left:calc(-50% + 19px); }
+  .learning-steps li { font-size:12px; gap:6px; }
+  .learning-steps li:not(.is-current) .learning-step-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .learning-steps li:last-child:not(:first-child):not(.is-current) { flex:none; }
 }
 
 /* 階段卡片 */
@@ -71,19 +74,39 @@
   .flow-stage > .tool-stage-footer .primary-button { width:100%; }
 }
 
-/* 上傳：拖放區＋待上傳清單，維持閱讀寬度置中。 */
-.upload-stage-body { display:grid; gap:12px; width:100%; }
-.file-drop { position:relative; display:grid; justify-items:center; gap:8px; padding:36px 24px; border:2px dashed #c8d7f5; border-radius:22px; background:var(--studydy-blue-soft-2); color:var(--text-secondary); text-align:center; cursor:pointer; transition:background .2s, border-color .2s; }
-.file-drop:hover, .file-drop.is-dragging { border-color:var(--studydy-blue); background:var(--studydy-blue-soft); }
+/* 上傳：左邊拖放區加 YouTube 輸入，右邊兩張說明卡，頁尾是上傳按鈕。 */
+.upload-layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:18px; align-items:stretch; }
+.upload-main { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.upload-side { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.upload-side-card { padding:16px 18px; border-radius:var(--radius-card); background:var(--surface); box-shadow:var(--shadow); }
+.upload-side-card h2 { margin:0 0 10px; font-size:16px; font-weight:900; }
+.upload-types { display:grid; gap:8px; color:var(--text-secondary); font-size:12.5px; font-weight:800; }
+.upload-types > div { display:grid; grid-template-columns:44px minmax(0,1fr); gap:8px; align-items:start; line-height:1.45; }
+.upload-types b { padding:2px 0; border-radius:8px; background:var(--studydy-blue-soft); color:var(--studydy-blue-deep); font-size:11px; font-weight:900; text-align:center; }
+.upload-types small { color:var(--text-muted); font-size:inherit; font-weight:700; }
+.upload-next { display:grid; gap:10px; margin:0; padding:0; list-style:none; }
+.upload-next li { display:grid; grid-template-columns:26px minmax(0,1fr); gap:8px; font-size:13px; font-weight:900; line-height:1.45; }
+.upload-next small { display:block; color:var(--text-muted); font-size:12px; font-weight:700; }
+.upload-next b { display:grid; place-items:center; width:26px; height:26px; border-radius:50%; background:var(--studydy-blue-soft); color:var(--studydy-blue); font-size:12px; }
+.upload-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 16px; color:var(--text-muted); font-size:13px; font-weight:800; }
+.upload-footer .tool-footer-secondary { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; flex:1; min-width:0; }
+.upload-footer .primary-button { flex:none; margin-left:auto; min-height:44px; }
+.upload-footer .primary-button:disabled { background:#a9c3ff; box-shadow:0 4px 0 #8fb0f5; color:#fff; opacity:1; }
+@media (max-width:1024px) { .upload-layout { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:720px) { .upload-footer .primary-button { width:100%; } }
+.file-drop { position:relative; display:grid; flex:1; align-content:center; justify-items:center; gap:8px; min-height:240px; padding:28px 24px; border:3px dashed #a9c3ff; border-radius:var(--radius-panel); background:var(--surface); color:var(--text-secondary); text-align:center; cursor:pointer; transition:background .2s, border-color .2s; }
+.file-drop:hover, .file-drop.is-dragging { border-color:var(--studydy-blue); background:var(--studydy-blue-soft-2); }
 .file-drop:focus-within { outline:3px solid #0757ff40; outline-offset:3px; }
 .file-drop.is-disabled { cursor:not-allowed; opacity:.7; }
 .file-drop input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:inherit; }
-.file-drop-icon { display:grid; place-items:center; width:60px; height:60px; border-radius:20px; background:var(--surface); color:var(--studydy-blue); box-shadow:var(--shadow); }
-.file-drop strong { color:var(--text-primary); font-size:16px; }
-.file-drop > span:last-child { font-size:13px; font-weight:600; }
-.upload-format-summary { display:grid; gap:4px; text-align:start; }
-.file-drop.has-file { padding:20px 24px; }
+.file-drop-icon { display:grid; place-items:center; width:64px; height:64px; border-radius:20px; background:var(--studydy-blue-soft); color:var(--studydy-blue); }
+.file-drop strong { color:var(--text-primary); font-size:20px; font-weight:900; }
+.upload-drop-note { max-width:420px; color:var(--text-muted); font-size:13px; font-weight:700; line-height:1.55; }
+.upload-drop-guide { position:absolute; left:18px; bottom:12px; width:96px; pointer-events:none; }
+.file-drop.has-file { flex:none; min-height:0; padding:20px 24px; }
 .file-drop.has-file .file-drop-icon { width:44px; height:44px; border-radius:16px; }
+.file-drop.has-file .upload-drop-guide { display:none; }
+@media (max-width:720px) { .upload-drop-guide { display:none; } .file-drop { min-height:180px; } }
 
 .chosen-files { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
 .chosen-file { display:flex; align-items:center; gap:12px; min-width:0; padding:10px 12px 10px 10px; border:1px solid var(--border-light); border-radius:18px; background:var(--surface); }
@@ -98,13 +121,6 @@
 .flow-icon-button:hover:not(:disabled) { background:var(--error-soft); color:var(--error); }
 .flow-icon-button:disabled { opacity:.35; cursor:default; }
 .flow-hint { margin:0; color:var(--text-secondary); font-size:13px; line-height:1.6; }
-.flow-steps-preview { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:0; padding:0; list-style:none; }
-.flow-steps-preview li { display:flex; gap:10px; align-items:flex-start; min-width:0; padding:12px 14px; border-radius:18px; background:var(--page-cool); }
-.flow-steps-preview li > span { display:grid; place-items:center; flex:none; width:32px; height:32px; border-radius:12px; background:var(--surface); color:var(--studydy-blue); }
-.flow-steps-preview strong { display:block; font-size:13px; }
-.flow-steps-preview p { margin:2px 0 0; color:var(--text-secondary); font-size:12px; line-height:1.55; }
-@media (max-width:720px) { .flow-steps-preview { grid-template-columns:1fr; } }
-
 
 /* 完成：一張成果卡＋可查看內容。 */
 .flow-result { display:grid; grid-template-columns:auto minmax(0,1fr); gap:20px 28px; align-items:center; padding:28px; border-radius:var(--radius-card); box-shadow:var(--shadow); }
@@ -196,10 +212,10 @@
 .queued-images li { display:flex; align-items:center; gap:8px; min-width:0; }
 .queued-images img { flex:none; width:44px; height:44px; border-radius:8px; object-fit:cover; background:var(--surface); }
 .queued-image-name { flex:1; min-width:0; overflow:hidden; color:var(--text-secondary); font-size:12px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
-.youtube-source-input { display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px; width:100%; margin-top:12px; }
-.youtube-source-input label { display:grid; flex:1 1 260px; gap:4px; min-width:0; color:var(--text-secondary); font-size:13px; font-weight:800; }
-.youtube-source-input input { min-width:0; min-height:40px; padding:0 12px; border:1.5px solid var(--border); border-radius:12px; font:inherit; font-weight:600; color:var(--text-primary); background:var(--surface); }
-.youtube-source-input .secondary-button { min-height:40px; }
+.youtube-source-input { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; width:100%; padding:10px 12px; border-radius:18px; background:var(--surface); box-shadow:var(--shadow); }
+.youtube-source-input label { display:flex; flex:1 1 260px; align-items:center; gap:10px; min-width:0; color:var(--text-primary); font-size:13px; font-weight:900; white-space:nowrap; }
+.youtube-source-input input { flex:1; min-width:0; min-height:44px; padding:0 12px; border:1.5px solid var(--border); border-radius:12px; font:inherit; font-weight:600; color:var(--text-primary); background:var(--surface); }
+.youtube-source-input .secondary-button { min-height:44px; }
 .youtube-source-input .form-error { flex-basis:100%; margin:0; }
 
 .source-add-actions { display:flex; align-items:center; flex-wrap:wrap; gap:var(--space-2) var(--space-4); }
@@ -208,10 +224,15 @@
 
 
 .source-name.source-name-readable { overflow:visible; text-overflow:clip; white-space:normal; overflow-wrap:anywhere; }
-
-@media (min-width:721px) {
-  .upload-drop { grid-template-columns:minmax(0,1fr) minmax(0,1fr); padding-block:16px; gap:8px 24px; }
-  .upload-drop .file-drop-icon { grid-column:1; grid-row:1; align-self:end; }
-  .upload-drop > strong { grid-column:1; grid-row:2; align-self:start; }
-  .upload-drop .upload-format-summary { grid-column:2; grid-row:1 / span 2; justify-self:start; }
-}
+/* 分析完成頁底下的三格摘要。 */
+.flow-mini-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(14rem, 1fr)); gap:var(--space-3); margin:0; padding:0; list-style:none; }
+.flow-mini-row li { display:grid; grid-template-columns:38px minmax(0,1fr); gap:2px 10px; align-items:center; padding:var(--space-3) 14px; border:2px solid var(--border); border-radius:var(--radius-card); background:var(--surface); }
+.flow-mini-row i { grid-row:span 2; display:grid; place-items:center; width:38px; height:38px; border-radius:12px; background:var(--studydy-blue-soft); color:var(--studydy-blue); }
+.flow-mini-row li:nth-child(2) i { background:var(--success-soft); color:var(--success); }
+.flow-mini-row li:nth-child(3) i { background:var(--warning-soft); color:var(--amber-deep); }
+.flow-mini-row b { font-size:22px; font-weight:900; color:var(--text-primary); }
+.flow-mini-row span { color:var(--text-muted); font-size:12.5px; font-weight:800; }
+/* 原始檔案（已有地圖的教材）：清單直接放在頁面上，每份檔案一張白底圓角列。 */
+.source-panel > .source-list-card { padding:0; background:transparent; box-shadow:none; }
+.source-panel .source-row { border:2px solid var(--border); border-radius:20px; background:var(--surface); }
+.source-panel .source-number { border-radius:50%; background:var(--studydy-blue-soft); }

@@ -13,8 +13,8 @@ async function login(page: Page, email: string) {
   await expect(
     page.getByRole("heading", { name: "歡迎回來！今天想探索哪座島？", level: 1, exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: /^我的教材$/, exact: true }).click();
-  await expect(page.getByRole("heading", { name: "我的教材", exact: true })).toBeVisible();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "我的群島", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "我的群島", exact: true })).toBeVisible();
 }
 
 test("fresh profiles reopen the current head and read exact historical versions", async ({
@@ -31,9 +31,9 @@ test("fresh profiles reopen the current head and read exact historical versions"
   const newerPath = new URL(page.url()).pathname;
   await page.reload();
   await expect(page.getByRole("button", { name: "教材概念：Stack", exact: true })).toBeVisible();
-  await page.goto("/materials");
+  await page.goto("/profile");
   await page.getByRole("button", { name: "登出", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   await original.close();
 
   // 使用獨立瀏覽器，僅憑登入與教材名稱找回資料。
@@ -81,8 +81,9 @@ test("fresh profiles reopen the current head and read exact historical versions"
     ).toBeVisible();
     await expect(freshPage).toHaveURL(`${browserOrigin}${headPath}`);
   }
-  // 教材內由教材頁首的返回按鈕回到我的教材。
-  await freshPage.getByRole("button", { name: "回到我的教材", exact: true }).click();
+  // 教材內從側欄的品牌回首頁，再用全站側欄回到我的群島。
+  await freshPage.getByRole("link", { name: "返回 Studydy 首頁" }).click();
+  await freshPage.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "我的群島", exact: true }).click();
   const pdfUrl = `/v1/artifacts/${material.source_artifact_id}`;
   const pdf = await fresh.request.get(`${browserOrigin}${pdfUrl}`);
   expect(pdf.status()).toBe(200);
@@ -96,9 +97,9 @@ test("fresh profiles reopen the current head and read exact historical versions"
   await expect(
     freshPage.getByRole("button", { name: "教材概念：Stack", exact: true }),
   ).toBeVisible();
-  await freshPage.goto("/materials");
+  await freshPage.goto("/profile");
   await freshPage.getByRole("button", { name: "登出", exact: true }).click();
-  await expect(freshPage.getByRole("heading", { name: "登入您的帳戶" })).toBeVisible();
+  await expect(freshPage.getByRole("heading", { name: "登入你的帳戶" })).toBeVisible();
   await login(freshPage, "library_b@example.com");
   await expect(
     freshPage.getByRole("article", { name: "B 的私人教材.pdf", exact: true }),

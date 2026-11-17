@@ -1026,7 +1026,7 @@ export function learningRhythm(value: unknown): value is LearningRhythmView {
     || !Array.isArray(item.days) || item.days.length === 0 || item.days.length > 364) return false;
   const days = item.days.map(object);
   return days.every(day => !!day && typeof day.date === "string" && isoDate.test(day.date)
-      && count(day.answers) && count(day.correct) && day.correct <= day.answers
+      && count(day.xp) && count(day.answers) && count(day.correct) && day.correct <= day.answers
       && count(day.card_reviews) && count(day.listened_seconds) && typeof day.active === "boolean")
     && days[0]!.date === item.start && days.at(-1)!.date === item.end
     && days.every((day, index) => index === 0 || String(day!.date) > String(days[index - 1]!.date));
@@ -1385,6 +1385,9 @@ export function assessmentSetList(value: unknown): value is AssessmentSetListVie
 export function assessmentSet(value: unknown): value is AssessmentSetView {
   if (!assessmentSetSummary(value)) return false;
   const item = value;
+  const award = object(item.xp_award);
+  if (!(item.xp_award === null || (!!award && ["answers", "concepts", "cards", "podcast", "goals", "difficulties"]
+    .every(key => Number.isSafeInteger(award[key]) && Number(award[key]) >= 0)))) return false;
   if (
     item.schema !== "assessment-set/v2" ||
     !isUuid(item.study_session_id) ||
@@ -1745,7 +1748,9 @@ function noteItems(value: unknown, depth = 1): boolean {
 }
 
 function noteTable(value: Record<string, unknown> | null): boolean {
-  return !!value && strings(value.headers) && Array.isArray(value.rows) && value.rows.every(strings);
+  // 後端允許空白儲存格（例如沒有備註的列），只有欄名必須有字。
+  return !!value && strings(value.headers) && Array.isArray(value.rows)
+    && value.rows.every(row => Array.isArray(row) && row.every(cell => typeof cell === "string"));
 }
 
 function noteBlock(value: unknown): boolean {

@@ -3,7 +3,7 @@ import type { CardStudyView } from "../../api/contracts";
 import { ExportControls } from "./ExportControls";
 
 export function CardExports({ api, view }: { api: StudydyApiClient; view: CardStudyView }) {
-  return <ExportControls label="匯出整組概念卡" options={[
+  return <ExportControls label="下載整組卡片" options={[
     { value: "apkg", label: "Anki（.apkg）" }, { value: "pdf", label: "可列印 PDF" }, { value: "zip", label: "全部卡面 PNG（ZIP）" },
   ]} download={async format => {
     const { conceptCardPages, conceptCardCanvas } = await import("../concept-cards/ConceptCardArtwork");

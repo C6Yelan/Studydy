@@ -33,7 +33,7 @@ export function SourceUploadPicker({capabilities,disabled,hasFiles,inputLabel,er
   useEffect(()=>{if(disabled)clearDrag();},[disabled]);
   return <>
         <label
-          className={`file-drop upload-drop${hasFiles ? " has-file" : ""}${disabled || !formatsReady ? " is-disabled" : ""}${isDragging ? " is-dragging" : ""}`}
+          className={`file-drop${hasFiles ? " has-file" : ""}${disabled || !formatsReady ? " is-disabled" : ""}${isDragging ? " is-dragging" : ""}`}
           onDragEnter={(event) => {
             event.preventDefault();
             if (!disabled && formatsReady && event.dataTransfer.types.includes("Files")) {
@@ -82,9 +82,10 @@ export function SourceUploadPicker({capabilities,disabled,hasFiles,inputLabel,er
             <Icon name="upload" size={26} />
           </span>
           <strong>
-            {hasFiles ? "拖放或點擊以加入更多教材" : "將教材拖放到此處，或點擊選取"}
+            {hasFiles ? "拖放或點擊以加入更多教材" : "把教材拖到這裡，或點一下選擇檔案"}
           </strong>
-          <span className="upload-format-summary">{formatsReady ? uploadLimitSummary(capabilities!).map(line => <span key={line}>{line}</span>) : "正在載入上傳限制"}</span>
+          <span className="upload-drop-note">每份檔案分開保留；多張圖片會合成一份，依順序變成各頁；音訊與影片會在本機轉成逐字稿。</span>
+          <img className="upload-drop-guide" src="/assets/Studydy_角色素材/引導/guide_present.png" alt="" />
         </label>
         {error && (
           <p id={errorId} className="form-error" role="alert">
@@ -96,8 +97,8 @@ export function SourceUploadPicker({capabilities,disabled,hasFiles,inputLabel,er
   </>;
 }
 
-/** 依實際能力列出可選格式與上限，避免畫面與後端限制不一致。 */
-function uploadLimitSummary(capabilities: SourceCapabilities): string[] {
+/** 依實際能力列出可選格式與上限，避免畫面與後端限制不一致。每列是 [分類, 副檔名, 限制]。 */
+export function uploadLimitRows(capabilities: SourceCapabilities): [string, string, string][] {
   const groups: [string, string][] = [
     ["document", "文件"],
     ["presentation", "簡報"],
@@ -105,15 +106,14 @@ function uploadLimitSummary(capabilities: SourceCapabilities): string[] {
     ["audio", "音訊"],
     ["video", "影片"],
   ];
-  const parts = groups.flatMap(([kind, label]) => {
+  const rows = groups.flatMap(([kind, label]): [string, string, string][] => {
     const formats = capabilities.formats.filter((format) => ( /\.pptx?$/.test(format.extension) ? "presentation" : format.kind) === kind);
     if (!formats.length) return [];
     const names = [...new Set(formats.map((format) => format.extension.slice(1).toUpperCase()))].join("、");
     const max = formatFileSize(Math.max(...formats.map((format) => format.max_bytes)));
-    const note = kind === "image" ? `一次最多 ${capabilities.max_images} 張、合計 ${max}` : `每份最大 ${max}`;
-    return [`${label}：${names}（${note}）`];
+    return [[label, names, kind === "image" ? `一次 ${capabilities.max_images} 張、合計 ${max}` : `每份 ${max}`]];
   });
   const hours = capabilities.max_media_seconds / 3600;
   const media = capabilities.formats.some((format) => format.kind === "audio" || format.kind === "video");
-  return [...parts, ...(media ? [`音訊／影片最長 ${hours} 小時`] : []), "可選多份"];
+  return [...rows, media ? ["長度", `音訊、影片最長 ${hours} 小時`, "可選多份"] : ["數量", "可選多份", ""]];
 }

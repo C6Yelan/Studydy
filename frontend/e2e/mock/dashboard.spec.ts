@@ -105,9 +105,11 @@ function manyMaterials(count: number): MaterialLibraryItem[] {
   }));
 }
 
-// 快速存取的列以「動作：標題」為名，例如「繼續學習：有界重試策略」。
-const quick = (page: Page) => page.getByRole("region", { name: "快速存取" });
+// 「接續學習」區的按鈕以「動作：標題」為名，例如「繼續學習：有界重試策略」。
+const quick = (page: Page) => page.getByRole("region", { name: "接續學習" });
 const quickButton = (page: Page, action: string) => quick(page).getByRole("button", { name: new RegExp(`^${action}：`) });
+// 全部徽章和規則平常收合；要看每一格徽章或規則表先按「看全部 N 個徽章和特別成就」展開。
+const openAllBadges = (page: Page) => page.getByRole("button", { name: /^看全部 \d+ 個徽章和特別成就$/ }).click();
 const islands = (page: Page) => page.locator(".map-island:not(.is-new)");
 const mapView = (page: Page) => page.locator(".island-map-viewport").evaluate((element: HTMLElement) => ({
   x: parseFloat(element.style.getPropertyValue("--tx")),
@@ -171,6 +173,9 @@ for (const [width, height] of [[2560, 1440], [1536, 1024], [1366, 768], [1024, 7
         expect(side.width).toBeLessThanOrEqual(400);
         expect(map.width).toBeGreaterThan(side.width * 3);
       }
+    } else if (width > 720) {
+      // 平板排成一欄：接續學習與今天的小事排在地圖前，「繼續」不用捲過整張地圖。
+      expect(map.y).toBeGreaterThanOrEqual(side.y + side.height);
     } else expect(side.y).toBeGreaterThanOrEqual(map.y + map.height);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
@@ -189,7 +194,7 @@ test("dashboard loading keeps the map busy until the library arrives", async ({ 
   const map = page.locator(".island-map-viewport");
   await expect(map).toHaveAttribute("aria-busy", "true");
   await expect(page.locator(".island-map-skeleton")).toBeVisible();
-  await expect(page.getByRole("button", { name: "上傳教材", exact: true }).first()).toBeEnabled();
+  await expect(page.getByRole("link", { name: "新增教材", exact: true })).toBeVisible();
   release();
   await expect(map).toHaveAttribute("aria-busy", "false");
   await expect(page.locator(".archipelago-head span")).toHaveText("1 份教材");
@@ -206,13 +211,13 @@ test("dashboard read failure keeps actions and recovers without reload", async (
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("歡迎回來！今天想探索哪座島？");
   await expect(page.getByRole("alert")).toContainText("資料服務暫時無法使用");
   await expect(page.locator(".island-map")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "上傳教材", exact: true })).toBeEnabled();
+  await expect(page.getByRole("link", { name: "新增教材", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "重新讀取", exact: true }).click();
   await expect(page.locator(".archipelago-head span")).toHaveText("0 份教材");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page
     .getByRole("navigation", { name: "主要導覽" })
-    .getByRole("link", { name: "我的教材", exact: true })
+    .getByRole("link", { name: "我的群島", exact: true })
     .click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("region", { name: "空教材引導" })).toBeVisible();
@@ -287,13 +292,13 @@ test("dashboard uses each material's head study", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("navigation", { name: "主要導覽" }).getByRole("link")).toHaveText([
     "首頁",
-    "我的教材",
-    "概念卡",
+    "我的群島",
+    "翻卡片",
     "Podcast",
     "成就",
-    "個人檔案",
+    "新增教材",
+    "個人檔案與設定",
   ]);
-  await expect(page.getByRole("button", { name: "登出", exact: true })).toBeVisible();
   await quickButton(page, "繼續學習").click();
   await expect
     .poll(() => new URL(page.url()).pathname)
@@ -302,26 +307,20 @@ test("dashboard uses each material's head study", async ({ page }) => {
     );
 });
 
-test("home shows the level in the header; achievements and reviews have their own pages", async ({ page }) => {
+test("home shows the level and streak under the greeting; achievements and reviews have their own pages", async ({ page }) => {
   await mockLibrary(page, () => [withStudy()]);
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
     total: 245, level: [2, 145, 150], streak: 2,
     quests: [{ kind: "mark_cards", progress: 0, target: 5, done: false }],
   }) }));
   await page.goto("/");
-  await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
-  // 等級只在全站頁首（連續天數左邊）；徽章、學習節奏、學習總覽、Podcast 與概念卡複習都不在首頁。
+  await expect(page.getByRole("region", { name: "今天的小事" })).toBeVisible();
+  // 等級與連續天數只在首頁問候下方；徽章、學習節奏、學習總覽、Podcast 與概念卡複習都不在首頁。
   for (const name of ["第 2 級", "成就總覽", "學習節奏", "學習總覽", "Podcast", "概念卡複習"])
     await expect(page.getByRole("region", { name, exact: true })).toHaveCount(0);
   await expect(page.locator(".dashboard-greeting button", { hasText: "第 2 級" })).toHaveCount(0);
-  const pill = page.locator(".app-header").getByRole("button", { name: "第 2 級，本級 145 / 150 XP，連續學習 2 天，查看成就" });
-  await expect(pill.locator(".header-level-shield")).toHaveText("2");
-  await expect(pill.locator(".header-level-meter")).toHaveText("145/150");
-  // 盾牌在連續天數左邊。
-  const shield = (await pill.locator(".header-level").boundingBox())!;
-  const streak = (await pill.locator(".header-streak").boundingBox())!;
-  expect(shield.x + shield.width).toBeLessThanOrEqual(streak.x);
-  await pill.click();
+  await expect(page.locator(".dashboard-greeting")).toContainText("連續 2 天 · 第 2 級");
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "成就", exact: true }).click();
   await expect(page).toHaveURL(/\/achievements$/);
   await expect(page.getByRole("region", { name: "第 2 級" })).toBeVisible();
   await page.goto("/");
@@ -351,7 +350,7 @@ test("quick access resumes the most recently listened podcast that is not finish
     return route.fulfill({ json: { schema: "podcast-progress/v1", podcast_id: id, credited_seconds: 0, ...progress[id] as object } });
   });
   await page.goto("/");
-  const resume = page.getByRole("region", { name: "快速存取" }).getByRole("button", { name: /繼續收聽/ });
+  const resume = quick(page).getByRole("button", { name: /繼續收聽/ });
   await expect(resume).toContainText("聽到一半");
   await expect(resume).toContainText("第 2 集 · 停在 2:05");
   await resume.click();
@@ -473,8 +472,9 @@ test("profile keeps devices in their own card and fits a wide window without scr
   const settings = page.getByRole("region", { name: "帳號設定" });
   await expect(settings.getByRole("heading", { level: 3 })).toHaveText(["個人名稱", "修改密碼", "音效"]);
   await expect(settings.getByRole("region", { name: "登入裝置" })).toHaveCount(0);
-  // 名稱下方不再有等級／XP 摘要。
+  // 名稱下方不再有等級／XP 摘要；登出在名稱旁。
   await expect(page.locator(".profile-head")).not.toContainText("XP");
+  await expect(page.locator(".profile-head").getByRole("button", { name: "登出", exact: true })).toBeVisible();
   // 寬螢幕：左欄由上而下為總覽、節奏、登入裝置，帳號設定在右欄；整頁不捲動。
   const box = async (name: string) => (await page.getByRole("region", { name, exact: true }).boundingBox())!;
   const [overview, rhythm, device, account] = [await box("學習總覽"), await box("學習節奏"), await box("登入裝置"), await box("帳號設定")];
@@ -498,14 +498,15 @@ test("achievements level card, XP rules and profile overview show real numbers w
     sources: { answers: 145, concepts: 30, cards: 20, podcast: 15, goals: 15, difficulties: 20 },
   }) }));
   await page.goto("/");
-  const pill = page.getByRole("button", { name: "第 2 級，本級 145 / 200 XP，連續學習 4 天，查看成就" });
-  await pill.click();
+  await expect(page.locator(".dashboard-greeting")).toContainText("連續 4 天 · 第 2 級");
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "成就", exact: true }).click();
   await expect(page).toHaveURL(/\/achievements$/);
   const level = page.getByRole("region", { name: "第 2 級" });
   await expect(level.getByText("累計 245 XP · 今天 +32")).toBeVisible();
   await expect(level.getByRole("progressbar", { name: "第 2 級經驗值" })).toHaveAttribute("aria-valuetext", "145 / 200 XP");
   await expect(level.getByText("再 55 XP 升到第 3 級")).toBeVisible();
-  // 經驗值說明列出每種來源的規則與已獲得的 XP。
+  // 經驗值說明在「全部徽章和規則」裡，列出每種來源的規則與已獲得的 XP。
+  await openAllBadges(page);
   const rules = page.getByRole("region", { name: "經驗值怎麼算" });
   const sources = rules.locator(".xp-sources > li");
   await expect(sources).toHaveCount(6);
@@ -515,21 +516,89 @@ test("achievements level card, XP rules and profile overview show real numbers w
   // 來源比例長條依實際 XP 分段，沒有 XP 的來源不畫。
   await expect(rules.getByRole("img")).toHaveAttribute("aria-label", "作答 145 XP、完成概念 30 XP、標記概念卡 20 XP、收聽 Podcast 15 XP、目標與關卡 15 XP、克服難點 20 XP");
   await expect(rules.locator(".xp-mix-bar > i")).toHaveCount(6);
-  await page.getByRole("button", { name: /^個人檔案：/ }).click();
+  await page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "個人檔案與設定" }).click();
   await expect(page).toHaveURL(/\/profile$/);
   await expect(page.getByRole("region", { name: "第 2 級" })).toHaveCount(0);
   const stats = page.getByRole("region", { name: "學習總覽" }).locator(".profile-stat-list");
   await expect(stats).toHaveAttribute("aria-busy", "false");
-  await expect(stats.locator("small")).toHaveText(["份教材", "學習中的教材", "已完成概念", "累計作答", "累計答對率"]);
+  await expect(stats.locator("small")).toHaveText(["份教材", "學習中", "已點亮概念", "累計作答", "答對率"]);
   // 概念進度摘要讀不到時只算得出 0 個已完成概念；沒有作答時答對率顯示「—」。
   await expect(stats.locator("strong")).toHaveText(["2", "1", "0", "0", "—"]);
   await expect(stats.locator("button, a, [role=button], [tabindex]")).toHaveCount(0);
-  // 手機頁首：盾牌與細進度條仍在，數字收起。
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(pill.locator(".header-level-shield")).toBeVisible();
-  await expect(pill.locator(".header-level-meter small")).toBeHidden();
-  const header = (await pill.boundingBox())!;
-  expect(header.x + header.width).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test("achievements show this week's XP per day, the three closest badges and one card per badge series", async ({ page }) => {
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    level: [6, 20, 200], total: 1228, todayXp: 40,
+    badges: {
+      first_answer: { earned_on: "2026-10-16" }, answers_100: { earned_on: "2026-10-18" }, answers_300: { progress: 240 }, streak_3: { earned: true }, streak_7: { progress: 3 }, concepts_25: { progress: 5 },
+      first_export: { earned: true }, export_kinds_4: { earned: true },
+    },
+  }) }));
+  await page.route("**/v1/learning-activity/rhythm?*", (route) => route.fulfill({ json: learningRhythm({
+    period: "week", today: "2026-10-21", days: { "2026-10-19": { xp: 20 }, "2026-10-21": { xp: 40 } },
+  }) }));
+  await page.goto("/achievements");
+  // 這週 XP：標題是七天的合計，每天一根長條，今天標示出來。
+  const week = page.getByRole("region", { name: "這週拿到 60 XP" });
+  await expect(week.getByRole("listitem")).toHaveCount(7);
+  await expect(week.getByRole("listitem", { name: "週一：20 XP" })).toBeVisible();
+  await expect(week.getByRole("listitem", { name: "週三（今天）：40 XP" })).toBeVisible();
+  await expect(week.getByRole("listitem", { name: "週日：0 XP" })).toBeVisible();
+  // 快拿到了：每個系列只取下一層，依進度比例由高到低取三個，寫出下一層名稱、目前數字和要做什麼。
+  const near = page.getByRole("region", { name: "快拿到了" }).getByRole("listitem");
+  await expect(near).toHaveCount(3);
+  await expect(near.nth(0)).toContainText("作答：題海航行者（金）240 / 300 題");
+  await expect(near.nth(0)).toContainText("再答 60 題");
+  await expect(near.nth(0).getByRole("progressbar")).toHaveAttribute("aria-valuetext", "240 / 300 題");
+  await expect(near.nth(1)).toContainText("等級：資深航海士（銀）");
+  await expect(near.nth(1)).toContainText("升到第 10 級");
+  await expect(near.nth(2)).toContainText("連續學習：一週全勤（銀）");
+  await expect(near.nth(2)).toContainText("連續 7 天都學一點");
+  // 系列卡牆：15 個有多層的系列分在 5 區，沒有舊的階梯表格。
+  await expect(page.getByRole("region", { name: "徽章階梯" })).toHaveCount(0);
+  const groups = page.locator(".badge-series-group");
+  await expect(groups.locator("h2")).toHaveText(["答題", "學習進度", "複習與筆記", "Podcast", "學習習慣"]);
+  await expect(page.locator(".badge-series-card")).toHaveCount(15);
+  const group = (name: string) => page.getByRole("region", { name, exact: true });
+  await expect(group("答題").locator(".badge-series-title")).toHaveText(["作答", "題組完成", "零失誤題組", "克服難點"]);
+  await expect(group("學習進度").locator(".badge-series-title")).toHaveText(["概念完成", "教材完成", "目標與關卡"]);
+  await expect(group("複習與筆記").locator(".badge-series-title")).toHaveText(["概念卡標記", "個人註記", "匯出與整理"]);
+  await expect(group("Podcast").locator(".badge-series-title")).toHaveText(["Podcast 收聽", "Podcast 聽完"]);
+  await expect(group("學習習慣").locator(".badge-series-title")).toHaveText(["連續學習", "學習天數", "等級"]);
+  // 區名旁是這一區拿到的層數合計。
+  await expect(group("答題")).toContainText("已拿到 2 / 16 層");
+  const card = (title: string) => page.locator(".badge-series-card").filter({ has: page.locator(".badge-series-title", { hasText: new RegExp(`^${title}$`) }) });
+  // 拿到幾層：目前那一層的名稱、層數小橫條（報讀文字）、到下一層的進度與要做什麼。
+  const answers = card("作答");
+  await expect(answers.locator(".badge-series-have")).toHaveText("百題挑戰");
+  await expect(answers.getByRole("img", { name: "拿到 2 / 共 5 層" })).toBeVisible();
+  await expect(answers.getByRole("progressbar")).toHaveAttribute("aria-valuetext", "240 / 300 題");
+  await expect(answers.locator(".badge-series-goal")).toHaveText("再答 60 題240 / 300 題");
+  await expect(answers.locator(".badge-series-next")).toHaveText("下一層：題海航行者（金）");
+  // 一層都沒拿到：寫「還沒拿到」，進度與句子對第一層。
+  const concepts = card("概念完成");
+  await expect(concepts.locator(".badge-series-have")).toHaveText("還沒拿到");
+  await expect(concepts.getByRole("img", { name: "拿到 0 / 共 5 層" })).toBeVisible();
+  await expect(concepts.locator(".badge-series-goal")).toHaveText("再完成 1 個概念0 / 1 個");
+  await expect(concepts.locator(".badge-series-next")).toHaveText("下一層：點亮概念（銅）");
+  // 整個系列拿完：進度條滿格，不再有下一層。
+  const exports = card("匯出與整理");
+  await expect(exports.locator(".badge-series-have")).toHaveText("整理收藏家");
+  await expect(exports.locator(".badge-series-goal")).toHaveText("這個系列全部拿到了");
+  await expect(exports.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
+  await expect(exports.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "1");
+  await expect(exports.locator(".badge-series-next")).toHaveCount(0);
+  // 入口按鈕的 N 和總覽同一個計數（不含尚未揭曉的隱藏徽章）。
+  const entry = page.getByRole("button", { name: /^看全部 \d+ 個徽章和特別成就$/ });
+  const count = (await entry.innerText()).match(/\d+/)![0];
+  await entry.click();
+  await expect(page.getByRole("region", { name: "成就總覽" }).locator(":scope > header .badge-count")).toHaveText(new RegExp(` / ${count}$`));
+  // 經驗值規則沒有「大約幾站」的換算。
+  await expect(page.getByText("大約是")).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
@@ -553,7 +622,7 @@ test("today quests show done state and open the matching place", async ({ page }
     ],
   }) }));
   await page.goto("/");
-  const quests = page.getByRole("region", { name: "今日任務" });
+  const quests = page.getByRole("region", { name: "今天的小事" });
   await expect(quests.getByText("1 / 3")).toBeVisible();
   await expect(quests.getByRole("listitem")).toHaveText([/標記 5 張概念卡2\/5/, /完成題組作答0\/1/, /聽完 1 集 Podcast1\/1/]);
   // 每列保留進度與入口，完成後仍可回到對應內容。
@@ -599,7 +668,7 @@ test("server-claimed level-up plays once across two browser contexts", async ({ 
   await celebration.getByRole("button", { name: "太好了" }).click();
   await winner.reload();
   await expect.poll(() => claims).toBe(3);
-  await expect(winner.locator(".header-progress")).toBeVisible();
+  await expect(winner.locator(".dashboard-standing")).toBeVisible();
   await expect(winner.getByRole("dialog")).toHaveCount(0);
   await other.close();
 });
@@ -615,6 +684,7 @@ test("achievements list earned badges above unearned ones, one cell per badge", 
     },
   }) }));
   await page.goto("/achievements");
+  await openAllBadges(page);
   const wall = page.getByRole("region", { name: "成就總覽" });
   // 已取得：作答 2 層、連續 1 層與第 6 級的等級 I；分母是 103 個成就扣掉成就鏈尚未揭曉的 5 步。
   await expect(wall.locator(":scope > header .badge-count")).toHaveText("4 / 98");
@@ -645,6 +715,7 @@ test("hidden achievements show only hints and achievement chains reveal one step
   let badges: Record<string, { progress?: number; earned_on?: string }> = { night_owl: { earned_on: "2026-10-19" }, combo_10: { progress: 7 }, answers_300: { progress: 1 } };
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({ badges }) }));
   await page.goto("/achievements");
+  await openAllBadges(page);
   const earned = page.getByRole("region", { name: "已取得" });
   const locked = page.getByRole("region", { name: "未取得" });
   // 已取得的隱藏成就：揭曉名稱、條件與日期，與一般成就放在同一區。
@@ -663,6 +734,7 @@ test("hidden achievements show only hints and achievement chains reveal one step
   // 取得第一步後，第二步以「？？？」與提示出現，第三步仍隱藏。
   badges = { ...badges, combo_10: { earned_on: "2026-10-20" }, combo_25: { progress: 12 } };
   await page.reload();
+  await openAllBadges(page);
   await expect(earned.locator(".badge-cell").filter({ hasText: "連對王" })).toContainText("成就鏈 · 第 1 步");
   await expect(locked.locator(".badge-cell").filter({ hasText: "十題只是開始。" })).toContainText(/成就鏈 · 第 2 步.*？？？/);
   await expect(locked).not.toContainText("連對達人");
@@ -676,6 +748,7 @@ test("v7 goal, difficulty, media, combo and easter-egg achievements reuse the se
     nemesis: { earned_on: "2026-10-21" },
   } }) }));
   await page.goto("/achievements");
+  await openAllBadges(page);
   const earned = page.getByRole("region", { name: "已取得" }).locator(".badge-cell");
   const locked = page.getByRole("region", { name: "未取得" }).locator(".badge-cell");
   // 多層系列沿用層級小字；單一成就只顯示系列名稱。
@@ -706,7 +779,7 @@ test("new badge notice shows only server-claimed badges once", async ({ page }) 
   });
   // 伺服器已標記歷史徽章；首次讀取不補播。
   await page.goto("/");
-  await expect(page.locator(".header-progress")).toBeVisible();
+  await expect(page.locator(".dashboard-standing")).toBeVisible();
   await expect(page.getByRole("status", { name: "獲得新徽章" })).toHaveCount(0);
   await expect.poll(() => claims).toBe(1);
   pending = ["first_concept", "future_badge"];
@@ -720,7 +793,7 @@ test("new badge notice shows only server-claimed badges once", async ({ page }) 
   await notice.getByRole("button", { name: "關閉" }).click();
   await expect(notice).toHaveCount(0);
   await page.reload();
-  await expect(page.locator(".header-progress")).toBeVisible();
+  await expect(page.locator(".dashboard-standing")).toBeVisible();
   await expect(page.getByRole("status", { name: "獲得新徽章" })).toHaveCount(0);
 });
 
@@ -738,8 +811,9 @@ test("level-up closes by Escape and badge notice leaves page controls usable", a
   });
   await page.clock.install();
   await page.goto("/");
-  const progress = page.locator(".header-progress");
-  await expect(progress).toBeVisible();
+  await expect(page.locator(".dashboard-standing")).toBeVisible();
+  // 關閉升級後焦點回到原本的位置（側欄的「成就」）。
+  const progress = page.getByRole("navigation", { name: "主要導覽" }).getByRole("link", { name: "成就", exact: true });
   // 學習活動更新後，伺服器同次回傳升級與新徽章。
   await expect.poll(() => claims).toBe(1);
   await progress.focus();
@@ -772,11 +846,11 @@ test("dashboard hides learning numbers when learning activity is unavailable", a
   await mockLibrary(page, () => [withStudy()]);
   await page.goto("/");
   await expect(quickButton(page, "繼續學習")).toBeVisible();
-  await expect(page.getByRole("region", { name: "今日任務" })).toHaveCount(0);
-  await expect(page.locator(".header-progress")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "今天的小事" })).toHaveCount(0);
+  await expect(page.locator(".dashboard-standing")).toHaveCount(0);
   await page.goto("/achievements");
   await expect(page.getByText("無法讀取學習成就")).toBeVisible();
-  await expect(page.locator(".dashboard-level, .badge-collection")).toHaveCount(0);
+  await expect(page.locator(".level-card, .badge-collection")).toHaveCount(0);
   await page.goto("/profile");
   await expect(page.getByText("無法讀取學習統計")).toBeVisible();
   // 帳號設定不受影響。
@@ -858,18 +932,18 @@ test("dashboard map pans, zooms and keeps a drag from opening an island", async 
   await page.getByRole("button", { name: "縮小" }).click();
   expect((await mapView(page)).k).toBeLessThan(zoomed.k);
   await page.getByRole("button", { name: "回到全覽" }).click();
-  expect(await mapView(page)).toEqual(start);
+  expect(await mapView(page)).toEqual(before);
   await page.locator(".island-map-viewport").focus();
   await page.keyboard.press("+");
-  expect((await mapView(page)).k).toBeGreaterThan(start.k);
+  expect((await mapView(page)).k).toBeGreaterThan(before.k);
   await page.keyboard.press("0");
-  expect(await mapView(page)).toEqual(start);
+  expect(await mapView(page)).toEqual(before);
   // 小地圖：點左上角，畫面移到地圖左上方。
   const minimap = (await page.getByRole("img", { name: "群島縮圖，點選可移動地圖" }).boundingBox())!;
   await page.mouse.click(minimap.x + 4, minimap.y + 4);
   const moved = await mapView(page);
-  expect(moved.x).toBeGreaterThan(start.x);
-  expect(moved.y).toBeGreaterThan(start.y);
+  expect(moved.x).toBeGreaterThan(before.x);
+  expect(moved.y).toBeGreaterThan(before.y);
   // 縮放有上限：放大到底後再按也不再變大。
   for (let step = 0; step < 12; step++) await page.getByRole("button", { name: "放大" }).click();
   const capped = (await mapView(page)).k;
@@ -923,7 +997,7 @@ test("dashboard islands read the progress summary instead of the full outline", 
   expect(requested.filter((path) => /\/outline|\/map-progress/.test(path))).toEqual([]);
 });
 
-for (const [width, height, fits] of [[1920, 950, true], [2560, 1300, true], [1440, 760, true], [1366, 680, false], [1024, 768, false]] as const)
+for (const [width, height, fits] of [[1920, 950, true], [2560, 1300, true], [1440, 760, true], [1366, 680, true], [1229, 691, true], [1024, 768, false], [1024, 576, false]] as const)
   test(`home ${fits ? "fits the window without scrolling" : "keeps a readable map and scrolls"} at ${width}×${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await mockLibrary(page, () => manyMaterials(9));
@@ -932,12 +1006,13 @@ for (const [width, height, fits] of [[1920, 950, true], [2560, 1300, true], [144
     }) }));
     await page.goto("/");
     await expect(islands(page)).toHaveCount(9);
-    await expect(page.getByRole("region", { name: "今日任務" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "今天的小事" })).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
     const map = (await page.locator(".island-map-viewport").boundingBox())!;
+    // 1024×576 以上（例如 1536 螢幕放大 150%）不用捲動就看得到「繼續」。
+    await expect(quickButton(page, "繼續學習")).toBeInViewport({ ratio: 1 });
     if (fits) {
       expect(overflow).toBeLessThanOrEqual(0);
-      await expect(quickButton(page, "繼續學習")).toBeInViewport({ ratio: 1 });
     } else {
       // 較小的螢幕：地圖維持最小高度，頁面照常捲動。
       expect(overflow).toBeGreaterThan(0);
@@ -965,10 +1040,88 @@ test("home at 1536×730 opens with every island label inside the map and the que
     expect(flag.left).toBeGreaterThanOrEqual(map.x);
     expect(flag.right).toBeLessThanOrEqual(map.x + map.width);
   }
-  const quests = (await page.getByRole("region", { name: "今日任務" }).boundingBox())!;
+  const quests = (await page.getByRole("region", { name: "今天的小事" }).boundingBox())!;
   expect(quests.y + quests.height).toBeLessThanOrEqual(730);
   expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
 });
+
+// 地圖視窗不能是捲動容器：島按鈕取得焦點時瀏覽器若把它捲進來，reveal() 不知道，島和旗標會滑出畫面。
+test("tabbing to the next island on a phone keeps the island and its goal flag inside the map", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const items = manyMaterials(3);
+  await mockLibrary(page, () => items);
+  const goals = items.map((item, index) => {
+    const summary = goalSummary(goalView(item.material_id, revision, runId, `concept:sha256:${"b".repeat(64)}`), `第 ${index + 1} 份`);
+    return Object.assign(summary, { days_remaining: 5 + index });
+  });
+  await page.route("**/v1/learning-goals", (route) => route.fulfill({ json: { schema: "learning-goals/v1", today: "2026-10-24", goals } }));
+  await page.goto("/");
+  await expect(islands(page)).toHaveCount(3);
+  const viewport = page.locator(".island-map-viewport");
+  const settled = async () => {
+    let previous = "";
+    await expect.poll(async () => {
+      const now = JSON.stringify(await mapView(page));
+      const same = now === previous;
+      previous = now;
+      return same;
+    }, { intervals: [400] }).toBe(true);
+  };
+  await islands(page).first().getByRole("button").focus();
+  await settled();
+  await page.keyboard.press("Tab");
+  await expect(islands(page).nth(1).getByRole("button")).toBeFocused();
+  await settled();
+  const map = (await viewport.boundingBox())!;
+  expect(await viewport.evaluate((element) => [element.scrollLeft, element.scrollTop])).toEqual([0, 0]);
+  const island = islands(page).nth(1);
+  const button = (await island.getByRole("button").boundingBox())!;
+  const flag = (await island.locator(".island-goal-flag").boundingBox())!;
+  expect(button.x + button.width / 2).toBeGreaterThanOrEqual(map.x);
+  expect(button.x + button.width / 2).toBeLessThanOrEqual(map.x + map.width);
+  expect(flag.x).toBeGreaterThanOrEqual(map.x);
+  expect(flag.x + flag.width).toBeLessThanOrEqual(map.x + map.width);
+  expect(flag.y).toBeGreaterThanOrEqual(map.y);
+  expect(flag.y + flag.height).toBeLessThanOrEqual(map.y + map.height);
+});
+
+// 開場置中要等教材和學習目標都到了才決定，不能因為誰先回來而不同：固定置中在目標最緊迫的島。
+for (const order of ["goals-first", "library-first"] as const) {
+  test(`home opens on the most urgent goal island when ${order}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1536, height: 730 });
+    const items = manyMaterials(24);
+    // 最近學習的是第 17 份，但目標最緊迫的是第 5 份：開場置中看目標，不看最近學習。
+    items[16] = { ...items[16], study_sessions: [{ ...active, started_at: "2026-10-01T00:00:00Z" }] };
+    const urgent = Object.assign(goalSummary(goalView(items[4].material_id, revision, runId, `concept:sha256:${"b".repeat(64)}`), "第 5 份"), { days_remaining: 1 });
+    const relaxed = Object.assign(goalSummary(goalView(items[9].material_id, revision, runId, `concept:sha256:${"b".repeat(64)}`), "第 10 份"), { days_remaining: 9 });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/v1/materials", async (route) => {
+      if (order === "goals-first") await gate;
+      await route.fulfill({ json: { schema: "material-library/v1", materials: items } });
+    });
+    await page.route("**/v1/learning-goals", async (route) => {
+      if (order === "library-first") await gate;
+      await route.fulfill({ json: { schema: "learning-goals/v1", today: "2026-10-24", goals: [relaxed, urgent] } });
+    });
+    const firstArrived = page.waitForResponse((response) => new URL(response.url()).pathname === (order === "goals-first" ? "/v1/learning-goals" : "/v1/materials"));
+    await page.goto("/");
+    await firstArrived;
+    release();
+    await expect(islands(page)).toHaveCount(24);
+    await expect(page.locator(".island-map-viewport")).toHaveAttribute("aria-busy", "false");
+    const map = (await page.locator(".island-map-viewport").boundingBox())!;
+    // 離地圖中心最近的島就是開場置中的島。
+    await expect.poll(async () => {
+      const boxes = await islands(page).evaluateAll((nodes) => nodes.map((node) => {
+        const rect = node.querySelector("button")!.getBoundingClientRect();
+        return { name: node.querySelector("b")?.textContent ?? "", x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      }));
+      const near = boxes.map((box) => ({ ...box, d: Math.hypot(box.x - (map.x + map.width / 2), box.y - (map.y + map.height / 2)) })).sort((a, b) => a.d - b.d)[0];
+      return near.name;
+    }).toContain("第 5 份");
+  });
+}
 
 test("24 islands open readable on the most recently studied island and the fit button still shows all", async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 730 });
@@ -999,6 +1152,40 @@ test("24 islands open readable on the most recently studied island and the fit b
   }
 });
 
+// 常見的 1536×864：接續學習卡、一條 Podcast、三件每日小事與兩個關卡（教材名很長）剛好放進右欄，右欄不必捲動；
+// 關卡列上行是「今天的關卡」，下行是完整教材名稱，換行但不截斷。
+test("1536×864 right column holds the continue card, podcast and five tasks without scrolling and goal rows show the full material name", async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 864 });
+  // 一般長度的教材名（約 25 字，在 330px 的右欄會換成兩行）。
+  const names = ["AI Agent 權限控管與濫用風險", "Gemma｜Demo 01｜生成式 AI 多媒體", "Gemma｜Demo 02｜網路與可靠傳輸"];
+  const items = manyMaterials(3).map((item, index) => ({ ...item, display_name: names[index] }));
+  await mockLibrary(page, () => items);
+  await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({
+    quests: [{ kind: "mark_cards", progress: 0, target: 5, done: false }, { kind: "continue_study", progress: 0, target: 1, done: false },
+      { kind: "finish_podcast_episode", progress: 0, target: 1, done: false, material_id: materialId, podcast_id: uuid(30), episode_index: 0 }],
+  }) }));
+  await page.route(/\/v1\/learning-goals/, (route) => route.fulfill({ json: { schema: "learning-goals/v1", today: "2026-10-24",
+    goals: [1, 2].map((index) => goalSummary(goalView(items[index].material_id, revision, runId, `concept:sha256:${"b".repeat(64)}`), items[index].display_name)) } }));
+  await page.route("**/v1/podcasts", (route) => route.fulfill({ json: { schema: "podcast-list/v1", podcasts: [{
+    podcast_id: uuid(30), material_id: materialId, material_name: longName, knowledge_structure_revision: revision, name: "網路與可靠傳輸 Podcast",
+    delivery: "solo", video_enabled: false, concept_ids: [`concept:sha256:${"b".repeat(64)}`], status: "ready", error_code: null,
+    version: 1, created_at: "2026-09-12T00:00:00Z", episode_count: 2, completed_episodes: 2, duration_seconds: 600, is_current_revision: true }] } }));
+  await page.route("**/v1/podcasts/*/progress", (route) => route.fulfill({ json: { schema: "podcast-progress/v1", podcast_id: uuid(30), credited_seconds: 0,
+    current: { episode_index: 0, position_seconds: 76, updated_at: "2026-10-22T09:00:00Z" }, episodes: [{ episode_index: 0, position_seconds: 76, completed: false }] } }));
+  await page.goto("/");
+  await expect(page.locator(".dashboard-quests .quest-row")).toHaveCount(5);
+  await expect(quick(page).getByRole("button", { name: /繼續收聽/ })).toBeVisible();
+  const side = page.locator(".dashboard-side");
+  const metrics = await side.evaluate((element) => ({ scroll: element.scrollHeight, client: element.clientHeight }));
+  expect(metrics.scroll).toBeLessThanOrEqual(metrics.client);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
+  // 關卡列：上行固定文字，下行是完整名稱（元素內沒有被省略）。
+  const goalRow = page.locator(".goal-quest").first();
+  await expect(goalRow.locator("b")).toHaveText("今天的關卡");
+  await expect(goalRow.locator(".quest-material")).toHaveText(items[1].display_name);
+  expect(await goalRow.locator(".quest-material").evaluate((element) => element.scrollWidth <= element.clientWidth + 1 && getComputedStyle(element).textOverflow !== "ellipsis")).toBe(true);
+});
+
 test("1536×730 with five daily tasks scrolls inside the right column and not the page", async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 730 });
   const items = manyMaterials(9);
@@ -1016,37 +1203,33 @@ test("1536×730 with five daily tasks scrolls inside the right column and not th
   expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
   const metrics = await side.evaluate((element) => ({ scroll: element.scrollHeight, client: element.clientHeight }));
   expect(metrics.scroll).toBeGreaterThan(metrics.client);
-  await expect(quick(page)).not.toBeInViewport({ ratio: 1 });
+  const lastTask = page.locator(".dashboard-quests .quest-row").last();
+  await expect(lastTask).not.toBeInViewport({ ratio: 1 });
   await side.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-  await expect(quick(page)).toBeInViewport({ ratio: 1 });
+  await expect(lastTask).toBeInViewport({ ratio: 1 });
   expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
 });
 
-test("achievements scroll inside the overview on desktop while the page and level column stay put", async ({ page }) => {
+test("achievements open the full badge list full width and keep three or more columns beside the sidebar", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 900 });
   await page.route("**/v1/learning-activity", (route) => route.fulfill({ json: learningActivity({}) }));
   await page.goto("/achievements");
-  const overview = page.getByRole("region", { name: "成就總覽" });
-  await expect(overview).toBeVisible();
-  // 頁面剛好填滿視窗；成就總覽內容比區域高，由它自己捲動。
-  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
-  expect(await overview.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
-  const header = (await page.locator(".app-header").boundingBox())!;
-  const level = (await page.locator(".level-xp").boundingBox())!;
-  const box = (await overview.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.wheel(0, 600);
-  await expect.poll(() => overview.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-  // 只有成就區移動：頁面、頁首與左欄位置不變。
-  expect(await page.evaluate(() => window.scrollY)).toBe(0);
-  expect((await page.locator(".app-header").boundingBox())!.y).toBe(header.y);
-  expect((await page.locator(".level-xp").boundingBox())!.y).toBe(level.y);
-  // 手機兩欄上下排列，維持整頁捲動。
-  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("region", { name: /^第 \d+ 級$/ })).toBeVisible();
+  // 全部徽章收合時看不到每一格；展開後在下方全寬排列，整頁跟著變長。
+  await expect(page.locator(".badge-cell")).toHaveCount(0);
+  await openAllBadges(page);
+  await expect(page.getByRole("region", { name: "成就總覽" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true);
-  expect(await overview.evaluate((element) => getComputedStyle(element).overflowY)).not.toBe("auto");
+  // 側欄占寬後 1440 與 1536 仍是三欄以上，不退成兩欄。
+  for (const width of [1440, 1536]) {
+    await page.setViewportSize({ width, height: 900 });
+    const columns = await page.locator(".badge-grid").first().evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
+    expect(columns).toBeGreaterThanOrEqual(3);
+  }
+  // 手機兩欄上下排列、不橫向捲動。
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
-
 
 test("an in-flight celebration remains valid when learning activity changes", async ({ page }) => {
   let level = 3;
@@ -1065,7 +1248,7 @@ test("an in-flight celebration remains valid when learning activity changes", as
   level = 4;
   await page.clock.runFor(31_000);
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(page.locator(".header-progress")).toHaveAttribute("aria-label", /第 4 級/);
+  await expect(page.locator(".dashboard-standing")).toContainText("第 4 級");
   await expect.poll(() => calls).toBe(2);
   release();
   await expect(page.getByRole("dialog", { name: "升級了！第 3 級" })).toBeVisible();

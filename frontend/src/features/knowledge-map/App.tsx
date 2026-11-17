@@ -1,5 +1,5 @@
 import { useStudyStart } from "../study-session/useStudyStart";
-import { rememberMaterial, rememberedMaterial } from "../material-flow/material-memory";
+import { rememberMaterial } from "../material-flow/material-memory";
 import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, isNotFound, type StudydyApiClient } from "../../api/client";
@@ -12,7 +12,8 @@ import type {
 } from "../../api/contracts";
 import { writeRoute, type AppRoute } from "../../app/routes";
 import { StateView } from "../../ui/StateView";
-import { KnowledgeMapWorkspace } from "./KnowledgeMapWorkspace";
+import { Icon } from "../../ui/Icon";
+import { KnowledgeMapWorkspace, MaterialProgress } from "./KnowledgeMapWorkspace";
 import "./styles.css";
 
 function findPublishedHead(material: MaterialLibraryItem) {
@@ -21,14 +22,14 @@ function findPublishedHead(material: MaterialLibraryItem) {
   );
 }
 
+/** 知識地圖與學習進度兩頁共用同一套讀取（地圖、教材索引、學習進度）。 */
 export default function KnowledgeMap({
   apiClient,
   route,
 }: {
   apiClient: StudydyApiClient;
-  route: Extract<AppRoute, { name: "knowledge-map" }>;
+  route: Extract<AppRoute, { name: "knowledge-map" | "material-progress" }>;
 }) {
-  const [materialName,setMaterialName] = useState(()=>rememberedMaterial(apiClient,route.materialId)?.display_name??"" );
   const [progress, setProgress] = useState<MapProgressView | null>(null);
   const [savedSession, setSavedSession] = useState<Pick<
     StudySessionView,
@@ -60,7 +61,7 @@ export default function KnowledgeMap({
       if (!head || head.knowledge_structure_revision === route.structureRevision) return false;
       writeRoute(
         {
-          name: "knowledge-map",
+          name: route.name,
           materialId: route.materialId,
           runId: head.run_id,
           structureRevision: head.knowledge_structure_revision,
@@ -72,7 +73,7 @@ export default function KnowledgeMap({
     const load = async () => {
       // 教材索引與固定版本地圖並行讀取；複習只讀進度，不重取完整學習紀錄。
       const materialTask = apiClient.getMaterial(route.materialId).then(
-        (material) => { if (!cancelled) { rememberMaterial(apiClient, material); setMaterialName(material.display_name); } return { material, error: null }; },
+        (material) => { if (!cancelled) rememberMaterial(apiClient, material); return { material, error: null }; },
         (error: unknown) => ({ material: null, error }),
       );
       const progressTask = materialTask
@@ -151,10 +152,22 @@ export default function KnowledgeMap({
     return () => {
       cancelled = true;
     };
+    // 地圖與學習進度互相切換時沿用已讀到的資料（同舊版切換分頁），不重新讀取。
   }, [apiClient, route.materialId, route.runId, route.structureRevision, reload]);
 
   const startStudy = (conceptId: string) => {
     if (!isLoadingProgress) void launch.start({ ...route, conceptId });
+  };
+
+  // 答題紀錄的按鈕：有進行中題組就接著作答；有自己的上一輪就先看結果；
+  // 只有繼承來的紀錄（題組不在目前的學習工作階段）或沒有紀錄，才直接出題。
+  const openRecord = (conceptId: string) => {
+    if (isLoadingProgress) return;
+    const cycle = progress?.assessment_cycles.find((item) => item.concept_id === conceptId);
+    const setId = cycle?.active_set_id ?? (cycle && !cycle.inherited_from ? cycle.diagnostic_set_id : null);
+    if (!progress || !setId) return startStudy(conceptId);
+    writeRoute({ name: "study-session", materialId: route.materialId, runId: route.runId,
+      structureRevision: route.structureRevision, studySessionId: progress.study_session_id, assessmentSetId: setId });
   };
 
   if (notFound === "material") return <NotFoundView {...materialNotFound} />;
@@ -178,7 +191,7 @@ export default function KnowledgeMap({
               type="button"
               onClick={() => writeRoute({ name: "materials" })}
             >
-              返回我的教材
+              返回我的群島
             </button>
           </div>
         }
@@ -198,24 +211,43 @@ export default function KnowledgeMap({
         tone="loading"
       />
     );
+  if (view.concepts.length === 0)
+    return (
+      <StateView
+        action={
+          <div className="state-actions">
+            <button className="secondary-button" type="button" onClick={() =>
+              writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })}>
+              <Icon name="arrow-left" />
+              查看處理狀態
+            </button>
+          </div>
+        }
+        description="這份教材目前沒有可供學習的概念。請返回處理結果查看原因。"
+        image="/assets/studydy/empty-disappointed.png"
+        title="知識地圖目前是空的"
+        tone="empty"
+      />
+    );
+  const shared = {
+    apiClient,
+    progress,
+    progressMessage,
+    onReloadProgress: () => setReload((value) => value + 1),
+    isStartingStudy: launch.busy || isLoadingProgress,
+    isLoadingProgress,
+    onStartStudy: startStudy,
+    startMessage: launch.error,
+    view,
+  };
+  if (route.name === "material-progress")
+    return <MaterialProgress key={view.knowledge_structure_revision} materialId={route.materialId} onOpenRecord={openRecord} {...shared} />;
   return (
     <KnowledgeMapWorkspace
       key={view.knowledge_structure_revision}
-      apiClient={apiClient}
-      progress={progress}
       learningStateStatus={savedSession?.status ?? null}
-      progressMessage={progressMessage}
-      onReloadProgress={() => setReload((value) => value + 1)}
-      isStartingStudy={launch.busy || isLoadingProgress}
-      isLoadingProgress={isLoadingProgress}
-      onReturnToRun={() =>
-        writeRoute({ name: "material-run", materialId: route.materialId, runId: route.runId })
-      }
       mapRoute={route}
-      materialName={materialName}
-      onStartStudy={startStudy}
-      startMessage={launch.error}
-      view={view}
+      {...shared}
     />
   );
 }

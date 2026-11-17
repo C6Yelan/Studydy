@@ -46,8 +46,8 @@ test("library loading, read failure and empty state retain usable actions", asyn
     { times: 1 },
   );
   await page.goto("/materials");
-  await expect(page.getByRole("status")).toHaveText("正在讀取我的教材");
-  // 讀取中以我的教材版型的骨架佔位；偏好減少動態時光澤動畫停止。
+  await expect(page.getByRole("status")).toHaveText("正在讀取我的群島");
+  // 讀取中以我的群島版型的骨架佔位；偏好減少動態時光澤動畫停止。
   const skeleton = page.locator(".page-skeleton.is-library");
   await expect(skeleton).toHaveAttribute("aria-busy", "true");
   await expect(skeleton.locator(".skeleton-card").first()).toBeVisible();
@@ -64,7 +64,7 @@ test("library loading, read failure and empty state retain usable actions", asyn
   await expect(page.getByRole("heading", { name: "無法讀取教材", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "上傳第一份教材", exact: true }).click();
   await expect(page).toHaveURL(/\/upload$/);
-  await expect(page.getByRole("heading", { name: "上傳教材", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "新增一座島", exact: true })).toBeVisible();
   await expect(page.getByLabel("選擇教材檔案", { exact: true })).toBeEnabled();
 });
 
@@ -85,7 +85,27 @@ test("reopen rejects a run from a different Knowledge Structure revision", async
   await expect(page.getByRole("heading", { name: "無法讀取知識地圖", exact: true })).toBeVisible();
   await expect(page.locator(".map-workspace")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "查看學習成果", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "返回我的教材", exact: true }).click();
+  await page.getByRole("button", { name: "返回我的群島", exact: true }).click();
   await expect(page).toHaveURL(/\/materials$/);
   await expect(page.getByRole("heading", { name: "尚未有學習教材", exact: true })).toBeVisible();
+});
+
+test("failed topic cancellation shows the error inside that topic card and keeps the library", async ({ page }) => {
+  const topic = { topic_id: "77777777-7777-4777-8777-777777777777", material_id: null, request: "尚未搜尋的 Agent 規劃",
+    proposal: { title: "停止與求助", goals: [], topics: [] }, version: 2, status: "ready", research_id: null, error_code: null };
+  let fail = true;
+  await page.route("**/v1/topics", (route) => json(route, { topics: topic.status === "cancelled" ? [] : [topic] }));
+  await page.route(`**/v1/topics/${topic.topic_id}/actions`, (route) => fail
+    ? json(route, { schema: "api-error/v1", request_id: sessionId, reason_code: "TOPIC_CONFLICT", retryable: false, message: "Conflict" }, 409)
+    : (topic.status = "cancelled", json(route, topic)));
+  await page.goto("/materials");
+  const card = page.getByRole("article", { name: "停止與求助" });
+  await card.getByRole("button", { name: "取消建立", exact: true }).click();
+  await card.getByRole("button", { name: "取消建立", exact: true }).click();
+  await expect(card.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "無法讀取教材" })).toHaveCount(0);
+  await expect(card).toBeVisible();
+  fail = false;
+  await card.getByRole("button", { name: "取消建立", exact: true }).click();
+  await expect(card).toHaveCount(0);
 });

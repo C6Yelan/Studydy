@@ -41,11 +41,11 @@ for (const width of [1440, 1300, 1200, 1024, 390]) {
   await page.setViewportSize({width,height:900}); const view=structureView(), state=structuredClone(progress);
   state.concept_states.forEach(s => s.attempts = 1);
   state.concept_states[0].status='needs_review'; state.concept_states[1].status='completed';
-  await mockOwnedReview(page,view,()=>state); await page.goto(mapPath); await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
+  await mockOwnedReview(page,view,()=>state); await page.goto(mapPath); await page.getByRole('link', { name: '學習進度',exact:true}).click();
   const next = page.getByRole('region',{name:'學習進度'});
-  await expect(next).toContainText('已完成 1／2 個概念');
+  await expect(next).toContainText('1 / 2 座島已點亮');
   await expect(next.getByRole('button',{name:'繼續學習',exact:true})).toBeInViewport();
-  const diagnosis = page.getByRole('region',{name:'測驗紀錄'});
+  const diagnosis = page.getByRole('region',{name:'答題紀錄'});
   await expect(diagnosis.locator('.diagnosis-point-list > li')).toHaveCount(1);
   await expect(diagnosis.locator('.diagnosis-point-list > li')).toContainText('Stack');
   const records=page.locator('.learning-diagnosis');
@@ -54,7 +54,7 @@ for (const width of [1440, 1300, 1200, 1024, 390]) {
   await records.getByRole('button', {name:/^全部 /}).click();
   await expect(records.locator('li')).toHaveCount(2);
   await expect(records.locator('li').last()).toContainText('已完成');
-  await page.reload(); await expect(page.getByRole('tab',{name:'學習與測驗',exact:true})).toHaveAttribute('aria-selected','true');
+  await page.reload(); await expect(page.getByRole('link', { name: '學習進度',exact:true})).toHaveAttribute('aria-current', 'page');
  });
 }
 
@@ -63,27 +63,28 @@ for (const completed of [0,32]) {
   const view=workspaceView(32,true),state=structuredClone(progress);
   state.concept_states=view.concepts.map(c=>({...progress.concept_states[0],concept_id:c.concept_id,label:c.label,attempts:1,status:completed?'completed':'in_progress',assessable_claim_ids:c.claims.map(a=>a.claim_id),completed_claim_ids:completed?c.claims.map(a=>a.claim_id):[]}));
   state.current_concept_id=view.concepts[0].concept_id;
-  await mockOwnedReview(page,view,()=>state); await page.goto(mapPath); await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
+  await mockOwnedReview(page,view,()=>state); await page.goto(mapPath); await page.getByRole('link', { name: '學習進度',exact:true}).click();
   const records=page.locator('.learning-diagnosis'); await records.getByRole('button', {name:/^全部 /}).click();
   await expect(records.locator('li strong')).toHaveText(view.concepts.map(c=>c.label));
   await records.locator('li').last().scrollIntoViewIfNeeded(); await expect(records.locator('li').last()).toBeInViewport();
-  await records.getByRole('button', {name:/^待加強 /}).click(); await expect(records.locator('li')).toHaveCount(completed?0:32);
+  await records.getByRole('button', {name:/^要再練 /}).click(); await expect(records.locator('li')).toHaveCount(completed?0:32);
  });
 }
 
 test('zero assessable concept has no submitted record',async({page})=>{
  const state=structuredClone(progress);state.concept_states[0].assessable_claim_ids=[];
- await mockOwnedReview(page,structureView(),()=>state);await page.goto(mapPath);await page.getByRole('tab',{name:'學習與測驗',exact:true}).click();
- const section=page.locator('.learning-diagnosis'); await section.getByRole('button', {name:/^全部 /}).click(); await expect(section).toContainText('還沒有測驗紀錄'); await expect(section.locator('li')).toHaveCount(0);
+ await mockOwnedReview(page,structureView(),()=>state);await page.goto(mapPath);await page.getByRole('link', { name: '學習進度',exact:true}).click();
+ const section=page.locator('.learning-diagnosis'); await section.getByRole('button', {name:/^全部 /}).click(); await expect(section).toContainText('還沒有答題紀錄'); await expect(section.locator('li')).toHaveCount(0);
 });
 
 test('loading progress does not show a false completed or empty list',async({page})=>{
  await mockOwnedReview(page,structureView(),()=>progress);let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});let reads=0;
  await page.route(`**${progressPath}`,async route=>{reads++;await gate;await json(route,progress);});
- await page.goto(mapPath);const tab=page.getByRole('tab',{name:'學習與測驗',exact:true});
- await expect.poll(()=>reads).toBe(1);await expect(tab).toBeDisabled();
+ // 學習進度是獨立頁面：讀取中顯示讀取狀態，不顯示假的完成或空清單。
+ await page.goto(`${mapPath}/progress`);
+ await expect.poll(()=>reads).toBe(1);await expect(page.getByText('正在讀取學習進度…',{exact:true})).toBeVisible();
  await expect(page.getByText('已有作答紀錄的概念都已完成。',{exact:true})).toHaveCount(0);
- release();await tab.click();await expect(page.locator('.learning-diagnosis').getByRole('button',{name:'繼續測驗',exact:true})).toHaveCount(0);
+ release();await expect(page.locator('.learning-diagnosis')).toBeVisible();await expect(page.locator('.learning-diagnosis').getByRole('button',{name:'繼續測驗',exact:true})).toHaveCount(0);
 });
 
 for (const status of ["in_progress", "needs_review", "completed"]) {
@@ -95,7 +96,7 @@ for (const status of ["in_progress", "needs_review", "completed"]) {
     });
     await mockOwnedReview(page, structureView(), () => state);
     await page.goto(mapPath);
-    await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+    await page.getByRole("link", { name: "學習進度", exact: true }).click();
     const section = page.locator(".learning-diagnosis");
     for (const reload of [false, true]) {
       if (reload) await page.reload();
@@ -110,10 +111,10 @@ for (const status of ["in_progress", "needs_review", "completed"]) {
 }
 
 test("no saved session offers next step and an empty record list", async ({ page }) => {
-  await mockKnowledgeMapApi(page); await page.goto(mapPath); await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await mockKnowledgeMapApi(page); await page.goto(mapPath); await page.getByRole("link", { name: "學習進度", exact: true }).click();
   await expect(page.getByRole("region", { name: "學習進度" }).getByRole("button", { name: "繼續學習", exact: true })).toBeVisible();
   const section = page.locator(".learning-diagnosis"); await section.getByRole("button", {name:/^全部 /}).click();
-  await expect(section).toContainText("還沒有測驗紀錄"); await expect(section.locator("li")).toHaveCount(0);
+  await expect(section).toContainText("還沒有答題紀錄"); await expect(section.locator("li")).toHaveCount(0);
 });
 
 test("switching materials never reuses the previous material's answers", async ({ page }) => {
@@ -139,14 +140,14 @@ test("switching materials never reuses the previous material's answers", async (
   await page.route(`**/v1/materials/${otherId}/knowledge-structures/*/learning-diagnosis`, route => json(route, diagnosisView(otherId, structureRevision)));
   await page.route(`**/v1/materials/${otherId}/knowledge-structures/*/concept-difficulty`, route => json(route, difficultyView(otherId, structureRevision)));
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   await expect(page.locator(".learning-diagnosis li")).toHaveCount(1);
   await page.evaluate(path => {
     window.history.pushState(null, "", path);
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, mapPath.replace(materialId, otherId).replace(runId, otherRunId));
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有測驗紀錄");
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
+  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有答題紀錄");
   await expect(page.locator(".learning-diagnosis li")).toHaveCount(0);
 });
 
@@ -155,7 +156,7 @@ test("a different login does not restore the previous user's record list", async
   Object.assign(state.concept_states[0], { attempts: 1, status: "in_progress" });
   await mockOwnedReview(page, structureView(), () => state);
   await page.goto(mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
   await expect(page.locator(".learning-diagnosis li")).toHaveCount(1);
   // 另一分頁切換帳號時，立即清除私人內容。
   await page.evaluate(() => { const channel = new BroadcastChannel("studydy-account"); channel.postMessage("identity-changed"); channel.close(); });
@@ -173,9 +174,9 @@ test("a different login does not restore the previous user's record list", async
     window.history.pushState(null, "", path);
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, mapPath);
-  await page.getByRole("tab", { name: "學習與測驗", exact: true }).click();
-  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有測驗紀錄");
+  await page.getByRole("link", { name: "學習進度", exact: true }).click();
+  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有答題紀錄");
   await expect(page.locator(".learning-diagnosis li")).toHaveCount(0);
   await page.reload();
-  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有測驗紀錄");
+  await expect(page.locator(".learning-diagnosis")).toContainText("還沒有答題紀錄");
 });

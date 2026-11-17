@@ -96,7 +96,15 @@ export function initialFocusConceptId(view: MapView): string {
 const MAX_MAP_NODES = 30;
 const MAX_MAP_RELATIONS = 60;
 
-export function focusGraph(view: MapView, selectedId: string) {
+/**
+ * 以 selectedId 為中心畫兩層相關概念。routeIds（沒選島時的目前這站和接下來 3 站，最多 4 座）中
+ * 沒被畫出的全部額外加入，排在圖下方一列，讓航線和下一站看得到；中心島不是目前這站時
+ * （例如選了遠處的島再關卡片），4 座可能都不在兩層內。
+ * nextStationId（選島時那座島的下一站）沒被畫出時，擺在中心島正下方，讓「這座島 → 下一站」整段看得到；
+ * 這時回傳 nextBelowId，航線改接兩座島的側面，免得從下一站的名稱卡底下穿過。
+ * 額外加入的島不受兩層和節點上限限制，也不另外畫關係。
+ */
+export function focusGraph(view: MapView, selectedId: string, routeIds: string[] = [], nextStationId: string | null = null) {
   type Visit = { depth: 0 | 1 | 2; side: -1 | 0 | 1; parentRelation: string | null };
   const visits = new Map<string, Visit>();
   const adjacent = new Map<string, KnowledgeOutlineView["relations"]>();
@@ -170,7 +178,19 @@ export function focusGraph(view: MapView, selectedId: string) {
         });
       });
     }
-  return { nodes, relations, totalNodes: visits.size, totalRelations: eligibleRelations.length };
+  const known = new Set(view.concepts.map((concept) => concept.concept_id));
+  const extras = [...new Set(routeIds)]
+    .filter((id) => known.has(id) && !visible.has(id));
+  const bottom = Math.max(0, ...nodes.map((node) => node.y));
+  extras.forEach((id, index) => {
+    nodes.push({ id, depth: 2, width: 260, x: (index - (extras.length - 1) / 2) * 320, y: bottom + 300 });
+  });
+  // 中心島正下方這一欄沒有其他島（第一層從左右 420 起排），下一站放這裡不會疊到別的島。
+  const beside = nextStationId && known.has(nextStationId) && !visible.has(nextStationId) && !extras.includes(nextStationId)
+    ? nextStationId : null;
+  if (beside) nodes.push({ id: beside, depth: 2, width: 260, x: 20, y: 300 });
+  const totalNodes = visits.size + [...extras, ...(beside ? [beside] : [])].filter((id) => !visits.has(id)).length;
+  return { nodes, relations, totalNodes, totalRelations: eligibleRelations.length, nextBelowId: beside };
 }
 
 // 學習導覽一次最多畫出的概念列數；超過兩倍才分段，一般教材維持完整清單。
@@ -195,4 +215,151 @@ export function groupSlices<T extends { items: unknown[] }>(groups: T[], range: 
     offset += group.items.length;
   }
   return slices;
+}
+
+type MapRelation = Pick<KnowledgeOutlineView["relations"][number], "relation_id" | "source_concept_id" | "target_concept_id" | "type">;
+
+/**
+ * 地圖上哪些關係要畫、哪些要淡化（不在結果裡的就不畫）：
+ * - 沒選島時畫出所有關係。
+ * - 選了一座島：亮起和它相連的關係，其餘關係保留但淡化。
+ * - 被點開的關係一定畫出，避免點了之後那條線消失。
+ */
+export function relationVisibility(
+  relations: MapRelation[],
+  { litConceptId, selectedRelationId }: { litConceptId: string | null; selectedRelationId: string | null },
+) {
+  const result = new Map<string, "lit" | "dim">();
+  for (const relation of relations) {
+    const touches = relation.source_concept_id === litConceptId || relation.target_concept_id === litConceptId;
+    if (relation.relation_id === selectedRelationId) result.set(relation.relation_id, "lit");
+    else if (litConceptId) {
+      if (touches) result.set(relation.relation_id, "lit");
+      else result.set(relation.relation_id, "dim");
+    } else result.set(relation.relation_id, "lit");
+  }
+  return result;
+}
+
+/** 學習順序上 id 的下一站；不在順序上或已是最後一站時是 null。 */
+export function nextStationId(path: KnowledgeOutlineView["initial_learning_path"], id: string) {
+  const start = path.find((step) => step.concept_id === id);
+  return (start && path.find((step) => step.position === start.position + 1)?.concept_id) ?? null;
+}
+
+/**
+ * 金色航線：只畫「startId → 下一站」一段（沒選島時從目前這站，選島時從那座島），
+ * 兩座島都畫在畫面上才畫，否則不畫。
+ */
+export function routeSegments(path: KnowledgeOutlineView["initial_learning_path"], visibleIds: Set<string>, startId: string) {
+  const next = nextStationId(path, startId);
+  if (!next || !visibleIds.has(startId) || !visibleIds.has(next)) return [];
+  return [{ source: startId, target: next }];
+}
+
+/**
+ * 選島卡片「跟其他島的關係」的白話句子；方向照後端定義：
+ * prerequisite 來源先學；part_of 來源是目標的一部分；application 來源用在目標；
+ * example 目標是來源的例子；contrast 沒有方向。句子以「」包住另一座島的名稱，名稱由呼叫端渲染；
+ */
+export function relationPhrase(relation: MapRelation, conceptId: string) {
+  const outgoing = relation.source_concept_id === conceptId;
+  const otherId = outgoing ? relation.target_concept_id : relation.source_concept_id;
+  const [before, after] = {
+    prerequisite: outgoing ? ["學完它再學「", "」"] : ["「", "」要先學"],
+    part_of: outgoing ? ["它是「", "」的一部分"] : ["「", "」是它的一部分"],
+    application: outgoing ? ["會用在「", "」"] : ["它用到「", "」"],
+    example: outgoing ? ["「", "」是它的一個例子"] : ["它是「", "」的一個例子"],
+    contrast: ["可以和「", "」比一比"],
+  }[relation.type];
+  return { otherId, before, after };
+}
+
+/** 關係詳情的標題：用兩端島名套白話句型（名稱是純文字）。 */
+export function relationTitle(type: MapRelation["type"], source: string, target: string) {
+  return {
+    prerequisite: `先學「${source}」，再學「${target}」`,
+    part_of: `「${source}」是「${target}」的一部分`,
+    application: `「${source}」會用在「${target}」`,
+    example: `「${target}」是「${source}」的一個例子`,
+    contrast: `「${source}」和「${target}」可以比一比`,
+  }[type];
+}
+
+// 沒選島時（剛打開或關掉卡片後）鏡頭框住目前這站和接下來幾站，讓航線看得到。
+export const ROUTE_FRAME_AHEAD = 3;
+
+/** 初始鏡頭要框住的站：起點站加上第 n+1～n+3 站中有畫在畫面上的；起點不在畫面上就回傳空陣列。 */
+/** 路線上 startId 起算的目前這站和接下來 ROUTE_FRAME_AHEAD 站（不管有沒有畫出來）。 */
+export function routeStationIds(path: KnowledgeOutlineView["initial_learning_path"], startId: string) {
+  const start = path.find((step) => step.concept_id === startId);
+  if (!start) return [];
+  const byPosition = new Map(path.map((step) => [step.position, step.concept_id]));
+  return [startId, ...Array.from({ length: ROUTE_FRAME_AHEAD }, (_, index) => byPosition.get(start.position + index + 1))
+    .filter((id): id is string => !!id)];
+}
+
+export function routeFrameIds(path: KnowledgeOutlineView["initial_learning_path"], startId: string, visibleIds: Set<string>) {
+  const start = path.find((step) => step.concept_id === startId);
+  if (!start || !visibleIds.has(startId)) return [];
+  const byPosition = new Map(path.map((step) => [step.position, step.concept_id]));
+  const ids = [startId];
+  for (let position = start.position + 1; position <= start.position + ROUTE_FRAME_AHEAD; position++) {
+    const id = byPosition.get(position);
+    if (id && visibleIds.has(id)) ids.push(id);
+  }
+  return ids;
+}
+
+// 島名 18px，縮放 2/3 時約 12px，是島名還讀得出來的下限；鏡頭不為了塞進更多島而縮得比這更小。
+export const READABLE_ZOOM = 2 / 3;
+
+// 沒選島時框航線的縮放下限（島名約 13.5px）：使用者驗收時嫌 2/3 太小，寧可少框幾站也不縮到這以下。
+export const ROUTE_FRAME_MIN_ZOOM = 0.75;
+
+type Rect = { x: number; y: number; width: number; height: number };
+// top：畫布上方被工具列（搜尋、學習導覽、匯出鈕）蓋住的高度，取景時不能用。
+type FrameCanvas = { width: number; height: number; top: number };
+
+function fitZoom(bounds: Rect, canvas: FrameCanvas, padding: number, maxZoom: number) {
+  return Math.min(
+    canvas.width / (bounds.width * (1 + 2 * padding)),
+    (canvas.height - canvas.top) / (bounds.height * (1 + 2 * padding)),
+    maxZoom,
+  );
+}
+
+/**
+ * 關卡片後框航線的鏡頭：全部框進來的縮放低於 ROUTE_FRAME_MIN_ZOOM 時，從最遠的站開始拿掉，
+ * 最少保留起點站和下一站；拿掉過站時縮放停在 ROUTE_FRAME_MIN_ZOOM、以留下的站為中心，
+ * 不再放大，讓畫面和全部框進來時差不多（兩站仍框不下時由 frameCamera 縮到 READABLE_ZOOM）。
+ */
+export function frameRouteCamera(ids: string[], boundsOf: (ids: string[]) => Rect, canvas: FrameCanvas, padding = 0.18, maxZoom = 1.1) {
+  let kept = ids;
+  while (kept.length > 2 && fitZoom(boundsOf(kept), canvas, padding, maxZoom) < ROUTE_FRAME_MIN_ZOOM) kept = kept.slice(0, -1);
+  const camera = frameCamera(boundsOf(kept), boundsOf(kept.slice(0, 1)), canvas, padding, kept.length < ids.length ? ROUTE_FRAME_MIN_ZOOM : maxZoom);
+  return { ...camera, ids: kept };
+}
+
+/**
+ * 框住 bounds 的鏡頭；縮放不低於 READABLE_ZOOM。框不下時以 anchor（被選的島或起點站）為準：
+ * 中心盡量靠近 bounds 中心，但 anchor 整座留在畫面內，其餘相連的島可以超出畫面。
+ * 上下方向照舊置中在整個畫布；框住的島會碰到上方工具列時才往下移，最多移到置中在工具列下方。
+ */
+export function frameCamera(bounds: Rect, anchor: Rect, canvas: FrameCanvas, padding = 0.18, maxZoom = 1.1) {
+  const zoom = Math.max(fitZoom(bounds, canvas, padding, maxZoom), READABLE_ZOOM);
+  const margin = 16 / zoom;
+  const axis = (boundsStart: number, boundsSize: number, anchorStart: number, anchorSize: number, view: number) => {
+    const target = boundsStart + boundsSize / 2;
+    const anchorCenter = anchorStart + anchorSize / 2;
+    const slack = Math.max(0, view / (2 * zoom) - anchorSize / 2 - margin);
+    return Math.min(anchorCenter + slack, Math.max(anchorCenter - slack, target));
+  };
+  const usable = canvas.height - canvas.top;
+  const centerX = axis(bounds.x, bounds.width, anchor.x, anchor.width, canvas.width);
+  const centerY = axis(bounds.y, bounds.height, anchor.y, anchor.height, usable);
+  const centered = canvas.height / 2 - centerY * zoom;
+  const belowToolbar = canvas.top + usable / 2 - centerY * zoom;
+  const clearOfToolbar = canvas.top + 8 - bounds.y * zoom; // 和工具列留 8px
+  return { zoom, x: canvas.width / 2 - centerX * zoom, y: Math.min(belowToolbar, Math.max(centered, clearOfToolbar)) };
 }

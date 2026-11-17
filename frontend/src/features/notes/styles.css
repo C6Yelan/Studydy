@@ -9,12 +9,19 @@
 .note-reading-actions { margin-left: auto; }
 .note-reading-actions > .export-entry { margin: 0; }
 .note-kinds > button, .note-reading-actions .export-entry > button, .note-outline-toggle { min-height: 40px; padding: 8px 12px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--text-secondary); font: inherit; font-size: .875rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
-.note-kinds > button[aria-pressed="true"] { color: var(--text-primary); background: var(--studydy-blue-soft); }
-.note-kinds > button:hover, .note-reading-actions .export-entry > button:hover, .note-outline-toggle:hover { background: var(--page-cool); }
+/* 複習速覽／完整筆記：一個膠囊切換鈕。 */
+.note-kinds { gap: 2px; padding: 4px; border-radius: var(--radius-button); background: var(--page-cool); }
+.note-kinds > button { padding: 6px 16px; border-radius: var(--radius-button); font-weight: 900; }
+.note-kinds > button[aria-pressed="true"] { color: var(--studydy-blue-deep); background: var(--surface); box-shadow: 0 2px 6px rgba(29, 52, 110, .12); }
+.note-kinds > button:hover:not([aria-pressed="true"]), .note-reading-actions .export-entry > button:hover, .note-outline-toggle:hover { background: var(--border-light); }
 .note-outline-toggle { display: grid; place-items: center; padding: 8px; width: 40px; }
 .note-outline-mobile-toggle { display: none; }
-.note-source-notice { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--text-secondary); font-size: .75rem; }
+.note-outline-toggle:disabled { opacity: .5; cursor: default; }
+.note-outline-toggle:disabled:hover { background: transparent; }
+.note-source-notice { display: flex; align-items: center; gap: 6px; margin: 0; padding: 2px 10px; border-radius: var(--radius-button); background: var(--studydy-blue-soft); color: var(--studydy-blue-deep); font-size: .75rem; font-weight: 900; }
 .note-source-notice svg { flex: none; }
+.note-kind-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.note-kind-panel[hidden] { display: none; }
 .note-reading-layout { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
 .note-reading-layout.has-outline { grid-template-columns: minmax(12rem, 17rem) minmax(0, 1fr); }
 .note-outline-desktop { min-height: 0; border-right: 1px solid var(--border); }
@@ -28,10 +35,14 @@
 .note-source-section > h2 { font-size: 1.65rem; line-height: 1.4; margin: 0 0 16px; }
 .note-source-section > h3 { font-size: 1.2rem; line-height: 1.5; margin: 0 0 12px; }
 .note-source-section > h4, .note-source-paragraph > h4, .note-source-paragraph > h5 { font-size: 1rem; line-height: 1.5; margin: 0 0 12px; }
-.note-chapter-outline { margin-bottom: 16px; }
-.note-chapter-outline > p { font-weight: 700; }
-.note-chapter-outline ul, .note-unorganized ul { padding-left: 1.5em; }
-.note-chapter-outline .text-button { text-align: left; }
+/* 章節大綱：一排可點的小標籤。 */
+.note-chapter-outline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 16px; }
+.note-chapter-outline > p { margin: 0; color: var(--text-muted); font-size: .75rem; font-weight: 800; }
+.note-chapter-outline ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.note-chapter-outline .note-outline-2, .note-chapter-outline .note-outline-3 { padding-left: 0; }
+.note-chapter-outline .text-button { min-height: 32px; padding: 2px 12px; border-radius: var(--radius-button); background: var(--studydy-blue-soft); color: var(--studydy-blue-deep); font-size: .75rem; font-weight: 900; text-align: left; }
+.note-chapter-outline .text-button:hover { background: var(--studydy-blue); color: #fff; }
+.note-unorganized ul { padding-left: 1.5em; }
 .note-outline [aria-current="location"] { background: var(--studydy-blue-soft); color: var(--text-primary); }
 .note-reading-body { min-height: 0; min-width: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .note-reading-column { width: min(100%, 68rem); margin-inline: auto; padding: 16px 32px 64px; }
@@ -111,17 +122,20 @@
 .note-mark-pink, .note-style-pink span { background: #ffd1e3; }
 .note-mark-comment { background: var(--studydy-blue-soft); border-bottom: 1px solid var(--studydy-blue); cursor: pointer; }
 .note-mark-comment.is-active { outline: 2px solid var(--studydy-blue); }
-.note-selection-toolbar { position: fixed; z-index: 80; display: grid; gap: 4px; width: min(37.5rem, calc(100vw - 16px)); padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-input); color: var(--text-primary); background: var(--surface); box-shadow: var(--shadow); }
+/* 選取文字工具列：深色底，動作都寫成文字按鈕（螢光筆、寫註記、在地圖上看這個概念）。 */
+.note-selection-toolbar { position: fixed; z-index: 80; display: grid; gap: 4px; width: min(37.5rem, calc(100vw - 16px)); padding: 8px; border-radius: var(--radius-input); color: #fff; background: var(--text-primary); box-shadow: 0 6px 16px rgba(20, 40, 80, .25); }
+.note-selection-label { align-self: center; padding: 0 8px; font-size: .75rem; font-weight: 900; opacity: .75; }
 .note-selection-styles, .note-selection-actions, .note-selection-concepts { display: flex; flex-wrap: wrap; gap: 4px; }
 .note-selection-toolbar button { min-height: 36px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: .8125rem; cursor: pointer; }
-.note-selection-toolbar button:hover { background: var(--page-cool); }
+.note-selection-toolbar button:hover:not(:disabled) { background: rgba(255, 255, 255, .16); }
 .note-selection-toolbar button:disabled { opacity: .5; cursor: default; }
-.note-selection-styles button > span { display: block; width: 20px; height: 20px; border: 1px solid rgb(0 0 0 / 15%); border-radius: 50%; }
+.note-selection-styles button > span { display: block; width: 20px; height: 20px; border: 1px solid rgb(255 255 255 / 60%); border-radius: 50%; }
+.note-selection-actions button { font-weight: 900; }
 .note-style-bold { font-weight: 700; }
 .note-style-underline { text-decoration: underline; }
 .note-style-strikethrough { text-decoration: line-through; }
-.note-selection-toolbar small { color: var(--text-secondary); }
-.note-selection-concepts { border-top: 1px solid var(--border); padding-top: 4px; }
+.note-selection-toolbar small { color: rgb(255 255 255 / 75%); }
+.note-selection-concepts { border-top: 1px solid rgb(255 255 255 / 25%); padding-top: 4px; }
 @media (max-width: 1280px) { .note-source-notice span { display: none; } }
 @media (max-width: 720px) {
   .note-reading-toolbar { gap: 0; padding: 4px; }

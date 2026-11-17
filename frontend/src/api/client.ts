@@ -58,7 +58,7 @@ const genericApiMessage = "請求無法完成，請稍後再試。";
 const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   LEARNING_GOAL_PUBLISHED: "教材已建立，請回到教材頁更改學習目標。",
   LEARNING_GOAL_STALE: "教材或目標已更新，請重新讀取學習目標。",
-  VOICE_PODCAST_CONTEXT_INVALID: "這段 Podcast 已不可用，請重新選段或直接向 Studydy AI BOT 提問。",
+  VOICE_PODCAST_CONTEXT_INVALID: "這段 Podcast 已不可用，請重新選段或直接向小幫手提問。",
   PODCAST_CONFLICT: "Podcast 狀態已更新，請重新讀取後操作。",
   PODCAST_SOURCE_INSUFFICIENT: "所選概念缺少可回查的重點來源，請重新選擇。",
   PODCAST_SOURCE_TOO_LARGE: "單一來源重點超出本集容量，請先選擇其他概念。",
@@ -86,7 +86,7 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   PODCAST_TIMELINE_SOURCE_MISMATCH: "時間軸與本集原稿、音訊或來源不一致。",
   TOPIC_CONFLICT: "這個規劃的狀態已改變，請重新讀取後再操作。",
   TOPIC_PROVIDER_FAILED: "目前無法產生學習範圍，請重試。",
-  ASSESSMENT_IN_PROGRESS: "作答期間暫停 Studydy AI BOT，請交卷後再試。",
+  ASSESSMENT_IN_PROGRESS: "作答期間暫停小幫手，請交卷後再試。",
   VOICE_TURN_IN_PROGRESS: "請等目前提問完成，或先取消它。",
   VOICE_PROVIDER_UNAVAILABLE: "語音服務暫時無法連線，已保存的對話仍可查看。",
   VOICE_PROVIDER_FAILED: "這次問答處理失敗，請重試。",
@@ -119,7 +119,7 @@ const apiErrorMessages: Record<KnownApiReasonCode, string> = {
   MATERIAL_NOT_DISCARDABLE: "這份教材正在刪除，無法進行這項操作。",
   SOURCE_NOT_READY: "教材尚未完成轉換，請稍後再開始分析。",
   NORMALIZER_UNAVAILABLE: "轉換工具目前不可用，仍可使用 PDF 上傳。",
-  DUPLICATE_SOURCE: "這份檔案已在教材來源清單中，請直接選取既有來源。",
+  DUPLICATE_SOURCE: "這份檔案已在原始檔案清單中，請直接選取既有來源。",
   REVISION_CONFLICT: "教材已更新，請重新讀取目前地圖與來源清單。",
   REVISION_IN_PROGRESS: "這份教材已有更新正在處理，請先查看該次處理。",
   SOURCE_IN_USE: "這份來源已被分析引用，無法刪除；可取消勾選，不加入這次更新。",
@@ -207,10 +207,10 @@ export class StudydyApiClient {
   private readonly structures = new Map<string, Promise<KnowledgeStructureView>>();
   private readonly outlines = new Map<string, Promise<KnowledgeOutlineView>>();
   private readonly conceptContexts = new Map<string, Promise<KnowledgeConceptsView>>();
-  // 名稱同時顯示在頁首與首頁；同一登入共用一次讀取，儲存後通知訂閱者。
+  // 名稱同時顯示在首頁與個人檔案；同一登入共用一次讀取，儲存後通知訂閱者。
   private profile: Promise<LearnerProfile> | null = null;
   private readonly profileListeners = new Set<(profile: LearnerProfile) => void>();
-  // 學習活動同時供頁首與首頁使用；短時間內共用一次讀取，作答、標記概念卡或收聽後標記過期。
+  // 學習活動同時供外殼的慶祝動畫與首頁使用；短時間內共用一次讀取，作答、標記概念卡或收聽後標記過期。
   private activity: { task: Promise<LearningActivityView>; at: number } | null = null;
   private readonly activityListeners = new Set<(activity: LearningActivityView) => void>();
   private readonly pending = new Set<AbortController>();
@@ -990,7 +990,7 @@ export class StudydyApiClient {
   // async：登出後仍可能被 popstate／focus 觸發，失效時要回傳 rejected promise 讓呼叫端處理，不能同步拋錯。
   async getLearningActivity(options: { fresh?: boolean } = {}): Promise<LearningActivityView> {
     this.requireActive();
-    // fresh 仍共用剛發出（2 秒內）的讀取，避免頁首與首頁同時載入時重複計算。
+    // fresh 仍共用剛發出（2 秒內）的讀取，避免外殼與首頁同時載入時重複計算。
     if (!this.activity || Date.now() - this.activity.at > (options.fresh ? 2_000 : activityReuseMs)) {
       const task = this.json("/v1/learning-activity", { method: "GET" }, validate.learningActivity);
       this.activity = { task, at: Date.now() };
