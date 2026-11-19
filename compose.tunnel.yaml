@@ -11,7 +11,7 @@ services:
     networks: [edge]
   cloudflared:
     profiles: [tunnel]
-    image: cloudflare/cloudflared:2026.10.3@sha256:faa8e0a1475f137c910be6025f43c8e4092fdd35461b31e19fd1390657a1ff39
+    image: cloudflare/cloudflared:2026.11.1@sha256:e613aadbc2d9511785d2e67a86b0c8ac18dd63a3f9af0d06faf04cbfdcb35f2d
     # Host file 的 UID/mode 決定可讀性；Compose bind 不會替檔案重設權限。
     user: "${STUDYDY_UID:-1000}:${STUDYDY_GID:-1000}"
     command: [tunnel, --no-autoupdate, --metrics, "127.0.0.1:2000", run, --token-file, /run/secrets/tunnel_token]
