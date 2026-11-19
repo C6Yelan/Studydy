@@ -158,7 +158,7 @@ backend/.venv/bin/python -B ops/tests/office_container.py
 
 生成的 wheel 保留於 `/opt/studydy/lxml`，完整、test 與 app-only 建置都使用同一份。`backend-app.Dockerfile` 必須以包含此 wheel 與對應系統庫的新完整 runtime 為基底。驗證時核對 `lxml.etree.LIBXML_VERSION`、`LIBXSLT_VERSION`、`LIBXML_COMPILED_VERSION` 與 `ldd`，確認 extension 動態連結系統庫。上游正式 wheel 內含 libxml2 ≥2.15.4 時，刪除 `lxml-build` 階段、自建 wheel 複製，以及 dependencies、test、app-only 三處 `--no-install-package lxml`／wheel 安裝，恢復一般 locked sync。
 
-CA 驗收依 [USN-8944-1](https://ubuntu.com/security/notices/USN-8944-1) 與 certifi 公告的官方修補範圍，確認 `emSign ECC Root CA - G3` 已移除；其他 G1／C1／C3 根仍可能保留，不額外變更上游信任政策。OCR 的 certifi 在 Dockerfile 明確固定為 2026.10.19。cloudflared 2026.10.3 使用 Go 1.27.3 的受損憑證拒絕修補，不能以此宣稱其系統信任庫已移除全部 emSign 根。
+CA 驗收依 [USN-8944-1](https://ubuntu.com/security/notices/USN-8944-1) 與 certifi 公告的官方修補範圍，確認 `emSign ECC Root CA - G3` 已移除；其他 G1／C1／C3 根仍可能保留，不額外變更上游信任政策。OCR 的 certifi 在 Dockerfile 明確固定為 2026.10.19。cloudflared 2026.11.1 以 Go 1.27.4 建置（讀自映像內執行檔的內嵌版本字串），其受損憑證拒絕修補不能用來宣稱其系統信任庫已移除全部 emSign 根。
 
 ## 其他測試入口
 
