@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""切換語意模型走哪一台 SSH 主機（pc／runpod），或查看目前狀態。
+
+只改 .env 的 SSH 連線鍵並重建 model-bridge；backend 不重啟。
+切換時 model-bridge 會中斷，正在處理的語意請求會失敗，需要重新送出。
+指令不負責啟動遠端的 vLLM：切到某一邊之前，那邊的 vLLM 要先啟動，否則只會顯示「模型未回應」。
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+ENV = ROOT / '.env'
+TARGETS = ROOT / 'data' / 'semantic-target'
+KEYS = ('STUDYDY_SSH_HOST', 'STUDYDY_SSH_PORT', 'STUDYDY_SSH_MODEL_PORT',
+        'STUDYDY_SSH_KEY_FILE', 'STUDYDY_SSH_KNOWN_HOSTS_FILE')
+# 與現行 model-bridge 建立時相同的 project 與 compose 檔，避免另起一個 project。
+COMPOSE = ['docker', 'compose', '--env-file', str(ENV), '-p', 'studydy', '-f', str(ROOT / 'compose.yaml')]
+PYTHON = '/app/backend/.venv/bin/python'
+PROBE = ("import json,urllib.request;"
+         "r=urllib.request.urlopen('http://model-bridge:18000/v1/models',timeout=90);"
+         "print(json.dumps([m['id'] for m in json.load(r)['data']]))")
+
+
+def key_of(line):
+    match = re.match(r'\s*([A-Za-z_][A-Za-z0-9_]*)\s*=', line)
+    return match.group(1) if match else None
+
+
+def managed(text):
+    """取出連線鍵的整行原文；值不解析，寫回時逐字還原。"""
+    found = {}
+    for line in text.splitlines(keepends=True):
+        key = key_of(line)
+        if key in KEYS:
+            if key in found:
+                # compose 取哪一行不好判斷，交給人整理。
+                raise SystemExit(f'.env 中 {key} 出現多次，請先手動整理')
+            found[key] = line if line.endswith('\n') else line + '\n'
+    return found
+
+
+def apply(text, values):
+    """連線鍵原地替換、目標沒有的鍵刪除、.env 沒有的鍵附加在檔尾；其餘行不動。"""
+    lines = []
+    for line in text.splitlines(keepends=True):
+        key = key_of(line)
+        if key not in KEYS:
+            lines.append(line)
+        elif key in values:
+            lines.append(values[key] if line.endswith('\n') else values[key].rstrip('\n'))
+    present = {key_of(line) for line in lines}
+    missing = [values[key] for key in KEYS if key in values and key not in present]
+    if missing and lines and not lines[-1].endswith('\n'):
+        lines[-1] += '\n'
+    return ''.join(lines + missing)
+
+
+def load(name):
+    path = TARGETS / f'{name}.env'
+    if not path.is_file():
+        raise SystemExit(f'缺少 {path.relative_to(ROOT)}，格式見 docs/getting-started.md 的「切換語意模型主機」')
+    return managed(path.read_text())
+
+
+def save(name, values):
+    TARGETS.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = TARGETS / f'{name}.env'
+    path.write_text(''.join(values[key] for key in KEYS if key in values))
+    path.chmod(0o600)
+
+
+def write_env(text):
+    with tempfile.NamedTemporaryFile('w', dir=ROOT, prefix='.env.', delete=False) as handle:
+        handle.write(text)
+    os.chmod(handle.name, ENV.stat().st_mode & 0o777)
+    os.replace(handle.name, ENV)
+
+
+def side(current):
+    for name in ('pc', 'runpod'):
+        path = TARGETS / f'{name}.env'
+        if path.is_file() and managed(path.read_text()) == current:
+            return name
+    return '不明（.env 的連線鍵與兩邊存檔都不同）'
+
+
+def bridge_state():
+    result = subprocess.run([*COMPOSE, 'ps', '-a', '--format', 'json', 'model-bridge'],
+                            capture_output=True, text=True)
+    for line in result.stdout.splitlines():
+        if line.strip():
+            item = json.loads(line)
+            return item.get('State', ''), item.get('Health', '')
+    return '不存在', ''
+
+
+def probe():
+    expected = json.loads((ROOT / 'local_ai' / 'runtime-lock.json').read_text())['semantic_service']['model_id']
+    try:
+        result = subprocess.run([*COMPOSE, 'exec', '-T', 'backend', PYTHON, '-c', PROBE],
+                                capture_output=True, text=True, timeout=150)
+    except subprocess.TimeoutExpired:
+        return '模型未回應'
+    if result.returncode != 0:
+        return '模型未回應'
+    if expected in json.loads(result.stdout):
+        return '模型回應正常'
+    return f'模型有回應，但沒有 lock 的 {expected}'
+
+
+def switch(target):
+    text = ENV.read_text()
+    current = managed(text)
+    pc = load('pc')
+    if target == 'pc' and not (TARGETS / 'runpod.env').is_file():
+        if current == pc:
+            raise SystemExit('.env 已是 pc 的值，無法保存 runpod 的值；請手動建立 data/semantic-target/runpod.env')
+        save('runpod', current)
+    values = pc if target == 'pc' else load('runpod')
+    updated = apply(text, values)
+    if updated != text:
+        write_env(updated)
+    subprocess.run([*COMPOSE, 'up', '-d', 'model-bridge'], check=True)
+    deadline = time.monotonic() + 90
+    while bridge_state()[1] != 'healthy' and time.monotonic() < deadline:
+        time.sleep(3)
+    print(f'已切到 {target}，{probe()}')
+
+
+def status():
+    state, health = bridge_state()
+    print(f'目前：{side(managed(ENV.read_text()))}')
+    print(f'model-bridge：{state} {health}'.rstrip())
+    print(probe() if health == 'healthy' else '模型未回應（model-bridge 未就緒）')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument('target', choices=('pc', 'runpod', 'status'))
+    args = parser.parse_args()
+    try:
+        status() if args.target == 'status' else switch(args.target)
+    except subprocess.CalledProcessError:
+        print('docker compose 執行失敗；.env 可能已改，請用 status 確認', file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
