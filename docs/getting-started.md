@@ -112,7 +112,7 @@ STUDYDY_SSH_KEY_FILE=/absolute/path/data/ssh/pc_model_key
 STUDYDY_SSH_KNOWN_HOSTS_FILE=/absolute/path/data/ssh/pc_known_hosts
 ~~~
 
-pc.env 需手動建立；第一次執行 pc 時，指令會先把.env 目前的值存成 runpod.env。指令只改這五個鍵，其餘內容與順序不動，最後經 backend 呼叫 model-bridge 的 /v1/models，核對 runtime lock 的 model_id 後印出「已切到 X，模型回應正常／未回應」。
+pc.env 需手動建立；每次切換後指令在同一目錄的 current 記下目前是哪一邊，從 runpod 執行 pc 時會先把.env 目前的值存成 runpod.env，切回時還原的就是最近一次的 RunPod 設定。指令只改這五個鍵，其餘內容、順序與換行格式不動，也不採用 shell 已匯出的同名變數；model-bridge 90 秒內未就緒時以非 0 結束，就緒後經 backend 呼叫 model-bridge 的 /v1/models，核對 runtime lock 的 model_id 後印出「已切到 X，模型回應正常／未回應」。
 
 - 切換會中斷 model-bridge，正在處理的語意請求會失敗，須在沒有進行中工作時切換。
 - 指令不啟動遠端模型；切過去之前，那一邊的 vLLM 要先啟動，並以 VLLM_API_KEY 要求 Bearer，SSH 登入的 shell 也要有同一個值。
