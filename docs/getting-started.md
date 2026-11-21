@@ -92,6 +92,33 @@ STUDYDY_SSH_MODEL_PORT=18000
 
 切換連線方式前先用原設定停止服務，再修改.env 並啟動。連線覆寫不改已保存的模型快照、binding 或 hash。
 
+### 切換語意模型主機
+
+同樣走 SSH 連線、只換遠端主機時（例如 RunPod 與另一台自有 GPU 電腦），用切換指令改.env 的 STUDYDY_SSH_HOST／PORT／MODEL_PORT／KEY_FILE／KNOWN_HOSTS_FILE 並重建 model-bridge，backend 不重啟：
+
+~~~bash
+ops/semantic-target status   # 目前是哪一邊、model-bridge 狀態、模型是否回應
+ops/semantic-target pc       # 切到自有電腦
+ops/semantic-target runpod   # 切回 RunPod
+~~~
+
+兩邊的值存在 data/semantic-target/pc.env 與 runpod.env（權限 0600，不進版控），內容是上述五個鍵的 .env 行，例如：
+
+~~~dotenv
+STUDYDY_SSH_HOST=user@172.17.0.1
+STUDYDY_SSH_PORT=2222
+STUDYDY_SSH_MODEL_PORT=18000
+STUDYDY_SSH_KEY_FILE=/absolute/path/data/ssh/pc_model_key
+STUDYDY_SSH_KNOWN_HOSTS_FILE=/absolute/path/data/ssh/pc_known_hosts
+~~~
+
+pc.env 需手動建立；每次切換後指令在同一目錄的 current 記下目前是哪一邊，從 runpod 執行 pc 時會先把.env 目前的值存成 runpod.env，切回時還原的就是最近一次的 RunPod 設定。指令只改這五個鍵，其餘內容、順序與換行格式不動，也不採用 shell 已匯出的同名變數；model-bridge 90 秒內未就緒時以非 0 結束，就緒後經 backend 呼叫 model-bridge 的 /v1/models，核對 runtime lock 的 model_id 後印出「已切到 X，模型回應正常／未回應」。
+
+- 切換會中斷 model-bridge，正在處理的語意請求會失敗，須在沒有進行中工作時切換。
+- 指令不啟動遠端模型；切過去之前，那一邊的 vLLM 要先啟動，並以 VLLM_API_KEY 要求 Bearer，SSH 登入的 shell 也要有同一個值。
+- 遠端只能從主機的 127.0.0.1 連到時（例如反向通道），容器連不到該位址，須在主機以使用者層級轉接到 Docker gateway（例如 systemd user socket 搭配 systemd-socket-proxyd，只監聽 172.17.0.1），known_hosts 以實際連線的位址與 port 記錄並核對 fingerprint。
+- 比賽或 Demo 前一天先執行 ops/semantic-target runpod，並實跑一次語意功能確認回應正常。
+
 ## 資料、備份與還原
 
 STUDYDY_DATA_DIR 包含 artifacts／postgres 及 models/unlimited-ocr。.env 與 SSH 認證須另行安全保存。
