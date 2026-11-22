@@ -1,0 +1,16 @@
+services:
+  backend:
+    volumes:
+      - ./local_ai/runtime-lock.llama-cpp.json:/app/local_ai/runtime-lock.json:ro
+      - type: bind
+        source: ../main/data/models/unlimited-ocr
+        target: /opt/studydy/models/unlimited-ocr
+        read_only: true
+        bind:
+          create_host_path: false
+  frontend:
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
