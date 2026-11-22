@@ -585,7 +585,18 @@ def test_episode_and_review_requests_share_worker_limit(monkeypatch):
 
 @pytest.fixture
 def llama_lock():
-    return json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.llama-cpp.json").read_text())
+    lock = json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
+    lock["semantic_service"].update(
+        model_id="ggml-org/gemma-4-31B-it-GGUF",
+        revision="f39d380138390ea246513ff0f087352f3cfc3a1b",
+        server={
+            "package": "llama.cpp",
+            "version": "b12359",
+            "gguf_filename": "gemma-4-31B-it-Q4_0.gguf",
+            "gguf_sha256": "031dc1c5fa9c5a0abbf3c39c5173fb2af65f5ac2dc2a090268561d3c72dcd834",
+        },
+    )
+    return lock
 
 
 @pytest.mark.parametrize("changed", [
