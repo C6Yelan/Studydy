@@ -86,6 +86,30 @@ def _validate_ocr_contract(ocr):
         raise ValueError
 
 
+def _server_matches(server, model_id, revision, *, luna):
+    if luna:
+        return server == {"package": "codex-exec", "version": "luna-test/v1", "python": "3.12"}
+    if isinstance(server, dict) and server.get("package") == "llama.cpp":
+        return (
+            model_id == "ggml-org/gemma-4-31B-it-GGUF"
+            and revision == "f39d380138390ea246513ff0f087352f3cfc3a1b"
+            and server == {
+                "package": "llama.cpp",
+                "version": "b12359",
+                "gguf_filename": "gemma-4-31B-it-Q4_0.gguf",
+                "gguf_sha256": "031dc1c5fa9c5a0abbf3c39c5173fb2af65f5ac2dc2a090268561d3c72dcd834",
+            }
+        )
+    return server == {
+        "package": "vllm",
+        "version": "0.28.0",
+        "python": "3.12",
+        "torch": "2.13.0+cu130",
+        "cuda": "13.0",
+        "transformers": "5.15.1",
+    }
+
+
 def _validate_semantic_contract(semantic):
     if (
         set(semantic)
@@ -117,20 +141,9 @@ def _validate_semantic_contract(semantic):
             )
         )
         or (semantic["max_num_seqs"] != 1)
-        or (
-            semantic["server"]
-            != (
-                {"package": "codex-exec", "version": "luna-test/v1", "python": "3.12"}
-                if semantic["api_protocol"] == "codex-exec-luna/v1"
-                else {
-                    "package": "vllm",
-                    "version": "0.28.0",
-                    "python": "3.12",
-                    "torch": "2.13.0+cu130",
-                    "cuda": "13.0",
-                    "transformers": "5.15.1",
-                }
-            )
+        or not _server_matches(
+            semantic["server"], semantic["model_id"], semantic["revision"],
+            luna=semantic["api_protocol"] == "codex-exec-luna/v1",
         )
         or (semantic["authentication"] != "environment-bearer:VLLM_API_KEY")
     ):
@@ -560,23 +573,11 @@ def runtime_binding_is_valid(value: Any) -> bool:
         return all(
             isinstance(value[k], str) and value[k].strip()
             for k in ("model_id", "model_revision")
-        ) and service == {
-            "base_url": "http://127.0.0.1:18000",
-            "max_model_len": service["max_model_len"],
-            "server": (
-                {"package": "codex-exec", "version": "luna-test/v1", "python": "3.12"}
-                if value["model_revision"] == "codex-exec:luna-test/v1"
-                and value["model_id"] == "gpt-5.6-luna"
-                else {
-                    "package": "vllm",
-                    "version": "0.28.0",
-                    "python": "3.12",
-                    "torch": "2.13.0+cu130",
-                    "cuda": "13.0",
-                    "transformers": "5.15.1",
-                }
-            ),
-        }
+        ) and (
+            set(service) == {"base_url", "max_model_len", "server"}
+            and service["base_url"] == "http://127.0.0.1:18000"
+            and _server_matches(service["server"], value["model_id"], value["model_revision"], luna=luna)
+        )
     except (KeyError, TypeError, ValueError):
         return False
 

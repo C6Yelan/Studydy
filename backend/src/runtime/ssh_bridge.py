@@ -13,18 +13,20 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-ROUTES = {"/health", "/version", "/v1/models", "/tokenize", "/v1/chat/completions"}
+ROUTES = {"/props", "/v1/chat/completions/input_tokens", "/health", "/version", "/v1/models", "/tokenize", "/v1/chat/completions"}
 READY = b"STUDYDY_MODEL_BRIDGE_READY"
 REPLY = b"STUDYDY_MODEL_REPLY "
 REMOTE = r"""
 import sys,json,base64,os,urllib.request,urllib.error
-allowed={'/health','/version','/v1/models','/tokenize','/v1/chat/completions'}
+allowed={'/props','/v1/chat/completions/input_tokens','/health','/version','/v1/models','/tokenize','/v1/chat/completions'}
 http=urllib.request.build_opener(urllib.request.ProxyHandler({}))
 print('STUDYDY_MODEL_BRIDGE_READY',flush=True)
 for line in sys.stdin.buffer:
  try:
   request=json.loads(line)
   if request['path'] not in allowed or request['method'] not in ('GET','POST'):raise ValueError()
+  if request['path']=='/props' and request['method']!='GET':raise ValueError()
+  if request['path']=='/v1/chat/completions/input_tokens' and request['method']!='POST':raise ValueError()
   body=base64.b64decode(request['body']) if request['body'] else None
   headers={'Content-Type':'application/json'}
   key=os.environ.get('VLLM_API_KEY')
@@ -124,6 +126,8 @@ class SSHBridge:
     def forward(self, path, method, body):
         if (
             path not in ROUTES
+            or (path == "/props" and method != "GET")
+            or (path == "/v1/chat/completions/input_tokens" and method != "POST")
             or method not in {"GET", "POST"}
             or len(body) > 1024 * 1024
         ):

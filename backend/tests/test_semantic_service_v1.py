@@ -581,3 +581,88 @@ def test_episode_and_review_requests_share_worker_limit(monkeypatch):
     finally:
         service._request_slots.reset(token)
     assert maximum == 2
+
+
+@pytest.fixture
+def llama_lock():
+    lock = json.loads((Path(__file__).parents[2] / "local_ai/runtime-lock.json").read_text())
+    lock["semantic_service"].update(
+        model_id="ggml-org/gemma-4-31B-it-GGUF",
+        revision="f39d380138390ea246513ff0f087352f3cfc3a1b",
+        server={
+            "package": "llama.cpp",
+            "version": "b12359",
+            "gguf_filename": "gemma-4-31B-it-Q4_0.gguf",
+            "gguf_sha256": "031dc1c5fa9c5a0abbf3c39c5173fb2af65f5ac2dc2a090268561d3c72dcd834",
+        },
+    )
+    return lock
+
+
+@pytest.mark.parametrize("changed", [
+    {}, {"build_info": "b123590-abc"}, {"total_slots": 2},
+    {"default_generation_settings": {"n_ctx": 4096}}, {"model_path": "/models/other.gguf"},
+])
+def test_llama_preflight_identity(llama_lock, changed):
+    props = {
+        "build_info": "b12359-abcd123", "total_slots": 1,
+        "default_generation_settings": {"n_ctx": 65536},
+        "model_path": "/models/gemma-4-31B-it-Q4_0.gguf", **changed,
+    }
+    replies = {
+        ("GET", "/health"): {"status": "ok"},
+        ("GET", "/props"): props,
+        ("GET", "/v1/models"): {"data": [{"id": "ggml-org/gemma-4-31B-it-GGUF"}]},
+        ("POST", "/v1/chat/completions/input_tokens"): {"input_tokens": 12},
+    }
+
+    def respond(request):
+        return httpx.Response(200, json=replies[request.method, request.url.path])
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        if changed:
+            with pytest.raises(SemanticServiceError, match="SEMANTIC_SERVICE_IDENTITY_MISMATCH"):
+                preflight_semantic_service(llama_lock, client=client)
+        else:
+            preflight_semantic_service(llama_lock, client=client)
+
+
+@pytest.mark.parametrize("thinking", [True, False])
+def test_llama_count_uses_generation_template_and_limits_output(llama_lock, thinking):
+    counted = {}
+    llama_lock["material_semantics"]["generation"]["chat_template_kwargs"]["enable_thinking"] = thinking
+
+    def respond(request):
+        body = json.loads(request.content)
+        if request.url.path == "/v1/chat/completions/input_tokens":
+            counted.update(body)
+            return httpx.Response(200, json={"input_tokens": 40000})
+        assert request.url.path == "/v1/chat/completions"
+        assert counted == {key: body[key] for key in ("model", "messages", "chat_template_kwargs")}
+        assert counted["chat_template_kwargs"] == {"enable_thinking": thinking}
+        assert body["max_tokens"] == 25536
+        return httpx.Response(200, json={
+            "choices": [{"finish_reason": "stop", "message": {"content": '{"ok":true}'}}],
+        })
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        assert request_semantics(client, runtime_lock=llama_lock, task="material_semantics",
+                                 request={}, response_schema={}) == {"ok": True}
+
+
+def test_llama_saved_binding_records_pinned_gguf_and_build(llama_lock):
+    from runtime.local_ai_config import read_local_ai_config_from_environment
+    from runtime.material_runtime import lock_matches_binding, runtime_binding, same_material_runtime
+
+    config = read_local_ai_config_from_environment({})
+    old = config["runtime_lock"]
+    old_binding = runtime_binding(config)
+    config["runtime_lock"] = llama_lock
+    binding = runtime_binding(config)
+    assert binding["model_revision"] == "f39d380138390ea246513ff0f087352f3cfc3a1b"
+    assert binding["semantic_service"]["server"] == {
+        "package": "llama.cpp", "version": "b12359", "gguf_filename": "gemma-4-31B-it-Q4_0.gguf",
+        "gguf_sha256": "031dc1c5fa9c5a0abbf3c39c5173fb2af65f5ac2dc2a090268561d3c72dcd834",
+    }
+    assert lock_matches_binding(llama_lock, binding)
+    assert not same_material_runtime(old, old_binding, llama_lock, binding)
