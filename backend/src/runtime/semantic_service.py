@@ -226,7 +226,7 @@ def _service(lock: Any) -> dict[str, Any]:
             or service["max_model_len"] not in (32768, 65536)
             or service["max_num_seqs"] != 1
             or service["authentication"] != "environment-bearer:VLLM_API_KEY"
-            or service["server"]["python"] != "3.12"
+            or (service["server"]["package"] != "llama.cpp" and service["server"]["python"] != "3.12")
         ):
             raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID")
         # 位址是部署設定；不改寫已保存的 lock／binding 或其內容 hash。
@@ -236,10 +236,34 @@ def _service(lock: Any) -> dict[str, Any]:
         raise SemanticServiceError("SEMANTIC_SERVICE_CONFIG_INVALID") from None
 
 
+def _count_request(service, messages, chat_template_kwargs):
+    payload = {"model": service["model_id"], "messages": messages}
+    if chat_template_kwargs is not None:
+        payload["chat_template_kwargs"] = chat_template_kwargs
+    if service["server"]["package"] == "llama.cpp":
+        return CHAT_PATH + "/input_tokens", payload
+    payload.setdefault("chat_template_kwargs", {"enable_thinking": True})
+    payload.update(add_generation_prompt=True, add_special_tokens=False)
+    return TOKENIZE_PATH, payload
+
+
+def _read_count(service, body, error_code):
+    llama = service["server"]["package"] == "llama.cpp"
+    key = "input_tokens" if llama else "count"
+    if (
+        not isinstance(body, dict)
+        or type(body.get(key)) is not int
+        or body[key] < 1
+        or (not llama and body.get("max_model_len") != service["max_model_len"])
+    ):
+        raise SemanticServiceError(error_code)
+    return body[key]
+
+
 def preflight_semantic_service(
     runtime_lock: dict[str, Any], *, client: httpx.Client | None = None
 ) -> None:
-    """核對 vLLM 版本、模型及 runtime lock 的 tokenizer 容量。"""
+    """核對模型服務身分、實際上下文容量與計數端點。"""
 
     service = _service(runtime_lock)
     owned = client is None
@@ -249,21 +273,19 @@ def preflight_semantic_service(
         health = _wait_for_service(lambda: http.get(
             f"{service['base_url']}/health", timeout=PREFLIGHT_TIMEOUT_SECONDS
         ))
+        llama = service["server"]["package"] == "llama.cpp"
+        version_path = "/props" if llama else "/version"
         version = http.get(
-            f"{service['base_url']}/version", timeout=PREFLIGHT_TIMEOUT_SECONDS
+            f"{service['base_url']}{version_path}", timeout=PREFLIGHT_TIMEOUT_SECONDS
         )
         models = http.get(
             f"{service['base_url']}/v1/models", timeout=PREFLIGHT_TIMEOUT_SECONDS
         )
+        path, payload = _count_request(
+            service, [{"role": "user", "content": "ready"}], {"enable_thinking": True}
+        )
         tokenized = http.post(
-            f"{service['base_url']}{TOKENIZE_PATH}",
-            json={
-                "model": service["model_id"],
-                "messages": [{"role": "user", "content": "ready"}],
-                "add_generation_prompt": True,
-                "add_special_tokens": False,
-                "chat_template_kwargs": {"enable_thinking": True},
-            },
+            f"{service['base_url']}{path}", json=payload,
             timeout=PREFLIGHT_TIMEOUT_SECONDS,
         )
         for response in (health, version, models, tokenized):
@@ -279,27 +301,32 @@ def preflight_semantic_service(
         if owned:
             http.close()
     served = model_body.get("data") if isinstance(model_body, dict) else None
-    model = next(
-        (
-            item
-            for item in served or []
-            if isinstance(item, dict) and item.get("id") == service["model_id"]
-        ),
-        None,
-    )
+    mismatch = "SEMANTIC_SERVICE_IDENTITY_MISMATCH"
     if (
-        not isinstance(version_body, dict)
-        or version_body.get("version") != service["server"]["version"]
-        or not isinstance(served, list)
-        or len(served) != 1
-        or model is None
-        or model.get("max_model_len") != service["max_model_len"]
-        or not isinstance(token_body, dict)
-        or type(token_body.get("count")) is not int
-        or token_body["count"] < 1
-        or token_body.get("max_model_len") != service["max_model_len"]
+        not isinstance(served, list) or len(served) != 1
+        or not isinstance(served[0], dict) or served[0].get("id") != service["model_id"]
+        or not isinstance(version_body, dict)
     ):
-        raise SemanticServiceError("SEMANTIC_SERVICE_IDENTITY_MISMATCH")
+        raise SemanticServiceError(mismatch)
+    if llama:
+        settings = version_body.get("default_generation_settings")
+        build = version_body.get("build_info")
+        model_path = version_body.get("model_path")
+        if (
+            not isinstance(build, str) or build.partition("-")[0] != service["server"]["version"]
+            or not isinstance(settings, dict) or settings.get("n_ctx") != service["max_model_len"]
+            or type(version_body.get("total_slots")) is not int
+            or version_body["total_slots"] != service["max_num_seqs"]
+            or not isinstance(model_path, str)
+            or model_path.rsplit("/", 1)[-1] != service["server"]["gguf_filename"]
+        ):
+            raise SemanticServiceError(mismatch)
+    elif (
+        version_body.get("version") != service["server"]["version"]
+        or served[0].get("max_model_len") != service["max_model_len"]
+    ):
+        raise SemanticServiceError(mismatch)
+    _read_count(service, token_body, mismatch)
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -331,33 +358,12 @@ def _token_count(
     chat_template_kwargs: dict[str, Any] | None = None,
     cancellation_check: Callable[[], None] | None = None,
 ) -> int:
+    path, payload = _count_request(service, messages, chat_template_kwargs)
     response = _post(
-        client,
-        f"{service['base_url']}{TOKENIZE_PATH}",
-        json={
-            "model": service["model_id"],
-            "messages": messages,
-            "add_generation_prompt": True,
-            "add_special_tokens": False,
-            "chat_template_kwargs": {"enable_thinking": True},
-            **(
-                {"chat_template_kwargs": chat_template_kwargs}
-                if chat_template_kwargs is not None
-                else {}
-            ),
-        },
-        cancellation_check=cancellation_check,
+        client, f"{service['base_url']}{path}", json=payload, cancellation_check=cancellation_check
     )
     response.raise_for_status()
-    body = response.json()
-    if (
-        not isinstance(body, dict)
-        or type(body.get("count")) is not int
-        or body["count"] < 1
-        or body.get("max_model_len") != service["max_model_len"]
-    ):
-        raise SemanticServiceError("SEMANTIC_RESPONSE_INVALID")
-    return body["count"]
+    return _read_count(service, response.json(), "SEMANTIC_RESPONSE_INVALID")
 
 
 # 失控輸出的特徵：同一個詞相鄰重複三次以上（「分布分布分布」「matching matching matching」）。
@@ -695,4 +701,6 @@ def generate(prompt, schema, *, request=None, cancellation_check=None, cancelled
 def text_model_label():
     from .local_ai_config import configured_lock
 
-    return f"vllm:{configured_lock()['semantic_service']['model_id']}"
+    service = configured_lock()["semantic_service"]
+    engine = "llama.cpp" if service["server"]["package"] == "llama.cpp" else "vllm"
+    return f"{engine}:{service['model_id']}"
